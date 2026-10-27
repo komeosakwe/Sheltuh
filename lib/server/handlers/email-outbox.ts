@@ -36,8 +36,8 @@ const JOB_ID = /^[1-9][0-9]{0,17}$/;
  * Safe to call that often, and from two schedulers at once: a run leases one
  * job at a time with `skip locked` (two runs never send the same job), takes
  * at most 100 jobs and stops claiming after DRAIN_BUDGET_MS (30 s, inside the
- * route's 60-second maxDuration), and with nothing due it's two indexed
- * claims and one upsert.
+ * route's 60-second maxDuration), and with nothing due it's four indexed
+ * claims (one per drain phase) and one upsert.
  */
 export const runEmailOutboxCron: Handler = async (req, _params, deps) => {
   requireCronSecret(req, deps.cronSecret());

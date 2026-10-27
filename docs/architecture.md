@@ -79,7 +79,7 @@ iframe served by Stripe), with the publishable key
 | Table | Key | Notes |
 |---|---|---|
 | `organisers` | `id` | `owner_user_id` is unique, one application per account. It's null for platform-managed organisers (events Sheltüh lists on someone's behalf, and seed data), which admins create (`POST /admin/organisers`), which sell no paid Sheltüh tickets, and whose events only admins check in (see "Admin authoring" and "Check-in"); their `contact_email` should be a Sheltüh alias, never a person's own address (`docs/supabase-setup.md`); check constraint `organisers_platform_no_payouts`: such an organiser has no Stripe account and no payouts. `status`: pending → approved / rejected. Also holds the Stripe Connect account id and `payouts_enabled`. Optional social handles (`instagram_handle`, `tiktok_handle`, `facebook_page`, `x_handle`), stored without `@` and pattern-checked by the database; `website_url` must be http(s), at most 2048 characters (check constraint; the API only takes new `https://` addresses, see "Organiser profiles"). An admin takedown sets `rejected` (see "Organiser profiles"). `featured_video_provider` (`youtube` or `vimeo`) and `featured_video_id`: the featured video, provider and id only, never a URL (check constraint `organisers_featured_video_check`: both or neither, id pattern per provider). `event_review_required` (default false; `20261111000000_event_publish_now.sql`): an admin's switch that sends every publish of this organiser's events to the review queue (see "Publishing events"), changed only through `private.set_event_review_required` and logged in `organiser_profile_edits`. |
-| `private.organiser_profile_edits` | `id` (identity) | Append-only log per organiser: each profile edit made without review (`profile_edit`: old and new value of each changed field, by the owner, or by an admin with a reason: removing the featured video, logged as `featured_video` `"provider:id"`, or the logo, logged as `logo` with its version), each admin takedown (`suspended`, with the admin and reason; a takedown must have a reason), the organiser's creation by an accepted admin invite (`invite_accepted`, by the new owner: `status` null → approved; see "Account invites"), and an admin's review switch (a `profile_edit` by the admin with a reason, `event_review_required` `"on"` / `"off"`; see "Publishing events"). A trigger refuses updates (except the `actor_id` foreign key's own set-null when that account is deleted). Admins see the newest 20 per organiser. Kept while the organiser exists; deleted with it. |
+| `private.organiser_profile_edits` | `id` (identity) | Append-only log per organiser: each profile edit made without review (`profile_edit`: old and new value of each changed field, by the owner, or by an admin with a reason: removing the featured video, logged as `featured_video` `"provider:id"`, or the logo, logged as `logo` with its version), each admin takedown (`suspended`, with the admin and reason; a takedown must have a reason), the organiser's creation by an accepted admin invite or an organiser link, or a link's approval of their pending application (`invite_accepted`, by the new owner: `status` null or pending → approved; see "Account invites" and "Organiser links"), and an admin's review switch (a `profile_edit` by the admin with a reason, `event_review_required` `"on"` / `"off"`; see "Publishing events"). A trigger refuses updates (except the `actor_id` foreign key's own set-null when that account is deleted). Admins see the newest 20 per organiser. Kept while the organiser exists; deleted with it. |
 | `private.organiser_logos` | `organiser_id` | An organiser's logo as the server re-encoded it: `image` (512 × 512 WebP, ≤ 512 KB) and `thumb` (96 × 96 WebP, ≤ 64 KB), the whole logo fitted on white, no transparency, no metadata. `updated_at` is its version (milliseconds since the epoch, in its URL and the log); every write moves it on by at least a millisecond. Deleted with the organiser (see "Organiser profiles"). |
 | `events` | `id` | Belongs to an organiser. Globally unique `slug`. `status`: draft → pending_review → published / rejected, or, for an approved organiser's own publish, draft / rejected → published directly (see "Publishing events"); unpublish returns it to draft. `rejection_reason`: the admin's reason on a rejection, an unpublish (optional) or a takedown, shown to the organiser; any later status change through `transition_event` replaces it (a publish or submit clears it). `is_free` (true only when the event has ticket types and all are free; for an external event, `external_free`) is kept up to date by `replace_ticket_types` for the feed's free filter. `whos_going_enabled` (default true) is an admin-only kill switch for that event's Who's Going, set in SQL (`docs/supabase-setup.md`). `ticketing_mode` (`sheltuh`, the default, or `external`), `external_ticket_url` and `external_free`: see "External ticketing". Check constraints: an external event has a link, a Sheltüh-ticketed one has no link and isn't `external_free`, and an external event's `is_free` equals `external_free`. The trigger `events_external_ticket_url_valid` checks a link against `private.external_ticket_url_ok` when it's inserted or changed (only then, so tightening the rules never blocks a later status change; see "External ticketing"). `updated_at` changes on every update of the row, a photo change included (trigger `event_images_touch_event`). Triggers refuse ticket types and orders for an external event, and switching an event with ticket types to external. `state` (default `VIC`) and `time_zone` (default `Australia/Melbourne`): the event's state or territory and the IANA zone its times are in; check constraint `events_place_check` allows only the zones `ZONES_BY_STATE` lists for the state (see "Events: state and time zone"). The venue's location (`20261111000100_event_venue_location.sql`; see "Venue location"): `location_source` (`legacy`, the default and every earlier event; `places`; `manual_pin`), `venue_place_id` (a Google place id, the only Google Places data stored) and `venue_lat` / `venue_lng` (the organiser's own pin, never Google's coordinates); checks `events_venue_pin_pair`, `events_venue_pin_bounds` (`AUSTRALIA_BOUNDS`), `events_venue_place_id_shape` and `events_location_source_check` (`legacy`: neither; `places`: a place id, pin optional; `manual_pin`: a pin and no place id). No index: nothing filters or sorts on them. |
 | `ticket_types` | `(event_id, id)` | `id` is stable across draft edits. A trigger refuses a price above 0 for a platform-managed organiser's event (`ticket_types_platform_free_only`). `quantity_sold` only ever goes up in `fulfil_order`, and down only in `record_payment_refund` (a paid order refunded in full). `seated`: the tier has seats on the event's seat map; its `quantity_available` is then always its unblocked seats (trigger `ticket_types_seated_capacity`, whatever is written; see "Reserved seating"). |
@@ -95,7 +95,7 @@ iframe served by Stripe), with the publishable key
 | `private.early_charge_refunds` | `payment_intent_id` | A `charge.refunded` that arrived before its order's payment was recorded, for a payment to one of our organisers' Stripe accounts (any other payment writes nothing): charge, destination, cumulative amount (the greatest seen), full flag (OR-ed), last Stripe event, and `applied_at` / `applied_order_id` once `fulfil_order` acted on it. No buyer data. Deleted 35 days after its last update (`purge_operational_data`). See "Refunds made in Stripe". |
 | `private.refund_status_marks` | `refund_id` | The newest Stripe refund event applied per refund (its status, the event's `created` time and id), written by `record_refund_status` for events only (never for our own refund call's answer, which has no event time). An event older than the mark, delivered later, is `stale` and changes nothing: a `succeeded` that arrives before an older `requires_action` or `failed` leaves a resolved tombstone, so the late one opens no exception. Statuses only, no buyer data. Deleted 35 days after its last update (`purge_operational_data`). |
 | `private.payment_exceptions` | `id` | Payment problems that need a person (see "Refunds made in Stripe"): `kind` `refund_not_completed` (keyed on the refund id, unique), `partial_refund`, `manual_refund_required` or `amount_mismatch` (`20261110000150_support_in_exceptions.sql`; one open per order); `status` open → resolved (`resolution` `auto` or `admin`, with the admin and a 1–500 character note); order (null until a payment is matched to one; set null if the order is deleted), payment intent, refund and latest Stripe event ids and that event's time (older events are ignored); `details`: amounts and statuses only (the order's total and its Support Sheltüh amount, `supportCents`, when the order is known; `20261110000150_support_in_exceptions.sql`; `supportKeptCents` only on a `partial_refund` closed by the tickets-only rule while `20261110000200_support_ticket_refund.sql` was the latest definition; nothing sets it since `20261111000300_refund_no_inference.sql`); `amount_mismatch` is always `urgent` and its payment is refunded automatically as it opens (`20261110000300_amount_mismatch_refund.sql`); `alerted_at` (an ops alert queued). Resolved ones are deleted 2 years after resolution; open ones never. |
-| `private.email_outbox` | `id` | Transactional email jobs of seven kinds: `ticket_email`, one per paid order (`(order_id, kind)` unique), `waitlist_available`, one per person told that tickets are available again (`waitlist_entry_id`; at most one pending or sending per entry), `organiser_new_events`, a follower's new-event email (`follow_id`; at most one pending or sending per follow; see "Following organisers"), `event_review` / `organiser_review`, the admins' "waiting for your review" email (`event_id` / `organiser_id`; at most one pending or sending per event or application; see "Admin review emails"), `event_published`, the admins' "an organiser published an event" email (`event_id`, sharing the per-event active-job index with `event_review`; see "Publishing events"), and `ops_alert`, keyed on `payment_exception_id` for a payment exception (see "Refunds made in Stripe") or on `ops_event_id` for a checkout surge (see "Checkout idempotency"), exactly one of the two, at most one pending or sending per exception and per event. A check ties each kind to its key. Status, attempts, next attempt, lease, redacted last error. No address or content (read from the order, the waitlist entry, the follow, the event, the application or the exception, at send time). Deleted with the order, the entry, the follow, the event, the organiser or the exception. |
+| `private.email_outbox` | `id` | Transactional email jobs of eight kinds: `ticket_email`, one per paid order (`(order_id, kind)` unique), `waitlist_available`, one per person told that tickets are available again (`waitlist_entry_id`; at most one pending or sending per entry), `organiser_new_events`, a follower's new-event email (`follow_id`; at most one pending or sending per follow; see "Following organisers"), `event_review` / `organiser_review`, the admins' "waiting for your review" email (`event_id` / `organiser_id`; at most one pending or sending per event or application; see "Admin review emails"), `event_published`, the admins' "an organiser published an event" email (`event_id`, sharing the per-event active-job index with `event_review`; see "Publishing events"), `organiser_joined`, the admins' "an organiser joined with a link" email (`organiser_id`, sharing the per-organiser active-job index with `organiser_review`; see "Organiser links"), and `ops_alert`, keyed on `payment_exception_id` for a payment exception (see "Refunds made in Stripe") or on `ops_event_id` for a checkout surge (see "Checkout idempotency"), exactly one of the two, at most one pending or sending per exception and per event. A check ties each kind to its key. Status, attempts, next attempt, lease, redacted last error. No address or content (read from the order, the waitlist entry, the follow, the event, the application or the exception, at send time). Deleted with the order, the entry, the follow, the event, the organiser or the exception. |
 | `private.email_job_recipients` | `(job_id, recipient_hash)` | Which admins already have a review job's email (the lower-cased address's SHA-256 only), so a retry skips them. Deleted with the job. |
 | `private.cron_runs` | `name` | One row per cron route (only `email_outbox` so far): when its last run finished and that run's counts (claimed, sent, retrying, failed), written by the route. Read by `GET /api/admin/emails/health`. Nothing personal. |
 | `private.event_waitlist` | `id` | One entry per `(event_id, email_key)` (see "Waitlist"): the address as typed and `private.email_key` of it, `user_id` (only when a member joined with their own verified email; deleted with the account), `confirmed_at` (on the list from then: join order), `unsubscribed_at` (left), `notified_at` and `notify_count`. Deleted with the event, and by `purge_social_data` 30 days after the event ends. Never shown to organisers except as a count. |
@@ -126,6 +126,7 @@ iframe served by Stripe), with the publishable key
 | `private.analytics_settings` | single row | `views_tracked_since`: the Melbourne day view counting started (when its migration ran), so reports show earlier days as "not counted" rather than 0. |
 | `private.user_reports` | `id` | A member's report: copies of the reported message, up to 20 messages of context and the reported display name; `target_type` (`conversation`, `attendee` or `profile`); for a profile report, copies of the bio, Instagram handle and photo (512 px WebP: `reported_avatar_sha256`, a key into `private.report_photos`; reports made before that keep the copy inline in `reported_avatar`, never both: `user_reports_one_avatar_copy`). At most one open profile report per reporter and reported member (partial unique index `user_reports_open_profile_key`). Every reference is `on delete set null`, so the evidence survives the messages and both accounts. `status`: open → actioned (suspended) / dismissed. Resolved reports are deleted 2 years after resolution. |
 | `private.account_invites` | `id` | Admin invites (see "Account invites"): `kind` (`organiser`, with `organiser_profile`: the application's fields, the organisers columns as keys; or `member`, without), the address as typed, `token_hash` (SHA-256 of the emailed token, never the token; unique), `status` pending → accepted / revoked / expired (a pending invite past `expires_at` reads as expired), who invited, last sent, accepted and revoked it (each `on delete set null`), `expires_at` (14 days from the last send), `last_sent_at`, `last_send_failed_at`, `send_count`, `links_issued` (sign-up tokens requested with the current link), `accepted_organiser_id`. At most one pending invite per address, ignoring case (`account_invites_pending_email_key`). Check constraints tie a profile to organiser invites and `accepted_at` / `revoked_at` to their statuses. Deleted 90 days after it was accepted, revoked or expired (`purge_operational_data`). |
+| `private.organiser_invite_links` | `id` | Organiser links (see "Organiser links"): `token_hash` (SHA-256 of the link's token, never the token; unique), `status` active → used / cancelled (an active link past `expires_at` reads as expired), who created, used and cancelled it (each `on delete set null`; cancelled with no canceller: its creator stopped being an admin), `expires_at` (7 days from creation, after `created_at`: check), `used_at`, `organiser_id` (the organiser it created or approved, `on delete set null`), `cancelled_at`. Check constraints tie `used_at` / `cancelled_at` to their statuses. `organiser_invite_links_created_idx` (created_at desc, id desc) serves the admin list. Deleted 90 days after it was used or cancelled, or expired (`purge_operational_data`). |
 | `private.report_photos` | `sha256` | Profile reports' photo copies, once per distinct image (`sha256 = sha256(image)`, check constraint), however many reports take it. `last_used_at` is bumped whenever a report takes it. Deleted by `purge_social_data` once no report references it and it's been unused for a day. |
 
 Timestamps are `timestamptz`. Organisers enter an event's times as local
@@ -174,7 +175,7 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
 | `place_free_order` | A member's free order, created and fulfilled in one step under an advisory lock on (event, person): the per-person cap, then the daily allowance, then `fulfil_order`. A refusal or sell-out writes nothing (beyond a refusal count). Returns `paid`, `person_event_limit`, `member_daily_limit` or `sold_out`. |
 | `request_free_order` | A guest's pending free order: the platform's hourly and 24-hour caps (read-only), then, under an advisory lock on the address, the hourly link limit, then a hit on each platform cap. Returns `requested`, `address_limited`, `platform_limited` or `platform_daily_limited`. (The previous 13-argument form delegates to it with the same daily cap, for the deploy window; the app doesn't call it.) |
 | `confirm_free_order` | Confirms by token hash: locks the order, then (event, person), then the event (share) to check every ticket type is still free, then `fulfil_order`'s locks. Idempotent within the link's 24 hours. Returns `confirmed`, `already_confirmed`, `expired_confirmed`, `not_found`, `expired`, `unavailable`, `ended` (the event ended before the link was confirmed: read before the allowance, and again under the event's share lock), `person_event_limit`, `no_longer_free`, `seats_taken` (a seated order's seats went to someone else since the link was sent) or `sold_out` (the last five mark the order `failed`). A seated order takes the seat lock before the order row. |
-| `purge_operational_data` | Retention for free-ticket and outbox data (see "Free tickets" and "Payment flow"); sent outbox jobs after 90 days, failed ones after a year; per-client counters (`client_rate_limits`) idle for a day; account invites 90 days after they were accepted, revoked or expired (`account_invites_deleted`, `20261108000000_account_invites.sql`); early refund rows and refund status marks 35 days after their last update; resolved payment exceptions 2 years after resolution (open ones never); checkout attempts 2 days after creation, first failing any order a failed attempt kept pending with no session recorded (no Checkout Session lives that long). Idempotent; Supabase Cron daily. |
+| `purge_operational_data` | Retention for free-ticket and outbox data (see "Free tickets" and "Payment flow"); sent outbox jobs after 90 days, failed ones after a year; per-client counters (`client_rate_limits`) idle for a day; account invites 90 days after they were accepted, revoked or expired (`account_invites_deleted`, `20261108000000_account_invites.sql`); early refund rows and refund status marks 35 days after their last update; resolved payment exceptions 2 years after resolution (open ones never); checkout attempts 2 days after creation, first failing any order a failed attempt kept pending with no session recorded (no Checkout Session lives that long); organiser links 90 days after they were used or cancelled, or expired (`organiser_invite_links_deleted`, `20261111000500_organiser_invite_links.sql`). Idempotent; Supabase Cron daily. |
 | `begin_checkout_attempt` | Claims an `Idempotency-Key` for one request from one client key (see "Checkout idempotency"): insert-or-lock the attempt row, then `mismatch`, `other_client` (the attempt's client key differs; nothing given out or changed), `in_progress` (live lease; seconds left), `replay` (order, URL, hold expiry), `expired`, `completed` (with the order's status), or `create` under a 90-second lease (a new key, or a retry of a failed one). A new key's row and its limits are one subtransaction, so a limit refusal (`client_event_limit`, `client_all_limit`) writes nothing; `alert_queued` says the event's checkout circuit breaker queued an ops alert. A retry reuses a still-pending order with no session that's young enough (`reused`), else takes the limits again and releases the old pending order (seats freed). Lock order: the attempt row, the limit counters, then the seat lock and the order when releasing. |
 | `finish_checkout_attempt` / `fail_checkout_attempt` | Lease-checked (`lost` otherwise, changing nothing). Finish locks the attempt, then the order: records the session on the still-pending order and opens the attempt (`open`), or fails the attempt if the order stopped being pending (`order_closed`). Fail releases the lease and, when asked, the order (`release_checkout_order`: a seated order through `release_seat_holds`, a general admission one directly). |
 | `take_checkout_attempt` | General admission paid checkout limits: per client (skipped for a null key) 'checkouts:<event id>' then 'checkouts' (refusals: `event`, `all`; a refusal keeps no hit), then the event's alert-only circuit breaker, its 'checkouts' bucket (`take_event_rate_limit`): crossing it refuses nobody but queues an ops alert (`queue_checkout_surge_alert`), at most one per event per window (bucket 'checkout_surge_alert') and 10 a day platform-wide (bucket 'ops_alerts_checkout_surge', apart from the payment exceptions' 20). Returns `ok`, `surge` (ok, alert queued), `event` or `all`. `take_checkout_limits` picks it or (seated) `take_seat_hold_attempt`. |
@@ -183,6 +184,8 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
 | `resend_account_invite` | Locks the invite; only a pending or expired one (`not_pending`; also when its inviter is no longer an admin, which marks it revoked), not within a minute of the last send (`too_soon`); the same allowances, taken only when it's resent; a new token hash, 14 days from now, link count reset, status pending again (`already_invited` if the address has another pending invite by then). |
 | `issue_invite_account_link` | The invite page's "Create account", by token hash: locks the invite; `not_found`, `used`, `revoked` (also when its inviter is no longer an admin, which marks it revoked), `expired`; `has_account` when the address already has a confirmed account; `limit` past the per-link cap; otherwise counts one request and returns the address. |
 | `accept_account_invite` | The invitee's acceptance: locks the invite; the caller's verified email must equal its address, ignoring case (`not_found` otherwise, revealing nothing); the same account again is `already_accepted` (idempotent), another one `used`; `revoked` (also when its inviter is no longer an admin, which marks it revoked), `expired`. An organiser invite inserts the organiser, approved, reviewed by the inviting admin, owned by the caller (`on conflict (owner_user_id) do nothing`: an account with an organiser, or an application committed meanwhile, is `has_organiser`, nothing written), and logs `invite_accepted`; then marks the invite accepted, in one step. |
+| `create_organiser_invite_link` | An admin's organiser link (see "Organiser links"): a hit on the admin's hourly allowance (`take_rate_limit` `organiser_invite_links`, 20) and the platform's daily one (`take_platform_rate_limit` `organiser_invite_links_daily`, 50) and the insert, in one subtransaction, so a refusal (`rate_limited`) keeps neither hit. Returns `created` with the id. |
+| `join_with_organiser_invite_link` | A signed-in, verified caller's join, by token hash (see "Organiser links"): locks the link; `unavailable` when there's none, or it's used by another account, cancelled or expired, or its creator is no longer an admin (`account_invite_inviter_is_admin`; then it's marked cancelled, `cancelled_by` null); `already_joined` (the organiser) for the account that used it. Then locks the caller's organiser row: approved → `already_organiser`; rejected (taken down included), or pending with a `suspended` entry on its log (taken down, then resubmitted) → `rejected`; both with the link left active; pending otherwise → approved as submitted (`reviewed_by` the link's creator); none → a new approved organiser (the typed name and categories, the caller's verified email as `contact_email`, an empty bio), `details_required` without them, `conflict` when an application committed meanwhile (`on conflict (owner_user_id) do nothing`). Logs `invite_accepted` (status null or pending → approved), marks the link used and queues the admins' `organiser_joined` email (`on conflict` on the per-organiser active-job index: nothing if a job for it is already waiting or being sent), in the same transaction. |
 | `claim_outbox_jobs`, `finish_email_job`, `resend_email_job`, `admin_resend_email_job` | The email outbox: lease due jobs of any kind (optionally one order's, or one kind) with `skip locked` (an expired lease is taken again; one that expired on the 6th attempt fails), record an outcome only for the current lease holder, and an admin resend of a ticket email (not while leased, not twice in 5 minutes; a waitlist email is `not_found`). `admin_resend_email_job` takes a hit on the admin's hourly allowance only when the resend is queued, in the same transaction (over it: `rate_limited`, nothing changed). `claim_email_jobs`, the earlier form, now claims ticket emails only and is kept for the deploy window (see "Not built yet"). |
 | `email_outbox_health(p_overdue_after)` | Per outbox kind: due, overdue (due, or leased by a worker that died, for longer than `p_overdue_after`), the oldest overdue job's age in seconds, waiting, sending, expired leases, failed and failed in the last 7 days. Sent jobs aren't read. Counts only; `GET /api/admin/emails/health` and the SQL editor (`20261109000300_email_outbox_health.sql`). |
 | `waitlist_join_state` | Whether an event's waitlist takes joins: `open` (published, Sheltüh-ticketed, not ended, has ticket types and every one is sold out), else `not_found` (missing or not published), `external`, `ended` or `not_sold_out`. |
@@ -205,7 +208,7 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
 | `unsubscribe_follow` | Turns a follow's emails off by an unsubscribe token's hash (the follow stays). Idempotent: `unsubscribed` or `not_found`. |
 | `notify_followers` | Run at commit by the deferred constraint trigger `events_followers_announce` (status becomes `published`): for a published, upcoming event of an approved organiser, records the announcement (once per event ever: a republish is a no-op), then, under an advisory lock per organiser, queues one `organiser_new_events` job per follower with emails on and a confirmed email (`auth.users.email_confirmed_at`) who has none waiting, due at the later of now and 24 hours after their last, until the platform's 500 a day. Locks each follow row as it's queued. |
 | `claim_email_outbox` | `claim_outbox_jobs` for every kind, also returning the follow. `claim_outbox_jobs` (the previous release's) now leaves `organiser_new_events` alone, for the deploy window. |
-| `lease_outbox_jobs` | `claim_email_outbox` for every kind, also returning the event and the organiser (the review emails). `claim_email_outbox` (the previous release's) now leaves `event_review` and `organiser_review` alone, for the deploy window. Since `20261109000200_payment_reconciliation.sql`, `ops_alert` jobs only when asked for that kind (the app drains them first, then the rest), so a release that can't send them never leases one; `claim_email_outbox` never takes them either. Since `20261111000000_event_publish_now.sql`, `event_published` jobs likewise only when asked for by kind (this app's drain asks for them last), so the previous release's cron can't lease one and fail it as an unknown job. |
+| `lease_outbox_jobs` | `claim_email_outbox` for every kind, also returning the event and the organiser (the review emails). `claim_email_outbox` (the previous release's) now leaves `event_review` and `organiser_review` alone, for the deploy window. Since `20261109000200_payment_reconciliation.sql`, `ops_alert` jobs only when asked for that kind (the app drains them first, then the rest), so a release that can't send them never leases one; `claim_email_outbox` never takes them either. Since `20261111000000_event_publish_now.sql`, `event_published` jobs likewise only when asked for by kind (this app's drain asks for them last), so the previous release's cron can't lease one and fail it as an unknown job. Since `20261111000500_organiser_invite_links.sql`, `organiser_joined` jobs the same way (drained after `event_published`). |
 | `queue_review_email` | Queues the admins' review email for an event in review or a pending application of an account's organiser (called by deferred triggers on `events` and `organisers`), or (`event_published`, called by `publish_event`) the "an organiser published an event" email for a published event of an account's organiser: nothing if one is already waiting or being sent for the subject (whatever its kind), due an hour after the last one sent, at most 10 a day per account and 100 a day platform-wide. The published emails count in buckets of their own (`published_emails`, `admin_published_emails_daily`; the review emails' are `review_emails`, `admin_review_emails_daily`), so publishes never use up the review emails. An advisory lock per subject serialises calls. Returns whether it queued. A trigger deletes a still-waiting job when its subject leaves review, and `drop_published_email` (trigger `events_published_email_drop`) a still-waiting `event_published` job when its event leaves `published`. |
 | `suspend_organiser` | An admin takedown, only from `approved` (a second admin gets 409): locks the organiser row, then its published and pending-review events in id order; sets the organiser `rejected` with the reason and reviewer; moves each published event to draft (`unpublished`) and each pending one to `rejected`, through `transition_event`, so the event moderation log records each with the admin and reason; logs the takedown. Deletes nothing. Returns the result and how many events moved. |
 | `record_payment_refund` | Records a `charge.refunded` by payment intent (see "Refunds made in Stripe"). Takes the payment intent's lock first, then (seated) the seat lock, then the order (`for update`), and acts only on a `paid` one. Full refund (Stripe's `refunded`, or a cumulative amount of at least `total_cents`; `20261111000300_refund_no_inference.sql`, which removed `20261110000200`'s tickets-only rule): `refunded`, the amount recorded, and each line item's quantity taken off its ticket type's `quantity_sold` (never below 0), updating ticket types in `ticketTypeId` order like `fulfil_order`, so the two can't deadlock; an open `partial_refund` exception is resolved. Partial (anything less, whatever it was for: nothing is inferred from the amount): only `amount_refunded_cents`, which only grows, and a `partial_refund` exception. A redelivery (already refunded, or no larger amount) changes nothing, so inventory is released exactly once. No order yet but the charge's destination is one of our organisers' accounts: an `early_charge_refunds` row, `deferred`. Returns `refunded`, `partial`, `unchanged`, `deferred` or `not_found`, with the order id when found (logged by short reference only). A full refund of a seated order also frees its seats (tickets' `seat_id` cleared, then the seats' sale), after the seat lock. The 6-argument form (charge id, destination, Stripe event id) is the app's; the 3-argument form delegates to it without a destination (never defers), for the previous app version during the deploy window (see "Not built yet"). |
@@ -2824,7 +2827,10 @@ an approved organiser's event went live without one
   fields plus where its tickets are ("on Sheltüh", or "sold on {host}" for
   an external link: the host as the browser shows it, never the organiser's
   wording), and a link to the "Recently published" view
-  (`/admin/events?status=published&view=recent`). Saving a draft, an
+  (`/admin/events?status=published&view=recent`). An organiser link
+  that makes (or approves) an organiser queues `organiser_joined`
+  ("Organiser joined with a link", the name and a link to
+  `/admin/organisers?status=approved`; see "Organiser links"). Saving a draft, an
   approved organiser's profile edit, and
   anything an admin creates (admin-authored events are published directly,
   platform-managed organisers are approved, and so is an organiser created by
@@ -2887,12 +2893,17 @@ an approved organiser's event went live without one
   drain (`drainEmailOutbox`, the cron's and the routes') asks for them by
   kind, last: ops alerts, then every other kind, then `event_published`. So
   during the deploy window the previous release's cron can't lease one and
-  fail it as an unknown job; it waits for this release.
+  fail it as an unknown job; it waits for this release. `organiser_joined`
+  (`20261111000500_organiser_invite_links.sql`) works the same way, drained
+  after `event_published`.
 - **Not in `/admin/emails`.** That list and the home page's failed and
   retrying counts are ticket emails only (jobs with an order); review emails
   are internal and never resent by hand.
 
 ## Account invites
+
+(For a link an admin forwards to an organiser without an email address or
+details, see "Organiser links" below.)
 
 Admins invite people who asked to join, as an organiser or as a member
 (owner decisions, 25 Oct 2026; `supabase/migrations/20261108000000_account_invites.sql`,
@@ -3061,6 +3072,142 @@ step, `InviteCreateAccount.tsx` is "Create account" with a password,
   `unconfirmed` account), `/recover` sending a reset code to an unconfirmed
   user and verifying that code confirming the email. The "has an account"
   checks scan `auth.users`; fine at current scale.
+
+### Organiser links
+
+An admin sends an organiser a link that makes them an approved organiser,
+with no email or details to fill in (owner request and decision, 27 Oct
+2026: "forward a link to organisers without having to fill in details";
+one link per organiser; `supabase/migrations/20261111000500_organiser_invite_links.sql`,
+`lib/server/handlers/organiser-links.ts`, `components/admin/OrganiserLinksAdmin.tsx`,
+`components/organisers/OrganiserJoinFlow.tsx`). Separate from the emailed
+invites above: their table and every step are keyed on the invited address,
+and a link has none.
+
+- **Creating** (`/admin/invites`, "Organiser links": Create organiser link;
+  `POST /admin/organiser-links`, admin only, no body). The link is
+  `${NEXT_PUBLIC_SITE_URL}/organisers/join#token=…`: 32 random bytes
+  (base64url, 43 characters) in the fragment, so it's never in a server log
+  or a Referer; only its SHA-256 is stored, so the URL is shown once, in the
+  create response, with Copy and (where the device has a share sheet:
+  `navigator.share`) Share, for WhatsApp, Messages or email. Nothing is
+  emailed. 20 links per admin an hour and 50 a day platform-wide (each one
+  can make an approved organiser), taken only when a link is written.
+- **One link, one organiser**: it works once, for 7 days, and an admin can
+  cancel it until it's used (one conditional update, so a cancel and a join
+  can't both succeed). The admin list shows every link, newest first: when
+  it was made and by whom, until when it works, the organiser it made and
+  when, or when it was cancelled. As with invites, **a link lives only as
+  long as its creator is an admin**: once they're demoted or deleted, the
+  link reads as unavailable and a join marks it cancelled.
+- **Opening it changes nothing.** `/organisers/join` reads the token from the
+  fragment, takes it out of the address bar, and asks
+  `POST /organiser-links/view {token}` (read-only) whether it can be used. A
+  link that can't (malformed, unknown, used, expired or cancelled) gets one
+  answer, a 404 "This link has expired or was already used — ask Sheltüh for
+  a new one.", so its holder learns nothing about its history.
+- **Signing up or in is the ordinary flow**: Create account (`/signup`) or
+  Sign in (`/login`), with any address, confirmed with the usual code (or
+  Google / Apple), and `?next=/organisers/join` brings them back. `next`
+  carries no token: the page keeps it in this tab's `sessionStorage` for the
+  round trip (never a cookie, query string or `localStorage`) and forgets it
+  once it's used or turns out unusable. So it needs **no
+  `SUPABASE_ADMIN_INVITE_KEY`**: nothing here calls Supabase Auth's admin
+  API. Opened in another browser after signing up there, the link just needs
+  opening again.
+- **Joining** (`POST /organiser-links/join`, a signed-in caller with a
+  verified email: 403 otherwise). One transaction
+  (`join_with_organiser_invite_link`): locks the link, then the caller's
+  organiser row. No organiser: they type the **organiser name** (the
+  application's rule: 1 to 120 characters) and tick **what they put on**
+  (at least one category: `organisers.categories` can't be empty, it's shown
+  on their public profile, and approved organisers can't change it, so it
+  can't be defaulted); the organiser is created **approved**, reviewed by
+  the link's creator, with their verified email as the contact email and an
+  empty bio, which they add on their profile (`/dashboard/profile` asks for
+  one on the first save) along with links and a logo. A **pending**
+  application is approved as it was submitted (its waiting review email is
+  dropped), **unless an admin ever took that organiser down**: a takedown
+  sets the status to `rejected`, which the owner can resubmit to `pending`,
+  so the join also refuses a pending organiser with a `suspended` entry on
+  its append-only log (`organiser_profile_edits`); only an admin's review
+  puts it back. **Approved**, **rejected or taken down**: refused (409
+  `already_organiser` / `rejected`), and the link stays unused for an admin
+  to decide. Each join logs `invite_accepted` (status null or pending →
+  approved) on the organiser's log. The same account joining again (a
+  retry, a second tab) gets the same 200; anyone else, the 404.
+- **The name and categories** follow the application's rules (a name of 1
+  to 120 characters, known categories), plus, as nobody reviews them: no
+  control, invisible-format (zero-width, bidi), line or paragraph separator
+  characters in the name (`\p{Cc}`, `\p{Cf}`, `\p{Zl}`, `\p{Zp}`: 400
+  "Use letters, numbers, spaces and punctuation only."), at most 5
+  categories as sent (one of each: all the picker offers; 400 "Choose up to
+  5 categories."), repeats dropped. Only on this path: the application's
+  own contract is unchanged.
+- **The admins are told**: each join queues an `organiser_joined` email to
+  every admin (as the review emails: `ADMIN_NOTIFY_EMAILS` or every admin
+  account), "An organiser joined with a link", with the organiser's name
+  (labelled as theirs) and a link to the approved organisers, sent straight
+  after the response and retried by the cron. Not sent if the organiser
+  isn't approved any more by then (taken down first). A repeat join by the
+  same account queues nothing. No throttle of its own: it's bounded by the
+  links admins make (50 a day platform-wide, each used once).
+- **Then the usual rules**: the dashboard says welcome
+  (`/dashboard?welcome=organiser`, taken out of the address bar), and they
+  are an ordinary approved organiser: payouts before any paid event, their
+  first paid event reviewed by a person, the per-organiser review switch and
+  the publishing caps (see "Publishing events").
+- **Allowances.** Join: 10 attempts an hour per account
+  (`take_rate_limit` `organiser_link_joins`) and 30 per client
+  (`take_client_rate_limit` `organiser_link_joins`); view: 60 an hour per
+  client (`organiser_link_views`). Every attempt counts, whatever the
+  outcome (guessing a 256-bit token isn't feasible anyway; this bounds
+  load). The per-client limits fail open (logged) without a client IP or
+  `STRIPE_WEBHOOK_SECRET`, like the invites'.
+- **Privacy and retention.** The token is never logged and is in no response
+  but the admin's create; responses are `private, no-store`; the page is
+  `noindex` and `no-referrer` (`next.config.ts`). Links are deleted 90 days
+  after they were used or cancelled, or expired; the organiser's log entry
+  stays with the organiser.
+
+### Accepted risks (organiser links)
+
+- **Anyone holding an unused link can claim it**, and becomes an approved
+  organiser with whatever account they use: a forwarded or leaked link (a
+  group chat, a screenshot, a shared phone) works for whoever opens it
+  first. There's no address to match, by design. Mitigations: one use, 7
+  days, cancel from `/admin/invites` (at once), the link shown to the admin
+  only once, and the usual approved-organiser controls afterwards (payouts
+  before paid events, the first paid event reviewed, takedown). Admins
+  should send each link only to the organiser, and cancel one sent to the
+  wrong person.
+- **A wrong account can use it**: someone signed in as another account
+  (theirs at work, a partner's) who joins turns that account into the
+  organiser. The page shows which account is signed in, with Sign out,
+  before Join. Fixing it afterwards is an admin takedown (or SQL) and a new
+  link.
+- **Typo'd organiser names** can't be fixed by the organiser (approved
+  organisers can't change their name, contact email or categories); the
+  form says so, and an admin changes it by SQL, as for invites.
+- **The contact email is the sign-in address** (verified), which
+  organisers can't change either; Stripe onboarding uses it.
+- **A plainly rejected applicant can be approved by a link.** An admin's
+  rejection of an application (not a takedown) leaves no durable record:
+  `rejection_reason` and the reviewer are cleared when the applicant
+  resubmits (`PATCH /organisers/me`), and nothing else logs it. So an
+  applicant who was rejected, resubmitted (back to pending) and then gets
+  hold of a link is approved by it, exactly as if they'd joined with a
+  fresh account (which a rejection never prevented). A takedown, which is
+  logged (`suspended`), is refused, pending or not. Admins who don't want
+  a rejected applicant on Sheltüh shouldn't send them a link; if one is
+  approved this way, the `organiser_joined` email says so and a takedown
+  removes them.
+- **The joined email can be lost in one narrow race**: if a worker is
+  sending a pending application's review email at the moment a link
+  approves it, the join's `organiser_joined` job is skipped (one active job
+  per organiser) and the review email's worker skips its own (no longer
+  pending). The organiser still shows in the approved list with its
+  `invite_accepted` log entry.
 
 ## Reserved seating
 
@@ -3285,7 +3432,7 @@ application is approved.
 | `GET /orders/by-session/{orderId}` | public (id is the credential). `CustomerOrder` only (see "Payment flow"), `private, no-store`; `wallet: {google, apple}` when the tickets can be added to a wallet (see "Wallet passes") |
 | `GET /orders/by-session/{orderId}/wallet/google?ticket={n}` · `…/wallet/apple?ticket={n}` | public (id is the credential, as the ticket page; see "Wallet passes"). Google: 302 to `https://pay.google.com/gp/v/save/{jwt}`; Apple: 200 `application/vnd.apple.pkpass`. `private, no-store`. 404 malformed (no query), the wallet not configured (no query), unknown, not paid, the event not published, or no ticket `n`; 400 `fieldErrors.ticket`; 429 over 30 a minute from this client, or 60 a minute for this order |
 | `GET /orders/by-session/{orderId}/payment` | public (id is the credential), read-only. `OrderPaymentLookup` (see "Payment flow", step 2), `private, no-store`: `{status: "open", clientSecret, expiresAt, …summary}`, `{status: "processing", delayed}`, `{status: "done"}`, or `{status: "closed" \| "sold_out", eventTitle, eventSlug?, seated}` (`closed` also when the event is no longer published or has ended while the session is open); 404 malformed (no query), unknown or a guest's free booking; 409 still being set up; 429 over 30 reads a minute from this client, or 20 Stripe reads a minute for this order; 500 an open session without a client secret |
-| `GET /cron/email-outbox` | Vercel Cron, and on Hobby Supabase Cron + `pg_net` (`Authorization: Bearer $CRON_SECRET`, 401 otherwise): sends due outbox jobs (ops alerts first, then tickets, waitlist, followers, admin review emails, then the admins' `event_published` emails), records the run, returns counts `{claimed, sent, retrying, failed}` |
+| `GET /cron/email-outbox` | Vercel Cron, and on Hobby Supabase Cron + `pg_net` (`Authorization: Bearer $CRON_SECRET`, 401 otherwise): sends due outbox jobs (ops alerts first, then tickets, waitlist, followers, admin review emails, then the admins' `event_published` and `organiser_joined` emails), records the run, returns counts `{claimed, sent, retrying, failed}` |
 | `GET /cron/trending` | Vercel Cron (same secret, 401 otherwise): rebuilds the trending snapshot, returns `{eligible, ranked}` |
 | `GET /events/trending` | public: `{items: [{event, label, goingCount?}]}` (see "Trending"), at most 24, best first; `items: []` with fewer than 3. `cache-control: public, max-age=0, s-maxage=300, stale-while-revalidate=600` |
 | `GET /admin/emails?status&cursor` · `POST /admin/emails/{jobId}/resend` | admin. Status `failed` (default), `pending`, `sending`, `sent`. Resend: 404 unknown, 409 being sent, 429 resent in the last 5 minutes or over 20 an hour |
@@ -3347,6 +3494,9 @@ application is approved.
 | `GET /admin/invites?status&cursor&limit` · `POST /admin/invites` `{kind, email, consent, organiser?}` · `POST /admin/invites/{inviteId}/resend` · `POST …/revoke` | admin (see "Account invites"). List: `Paginated<AdminInviteRecord>`, status `pending` (default), `accepted`, `revoked` or `expired` (400 otherwise), newest first. Create: 201 `{invite, emailSent}`; 400 fieldErrors (`kind`, `email`, `consent`, `organiser`, `organiser.<field>`); 409 a pending invite for the address, or its account already has an organiser; 429; 503 without `SUPABASE_ADMIN_INVITE_KEY` (nothing written). Resend: 200 `{invite, emailSent}`; 404; 409 accepted or revoked (or its inviter is no longer an admin); 429 within a minute or over the allowance; 503. Revoke: 200 the invite; 404; 409 not pending |
 | `POST /invites/view` `{token}` · `POST /invites/account-link` `{token}` | public (the emailed token is the credential), private, no-store. View: `InviteView` (`account` `new` / `existing` / `unconfirmed`), read-only; 400; 404; 410 `code` `expired` / `revoked` / `used`. Account link: deletes unconfirmed accounts someone registered with the address (keeping a fresh invite account from an earlier press), then `{tokenHash}`; 400; 404; 410; 409 `code: "has_account"`; 429 (10 per link, 20 an hour per client, counting only tokens that match an invite); 503 `code: "unavailable"` (no key, Supabase Auth failed, or the address's account couldn't be made safe) |
 | `GET /invites/me` · `POST /invites/accept` `{inviteId}` | verified email. Me: the pending invite for the caller's address (`MyInvite`); 404 none. Accept: 200 `{kind, organiserId?}` (idempotent); 404 unknown or another address's; 409 the account already has an organiser; 410 `code` |
+| `GET /admin/organiser-links?cursor&limit` · `POST /admin/organiser-links` · `POST /admin/organiser-links/{linkId}/cancel` | admin (see "Organiser links"). List: `Paginated<AdminOrganiserLinkRecord>`, every link newest first (`status` `active`, `used`, `cancelled` or `expired`, the creator's email, the organiser's current name), never a token or its hash. Create: no body; 201 `{link, url}` (`url` = `${NEXT_PUBLIC_SITE_URL}/organisers/join#token=…`, the only response that ever carries the token); 429 over 20 an hour (this admin) or 50 a day (everyone). Cancel: 200 the link; 404; 409 not active (used, cancelled or expired) |
+| `POST /organiser-links/view` `{token}` | public (the token is the credential), private, no-store; read-only. 200 `{expiresAt}`; 404 `code: "unavailable"` for a malformed, unknown, used, expired or cancelled link, or one whose creator is no longer an admin (one message for all: "This link has expired or was already used — ask Sheltüh for a new one."); 429 over 60 an hour per client (every request counts) |
+| `POST /organiser-links/join` `{token, displayName?, categories?}` | verified email (any address). 200 `{organiserId, displayName}` (idempotent for the account that used the link); 400 fieldErrors `displayName` / `categories` (the application's rules, plus no control or invisible characters in the name and at most 5 categories as sent, repeats dropped; required when the account has no organiser, ignored for a pending application); 401; 403 unverified; 404 `code: "unavailable"` (as view); 409 `code` `already_organiser` / `rejected` (rejected, taken down, or pending again after a takedown; the link stays unused) or `conflict` (an application arrived at the same moment); 429 over 10 an hour per account or 30 per client (every attempt counts) |
 | `GET /admin/events/{id}` · `POST /admin/events` · `PATCH /admin/events/{id}` | admin (see "Admin authoring"). `AdminEventRecord`. The event body's `state` and `timeZone` as the organiser's (see "Events: state and time zone"; PATCH without them keeps the stored place). The body's optional `location` as the organiser's (400 / 503 as there; an admin's publish needs none). POST: the event body plus `organiserId`, `publish?`; 201; 400 fieldErrors (`organiserId` unknown; `ticketTypes` paid for a platform-managed organiser); 409 organiser not approved. PATCH: the event body with `ticketingMode` required, `expectedUpdatedAt`, `publish?`, `reason?` (≤500); 200 (unchanged if nothing changes); 400 fieldErrors (incl. `reason` to change an approved event's mode or link); 404; 409 stale version (`fieldErrors.expectedUpdatedAt`), orders on a switch to external, sold ticket types, or organiser not approved when publishing |
 | `PUT /admin/events/{id}/image` · `DELETE /admin/events/{id}/image` | admin, any status. As the organiser's (413, 400), logged `edited`; 404 |
 | `GET /admin/events/{id}/curation` · `PUT …/curation` `{boost, excluded, reason}` | admin, any status (see "Trending"). `{eventId, boost, excluded, updatedAt, log}` (newest 20 changes). PUT: 200 (unchanged, nothing logged, if nothing changes; logged `curated` otherwise); 400 fieldErrors (`boost` a number from 0.5 to 2, rounded to 2 places; `excluded` a boolean; `reason` 1–500 characters); 404 |
@@ -3357,7 +3507,7 @@ response). It's currently a row offset, fine at this scale.
 
 JSON request bodies over 256 KB are refused with 413. Every error response
 is `cache-control: private, no-store`, and so is every admin response
-(`admin.ts`, `admin-authoring.ts`, `email-outbox.ts`, `invites.ts`, `reports.ts`,
+(`admin.ts`, `admin-authoring.ts`, `email-outbox.ts`, `invites.ts`, `organiser-links.ts`, `reports.ts`,
 `trending.ts`) and every response about the signed-in caller.
 `tests/server/private-gets.test.ts` checks every authenticated GET answers
 `private`, and that every GET route is listed there, as public on purpose,
@@ -3491,6 +3641,15 @@ What that means:
   `tests/server/invites.test.ts`, `tests/server/auth-admin.test.ts`,
   `tests/server/invite-email.test.ts`, `tests/InviteFlow.test.tsx`,
   `tests/InvitesAdmin.test.tsx`, `e2e/invite.spec.ts`.
+- Organiser links: `supabase/migrations/20261111000500_organiser_invite_links.sql`;
+  `lib/server/handlers/organiser-links.ts`; `lib/api/organiser-links.ts` and
+  the link functions in `lib/api/admin.ts`; `lib/invites.ts` (the 7 days,
+  the join path, the unavailable copy); `components/admin/OrganiserLinksAdmin.tsx`
+  (on `/admin/invites`); `app/organisers/join/page.tsx` with
+  `components/organisers/OrganiserJoinFlow.tsx`; the welcome in
+  `components/dashboard/DashboardContent.tsx`; tests
+  `tests/server/organiser-links.test.ts`, `tests/OrganiserLinksAdmin.test.tsx`,
+  `tests/OrganiserJoinFlow.test.tsx`, `e2e/organiser-links.spec.ts`.
 - `lib/auth/AuthContext.tsx`: Supabase Auth in the browser.
 - Sign in with Google and Apple (see that section): `lib/supabase/browser.ts`
   (`flowType: "pkce"`, `detectSessionInUrl: false`); `lib/auth/oauth.ts`

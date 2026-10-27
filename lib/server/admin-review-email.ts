@@ -9,7 +9,9 @@ import { formatTicketDate, formatTicketTime, type EventZone } from "./ticket-ema
  * review emails"): an event an organiser submitted (or resubmitted) for
  * review, and an organiser application (new or resubmitted); and the
  * "an organiser published an event" email (an approved organiser's event
- * that went live without review, for admins to check after the fact). Internal and
+ * that went live without review, for admins to check after the fact); and
+ * the "an organiser joined with a link" email (an organiser link made an
+ * approved organiser, or approved a pending application). Internal and
  * transactional: no marketing, no tracking, nothing about buyers. Only what
  * an admin needs to know something is waiting (the event's title, its
  * organiser's name and its start; the applicant's organiser name) and the
@@ -66,6 +68,11 @@ export function recentlyPublishedQueueLink(siteUrl: string): string {
 /** The organiser applications queue (it opens on pending applications). */
 export function organiserReviewQueueLink(siteUrl: string): string {
   return `${siteUrl}/admin/organisers`;
+}
+
+/** The approved organisers list (where one who joined with a link is, with its log). */
+export function approvedOrganisersLink(siteUrl: string): string {
+  return `${siteUrl}/admin/organisers?status=approved`;
 }
 
 /**
@@ -228,4 +235,48 @@ export function buildOrganiserReviewEmail(input: { to: string; organiserName: st
   });
 
   return { to, subject: "Organiser application to review", text, html };
+}
+
+const JOINED_PREHEADER = "They're approved now. Open the list to check their profile.";
+const JOINED_LEAD =
+  "They used an organiser link, so they're approved without review. Check their profile, and take it down if it shouldn't be on Sheltüh.";
+
+/**
+ * "Organiser joined with a link", to one admin: an organiser link made an
+ * approved organiser (or approved a pending application). The organiser's
+ * name only (labelled as theirs), and the link to the approved organisers.
+ */
+export function buildOrganiserJoinedEmail(input: { to: string; organiserName: string; siteUrl: string }): EmailMessage {
+  const { to, siteUrl } = input;
+  const organiserName = subjectLine(input.organiserName);
+  const link = approvedOrganisersLink(siteUrl);
+  const headline = "An organiser joined with a link";
+
+  const text = [
+    headline,
+    "",
+    JOINED_LEAD,
+    "",
+    SUBMITTED_LABEL,
+    `Organiser name: ${organiserName}`,
+    "",
+    `Check it: ${link}`,
+    "",
+    FOOTER_TEXT,
+    "Sheltüh, Melbourne",
+  ].join("\n");
+
+  const html = page({
+    title: headline,
+    preheader: JOINED_PREHEADER,
+    body:
+      heading(escapeHtml(headline)) +
+      `<p style="margin:0 0 16px 0;font-family:${SANS};font-size:16px;line-height:24px;color:${INK}">${escapeHtml(JOINED_LEAD)}</p>` +
+      SUBMITTED_LABEL_HTML +
+      eventBlock(organiserName, []) +
+      button("Open approved organisers", link) +
+      FOOTER_HTML,
+  });
+
+  return { to, subject: "Organiser joined with a link", text, html };
 }

@@ -159,6 +159,7 @@ describe("Data API lock-out", () => {
       { table_name: "free_order_refusals", rls: true },
       { table_name: "organiser_event_announcements", rls: true },
       { table_name: "organiser_follow_tokens", rls: true },
+      { table_name: "organiser_invite_links", rls: true },
       { table_name: "organiser_logos", rls: true },
       { table_name: "organiser_profile_edits", rls: true },
       { table_name: "payment_exceptions", rls: true },
