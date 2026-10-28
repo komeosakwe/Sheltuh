@@ -14,6 +14,15 @@ export default function MapStyles() {
         background: color-mix(in srgb, var(--background) 85%, transparent) !important; color: var(--muted) !important;
       }
       .leaflet-control-attribution a { color: var(--foreground) !important; }
+      /*
+       * Mapbox wordmark (components/map/MapboxLogo.tsx): Mapbox's official SVG (public/mapbox-logo.svg,
+       * docs/maps.md) bottom-left, 88x23 as in mapbox-gl, in a 24px-high link. It's white with a dark
+       * outline, so it reads on the map in both themes. Where it's shown, the attribution (bottom-right)
+       * stops short of it and wraps instead of running underneath on a narrow screen.
+       */
+      .mapbox-logo { display: block; width: 5.5rem; height: 1.5rem; background: url("/mapbox-logo.svg") center / contain no-repeat; }
+      .leaflet-control.mapbox-logo-control { margin-bottom: 0.25rem; }
+      .leaflet-container:has(.mapbox-logo) .leaflet-bottom.leaflet-right { max-width: calc(100% - 7rem); }
       /* Zoom: two separate 44px rounded-square controls with a black edge (§6.1), not Leaflet's grey bar. */
       .leaflet-control-zoom.leaflet-bar { border: 0 !important; box-shadow: none !important; display: flex; flex-direction: column; gap: 0.5rem; }
       .leaflet-control-zoom a {

@@ -74,6 +74,44 @@ async function expectMapboxCredits(page: Page, scope = "body") {
   await expect(credits).not.toContainText("Esri");
 }
 
+/**
+ * Mapbox's wordmark (components/map/MapboxLogo.tsx): visible as a link named Mapbox, in the map's
+ * bottom-left corner, and clear of the Leaflet zoom control and the credit.
+ * By href, as the credits are: the event page's map is aria-hidden.
+ */
+async function expectMapboxLogo(page: Page, scope = "body") {
+  const logo = page.locator(`${scope} a[href="https://www.mapbox.com/"]`);
+  await expect(logo).toBeVisible();
+  await expect(logo).toHaveAttribute("aria-label", "Mapbox");
+  await expect(logo).toHaveAttribute("target", "_blank");
+  await expect(logo).toHaveAttribute("rel", "noopener noreferrer");
+  const logoBox = await logo.boundingBox();
+  const mapBox = await page.locator(`${scope} .leaflet-container`).first().boundingBox();
+  if (!logoBox || !mapBox) throw new Error("the logo or the map has no box");
+  expect(logoBox.height).toBeGreaterThanOrEqual(24);
+  // Bottom-left, fully inside the map.
+  expect(logoBox.x).toBeGreaterThanOrEqual(mapBox.x);
+  expect(logoBox.x + logoBox.width).toBeLessThan(mapBox.x + mapBox.width / 2);
+  expect(logoBox.y + logoBox.height).toBeLessThanOrEqual(mapBox.y + mapBox.height);
+  expect(logoBox.y).toBeGreaterThan(mapBox.y + mapBox.height / 2);
+  // The map's controls and credit don't share its pixels (markers are map content, and move).
+  const others = page.locator(`${scope} .leaflet-control-zoom, ${scope} .leaflet-control-attribution`);
+  const boxes = await others.evaluateAll((els) =>
+    els
+      .map((el) => el.getBoundingClientRect())
+      .filter((r) => r.width > 0 && r.height > 0)
+      .map((r) => ({ x: r.x, y: r.y, width: r.width, height: r.height })),
+  );
+  for (const other of boxes) {
+    const apart =
+      other.x >= logoBox.x + logoBox.width ||
+      other.x + other.width <= logoBox.x ||
+      other.y >= logoBox.y + logoBox.height ||
+      other.y + other.height <= logoBox.y;
+    expect(apart, `overlaps ${JSON.stringify(other)} (logo ${JSON.stringify(logoBox)})`).toBe(true);
+  }
+}
+
 for (const vp of [
   { name: "390×844", width: 390, height: 844 },
   { name: "1440×900", width: 1440, height: 900 },
@@ -81,7 +119,7 @@ for (const vp of [
   test.describe(`Mapbox Streets on /map at ${vp.name}`, () => {
     test.use({ viewport: { width: vp.width, height: vp.height } });
 
-    test("Streets tiles with the token and Mapbox's credit, no Esri, no map style control", async ({ page }) => {
+    test("Streets tiles with the token, Mapbox's credit and wordmark, no Esri, no map style control", async ({ page }) => {
       const requested = await mockTiles(page);
       await page.goto("/map");
 
@@ -89,6 +127,7 @@ for (const vp of [
       expectStreetsUrls(requested.mapbox);
       expect(requested.esri).toEqual([]);
       await expectMapboxCredits(page);
+      await expectMapboxLogo(page, "[data-surface='paper']");
       await expect(page.getByText(/map style/i)).toHaveCount(0);
 
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -126,6 +165,7 @@ test.describe("Mapbox Streets on the event page's Location map", () => {
     expectStreetsUrls(requested.mapbox);
     expect(requested.esri).toEqual([]);
     await expectMapboxCredits(page, scope);
+    await expectMapboxLogo(page, scope);
   });
 });
 

@@ -110,6 +110,7 @@ async function expectTiles(prefix: string) {
   });
 }
 
+const logo = () => document.querySelector<HTMLAnchorElement>('a[href="https://www.mapbox.com/"]');
 const attribution = () => document.querySelector(".leaflet-control-attribution") as HTMLElement;
 const ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_";
 const STREETS = "https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/512/";
@@ -124,6 +125,7 @@ describe("/map without NEXT_PUBLIC_MAPBOX_TOKEN", () => {
     expect(screen.queryByRole("option", { name: /mapbox|esri/i })).toBeNull();
     expect(attribution()).toHaveTextContent("Esri");
     expect(attribution()).not.toHaveTextContent("Mapbox");
+    expect(logo()).toBeNull();
   });
 
   it("ignores a secret (sk.*) token", async () => {
@@ -164,6 +166,20 @@ describe("/map with a public NEXT_PUBLIC_MAPBOX_TOKEN", () => {
     expect(credits).not.toHaveTextContent("Esri");
   });
 
+  it("shows the Mapbox wordmark as a labelled external link, bottom-left, inside the map", async () => {
+    await renderSceneMap();
+    await expectTiles(STREETS);
+    const link = logo();
+    expect(link).not.toBeNull();
+    expect(link).toHaveAttribute("aria-label", "Mapbox");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(link?.closest(".leaflet-container")).not.toBeNull();
+    expect(link?.closest(".leaflet-bottom.leaflet-left")).not.toBeNull();
+    // The text credit also has a "Mapbox" link (to the map designs page); this one is to mapbox.com.
+    expect(screen.getAllByRole("link", { name: "Mapbox" })).toContain(link);
+  });
+
   it("stays on Mapbox Streets in the Dark theme", async () => {
     document.documentElement.setAttribute("data-theme", "dark");
     await renderSceneMap();
@@ -195,9 +211,11 @@ describe("the event page's Location map and the organiser's pin map", () => {
   it("use Esri without a token", async () => {
     renderLocation();
     await expectTiles(ESRI);
+    expect(logo()).toBeNull();
     cleanup();
     renderPin();
     await expectTiles(ESRI);
+    expect(logo()).toBeNull();
   });
 
   it("use Mapbox Streets with a token, in the Light and Dark theme", async () => {
@@ -205,9 +223,11 @@ describe("the event page's Location map and the organiser's pin map", () => {
     renderLocation();
     await expectTiles(STREETS);
     expect(attribution()).toHaveTextContent("Improve this map");
+    expect(logo()).not.toBeNull();
     cleanup();
     document.documentElement.setAttribute("data-theme", "dark");
     renderPin();
     await expectTiles(STREETS);
+    expect(logo()).not.toBeNull();
   });
 });
