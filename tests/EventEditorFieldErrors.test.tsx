@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventEditor from "@/components/dashboard/EventEditor";
 import type { EventRecord } from "@/lib/api/types";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
+import { showStep } from "./test-utils/editorSteps";
 import { CONFIRMED_PIN_LOCATION, stubMatchMedia, unstubMatchMedia } from "./test-utils/pinMapStub";
 
 // The suburb table, stubbed: these tests aren't about the suburb (tests/VenueSuburbField.test.tsx is).
@@ -77,21 +78,23 @@ const saveButton = () => screen.getByRole("button", { name: /^Save draft|^Saving
 
 describe("EventEditor — field errors are tied to their fields", () => {
   it.each([
-    ["title", "Title", "Enter an event title."],
-    ["description", "Description", "Enter a description."],
-    ["venueName", "Venue name", "Enter a venue name."],
-    ["venueAddress", "Venue address", "Enter a venue address."],
-  ])("%s: aria-invalid, and described by its error", async (id, label, message) => {
+    ["title", "Title", "Enter an event title.", undefined],
+    // The description also has a hint ("Shown in About this event."), which stays when it has an error.
+    ["description", "Description", "Enter a description.", "description-hint"],
+    ["venueName", "Venue name", "Enter a venue name.", undefined],
+    ["venueAddress", "Venue address", "Enter a venue address.", undefined],
+  ])("%s: aria-invalid, and described by its error", async (id, label, message, hint) => {
     renderEditor();
     const field = screen.getByLabelText(label);
     expect(field).not.toHaveAttribute("aria-invalid");
-    expect(field).not.toHaveAttribute("aria-describedby");
+    if (hint) expect(field).toHaveAttribute("aria-describedby", hint);
+    else expect(field).not.toHaveAttribute("aria-describedby");
     fireEvent.change(field, { target: { value: "" } });
     fireEvent.click(saveButton());
     await waitFor(() => expect(field).toHaveAttribute("aria-invalid", "true"));
-    expect(field).toHaveAttribute("aria-describedby", `${id}-error`);
+    expect(field).toHaveAttribute("aria-describedby", [hint, `${id}-error`].filter(Boolean).join(" "));
     expect(document.getElementById(`${id}-error`)).toHaveTextContent(message);
-    expect(field).toHaveAccessibleDescription(message);
+    expect(field).toHaveAccessibleDescription(expect.stringContaining(message));
     expect(updateEventDraft).not.toHaveBeenCalled();
   });
 
@@ -153,20 +156,28 @@ describe("EventEditor — field errors are tied to their fields", () => {
   it("Publish focuses the first field to fix too, and publishes nothing", async () => {
     renderEditor(PINNED_EVENT);
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: " " } });
+    showStep(3);
     fireEvent.click(screen.getByRole("button", { name: "Publish…" }));
     fireEvent.click(screen.getByRole("button", { name: "Publish now" }));
+    // The Event page step is shown again, and the title focused on it.
     await waitFor(() => expect(screen.getByLabelText("Title")).toHaveFocus());
+    expect(screen.getByRole("button", { name: /^Event page/ })).toHaveAttribute("aria-current", "step");
     expect(updateEventDraft).not.toHaveBeenCalled();
     expect(publishEvent).not.toHaveBeenCalled();
   });
 });
 
 describe("EventEditor — the buttons", () => {
-  it("Save draft, Publish… (and its question's buttons) and Add ticket type are 44px tall", () => {
+  it("Save draft, Next, Publish… (and its question's buttons) and Add ticket type are 44px tall", () => {
     renderEditor(PINNED_EVENT);
-    for (const name of ["Save draft", "Publish…", "Add ticket type"]) {
+    for (const name of ["Save draft", "Next: Tickets"]) {
       expect(screen.getByRole("button", { name })).toHaveClass("min-h-11");
     }
+    showStep(2);
+    expect(screen.getByRole("button", { name: "Add ticket type" })).toHaveClass("min-h-11");
+    showStep(3);
+    expect(screen.getByRole("button", { name: "Publish…" })).toHaveClass("min-h-11");
+    expect(screen.getByRole("button", { name: "Back: Tickets" })).toHaveClass("min-h-11");
     fireEvent.click(screen.getByRole("button", { name: "Publish…" }));
     for (const name of ["Publish now", "Cancel"]) {
       expect(screen.getByRole("button", { name })).toHaveClass("min-h-11");
@@ -195,6 +206,7 @@ describe("EventEditor — the buttons", () => {
     let finish: (record: EventRecord) => void = () => {};
     publishEvent.mockImplementation(() => new Promise((resolve) => (finish = resolve)));
     renderEditor(PINNED_EVENT);
+    showStep(3);
     fireEvent.click(screen.getByRole("button", { name: "Publish…" }));
     const submit = screen.getByRole("button", { name: "Publish now" });
     submit.focus();

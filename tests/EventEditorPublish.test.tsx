@@ -12,6 +12,7 @@ import {
   removedBefore,
 } from "@/lib/organiser-events";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
+import { showStep } from "./test-utils/editorSteps";
 import { CONFIRMED_PIN_LOCATION, stubMatchMedia, unstubMatchMedia } from "./test-utils/pinMapStub";
 
 // The suburb table, stubbed: these tests aren't about the suburb (tests/VenueSuburbField.test.tsx is).
@@ -100,6 +101,8 @@ function renderEditor(initial: EventRecord = EVENT, extra: { eventReviewRequired
       />
     </FakeAuthProvider>,
   );
+  // Publish… is on the Publish step.
+  showStep(3);
   return { onSaved };
 }
 

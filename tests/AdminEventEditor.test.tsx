@@ -441,7 +441,11 @@ describe("EventEditor (admin) — editing", () => {
     fireEvent.click(screen.getByLabelText("On another site"));
     fireEvent.change(screen.getByLabelText("Ticket page address"), { target: { value: "https://events.humanitix.com/neon" } });
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-    await waitFor(() => expect(screen.getByText(/Give a reason for changing/)).toBeInTheDocument());
+    // By the note's field (on the Publish step) and in the error summary at the top, which links to it.
+    await waitFor(() => expect(document.getElementById("admin-reason-error")).toHaveTextContent(/Give a reason for changing/));
+    const summary = screen.getByRole("region", { name: "1 field needs fixing" });
+    fireEvent.click(within(summary).getByRole("button", { name: /^Note: Give a reason for changing/ }));
+    expect(screen.getByLabelText(/^Note for the event/)).toHaveFocus();
     expect(adminUpdateEvent.mock.calls[0][1]).toMatchObject({ ticketingMode: "external", ticketTypes: [] });
   });
 

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventEditor from "@/components/dashboard/EventEditor";
 import type { AdminEventRecord, AdminOrganiserRecord, EventRecord } from "@/lib/api/types";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
+import { showStep } from "./test-utils/editorSteps";
 
 /**
  * The editor's "Seating" choice (docs/design/seating.md §5.13): shown for
@@ -98,6 +99,8 @@ function renderOrganiser(initial?: EventRecord, onSaved = vi.fn()) {
       <EventEditor getToken={vi.fn().mockResolvedValue("token")} initial={initial} onSaved={onSaved} />
     </FakeAuthProvider>,
   );
+  // Seating is on the Tickets step.
+  showStep(2);
   return { onSaved };
 }
 
@@ -107,6 +110,7 @@ function renderAdmin(initial?: AdminEventRecord) {
       <EventEditor mode="admin" getToken={vi.fn().mockResolvedValue("token")} initial={initial} onSaved={vi.fn()} />
     </FakeAuthProvider>,
   );
+  showStep(2);
 }
 
 function seatingGroup() {

@@ -8,6 +8,7 @@ import { PAYOUTS_REQUIRED_CODE } from "@/lib/api/events";
 import type { AdminEventRecord, AdminOrganiserRecord, EventRecord } from "@/lib/api/types";
 import { sellsPaidTicketsOnSheltuh } from "@/lib/ticketing";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
+import { showStep } from "./test-utils/editorSteps";
 import { CONFIRMED_PIN_LOCATION, stubMatchMedia, unstubMatchMedia } from "./test-utils/pinMapStub";
 
 const push = vi.fn();
@@ -112,7 +113,11 @@ function renderOrganiser(initial: EventRecord | undefined, payoutsEnabled: boole
 }
 
 const notice = () => screen.queryByText(PAYOUTS_NEEDED_TO_PUBLISH);
-const submitButton = () => screen.getByRole("button", { name: "Publish…" });
+/** Publish… is on the Publish step. */
+const submitButton = () => {
+  showStep(3);
+  return screen.getByRole("button", { name: "Publish…" });
+};
 /** Publish…, then the question's Publish now. */
 const publish = () => {
   fireEvent.click(submitButton());
@@ -133,9 +138,15 @@ describe("EventEditor (organiser) — payouts before publishing paid tickets", (
   it("paid tickets, payouts off: says so by the tickets and by Publish…, linking to payouts; both buttons stay enabled", () => {
     renderOrganiser(PAID_DRAFT, false);
     expect(notice()).toBeInTheDocument();
-    const links = screen.getAllByRole("link", { name: "Set up payouts" });
-    expect(links).toHaveLength(2);
-    for (const link of links) expect(link).toHaveAttribute("href", "/dashboard/payouts");
+    // By the tickets (Tickets step); on the Publish step, by the checklist's payouts row and by Publish… itself.
+    showStep(2);
+    const ticketLinks = screen.getAllByRole("link", { name: "Set up payouts" });
+    expect(ticketLinks).toHaveLength(1);
+    showStep(3);
+    const publishLinks = screen.getAllByRole("link", { name: "Set up payouts" });
+    expect(publishLinks).toHaveLength(2);
+    for (const link of [...ticketLinks, ...publishLinks]) expect(link).toHaveAttribute("href", "/dashboard/payouts");
+    expect(document.querySelector("[data-check='payouts']")).toHaveTextContent("Set up payouts before publishing");
     expect(screen.getByRole("button", { name: "Save draft" })).not.toHaveAttribute("aria-disabled", "true");
     expect(submitButton()).not.toHaveAttribute("aria-disabled", "true");
     expect(submitButton()).toHaveAccessibleDescription(new RegExp(PAYOUTS_PUBLISH_HINT.slice(0, 40)));
@@ -186,8 +197,12 @@ describe("EventEditor (organiser) — payouts before publishing paid tickets", (
     expect(notice()).toBeNull();
     fireEvent.change(screen.getByLabelText("Price (A$)"), { target: { value: "20" } });
     expect(notice()).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Publish…" })).toBeNull();
+    showStep(2);
     expect(screen.getAllByRole("link", { name: "Set up payouts" })).toHaveLength(1);
+    // Publishing opens once it's saved: the Publish step says so, with no Publish… button.
+    showStep(3);
+    expect(screen.queryByRole("button", { name: "Publish…" })).toBeNull();
+    expect(screen.getByText("Save the draft first. Publishing opens once it is saved.")).toBeInTheDocument();
   });
 
   it("a draft with paid tickets still saves", async () => {
@@ -302,7 +317,7 @@ describe("EventEditor (admin) — publishing paid tickets for an organiser witho
     // By the ticket types (fieldErrors.ticketTypes).
     const ticketsError = document.getElementById("ticketTypes-error");
     expect(ticketsError).toHaveTextContent(ADMIN_REFUSED_MESSAGE);
-    expect(screen.getByRole("heading", { name: "Ticket types" }).parentElement?.parentElement).toContainElement(ticketsError);
+    expect(screen.getByRole("heading", { name: "Ticket types" }).closest("section")).toContainElement(ticketsError);
     // Not the organiser's link: an admin can't set up someone else's payouts.
     expect(screen.queryByRole("link", { name: "Set up payouts" })).toBeNull();
     expect(screen.getByLabelText("Title")).toHaveValue("Neon Static II");

@@ -7,6 +7,7 @@ import type { AdminEventRecord, EventRecord } from "@/lib/api/types";
 import type { ClipMetadata } from "@/lib/clip-precheck";
 import { CLIP_MESSAGES, MAX_CLIP_BYTES } from "@/lib/clip-rules";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
+import { showStep } from "./test-utils/editorSteps";
 import { CONFIRMED_PIN_LOCATION, stubMatchMedia, unstubMatchMedia } from "./test-utils/pinMapStub";
 
 /**
@@ -124,6 +125,7 @@ const TICKET = { uploadId: "up-1", uploadUrl: "https://project.supabase.test/sto
 
 /** Publish…, then the question's Publish now. */
 function publish() {
+  showStep(3);
   fireEvent.click(screen.getByRole("button", { name: "Publish…" }));
   fireEvent.click(screen.getByRole("button", { name: "Publish now" }));
 }
@@ -490,11 +492,12 @@ describe("EventClipField: a file still being checked (M1)", () => {
     await act(async () => {});
     publish();
     await act(async () => read({ durationMs: 9000, width: 1080, height: 1920 }));
-    // A new clip needs the rights confirmed: asked for, nothing sent.
-    expect(await screen.findByText(CLIP_MESSAGES.rights)).toBeInTheDocument();
+    // A new clip needs the rights confirmed: asked for (the Event page step is shown, where the clip is), nothing sent.
+    expect(await screen.findByText(CLIP_MESSAGES.rights)).toBeVisible();
     expect(api.updateEventDraft).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("checkbox", { name: /I own this clip/ }));
-    // The question is still open (nothing was refused by the server): Publish now again.
+    // The question is still open (nothing was refused by the server): back on Publish, Publish now again.
+    showStep(3);
     fireEvent.click(screen.getByRole("button", { name: "Publish now" }));
     await waitFor(() => expect(api.publishEvent).toHaveBeenCalled());
     expect(calls).toEqual(["updateEventDraft", "requestClipUpload", "uploadClipToStorage", "attachClip", "publishEvent"]);
@@ -529,7 +532,7 @@ describe("EventClipField: when the clip step fails after the event saved (M2)", 
       </FakeAuthProvider>,
     );
     fireEvent.change(screen.getByLabelText(/^Title/), { target: { value: "Test Event" } });
-    fireEvent.change(screen.getByLabelText(/^Description/), { target: { value: "A test event." } });
+    fireEvent.change(screen.getByLabelText("Description"), { target: { value: "A test event." } });
     fireEvent.change(screen.getByLabelText(/^Venue name/), { target: { value: "The Venue" } });
     fireEvent.change(screen.getByLabelText(/^Venue address/), { target: { value: "1 Test St" } });
     fireEvent.change(screen.getByLabelText(/^Suburb/), { target: { value: "Fitzroy" } });
@@ -601,12 +604,18 @@ describe("EventClipField: Cancel with a Submit queued (L3), and edits while uplo
     expect(screen.getByRole("checkbox", { name: /I own this clip/ })).toBeDisabled();
     publish();
     await waitFor(() => expect(api.updateEventDraft).toHaveBeenCalledTimes(2));
+    // On the Publish step the upload is still said (with a way back to the clip), and Cancel is in the clip field.
+    const showClip = screen.getByRole("button", { name: "Show clip" });
+    expect(showClip.parentElement).toHaveTextContent(/^Uploading clip…/);
+    fireEvent.click(showClip);
     fireEvent.click(screen.getByRole("button", { name: "Cancel upload" }));
     await waitFor(() => expect(status()).toHaveTextContent("Upload cancelled. The event was saved without the new clip."));
+    showStep(3);
     await waitFor(() => expect(screen.getByRole("button", { name: "Publish now" })).not.toHaveAttribute("aria-disabled", "true"));
     expect(api.requestClipUpload).toHaveBeenCalledTimes(1);
     expect(api.uploadClipToStorage).toHaveBeenCalledTimes(1);
     expect(api.publishEvent).not.toHaveBeenCalled();
+    showStep(1);
     expect(screen.getByLabelText("Describe the clip (required)")).not.toBeDisabled();
     expect(screen.getByRole("button", { name: "Discard new clip" })).toBeInTheDocument();
   });
@@ -635,6 +644,7 @@ describe("EventClipField: Cancel with a Submit queued (L3), and edits while uplo
     expect(api.attachClip).toHaveBeenCalledTimes(1);
     expect(api.deleteClip).not.toHaveBeenCalled();
     expect(screen.queryByText("No clip yet")).toBeNull();
+    showStep(1);
     expect(screen.getByRole("button", { name: "Remove clip" })).toBeInTheDocument();
   });
 });
