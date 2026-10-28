@@ -14,9 +14,10 @@ import { EMAIL_WORDMARK } from "./email-wordmark";
  * Email-client safe: table layout, inline styles, `bgcolor` attributes beside
  * `background-color` (the body's too), an Outlook (mso) 600px width wrapper,
  * a button that keeps its size in Outlook for Windows (`mso-padding-alt`), a
- * preheader hidden there as well (`mso-hide:all`), a system font stack (no
- * web fonts; Outlook for Windows is pinned to Segoe UI / Arial so it never
- * falls back to Times), no flex or grid, no background images, and light only
+ * preheader hidden there as well (`mso-hide:all`), a font stack that falls
+ * back to system fonts (the self-hosted Nunito is declared in the head only
+ * when the site is on https, emailFontFace; Outlook for Windows is pinned to
+ * Segoe UI / Arial so it never falls back to Times), no flex or grid, no background images, and light only
  * (`color-scheme: light only`): every surface sets its own background, so a
  * client that forces a dark mode anyway still keeps black type on a light
  * fill, and the ticket QR on its own white panel.
@@ -48,10 +49,11 @@ export const LINE = EMAIL_COLOURS.line;
 export const SIGNAL = EMAIL_COLOURS.signal;
 
 /**
- * The brand's type: Nunito Sans where the reader has it installed, then close
- * system matches. No web font is loaded (no @import, no Google Fonts), so a
- * client without Nunito simply uses Avenir Next, Segoe UI or Arial. Outlook
- * for Windows is pinned to Segoe UI / Arial in the page's mso block.
+ * The brand's type: Nunito where the reader has it or the email loads it (the
+ * self-hosted file, declared by emailFontFace on an https site; never a third
+ * party's font host: no @import, no Google Fonts), then close system matches,
+ * so a client that blocks web fonts uses Avenir Next, Segoe UI or Arial.
+ * Outlook for Windows is pinned to Segoe UI / Arial in the page's mso block.
  */
 export const SANS = `'Nunito Sans','Nunito','Avenir Next','Segoe UI',Arial,sans-serif`;
 export const MONO = `'SFMono-Regular', Menlo, Consolas, 'Courier New', monospace`;

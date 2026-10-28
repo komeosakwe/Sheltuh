@@ -456,6 +456,31 @@ describe("cron route, called every 5 minutes", () => {
     expect(await stored()).toEqual(before);
   });
 
+  it("an error queueing member welcomes (an account deleted meanwhile, a timeout) doesn't stop the run: it still sends what's due", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    await paidOrder("fan@example.com");
+    const real = api.db;
+    const failing = new TestApi({
+      query: async (text, params) => {
+        if (/select private\.queue_member_welcomes/.test(text)) {
+          throw Object.assign(new Error("insert violates foreign key for fan@example.com"), { code: "23503" });
+        }
+        return real.query(text, params);
+      },
+    });
+    const res = await failing.send(
+      runEmailOutboxCron,
+      new Request(`${SITE_URL}/api/cron/email-outbox`, { headers: { authorization: `Bearer ${CRON_SECRET}` } }),
+    );
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ claimed: 1, sent: 1, retrying: 0, failed: 0 });
+    expect(failing.sendEmail).toHaveBeenCalledTimes(1);
+    // The SQLSTATE only: never the error's message.
+    const logged = JSON.stringify(errors.mock.calls);
+    expect(logged).toContain("23503");
+    expect(logged).not.toContain("fan@example.com");
+  });
+
   it("three runs at once send every job exactly once", async () => {
     const orderIds: string[] = [];
     for (let i = 0; i < 6; i++) orderIds.push(await paidOrder(`fan${i}@example.com`));

@@ -45,8 +45,10 @@
 --     another in progress queues nothing), so concurrent cron runs neither
 --     double-queue nor waste cap.
 --   * Deferred constraint triggers on public.organisers (like
---     organisers_review_email_insert / _review_email, so they see the
---     transaction's final state and fire only if it commits): an insert with
+--     organisers_review_email_insert / _review_email: they fire at commit, so
+--     only if the transaction commits; they read the row as that statement
+--     left it (NEW), not the transaction's final state, which is why the
+--     status is checked again at send time): an insert with
 --     an owner queues organiser_welcome now, plus organiser_next_steps one
 --     hour later if the organiser is inserted already approved (an invite or
 --     an organiser link); an update of status to 'approved' from anything else
@@ -61,9 +63,13 @@
 --
 -- Who gets what is decided again at send time (lib/server/email-outbox.ts):
 -- the account must still be confirmed, not banned or deleted, with an email;
--- an organiser's welcome is skipped if the organiser is now rejected, and its
--- variant (pending or approved) follows the status then. They go to the
--- account's own email address, never an organiser's public contact email.
+-- an organiser's welcome is skipped if the organiser is now rejected, its
+-- variant (pending or approved) follows the status then, and the next steps
+-- are skipped unless the organiser is still approved. The organiser emails
+-- also share a platform allowance of 200 a day (bucket
+-- 'onboarding_organiser_emails_daily', taken just before sending): past it a
+-- job is put back an hour, without using an attempt, never dropped. They go to
+-- the account's own email address, never an organiser's public contact email.
 --
 -- Indexes: the unique indexes above (onboarding_emails (user_id, kind), which
 -- also serves the account-delete cascade; email_outbox (onboarding_id), which
@@ -76,11 +82,13 @@
 -- authenticated, every new function's execute revoked from PUBLIC and its
 -- search_path pinned. No security definer.
 --
--- Reversible, not destructive: drop the triggers and the four functions;
--- restore private.lease_outbox_jobs and the outbox's two kind checks from
--- 20261111000500_organiser_invite_links.sql after deleting `onboarding` jobs;
--- drop the column email_outbox.onboarding_id and the table
--- private.onboarding_emails. That forgets which accounts were welcomed, so
+-- Reversible, not destructive. In one transaction, in this order: drop the two
+-- triggers on public.organisers; delete the `onboarding` jobs; restore
+-- private.lease_outbox_jobs and the outbox's two kind checks from
+-- 20261111000500_organiser_invite_links.sql (the lease is restored, not
+-- dropped); drop the three new functions (queue_onboarding_email,
+-- queue_member_welcomes, organisers_onboarding_email); drop the column
+-- email_outbox.onboarding_id, then the table private.onboarding_emails. That forgets which accounts were welcomed, so
 -- re-applying this migration later would backfill them again (nothing is sent
 -- for those) but would not remember anyone welcomed since.
 

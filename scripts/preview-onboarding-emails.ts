@@ -14,6 +14,7 @@
  * clients before trusting the layout.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import type { EmailMessage } from "../lib/server/email";
 import { EMAIL_FONT_PATH, EMAIL_FOOTER_IMAGE_PATH, emailFooterImageUrl } from "../lib/server/email-layout";
@@ -24,9 +25,7 @@ import type { EventRecord, OrderRecord } from "../lib/server/types";
 const args = process.argv.slice(2);
 const outArg = args.find((a) => a.startsWith("--out="));
 const siteUrl = args.find((a) => !a.startsWith("--")) ?? "https://sheltuh.com.au";
-const outDir = outArg
-  ? path.resolve(outArg.slice("--out=".length))
-  : "/tmp/claude-0/-home-user-Sheltuh/ee259d25-b644-5676-a824-cc43971e97b9/scratchpad/email-previews";
+const outDir = outArg ? path.resolve(outArg.slice("--out=".length)) : path.join(tmpdir(), "sheltuh-email-previews");
 const PINNED_CHROMIUM = "/opt/pw-browsers/chromium";
 
 const emails: Record<string, EmailMessage> = {

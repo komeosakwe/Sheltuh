@@ -159,7 +159,8 @@ async function reviewOrganiser(
   if (rows.length === 0) {
     throw new HttpError(409, "This application is no longer pending — it may already have been reviewed.");
   }
-  // An approval may be what an application's still-waiting welcome was held for (it then goes out in its approved wording).
+  // The approval queued the organiser's next steps (an hour on, by the organisers trigger); this also sends a welcome
+  // still waiting from the application (it then goes out in its approved wording).
   if (decision.status === "approved") sendOnboardingEmailsSoon(deps);
   return okPrivate(await findAdminOrganiser(deps.db, organiserId));
 }

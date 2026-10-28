@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { adminApproveOrganiser, adminRejectOrganiser } from "@/lib/server/handlers/admin";
+import { adminApproveOrganiser, adminRejectOrganiser, adminSuspendOrganiser } from "@/lib/server/handlers/admin";
 import { runEmailOutboxCron } from "@/lib/server/handlers/email-outbox";
 import { acceptInvite, adminCreateInvite } from "@/lib/server/handlers/invites";
 import { joinWithOrganiserLink, adminCreateOrganiserLink } from "@/lib/server/handlers/organiser-links";
@@ -24,7 +24,7 @@ let api: TestApi;
 let reset: () => Promise<void>;
 
 beforeAll(async () => {
-  const testDb = await createTestDb({ onboardingEmails: true });
+  const testDb = await createTestDb();
   reset = testDb.reset;
   api = new TestApi(testDb.db);
 });
@@ -254,7 +254,11 @@ describe("member welcome", () => {
     const real = api.db;
     const old = new TestApi({
       query: async (text, params) => {
-        if (/queue_member_welcomes/.test(text)) throw Object.assign(new Error("function does not exist"), { code: "42883" });
+        if (/select private\.queue_member_welcomes/.test(text)) {
+          throw Object.assign(new Error("function does not exist"), { code: "42883" });
+        }
+        // The catalogue says it's missing, as it is before the migration.
+        if (/to_regprocedure\('private\.queue_member_welcomes/.test(text)) return [{ missing: true }] as never;
         return real.query(text, params);
       },
     });
@@ -390,6 +394,90 @@ describe("organiser emails", () => {
     expect(sentTo(user.email).filter((k) => k === "organiser_next_steps")).toHaveLength(1);
   });
 
+  it("joining with an organiser link approves a waiting application: next steps an hour on, no second welcome", async () => {
+    const admin = await signUpAdmin(api);
+    const user = await signUp();
+    await apply(user);
+    await api.runDeferred();
+    expect(sentTo(user.email)).toEqual(["organiser_welcome_pending"]);
+
+    const link = await api.call(adminCreateOrganiserLink, { token: admin.token, method: "POST" });
+    const token = /token=([A-Za-z0-9_-]{43})$/.exec(link.body.url)![1];
+    const joined = await api.call(joinWithOrganiserLink, { token: user.token, body: { token } });
+    expect(joined.status, JSON.stringify(joined.body)).toBe(200);
+    await api.runDeferred();
+    expect(sentTo(user.email)).toEqual(["organiser_welcome_pending"]);
+    expect((await jobs()).filter((j) => j.status === "pending").map((j) => Math.round(j.secs / 600))).toEqual([6]);
+
+    await makeDue();
+    await cron();
+    expect(sentTo(user.email).sort()).toEqual(["member_welcome", "organiser_next_steps", "organiser_welcome_pending"].sort());
+  });
+
+  it("a takedown, a resubmission and a second approval send nothing more", async () => {
+    const admin = await signUpAdmin(api);
+    const user = await signUp();
+    const organiserId = await apply(user);
+    await approve(admin.token, organiserId);
+    await api.runDeferred();
+    await makeDue();
+    await cron();
+    const before = sentTo(user.email).sort();
+    expect(before).toEqual(["member_welcome", "organiser_next_steps", "organiser_welcome_approved"].sort());
+
+    const takedown = await api.call(adminSuspendOrganiser, {
+      token: admin.token,
+      params: { organiserId },
+      body: { reason: "Fake listings." },
+    });
+    expect(takedown.status, JSON.stringify(takedown.body)).toBe(200);
+    const resubmitted = await api.call(resubmitOrganiser, { token: user.token, body: application, method: "PATCH" });
+    expect(resubmitted.status, JSON.stringify(resubmitted.body)).toBe(200);
+    expect((await approve(admin.token, organiserId)).status).toBe(200);
+    await api.runDeferred();
+    await makeDue();
+    await cron();
+
+    expect(sentTo(user.email).sort()).toEqual(before);
+    expect(await jobs()).toHaveLength(3);
+  });
+
+  it("over the platform's daily allowance for organiser emails, a job waits an hour without using an attempt, then goes out", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    await api.db.query(
+      `insert into private.platform_rate_limits (bucket, window_started_at, hits) values ('onboarding_organiser_emails_daily', now(), 200)`,
+    );
+    const user = await signUp();
+    await apply(user);
+    await api.runDeferred();
+
+    expect(sentTo(user.email)).toEqual([]);
+    const [held] = await api.db.query<{ status: string; attempts: number; secs: number; last_error: string | null }>(
+      `select status, attempts, extract(epoch from (next_attempt_at - now()))::float as secs, last_error
+         from private.email_outbox where kind = 'onboarding'`,
+    );
+    expect(held).toMatchObject({ status: "pending", attempts: 0 });
+    expect(held.secs).toBeGreaterThan(3500);
+
+    // Held back over and over, it is never failed.
+    for (let round = 0; round < 8; round++) {
+      await makeDue();
+      await cron();
+    }
+    // (The member welcome isn't an organiser email: it goes out.)
+    expect(sentTo(user.email)).toEqual(["member_welcome"]);
+    const [waiting] = await api.db.query<{ status: string; attempts: number }>(
+      `select j.status, j.attempts from private.email_outbox j join private.onboarding_emails e on e.id = j.onboarding_id
+        where e.kind = 'organiser_welcome'`,
+    );
+    expect(waiting).toEqual({ status: "pending", attempts: 0 });
+
+    await api.db.query(`update private.platform_rate_limits set window_started_at = now() - interval '2 days'`);
+    await makeDue();
+    await cron();
+    expect(sentTo(user.email)).toContain("organiser_welcome_pending");
+  });
+
   it("an organiser with no owner is never emailed", async () => {
     await api.db.query(
       `insert into public.organisers (display_name, contact_email, description, categories, status)
@@ -434,7 +522,10 @@ describe("organiser emails", () => {
 describe("the outbox", () => {
   it("leasing without a kind never takes onboarding or organiser_joined jobs; asking by name does", async () => {
     const admin = await signUpAdmin(api);
-    const organiser = await approvedOrganiser(api, admin);
+    const owner = await signUp();
+    const organiserId = await apply(owner);
+    await approve(admin.token, organiserId);
+    const organiser = { organiserId };
     await signUp(); // gets a member welcome
     await api.db.query(`select private.queue_member_welcomes(50)`);
     await api.db.query(`insert into private.email_outbox (kind, organiser_id) values ('organiser_joined', $1)`, [
@@ -448,7 +539,7 @@ describe("the outbox", () => {
     expect(await lease(null)).toEqual([]);
     expect((await lease("organiser_joined")).map((r) => r.job_kind)).toEqual(["organiser_joined"]);
     const onboarding = await lease("onboarding");
-    expect(onboarding).toHaveLength(3); // the organiser's welcome and next steps, and the member's welcome
+    expect(onboarding).toHaveLength(4); // the organiser's welcome and next steps, and two member welcomes (the owner's and the other account's)
     expect(new Set(onboarding.map((r) => r.job_kind))).toEqual(new Set(["onboarding"]));
   });
 

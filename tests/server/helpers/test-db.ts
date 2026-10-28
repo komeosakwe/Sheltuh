@@ -30,18 +30,6 @@ const RESET_SQL = `truncate private.user_reports, private.report_photos, public.
   update private.analytics_settings set views_tracked_since = (now() at time zone 'Australia/Melbourne')::date`;
 
 /**
- * Onboarding emails (20261111000700_onboarding_emails.sql) are off in a test
- * database unless a test file asks for them (createTestDb({ onboardingEmails:
- * true })): the organisers' triggers are disabled, and TestApi.signUp records
- * its accounts as already welcomed. Otherwise every unrelated test that counts
- * the emails a cron run or a deferred send makes would also see welcomes for
- * the accounts and organisers it set up. tests/server/onboarding-emails.test.ts
- * runs with them on.
- */
-const ONBOARDING_OFF_SQL = `alter table public.organisers disable trigger organisers_onboarding_email_insert;
-  alter table public.organisers disable trigger organisers_onboarding_email_approved`;
-
-/**
  * A real Postgres with Supabase's auth stubs and every migration in
  * supabase/migrations applied, in order — so tests exercise the exact SQL
  * and plpgsql the app runs in production.
@@ -51,18 +39,17 @@ const ONBOARDING_OFF_SQL = `alter table public.organisers disable trigger organi
  * the same suite through the production driver (postgres.js) instead; each
  * test file gets its own throwaway database.
  */
-export async function createTestDb(options: { onboardingEmails?: boolean } = {}): Promise<{
+export async function createTestDb(): Promise<{
   db: Db;
   reset: () => Promise<void>;
   /** The throwaway database's URL when running against a real server (TEST_DATABASE_URL), for tests that need their own connections. */
   url?: string;
 }> {
   const serverUrl = process.env.TEST_DATABASE_URL;
-  const resetSql = options.onboardingEmails ? RESET_SQL : `${RESET_SQL};\n  ${ONBOARDING_OFF_SQL}`;
-  return serverUrl ? createServerTestDb(serverUrl, resetSql) : createPgliteTestDb(resetSql);
+  return serverUrl ? createServerTestDb(serverUrl) : createPgliteTestDb();
 }
 
-async function createPgliteTestDb(resetSql: string) {
+async function createPgliteTestDb() {
   const pg = new PGlite();
   for (const sql of setupSql()) await pg.exec(sql);
   const db: Db = {
@@ -70,10 +57,10 @@ async function createPgliteTestDb(resetSql: string) {
       return (await pg.query(text, params)).rows as T[];
     },
   };
-  return { db, reset: async () => void (await pg.exec(resetSql)) };
+  return { db, reset: async () => void (await pg.exec(RESET_SQL)) };
 }
 
-async function createServerTestDb(serverUrl: string, resetSql: string) {
+async function createServerTestDb(serverUrl: string) {
   const name = `sheltuh_test_${crypto.randomUUID().replace(/-/g, "")}`;
   const admin = postgres(serverUrl, { max: 1, onnotice: () => {} });
   await admin.unsafe(`create database ${name}`);
@@ -86,5 +73,5 @@ async function createServerTestDb(serverUrl: string, resetSql: string) {
   await setup.end();
 
   const db = createPostgresDb(url.toString());
-  return { db, reset: async () => void (await db.query(resetSql)), url: url.toString() };
+  return { db, reset: async () => void (await db.query(RESET_SQL)), url: url.toString() };
 }

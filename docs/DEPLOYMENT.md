@@ -275,10 +275,14 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           re-validated against its rows, briefly locking it). The previous
           app keeps working against it, so it can be applied ahead of the
           deploy; welcomes are only sent once this app's cron runs. Needs no
-          new environment variable. Reversible: delete the `onboarding`
-          jobs, restore the outbox's kind checks and the lease from file 38,
-          then drop the triggers, the functions, the column and the table
-          (that forgets who was welcomed)
+          new environment variable. Reversible, in one transaction and this
+          order: drop the two triggers on `public.organisers`, delete the
+          `onboarding` jobs, restore the outbox's kind checks and the lease
+          from file 38 (the lease is restored, not dropped), drop the three
+          new functions (`queue_onboarding_email`, `queue_member_welcomes`,
+          `organisers_onboarding_email`), then the column
+          `email_outbox.onboarding_id` and the table
+          `private.onboarding_emails` (that forgets who was welcomed)
 
       **Files 33 to 37 can be applied ahead of this deploy, with the
       previous app still live.** "The previous app" here is the build of

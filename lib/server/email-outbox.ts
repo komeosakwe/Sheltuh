@@ -144,7 +144,16 @@ export interface DrainSummary {
  * `skipped`: nothing went wrong, there was just nothing to send any more
  * (e.g. the person left the waitlist). Recorded as failed, never retried.
  */
-type Outcome = { sent: true } | { sent: false; error: string; permanent: boolean; skipped?: boolean };
+type Outcome =
+  | { sent: true }
+  | {
+      sent: false;
+      error: string;
+      permanent: boolean;
+      skipped?: boolean;
+      /** Put the job back this many seconds without using one of its attempts (a platform cap, not a failure). */
+      deferSeconds?: number;
+    };
 
 /** Builds and sends one order's ticket email. Never throws. */
 async function deliverTicketEmail(deps: Deps, orderId: string): Promise<Outcome> {
@@ -166,6 +175,11 @@ async function deliverTicketEmail(deps: Deps, orderId: string): Promise<Outcome>
 }
 
 const skip = (error: string): Outcome => ({ sent: false, error, permanent: true, skipped: true });
+
+/** Organiser onboarding emails (welcome, next steps) sent a day, platform-wide: private.take_platform_rate_limit's bucket and cap. */
+export const ONBOARDING_ORGANISER_DAILY = { bucket: "onboarding_organiser_emails_daily", limit: 200 } as const;
+/** How long a job over that cap waits before it tries again. */
+export const ONBOARDING_CAP_DEFER_SECONDS = 3600;
 
 /**
  * Builds and sends one "tickets are available again" email, with a fresh
@@ -642,13 +656,23 @@ async function deliverOnboardingEmail(deps: Deps, jobId: string): Promise<Outcom
       [row.user_id],
     );
     if (!organiser) return skip("the account has no organiser");
-    if (row.kind === "organiser_welcome") {
-      if (organiser.status !== "approved" && organiser.status !== "pending") return skip("the application was rejected");
-      await deps.sendEmail(buildOrganiserWelcomeEmail({ to: row.email, status: organiser.status, siteUrl }));
-      return { sent: true };
+    if (row.kind === "organiser_welcome" && organiser.status === "rejected") return skip("the application was rejected");
+    if (row.kind === "organiser_next_steps" && organiser.status !== "approved") {
+      return skip("the organiser isn't approved any more");
     }
-    if (organiser.status !== "approved") return skip("the organiser isn't approved any more");
-    await deps.sendEmail(buildOrganiserNextStepsEmail({ to: row.email, siteUrl }));
+    // Last, so a skipped job never uses the allowance. Over it, the job waits (it isn't dropped, nor does it use an attempt).
+    const [{ allowed }] = await deps.db.query<{ allowed: boolean }>(
+      `select private.take_platform_rate_limit($1, $2, interval '1 day') as allowed`,
+      [ONBOARDING_ORGANISER_DAILY.bucket, ONBOARDING_ORGANISER_DAILY.limit],
+    );
+    if (!allowed) {
+      return { sent: false, error: "over the daily allowance for organiser emails", permanent: false, deferSeconds: ONBOARDING_CAP_DEFER_SECONDS };
+    }
+    await deps.sendEmail(
+      row.kind === "organiser_welcome"
+        ? buildOrganiserWelcomeEmail({ to: row.email, status: organiser.status === "approved" ? "approved" : "pending", siteUrl })
+        : buildOrganiserNextStepsEmail({ to: row.email, siteUrl }),
+    );
     return { sent: true };
   } catch (err) {
     return { sent: false, error: redactForLog(err instanceof Error ? err.message : "unknown error"), permanent: false };
@@ -671,7 +695,13 @@ function deliver(deps: Deps, job: ClaimedJob, leaseEndsAt: number): Promise<Outc
 
 async function runJob(deps: Deps, job: ClaimedJob, leaseEndsAt: number, summary: DrainSummary, random: () => number) {
   const outcome = await deliver(deps, job, leaseEndsAt);
-  const retryIn = outcome.sent || outcome.permanent ? null : retryDelaySeconds(job.job_attempts, random);
+  const retryIn = outcome.sent
+    ? null
+    : outcome.deferSeconds !== undefined
+      ? outcome.deferSeconds
+      : outcome.permanent
+        ? null
+        : retryDelaySeconds(job.job_attempts, random);
   const [{ result }] = await deps.db.query<{ result: string }>(
     `select private.finish_email_job($1::bigint, $2::uuid, $3, $4, $5::interval) as result`,
     [
@@ -682,6 +712,15 @@ async function runJob(deps: Deps, job: ClaimedJob, leaseEndsAt: number, summary:
       retryIn === null ? null : `${retryIn} seconds`,
     ],
   );
+  if (result === "retry" && !outcome.sent && outcome.deferSeconds !== undefined) {
+    // Held back by a cap, not failed: the attempt taken when it was leased isn't used up.
+    await deps.db.query(
+      `update private.email_outbox set attempts = greatest(attempts - 1, 0) where id = $1::bigint and status = 'pending'`,
+      [String(job.job_id)],
+    );
+    console.info(`Onboarding email job ${job.job_id} held back: ${outcome.error}.`);
+    return;
+  }
   if (result === "sent") summary.sent += 1;
   else if (result === "retry") summary.retrying += 1;
   else if (result === "failed") summary.failed += 1;

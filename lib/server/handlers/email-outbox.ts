@@ -1,6 +1,6 @@
 import { requireAdmin } from "../auth";
 import { requireCronSecret } from "../cron-auth";
-import { PG_UNDEFINED_FUNCTION, pgErrorCode } from "../db";
+import { pgErrorCode } from "../db";
 import type { Deps } from "../deps";
 import { drainEmailOutbox, sendTicketEmailSoon } from "../email-outbox";
 import { HttpError, okPrivate } from "../http";
@@ -36,21 +36,40 @@ let warnedNoWelcomeQueue = false;
 
 /**
  * Queues the welcome for members who've confirmed their email since the last
- * run. Never fails the run: in a deploy window where this code runs before
- * 20261111000700_onboarding_emails.sql is applied the function doesn't exist
- * (undefined_function), and the rest of the outbox still goes out.
+ * run. Never fails or delays the run, whatever goes wrong: queueing welcomes
+ * must not stop a ticket email going out. In a deploy window where this code
+ * runs before 20261111000700_onboarding_emails.sql is applied the function
+ * doesn't exist, which is warned about once; any other error (a timeout, an
+ * account deleted while the function ran) is logged as a fixed message with
+ * its SQLSTATE only (never a message, which could carry data), and the next
+ * run tries again.
  */
 async function queueMemberWelcomes(deps: Deps): Promise<void> {
   try {
     await deps.db.query(`select private.queue_member_welcomes($1)`, [MEMBER_WELCOMES_PER_RUN]);
+    return;
   } catch (err) {
-    if (pgErrorCode(err) !== PG_UNDEFINED_FUNCTION) throw err;
-    if (!warnedNoWelcomeQueue) {
-      warnedNoWelcomeQueue = true;
-      console.warn(
-        "Email outbox: private.queue_member_welcomes is missing (migration 20261111000700_onboarding_emails.sql isn't applied); no welcome emails are queued until it is.",
+    const code = pgErrorCode(err);
+    // undefined_function can also come from inside the function, so ask the catalogue.
+    let missing = false;
+    try {
+      const [row] = await deps.db.query<{ missing: boolean }>(
+        `select to_regprocedure('private.queue_member_welcomes(integer)') is null as missing`,
       );
+      missing = row?.missing === true;
+    } catch {
+      // Treated as the general failure below.
     }
+    if (missing) {
+      if (!warnedNoWelcomeQueue) {
+        warnedNoWelcomeQueue = true;
+        console.warn(
+          "Email outbox: private.queue_member_welcomes is missing (migration 20261111000700_onboarding_emails.sql isn't applied); no welcome emails are queued until it is.",
+        );
+      }
+      return;
+    }
+    console.error(`Email outbox: queueing member welcomes failed (SQLSTATE ${code ?? "unknown"}); sending what is due.`);
   }
 }
 

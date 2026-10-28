@@ -2947,13 +2947,17 @@ approval). Each is sent at most once per account, ever.
   public `contact_email`. Logs carry the job id only. After a response that
   queued one (apply, invite accept, admin approval, organiser link join) the
   app drains due `onboarding` jobs (`sendOnboardingEmailsSoon`); the next steps
-  and member welcomes go out with the cron route.
+  and member welcomes go out with the cron route. The organiser emails also
+  share a platform allowance of 200 a day (see the limits below).
 - **Draining.** `lease_outbox_jobs` without a kind leases only an allowlist of
   the original kinds, so an `onboarding` job is leased only when asked for by
   name; the app's drain asks last, after tickets, waitlist, follower and admin
   emails, so a burst of welcomes never delays a ticket. During a deploy window
   the cron tolerates `undefined_function` from `queue_member_welcomes` (it
-  warns once and carries on).
+  warns once and carries on). Any other error from it (a timeout, an account
+  deleted while it ran) is logged as a fixed message with the SQLSTATE only
+  and the run goes on to drain the outbox: a failure to queue welcomes never
+  stops a ticket email.
 - **Spam Act 2003 (Cth).** These are account emails: they confirm something the
   recipient just did (created an account, applied to be an organiser, was
   approved) and tell them how to use the service. They carry no promotion and
@@ -2970,9 +2974,14 @@ approval). Each is sent at most once per account, ever.
   at MVP size; watch it as accounts grow into the hundreds of thousands.
 - A person who is both a member and an organiser gets both welcomes (a member
   welcome when they confirm, an organiser welcome when they apply).
-- The 300-a-day cap applies to member welcomes only; organiser emails are
-  bounded by the application and invite throttles. If the cap is hit the rest
-  wait for the next day's window, oldest first.
+- Two platform caps, both from `take_platform_rate_limit`: member welcomes are
+  limited when they're queued (300 a day, bucket `onboarding_emails_daily`;
+  past it the rest wait, oldest first, for the next window), and organiser
+  emails (welcome and next steps) when they're sent (200 a day, bucket
+  `onboarding_organiser_emails_daily`, taken just before the send). A job over
+  the organiser cap isn't dropped: it's put back an hour without using one of
+  its six attempts, and tries again. Each attempt that reaches the send takes a
+  hit, so a send that fails and is retried takes two.
 - An organiser welcome queued for an account whose email isn't confirmed when it
   is sent is skipped, not held (applying doesn't itself require a verified email; with Supabase's "Confirm email" setting on, as `docs/supabase-setup.md` asks, an account can't sign in before confirming).
 - A job being sent when the process dies is sent again (at-least-once, as
