@@ -15,6 +15,7 @@ import { isPlainEmailAddress, redactForLog } from "./email-address";
 import { buildFollowerNewEventsEmail, FOLLOWER_EMAIL_MAX_EVENTS, followerUnsubscribeLink } from "./follower-email";
 import { findEventById } from "./handlers/event-queries";
 import { CHECKOUT_LIMITS } from "./checkout-attempts";
+import { buildMemberWelcomeEmail, buildOrganiserNextStepsEmail, buildOrganiserWelcomeEmail } from "./onboarding-email";
 import { buildCheckoutSurgeAlertEmail, buildOpsAlertEmail } from "./ops-alert-email";
 import { orderReference } from "./order-reference";
 import { EVENT_SELECT, ORDER_SELECT, paymentExceptionDetails, paymentExceptionUrgent, toEvent, toOrder } from "./records";
@@ -26,7 +27,8 @@ import { buildWaitlistAvailableEmail, waitlistEventLink, waitlistLeaveLink } fro
  * 20261024000000_waitlist.sql, 20261024000200_organiser_follows.sql,
  * 20261107000000_admin_review_emails.sql, 20261109000200_payment_reconciliation.sql,
  * 20261109000400_checkout_attempts.sql, 20261111000000_event_publish_now.sql,
- * 20261111000500_organiser_invite_links.sql). Eight kinds of job:
+ * 20261111000500_organiser_invite_links.sql, 20261111000700_onboarding_emails.sql).
+ * Nine kinds of job:
  * - `ticket_email`: private.fulfil_order queues one when an order becomes paid.
  * - `waitlist_available`: private.notify_waitlist queues one per person told
  *   that tickets are available again (docs/architecture.md, "Waitlist").
@@ -44,6 +46,12 @@ import { buildWaitlistAvailableEmail, waitlistEventLink, waitlistLeaveLink } fro
  *   when an organiser link makes (or approves) an organiser; one email to
  *   each admin, the same way, and likewise only leased by kind
  *   (docs/architecture.md, "Organiser links").
+ * - `onboarding`: a welcome to a new member, a welcome to a new organiser and
+ *   an organiser's "next steps" after approval (queued by the cron route's
+ *   private.queue_member_welcomes and by triggers on public.organisers); one
+ *   email, to the account's own address, at most once per account and kind.
+ *   Only leased when asked for by kind, and drained last
+ *   (docs/architecture.md, "Onboarding emails").
  * - `ops_alert`: private.raise_payment_exception queues one when a payment
  *   exception is opened or reopened (at most 20 a day), and
  *   private.queue_checkout_surge_alert one when an event's paid checkouts
@@ -136,7 +144,16 @@ export interface DrainSummary {
  * `skipped`: nothing went wrong, there was just nothing to send any more
  * (e.g. the person left the waitlist). Recorded as failed, never retried.
  */
-type Outcome = { sent: true } | { sent: false; error: string; permanent: boolean; skipped?: boolean };
+type Outcome =
+  | { sent: true }
+  | {
+      sent: false;
+      error: string;
+      permanent: boolean;
+      skipped?: boolean;
+      /** Put the job back this many seconds without using one of its attempts (a platform cap, not a failure). */
+      deferSeconds?: number;
+    };
 
 /** Builds and sends one order's ticket email. Never throws. */
 async function deliverTicketEmail(deps: Deps, orderId: string): Promise<Outcome> {
@@ -158,6 +175,11 @@ async function deliverTicketEmail(deps: Deps, orderId: string): Promise<Outcome>
 }
 
 const skip = (error: string): Outcome => ({ sent: false, error, permanent: true, skipped: true });
+
+/** Organiser onboarding emails (welcome, next steps) sent a day, platform-wide: private.take_platform_rate_limit's bucket and cap. */
+export const ONBOARDING_ORGANISER_DAILY = { bucket: "onboarding_organiser_emails_daily", limit: 200 } as const;
+/** How long a job over that cap waits before it tries again. */
+export const ONBOARDING_CAP_DEFER_SECONDS = 3600;
 
 /**
  * Builds and sends one "tickets are available again" email, with a fresh
@@ -593,8 +615,73 @@ async function deliverOpsAlert(deps: Deps, jobId: string): Promise<Outcome> {
   }
 }
 
+/**
+ * Sends one onboarding email (a member's welcome, an organiser's welcome or
+ * "next steps"), to the account's own address from Supabase Auth: never the
+ * organiser's public contact email. Everything is read now, not when the job
+ * was queued: skipped, not retried, if the account is gone, unconfirmed,
+ * banned or deleted, or has no plain address; an organiser's welcome also if
+ * the organiser was rejected since (its pending or approved wording follows
+ * the status now), and the next steps if it isn't approved. Never throws,
+ * and never puts an address or a name in an error.
+ */
+async function deliverOnboardingEmail(deps: Deps, jobId: string): Promise<Outcome> {
+  try {
+    const [row] = await deps.db.query<{
+      kind: "member_welcome" | "organiser_welcome" | "organiser_next_steps";
+      user_id: string;
+      email: string | null;
+      confirmed: boolean;
+      unavailable: boolean;
+    }>(
+      `select e.kind, e.user_id, u.email, u.email_confirmed_at is not null as confirmed,
+              (u.deleted_at is not null or coalesce(u.banned_until > now(), false)) as unavailable
+         from private.email_outbox j
+         join private.onboarding_emails e on e.id = j.onboarding_id
+         join auth.users u on u.id = e.user_id
+        where j.id = $1::bigint`,
+      [jobId],
+    );
+    if (!row) return skip("the account no longer exists");
+    if (row.unavailable) return skip("the account is banned or deleted");
+    if (!row.email || !isPlainEmailAddress(row.email)) return skip("the account has no usable email address");
+    if (!row.confirmed) return skip("the account's email address isn't confirmed");
+    const siteUrl = deps.siteUrl();
+    if (row.kind === "member_welcome") {
+      await deps.sendEmail(buildMemberWelcomeEmail({ to: row.email, siteUrl }));
+      return { sent: true };
+    }
+    const [organiser] = await deps.db.query<{ status: "pending" | "approved" | "rejected" }>(
+      `select o.status::text as status from public.organisers o where o.owner_user_id = $1`,
+      [row.user_id],
+    );
+    if (!organiser) return skip("the account has no organiser");
+    if (row.kind === "organiser_welcome" && organiser.status === "rejected") return skip("the application was rejected");
+    if (row.kind === "organiser_next_steps" && organiser.status !== "approved") {
+      return skip("the organiser isn't approved any more");
+    }
+    // Last, so a skipped job never uses the allowance. Over it, the job waits (it isn't dropped, nor does it use an attempt).
+    const [{ allowed }] = await deps.db.query<{ allowed: boolean }>(
+      `select private.take_platform_rate_limit($1, $2, interval '1 day') as allowed`,
+      [ONBOARDING_ORGANISER_DAILY.bucket, ONBOARDING_ORGANISER_DAILY.limit],
+    );
+    if (!allowed) {
+      return { sent: false, error: "over the daily allowance for organiser emails", permanent: false, deferSeconds: ONBOARDING_CAP_DEFER_SECONDS };
+    }
+    await deps.sendEmail(
+      row.kind === "organiser_welcome"
+        ? buildOrganiserWelcomeEmail({ to: row.email, status: organiser.status === "approved" ? "approved" : "pending", siteUrl })
+        : buildOrganiserNextStepsEmail({ to: row.email, siteUrl }),
+    );
+    return { sent: true };
+  } catch (err) {
+    return { sent: false, error: redactForLog(err instanceof Error ? err.message : "unknown error"), permanent: false };
+  }
+}
+
 function deliver(deps: Deps, job: ClaimedJob, leaseEndsAt: number): Promise<Outcome> {
   if (job.job_kind === "ops_alert") return deliverOpsAlert(deps, String(job.job_id));
+  if (job.job_kind === "onboarding") return deliverOnboardingEmail(deps, String(job.job_id));
   if (isAdminJob(job.job_kind)) return deliverReviewEmail(deps, job, leaseEndsAt);
   if (job.job_kind === "waitlist_available" && job.job_waitlist_entry_id) {
     return deliverWaitlistEmail(deps, job.job_waitlist_entry_id);
@@ -608,7 +695,13 @@ function deliver(deps: Deps, job: ClaimedJob, leaseEndsAt: number): Promise<Outc
 
 async function runJob(deps: Deps, job: ClaimedJob, leaseEndsAt: number, summary: DrainSummary, random: () => number) {
   const outcome = await deliver(deps, job, leaseEndsAt);
-  const retryIn = outcome.sent || outcome.permanent ? null : retryDelaySeconds(job.job_attempts, random);
+  const retryIn = outcome.sent
+    ? null
+    : outcome.deferSeconds !== undefined
+      ? outcome.deferSeconds
+      : outcome.permanent
+        ? null
+        : retryDelaySeconds(job.job_attempts, random);
   const [{ result }] = await deps.db.query<{ result: string }>(
     `select private.finish_email_job($1::bigint, $2::uuid, $3, $4, $5::interval) as result`,
     [
@@ -619,6 +712,15 @@ async function runJob(deps: Deps, job: ClaimedJob, leaseEndsAt: number, summary:
       retryIn === null ? null : `${retryIn} seconds`,
     ],
   );
+  if (result === "retry" && !outcome.sent && outcome.deferSeconds !== undefined) {
+    // Held back by a cap, not failed: the attempt taken when it was leased isn't used up.
+    await deps.db.query(
+      `update private.email_outbox set attempts = greatest(attempts - 1, 0) where id = $1::bigint and status = 'pending'`,
+      [String(job.job_id)],
+    );
+    console.info(`Onboarding email job ${job.job_id} held back: ${outcome.error}.`);
+    return;
+  }
   if (result === "sent") summary.sent += 1;
   else if (result === "retry") summary.retrying += 1;
   else if (result === "failed") summary.failed += 1;
@@ -634,10 +736,21 @@ async function runJob(deps: Deps, job: ClaimedJob, leaseEndsAt: number, summary:
     }
     return;
   }
-  if (job.job_kind === "waitlist_available" || job.job_kind === "organiser_new_events" || job.job_kind === "ops_alert") {
-    // The job id only: never the address, the entry, the follow or the exception.
+  if (
+    job.job_kind === "waitlist_available" ||
+    job.job_kind === "organiser_new_events" ||
+    job.job_kind === "ops_alert" ||
+    job.job_kind === "onboarding"
+  ) {
+    // The job id only: never the address, the entry, the follow, the account or the exception.
     const label =
-      job.job_kind === "waitlist_available" ? "Waitlist" : job.job_kind === "ops_alert" ? "Ops alert" : "Follower";
+      job.job_kind === "waitlist_available"
+        ? "Waitlist"
+        : job.job_kind === "ops_alert"
+          ? "Ops alert"
+          : job.job_kind === "onboarding"
+            ? "Onboarding"
+            : "Follower";
     const message = `${label} email job ${job.job_id} attempt ${job.job_attempts}`;
     if (outcome.skipped) console.info(`${message} not sent: ${outcome.error}.`);
     else console.error(`${message} ${result === "failed" ? "failed for good" : "failed, will retry"}: ${outcome.error}`);
@@ -686,10 +799,12 @@ async function leaseJobs(deps: Deps, limit: number, orderId: string | null, kind
  * Leases due jobs and sends them, until none are due, `maxJobs` have been
  * taken or `budgetMs` has passed. With `orderId`, only that order's job (the
  * attempt straight after payment); with `kind`, only jobs of that kind.
- * With neither, ops alerts first, then every other kind, then the
- * organiser-published and organiser-joined emails (private.lease_outbox_jobs
- * only leases ops alerts, `event_published` and `organiser_joined` jobs when
- * asked for that kind, so a release that can't send them never takes one).
+ * With neither, ops alerts first, then the original kinds (tickets, waitlist,
+ * followers, reviews), then the organiser-published and organiser-joined
+ * emails, and the onboarding emails last, so a burst of welcomes never delays
+ * a ticket (private.lease_outbox_jobs without a kind leases only an allowlist
+ * of the original kinds; every other kind only when asked for it by name, so
+ * a release that can't send one never takes it).
  * Safe to run concurrently with itself.
  */
 export async function drainEmailOutbox(
@@ -699,7 +814,7 @@ export async function drainEmailOutbox(
   const { orderId, kind, maxJobs = 100, budgetMs = DRAIN_BUDGET_MS, random = Math.random } = options;
   const deadline = Date.now() + budgetMs;
   const summary: DrainSummary = { claimed: 0, sent: 0, retrying: 0, failed: 0 };
-  const phases: (EmailJobKind | null)[] = kind ? [kind] : orderId ? [null] : ["ops_alert", null, "event_published", "organiser_joined"];
+  const phases: (EmailJobKind | null)[] = kind ? [kind] : orderId ? [null] : ["ops_alert", null, "event_published", "organiser_joined", "onboarding"];
   for (const phase of phases) {
     while (summary.claimed < maxJobs && Date.now() < deadline) {
       // Taken before the lease starts, so the lease ends no sooner than this says.
@@ -774,6 +889,21 @@ export function sendPublishEmailsSoon(deps: Deps): void {
     if (left > 0) {
       await drainEmailOutbox(deps, { kind: "organiser_new_events", maxJobs: FOLLOWER_DRAIN_MAX_JOBS, budgetMs: left });
     }
+  });
+}
+
+/** Onboarding emails sent straight after a response that queued one (any due ones). */
+export const ONBOARDING_DRAIN_MAX_JOBS = 10;
+
+/**
+ * Queues a run over due onboarding emails for straight after the response
+ * that queued one (an application, an invite, an approval, an organiser link).
+ * Cheap when there are none; one queued for later (the next steps, an hour
+ * after approval) waits for the cron route.
+ */
+export function sendOnboardingEmailsSoon(deps: Deps): void {
+  deps.defer(async () => {
+    await drainEmailOutbox(deps, { kind: "onboarding", maxJobs: ONBOARDING_DRAIN_MAX_JOBS });
   });
 }
 

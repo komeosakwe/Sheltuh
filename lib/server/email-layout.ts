@@ -14,9 +14,10 @@ import { EMAIL_WORDMARK } from "./email-wordmark";
  * Email-client safe: table layout, inline styles, `bgcolor` attributes beside
  * `background-color` (the body's too), an Outlook (mso) 600px width wrapper,
  * a button that keeps its size in Outlook for Windows (`mso-padding-alt`), a
- * preheader hidden there as well (`mso-hide:all`), a system font stack (no
- * web fonts; Outlook for Windows is pinned to Segoe UI / Arial so it never
- * falls back to Times), no flex or grid, no background images, and light only
+ * preheader hidden there as well (`mso-hide:all`), a font stack that falls
+ * back to system fonts (the self-hosted Nunito is declared in the head only
+ * when the site is on https, emailFontFace; Outlook for Windows is pinned to
+ * Segoe UI / Arial so it never falls back to Times), no flex or grid, no background images, and light only
  * (`color-scheme: light only`): every surface sets its own background, so a
  * client that forces a dark mode anyway still keeps black type on a light
  * fill, and the ticket QR on its own white panel.
@@ -47,17 +48,101 @@ export const MUTED = EMAIL_COLOURS.muted;
 export const LINE = EMAIL_COLOURS.line;
 export const SIGNAL = EMAIL_COLOURS.signal;
 
-/** System faces only (no web fonts). */
-export const SANS = `-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Helvetica, Arial, sans-serif`;
+/**
+ * The brand's type: Nunito where the reader has it or the email loads it (the
+ * self-hosted file, declared by emailFontFace on an https site; never a third
+ * party's font host: no @import, no Google Fonts), then close system matches,
+ * so a client that blocks web fonts uses Avenir Next, Segoe UI or Arial.
+ * Outlook for Windows is pinned to Segoe UI / Arial in the page's mso block.
+ */
+export const SANS = `'Nunito Sans','Nunito','Avenir Next','Segoe UI',Arial,sans-serif`;
 export const MONO = `'SFMono-Regular', Menlo, Consolas, 'Courier New', monospace`;
 
 export function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 }
 
-/** The email's h1. `html` is trusted markup (escape anything dynamic first). */
+/** The email's h1 (36/44, 600; 30/36 at 620px and under via `.h1`). `html` is trusted markup (escape anything dynamic first). */
 export function heading(html: string, gapAfterPx = 16): string {
-  return `<h1 style="margin:0 0 ${gapAfterPx}px 0;font-family:${SANS};font-size:28px;line-height:34px;font-weight:bold;color:${INK}">${html}</h1>`;
+  return `<h1 class="h1" style="margin:0 0 ${gapAfterPx}px 0;font-family:${SANS};font-size:36px;line-height:44px;font-weight:600;letter-spacing:normal;color:${INK}">${html}</h1>`;
+}
+
+/** The main heading from plain text lines (escaped), one per line: "Find your room." / "Find your people." */
+export function displayHeading(lines: string | string[], gapAfterPx = 24): string {
+  const list = Array.isArray(lines) ? lines : [lines];
+  return heading(list.map(escapeHtml).join("<br>"), gapAfterPx);
+}
+
+/** A section heading (h2): 22/28, weight 500. Plain text, escaped. */
+export function sectionHeading(text: string, gapAfterPx = 16): string {
+  return `<h2 style="margin:0 0 ${gapAfterPx}px 0;font-family:${SANS};font-size:22px;line-height:28px;font-weight:500;letter-spacing:normal;color:${INK}">${escapeHtml(text)}</h2>`;
+}
+
+/** A body paragraph: 16/24, weight 400. `html` is trusted markup; use `paragraph` for plain text. */
+export function paragraphHtml(html: string, gapAfterPx = 16): string {
+  return `<p style="margin:0 0 ${gapAfterPx}px 0;font-family:${SANS};font-size:16px;line-height:24px;font-weight:400;color:${INK}">${html}</p>`;
+}
+
+/** A body paragraph from plain text (escaped). */
+export function paragraph(text: string, gapAfterPx = 16): string {
+  return paragraphHtml(escapeHtml(text), gapAfterPx);
+}
+
+/** A restrained 1px rule between sections, with `marginPx` of space above and below. */
+export function divider(marginPx = 32): string {
+  return (
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">` +
+    `<tr><td height="${marginPx}" style="height:${marginPx}px;font-size:1px;line-height:1px">&nbsp;</td></tr>` +
+    `<tr><td height="1" style="height:1px;font-size:1px;line-height:1px;border-top:1px solid ${LINE}">&nbsp;</td></tr>` +
+    `<tr><td height="${marginPx}" style="height:${marginPx}px;font-size:1px;line-height:1px">&nbsp;</td></tr>` +
+    `</table>`
+  );
+}
+
+export interface NumberedStep {
+  title: string;
+  /** Plain text. */
+  description: string;
+  /** An optional text link under the description (an absolute https URL). */
+  link?: { label: string; href: string };
+}
+
+const stepNumber = (index: number) => String(index + 1).padStart(2, "0");
+
+/** Steps numbered 01, 02, 03 as real black text; the title at weight 500, then the description. */
+export function numberedSteps(steps: NumberedStep[]): string {
+  const rows = steps
+    .map(
+      (step, i) =>
+        `<tr><td width="44" valign="top" style="width:44px;padding:0 0 20px 0;font-family:${SANS};font-size:16px;line-height:24px;font-weight:500;color:${INK}">${stepNumber(i)}</td>` +
+        `<td valign="top" style="padding:0 0 20px 0;font-family:${SANS};color:${INK}">` +
+        `<p style="margin:0 0 4px 0;font-family:${SANS};font-size:16px;line-height:24px;font-weight:500;color:${INK}">${escapeHtml(step.title)}</p>` +
+        `<p style="margin:0;font-family:${SANS};font-size:16px;line-height:24px;font-weight:400;color:${INK}">${escapeHtml(step.description)}</p>` +
+        (step.link
+          ? `<p style="margin:4px 0 0 0;font-family:${SANS};font-size:16px;line-height:24px;font-weight:400;color:${INK}"><a href="${escapeHtml(step.link.href)}" style="color:${INK};text-decoration:underline">${escapeHtml(step.link.label)}</a></p>`
+          : "") +
+        `</td></tr>`,
+    )
+    .join("");
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${rows}</table>`;
+}
+
+/** The same steps as plain text, links included. */
+export function numberedStepsText(steps: NumberedStep[]): string {
+  return steps
+    .map((step, i) =>
+      [`${stepNumber(i)} ${step.title}`, `   ${step.description}`, ...(step.link ? [`   ${step.link.label}: ${step.link.href}`] : [])].join("\n"),
+    )
+    .join("\n\n");
+}
+
+/**
+ * An optional full-width image for the top of the column. https only, with an
+ * explicit size and alt text. Not used yet (no licensed photography).
+ */
+export function heroImage(input: { src: string; alt: string; width: number; height: number }): string {
+  if (!/^https:\/\//i.test(input.src)) throw new Error("heroImage needs an https URL");
+  return `<img src="${escapeHtml(input.src)}" width="${input.width}" height="${input.height}" alt="${escapeHtml(input.alt)}" style="display:block;border:0;width:100%;max-width:${input.width}px;height:auto;font-family:${SANS};font-size:14px;line-height:20px;color:${INK}">`;
 }
 
 /** The event's title: black, bold, 20px (never orange or blue). */
@@ -84,7 +169,8 @@ export function eventBlock(title: string, lines: string[], gapAfterPx = 24): str
 
 /**
  * The one call-to-action: Signal Orange fill, black label, black hairline.
- * 14px padding on a 20px line plus the border makes it 50px tall (≥44px).
+ * 14px padding on a 20px line plus the border makes it 50px tall (≥48px),
+ * 12px radius, label at weight 500. One per email.
  * Outlook for Windows ignores padding on an <a>, so the cell carries the same
  * padding as `mso-padding-alt` (read by Outlook only) and the button keeps
  * its size there; everywhere else the padding is on the block-level <a>, so
@@ -94,11 +180,13 @@ export function eventBlock(title: string, lines: string[], gapAfterPx = 24): str
 export function button(label: string, href: string, margin = "0 0 24px 0", fullWidth = false): string {
   return (
     `<table role="presentation"${fullWidth ? ' width="100%"' : ""} cellpadding="0" cellspacing="0" border="0" style="margin:${margin}"><tr>` +
-    `<td bgcolor="${SIGNAL}" style="background-color:${SIGNAL};border:1px solid ${INK};border-radius:8px;mso-padding-alt:14px 28px">` +
-    `<a href="${escapeHtml(href)}" style="display:block;padding:14px 28px;font-family:${SANS};font-size:16px;line-height:20px;font-weight:bold;color:${INK};text-decoration:none;text-align:center">${escapeHtml(label)}</a>` +
+    `<td bgcolor="${SIGNAL}" style="background-color:${SIGNAL};border:1px solid ${INK};border-radius:12px;mso-padding-alt:14px 28px">` +
+    `<a href="${escapeHtml(href)}" style="display:block;padding:14px 28px;font-family:${SANS};font-size:16px;line-height:20px;font-weight:500;color:${INK};text-decoration:none;text-align:center">${escapeHtml(label)}</a>` +
     `</td></tr></table>`
   );
 }
+
+const supportFooterLine = `Need help? Email <a href="mailto:${escapeHtml(SUPPORT_EMAIL)}" style="color:${MUTED};text-decoration:underline">${escapeHtml(SUPPORT_EMAIL)}</a>`;
 
 /** The support line at the foot of every email. */
 export const supportFooter = `Need help? Email <a href="mailto:${escapeHtml(SUPPORT_EMAIL)}" style="color:${MUTED};text-decoration:underline">${escapeHtml(SUPPORT_EMAIL)}</a><br>Sheltüh &middot; Melbourne`;
@@ -157,19 +245,53 @@ export function wordmarkImage(): InlineImage {
  * footer image per email, inside the column.
  */
 export function brandFooter(siteUrl: string, leadHtml?: string): string {
-  const imageUrl = emailFooterImageUrl(siteUrl);
-  const brand = imageUrl
-    ? `<img src="${escapeHtml(imageUrl)}" width="${EMAIL_FOOTER_IMAGE_WIDTH}" height="${EMAIL_FOOTER_IMAGE_HEIGHT}" alt="${escapeHtml(EMAIL_FOOTER_IMAGE_ALT)}" style="display:block;border:0;width:${EMAIL_FOOTER_IMAGE_WIDTH}px;max-width:100%;height:auto;font-family:${SANS};font-size:14px;line-height:20px;font-weight:bold;color:${INK}">`
-    : `<span style="font-family:${SANS};font-size:14px;line-height:20px;font-weight:bold;color:${INK}">${escapeHtml(EMAIL_FOOTER_IMAGE_ALT)}</span>`;
   return (
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">` +
     (leadHtml
       ? `<tr><td style="padding:0 0 20px 0;font-family:${SANS};font-size:15px;line-height:22px;color:${INK}">${leadHtml}</td></tr>`
       : "") +
-    `<tr><td align="center" style="border-top:1px solid ${LINE};padding:24px 0 8px 0">${brand}</td></tr>` +
+    `<tr><td align="center" style="border-top:1px solid ${LINE};padding:24px 0 8px 0">${footerBannerHtml(siteUrl)}</td></tr>` +
     `<tr><td align="center" style="padding:0;font-family:${SANS};font-size:13px;line-height:20px;color:${MUTED}">Sheltüh &middot; Melbourne</td></tr>` +
     `</table>`
   );
+}
+
+/** The orange footer banner (the only footer banner), or its alt text as text on a non-https site. */
+export function footerBannerHtml(siteUrl: string): string {
+  const imageUrl = emailFooterImageUrl(siteUrl);
+  return imageUrl
+    ? `<img src="${escapeHtml(imageUrl)}" width="${EMAIL_FOOTER_IMAGE_WIDTH}" height="${EMAIL_FOOTER_IMAGE_HEIGHT}" alt="${escapeHtml(EMAIL_FOOTER_IMAGE_ALT)}" style="display:block;border:0;width:${EMAIL_FOOTER_IMAGE_WIDTH}px;max-width:100%;height:auto;font-family:${SANS};font-size:14px;line-height:20px;font-weight:500;color:${INK}">`
+    : `<span style="font-family:${SANS};font-size:14px;line-height:20px;font-weight:500;color:${INK}">${escapeHtml(EMAIL_FOOTER_IMAGE_ALT)}</span>`;
+}
+
+/**
+ * The one footer for the newer emails: the support line, why the reader got
+ * this email (`reason`, plain text), a privacy link, the orange banner and
+ * "Sheltüh · Melbourne". `siteUrl` is the site's https origin.
+ */
+export function emailFooter(input: { reason: string; siteUrl: string }): string {
+  const { reason, siteUrl } = input;
+  const small = `font-family:${SANS};font-size:13px;line-height:20px;font-weight:400;color:${MUTED}`;
+  return (
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">` +
+    `<tr><td style="border-top:1px solid ${LINE};padding:24px 0 0 0;${small}">${supportFooterLine}</td></tr>` +
+    `<tr><td style="padding:8px 0 0 0;${small}">${escapeHtml(reason)}</td></tr>` +
+    `<tr><td style="padding:8px 0 0 0;${small}"><a href="${escapeHtml(new URL("/privacy", siteUrl).href)}" style="color:${MUTED};text-decoration:underline">Privacy policy</a></td></tr>` +
+    `<tr><td align="center" style="padding:24px 0 8px 0">${footerBannerHtml(siteUrl)}</td></tr>` +
+    `<tr><td align="center" style="${small}">Sheltüh &middot; Melbourne</td></tr>` +
+    `</table>`
+  );
+}
+
+/** The plain-text twin of `emailFooter`: support, reason, privacy link, "Sheltüh · Melbourne". */
+export function emailFooterText(input: { reason: string; siteUrl: string }): string {
+  return [
+    "--",
+    `Need help? Email ${SUPPORT_EMAIL}`,
+    input.reason,
+    `Privacy policy: ${new URL("/privacy", input.siteUrl).href}`,
+    "Sheltüh · Melbourne",
+  ].join("\n");
 }
 
 export interface PageInput {
@@ -185,13 +307,29 @@ export interface PageInput {
   hero?: string;
   /** Markup at the foot of the column, under a rule. Defaults to the support line. */
   footer?: string;
+  /** The site's origin. When https, the head declares the self-hosted Nunito (public/fonts/nunito); otherwise the fallback stack alone. */
+  siteUrl?: string;
+}
+
+export const EMAIL_FONT_PATH = "/fonts/nunito/Nunito-VariableFont_wght.ttf";
+
+/** `@font-face` for the self-hosted Nunito (variable, 400-600) on an https site, else nothing. Never a third-party font host. */
+export function emailFontFace(siteUrl: string | undefined): string {
+  if (!siteUrl) return "";
+  try {
+    const site = new URL(siteUrl);
+    if (site.protocol !== "https:") return "";
+    return `  @font-face { font-family: 'Nunito'; font-style: normal; font-weight: 400 600; font-display: swap; src: url('${new URL(EMAIL_FONT_PATH, site.origin).href}') format('truetype'); }\n`;
+  } catch {
+    return "";
+  }
 }
 
 /**
  * The brand email page: one centred ivory column, at most 600px wide, on the
  * warm page; on a phone (≤620px) the column fills the screen with 20px sides.
  */
-export function page({ title, body, preheader, header, hero, footer }: PageInput): string {
+export function page({ title, body, preheader, header, hero, footer, siteUrl }: PageInput): string {
   const footerRow = footer
     ? `  <tr><td class="px" style="padding:0 32px 28px 32px;font-family:${SANS};color:${INK}">${footer}</td></tr>\n`
     : `  <tr><td class="px" style="padding:0 32px 28px 32px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="border-top:1px solid ${LINE};padding:18px 0 0 0;font-family:${SANS};font-size:13px;line-height:20px;color:${MUTED}">${supportFooter}</td></tr></table></td></tr>\n`;
@@ -205,15 +343,15 @@ export function page({ title, body, preheader, header, hero, footer }: PageInput
 <meta name="supported-color-schemes" content="light only">
 <title>${escapeHtml(title)}</title>
 <style>
-  :root { color-scheme: light only; supported-color-schemes: light only; }
+${emailFontFace(siteUrl)}  :root { color-scheme: light only; supported-color-schemes: light only; }
   @media only screen and (max-width: 620px) {
     .outer { padding: 0 !important; }
     .px { padding-left: 20px !important; padding-right: 20px !important; }
-    .h1 { font-size: 26px !important; line-height: 32px !important; }
+    .h1 { font-size: 30px !important; line-height: 36px !important; }
     .tpx { padding-left: 14px !important; padding-right: 14px !important; }
   }
 </style>
-<!--[if mso]><style>body, table, td, p, a, h1, span { font-family: 'Segoe UI', Arial, sans-serif !important; }</style><![endif]-->
+<!--[if mso]><style>body, table, td, p, a, h1, h2, span { font-family: 'Segoe UI', Arial, sans-serif !important; }</style><![endif]-->
 </head>
 <body bgcolor="${PAGE}" style="margin:0;padding:0;background-color:${PAGE};font-family:${SANS};color:${INK};-webkit-text-size-adjust:100%">
 ${preheader ? `<div style="display:none;max-height:0;max-width:0;overflow:hidden;opacity:0;mso-hide:all;font-size:1px;line-height:1px">${escapeHtml(preheader)}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>\n` : ""}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${PAGE}" style="background-color:${PAGE}">

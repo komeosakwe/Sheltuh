@@ -5,6 +5,7 @@ import { mailOptions, subjectLine } from "@/lib/server/email";
 import { buildFollowerNewEventsEmail } from "@/lib/server/follower-email";
 import { buildFreeConfirmationEmail } from "@/lib/server/free-confirmation-email";
 import { buildInviteEmail } from "@/lib/server/invite-email";
+import { buildMemberWelcomeEmail, buildOrganiserNextStepsEmail, buildOrganiserWelcomeEmail } from "@/lib/server/onboarding-email";
 import { buildTicketEmail } from "@/lib/server/ticket-email";
 import type { EventRecord, OrderLineItem, OrderRecord } from "@/lib/server/types";
 import { buildWaitlistAvailableEmail, buildWaitlistConfirmationEmail } from "@/lib/server/waitlist-email";
@@ -105,6 +106,12 @@ describe("every email's subject is cleaned", () => {
       }),
     inviteMember: () =>
       buildInviteEmail({ to: "fan@example.com", kind: "member", link: `${site}/invite#token=x`, daysValid: 14, siteUrl: site }),
+    memberWelcome: () => buildMemberWelcomeEmail({ to: "fan@example.com", firstName: HOSTILE_NAME, siteUrl: site }),
+    organiserWelcomePending: () =>
+      buildOrganiserWelcomeEmail({ to: "fan@example.com", firstName: HOSTILE_NAME, status: "pending", siteUrl: site }),
+    organiserWelcomeApproved: () =>
+      buildOrganiserWelcomeEmail({ to: "fan@example.com", firstName: HOSTILE_NAME, status: "approved", siteUrl: site }),
+    organiserNextSteps: () => buildOrganiserNextStepsEmail({ to: "fan@example.com", firstName: HOSTILE_NAME, siteUrl: site }),
   };
 
   it.each(Object.entries(emails))("%s", (_name, build) => {

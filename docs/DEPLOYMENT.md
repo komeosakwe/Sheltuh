@@ -68,7 +68,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261111000600_pin_search_path.sql`. Never
+      newest, currently `20261111000700_onboarding_emails.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -257,6 +257,32 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           "Function Search Path Mutable" warnings. No behaviour change: the
           bodies already name everything by schema. Safe to apply at any
           time, before or after any deploy)
+      40. `20261111000700_onboarding_emails.sql` (the welcome emails,
+          docs/architecture.md "Onboarding emails": table
+          `private.onboarding_emails` (RLS on, no grants), the outbox column
+          `onboarding_id` and kind `onboarding` (`private.email_outbox`'s two
+          kind checks redefined from file 38 with it),
+          `private.lease_outbox_jobs` redefined from file 38 so that without
+          a kind it leases only an allowlist of the original kinds (the
+          previous app's cron never takes an `onboarding` job),
+          `private.queue_onboarding_email`, `private.queue_member_welcomes`,
+          and deferred triggers on `public.organisers`. It also records every
+          existing confirmed account and organiser as already welcomed (no
+          job), so applying it sends nothing about anyone who already has an
+          account. Needs `20261014000100_free_order_protection.sql`
+          (`private.take_platform_rate_limit`), file 33 and file 38 (the outbox checks and lease it extends).
+          Additive: no existing row changes (the outbox's checks are
+          re-validated against its rows, briefly locking it). The previous
+          app keeps working against it, so it can be applied ahead of the
+          deploy; welcomes are only sent once this app's cron runs. Needs no
+          new environment variable. Reversible, in one transaction and this
+          order: drop the two triggers on `public.organisers`, delete the
+          `onboarding` jobs, restore the outbox's kind checks and the lease
+          from file 38 (the lease is restored, not dropped), drop the three
+          new functions (`queue_onboarding_email`, `queue_member_welcomes`,
+          `organisers_onboarding_email`), then the column
+          `email_outbox.onboarding_id` and the table
+          `private.onboarding_emails` (that forgets who was welcomed)
 
       **Files 33 to 37 can be applied ahead of this deploy, with the
       previous app still live.** "The previous app" here is the build of
