@@ -9,6 +9,14 @@ import { expect, test, type Page, type Request } from "@playwright/test";
 
 const DAY = 86_400_000;
 
+/** Shows one of the editor's steps, as a person does: the others' cards are hidden (the form stays one form). */
+async function showStep(page: Page, name: "Event page" | "Tickets" | "Publish") {
+  await page
+    .getByRole("navigation", { name: "Event steps" })
+    .getByRole("button", { name: new RegExp(`^${name}`) })
+    .click();
+}
+
 /** Requests to the app's API that no test answered, by method and path (beyond the organiser's own). */
 type ExtraRoute = (request: Request, path: string) => { status?: number; json: unknown } | null;
 
@@ -81,12 +89,22 @@ for (const vp of [
 
       const formBox = await page.locator("form").filter({ has: title }).boundingBox();
       expect(formBox).not.toBeNull();
-      for (const name of ["Start date", "Start time", "End date", "End time", "Days before the event"]) {
-        const box = await page.getByLabel(name, { exact: true }).boundingBox();
-        expect(box, name).not.toBeNull();
-        expect((box?.x ?? 0) + (box?.width ?? 0), name).toBeLessThanOrEqual((formBox?.x ?? 0) + (formBox?.width ?? 0) + 1);
-        expect(box?.x ?? -1, name).toBeGreaterThanOrEqual((formBox?.x ?? 0) - 1);
-      }
+      const inside = async (names: string[]) => {
+        for (const name of names) {
+          const box = await page.getByLabel(name, { exact: true }).boundingBox();
+          expect(box, name).not.toBeNull();
+          expect((box?.x ?? 0) + (box?.width ?? 0), name).toBeLessThanOrEqual((formBox?.x ?? 0) + (formBox?.width ?? 0) + 1);
+          expect(box?.x ?? -1, name).toBeGreaterThanOrEqual((formBox?.x ?? 0) - 1);
+        }
+      };
+      await inside(["Start date", "Start time", "End date", "End time"]);
+      // Every step fits, too.
+      await showStep(page, "Tickets");
+      await inside(["Days before the event"]);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+      await showStep(page, "Publish");
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+      await showStep(page, "Event page");
       // The photo picker is a button-styled label, not the browser's raw file control.
       await expect(page.getByText("Choose a photo")).toBeVisible();
     });
@@ -146,6 +164,7 @@ test.describe("/dashboard/new with reserved seating", () => {
     await page.goto("/dashboard/new");
     await expect(page.getByLabel("Title", { exact: true })).toBeVisible({ timeout: 30_000 });
 
+    await showStep(page, "Tickets");
     const seating = page.getByRole("group", { name: "Seating" });
     await expect(seating.getByRole("radio", { name: "General admission (no assigned seats)" })).toBeChecked();
     const reservedName = "Reserved seating (buyers pick seats on a map)";
@@ -160,10 +179,11 @@ test.describe("/dashboard/new with reserved seating", () => {
     // Still no sideways scrolling at 320px with the note open.
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
 
+    await showStep(page, "Event page");
     // The page header has its own location search (with a "Suburb" field): fill the editor's.
     const form = page.locator("form").filter({ has: page.getByLabel("Title", { exact: true }) });
     await form.getByLabel("Title", { exact: true }).fill("Neon Static");
-    await form.getByLabel("Description").fill("Four bands, one room.");
+    await form.getByLabel("Description", { exact: true }).fill("Four bands, one room.");
     await form.getByLabel("Venue name").fill("The Tote");
     await form.getByLabel("Venue address").fill("71 Johnston St");
     await form.getByLabel("Suburb").fill("Collingwood");
@@ -171,6 +191,7 @@ test.describe("/dashboard/new with reserved seating", () => {
     await form.getByLabel("Start time").fill("20:00");
     await form.getByLabel("End date").fill("2027-03-06");
     await form.getByLabel("End time").fill("23:30");
+    await showStep(page, "Tickets");
     await form.getByLabel("Name", { exact: true }).fill("Stalls");
     await form.getByLabel("Price (A$)").fill("35");
 
@@ -210,7 +231,7 @@ test.describe("/dashboard/new: an event in Perth (owner plan S8)", () => {
     await expect(form.getByText("Starts (local time)")).toBeVisible();
 
     await form.getByLabel("Title", { exact: true }).fill("Northbridge Late Sketch");
-    await form.getByLabel("Description").fill("Life drawing with a jazz trio.");
+    await form.getByLabel("Description", { exact: true }).fill("Life drawing with a jazz trio.");
     await form.getByLabel("Venue name").fill("James Street Studio");
     await form.getByLabel("Venue address").fill("40 James Street");
     const suburb = form.getByLabel("Suburb or town");
@@ -233,6 +254,7 @@ test.describe("/dashboard/new: an event in Perth (owner plan S8)", () => {
     await form.getByLabel("Start time").fill("18:30");
     await form.getByLabel("End date").fill("2027-03-06");
     await form.getByLabel("End time").fill("21:30");
+    await showStep(page, "Tickets");
     await form.getByLabel("Name", { exact: true }).fill("Drawing place");
     await form.getByLabel("Price (A$)").fill("30");
 
@@ -326,6 +348,7 @@ test.describe("/dashboard/[eventId]: refund policy at 320px", () => {
     const form = page.locator("form").filter({ has: page.getByLabel("Title", { exact: true }) });
     await expect(form.getByLabel("Title", { exact: true })).toHaveValue("Neon Static", { timeout: 30_000 });
 
+    await showStep(page, "Tickets");
     const policy = form.getByRole("group", { name: "Refund policy" });
     const days = policy.getByLabel("Days before the event", { exact: true });
     const none = policy.getByRole("radio", { name: "No refunds for change of mind" });
@@ -403,7 +426,9 @@ test.describe("/dashboard/[eventId]: paid tickets before payouts are set up", ()
     const form = page.locator("form").filter({ has: page.getByLabel("Title", { exact: true }) });
     await expect(form.getByLabel("Title", { exact: true })).toHaveValue("Neon Static", { timeout: 30_000 });
 
+    await showStep(page, "Tickets");
     await expect(form.getByText(/^Set up payouts before you can publish this event\./)).toBeVisible();
+    await showStep(page, "Publish");
     const submit = form.getByRole("button", { name: "Publish…" });
     await expect(submit).toBeEnabled();
     await expect(submit).toHaveAccessibleDescription(/can be published once your payouts are set up/);
@@ -475,6 +500,8 @@ async function openDraftToPublish(
   await page.goto(`/dashboard/${draft.eventId}`);
   const form = page.locator("form").filter({ has: page.getByLabel("Title", { exact: true }) });
   await expect(form.getByLabel("Title", { exact: true })).toHaveValue("Neon Static", { timeout: 30_000 });
+  // Publish… (and Send for review) is on the Publish step.
+  await showStep(page, "Publish");
   return { form, calls };
 }
 
@@ -649,7 +676,8 @@ for (const vp of [
       const form = page.locator("form").filter({ has: page.getByLabel("Title", { exact: true }) });
       await expect(form.getByLabel("Title", { exact: true })).toHaveValue("Neon Static", { timeout: 30_000 });
 
-      // No pin yet: Publish… says so, by the venue, which is focused; nothing is sent.
+      // No pin yet: Publish… says so, by the venue (its step is shown), which is focused; nothing is sent.
+      await showStep(page, "Publish");
       await form.getByRole("button", { name: "Publish…" }).click();
       const venue = form.getByRole("group", { name: "Venue", exact: true });
       await expect(venue).toBeFocused();
@@ -708,6 +736,7 @@ for (const vp of [
       await expect(form.getByRole("group", { name: /^Linked to Google Maps: The Tote Hotel/ })).toBeFocused();
       await expect(form.getByText(/Pin confirmed\./)).toBeVisible();
 
+      await showStep(page, "Publish");
       await form.getByRole("button", { name: "Publish…" }).click();
       await form.getByRole("button", { name: "Publish now" }).click();
       await expect(page.getByRole("group", { name: "Published" })).toBeFocused();
@@ -757,6 +786,158 @@ for (const vp of [
       expect(location.source).toBe("manual_pin");
       expectPinNearCollingwood(location.pin);
       expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    });
+  });
+}
+
+for (const vp of [
+  { width: 375, height: 812 },
+  { width: 1280, height: 900 },
+]) {
+  test.describe(`/dashboard/new: the steps, the save bar and the preview at ${vp.width}px`, () => {
+    test.use({ viewport: vp });
+    const desktop = vp.width >= 1280;
+
+    test("three steps in one form, a sticky save bar that never covers a focused field, and no sideways scroll", async ({ page }) => {
+      await signedInAsOrganiser(page);
+      await page.goto("/dashboard/new");
+      const title = page.getByLabel("Title", { exact: true });
+      await expect(title).toBeVisible({ timeout: 30_000 });
+      const nav = page.getByRole("navigation", { name: "Event steps" });
+      await expect(nav.getByRole("button", { name: /^Event page/ })).toHaveAttribute("aria-current", "step");
+
+      // Phones: the three steps sit in a row (the labels fit on one line each); desktop: a rail, one under another.
+      const boxes = await nav.getByRole("button").evaluateAll((els) => els.map((el) => el.getBoundingClientRect().toJSON()));
+      expect(boxes).toHaveLength(3);
+      if (desktop) {
+        expect(boxes[1].y).toBeGreaterThan(boxes[0].y);
+        expect(Math.round(boxes[0].width)).toBeGreaterThanOrEqual(176);
+      } else {
+        expect(boxes[1].x).toBeGreaterThan(boxes[0].x);
+        for (const box of boxes) expect(box.height).toBeLessThan(110);
+      }
+
+      // The bar is on every step, in view, with 44px buttons.
+      const bar = page.locator("[data-edit-bar]");
+      for (const step of ["Event page", "Tickets", "Publish"] as const) {
+        await showStep(page, step);
+        await expect(bar).toBeInViewport({ ratio: 1 });
+        const save = bar.getByRole("button", { name: "Save draft" });
+        expect((await save.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+      }
+
+      // Tabbing through a step: a focused field is never under the bar (globals.css pads the scroll by --editbar-h).
+      await showStep(page, "Event page");
+      // No smooth scrolling (it's only on without reduced motion), so each Tab has scrolled when it returns.
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      await page.getByLabel("Venue address").focus();
+      for (let i = 0; i < 14; i++) {
+        await page.keyboard.press("Tab");
+        const { bottom, inBar } = await page.evaluate(() => {
+          const el = document.activeElement;
+          return { bottom: el?.getBoundingClientRect().bottom ?? 0, inBar: Boolean(el?.closest("[data-edit-bar]")) };
+        });
+        if (inBar) break;
+        const barTop = (await bar.boundingBox())?.y ?? 0;
+        expect(bottom).toBeLessThanOrEqual(barTop + 1);
+      }
+    });
+
+    test("a failed save on another step: the step switches, the summary links to each field, and the count shows on the nav", async ({
+      page,
+    }) => {
+      await signedInAsOrganiser(page);
+      await page.goto("/dashboard/new");
+      await expect(page.getByLabel("Title", { exact: true })).toBeVisible({ timeout: 30_000 });
+      await showStep(page, "Tickets");
+      await page.getByLabel("Price (A$)").fill("0.5");
+      await page.getByRole("button", { name: "Save draft" }).click();
+
+      // The first bad field is on the Event page step: it's shown and focused.
+      await expect(page.getByLabel("Title", { exact: true })).toBeFocused();
+      const summary = page.locator("[data-error-summary]");
+      await expect(summary).toContainText("fields need fixing");
+      await expect(summary).toContainText("Ticket 1 price: A paid ticket must cost at least A$1");
+      const nav = page.getByRole("navigation", { name: "Event steps" });
+      await expect(nav.locator("[data-step-errors]")).toHaveCount(2);
+
+      await summary.getByRole("button", { name: /^Ticket 1 price/ }).click();
+      await expect(page.getByLabel("Price (A$)")).toBeFocused();
+      await expect(nav.getByRole("button", { name: /^Tickets/ })).toHaveAttribute("aria-current", "step");
+      await expect(summary).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    });
+
+    test("the live preview is the real event page at phone width, follows the draft, and is not clickable", async ({ page }) => {
+      await signedInAsOrganiser(page);
+      await page.goto("/dashboard/new");
+      await expect(page.getByLabel("Title", { exact: true })).toBeVisible({ timeout: 30_000 });
+      const frame = page.frameLocator("iframe[title='Event page preview']");
+
+      if (desktop) {
+        const panel = page.getByRole("complementary", { name: "Event page preview" });
+        await expect(panel).toBeVisible();
+        // Three columns: the rail, the form, the preview (352px).
+        expect(Math.round((await panel.boundingBox())?.width ?? 0)).toBe(352);
+        expect((await page.locator("[data-step-panel='1']").boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(560);
+        expect(Math.round((await page.locator("iframe[title='Event page preview']").boundingBox())?.width ?? 0)).toBe(320);
+      } else {
+        await page.getByRole("button", { name: "Preview", exact: true }).click();
+        const dialog = page.getByRole("dialog", { name: "Preview" });
+        await expect(dialog).toBeVisible();
+        expect((await dialog.locator("iframe").boundingBox())?.width ?? 0).toBeLessThanOrEqual(384);
+      }
+
+      // Empty: the page's own placeholders.
+      await expect(frame.getByRole("heading", { level: 1, name: "Untitled event" })).toBeVisible({ timeout: 30_000 });
+      await expect(frame.getByText("Venue to be added")).toBeVisible();
+      // The phone layout (the frame's own width decides it): the buy bar's place is below lg, the desktop's two columns are not.
+      expect(await frame.locator("html").evaluate((el) => el.ownerDocument.defaultView?.innerWidth ?? 0)).toBeLessThanOrEqual(384);
+      // The editor's theme classes came with it: the page's own font.
+      expect(await frame.locator("h1").evaluate((el) => getComputedStyle(el).fontFamily)).toContain("Instrument");
+
+      if (desktop) {
+        await page.getByLabel("Title", { exact: true }).fill("Neon Static");
+        await expect(frame.getByRole("heading", { level: 1, name: "Neon Static" })).toBeVisible({ timeout: 10_000 });
+        // Nothing in it is a control: inert (no tab stop, no click).
+        await expect(frame.locator("[data-event-preview]")).toHaveJSProperty("inert", true);
+        await page.getByRole("button", { name: "Hide preview" }).click();
+        await expect(page.locator("iframe[title='Event page preview']")).toHaveCount(0);
+        expect((await page.locator("[data-step-panel='1']").boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(700);
+        await page.getByRole("button", { name: "Show preview" }).click();
+        await expect(page.locator("iframe[title='Event page preview']")).toBeVisible();
+      } else {
+        await page.getByRole("dialog", { name: "Preview" }).getByRole("button", { name: "Close" }).click();
+        await expect(page.getByRole("button", { name: "Preview", exact: true })).toBeFocused();
+      }
+    });
+
+    test("a ticket's description is sent with it, and is shown in the preview", async ({ page }) => {
+      const saved: Record<string, unknown>[] = [];
+      const draft = freeDraft("evt-e2e-ticket-desc");
+      await signedInAsOrganiser(page, (request, path) => {
+        const method = request.method();
+        if (method === "GET" && path === `/api/organisers/me/events/${draft.eventId}`) return { json: draft };
+        if (method === "PATCH" && path === `/api/events/${draft.eventId}`) {
+          const body: Record<string, unknown> = request.postDataJSON();
+          saved.push(body);
+          return { json: draft };
+        }
+        return null;
+      });
+      await page.goto(`/dashboard/${draft.eventId}`);
+      await expect(page.getByLabel("Title", { exact: true })).toHaveValue("Neon Static", { timeout: 30_000 });
+      await showStep(page, "Tickets");
+      await page.getByLabel("Description (optional)").fill("Standing room, all four bands.");
+      if (desktop) {
+        await expect(
+          page.frameLocator("iframe[title='Event page preview']").getByText("Standing room, all four bands."),
+        ).toBeVisible({ timeout: 15_000 });
+      }
+      await page.getByRole("button", { name: "Save draft" }).click();
+      await expect.poll(() => saved.length, { timeout: 30_000 }).toBe(1);
+      expect((saved[0].ticketTypes as { description?: string }[])[0].description).toBe("Standing room, all four bands.");
     });
   });
 }
