@@ -348,6 +348,6 @@ describe("OAuthButtons: Google's button follows Google's branding guidelines (ap
     const hitArea = rule(css, ".btn-oauth-google::before");
     expect(hitArea).toMatch(/content: "";/);
     expect(hitArea).toMatch(/position: absolute;/);
-    expect(hitArea).toMatch(/inset: -0\.25rem 0;/);
+    expect(hitArea).toMatch(/inset: calc\(-0\.25rem - 1px\) -1px;/);
   });
 });

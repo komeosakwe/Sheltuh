@@ -854,7 +854,8 @@ h4 {
   .btn-oauth-google::before {
     content: "";
     position: absolute;
-    inset: -0.25rem 0;
+    /* Offsets are from the padding box, inside the 1px border: reach past it too. */
+    inset: calc(-0.25rem - 1px) -1px;
   }
   @media (hover: hover) {
     .btn-oauth:hover:not([aria-disabled="true"])::after {
