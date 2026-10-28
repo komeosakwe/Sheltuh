@@ -175,8 +175,12 @@ export default function ShareButton({
         }
       }}
       onBlur={(event) => {
-        // Tabbing out of the popover closes it (focus stays where it went).
-        if (open && event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget)) {
+        // Tabbing out of the popover closes it (focus stays where it went). Not when focus goes to an
+        // element around it: a press on the popover moves focus to <main tabIndex={-1}>
+        // (app/layout.tsx) in Safari and every iOS browser, which don't focus a pressed button, so
+        // closing here removed Copy before its click landed. A press outside closes it (pointerdown above).
+        const next = event.relatedTarget;
+        if (open && next instanceof Node && !event.currentTarget.contains(next) && !next.contains(event.currentTarget)) {
           setManualUrl(null);
         }
       }}

@@ -1,7 +1,8 @@
-import { expect, test, type Page } from "@playwright/test";
+import { devices, expect, test, type Page } from "@playwright/test";
 import type { PublicEvent } from "@/lib/api/public-events";
 import { REFUND_ACL_STATEMENT } from "@/lib/refund-policy";
 import { sampleEvents } from "@/lib/sample-events";
+import { pressFocusLikeWebKit } from "./webkit-focus";
 
 /**
  * The event page in a real browser (docs/design/brand-direction-one.md §6.10,
@@ -336,6 +337,34 @@ for (const width of [320, 375]) {
     });
   });
 }
+
+test.describe("share popover on an iPhone-sized touch screen, as WebKit moves focus", () => {
+  const { viewport, userAgent, deviceScaleFactor, isMobile, hasTouch } = devices["iPhone 13"];
+  test.use({ viewport, userAgent, deviceScaleFactor, isMobile, hasTouch });
+
+  test("tapping Copy runs it (it used to close the popover first)", async ({ page }) => {
+    await pressFocusLikeWebKit(page);
+    await mockApi(page);
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "share", { value: undefined, configurable: true });
+      Object.defineProperty(navigator, "clipboard", {
+        value: { writeText: () => Promise.reject(new Error("denied")) },
+        configurable: true,
+      });
+    });
+    await page.goto("/events/neon-static");
+    const share = page.getByRole("button", { name: "Share Neon Static" });
+    await expect(share).toBeVisible({ timeout: 30_000 });
+    const popover = page.getByRole("group", { name: "Copy the link" });
+    await expect(async () => {
+      if (!(await popover.isVisible())) await share.tap();
+      await expect(popover.getByRole("textbox", { name: "Link to this event" })).toBeFocused({ timeout: 1_000 });
+    }).toPass({ timeout: 30_000 });
+    await popover.getByRole("button", { name: "Copy" }).tap();
+    // Copy ran and still can't: it says so, in the popover, still open.
+    await expect(popover.getByText(/Couldn’t copy it automatically/)).toBeVisible();
+  });
+});
 
 // Add to calendar (docs/design/brand-direction-one.md §6.7): plain links, the Apple one to the
 // event's .ics route on this site (served inline as text/calendar: e2e/demo.spec.ts fetches it).

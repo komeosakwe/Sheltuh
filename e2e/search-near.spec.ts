@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { devices, expect, test, type Page } from "@playwright/test";
+import { pressFocusLikeWebKit } from "./webkit-focus";
 import type { PublicEvent } from "@/lib/api/public-events";
 import { findLocality } from "@/lib/location";
 import { NEAR_STORAGE_KEY } from "@/lib/near-storage";
@@ -500,5 +501,58 @@ test.describe("the hero's bar at 1024px", () => {
     expect(box.x).toBeGreaterThanOrEqual(bar.x - 1);
     expect(box.x + box.width).toBeLessThanOrEqual(bar.x + bar.width + 1);
     expect(Math.round(box.x)).toBe(Math.round(Math.max(bar.x, Math.min(segment.x, bar.x + bar.width - 320))));
+  });
+});
+
+test.describe("near you on an iPhone-sized touch screen, as WebKit moves focus", () => {
+  const { viewport, userAgent, deviceScaleFactor, isMobile, hasTouch } = devices["iPhone 13"];
+  test.use({ viewport, userAgent, deviceScaleFactor, isMobile, hasTouch, permissions: ["geolocation"], geolocation: HERE });
+
+  /** Taps the hero's location segment until the page has hydrated and the panel is open. */
+  async function tapOpen(page: Page) {
+    const search = page.getByRole("search", { name: "Search events" });
+    const panel = page.getByRole("dialog", { name: "Find events near you" });
+    await expect(async () => {
+      if (!(await panel.isVisible())) await search.getByRole("button", { name: /^Location: / }).tap();
+      await expect(panel.getByRole("button", { name: "Use my current location" })).toBeFocused({ timeout: 1_000 });
+    }).toPass({ timeout: 30_000 });
+    return { search, panel };
+  }
+
+  test("tapping Use my current location sets the suburb (it used to close the panel and do nothing)", async ({ page }) => {
+    await pressFocusLikeWebKit(page);
+    await mockApi(page);
+    await page.goto("/");
+    const { search, panel } = await tapOpen(page);
+    // A tap on the panel's own words leaves it open.
+    await panel.getByText("Find events near you").tap();
+    await expect(panel).toBeVisible();
+    await expect(page.locator("main")).toBeFocused();
+    await panel.getByRole("button", { name: "Use my current location" }).tap();
+    await expect(search.getByRole("button", { name: "Location: Fitzroy" })).toBeVisible({ timeout: 10_000 });
+    await expect(panel).toBeHidden();
+    const stored = await page.evaluate((key) => localStorage.getItem(key), NEAR_STORAGE_KEY);
+    expect(JSON.parse(stored ?? "null")).toEqual({ suburb: "Fitzroy", state: "VIC" });
+
+    // Anywhere in Australia, tapped, clears it.
+    await tapOpen(page);
+    await panel.getByRole("button", { name: "Anywhere in Australia" }).tap();
+    await expect(search.getByRole("button", { name: "Location: Anywhere" })).toBeVisible();
+    expect(await page.evaluate((key) => localStorage.getItem(key), NEAR_STORAGE_KEY)).toBeNull();
+  });
+
+  test("permission denied: the panel stays open and says so", async ({ page }) => {
+    await pressFocusLikeWebKit(page);
+    await page.addInitScript(() => {
+      Geolocation.prototype.getCurrentPosition = function (_success, failure) {
+        failure?.({ code: 1, message: "denied", PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3 } as GeolocationPositionError);
+      };
+    });
+    await mockApi(page);
+    await page.goto("/");
+    const { panel } = await tapOpen(page);
+    await panel.getByRole("button", { name: "Use my current location" }).tap();
+    await expect(panel.getByRole("status")).toHaveText("Location is off for this site. Type your suburb instead.");
+    await expect(panel).toBeVisible();
   });
 });

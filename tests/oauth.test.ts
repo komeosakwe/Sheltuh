@@ -264,17 +264,22 @@ describe("signInMethodsLabel: /account's sign-in methods line", () => {
 });
 
 describe("missingOAuthLogos: the official artwork each listed provider needs", () => {
-  it("lists Apple's two logo-only files and Google's G", () => {
-    expect(OAUTH_LOGO_FILES).toEqual({ apple: ["apple-logo-white.svg", "apple-logo-black.svg"], google: ["google-g.svg"] });
+  it("lists Apple's two logo-only files and Google's Light and Dark button images at 2x and 4x", () => {
+    expect(OAUTH_LOGO_FILES).toEqual({
+      apple: ["apple-logo-white.svg", "apple-logo-black.svg"],
+      google: ["google-signin-light@2x.png", "google-signin-light@4x.png", "google-signin-dark@2x.png", "google-signin-dark@4x.png"],
+    });
   });
 
   it("names only the listed providers' missing files", () => {
     const none = () => false;
     expect(missingOAuthLogos(undefined, none)).toEqual([]);
     expect(missingOAuthLogos("", none)).toEqual([]);
-    expect(missingOAuthLogos("google", none)).toEqual(["google-g.svg"]);
-    expect(missingOAuthLogos("google,apple", none)).toEqual(["google-g.svg", "apple-logo-white.svg", "apple-logo-black.svg"]);
+    const google = ["google-signin-light@2x.png", "google-signin-light@4x.png", "google-signin-dark@2x.png", "google-signin-dark@4x.png"];
+    expect(missingOAuthLogos("google", none)).toEqual(google);
+    expect(missingOAuthLogos("google,apple", none)).toEqual([...google, "apple-logo-white.svg", "apple-logo-black.svg"]);
     expect(missingOAuthLogos("apple", (file) => file === "apple-logo-white.svg")).toEqual(["apple-logo-black.svg"]);
+    expect(missingOAuthLogos("google", (file) => file !== "google-signin-dark@4x.png")).toEqual(["google-signin-dark@4x.png"]);
     expect(missingOAuthLogos("google,apple", () => true)).toEqual([]);
   });
 });

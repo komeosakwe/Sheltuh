@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ButtonLink } from "@/components/ui/Button";
 import { LoadingState } from "@/components/ui/ProgressLoader";
-import { EmptyState, PageHeader } from "@/components/ui/Section";
+import { EmptyState, Notice, PageHeader } from "@/components/ui/Section";
 import { listMyEvents } from "@/lib/api/events";
 import type { EventRecord } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -42,6 +42,47 @@ function Header({ action }: { action?: ReactNode }) {
   return <PageHeader flush size="md" eyebrow="Organiser" title="Your events" action={action} />;
 }
 
+/**
+ * `?welcome=organiser`: they've just joined with an organiser link
+ * (components/organisers/OrganiserJoinFlow.tsx). Read once after hydration,
+ * then taken out of the address bar, so a reload or a shared URL doesn't
+ * say it again.
+ */
+function useJoinedWelcome(): boolean {
+  const [welcome, setWelcome] = useState(false);
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("welcome") !== "organiser") return;
+    url.searchParams.delete("welcome");
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+    queueMicrotask(() => setWelcome(true));
+  }, []);
+  return welcome;
+}
+
+/** The welcome after joining: takes focus once, so it's read out before the list. */
+function JoinedWelcome({ name }: { name: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    ref.current?.focus();
+  }, []);
+  return (
+    <div ref={ref} tabIndex={-1} className="outline-offset-2">
+      <Notice>
+        <p className="font-semibold">Welcome to Sheltüh, {name}.</p>
+        <p className="mt-1">
+          You&rsquo;re an approved organiser, so you can create your first event now. Add a bio and your links on{" "}
+          <Link href="/dashboard/profile" className="text-accent underline underline-offset-2">
+            your profile
+          </Link>
+          , and set up payouts before you sell paid tickets. Your first paid event is checked by the Sheltüh team
+          before it goes live.
+        </p>
+      </Notice>
+    </div>
+  );
+}
+
 // Bounds the "skip past an empty page that still has a cursor" loop so a
 // pathological run of empty pages can't hang a request.
 const MAX_EMPTY_PAGES_TO_SKIP = 10;
@@ -49,6 +90,7 @@ const MAX_EMPTY_PAGES_TO_SKIP = 10;
 export default function DashboardContent() {
   const auth = useAuth();
   const { loading: organiserLoading, organiser, error: organiserError } = useOrganiser();
+  const welcome = useJoinedWelcome();
   const [events, setEvents] = useState<EventRecord[] | null>(null);
   const [eventsError, setEventsError] = useState<string | null>(null);
   const [nextCursor, setNextCursor] = useState<string | undefined>(undefined);
@@ -189,6 +231,7 @@ export default function DashboardContent() {
     const payoutsEnabled = organiser.payoutsEnabled === true;
     return (
       <div className="flex flex-col gap-4">
+        {welcome && <JoinedWelcome name={organiser.displayName} />}
         {!payoutsEnabled && (
           <p className="border-l-2 border-foreground py-1 pl-4 text-sm text-muted">
             Free events don&rsquo;t need this, but{" "}

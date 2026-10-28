@@ -5,13 +5,16 @@ import { LoadingState } from "@/components/ui/ProgressLoader";
 import { useAuth } from "@/lib/auth/AuthContext";
 import InviteForm from "./InviteForm";
 import InviteQueue, { INVITES_HEADING_ID, isQueueReauthOwner } from "./InviteQueue";
+import OrganiserLinksAdmin from "./OrganiserLinksAdmin";
 
 /**
- * /admin/invites (docs/architecture.md, "Account invites"): the form to
- * invite someone, then the invites by status. A new invite reloads the list.
- * After an expired session, one sign-in form is shown (InlineReauth's fields
- * have fixed ids): `reauthOwner` says whose, the form's ("form") or the
- * list's (InviteQueue's owners); the others say so in words only.
+ * /admin/invites (docs/architecture.md, "Account invites"): organiser links
+ * (no email needed: "Organiser links"), the form to invite someone by email,
+ * then the invites by status. A new invite reloads the list. After an
+ * expired session, one sign-in form is shown (InlineReauth's fields have
+ * fixed ids): `reauthOwner` says whose, the links' ("links:…"), the form's
+ * ("form") or the list's (InviteQueue's owners); the others say so in words
+ * only.
  */
 export default function InvitesAdmin() {
   const auth = useAuth();
@@ -20,6 +23,7 @@ export default function InvitesAdmin() {
 
   return (
     <div className="flex flex-col gap-10">
+      <OrganiserLinksAdmin getToken={auth.getAccessToken} reauthOwner={reauthOwner} onClaimReauth={setReauthOwner} />
       <section aria-labelledby="invite-form-heading" className="flex flex-col gap-4 border-t border-foreground pt-5">
         <div className="flex flex-wrap items-baseline justify-between gap-x-4">
           <h2 id="invite-form-heading" className="display-md !text-2xl">

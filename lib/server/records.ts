@@ -34,7 +34,12 @@ import type {
   TicketTypeInput,
 } from "./types";
 import { REMAINING_SHOWN_AT_MOST, type PublicTicketType } from "@/lib/api/public-events";
-import { SHELTUH_TEAM_ACTOR, type EventClip, type VenueLocation } from "@/lib/api/types";
+import {
+  SHELTUH_TEAM_ACTOR,
+  type AdminOrganiserLinkRecord,
+  type EventClip,
+  type VenueLocation,
+} from "@/lib/api/types";
 import { isFeaturedVideo, type FeaturedVideo } from "@/lib/api/featured-video";
 import { ticketProviderName, type TicketingMode } from "@/lib/ticketing";
 import { DEFAULT_REFUND_POLICY, type RefundPolicy } from "@/lib/refund-policy";
@@ -916,6 +921,34 @@ export function toAdminInvite(row: Row): AdminInviteRecord {
     acceptedAt: row.accepted_at ? iso(row.accepted_at) : undefined,
     acceptedOrganiserId: opt(row.accepted_organiser_id),
     revokedAt: row.revoked_at ? iso(row.revoked_at) : undefined,
+  };
+}
+
+/**
+ * Organiser links as admins see them (docs/architecture.md, "Organiser
+ * links"): never the token or its hash. The creator's email and the
+ * organiser's current name come from one join each (by primary key).
+ */
+export const ADMIN_ORGANISER_LINK_SELECT = `
+  select l.id, l.status, l.expires_at <= now() as lapsed, l.created_at, l.created_by, cu.email as created_by_email,
+         l.expires_at, l.used_at, l.organiser_id, o.display_name as organiser_name, l.cancelled_at
+    from private.organiser_invite_links l
+    left join auth.users cu on cu.id = l.created_by
+    left join public.organisers o on o.id = l.organiser_id`;
+
+export function toAdminOrganiserLink(row: Row): AdminOrganiserLinkRecord {
+  const stored = row.status as "active" | "used" | "cancelled";
+  return {
+    linkId: row.id as string,
+    status: stored === "active" && row.lapsed === true ? "expired" : stored,
+    createdAt: iso(row.created_at),
+    createdBy: opt(row.created_by),
+    createdByEmail: opt(row.created_by_email),
+    expiresAt: iso(row.expires_at),
+    usedAt: row.used_at ? iso(row.used_at) : undefined,
+    organiserId: opt(row.organiser_id),
+    organiserName: opt(row.organiser_name),
+    cancelledAt: row.cancelled_at ? iso(row.cancelled_at) : undefined,
   };
 }
 

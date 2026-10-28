@@ -105,13 +105,13 @@ describe("LoginForm: the no-password hint for Apple / Google accounts", () => {
   it("describes the password field with it when a provider is on, naming only the ones that are", () => {
     renderLogin("apple,google");
     const hint = screen.getByText(
-      "Signed up with Google or Apple? Use Continue with Google or Apple above — there’s no password.",
+      "Signed up with Google or Apple? Use the Google or Apple button above — there’s no password.",
     );
     expect(screen.getByLabelText("Password")).toHaveAttribute("aria-describedby", hint.id);
     cleanup();
 
     renderLogin("apple");
-    expect(screen.getByText("Signed up with Apple? Use Continue with Apple above — there’s no password.")).toBeInTheDocument();
+    expect(screen.getByText("Signed up with Apple? Use the Apple button above — there’s no password.")).toBeInTheDocument();
   });
 
   it("has no hint with no provider on", () => {

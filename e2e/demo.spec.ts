@@ -207,7 +207,7 @@ for (const vp of [
       for (const path of ["/login", "/signup"]) {
         await page.goto(path);
         await expect(page.getByText("Accounts aren’t configured in this environment yet.")).toBeVisible({ timeout: 60_000 });
-        await expect(page.getByRole("button", { name: /Continue with (Apple|Google)/ })).toHaveCount(0);
+        await expect(page.getByRole("button", { name: /(Continue|Sign in) with (Apple|Google)/ })).toHaveCount(0);
         await expect(page.locator('img[src^="/auth/"]')).toHaveCount(0);
         await noSidewaysScroll(page);
       }
