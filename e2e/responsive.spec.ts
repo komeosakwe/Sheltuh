@@ -1,6 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { PublicEvent } from "@/lib/api/public-events";
-import { HOME_INTRO } from "@/components/home/home-content";
 import { weekendWindow } from "@/lib/home-sections";
 import { sampleEvents } from "@/lib/sample-events";
 
@@ -126,21 +125,12 @@ for (const width of [375, 390, 768, 1280, 1440]) {
       const hero = page.getByRole("region", { name: "Find your next thing." });
       await expect(hero.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your next thing.");
       await expect(hero.getByText("What’s on near you")).toBeVisible();
-      // The intro line at every width (owner, 23 Oct 2026, layout polish), muted, under the h1 and above the search.
-      const intro = hero.getByText(HOME_INTRO);
-      await expect(intro).toBeVisible();
-      const introBox = await intro.boundingBox();
+      // No intro sentence (owner, 28 Oct 2026, less helper text): the search follows the headline.
+      await expect(hero.getByText("Music, art and pop-ups")).toHaveCount(0);
       const h1Box = await hero.getByRole("heading", { level: 1 }).boundingBox();
       const searchBox = await hero.getByRole("search", { name: "Search events" }).boundingBox();
-      if (!introBox || !h1Box || !searchBox) throw new Error("hero not laid out");
-      expect(introBox.y).toBeGreaterThan(h1Box.y + h1Box.height - 1);
-      expect(introBox.y + introBox.height).toBeLessThan(searchBox.y);
-      // Compact on phones: one line under the headline, 8px from it and 16px from the search.
-      if (width < 640) {
-        expect(Math.round(introBox.height)).toBe(24);
-        expect(Math.round(introBox.y - (h1Box.y + h1Box.height))).toBe(8);
-        expect(Math.round(searchBox.y - (introBox.y + introBox.height))).toBe(16);
-      }
+      if (!h1Box || !searchBox) throw new Error("hero not laid out");
+      expect(searchBox.y).toBeGreaterThan(h1Box.y + h1Box.height - 1);
       await expect(hero.getByRole("search", { name: "Search events" })).toBeVisible();
       // Owner round of 24 Oct 2026 (the Eventbrite-style bar): the hero's one orange button is the search submit.
       await expect(hero.locator(".btn-signal")).toHaveCount(1);

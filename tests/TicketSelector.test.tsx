@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, describe, expect, it, vi } from "vitest";
 import TicketSelector from "@/components/TicketSelector";
 import { ApiError } from "@/lib/api/client";
+import { describeBookingFeeNote } from "@/lib/fees";
 import { sampleEvents } from "@/lib/sample-events";
 import { setTrackingRef } from "@/lib/tracking-ref";
 import type { SheltuhEvent } from "@/lib/types";
@@ -229,7 +230,7 @@ describe("TicketSelector (free tickets)", () => {
   it("states the free-ticket limit before the tickets", () => {
     render(<TicketSelector event={freeEvent()} />);
     const limit = screen.getByText("Up to 4 free tickets per booking, in total across the free ticket types.");
-    // The first ticket's row (the "How booking works" steps are a list too, before both).
+    // Read before the tickets (said to screen readers; shown only once the limit is reached).
     const firstTicket = screen.getByRole("group", { name: "Quantity for Free entry" }).closest("li");
     if (!firstTicket) throw new Error("ticket row not rendered");
     expect(limit.compareDocumentPosition(firstTicket) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -354,22 +355,17 @@ describe("TicketSelector (demo)", () => {
 });
 
 describe("TicketSelector pricing (ACCC all-inclusive, brand-direction-one.md §6.8)", () => {
-  it("shows each paid tier's total first, at full size on every width, then the breakdown, before anything is chosen", () => {
+  it("shows each paid tier's all-inclusive total as the big price, with no per-ticket breakdown, before anything is chosen", () => {
     render(<TicketSelector event={live("neon-static")} />);
     const total = screen.getByText("A$32.30 incl. booking fee");
-    const breakdown = screen.getByText("A$30 ticket + A$2.30 booking fee");
-    // Total before breakdown, and the breakdown is already there at quantity 0.
-    expect(total.compareDocumentPosition(breakdown) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Owner (28 Oct 2026, less helper text): the price alone; the fee is explained once, by Checkout.
+    expect(screen.queryByText(/ticket \+ A\$/)).toBeNull();
     expect(screen.getByRole("group", { name: "Quantity for General admission" })).toHaveTextContent("0");
-    // The total: 16/24 semibold, never shrunk on desktop.
-    expect(total).toHaveClass("text-base", "font-semibold");
+    expect(total).toHaveClass("text-xl", "font-bold", "tabular-nums");
     expect(total.className).not.toMatch(/\blg:/);
-    // The breakdown: smaller and muted, in sentence case (not the uppercase meta style).
-    expect(breakdown).toHaveClass("text-xs", "text-muted", "tabular-nums");
-    expect(breakdown).not.toHaveClass("meta");
   });
 
-  it("explains an organiser-absorbed fee, and gives a free tier no breakdown", () => {
+  it("an organiser-absorbed fee reads as the plain total, with no breakdown; a free tier says Free", () => {
     const base = live("neon-static");
     const event: SheltuhEvent = {
       ...base,
@@ -380,11 +376,10 @@ describe("TicketSelector pricing (ACCC all-inclusive, brand-direction-one.md §6
     };
     render(<TicketSelector event={event} />);
     expect(screen.getByText("A$120 incl. booking fee")).toBeInTheDocument();
-    expect(screen.getByText("A$120 ticket (booking fee included by organiser)")).toBeInTheDocument();
+    expect(screen.queryByText(/booking fee included by organiser/)).toBeNull();
     const freeRow = screen.getByRole("group", { name: "Quantity for Listener" }).closest("li");
     if (!freeRow) throw new Error("free row not rendered");
     expect(within(freeRow).getByText("Free")).toBeInTheDocument();
-    expect(within(freeRow).queryByText(/ticket \+|booking fee included/)).toBeNull();
   });
 
   it("makes the order total the largest number, below a black rule, and keeps checkout black", () => {
@@ -402,16 +397,14 @@ describe("TicketSelector pricing (ACCC all-inclusive, brand-direction-one.md §6
     expect(checkout.className).not.toMatch(/signal|lg:/);
   });
 
-  it("says what happens next before anything is chosen: paid and free", () => {
+  it("has no step indicator, paid or free", () => {
     render(<TicketSelector event={live("neon-static")} />);
-    const steps = screen.getByRole("list", { name: "How booking works" });
-    expect(steps).toHaveTextContent("1 Choose tickets→2 Pay→3 Tickets by email");
+    expect(screen.queryByRole("list", { name: "How booking works" })).toBeNull();
+    expect(screen.queryByText(/Tickets by email/)).toBeNull();
     cleanup();
     render(<TicketSelector event={live("brunswick-zine-fair")} />);
-    expect(screen.getByRole("list", { name: "How booking works" })).toHaveTextContent(
-      "1 Choose tickets→2 Confirm by email→3 Tickets",
-    );
-    expect(screen.getByText("Signed in with a verified email? Step 2 is usually skipped.")).toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: "How booking works" })).toBeNull();
+    expect(screen.queryByText(/Step 2 is usually skipped/)).toBeNull();
   });
 });
 
@@ -526,7 +519,8 @@ describe("TicketSelector announcements (one status for the panel)", () => {
     const more = screen.getByRole("button", { name: "Increase quantity for Balcony" });
     // A static hint, before the limit is reached, on the + button.
     expect(more).toHaveAccessibleDescription("Up to 3 per booking.");
-    expect(screen.getByText("Up to 3 per booking.")).toBeVisible();
+    // For screen readers only: the + goes aria-disabled at the limit.
+    expect(screen.getByText("Up to 3 per booking.")).toHaveClass("sr-only");
     for (let i = 0; i < 3; i++) fireEvent.click(more);
     expect(status()).toHaveTextContent("Balcony: 3. Total A$96.90 incl. booking fees. Up to 3 per booking.");
     fireEvent.click(more);
@@ -557,7 +551,9 @@ describe("TicketSelector before anything is chosen", () => {
     render(<TicketSelector event={live("neon-static")} />);
     expect(screen.getByRole("button", { name: "Checkout" })).toBeDisabled();
     expect(screen.queryByRole("button", { name: "Get free tickets" })).toBeNull();
-    expect(screen.getByText("Choose tickets to continue.")).toBeInTheDocument();
+    // Not visible copy: the disabled button's accessible description says it.
+    expect(screen.getByRole("button", { name: "Checkout" })).toHaveAccessibleDescription("Choose tickets to continue.");
+    expect(screen.getByText("Choose tickets to continue.")).toHaveClass("sr-only");
     expect(screen.queryByText(/No payment step/)).toBeNull();
     // Once chosen, the copy follows the total.
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
@@ -570,8 +566,9 @@ describe("TicketSelector before anything is chosen", () => {
 
   it("an all-free event says Get free tickets", () => {
     render(<TicketSelector event={live("brunswick-zine-fair")} />);
-    expect(screen.getByRole("button", { name: "Get free tickets" })).toBeDisabled();
-    expect(screen.getByText("Choose tickets to continue.")).toBeInTheDocument();
+    const button = screen.getByRole("button", { name: "Get free tickets" });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAccessibleDescription("Choose tickets to continue.");
   });
 
   it("a mixed event with only a free ticket chosen is a free booking", () => {
@@ -624,12 +621,16 @@ describe("TicketSelector terms and privacy", () => {
   });
 });
 
-describe("TicketSelector booking fee rule", () => {
-  const RULE = /^Booking fee: /;
+describe("TicketSelector booking fee note", () => {
+  const NOTE = describeBookingFeeNote();
 
-  it("is shown when a buyer pays a fee on some ticket", () => {
+  it("is said once, near Checkout, from lib/fees.ts, and the long rule above the tickets is gone", () => {
     render(<TicketSelector event={live("neon-static")} />);
-    expect(screen.getByText(RULE)).toBeInTheDocument();
+    expect(screen.getAllByText(NOTE)).toHaveLength(1);
+    expect(NOTE).toBe("Prices include a booking fee of 6% of ticket face value + A$0.50 per paid ticket.");
+    expect(screen.queryByText(/^Booking fee: /)).toBeNull();
+    const checkout = screen.getByRole("button", { name: "Checkout" });
+    expect(checkout.compareDocumentPosition(screen.getByText(NOTE)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("isn't shown when the organiser absorbs every fee", () => {
@@ -642,13 +643,12 @@ describe("TicketSelector booking fee rule", () => {
         }}
       />,
     );
-    expect(screen.queryByText(RULE)).toBeNull();
-    expect(screen.getByText("A$30 ticket (booking fee included by organiser)")).toBeInTheDocument();
+    expect(screen.queryByText(NOTE)).toBeNull();
   });
 
   it("isn't shown for a free-only event", () => {
     render(<TicketSelector event={live("brunswick-zine-fair")} />);
-    expect(screen.queryByText(RULE)).toBeNull();
+    expect(screen.queryByText(NOTE)).toBeNull();
   });
 });
 

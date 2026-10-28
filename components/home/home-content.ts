@@ -55,12 +55,6 @@ export const titleText = (line: string) => line.split(DOT_MARK).join("");
 /** The h1's text and accessible name: "Find your next thing.". */
 export const HOME_TITLE = HOME_TITLE_LINES.map(titleText).join(" ");
 
-/**
- * The hero's one short sentence under the h1, at every width (owner, 23 Oct
- * 2026, layout polish: back on phones, in these words).
- */
-export const HOME_INTRO = "Music, art and pop-ups. See who’s going.";
-
 /*
  * Promotional photos (owner, 23 Oct 2026: "avoid reusing the same DJ and
  * market photos across the hero, event listings and organiser section").
@@ -110,22 +104,19 @@ export const HOME_HERO_TILES: readonly [HomeArt, HomeArt] = [
  * it's the highlighted one. Sample-event photos for now (owner, 26 Oct 2026:
  * "reuse the event photos for now"), until promo photos of their own arrive.
  */
-export const HOME_WHAT_ELSE: readonly (HomeArt & { title: string; note: string })[] = [
+export const HOME_WHAT_ELSE: readonly (HomeArt & { title: string })[] = [
   {
     title: "Every organiser checked by a person",
-    note: "Curated, not scraped.",
     imageUrl: "/events/vintage-market-stall.jpg",
     poster: { pattern: "rings", background: "#000000", primary: "#fffae7", secondary: "#ff4800" },
   },
   {
     title: "Only the good stuff",
-    note: "Hand-picked music, art and pop-ups worth leaving the house for.",
     imageUrl: "/events/dj-crate-digging.jpg",
     poster: { pattern: "halftone", background: "#ff4800", primary: "#000000", secondary: "#000000" },
   },
   {
     title: "See who’s going",
-    note: "Ticket holders can show they’re going. Make a free profile to see who.",
     imageUrl: "/events/gallery-opening.jpg",
     poster: { pattern: "waves", background: "#fffae7", primary: "#000000", secondary: "#ff4800" },
   },

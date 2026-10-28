@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { formatAud } from "@/lib/format";
-import { formatTicketBreakdown, getTicketBuyerTotalCents } from "@/lib/pricing";
+import { getTicketBuyerTotalCents } from "@/lib/pricing";
 import type { SeatTreatment } from "@/lib/seating/selection";
 import type { TicketType } from "@/lib/types";
 import { SeatSwatch, type PatternIds } from "./SeatGlyph";
@@ -19,7 +19,7 @@ const priceOf = (tier: TicketType) => (tier.priceCents === 0 ? "Free" : formatAu
 
 /**
  * The full legend (docs/design/seating.md §5.5): each seated tier's pattern,
- * name, all-inclusive price and breakdown, then every seat state.
+ * name, all-inclusive price, then every seat state.
  */
 export function SeatLegendFull({ tiers, treatments, patterns, mixed }: LegendProps) {
   const headingId = useId();
@@ -30,13 +30,11 @@ export function SeatLegendFull({ tiers, treatments, patterns, mixed }: LegendPro
       </h2>
       <dl className="mt-2 flex flex-col">
         {tiers.map((tier) => {
-          const breakdown = formatTicketBreakdown(tier);
           return (
             <div key={tier.id} className="grid grid-cols-[1.25rem_1fr_auto] items-start gap-x-3 border-t border-surface-border py-2">
               <SeatSwatch size={20} treatment={treatments.get(tier.id) ?? "outline"} patterns={patterns} />
               <dt className="min-w-0">
                 <span className="block text-base leading-snug font-semibold">{tier.name}</span>
-                {breakdown && <span className="meta block text-muted">{breakdown}</span>}
               </dt>
               <dd className="text-base leading-6 font-semibold tabular-nums">{priceOf(tier)}</dd>
             </div>

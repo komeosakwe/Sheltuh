@@ -7,6 +7,7 @@ import SeatMapEditor from "@/components/seating/editor/SeatMapEditor";
 import SeatedTicketsPanel from "@/components/seating/SeatedTicketsPanel";
 import { seatMapAccess } from "@/components/seating/editor/SeatMapEditorPage";
 import { ApiError } from "@/lib/api/client";
+import { describeBookingFeeNote } from "@/lib/fees";
 import { SAMPLE_SEAT_MAPS } from "@/lib/sample-seat-maps";
 import { sampleEvents } from "@/lib/sample-events";
 import type { SheltuhEvent } from "@/lib/types";
@@ -51,7 +52,7 @@ describe("event page for a seated event (docs/design/seating.md §5.1)", () => {
     const { container } = render(<EventDetailsView event={seated} demo />);
     const tickets = container.querySelector("#tickets") as HTMLElement;
     expect(within(tickets).queryByRole("button", { name: /Increase quantity/ })).toBeNull();
-    expect(within(tickets).getByText("1 Choose seats")).toBeInTheDocument();
+    expect(within(tickets).queryByRole("list", { name: "How booking works" })).toBeNull();
     expect(within(tickets).getByRole("link", { name: "Choose your seats" })).toHaveAttribute("href", "/events/off-kilter-a-new-play/seats");
     expect(within(tickets).getByText("A$37.60 incl. booking fee")).toBeInTheDocument();
     expect(within(tickets).getByText("Only 10 seats left")).toBeInTheDocument();
@@ -80,7 +81,7 @@ describe("event page for a seated event (docs/design/seating.md §5.1)", () => {
 });
 
 describe("seated panel tier rows (V6: the standard ticket row)", () => {
-  it("each tier: the name, the all-inclusive price under it, then the fee breakdown in quiet sentence case", () => {
+  it("each tier: the name, the all-inclusive price under it, then only 12px notes", () => {
     const { container } = render(<SeatedTicketsPanel event={seated} demo />);
     const rows = container.querySelectorAll("ul > li");
     expect(rows.length).toBeGreaterThan(0);
@@ -89,20 +90,22 @@ describe("seated panel tier rows (V6: the standard ticket row)", () => {
       // Name, then the price (never in a separate right-hand column).
       expect(lines[1]).toHaveClass("text-base", "font-semibold", "tabular-nums");
       expect(lines[1]).toHaveTextContent(/A\$|Free/);
-      // The breakdown (or the standing note) under it: 12px muted, not mono.
-      expect(lines[2]).toHaveClass("text-xs", "text-muted");
-      expect(lines[2]).not.toHaveClass("meta");
+      // No per-ticket breakdown (owner, 28 Oct 2026): anything under the price is a 12px note, not mono.
+      for (const note of lines.slice(2)) {
+        expect(note).toHaveClass("text-xs");
+        expect(note).not.toHaveClass("meta");
+      }
     }
-    expect(within(container).getAllByText(/ ticket \+ A\$[\d.]+ booking fee$/).length).toBeGreaterThan(0);
+    expect(within(container).queryByText(/ ticket \+ A\$[\d.]+ booking fee$/)).toBeNull();
   });
 });
 
-describe("seated panel steps (checkout-pay.md §5.6)", () => {
-  it("says Pay, not Pay on Stripe", () => {
+describe("seated panel copy (checkout-pay.md §5.6)", () => {
+  it("has no step indicator, says the booking fee once by the button, and never mentions Stripe", () => {
     render(<SeatedTicketsPanel event={seated} demo />);
-    expect(screen.getByRole("list", { name: "How booking works" })).toHaveTextContent(
-      "1 Choose seats→2 Pay→3 Tickets by email",
-    );
+    expect(screen.queryByRole("list", { name: "How booking works" })).toBeNull();
+    expect(screen.getAllByText(describeBookingFeeNote())).toHaveLength(1);
+    expect(screen.queryByText(/^Booking fee: /)).toBeNull();
     expect(screen.queryByText(/Stripe/)).toBeNull();
   });
 });

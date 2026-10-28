@@ -378,15 +378,12 @@ describe("CheckoutPayment: open", () => {
     expect(region).not.toHaveClass("hidden");
   });
 
-  it("general admission: back to the event, the ticket steps, and the terms and privacy links", async () => {
+  it("general admission: back to the event, no step indicator, and the terms and privacy links", async () => {
     getOrderPayment.mockResolvedValue(OPEN_GA);
     render(<CheckoutPayment />);
     expect(await screen.findByRole("link", { name: "Back to the event" })).toHaveAttribute("href", "/events/neon-static");
-    const steps = screen.getByRole("list", { name: "Checkout steps" });
-    expect(steps).toHaveTextContent("1 Choose tickets→2 Pay→3 Tickets by email");
-    expect(within(steps).getByText("2 Pay").closest("li")).toHaveAttribute("aria-current", "step");
-    // The arrows stay muted, even beside the current step.
-    for (const arrow of steps.querySelectorAll('[aria-hidden="true"]')) expect(arrow).toHaveClass("text-muted");
+    // Owner (28 Oct 2026, less helper text): no "1 Choose tickets → 2 Pay → 3 Tickets by email".
+    expect(screen.queryByRole("list", { name: "Checkout steps" })).toBeNull();
     expect(screen.getByRole("link", { name: "Purchase Terms" })).toHaveAttribute("href", "/purchase-terms");
     expect(screen.getByRole("link", { name: "Privacy Policy" })).toHaveAttribute("href", "/privacy");
     expect(screen.getByRole("link", { name: "Purchase Terms" })).toHaveClass("whitespace-nowrap");
@@ -396,11 +393,11 @@ describe("CheckoutPayment: open", () => {
     expect(screen.queryByText(/Your seats are held/)).toBeNull();
   });
 
-  it("seated: back to change seats, the seat steps, each seat, and when the hold ends (Melbourne time)", async () => {
+  it("seated: back to change seats, each seat, and when the hold ends (Melbourne time)", async () => {
     getOrderPayment.mockResolvedValue(OPEN_SEATED);
     render(<CheckoutPayment />);
     expect(await screen.findByRole("link", { name: "Change seats" })).toHaveAttribute("href", "/events/off-kilter/seats");
-    expect(screen.getByRole("list", { name: "Checkout steps" })).toHaveTextContent("1 Choose seats→2 Pay→3 Tickets by email");
+    expect(screen.queryByRole("list", { name: "Checkout steps" })).toBeNull();
     // Melbourne's time, like the event's, and said so: a device elsewhere would otherwise misread it.
     expect(screen.getByText("Your seats are held until 8:31 pm Melbourne time. Going back releases them.")).toBeInTheDocument();
     expect(screen.getByText("North · Row A · Seat 1")).toBeInTheDocument();

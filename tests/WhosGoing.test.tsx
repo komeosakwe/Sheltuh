@@ -409,7 +409,7 @@ describe("Who's Going — signed in", () => {
       expect(nameInput).toHaveFocus();
       // No maxlength: it counts UTF-16 units, not the code points the API counts.
       expect(nameInput).not.toHaveAttribute("maxlength");
-      expect(nameInput.getAttribute("aria-describedby")).toContain("wg-name-hint");
+      expect(nameInput.getAttribute("aria-describedby")).toContain("wg-name-count");
       const adult = within(form).getByRole("checkbox", { name: "I’m 18 or older" });
       const submit = within(form).getByRole("button", { name: "Show me as going" });
       expect(submit).toHaveAttribute("type", "submit");

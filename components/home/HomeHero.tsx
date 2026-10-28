@@ -2,7 +2,7 @@ import DotsMark from "@/components/brand/DotsMark";
 import SearchBar from "@/components/SearchBar";
 import HeroCollage from "./HeroCollage";
 import HeroThumb from "./HeroThumb";
-import { HOME_INTRO, HOME_TITLE_LINES, titleParts } from "./home-content";
+import { HOME_TITLE_LINES, titleParts } from "./home-content";
 
 /**
  * One line of the h1: plain text, with its marked letters (`HOME_TITLE_LINES`)
@@ -66,8 +66,6 @@ export default function HomeHero() {
           </div>
           <HeroThumb className="lg:hidden" />
         </div>
-        {/* At every width (owner, 23 Oct 2026, layout polish), close under the headline on phones. */}
-        <p className="mt-2 max-w-[40ch] text-base leading-6 text-muted sm:mt-3 sm:text-lg sm:leading-7">{HOME_INTRO}</p>
         {/* Search is the hero's main action: full width on phones, a comfortable field from 640px.
             The Eventbrite-style bar with a location and an orange submit (owner, 24 Oct 2026); still 52px tall. */}
         <div className="mt-4 sm:mt-5 sm:max-w-xl">

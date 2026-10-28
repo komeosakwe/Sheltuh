@@ -205,7 +205,7 @@ for (const vp of [
 
       // The payment page: the seats, the hold, and Stripe's form (the stub) with this order's secret.
       await expect(page.getByRole("heading", { level: 1, name: "Pay for your tickets" })).toBeVisible({ timeout: 30_000 });
-      await expect(page.getByRole("list", { name: "Checkout steps" })).toContainText("1 Choose seats");
+      await expect(page.getByRole("list", { name: "Checkout steps" })).toHaveCount(0);
       await expect(page.getByText(/^Your seats are held until .+ Melbourne time\. Going back releases them\.$/)).toBeVisible();
       await expect(page.locator('iframe[title="Secure payment form (e2e stub)"]')).toBeVisible({ timeout: 30_000 });
       expect((await seen.stripe.seen()).secrets).toEqual([SECRET]);

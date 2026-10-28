@@ -3,7 +3,7 @@ import { act, cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventDetailsView from "@/components/EventDetailsView";
 import { FavouritesProvider } from "@/components/favourites/FavouritesProvider";
-import { describeBookingFee } from "@/lib/fees";
+import { describeBookingFeeNote } from "@/lib/fees";
 import { REFUND_ACL_STATEMENT } from "@/lib/refund-policy";
 import { sampleEvents } from "@/lib/sample-events";
 import type { SheltuhEvent } from "@/lib/types";
@@ -335,13 +335,13 @@ describe("EventDetailsView tickets panel", () => {
     return tickets;
   }
 
-  it("states the booking fee from lib/fees.ts, so the copy can't drift from what's charged", () => {
+  it("states the booking fee once, from lib/fees.ts, so the copy can't drift from what's charged", () => {
     const { container } = render(<EventDetailsView event={findEvent("neon-static")} demo />);
     const tickets = ticketsPanel(container);
-    const sentence = `Booking fee: ${describeBookingFee()}. Free tickets never carry a fee.`;
-    expect(within(tickets).getByText(sentence)).toBeInTheDocument();
+    const sentence = describeBookingFeeNote();
+    expect(within(tickets).getAllByText(sentence)).toHaveLength(1);
     // And it says what's actually charged today.
-    expect(sentence).toBe("Booking fee: 6% of ticket face value + A$0.50 per paid ticket. Free tickets never carry a fee.");
+    expect(sentence).toBe("Prices include a booking fee of 6% of ticket face value + A$0.50 per paid ticket.");
   });
 
   it("says tickets are coming soon when there are no ticket types, with no fee copy and nothing to select", () => {

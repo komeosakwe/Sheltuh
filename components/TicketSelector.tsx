@@ -10,9 +10,9 @@ import { ApiError, isApiConfigured } from "@/lib/api/client";
 import { createCheckoutSession } from "@/lib/api/orders";
 import { MAX_FREE_TICKETS_PER_ORDER } from "@/lib/api/types";
 import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
-import { calculateOrderSummary, describeBookingFee, sumOrderSummaries } from "@/lib/fees";
+import { calculateOrderSummary, describeBookingFeeNote, sumOrderSummaries } from "@/lib/fees";
 import { formatAud } from "@/lib/format";
-import { formatTicketBreakdown, formatTicketHeadline, isSoldOut, pricedTicketTypes } from "@/lib/pricing";
+import { formatTicketHeadline, isSoldOut, pricedTicketTypes } from "@/lib/pricing";
 import { freeTicketsIn, isLow, ownLimit, ownLimitHint, type Quantities } from "@/lib/ticket-limits";
 import {
   isEmptyOther,
@@ -217,9 +217,6 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   // Every ticket on sale free: no payment step, but an emailed confirmation link.
   const allFree = pricedTicketTypes({ ...event, ticketTypes }).every((t) => t.priceCents === 0);
   const buyerPaysAFee = ticketTypes.some((t) => t.priceCents > 0 && t.feePolicy === "buyer-pays");
-  const steps = allFree
-    ? ["Choose tickets", "Confirm by email", "Tickets"]
-    : ["Choose tickets", "Pay", "Tickets by email"];
   // Paid orders give Stripe an email at checkout; free ones skip Stripe, so
   // this is the only way their tickets can reach the buyer.
   const needsEmail = canCheckout && hasAnyTickets && orderTotal.totalCents === 0;
@@ -308,41 +305,16 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
     </div>
   ) : null;
 
+  // The booking fee, explained once, small, by the Checkout button; only where a buyer pays it (not for
+  // free-only events, or ones whose organiser absorbs every fee).
+  const feeNote = buyerPaysAFee ? <p className="mt-2 text-xs text-muted">{describeBookingFeeNote()}</p> : null;
+
   return (
     <div className="flex flex-col gap-5 rounded-card border border-foreground bg-card p-4 sm:p-5">
-      {/* What happens next, before anything is chosen (static: no progress bar). */}
-      {canCheckout && !soldOut && (
-        <div className="flex flex-col gap-1">
-          <ol aria-label="How booking works" className="eyebrow flex flex-wrap gap-x-3 gap-y-1">
-            {steps.map((step, i) => (
-              <li
-                key={step}
-                aria-current={i === 0 ? "step" : undefined}
-                className={`flex gap-x-3 ${i === 0 ? "text-foreground" : "text-muted"}`}
-              >
-                {i > 0 && <span aria-hidden="true">&rarr;</span>}
-                <span>
-                  {i + 1} {step}
-                </span>
-              </li>
-            ))}
-          </ol>
-          {allFree && (
-            <p className="text-xs text-muted">Signed in with a verified email? Step 2 is usually skipped.</p>
-          )}
-        </div>
-      )}
-
-      {/* The fee rule only where a buyer pays it: not for free-only events, or
-          ones whose organiser absorbs every fee. */}
-      {buyerPaysAFee && (
-        <p className="text-sm text-muted">Booking fee: {describeBookingFee()}. Free tickets never carry a fee.</p>
-      )}
-
       {/* Before the tickets, so the limit is known before choosing. Not a live
           region: the panel's status below says when a limit is reached. */}
       {freeTypeCount > 0 && !soldOut && (
-        <p id="free-ticket-limit" className="text-xs text-muted">
+        <p id="free-ticket-limit" className={freeLimitReached ? "text-xs text-muted" : "sr-only"}>
           {freeLimitReached
             ? `That's the most free tickets one booking can have (${MAX_FREE_TICKETS_PER_ORDER}${freeTypeCount > 1 ? " in total, across the free ticket types" : ""}).`
             : freeLimitText}
@@ -352,7 +324,6 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
       <ul className="flex flex-col">
         {lineSummaries.map(({ ticket, quantity }, index) => {
           const { cap } = limitFor(ticket, quantities);
-          const breakdown = formatTicketBreakdown(ticket);
           // The type's own limit, said before it's reached. A free type within
           // the free-ticket limit has the line above instead.
           const showOwnLimit =
@@ -374,18 +345,17 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                     number, at every width (ACCC: brand-direction-one.md §6.8). A sold-out
                     tier keeps its total (it's still advertised), muted. */}
                 <p
-                  className={`mt-1 text-base leading-6 font-semibold tabular-nums ${tierSoldOut ? "text-muted" : "text-foreground"}`}
+                  className={`mt-1 text-xl leading-7 font-bold tabular-nums ${tierSoldOut ? "text-muted" : "text-foreground"}`}
                 >
                   {formatTicketHeadline(ticket)}
                 </p>
                 {ticket.description && <p className="mt-1 text-sm text-muted">{ticket.description}</p>}
-                {/* What makes up the total, before anything is chosen. Never louder than it. */}
-                {breakdown && <p className="mt-1 text-xs text-muted tabular-nums">{breakdown}</p>}
                 {showOwnLimit && !tierSoldOut && (
-                  // "Only N left" is the server's own count (10 or fewer), in black, never orange.
+                  // "Only N left" is the server's own count (10 or fewer), in black, never orange. The plain per-booking
+                  // limit is for screen readers only: the stepper's + is disabled at it.
                   <p
                     id={ownLimitId}
-                    className={`mt-1 text-xs ${isLow(ticket) ? "font-semibold text-foreground" : "text-muted"}`}
+                    className={isLow(ticket) ? "mt-1 text-xs font-semibold text-foreground" : "sr-only"}
                   >
                     {ownLimitHint(ticket)}
                   </p>
@@ -531,6 +501,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                 onClick={handleCheckout}
                 busy={loading}
                 disabled={!hasAnyTickets}
+                aria-describedby={hasAnyTickets ? undefined : "checkout-hint"}
                 className="mt-4 w-full"
               >
                 {loading
@@ -548,6 +519,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                   </Notice>
                 </div>
               )}
+              {feeNote}
               <p className="mt-2 text-xs text-muted">
                 By booking you agree to the{" "}
                 <Link href="/purchase-terms" className="text-foreground underline underline-offset-2">
@@ -559,13 +531,17 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                 </Link>
                 .
               </p>
-              <p className="mt-2 text-xs text-muted">
-                {!hasAnyTickets
-                  ? "Choose tickets to continue."
-                  : freeBooking
+              {!hasAnyTickets ? (
+                <p id="checkout-hint" className="sr-only">
+                  Choose tickets to continue.
+                </p>
+              ) : (
+                <p className="mt-2 text-xs text-muted">
+                  {freeBooking
                     ? "No payment step. We'll email you a link to confirm your tickets before they're issued. Signed in and booking with your account's verified email? That step is usually skipped."
                     : "You'll pay on the next page, in a secure form from Stripe, our payment provider."}
-              </p>
+                </p>
+              )}
             </>
           ) : (
             <>
@@ -574,6 +550,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
               <button type="button" disabled aria-disabled="true" className="btn btn-lg mt-4 w-full">
                 Checkout unavailable in this demo
               </button>
+              {feeNote}
               <p className="mt-2 text-xs text-muted">
                 This is a local prototype. No payment information is collected and no tickets are
                 issued{hasAnyTickets ? " — the total above is a preview only." : "."}

@@ -149,8 +149,9 @@ test.describe("Sheltüh-ticketed event at 390×844", () => {
     await expect(page.locator("#tickets")).toBeFocused();
     const tickets = page.locator("#tickets");
     await expect(tickets.getByText("A$32.30 incl. booking fee")).toBeVisible();
-    // The breakdown is there before anything's chosen.
-    await expect(tickets.getByText("A$30 ticket + A$2.30 booking fee")).toBeVisible();
+    // No per-ticket breakdown: the fee is said once, by Checkout.
+    await expect(tickets.getByText("A$30 ticket + A$2.30 booking fee")).toHaveCount(0);
+    await expect(tickets.getByText("Prices include a booking fee of 6% of ticket face value + A$0.50 per paid ticket.")).toBeVisible();
     await noSidewaysScroll(page);
   });
 });

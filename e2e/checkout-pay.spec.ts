@@ -119,7 +119,7 @@ test.describe("general admission at 1280×900", () => {
     const tickets = page.locator("#tickets");
     await tickets.getByRole("button", { name: "Increase quantity for General admission" }).click({ timeout: 30_000 });
     await expect(tickets).toContainText("You'll pay on the next page, in a secure form from Stripe, our payment provider.");
-    await expect(tickets.getByRole("list", { name: "How booking works" })).toContainText("2 Pay");
+    await expect(tickets.getByRole("list", { name: "How booking works" })).toHaveCount(0);
     // The event page never loads Stripe.js.
     expect(stripe.requests).toEqual([]);
 

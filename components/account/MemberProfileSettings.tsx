@@ -231,7 +231,7 @@ export default function MemberProfileSettings({
             className={fieldClass}
           />
           <p id="member-instagram-hint" className="text-xs text-muted">
-            Without the @. Up to 30 letters, numbers, . and _. Blank removes it.
+            Without the @.
           </p>
           {errors.instagramHandle && (
             <p id={`${fieldId("instagramHandle")}-error`} className="text-sm text-danger">
