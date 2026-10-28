@@ -3,6 +3,7 @@
 import "leaflet/dist/leaflet.css";
 import { useEffect, useRef, useState } from "react";
 import { MapContainer, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import MapboxLogo from "@/components/map/MapboxLogo";
 import MapStyles from "@/components/map/MapStyles";
 import { useMapTileStyle } from "@/components/map/useMapTileStyle";
 import { AUSTRALIA_BOUNDS } from "@/lib/geo";
@@ -139,6 +140,7 @@ export default function VenuePinMapLeaflet({ centre, zoom, minZoom, maxZoom, onM
               : {})}
           />
         ))}
+        <MapboxLogo />
         <Sync centre={centre} zoom={zoom} onMove={onMove} />
       </MapContainer>
       {status === "failed" && (

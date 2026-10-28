@@ -361,8 +361,8 @@ describe("VenueSuburbField — resolving the suburb", () => {
     expect(zone).toHaveAccessibleDescription(
       "Most of New South Wales is on Sydney time. Change this only if the venue keeps Broken Hill time or Lord Howe Island time.",
     );
-    // Its row spans the venue's three columns.
-    expect(zone.closest(".sm\\:col-span-3")).not.toBeNull();
+    // Its row spans the venue's two columns.
+    expect(zone.closest(".sm\\:col-span-2")).not.toBeNull();
   });
 
   it("says when a change of zone moves the times (their wall-clock values stay)", async () => {

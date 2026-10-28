@@ -8,6 +8,7 @@ import { ApiError } from "@/lib/api/client";
 import type { PlaceDetails, PlaceSuggestion } from "@/lib/api/places";
 import type { AdminEventRecord, EventRecord } from "@/lib/api/types";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
+import { showStep } from "./test-utils/editorSteps";
 import { CONFIRMED_PIN_LOCATION, pinMapDrag, stubMatchMedia, unstubMatchMedia } from "./test-utils/pinMapStub";
 
 /**
@@ -334,6 +335,7 @@ describe("EventEditor — the suburb changing under a linked place", () => {
     await waitFor(() => expect(linkedBlock()).toBeNull());
 
     // Publishing needs the venue found again, or a pin.
+    showStep(3);
     fireEvent.click(screen.getByRole("button", { name: "Publish…" }));
     await waitFor(() => expect(venueSection()).toHaveFocus());
     expect(venueSection()).toHaveAccessibleDescription("Add the venue location and confirm the pin first.");
@@ -536,12 +538,15 @@ describe("EventEditor — what's sent for a saved event's location", () => {
 describe("EventEditor — publishing needs a confirmed pin", () => {
   it("Publish… with no pin: says so by the venue and the buttons, focuses the venue, and saves or publishes nothing", async () => {
     renderEditor();
+    showStep(3);
     fireEvent.click(screen.getByRole("button", { name: "Publish…" }));
 
     expect(screen.queryByRole("group", { name: "Publish this event now?" })).toBeNull();
     await waitFor(() => expect(venueSection()).toHaveFocus());
     expect(venueSection()).toHaveAccessibleDescription("Add the venue location and confirm the pin first.");
     expect(searchBox()).toHaveAttribute("aria-invalid", "true");
+    // By the Publish button too, on the Publish step (the venue, on the Event page step, is what's shown and focused).
+    showStep(3);
     expect(screen.getByRole("group", { name: "Add the venue location and confirm the pin first." })).toBeInTheDocument();
     expect(api.updateEventDraft).not.toHaveBeenCalled();
     expect(api.publishEvent).not.toHaveBeenCalled();
@@ -551,11 +556,13 @@ describe("EventEditor — publishing needs a confirmed pin", () => {
     api.publishEvent.mockResolvedValue({ ...EVENT, status: "published" });
     renderEditor();
     await pickTheTote();
+    showStep(3);
     fireEvent.click(screen.getByRole("button", { name: "Publish…" }));
     await waitFor(() => expect(venueSection()).toHaveFocus());
     expect(api.publishEvent).not.toHaveBeenCalled();
 
     await moveAndConfirm();
+    showStep(3);
     fireEvent.click(screen.getByRole("button", { name: "Publish…" }));
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Publish now" }));
@@ -570,6 +577,7 @@ describe("EventEditor — publishing needs a confirmed pin", () => {
     api.publishEvent.mockResolvedValue({ ...linked, status: "published" });
     renderEditor(linked);
     fireEvent.click(screen.getByRole("button", { name: /^Change/ }));
+    showStep(3);
     fireEvent.click(screen.getByRole("button", { name: "Publish…" }));
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Publish now" }));
@@ -585,6 +593,7 @@ describe("EventEditor — publishing needs a confirmed pin", () => {
       rejectionReason: "Add the set times.",
       moderationLog: [{ action: "rejected", by: "sheltuh", at: "2026-10-20T00:00:00.000Z" }],
     });
+    showStep(3);
     fireEvent.click(screen.getByRole("button", { name: "Send for review" }));
     await waitFor(() => expect(venueSection()).toHaveFocus());
     expect(api.updateEventDraft).not.toHaveBeenCalled();
@@ -599,11 +608,13 @@ describe("EventEditor — publishing needs a confirmed pin", () => {
       }),
     );
     renderEditor({ ...EVENT, location: CONFIRMED_PIN_LOCATION });
+    showStep(3);
     fireEvent.click(screen.getByRole("button", { name: "Publish…" }));
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Publish now" }));
     });
     await waitFor(() => expect(venueSection()).toHaveFocus());
+    showStep(3);
     expect(screen.getByRole("group", { name: "Add the venue location and confirm the pin first." })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Publish now" })).toBeNull();
   });

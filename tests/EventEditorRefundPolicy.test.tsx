@@ -6,6 +6,7 @@ import { ApiError } from "@/lib/api/client";
 import type { AdminEventRecord, EventRecord } from "@/lib/api/types";
 import { REFUND_ACL_STATEMENT } from "@/lib/refund-policy";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
+import { showStep } from "./test-utils/editorSteps";
 
 // The suburb table, stubbed: these tests aren't about the suburb (tests/VenueSuburbField.test.tsx is).
 vi.mock("@/lib/location-loader", async () => (await import("./test-utils/locationStub")).locationLoaderStub());
@@ -88,6 +89,8 @@ function renderOrganiser(overrides: Partial<EventRecord> = {}) {
       <EventEditor getToken={vi.fn().mockResolvedValue("token")} initial={{ ...EVENT, ...overrides }} onSaved={vi.fn()} />
     </FakeAuthProvider>,
   );
+  // The refund policy is on the Tickets step.
+  showStep(2);
 }
 
 function renderAdmin(initial: AdminEventRecord = ADMIN_EVENT) {
@@ -96,6 +99,7 @@ function renderAdmin(initial: AdminEventRecord = ADMIN_EVENT) {
       <EventEditor mode="admin" getToken={vi.fn().mockResolvedValue("token")} initial={initial} onSaved={vi.fn()} />
     </FakeAuthProvider>,
   );
+  showStep(2);
 }
 
 const group = () => screen.getByRole("group", { name: "Refund policy" });
@@ -277,6 +281,7 @@ describe("EventEditor — refund policy (organiser)", () => {
         <EventEditor getToken={vi.fn().mockResolvedValue("token")} onSaved={vi.fn()} />
       </FakeAuthProvider>,
     );
+    showStep(2);
     fireEvent.change(daysInput(), { target: { value: "3" } });
     expect(document.getElementById("refundDays-preview")).toHaveTextContent(
       "Buyers will see: Refunds available up to 3 days before the event.",

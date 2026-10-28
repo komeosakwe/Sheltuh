@@ -19,7 +19,7 @@ const LINK_CLASS =
  * Nothing at all when there's nowhere to route to (no venue, address or
  * suburb).
  */
-export default function EventLocation({ event }: { event: SheltuhEvent }) {
+export default function EventLocation({ event, map = true }: { event: SheltuhEvent; /** False: no map (the editor's live preview). */ map?: boolean }) {
   const directions = directionsHref(event);
   const apple = appleMapsHref(event);
   if (!directions) return null;
@@ -37,7 +37,7 @@ export default function EventLocation({ event }: { event: SheltuhEvent }) {
           {venue && <span className="font-semibold">{venue}</span>}
           {where && <span className="break-words">{where}</span>}
         </address>
-        <EventLocationMap event={event} directions={directions} />
+        {map && <EventLocationMap event={event} directions={directions} />}
         <div className="flex flex-wrap gap-x-6">
           <a
             href={directions}

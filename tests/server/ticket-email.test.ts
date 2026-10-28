@@ -88,9 +88,9 @@ describe("buildTicketEmail", () => {
     expect(html).toContain("max-width:600px");
     expect(html).toContain(`<body bgcolor="${BRAND.page}" style="margin:0;padding:0;background-color:${BRAND.page}`);
     expect(html).toContain(`bgcolor="${BRAND.ivory}" class="column" style="width:100%;max-width:600px;background-color:${BRAND.ivory}"`);
-    // Responsive: the column fills a phone with 20px sides, the heading steps down to 26px.
+    // Responsive: the column fills a phone with 20px sides, the heading steps down to 30px.
     expect(html).toMatch(/@media only screen and \(max-width: 620px\)[^}]*\.outer \{ padding: 0 !important; \}/);
-    expect(html).toContain(".h1 { font-size: 26px !important; line-height: 32px !important; }");
+    expect(html).toContain(".h1 { font-size: 30px !important; line-height: 36px !important; }");
     // The orange label: black text on Signal Orange, 14px bold, barely tracked (no tiny, widely spaced caps).
     const label = html.match(/<td bgcolor="#ff4800" style="([^"]*)">YOU&rsquo;RE IN<\/td>/);
     expect(label?.[1]).toContain(`color:${BRAND.black}`);
@@ -103,7 +103,7 @@ describe("buildTicketEmail", () => {
     expect(button).toContain("color:#000000"); // black on orange (6.18:1), never white
     // System fonts only: no web font is loaded or named; Outlook is pinned to Segoe UI / Arial.
     expect(html).not.toMatch(/@import|@font-face|fonts\.googleapis|Instrument Sans/);
-    expect(html).toContain("<!--[if mso]><style>body, table, td, p, a, h1, span { font-family: 'Segoe UI', Arial, sans-serif !important; }</style><![endif]-->");
+    expect(html).toContain("<!--[if mso]><style>body, table, td, p, a, h1, h2, span { font-family: 'Segoe UI', Arial, sans-serif !important; }</style><![endif]-->");
     // No layout that email clients drop.
     expect(html).not.toMatch(/display:\s*(flex|grid)|<script|background-image|url\(/i);
   });

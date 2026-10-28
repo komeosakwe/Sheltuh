@@ -157,6 +157,7 @@ describe("Data API lock-out", () => {
       { table_name: "event_waitlist", rls: true },
       { table_name: "event_waitlist_tokens", rls: true },
       { table_name: "free_order_refusals", rls: true },
+      { table_name: "onboarding_emails", rls: true },
       { table_name: "organiser_event_announcements", rls: true },
       { table_name: "organiser_follow_tokens", rls: true },
       { table_name: "organiser_invite_links", rls: true },
@@ -210,6 +211,11 @@ describe("Data API lock-out", () => {
       "ticket_check_ins_guard",
       "ticket_types_platform_free_only",
     ];
+    expect(await privateFunctions(names)).toEqual(locked(names));
+  });
+
+  it("the onboarding email functions and trigger exist, pin search_path and aren't client-executable", async () => {
+    const names = ["lease_outbox_jobs", "organisers_onboarding_email", "queue_member_welcomes", "queue_onboarding_email"];
     expect(await privateFunctions(names)).toEqual(locked(names));
   });
 

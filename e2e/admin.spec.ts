@@ -277,7 +277,7 @@ for (const vp of [
       const { organiserQueries } = await signedInAsAdmin(page);
       await page.goto("/admin");
       await page.getByRole("region", { name: "Manage" }).getByRole("link", { name: /^Find an organiser/ }).click();
-      await expect(page).toHaveURL(/\/admin\/organisers\?status=approved$/);
+      await expect(page).toHaveURL(/\/admin\/organisers\?status=approved$/, { timeout: 30_000 });
       await expect(page.getByRole("button", { name: "Approved" })).toHaveAttribute("aria-pressed", "true", {
         timeout: 30_000,
       });

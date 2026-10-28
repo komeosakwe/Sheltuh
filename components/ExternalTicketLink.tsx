@@ -19,6 +19,7 @@ export default function ExternalTicketLink({
   provider,
   className,
   short = false,
+  preview = false,
 }: {
   eventId: string;
   url: string | undefined;
@@ -31,10 +32,13 @@ export default function ExternalTicketLink({
    * the visible words.
    */
   short?: boolean;
+  /** The editor's live preview: the link looks the same but counts nothing. */
+  preview?: boolean;
 }) {
   if (!isSafeTicketUrl(url)) return null;
 
   function count() {
+    if (preview) return;
     recordOutboundClick(eventId);
   }
 

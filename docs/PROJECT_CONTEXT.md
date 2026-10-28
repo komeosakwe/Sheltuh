@@ -90,7 +90,7 @@ email needs consent + unsubscribe (Spam Act).
 | Frontend + API | Next.js 16 (App Router) | The API is this app's own route handlers (`app/api/`) |
 | DB / Auth   | Supabase                | Postgres (Sydney region) + Supabase Auth |
 | Payments    | **Stripe Connect** (Express) | Connect specifically, for marketplace split payouts |
-| Maps        | Leaflet + Esri tiles    | Already built and free; Mapbox only if custom styling is needed |
+| Maps        | Leaflet, Mapbox Streets tiles | Mapbox when `NEXT_PUBLIC_MAPBOX_TOKEN` is set, Esri tiles (free, no key) as the fallback; see `docs/maps.md` |
 | Venue search | Google Places API (New) | Server-side only (our own proxy routes, server-only key `GOOGLE_MAPS_API_KEY`). Google's terms: we store only the place id and never use Google's coordinates; pins on our maps are the organiser's own. Expected ~A$0 at our volume (unverified); quotas and a budget alert in `docs/DEPLOYMENT.md` |
 | Hosting     | Vercel                  | Pro plan needed once selling tickets (Hobby is non-commercial) |
 

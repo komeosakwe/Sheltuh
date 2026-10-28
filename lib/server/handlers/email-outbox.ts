@@ -1,5 +1,7 @@
 import { requireAdmin } from "../auth";
 import { requireCronSecret } from "../cron-auth";
+import { pgErrorCode } from "../db";
+import type { Deps } from "../deps";
 import { drainEmailOutbox, sendTicketEmailSoon } from "../email-outbox";
 import { HttpError, okPrivate } from "../http";
 import { decodeCursor, parseLimit, toPage } from "../pagination";
@@ -26,6 +28,51 @@ export const RESEND_MIN_INTERVAL = "5 minutes";
 const JOB_NOT_FOUND = "Email not found.";
 const JOB_ID = /^[1-9][0-9]{0,17}$/;
 
+/** Welcomes queued per cron run (private.queue_member_welcomes also holds a platform cap of 300 a day). */
+export const MEMBER_WELCOMES_PER_RUN = 50;
+
+/** Logged once per process while the database lacks private.queue_member_welcomes. */
+let warnedNoWelcomeQueue = false;
+
+/**
+ * Queues the welcome for members who've confirmed their email since the last
+ * run. Never fails or delays the run, whatever goes wrong: queueing welcomes
+ * must not stop a ticket email going out. In a deploy window where this code
+ * runs before 20261111000700_onboarding_emails.sql is applied the function
+ * doesn't exist, which is warned about once; any other error (a timeout, an
+ * account deleted while the function ran) is logged as a fixed message with
+ * its SQLSTATE only (never a message, which could carry data), and the next
+ * run tries again.
+ */
+async function queueMemberWelcomes(deps: Deps): Promise<void> {
+  try {
+    await deps.db.query(`select private.queue_member_welcomes($1)`, [MEMBER_WELCOMES_PER_RUN]);
+    return;
+  } catch (err) {
+    const code = pgErrorCode(err);
+    // undefined_function can also come from inside the function, so ask the catalogue.
+    let missing = false;
+    try {
+      const [row] = await deps.db.query<{ missing: boolean }>(
+        `select to_regprocedure('private.queue_member_welcomes(integer)') is null as missing`,
+      );
+      missing = row?.missing === true;
+    } catch {
+      // Treated as the general failure below.
+    }
+    if (missing) {
+      if (!warnedNoWelcomeQueue) {
+        warnedNoWelcomeQueue = true;
+        console.warn(
+          "Email outbox: private.queue_member_welcomes is missing (migration 20261111000700_onboarding_emails.sql isn't applied); no welcome emails are queued until it is.",
+        );
+      }
+      return;
+    }
+    console.error(`Email outbox: queueing member welcomes failed (SQLSTATE ${code ?? "unknown"}); sending what is due.`);
+  }
+}
+
 /**
  * GET /api/cron/email-outbox — sends every due job (retries, and anything
  * the after-response attempt didn't finish), then records the run for
@@ -36,11 +83,12 @@ const JOB_ID = /^[1-9][0-9]{0,17}$/;
  * Safe to call that often, and from two schedulers at once: a run leases one
  * job at a time with `skip locked` (two runs never send the same job), takes
  * at most 100 jobs and stops claiming after DRAIN_BUDGET_MS (30 s, inside the
- * route's 60-second maxDuration), and with nothing due it's four indexed
- * claims (one per drain phase) and one upsert.
+ * route's 60-second maxDuration), and with nothing due it's one welcome
+ * queueing call, five indexed claims (one per drain phase) and one upsert.
  */
 export const runEmailOutboxCron: Handler = async (req, _params, deps) => {
   requireCronSecret(req, deps.cronSecret());
+  await queueMemberWelcomes(deps);
   const summary = await drainEmailOutbox(deps);
   await deps.db.query(
     `insert into private.cron_runs (name, finished_at, claimed, sent, retrying, failed)

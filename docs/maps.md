@@ -50,11 +50,22 @@ only as its section nears the screen. Browsers cache tiles, but each new visitor
 requests, and the site's service worker never stores Mapbox tiles (their URLs carry the
 token). Set a billing alert or spending limit in Mapbox before launch.
 
-## Before relying on Mapbox in production
+## Mapbox wordmark
 
 Mapbox's [attribution guidelines](https://docs.mapbox.com/help/getting-started/attribution/)
-also ask for the **Mapbox wordmark** on maps using its styles. The maps show the text
-attribution only; add the wordmark before going live with the token in Production.
+require its wordmark on maps using its styles, as well as the text credit. With Streets
+active, `components/map/MapboxLogo.tsx` (rendered inside all three Leaflet maps) shows it
+bottom-left as a link to <https://www.mapbox.com/> (new tab, `rel="noopener noreferrer"`,
+accessible name "Mapbox"); with Esri it renders nothing. The image is
+`public/mapbox-logo.svg`, Mapbox's official wordmark, copied unchanged from the default
+`.mapboxgl-ctrl-logo` data URI in **mapbox-gl 3.9.0**'s `dist/mapbox-gl.css` (MIT-licensed
+package; fetched from the npm registry tarball, because the jsDelivr CDN was blocked in
+the build environment). It is white with a dark outline, so it reads on the Streets map in
+both themes. To update it, take the same rule from a newer pinned mapbox-gl release.
+Layout: it uses Leaflet's bottom-left control corner (the zoom control is top-left, the
+credit bottom-right); where it's shown the credit gets a max width that stops short of it,
+and `/map`'s desktop event card sits above it. Like the credit links, it is hidden from
+assistive tech and the tab order on the event page's inert, aria-hidden map.
 
 ## Tile seams
 
@@ -70,6 +81,9 @@ and taller with normal blending, so neighbouring tiles overlap instead of leavin
   and attribution.
 - `tests/MapTiles.test.tsx`: the real Leaflet maps in jsdom (`/map`, the Location map and
   the pin map), with and without the token, in both themes; `/map` has no style control.
+- The Mapbox wordmark (shown with a token on all three maps, absent without one) is also
+  covered in `tests/MapTiles.test.tsx` and `e2e/mapbox-streets.demo.spec.ts` (visible, and
+  clear of the controls and credit at 390 and 1440).
 - `e2e/map-tiles.spec.ts` and `e2e/event-page.spec.ts` (live dev server, no token): Esri.
 - `e2e/mapbox-streets.demo.spec.ts` (demo build, which `playwright.config.ts` gives a
   placeholder `pk.` token): Mapbox tile requests are intercepted and answered with a small

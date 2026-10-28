@@ -148,12 +148,12 @@ describe("every transactional email uses the shared brand layout", () => {
     expect(html).toContain(
       `bgcolor="${EMAIL_COLOURS.card}" class="column" style="width:100%;max-width:600px;background-color:${EMAIL_COLOURS.card}"`,
     );
-    // One h1: the shared 28px heading, or the ticket email's event name (32px, 26px on a phone).
+    // One h1: the shared 36/44 heading at weight 600 (30/36 on a phone), or the ticket email's event name (32px).
     expect(html.match(/<h1 /g)).toHaveLength(1);
     expect(html).toMatch(
       TICKET_EMAILS.includes(name)
         ? /<h1 class="h1" style="margin:0;font-family:[^"]*;font-size:32px;line-height:38px;color:#000000;font-weight:bold/
-        : /<h1 style="margin:0 0 \d+px 0;font-family:[^"]*;font-size:28px;line-height:34px;font-weight:bold;color:#000000">/,
+        : /<h1 class="h1" style="margin:0 0 \d+px 0;font-family:[^"]*;font-size:36px;line-height:44px;font-weight:600;letter-spacing:normal;color:#000000">/,
     );
     // The support address as a mailto link, and the disclosure line, in every email.
     expect(html).toContain('href="mailto:support@sheltuh.com.au"');

@@ -13,6 +13,7 @@ import { AuthAdminError, type AuthAdmin } from "../auth-admin";
 import { clientIp, clientKey } from "../client-key";
 import type { Db } from "../db";
 import type { Deps } from "../deps";
+import { sendOnboardingEmailsSoon } from "../email-outbox";
 import { maskEmail, redactForLog } from "../email-address";
 import { createdPrivate, HttpError, okPrivate, readJson } from "../http";
 import { buildInviteEmail, inviteLink } from "../invite-email";
@@ -593,7 +594,8 @@ export const getMyInvite: Handler = async (req, _params, { db, verifyAccessToken
  * has an organiser; 410 expired, revoked (also when its inviter is no longer
  * an admin: it's marked revoked) or used by another account (`code`).
  */
-export const acceptInvite: Handler = async (req, _params, { db, verifyAccessToken }) => {
+export const acceptInvite: Handler = async (req, _params, deps) => {
+  const { db, verifyAccessToken } = deps;
   const caller = await requireVerifiedCaller(req, verifyAccessToken);
   const body = await readJson(req);
   const inviteId = typeof body.inviteId === "string" ? body.inviteId : "";
@@ -605,6 +607,8 @@ export const acceptInvite: Handler = async (req, _params, { db, verifyAccessToke
   switch (row.result) {
     case "accepted":
     case "already_accepted": {
+      // An organiser invite makes an approved organiser: the welcome its trigger queued goes out now.
+      if (row.result === "accepted" && row.organiser_id) sendOnboardingEmailsSoon(deps);
       const result: AcceptInviteResult = {
         kind: row.kind as InviteKind,
         ...(row.organiser_id ? { organiserId: row.organiser_id } : {}),

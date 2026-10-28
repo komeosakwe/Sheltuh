@@ -424,7 +424,7 @@ describe("cron route", () => {
 });
 
 describe("cron route, called every 5 minutes", () => {
-  it("with nothing due, answers with zeros in five queries, sends nothing and touches no job", async () => {
+  it("with nothing due, answers with zeros in seven queries, sends nothing and touches no job", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     api.sendEmail.mockRejectedValueOnce(new Error("down"));
     await paidOrder("fan@example.com", { runDeferred: true }); // a retry, not due for a minute
@@ -448,12 +448,37 @@ describe("cron route, called every 5 minutes", () => {
       );
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ claimed: 0, sent: 0, retrying: 0, failed: 0 });
-      // Four claims (ops alerts, everything else, then the organiser-published and organiser-joined emails)
-      // and recording the run.
-      expect(queries).toBe(5);
+      // Queueing member welcomes (private.queue_member_welcomes), five claims (ops alerts, everything else, then
+      // the organiser-published, organiser-joined and onboarding emails) and recording the run.
+      expect(queries).toBe(7);
     }
     expect(counting.sendEmail).not.toHaveBeenCalled();
     expect(await stored()).toEqual(before);
+  });
+
+  it("an error queueing member welcomes (an account deleted meanwhile, a timeout) doesn't stop the run: it still sends what's due", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    await paidOrder("fan@example.com");
+    const real = api.db;
+    const failing = new TestApi({
+      query: async (text, params) => {
+        if (/select private\.queue_member_welcomes/.test(text)) {
+          throw Object.assign(new Error("insert violates foreign key for fan@example.com"), { code: "23503" });
+        }
+        return real.query(text, params);
+      },
+    });
+    const res = await failing.send(
+      runEmailOutboxCron,
+      new Request(`${SITE_URL}/api/cron/email-outbox`, { headers: { authorization: `Bearer ${CRON_SECRET}` } }),
+    );
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ claimed: 1, sent: 1, retrying: 0, failed: 0 });
+    expect(failing.sendEmail).toHaveBeenCalledTimes(1);
+    // The SQLSTATE only: never the error's message.
+    const logged = JSON.stringify(errors.mock.calls);
+    expect(logged).toContain("23503");
+    expect(logged).not.toContain("fan@example.com");
   });
 
   it("three runs at once send every job exactly once", async () => {
@@ -533,6 +558,7 @@ describe("admin health", () => {
         "ops_alert",
         "event_published",
         "organiser_joined",
+        "onboarding",
       ].map(
         (kind) => ({ kind, ...zeros }),
       ),

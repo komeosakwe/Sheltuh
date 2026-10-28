@@ -7,8 +7,8 @@ export const metadata: Metadata = { title: "New event — Sheltüh" };
 
 export default function NewEventPage() {
   return (
-    <Page padding="subNav">
-      <div className="flex max-w-2xl flex-col gap-8">
+    <Page width="full" padding="subNav" className="max-w-7xl">
+      <div className="flex flex-col gap-8">
         <BackLink href="/dashboard">Back to your events</BackLink>
         <PageHeader flush size="md" eyebrow="Organiser" title="New event" />
         <NewEventPageContent />

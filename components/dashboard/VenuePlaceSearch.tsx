@@ -316,7 +316,7 @@ export default function VenuePlaceSearch({ getToken, onPick, onManual, error, er
       <button
         type="button"
         onClick={() => onManual("chosen")}
-        className="inline-flex min-h-11 items-center self-start text-sm font-semibold underline underline-offset-4 sm:min-h-6"
+        className="inline-flex min-h-11 items-center self-start text-sm font-semibold underline underline-offset-4"
       >
         Can&rsquo;t find it on Google Maps?
       </button>

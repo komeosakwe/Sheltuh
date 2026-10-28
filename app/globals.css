@@ -55,6 +55,7 @@
   --display-leading: 0.88;
   --header-h: 3.5rem; /* 56px compact header, < lg */
   --buybar-h: 4rem; /* 64px sticky event-page buy bar, < lg (before the safe area) */
+  --editbar-h: 4rem; /* 64px sticky save bar on the event editor, before the safe area */
   --seatbar-h: 5.5rem; /* 88px phone summary bar on /events/[slug]/seats (before safe area) */
   /* Continue with Apple (docs/design/social-sign-in.md §2): Apple's own button colours, which
      invert with the page like btn-solid (Apple Black on the White theme). Page backgrounds only,
@@ -228,6 +229,11 @@ html {
   html:has([data-buy-bar]) {
     scroll-padding-bottom: calc(var(--buybar-h) + env(safe-area-inset-bottom) + 0.5rem);
   }
+}
+
+/* The event editor's save bar is sticky at every width: a focused field is never hidden under it (WCAG 2.4.11). */
+html:has([data-edit-bar]) {
+  scroll-padding-bottom: calc(var(--editbar-h) + env(safe-area-inset-bottom) + 0.5rem);
 }
 
 @media (prefers-reduced-motion: no-preference) {

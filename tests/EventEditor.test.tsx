@@ -5,6 +5,7 @@ import EventEditor from "@/components/dashboard/EventEditor";
 import type { EventRecord } from "@/lib/api/types";
 import { SessionExpiredError } from "@/lib/auth/session-token";
 import { callsTokenFirst, fakeAuthValue, FakeAuthProvider, switchableSession } from "./test-utils/fakeAuth";
+import { showStep } from "./test-utils/editorSteps";
 import { CONFIRMED_PIN_LOCATION, stubMatchMedia, unstubMatchMedia } from "./test-utils/pinMapStub";
 
 // The suburb table, stubbed: these tests aren't about the suburb (tests/VenueSuburbField.test.tsx is).
@@ -84,6 +85,7 @@ describe("EventEditor — ticket id collisions after reopening a draft", () => {
     updateEventDraft.mockResolvedValue({ ...BASE_EVENT });
     renderEditor();
 
+    showStep(2);
     fireEvent.click(screen.getByRole("button", { name: "Add ticket type" }));
 
     const nameInputs = screen.getAllByLabelText("Name");
@@ -242,8 +244,9 @@ describe("EventEditor — never saves as another account", () => {
   });
 });
 
-/** Publish…, then the question's Publish now. */
+/** The Publish step's Publish…, then the question's Publish now. */
 function publish() {
+  showStep(3);
   fireEvent.click(screen.getByRole("button", { name: "Publish…" }));
   fireEvent.click(screen.getByRole("button", { name: "Publish now" }));
 }
@@ -281,7 +284,9 @@ describe("EventEditor — publishing", () => {
     fireEvent.change(screen.getByLabelText("Price (A$)"), { target: { value: "0.5" } });
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
 
-    await waitFor(() => expect(screen.getByText(/at least A\$1/)).toBeInTheDocument());
+    // By the field (the error summary at the top lists it too), on the Tickets step, which the save showed.
+    await waitFor(() => expect(document.getElementById("ticket-0-price-error")).toHaveTextContent(/at least A\$1/));
+    expect(screen.getByLabelText("Price (A$)")).toHaveFocus();
     expect(updateEventDraft).not.toHaveBeenCalled();
   });
 });

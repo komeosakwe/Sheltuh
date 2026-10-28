@@ -16,6 +16,7 @@ import { adaptPublicEvent } from "@/lib/live/adapt";
 import { getEventCategories, getUpcomingEvents } from "@/lib/data";
 import { startDateTimeLine } from "@/lib/event-card";
 import { formatEventDateShort } from "@/lib/format";
+import { useMapTileStyle } from "@/components/map/useMapTileStyle";
 import { useLocationModule } from "@/components/search/useLocationModule";
 import { findListedSuburb, resolveMapCoordinates, type SuburbLookup } from "@/lib/geo";
 import { readStoredNear } from "@/lib/near-storage";
@@ -197,6 +198,8 @@ function SceneMapView({
   const initialSelected = useMemo(() => searchParams.get("sel"), []); // eslint-disable-line react-hooks/exhaustive-deps
   const initialView = useMemo<MobileView>(() => (searchParams.get("view") === "list" ? "list" : "map"), []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // The desktop event card sits above the Mapbox wordmark in the map's lower-left corner (components/map/MapboxLogo.tsx).
+  const mapboxLogo = useMapTileStyle().id === "mapbox-streets";
   const [filters, setFilters] = useState<FilterState>(initial);
   const [rawSelectedEventId, setSelectedEventId] = useState<string | null>(initialSelected);
   // Map first (owner request); a shared ?view=list still opens the list.
@@ -565,7 +568,7 @@ function SceneMapView({
                       findSuburb={findSuburb}
                       detailsHref={`/events/${selectedEvent.slug}`}
                       onDismiss={handleDismiss}
-                      className="absolute bottom-3 left-3 z-10 hidden w-72 lg:block"
+                      className={`absolute left-3 z-10 hidden w-72 lg:block ${mapboxLogo ? "bottom-10" : "bottom-3"}`}
                     />
                   )}
                 </div>

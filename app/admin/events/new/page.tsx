@@ -13,7 +13,7 @@ export default function AdminNewEventPage() {
       ]}
       title="New event"
       intro="For any approved organiser, or a Sheltüh-run (platform-managed) organiser with no account of its own. Save it as a draft, or publish it straight away."
-      width="narrow"
+      width="editor"
     >
       <AdminNewEvent />
     </AdminPage>

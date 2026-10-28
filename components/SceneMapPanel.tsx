@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { MapContainer, TileLayer, useMap } from "react-leaflet";
 import EventMarkerLayer, { type MarkerDatum, type OpenSpot } from "@/components/map/EventMarkerLayer";
 import MapSpotList from "@/components/map/MapSpotList";
+import MapboxLogo from "@/components/map/MapboxLogo";
 import MapStyles from "@/components/map/MapStyles";
 import { runQuietly, stopQuietly } from "@/components/map/quiet-map";
 import { useMapTileStyle } from "@/components/map/useMapTileStyle";
@@ -386,6 +387,7 @@ export default function SceneMapPanel({
             {...(index === 0 ? { eventHandlers: { tileload: handleTileLoad, tileerror: handleTileError } } : {})}
           />
         ))}
+        <MapboxLogo />
         <TileWatcher status={status} retryKey={retryKey} programmaticMoveRef={programmaticMoveRef} />
         <ResizeSync programmaticMoveRef={programmaticMoveRef} />
         {/* Before the controller: sibling effects run in order, so the markers and "Search this area"

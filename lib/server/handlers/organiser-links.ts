@@ -10,7 +10,7 @@ import { requireAdmin, requireVerifiedCaller } from "../auth";
 import { clientIp, clientKey } from "../client-key";
 import type { Db } from "../db";
 import type { Deps } from "../deps";
-import { sendReviewEmailsSoon } from "../email-outbox";
+import { sendOnboardingEmailsSoon, sendReviewEmailsSoon } from "../email-outbox";
 import { createdPrivate, HttpError, okPrivate, readJson } from "../http";
 import { decodeCursor, isUuid, parseLimit, toPage } from "../pagination";
 import { ADMIN_ORGANISER_LINK_SELECT, toAdminOrganiserLink } from "../records";
@@ -301,7 +301,11 @@ export const joinWithOrganiserLink: Handler = async (req, _params, deps) => {
     case "joined":
     case "already_joined": {
       // The admins' "joined with a link" email, queued by the join itself.
-      if (row.result === "joined") sendReviewEmailsSoon(deps, "organiser_joined");
+      if (row.result === "joined") {
+        sendReviewEmailsSoon(deps, "organiser_joined");
+        // The new (approved) organiser's welcome, queued by the organisers trigger.
+        sendOnboardingEmailsSoon(deps);
+      }
       const [organiser] = await deps.db.query<{ display_name: string }>(
         `select o.display_name from public.organisers o where o.id = $1`,
         [row.organiser_id],

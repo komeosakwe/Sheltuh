@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { MapContainer, Marker, TileLayer } from "react-leaflet";
 import { EventMarkerMark } from "@/components/map/MapEventMarker";
+import MapboxLogo from "@/components/map/MapboxLogo";
 import MapStyles from "@/components/map/MapStyles";
 import { MARKER_SIZE } from "@/components/map/PortalMarker";
 import { useMapTileStyle } from "@/components/map/useMapTileStyle";
@@ -100,6 +101,7 @@ export default function EventLocationLeaflet({ lat, lng, zoom, event }: EventLoc
               : {})}
           />
         ))}
+        <MapboxLogo />
         <Marker position={[lat, lng]} icon={icon} interactive={false} keyboard={false} />
       </MapContainer>
       {createPortal(
