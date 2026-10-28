@@ -111,7 +111,7 @@ export default function HomeEventSections() {
         <div className={`${HOME_CONTAINER} ${SECTION}`}>
           <div data-home-empty="" tabIndex={-1} className="rounded-card bg-surface p-5 sm:p-8">
             <DotsMark size="lg" className="text-foreground" />
-            <p className="mt-6 text-base leading-6">No events have been published yet. Check back soon.</p>
+            <p className="mt-6 text-base leading-6">No events yet.</p>
           </div>
         </div>
       )}
@@ -128,7 +128,7 @@ export default function HomeEventSections() {
           empty={
             weekend.status === "cards" ? undefined : (
               <p className="text-sm leading-5 text-muted">
-                Nothing listed for this weekend yet. New events are added through the week.
+                Nothing this weekend yet.
               </p>
             )
           }

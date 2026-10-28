@@ -100,9 +100,7 @@ export default function EventBrowser({
         <EmptyState
           title="No events match your filters"
           action={<Button onClick={resetFilters}>Reset filters</Button>}
-        >
-          Try a different category, an earlier date, or clearing the price filter.
-        </EmptyState>
+        />
       ) : near ? (
         <NearbyResults events={filteredEvents} origin={near} />
       ) : (

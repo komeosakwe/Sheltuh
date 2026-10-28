@@ -191,7 +191,7 @@ test.describe("near you, from the home at 390px", () => {
     expect(page.url()).not.toContain(lat.slice(1));
 
     // Bands, nearest first; the note says the distances are approximate.
-    await expect(page.getByText(/Closest to Fitzroy, VIC first\. Distances are between suburb centres, so they’re approximate\./)).toBeVisible({
+    await expect(page.getByText(/Closest to Fitzroy, VIC first\. Distances are approximate\./)).toBeVisible({
       timeout: 30_000,
     });
     const bands = await page.locator("[data-near-band] h2").allTextContents();

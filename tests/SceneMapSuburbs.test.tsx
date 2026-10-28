@@ -102,7 +102,7 @@ describe("SceneMap — suburb centres from the ABS table", () => {
     expect(alert).toHaveTextContent("Couldn’t load suburb locations");
     // Box Hill isn't one of the fallback's 20 inner suburbs.
     expect(screen.getByRole("button", { name: "Locate Box Hill Gig on the map" })).toBeDisabled();
-    expect(screen.getByText(/1 event can.t be placed on the map yet/)).toBeInTheDocument();
+    expect(screen.getByText(/1 event not on the map/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByRole("button", { name: "Locate Box Hill Gig on the map" }, { timeout: 5_000 })).toBeEnabled();
     expect(screen.queryByRole("alert")).toBeNull();

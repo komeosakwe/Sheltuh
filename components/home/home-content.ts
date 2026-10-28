@@ -126,12 +126,10 @@ export const HOME_WHAT_ELSE: readonly (HomeArt & { title: string })[] = [
 export const HOME_GUIDE: HomeArt & {
   eyebrow: string;
   title: string;
-  body: string;
   cta: { label: string; href: string };
 } = {
   eyebrow: "Map guide",
   title: "Australia after dark, mapped",
-  body: "Laneway galleries, warehouse stages and back-room workshops. See what’s on near you.",
   cta: { label: "Open the map", href: "/map" },
   imageUrl: "/events/street-market.jpg",
   poster: { pattern: "grid", background: "#fffae7", primary: "#000000", secondary: "#ff4800" },

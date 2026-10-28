@@ -49,7 +49,7 @@ afterEach(() => {
 const settle = () => act(() => new Promise((r) => setTimeout(r, 0)));
 
 describe("CommunitySection: the pitch", () => {
-  it("is the page's orange band and a jump target, with the eyebrow, a two-line h2, two lines of body and one large black action", () => {
+  it("is the page's orange band and a jump target, with a two-line h2 and one large black action", () => {
     const { container } = render(
       <FakeAuthProvider value={fakeAuthValue({ status: "signed-out" })}>
         <CommunitySection />
@@ -60,7 +60,7 @@ describe("CommunitySection: the pitch", () => {
     expect(section).toHaveAttribute("data-surface", "signal");
     expect(screen.getByRole("region", { name: "See who’s going. Find your people." })).toBe(section);
 
-    expect(screen.getByText("Better together")).toHaveClass("eyebrow");
+    expect(screen.queryByText("Better together")).toBeNull();
     // One h2, two lines, sentence case and very large: not the uppercase display-lg.
     const h2 = screen.getByRole("heading", { level: 2 });
     expect(screen.getAllByRole("heading")).toHaveLength(1);
@@ -71,8 +71,8 @@ describe("CommunitySection: the pitch", () => {
     expect(h2).not.toHaveClass("display-lg");
     expect(h2.className).not.toMatch(/uppercase/);
 
-    expect(screen.getByText("Discover the crowd before you book.")).toHaveClass("block");
-    expect(screen.getByText("Create a free profile to see who’s going.")).toHaveClass("block");
+    expect(screen.queryByText("Discover the crowd before you book.")).toBeNull();
+    expect(screen.queryByText("Create a free profile to see who’s going.")).toBeNull();
 
     // One action, black (never orange on the orange band), sentence case, with an arrow.
     const links = screen.getAllByRole("link");
@@ -111,7 +111,7 @@ describe("CommunitySection: the pitch", () => {
     const link = screen.getByRole("link", { name: "Find an event" });
     expect(link).toHaveAttribute("href", "/events");
     expect(link).toHaveClass("btn-solid", "min-h-14");
-    expect(screen.getByText("Open an event to see who’s going.")).toBeInTheDocument();
+    expect(screen.queryByText("Open an event to see who’s going.")).toBeNull();
     expect(screen.queryByRole("link", { name: "Create profile now" })).not.toBeInTheDocument();
   });
 

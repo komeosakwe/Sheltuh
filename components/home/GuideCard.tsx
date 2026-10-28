@@ -19,7 +19,6 @@ export default function GuideCard({ className = "" }: { className?: string }) {
         <div className="flex flex-col gap-2 p-4 sm:self-center sm:p-8">
           <p className="eyebrow text-muted">{HOME_GUIDE.eyebrow}</p>
           <h3 className="display-md">{HOME_GUIDE.title}</h3>
-          <p className="text-sm leading-5 text-muted sm:text-base sm:leading-6">{HOME_GUIDE.body}</p>
           <ButtonLink href={HOME_GUIDE.cta.href} size="lg" className="mt-3 self-start">
             {HOME_GUIDE.cta.label}
             <ArrowRightIcon />

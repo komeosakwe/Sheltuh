@@ -12,7 +12,7 @@ export default function NotFoundMessage() {
       <DotsMark size="lg" className="text-foreground" />
       <h1 className="display-lg font-display mt-6">Lost?</h1>
       <p className="mt-4 max-w-md text-base leading-6 text-muted sm:text-lg sm:leading-7">
-        That page isn&rsquo;t here. Try what&rsquo;s on this week.
+        That page isn&rsquo;t here.
       </p>
       <ButtonLink href="/events" size="lg" className="mt-8">
         See what&rsquo;s on

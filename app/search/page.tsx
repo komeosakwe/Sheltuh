@@ -58,7 +58,6 @@ export default async function SearchPage({
       <PageHeader
         eyebrow="Search"
         title={title}
-        intro="Search events, venues and organisers. Add your suburb to see what’s close."
       />
       <div className="rise mb-12 max-w-2xl [--d:120ms]">
         <SearchBar
@@ -76,7 +75,7 @@ export default async function SearchPage({
       {near && !place && (
         <div className="mb-8">
           <Notice>
-            We don’t know where “{near}” is yet, so these are soonest first.
+            Can’t place “{near}”, so these are soonest first.
             {suggestion && (
               <>
                 {" "}

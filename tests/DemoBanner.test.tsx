@@ -21,7 +21,7 @@ describe("DemoBanner", () => {
     render(<DemoBanner />);
     const banner = screen.getByRole("note", { name: "Demo" });
     expect(banner).toHaveAttribute("data-demo-banner");
-    expect(banner).toHaveTextContent("Demo · Sample events, people and counts. No real bookings.");
+    expect(banner).toHaveTextContent("Demo · Sample data. No real bookings.");
     // Slim: one small line inside the page column.
     expect(banner.querySelector("p")).toHaveClass("text-xs", "py-2", "max-w-6xl");
   });

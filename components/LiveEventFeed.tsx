@@ -272,19 +272,11 @@ export default function LiveEventFeed({
 
           {events.length === 0 ? (
             <EmptyState
-              title={
-                hasActiveFilters || query
-                  ? "No events match your filters"
-                  : "No events have been published yet"
-              }
+              title={hasActiveFilters || query ? "No events match your filters" : "No events yet"}
               action={
                 hasActiveFilters ? <Button onClick={resetFilters}>Reset filters</Button> : undefined
               }
-            >
-              {hasActiveFilters || query
-                ? "Try a different search, category, an earlier date, or clearing the price filter."
-                : "Check back soon."}
-            </EmptyState>
+            />
           ) : near ? (
             <NearbyResults events={events} origin={near} capped={capped} />
           ) : (

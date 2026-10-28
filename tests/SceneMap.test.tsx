@@ -237,7 +237,7 @@ describe("SceneMap photo markers", () => {
     expect(markerNames).toHaveLength(1);
     expect(markerNames.join()).not.toMatch(/Somewhere Unknown/);
     expect(screen.getByRole("button", { name: "Locate Somewhere Unknown on the map" })).toBeDisabled();
-    expect(screen.getByText(/1 event can.t be placed on the map yet/)).toBeInTheDocument();
+    expect(screen.getByText(/1 event not on the map/)).toBeInTheDocument();
   });
 
   it("pins an event with no coordinates at its suburb's centre from the ABS table, beyond the old 20 suburbs", async () => {
@@ -252,7 +252,7 @@ describe("SceneMap photo markers", () => {
     // A suburb that really isn't known (a typo) is still listed, not pinned, and counted.
     expect(screen.getByRole("link", { name: "Typo Gig" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Locate Typo Gig on the map" })).toBeDisabled();
-    expect(screen.getByText(/1 event can.t be placed on the map yet/)).toBeInTheDocument();
+    expect(screen.getByText(/1 event not on the map/)).toBeInTheDocument();
   });
 
   it("pins an interstate event; one outside Australia is unplaceable: no pin, Locate disabled, counted", async () => {
@@ -263,7 +263,7 @@ describe("SceneMap photo markers", () => {
     expect(screen.getByRole("button", { name: "Locate Sydney Show on the map" })).toBeEnabled();
     expect(screen.getByRole("link", { name: "Auckland Show" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Locate Auckland Show on the map" })).toBeDisabled();
-    expect(screen.getByText(/1 event can.t be placed on the map yet/)).toBeInTheDocument();
+    expect(screen.getByText(/1 event not on the map/)).toBeInTheDocument();
   });
 
   it("opens on the events within 50 km of a saved suburb, and on all of them without one (owner decision D5)", async () => {
@@ -354,6 +354,6 @@ describe("SceneMap overlapping events", () => {
     expect(await markerButton("Stacked B")).toHaveAttribute("aria-pressed", "true");
     const card = screen.getAllByRole("region", { name: "Selected event" })[0];
     expect(card).toHaveTextContent("Stacked B");
-    expect(card).toHaveTextContent("Pinned at the suburb centre, not the exact venue.");
+    expect(card).toHaveTextContent("Pinned at the suburb centre.");
   });
 });

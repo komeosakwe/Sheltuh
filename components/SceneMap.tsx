@@ -442,7 +442,6 @@ function SceneMapView({
         flush
         eyebrow="Map"
         title="Sheltüh near you."
-        intro="Events on the map. Tap a spot to see what’s on there."
       />
 
       <SceneMapFilterBar
@@ -511,8 +510,7 @@ function SceneMapView({
       {status === "loaded" && !progress.visible && needsSuburbs && suburbTable.failed && (
         <div className="flex flex-col items-start gap-4">
           <Notice tone="danger" role="alert">
-            Couldn’t load suburb locations, so only events with a venue location or in a few inner-Melbourne
-            suburbs are on the map.
+            Couldn’t load suburb locations. Some events aren’t on the map.
           </Notice>
           <Button variant="outline" size="sm" onClick={suburbTable.retry}>
             Try again
@@ -539,9 +537,7 @@ function SceneMapView({
             <EmptyState
               title="No events match your filters"
               action={<Button onClick={resetFilters}>Broaden search</Button>}
-            >
-              Try a different neighbourhood, time window, category, or clearing the price filter.
-            </EmptyState>
+            />
           ) : (
             <>
               {/* map-bleed: wider than the page column on large screens (globals.css). */}
@@ -618,8 +614,8 @@ function SceneMapView({
 
               {withoutLocationCount > 0 && (
                 <p className="text-xs leading-4 text-muted">
-                  {withoutLocationCount} event{withoutLocationCount === 1 ? "" : "s"} can&rsquo;t be placed on the
-                  map yet (no venue location on file) &mdash; still listed above.
+                  {withoutLocationCount} event{withoutLocationCount === 1 ? "" : "s"} not on the map (no venue
+                  location).
                 </p>
               )}
 

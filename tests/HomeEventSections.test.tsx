@@ -196,7 +196,7 @@ describe("the home's event sections", () => {
     renderHome();
     await flush();
     const weekend = screen.getByRole("region", { name: "This weekend" });
-    expect(weekend).toHaveTextContent("Nothing listed for this weekend yet. New events are added through the week.");
+    expect(weekend).toHaveTextContent("Nothing this weekend yet.");
     expect(within(weekend).queryByRole("list")).not.toBeInTheDocument();
     // "See all" shows only beside cards (mobile-redesign.md §6.3.4); the dates note stays.
     expect(within(weekend).queryByRole("link")).toBeNull();
@@ -282,7 +282,7 @@ describe("the home's event sections", () => {
     loadHomeEvents.mockResolvedValue([ENDED]);
     renderHome();
     await flush();
-    expect(screen.getByText("No events have been published yet. Check back soon.")).toBeInTheDocument();
+    expect(screen.getByText("No events yet.")).toBeInTheDocument();
     for (const name of ["This weekend", "Coming up", "Popular right now"]) {
       expect(screen.queryByRole("heading", { name })).not.toBeInTheDocument();
     }

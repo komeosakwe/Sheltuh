@@ -9,7 +9,7 @@ export default function DemoBanner() {
   return (
     <div role="note" aria-label="Demo" data-demo-banner="" className="border-b border-surface-border bg-surface">
       <p className="mx-auto max-w-6xl px-5 py-2 text-xs leading-4 sm:px-8 sm:text-sm sm:leading-5">
-        <span className="font-semibold">Demo</span> · Sample events, people and counts. No real bookings.
+        <span className="font-semibold">Demo</span> · Sample data. No real bookings.
       </p>
     </div>
   );

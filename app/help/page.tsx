@@ -10,50 +10,40 @@ export default function HelpPage() {
     <ContentPage
       eyebrow="Fan support"
       title="Help & FAQs"
-      intro="Quick answers about buying tickets and listing events."
     >
       <ContentSection title="How do I buy tickets?">
         <p>
-          Open an event, choose how many tickets you want and check out. You pay for paid tickets
-          on our checkout page, in a secure form run by Stripe, our payment provider. Your card
-          details never reach Sheltüh. Free tickets are issued straight away with no payment step.
+          Open an event, pick your tickets and check out. Cards are handled by Stripe and never
+          reach Sheltüh. Free tickets need no payment.
         </p>
       </ContentSection>
       <ContentSection title="Where are my tickets?">
         <p>
-          We email your tickets to the address you used at checkout. Can’t find them? Check your
-          spam folder, then email{" "}
-          <a href="mailto:support@sheltuh.com.au">support@sheltuh.com.au</a> with the event name and
-          your email address.
+          They’re emailed to the address you used at checkout. Check spam, then email{" "}
+          <a href="mailto:support@sheltuh.com.au">support@sheltuh.com.au</a> with the event name.
         </p>
       </ContentSection>
       <ContentSection title="What is the booking fee?">
         <p>
-          The booking fee is {describeBookingFee()}. Free tickets never carry a fee. The organiser
-          chooses whether the buyer pays it or they absorb it; either way the total you pay is shown
-          before you check out.
+          {describeBookingFee()}. Free tickets carry none. The total is shown before you check out.
         </p>
       </ContentSection>
       <ContentSection title="What if I need a refund?">
         <p>
-          See <Link href="/refunds">Request a refund</Link>. If a paid order can’t be fulfilled —
-          for example, the last tickets sold out while you were paying — it’s refunded
+          See <Link href="/refunds">Request a refund</Link>. Orders we can’t fulfil are refunded
           automatically.
         </p>
       </ContentSection>
       <ContentSection title="How do I list an event?">
         <p>
-          <Link href="/organisers/apply">Apply as an organiser</Link>. Every organiser is checked by
-          a person before they can publish, and we review events that are reported. Once you’re
-          approved you can create and publish events. To sell paid tickets you’ll also connect a
-          Stripe account for payouts.
+          <Link href="/organisers/apply">Apply as an organiser</Link>. Once approved, you can
+          publish events. Paid tickets need a Stripe account for payouts.
         </p>
       </ContentSection>
       <ContentSection title="How do I report an event?">
         <p>
-          Select Report this event at the bottom of its page, or email{" "}
-          <a href="mailto:support@sheltuh.com.au">support@sheltuh.com.au</a> with the event’s name
-          or link and what’s wrong.
+          Use Report this event at the bottom of its page, or email{" "}
+          <a href="mailto:support@sheltuh.com.au">support@sheltuh.com.au</a>.
         </p>
       </ContentSection>
       <ContentSection title="Still stuck?">
