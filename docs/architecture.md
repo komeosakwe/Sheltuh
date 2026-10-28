@@ -4314,7 +4314,7 @@ redirect with a raw JSON error page. It's baked in at build time: set it for
 
 ### The flow (redirect + PKCE)
 
-1. `/login` or `/signup` → "Sign in with Google" / "Continue with Apple"
+1. `/login` or `/signup` → "Continue with Google" / "Continue with Apple"
    (`components/auth/OAuthButtons.tsx`) → `AuthContext.signInWithProvider`
    → `supabase.auth.signInWithOAuth`. The browser client uses
    `flowType: "pkce"` (`lib/supabase/browser.ts`): auth-js keeps a code

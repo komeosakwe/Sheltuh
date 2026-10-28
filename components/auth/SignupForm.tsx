@@ -97,6 +97,8 @@ export default function SignupForm({ next }: { next?: string } = {}) {
         label="Email"
         type="email"
         autoComplete="email"
+        name="email"
+        inputMode="email"
         required
         value={email}
         onChange={(e) => setEmail(e.target.value)}
@@ -109,6 +111,7 @@ export default function SignupForm({ next }: { next?: string } = {}) {
         label="Password"
         type="password"
         autoComplete="new-password"
+        name="password"
         required
         value={password}
         onChange={(e) => setPassword(e.target.value)}
@@ -122,6 +125,7 @@ export default function SignupForm({ next }: { next?: string } = {}) {
         label="Confirm password"
         type="password"
         autoComplete="new-password"
+        name="confirmPassword"
         required
         value={confirmPassword}
         onChange={(e) => setConfirmPassword(e.target.value)}

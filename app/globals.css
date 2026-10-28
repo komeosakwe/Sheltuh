@@ -59,9 +59,13 @@
   --seatbar-h: 5.5rem; /* 88px phone summary bar on /events/[slug]/seats (before safe area) */
   /* Continue with Apple (docs/design/social-sign-in.md §2): Apple's own button colours, which
      invert with the page like btn-solid (Apple Black on the White theme). Page backgrounds only,
-     so never re-scoped in [data-surface=*]. Google's button is its own image (§4): no colours here. */
+     so never re-scoped in [data-surface=*].
+     Continue with Google: Google's Light theme values (developers.google.com/identity/branding-guidelines). */
   --apple-fill: #000000;
   --apple-ink: #ffffff;
+  --google-fill: #ffffff;
+  --google-stroke: #747775;
+  --google-text: #1f1f1f;
 }
 
 @media (min-width: 64rem) {
@@ -90,6 +94,10 @@
     /* Apple White on the black page. */
     --apple-fill: #ffffff;
     --apple-ink: #000000;
+    /* Google's Dark theme values. */
+    --google-fill: #131314;
+    --google-stroke: #8e918f;
+    --google-text: #e3e3e3;
   }
 }
 
@@ -824,27 +832,30 @@ h4 {
     font-size: calc(3rem * 0.43);
     line-height: 1;
   }
-  /* Google's own button image (docs/design/social-sign-in.md §4), unmodified at its native
-     180x40: the button is just the image's box, centred under Apple's, with no fill, border or
-     padding of its own (the image has them), and the house control radius for its focus ring.
-     No hover wash: on the image's box it would tint the pill's transparent corners, and nothing
-     is drawn over Google's artwork. ::before stretches the hit area 4px above and below, to 48px. */
+  /* Continue with Google, per Google's branding guidelines: a 40px pill (radius 20px, which the
+     guidelines specify), 1px stroke, 12px left/right padding, 10px between the G and the title,
+     Roboto Medium 14px/20px. Fill, stroke and title come from the Light/Dark tokens above.
+     Sized to its content and centred under Apple's; ::before stretches the hit area 4px above and
+     below, to 48px. The hover wash is .btn-oauth::after (8% of the title colour over the fill). */
   .btn-oauth-google {
-    display: block;
     width: auto;
     min-height: 0;
+    height: 2.5rem;
     align-self: center;
-    border: 0;
-    padding: 0;
-    background: none;
+    gap: 0.625rem;
+    padding-inline: 0.75rem;
+    border: 1px solid var(--google-stroke);
+    border-radius: 20px;
+    background: var(--google-fill);
+    color: var(--google-text);
+    font-size: 0.875rem;
+    line-height: 1.25rem;
   }
   .btn-oauth-google::before {
     content: "";
     position: absolute;
-    inset: -0.25rem 0;
-  }
-  .btn-oauth-google::after {
-    content: none;
+    /* Offsets are from the padding box, inside the 1px border: reach past it too. */
+    inset: calc(-0.25rem - 1px) -1px;
   }
   @media (hover: hover) {
     .btn-oauth:hover:not([aria-disabled="true"])::after {
@@ -864,7 +875,7 @@ h4 {
   }
   /* Forced colours (Windows contrast themes) replace the fills with the system's, so Apple's
      button needs an edge: it has no border of its own, so one is added in ButtonText. Google's
-     is an image, which forced colours leave as it is, outline stroke included. */
+     has its own 1px border, which forced colours turn into the system's. */
   @media (forced-colors: active) {
     .btn-oauth-apple {
       border: 1px solid ButtonText;

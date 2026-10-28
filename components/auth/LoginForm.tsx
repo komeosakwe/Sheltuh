@@ -98,6 +98,8 @@ export default function LoginForm({ next }: { next?: string } = {}) {
         label="Email"
         type="email"
         autoComplete="email"
+        name="email"
+        inputMode="email"
         required
         value={email}
         onChange={(e) => setEmail(e.target.value)}
@@ -110,6 +112,7 @@ export default function LoginForm({ next }: { next?: string } = {}) {
         label="Password"
         type="password"
         autoComplete="current-password"
+        name="password"
         required
         value={password}
         onChange={(e) => setPassword(e.target.value)}

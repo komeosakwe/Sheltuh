@@ -199,6 +199,8 @@ export default function ApplicationForm({ mode, initial, onSuccess }: Props) {
         </label>
         <input
           id="displayName"
+          name="displayName"
+          autoComplete="organization"
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
           {...errorProps("displayName", errors.displayName)}
@@ -217,7 +219,10 @@ export default function ApplicationForm({ mode, initial, onSuccess }: Props) {
         </label>
         <input
           id="contactEmail"
+          name="contactEmail"
           type="email"
+          autoComplete="email"
+          inputMode="email"
           value={contactEmail}
           onChange={(e) => setContactEmail(e.target.value)}
           {...errorProps("contactEmail", errors.contactEmail)}
@@ -287,7 +292,10 @@ export default function ApplicationForm({ mode, initial, onSuccess }: Props) {
         </label>
         <input
           id="websiteUrl"
+          name="websiteUrl"
           type="url"
+          autoComplete="url"
+          inputMode="url"
           value={websiteUrl}
           onChange={(e) => setWebsiteUrl(e.target.value)}
           placeholder="https://"

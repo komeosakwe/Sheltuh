@@ -293,6 +293,8 @@ export default function WaitlistBlock({
           id="waitlist-email"
           type="email"
           autoComplete="email"
+          name="email"
+          inputMode="email"
           required
           value={email}
           disabled={demo}

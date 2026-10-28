@@ -109,6 +109,8 @@ export default function VerifyForm() {
         label="Email"
         type="email"
         autoComplete="email"
+        name="email"
+        inputMode="email"
         required
         value={email}
         onChange={(e) => setEmail(e.target.value)}
@@ -122,6 +124,7 @@ export default function VerifyForm() {
         type="text"
         inputMode="numeric"
         autoComplete="one-time-code"
+        name="code"
         required
         value={code}
         onChange={(e) => setCode(e.target.value)}

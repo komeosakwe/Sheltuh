@@ -29,9 +29,9 @@ export function assertStripePublishableKey(value: string | undefined): void {
 assertStripePublishableKey(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY);
 
 /**
- * "Continue with Apple" and "Sign in with Google" show the vendors' own
+ * "Continue with Apple" and "Continue with Google" show the vendors' own
  * artwork from public/auth/ (lib/auth/oauth-providers.ts OAUTH_LOGO_FILES,
- * docs/auth-logos.md): Google's button images are committed, Apple's logos
+ * docs/auth-logos.md): Google's G is committed, Apple's logos
  * the owner adds, and no stand-in may ship. So a production build with
  * NEXT_PUBLIC_AUTH_PROVIDERS listing a provider whose files aren't there
  * fails, naming them. It runs in the
