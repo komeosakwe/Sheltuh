@@ -378,6 +378,8 @@ export default function EventEditor(props: Props) {
   // Which of the three views of the one form is showing (docs/design/event-editor.md §5.0): view state
   // only. All three panels stay mounted (the others `hidden`), so nothing typed is lost between steps.
   const [step, setStep] = useState<EditorStep>(1);
+  // When the editor was opened: what the checklist's "already ended" is judged against (advisory; the server decides).
+  const [openedAt] = useState(() => Date.now());
   // The photo as it'd show (an object URL from EventImageField), for the summary and the live preview.
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   // A clip step that failed is explained, and focused, by the clip field (Event page step): show that step
@@ -1096,6 +1098,14 @@ export default function EventEditor(props: Props) {
   const complete = { 1: stepComplete(1, problems, venueLocation.hasPin), 2: stepComplete(2, problems, venueLocation.hasPin) };
 
   const ticketProblem = Object.keys(problems).find((key) => key === "ticketTypes" || key.startsWith("ticket-") || key === "externalTicketUrl");
+  // Typed but not publishable: it has ended already (the server refuses `event_ended`), or ends before it starts.
+  const endIso = startInstant(end, timeZone);
+  const dateProblem =
+    startIso && endIso && Date.parse(endIso) <= Date.parse(startIso)
+      ? "The end must be after the start"
+      : endIso && Date.parse(endIso) <= openedAt
+        ? "This event has already ended"
+        : null;
   const check = (key: string, name: string, ok: boolean, todo: string, goTo?: { label: string; id: string }): ChecklistRow => ({
     key,
     name,
@@ -1114,11 +1124,11 @@ export default function EventEditor(props: Props) {
       { label: "Venue", id: problems.venueName ? "venueName" : problems.venueAddress ? "venueAddress" : VENUE_SUBURB_ID },
     ),
     check("pin", "Venue pin", venueLocation.hasPin, LOCATION_REQUIRED_TEXT, { label: "Venue", id: VENUE_LOCATION_ID }),
-    check("when", "Date and time", !problems.start && !problems.end, "Add the start and end", {
+    check("when", "Date and time", !problems.start && !problems.end && !dateProblem, dateProblem ?? "Add the start and end", {
       label: "Date and time",
       id: problems.start ? (start.date ? "start-time" : "start-date") : end.date ? "end-time" : "end-date",
     }),
-    check("tickets", "Tickets", !ticketProblem, "Fix the ticket types", {
+    check("tickets", "Tickets", !ticketProblem, (ticketProblem && problems[ticketProblem]) || "Fix the ticket types", {
       label: "Tickets",
       id: ticketProblem ? (controlForKey(ticketProblem) ?? "add-ticket-type") : "add-ticket-type",
     }),
@@ -1525,7 +1535,9 @@ export default function EventEditor(props: Props) {
           {isAdmin && (
             <EditorCard titled={false}>
               <fieldset className="flex flex-col gap-3">
-                <legend className={`${SECTION_TITLE} mb-3`}>Where are tickets sold?</legend>
+                <legend className="mb-3">
+                  <h3 className={SECTION_TITLE}>Where are tickets sold?</h3>
+                </legend>
                 <div className="flex flex-wrap gap-x-5 text-sm text-foreground">
                   <label className="flex min-h-11 items-center gap-2">
                     <input
@@ -1670,6 +1682,7 @@ export default function EventEditor(props: Props) {
         <StepPanel n={3} step={step} title={stepIntro[3].title} intro={stepIntro[3].intro} titleRef={stepTitleRef}>
           <EditorCard title="Before you publish" helper="A checklist of what's left. Publishing is checked again when you do it.">
             <PublishChecklist rows={checklist} onGo={jumpTo} />
+            <p className="text-sm text-muted">Some events are checked by Sheltüh before going live.</p>
           </EditorCard>
 
           {!isAdmin && (

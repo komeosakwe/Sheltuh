@@ -27,9 +27,9 @@ export default function ErrorSummary({ items }: { items: readonly ErrorSummaryIt
       data-error-summary=""
       className="border-l-2 border-danger py-1 pl-4 text-sm text-foreground"
     >
-      <p id="error-summary-title" className="font-semibold">
+      <h3 id="error-summary-title" className="font-semibold">
         {items.length === 1 ? "1 field needs fixing" : `${items.length} fields need fixing`}
-      </p>
+      </h3>
       <div className="mt-2 flex flex-col gap-2">
         {groups.map((group) => (
           <div key={group.step}>

@@ -50,8 +50,7 @@ export function PreviewPanel({ event, missing }: PreviewProps) {
           variant="outline"
           size="sm"
           className="min-h-11"
-          aria-expanded={shownPanel}
-          aria-controls="event-preview-frame"
+          aria-controls={shownPanel ? "event-preview-frame" : undefined}
           onClick={() => setShownPanel(!shownPanel)}
         >
           {shownPanel ? "Hide preview" : "Show preview"}
@@ -62,12 +61,14 @@ export function PreviewPanel({ event, missing }: PreviewProps) {
           <p className="meta pb-3 text-muted">Phone, 320px wide. Not clickable.</p>
           <div
             id="event-preview-frame"
+            // A picture of the event page, not a second copy of it to read: the caption says what it is.
+            aria-hidden="true"
             className="flex justify-center overflow-hidden rounded-card border border-foreground bg-surface"
           >
             <PreviewFrame
               event={event}
               missing={missing}
-              className="h-[calc(100dvh-11rem)] max-h-[48rem] min-h-[28rem] w-80 bg-background"
+              className="h-[calc(100dvh-17rem)] max-h-[48rem] min-h-[20rem] w-80 bg-background"
             />
           </div>
         </>
@@ -95,11 +96,11 @@ export function PreviewButton({ event, missing }: PreviewProps) {
       </Button>
       <SeatDialog open={open} title="Preview" onClose={() => setOpen(false)}>
         <p className="meta text-muted">Not clickable. Closing this brings you back to your form.</p>
-        <div className="overflow-hidden rounded-card border border-foreground bg-surface">
+        <div aria-hidden="true" className="overflow-hidden rounded-card border border-foreground bg-surface">
           <PreviewFrame
             event={event}
             missing={missing}
-            className="mx-auto h-[calc(90dvh-12rem)] w-full max-w-sm bg-background"
+            className="mx-auto h-[calc(90dvh-12rem)] min-h-[20rem] w-full max-w-sm bg-background"
           />
         </div>
       </SeatDialog>

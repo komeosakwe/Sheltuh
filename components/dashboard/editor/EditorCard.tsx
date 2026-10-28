@@ -7,7 +7,7 @@ const CARD = "rounded-card border border-foreground bg-card p-4 sm:p-5 flex flex
  * One decision per card. With a `title` it names itself (an h3 and an optional helper line, and `action` on
  * the right of the header from sm). `titled={false}` is the chrome only, for children that already render
  * their own fieldset and legend (seating, refunds, where tickets are sold): the legend is the title.
- * Extra props (id, tabIndex, role, aria-*) go on the section, as the venue card's focus target needs.
+ * Extra props (id, tabIndex, role, aria-*) go on the section, as the venue card's focus target needs. A titled card is not a landmark (a region per card would crowd the landmarks list): only the venue's group, which is a focus target, is named.
  */
 export default function EditorCard({
   title,
@@ -37,7 +37,7 @@ export default function EditorCard({
   }
   const headingId = titleId ?? `card-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   return (
-    <section aria-labelledby={headingId} className={`${CARD} ${className}`.trim()} {...rest}>
+    <section className={`${CARD} ${className}`.trim()} {...rest}>
       <header className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div className="flex min-w-0 flex-col gap-1">
           <h3 id={headingId} className="font-heading text-lg leading-6 text-foreground">

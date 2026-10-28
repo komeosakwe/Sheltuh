@@ -98,7 +98,9 @@ export default function RefundPolicyField({
 
   return (
     <fieldset className="flex min-w-0 flex-col gap-3" aria-describedby="refund-policy-help">
-      <legend className={`${legendClassName} mb-3`}>Refund policy</legend>
+      <legend className="mb-3">
+        <h3 className={legendClassName}>Refund policy</h3>
+      </legend>
       <div id="refund-policy-help" className="flex flex-col gap-1 text-xs text-muted">
         <p>
           Buyers see this on the event page and before they pay, always with: &ldquo;{REFUND_ACL_STATEMENT}&rdquo;

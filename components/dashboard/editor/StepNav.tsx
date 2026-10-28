@@ -65,11 +65,14 @@ export default function StepNav({
                   <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <span className={`text-sm leading-5 ${isCurrent ? "font-bold" : "font-semibold"}`}>
                       {label}
-                      <span className="sr-only">{state}</span>
+                      <span className="sr-only">
+                        {state}
+                        {errors > 0 && `, ${errors} ${errors === 1 ? "field needs" : "fields need"} fixing`}
+                      </span>
                     </span>
                     {errors > 0 && (
                       <span
-                        aria-label={`${errors} ${errors === 1 ? "field needs" : "fields need"} fixing`}
+                        aria-hidden="true"
                         data-step-errors={errors}
                         className="eyebrow inline-flex rounded-badge border border-danger px-1.5 text-danger"
                       >

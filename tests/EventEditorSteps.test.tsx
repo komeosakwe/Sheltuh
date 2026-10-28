@@ -160,9 +160,13 @@ describe("a save that doesn't validate", () => {
     expect(within(summary).getByRole("button", { name: "Title: Enter an event title." })).toBeInTheDocument();
 
     const nav = screen.getByRole("navigation", { name: "Event steps" });
-    // One badge on each of Event page and Tickets, named by their count.
-    expect(within(nav).getAllByLabelText("1 field needs fixing")).toHaveLength(2);
+    // One badge on each of Event page and Tickets: the number is for the eye, and each button's name says it in words.
     expect(nav.querySelectorAll("[data-step-errors]")).toHaveLength(2);
+    for (const badge of nav.querySelectorAll("[data-step-errors]")) expect(badge).toHaveAttribute("aria-hidden", "true");
+    expect(within(nav).getByRole("button", { name: "Event page, current step, 1 field needs fixing" })).toBeInTheDocument();
+    expect(within(nav).getByRole("button", { name: "Tickets, 1 field needs fixing" })).toBeInTheDocument();
+    // The summary's title is a heading.
+    expect(within(summary).getByRole("heading", { level: 3, name: "2 fields need fixing" })).toBeInTheDocument();
   });
 
   it("each summary link shows its step and focuses its field", async () => {
@@ -231,7 +235,9 @@ describe("Before you publish", () => {
     expect(row("title")).toHaveTextContent("Add a title");
     expect(row("pin")).toHaveTextContent("Add the venue location and confirm the pin first.");
     expect(row("when")).toHaveTextContent("Add the start and end");
-    expect(row("tickets")).toHaveTextContent("Fix the ticket types");
+    // What's wrong with the tickets, in the form's own words.
+    expect(row("tickets")).toHaveTextContent("Enter a ticket name.");
+    expect(screen.getByText("Some events are checked by Sheltüh before going live.")).toBeInTheDocument();
     // The Publish card for a new event: nothing to press yet.
     expect(screen.getByText("Save the draft first. Publishing opens once it is saved.")).toBeInTheDocument();
   });
@@ -249,6 +255,25 @@ describe("Before you publish", () => {
     fireEvent.click(within(row("tickets")).getByRole("button", { name: /^Go to Tickets/ }));
     expect(screen.getByLabelText("Name")).toHaveFocus();
     expect(currentStep()).toBe(2);
+  });
+
+  it("Date and time isn't done for an event that has ended, or that ends before it starts", () => {
+    renderEditor({ ...EVENT, startsAt: "2020-03-06T09:00:00.000Z", endsAt: "2020-03-06T12:30:00.000Z" });
+    showStep(3);
+    expect(row("when")).toHaveAttribute("data-state", "todo");
+    expect(row("when")).toHaveTextContent("This event has already ended");
+    expect(within(row("when")).getByRole("button", { name: /^Go to Date and time/ })).toBeInTheDocument();
+
+    cleanup();
+    renderEditor({ ...EVENT, startsAt: "2099-03-06T12:30:00.000Z", endsAt: "2099-03-06T09:00:00.000Z" });
+    showStep(3);
+    expect(row("when")).toHaveAttribute("data-state", "todo");
+    expect(row("when")).toHaveTextContent("The end must be after the start");
+
+    cleanup();
+    renderEditor({ ...EVENT, startsAt: "2099-03-06T09:00:00.000Z", endsAt: "2099-03-06T12:30:00.000Z" });
+    showStep(3);
+    expect(row("when")).toHaveAttribute("data-state", "done");
   });
 
   it("advises only: a draft with gaps still saves what it can (the save's own checks decide)", async () => {
@@ -295,7 +320,51 @@ describe("ticket descriptions", () => {
   });
 });
 
+describe("landmarks and headings", () => {
+  it("a card isn't a landmark of its own; the venue's group (a focus target) and the legends' headings are", () => {
+    renderEditor();
+    expect(screen.queryByRole("region", { name: "Event details" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Date and time" })).toBeNull();
+    expect(screen.getByRole("heading", { level: 3, name: "Event details" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Venue" })).toBeInTheDocument();
+    showStep(2);
+    expect(screen.getByRole("heading", { level: 3, name: "Seating" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 3, name: "Refund policy" })).toBeInTheDocument();
+    // The legends still name their groups.
+    expect(screen.getByRole("group", { name: "Seating" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Refund policy" })).toBeInTheDocument();
+  });
+});
+
 describe("the preview", () => {
+  it("the panel (from 1280px): the frame is hidden from assistive tech, and Hide/Show is one stable button with no stale aria-controls", () => {
+    window.matchMedia = ((query: string) => ({
+      matches: query === "(min-width: 80rem)",
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia;
+    renderEditor();
+    const panel = screen.getByRole("complementary", { name: "Event page preview" });
+    const frame = panel.querySelector("#event-preview-frame");
+    expect(frame).toHaveAttribute("aria-hidden", "true");
+    expect(frame?.querySelector("iframe")).not.toBeNull();
+    // The caption says what it is, and is outside the hidden frame.
+    expect(frame?.parentElement).toHaveTextContent("Phone, 320px wide. Not clickable.");
+    const hide = within(panel).getByRole("button", { name: "Hide preview" });
+    expect(hide).not.toHaveAttribute("aria-expanded");
+    expect(hide).toHaveAttribute("aria-controls", "event-preview-frame");
+    fireEvent.click(hide);
+    const show = within(panel).getByRole("button", { name: "Show preview" });
+    expect(show).not.toHaveAttribute("aria-expanded");
+    expect(show).not.toHaveAttribute("aria-controls");
+    expect(panel.querySelector("iframe")).toBeNull();
+  });
+
   it("opens in a sheet from the Preview button (below 1280px), with the page in a phone-width frame, and closes", () => {
     renderEditor();
     fireEvent.click(screen.getByRole("button", { name: "Preview" }));
