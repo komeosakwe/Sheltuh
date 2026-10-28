@@ -60,6 +60,15 @@ function describedBy(element: HTMLElement): string {
 }
 
 describe("PublicProfileForm", () => {
+  it("suggests the browser's saved website, and nothing for the bio or handles", () => {
+    renderForm();
+    const website = screen.getByLabelText("Website (optional)");
+    expect(website).toHaveAttribute("type", "url");
+    expect(website).toHaveAttribute("autocomplete", "url");
+    expect(website).toHaveAttribute("inputmode", "url");
+    expect(screen.getByLabelText("Instagram username")).toHaveAttribute("autocomplete", "off");
+  });
+
   it("starts from the saved profile", () => {
     renderForm();
     expect(screen.getByLabelText("Bio (required)")).toHaveValue("Loud nights in small rooms.");

@@ -845,6 +845,8 @@ export default function SeatPicker({
               id={`${idPrefix}-email`}
               type="email"
               autoComplete="email"
+              name="email"
+              inputMode="email"
               required
               value={buyerEmail}
               onChange={(event) => setTypedEmail(event.target.value)}

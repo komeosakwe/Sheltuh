@@ -249,6 +249,7 @@ export default function PublicProfileForm({ organiser, onSaved }: Props) {
         </label>
         <input
           id={fieldId("websiteUrl")}
+          name="websiteUrl"
           type="url"
           inputMode="url"
           autoComplete="url"

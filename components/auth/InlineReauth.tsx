@@ -204,6 +204,8 @@ export default function InlineReauth({ expectedAccount, onSignedIn }: Props) {
         label="Email"
         type="email"
         autoComplete="email"
+        name="email"
+        inputMode="email"
         required
         readOnly={lockedEmail !== undefined}
         value={email}
@@ -219,6 +221,7 @@ export default function InlineReauth({ expectedAccount, onSignedIn }: Props) {
         label="Password"
         type="password"
         autoComplete="current-password"
+        name="password"
         required
         value={password}
         onChange={(e) => setPassword(e.target.value)}

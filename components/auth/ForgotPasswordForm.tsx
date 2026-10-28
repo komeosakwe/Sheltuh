@@ -123,6 +123,8 @@ export default function ForgotPasswordForm({ next }: { next?: string } = {}) {
           label="Email"
           type="email"
           autoComplete="email"
+          name="email"
+          inputMode="email"
           required
           value={email}
           onChange={(e) => setEmail(e.target.value)}
@@ -152,6 +154,7 @@ export default function ForgotPasswordForm({ next }: { next?: string } = {}) {
         type="text"
         inputMode="numeric"
         autoComplete="one-time-code"
+        name="code"
         required
         value={code}
         onChange={(e) => setCode(e.target.value)}
@@ -164,6 +167,7 @@ export default function ForgotPasswordForm({ next }: { next?: string } = {}) {
         label="New password"
         type="password"
         autoComplete="new-password"
+        name="newPassword"
         required
         value={newPassword}
         onChange={(e) => setNewPassword(e.target.value)}

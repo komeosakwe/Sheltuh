@@ -492,6 +492,7 @@ function JoinForm({
             </label>
             <input
               id={NAME_ID}
+              name="displayName"
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
               autoComplete="organization"

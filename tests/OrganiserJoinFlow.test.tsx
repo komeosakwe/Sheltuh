@@ -162,6 +162,8 @@ describe("/organisers/join signed in", () => {
     const form = await screen.findByRole("form", { name: "Join as an organiser" });
     expect(within(form).getAllByRole("textbox")).toHaveLength(1);
     expect(within(form).getByLabelText("Organiser name")).toHaveAttribute("aria-required", "true");
+    // The browser's saved organisation name is suggested.
+    expect(within(form).getByLabelText("Organiser name")).toHaveAttribute("autocomplete", "organization");
     expect(within(form).getByText(/mia@example\.com/)).toBeInTheDocument();
 
     fireEvent.change(within(form).getByLabelText("Organiser name"), { target: { value: "  Neon Collective " } });

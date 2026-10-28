@@ -61,6 +61,12 @@ function renderSettings(profile: ProfileRecord = PROFILE, onSaved = vi.fn(), onM
 }
 
 describe("member profile settings (/account)", () => {
+  it("suggests the browser's saved nickname for the display name, and nothing for the Instagram handle", () => {
+    renderSettings();
+    expect(screen.getByLabelText("Display name")).toHaveAttribute("autocomplete", "nickname");
+    expect(screen.getByLabelText("Instagram username (optional)")).toHaveAttribute("autocomplete", "off");
+  });
+
   it("sits first on the account page in the Your profile card, off by default, with the delete wording updated", async () => {
     getMyProfile.mockResolvedValue(PROFILE);
     render(

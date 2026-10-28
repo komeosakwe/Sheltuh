@@ -415,3 +415,22 @@ describe("ApplicationForm — an account change mid-submit (after the check, bef
     expect(screen.getByLabelText("Organiser name")).toHaveValue("My New Org");
   });
 });
+
+describe("ApplicationForm: the browser's saved details", () => {
+  it("suggests the organisation, contact email and website, with matching types", () => {
+    render(
+      <FakeAuthProvider value={fakeAuthValue({ email: "owner@example.com" })}>
+        <ApplicationForm mode="apply" onSuccess={vi.fn()} />
+      </FakeAuthProvider>,
+    );
+    expect(screen.getByLabelText("Organiser name")).toHaveAttribute("autocomplete", "organization");
+    const email = screen.getByLabelText("Contact email");
+    expect(email).toHaveAttribute("autocomplete", "email");
+    expect(email).toHaveAttribute("type", "email");
+    expect(email).toHaveAttribute("inputmode", "email");
+    const website = screen.getByLabelText("Website (optional)");
+    expect(website).toHaveAttribute("autocomplete", "url");
+    expect(website).toHaveAttribute("type", "url");
+    expect(screen.getByLabelText("Short description")).not.toHaveAttribute("autocomplete");
+  });
+});

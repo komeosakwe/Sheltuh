@@ -118,7 +118,9 @@ export default function SubmitEventForm() {
       <Field id="organiserName" label="Organiser name" error={errors.organiserName}>
         <input
           id="organiserName"
+          name="organiserName"
           type="text"
+          autoComplete="organization"
           value={form.organiserName}
           onChange={(e) => update("organiserName", e.target.value)}
           aria-invalid={Boolean(errors.organiserName)}
@@ -130,7 +132,10 @@ export default function SubmitEventForm() {
       <Field id="contactEmail" label="Contact email" error={errors.contactEmail}>
         <input
           id="contactEmail"
+          name="contactEmail"
           type="email"
+          autoComplete="email"
+          inputMode="email"
           value={form.contactEmail}
           onChange={(e) => update("contactEmail", e.target.value)}
           aria-invalid={Boolean(errors.contactEmail)}

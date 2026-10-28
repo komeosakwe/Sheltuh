@@ -213,6 +213,7 @@ export default function InviteCreateAccount({
         label="Password"
         type="password"
         autoComplete="new-password"
+        name="password"
         required
         value={password}
         onChange={(e) => setPassword(e.target.value)}
@@ -226,6 +227,7 @@ export default function InviteCreateAccount({
         label="Confirm password"
         type="password"
         autoComplete="new-password"
+        name="confirmPassword"
         required
         value={confirmPassword}
         onChange={(e) => setConfirmPassword(e.target.value)}

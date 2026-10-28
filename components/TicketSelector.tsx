@@ -494,6 +494,8 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                     id="buyer-email"
                     type="email"
                     autoComplete="email"
+                    name="email"
+                    inputMode="email"
                     required
                     value={buyerEmail}
                     onChange={(e) => setTypedEmail(e.target.value)}
