@@ -173,7 +173,7 @@ export default function EventClipField({
       </p>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
         {previewSrc && !previewFailed ? (
-          <div className="w-40 shrink-0 overflow-hidden rounded-control bg-ink">
+          <div className="aspect-[3/2] w-full shrink-0 overflow-hidden rounded-control bg-ink sm:w-64">
             <video
               key={`${previewSrc} ${previewReload}`}
               src={previewSrc}
@@ -183,11 +183,11 @@ export default function EventClipField({
               preload="metadata"
               aria-label="Clip preview"
               onError={previewError}
-              className="block max-h-60 w-full object-contain"
+              className="block size-full object-contain"
             />
           </div>
         ) : (
-          <div className="flex aspect-square w-40 shrink-0 items-center justify-center rounded-control bg-surface px-3 text-center text-xs text-muted">
+          <div className="flex aspect-[3/2] w-full shrink-0 items-center justify-center rounded-control bg-surface px-3 text-center text-xs text-muted sm:w-64">
             {hasClip
               ? previewFailed
                 ? state.file
