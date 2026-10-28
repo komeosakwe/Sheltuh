@@ -22,7 +22,7 @@ How they're used, following Apple's Human Interface Guidelines for a custom butt
 
 ## Google (needed when the flag lists `google`; committed)
 
-`google-g.svg` is Google's standard four-colour "G" mark (the four official paths, unmodified, on a 48×48 viewBox). The owner's Sign in with Google branding kit (27 Oct 2026, from <https://developers.google.com/identity/branding-guidelines>) has no separate G file: its "Show text=No" images are a G already inside a 40px circle with its own stroke (so it can't sit in our pill without a ring inside a ring), and its SVGs draw the G with a Figma `foreignObject` conic gradient that doesn't render reliably as an `<img>`. If you'd rather use a kit artwork, replace this file with a G-only SVG from Google and update the test in `tests/next-config.test.ts`.
+`google-g.svg` is Google's official multi-colour "G" (`logo_googleg_48dp`), byte for byte from Google's FirebaseUI (<https://raw.githubusercontent.com/firebase/firebaseui-web/master/image/google.svg>, "Copyright (c) 2016 Google Inc."; SHA-256 `cbe9772630b9b72daf7c14eab28c6c86f88e07da9cb08487544e022e385ede1f`), used as the branding guidelines (<https://developers.google.com/identity/branding-guidelines>) describe. The owner's Sign in with Google branding kit (27 Oct 2026) has no separate G file: its "Show text=No" images are a G already inside a 40px circle with its own stroke (a ring inside our pill's ring), and its SVGs draw the G with a Figma `foreignObject` gradient that doesn't render reliably as an `<img>`. Don't redraw or recolour it.
 
 The button is built in HTML and CSS to Google's guidelines (`.btn-oauth-google` in `app/globals.css`), with the title as real text:
 

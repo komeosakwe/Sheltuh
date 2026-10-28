@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -209,7 +210,11 @@ describe("public/auth: Google's G is committed (docs/auth-logos.md)", () => {
   it("is the four-colour G: Google's red, blue, yellow and green, with no scripts", () => {
     const svg = readFileSync(path.join(repoPublic, "auth", "google-g.svg"), "utf8");
     for (const fill of ["#EA4335", "#4285F4", "#FBBC05", "#34A853"]) expect(svg).toContain(`fill="${fill}"`);
-    expect(svg).not.toMatch(/<script|on\w+=/i);
+    expect(svg).not.toMatch(/<script|\son\w+\s*=/i);
+    // Google's own file (FirebaseUI's image/google.svg), unmodified: docs/auth-logos.md.
+    expect(createHash("sha256").update(readFileSync(path.join(repoPublic, "auth", "google-g.svg"))).digest("hex")).toBe(
+      "cbe9772630b9b72daf7c14eab28c6c86f88e07da9cb08487544e022e385ede1f",
+    );
   });
 
   it("no longer ships the retired whole-button images", () => {
