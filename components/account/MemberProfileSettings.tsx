@@ -257,8 +257,8 @@ export default function MemberProfileSettings({
             <span className="font-semibold">Show my profile to other members</span>
           </label>
           <p id="member-visible-hint" className="pl-8 text-xs text-muted">
-            Off by default. Members on your Who&rsquo;s Going lists can then see your bio, Instagram, photo and
-            upcoming events. Never your email.
+            Off by default. Shows your bio, Instagram, photo and upcoming events to members on your Who&rsquo;s Going
+            lists. Never your email.
           </p>
           {errors.profileVisible && (
             <p id={`${fieldId("profileVisible")}-error`} className="pl-8 text-sm text-danger">

@@ -141,7 +141,7 @@ describe("/following/unsubscribe", () => {
     fireEvent.click(button);
     expect(unsubscribeFromFollowEmails).toHaveBeenCalledWith(TOKEN);
     await screen.findByRole("heading", { name: "You’re unsubscribed" });
-    expect(screen.getByText(/new events from Static Collective\. You still follow them/)).toBeInTheDocument();
+    expect(screen.getByText(/from Static Collective\. You still follow them/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Organisers you follow" })).toHaveAttribute("href", "/following");
   });
 

@@ -299,12 +299,9 @@ export default function ApplicationForm({ mode, initial, onSuccess }: Props) {
           value={websiteUrl}
           onChange={(e) => setWebsiteUrl(e.target.value)}
           placeholder="https://"
-          {...errorProps("websiteUrl", errors.websiteUrl, ["websiteUrl-note"])}
+          {...errorProps("websiteUrl", errors.websiteUrl)}
           className="border border-foreground bg-transparent px-3 py-2 text-foreground"
         />
-        <p id="websiteUrl-note" className="text-sm text-muted">
-          {PUBLIC_NOTE}
-        </p>
         {errors.websiteUrl && (
           <p id="websiteUrl-error" className="text-sm text-danger">
             {errors.websiteUrl}
@@ -312,11 +309,8 @@ export default function ApplicationForm({ mode, initial, onSuccess }: Props) {
         )}
       </div>
 
-      <fieldset className="flex flex-col gap-4" aria-describedby="application-social-note">
+      <fieldset className="flex flex-col gap-4">
         <legend className="eyebrow text-muted">Social profiles (optional)</legend>
-        <p id="application-social-note" className="text-sm text-muted">
-          {PUBLIC_NOTE}
-        </p>
         <SocialHandleFields
           idPrefix={ID_PREFIX}
           values={handles}
@@ -333,7 +327,6 @@ export default function ApplicationForm({ mode, initial, onSuccess }: Props) {
         error={errors.featuredVideoUrl}
         labelClassName="eyebrow text-muted"
         inputClassName="border border-foreground bg-transparent px-3 py-2 text-foreground"
-        publicNote={PUBLIC_NOTE}
       />
 
       {submitError && sessionExpired && (

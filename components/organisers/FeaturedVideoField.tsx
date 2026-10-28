@@ -41,7 +41,6 @@ export default function FeaturedVideoField({
   error,
   labelClassName,
   inputClassName,
-  publicNote,
 }: {
   id: string;
   value: string;
@@ -49,8 +48,6 @@ export default function FeaturedVideoField({
   error?: string;
   labelClassName: string;
   inputClassName: string;
-  /** A note that it's shown publicly, when the form says so for each field. */
-  publicNote?: string;
 }) {
   const video = value.trim() ? parseFeaturedVideoUrl(value) : null;
   const hintId = `${id}-hint`;
@@ -73,8 +70,7 @@ export default function FeaturedVideoField({
         className={inputClassName}
       />
       <p id={hintId} className="text-sm text-muted">
-        One YouTube or Vimeo video, as a link to it. It shows on your profile as a still with a play button, and
-        the player only loads when someone presses play. Leave it blank for none.{publicNote ? ` ${publicNote}` : ""}
+        A YouTube or Vimeo link.
       </p>
       {error && (
         <p id={errorId} className="text-sm text-danger">

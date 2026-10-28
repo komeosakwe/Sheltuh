@@ -15,7 +15,7 @@ export default function VerifyPage() {
           flush
           eyebrow="Account"
           title="Verify your email"
-          intro="Enter the code we emailed you to finish creating your account."
+          intro="Enter the code we emailed you."
         />
         <Suspense fallback={<LoadingIndicator />}>
           <VerifyForm />

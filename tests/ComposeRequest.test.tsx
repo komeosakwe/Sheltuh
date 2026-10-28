@@ -81,11 +81,11 @@ describe("Message someone on Who's Going", () => {
     const form = openForm();
     expect(box()).toHaveFocus();
     expect(form).toHaveTextContent(
-      "This sends Mia T. a message request with your display name and this event. If they reply, you can keep chatting. Until then you can’t send another, and they might not reply. No links in a first message.",
+      "Mia T. sees a request with your display name and this event. One message until they reply. No links.",
     );
-    expect(box()).toHaveAccessibleDescription(expect.stringContaining("This sends Mia T. a message request"));
+    expect(box()).toHaveAccessibleDescription(expect.stringContaining("Mia T. sees a request"));
     expect(screen.getByRole("button", { name: "Send request" })).toHaveAccessibleDescription(
-      expect.stringContaining("No links in a first message."),
+      expect.stringContaining("No links."),
     );
   });
 

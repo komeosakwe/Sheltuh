@@ -79,7 +79,7 @@ export default function ApplyPageContent() {
   if (auth.status === "signed-out") {
     return (
       <StatusCard>
-        <p className="mb-3">Sign in or create an account to apply as an organiser.</p>
+        <p className="mb-3">Sign in to apply as an organiser.</p>
         <div className="flex gap-3">
           <Link href={withNext("/login", APPLY_PATH)} className="btn btn-solid">
             Sign in
@@ -113,8 +113,7 @@ export default function ApplyPageContent() {
       <StatusCard>
         <p className="font-heading text-2xl text-foreground">Application pending</p>
         <p className="mt-2 text-sm text-muted">
-          Thanks — your organiser application is waiting on admin review. We&rsquo;ll let you know
-          once it&rsquo;s been decided.
+          Waiting on admin review. We&rsquo;ll let you know once it&rsquo;s decided.
         </p>
       </StatusCard>
     );
@@ -151,18 +150,12 @@ function FormSection({
 }) {
   return (
     <div className="flex flex-col gap-6">
-      {view.mode === "apply" ? (
-        <p className="text-sm text-muted">
-          Tell us about your organisation. A person at Sheltüh checks every application before you
-          can publish events.
-        </p>
-      ) : (
+      {view.mode === "apply" ? null : (
         <StatusCard>
           <p className="font-heading text-2xl text-foreground">Application not approved</p>
           {view.record.rejectionReason && (
             <p className="mt-2 text-sm text-muted">Reviewer note: {view.record.rejectionReason}</p>
           )}
-          <p className="mt-2 text-sm text-muted">Update the details below and resubmit.</p>
         </StatusCard>
       )}
       <ApplicationForm

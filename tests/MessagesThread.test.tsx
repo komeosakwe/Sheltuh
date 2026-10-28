@@ -395,7 +395,7 @@ describe("Thread — requests", () => {
     api.getMessages.mockResolvedValue(page([msg(1)], conversation({ status: "request_received" })));
     renderThread();
     await ready();
-    expect(screen.getByText(/Decline: we won’t notify them, but they won’t be able to message you again\./)).toBeInTheDocument();
+    expect(screen.getByText(/If you decline, they can’t message you again and we won’t tell them\./)).toBeInTheDocument();
   });
 
   it("declined: Report and Block are still offered, and work", async () => {
@@ -448,7 +448,7 @@ describe("Thread — requests", () => {
     expect(box).toBeDisabled();
     expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
     expect(box).toHaveAccessibleDescription(
-      expect.stringContaining("Waiting for Sam K. to reply. You can send more once they do. People don’t always reply, and we won’t tell you either way."),
+      expect.stringContaining("Waiting for Sam K. to reply. You can send more once they do."),
     );
     // Declining is silent: nothing here hints that it might have happened.
     expect(document.body.textContent).not.toMatch(/declined/i);
@@ -533,7 +533,7 @@ describe("Thread — block and report", () => {
     expect(api.reportMember).not.toHaveBeenCalled();
 
     fireEvent.click(within(dialog).getByLabelText("Spam or a scam"));
-    fireEvent.change(within(dialog).getByLabelText("Anything else we should know? (optional)"), {
+    fireEvent.change(within(dialog).getByLabelText("Details (optional)"), {
       target: { value: "  Keeps sending links  " },
     });
     fireEvent.click(within(dialog).getByRole("button", { name: "Send report" }));
@@ -577,11 +577,11 @@ describe("Thread — block and report", () => {
       "/privacy#messages",
     );
     fireEvent.click(within(dialog).getByLabelText("Spam or a scam"));
-    fireEvent.change(within(dialog).getByLabelText("Anything else we should know? (optional)"), { target: { value: "Links" } });
+    fireEvent.change(within(dialog).getByLabelText("Details (optional)"), { target: { value: "Links" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Send report" }));
     expect(await within(dialog).findByText(/Sign in again to send your report/)).toBeInTheDocument();
     expect(within(dialog).getByLabelText("Spam or a scam")).toBeChecked();
-    expect(within(dialog).getByLabelText("Anything else we should know? (optional)")).toHaveValue("Links");
+    expect(within(dialog).getByLabelText("Details (optional)")).toHaveValue("Links");
     expect(dialog).toHaveAttribute("open");
   });
 
@@ -594,11 +594,11 @@ describe("Thread — block and report", () => {
     fireEvent.click(screen.getByRole("button", { name: "Report" }));
     const dialog = await screen.findByRole("dialog");
     fireEvent.click(within(dialog).getByLabelText("Something else"));
-    fireEvent.change(within(dialog).getByLabelText("Anything else we should know? (optional)"), {
+    fireEvent.change(within(dialog).getByLabelText("Details (optional)"), {
       target: { value: "hmm" },
     });
     fireEvent.click(within(dialog).getByRole("button", { name: "Send report" }));
-    const details = within(dialog).getByLabelText("Anything else we should know? (optional)");
+    const details = within(dialog).getByLabelText("Details (optional)");
     await waitFor(() => expect(details).toHaveAccessibleDescription(expect.stringContaining("text-direction")));
     await waitFor(() => expect(details).toHaveFocus());
   });

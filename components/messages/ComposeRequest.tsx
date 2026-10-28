@@ -204,8 +204,7 @@ export function ComposeRequestForm({
         Message {name}
       </p>
       <p id={aboutId} className="text-sm leading-5">
-        This sends {name} a message request with your display name and {eventWords}. If they reply, you can keep
-        chatting. Until then you can&rsquo;t send another, and they might not reply. No links in a first message.
+        {name} sees a request with your display name and {eventWords}. One message until they reply. No links.
       </p>
       <p className="text-xs text-muted">
         <Link href="/privacy#messages" className={tallInlineLinkClass}>

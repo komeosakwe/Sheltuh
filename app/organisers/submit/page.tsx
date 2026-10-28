@@ -16,13 +16,11 @@ export default function SubmitEventPage() {
             size="md"
             eyebrow="For organisers"
             title="Submit an event"
-            intro="Tell us about your event. Sheltüh is focused on independent live music, art, workshops and pop-ups, anywhere in Australia."
           />
           <div role="note" className="flex flex-wrap items-baseline gap-3 text-sm">
             <span className="eyebrow rounded-badge bg-signal px-2 py-1 text-signal-foreground">Demo</span>
             <span className="text-muted">
-              This is a demo. Submissions are validated locally in your browser only — nothing is
-              sent or saved, and no organiser approval process exists yet.
+              Nothing is sent or saved.
             </span>
           </div>
         </div>

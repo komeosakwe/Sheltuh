@@ -116,7 +116,6 @@ export default function ForgotPasswordForm({ next }: { next?: string } = {}) {
   if (step === "request") {
     return (
       <form onSubmit={handleRequestCode} className="flex flex-col gap-5" noValidate>
-        <p className="text-sm text-muted">Enter your account email and we&rsquo;ll send a reset code.</p>
         <AuthField
           ref={emailRef}
           id="email"
@@ -146,7 +145,7 @@ export default function ForgotPasswordForm({ next }: { next?: string } = {}) {
 
   return (
     <form onSubmit={handleConfirm} className="flex flex-col gap-5" noValidate>
-      <p className="text-sm text-muted">Enter the code we sent to {email} and choose a new password.</p>
+      <p className="text-sm text-muted">Code sent to {email}.</p>
       <AuthField
         ref={codeRef}
         id="code"

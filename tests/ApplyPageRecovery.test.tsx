@@ -95,7 +95,7 @@ describe("ApplyPageContent: a draft survives its session running out", () => {
 
     // The session runs out (Supabase signs this tab out): the form stays, not the "Sign in" card.
     await become(SIGNED_OUT);
-    expect(screen.queryByText("Sign in or create an account to apply as an organiser.")).toBeNull();
+    expect(screen.queryByText("Sign in to apply as an organiser.")).toBeNull();
     expect(screen.getByLabelText("Organiser name")).toBe(nameField);
     expect(nameField).toHaveValue("Neon Collective");
 
@@ -171,7 +171,7 @@ describe("ApplyPageContent: a draft survives its session running out", () => {
     const { become } = mount(accountA());
     await fillDraft();
     await become({ ...SIGNED_OUT, signedOutBy: "user" });
-    expect(screen.getByText("Sign in or create an account to apply as an organiser.")).toBeInTheDocument();
+    expect(screen.getByText("Sign in to apply as an organiser.")).toBeInTheDocument();
     expect(screen.queryByLabelText("Organiser name")).toBeNull();
   });
 
@@ -190,7 +190,7 @@ describe("ApplyPageContent: a draft survives its session running out", () => {
 
   it("someone arriving signed out still gets the Sign in card (nothing was on screen to keep)", async () => {
     mount(SIGNED_OUT);
-    expect(screen.getByText("Sign in or create an account to apply as an organiser.")).toBeInTheDocument();
+    expect(screen.getByText("Sign in to apply as an organiser.")).toBeInTheDocument();
     expect(screen.queryByLabelText("Organiser name")).toBeNull();
   });
 

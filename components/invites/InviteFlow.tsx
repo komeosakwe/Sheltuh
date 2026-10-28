@@ -50,9 +50,9 @@ function inviteTitle(kind: "organiser" | "member", organiserName?: string): stri
 function inviteIntro(view: InviteView): string {
   const what =
     view.kind === "organiser"
-      ? `You’ve been invited to list events on Sheltüh as ${view.organiserName ?? "an organiser"}, approved from the start.`
-      : "You’ve been invited to join Sheltüh.";
-  return `${what} The invite is for ${view.maskedEmail} and works until ${formatDayWithYear(view.expiresAt)}.`;
+      ? `You’re invited to list events as ${view.organiserName ?? "an organiser"}.`
+      : "You’re invited to join Sheltüh.";
+  return `${what} For ${view.maskedEmail}, valid until ${formatDayWithYear(view.expiresAt)}.`;
 }
 
 /**
@@ -296,7 +296,7 @@ export default function InviteFlow() {
       return {
         id: "unconfirmed-account",
         title: "Reset your password to accept your invite",
-        intro: `An account for ${viewed.maskedEmail} was started but never confirmed. Reset its password: we’ll email that address a code, you choose a new password, then sign in and come back here to accept.`,
+        intro: `The account for ${viewed.maskedEmail} was never confirmed. Reset its password to accept.`,
         body: (
           <div className="flex flex-col gap-4">
             {/* Not the server's 503 words: they point at the sign-up, which this account can't use. */}
@@ -315,7 +315,7 @@ export default function InviteFlow() {
       return {
         id: "existing-account",
         title: "Sign in to accept your invite",
-        intro: `${viewed.maskedEmail} already has a Sheltüh account. Sign in with it, and you’ll come back here to accept.`,
+        intro: `${viewed.maskedEmail} already has an account. Sign in to accept.`,
         body: (
           <div className="flex flex-col items-start gap-3">
             <ButtonLink variant="solid" size="lg" href={SIGN_IN_HREF} className="w-full sm:w-auto">
@@ -339,8 +339,7 @@ export default function InviteFlow() {
           <OAuthButtons next={INVITE_PATH} />
           <div className="flex flex-col gap-4">
             <p className="text-sm text-foreground">
-              Create your account with {viewed.maskedEmail}, the address this invite was sent to. Once it’s
-              confirmed, you’ll come back here to accept.
+              Create your account with {viewed.maskedEmail}, the address this invite was sent to.
             </p>
             <div>
               <ButtonLink variant="solid" size="lg" href={SIGN_UP_HREF} className="w-full sm:w-auto">
@@ -395,8 +394,8 @@ export default function InviteFlow() {
       id: `join-${invite.inviteId}`,
       title: organiser ? `Join Sheltüh as ${invite.organiserName ?? "an organiser"}` : "Accept your invite",
       intro: organiser
-        ? `Joining sets up ${invite.organiserName ?? "your organiser"} as an approved organiser, run by this account (${auth.email ?? "you"}). You can list events from your dashboard straight away.`
-        : `Accepting finishes setting up your Sheltüh account (${auth.email ?? "you"}).`,
+        ? `Sets up ${invite.organiserName ?? "your organiser"} as an approved organiser on ${auth.email ?? "this account"}.`
+        : `Finishes setting up ${auth.email ?? "your account"}.`,
       // Accepting already failed (straight after Create account): read out with the heading.
       describedBy: acceptError ? INVITE_JOIN_ERROR_ID : undefined,
       body: <InviteJoin invite={invite} initialError={acceptError} onAccepted={setAccepted} onProblem={setProblem} />,

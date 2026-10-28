@@ -91,7 +91,7 @@ export default function VerifyForm() {
     setResending(true);
     try {
       await auth.resendConfirmationCode(email.trim());
-      setResendMessage("A new code is on its way — check your email.");
+      setResendMessage("New code sent.");
     } catch (err) {
       showServerError(err instanceof Error ? err.message : "Couldn't resend the code.", ["email"]);
     } finally {

@@ -175,9 +175,6 @@ export default function Composer({
           </Button>
         }
       />
-      {!waiting && (
-        <p className="hidden text-xs text-muted sm:block">Ctrl+Enter (⌘+Enter on a Mac) sends. Enter adds a new line.</p>
-      )}
     </form>
   );
 }

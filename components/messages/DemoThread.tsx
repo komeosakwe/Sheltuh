@@ -170,7 +170,7 @@ export default function DemoThread({ conversationId }: { conversationId: string 
             </DemoNotice>
           </div>
         )}
-        <DemoNotice>Messages aren&rsquo;t sent in this demo. What you write stays on this page.</DemoNotice>
+        <DemoNotice>Messages aren&rsquo;t sent in this demo.</DemoNotice>
       </header>
 
       <section aria-labelledby="thread-messages-title" className={THREAD_MESSAGES_CLASS}>

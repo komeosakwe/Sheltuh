@@ -15,7 +15,6 @@ export default async function SignupPage({ searchParams }: PageProps<"/signup">)
           flush
           eyebrow="Account"
           title="Create an account"
-          intro="An account lets you add yourself to an event’s Who’s Going list, see who else is going, message people going to the same event, and apply as an organiser. You don’t need one to browse events or buy tickets."
         />
         {/* Apple and Google (when enabled), their privacy line and the "or" divider. */}
         <OAuthButtons next={next} />

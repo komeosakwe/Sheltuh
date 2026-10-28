@@ -95,7 +95,7 @@ describe("AccountContent", () => {
     getMyProfile.mockRejectedValue(new ApiError(404, "You haven't set up a profile yet."));
     renderAccount();
     expect(screen.getByText("mia@example.com")).toBeInTheDocument();
-    expect(await screen.findByText(/You haven’t set up a profile yet\./)).toBeInTheDocument();
+    expect(await screen.findByText(/No profile yet\./)).toBeInTheDocument();
     const form = screen.getByRole("form", { name: "Create your Who's Going profile" });
     expect(within(form).getByLabelText("Display name")).toHaveValue("");
     expect(within(form).getByRole("checkbox", { name: "I’m 18 or older" })).not.toBeChecked();
@@ -123,7 +123,7 @@ describe("AccountContent", () => {
     saveMyProfile.mockResolvedValueOnce(PROFILE);
     fireEvent.click(adult);
     fireEvent.click(within(form).getByRole("button", { name: "Create profile" }));
-    const done = await screen.findByText("Your profile is set up. You’ll be shown as Mia T.");
+    const done = await screen.findByText("You’ll be shown as Mia T.");
     // Focus moves in an effect after the swap to the saved profile, so allow it to settle.
     await waitFor(() => expect(done.closest("[tabindex='-1']")).toHaveFocus());
     expect(saveMyProfile).toHaveBeenCalledWith({ displayName: "Mia T.", adultConfirmed: true }, expect.any(Function));
@@ -158,7 +158,7 @@ describe("AccountContent", () => {
     updateMyProfile.mockRejectedValueOnce(new ApiError(404, "You haven't set up a profile yet."));
     fireEvent.change(input, { target: { value: "Mia Thompson" } });
     fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
-    const message = await screen.findByText(/You haven’t set up a profile yet\./);
+    const message = await screen.findByText(/No profile yet\./);
     await waitFor(() => expect(message.closest("[tabindex='-1']")).toHaveFocus());
     expect(screen.getByRole("form", { name: "Create your Who's Going profile" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete your profile" })).toBeNull();
@@ -233,7 +233,7 @@ describe("AccountContent", () => {
     deleteMyProfile.mockResolvedValueOnce(undefined);
     fireEvent.click(screen.getByRole("button", { name: "Yes, delete" }));
     const done = await screen.findByText(
-      "Your profile is deleted. You’re no longer shown on any event, and your conversations are gone.",
+      "Profile deleted.",
     );
     await waitFor(() => expect(done.closest("[tabindex='-1']")).toHaveFocus());
     expect(screen.queryByLabelText("Display name")).toBeNull();

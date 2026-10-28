@@ -87,7 +87,7 @@ function merge(existing: MessageRecord[], incoming: MessageRecord[], where: "bef
 }
 
 function waitingNote(name: string) {
-  return `Waiting for ${name} to reply. You can send more once they do. People don’t always reply, and we won’t tell you either way.`;
+  return `Waiting for ${name} to reply. You can send more once they do.`;
 }
 
 /**
@@ -654,9 +654,8 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
     return (
       <div className="flex flex-col gap-3 border-t border-surface-border pt-4">
         <p className="text-sm leading-5">
-          <strong className="font-semibold">{target} wants to message you.</strong> Reply below to accept, and you can
-          keep chatting. Not interested? Decline: we won&rsquo;t notify them, but they won&rsquo;t be able to message
-          you again.
+          <strong className="font-semibold">{target} wants to message you.</strong> Reply to accept. If you decline, they
+          can&rsquo;t message you again and we won&rsquo;t tell them.
         </p>
         {confirming === "decline" ? (
           <div role="group" aria-labelledby="decline-confirm-text" className="flex flex-col gap-3">

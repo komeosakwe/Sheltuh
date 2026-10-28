@@ -327,11 +327,7 @@ export default function MemberProfileView({
             ))}
           </ul>
         ) : (
-          <EmptyState title="No upcoming events shown" mark={false}>
-            {profile.isYou
-              ? "Add yourself to an event’s Who’s Going list and it shows here."
-              : "Events they add themselves to show here."}
-          </EmptyState>
+          <EmptyState title="No upcoming events shown" mark={false} />
         )}
       </section>
     </div>

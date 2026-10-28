@@ -181,7 +181,7 @@ describe("/messages/[conversationId] (demo)", () => {
     renderThread("priya-r");
     expect(screen.getByRole("heading", { level: 1, name: "Priya R." })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Neon Static" })).toHaveAttribute("href", "/events/neon-static");
-    expect(screen.getByText("Messages aren’t sent in this demo. What you write stays on this page.")).toBeInTheDocument();
+    expect(screen.getByText("Messages aren’t sent in this demo.")).toBeInTheDocument();
     const list = screen.getByRole("list", { name: "Messages with Priya R." });
     expect(within(list).getAllByRole("listitem")).toHaveLength(3);
     await waitFor(() => expect(document.title).toBe("Priya R. — Messages — Sheltüh"));

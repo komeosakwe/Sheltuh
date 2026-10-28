@@ -217,7 +217,7 @@ function ReportForm({
 
       <MessageField
         id="report-details"
-        label="Anything else we should know? (optional)"
+        label="Details (optional)"
         value={details}
         onChange={(value) => {
           setDetails(value);

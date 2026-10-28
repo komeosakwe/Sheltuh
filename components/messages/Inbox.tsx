@@ -109,10 +109,7 @@ export default function Inbox({ getToken }: { getToken: GetToken }) {
       )}
 
       {state.status === "ready" && state.items.length === 0 && (
-        <EmptyState title="No messages yet">
-          When you&rsquo;re going to an event and have added yourself to its Who&rsquo;s Going list, you can
-          message other people who&rsquo;ve added themselves. Their replies and requests show up here.
-        </EmptyState>
+        <EmptyState title="No messages yet" />
       )}
 
       {state.status === "ready" && state.items.length > 0 && (
