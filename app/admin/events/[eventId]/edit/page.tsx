@@ -13,7 +13,7 @@ export default function AdminEditEventPage() {
       ]}
       title="Edit event"
       intro="Change anything about this event, whatever its status, and curate it for Trending. Changes are logged where the organiser can see them."
-      width="narrow"
+      width="editor"
     >
       <AdminEditEvent />
     </AdminPage>

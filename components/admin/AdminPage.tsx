@@ -43,7 +43,7 @@ export function AdminBreadcrumbs({ trail }: { trail: Crumb[] }) {
   );
 }
 
-const WIDTH_CLASS = { narrow: "max-w-2xl", medium: "max-w-3xl", wide: "" } as const;
+const WIDTH_CLASS = { narrow: "max-w-2xl", medium: "max-w-3xl", wide: "", editor: "" } as const;
 
 /**
  * An admin sub-page (inside app/admin/layout.tsx, which gates it and adds the
@@ -66,7 +66,8 @@ export default function AdminPage({
   children: ReactNode;
 }) {
   return (
-    <div className="mx-auto max-w-6xl px-5 py-8 sm:px-8 sm:py-12">
+    // `editor`: the event editor's rail, form and preview need the full 7xl column (docs/design/event-editor.md §3).
+    <div className={`mx-auto px-5 py-8 sm:px-8 sm:py-12 ${width === "editor" ? "max-w-7xl" : "max-w-6xl"}`}>
       <div className={`flex flex-col gap-6 ${WIDTH_CLASS[width]}`.trim()}>
         <AdminBreadcrumbs trail={[...crumbs, { label: title }]} />
         <PageHeader flush size="md" eyebrow="Admin" title={title} intro={intro} />

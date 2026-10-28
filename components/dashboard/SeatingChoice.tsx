@@ -68,7 +68,9 @@ export default function SeatingChoiceField({ value, onChange, event, admin, lock
 
   return (
     <fieldset className="flex min-w-0 flex-col gap-3">
-      <legend className={`${legendClassName} mb-3`}>Seating</legend>
+      <legend className="mb-3">
+        <h3 className={legendClassName}>Seating</h3>
+      </legend>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         {OPTIONS.map((option) => (
           <label

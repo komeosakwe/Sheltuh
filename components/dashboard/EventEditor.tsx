@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent, type Ref } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode, type Ref } from "react";
 import { useRouter } from "next/navigation";
 import InlineReauth, { signedInAgainMessage } from "@/components/auth/InlineReauth";
 import { ApiError, type GetToken } from "@/lib/api/client";
 import AdminOrganiserPicker, { type PickedOrganiser } from "@/components/admin/AdminOrganiserPicker";
-import EventClipField from "@/components/dashboard/EventClipField";
+import EventClipField, { clipStatusText } from "@/components/dashboard/EventClipField";
 import EventImageField from "@/components/dashboard/EventImageField";
 import { PayoutsNeededNotice, PayoutsPublishError, PayoutsPublishHint } from "@/components/dashboard/PayoutsRequired";
 import RefundPolicyField from "@/components/dashboard/RefundPolicyField";
@@ -36,7 +36,35 @@ import SeatingChoiceField, {
   type SeatingChoice,
 } from "@/components/dashboard/SeatingChoice";
 import { ClipSyncError, useEventClip, type ClipRoutes } from "@/components/dashboard/useEventClip";
-import { Button, ButtonLink } from "@/components/ui/Button";
+import EditorBar from "@/components/dashboard/editor/EditorBar";
+import EditorCard from "@/components/dashboard/editor/EditorCard";
+import EditorShell from "@/components/dashboard/editor/EditorShell";
+import EditorSummary from "@/components/dashboard/editor/EditorSummary";
+import ErrorSummary, { type ErrorSummaryItem } from "@/components/dashboard/editor/ErrorSummary";
+import { PreviewButton, PreviewPanel } from "@/components/dashboard/editor/PreviewPanel";
+import PublishChecklist, { type ChecklistRow } from "@/components/dashboard/editor/PublishChecklist";
+import {
+  PUBLISH_REFUSAL_ID,
+  PublishConfirm,
+  PublishOutcomeView,
+  type PublishOutcome,
+} from "@/components/dashboard/editor/PublishParts";
+import StepNav from "@/components/dashboard/editor/StepNav";
+import TicketTypeFields from "@/components/dashboard/editor/TicketTypeFields";
+import {
+  cleanTicketType,
+  draftErrors,
+  EDITOR_STEPS,
+  errorFieldLabel,
+  LOCATION_REQUIRED_TEXT,
+  PLATFORM_FREE_ONLY,
+  stepComplete,
+  stepOfControlId,
+  stepOfErrorKey,
+  type EditorStep,
+} from "@/components/dashboard/editor/draft";
+import { draftToPreviewEvent } from "@/components/dashboard/editor/preview-event";
+import { Button } from "@/components/ui/Button";
 import { fieldClass } from "@/components/ui/Field";
 import {
   adminCreateEvent,
@@ -68,31 +96,24 @@ import type { AdminEventRecord, EventRecord, PublishEventConflictCode, TicketTyp
 import { SessionExpiredError } from "@/lib/auth/AuthContext";
 import { useAccountOwner } from "@/lib/auth/useAccountOwner";
 import { eventClipsEnabled } from "@/lib/clips-flag";
-import { SUPPORT_EMAIL } from "@/lib/contact";
-import { calculateBookingFeeCents, calculateOrderSummary, describeBookingFee, MIN_PAID_TICKET_CENTS } from "@/lib/fees";
-import { formatAud, toDateTimeInputParts } from "@/lib/format";
+import { eventZone, formatEventDateShort, formatEventTime, toDateTimeInputParts } from "@/lib/format";
+import { assignPoster } from "@/lib/live/assign-poster";
 import {
   apiReviewReason,
-  PUBLISH_REVIEW_GENERAL,
+  organiserEventStatus,
   PUBLISH_REVIEW_REASON_TEXT,
   publishReviewReason,
   removedBefore,
-  type PublishReviewReason,
 } from "@/lib/organiser-events";
-import {
-  DEFAULT_REFUND_POLICY,
-  isValidRefundDays,
-  MAX_REFUND_DAYS,
-  MIN_REFUND_DAYS,
-  type RefundPolicy,
-} from "@/lib/refund-policy";
-import { checkExternalTicketUrl, sellsPaidTicketsOnSheltuh, type TicketingMode } from "@/lib/ticketing";
+import { formatFeedPriceParts } from "@/lib/pricing";
+import { DEFAULT_REFUND_POLICY, type RefundPolicy } from "@/lib/refund-policy";
+import { sellsPaidTicketsOnSheltuh, type TicketingMode } from "@/lib/ticketing";
 import { placeName, placeQuery } from "@/lib/place";
 import { localToUtcIso, PLATFORM_TIME_ZONE, zoneShortLabel } from "@/lib/time-zones";
 import { EVENT_CATEGORIES, type Coordinates } from "@/lib/types";
 
-/** A section title in the form (Panel's title style: 20/24, uppercase by the heading base rule, which a legend doesn't get). */
-const SECTION_TITLE = "font-heading text-xl leading-6 uppercase text-foreground";
+/** A card's title when it's a child's legend (seating, refunds, where tickets are sold): the same as EditorCard's h3. */
+const SECTION_TITLE = "font-heading text-lg leading-6 text-foreground";
 
 interface OrganiserProps {
   getToken: GetToken;
@@ -111,6 +132,8 @@ interface OrganiserProps {
    * they go live): Publish… says it will be sent for review, and why.
    */
   eventReviewRequired?: boolean;
+  /** The organiser's name, for the preview of a new event (a saved event's own is used otherwise). */
+  organiserName?: string;
   onReload?: never;
   reauthForm?: never;
   onReauthNeeded?: never;
@@ -131,6 +154,7 @@ interface AdminProps {
   onSaved: (record: AdminEventRecord) => void;
   payoutsEnabled?: never;
   eventReviewRequired?: never;
+  organiserName?: never;
   /** Fetch the latest version after a save conflict (remount the editor with it). */
   onReload?: () => void;
   /**
@@ -146,19 +170,11 @@ interface AdminProps {
 
 type Props = OrganiserProps | AdminProps;
 
-const PLATFORM_FREE_ONLY = "A platform-managed organiser can only offer free tickets here, or link to another site.";
-
-/** What an organiser's publish did (POST /api/events/{id}/publish): it went live, or to the review queue. */
-type PublishOutcome = { kind: "published"; slug: string } | { kind: "review"; reason: PublishReviewReason | null };
-
 /** The publish response: the event, and (from the API, when it says) why it was sent to review (apiReviewReason). */
 type PublishedEvent = EventRecord & { reviewReason?: string };
 
 /** A publish refused with a 409 other than payouts (those have their own message and link). */
 type PublishRefusalCode = Exclude<PublishEventConflictCode, "payouts_required">;
-
-/** Publishing needs the venue's confirmed pin: said by the venue and by the buttons. */
-const LOCATION_REQUIRED_TEXT = "Add the venue location and confirm the pin first.";
 
 /** What each refusal says by the buttons; `reload`: it offers to reload the page. */
 const PUBLISH_REFUSALS: Record<PublishRefusalCode, { text: string; reload: boolean }> = {
@@ -173,10 +189,6 @@ const PUBLISH_REFUSALS: Record<PublishRefusalCode, { text: string; reload: boole
   },
   location_required: { text: LOCATION_REQUIRED_TEXT, reload: false },
 };
-
-const PUBLISH_CONFIRM_ID = "publish-confirm";
-const PUBLISH_REFUSAL_ID = "publish-refusal";
-const PUBLISH_OUTCOME_ID = "publish-outcome";
 
 function isPlatformManaged(record: EventRecord | AdminEventRecord | undefined): boolean {
   return Boolean(record && "organiserPlatformManaged" in record && record.organiserPlatformManaged);
@@ -363,6 +375,20 @@ export default function EventEditor(props: Props) {
   const removed = !isAdmin && current ? removedBefore(current) : null;
   const reviewReason = !isAdmin && current ? publishReviewReason(current, eventReviewRequired) : null;
 
+  // Which of the three views of the one form is showing (docs/design/event-editor.md §5.0): view state
+  // only. All three panels stay mounted (the others `hidden`), so nothing typed is lost between steps.
+  const [step, setStep] = useState<EditorStep>(1);
+  // When the editor was opened: what the checklist's "already ended" is judged against (advisory; the server decides).
+  const [openedAt] = useState(() => Date.now());
+  // The photo as it'd show (an object URL from EventImageField), for the summary and the live preview.
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  // A clip step that failed is explained, and focused, by the clip field (Event page step): show that step
+  // in the same render, so the field is on screen when its focus effect runs.
+  const [seenClipFailures, setSeenClipFailures] = useState(0);
+  if (clip.state.failures !== seenClipFailures) {
+    setSeenClipFailures(clip.state.failures);
+    setStep(1);
+  }
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
@@ -393,8 +419,17 @@ export default function EventEditor(props: Props) {
   const focusRefund = useRef<"choice" | "days" | null>(null);
   // A save that didn't validate here: focus goes to the first field that needs fixing, once its error is shown.
   const focusInvalidId = useRef<string | null>(null);
+  const stepTitleRef = useRef<HTMLHeadingElement>(null);
+  // Set by a step change the person made (Next, Back, the rail): the new step's title is scrolled to and focused.
+  const focusStepTitle = useRef(false);
 
   useEffect(() => {
+    if (focusStepTitle.current && stepTitleRef.current) {
+      focusStepTitle.current = false;
+      stepTitleRef.current.focus({ preventScroll: true });
+      // The page's scroll-padding clears the header. (Not in every browser engine or test DOM: then focus alone.)
+      stepTitleRef.current.scrollIntoView?.({ block: "start" });
+    }
     if (focusInvalidId.current) {
       const element = document.getElementById(focusInvalidId.current);
       focusInvalidId.current = null;
@@ -466,6 +501,7 @@ export default function EventEditor(props: Props) {
       setPayoutsRefused(true);
       setPayoutsError(err.message);
       focusPayoutsError.current = true;
+      setStep(3);
       return;
     }
     // The event has orders, and the policy may only become more generous: the reason is by the policy
@@ -476,6 +512,7 @@ export default function EventEditor(props: Props) {
       // From one number of days to more: the days are what to change. Otherwise the choice is.
       const saved = savedRecord ?? initial;
       focusRefund.current = saved?.refundPolicy === "days_before" && refundPolicy === "days_before" ? "days" : "choice";
+      setStep(2);
       return;
     }
     // Google couldn't check the place being saved: the pin alone instead (a confirmed pin is kept).
@@ -484,7 +521,7 @@ export default function EventEditor(props: Props) {
       const fieldErrors = err.fieldErrors;
       setErrors((prev) => ({ ...prev, ...fieldErrors }));
       // Focus the first field the API refused, as for this form's own errors (its message is read with it).
-      focusInvalidId.current = invalidControlIds(fieldErrors, ticketTypes.length, start, end, zoneChoice)[0] ?? null;
+      focusFirstInvalid(fieldErrors);
     }
     setSubmitError(err instanceof Error ? err.message : fallback);
   }
@@ -510,6 +547,19 @@ export default function EventEditor(props: Props) {
     });
   }
 
+  /** Focus goes to this control once it's on screen: its step is shown first (the others' panels are hidden). */
+  function focusControl(id: string) {
+    focusInvalidId.current = id;
+    setStep(stepOfControlId(id));
+  }
+
+  /** The first field that needs fixing among `fieldErrors` (this form's order), focused on its step. */
+  function focusFirstInvalid(fieldErrors: Record<string, string>) {
+    const first = invalidControlIds(fieldErrors, ticketTypes.length, start, end, zoneChoice)[0] ?? null;
+    focusInvalidId.current = first;
+    if (first) setStep(stepOfControlId(first));
+  }
+
   function updateTicket(index: number, patch: Partial<TicketTypeInput>) {
     setTicketTypes((prev) => prev.map((t, i) => (i === index ? { ...t, ...patch } : t)));
   }
@@ -530,42 +580,28 @@ export default function EventEditor(props: Props) {
    * and nothing is sent; a known one sends its state and zone with it.
    */
   function buildInput(place: VenueResolution): EventInput | null {
-    const nextErrors: Record<string, string> = {};
-    if (!title.trim()) nextErrors.title = "Enter an event title.";
-    if (!description.trim()) nextErrors.description = "Enter a description.";
-    if (!venueName.trim()) nextErrors.venueName = "Enter a venue name.";
-    if (!venueAddress.trim()) nextErrors.venueAddress = "Enter a venue address.";
-    if (place.kind === "empty") nextErrors.suburb = "Enter a suburb or town.";
-    else if (place.kind === "unknown" || place.kind === "unavailable") nextErrors.suburb = place.message;
-    if (!start.date || !start.time) nextErrors.start = "Enter a start date and time.";
-    if (!end.date || !end.time) nextErrors.end = "Enter an end date and time.";
-    if (isAdmin && !initial && !createdId && !organiser) nextErrors.organiserId = "Choose an organiser.";
     const external = ticketingMode === "external";
-    if (external) {
-      // Only an admin edits the link here; an organiser's external event keeps its stored one.
-      if (isAdmin) {
-        const checked = checkExternalTicketUrl(externalTicketUrl.trim());
-        if (!externalTicketUrl.trim()) nextErrors.externalTicketUrl = "Enter the address of the page where tickets are sold.";
-        else if (!checked.ok) nextErrors.externalTicketUrl = checked.message;
-      }
-    } else {
-      if (ticketTypes.length === 0) nextErrors.ticketTypes = "Add at least one ticket type.";
-      ticketTypes.forEach((t, i) => {
-        if (!t.name.trim()) nextErrors[`ticket-${i}-name`] = "Enter a ticket name.";
-        if (!Number.isInteger(t.priceCents) || t.priceCents < 0) nextErrors[`ticket-${i}-price`] = "Enter a valid price.";
-        else if (t.priceCents > 0 && platformManaged) nextErrors[`ticket-${i}-price`] = PLATFORM_FREE_ONLY;
-        else if (t.priceCents > 0 && t.priceCents < MIN_PAID_TICKET_CENTS)
-          nextErrors[`ticket-${i}-price`] = `A paid ticket must cost at least ${formatAud(MIN_PAID_TICKET_CENTS)} (or make it free).`;
-        if (!Number.isInteger(t.quantityAvailable) || t.quantityAvailable < 1)
-          nextErrors[`ticket-${i}-qty`] = "Enter how many are available.";
-      });
-      if (refundPolicy === "days_before" && !isValidRefundDays(refundDaysNumber()))
-        nextErrors.refundDays = `Enter a whole number of days from ${MIN_REFUND_DAYS} to ${MAX_REFUND_DAYS}.`;
-    }
+    const nextErrors = draftErrors({
+      title,
+      description,
+      venueName,
+      venueAddress,
+      place,
+      start,
+      end,
+      organiserMissing: isAdmin && !initial && !createdId && !organiser,
+      isAdmin,
+      platformManaged,
+      ticketingMode,
+      externalTicketUrl,
+      ticketTypes,
+      refundPolicy,
+      refundDays: refundDaysNumber(),
+    });
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) {
       // Focus the first field to fix (its error is read with it), and say how many there are by the buttons.
-      focusInvalidId.current = invalidControlIds(nextErrors, ticketTypes.length, start, end, zoneChoice)[0] ?? null;
+      focusFirstInvalid(nextErrors);
       const count = Object.keys(nextErrors).length;
       setStatus(`Not saved: ${count === 1 ? "1 field needs" : `${count} fields need`} fixing. The first one is focused.`);
       return null;
@@ -582,7 +618,7 @@ export default function EventEditor(props: Props) {
         : { suburb: venue.suburb.trim() }),
       start,
       end,
-      ticketTypes: external ? [] : ticketTypes,
+      ticketTypes: external ? [] : ticketTypes.map(cleanTicketType),
     };
     // The venue's location: only when it differs from what's saved (absent keeps it; null removes it).
     const location = locationChange(venueLocation.input, current?.location);
@@ -659,6 +695,8 @@ export default function EventEditor(props: Props) {
     }
     const clipReady = await clip.validate();
     if (!input || !clipReady) {
+      // The clip field says what's missing (the Event page step); a form error is shown and focused on its own step.
+      if (input) setStep(1);
       setSaving(false);
       return;
     }
@@ -777,7 +815,7 @@ export default function EventEditor(props: Props) {
     setPublishConfirm(false);
     setPublishRefusal("location_required");
     setErrors((prev) => ({ ...prev, location: LOCATION_REQUIRED_TEXT }));
-    focusInvalidId.current = VENUE_LOCATION_ID;
+    focusControl(VENUE_LOCATION_ID);
     return true;
   }
 
@@ -823,6 +861,7 @@ export default function EventEditor(props: Props) {
     if (!input || !clipReady) {
       // The first field to fix is focused: the question is over.
       if (!input) setPublishConfirm(false);
+      else setStep(1);
       setSubmitting(false);
       return;
     }
@@ -851,9 +890,10 @@ export default function EventEditor(props: Props) {
         if (code === "location_required") {
           // Said by the venue too, which is focused: that's where it's fixed.
           setErrors((prev) => ({ ...prev, location: LOCATION_REQUIRED_TEXT }));
-          focusInvalidId.current = VENUE_LOCATION_ID;
+          focusControl(VENUE_LOCATION_ID);
         } else {
           focusPublish.current = "refusal";
+          setStep(3);
         }
       } else {
         if (isPayoutsRequiredError(err)) setPublishConfirm(false);
@@ -864,17 +904,86 @@ export default function EventEditor(props: Props) {
     }
   }
 
+  // ---- What the shell shows (docs/design/event-editor.md §5): all of it read from the form as it stands.
+  const eventTimeZone = eventZone(timeZone);
+  const startIso = startInstant(start, timeZone);
+  const whenText = startIso ? `${formatEventDateShort(startIso, eventTimeZone)}, ${formatEventTime(startIso, eventTimeZone)}` : "";
+  const organiserName = current?.organiserName ?? organiser?.displayName ?? props.organiserName ?? "Your organiser";
+  const savedAt = current
+    ? new Date(current.updatedAt).toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" })
+    : undefined;
+  const poster = assignPoster(current?.slug ?? current?.eventId ?? createdId ?? "new");
+  const hasPhoto = Boolean(imageFile) || Boolean(savedRecord?.imageUrl && !imageRemoved);
+  const hasClip = clip.state.file !== null || Boolean(clip.state.saved && !clip.state.removed);
+  const clipBusy = clip.state.phase.kind === "uploading" || clip.state.phase.kind === "checking";
+  const external = ticketingMode === "external";
+  const { event: previewEvent, missing: previewMissing } = draftToPreviewEvent({
+    eventId: current?.eventId ?? createdId ?? undefined,
+    slug: current?.slug,
+    title,
+    description,
+    category,
+    suburb: venue.place ? venue.place.name : venue.suburb.trim(),
+    state: venue.place?.state ?? initial?.state,
+    timeZone,
+    venueName,
+    venueAddress,
+    pin: venueLocation.pin,
+    placeId: venueLocation.linked?.placeId,
+    start,
+    end,
+    organiserName,
+    organiserLogoThumbUrl: current?.organiserLogoThumbUrl,
+    imageUrl: photoUrl ?? undefined,
+    ticketTypes,
+    ticketingMode,
+    externalTicketUrl: isAdmin ? externalTicketUrl.trim() : initial?.externalTicketUrl,
+    externalFree,
+    externalProvider: initial?.externalProvider,
+    refundPolicy,
+    refundDays: refundDaysNumber(),
+  });
+  const price = ticketingMode === "sheltuh" ? formatFeedPriceParts(previewEvent) : null;
+  const eventStatus = current ? organiserEventStatus(current) : null;
+  const summary = (
+    <EditorSummary
+      title={title}
+      when={whenText}
+      status={{ label: eventStatus?.label ?? "Draft", tone: eventStatus?.tone ?? "neutral", notSaved: !current && !createdId }}
+      lastSaved={savedAt}
+      poster={poster}
+      imageUrl={photoUrl ?? undefined}
+      price={price}
+      organiser={isAdmin ? `${current?.organiserName ?? organiser?.displayName ?? ""}${platformManaged ? " (platform-managed)" : ""}`.trim() || undefined : undefined}
+    />
+  );
+  const previewButton = <PreviewButton event={previewEvent} missing={previewMissing} />;
+  const previewPanel = <PreviewPanel event={previewEvent} missing={previewMissing} />;
+
   if (locked) {
-    if (outcome) return <PublishOutcomeView outcome={outcome} ref={outcomeRef} />;
-    // The same words as the dashboard's status badge (lib/organiser-events.ts).
     const published = current?.status === "published";
     return (
-      <div className="bg-surface p-4 text-foreground">
-        <h2 className="font-heading text-xl">{published ? "Published" : "Waiting for review"}</h2>
-        <p className="mt-2 text-sm text-muted">
-          This event can&rsquo;t be edited while it&rsquo;s {published ? "published" : "waiting for review"}.
-        </p>
-      </div>
+      <EditorShell
+        rail={
+          <>
+            {summary}
+            <div className="flex justify-end xl:hidden">{previewButton}</div>
+          </>
+        }
+        preview={previewPanel}
+      >
+        {outcome ? (
+          <PublishOutcomeView outcome={outcome} ref={outcomeRef} />
+        ) : (
+          // The same words as the dashboard's status badge (lib/organiser-events.ts).
+          <div className="rounded-card border border-foreground bg-card p-4 text-foreground sm:p-5">
+            <h2 className="font-heading text-xl">{published ? "Published" : "Waiting for review"}</h2>
+            <p className="mt-2 text-sm text-muted">
+              This event can&rsquo;t be edited while it&rsquo;s {published ? "published" : "waiting for review"}.
+            </p>
+          </div>
+        )}
+      </EditorShell>
     );
   }
 
@@ -896,746 +1005,806 @@ export default function EventEditor(props: Props) {
     );
   }
 
+  /** Shows a step the person chose (the rail, Next, Back): its title is scrolled to and focused, which announces it. */
+  function goToStep(next: EditorStep) {
+    if (next === step) return;
+    focusStepTitle.current = true;
+    setStep(next);
+  }
+
+  /** Focuses a control, on its own step: at once when that's showing, else once the step has rendered. */
+  function jumpTo(id: string) {
+    const target = stepOfControlId(id);
+    if (target === step) document.getElementById(id)?.focus();
+    else focusControl(id);
+  }
+
+  /** Where each field's error is focused (the summary and the checklist jump there). */
+  function controlForKey(key: string): string | null {
+    switch (key) {
+      case "suburb":
+      case "state":
+        return VENUE_SUBURB_ID;
+      case "timeZone":
+        return zoneChoice ? VENUE_TIME_ZONE_ID : VENUE_SUBURB_ID;
+      case "location":
+        return VENUE_LOCATION_ID;
+      case "start":
+        return start.date ? "start-time" : "start-date";
+      case "end":
+        return end.date ? "end-time" : "end-date";
+      case "ticketTypes":
+        return "add-ticket-type";
+      case "image":
+        return "event-image";
+      case "reason":
+        return "admin-reason";
+      case "refundPolicy":
+        return null;
+      default:
+        return key;
+    }
+  }
+
+  /** The summary's link for a field: its step is shown, then the control (the refund policy's is its chosen option). */
+  function jumpToKey(key: string) {
+    if (key === "refundPolicy") {
+      if (step === 2) refundChoiceRef.current?.focus();
+      else {
+        focusRefund.current = "choice";
+        setStep(2);
+      }
+      return;
+    }
+    const id = controlForKey(key);
+    if (id) jumpTo(id);
+  }
+
+  const errorItems: ErrorSummaryItem[] = orderedErrorKeys(Object.keys(errors), ticketTypes.length).map((key) => {
+    const known = errorFieldLabel(key) !== key;
+    return {
+      key,
+      step: stepOfErrorKey(key),
+      field: errorFieldLabel(key),
+      message: errors[key],
+      jump: known ? () => jumpToKey(key) : undefined,
+    };
+  });
+  const errorCounts: Record<EditorStep, number> = { 1: 0, 2: 0, 3: 0 };
+  for (const key of Object.keys(errors)) errorCounts[stepOfErrorKey(key)] += 1;
+
+  // The form as it stands, checked the way a save checks it (never shown or enforced from here).
+  const problems = draftErrors({
+    title,
+    description,
+    venueName,
+    venueAddress,
+    place: venue.place
+      ? { kind: "found", place: venue.place }
+      : venue.suburb.trim()
+        ? { kind: "unknown", message: "Check the suburb." }
+        : { kind: "empty" },
+    start,
+    end,
+    organiserMissing: false,
+    isAdmin,
+    platformManaged,
+    ticketingMode,
+    externalTicketUrl,
+    ticketTypes,
+    refundPolicy,
+    refundDays: refundDaysNumber(),
+  });
+  const complete = { 1: stepComplete(1, problems, venueLocation.hasPin), 2: stepComplete(2, problems, venueLocation.hasPin) };
+
+  const ticketProblem = Object.keys(problems).find((key) => key === "ticketTypes" || key.startsWith("ticket-") || key === "externalTicketUrl");
+  // Typed but not publishable: it has ended already (the server refuses `event_ended`), or ends before it starts.
+  const endIso = startInstant(end, timeZone);
+  const dateProblem =
+    startIso && endIso && Date.parse(endIso) <= Date.parse(startIso)
+      ? "The end must be after the start"
+      : endIso && Date.parse(endIso) <= openedAt
+        ? "This event has already ended"
+        : null;
+  const check = (key: string, name: string, ok: boolean, todo: string, goTo?: { label: string; id: string }): ChecklistRow => ({
+    key,
+    name,
+    state: ok ? "done" : "todo",
+    word: ok ? "Done" : todo,
+    goTo: ok ? undefined : goTo,
+  });
+  const checklist: ChecklistRow[] = [
+    check("title", "Title", !problems.title, "Add a title", { label: "Title", id: "title" }),
+    check("description", "Description", !problems.description, "Add a description", { label: "Description", id: "description" }),
+    check(
+      "venue",
+      "Venue",
+      !problems.venueName && !problems.venueAddress && !problems.suburb,
+      "Add the venue",
+      { label: "Venue", id: problems.venueName ? "venueName" : problems.venueAddress ? "venueAddress" : VENUE_SUBURB_ID },
+    ),
+    check("pin", "Venue pin", venueLocation.hasPin, LOCATION_REQUIRED_TEXT, { label: "Venue", id: VENUE_LOCATION_ID }),
+    check("when", "Date and time", !problems.start && !problems.end && !dateProblem, dateProblem ?? "Add the start and end", {
+      label: "Date and time",
+      id: problems.start ? (start.date ? "start-time" : "start-date") : end.date ? "end-time" : "end-date",
+    }),
+    check("tickets", "Tickets", !ticketProblem, (ticketProblem && problems[ticketProblem]) || "Fix the ticket types", {
+      label: "Tickets",
+      id: ticketProblem ? (controlForKey(ticketProblem) ?? "add-ticket-type") : "add-ticket-type",
+    }),
+    ...(external
+      ? []
+      : [
+          check("refund", "Refund policy", !problems.refundDays, "Enter the refund days", { label: "Tickets", id: "refundDays" }),
+        ]),
+    {
+      key: "photo",
+      name: "Photo",
+      state: hasPhoto ? "done" : "optional",
+      word: hasPhoto ? "Added" : "Optional: generated artwork is used",
+    },
+    ...(clipField
+      ? [{ key: "clip", name: "Clip", state: hasClip ? "done" : "optional", word: hasClip ? "Added" : "Optional" } satisfies ChecklistRow]
+      : []),
+    ...(!isAdmin && sellsPaidTicketsOnSheltuh({ ticketingMode, ticketTypes })
+      ? [
+          {
+            key: "payouts",
+            name: "Payouts",
+            state: payoutsNeeded ? "todo" : "done",
+            word: payoutsNeeded ? "Set up payouts before publishing" : "Done",
+            payoutsLink: payoutsNeeded,
+          } satisfies ChecklistRow,
+        ]
+      : []),
+  ];
+
+  const stepIntro: Record<EditorStep, { title: string; intro: ReactNode }> = {
+    1: { title: "Build your event page", intro: "Add a photo, the details, the venue and the date. You can save a draft at any point." },
+    2: {
+      title: "Add tickets",
+      intro: "Set prices, seating and refunds. Buyers see the all-inclusive price, with the booking fee included.",
+    },
+    3: {
+      title: "Publish",
+      intro: isAdmin ? (
+        "Save your changes. Tick Publish when saved to put it live."
+      ) : removed ? (
+        "It goes to Sheltüh for review again before it goes live."
+      ) : (
+        <>
+          Check the list, then publish. Your changes are saved first.
+          {reviewReason && <span className="mt-1 block">{PUBLISH_REVIEW_REASON_TEXT[reviewReason]}</span>}
+        </>
+      ),
+    },
+  };
+
   return (
     <form ref={formRef} onSubmit={handleSave} className="flex flex-col gap-6" noValidate>
-      {(initial?.status === "rejected" || initial?.status === "draft") && initial.rejectionReason && (
-        // Sheltüh's note: why it was rejected, or why it was taken off the site (a draft with a note).
-        <div className="border-l-2 border-danger px-4 py-3 text-sm text-foreground">
-          <p className="font-medium">
-            {initial.status === "rejected"
-              ? "Not approved — reviewer note:"
-              : isAdmin
-                ? "Unpublished — note to the organiser:"
-                : "Taken off Sheltüh — note from Sheltüh:"}
-          </p>
-          <p className="mt-1 break-words whitespace-pre-wrap text-muted">{initial.rejectionReason}</p>
-          {!isAdmin && (
-            <p className="mt-2 text-muted">
-              When you send it for review again, a person at Sheltüh checks it before it goes live.
-            </p>
-          )}
-        </div>
-      )}
-
-      {isAdmin && (initial || createdId) && (
-        <div className="flex flex-col gap-1 bg-surface p-4 text-sm text-foreground">
-          <p>
-            <span className="font-medium">Organiser:</span> {initial?.organiserName ?? organiser?.displayName}
-            {platformManaged && " (platform-managed)"}
-          </p>
-          {initial?.status === "published" && (
-            <p className="text-muted">This event is published: your changes go live as soon as you save.</p>
-          )}
-        </div>
-      )}
-      {isAdmin && !initial && !createdId && (
-        <AdminOrganiserPicker
-          getToken={saveToken}
-          value={organiser}
-          onChange={(picked) => {
-            setOrganiser(picked);
-            setErrors((prev) => {
-              const next = { ...prev };
-              delete next.organiserId;
-              return next;
-            });
-          }}
-          error={errors.organiserId}
-        />
-      )}
-      {isAdmin && platformManaged && (
-        <p className="border-l-2 border-foreground px-4 py-2 text-sm text-muted">
-          {PLATFORM_FREE_ONLY} Its events are checked in at the door by an admin.
-        </p>
-      )}
-
-      <div className="flex flex-col gap-1">
-        <label htmlFor="title" className="eyebrow text-muted">
-          Title
-        </label>
-        <input
-          id="title"
-          value={title}
-          {...invalidProps("title")}
-          onChange={(e) => setTitle(e.target.value)}
-          className={fieldClass}
-        />
-        {fieldError("title")}
-      </div>
-
-      <div className="flex flex-col gap-1">
-        <label htmlFor="description" className="eyebrow text-muted">
-          Description
-        </label>
-        <textarea
-          id="description"
-          rows={4}
-          value={description}
-          {...invalidProps("description")}
-          onChange={(e) => setDescription(e.target.value)}
-          className={fieldClass}
-        />
-        {fieldError("description")}
-      </div>
-
-      <div className="flex flex-col gap-1">
-        <label htmlFor="category" className="eyebrow text-muted">
-          Category
-        </label>
-        <select
-          id="category"
-          value={category}
-          onChange={(e) => setCategory(e.target.value as typeof category)}
-          className={fieldClass}
-        >
-          {EVENT_CATEGORIES.map((c) => (
-            <option key={c.value} value={c.value}>
-              {c.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div
-        id={VENUE_LOCATION_ID}
-        tabIndex={-1}
-        role="group"
-        aria-labelledby="venue-heading"
-        aria-describedby={errors.location ? VENUE_LOCATION_ERROR_ID : undefined}
-        className="flex flex-col gap-4 outline-offset-4"
-      >
-        <h2 id="venue-heading" className={SECTION_TITLE}>
-          Venue
-        </h2>
-        <VenuePlaceLink
-          location={venueLocation}
-          getToken={saveToken}
-          onPicked={handlePicked}
-          venueName={venueName}
-          venueAddress={venueAddress}
-          suburb={venue.place ? placeName(venue.place.name, venue.place.state) : venue.suburb}
-          error={errors.location}
-        />
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
-          <div className="flex flex-col gap-1 sm:col-span-1">
-            <label htmlFor="venueName" className="eyebrow text-muted">
-              Venue name
-            </label>
-            <input
-              id="venueName"
-              value={venueName}
-              {...invalidProps("venueName")}
-              onChange={(e) => setVenueName(e.target.value)}
-              className={fieldClass}
-            />
-            {fieldError("venueName")}
-          </div>
-          <div className="flex flex-col gap-1 sm:col-span-1">
-            <label htmlFor="venueAddress" className="eyebrow text-muted">
-              Venue address
-            </label>
-            <input
-              id="venueAddress"
-              value={venueAddress}
-              {...invalidProps("venueAddress")}
-              onChange={(e) => setVenueAddress(e.target.value)}
-              className={fieldClass}
-            />
-            {fieldError("venueAddress")}
-          </div>
-          <div className="sm:col-span-1">
-            <VenueSuburbField
-              venue={venue}
-              suburbError={errors.suburb ?? errors.state}
-              timeZoneError={errors.timeZone}
-              startsAt={startInstant(start, timeZone)}
-              // The place (and with it the zone) comes from the suburb: all three errors go with it.
-              onSuburbEdit={() => clearErrors("suburb", "state", "timeZone")}
-            />
-          </div>
-          {zoneChoice && (
-            // A row of its own, so the zones' names have room.
-            <div className="sm:col-span-3">
-              <VenueZoneField venue={venue} timeZoneError={errors.timeZone} onZoneEdit={() => clearErrors("timeZone")} />
+      <EditorShell
+        rail={
+          <>
+            {summary}
+            <div className="flex items-center justify-between gap-3 xl:hidden">
+              <p aria-hidden="true" className="meta text-muted lg:hidden">
+                Step {step} of {EDITOR_STEPS.length}
+              </p>
+              <div className="ml-auto">{previewButton}</div>
             </div>
-          )}
-        </div>
-        {venueLocation.mode !== "search" && (
-          <VenuePinStep
-            location={venueLocation}
-            suburbCentre={suburbCentre(venue)}
-            waiting={Boolean(venue.suburb.trim()) && venue.loading}
-            suburbTyped={Boolean(venue.suburb.trim())}
-            suburbLabel={venue.place ? placeName(venue.place.name, venue.place.state) : ""}
-            onEdit={() => clearErrors("location")}
-          />
+            <StepNav current={step} onSelect={goToStep} complete={complete} errorCounts={errorCounts} admin={isAdmin} />
+          </>
+        }
+        preview={previewPanel}
+      >
+        {/* Notices: on every step, at the top, so they're seen wherever the person has scrolled. */}
+        {(initial?.status === "rejected" || initial?.status === "draft") && initial.rejectionReason && (
+          // Sheltüh's note: why it was rejected, or why it was taken off the site (a draft with a note).
+          <div className="border-l-2 border-danger px-4 py-3 text-sm text-foreground">
+            <p className="font-medium">
+              {initial.status === "rejected"
+                ? "Not approved — reviewer note:"
+                : isAdmin
+                  ? "Unpublished — note to the organiser:"
+                  : "Taken off Sheltüh — note from Sheltüh:"}
+            </p>
+            <p className="mt-1 break-words whitespace-pre-wrap text-muted">{initial.rejectionReason}</p>
+            {!isAdmin && (
+              <p className="mt-2 text-muted">
+                When you send it for review again, a person at Sheltüh checks it before it goes live.
+              </p>
+            )}
+          </div>
         )}
-      </div>
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <fieldset className="flex min-w-0 flex-col gap-2">
-          <legend className="eyebrow text-muted">Starts ({zoneName})</legend>
-          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,8rem)] gap-2">
-            <input
-              id="start-date"
-              type="date"
-              aria-label="Start date"
-              {...invalidProps("start")}
-              value={start.date}
-              onChange={(e) => setStart((s) => ({ ...s, date: e.target.value }))}
-              className={`${fieldClass} min-w-0`}
-            />
-            <input
-              id="start-time"
-              type="time"
-              aria-label="Start time"
-              {...invalidProps("start")}
-              value={start.time}
-              onChange={(e) => setStart((s) => ({ ...s, time: e.target.value }))}
-              className={`${fieldClass} min-w-0`}
-            />
+        {conflict && (
+          <div role="alert" className="border-l-2 border-danger px-4 py-3 text-sm text-foreground">
+            <p className="font-medium">Someone else changed this event since you opened it.</p>
+            <p className="mt-1 text-muted">
+              Your changes haven&rsquo;t been saved. Reload to see the latest version, then make your changes again
+              (reloading discards what you&rsquo;ve typed here).
+            </p>
+            {onReload && (
+              <button type="button" onClick={onReload} className="btn btn-outline btn-sm mt-3 w-fit">
+                Reload latest version
+              </button>
+            )}
           </div>
-          {fieldError("start")}
-        </fieldset>
-        <fieldset className="flex min-w-0 flex-col gap-2">
-          <legend className="eyebrow text-muted">Ends ({zoneName})</legend>
-          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,8rem)] gap-2">
-            <input
-              id="end-date"
-              type="date"
-              aria-label="End date"
-              {...invalidProps("end")}
-              value={end.date}
-              onChange={(e) => setEnd((s) => ({ ...s, date: e.target.value }))}
-              className={`${fieldClass} min-w-0`}
-            />
-            <input
-              id="end-time"
-              type="time"
-              aria-label="End time"
-              {...invalidProps("end")}
-              value={end.time}
-              onChange={(e) => setEnd((s) => ({ ...s, time: e.target.value }))}
-              className={`${fieldClass} min-w-0`}
-            />
-          </div>
-          {fieldError("end")}
-        </fieldset>
-      </div>
-      {/* Always there (never display:none), so it's announced when its text changes; out of the
-          layout while empty (absolute, so the form's gap doesn't count it). */}
-      <p data-zone-note="" aria-live="polite" className="-mt-3 text-sm text-foreground empty:sr-only">
-        {zoneNote}
-      </p>
+        )}
 
-      <EventImageField
-        getToken={getToken}
-        existingUrl={savedRecord?.imageUrl}
-        pending={imageFile}
-        onPendingChange={setImageFile}
-        removed={imageRemoved}
-        onRemovedChange={setImageRemoved}
-        error={errors.image}
-      />
-
-      {clipField && (
-        <EventClipField
-          draft={clip}
-          getToken={getToken}
-          canUpload={clipsOn}
-          eventId={initial?.eventId ?? createdId ?? undefined}
-          // The upload stopped: save again (the event, then the clip).
-          onRetry={() => formRef.current?.requestSubmit()}
-        />
-      )}
-
-      {isAdmin && (
-        <fieldset className="flex flex-col gap-3">
-          <legend className={SECTION_TITLE}>Where are tickets sold?</legend>
-          <div className="flex flex-wrap gap-5 text-sm text-foreground">
-            <label className="flex items-center gap-2">
-              <input
-                type="radio"
-                name="ticketingMode"
-                value="sheltuh"
-                checked={ticketingMode === "sheltuh"}
-                onChange={() => setTicketingMode("sheltuh")}
+        {submitError && sessionExpired && (
+          <div role="alert" className="border-l-2 border-danger px-4 py-3 text-sm text-foreground">
+            <p>{submitError}</p>
+            {reauthForm ? (
+              <InlineReauth
+                expectedAccount={owner}
+                onSignedIn={() => {
+                  showSessionExpired(false);
+                  setSubmitError(null);
+                  setStatus(signedInAgainMessage("save"));
+                  saveRef.current?.focus();
+                }}
               />
-              On Sheltüh
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="radio"
-                name="ticketingMode"
-                value="external"
-                checked={ticketingMode === "external"}
-                onChange={() => setTicketingMode("external")}
-              />
-              On another site
-            </label>
+            ) : (
+              <p>Sign in again with the form below (under Trending), then save again.</p>
+            )}
           </div>
-          {fieldError("ticketingMode")}
-          {ticketingMode === "external" && (
-            <>
-              <div className="flex flex-col gap-1">
-                <label htmlFor="externalTicketUrl" className="eyebrow text-muted">
-                  Ticket page address
+        )}
+        {submitError && !sessionExpired && (
+          <p role="alert" className="text-sm text-danger">
+            {submitError}
+          </p>
+        )}
+
+        {/* Always rendered (never display:none), so it's announced when its text changes. */}
+        <p role="status" className="text-sm text-foreground empty:sr-only">
+          {status}
+        </p>
+
+        {/* The clip is sent while the person is on another step: its progress is said here too (the clip field, with Cancel, is on the Event page step). */}
+        {clipField && (
+          <div className="flex flex-wrap items-center gap-x-3 empty:hidden">
+            <p aria-live="polite" className="text-sm text-foreground empty:hidden">
+              {step !== 1 && clipBusy ? clipStatusText(clip.state) : ""}
+            </p>
+            {step !== 1 && clipBusy && (
+              <button type="button" onClick={() => goToStep(1)} className="inline-flex min-h-11 items-center text-sm underline underline-offset-4">
+                Show clip
+              </button>
+            )}
+          </div>
+        )}
+
+        <ErrorSummary items={errorItems} />
+
+        <StepPanel n={1} step={step} title={stepIntro[1].title} intro={stepIntro[1].intro} titleRef={stepTitleRef}>
+          {isAdmin && ((!initial && !createdId) || initial?.status === "published" || platformManaged) && (
+            <EditorCard title="Event organiser" helper={!initial && !createdId ? "Whose event this is." : undefined}>
+              {!initial && !createdId && (
+                <AdminOrganiserPicker
+                  getToken={saveToken}
+                  value={organiser}
+                  onChange={(picked) => {
+                    setOrganiser(picked);
+                    setErrors((prev) => {
+                      const next = { ...prev };
+                      delete next.organiserId;
+                      return next;
+                    });
+                  }}
+                  error={errors.organiserId}
+                />
+              )}
+              {initial?.status === "published" && (
+                <p className="text-sm text-muted">This event is published: your changes go live as soon as you save.</p>
+              )}
+              {platformManaged && (
+                <p className="border-l-2 border-foreground px-4 py-2 text-sm text-muted">
+                  {PLATFORM_FREE_ONLY} Its events are checked in at the door by an admin.
+                </p>
+              )}
+            </EditorCard>
+          )}
+
+          <EditorCard
+            title="Photo and clip"
+            helper={
+              clipField
+                ? "Add a photo to lead your event page. A short clip is optional: it plays when someone taps the photo."
+                : "Add a photo to lead your event page."
+            }
+          >
+            <EventImageField
+              getToken={getToken}
+              existingUrl={savedRecord?.imageUrl}
+              pending={imageFile}
+              onPendingChange={setImageFile}
+              removed={imageRemoved}
+              onRemovedChange={setImageRemoved}
+              error={errors.image}
+              poster={poster}
+              title={title}
+              onPreviewUrl={setPhotoUrl}
+            />
+            {clipField && (
+              <div className="border-t border-surface-border pt-5">
+                <EventClipField
+                  draft={clip}
+                  getToken={getToken}
+                  canUpload={clipsOn}
+                  eventId={initial?.eventId ?? createdId ?? undefined}
+                  // The upload stopped: save again (the event, then the clip).
+                  onRetry={() => formRef.current?.requestSubmit()}
+                />
+              </div>
+            )}
+          </EditorCard>
+
+          <EditorCard title="Event details" helper="The name and description people see first.">
+            <div className="flex flex-col gap-1">
+              <label htmlFor="title" className="eyebrow text-muted">
+                Title
+              </label>
+              <input
+                id="title"
+                value={title}
+                {...invalidProps("title")}
+                onChange={(e) => setTitle(e.target.value)}
+                className={`${fieldClass} font-semibold`}
+              />
+              {fieldError("title")}
+            </div>
+
+            <div className="flex flex-col gap-1 sm:max-w-xs">
+              <label htmlFor="category" className="eyebrow text-muted">
+                Category
+              </label>
+              <select
+                id="category"
+                value={category}
+                onChange={(e) => setCategory(e.target.value as typeof category)}
+                className={fieldClass}
+              >
+                {EVENT_CATEGORIES.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label htmlFor="description" className="eyebrow text-muted">
+                Description
+              </label>
+              <textarea
+                id="description"
+                rows={6}
+                value={description}
+                {...invalidProps("description")}
+                aria-describedby={errors.description ? `description-hint ${errorId("description")}` : "description-hint"}
+                onChange={(e) => setDescription(e.target.value)}
+                className={fieldClass}
+              />
+              <p id="description-hint" className="text-xs leading-4 text-muted">
+                Shown in About this event.
+              </p>
+              {fieldError("description")}
+            </div>
+          </EditorCard>
+
+          <EditorCard
+            title="Venue"
+            titleId="venue-heading"
+            helper="Where guests go. Publishing needs a confirmed pin on the map."
+            id={VENUE_LOCATION_ID}
+            tabIndex={-1}
+            role="group"
+            aria-labelledby="venue-heading"
+            aria-describedby={errors.location ? VENUE_LOCATION_ERROR_ID : undefined}
+            className="outline-offset-4"
+          >
+            <VenuePlaceLink
+              location={venueLocation}
+              getToken={saveToken}
+              onPicked={handlePicked}
+              venueName={venueName}
+              venueAddress={venueAddress}
+              suburb={venue.place ? placeName(venue.place.name, venue.place.state) : venue.suburb}
+              error={errors.location}
+            />
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+              <div className="flex flex-col gap-1 sm:col-span-1">
+                <label htmlFor="venueName" className="eyebrow text-muted">
+                  Venue name
                 </label>
                 <input
-                  id="externalTicketUrl"
-                  type="url"
-                  inputMode="url"
-                  placeholder="https://"
-                  value={externalTicketUrl}
-                  onChange={(e) => setExternalTicketUrl(e.target.value)}
-                  aria-invalid={Boolean(errors.externalTicketUrl)}
-                  aria-describedby={errors.externalTicketUrl ? "externalTicketUrl-error" : undefined}
+                  id="venueName"
+                  value={venueName}
+                  {...invalidProps("venueName")}
+                  onChange={(e) => setVenueName(e.target.value)}
                   className={fieldClass}
                 />
-                {errors.externalTicketUrl && (
-                  <p id="externalTicketUrl-error" className="text-sm text-danger">
-                    {errors.externalTicketUrl}
-                  </p>
-                )}
+                {fieldError("venueName")}
               </div>
-              <label className="flex items-center gap-2 text-sm text-foreground">
-                <input type="checkbox" checked={externalFree} onChange={(e) => setExternalFree(e.target.checked)} />
-                Entry is free
-              </label>
-            </>
-          )}
-        </fieldset>
-      )}
-
-      {!isAdmin && ticketingMode === "external" && (
-        <div className="bg-surface p-4 text-sm text-foreground">
-          <p className="font-medium">Tickets are sold on {initial?.externalProvider ?? "the organiser\u2019s site"}</p>
-          <p className="mt-1 break-all text-muted">{initial?.externalTicketUrl}</p>
-        </div>
-      )}
-
-      {ticketingMode === "sheltuh" && (
-        <SeatingChoiceField
-          value={seatingChoice}
-          onChange={setSeatingChoice}
-          event={initial}
-          admin={isAdmin}
-          locked={!isAdmin && initial?.ticketingLocked === true}
-          legendClassName={SECTION_TITLE}
-        />
-      )}
-
-      {ticketingMode === "sheltuh" && (
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className={SECTION_TITLE}>Ticket types</h2>
-          <button
-            id="add-ticket-type"
-            type="button"
-            onClick={() => setTicketTypes((prev) => [...prev, newTicketType()])}
-            aria-describedby={errors.ticketTypes ? errorId("ticketTypes") : undefined}
-            className="btn btn-outline min-h-11"
-          >
-            Add ticket type
-          </button>
-        </div>
-        {payoutsNeeded && <PayoutsNeededNotice />}
-        {errors.ticketTypes && (
-          <p id="ticketTypes-error" className="text-sm text-danger">
-            {errors.ticketTypes}
-          </p>
-        )}
-
-        {ticketTypes.map((ticket, index) => {
-          const summary = calculateOrderSummary(ticket.priceCents, 1, ticket.feePolicy);
-          return (
-            <div key={ticket.id} className="flex flex-col gap-3 border-t border-foreground pt-4">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="flex flex-col gap-1">
-                  <label htmlFor={`ticket-${index}-name`} className="eyebrow text-muted">
-                    Name
-                  </label>
-                  <input
-                    id={`ticket-${index}-name`}
-                    value={ticket.name}
-                    onChange={(e) => updateTicket(index, { name: e.target.value })}
-                    {...invalidProps(`ticket-${index}-name`)}
-                    className={fieldClass}
-                  />
-                  {fieldError(`ticket-${index}-name`)}
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label htmlFor={`ticket-${index}-price`} className="eyebrow text-muted">
-                    Price (A$)
-                  </label>
-                  <input
-                    id={`ticket-${index}-price`}
-                    type="number"
-                    min={0}
-                    step={0.5}
-                    value={ticket.priceCents / 100}
-                    onChange={(e) =>
-                      updateTicket(index, { priceCents: Math.round(Number(e.target.value) * 100) || 0 })
-                    }
-                    {...invalidProps(`ticket-${index}-price`)}
-                    className={fieldClass}
-                  />
-                  {fieldError(`ticket-${index}-price`)}
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label htmlFor={`ticket-${index}-fee-policy`} className="eyebrow text-muted">
-                    Who pays the booking fee?
-                  </label>
-                  <select
-                    id={`ticket-${index}-fee-policy`}
-                    value={ticket.feePolicy}
-                    onChange={(e) => updateTicket(index, { feePolicy: e.target.value as TicketTypeInput["feePolicy"] })}
-                    aria-describedby={`ticket-${index}-fee-help`}
-                    className={fieldClass}
-                  >
-                    <option value="buyer-pays">Buyer pays</option>
-                    <option value="organiser-absorbs">Organiser absorbs</option>
-                  </select>
-                  <FeePolicyHelp id={`ticket-${index}-fee-help`} priceCents={ticket.priceCents} isAdmin={isAdmin} />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label htmlFor={`ticket-${index}-qty`} className="eyebrow text-muted">
-                    Quantity available
-                  </label>
-                  <input
-                    id={`ticket-${index}-qty`}
-                    type="number"
-                    min={1}
-                    value={ticket.quantityAvailable}
-                    onChange={(e) => updateTicket(index, { quantityAvailable: Number(e.target.value) || 0 })}
-                    {...invalidProps(`ticket-${index}-qty`)}
-                    className={fieldClass}
-                  />
-                  {fieldError(`ticket-${index}-qty`)}
-                </div>
+              <div className="flex flex-col gap-1 sm:col-span-1">
+                <label htmlFor="venueAddress" className="eyebrow text-muted">
+                  Venue address
+                </label>
+                <input
+                  id="venueAddress"
+                  value={venueAddress}
+                  {...invalidProps("venueAddress")}
+                  onChange={(e) => setVenueAddress(e.target.value)}
+                  className={fieldClass}
+                />
+                {fieldError("venueAddress")}
               </div>
-              <p className="text-xs text-muted">
-                {ticket.priceCents === 0
-                  ? "Free — no booking fee."
-                  : `Buyer pays ${formatAud(summary.totalCents)} total (${formatAud(ticket.priceCents)} ticket${
-                      summary.buyerFeeCents > 0
-                        ? ` + ${formatAud(summary.buyerFeeCents)} booking fee`
-                        : isAdmin
-                          ? ", fee absorbed by the organiser"
-                          : ", fee absorbed by you"
-                    }).`}
-              </p>
-              {ticketTypes.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => removeTicket(index)}
-                  className="w-fit text-sm text-danger underline underline-offset-2"
-                >
-                  Remove this ticket type
-                </button>
+              <div className="sm:col-span-1">
+                <VenueSuburbField
+                  venue={venue}
+                  suburbError={errors.suburb ?? errors.state}
+                  timeZoneError={errors.timeZone}
+                  startsAt={startInstant(start, timeZone)}
+                  // The place (and with it the zone) comes from the suburb: all three errors go with it.
+                  onSuburbEdit={() => clearErrors("suburb", "state", "timeZone")}
+                />
+              </div>
+              {zoneChoice && (
+                // A row of its own, so the zones' names have room.
+                <div className="sm:col-span-2">
+                  <VenueZoneField venue={venue} timeZoneError={errors.timeZone} onZoneEdit={() => clearErrors("timeZone")} />
+                </div>
               )}
             </div>
-          );
-        })}
-      </div>
-      )}
+            {venueLocation.mode !== "search" && (
+              // A stacking context of its own: Leaflet's panes (z-index up to 700) can't paint over the sticky bar.
+              <div className="isolate">
+                <VenuePinStep
+                  location={venueLocation}
+                  suburbCentre={suburbCentre(venue)}
+                  waiting={Boolean(venue.suburb.trim()) && venue.loading}
+                  suburbTyped={Boolean(venue.suburb.trim())}
+                  suburbLabel={venue.place ? placeName(venue.place.name, venue.place.state) : ""}
+                  onEdit={() => clearErrors("location")}
+                />
+              </div>
+            )}
+          </EditorCard>
 
-      {ticketingMode === "sheltuh" && (
-        <RefundPolicyField
-          policy={refundPolicy}
-          onPolicyChange={(policy) => {
-            setRefundPolicy(policy);
-            clearRefundErrors();
-          }}
-          days={refundDays}
-          onDaysChange={(days) => {
-            setRefundDays(days);
-            clearRefundErrors();
-          }}
-          policyError={errors.refundPolicy}
-          daysError={errors.refundDays}
-          savedTerms={savedRecord ?? initial}
-          startsAt={startInstant(start, timeZone)}
-          timeZone={timeZone}
-          admin={isAdmin}
-          checkedRef={refundChoiceRef}
-          daysRef={refundDaysRef}
-          legendClassName={SECTION_TITLE}
-        />
-      )}
-
-      {isAdmin && initial && (
-        <div className="flex flex-col gap-1">
-          <label htmlFor="admin-reason" className="eyebrow text-muted">
-            Note for the event&rsquo;s log (optional; the organiser sees it)
-          </label>
-          <textarea
-            id="admin-reason"
-            rows={2}
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            aria-invalid={Boolean(errors.reason)}
-            aria-describedby={errors.reason ? "admin-reason-error" : "admin-reason-hint"}
-            className={fieldClass}
-          />
-          {errors.reason ? (
-            <p id="admin-reason-error" className="text-sm text-danger">
-              {errors.reason}
+          <EditorCard title="Date and time" helper="Times are in the venue's time zone, taken from its suburb.">
+            <div className="flex flex-col gap-5">
+              <fieldset className="flex min-w-0 flex-col gap-2">
+                <legend className="eyebrow mb-2 text-muted">Starts ({zoneName})</legend>
+                <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,8rem)] gap-2 sm:grid-cols-2 sm:gap-3">
+                  <input
+                    id="start-date"
+                    type="date"
+                    aria-label="Start date"
+                    {...invalidProps("start")}
+                    value={start.date}
+                    onChange={(e) => setStart((s) => ({ ...s, date: e.target.value }))}
+                    className={`${fieldClass} min-w-0`}
+                  />
+                  <input
+                    id="start-time"
+                    type="time"
+                    aria-label="Start time"
+                    {...invalidProps("start")}
+                    value={start.time}
+                    onChange={(e) => setStart((s) => ({ ...s, time: e.target.value }))}
+                    className={`${fieldClass} min-w-0`}
+                  />
+                </div>
+                {fieldError("start")}
+              </fieldset>
+              <fieldset className="flex min-w-0 flex-col gap-2">
+                <legend className="eyebrow mb-2 text-muted">Ends ({zoneName})</legend>
+                <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,8rem)] gap-2 sm:grid-cols-2 sm:gap-3">
+                  <input
+                    id="end-date"
+                    type="date"
+                    aria-label="End date"
+                    {...invalidProps("end")}
+                    value={end.date}
+                    onChange={(e) => setEnd((s) => ({ ...s, date: e.target.value }))}
+                    className={`${fieldClass} min-w-0`}
+                  />
+                  <input
+                    id="end-time"
+                    type="time"
+                    aria-label="End time"
+                    {...invalidProps("end")}
+                    value={end.time}
+                    onChange={(e) => setEnd((s) => ({ ...s, time: e.target.value }))}
+                    className={`${fieldClass} min-w-0`}
+                  />
+                </div>
+                {fieldError("end")}
+              </fieldset>
+            </div>
+            {/* Always there (never display:none), so it's announced when its text changes; out of the
+                layout while empty (sr-only), so the card's gap doesn't count it. */}
+            <p data-zone-note="" aria-live="polite" className="-mt-1 text-sm text-foreground empty:sr-only">
+              {zoneNote}
             </p>
-          ) : (
-            <p id="admin-reason-hint" className="text-xs text-muted">
-              Needed to change where an approved event&rsquo;s tickets are sold.
-            </p>
+          </EditorCard>
+        </StepPanel>
+
+        <StepPanel n={2} step={step} title={stepIntro[2].title} intro={stepIntro[2].intro} titleRef={stepTitleRef}>
+          {isAdmin && (
+            <EditorCard titled={false}>
+              <fieldset className="flex flex-col gap-3">
+                <legend className="mb-3">
+                  <h3 className={SECTION_TITLE}>Where are tickets sold?</h3>
+                </legend>
+                <div className="flex flex-wrap gap-x-5 text-sm text-foreground">
+                  <label className="flex min-h-11 items-center gap-2">
+                    <input
+                      type="radio"
+                      name="ticketingMode"
+                      value="sheltuh"
+                      checked={ticketingMode === "sheltuh"}
+                      onChange={() => setTicketingMode("sheltuh")}
+                    />
+                    On Sheltüh
+                  </label>
+                  <label className="flex min-h-11 items-center gap-2">
+                    <input
+                      type="radio"
+                      name="ticketingMode"
+                      value="external"
+                      checked={ticketingMode === "external"}
+                      onChange={() => setTicketingMode("external")}
+                    />
+                    On another site
+                  </label>
+                </div>
+                {fieldError("ticketingMode")}
+                {ticketingMode === "external" && (
+                  <>
+                    <div className="flex flex-col gap-1">
+                      <label htmlFor="externalTicketUrl" className="eyebrow text-muted">
+                        Ticket page address
+                      </label>
+                      <input
+                        id="externalTicketUrl"
+                        type="url"
+                        inputMode="url"
+                        placeholder="https://"
+                        value={externalTicketUrl}
+                        onChange={(e) => setExternalTicketUrl(e.target.value)}
+                        aria-invalid={Boolean(errors.externalTicketUrl)}
+                        aria-describedby={errors.externalTicketUrl ? "externalTicketUrl-error" : undefined}
+                        className={fieldClass}
+                      />
+                      {errors.externalTicketUrl && (
+                        <p id="externalTicketUrl-error" className="text-sm text-danger">
+                          {errors.externalTicketUrl}
+                        </p>
+                      )}
+                    </div>
+                    <label className="flex min-h-11 items-center gap-2 text-sm text-foreground">
+                      <input type="checkbox" checked={externalFree} onChange={(e) => setExternalFree(e.target.checked)} />
+                      Entry is free
+                    </label>
+                  </>
+                )}
+              </fieldset>
+            </EditorCard>
           )}
-        </div>
-      )}
 
-      {isAdmin && initial?.status !== "published" && (
-        <label className="flex items-center gap-2 text-sm text-foreground">
-          <input type="checkbox" checked={publish} onChange={(e) => setPublish(e.target.checked)} />
-          {initial || createdId ? "Publish when saved" : "Publish straight away"}
-        </label>
-      )}
-
-      {conflict && (
-        <div role="alert" className="border-l-2 border-danger px-4 py-3 text-sm text-foreground">
-          <p className="font-medium">Someone else changed this event since you opened it.</p>
-          <p className="mt-1 text-muted">
-            Your changes haven&rsquo;t been saved. Reload to see the latest version, then make your changes again
-            (reloading discards what you&rsquo;ve typed here).
-          </p>
-          {onReload && (
-            <button type="button" onClick={onReload} className="btn btn-outline btn-sm mt-3 w-fit">
-              Reload latest version
-            </button>
+          {!isAdmin && external && (
+            <EditorCard title="Tickets">
+              <div className="text-sm text-foreground">
+                <p className="font-medium">Tickets are sold on {initial?.externalProvider ?? "the organiser’s site"}</p>
+                <p className="mt-1 break-all text-muted">{initial?.externalTicketUrl}</p>
+              </div>
+            </EditorCard>
           )}
-        </div>
-      )}
 
-      {submitError && sessionExpired && (
-        <div role="alert" className="border-l-2 border-danger px-4 py-3 text-sm text-foreground">
-          <p>{submitError}</p>
-          {reauthForm ? (
-            <InlineReauth
-              expectedAccount={owner}
-              onSignedIn={() => {
-                showSessionExpired(false);
-                setSubmitError(null);
-                setStatus(signedInAgainMessage("save"));
-                saveRef.current?.focus();
-              }}
-            />
-          ) : (
-            <p>Sign in again with the form below (under Trending), then save again.</p>
+          {ticketingMode === "sheltuh" && (
+            <EditorCard titled={false}>
+              <SeatingChoiceField
+                value={seatingChoice}
+                onChange={setSeatingChoice}
+                event={initial}
+                admin={isAdmin}
+                locked={!isAdmin && initial?.ticketingLocked === true}
+                legendClassName={SECTION_TITLE}
+              />
+            </EditorCard>
           )}
-        </div>
-      )}
-      {submitError && !sessionExpired && (
-        <p role="alert" className="text-sm text-danger">
-          {submitError}
-        </p>
-      )}
 
-      {payoutsError ? (
-        <PayoutsPublishError id="publish-payouts-error" ref={payoutsErrorRef} message={payoutsError} />
-      ) : (
-        payoutsNeeded && initial && <PayoutsPublishHint id="publish-payouts-hint" />
-      )}
-
-      {publishRefusal && (
-        // Focused once shown (as the payouts refusal is), which reads it: no role="alert" too.
-        <div
-          ref={publishRefusalRef}
-          id={PUBLISH_REFUSAL_ID}
-          tabIndex={-1}
-          role="group"
-          aria-labelledby={`${PUBLISH_REFUSAL_ID}-message`}
-          className="flex flex-col items-start gap-2 border-l-2 border-danger py-1 pl-4 text-sm text-foreground"
-        >
-          <p id={`${PUBLISH_REFUSAL_ID}-message`}>{PUBLISH_REFUSALS[publishRefusal].text}</p>
-          {PUBLISH_REFUSALS[publishRefusal].reload && (
-            <Button variant="outline" size="sm" className="min-h-11" onClick={() => window.location.reload()}>
-              Reload page
-            </Button>
+          {ticketingMode === "sheltuh" && (
+            <EditorCard
+              title="Ticket types"
+              action={
+                <button
+                  id="add-ticket-type"
+                  type="button"
+                  onClick={() => setTicketTypes((prev) => [...prev, newTicketType()])}
+                  aria-describedby={errors.ticketTypes ? errorId("ticketTypes") : undefined}
+                  className="btn btn-outline min-h-11 shrink-0"
+                >
+                  Add ticket type
+                </button>
+              }
+            >
+              {payoutsNeeded && <PayoutsNeededNotice />}
+              {errors.ticketTypes && (
+                <p id="ticketTypes-error" className="text-sm text-danger">
+                  {errors.ticketTypes}
+                </p>
+              )}
+              {ticketTypes.map((ticket, index) => (
+                <TicketTypeFields
+                  key={ticket.id}
+                  ticket={ticket}
+                  index={index}
+                  count={ticketTypes.length}
+                  isAdmin={isAdmin}
+                  errors={errors}
+                  onChange={(patch) => updateTicket(index, patch)}
+                  onRemove={() => removeTicket(index)}
+                />
+              ))}
+            </EditorCard>
           )}
-        </div>
-      )}
 
-      {/* Always rendered (never display:none), so it's announced when its text changes. */}
-      <p role="status" className="text-sm text-foreground empty:sr-only">
-        {status}
-      </p>
+          {ticketingMode === "sheltuh" && (
+            <EditorCard titled={false}>
+              <RefundPolicyField
+                policy={refundPolicy}
+                onPolicyChange={(policy) => {
+                  setRefundPolicy(policy);
+                  clearRefundErrors();
+                }}
+                days={refundDays}
+                onDaysChange={(days) => {
+                  setRefundDays(days);
+                  clearRefundErrors();
+                }}
+                policyError={errors.refundPolicy}
+                daysError={errors.refundDays}
+                savedTerms={savedRecord ?? initial}
+                startsAt={startInstant(start, timeZone)}
+                timeZone={timeZone}
+                admin={isAdmin}
+                checkedRef={refundChoiceRef}
+                daysRef={refundDaysRef}
+                legendClassName={SECTION_TITLE}
+              />
+            </EditorCard>
+          )}
+        </StepPanel>
 
-      <div className="flex flex-wrap gap-3">
-        {/* busy, not disabled: the button keeps focus while it works (a disabled one drops it to the page). */}
-        <Button
-          ref={saveRef}
-          type="submit"
-          variant="solid"
-          busy={saving}
-          className="min-h-11 w-fit"
-        >
-          {saving ? "Saving…" : saveLabel(isAdmin, Boolean(initial), Boolean(createdId), reservedSeating)}
-        </Button>
-        {initial && !isAdmin && !publishConfirm && (
-          <Button
-            ref={publishOpenRef}
-            variant="outline"
-            // Sent for review with no question first when Sheltüh rejected or unpublished it last;
-            // otherwise Publish… asks first (it goes live, and followers are emailed).
-            onClick={removed ? handlePublish : openPublishConfirm}
-            // Pressing it during a save is fine: it waits for that save's clip upload.
-            busy={submitting}
-            // Kept usable while payouts are needed (the refusal is shown, with the fix): this says why first.
-            aria-describedby={submitDescription}
-            className="min-h-11 w-fit"
-          >
-            {removed ? (submitting ? "Sending…" : "Send for review") : "Publish…"}
-          </Button>
-        )}
-      </div>
+        <StepPanel n={3} step={step} title={stepIntro[3].title} intro={stepIntro[3].intro} titleRef={stepTitleRef}>
+          <EditorCard title="Before you publish" helper="A checklist of what's left. Publishing is checked again when you do it.">
+            <PublishChecklist rows={checklist} onGo={jumpTo} />
+            <p className="text-sm text-muted">Some events are checked by Sheltüh before going live.</p>
+          </EditorCard>
 
-      {initial && !isAdmin && publishConfirm && (
-        <PublishConfirm
-          reason={reviewReason}
-          busy={submitting}
-          describedBy={submitDescription}
-          cancelRef={publishCancelRef}
-          onConfirm={handlePublish}
-          onCancel={closePublishConfirm}
-        />
-      )}
+          {!isAdmin && (
+            <EditorCard title="Publish">
+              {initial ? (
+                <>
+                  {payoutsError ? (
+                    <PayoutsPublishError id="publish-payouts-error" ref={payoutsErrorRef} message={payoutsError} />
+                  ) : (
+                    payoutsNeeded && <PayoutsPublishHint id="publish-payouts-hint" />
+                  )}
+
+                  {publishRefusal && (
+                    // Focused once shown (as the payouts refusal is), which reads it: no role="alert" too.
+                    <div
+                      ref={publishRefusalRef}
+                      id={PUBLISH_REFUSAL_ID}
+                      tabIndex={-1}
+                      role="group"
+                      aria-labelledby={`${PUBLISH_REFUSAL_ID}-message`}
+                      className="flex flex-col items-start gap-2 border-l-2 border-danger py-1 pl-4 text-sm text-foreground"
+                    >
+                      <p id={`${PUBLISH_REFUSAL_ID}-message`}>{PUBLISH_REFUSALS[publishRefusal].text}</p>
+                      {PUBLISH_REFUSALS[publishRefusal].reload && (
+                        <Button variant="outline" size="sm" className="min-h-11" onClick={() => window.location.reload()}>
+                          Reload page
+                        </Button>
+                      )}
+                    </div>
+                  )}
+
+                  {!publishConfirm && (
+                    <Button
+                      ref={publishOpenRef}
+                      variant="solid"
+                      // Sent for review with no question first when Sheltüh rejected or unpublished it last;
+                      // otherwise Publish… asks first (it goes live, and followers are emailed).
+                      onClick={removed ? handlePublish : openPublishConfirm}
+                      // Pressing it during a save is fine: it waits for that save's clip upload.
+                      busy={submitting}
+                      // Kept usable while payouts are needed (the refusal is shown, with the fix): this says why first.
+                      aria-describedby={submitDescription}
+                      className="min-h-11 w-fit"
+                    >
+                      {removed ? (submitting ? "Sending…" : "Send for review") : "Publish…"}
+                    </Button>
+                  )}
+
+                  {publishConfirm && (
+                    <PublishConfirm
+                      reason={reviewReason}
+                      busy={submitting}
+                      describedBy={submitDescription}
+                      cancelRef={publishCancelRef}
+                      onConfirm={handlePublish}
+                      onCancel={closePublishConfirm}
+                    />
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-muted">Save the draft first. Publishing opens once it is saved.</p>
+              )}
+            </EditorCard>
+          )}
+
+          {isAdmin && (
+            <EditorCard title="Save and publish">
+              {initial && (
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="admin-reason" className="eyebrow text-muted">
+                    Note for the event&rsquo;s log (optional; the organiser sees it)
+                  </label>
+                  <textarea
+                    id="admin-reason"
+                    rows={2}
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    aria-invalid={Boolean(errors.reason)}
+                    aria-describedby={errors.reason ? "admin-reason-error" : "admin-reason-hint"}
+                    className={fieldClass}
+                  />
+                  {errors.reason ? (
+                    <p id="admin-reason-error" className="text-sm text-danger">
+                      {errors.reason}
+                    </p>
+                  ) : (
+                    <p id="admin-reason-hint" className="text-xs text-muted">
+                      Needed to change where an approved event&rsquo;s tickets are sold.
+                    </p>
+                  )}
+                </div>
+              )}
+              {initial?.status !== "published" && (
+                <label className="flex min-h-11 items-center gap-2 text-sm text-foreground">
+                  <input type="checkbox" checked={publish} onChange={(e) => setPublish(e.target.checked)} />
+                  {initial || createdId ? "Publish when saved" : "Publish straight away"}
+                </label>
+              )}
+            </EditorCard>
+          )}
+        </StepPanel>
+      </EditorShell>
+
+      <EditorBar
+        step={step}
+        onStep={goToStep}
+        saveRef={saveRef}
+        saving={saving}
+        saveLabel={saveLabel(isAdmin, Boolean(initial), Boolean(createdId), reservedSeating)}
+        lastSaved={savedAt}
+      />
     </form>
   );
 }
 
-/**
- * The question before an organiser publishes (docs: "Approved organisers
- * publish now"): what happens, so it's never a surprise. Going live: at once,
- * followers emailed (which can't be undone), and no editing here afterwards.
- * When it's known to go to review instead (`reason`), it says why and that it
- * goes live once approved. Escape or Cancel closes it (back to Publish…).
- */
-function PublishConfirm({
-  reason,
-  busy,
-  describedBy,
-  cancelRef,
-  onConfirm,
-  onCancel,
-}: {
-  reason: PublishReviewReason | null;
-  busy: boolean;
-  /** The payouts hint or refusal, when there is one: the confirm button names it as Publish… did. */
-  describedBy: string | undefined;
-  cancelRef: Ref<HTMLButtonElement>;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  const questionId = `${PUBLISH_CONFIRM_ID}-question`;
-  const detailsId = `${PUBLISH_CONFIRM_ID}-details`;
-  const review = reason !== null;
-  return (
-    <div
-      id={PUBLISH_CONFIRM_ID}
-      role="group"
-      aria-labelledby={questionId}
-      onKeyDown={(event) => {
-        if (event.key === "Escape" && !busy) {
-          event.preventDefault();
-          onCancel();
-        }
-      }}
-      className="flex flex-col gap-3 border-l-2 border-foreground py-1 pl-4 text-sm text-foreground"
-    >
-      <p id={questionId} className="font-semibold">
-        {review ? "Send this event for review?" : "Publish this event now?"}
-      </p>
-      <ul id={detailsId} className="flex list-disc flex-col gap-1 pl-5 text-muted">
-        {review ? (
-          <>
-            <li>{PUBLISH_REVIEW_REASON_TEXT[reason]}</li>
-            <li>It goes live once it&rsquo;s approved, and your followers are emailed then.</li>
-            <li>You can&rsquo;t edit it while it&rsquo;s waiting.</li>
-          </>
-        ) : (
-          <>
-            <li>It goes live on Sheltüh straight away, with the changes on screen (they&rsquo;re saved first).</li>
-            <li>Your followers are emailed about it. Emails can&rsquo;t be unsent.</li>
-            <li>You can&rsquo;t edit it here afterwards. To change it, you&rsquo;d contact Sheltüh.</li>
-          </>
-        )}
-      </ul>
-      <div className="flex flex-wrap gap-3">
-        <Button
-          variant="solid"
-          busy={busy}
-          onClick={onConfirm}
-          aria-describedby={[detailsId, describedBy].filter(Boolean).join(" ")}
-          className="min-h-11 w-fit"
-        >
-          {busy ? (review ? "Sending…" : "Publishing…") : review ? "Send for review" : "Publish now"}
-        </Button>
-        <Button ref={cancelRef} variant="outline" busy={busy} onClick={onCancel} className="min-h-11 w-fit">
-          Cancel
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-/**
- * What the publish did, in place of the form (now locked), focused so it's
- * read: live (with its public page), or sent for review and why
- * (lib/organiser-events.ts; the general reason when it isn't known here).
- */
-function PublishOutcomeView({ outcome, ref }: { outcome: PublishOutcome; ref: Ref<HTMLDivElement> }) {
-  const titleId = `${PUBLISH_OUTCOME_ID}-title`;
-  const textId = `${PUBLISH_OUTCOME_ID}-text`;
-  const published = outcome.kind === "published";
-  return (
-    <div
-      ref={ref}
-      id={PUBLISH_OUTCOME_ID}
-      tabIndex={-1}
-      role="group"
-      aria-labelledby={titleId}
-      aria-describedby={textId}
-      data-publish-outcome={outcome.kind}
-      className="flex flex-col items-start gap-3 border-l-2 border-foreground bg-surface p-4 text-foreground outline-offset-2"
-    >
-      <h2 id={titleId} className="font-heading text-xl">
-        {published ? "Published" : "Sent for review"}
-      </h2>
-      {published ? (
-        <>
-          <p id={textId} className="text-sm">
-            It&rsquo;s live on Sheltüh now, and your followers are being emailed about it.
-          </p>
-          <ButtonLink href={`/events/${encodeURIComponent(outcome.slug)}`} variant="solid" className="min-h-11 w-fit">
-            View your event page
-          </ButtonLink>
-          <p className="text-sm text-muted">
-            It can&rsquo;t be edited here now. To change something,{" "}
-            <a href={`mailto:${SUPPORT_EMAIL}`} className="text-accent underline underline-offset-2">
-              contact Sheltüh
-            </a>
-            .
-          </p>
-        </>
-      ) : (
-        <>
-          <p id={textId} className="text-sm">
-            {outcome.reason ? PUBLISH_REVIEW_REASON_TEXT[outcome.reason] : PUBLISH_REVIEW_GENERAL}
-          </p>
-          <p className="text-sm text-muted">
-            It goes live once it&rsquo;s approved, and your followers are emailed then. You can&rsquo;t edit it
-            while it&rsquo;s waiting.
-          </p>
-        </>
-      )}
-    </div>
-  );
+/** Orders the keys of an error record as the form is laid out: step 1's fields, then tickets, then the note; the rest last. */
+function orderedErrorKeys(keys: string[], ticketCount: number): string[] {
+  const order = ["organiserId", "title", "description", "venueName", "venueAddress", "suburb", "state", "timeZone", "location", "start", "end", "image", "externalTicketUrl", "ticketTypes"];
+  for (let i = 0; i < ticketCount; i++) order.push(`ticket-${i}-name`, `ticket-${i}-price`, `ticket-${i}-qty`);
+  order.push("refundPolicy", "refundDays", "reason");
+  const known = order.filter((key) => keys.includes(key));
+  return [...known, ...keys.filter((key) => !order.includes(key))];
 }
 
 /** The suburb's centre in the ABS table (where the pin map starts without a pin), once the table and the suburb are known. */
@@ -1660,32 +1829,37 @@ function saveLabel(isAdmin: boolean, existing: boolean, created: boolean, reserv
 }
 
 /**
- * What each booking-fee choice means for this ticket, in plain words, under
- * "Who pays the booking fee?". Amounts come from lib/fees.ts.
+ * One step's panel: its title and intro, then its cards. Hidden (never unmounted) unless it's the current
+ * step, so what was typed, the pending photo and the clip draft stay while the person moves around.
  */
-function FeePolicyHelp({ id, priceCents, isAdmin }: { id: string; priceCents: number; isAdmin: boolean }) {
-  const you = isAdmin ? "the organiser receives" : "you receive";
-  if (priceCents <= 0) {
-    return (
-      <p id={id} className="text-xs text-muted">
-        Free tickets have no booking fee, so this choice doesn&rsquo;t apply.
-      </p>
-    );
-  }
-  const fee = calculateBookingFeeCents(priceCents);
-  const price = formatAud(priceCents);
+function StepPanel({
+  n,
+  step,
+  title,
+  intro,
+  titleRef,
+  children,
+}: {
+  n: EditorStep;
+  step: EditorStep;
+  title: string;
+  intro: ReactNode;
+  titleRef: Ref<HTMLHeadingElement>;
+  children: ReactNode;
+}) {
   return (
-    <div id={id} className="flex flex-col gap-1 text-xs text-muted">
-      <p>Sheltüh&rsquo;s booking fee is {describeBookingFee()}: {formatAud(fee)} on this ticket.</p>
-      <p>
-        <span className="font-semibold text-foreground">Buyer pays:</span> the fee is added on top. The buyer pays{" "}
-        {formatAud(priceCents + fee)} and {you} the full {price}.
-      </p>
-      <p>
-        <span className="font-semibold text-foreground">Organiser absorbs:</span> the buyer pays just {price} and the fee
-        comes out of it, so {you} {formatAud(Math.max(priceCents - fee, 0))}. Handy for keeping a round price.
-      </p>
-      <p>Card processing costs are covered by Sheltüh either way.</p>
+    <div hidden={step !== n} data-step-panel={n} className="flex flex-col gap-4 sm:gap-6">
+      <div className="flex flex-col gap-1">
+        <h2
+          ref={step === n ? titleRef : undefined}
+          tabIndex={-1}
+          className="display-md outline-offset-2 focus:outline-none!"
+        >
+          {title}
+        </h2>
+        <p className="max-w-prose text-sm leading-5 text-muted">{intro}</p>
+      </div>
+      {children}
     </div>
   );
 }

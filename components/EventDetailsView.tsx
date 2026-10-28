@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Suspense } from "react";
+import { Suspense, type ReactNode } from "react";
 import AddToCalendar from "@/components/AddToCalendar";
 import EventViewBeacon from "@/components/analytics/EventViewBeacon";
 import EventArt from "@/components/EventArt";
@@ -19,6 +19,7 @@ import { buttonClass } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Section";
 import WhosGoing from "@/components/WhosGoing";
 import { WhosGoingProvider } from "@/components/whos-going/WhosGoingProvider";
+import type { PreviewMissing } from "@/components/dashboard/editor/preview-event";
 import WhosGoingSummaryLink from "@/components/whos-going/WhosGoingSummaryLink";
 import { SUPPORT_EMAIL } from "@/lib/contact";
 import { isSafeTicketUrl, reportEventHref } from "@/lib/event-url";
@@ -30,6 +31,42 @@ import { DEFAULT_REFUND_POLICY, REFUND_ACL_STATEMENT, refundTermsLine } from "@/
 import { organiserProfileHref } from "@/lib/sample-organisers";
 import { siteOrigin } from "@/lib/share-metadata";
 import { EVENT_CATEGORIES, type SheltuhEvent } from "@/lib/types";
+
+/**
+ * The event editor's live preview (components/dashboard/editor/PreviewFrame.tsx): the page as a draft
+ * would look, with a muted stand-in for what the draft doesn't have yet (`missing`). Not a live
+ * page, so it has none of the page's own behaviour: no view count, no save-on-return, no hash focus,
+ * no Who's Going, no back link, no report line, no sticky buy bar, no outbound click count and no
+ * map. The editor makes the whole preview `inert` too, so nothing in it is focusable or clickable.
+ */
+export interface EventPreview {
+  missing: PreviewMissing;
+}
+
+/** Who's Going's one shared load, around the page; none in a preview (it has no Who's Going at all). */
+function GoingScope({ event, preview, children }: { event: SheltuhEvent; preview: boolean; children: ReactNode }) {
+  if (preview) return <>{children}</>;
+  return (
+    <WhosGoingProvider
+      event={{
+        id: event.id,
+        slug: event.slug,
+        title: event.title,
+        organiserId: event.organiserId,
+        ticketingMode: event.ticketingMode,
+        startsAt: event.startsAt,
+        endsAt: event.endsAt,
+      }}
+    >
+      {children}
+    </WhosGoingProvider>
+  );
+}
+
+/** A preview's stand-in for what the draft hasn't got yet. */
+function Placeholder({ children }: { children: ReactNode }) {
+  return <span className="text-muted">{children}</span>;
+}
 
 /** One fact under the title: a 20px icon (with the fact's name for screen readers), then the fact. */
 // Each term column is the organiser avatar's width, so every row's text starts on the same line.
@@ -115,7 +152,18 @@ function whenLabel(startsAt: string, endsAt: string | undefined, timeZone: strin
  * page's sample-data disclosure is the banner at the top (DemoBanner); the
  * ticket panel says nothing can be booked.
  */
-export default function EventDetailsView({ event, demo }: { event: SheltuhEvent; demo: boolean }) {
+export default function EventDetailsView({
+  event,
+  demo,
+  preview,
+}: {
+  event: SheltuhEvent;
+  demo: boolean;
+  /** The editor's live preview (see EventPreview): the page without its live behaviour. */
+  preview?: EventPreview;
+}) {
+  const missing = preview?.missing;
+  const buyBarPosition = preview ? "static" : "sticky";
   const categoryLabel =
     EVENT_CATEGORIES.find((category) => category.value === event.category)?.label ?? event.category;
 
@@ -150,36 +198,28 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
   const directions = directionsHref(event);
   const address = [event.venueName, event.venueAddress].filter(Boolean).join(", ");
   const outboundLink = (className: string) => (
-    <ExternalTicketLink eventId={event.id} url={ticketUrl} provider={provider} className={className} />
+    <ExternalTicketLink eventId={event.id} url={ticketUrl} provider={provider} className={className} preview={Boolean(preview)} />
   );
 
   return (
     // Phones: tight above the photo, so the title, date and venue are on the first screen,
     // above the sticky buy bar (e2e/event-page.spec.ts).
     <div className="mx-auto flex max-w-6xl flex-col gap-2 px-5 pb-12 sm:gap-6 sm:px-8 sm:py-10">
-      <BackLink href="/">Back to all events</BackLink>
+      {!preview && <BackLink href="/">Back to all events</BackLink>}
 
       {/* Live only: one cookie-free view count per session, and finishing a save
           started before signing in. Neither renders anything. */}
-      {!demo && <EventViewBeacon eventId={event.id} />}
-      <Suspense fallback={null}>
-        <SaveOnReturn event={saveTarget} />
-      </Suspense>
-      <TicketsHashFocus />
+      {!demo && !preview && <EventViewBeacon eventId={event.id} />}
+      {!preview && (
+        <Suspense fallback={null}>
+          <SaveOnReturn event={saveTarget} />
+        </Suspense>
+      )}
+      {!preview && <TicketsHashFocus />}
 
       {/* One Who's Going load, shared by the summary link and the panel
           (always closed, with no request, for an external event). */}
-      <WhosGoingProvider
-        event={{
-          id: event.id,
-          slug: event.slug,
-          title: event.title,
-          organiserId: event.organiserId,
-          ticketingMode: event.ticketingMode,
-          startsAt: event.startsAt,
-          endsAt: event.endsAt,
-        }}
-      >
+      <GoingScope event={event} preview={Boolean(preview)}>
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:gap-x-14 lg:gap-y-10">
           <div className="flex flex-col gap-3 sm:gap-4 lg:col-span-7">
             {/* The photo first at every width (it's aria-hidden, so reading order is the title
@@ -203,7 +243,9 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
             </div>
             <div className="flex flex-col gap-3">
               <p className="text-sm leading-5 text-muted">{categoryLabel}</p>
-              <h1 className="title-lg -mt-2 max-w-[24ch] break-words">{event.title}</h1>
+              <h1 className="title-lg -mt-2 max-w-[24ch] break-words">
+                {missing?.title ? <Placeholder>Untitled event</Placeholder> : event.title}
+              </h1>
               {/* The one date/time and venue block (no second copy further down): when, where
                   and who, each with its action. */}
               <dl data-event-facts="" className="-mt-1 flex flex-col gap-2 sm:mt-1">
@@ -217,14 +259,18 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
                     <p className="text-base leading-6 font-semibold">
                       {/* Each time stays whole ("4:00 pm", never "4:00 / pm"); the rest wraps where it must,
                           so a long range fits a 320px screen. */}
-                      {when.split(TIME_PATTERN).map((part, i) =>
-                        i % 2 === 1 ? (
-                          <span key={i} className="whitespace-nowrap">
-                            {part}
-                          </span>
-                        ) : (
-                          part
-                        ),
+                      {missing?.when ? (
+                        <Placeholder>Date and time to be added</Placeholder>
+                      ) : (
+                        when.split(TIME_PATTERN).map((part, i) =>
+                          i % 2 === 1 ? (
+                            <span key={i} className="whitespace-nowrap">
+                              {part}
+                            </span>
+                          ) : (
+                            part
+                          ),
+                        )
                       )}
                     </p>
                     {/* The zone, then Add to calendar beside it where there's room (onto its own line
@@ -232,12 +278,14 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
                         button keeps its 44px target, overlapping the lines above and below (neither
                         is a control; the row's bottom padding clears the address link) rather than
                         adding a 44px row. Its menu opens from the dd, so it stays on screen. */}
-                    <div className="flex flex-wrap items-center gap-x-2">
-                      <p className="text-sm leading-5 text-muted lg:basis-full">
-                        {formatTimeZoneLabel(event.startsAt, zone, event.state)}
-                      </p>
-                      <AddToCalendar event={event} menuFromParent className="-my-3 lg:my-0" />
-                    </div>
+                    {!missing?.when && (
+                      <div className="flex flex-wrap items-center gap-x-2">
+                        <p className="text-sm leading-5 text-muted lg:basis-full">
+                          {formatTimeZoneLabel(event.startsAt, zone, event.state)}
+                        </p>
+                        <AddToCalendar event={event} menuFromParent className="-my-3 lg:my-0" />
+                      </div>
+                    )}
                   </dd>
                 </div>
                 <div className={factRowClass}>
@@ -245,7 +293,11 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
                     <PinIcon className={factIconClass} />
                     <span className="sr-only">Where</span>
                   </dt>
-                  {directions ? (
+                  {missing?.where ? (
+                    <dd className="min-w-0 text-base leading-6">
+                      <Placeholder>Venue to be added</Placeholder>
+                    </dd>
+                  ) : directions ? (
                     // The address itself links to directions. It opens the maps app where there is
                     // one (lib/maps.ts), in a new tab otherwise.
                     <dd className="min-w-0">
@@ -303,9 +355,11 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
               </dl>
               {/* Below lg Who's Going comes after the tickets, so its count is linked here too
                   (the panel is beside this from lg). No gap left behind while there is none. */}
-              <div className="empty:hidden lg:hidden">
-                <WhosGoingSummaryLink />
-              </div>
+              {!preview && (
+                <div className="empty:hidden lg:hidden">
+                  <WhosGoingSummaryLink />
+                </div>
+              )}
               {/* The one secondary row: Save (the page's only Save) and Share. */}
               <div data-event-actions="" className="-mt-1 flex flex-wrap items-center gap-2 sm:mt-0">
                 <SaveButton event={saveTarget} variant="action" />
@@ -360,16 +414,18 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
               </Panel>
             </div>
 
-            {!external && <WhosGoing />}
+            {!external && !preview && <WhosGoing />}
           </aside>
 
           <div className="flex flex-col gap-8 lg:col-span-7 lg:row-start-2">
             <Panel title="About this event" titleId="about-title">
-              <p className="max-w-2xl text-base leading-7">{event.description}</p>
+              <p className="max-w-2xl text-base leading-7">
+                {missing?.description ? <Placeholder>Add a description</Placeholder> : event.description}
+              </p>
             </Panel>
 
             {/* Where it is, with a small map and the Google Maps and Apple Maps links (none without a venue or suburb). */}
-            <EventLocation event={event} />
+            <EventLocation event={event} map={!preview} />
 
             {goodToKnow.length > 0 && (
               <Panel title="Good to know" titleId="good-to-know-title">
@@ -386,15 +442,17 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
             )}
 
             {/* Events go live without a check first: anyone can tell Sheltüh about one (by email, for now). */}
-            <p className="text-sm text-muted">
-              Something wrong with this event?{" "}
-              <a
-                href={reportEventHref(event.title, event.slug, siteOrigin(), SUPPORT_EMAIL)}
-                className="inline-flex min-h-6 items-center text-foreground underline underline-offset-4"
-              >
-                Report this event
-              </a>
-            </p>
+            {!preview && (
+              <p className="text-sm text-muted">
+                Something wrong with this event?{" "}
+                <a
+                  href={reportEventHref(event.title, event.slug, siteOrigin(), SUPPORT_EMAIL)}
+                  className="inline-flex min-h-6 items-center text-foreground underline underline-offset-4"
+                >
+                  Report this event
+                </a>
+              </p>
+            )}
           </div>
 
           {/* Buy bar, below lg only, on an ink surface: compact (the price and the one ticket
@@ -409,7 +467,7 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
             <div
               data-buy-bar
               data-surface="ink"
-              className="sticky bottom-0 z-20 -mx-5 flex min-h-16 items-center justify-between gap-4 px-5 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:-mx-8 sm:px-8 lg:hidden dark:border-t dark:border-foreground"
+              className={`${buyBarPosition} bottom-0 z-20 -mx-5 flex min-h-16 items-center justify-between gap-4 px-5 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:-mx-8 sm:px-8 lg:hidden dark:border-t dark:border-foreground`}
             >
               <div className="min-w-0">
                 <p className="text-base leading-5 font-semibold tabular-nums">{price.amount}</p>
@@ -436,7 +494,7 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
             <div
               data-buy-bar
               data-surface="ink"
-              className="sticky bottom-0 z-20 -mx-5 flex min-h-16 items-center justify-between gap-4 px-5 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:-mx-8 sm:px-8 lg:hidden dark:border-t dark:border-foreground"
+              className={`${buyBarPosition} bottom-0 z-20 -mx-5 flex min-h-16 items-center justify-between gap-4 px-5 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:-mx-8 sm:px-8 lg:hidden dark:border-t dark:border-foreground`}
             >
               <div className="min-w-0">
                 {event.externalFree ? (
@@ -452,13 +510,14 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
                 eventId={event.id}
                 url={ticketUrl}
                 provider={provider}
+                preview={Boolean(preview)}
                 short
                 className={buttonClass("signal", "lg", "shrink-0 px-5 sm:px-7")}
               />
             </div>
           )}
         </div>
-      </WhosGoingProvider>
+      </GoingScope>
     </div>
   );
 }

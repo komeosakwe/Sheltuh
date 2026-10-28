@@ -8,8 +8,8 @@ export const metadata: Metadata = { title: "Edit event — Sheltüh" };
 /** An organiser's event: EditEventPageContent has the h1, which says whether it can be edited. */
 export default function EditEventPage() {
   return (
-    <Page padding="subNav">
-      <div className="flex max-w-2xl flex-col gap-8">
+    <Page width="full" padding="subNav" className="max-w-7xl">
+      <div className="flex flex-col gap-8">
         <BackLink href="/dashboard">Back to your events</BackLink>
         <EditEventPageContent />
       </div>

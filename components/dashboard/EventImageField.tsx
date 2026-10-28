@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import EventArt from "@/components/EventArt";
 import { Button, buttonClass } from "@/components/ui/Button";
 import { fetchPrivateEventImage } from "@/lib/api/events";
 import type { GetToken } from "@/lib/api/client";
 import { ImageError, prepareEventImage } from "@/lib/image";
+import type { EventPoster } from "@/lib/types";
 
 interface Props {
   getToken: GetToken;
@@ -17,6 +19,15 @@ interface Props {
   removed: boolean;
   onRemovedChange: (removed: boolean) => void;
   error?: string;
+  /** The generated artwork the event shows until it has a photo (the same the public card shows). */
+  poster: EventPoster;
+  /** The event's title, for the artwork's initial. */
+  title: string;
+  /**
+   * The photo as it'd show (an object URL: the new pick, or the saved one fetched with the owner's
+   * token), or null when there's none. For the summary and the live preview, which share it.
+   */
+  onPreviewUrl?: (url: string | null) => void;
 }
 
 /** Photo picker for the event editor: preview, replace and remove. Upload happens when the event is saved. */
@@ -28,6 +39,9 @@ export default function EventImageField({
   removed,
   onRemovedChange,
   error,
+  poster,
+  title,
+  onPreviewUrl,
 }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [pickError, setPickError] = useState<string | null>(null);
@@ -86,19 +100,42 @@ export default function EventImageField({
   const shown = pending ? pendingPreview : existingUrl && !removed ? existingPreview : null;
   const hasImage = Boolean(pending) || Boolean(existingUrl && !removed);
 
+  useEffect(() => {
+    onPreviewUrl?.(shown);
+  }, [shown, onPreviewUrl]);
+
   return (
     <div className="flex flex-col gap-3">
       <p id="event-image-title" className="eyebrow text-muted">
         Event photo
       </p>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-        <div className="flex aspect-square w-40 shrink-0 items-center justify-center overflow-hidden bg-surface text-xs text-muted">
-          {shown ? (
-            // eslint-disable-next-line @next/next/no-img-element -- local object URL preview
-            <img src={shown} alt="Event photo preview" className="h-full w-full object-cover" />
-          ) : (
-            <span className="px-3 text-center">{hasImage ? (failedUrl === existingUrl ? "Couldn\u2019t load the preview" : "Loading\u2026") : "No photo yet"}</span>
-          )}
+        <div className="flex w-full shrink-0 flex-col gap-2 sm:w-64">
+          {/* The frame the event page crops the photo to (3:2; 4:3 on phones), and the generated artwork
+              it shows until there's a photo. A portrait photo is shown whole on black, as on the page. */}
+          <div
+            role={shown ? "img" : undefined}
+            aria-label={shown ? "Event photo preview" : undefined}
+            className="relative aspect-[3/2] w-full overflow-hidden rounded-control bg-surface"
+          >
+            {shown || !hasImage ? (
+              <EventArt
+                poster={poster}
+                imageUrl={shown ?? undefined}
+                title={title.trim() || "Untitled event"}
+                fit="auto"
+                className="size-full"
+              />
+            ) : (
+              <p className="flex size-full items-center justify-center px-3 text-center text-xs text-muted">
+                {failedUrl === existingUrl ? "Couldn\u2019t load the preview" : "Loading\u2026"}
+              </p>
+            )}
+          </div>
+          <p className="text-xs leading-4 text-muted">
+            Shown at 3:2 on the event page and 4:3 on phones.
+            {!hasImage && " No photo yet. Your event shows generated artwork until you add one."}
+          </p>
         </div>
         <div className="flex flex-col items-start gap-3">
           {/* The native picker, visually hidden but focusable (its focus ring shows on the label,
@@ -126,13 +163,14 @@ export default function EventImageField({
             {hasImage ? "Choose another photo" : "Choose a photo"}
           </label>
           <p id="event-image-hint" className="max-w-sm text-xs text-muted">
-            A square or portrait poster or photo works best. JPEG, PNG or WebP, resized automatically. Only
-            use images you have the rights to.
+            A landscape photo works best. A portrait or square one is shown whole on black. JPEG, PNG or WebP,
+            resized automatically. Only use images you have the rights to.
           </p>
           {hasImage && (
             <Button
               variant="outline"
               size="sm"
+              className="min-h-11"
               onClick={() => {
                 if (pending) onPendingChange(null);
                 else onRemovedChange(true);
