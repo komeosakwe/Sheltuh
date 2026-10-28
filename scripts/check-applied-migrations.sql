@@ -150,7 +150,9 @@ select version, file, coalesce(applied, false) as applied
       to_regclass('private.organiser_invite_links') is not null
       and exists (select 1 from fn where proname = 'join_with_organiser_invite_link'
                    and prosrc like '%organiser_joined%' and prosrc like '%suspended%')
-      and exists (select 1 from fn where proname = 'lease_outbox_jobs' and prosrc like '%organiser_joined%')
+      -- 20261111000700 redefines lease_outbox_jobs with an allowlist (no organiser_joined): its marker counts too.
+      and exists (select 1 from fn where proname = 'lease_outbox_jobs'
+                   and (prosrc like '%organiser_joined%' or prosrc like '%onboarding%'))
       and exists (select 1 from fn where proname = 'purge_operational_data'
                    and 'organiser_invite_links_deleted' = any(proargnames))),
     ('20261111000600', 'pin_search_path',
@@ -159,6 +161,13 @@ select version, file, coalesce(applied, false) as applied
                  and 'search_path=""' = any (coalesce(p.proconfig, '{}')))
       and exists (select 1 from pg_proc p
                    where p.pronamespace = to_regnamespace('private') and p.proname = 'transition_event'
-                     and 'search_path=""' = any (coalesce(p.proconfig, '{}'))))
+                     and 'search_path=""' = any (coalesce(p.proconfig, '{}')))),
+    ('20261111000700', 'onboarding_emails',
+      to_regclass('private.onboarding_emails') is not null
+      and exists (select 1 from col where attrelid = to_regclass('private.email_outbox') and attname = 'onboarding_id')
+      and exists (select 1 from outbox_check where conname = 'email_outbox_kind_check' and def like '%onboarding%')
+      and exists (select 1 from fn where proname = 'queue_onboarding_email')
+      and exists (select 1 from fn where proname = 'queue_member_welcomes')
+      and exists (select 1 from fn where proname = 'lease_outbox_jobs' and prosrc like '%onboarding%'))
   ) as m(version, file, applied)
  order by version;

@@ -946,7 +946,8 @@ export type EmailOutboxKind =
   | "organiser_review"
   | "ops_alert"
   | "event_published"
-  | "organiser_joined";
+  | "organiser_joined"
+  | "onboarding";
 
 export const EMAIL_OUTBOX_KINDS: readonly EmailOutboxKind[] = [
   "ticket_email",
@@ -957,6 +958,7 @@ export const EMAIL_OUTBOX_KINDS: readonly EmailOutboxKind[] = [
   "ops_alert",
   "event_published",
   "organiser_joined",
+  "onboarding",
 ];
 
 /** One kind's (or every kind's) outbox counts in EmailOutboxHealth. Sent jobs aren't counted. */

@@ -1,7 +1,7 @@
 import { featuredVideoKey, parseFeaturedVideoUrl, type FeaturedVideo } from "@/lib/api/featured-video";
 import { requireCaller } from "../auth";
 import { PG_UNIQUE_VIOLATION, pgErrorCode, type Db } from "../db";
-import { sendReviewEmailsSoon } from "../email-outbox";
+import { sendOnboardingEmailsSoon, sendReviewEmailsSoon } from "../email-outbox";
 import { redactForLog } from "../email-address";
 import { created, HttpError, ok, okPrivate, readJson } from "../http";
 import { parseMessageText } from "../message-input";
@@ -176,6 +176,7 @@ export const applyAsOrganiser: Handler = async (req, _params, deps) => {
     );
     const [record] = await db.query(`${ORGANISER_SELECT} where o.id = $1`, [row.id]);
     sendReviewEmailsSoon(deps, "organiser_review");
+    sendOnboardingEmailsSoon(deps);
     return created(toOwnOrganiserView(toOrganiser(record)));
   } catch (err) {
     // Lost a race with a second tab submitting the same application.

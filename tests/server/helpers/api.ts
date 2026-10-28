@@ -382,10 +382,13 @@ export class TestApi {
 
   /**
    * Creates an auth user and returns a bearer token for them. Their email
-   * counts as verified unless `emailVerified: false`.
+   * counts as verified unless `emailVerified: false`. They count as already
+   * welcomed (a member_welcome record, no job) unless `welcomed: false`, so the
+   * cron runs of tests that aren't about onboarding emails don't send them one
+   * (tests/server/helpers/test-db.ts); onboarding-emails.test.ts opts out.
    */
   async signUp(
-    options: { admin?: boolean; email?: string; emailVerified?: boolean } = {},
+    options: { admin?: boolean; email?: string; emailVerified?: boolean; welcomed?: boolean } = {},
   ): Promise<{ token: string; userId: string; email: string }> {
     const userId = crypto.randomUUID();
     const email = options.email ?? `${userId.slice(0, 8)}@example.com`;
@@ -396,6 +399,9 @@ export class TestApi {
        values ($1, $2, $3::text::jsonb, case when $4 then now() end)`,
       [userId, email, JSON.stringify(options.admin ? { role: "admin" } : {}), options.emailVerified ?? true],
     );
+    if (options.welcomed ?? true) {
+      await this.db.query(`insert into private.onboarding_emails (user_id, kind) values ($1, 'member_welcome')`, [userId]);
+    }
     const token = `token-${userId}`;
     this.callers.set(token, {
       userId,

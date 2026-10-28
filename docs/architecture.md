@@ -95,7 +95,8 @@ iframe served by Stripe), with the publishable key
 | `private.early_charge_refunds` | `payment_intent_id` | A `charge.refunded` that arrived before its order's payment was recorded, for a payment to one of our organisers' Stripe accounts (any other payment writes nothing): charge, destination, cumulative amount (the greatest seen), full flag (OR-ed), last Stripe event, and `applied_at` / `applied_order_id` once `fulfil_order` acted on it. No buyer data. Deleted 35 days after its last update (`purge_operational_data`). See "Refunds made in Stripe". |
 | `private.refund_status_marks` | `refund_id` | The newest Stripe refund event applied per refund (its status, the event's `created` time and id), written by `record_refund_status` for events only (never for our own refund call's answer, which has no event time). An event older than the mark, delivered later, is `stale` and changes nothing: a `succeeded` that arrives before an older `requires_action` or `failed` leaves a resolved tombstone, so the late one opens no exception. Statuses only, no buyer data. Deleted 35 days after its last update (`purge_operational_data`). |
 | `private.payment_exceptions` | `id` | Payment problems that need a person (see "Refunds made in Stripe"): `kind` `refund_not_completed` (keyed on the refund id, unique), `partial_refund`, `manual_refund_required` or `amount_mismatch` (`20261110000150_support_in_exceptions.sql`; one open per order); `status` open → resolved (`resolution` `auto` or `admin`, with the admin and a 1–500 character note); order (null until a payment is matched to one; set null if the order is deleted), payment intent, refund and latest Stripe event ids and that event's time (older events are ignored); `details`: amounts and statuses only (the order's total and its Support Sheltüh amount, `supportCents`, when the order is known; `20261110000150_support_in_exceptions.sql`; `supportKeptCents` only on a `partial_refund` closed by the tickets-only rule while `20261110000200_support_ticket_refund.sql` was the latest definition; nothing sets it since `20261111000300_refund_no_inference.sql`); `amount_mismatch` is always `urgent` and its payment is refunded automatically as it opens (`20261110000300_amount_mismatch_refund.sql`); `alerted_at` (an ops alert queued). Resolved ones are deleted 2 years after resolution; open ones never. |
-| `private.email_outbox` | `id` | Transactional email jobs of eight kinds: `ticket_email`, one per paid order (`(order_id, kind)` unique), `waitlist_available`, one per person told that tickets are available again (`waitlist_entry_id`; at most one pending or sending per entry), `organiser_new_events`, a follower's new-event email (`follow_id`; at most one pending or sending per follow; see "Following organisers"), `event_review` / `organiser_review`, the admins' "waiting for your review" email (`event_id` / `organiser_id`; at most one pending or sending per event or application; see "Admin review emails"), `event_published`, the admins' "an organiser published an event" email (`event_id`, sharing the per-event active-job index with `event_review`; see "Publishing events"), `organiser_joined`, the admins' "an organiser joined with a link" email (`organiser_id`, sharing the per-organiser active-job index with `organiser_review`; see "Organiser links"), and `ops_alert`, keyed on `payment_exception_id` for a payment exception (see "Refunds made in Stripe") or on `ops_event_id` for a checkout surge (see "Checkout idempotency"), exactly one of the two, at most one pending or sending per exception and per event. A check ties each kind to its key. Status, attempts, next attempt, lease, redacted last error. No address or content (read from the order, the waitlist entry, the follow, the event, the application or the exception, at send time). Deleted with the order, the entry, the follow, the event, the organiser or the exception. |
+| `private.email_outbox` | `id` | Transactional email jobs of nine kinds: `ticket_email`, one per paid order (`(order_id, kind)` unique), `waitlist_available`, one per person told that tickets are available again (`waitlist_entry_id`; at most one pending or sending per entry), `organiser_new_events`, a follower's new-event email (`follow_id`; at most one pending or sending per follow; see "Following organisers"), `event_review` / `organiser_review`, the admins' "waiting for your review" email (`event_id` / `organiser_id`; at most one pending or sending per event or application; see "Admin review emails"), `event_published`, the admins' "an organiser published an event" email (`event_id`, sharing the per-event active-job index with `event_review`; see "Publishing events"), `organiser_joined`, the admins' "an organiser joined with a link" email (`organiser_id`, sharing the per-organiser active-job index with `organiser_review`; see "Organiser links"), `onboarding`, a welcome or next-steps email to one account (`onboarding_id`, unique: one job per record, ever; see "Onboarding emails"), and `ops_alert`, keyed on `payment_exception_id` for a payment exception (see "Refunds made in Stripe") or on `ops_event_id` for a checkout surge (see "Checkout idempotency"), exactly one of the two, at most one pending or sending per exception and per event. A check ties each kind to its key. Status, attempts, next attempt, lease, redacted last error. No address or content (read from the order, the waitlist entry, the follow, the event, the application or the exception, at send time). Deleted with the order, the entry, the follow, the event, the organiser or the exception. |
+| `private.onboarding_emails` | `id` | One row per (account, kind) ever queued: `member_welcome`, `organiser_welcome` or `organiser_next_steps` (`(user_id, kind)` unique, so none is ever queued twice; deleting the account deletes it and, through `email_outbox.onboarding_id`, its job). It outlives its job (the purge deletes sent jobs after 90 days, never these). RLS on, no grants. See "Onboarding emails". |
 | `private.email_job_recipients` | `(job_id, recipient_hash)` | Which admins already have a review job's email (the lower-cased address's SHA-256 only), so a retry skips them. Deleted with the job. |
 | `private.cron_runs` | `name` | One row per cron route (only `email_outbox` so far): when its last run finished and that run's counts (claimed, sent, retrying, failed), written by the route. Read by `GET /api/admin/emails/health`. Nothing personal. |
 | `private.event_waitlist` | `id` | One entry per `(event_id, email_key)` (see "Waitlist"): the address as typed and `private.email_key` of it, `user_id` (only when a member joined with their own verified email; deleted with the account), `confirmed_at` (on the list from then: join order), `unsubscribed_at` (left), `notified_at` and `notify_count`. Deleted with the event, and by `purge_social_data` 30 days after the event ends. Never shown to organisers except as a count. |
@@ -208,7 +209,10 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
 | `unsubscribe_follow` | Turns a follow's emails off by an unsubscribe token's hash (the follow stays). Idempotent: `unsubscribed` or `not_found`. |
 | `notify_followers` | Run at commit by the deferred constraint trigger `events_followers_announce` (status becomes `published`): for a published, upcoming event of an approved organiser, records the announcement (once per event ever: a republish is a no-op), then, under an advisory lock per organiser, queues one `organiser_new_events` job per follower with emails on and a confirmed email (`auth.users.email_confirmed_at`) who has none waiting, due at the later of now and 24 hours after their last, until the platform's 500 a day. Locks each follow row as it's queued. |
 | `claim_email_outbox` | `claim_outbox_jobs` for every kind, also returning the follow. `claim_outbox_jobs` (the previous release's) now leaves `organiser_new_events` alone, for the deploy window. |
-| `lease_outbox_jobs` | `claim_email_outbox` for every kind, also returning the event and the organiser (the review emails). `claim_email_outbox` (the previous release's) now leaves `event_review` and `organiser_review` alone, for the deploy window. Since `20261109000200_payment_reconciliation.sql`, `ops_alert` jobs only when asked for that kind (the app drains them first, then the rest), so a release that can't send them never leases one; `claim_email_outbox` never takes them either. Since `20261111000000_event_publish_now.sql`, `event_published` jobs likewise only when asked for by kind (this app's drain asks for them last), so the previous release's cron can't lease one and fail it as an unknown job. Since `20261111000500_organiser_invite_links.sql`, `organiser_joined` jobs the same way (drained after `event_published`). |
+| `lease_outbox_jobs` | `claim_email_outbox` for every kind, also returning the event and the organiser (the review emails). `claim_email_outbox` (the previous release's) now leaves `event_review` and `organiser_review` alone, for the deploy window. Since `20261109000200_payment_reconciliation.sql`, `ops_alert` jobs only when asked for that kind (the app drains them first, then the rest), so a release that can't send them never leases one; `claim_email_outbox` never takes them either. Since `20261111000000_event_publish_now.sql`, `event_published` jobs likewise only when asked for by kind (this app's drain asks for them last), so the previous release's cron can't lease one and fail it as an unknown job. Since `20261111000500_organiser_invite_links.sql`, `organiser_joined` jobs the same way (drained after `event_published`). Since `20261111000700_onboarding_emails.sql`, without a kind it leases only an allowlist (`ticket_email`, `waitlist_available`, `organiser_new_events`, `event_review`, `organiser_review`): every other kind, `onboarding` included and kinds added later, only when asked for by name (drained last). |
+| `queue_onboarding_email` | Records that an account is to get a welcome kind and queues its `onboarding` job to run at a given time, only if the `(user_id, kind)` record was new (returns whether it queued). Idempotent; never queues twice. |
+| `queue_member_welcomes` | Called at the start of each cron run: queues `member_welcome` for up to N accounts with a confirmed email, not banned or deleted, with an address and no welcome record, oldest confirmation first, within a platform cap of 300 a day (`take_platform_rate_limit`, bucket `onboarding_emails_daily`; the rest wait for the next window). One run at a time (`pg_try_advisory_xact_lock`): a concurrent run queues nothing. |
+| `organisers_onboarding_email` | The deferred triggers' function on `public.organisers`: queues `organiser_welcome` on insert with an owner, and `organiser_next_steps` one hour after the organiser is inserted approved or updated to approved. Never fails the organiser's change (an error is a warning with the organiser id and SQLSTATE). |
 | `queue_review_email` | Queues the admins' review email for an event in review or a pending application of an account's organiser (called by deferred triggers on `events` and `organisers`), or (`event_published`, called by `publish_event`) the "an organiser published an event" email for a published event of an account's organiser: nothing if one is already waiting or being sent for the subject (whatever its kind), due an hour after the last one sent, at most 10 a day per account and 100 a day platform-wide. The published emails count in buckets of their own (`published_emails`, `admin_published_emails_daily`; the review emails' are `review_emails`, `admin_review_emails_daily`), so publishes never use up the review emails. An advisory lock per subject serialises calls. Returns whether it queued. A trigger deletes a still-waiting job when its subject leaves review, and `drop_published_email` (trigger `events_published_email_drop`) a still-waiting `event_published` job when its event leaves `published`. |
 | `suspend_organiser` | An admin takedown, only from `approved` (a second admin gets 409): locks the organiser row, then its published and pending-review events in id order; sets the organiser `rejected` with the reason and reviewer; moves each published event to draft (`unpublished`) and each pending one to `rejected`, through `transition_event`, so the event moderation log records each with the admin and reason; logs the takedown. Deletes nothing. Returns the result and how many events moved. |
 | `record_payment_refund` | Records a `charge.refunded` by payment intent (see "Refunds made in Stripe"). Takes the payment intent's lock first, then (seated) the seat lock, then the order (`for update`), and acts only on a `paid` one. Full refund (Stripe's `refunded`, or a cumulative amount of at least `total_cents`; `20261111000300_refund_no_inference.sql`, which removed `20261110000200`'s tickets-only rule): `refunded`, the amount recorded, and each line item's quantity taken off its ticket type's `quantity_sold` (never below 0), updating ticket types in `ticketTypeId` order like `fulfil_order`, so the two can't deadlock; an open `partial_refund` exception is resolved. Partial (anything less, whatever it was for: nothing is inferred from the amount): only `amount_refunded_cents`, which only grows, and a `partial_refund` exception. A redelivery (already refunded, or no larger amount) changes nothing, so inventory is released exactly once. No order yet but the charge's destination is one of our organisers' accounts: an `early_charge_refunds` row, `deferred`. Returns `refunded`, `partial`, `unchanged`, `deferred` or `not_found`, with the order id when found (logged by short reference only). A full refund of a seated order also frees its seats (tickets' `seat_id` cleared, then the seats' sale), after the seat lock. The 6-argument form (charge id, destination, Stripe event id) is the app's; the 3-argument form delegates to it without a destination (never defers), for the previous app version during the deploy window (see "Not built yet"). |
@@ -2900,6 +2904,80 @@ an approved organiser's event went live without one
   retrying counts are ticket emails only (jobs with an order); review emails
   are internal and never resent by hand.
 
+## Onboarding emails
+
+Three account emails, built in
+`lib/server/onboarding-email.ts`: a **member welcome** (once the account's email
+is confirmed), an **organiser welcome** (when an organiser is created: the
+"application received" wording while it's pending, the "you're approved"
+wording once approved) and an organiser's **next steps** (one hour after
+approval). Each is sent at most once per account, ever.
+
+- **Queueing** (`20261111000700_onboarding_emails.sql`). Member welcomes are
+  queued by the cron route, which calls `private.queue_member_welcomes(50)`
+  before it drains (a confirmed account is a state in Supabase Auth, not an
+  event we see): confirmed, not banned or deleted, with an address, no
+  `member_welcome` record, oldest first, at most 300 a day platform-wide.
+  Organiser emails are queued by deferred constraint triggers on
+  `public.organisers` (like the review emails', so they fire only if the
+  transaction commits): an insert with an owner (an application, an invite or
+  an organiser link) queues `organiser_welcome` now, and `organiser_next_steps`
+  an hour later when it is inserted approved; an update of `status` to
+  `approved` queues `organiser_next_steps` an hour later. The trigger catches
+  its own errors (a warning with the organiser id and SQLSTATE), so it never
+  fails the organiser's change. An organiser with no owner is never emailed.
+- **Once ever.** `private.onboarding_emails (user_id, kind)` is unique and the
+  outbox job hangs off it (`email_outbox.onboarding_id`, unique): a
+  resubmitted application, a second approval, a rejected-then-reinstated
+  organiser, repeated or concurrent cron runs and a purge of sent jobs can't
+  produce a second one. It is keyed on its own column, not `organiser_id` or
+  `event_id`, whose unique indexes the review emails share and whose
+  `drop_review_email` trigger deletes jobs by.
+- **Backfill.** The migration inserts records (no jobs) for every account with
+  a confirmed email and every organiser with an owner (and `organiser_next_steps`
+  for approved ones), so deploying sends nothing about existing accounts.
+- **Sending** (`deliverOnboardingEmail`, `lib/server/email-outbox.ts`). Decided
+  at send time: the account must still be confirmed, not banned or deleted,
+  with a plain address, else the job is skipped (recorded as failed, never
+  retried, not logged as an error). An organiser's welcome is skipped if the
+  organiser was rejected meanwhile, and picks its variant from the status then
+  (approved before the welcome went out: the approved wording only); the next
+  steps are skipped unless the organiser is still approved. The recipient is
+  always the account's own address from Supabase Auth, never the organiser's
+  public `contact_email`. Logs carry the job id only. After a response that
+  queued one (apply, invite accept, admin approval, organiser link join) the
+  app drains due `onboarding` jobs (`sendOnboardingEmailsSoon`); the next steps
+  and member welcomes go out with the cron route.
+- **Draining.** `lease_outbox_jobs` without a kind leases only an allowlist of
+  the original kinds, so an `onboarding` job is leased only when asked for by
+  name; the app's drain asks last, after tickets, waitlist, follower and admin
+  emails, so a burst of welcomes never delays a ticket. During a deploy window
+  the cron tolerates `undefined_function` from `queue_member_welcomes` (it
+  warns once and carries on).
+- **Spam Act 2003 (Cth).** These are account emails: they confirm something the
+  recipient just did (created an account, applied to be an organiser, was
+  approved) and tell them how to use the service. They carry no promotion and
+  no offer, so they aren't commercial electronic messages needing consent and
+  an unsubscribe link; the footer says why they were sent
+  (`emailFooterText`). Anything promotional added later (a re-engagement
+  nudge, a newsletter) must not go through this path without consent and an
+  unsubscribe.
+
+### Accepted limits (onboarding emails)
+
+- The member candidate query is a scan of `auth.users` against the records'
+  unique index once per cron run (Supabase's table can't be indexed by us): fine
+  at MVP size; watch it as accounts grow into the hundreds of thousands.
+- A person who is both a member and an organiser gets both welcomes (a member
+  welcome when they confirm, an organiser welcome when they apply).
+- The 300-a-day cap applies to member welcomes only; organiser emails are
+  bounded by the application and invite throttles. If the cap is hit the rest
+  wait for the next day's window, oldest first.
+- An organiser welcome queued for an account whose email isn't confirmed when it
+  is sent is skipped, not held (applying doesn't itself require a verified email; with Supabase's "Confirm email" setting on, as `docs/supabase-setup.md` asks, an account can't sign in before confirming).
+- A job being sent when the process dies is sent again (at-least-once, as
+  elsewhere), so a very rare second copy is possible.
+
 ## Account invites
 
 (For a link an admin forwards to an organiser without an email address or
@@ -3432,7 +3510,7 @@ application is approved.
 | `GET /orders/by-session/{orderId}` | public (id is the credential). `CustomerOrder` only (see "Payment flow"), `private, no-store`; `wallet: {google, apple}` when the tickets can be added to a wallet (see "Wallet passes") |
 | `GET /orders/by-session/{orderId}/wallet/google?ticket={n}` · `…/wallet/apple?ticket={n}` | public (id is the credential, as the ticket page; see "Wallet passes"). Google: 302 to `https://pay.google.com/gp/v/save/{jwt}`; Apple: 200 `application/vnd.apple.pkpass`. `private, no-store`. 404 malformed (no query), the wallet not configured (no query), unknown, not paid, the event not published, or no ticket `n`; 400 `fieldErrors.ticket`; 429 over 30 a minute from this client, or 60 a minute for this order |
 | `GET /orders/by-session/{orderId}/payment` | public (id is the credential), read-only. `OrderPaymentLookup` (see "Payment flow", step 2), `private, no-store`: `{status: "open", clientSecret, expiresAt, …summary}`, `{status: "processing", delayed}`, `{status: "done"}`, or `{status: "closed" \| "sold_out", eventTitle, eventSlug?, seated}` (`closed` also when the event is no longer published or has ended while the session is open); 404 malformed (no query), unknown or a guest's free booking; 409 still being set up; 429 over 30 reads a minute from this client, or 20 Stripe reads a minute for this order; 500 an open session without a client secret |
-| `GET /cron/email-outbox` | Vercel Cron, and on Hobby Supabase Cron + `pg_net` (`Authorization: Bearer $CRON_SECRET`, 401 otherwise): sends due outbox jobs (ops alerts first, then tickets, waitlist, followers, admin review emails, then the admins' `event_published` and `organiser_joined` emails), records the run, returns counts `{claimed, sent, retrying, failed}` |
+| `GET /cron/email-outbox` | Vercel Cron, and on Hobby Supabase Cron + `pg_net` (`Authorization: Bearer $CRON_SECRET`, 401 otherwise): sends due outbox jobs (ops alerts first, then tickets, waitlist, followers, admin review emails, then the admins' `event_published` and `organiser_joined` emails, then the welcome emails), first queueing member welcomes (`queue_member_welcomes`), records the run, returns counts `{claimed, sent, retrying, failed}` |
 | `GET /cron/trending` | Vercel Cron (same secret, 401 otherwise): rebuilds the trending snapshot, returns `{eligible, ranked}` |
 | `GET /events/trending` | public: `{items: [{event, label, goingCount?}]}` (see "Trending"), at most 24, best first; `items: []` with fewer than 3. `cache-control: public, max-age=0, s-maxage=300, stale-while-revalidate=600` |
 | `GET /admin/emails?status&cursor` · `POST /admin/emails/{jobId}/resend` | admin. Status `failed` (default), `pending`, `sending`, `sent`. Resend: 404 unknown, 409 being sent, 429 resent in the last 5 minutes or over 20 an hour |

@@ -24,10 +24,22 @@ const RESET_SQL = `truncate private.user_reports, private.report_photos, public.
   private.trending_snapshot, private.event_curation, private.event_waitlist_tokens, private.event_waitlist,
   private.profile_avatars, private.profile_moderation_log, private.organiser_follow_tokens, private.organiser_event_announcements,
   public.organiser_follows, private.organiser_logos, private.event_clip_uploads, private.event_clips,
-  private.account_invites, private.organiser_invite_links, private.email_job_recipients, private.email_outbox, private.cron_runs, private.payment_exceptions,
+  private.account_invites, private.organiser_invite_links, private.email_job_recipients, private.onboarding_emails, private.email_outbox, private.cron_runs, private.payment_exceptions,
   private.early_charge_refunds, private.refund_status_marks, private.organiser_profile_edits, public.ticket_check_ins, public.tickets, public.event_seats, public.event_seat_maps, public.orders, public.event_moderation_log, public.ticket_types, public.events, public.organisers,
   auth.identities, auth.users cascade;
   update private.analytics_settings set views_tracked_since = (now() at time zone 'Australia/Melbourne')::date`;
+
+/**
+ * Onboarding emails (20261111000700_onboarding_emails.sql) are off in a test
+ * database unless a test file asks for them (createTestDb({ onboardingEmails:
+ * true })): the organisers' triggers are disabled, and TestApi.signUp records
+ * its accounts as already welcomed. Otherwise every unrelated test that counts
+ * the emails a cron run or a deferred send makes would also see welcomes for
+ * the accounts and organisers it set up. tests/server/onboarding-emails.test.ts
+ * runs with them on.
+ */
+const ONBOARDING_OFF_SQL = `alter table public.organisers disable trigger organisers_onboarding_email_insert;
+  alter table public.organisers disable trigger organisers_onboarding_email_approved`;
 
 /**
  * A real Postgres with Supabase's auth stubs and every migration in
@@ -39,17 +51,18 @@ const RESET_SQL = `truncate private.user_reports, private.report_photos, public.
  * the same suite through the production driver (postgres.js) instead; each
  * test file gets its own throwaway database.
  */
-export async function createTestDb(): Promise<{
+export async function createTestDb(options: { onboardingEmails?: boolean } = {}): Promise<{
   db: Db;
   reset: () => Promise<void>;
   /** The throwaway database's URL when running against a real server (TEST_DATABASE_URL), for tests that need their own connections. */
   url?: string;
 }> {
   const serverUrl = process.env.TEST_DATABASE_URL;
-  return serverUrl ? createServerTestDb(serverUrl) : createPgliteTestDb();
+  const resetSql = options.onboardingEmails ? RESET_SQL : `${RESET_SQL};\n  ${ONBOARDING_OFF_SQL}`;
+  return serverUrl ? createServerTestDb(serverUrl, resetSql) : createPgliteTestDb(resetSql);
 }
 
-async function createPgliteTestDb() {
+async function createPgliteTestDb(resetSql: string) {
   const pg = new PGlite();
   for (const sql of setupSql()) await pg.exec(sql);
   const db: Db = {
@@ -57,10 +70,10 @@ async function createPgliteTestDb() {
       return (await pg.query(text, params)).rows as T[];
     },
   };
-  return { db, reset: async () => void (await pg.exec(RESET_SQL)) };
+  return { db, reset: async () => void (await pg.exec(resetSql)) };
 }
 
-async function createServerTestDb(serverUrl: string) {
+async function createServerTestDb(serverUrl: string, resetSql: string) {
   const name = `sheltuh_test_${crypto.randomUUID().replace(/-/g, "")}`;
   const admin = postgres(serverUrl, { max: 1, onnotice: () => {} });
   await admin.unsafe(`create database ${name}`);
@@ -73,5 +86,5 @@ async function createServerTestDb(serverUrl: string) {
   await setup.end();
 
   const db = createPostgresDb(url.toString());
-  return { db, reset: async () => void (await db.query(RESET_SQL)), url: url.toString() };
+  return { db, reset: async () => void (await db.query(resetSql)), url: url.toString() };
 }

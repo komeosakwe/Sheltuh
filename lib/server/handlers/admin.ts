@@ -1,7 +1,7 @@
 import { requireAdmin, type Caller } from "../auth";
 import type { Db } from "../db";
 import type { Deps } from "../deps";
-import { sendPublishEmailsSoon } from "../email-outbox";
+import { sendOnboardingEmailsSoon, sendPublishEmailsSoon } from "../email-outbox";
 import { HttpError, okPrivate, readJson } from "../http";
 import { parseMessageText } from "../message-input";
 import { decodeCursor, isUuid, parseLimit, toPage } from "../pagination";
@@ -159,6 +159,8 @@ async function reviewOrganiser(
   if (rows.length === 0) {
     throw new HttpError(409, "This application is no longer pending — it may already have been reviewed.");
   }
+  // An approval may be what an application's still-waiting welcome was held for (it then goes out in its approved wording).
+  if (decision.status === "approved") sendOnboardingEmailsSoon(deps);
   return okPrivate(await findAdminOrganiser(deps.db, organiserId));
 }
 
