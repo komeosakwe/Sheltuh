@@ -60,7 +60,7 @@ export default function SeatedTicketsPanel({ event, demo }: { event: SheltuhEven
                 <p className={`mt-1 text-base leading-6 font-semibold tabular-nums ${tierSoldOut ? "text-muted" : ""}`.trim()}>
                   {formatTicketHeadline(ticket)}
                 </p>
-                {!ticket.seated && <p className="mt-1 text-xs text-muted">Standing · chosen on the next page</p>}
+                {!ticket.seated && <p className="mt-1 text-xs text-muted">Standing</p>}
                 {tierSoldOut ? (
                   <p className="eyebrow mt-1">Sold out</p>
                 ) : (
@@ -83,15 +83,12 @@ export default function SeatedTicketsPanel({ event, demo }: { event: SheltuhEven
         <p className="border-t border-foreground pt-4 text-sm">Ticket sales for this event have ended.</p>
       ) : (
         <div className="flex flex-col gap-3 border-t border-foreground pt-4">
-          <p className={`text-sm ${low ? "font-semibold" : ""}`}>
-            {low ? `Few seats left in ${low.name}.` : "Seats are numbered. You’ll pick yours on a seat map."}
-          </p>
+          {low && <p className="text-sm font-semibold">Few seats left in {low.name}.</p>}
           <ButtonLink variant="solid" size="lg" href={`/events/${event.slug}/seats`} className="w-full">
             Choose your seats
             <ArrowRightIcon className="h-4 w-4 shrink-0" />
           </ButtonLink>
           {buyerPaysAFee && <p className="text-xs text-muted">{describeBookingFeeNote()}</p>}
-          <p className="text-xs text-muted">Nothing is held until you press Checkout on the next page.</p>
         </div>
       )}
     </div>

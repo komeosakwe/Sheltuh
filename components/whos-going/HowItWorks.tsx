@@ -5,10 +5,10 @@
  * band, so it's read where you'd act on it). Keep in step with /privacy.
  */
 export const HOW_IT_WORKS_STEPS = [
-  "Anyone can see how many are going, once three or more people have added themselves.",
-  "Make a free profile with a verified email to see their names and faces. No ticket needed.",
-  "Got a ticket? Add yourself to the list, only if you want to.",
-  "Once you’re on the list, you can say hi to others going before the night.",
+  "Counts show once three people have added themselves.",
+  "Names need a free profile and a verified email.",
+  "Add yourself with a ticket, if you want.",
+  "Then you can message others going.",
 ] as const;
 
 /**

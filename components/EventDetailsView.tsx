@@ -381,8 +381,7 @@ export default function EventDetailsView({
                   <div className="flex flex-col gap-4 rounded-card border border-foreground bg-card p-4 sm:p-5">
                     {event.externalFree && <p className="text-base leading-6 font-semibold">Free entry</p>}
                     <p className="text-sm text-muted">
-                      Tickets for this event are sold and priced by {provider}, not Sheltüh, so there&rsquo;s no
-                      Sheltüh booking fee. Their terms apply.
+                      Sold by {provider}, not Sheltüh. No Sheltüh booking fee. Their terms apply.
                     </p>
                     {ticketUrl ? (
                       outboundLink(buttonClass("solid", "lg", "w-full"))
@@ -444,7 +443,6 @@ export default function EventDetailsView({
             {/* Events go live without a check first: anyone can tell Sheltüh about one (by email, for now). */}
             {!preview && (
               <p className="text-sm text-muted">
-                Something wrong with this event?{" "}
                 <a
                   href={reportEventHref(event.title, event.slug, siteOrigin(), SUPPORT_EMAIL)}
                   className="inline-flex min-h-6 items-center text-foreground underline underline-offset-4"

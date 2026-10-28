@@ -245,7 +245,7 @@ describe("seat page: checkout (§5.11)", () => {
     renderPicker({ event: live, mode: "live" });
     expect(
       screen.getByText(
-        "Seats aren’t held while you choose. Pressing Checkout holds them for 30 minutes while you pay. If you don’t finish, they’re released.",
+        "Checkout holds your seats for 30 minutes while you pay.",
       ),
     ).toBeInTheDocument();
     expect(screen.queryByText(/on Stripe/)).toBeNull();
@@ -364,7 +364,7 @@ describe("seat page: availability polling (§5.2)", () => {
   it("every seat held but not sold out: no waitlist, held seats come back within 30 minutes, and polling carries on", async () => {
     getSeatAvailability.mockResolvedValue(availability(everySeat));
     renderPicker({ event: live, mode: "live", poll: {}, initialUnavailable: everySeat });
-    expect(screen.getByText(/Every seat is held by people checking out right now\. Held seats come back within 30 minutes/)).toBeInTheDocument();
+    expect(screen.getByText(/Every seat is held by people checking out\. Unbought seats return within 30 minutes/)).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Join the waitlist" })).toBeNull();
     await act(() => vi.advanceTimersByTimeAsync(10_000));
     expect(getSeatAvailability).toHaveBeenCalledTimes(1);
@@ -524,7 +524,7 @@ describe("seat page: back from Stripe releases the hold (§5.11)", () => {
       .mockResolvedValueOnce({ status: "released", eventTitle: event.title, eventSlug: event.slug });
     renderPicker({ event: live, mode: "live" });
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "We couldn’t release the seats held for your last checkout just now. We’ll try again when you press Checkout, and they’re released automatically within 35 minutes anyway. You weren’t charged.",
+      "Couldn’t release the seats from your last checkout. We’ll retry at Checkout, and they’re released within 35 minutes anyway. You weren’t charged.",
     );
     expect(cancelPendingOrder).toHaveBeenCalledTimes(1);
     // Kept, with its original time, so the hold-expiry check still applies.
@@ -556,7 +556,7 @@ describe("seat page: back from Stripe releases the hold (§5.11)", () => {
     expect(cancelPendingOrder).toHaveBeenCalledTimes(2);
     expect(createSeatedCheckout).not.toHaveBeenCalled();
     expect(screen.getByRole("alert")).toHaveTextContent(
-      "We couldn’t release the seats held for your last checkout yet, so we can’t start a new one. Try Checkout again in a moment",
+      "Couldn’t release the seats from your last checkout, so we can’t start a new one. Try Checkout again",
     );
     expect(JSON.parse(window.sessionStorage.getItem(KEY) ?? "null")).toMatchObject({ orderId: ORDER });
 

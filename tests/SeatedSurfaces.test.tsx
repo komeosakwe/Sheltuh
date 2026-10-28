@@ -57,7 +57,6 @@ describe("event page for a seated event (docs/design/seating.md §5.1)", () => {
     expect(within(tickets).getByText("A$37.60 incl. booking fee")).toBeInTheDocument();
     expect(within(tickets).getByText("Only 10 seats left")).toBeInTheDocument();
     expect(within(tickets).getByText("Few seats left in Concession.")).toBeInTheDocument();
-    expect(within(tickets).getByText("Nothing is held until you press Checkout on the next page.")).toBeInTheDocument();
     const bar = container.querySelector("[data-buy-bar]") as HTMLElement;
     const cta = within(bar).getByRole("link", { name: "Choose seats" });
     expect(cta).toHaveAttribute("href", "/events/off-kilter-a-new-play/seats");
@@ -136,7 +135,7 @@ describe("/checkout/cancelled (§5.12)", () => {
     expect(screen.getByText("Off-Kilter: A New Play")).toBeInTheDocument();
     expect(cancelPendingOrder).toHaveBeenCalledTimes(1);
     expect(cancelPendingOrder).toHaveBeenCalledWith("ord_abc");
-    expect(screen.getByText("You weren’t charged, and your seats have been released for others.")).toBeInTheDocument();
+    expect(screen.getByText("You weren’t charged. Your seats were released.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Choose seats again" })).toHaveAttribute("href", "/events/off-kilter/seats");
     expect(screen.getByRole("link", { name: "Back to the event" })).toHaveAttribute("href", "/events/off-kilter");
   });
@@ -153,10 +152,10 @@ describe("/checkout/cancelled (§5.12)", () => {
     cancelPendingOrder.mockResolvedValueOnce({ status: "released", eventTitle: "Off-Kilter" });
     render(<CheckoutCancelled />);
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "We couldn’t release your seats just now. They’ll be released automatically within 35 minutes. You weren’t charged.",
+      "Couldn’t release your seats. They’re released within 35 minutes. You weren’t charged.",
     );
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-    expect(await screen.findByText("You weren’t charged, and your seats have been released for others.")).toBeInTheDocument();
+    expect(await screen.findByText("You weren’t charged. Your seats were released.")).toBeInTheDocument();
     expect(screen.getByText("Off-Kilter")).toBeInTheDocument();
     expect(cancelPendingOrder).toHaveBeenCalledTimes(2);
   });

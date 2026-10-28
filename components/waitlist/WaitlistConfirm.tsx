@@ -14,8 +14,8 @@ export default function WaitlistConfirm() {
       title="Join the waitlist"
       intro={
         <p>
-          Press Confirm and we&rsquo;ll email you if tickets for this event are released. Joining doesn&rsquo;t
-          reserve a ticket or charge you. Didn&rsquo;t ask for this? Just close this page: nothing happens.
+          We&rsquo;ll email you if tickets are released. Joining doesn&rsquo;t reserve a ticket or charge you. Didn&rsquo;t
+          ask for this? Close this page.
         </p>
       }
       action="Confirm"
@@ -26,13 +26,11 @@ export default function WaitlistConfirm() {
         title: "You’re on the waitlist",
         body: result.ticketsAvailable ? (
           <p>
-            For {result.eventTitle}. Good news: some tickets are on sale right now. It&rsquo;s first come, first
-            served.
+            For {result.eventTitle}. Some tickets are on sale now.
           </p>
         ) : (
           <p>
-            For {result.eventTitle}. We&rsquo;ll email you if tickets come up. It&rsquo;s first come, first served,
-            and every email has a link to leave the waitlist.
+            For {result.eventTitle}. We&rsquo;ll email you if tickets come up. Every email has a link to leave.
           </p>
         ),
         links: [

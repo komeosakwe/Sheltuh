@@ -29,7 +29,7 @@ export const FIRST_PAGE_SIZE = 6;
 export const MORE_PAGE_SIZE = 12;
 
 const LOAD_ERROR = "Couldn't load who's going.";
-const RATE_LIMITED = "Lots of people are looking right now. Try again in a few minutes.";
+const RATE_LIMITED = "Too many requests. Try again in a few minutes.";
 const inlineLinkClass = "underline underline-offset-4 hover:decoration-2";
 const tallInlineLinkClass = `inline-flex min-h-11 items-center ${inlineLinkClass}`;
 
@@ -407,7 +407,7 @@ export default function WhosGoing() {
           </div>
         )}
 
-        {nobody && <p className="text-sm text-muted">No one&rsquo;s added themselves yet.</p>}
+        {nobody && <p className="text-sm text-muted">No one yet.</p>}
 
         {signedIn?.namesRateLimited && (
           <div className="flex flex-col items-start gap-3">
@@ -425,7 +425,7 @@ export default function WhosGoing() {
             somethingAbove ? "mt-5 border-t border-surface-border pt-4" : ""
           }`.trim()}
         >
-          {mode === "demo" ? renderDemoActions() : signedIn ? renderMemberActions(d, signedIn) : renderSignedOutActions(d)}
+          {mode === "demo" ? renderDemoActions() : signedIn ? renderMemberActions(d, signedIn) : renderSignedOutActions()}
         </div>
       </>
     );
@@ -438,18 +438,15 @@ export default function WhosGoing() {
         <Button size="lg" disabled className="w-full sm:w-auto">
           Add yourself
         </Button>
-        <DemoNotice>These names are samples. Adding yourself isn&rsquo;t available in this demo.</DemoNotice>
+        <DemoNotice>Sample names.</DemoNotice>
       </>
     );
   }
 
-  function renderSignedOutActions(d: GoingData) {
+  function renderSignedOutActions() {
     return (
       <>
         {/* The API withholds counts under three (including none), so this can't tell 0 from 1–2. */}
-        {d.countHidden && (
-          <p className="text-sm">Be one of the first to add yourself.</p>
-        )}
         <ButtonLink variant="outline" size="lg" href={withNext("/login", `/events/${event.slug}`)} className={pillClass}>
           Sign in to see who&rsquo;s going
         </ButtonLink>
@@ -506,7 +503,7 @@ export default function WhosGoing() {
     // Names are refused (403) with a profile: the email isn't verified.
     // Without one, it's the missing profile, handled with the states below.
     if (viewer.namesDenied && profile) {
-      return <p className="text-sm">Verify your email address to see who&rsquo;s going and add yourself.</p>;
+      return <p className="text-sm">Verify your email to see who&rsquo;s going.</p>;
     }
     const namesNeedProfile = viewer.namesDenied && !profile;
 
@@ -532,10 +529,7 @@ export default function WhosGoing() {
     if (me.eligible) {
       return (
         <>
-          <p className="text-sm">
-            You&rsquo;ve got a ticket. Want people to know you&rsquo;re going?
-            {namesNeedProfile && <> Add yourself to see who else is.</>}
-          </p>
+          {namesNeedProfile && <p className="text-sm">Add yourself to see who else is going.</p>}
           {errorNotice}
           <Button
             id="wg-add"
@@ -575,7 +569,7 @@ export default function WhosGoing() {
         )}
         {namesNeedProfile && (
           <p className="text-sm">
-            Names are shown to members with a Who&rsquo;s Going profile.{" "}
+            Names are for members with a profile.{" "}
             <Link href="/account" className={tallInlineLinkClass}>
               Set up your profile
             </Link>

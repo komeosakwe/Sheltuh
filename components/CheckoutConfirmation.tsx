@@ -227,7 +227,6 @@ export default function CheckoutConfirmation() {
     return (
       <div className="flex flex-col items-start gap-3 py-10 sm:py-14">
         <LoadingState text="Confirming your order…" />
-        <p className="text-sm text-muted">This only takes a moment.</p>
       </div>
     );
   }
@@ -236,7 +235,7 @@ export default function CheckoutConfirmation() {
     return (
       <StateMessage headingRef={headingRef} title="We couldn’t find that order">
         <p className="max-w-md text-sm text-muted">
-          The link may be incomplete or expired. If you were charged, check your email for a receipt from Stripe.
+          If you were charged, check your email for a Stripe receipt.
         </p>
       </StateMessage>
     );
@@ -259,7 +258,7 @@ export default function CheckoutConfirmation() {
         <p className="max-w-md text-sm text-muted">
           {refundedAfterPayment
             ? `Your payment for ${state.order.eventTitle} was refunded, so the tickets for this order are no longer valid.`
-            : `${state.order.eventTitle} sold out or stopped taking bookings in the moments between your payment and confirming it. Your payment is being refunded in full \u2014 no tickets were issued for this order.`}
+            : `${state.order.eventTitle} sold out or stopped taking bookings before your payment was confirmed. You\u2019re being refunded in full. No tickets were issued.`}
         </p>
       </StateMessage>
     );
@@ -292,7 +291,7 @@ export default function CheckoutConfirmation() {
         }
       >
         <p className="max-w-md text-sm text-muted">
-          You haven&rsquo;t been charged. Your checkout is still open, so you can try again.
+          You haven&rsquo;t been charged.
           {context.seated ? ` Your seats are held until ${formatHoldDeadline(state.expiresAt, state.eventTimeZone, state.eventState)}.` : ""}
         </p>
       </StateMessage>
@@ -303,8 +302,7 @@ export default function CheckoutConfirmation() {
     return (
       <StateMessage headingRef={headingRef} title="Your payment is processing">
         <p className="max-w-md text-sm text-muted">
-          Some payment methods take a little longer to clear. We&rsquo;ll email your tickets as soon as it does; you
-          don&rsquo;t need to keep this page open. You won&rsquo;t be charged twice.
+          We&rsquo;ll email your tickets once it clears. You won&rsquo;t be charged twice.
         </p>
       </StateMessage>
     );
@@ -370,7 +368,7 @@ export default function CheckoutConfirmation() {
         <Strap label="Order confirmed" note={order.reference} />
         <h1 className="display-md break-words">{order.eventTitle}</h1>
         {order.maskedEmail && (
-          <p className="text-sm text-muted">We&rsquo;re emailing your tickets to {order.maskedEmail}.</p>
+          <p className="text-sm text-muted">Tickets sent to {order.maskedEmail}.</p>
         )}
       </div>
 
@@ -423,9 +421,8 @@ export default function CheckoutConfirmation() {
           </ul>
         )}
         <div className="flex flex-col gap-1 text-xs text-muted">
-          <p>Show a QR code at the door, from this page or your ticket email.</p>
-          <p>This page needs a connection. If signal at the venue is patchy, take a screenshot first.</p>
-          <p>Each code gets in once, so don&rsquo;t post or share it.</p>
+          <p>Screenshot your codes in case signal drops at the venue.</p>
+          <p>Each code works once. Don&rsquo;t share it.</p>
           <p>Order reference {order.reference}</p>
         </div>
       </section>
@@ -475,7 +472,6 @@ export default function CheckoutConfirmation() {
 
       {eventPath ? (
         <div className="flex flex-col items-start gap-3">
-          <p className="text-sm text-muted">Want people to know you&rsquo;re going?</p>
           <ButtonLink variant="outline" size="lg" href={`${eventPath}#whos-going`} className="w-full sm:w-auto">
             Add yourself to Who&rsquo;s Going
           </ButtonLink>

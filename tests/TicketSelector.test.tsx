@@ -64,7 +64,7 @@ describe("TicketSelector (live)", () => {
     expect(email).toHaveAttribute("aria-invalid", "true");
     // Both the hint and the error describe the field.
     expect(email).toHaveAccessibleDescription(
-      "We’ll send your tickets here. Booking with your Sheltüh account email also lets you add yourself to Who’s Going. Enter the email address to send your tickets to.",
+      "Tickets are sent here. Use your account email to join Who’s Going. Enter the email address to send your tickets to.",
     );
     expect(createCheckoutSession).not.toHaveBeenCalled();
   });
@@ -86,7 +86,7 @@ describe("TicketSelector (live, signed in)", () => {
     const email = screen.getByLabelText("Email for your tickets");
     expect(email).toHaveValue("mia@example.com");
     expect(email).toHaveAccessibleDescription(
-      "We’ll send your tickets here. Booking with your Sheltüh account email also lets you add yourself to Who’s Going.",
+      "Tickets are sent here. Use your account email to join Who’s Going.",
     );
     fireEvent.click(screen.getByRole("button", { name: "Get free tickets" }));
     // Signed in: a free order carries the account's token, so booking with
@@ -117,9 +117,7 @@ describe("TicketSelector (live, signed in)", () => {
     createCheckoutSession.mockReturnValue(new Promise(() => {}));
     renderSignedIn("neon-static");
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
-    const hint = screen.getByText(
-      "Booking as mia@example.com, your account email, so you can add yourself to Who’s Going.",
-    );
+    const hint = screen.getByText("Booking as mia@example.com.");
     const checkout = screen.getByRole("button", { name: "Checkout" });
     // The hint is read before the button, not after it.
     expect(hint.compareDocumentPosition(checkout) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -183,14 +181,14 @@ describe("TicketSelector (free tickets)", () => {
     render(<TicketSelector event={freeEvent()} />);
     const moreA = screen.getByRole("button", { name: "Increase quantity for Free entry" });
     const moreB = screen.getByRole("button", { name: "Increase quantity for Kids" });
-    expect(moreA).toHaveAccessibleDescription("Up to 4 free tickets per booking, in total across the free ticket types.");
+    expect(moreA).toHaveAccessibleDescription("Up to 4 free tickets per booking.");
     for (let i = 0; i < 3; i++) fireEvent.click(moreA);
     expect(moreA).toHaveAttribute("aria-disabled", "false");
     fireEvent.click(moreB);
     expect(moreA).toHaveAttribute("aria-disabled", "true");
     expect(moreB).toHaveAttribute("aria-disabled", "true");
     expect(moreB).toHaveAccessibleDescription(
-      "That's the most free tickets one booking can have (4 in total, across the free ticket types).",
+      "Up to 4 free tickets per booking.",
     );
     fireEvent.click(screen.getByRole("button", { name: "Decrease quantity for Free entry" }));
     expect(moreB).toHaveAttribute("aria-disabled", "false");
@@ -229,7 +227,7 @@ describe("TicketSelector (free tickets)", () => {
 
   it("states the free-ticket limit before the tickets", () => {
     render(<TicketSelector event={freeEvent()} />);
-    const limit = screen.getByText("Up to 4 free tickets per booking, in total across the free ticket types.");
+    const limit = screen.getByText("Up to 4 free tickets per booking.");
     // Read before the tickets (said to screen readers; shown only once the limit is reached).
     const firstTicket = screen.getByRole("group", { name: "Quantity for Free entry" }).closest("li");
     if (!firstTicket) throw new Error("ticket row not rendered");
@@ -253,7 +251,7 @@ describe("TicketSelector (free tickets)", () => {
     expect(morePaid).toHaveAttribute("aria-disabled", "false");
     // Checkout (a paid order) still shows the free-ticket limit.
     expect(screen.getByRole("button", { name: "Checkout" })).toBeEnabled();
-    expect(screen.getByText(/That's the most free tickets one booking can have/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Up to 4 free tickets per booking/)[0]).toBeInTheDocument();
   });
 
   it("shows no free-ticket limit for an event without free tickets", () => {
@@ -264,8 +262,7 @@ describe("TicketSelector (free tickets)", () => {
   it("explains how free tickets are issued, without promising they're instant", () => {
     render(<TicketSelector event={freeEvent()} />);
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Free entry" }));
-    expect(screen.getByText(/We'll email you a link to confirm your tickets before they're issued/)).toBeInTheDocument();
-    expect(screen.getByText(/your account's verified email\? That step is usually skipped/)).toBeInTheDocument();
+    expect(screen.getByText(/We’ll email a link to confirm your tickets/)).toBeInTheDocument();
     expect(screen.queryByText(/issued straight away|issued immediately/)).toBeNull();
   });
 
@@ -309,7 +306,7 @@ describe("TicketSelector (free tickets)", () => {
     const heading = await screen.findByRole("heading", { name: "Check your inbox" });
     await waitFor(() => expect(heading).toHaveFocus());
     expect(
-      screen.getAllByRole("status").find((s) => s.textContent?.startsWith("We’ve emailed a link to fan@example.com.")),
+      screen.getAllByRole("status").find((s) => s.textContent?.startsWith("Link sent to fan@example.com.")),
     ).toBeDefined();
     expect(screen.queryByRole("button", { name: "Get free tickets" })).toBeNull();
 
@@ -558,7 +555,7 @@ describe("TicketSelector before anything is chosen", () => {
     // Once chosen, the copy follows the total.
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
     expect(
-      screen.getByText("You'll pay on the next page, in a secure form from Stripe, our payment provider."),
+      screen.getByText("You’ll pay on the next page, via Stripe."),
     ).toBeInTheDocument();
     expect(screen.queryByText(/Stripe's own checkout page/)).toBeNull();
     expect(screen.queryByText("Choose tickets to continue.")).toBeNull();
@@ -584,7 +581,7 @@ describe("TicketSelector before anything is chosen", () => {
     expect(screen.getByRole("button", { name: "Checkout" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Listener" }));
     expect(screen.getByRole("button", { name: "Get free tickets" })).toBeEnabled();
-    expect(screen.getByText(/No payment step/)).toBeInTheDocument();
+    expect(screen.getByText(/We’ll email a link to confirm your tickets/)).toBeInTheDocument();
   });
 });
 

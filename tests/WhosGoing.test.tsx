@@ -167,10 +167,10 @@ describe("Who's Going — how it works, in the panel", () => {
     expect(steps).toEqual([...HOW_IT_WORKS_STEPS]);
     // The facts: the count from three, names and faces with a free verified profile (no ticket),
     // adding yourself after a ticket, messaging once on the list.
-    expect(steps[0]).toMatch(/three or more/);
-    expect(steps[1]).toMatch(/free profile with a verified email.*names and faces.*No ticket needed/);
-    expect(steps[2]).toMatch(/^Got a ticket\? Add yourself/);
-    expect(steps[3]).toMatch(/on the list/);
+    expect(steps[0]).toMatch(/three people/);
+    expect(steps[1]).toMatch(/free profile and a verified email/);
+    expect(steps[2]).toMatch(/^Add yourself with a ticket/);
+    expect(steps[3]).toMatch(/message others going/);
   });
 
   it("isn't shown for an external event (no Who's Going there)", async () => {
@@ -198,7 +198,7 @@ describe("Who's Going — demo", () => {
     expect(add).toBeDisabled();
     // The shared button and its disabled style (brand-direction-one.md §6.1), not a one-off.
     expect(add).toHaveClass("btn", "btn-lg");
-    expect(within(region).getByRole("note")).toHaveTextContent("These names are samples.");
+    expect(within(region).getByRole("note")).toHaveTextContent("Sample names.");
     expect(summaryLink()).toHaveAttribute("href", "#whos-going");
     expect(summaryLink()?.closest("div")).toHaveClass("lg:hidden");
     // A demo count is labelled as a sample (docs/design/mobile-redesign.md, Refinement 22 Oct 2026).
@@ -297,7 +297,7 @@ describe("Who's Going — signed out", () => {
     const region = await panel();
     expect(region).not.toHaveTextContent(/\d/);
     expect(summaryLink()).toBeNull();
-    expect(within(region).getByText("Be one of the first to add yourself.")).toBeInTheDocument();
+    expect(within(region).queryByText("Be one of the first to add yourself.")).toBeNull();
     expect(within(region).getByRole("link", { name: "Sign in to see who’s going" })).toBeInTheDocument();
   });
 
@@ -339,7 +339,7 @@ describe("Who's Going — signed in", () => {
     member({ count: 0, attendees: [] });
     renderEvent(LIVE_EVENT);
     region = await panel();
-    expect(within(region).getByText("No one’s added themselves yet.")).toBeInTheDocument();
+    expect(within(region).getByText("No one yet.")).toBeInTheDocument();
     // The names list (the panel also holds "How Who's Going works", an ordered list of steps).
     expect(within(region).queryByRole("list", { name: "People going" })).toBeNull();
   });
@@ -351,7 +351,7 @@ describe("Who's Going — signed in", () => {
     const region = await panel();
     // The names list (the panel also holds "How Who's Going works", an ordered list of steps).
     expect(within(region).queryByRole("list", { name: "People going" })).toBeNull();
-    expect(region).toHaveTextContent("Verify your email address to see who’s going and add yourself.");
+    expect(region).toHaveTextContent("Verify your email to see who’s going.");
     expect(within(region).getByText("4").closest("p")).toHaveTextContent("4 going");
   });
 
@@ -363,7 +363,7 @@ describe("Who's Going — signed in", () => {
     // The names list (the panel also holds "How Who's Going works", an ordered list of steps).
     expect(within(region).queryByRole("list", { name: "People going" })).toBeNull();
     expect(within(region).getByText("4").closest("p")).toHaveTextContent("4 going");
-    expect(region).toHaveTextContent("Names are shown to members with a Who’s Going profile.");
+    expect(region).toHaveTextContent("Names are for members with a profile.");
     expect(within(region).getByRole("link", { name: "Set up your profile" })).toHaveAttribute("href", "/account");
     expect(within(region).getByRole("link", { name: "Get a ticket" })).toBeInTheDocument();
     expect(region).not.toHaveTextContent("Verify your email");
@@ -374,7 +374,7 @@ describe("Who's Going — signed in", () => {
     api.listGoingAttendees.mockReset().mockRejectedValueOnce(new ApiError(429, "Too many requests."));
     renderEvent(LIVE_EVENT);
     const region = await panel();
-    expect(region).toHaveTextContent("Lots of people are looking right now. Try again in a few minutes.");
+    expect(region).toHaveTextContent("Too many requests. Try again in a few minutes.");
     expect(region).not.toHaveTextContent("Couldn't load who's going.");
     expect(within(region).queryByRole("alert")).toBeNull();
     // Opting in still works meanwhile.
@@ -513,7 +513,7 @@ describe("Who's Going — signed in", () => {
       const region = await panel();
       // The names list (the panel also holds "How Who's Going works", an ordered list of steps).
     expect(within(region).queryByRole("list", { name: "People going" })).toBeNull();
-      expect(region).toHaveTextContent("Want people to know you’re going? Add yourself to see who else is.");
+      expect(region).toHaveTextContent("Add yourself to see who else is going.");
       expect(within(region).getByRole("button", { name: "Add yourself" })).toBeInTheDocument();
       expect(region).not.toHaveTextContent("Verify your email");
     });
@@ -806,7 +806,7 @@ describe("Who's Going — signed in", () => {
     api.listGoingAttendees.mockRejectedValueOnce(new ApiError(429, "Too many requests."));
     fireEvent.click(within(region).getByRole("button", { name: "Show more" }));
     expect(
-      await within(region).findByText("Lots of people are looking right now. Try again in a few minutes."),
+      await within(region).findByText("Too many requests. Try again in a few minutes."),
     ).toBeInTheDocument();
     expect(names(region)).toHaveLength(6);
   });

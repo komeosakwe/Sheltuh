@@ -388,7 +388,7 @@ describe("CheckoutPayment: open", () => {
     expect(screen.getByRole("link", { name: "Privacy Policy" })).toHaveAttribute("href", "/privacy");
     expect(screen.getByRole("link", { name: "Purchase Terms" })).toHaveClass("whitespace-nowrap");
     expect(screen.getByRole("link", { name: "Privacy Policy" })).toHaveClass("whitespace-nowrap");
-    expect(screen.getByText(/Card details go straight to Stripe, our payment provider, and never reach Sheltüh\./)).toBeInTheDocument();
+    expect(screen.getByText(/Card details go to Stripe, not Sheltüh\./)).toBeInTheDocument();
     // No hold line without seats.
     expect(screen.queryByText(/Your seats are held/)).toBeNull();
   });
@@ -609,7 +609,7 @@ describe("CheckoutPayment: never loads Stripe", () => {
     render(<CheckoutPayment />);
     expect(heading()).toHaveTextContent("Checkout isn’t available in this demo");
     expect(
-      screen.getByText("This is a local prototype. No payment information is collected and no tickets are issued."),
+      screen.getByText("Demo only. Nothing is charged or issued."),
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Browse events" })).toHaveAttribute("href", "/");
     await act(async () => {});
@@ -779,7 +779,7 @@ describe("CheckoutPayment: other answers", () => {
     render(<CheckoutPayment />);
     expect(heading()).toHaveTextContent("We couldn’t find that checkout");
     expect(
-      screen.getByText("The link may be incomplete. If you were charged, your tickets are on their way to your email."),
+      screen.getByText("If you were charged, your tickets are on their way."),
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Back to Sheltüh" })).toHaveAttribute("href", "/");
     await act(async () => {});

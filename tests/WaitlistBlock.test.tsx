@@ -89,7 +89,7 @@ describe("TicketSelector, every tier sold out (§6.11)", () => {
     render(<TicketSelector event={{ ...soldOutEvent, organiserId: undefined }} />);
     expect(screen.getByRole("button", { name: "Join waitlist" })).toBeDisabled();
     expect(screen.getByLabelText("Email")).toBeDisabled();
-    expect(screen.getByRole("note")).toHaveTextContent("Joining the waitlist isn’t available in this demo");
+    expect(screen.getByRole("note")).toHaveTextContent("Not available in this demo");
     expect(joinWaitlist).not.toHaveBeenCalled();
   });
 });
@@ -129,11 +129,11 @@ describe("TicketSelector, one tier sold out, or few left", () => {
 });
 
 describe("WaitlistBlock (signed out)", () => {
-  it("explains the waitlist before you join: no reservation, no charge, first come first served", () => {
+  it("explains the waitlist before you join: no reservation, no charge", () => {
     render(<WaitlistBlock eventId="evt-1" />);
     expect(
       screen.getByText(
-        "We’ll email you if tickets are released. Joining doesn’t reserve a ticket or charge you. If tickets come up, it’s first come, first served.",
+        "We’ll email you if tickets are released. Joining doesn’t reserve a ticket or charge you.",
       ),
     ).toBeInTheDocument();
   });
@@ -148,8 +148,8 @@ describe("WaitlistBlock (signed out)", () => {
     expect(joinWaitlist).toHaveBeenCalledWith("evt-1", "guest@example.com", undefined);
     const heading = await screen.findByRole("heading", { name: "Check your inbox" });
     await waitFor(() => expect(heading).toHaveFocus());
-    expect(screen.getByText(/We’ve emailed a link to/)).toHaveAttribute("role", "status");
-    expect(screen.getByText(/works for 24 hours/)).toBeInTheDocument();
+    expect(screen.getByText(/Link sent to/)).toHaveAttribute("role", "status");
+    expect(screen.getByText(/within 24 hours/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Use a different email" }));
     await waitFor(() => expect(screen.getByLabelText("Email")).toHaveFocus());
@@ -241,7 +241,7 @@ describe("WaitlistBlock (signed in)", () => {
   it("a status check that fails still offers the form, and says so", async () => {
     getWaitlistStatus.mockRejectedValue(new ApiError(0, "Couldn't reach the server."));
     signedIn(<WaitlistBlock eventId="evt-1" />);
-    expect(await screen.findByText(/couldn’t check whether you’re on the waitlist/)).toBeInTheDocument();
+    expect(await screen.findByText(/Couldn’t check the waitlist/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Join waitlist" })).toBeInTheDocument();
   });
 });

@@ -67,9 +67,9 @@ export const AVAILABILITY_POLL_MS = 10_000;
 /** After this many failed polls in a row, say availability may be out of date (§5.2). */
 const STALE_AFTER_FAILURES = 3;
 /** Releasing the last checkout's hold failed; it's kept and tried again at the next chance. */
-const RELEASE_FAILED = `We couldn’t release the seats held for your last checkout just now. We’ll try again when you press Checkout, and they’re released automatically within ${SEAT_HOLD.holdMinutes} minutes anyway. You weren’t charged.`;
+const RELEASE_FAILED = `Couldn’t release the seats from your last checkout. We’ll retry at Checkout, and they’re released within ${SEAT_HOLD.holdMinutes} minutes anyway. You weren’t charged.`;
 /** …and again when Checkout was pressed, so the new checkout waits. */
-const RELEASE_FAILED_AT_CHECKOUT = `We couldn’t release the seats held for your last checkout yet, so we can’t start a new one. Try Checkout again in a moment; those seats are released automatically within ${SEAT_HOLD.holdMinutes} minutes anyway. You weren’t charged.`;
+const RELEASE_FAILED_AT_CHECKOUT = `Couldn’t release the seats from your last checkout, so we can’t start a new one. Try Checkout again; they’re released within ${SEAT_HOLD.holdMinutes} minutes anyway. You weren’t charged.`;
 
 export type SeatPickerMode = "live" | "demo" | "preview";
 
@@ -226,7 +226,7 @@ export default function SeatPicker({
   const soldOut = isSoldOut(event);
   const takenWords = soldOut
     ? "Every seat is taken."
-    : `Every seat is held by people checking out right now. Held seats come back within ${SEAT_HOLD.stripeMinutes} minutes if they’re not bought: keep this page open to see them.`;
+    : `Every seat is held by people checking out. Unbought seats return within ${SEAT_HOLD.stripeMinutes} minutes.`;
   const canCheckout = mode === "live" && Boolean(event.organiserId) && !readOnly;
 
   // Totals (lib/fees.ts only).
@@ -666,9 +666,9 @@ export default function SeatPicker({
 
   const holdCopy = freeBooking
     ? auth?.status === "signed-in"
-      ? "Pressing Get free tickets books these seats straight away."
-      : "We’ll email you a link to confirm. Your seats are only held once you confirm, if they’re still free."
-    : `Seats aren’t held while you choose. Pressing Checkout holds them for ${SEAT_HOLD.stripeMinutes} minutes while you pay. If you don’t finish, they’re released.`;
+      ? "Get free tickets books these seats now."
+      : "We’ll email a link to confirm. Seats are held once you confirm."
+    : `Checkout holds your seats for ${SEAT_HOLD.stripeMinutes} minutes while you pay.`;
 
   const checkoutLabel = busy ? (freeBooking ? "Booking…" : "Holding your seats…") : freeBooking ? "Get free tickets" : "Checkout";
 
@@ -828,10 +828,10 @@ export default function SeatPicker({
           <div className="flex flex-col gap-2">
             <h3 className="font-heading text-xl">Check your inbox</h3>
             <p role="status" className="text-sm">
-              We&rsquo;ve emailed a link to <span className="font-semibold break-all">{sentTo}</span>. Open it and press
-              Confirm to get your tickets. The link works for 24 hours.
+              Link sent to <span className="font-semibold break-all">{sentTo}</span>. Press Confirm in the email within
+              24 hours.
             </p>
-            <p className="text-xs text-muted">Your seats are only held once you confirm, if they&rsquo;re still free.</p>
+            <p className="text-xs text-muted">Seats are held once you confirm.</p>
           </div>
         )}
 
@@ -885,11 +885,10 @@ export default function SeatPicker({
           </>
         ) : mode === "demo" ? (
           <p className="text-xs text-muted">
-            This is a local prototype, so checkout is unavailable. No payment information is collected and no seats are held
-            {hasAnything ? " — the total above is a preview only." : "."}
+            Demo only. Nothing is charged or held.
           </p>
         ) : (
-          <p className="text-xs text-muted">This is a preview: nothing can be booked from it.</p>
+          <p className="text-xs text-muted">Preview only. Nothing can be booked.</p>
         )}
       </div>
     ) : null;

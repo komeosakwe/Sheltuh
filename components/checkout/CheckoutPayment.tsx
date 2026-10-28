@@ -66,7 +66,7 @@ export default function CheckoutPayment() {
   if (!isApiConfigured) {
     return (
       <Terminal title="Checkout isn’t available in this demo" action={{ href: "/", label: "Browse events" }}>
-        This is a local prototype. No payment information is collected and no tickets are issued.
+        Demo only. Nothing is charged or issued.
       </Terminal>
     );
   }
@@ -326,7 +326,7 @@ function LegalLine() {
       <Link href="/privacy" className={`${linkClass} py-1 whitespace-nowrap`}>
         Privacy Policy
       </Link>
-      . Card details go straight to Stripe, our payment provider, and never reach Sheltüh.
+      . Card details go to Stripe, not Sheltüh.
     </p>
   );
 }
@@ -361,7 +361,7 @@ export function CheckoutPaymentLoading() {
 function NotFound({ headingRef }: { headingRef?: Ref<HTMLHeadingElement> }) {
   return (
     <Terminal headingRef={headingRef} title="We couldn’t find that checkout" action={{ href: "/", label: "Back to Sheltüh" }}>
-      The link may be incomplete. If you were charged, your tickets are on their way to your email.
+      If you were charged, your tickets are on their way.
     </Terminal>
   );
 }

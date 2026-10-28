@@ -192,7 +192,7 @@ for (const vp of [
       await seatBar.getByRole("button", { name: /2 seats/ }).click();
       await expect(page.getByRole("heading", { name: "Your seats" })).toBeFocused();
       await expect(seatBar).toContainText("North · Row A · Seat 1");
-      await expect(seatBar).toContainText("Pressing Checkout holds them for 30 minutes while you pay.");
+      await expect(seatBar).toContainText("Checkout holds your seats for 30 minutes while you pay.");
 
       const checkout = seatBar.getByRole("button", { name: "Checkout" });
       await expect(checkout).toBeVisible();
@@ -309,7 +309,7 @@ test.describe("seated event at 1280×900", () => {
     expect(response?.headers()["referrer-policy"]).toBe("no-referrer");
     await expect(page.getByRole("heading", { level: 1, name: "Checkout cancelled" })).toBeFocused({ timeout: 30_000 });
     await expect(page.getByText(event!.title, { exact: true })).toBeVisible();
-    await expect(page.getByText("your seats have been released for others")).toBeVisible();
+    await expect(page.getByText("Your seats were released")).toBeVisible();
     await expect(page.getByRole("link", { name: "Choose seats again" })).toHaveAttribute("href", `/events/${event!.slug}/seats`);
     expect(posts.length).toBeGreaterThanOrEqual(1);
   });

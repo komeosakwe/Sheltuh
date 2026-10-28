@@ -82,7 +82,7 @@ describe("CheckoutConfirmation", () => {
   it("shows the masked email and the order reference, never a full address", async () => {
     getOrderBySession.mockResolvedValue(ORDER);
     render(<CheckoutConfirmation />);
-    expect(await screen.findByText("We’re emailing your tickets to m***@example.com.")).toBeInTheDocument();
+    expect(await screen.findByText("Tickets sent to m***@example.com.")).toBeInTheDocument();
     expect(screen.getByText("Order reference #7C1F2E0A")).toBeInTheDocument();
     expect(screen.getByText("ABC123")).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/mia@/);
@@ -125,11 +125,8 @@ describe("CheckoutConfirmation", () => {
     expect(screen.getByText("Ticket 1 of 2 · General admission")).toBeInTheDocument();
     expect(screen.getByText("Ticket 2 of 2 · General admission")).toBeInTheDocument();
     expect(screen.getAllByText("Turn your brightness up at the door.")).toHaveLength(2);
-    expect(screen.getByText("Show a QR code at the door, from this page or your ticket email.")).toBeInTheDocument();
-    expect(
-      screen.getByText("This page needs a connection. If signal at the venue is patchy, take a screenshot first."),
-    ).toBeInTheDocument();
-    expect(screen.getByText("Each code gets in once, so don’t post or share it.")).toBeInTheDocument();
+    expect(screen.getByText("Screenshot your codes in case signal drops at the venue.")).toBeInTheDocument();
+    expect(screen.getByText("Each code works once. Don’t share it.")).toBeInTheDocument();
     expect(screen.queryByText("Show this page or your ticket email at the door.")).toBeNull();
   });
 
@@ -386,7 +383,7 @@ describe("CheckoutConfirmation", () => {
     getOrderBySession.mockResolvedValue({ ...ORDER, status: "oversold_refund_required", refundReason: "oversold", tickets: [] });
     render(<CheckoutConfirmation />);
     expect(await screen.findByText("We couldn\u2019t reserve your tickets")).toBeInTheDocument();
-    expect(screen.getByText(/no tickets were issued/)).toBeInTheDocument();
+    expect(screen.getByText(/No tickets were issued/)).toBeInTheDocument();
   });
 });
 
@@ -414,7 +411,7 @@ describe("CheckoutConfirmation: back from Stripe without a confirmed order (chec
     getOrderPayment.mockResolvedValue({ status: "processing", delayed: false });
     await renderPending(1);
     expect(getOrderPayment).not.toHaveBeenCalled();
-    expect(screen.getByText("This only takes a moment.")).toBeInTheDocument();
+    expect(screen.queryByText("This only takes a moment.")).toBeNull();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2000);
     });
@@ -442,7 +439,7 @@ describe("CheckoutConfirmation: back from Stripe without a confirmed order (chec
     // effect that sets it has already run inside renderPending's act.)
     expect(document.title).toBe("Payment not completed — Sheltüh");
     expect(
-      screen.getByText("You haven’t been charged. Your checkout is still open, so you can try again."),
+      screen.getByText("You haven’t been charged."),
     ).toBeInTheDocument();
     // Focused by script, not a control: no ring. Balanced, as every message's h1.
     expect(h1).toHaveClass("focus:outline-none!", "text-balance");
@@ -483,7 +480,7 @@ describe("CheckoutConfirmation: back from Stripe without a confirmed order (chec
     await renderPending(2);
     expect(
       screen.getByText(
-        "You haven’t been charged. Your checkout is still open, so you can try again. Your seats are held until 8:31 pm Melbourne time.",
+        "You haven’t been charged. Your seats are held until 8:31 pm Melbourne time.",
       ),
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Back to Sheltüh" })).toHaveAttribute("href", "/");
@@ -513,7 +510,7 @@ describe("CheckoutConfirmation: back from Stripe without a confirmed order (chec
     const h1 = screen.getByRole("heading", { level: 1, name: "Your payment is processing" });
     expect(h1).toHaveFocus();
     const body = screen.getByText(
-      "Some payment methods take a little longer to clear. We’ll email your tickets as soon as it does; you don’t need to keep this page open. You won’t be charged twice.",
+      "We’ll email your tickets once it clears. You won’t be charged twice.",
     );
     expect(body).toHaveClass("text-muted");
     expect(screen.queryByRole("alert")).toBeNull();
@@ -612,7 +609,7 @@ describe("CheckoutConfirmation: the seat page's pending checkout (released on Ba
     getOrderBySession.mockResolvedValue({ status: "pending" });
     getOrderPayment.mockReturnValue(new Promise(() => undefined));
     await settle(1);
-    expect(screen.getByText("This only takes a moment.")).toBeInTheDocument();
+    expect(screen.queryByText("This only takes a moment.")).toBeNull();
     expect(sessionStorage.getItem(KEY)).toContain("cs_test_1");
   });
 

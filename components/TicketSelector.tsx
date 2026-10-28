@@ -121,7 +121,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   // checkout API refuses anything more with a 400). Sold-out types don't count.
   const freeTypeCount = ticketTypes.filter((t) => t.priceCents === 0 && !t.soldOut).length;
   const freeLimitReached = freeTicketsIn(ticketTypes, quantities) >= MAX_FREE_TICKETS_PER_ORDER;
-  const freeLimitText = `Up to ${MAX_FREE_TICKETS_PER_ORDER} free tickets per booking${freeTypeCount > 1 ? ", in total across the free ticket types" : ""}.`;
+  const freeLimitText = `Up to ${MAX_FREE_TICKETS_PER_ORDER} free tickets per booking.`;
 
   /** How many of `ticket` this selection can hold, and why no more. */
   function limitFor(ticket: TicketType, selection: Quantities): { cap: number; reason: string } {
@@ -316,7 +316,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
       {freeTypeCount > 0 && !soldOut && (
         <p id="free-ticket-limit" className={freeLimitReached ? "text-xs text-muted" : "sr-only"}>
           {freeLimitReached
-            ? `That's the most free tickets one booking can have (${MAX_FREE_TICKETS_PER_ORDER}${freeTypeCount > 1 ? " in total, across the free ticket types" : ""}).`
+            ? `Up to ${MAX_FREE_TICKETS_PER_ORDER} free tickets per booking.`
             : freeLimitText}
         </p>
       )}
@@ -434,12 +434,11 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                 Check your inbox
               </h4>
               <p role="status" className="text-sm text-foreground">
-                We&rsquo;ve emailed a link to <span className="break-all font-semibold">{sentTo}</span>. Open it and
-                press Confirm to get your tickets. The link works for 24 hours.
+                Link sent to <span className="break-all font-semibold">{sentTo}</span>. Press Confirm in the email
+                within 24 hours.
               </p>
               <p className="text-xs text-muted">
-                Nothing there after a few minutes? Check your spam folder. Your tickets aren&rsquo;t held until you
-                confirm.
+                Not there? Check spam. Tickets aren&rsquo;t held until you confirm.
               </p>
               <button
                 type="button"
@@ -476,8 +475,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                     className="min-h-12 px-3 py-2 text-base"
                   />
                   <p id="buyer-email-hint" className="text-xs text-muted">
-                    We&rsquo;ll send your tickets here. Booking with your Sheltüh account email
-                    also lets you add yourself to Who&rsquo;s Going.
+                    Tickets are sent here. Use your account email to join Who&rsquo;s Going.
                   </p>
                   {emailError && (
                     <p id="buyer-email-error" role="alert" className="text-sm text-danger">
@@ -488,7 +486,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
               )}
               {orderTotal.totalCents > 0 && accountEmail && (
                 <p className="mt-4 text-xs text-muted">
-                  Booking as {accountEmail}, your account email, so you can add yourself to Who&rsquo;s Going.
+                  Booking as {accountEmail}.
                 </p>
               )}
               {/* Right above Checkout, for paid orders only (the owner's placement). */}
@@ -538,8 +536,8 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
               ) : (
                 <p className="mt-2 text-xs text-muted">
                   {freeBooking
-                    ? "No payment step. We'll email you a link to confirm your tickets before they're issued. Signed in and booking with your account's verified email? That step is usually skipped."
-                    : "You'll pay on the next page, in a secure form from Stripe, our payment provider."}
+                    ? "We’ll email a link to confirm your tickets."
+                    : "You’ll pay on the next page, via Stripe."}
                 </p>
               )}
             </>
@@ -552,8 +550,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
               </button>
               {feeNote}
               <p className="mt-2 text-xs text-muted">
-                This is a local prototype. No payment information is collected and no tickets are
-                issued{hasAnyTickets ? " — the total above is a preview only." : "."}
+                Demo only. Nothing is charged or issued.
               </p>
             </>
           )}
