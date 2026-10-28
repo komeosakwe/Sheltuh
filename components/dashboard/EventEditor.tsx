@@ -216,7 +216,8 @@ function newTicketType(): TicketTypeInput {
     id: crypto.randomUUID(),
     name: "",
     priceCents: 0,
-    feePolicy: "buyer-pays",
+    // Organiser absorbs by default, so buyers see the ticket price as is; one select to change.
+    feePolicy: "organiser-absorbs",
     quantityAvailable: 20,
   };
 }

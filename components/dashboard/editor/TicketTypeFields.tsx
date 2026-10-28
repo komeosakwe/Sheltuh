@@ -96,8 +96,8 @@ export default function TicketTypeFields({
             aria-describedby={`ticket-${index}-fee-help`}
             className={fieldClass}
           >
+            <option value="organiser-absorbs">Organiser pays</option>
             <option value="buyer-pays">Buyer pays</option>
-            <option value="organiser-absorbs">Organiser absorbs</option>
           </select>
         </div>
         <div className="flex flex-col gap-1">
