@@ -5,9 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import SceneEventRow from "@/components/SceneEventRow";
 import SceneMapFilterBar from "@/components/SceneMapFilterBar";
-import MapStylePreview from "@/components/map/MapStylePreview";
 import SceneMapEventCard from "@/components/map/SceneMapEventCard";
-import { useMapTileStyle } from "@/components/map/useMapTileStyle";
 import { Button } from "@/components/ui/Button";
 import { SelectedDots } from "@/components/ui/FilterChip";
 import { LoadingIndicator, ProgressLoader, useLoadingProgress } from "@/components/ui/ProgressLoader";
@@ -22,7 +20,6 @@ import { useLocationModule } from "@/components/search/useLocationModule";
 import { findListedSuburb, resolveMapCoordinates, type SuburbLookup } from "@/lib/geo";
 import { readStoredNear } from "@/lib/near-storage";
 import { placeName } from "@/lib/place";
-import { TILE_STYLE_PARAM, type TileStyleId } from "@/lib/map-tiles";
 import { formatFeedPrice } from "@/lib/pricing";
 import {
   matchesPricing,
@@ -138,7 +135,6 @@ function writeFiltersToParams(
   filters: FilterState,
   selectedEventId: string | null,
   view: MobileView,
-  tiles: TileStyleId | null = null,
 ): URLSearchParams {
   const params = new URLSearchParams();
   if (filters.search) params.set("q", filters.search);
@@ -150,8 +146,6 @@ function writeFiltersToParams(
   if (selectedEventId) params.set("sel", selectedEventId);
   // The map is the default view, so only the list is written.
   if (view === "list") params.set("view", "list");
-  // The Mapbox preview's chosen style, for sharing (only ever set while the preview is on).
-  if (tiles) params.set(TILE_STYLE_PARAM, tiles);
   return params;
 }
 
@@ -202,9 +196,6 @@ function SceneMapView({
   const initial = useMemo(() => readFiltersFromParams(searchParams), []); // eslint-disable-line react-hooks/exhaustive-deps
   const initialSelected = useMemo(() => searchParams.get("sel"), []); // eslint-disable-line react-hooks/exhaustive-deps
   const initialView = useMemo<MobileView>(() => (searchParams.get("view") === "list" ? "list" : "map"), []); // eslint-disable-line react-hooks/exhaustive-deps
-  const initialTiles = useMemo(() => searchParams.get(TILE_STYLE_PARAM), []); // eslint-disable-line react-hooks/exhaustive-deps
-  // Esri, unless a Mapbox token turns on the style preview (docs/mapbox-preview.md).
-  const tiles = useMapTileStyle(initialTiles);
 
   const [filters, setFilters] = useState<FilterState>(initial);
   const [rawSelectedEventId, setSelectedEventId] = useState<string | null>(initialSelected);
@@ -261,11 +252,11 @@ function SceneMapView({
   // history) so the back button from a details page returns here with
   // filters and selection intact.
   useEffect(() => {
-    const params = writeFiltersToParams(filters, rawSelectedEventId, mobileView, tiles.picked);
+    const params = writeFiltersToParams(filters, rawSelectedEventId, mobileView);
     const qs = params.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters, rawSelectedEventId, mobileView, pathname, tiles.picked]);
+  }, [filters, rawSelectedEventId, mobileView, pathname]);
 
   // The loader's estimated progress; the results replace it once it's done.
   const progress = useLoadingProgress(status === "loading");
@@ -550,16 +541,6 @@ function SceneMapView({
             </EmptyState>
           ) : (
             <>
-              {/* Only with a Mapbox token (preview builds); with the map, so hidden on the phone's list. */}
-              {tiles.preview && (
-                <MapStylePreview
-                  styles={tiles.styles}
-                  value={tiles.active.id}
-                  onChange={tiles.choose}
-                  className={`${mobileView === "map" ? "flex" : "hidden"} lg:flex`}
-                />
-              )}
-
               {/* map-bleed: wider than the page column on large screens (globals.css). */}
               <div className="map-bleed grid overflow-hidden rounded-card border border-foreground bg-card lg:grid-cols-[55fr_45fr]">
                 {/* At most 60% of a phone's height, so there's always page to scroll by outside the map. */}
@@ -575,7 +556,6 @@ function SceneMapView({
                     onSelect={handleMapSelect}
                     onSearchArea={setAreaBounds}
                     onShowList={showList}
-                    tileStyle={tiles.active}
                   />
                   {/* Desktop: the selected event over the map's lower-left corner (phones get the bottom card below). */}
                   {selectedEvent && (
@@ -779,9 +759,10 @@ function SceneMapLive({ categories }: { categories: { value: EventCategory; labe
 }
 
 /**
- * The "Scene Map" discovery experience: a real (client-only, Leaflet +
- * Esri light-gray tiles, no API key) map synced with a scrollable event list,
- * backed by the same demo/live event data as the rest of the app.
+ * The "Scene Map" discovery experience: a real (client-only, Leaflet;
+ * Mapbox Streets tiles with a token, else Esri's: lib/map-tiles.ts) map
+ * synced with a scrollable event list, backed by the same demo/live event
+ * data as the rest of the app.
  */
 export default function SceneMap() {
   const categories = getEventCategories();

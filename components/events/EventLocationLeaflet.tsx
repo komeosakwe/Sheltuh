@@ -29,13 +29,13 @@ type TileStatus = "loading" | "loaded" | "failed";
 /**
  * The event page's Location map (components/events/EventLocationMap.tsx
  * loads it, client-only, as the section nears the screen): the /map basemap
- * (Esri, or the Mapbox preview's style; lib/map-tiles.ts) with one pin in
+ * (Mapbox Streets with a token, else Esri; lib/map-tiles.ts) with one pin in
  * /map's marker style, and its credit. A picture, not a widget: no zoom
  * controls, dragging, wheel, pinch or keyboard handling, so it never traps
  * scrolling; the section's map links are the action.
  */
 export default function EventLocationLeaflet({ lat, lng, zoom, event }: EventLocationLeafletProps) {
-  const { active: tileStyle } = useMapTileStyle(null);
+  const tileStyle = useMapTileStyle();
   const reducedMotion = usePrefersReducedMotion();
   const [status, setStatus] = useState<TileStatus>("loading");
   const loaded = useRef(0);

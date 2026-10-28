@@ -2,7 +2,12 @@ import { createHash, randomBytes } from "node:crypto";
 import type { EmailOutboxKind, PaymentExceptionKind } from "@/lib/api/types";
 import type { StateCode } from "@/lib/time-zones";
 import { describeTicketHost } from "@/lib/ticketing";
-import { buildEventPublishedEmail, buildEventReviewEmail, buildOrganiserReviewEmail } from "./admin-review-email";
+import {
+  buildEventPublishedEmail,
+  buildEventReviewEmail,
+  buildOrganiserJoinedEmail,
+  buildOrganiserReviewEmail,
+} from "./admin-review-email";
 import { PG_UNDEFINED_FUNCTION, pgErrorCode } from "./db";
 import type { Deps } from "./deps";
 import type { EmailMessage } from "./email";
@@ -20,7 +25,8 @@ import { buildWaitlistAvailableEmail, waitlistEventLink, waitlistLeaveLink } fro
  * The transactional email outbox (supabase/migrations/20261014000000_email_outbox.sql,
  * 20261024000000_waitlist.sql, 20261024000200_organiser_follows.sql,
  * 20261107000000_admin_review_emails.sql, 20261109000200_payment_reconciliation.sql,
- * 20261109000400_checkout_attempts.sql, 20261111000000_event_publish_now.sql). Seven kinds of job:
+ * 20261109000400_checkout_attempts.sql, 20261111000000_event_publish_now.sql,
+ * 20261111000500_organiser_invite_links.sql). Eight kinds of job:
  * - `ticket_email`: private.fulfil_order queues one when an order becomes paid.
  * - `waitlist_available`: private.notify_waitlist queues one per person told
  *   that tickets are available again (docs/architecture.md, "Waitlist").
@@ -34,6 +40,10 @@ import { buildWaitlistAvailableEmail, waitlistEventLink, waitlistLeaveLink } fro
  *   organiser's event goes live without review; one email to each admin, the
  *   same way. Only leased when asked for by kind (a previous release, which
  *   can't send it, never takes one).
+ * - `organiser_joined`: private.join_with_organiser_invite_link queues one
+ *   when an organiser link makes (or approves) an organiser; one email to
+ *   each admin, the same way, and likewise only leased by kind
+ *   (docs/architecture.md, "Organiser links").
  * - `ops_alert`: private.raise_payment_exception queues one when a payment
  *   exception is opened or reopened (at most 20 a day), and
  *   private.queue_checkout_surge_alert one when an event's paid checkouts
@@ -411,12 +421,23 @@ async function reviewEmailBuilder(
     if (!row.waiting) return { skip: "the application isn't waiting for review any more" };
     return { build: (to) => buildOrganiserReviewEmail({ to, organiserName: row.display_name, siteUrl }) };
   }
+  if (job.job_kind === "organiser_joined" && job.job_organiser_id) {
+    const [row] = await deps.db.query<{ display_name: string; approved: boolean }>(
+      `select o.display_name, o.status = 'approved' as approved from public.organisers o where o.id = $1`,
+      [job.job_organiser_id],
+    );
+    if (!row) return { skip: "the organiser no longer exists" };
+    if (!row.approved) return { skip: "the organiser isn't approved any more" };
+    return { build: (to) => buildOrganiserJoinedEmail({ to, organiserName: row.display_name, siteUrl }) };
+  }
   return { skip: "unknown job" };
 }
 
 /** The kinds sent to the admins (deliverReviewEmail). */
 function isAdminJob(kind: EmailJobKind): boolean {
-  return kind === "event_review" || kind === "organiser_review" || kind === "event_published";
+  return (
+    kind === "event_review" || kind === "organiser_review" || kind === "event_published" || kind === "organiser_joined"
+  );
 }
 
 /**
@@ -666,9 +687,9 @@ async function leaseJobs(deps: Deps, limit: number, orderId: string | null, kind
  * taken or `budgetMs` has passed. With `orderId`, only that order's job (the
  * attempt straight after payment); with `kind`, only jobs of that kind.
  * With neither, ops alerts first, then every other kind, then the
- * organiser-published emails (private.lease_outbox_jobs only leases ops
- * alerts and `event_published` jobs when asked for that kind, so a release
- * that can't send them never takes one).
+ * organiser-published and organiser-joined emails (private.lease_outbox_jobs
+ * only leases ops alerts, `event_published` and `organiser_joined` jobs when
+ * asked for that kind, so a release that can't send them never takes one).
  * Safe to run concurrently with itself.
  */
 export async function drainEmailOutbox(
@@ -678,7 +699,7 @@ export async function drainEmailOutbox(
   const { orderId, kind, maxJobs = 100, budgetMs = DRAIN_BUDGET_MS, random = Math.random } = options;
   const deadline = Date.now() + budgetMs;
   const summary: DrainSummary = { claimed: 0, sent: 0, retrying: 0, failed: 0 };
-  const phases: (EmailJobKind | null)[] = kind ? [kind] : orderId ? [null] : ["ops_alert", null, "event_published"];
+  const phases: (EmailJobKind | null)[] = kind ? [kind] : orderId ? [null] : ["ops_alert", null, "event_published", "organiser_joined"];
   for (const phase of phases) {
     while (summary.claimed < maxJobs && Date.now() < deadline) {
       // Taken before the lease starts, so the lease ends no sooner than this says.
@@ -779,10 +800,11 @@ export function sendSelfPublishEmailsSoon(deps: Deps): void {
 
 /**
  * Queues a run over due admin review emails of `kind` for straight after the
- * response that queued one (a submission, an application). Cheap when there
- * are none; one queued for later (the hourly throttle) waits for the cron route.
+ * response that queued one (a submission, an application, a join with an
+ * organiser link). Cheap when there are none; one queued for later (the
+ * hourly throttle) waits for the cron route.
  */
-export function sendReviewEmailsSoon(deps: Deps, kind: "event_review" | "organiser_review"): void {
+export function sendReviewEmailsSoon(deps: Deps, kind: "event_review" | "organiser_review" | "organiser_joined"): void {
   deps.defer(async () => {
     await drainEmailOutbox(deps, { kind, maxJobs: REVIEW_DRAIN_MAX_JOBS });
   });

@@ -21,11 +21,16 @@ const adminListInvites = vi.fn();
 const adminCreateInvite = vi.fn();
 const adminResendInvite = vi.fn();
 const adminRevokeInvite = vi.fn();
+// The page's organiser links section (tests/OrganiserLinksAdmin.test.tsx): an empty list here.
+const adminListOrganiserLinks = vi.fn();
 vi.mock("@/lib/api/admin", () => ({
   adminListInvites: (...args: unknown[]) => adminListInvites(...args),
   adminCreateInvite: (...args: unknown[]) => adminCreateInvite(...args),
   adminResendInvite: (...args: unknown[]) => adminResendInvite(...args),
   adminRevokeInvite: (...args: unknown[]) => adminRevokeInvite(...args),
+  adminListOrganiserLinks: (...args: unknown[]) => adminListOrganiserLinks(...args),
+  adminCreateOrganiserLink: vi.fn(),
+  adminCancelOrganiserLink: vi.fn(),
 }));
 
 function invite(id: string, overrides: Partial<AdminInviteRecord> = {}): AdminInviteRecord {
@@ -48,6 +53,8 @@ beforeEach(() => {
   fakeUrl.replace.mockReset();
   for (const fn of [adminListInvites, adminCreateInvite, adminResendInvite, adminRevokeInvite]) fn.mockReset();
   adminListInvites.mockResolvedValue({ items: [] });
+  adminListOrganiserLinks.mockReset();
+  adminListOrganiserLinks.mockResolvedValue({ items: [] });
 });
 afterEach(cleanup);
 

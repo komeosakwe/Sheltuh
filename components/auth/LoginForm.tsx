@@ -15,7 +15,7 @@ const FORM_ERROR_ID = "login-error";
 const INVALID_CREDENTIALS = "invalid login credentials";
 
 function noPasswordHint(names: string): string {
-  return `Signed up with ${names}? Use Continue with ${names} above — there’s no password.`;
+  return `Signed up with ${names}? Use the ${names} button above — there’s no password.`;
 }
 
 /**

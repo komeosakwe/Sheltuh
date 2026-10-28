@@ -28,20 +28,24 @@ export function parseAuthProviders(raw: string | undefined): OAuthProvider[] {
 }
 
 /**
- * The official logo files each provider's button shows, served from
- * public/auth/ (so at /auth/<file>). They're the vendors' own artwork, which
- * the owner downloads (docs/auth-logos.md says from where); none is
- * committed and no stand-in may ship, so next.config.ts fails the build when
- * NEXT_PUBLIC_AUTH_PROVIDERS lists a provider whose files are missing.
+ * The official artwork each provider's button shows, served from
+ * public/auth/ (so at /auth/<file>): the vendors' own files, unmodified
+ * (docs/auth-logos.md says where each comes from). No stand-in may ship, so
+ * next.config.ts fails the build when NEXT_PUBLIC_AUTH_PROVIDERS lists a
+ * provider whose files are missing.
  *
  * - Apple: Apple's "logo only" artwork, in both colours. The White theme's
  *   button is black with a white logo; the Dark theme's is white with a
- *   black logo (Apple: logo and title both white, or both black).
- * - Google: the standard multicolour "G", the same file on both themes.
+ *   black logo (Apple: logo and title both white, or both black). Not
+ *   committed: the owner adds them.
+ * - Google: Google's whole "Sign in with Google" button image (pill, with
+ *   text), the button itself. Light on the White theme, Dark on the Dark
+ *   theme, each at 2x and 4x. Committed, from the kit the owner provided.
+ *   In this order: light 2x, light 4x, dark 2x, dark 4x.
  */
 export const OAUTH_LOGO_FILES: Record<OAuthProvider, readonly string[]> = {
   apple: ["apple-logo-white.svg", "apple-logo-black.svg"],
-  google: ["google-g.svg"],
+  google: ["google-signin-light@2x.png", "google-signin-light@4x.png", "google-signin-dark@2x.png", "google-signin-dark@4x.png"],
 };
 
 /** Where the logo files are served from: public/auth/<file>. */

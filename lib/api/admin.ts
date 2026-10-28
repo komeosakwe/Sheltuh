@@ -8,6 +8,8 @@ import type {
   AdminInviteSendResult,
   AdminMemberProfile,
   AdminEventRecord,
+  AdminOrganiserLinkCreated,
+  AdminOrganiserLinkRecord,
   AdminOrganiserRecord,
   AdminReport,
   AdminSetEventTicketingInput,
@@ -460,6 +462,36 @@ export async function adminResendInvite(inviteId: string, getToken: GetToken) {
 export async function adminRevokeInvite(inviteId: string, getToken: GetToken) {
   const token = await getToken();
   return apiFetch<AdminInviteRecord>(`/admin/invites/${encodeURIComponent(inviteId)}/revoke`, {
+    method: "POST",
+    token,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Organiser links (docs/architecture.md, "Organiser links")
+// ---------------------------------------------------------------------------
+
+/** Every organiser link, newest first, with its state and the organiser it made. Never a token. */
+export async function adminListOrganiserLinks(getToken: GetToken, cursor?: string) {
+  const token = await getToken();
+  const qs = cursor ? `?${new URLSearchParams({ cursor })}` : "";
+  return apiFetch<Paginated<AdminOrganiserLinkRecord>>(`/admin/organiser-links${qs}`, { token });
+}
+
+/**
+ * Makes an organiser link (7 days, one use). 201 `{link, url}`: the URL is
+ * shown this once (only its hash is kept). ApiError 429 over 20 an hour (this
+ * admin) or 50 a day (everyone).
+ */
+export async function adminCreateOrganiserLink(getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<AdminOrganiserLinkCreated>("/admin/organiser-links", { method: "POST", token });
+}
+
+/** Cancels an unused link: it stops working at once. ApiError 404, 409 used, cancelled or expired. */
+export async function adminCancelOrganiserLink(linkId: string, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<AdminOrganiserLinkRecord>(`/admin/organiser-links/${encodeURIComponent(linkId)}/cancel`, {
     method: "POST",
     token,
   });

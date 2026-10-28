@@ -70,15 +70,15 @@ function Sync({
 
 /**
  * The venue pin picker's map (components/dashboard/VenuePinMap.tsx loads
- * it, client-only): the /map basemap (Esri, or the Mapbox preview's style;
- * lib/map-tiles.ts) that the organiser drags under a fixed pin. Pinch,
+ * it, client-only): the /map basemap (Mapbox Streets with a token, else
+ * Esri; lib/map-tiles.ts) that the organiser drags under a fixed pin. Pinch,
  * double-click and wheel zoom keep the centre where it is, so the spot
  * under the pin stays under it. It can't be moved outside Australia
  * (AUSTRALIA_BOUNDS). Leaflet's own keyboard handling is off: the picker
  * handles the keys, so there's one tab stop.
  */
 export default function VenuePinMapLeaflet({ centre, zoom, minZoom, maxZoom, onMove, wheelZoom }: VenuePinMapLeafletProps) {
-  const { active: tileStyle } = useMapTileStyle(null);
+  const tileStyle = useMapTileStyle();
   const reducedMotion = usePrefersReducedMotion();
   const [status, setStatus] = useState<TileStatus>("loading");
   const loaded = useRef(0);

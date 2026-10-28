@@ -68,7 +68,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261111000400_submit_event_location_in_app.sql`. Never
+      newest, currently `20261111000600_pin_search_path.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -226,6 +226,37 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           refusal: this app's `/submit` handler checks the pin itself, with
           the same 409, so the previous app's `/submit` works whatever is
           applied. Needs file 34. No table, column or data change)
+      38. `20261111000500_organiser_invite_links.sql` (organiser links,
+          docs/architecture.md "Organiser links": table
+          `private.organiser_invite_links` (RLS on, no grants),
+          `private.create_organiser_invite_link`,
+          `private.join_with_organiser_invite_link`, the outbox kind
+          `organiser_joined` (the admins' "an organiser joined with a link"
+          email: `private.email_outbox`'s two kind checks redefined from file
+          33 with it), `private.lease_outbox_jobs` redefined from file 33 so
+          that without a kind it also leaves `organiser_joined` jobs alone
+          (the previous app's cron never takes one), and
+          `private.purge_operational_data` dropped and recreated with one more
+          result column, `organiser_invite_links_deleted` (the Supabase Cron
+          job `select private.purge_operational_data()` is unaffected). Needs
+          file 21 (it reuses `private.account_invite_inviter_is_admin`),
+          file 26 (the purge it extends) and file 33 (the outbox checks and
+          lease it extends). Additive: no existing column or row changes (the
+          outbox's checks are re-validated against its rows, briefly locking
+          it, as file 33 did). The previous app never calls the new functions
+          and keeps working against it, so it can be applied ahead of the
+          deploy; this app's `/admin/invites` and `/organisers/join` need it
+          (500 without). Needs no new environment variable: in particular not
+          `SUPABASE_ADMIN_INVITE_KEY`. Reversible: restore the purge from
+          file 26 and the lease from file 33, delete the `organiser_joined`
+          jobs and restore the outbox's kind checks from file 33, then drop
+          the two functions and the table)
+      39. `20261111000600_pin_search_path.sql` (pins `search_path` on
+          `public.set_updated_at`, `private.update_event_draft` and
+          `private.transition_event`, clearing Supabase's Security Advisor
+          "Function Search Path Mutable" warnings. No behaviour change: the
+          bodies already name everything by schema. Safe to apply at any
+          time, before or after any deploy)
 
       **Files 33 to 37 can be applied ahead of this deploy, with the
       previous app still live.** "The previous app" here is the build of
@@ -464,10 +495,11 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
         "Confirm email" stays **on**; manual linking stays **off**.
       - Register the email senders as Apple email sources, or mail to Hide My
         Email addresses bounces.
-      - **Official logo files in `public/auth/`** (Apple's from Apple Design
-        Resources, Google's G from its branding kit), as
+      - **Apple's official logo files in `public/auth/`** (from Apple Design
+        Resources, `docs/auth-logos.md`), as
         `components/auth/OAuthButtons.tsx` expects them: they aren't in the
-        repo, and **the build fails without them**. No placeholder logos.
+        repo, and **the build fails without them** when the flag lists
+        `apple`. No placeholder logos. Google's button images are committed.
       - `NEXT_PUBLIC_AUTH_PROVIDERS=google,apple` (or `google`) in Vercel for
         **Production only** (previews share the production Supabase project
         and can't be registered), then **redeploy**. List only providers
@@ -792,6 +824,12 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       address on a phone ends on the dashboard as an approved organiser; an
       existing account; Google from the invite page; expired and revoked
       invites.
+- [ ] **Organiser links** (no key needed): on `/admin/invites`, Create
+      organiser link, Copy (and Share on a phone); open it in a private
+      window on a phone, create an account with a fresh address (the code
+      email), come back to the join page, type a name, tick a category, Join:
+      the dashboard says welcome and the organiser is approved. Opening the
+      same link again says it was already used; a cancelled one too.
 - [ ] **After the PKCE switch (whether or not Google and Apple are on):**
       email sign-up with the emailed code, and password reset with its code,
       both still work; so does signing in with a password.
@@ -799,7 +837,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       Chrome, iPhone Safari, the **iPhone home-screen app** (the installed
       PWA: unverified whether the sign-in survives the round trip; a launch
       gate) and Android Chrome:
-  - [ ] Continue with Google and with Apple from `/login` and `/signup`;
+  - [ ] Sign in with Google and Continue with Apple from `/login` and `/signup`;
         land back where you started (e.g. an event's Who's Going, via
         `next`), signed in; `/account` shows the email.
   - [ ] Cancel on Google's and Apple's screens: our "Sign-in cancelled"
@@ -813,7 +851,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
   - [ ] **Instagram's in-app browser** (open the site from a DM or bio
         link): Google shows the "open in your browser" notice instead of
         Google's error; check whether Apple works there.
-  - [ ] Sign out, then Continue with Google: Google asks which account.
+  - [ ] Sign out, then Sign in with Google: Google asks which account.
   - [ ] On the **test** project, start a sign-in with `redirect_to` set to
         `http://<site host>/auth/callback`, then to
         `https://<site host>:8443/auth/callback`: note whether Supabase

@@ -38,13 +38,13 @@ function inAppMessage(platform: DevicePlatform, apple: boolean): string {
 }
 
 const [APPLE_ON_WHITE, APPLE_ON_DARK] = OAUTH_LOGO_FILES.apple;
-const [GOOGLE_G] = OAUTH_LOGO_FILES.google;
+const [GOOGLE_LIGHT_2X, GOOGLE_LIGHT_4X, GOOGLE_DARK_2X, GOOGLE_DARK_4X] = OAUTH_LOGO_FILES.google;
 
 /**
- * The vendors' own artwork, served from public/auth/ (the owner adds it:
- * docs/auth-logos.md; next.config.ts fails the build without it). Shown
- * as files, unmodified and uncropped, and hidden from assistive tech: the
- * button's title is its name.
+ * The vendors' own artwork, served from public/auth/ (docs/auth-logos.md;
+ * next.config.ts fails the build without it). Shown as files, unmodified
+ * and uncropped, and hidden from assistive tech: the button's title (for
+ * Google, the words in its image, as screen-reader text) is its name.
  */
 function Logo({ file, className }: { file: string; className: string }) {
   return (
@@ -54,8 +54,28 @@ function Logo({ file, className }: { file: string; className: string }) {
 }
 
 /**
- * Continue with Apple / Continue with Google (docs/design/social-sign-in.md
- * §3 and §5), above the email form on /login and /signup. Only the
+ * Google's own "Sign in with Google" button image, unmodified, at its native
+ * CSS size (180×40) from the 2x or 4x file, whichever suits the screen.
+ */
+function GoogleArtwork({ x2, x4, className }: { x2: string; x4: string; className: string }) {
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- Google's button artwork, served as-is: next/image would re-encode it
+    <img
+      src={`${OAUTH_LOGO_PATH}/${x2}`}
+      srcSet={`${OAUTH_LOGO_PATH}/${x2} 2x, ${OAUTH_LOGO_PATH}/${x4} 4x`}
+      width={180}
+      height={40}
+      alt=""
+      aria-hidden="true"
+      draggable={false}
+      className={className}
+    />
+  );
+}
+
+/**
+ * Continue with Apple / Sign in with Google (docs/design/social-sign-in.md
+ * §3 to §5), above the email form on /login and /signup. Only the
  * providers NEXT_PUBLIC_AUTH_PROVIDERS lists, Apple first; nothing at all
  * in demo mode or with none listed.
  *
@@ -147,8 +167,10 @@ export default function OAuthButtons({ next }: { next?: string }) {
               onClick={() => void start("google")}
               className="btn-oauth btn-oauth-google"
             >
-              <Logo file={GOOGLE_G} className="size-6 shrink-0" />
-              <span>Continue with Google</span>
+              {/* Google's whole button: Light on the White theme, Dark on the Dark theme. Its name is the image's text. */}
+              <GoogleArtwork x2={GOOGLE_LIGHT_2X} x4={GOOGLE_LIGHT_4X} className="block dark:hidden" />
+              <GoogleArtwork x2={GOOGLE_DARK_2X} x4={GOOGLE_DARK_4X} className="hidden dark:block" />
+              <span className="sr-only">Sign in with Google</span>
             </button>
           )}
         </div>

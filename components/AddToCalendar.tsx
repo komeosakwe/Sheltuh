@@ -133,8 +133,12 @@ export default function AddToCalendar({
         }
       }}
       onBlur={(e) => {
-        // Tabbing out of the menu closes it (focus stays where it went).
-        if (open && e.relatedTarget instanceof Node && !e.currentTarget.contains(e.relatedTarget)) setLinks(null);
+        // Tabbing out of the menu closes it (focus stays where it went). Not when focus goes to an
+        // element around it: a press on the menu moves focus to <main tabIndex={-1}> (app/layout.tsx)
+        // in Safari and every iOS browser, which don't focus a pressed link, so closing here
+        // removed the link before its click landed. A press outside closes it (pointerdown above).
+        const next = e.relatedTarget;
+        if (open && next instanceof Node && !e.currentTarget.contains(next) && !next.contains(e.currentTarget)) setLinks(null);
       }}
     >
       <button

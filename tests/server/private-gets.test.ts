@@ -19,6 +19,7 @@ import { getGoingSummary, getMyGoing, listGoingAttendees } from "@/lib/server/ha
 import { adminListInvites } from "@/lib/server/handlers/invites";
 import { adminGetMemberProfile } from "@/lib/server/handlers/member-profiles";
 import { getUnreadCount, listConversations } from "@/lib/server/handlers/messages";
+import { adminListOrganiserLinks } from "@/lib/server/handlers/organiser-links";
 import { getMyOrganiser } from "@/lib/server/handlers/organisers";
 import { adminListPaymentExceptions } from "@/lib/server/handlers/payment-exceptions";
 import { getMyProfile, putMyProfile } from "@/lib/server/handlers/profiles";
@@ -83,6 +84,7 @@ const PRIVATE_GETS: Case[] = [
   { name: "adminGetEvent", handler: h(adminGetEvent), as: asAdmin, params: event },
   { name: "adminGetEventCuration", handler: h(adminGetEventCuration), as: asAdmin, params: event },
   { name: "adminListInvites", handler: h(adminListInvites), as: asAdmin },
+  { name: "adminListOrganiserLinks", handler: h(adminListOrganiserLinks), as: asAdmin },
   { name: "adminListOrganisers", handler: h(adminListOrganisers), as: asAdmin },
   { name: "adminListPaymentExceptions", handler: h(adminListPaymentExceptions), as: asAdmin },
   { name: "adminGetMemberProfile", handler: h(adminGetMemberProfile), as: asAdmin, params: () => ({ profileId }) },

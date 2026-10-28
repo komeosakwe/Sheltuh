@@ -67,7 +67,7 @@ export default defineConfig({
       // the payment page's form; Stripe.js itself is stubbed per test
       // (e2e/stripe-stub.ts), so nothing reaches Stripe either.
       command:
-        `NEXT_PUBLIC_MAPBOX_TOKEN= NEXT_PUBLIC_MAPBOX_STYLE= ` +
+        `NEXT_PUBLIC_MAPBOX_TOKEN= ` +
         `NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:${PORT}/supabase-mock ` +
         `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=e2e-placeholder ` +
         `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_e2e_placeholder ` +
@@ -76,9 +76,9 @@ export default defineConfig({
         // Support Sheltüh on (paused by default, lib/support.ts isSupportSheltuhEnabled): e2e/support-sheltuh.spec.ts tests the
         // chooser; tests/SupportSheltuh.test.tsx checks it's hidden while the flag is off.
         `NEXT_PUBLIC_SUPPORT_SHELTUH=1 ` +
-        // Continue with Apple / Google on (e2e/oauth.spec.ts). Only for this dev server: `next build`
-        // refuses the flag without the official logo files (next.config.ts), which aren't committed;
-        // the spec answers /auth/*.svg itself.
+        // Continue with Apple / Sign in with Google on (e2e/oauth.spec.ts). Only for this dev server:
+        // `next build` refuses the flag without Apple's official logo files (next.config.ts), which
+        // aren't committed; the spec answers /auth/*.svg itself (Google's images are committed).
         `NEXT_PUBLIC_AUTH_PROVIDERS=google,apple npx next dev -p ${PORT}`,
       url: `http://127.0.0.1:${PORT}`,
       reuseExistingServer: !process.env.CI,
@@ -88,16 +88,15 @@ export default defineConfig({
       // Empty values win over any .env.local, so this is always the demo.
       // A build of its own (next build writes .next, next dev .next/dev, so
       // it can run beside the dev server above), served by next start.
-      // A placeholder public Mapbox token, as a Vercel preview with the map
-      // style preview on (docs/mapbox-preview.md): e2e/mapbox-preview.demo.spec.ts
-      // answers every tile request itself. The live server above has none,
-      // so the rest of the suite sees /map exactly as production does.
+      // A placeholder public Mapbox token, so every map uses Mapbox Streets
+      // (docs/maps.md): e2e/mapbox-streets.demo.spec.ts answers every tile
+      // request itself. The live server above has none, so the rest of the
+      // suite sees the Esri fallback.
       command: `npx next build && npx next start -p ${DEMO_PORT}`,
       env: {
         NEXT_PUBLIC_SUPABASE_URL: "",
         NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "",
         NEXT_PUBLIC_MAPBOX_TOKEN: "pk.e2e-placeholder",
-        NEXT_PUBLIC_MAPBOX_STYLE: "",
         // Even with a key, the demo never loads Stripe.js (e2e/demo.spec.ts).
         NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: "pk_test_e2e_placeholder",
         // As the Vercel previews: no Apple / Google sign-in (e2e/demo.spec.ts checks there are no buttons).
