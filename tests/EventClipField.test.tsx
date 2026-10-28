@@ -237,7 +237,7 @@ describe("EventClipField: what a save needs", () => {
     expect(screen.getByText(CLIP_MESSAGES.rights)).toBeInTheDocument();
     expect(screen.getByLabelText("Describe the clip (required)")).toHaveAttribute("aria-invalid", "true");
     expect(screen.getByLabelText("Describe the clip (required)")).toHaveAccessibleDescription(
-      /What happens in it, for people who can’t see it\. Shown under the clip\. Describe the clip\./,
+      /For people who can’t see it\. Shown under the clip\. Describe the clip\./,
     );
     expect(screen.getByRole("checkbox", { name: /I own this clip/ })).toHaveAttribute("aria-invalid", "true");
     expect(api.updateEventDraft).not.toHaveBeenCalled();

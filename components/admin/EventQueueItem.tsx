@@ -569,7 +569,6 @@ function Actions({
         <MessageField
           id={ids.unpublishReason}
           label="Reason (optional; the organiser sees this)"
-          hint="Shown to the organiser on their event, so they know what to change."
           describedBy={ids.question}
           value={unpublishReason}
           onChange={(value) => {

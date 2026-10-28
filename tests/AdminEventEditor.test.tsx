@@ -357,7 +357,7 @@ describe("AdminOrganiserPicker", () => {
     render(<AdminOrganiserPicker getToken={getToken} value={null} onChange={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: "Create a platform-managed organiser" }));
     const group = screen.getByRole("group", { name: "New platform-managed organiser" });
-    expect(group).toHaveTextContent("Sheltüh admins check tickets in at the door");
+    expect(group).toHaveTextContent("admins run the door");
     expect(group).not.toHaveTextContent(/no check-in/i);
   });
 
@@ -386,7 +386,7 @@ describe("EventEditor (admin) — editing", () => {
     expect(screen.queryByRole("button", { name: "Publish…" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Send for review" })).toBeNull();
     expect(screen.queryByLabelText("Publish when saved")).toBeNull();
-    expect(screen.getByText(/your changes go live as soon as you save/)).toBeInTheDocument();
+    expect(screen.getByText(/changes go live when you save/)).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Encore" } });
     fireEvent.change(screen.getByLabelText(/Note for the event.s log/), { target: { value: "Venue asked." } });

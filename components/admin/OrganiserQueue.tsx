@@ -46,7 +46,6 @@ const STATUSES: {
     one: "approved organiser",
     many: "approved organisers",
     none: "No approved organisers",
-    intro: "Live on Sheltüh now. Suspend one to take their profile and events down.",
   },
   {
     value: "rejected",
@@ -56,7 +55,6 @@ const STATUSES: {
     one: "rejected or suspended organiser",
     many: "rejected or suspended organisers",
     none: "No rejected or suspended organisers",
-    intro: "Rejected applications, and organisers who were suspended.",
   },
 ];
 
@@ -475,9 +473,7 @@ export default function OrganiserQueue() {
                     Clear search
                   </Button>
                 }
-              >
-                The search looks at names, contact emails and social handles in this list only. Try another list above.
-              </EmptyState>
+              />
             ) : (
               <EmptyState title={current.empty} />
             ))}

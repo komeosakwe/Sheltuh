@@ -144,8 +144,7 @@ export default function TrendingPanel({
           Trending
         </h2>
         <p className="mt-1 text-sm text-muted">
-          Boost this event in the home page’s Trending, or keep it out. Boosts apply at the next refresh (a few
-          minutes); keeping it out applies straight away.
+          Boosts apply within a few minutes; keeping it out applies straight away.
         </p>
       </div>
 

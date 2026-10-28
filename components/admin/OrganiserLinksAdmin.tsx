@@ -178,7 +178,7 @@ export default function OrganiserLinksAdmin({
     try {
       if (!navigator.clipboard?.writeText) throw new Error("no clipboard");
       await navigator.clipboard.writeText(created.url);
-      setAnnouncement("Link copied. Paste it into a message to the organiser.");
+      setAnnouncement("Link copied.");
     } catch {
       // Select it for copying by hand.
       setCopyFailed(true);
@@ -243,8 +243,7 @@ export default function OrganiserLinksAdmin({
         Organiser links
       </h2>
       <p className="max-w-xl text-sm text-muted">
-        Make a link and send it to an organiser, on WhatsApp or by email. Whoever opens it signs up or signs in, types
-        their organiser name, and is an approved organiser straight away. Each link works once, for{" "}
+        Whoever opens a link is approved as an organiser straight away. Each link works once, for{" "}
         {ORGANISER_LINK_DAYS} days.
       </p>
 

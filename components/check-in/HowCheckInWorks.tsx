@@ -13,7 +13,6 @@ export default function HowCheckInWorks() {
           result to let someone back in. You&rsquo;ll need a reason.
         </li>
         <li>Use the torch for paper tickets. Turn it off for phone screens: it causes glare.</li>
-        <li>In a dark room, set your screen to about half brightness. Results are still easy to see.</li>
         <li>Everyone on the door signs in with this organiser account.</li>
       </ul>
     </details>

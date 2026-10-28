@@ -339,13 +339,12 @@ export default function EventQueue() {
         </h2>
         {doorView && (
           <p className="mt-2 text-sm text-muted">
-            Admins run the door only for the ones ticketed on Sheltüh: those have a Door check-in button.
+            Door check-in is only for events ticketed on Sheltüh.
           </p>
         )}
         {filters.status === "published" && filters.view === "recent" && (
           <p className="mt-2 text-sm text-muted">
-            Newest first. Approved organisers publish without review: each event says who published it. Unpublish
-            anything that shouldn’t be on Sheltüh, with a note the organiser sees.
+            Newest first. Each event says who published it.
           </p>
         )}
         {filters.q && <p className="mt-2 text-sm text-muted">Matching “{filters.q}”.</p>}
@@ -378,9 +377,7 @@ export default function EventQueue() {
                     Clear search
                   </Button>
                 }
-              >
-                The search looks at titles and organiser names in this list only. Try another list above.
-              </EmptyState>
+              />
             ) : (
               <EmptyState
                 title={words.emptyTitle}
@@ -391,9 +388,7 @@ export default function EventQueue() {
                     </Link>
                   ) : undefined
                 }
-              >
-                {words.emptyText}
-              </EmptyState>
+              />
             ))}
 
           {state.status === "ready" && state.items.length > 0 && (

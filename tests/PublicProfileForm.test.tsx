@@ -77,7 +77,7 @@ describe("PublicProfileForm", () => {
     expect(screen.getByLabelText("TikTok username")).toHaveValue("northside_noise");
     expect(screen.getByLabelText("Facebook page")).toHaveValue("");
     expect(screen.getByLabelText("X username")).toHaveValue("");
-    expect(describedBy(screen.getByLabelText("X username"))).toContain("without the @");
+    expect(describedBy(screen.getByLabelText("X username"))).toContain("Without the @");
     expect(describedBy(screen.getByLabelText("Bio (required)"))).toContain("1,973 characters left");
   });
 

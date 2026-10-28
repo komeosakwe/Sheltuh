@@ -79,8 +79,7 @@ const saveButton = () => screen.getByRole("button", { name: /^Save draft|^Saving
 describe("EventEditor — field errors are tied to their fields", () => {
   it.each([
     ["title", "Title", "Enter an event title.", undefined],
-    // The description also has a hint ("Shown in About this event."), which stays when it has an error.
-    ["description", "Description", "Enter a description.", "description-hint"],
+    ["description", "Description", "Enter a description.", undefined],
     ["venueName", "Venue name", "Enter a venue name.", undefined],
     ["venueAddress", "Venue address", "Enter a venue address.", undefined],
   ])("%s: aria-invalid, and described by its error", async (id, label, message, hint) => {

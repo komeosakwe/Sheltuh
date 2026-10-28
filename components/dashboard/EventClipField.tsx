@@ -231,7 +231,7 @@ export default function EventClipField({
               </label>
               <p id="event-clip-hint" className="max-w-sm text-xs text-muted">
                 Up to 15 seconds, no sound, MP4 or MOV (H.264), up to {cap} MB. On iPhone, set Camera → Formats → Most
-                Compatible, or export as H.264. It plays when someone taps the event’s photo.
+                Compatible.
               </p>
             </>
           )}
@@ -263,7 +263,7 @@ export default function EventClipField({
           />
           <div className="flex items-start justify-between gap-3">
             <p id="event-clip-description-hint" className="text-xs leading-4 text-muted">
-              What happens in it, for people who can’t see it. Shown under the clip.
+              For people who can’t see it. Shown under the clip.
             </p>
             <p className="meta shrink-0 text-muted tabular-nums">
               {state.description.length}/{MAX_CLIP_DESCRIPTION_LENGTH}

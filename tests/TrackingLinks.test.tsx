@@ -40,10 +40,10 @@ describe("TrackingLinks", () => {
     expect(api.listTrackingLinks).toHaveBeenCalledWith("evt-1", getToken);
   });
 
-  it("empty: says what links are for", async () => {
+  it("empty: says there are no links", async () => {
     api.listTrackingLinks.mockResolvedValue({ items: [] });
     renderLinks();
-    expect(await screen.findByText("No links yet. Make one for each place you post about this event.")).toBeInTheDocument();
+    expect(await screen.findByText("No links yet.")).toBeInTheDocument();
   });
 
   it("a load error has Try again", async () => {

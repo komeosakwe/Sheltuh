@@ -11,7 +11,7 @@ export default function AdminEventsPage() {
     <AdminPage
       crumbs={[{ href: "/admin", label: "Admin" }]}
       title="Events"
-      intro="Every event by status: submissions waiting for review first, soonest first. Approve publishes an event and emails its organiser’s followers; Reject sends your reason to the organiser. Published › Recently published lists what went live in the last 14 days, including events organisers published themselves."
+      intro="Approve publishes an event and emails its organiser’s followers; Reject sends your reason to the organiser."
       width="wide"
     >
       {/* The filters live in the URL (useSearchParams), so the queue renders on the client. */}

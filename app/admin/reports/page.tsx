@@ -11,7 +11,7 @@ export default function AdminReportsPage() {
     <AdminPage
       crumbs={[{ href: "/admin", label: "Admin" }]}
       title="Reports"
-      intro="Members’ reports about messages, Who’s Going names and profiles, oldest first. Dismiss a report, or suspend the member: they’re hidden from Who’s Going and can’t send messages."
+      intro="Oldest first. Suspending hides the member from Who’s Going and blocks messaging."
     >
       {/* The filter lives in the URL (useSearchParams), so the list renders on the client. */}
       <Suspense fallback={<LoadingState text="Loading…" />}>

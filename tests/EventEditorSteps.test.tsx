@@ -239,7 +239,7 @@ describe("Before you publish", () => {
     expect(row("tickets")).toHaveTextContent("Enter a ticket name.");
     expect(screen.getByText("Some events are checked by Sheltüh before going live.")).toBeInTheDocument();
     // The Publish card for a new event: nothing to press yet.
-    expect(screen.getByText("Save the draft first. Publishing opens once it is saved.")).toBeInTheDocument();
+    expect(screen.getByText("Save the draft first.")).toBeInTheDocument();
   });
 
   it("follows the form, and 'Go to' shows the step and focuses the control", () => {

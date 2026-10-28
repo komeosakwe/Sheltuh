@@ -132,10 +132,7 @@ export default function EventImageField({
               </p>
             )}
           </div>
-          <p className="text-xs leading-4 text-muted">
-            Shown at 3:2 on the event page and 4:3 on phones.
-            {!hasImage && " No photo yet. Your event shows generated artwork until you add one."}
-          </p>
+          {!hasImage && <p className="text-xs leading-4 text-muted">No photo yet. Artwork is generated.</p>}
         </div>
         <div className="flex flex-col items-start gap-3">
           {/* The native picker, visually hidden but focusable (its focus ring shows on the label,
@@ -163,8 +160,7 @@ export default function EventImageField({
             {hasImage ? "Choose another photo" : "Choose a photo"}
           </label>
           <p id="event-image-hint" className="max-w-sm text-xs text-muted">
-            A landscape photo works best. A portrait or square one is shown whole on black. JPEG, PNG or WebP,
-            resized automatically. Only use images you have the rights to.
+            Landscape works best. JPEG, PNG or WebP. Only use images you have the rights to.
           </p>
           {hasImage && (
             <Button

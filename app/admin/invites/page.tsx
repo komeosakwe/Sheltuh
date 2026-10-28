@@ -10,7 +10,7 @@ export default function AdminInvitesPage() {
     <AdminPage
       crumbs={[{ href: "/admin", label: "Admin" }]}
       title="Invites"
-      intro={`Send an organiser a link that makes them an approved organiser (no email or details needed), or invite someone who asked to join by email, as an organiser or a member: we email them a link that works for ${INVITE_LINK_DAYS} days, with no reminders.`}
+      intro={`Email invites work for ${INVITE_LINK_DAYS} days, with no reminders. Organiser links approve the organiser straight away.`}
     >
       <InvitesAdmin />
     </AdminPage>

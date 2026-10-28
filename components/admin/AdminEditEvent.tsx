@@ -91,7 +91,7 @@ export default function AdminEditEvent() {
           >
             {event.seating ? `Seat map (${event.seating.seatCount} seats)` : "Seat map"}
           </Link>{" "}
-          — preview, replace or remove (only while the event has no orders).
+          — replace or remove while there are no orders.
         </p>
       )}
       {adminCheckIn && (
@@ -102,7 +102,7 @@ export default function AdminEditEvent() {
           >
             Open door check-in
           </Link>{" "}
-          — admins check tickets in for platform-managed organisers&rsquo; events.
+          — for Sheltüh-run events.
         </p>
       )}
       <p className="text-sm text-muted">
@@ -112,7 +112,7 @@ export default function AdminEditEvent() {
         >
           Trending
         </a>{" "}
-        — boost this event on the home page, or keep it out (below the editor).
+        — boost or keep out (below the editor).
       </p>
       <EventEditor
         key={generation}

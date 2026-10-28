@@ -133,7 +133,7 @@ export default function TicketTypeFields({
           />
           <div className="flex items-start justify-between gap-3">
             <p id={`ticket-${index}-description-hint`} className="text-xs leading-4 text-muted">
-              Shown under the ticket&rsquo;s name when people choose tickets. For example, what&rsquo;s included.
+              Shown under the ticket name.
             </p>
             <p className="meta shrink-0 text-muted tabular-nums">
               {description.length}/{MAX_TICKET_DESCRIPTION_LENGTH}
@@ -185,7 +185,7 @@ function FeePolicyHelp({ id, priceCents, isAdmin }: { id: string; priceCents: nu
       </p>
       <p>
         <span className="font-semibold text-foreground">Organiser absorbs:</span> the buyer pays just {price} and the fee
-        comes out of it, so {you} {formatAud(Math.max(priceCents - fee, 0))}. Handy for keeping a round price.
+        comes out of it, so {you} {formatAud(Math.max(priceCents - fee, 0))}.
       </p>
       <p>Card processing costs are covered by Sheltüh either way.</p>
     </div>

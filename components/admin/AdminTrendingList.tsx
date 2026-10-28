@@ -71,10 +71,7 @@ export default function AdminTrendingList() {
           </div>
         )}
         {state.status === "ready" && state.items.length === 0 && (
-          <EmptyState title="Trending is hidden right now">
-            Fewer than 3 events qualify, so the home page leaves the section out. Boosting an event under Events can
-            change that.
-          </EmptyState>
+          <EmptyState title="Trending is hidden right now">Fewer than 3 events qualify.</EmptyState>
         )}
         {state.status === "ready" && state.items.length > 0 && (
           <ol className="flex flex-col border-b border-foreground">

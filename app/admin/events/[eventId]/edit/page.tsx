@@ -12,7 +12,7 @@ export default function AdminEditEventPage() {
         { href: "/admin/events", label: "Events" },
       ]}
       title="Edit event"
-      intro="Change anything about this event, whatever its status, and curate it for Trending. Changes are logged where the organiser can see them."
+      intro="Changes are logged where the organiser can see them."
       width="editor"
     >
       <AdminEditEvent />

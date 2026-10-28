@@ -58,9 +58,9 @@ describe("Admin hub", () => {
     expect(reports).toHaveAttribute("href", "/admin/reports");
     expect(reports).toHaveTextContent("3 open · oldest from");
     // What to do is the link's description, not part of its name.
-    expect(reports).not.toHaveTextContent("dismiss it or suspend the member");
+    expect(reports).not.toHaveTextContent("Dismiss, or suspend the member");
     expect(reports).toHaveAccessibleName(/^Member reports\s*3 open · oldest from/);
-    expect(reports).toHaveAccessibleDescription("Read each report, then dismiss it or suspend the member.");
+    expect(reports).toHaveAccessibleDescription("Dismiss, or suspend the member.");
     const events = within(needs).getByRole("link", { name: /^Event submissions/ });
     expect(events).toHaveAttribute("href", "/admin/events");
     expect(events).toHaveTextContent("4 waiting · 1 starts within 3 days");
@@ -87,7 +87,7 @@ describe("Admin hub", () => {
     ]);
     expect(within(manage).getByRole("link", { name: /^Door check-in/ })).toHaveTextContent("2 events in the next 24 hours");
     expect(within(manage).getByRole("link", { name: "Invite someone" })).toHaveAccessibleDescription(
-      "Invite a person who asked to join, as an organiser (approved when they accept) or a member.",
+      "As an organiser or a member.",
     );
     expect(within(section("Done outside Sheltüh admin")).getByText(/Stripe dashboard/)).toBeInTheDocument();
   });
@@ -99,7 +99,7 @@ describe("Admin hub", () => {
     const card = within(section("Manage")).getByRole("link", { name: /^Recently published/ });
     expect(card).toHaveAttribute("href", "/admin/events?status=published&view=recent");
     expect(card).toHaveTextContent("3 by organisers in the last 3 days");
-    expect(card).toHaveAccessibleDescription(/Approved organisers publish without review/);
+    expect(card).toHaveAccessibleDescription(/Unpublish anything that shouldn’t be live/);
     expect(within(card).getByText("3 by organisers in the last 3 days")).toHaveClass("text-foreground");
     unmount();
 
