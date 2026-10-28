@@ -38,14 +38,13 @@ export function parseAuthProviders(raw: string | undefined): OAuthProvider[] {
  *   button is black with a white logo; the Dark theme's is white with a
  *   black logo (Apple: logo and title both white, or both black). Not
  *   committed: the owner adds them.
- * - Google: Google's whole "Sign in with Google" button image (pill, with
- *   text), the button itself. Light on the White theme, Dark on the Dark
- *   theme, each at 2x and 4x. Committed, from the kit the owner provided.
- *   In this order: light 2x, light 4x, dark 2x, dark 4x.
+ * - Google: the standard multi-colour "G" (one file, both themes), shown
+ *   inside a button Google's branding guidelines describe, with the title
+ *   "Continue with Google" as real text. Committed.
  */
 export const OAUTH_LOGO_FILES: Record<OAuthProvider, readonly string[]> = {
   apple: ["apple-logo-white.svg", "apple-logo-black.svg"],
-  google: ["google-signin-light@2x.png", "google-signin-light@4x.png", "google-signin-dark@2x.png", "google-signin-dark@4x.png"],
+  google: ["google-g.svg"],
 };
 
 /** Where the logo files are served from: public/auth/<file>. */

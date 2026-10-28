@@ -60,7 +60,7 @@ async function mockInvite(page: Page, { view = VIEW, viewStatus = 200, viewBody 
     const url = new URL(request.url());
     seen.calls.push(`${request.method()} ${url.pathname.replace(SUPABASE, "auth")}${url.search}`);
   };
-  await page.route("**/auth/*.svg", (route) =>
+  await page.route("**/auth/apple-logo-*.svg", (route) =>
     route.fulfill({
       contentType: "image/svg+xml",
       body: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><rect width="24" height="24" fill="gray"/></svg>',

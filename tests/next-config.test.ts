@@ -1,5 +1,4 @@
-import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PHASE_DEVELOPMENT_SERVER, PHASE_PRODUCTION_BUILD, PHASE_PRODUCTION_SERVER } from "next/constants";
@@ -139,8 +138,8 @@ describe("next.config: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY guard", () => {
   });
 });
 
-/** Google's button images (lib/auth/oauth-providers.ts), in OAUTH_LOGO_FILES order. */
-const GOOGLE_FILES = ["google-signin-light@2x.png", "google-signin-light@4x.png", "google-signin-dark@2x.png", "google-signin-dark@4x.png"];
+/** Google's logo (lib/auth/oauth-providers.ts), in OAUTH_LOGO_FILES order. */
+const GOOGLE_FILES = ["google-g.svg"];
 
 describe("next.config: the official sign-in logos must be there for each provider NEXT_PUBLIC_AUTH_PROVIDERS lists", () => {
   let dir = "";
@@ -167,8 +166,7 @@ describe("next.config: the official sign-in logos must be there for each provide
     addLogos("README.md");
     expect(() => assertOAuthLogos("google,apple", publicDir())).toThrow(
       "NEXT_PUBLIC_AUTH_PROVIDERS lists a provider whose official logo artwork is missing: " +
-        "public/auth/google-signin-light@2x.png, public/auth/google-signin-light@4x.png, " +
-        "public/auth/google-signin-dark@2x.png, public/auth/google-signin-dark@4x.png, " +
+        "public/auth/google-g.svg, " +
         "public/auth/apple-logo-white.svg, public/auth/apple-logo-black.svg. " +
         "Add the files described in docs/auth-logos.md, or take the provider out of NEXT_PUBLIC_AUTH_PROVIDERS.",
     );
@@ -177,9 +175,8 @@ describe("next.config: the official sign-in logos must be there for each provide
   });
 
   it("passes once a provider's files are all there, checking only the providers listed", () => {
-    addLogos("google-signin-light@2x.png", "google-signin-light@4x.png", "google-signin-dark@2x.png");
-    expect(() => assertOAuthLogos("google", publicDir())).toThrow(/missing: public\/auth\/google-signin-dark@4x\.png\. /);
-    addLogos("google-signin-dark@4x.png");
+    expect(() => assertOAuthLogos("google", publicDir())).toThrow(/missing: public\/auth\/google-g\.svg\. /);
+    addLogos("google-g.svg");
     expect(() => assertOAuthLogos("google", publicDir())).not.toThrow();
     expect(() => assertOAuthLogos("apple", publicDir())).toThrow(/apple-logo-white\.svg, public\/auth\/apple-logo-black\.svg/);
     addLogos("apple-logo-white.svg", "apple-logo-black.svg");
@@ -189,7 +186,7 @@ describe("next.config: the official sign-in logos must be there for each provide
   it("runs in the production-build phase only (`next build`, `next typegen`), so `next dev` and `next start` load without the files", () => {
     vi.spyOn(process, "cwd").mockReturnValue(dir);
     vi.stubEnv("NEXT_PUBLIC_AUTH_PROVIDERS", "google,apple");
-    expect(() => config(PHASE_PRODUCTION_BUILD)).toThrow(/public\/auth\/google-signin-light@2x\.png/);
+    expect(() => config(PHASE_PRODUCTION_BUILD)).toThrow(/public\/auth\/google-g\.svg/);
     expect(config(PHASE_DEVELOPMENT_SERVER)).toBe(nextConfig);
     expect(config(PHASE_PRODUCTION_SERVER)).toBe(nextConfig);
 
@@ -202,27 +199,22 @@ describe("next.config: the official sign-in logos must be there for each provide
   });
 });
 
-describe("public/auth: Google's button images are committed, byte for byte as in its kit (docs/auth-logos.md)", () => {
+describe("public/auth: Google's G is committed (docs/auth-logos.md)", () => {
   const repoPublic = path.resolve(import.meta.dirname, "../public");
 
-  it("are all there, so a build listing google passes", () => {
+  it("is there, so a build listing google passes", () => {
     expect(() => assertOAuthLogos("google", repoPublic)).not.toThrow();
   });
 
-  it("are the kit's Pill / Show text=Yes / Android+Web PNGs, unmodified: their sizes (2x 360×80, 4x 720×160) and SHA-256s", () => {
-    const expected: Record<string, { width: number; height: number; sha256: string }> = {
-      "google-signin-light@2x.png": { width: 360, height: 80, sha256: "86c7955ee72f3635dc4e1415ac6e10035ca0bb1319245c8e1b441ce1cb5f6981" },
-      "google-signin-light@4x.png": { width: 720, height: 160, sha256: "2f30a746fd0acc72417c460139f3a2ae9f93d3e31bb6f44181719556ec54a2d5" },
-      "google-signin-dark@2x.png": { width: 360, height: 80, sha256: "e0289ad5a31e65af63e385a89457cf3b2405d3a6dda2df6119778b9afdb74bae" },
-      "google-signin-dark@4x.png": { width: 720, height: 160, sha256: "1aa891e26e1d9ff7ad15e7e56874f3e15daa3e85c74c674fa763badc37417b55" },
-    };
-    expect(Object.keys(expected)).toEqual(GOOGLE_FILES);
-    for (const [file, want] of Object.entries(expected)) {
-      const bytes = readFileSync(path.join(repoPublic, "auth", file));
-      // PNG signature, then the IHDR chunk's width and height (big-endian, bytes 16-23).
-      expect(bytes.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
-      expect({ width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) }).toEqual({ width: want.width, height: want.height });
-      expect(createHash("sha256").update(bytes).digest("hex")).toBe(want.sha256);
+  it("is the four-colour G: Google's red, blue, yellow and green, with no scripts", () => {
+    const svg = readFileSync(path.join(repoPublic, "auth", "google-g.svg"), "utf8");
+    for (const fill of ["#EA4335", "#4285F4", "#FBBC05", "#34A853"]) expect(svg).toContain(`fill="${fill}"`);
+    expect(svg).not.toMatch(/<script|on\w+=/i);
+  });
+
+  it("no longer ships the retired whole-button images", () => {
+    for (const file of ["google-signin-light@2x.png", "google-signin-light@4x.png", "google-signin-dark@2x.png", "google-signin-dark@4x.png"]) {
+      expect(existsSync(path.join(repoPublic, "auth", file))).toBe(false);
     }
   });
 });

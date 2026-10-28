@@ -44,7 +44,7 @@ function renderButtons({
 }
 
 const apple = () => screen.getByRole("button", { name: "Continue with Apple" });
-const google = () => screen.getByRole("button", { name: "Sign in with Google" });
+const google = () => screen.getByRole("button", { name: "Continue with Google" });
 
 /** A sign-in that never settles: the page would be on its way to the provider. */
 const leaving = () => vi.fn(() => new Promise<void>(() => {}));
@@ -62,7 +62,7 @@ describe("OAuthButtons: which buttons render", () => {
   it("renders Apple, then Google, whatever the flag's order, as real buttons named by their visible titles", () => {
     renderButtons({ flag: "google,apple" });
     const buttons = screen.getAllByRole("button");
-    expect(buttons.map((b) => b.textContent)).toEqual(["Continue with Apple", "Sign in with Google"]);
+    expect(buttons.map((b) => b.textContent)).toEqual(["Continue with Apple", "Continue with Google"]);
     for (const button of buttons) {
       expect(button).toHaveAttribute("type", "button");
       expect(button.closest("form")).toBeNull();
@@ -87,32 +87,24 @@ describe("OAuthButtons: which buttons render", () => {
     expect(screen.getByText(/^Continuing with Apple or Google signs you in/)).toBeInTheDocument();
   });
 
-  it("shows the official artwork, hidden from assistive tech: Apple's white and black logos, Google's Light and Dark button images", () => {
+  it("shows the official artwork, hidden from assistive tech: Apple's white and black logos, Google's G", () => {
     renderButtons();
     const appleLogos = Array.from(apple().querySelectorAll("img"));
     expect(appleLogos.map((img) => img.getAttribute("src"))).toEqual(["/auth/apple-logo-white.svg", "/auth/apple-logo-black.svg"]);
     // One per theme: white on the White theme's black button, black on the Dark theme's white one.
     expect(appleLogos[0].className).toMatch(/\bdark:hidden\b/);
     expect(appleLogos[1].className).toMatch(/\bhidden\b.*\bdark:block\b/);
-    // Google's whole button image: Light on the White theme, Dark on the Dark theme, 2x/4x, at its native 180×40.
+    // Google's G: one multi-colour file on both themes, at 20px, beside the title as real text.
     const googleImages = Array.from(google().querySelectorAll("img"));
-    expect(googleImages.map((img) => [img.getAttribute("src"), img.getAttribute("srcset")])).toEqual([
-      ["/auth/google-signin-light@2x.png", "/auth/google-signin-light@2x.png 2x, /auth/google-signin-light@4x.png 4x"],
-      ["/auth/google-signin-dark@2x.png", "/auth/google-signin-dark@2x.png 2x, /auth/google-signin-dark@4x.png 4x"],
-    ]);
-    expect(googleImages[0].className).toMatch(/\bblock\b.*\bdark:hidden\b/);
-    expect(googleImages[1].className).toMatch(/\bhidden\b.*\bdark:block\b/);
-    for (const img of googleImages) {
-      expect(img).toHaveAttribute("width", "180");
-      expect(img).toHaveAttribute("height", "40");
-    }
+    expect(googleImages.map((img) => img.getAttribute("src"))).toEqual(["/auth/google-g.svg"]);
+    expect(googleImages[0].className).toMatch(/\bsize-5\b/);
     for (const img of [...appleLogos, ...googleImages]) {
       expect(img).toHaveAttribute("alt", "");
       expect(img).toHaveAttribute("aria-hidden", "true");
     }
-    // Its name is the image's words (label in name), as screen-reader text: nothing else is visible.
-    expect(google()).toHaveTextContent(/^Sign in with Google$/);
-    expect(google().querySelector("span")).toHaveClass("sr-only");
+    // Its name is its visible title (label in name), as text in the button, not an image or sr-only.
+    expect(google()).toHaveTextContent(/^Continue with Google$/);
+    expect(google().querySelector("span")).not.toHaveClass("sr-only");
   });
 });
 
@@ -318,34 +310,42 @@ describe("OAuthButtons on /login and /signup", () => {
 describe("OAuthButtons in forced colours (Windows contrast themes)", () => {
   const css = readFileSync(path.resolve(import.meta.dirname, "../app/globals.css"), "utf8");
 
-  it("gives Apple's borderless button an edge in the system's button text colour; Google's is its image, edge and all", () => {
+  it("gives Apple's borderless button an edge in the system's button text colour; Google's has its own 1px border", () => {
     expect(css).toMatch(/@media \(forced-colors: active\) \{\s*\.btn-oauth-apple \{\s*border: 1px solid ButtonText;/);
-    // No fill or border of its own for the system to replace: the image (left as it is) carries its stroke.
-    const google = css.match(/\.btn-oauth-google \{([^}]*)\}/)?.[1] ?? "";
-    expect(google).toMatch(/border: 0;/);
-    expect(google).toMatch(/background: none;/);
-    expect(css).not.toMatch(/--google-(fill|stroke|text)/);
+    expect(rule(css, ".btn-oauth-google")).toMatch(/border: 1px solid var\(--google-stroke\);/);
   });
 });
 
-describe("OAuthButtons: Google's image button's box (app/globals.css)", () => {
-  const css = readFileSync(path.resolve(import.meta.dirname, "../app/globals.css"), "utf8");
-  const rule = (selector: string) => css.match(new RegExp(`${selector.replace(/[.:]/g, "\\$&")} \\{([^}]*)\\}`))?.[1] ?? "";
+function rule(css: string, selector: string): string {
+  return css.match(new RegExp(`${selector.replace(/[.:]/g, "\\$&")} \\{([^}]*)\\}`))?.[1] ?? "";
+}
 
-  it("is the image's own box, centred, not stretched, with nothing drawn over the artwork (no hover wash)", () => {
-    const google = rule(".btn-oauth-google");
-    expect(google).toMatch(/display: block;/);
+describe("OAuthButtons: Google's button follows Google's branding guidelines (app/globals.css)", () => {
+  const css = readFileSync(path.resolve(import.meta.dirname, "../app/globals.css"), "utf8");
+
+  it("is a 40px pill with a 20px radius, 1px stroke, 12px padding, 10px gap, Roboto Medium 14px/20px, sized to its content", () => {
+    const google = rule(css, ".btn-oauth-google");
+    expect(google).toMatch(/height: 2\.5rem;/);
     expect(google).toMatch(/width: auto;/);
-    expect(google).toMatch(/min-height: 0;/);
     expect(google).toMatch(/align-self: center;/);
-    expect(google).toMatch(/padding: 0;/);
-    // Its focus ring is the house rounded square (.btn-oauth's control radius), not a pill.
-    expect(google).not.toMatch(/border-radius/);
-    expect(rule(".btn-oauth-google::after")).toMatch(/content: none;/);
+    expect(google).toMatch(/border-radius: 20px;/);
+    expect(google).toMatch(/padding-inline: 0\.75rem;/);
+    expect(google).toMatch(/gap: 0\.625rem;/);
+    expect(google).toMatch(/font-size: 0\.875rem;/);
+    expect(google).toMatch(/line-height: 1\.25rem;/);
+    expect(google).toMatch(/background: var\(--google-fill\);/);
+    expect(google).toMatch(/color: var\(--google-text\);/);
+    // Roboto Medium (the shared .btn-oauth face and weight).
+    expect(rule(css, ".btn-oauth")).toMatch(/font-weight: 500;/);
   });
 
-  it("stretches the 40px image's hit area 4px above and below, to 48px", () => {
-    const hitArea = rule(".btn-oauth-google::before");
+  it("takes Light on the White theme and Dark on the Dark theme, at Google's values", () => {
+    expect(css).toMatch(/--google-fill: #ffffff;\s*--google-stroke: #747775;\s*--google-text: #1f1f1f;/);
+    expect(css).toMatch(/--google-fill: #131314;\s*--google-stroke: #8e918f;\s*--google-text: #e3e3e3;/);
+  });
+
+  it("stretches the 40px button's hit area 4px above and below, to 48px", () => {
+    const hitArea = rule(css, ".btn-oauth-google::before");
     expect(hitArea).toMatch(/content: "";/);
     expect(hitArea).toMatch(/position: absolute;/);
     expect(hitArea).toMatch(/inset: -0\.25rem 0;/);

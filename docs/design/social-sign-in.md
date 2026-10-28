@@ -19,7 +19,7 @@ Status: spec, 24 Oct 2026. Builds on `brand-direction-one.md` §7 (Auth), `theme
 | Variable | White theme | Dark theme | Source |
 |---|---|---|---|
 | `--apple-fill` / `--apple-ink` | `#000000` / `#ffffff` (Apple **Black**) | `#ffffff` / `#000000` (Apple **White**) | HIG: logo and title are both black or both white. Black goes on light backgrounds and White on dark. White-with-outline isn't used. |
-| `--google-fill` / `--google-stroke` / `--google-text` | `#131314` / `#8e918f` / `#e3e3e3` (Google **Dark**) | `#ffffff` / `#747775` / `#1f1f1f` (Google **Light**) | (unverified) Google theme values. Neutral `#f2f2f2` isn't used. **Removed 27 Oct 2026**: the Google button is now Google's own image (§4), Light on White and Dark on Dark. |
+| `--google-fill` / `--google-stroke` / `--google-text` | `#ffffff` / `#747775` / `#1f1f1f` (Google **Light**) | `#131314` / `#8e918f` / `#e3e3e3` (Google **Dark**) | Google's branding guidelines. Neutral `#f2f2f2` isn't used. (Reinstated 28 Oct 2026 with the "Continue with Google" button, §4.) |
 
 **Contrast, checked:**
 - Apple title: 21:1 in both themes.
@@ -55,7 +55,7 @@ Status: spec, 24 Oct 2026. Builds on `brand-direction-one.md` §7 (Auth), `theme
 .btn-oauth::after { content:""; position:absolute; inset:0; border-radius:inherit; background:currentColor; opacity:0; pointer-events:none; }
 .btn-oauth-apple { background:var(--apple-fill); color:var(--apple-ink); border:0; padding-inline:0 8%; font-size:calc(3rem * .43); line-height:1; }
 .btn-oauth-google { background:var(--google-fill); color:var(--google-text); border:1px solid var(--google-stroke);
-  padding-inline:1rem; gap:0.75rem; font-size:1.0625rem; line-height:1.5rem; }
+  height:2.5rem; width:auto; min-height:0; border-radius:20px; padding-inline:0.75rem; gap:0.625rem; font-size:0.875rem; line-height:1.25rem; } /* as built, 28 Oct 2026 (§4) */
 @media (hover:hover) { .btn-oauth:hover:not([aria-disabled="true"])::after { opacity:.08 } }
 @media (prefers-reduced-motion:no-preference) { .btn-oauth::after { transition:opacity 150ms ease-out }
   .btn-oauth:active:not([aria-disabled="true"]) { transform:translateY(1px) } }
@@ -120,12 +120,11 @@ If only one provider is enabled, render that button alone, then the divider. If 
 - `apple-logo-white.svg` (black button, White theme) and `apple-logo-black.svg` (white button, Dark theme): Apple's **logo-only** artwork, at the button's full 48px height with its own padding.
 - Google: a standard multicolour G file, 24×24, on both themes (replaced on 27 Oct 2026 by Google's whole button image: see below).
 
-**Superseded for Google (27 Oct 2026): Google's whole button image.** Google's current Sign in with Google branding kit (provided by the owner on 27 Oct 2026) has no standalone "G", only whole button images, so the Google button is now Google's own image, unmodified, and the "G" file, the `--google-*` tokens and the custom title are gone:
-- `google-signin-light@2x.png` / `@4x.png` on the **White** theme and `google-signin-dark@2x.png` / `@4x.png` on the **Dark** theme: the kit's Pill, Show text=Yes, Android+Web PNGs, byte for byte, committed (sources and SHA-256s in `docs/auth-logos.md`). The kit's SVGs aren't used: their "G" is a Figma `foreignObject` conic gradient, unreliable in an `<img>`.
-- Shown at the native CSS size **180×40** (`srcset` 2x/4x), never stretched or cropped, centred under the full-width Apple button. So the pair is no longer matched in size or shape (§1.2): Apple stays 48px, full width, `rounded-control`; Google is Google's 40px pill.
-- The `<button>` is the image's box (no fill, border or padding), with `.btn-oauth`'s `rounded-control` radius, so the global focus ring is the house rounded square around the image (no pill radius: house rule). A `::before` extends the hit area 4px above and below, to **48px** tall.
-- `alt=""`; the accessible name is the image's words, **"Sign in with Google"** (screen-reader text: label in name). Apple keeps "Continue with Apple". The login hint now says "Use the Google or Apple button above".
-- No hover wash on Google: nothing is drawn over its artwork (on the image's box the wash would also tint the pill's transparent corners). Busy, the active nudge, the in-app notice and errors are unchanged. In forced colours the image is left as it is, with its own stroke.
+**Google, as built (28 Oct 2026, owner chose "Continue with Google" on both pages).** Google's branding kit has no standalone G and only "Sign in" text images, so the button is built in HTML/CSS to Google's guidelines (`docs/auth-logos.md` has the details and why the kit's own files aren't used):
+- A 40px pill (`border-radius: 20px`, the guidelines' value), 1px stroke, 12px side padding, a 20px G (`public/auth/google-g.svg`, one file on both themes) and the title "Continue with Google" as real text, Roboto Medium 14px/20px, 10px apart. Light theme: fill `#FFFFFF`, stroke `#747775`, text `#1F1F1F`; Dark theme: `#131314`, `#8E918F`, `#E3E3E3` (`--google-fill` / `--google-stroke` / `--google-text`, re-scoped in `[data-theme="dark"]`).
+- Sized to its content and centred under the full-width Apple button, so the pair isn't matched in size or shape (§1.2): Apple stays 48px, full width, `rounded-control`.
+- A `::before` extends the hit area 4px above and below, to **48px**. The usual 8% hover wash applies; busy, the active nudge, the in-app notice and errors are unchanged.
+- The G has `alt=""`; the accessible name is the visible text, **"Continue with Google"**. The login hint says "Use the Google or Apple button above".
 
 `docs/auth-logos.md` says where to download each. `next build` (and `next typegen`, which loads the config the same way) fails while `NEXT_PUBLIC_AUTH_PROVIDERS` lists a provider whose files are missing (`next.config.ts`). The file names live in `lib/auth/oauth-providers.ts`. Record each file's source URL and download date in the commit that adds it.
 

@@ -877,7 +877,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
   - [ ] **Instagram's in-app browser** (open the site from a DM or bio
         link): Google shows the "open in your browser" notice instead of
         Google's error; check whether Apple works there.
-  - [ ] Sign out, then Sign in with Google: Google asks which account.
+  - [ ] Sign out, then Continue with Google: Google asks which account.
   - [ ] On the **test** project, start a sign-in with `redirect_to` set to
         `http://<site host>/auth/callback`, then to
         `https://<site host>:8443/auth/callback`: note whether Supabase

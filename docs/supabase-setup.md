@@ -78,7 +78,7 @@ email, rather than click a link. Supabase sends links by default, so:
 
 ### Sign in with Google and Apple (optional)
 
-"Sign in with Google" and "Continue with Apple" on `/login` and `/signup`
+"Continue with Google" and "Continue with Apple" on `/login` and `/signup`
 (design in `docs/architecture.md`, "Sign in with Google and Apple"). They
 stay hidden until both providers are set up here **and**
 `NEXT_PUBLIC_AUTH_PROVIDERS` lists them, so do this first and set the flag
