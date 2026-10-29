@@ -211,7 +211,8 @@ export interface TicketingChanges {
 /**
  * What an admin's edit changed (`edited`): only the fields that did. Dates
  * are ISO instants with an offset; ticket types are the whole list before
- * and after. `image` is "set" while there's a photo, null otherwise (set →
+ * and after (an organiser's release of more tickets logs only the changed
+ * tier, `{id, name, quantityAvailable}`). `image` is "set" while there's a photo, null otherwise (set →
  * set is a replaced photo). `clip` is the clip's version (the `v` of its
  * URL, milliseconds as a string), null for none; `clipDescription` its text.
  */

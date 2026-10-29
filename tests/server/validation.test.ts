@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { HttpError } from "@/lib/server/http";
 import {
   fail,
+  MAX_TICKET_DESCRIPTION_LENGTH,
+  MAX_TICKET_TYPES,
   optionalUrl,
   requireCategories,
   requireCategory,
@@ -204,6 +206,32 @@ describe("requireTicketTypes", () => {
     // A$0.50 would carry a A$0.53 organiser-absorbed fee — more than the payment.
     expect(priced(50)).toMatch(/at least A\$1\.00/);
     expect(priced(99)).toMatch(/at least A\$1\.00/);
+  });
+
+  it("bounds the description (300) and the number of ticket types (20)", () => {
+    const tier = (description?: string) => ({
+      name: "GA",
+      priceCents: 0,
+      feePolicy: "organiser-absorbs",
+      quantityAvailable: 10,
+      description,
+    });
+    const check = (value: unknown) => {
+      const errors: Record<string, string> = {};
+      const result = requireTicketTypes(value, "ticketTypes", errors);
+      return { errors, result };
+    };
+    expect(MAX_TICKET_DESCRIPTION_LENGTH).toBe(300);
+    expect(check([tier("x".repeat(300))]).errors).toEqual({});
+    expect(check([tier(`  ${"x".repeat(300)}  `)]).errors).toEqual({});
+    expect(check([tier("x".repeat(301))]).errors).toEqual({
+      "ticketTypes[0].description": "Must be 300 characters or fewer.",
+    });
+    const many = (n: number) => Array.from({ length: n }, (_, i) => ({ ...tier(), id: `t${i}` }));
+    expect(check(many(MAX_TICKET_TYPES)).errors).toEqual({});
+    const over = check(many(MAX_TICKET_TYPES + 1));
+    expect(over.errors).toEqual({ ticketTypes: "Add at most 20 ticket types." });
+    expect(over.result).toEqual([]);
   });
 
   it("accepts a valid ticket type list", () => {

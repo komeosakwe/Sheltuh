@@ -3,9 +3,11 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { adminSuspendOrganiser } from "@/lib/server/handlers/admin";
 import { getMyEvent } from "@/lib/server/handlers/events";
 import { createCheckout } from "@/lib/server/handlers/orders";
-import { getPublicEventBySlug } from "@/lib/server/handlers/public-events";
+import { getPublicEventBySlug, listPublicEvents } from "@/lib/server/handlers/public-events";
+import { getPublicOrganiserProfile } from "@/lib/server/handlers/public-organisers";
+import { getTrendingEvents } from "@/lib/server/handlers/trending";
 import { joinWaitlist } from "@/lib/server/handlers/waitlist";
-import { MAX_TICKETS_PER_TYPE, RELEASE_LIMIT, releaseTickets } from "@/lib/server/handlers/ticket-release";
+import { EVENT_RELEASE_LIMIT, MAX_TICKETS_PER_TYPE, RELEASE_LIMIT, releaseTickets } from "@/lib/server/handlers/ticket-release";
 import type { EventRecord } from "@/lib/server/types";
 import { embeddedSession, TestApi } from "./helpers/api";
 import { approvedOrganiser, draftEvent, enablePayouts, publishedEvent, signUpAdmin } from "./helpers/fixtures";
@@ -13,7 +15,7 @@ import { seatedEvent } from "./helpers/seating";
 import { createTestDb } from "./helpers/test-db";
 
 // "Release more tickets": docs/architecture.md, "Releasing more tickets";
-// supabase/migrations/20261112000000_release_tickets.sql.
+// supabase/migrations/20261113000000_release_tickets.sql.
 
 let api: TestApi;
 let reset: () => Promise<void>;
@@ -95,16 +97,12 @@ describe("releasing more tickets", () => {
       fee_policy: "buyer-pays",
     });
 
-    // The audit entry: the organiser's own account, the whole list before and after, as an admin's edit logs it.
+    // The audit entry: the organiser's own account, only the changed tier before and after.
     const entries = await logEntries();
     expect(entries).toHaveLength(1);
     expect(entries[0].actor_id).toBe(organiser.userId);
-    expect(entries[0].details.ticketTypes.old).toEqual([
-      { id: "ga", name: "General admission", priceCents: 3000, feePolicy: "buyer-pays", quantityAvailable: 10 },
-    ]);
-    expect(entries[0].details.ticketTypes.new).toEqual([
-      { id: "ga", name: "General admission", priceCents: 3000, feePolicy: "buyer-pays", quantityAvailable: 25 },
-    ]);
+    expect(entries[0].details.ticketTypes.old).toEqual([{ id: "ga", name: "General admission", quantityAvailable: 10 }]);
+    expect(entries[0].details.ticketTypes.new).toEqual([{ id: "ga", name: "General admission", quantityAvailable: 25 }]);
     // An admin's edit made from before this is stale.
     const [after] = await api.db.query<{ updated_at: Date }>(`select updated_at from public.events where id = $1`, [event.eventId]);
     expect(after.updated_at.getTime()).toBeGreaterThan(before.updated_at.getTime());
@@ -114,8 +112,16 @@ describe("releasing more tickets", () => {
     expect(mine.body.ticketTypes[0].quantityAvailable).toBe(25);
     expect(mine.body.ticketsSold).toEqual({ ga: 4 });
     expect(mine.body.moderationLog.at(-1)).toMatchObject({ action: "edited", by: organiser.userId });
+    // The public shapes (slug, feed, trending, the organiser's page) never carry sales.
     const pub = await api.call(getPublicEventBySlug, { params: { slug: event.slug } });
-    expect(JSON.stringify(pub.body)).not.toContain("ticketsSold");
+    const feed = await api.call(listPublicEvents, { query: { upcoming: "1" } });
+    const trending = await api.call(getTrendingEvents, {});
+    const profile = await api.call(getPublicOrganiserProfile, { params: { organiserId: organiser.organiserId } });
+    for (const res of [pub, feed, trending, profile]) {
+      expect(res.status).toBe(200);
+      expect(JSON.stringify(res.body)).not.toContain("ticketsSold");
+    }
+    expect(JSON.stringify(feed.body)).toContain(event.eventId);
   });
 
   it("a general admission tier of an event with a seat map can be raised; a seated tier can't", async () => {
@@ -169,7 +175,7 @@ describe("who may release", () => {
     await api.db.query(`update public.organisers set status = 'pending' where id = $1`, [organiser.organiserId]);
     const call = (actor: string) =>
       api.db.query<{ result: string }>(
-        `select result from private.release_tickets($1, $2, $3, 'ga', 20, 100000, 30, interval '1 hour')`,
+        `select result from private.release_tickets($1, $2, $3, 'ga', 20, 100000, 30, interval '1 hour', 10, interval '24 hours')`,
         [event.eventId, organiser.organiserId, actor],
       );
     expect((await call(organiser.userId))[0].result).toBe("not_approved");
@@ -234,18 +240,61 @@ describe("what can be released", () => {
 });
 
 describe("rate limit", () => {
-  it("30 an hour per organiser: the next is 429, nothing changes, and refused attempts don't use slots", async () => {
+  it("10 a day per event: the next is 429, nothing changes, and refused attempts use no slots", async () => {
     // Refusals first: none of these uses a slot.
-    for (let i = 0; i < RELEASE_LIMIT.limit + 2; i++) expect((await release(5)).status).toBe(400);
-    for (let i = 1; i <= RELEASE_LIMIT.limit; i++) expect((await release(10 + i)).status).toBe(200);
-    const res = await release(10 + RELEASE_LIMIT.limit + 1);
-    expect(res.status).toBe(429);
-    expect((await ticket()).quantity_available).toBe(10 + RELEASE_LIMIT.limit);
-    expect((await logEntries()).length).toBe(RELEASE_LIMIT.limit);
-    // Another organiser has their own allowance.
+    for (let i = 0; i < EVENT_RELEASE_LIMIT.limit + 2; i++) expect((await release(5)).status).toBe(400);
+    for (let i = 1; i <= EVENT_RELEASE_LIMIT.limit; i++) expect((await release(10 + i)).status).toBe(200);
+    expect((await release(10 + EVENT_RELEASE_LIMIT.limit + 1)).status).toBe(429);
+    expect((await ticket()).quantity_available).toBe(10 + EVENT_RELEASE_LIMIT.limit);
+    expect((await logEntries()).length).toBe(EVENT_RELEASE_LIMIT.limit);
+    // Another organiser's event has its own allowance.
     const other = await approvedOrganiser(api, admin, { displayName: "Other Co", contactEmail: "o@example.com" });
     const theirs = await publishedEvent(api, other, admin, { ticketTypes: [GA] });
     expect((await release(20, { token: other.token, eventId: theirs.eventId })).status).toBe(200);
+  });
+
+  it("30 an hour per organiser, across events; a refusal by either limit doesn't cost the organiser's slot twice", async () => {
+    const events = [event];
+    for (let i = 0; i < 2; i++) events.push(await publishedEvent(api, organiser, admin, { ticketTypes: [GA] }));
+    for (const e of events) {
+      for (let i = 1; i <= EVENT_RELEASE_LIMIT.limit; i++) {
+        expect((await release(10 + i, { eventId: e.eventId })).status).toBe(200);
+      }
+    }
+    expect(RELEASE_LIMIT.limit).toBe(events.length * EVENT_RELEASE_LIMIT.limit);
+    const fourth = await publishedEvent(api, organiser, admin, { ticketTypes: [GA] });
+    const res = await release(20, { eventId: fourth.eventId });
+    expect(res.status).toBe(429);
+    const [row] = await api.db.query<{ quantity_available: number }>(
+      `select quantity_available from public.ticket_types where event_id = $1`,
+      [fourth.eventId],
+    );
+    expect(row.quantity_available).toBe(10);
+  });
+});
+
+describe("hardening", () => {
+  it("a ticket type id with a control character or NUL is a 404", async () => {
+    for (const id of ["ga\u0000", "g\na", "ga\u007f", "\u0001"]) {
+      expect((await release(20, { ticketTypeId: id })).status, JSON.stringify(id)).toBe(404);
+    }
+  });
+
+  it("the function refuses a null actor (a platform-managed organiser has no owner) and raises on a null quantity", async () => {
+    await api.db.query(`update public.ticket_types set price_cents = 0 where event_id = $1`, [event.eventId]);
+    await api.db.query(`update public.organisers set owner_user_id = null, payouts_enabled = false, stripe_account_id = null where id = $1`, [organiser.organiserId]);
+    const nullActor = await api.db.query<{ result: string }>(
+      `select result from private.release_tickets($1, $2, null, 'ga', 20, 100000, 30, interval '1 hour', 10, interval '24 hours')`,
+      [event.eventId, organiser.organiserId],
+    );
+    expect(nullActor[0].result).toBe("not_found");
+    await expect(
+      api.db.query(
+        `select result from private.release_tickets($1, $2, $3, 'ga', null, 100000, 30, interval '1 hour', 10, interval '24 hours')`,
+        [event.eventId, organiser.organiserId, organiser.userId],
+      ),
+    ).rejects.toThrow(/missing/);
+    expect((await ticket()).quantity_available).toBe(10);
   });
 });
 
@@ -316,7 +365,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("concurrency (real Postgres only
   }
 
   const releaseOn = (conn: postgres.Sql, quantity: number) =>
-    conn.unsafe(`select result, total, sold from private.release_tickets($1, $2, $3, 'ga', $4, 100000, 30, interval '1 hour')`, [
+    conn.unsafe(`select result, total, sold from private.release_tickets($1, $2, $3, 'ga', $4, 100000, 30, interval '1 hour', 10, interval '24 hours')`, [
       event.eventId,
       organiser.organiserId,
       organiser.userId,

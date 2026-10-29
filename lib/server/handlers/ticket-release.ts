@@ -1,6 +1,6 @@
 /**
  * Releasing more tickets (docs/architecture.md, "Releasing more tickets";
- * supabase/migrations/20261112000000_release_tickets.sql): an organiser
+ * supabase/migrations/20261113000000_release_tickets.sql): an organiser
  * raises one general admission ticket type's quantity on their own published
  * event. Everything is rechecked, under locks, in private.release_tickets.
  */
@@ -17,9 +17,13 @@ import { requireApprovedOrganiser } from "./organiser-guard";
 export const MAX_TICKETS_PER_TYPE = 100_000;
 /** Per organiser account (take_rate_limit bucket 'ticket_releases'). */
 export const RELEASE_LIMIT = { limit: 30, window: "1 hour" } as const;
+/** Per event (take_event_rate_limit bucket 'ticket_releases'): each release adds an entry to the event's log. */
+export const EVENT_RELEASE_LIMIT = { limit: 10, window: "24 hours" } as const;
+/** Control characters (NUL included) can't be in a ticket type id we'd have stored. */
+const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
 
 const NOT_FOUND = "Ticket type not found.";
-const RATE_LIMITED = "Too many releases this hour. Try again later.";
+const RATE_LIMITED = "Too many releases. Try again later.";
 
 export const releaseTickets: Handler<{ eventId: string; ticketTypeId: string }> = async (
   req,
@@ -36,10 +40,12 @@ export const releaseTickets: Handler<{ eventId: string; ticketTypeId: string }> 
   if (quantity > MAX_TICKETS_PER_TYPE) {
     fail({ quantityAvailable: `Can't be more than ${MAX_TICKETS_PER_TYPE.toLocaleString("en-AU")}.` });
   }
-  if (!isUuid(eventId) || ticketTypeId.length < 1 || ticketTypeId.length > 100) throw new HttpError(404, NOT_FOUND);
+  if (!isUuid(eventId) || ticketTypeId.length < 1 || ticketTypeId.length > 100 || CONTROL_CHARS.test(ticketTypeId)) {
+    throw new HttpError(404, NOT_FOUND);
+  }
 
   const [row] = await deps.db.query<{ result: string; total: number | null; sold: number | null }>(
-    `select result, total, sold from private.release_tickets($1, $2, $3, $4, $5, $6, $7, $8::interval)`,
+    `select result, total, sold from private.release_tickets($1, $2, $3, $4, $5, $6, $7, $8::interval, $9, $10::interval)`,
     [
       eventId,
       organiser.organiserId,
@@ -49,6 +55,8 @@ export const releaseTickets: Handler<{ eventId: string; ticketTypeId: string }> 
       MAX_TICKETS_PER_TYPE,
       RELEASE_LIMIT.limit,
       RELEASE_LIMIT.window,
+      EVENT_RELEASE_LIMIT.limit,
+      EVENT_RELEASE_LIMIT.window,
     ],
   );
 

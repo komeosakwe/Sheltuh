@@ -296,8 +296,9 @@ const EVENT_COLUMNS = `
          ), '[]'::json) as ticket_types,
          (select json_build_object('version', m.version, 'seatCount', m.seat_count)
             from public.event_seat_maps m where m.event_id = e.id) as seating,
-         -- What's left per ticket type, for the public shape only (toPublicEventFromRow):
-         -- never mapped into EventRecord, and the public sees at most "10 or fewer".
+         -- What's left per ticket type: the public shape's soldOut / remaining
+         -- (toPublicEventFromRow; the public sees at most "10 or fewer"), and
+         -- EventRecord.ticketsSold (organiser and admin only, ticketsSoldOf).
          (select json_object_agg(t.id, greatest(t.quantity_available - t.quantity_sold, 0))
             from public.ticket_types t where t.event_id = e.id) as ticket_remaining,
          coalesce((

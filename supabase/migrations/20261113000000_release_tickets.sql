@@ -11,10 +11,12 @@
 --     quantity_available, bumps the event's updated_at (an admin's edit made
 --     from an older version is then stale, so it can't lower the number
 --     again unseen) and appends an `edited` entry to event_moderation_log
---     ({"ticketTypes": {old, new}}: the whole list before and after, as an
---     admin's edit logs it), under a per-organiser hourly cap. It changes
---     nothing else: not the price, the fee policy, the name, nor
---     quantity_sold.
+--     ({"ticketTypes": {old, new}}: only the changed tier, as
+--     [{id, name, quantityAvailable}] before and after, so a log that every
+--     event read aggregates stays small), under a per-organiser hourly cap
+--     (take_rate_limit 'ticket_releases') and a per-event daily cap
+--     (take_event_rate_limit 'ticket_releases'). It changes nothing else:
+--     not the price, the fee policy, the name, nor quantity_sold.
 --   * No new table, enum value, trigger or grant. The waitlist needs no new
 --     code: raising quantity_available on a ticket type with more tickets
 --     left than before fires ticket_types_waitlist_release_update (deferred
@@ -30,7 +32,10 @@
 -- organiser isn't approved any more), 'not_published', 'ended', 'external',
 -- 'seated' (a seated tier's capacity is its seats: the seat map sets it),
 -- 'not_increase' (p_quantity isn't above the current quantity: `total` is
--- the current one), 'too_many' (above p_max), 'rate_limited'. `total` and
+-- the current one), 'too_many' (above p_max), 'rate_limited' (the organiser's
+-- hourly allowance or the event's daily one). A null actor is 'not_found' (a
+-- platform-managed organiser has no owner: a null actor must never match it);
+-- a null quantity, cap or limit is a programming error and raises. `total` and
 -- `sold` are the ticket type's quantities after the call (or as they stand
 -- for a refusal that read them).
 --
@@ -45,6 +50,7 @@
 create function private.release_tickets(
   p_event_id uuid, p_organiser_id uuid, p_actor_id uuid, p_ticket_type_id text,
   p_quantity integer, p_max integer, p_limit integer, p_window interval,
+  p_event_limit integer, p_event_window interval,
   out result text, out total integer, out sold integer
 )
 language plpgsql
@@ -57,6 +63,15 @@ declare
   v_old jsonb;
   v_new jsonb;
 begin
+  if p_actor_id is null then
+    result := 'not_found';
+    return;
+  end if;
+  if p_quantity is null or p_max is null or p_limit is null or p_window is null
+     or p_event_limit is null or p_event_window is null then
+    raise exception 'release_tickets: a quantity, cap or limit is missing';
+  end if;
+
   select o.status::text as status, o.owner_user_id
     into v_org
     from public.organisers o where o.id = p_organiser_id for share;
@@ -91,7 +106,7 @@ begin
     return;
   end if;
 
-  select t.quantity_available, t.quantity_sold, t.seated
+  select t.name, t.quantity_available, t.quantity_sold, t.seated
     into v_ticket
     from public.ticket_types t
    where t.event_id = p_event_id and t.id = p_ticket_type_id
@@ -114,27 +129,26 @@ begin
     result := 'too_many';
     return;
   end if;
-  -- Last, so only a release that would happen uses one of the organiser's slots.
+  -- Last, so only a release that would happen uses a slot: the event's first
+  -- (a plain read once it's over the limit), then the organiser's.
+  if not private.take_event_rate_limit(p_event_id, 'ticket_releases', p_event_limit, p_event_window) then
+    result := 'rate_limited';
+    return;
+  end if;
   if not private.take_rate_limit(p_actor_id, 'ticket_releases', p_limit, p_window) then
     result := 'rate_limited';
     return;
   end if;
 
-  select coalesce(jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
-           'id', t.id, 'name', t.name, 'description', t.description, 'priceCents', t.price_cents,
-           'feePolicy', t.fee_policy::text, 'quantityAvailable', t.quantity_available)) order by t.position), '[]'::jsonb)
-    into v_old
-    from public.ticket_types t where t.event_id = p_event_id;
+  v_old := jsonb_build_array(jsonb_build_object(
+             'id', p_ticket_type_id, 'name', v_ticket.name, 'quantityAvailable', v_ticket.quantity_available));
 
   update public.ticket_types t
      set quantity_available = p_quantity
    where t.event_id = p_event_id and t.id = p_ticket_type_id;
 
-  select coalesce(jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
-           'id', t.id, 'name', t.name, 'description', t.description, 'priceCents', t.price_cents,
-           'feePolicy', t.fee_policy::text, 'quantityAvailable', t.quantity_available)) order by t.position), '[]'::jsonb)
-    into v_new
-    from public.ticket_types t where t.event_id = p_event_id;
+  v_new := jsonb_build_array(jsonb_build_object(
+             'id', p_ticket_type_id, 'name', v_ticket.name, 'quantityAvailable', p_quantity));
 
   -- events_set_updated_at sets the time.
   update public.events set updated_at = now() where id = p_event_id;
@@ -147,5 +161,5 @@ begin
 end;
 $$;
 
-revoke all on function private.release_tickets(uuid, uuid, uuid, text, integer, integer, integer, interval)
+revoke all on function private.release_tickets(uuid, uuid, uuid, text, integer, integer, integer, interval, integer, interval)
   from public, anon, authenticated;

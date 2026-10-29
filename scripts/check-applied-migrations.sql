@@ -175,6 +175,6 @@ select version, file, coalesce(applied, false) as applied
       and (select count(*) from pg_trigger t
             where t.tgrelid = to_regclass('public.organisers')
               and t.tgname in ('organisers_onboarding_email_insert', 'organisers_onboarding_email_approved')) = 2),
-    ('20261112000000', 'release_tickets', exists (select 1 from fn where proname = 'release_tickets'))
+    ('20261113000000', 'release_tickets', exists (select 1 from fn where proname = 'release_tickets'))
   ) as m(version, file, applied)
  order by version;

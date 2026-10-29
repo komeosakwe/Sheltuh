@@ -171,7 +171,7 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
 | `trending_day_utility`, `trending_decay`, `trending_shrink`, `trending_proximity` | The trending formula's parts, immutable, so the SQL is the formula's only definition (tests call them directly). |
 | `set_event_curation` | An admin's boost and exclusion for any event, any status: key-share-locks the event, then locks its curation row; nothing changing is `unchanged` (nothing logged); otherwise the update and a `curated` moderation log entry (admin, reason, old and new values), in one step. Returns `updated`, `unchanged` or `not_found`. |
 | `purge_analytics` | Retention: deletes view and outbound-click counters for days over 25 months ago and per-event rate-limit rows idle for a day, and, for events that ended over 25 months ago, the check-in log and the tickets' `checked_in_at`. Idempotent. Scheduled daily with Supabase Cron (`docs/supabase-setup.md`). |
-| `release_tickets` | The organiser's "Release more tickets" (`POST /events/{id}/ticket-types/{id}/release`; `20261112000000_release_tickets.sql`; see "Releasing more tickets"). Share-locks the organiser (owned by the caller, else `not_found`; not approved, `not_approved`), locks the event (for no key update, so it also excludes `fulfil_order` and seat holds, which share-lock it) and the ticket type (for update), and rechecks under them: the event is theirs and published (`not_published`), not ended (`ended`), Sheltüh-ticketed (`external`), the tier isn't seated (`seated`), the new total is above the current one (`not_increase`) and at most the cap the API passes (`too_many`), then the organiser's `ticket_releases` allowance (`take_rate_limit`, 30 an hour; `rate_limited`; taken last, so refusals cost nothing). It raises `quantity_available` only, bumps the event's `updated_at` (an admin's older edit is stale) and logs an `edited` entry with `ticketTypes {old, new}` (the whole list before and after) by the organiser's account. Returns `result`, and the tier's `total` and `sold`. Not security definer; search_path pinned. |
+| `release_tickets` | The organiser's "Release more tickets" (`POST /events/{id}/ticket-types/{id}/release`; `20261113000000_release_tickets.sql`; see "Releasing more tickets"). Share-locks the organiser (owned by the caller, else `not_found`; not approved, `not_approved`), locks the event (for no key update, so it also excludes `fulfil_order` and seat holds, which share-lock it) and the ticket type (for update), and rechecks under them: the event is theirs and published (`not_published`), not ended (`ended`), Sheltüh-ticketed (`external`), the tier isn't seated (`seated`), the new total is above the current one (`not_increase`) and at most the cap the API passes (`too_many`), then the event's `ticket_releases` allowance (`take_event_rate_limit`, 10 per 24 hours) and the organiser's (`take_rate_limit`, 30 an hour), both `rate_limited`, taken last so refusals cost nothing; a null actor is `not_found`, a null quantity or limit raises. It raises `quantity_available` only, bumps the event's `updated_at` (an admin's older edit is stale) and logs an `edited` entry with `ticketTypes {old, new}` (only the changed tier, `[{id, name, quantityAvailable}]`) by the organiser's account. Returns `result`, and the tier's `total` and `sold`. Not security definer; search_path pinned. |
 | `check_in_ticket` | One scan, in one step (see "Check-in"): the event must be the organiser's (`not_found`; for an admin, the API passes the platform-managed organiser's id); a hit on the account's `check_in` allowance (`rate_limited`, nothing logged); then, under an advisory lock on (event, request id), a request id already logged returns its original result unchanged, or `conflict` (nothing logged; the API's 409) if the submitted code doesn't resolve to the logged one. Otherwise: a code that isn't one of the organiser's tickets is `invalid`; another of their events' tickets is `other_event`; else it share-locks the order, then locks the ticket (`for update`), and decides `not_admissible` (order not `paid`), `already_checked_in` (with the first time, and `admission_id`: the ticket's current admission, for undo) or `admitted` (sets `checked_in_at`; `admission_id` is the new row). Every result but `not_found`, `rate_limited` and `conflict` logs exactly one row. Ids returned are public ids. Also returns the ticket's seat (section, row, seat, kind) when it has one. |
 | `undo_check_in` | Reverses an admission (an `admitted` log row of the event, by its `public_id`) with a reason: same ownership check, allowance and locks as `check_in_ticket`. Returns `undone` (clears `checked_in_at`, logs an `undone` row with the reason), `not_found`, `not_checked_in` (already undone), `superseded` (admitted again since: undo the newer one) or `rate_limited`. Only `undone` logs a row. |
 | `place_free_order` | A member's free order, created and fulfilled in one step under an advisory lock on (event, person): the per-person cap, then the daily allowance, then `fulfil_order`. A refusal or sell-out writes nothing (beyond a refusal count). Returns `paid`, `person_event_limit`, `member_daily_limit` or `sold_out`. |
@@ -3305,7 +3305,7 @@ A published event can't be edited by its organiser (only an admin's
 wants to add capacity, so they have one narrow edit: raise the total of a
 general admission ticket type
 (`lib/server/handlers/ticket-release.ts`, `private.release_tickets`,
-`supabase/migrations/20261112000000_release_tickets.sql`,
+`supabase/migrations/20261113000000_release_tickets.sql`,
 `components/dashboard/ReleaseTicketsPanel.tsx`, shown in the locked view of a
 published event at `/dashboard/{eventId}`).
 
@@ -3337,13 +3337,19 @@ published event at `/dashboard/{eventId}`).
   successful release, as an admin's capacity edit does.
 - **Audit.** An `edited` entry in `event_moderation_log` (the action an
   admin's edit uses; no new enum value, no new table) by the organiser's own
-  account, with `changes.ticketTypes {old, new}` (the whole list before and
-  after). It appears in the organiser's and admins' `moderationLog`; the
+  account, with `changes.ticketTypes {old, new}`: only the changed tier
+  (`[{id, name, quantityAvailable}]`), because every event read aggregates the
+  event's whole log, so an entry must stay small (an admin's edit logs the
+  whole list; ticket types are capped at 20 per event and descriptions at 300
+  characters, `requireTicketTypes`, so even that is bounded). It appears in the organiser's and admins' `moderationLog`; the
   organiser's own entries show their account id, not "Sheltüh team".
   The event's `updated_at` moves, so an admin's edit made from an earlier
   version is stale (409) and can't silently lower the number again.
 - **Rate limit.** 30 releases an hour per organiser account
-  (`take_rate_limit`, bucket `ticket_releases`); 429.
+  (`take_rate_limit`, bucket `ticket_releases`) and 10 per 24 hours per event
+  (`take_event_rate_limit`, same bucket name), so one event's log can't be
+  grown without bound; 429 (no `Retry-After`: the windows are fixed, and the
+  other rate limits don't send one).
 - **Record.** `EventRecord.ticketsSold` (ticket type id → sold, the
   organiser's and admins' shapes only; `toPublicEvent` doesn't carry it) feeds
   the "sold / total" in the UI.
