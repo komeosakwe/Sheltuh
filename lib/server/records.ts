@@ -431,6 +431,16 @@ function organiserLogoThumbOf(row: Row): { organiserLogoThumbUrl?: string } {
     : { organiserLogoThumbUrl: organiserLogoUrls(row.organiser_id as string, version).logoThumbUrl };
 }
 
+/** Tickets sold per ticket type: its capacity less what's left (ticket_remaining; sold never exceeds capacity). Organiser and admin shapes only. */
+function ticketsSoldOf(row: Row): Record<string, number> {
+  const remaining = (row.ticket_remaining ?? {}) as Record<string, number>;
+  const sold: Record<string, number> = {};
+  for (const ticket of row.ticket_types as TicketTypeInput[]) {
+    sold[ticket.id] = ticket.quantityAvailable - (remaining[ticket.id] ?? ticket.quantityAvailable);
+  }
+  return sold;
+}
+
 /** The `clip` field for a row of EVENT_SELECT: absent with no clip. */
 function clipOf(row: Row): { clip?: EventClip } {
   const stored = row.clip as
@@ -516,6 +526,7 @@ function mapEvent(row: Row, audience: LogAudience): EventRecord {
     ...clipOf(row),
     ...organiserLogoThumbOf(row),
     ticketTypes: row.ticket_types as TicketTypeInput[],
+    ticketsSold: ticketsSoldOf(row),
     ticketingMode,
     externalTicketUrl,
     externalFree: row.external_free === true,

@@ -68,7 +68,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261111000700_onboarding_emails.sql`. Never
+      newest, currently `20261112000000_release_tickets.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -283,6 +283,20 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           `organisers_onboarding_email`), then the column
           `email_outbox.onboarding_id` and the table
           `private.onboarding_emails` (that forgets who was welcomed)
+      41. `20261112000000_release_tickets.sql` (organisers raising a
+          general admission ticket type's total on their own published
+          event, docs/architecture.md "Releasing more tickets": one new
+          function, `private.release_tickets`, not security definer, search_path
+          pinned, execute revoked from clients. No table, column, trigger or
+          grant changes: the waitlist's existing triggers notify, and the
+          audit entry is an `edited` row in `event_moderation_log`.
+          Needs `20261002000000_whos_going_hardening.sql`
+          (`private.take_rate_limit`) and the waitlist file. Additive; the
+          previous app keeps working against it and doesn't call it, so it
+          can be applied ahead of the deploy (the Release control only works
+          once both are live). Needs no new environment variable.
+          Reversible: drop the function (the `edited` entries and the raised
+          quantities it wrote stay)
 
       **Files 33 to 37 can be applied ahead of this deploy, with the
       previous app still live.** "The previous app" here is the build of

@@ -9,6 +9,7 @@ import EventClipField, { clipStatusText } from "@/components/dashboard/EventClip
 import EventImageField from "@/components/dashboard/EventImageField";
 import { PayoutsNeededNotice, PayoutsPublishError, PayoutsPublishHint } from "@/components/dashboard/PayoutsRequired";
 import RefundPolicyField from "@/components/dashboard/RefundPolicyField";
+import ReleaseTicketsPanel from "@/components/dashboard/ReleaseTicketsPanel";
 import {
   locationChange,
   PLACES_UNAVAILABLE_NOTE,
@@ -984,6 +985,7 @@ export default function EventEditor(props: Props) {
             </p>
           </div>
         )}
+        {published && current && <ReleaseTicketsPanel event={current} getToken={getToken} />}
       </EditorShell>
     );
   }

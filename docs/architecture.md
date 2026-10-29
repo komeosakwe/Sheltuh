@@ -171,6 +171,7 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
 | `trending_day_utility`, `trending_decay`, `trending_shrink`, `trending_proximity` | The trending formula's parts, immutable, so the SQL is the formula's only definition (tests call them directly). |
 | `set_event_curation` | An admin's boost and exclusion for any event, any status: key-share-locks the event, then locks its curation row; nothing changing is `unchanged` (nothing logged); otherwise the update and a `curated` moderation log entry (admin, reason, old and new values), in one step. Returns `updated`, `unchanged` or `not_found`. |
 | `purge_analytics` | Retention: deletes view and outbound-click counters for days over 25 months ago and per-event rate-limit rows idle for a day, and, for events that ended over 25 months ago, the check-in log and the tickets' `checked_in_at`. Idempotent. Scheduled daily with Supabase Cron (`docs/supabase-setup.md`). |
+| `release_tickets` | The organiser's "Release more tickets" (`POST /events/{id}/ticket-types/{id}/release`; `20261112000000_release_tickets.sql`; see "Releasing more tickets"). Share-locks the organiser (owned by the caller, else `not_found`; not approved, `not_approved`), locks the event (for no key update, so it also excludes `fulfil_order` and seat holds, which share-lock it) and the ticket type (for update), and rechecks under them: the event is theirs and published (`not_published`), not ended (`ended`), Sheltüh-ticketed (`external`), the tier isn't seated (`seated`), the new total is above the current one (`not_increase`) and at most the cap the API passes (`too_many`), then the organiser's `ticket_releases` allowance (`take_rate_limit`, 30 an hour; `rate_limited`; taken last, so refusals cost nothing). It raises `quantity_available` only, bumps the event's `updated_at` (an admin's older edit is stale) and logs an `edited` entry with `ticketTypes {old, new}` (the whole list before and after) by the organiser's account. Returns `result`, and the tier's `total` and `sold`. Not security definer; search_path pinned. |
 | `check_in_ticket` | One scan, in one step (see "Check-in"): the event must be the organiser's (`not_found`; for an admin, the API passes the platform-managed organiser's id); a hit on the account's `check_in` allowance (`rate_limited`, nothing logged); then, under an advisory lock on (event, request id), a request id already logged returns its original result unchanged, or `conflict` (nothing logged; the API's 409) if the submitted code doesn't resolve to the logged one. Otherwise: a code that isn't one of the organiser's tickets is `invalid`; another of their events' tickets is `other_event`; else it share-locks the order, then locks the ticket (`for update`), and decides `not_admissible` (order not `paid`), `already_checked_in` (with the first time, and `admission_id`: the ticket's current admission, for undo) or `admitted` (sets `checked_in_at`; `admission_id` is the new row). Every result but `not_found`, `rate_limited` and `conflict` logs exactly one row. Ids returned are public ids. Also returns the ticket's seat (section, row, seat, kind) when it has one. |
 | `undo_check_in` | Reverses an admission (an `admitted` log row of the event, by its `public_id`) with a reason: same ownership check, allowance and locks as `check_in_ticket`. Returns `undone` (clears `checked_in_at`, logs an `undone` row with the reason), `not_found`, `not_checked_in` (already undone), `superseded` (admitted again since: undo the newer one) or `rate_limited`. Only `undone` logs a row. |
 | `place_free_order` | A member's free order, created and fulfilled in one step under an advisory lock on (event, person): the per-person cap, then the daily allowance, then `fulfil_order`. A refusal or sell-out writes nothing (beyond a refusal count). Returns `paid`, `person_event_limit`, `member_daily_limit` or `sold_out`. |
@@ -974,7 +975,8 @@ after the fact, and a few kinds go to the review queue first.
   is the next step.
 - **Organisers still can't edit a published event** (owner decision B-D5):
   an admin edits it, or unpublishes it so the organiser can, and it then goes
-  through review.
+  through review. The one exception: raising a general admission ticket
+  type's total (owner-approved; "Releasing more tickets").
 - **Concurrency** (the caps, a publish racing a takedown, the review switch
   or a payouts change) is enforced by row locks and rate-limit rows, but
   PGlite runs on one connection: run `tests/server` on a real Postgres
@@ -3296,6 +3298,59 @@ and a link has none.
   pending). The organiser still shows in the approved list with its
   `invite_accepted` log entry.
 
+## Releasing more tickets
+
+A published event can't be edited by its organiser (only an admin's
+`admin_edit_event` changes it), but a sell-out is the moment an organiser most
+wants to add capacity, so they have one narrow edit: raise the total of a
+general admission ticket type
+(`lib/server/handlers/ticket-release.ts`, `private.release_tickets`,
+`supabase/migrations/20261112000000_release_tickets.sql`,
+`components/dashboard/ReleaseTicketsPanel.tsx`, shown in the locked view of a
+published event at `/dashboard/{eventId}`).
+
+- **Rules** (the function rechecks all of them under locks; the handler only
+  authenticates, checks the organiser is approved and validates the number):
+  the caller's own event (another organiser's, an unknown event or ticket type:
+  404); the organiser approved (a taken-down organiser: 403, and its events
+  are unpublished anyway); the event `published`, not ended, ticketed on
+  Sheltüh (409 otherwise); the ticket type not seated (409: a seated tier's
+  capacity is its seats, set by the seat map); the new total strictly above the
+  current one (never lower, never equal: 400 `fieldErrors.quantityAvailable`)
+  and at most `MAX_TICKETS_PER_TYPE` (100,000). Creating a ticket type has no
+  upper bound beyond a whole number of 1 or more, so this cap is new, for
+  releases only. Nothing else changes: not the price, fee policy, name,
+  description or `quantity_sold`.
+- **Concurrency.** Locks in a fixed order: organiser (share), event (no key
+  update), ticket type (update). `fulfil_order` and seat holds share-lock the
+  event and then lock ticket types, so a purchase and a release serialise
+  either way and `quantity_sold <= quantity_available` still holds
+  (`ticket_types_not_oversold`). Two releases of the same number at once: one
+  lands, the other is `not_increase`. An unpublish in flight wins
+  (`not_published`). Tests on real Postgres cover each.
+- **Waitlist.** Nothing new: raising `quantity_available` leaves more tickets
+  left than before, which fires `ticket_types_waitlist_release_update`
+  (deferred to commit), and `private.notify_waitlist` queues the "Tickets are
+  available again" emails (see "Waitlist": up to 3 people per ticket left,
+  each person at most once per 12 hours, so a second release inside the window
+  tells nobody twice). The handler calls `sendWaitlistEmailsSoon` after a
+  successful release, as an admin's capacity edit does.
+- **Audit.** An `edited` entry in `event_moderation_log` (the action an
+  admin's edit uses; no new enum value, no new table) by the organiser's own
+  account, with `changes.ticketTypes {old, new}` (the whole list before and
+  after). It appears in the organiser's and admins' `moderationLog`; the
+  organiser's own entries show their account id, not "Sheltüh team".
+  The event's `updated_at` moves, so an admin's edit made from an earlier
+  version is stale (409) and can't silently lower the number again.
+- **Rate limit.** 30 releases an hour per organiser account
+  (`take_rate_limit`, bucket `ticket_releases`); 429.
+- **Record.** `EventRecord.ticketsSold` (ticket type id → sold, the
+  organiser's and admins' shapes only; `toPublicEvent` doesn't carry it) feeds
+  the "sold / total" in the UI.
+- **Not built.** No notification to admins (the log entry is visible in the
+  admin event view). No decrease, no seated tiers (change the seat map), no
+  new ticket types, no price changes on a published event.
+
 ## Reserved seating
 
 Optional seat maps for concert-style events (owner request, 21 Oct 2026;
@@ -3531,6 +3586,7 @@ application is approved.
 | `POST /organisers/me/connect/onboard` · `…/connect/refresh` | organiser |
 | `POST /events` · `PATCH /events/{id}` · `POST /events/{id}/submit` | organiser (own events). Body adds optional `state` and `timeZone`, together or neither (see "Events: state and time zone"). Body adds `ticketingMode` (absent: `sheltuh` on POST; on PATCH, the stored ticketing is kept), `externalTicketUrl`, `externalFree` (see "External ticketing"). Body adds optional `location` (`{source: "places", placeId, pin?}`, `{source: "manual_pin", pin}` or `null`; absent: none on POST, kept on PATCH; see "Venue location"): 400 `fieldErrors.location` (shape, bounds, too far from the suburb, unknown or non-Australian Google place, or a kept Google place in another state after the suburb or state changed) or `fieldErrors.suburb` (a new Google place is in another state); 503 `fieldErrors.location`, `code: "places_unavailable"` (a new Google place couldn't be checked). PATCH: 409 unless draft or rejected; 409 (fieldErrors on the field) changing the mode or link of an event that has been approved before. Submit (always to review; the publish route below is the editor's): 409 `payouts_required` or `location_required` (`fieldErrors.location`) |
 | `POST /events/{id}/publish` | organiser (own events; see "Publishing events"). No body. 200 `PublishEventResponse` (`EventRecord`, `private, no-store`): `status` `published` (live now) or `pending_review` (sent to review, with `reviewReason`: `review_required`, `removed_before`, `seated`, `unknown_ticket_site`, `first_paid_event` or `daily_limit`); an event already published is a 200 too, unchanged. 403 not an approved organiser; 404 not theirs; 409 with `code`: `payouts_required`, `location_required` (`fieldErrors.location`), `event_ended`, `in_review` (already waiting), `event_changed` (its ticket link changed meanwhile: reload and retry). Emails after the response (`maxDuration` 60) |
+| `POST /events/{eventId}/ticket-types/{ticketTypeId}/release` `{quantityAvailable}` | organiser (own event; see "Releasing more tickets"). 200 `{eventId, ticketTypeId, quantityAvailable, quantitySold}` (`private, no-store`). 400 `fieldErrors.quantityAvailable` (not a whole number, not above the current total, over 100,000); 403 not an approved organiser; 404 not theirs or no such ticket type; 409 not published, ended, external or a seated tier; 429 over 30 releases an hour. The waitlist's emails are sent after the response (`maxDuration` 60) |
 | `POST /places/autocomplete` `{input, sessionToken}` · `POST /places/details` `{placeId, sessionToken}` | approved organiser or admin (401, 403); `private, no-store` (see "Venue location"). Autocomplete: `input` 2–120 characters after control characters are removed; `sessionToken` `^[A-Za-z0-9_-]{8,36}$`, one per search. 200 `{suggestions: [{placeId, primaryText, secondaryText}]}` (at most 5, in Australia and its external territories). Details (ends the search's session): 200 `{placeId, formattedAddress, streetAddress, locality, state, postcode, googleMapsUrl}`, never a position. 400 fieldErrors (`input`, `sessionToken`, `placeId`: malformed, unknown to Google, or not in Australia); 429 per account (autocomplete 100 an hour and 400 a day; details, shared with event saves' place checks, 30 an hour and 120 a day); 503 `code: "places_unavailable"` (no key, Google unreachable, over quota, a bad key or disabled API, over 5 s, or the platform's cap for Google's day used: autocomplete 1,800, details 450). Bodies at most 4 KB. Nothing about the search is logged |
 | `GET /organisers/me/events` · `GET /organisers/me/events/{id}` | organiser (own events), `private, no-store` |
 | `PUT /events/{id}/image` · `DELETE /events/{id}/image` | organiser (own events, while draft or rejected). Admins: `…/admin/events/{id}/image` |

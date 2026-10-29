@@ -235,3 +235,47 @@ test("the sub-nav is on the other organiser pages, marking where you are, and no
   await expect(page.locator("[data-door]")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByRole("navigation", { name: "Organiser" })).toHaveCount(0);
 });
+
+test("a published event's page lists sold / total and releases more tickets (phone width, 44px controls)", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 800 });
+  const live = event("evt-live", "Neon Static: warehouse night", {
+    status: "published",
+    ticketingLocked: true,
+    ticketTypes: [
+      ...PAID,
+      { id: "vip", name: "VIP seats", priceCents: 9000, feePolicy: "buyer-pays", quantityAvailable: 20, seated: true },
+    ],
+    ticketsSold: { ga: 100, vip: 3 },
+  });
+  await signedInWithEvents(page, [live]);
+  let released: unknown = null;
+  await page.route("**/api/organisers/me/events/evt-live", (route) => route.fulfill({ json: live }));
+  await page.route("**/api/events/evt-live/ticket-types/ga/release", (route) => {
+    released = route.request().postDataJSON();
+    return route.fulfill({
+      json: { eventId: "evt-live", ticketTypeId: "ga", quantityAvailable: 150, quantitySold: 100 },
+    });
+  });
+  await page.goto("/dashboard/evt-live");
+  await expect(page.getByRole("heading", { name: "Release more tickets" })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("100 sold / 100")).toBeVisible();
+  await expect(page.getByText("VIP seats")).toHaveCount(0);
+
+  const input = page.getByLabel("New total");
+  const save = page.getByRole("button", { name: "Save" });
+  for (const control of [input, save]) {
+    const box = await control.boundingBox();
+    expect(box?.height).toBeGreaterThanOrEqual(44);
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+  await input.fill("100");
+  await save.click();
+  await expect(page.getByRole("alert").filter({ hasText: "Enter more than 100." })).toBeVisible();
+
+  await input.fill("150");
+  await save.click();
+  await expect(page.getByRole("status").filter({ hasText: "Released. Now 150 on sale." })).toBeVisible();
+  await expect(page.getByText("100 sold / 150")).toBeVisible();
+  expect(released).toEqual({ quantityAvailable: 150 });
+});
