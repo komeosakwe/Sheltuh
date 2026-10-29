@@ -135,7 +135,7 @@ export default function OrganiserLogoField({
   const loadFailed = Boolean(logoUrl) && failedUrl === logoUrl;
 
   return (
-    <div data-organiser-logo-field="" className="flex flex-col gap-3" aria-busy={busy ? true : undefined}>
+    <div id="logo" data-organiser-logo-field="" className="flex flex-col gap-3" aria-busy={busy ? true : undefined}>
       <p id="organiser-logo-title" className="eyebrow text-muted">
         Logo (optional)
       </p>

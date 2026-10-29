@@ -189,6 +189,9 @@ test("keyboard: the sub-nav, then New event, then each row's actions, with a vis
   await expect(newEvent).toBeFocused();
   const outline = await newEvent.evaluate((el) => getComputedStyle(el).outlineStyle);
   expect(outline).not.toBe("none");
+  // No logo yet: the prompt's Add logo comes before the list.
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("link", { name: "Add logo" })).toBeFocused();
   // The first row: its hint's Contact Sheltüh link, then its main action.
   await page.keyboard.press("Tab");
   await expect(page.getByRole("link", { name: "Contact Sheltüh" }).first()).toBeFocused();

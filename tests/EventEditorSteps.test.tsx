@@ -73,10 +73,15 @@ const EVENT: EventRecord = {
 };
 
 /** `null`: a new event. */
-function renderEditor(initial: EventRecord | null = EVENT) {
+function renderEditor(initial: EventRecord | null = EVENT, organiserHasLogo?: boolean) {
   render(
     <FakeAuthProvider value={fakeAuthValue({ email: "owner@example.com" })}>
-      <EventEditor getToken={vi.fn().mockResolvedValue("token")} initial={initial ?? undefined} onSaved={vi.fn()} />
+      <EventEditor
+        getToken={vi.fn().mockResolvedValue("token")}
+        initial={initial ?? undefined}
+        organiserHasLogo={organiserHasLogo}
+        onSaved={vi.fn()}
+      />
     </FakeAuthProvider>,
   );
 }
@@ -226,6 +231,21 @@ describe("Before you publish", () => {
     expect(row("photo")).toHaveTextContent("Optional: generated artwork is used");
     expect(document.querySelector("[data-check='clip']")).toBeNull();
     expect(within(row("title")).queryByRole("button")).toBeNull();
+  });
+
+  it("suggests a logo (advisory, a link to the Profile page's logo field) only when the organiser has none", () => {
+    renderEditor(EVENT, false);
+    showStep(3);
+    expect(row("logo")).toHaveAttribute("data-state", "optional");
+    expect(within(row("logo")).getByRole("link", { name: "Add logo" })).toHaveAttribute("href", "/dashboard/profile#logo");
+    cleanup();
+    renderEditor(EVENT, true);
+    showStep(3);
+    expect(document.querySelector("[data-check='logo']")).toBeNull();
+    cleanup();
+    renderEditor(EVENT);
+    showStep(3);
+    expect(document.querySelector("[data-check='logo']")).toBeNull();
   });
 
   it("a new, empty event: what's missing is said in words, with a way to it", () => {

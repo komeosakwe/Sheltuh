@@ -3,6 +3,7 @@ import type { Ref } from "react";
 import FollowButton from "@/components/organisers/FollowButton";
 import OrganiserLinks from "@/components/organisers/OrganiserLinks";
 import OrganiserLogo from "@/components/organisers/OrganiserLogo";
+import OwnLogoPrompt from "@/components/organisers/OwnLogoPrompt";
 import VideoFacade from "@/components/organisers/VideoFacade";
 import { RESULTS_GRID } from "@/components/EventResults";
 import BackLink from "@/components/ui/BackLink";
@@ -19,7 +20,7 @@ const countFormatter = new Intl.NumberFormat("en-AU");
 /**
  * An approved organiser's public profile: who they are (with their logo,
  * when they have one), Follow, their numbers (followers once there are 10,
- * events hosted), their links and featured video, then their events: `upcoming` (soonest first) and `past`
+ * events hosted once there is one), their links and featured video, then their events: `upcoming` (soonest first) and `past`
  * (most recent first), already in the screens' shape (a live profile's
  * events adapted by LiveOrganiserProfile, or the demo's sample events).
  * `headingRef` makes the h1 focusable from script (tabIndex -1), for a caller
@@ -59,16 +60,16 @@ export default function OrganiserProfileView({
 
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:gap-14">
         <header className="flex flex-col gap-5 lg:col-span-7">
-          {profile.logoUrl ? (
-            // Their logo beside the strap and name from sm (stacked on phones, as on a member's
-            // profile). Decorative: the h1 names them. If it can't load, it's left out.
-            <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:gap-6">
+          {/* Their logo (or, for them alone, "Add logo") beside the strap and name from sm; stacked on phones. */}
+          <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:gap-6">
+            {profile.logoUrl ? (
+              // Decorative: the h1 names them. If it can't load, it's left out.
               <OrganiserLogo name={profile.displayName} url={profile.logoUrl} size="lg" fallback="none" />
-              <div className="flex min-w-0 flex-col gap-5">{title}</div>
-            </div>
-          ) : (
-            title
-          )}
+            ) : (
+              <OwnLogoPrompt organiserId={profile.organiserId} />
+            )}
+            <div className="flex min-w-0 flex-col gap-5">{title}</div>
+          </div>
           <p className="meta text-muted">Member since {formatMemberSince(profile.memberSince)}</p>
           {/* Followers only once the API sends a count (10 or more); events hosted (past events). */}
           <dl className="flex flex-wrap gap-x-8 gap-y-3 empty:hidden">
@@ -80,7 +81,7 @@ export default function OrganiserProfileView({
                 </dd>
               </div>
             )}
-            {typeof profile.eventsHosted === "number" && (
+            {typeof profile.eventsHosted === "number" && profile.eventsHosted > 0 && (
               <div className="flex flex-col">
                 <dt className="eyebrow text-muted">Events hosted</dt>
                 <dd className="font-heading text-[2rem] leading-9 tracking-[-0.03em] tabular-nums lg:text-[2.5rem] lg:leading-11">
