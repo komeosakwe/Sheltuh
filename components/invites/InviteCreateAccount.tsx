@@ -2,21 +2,20 @@
 
 import Link from "next/link";
 import { useRef, useState, type FormEvent } from "react";
-import AuthField, { fieldsForAuthError, useFocusAfterRender } from "@/components/auth/AuthField";
+import { fieldsForAuthError, useFocusAfterRender } from "@/components/auth/AuthField";
 import LegalNote from "@/components/auth/LegalNote";
+import PasswordField from "@/components/auth/PasswordField";
 import { Button } from "@/components/ui/Button";
 import { ApiError } from "@/lib/api/client";
 import { acceptInvite, getInviteAccountLink, getMyInvite } from "@/lib/api/invites";
 import type { AcceptInviteResult, MyInvite } from "@/lib/api/types";
 import { OtherSessionsSignOutError, useAuth } from "@/lib/auth/AuthContext";
-import { PASSWORD_HINT, PASSWORD_REGEX } from "@/lib/auth/password-rules";
+import { passwordError } from "@/lib/auth/password-rules";
 import { withNext } from "@/lib/safe-next-path";
 import { acceptErrorText, apiErrorCode, inviteProblem, type InviteProblem } from "./invite-problems";
 
 const FORM_ERROR_ID = "invite-account-error";
 export const INVITE_PATH = "/invite";
-
-type Field = "password" | "confirmPassword";
 
 /** What "Create account" ended in, once the account exists and is signed in. */
 export interface InviteAccountCreated {
@@ -81,25 +80,14 @@ export default function InviteCreateAccount({
 }) {
   const auth = useAuth();
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [fieldErrors, setFieldErrors] = useState<Partial<Record<Field, string>>>({});
+  const [passwordMessage, setPasswordMessage] = useState<string | undefined>();
   const [error, setError] = useState<string | null>(null);
   const [passwordInvalid, setPasswordInvalid] = useState(false);
   const [busy, setBusy] = useState(false);
   // The account exists and is signed in; only its password is still to set.
   const [verified, setVerified] = useState(false);
   const passwordRef = useRef<HTMLInputElement>(null);
-  const confirmRef = useRef<HTMLInputElement>(null);
   const focusAfterRender = useFocusAfterRender();
-
-  function validate(): Partial<Record<Field, string>> {
-    const errors: Partial<Record<Field, string>> = {};
-    if (!password) errors.password = "Choose a password";
-    else if (!PASSWORD_REGEX.test(password)) errors.password = "Password doesn't meet the requirements.";
-    if (!confirmPassword) errors.confirmPassword = "Confirm your password";
-    else if (password && password !== confirmPassword) errors.confirmPassword = "Passwords don't match.";
-    return errors;
-  }
 
   /** A sign-up token hash for the invite's address, or null when the page has moved on (or said why not). */
   async function requestLink(): Promise<string | null> {
@@ -127,10 +115,10 @@ export default function InviteCreateAccount({
     if (busy) return;
     setError(null);
     setPasswordInvalid(false);
-    const errors = validate();
-    setFieldErrors(errors);
-    if (errors.password || errors.confirmPassword) {
-      focusAfterRender(errors.password ? passwordRef.current : confirmRef.current);
+    const invalid = passwordError(password, "Choose a password");
+    setPasswordMessage(invalid);
+    if (invalid) {
+      focusAfterRender(passwordRef.current);
       return;
     }
 
@@ -207,31 +195,22 @@ export default function InviteCreateAccount({
         <span className="eyebrow mr-2 text-muted">Email</span>
         <span className="break-all">{maskedEmail}</span>
       </p>
-      <AuthField
+      <PasswordField
         ref={passwordRef}
         id="invite-password"
         label="Password"
-        type="password"
         autoComplete="new-password"
         name="password"
         required
         value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        error={fieldErrors.password}
+        onChange={(e) => {
+          setPassword(e.target.value);
+          if (passwordMessage) setPasswordMessage(passwordError(e.target.value, "Choose a password"));
+        }}
+        onBlur={() => password && setPasswordMessage(passwordError(password, "Choose a password"))}
+        error={passwordMessage}
         invalidBy={passwordInvalid ? FORM_ERROR_ID : undefined}
-        hint={PASSWORD_HINT}
-      />
-      <AuthField
-        ref={confirmRef}
-        id="invite-confirm-password"
-        label="Confirm password"
-        type="password"
-        autoComplete="new-password"
-        name="confirmPassword"
-        required
-        value={confirmPassword}
-        onChange={(e) => setConfirmPassword(e.target.value)}
-        error={fieldErrors.confirmPassword}
+        rules
       />
 
       {/* Always rendered, so a message added to it is read out. */}

@@ -62,13 +62,25 @@ describe("LoginForm links", () => {
   });
 });
 
+describe("LoginForm, unverified account", () => {
+  it("links to /verify with the email and next, so a half-finished sign-up can finish", async () => {
+    renderWithAuth(<LoginForm next={NEXT} />, fakeAuthValue({ status: "signed-out", signIn: vi.fn().mockRejectedValue(new Error("Email not confirmed")) }));
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "mia@example.com" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "Hunter22x" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(await screen.findByRole("link", { name: "Verify your email" })).toHaveAttribute(
+      "href",
+      `/verify?email=mia%40example.com&next=${ENCODED}`,
+    );
+  });
+});
+
 describe("SignupForm", () => {
   it("sends the new account to /verify with its email and next, and links back to sign in with next", async () => {
     const auth = renderWithAuth(<SignupForm next={NEXT} />);
     expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", `/login?next=${ENCODED}`);
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "mia@example.com" } });
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "Hunter22x" } });
-    fireEvent.change(screen.getByLabelText("Confirm password"), { target: { value: "Hunter22x" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
     await waitFor(() => expect(push).toHaveBeenCalledTimes(1));
     expect(auth.signUp).toHaveBeenCalledWith("mia@example.com", "Hunter22x");

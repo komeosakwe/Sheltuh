@@ -140,7 +140,6 @@ test("a new organiser: Create account verifies the invite, sets the password, si
   expect(seen.calls).toEqual(["POST /api/invites/view"]);
 
   await page.getByLabel("Password", { exact: true }).fill("Secret123");
-  await page.getByLabel("Confirm password").fill("Secret123");
   await page.getByRole("button", { name: "Create account" }).click();
 
   const join = page.getByRole("heading", { level: 1, name: "Join Sheltüh as Neon Collective" });

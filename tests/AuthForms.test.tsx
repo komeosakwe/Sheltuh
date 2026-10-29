@@ -121,8 +121,9 @@ describe("LoginForm", () => {
 });
 
 describe("SignupForm", () => {
-  it("checks every field before calling Supabase, and focuses the first invalid one", async () => {
+  it("has no confirm field, and checks every field before calling Supabase, focusing the first invalid one", async () => {
     const auth = renderWith(<SignupForm />);
+    expect(screen.queryByLabelText(/confirm/i)).toBeNull();
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "mia@example.com" } });
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "short" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
@@ -130,30 +131,88 @@ describe("SignupForm", () => {
     const password = screen.getByLabelText("Password");
     await waitFor(() => expect(document.activeElement).toBe(password));
     expect(password).toHaveAttribute("aria-invalid", "true");
-    // Its error first, then the rules it has to meet.
-    expect(describedBy(password)).toMatch(/^Password doesn't meet the requirements\. \| At least 8 characters/);
-    expect(screen.getByLabelText("Confirm password")).toHaveAttribute("aria-invalid", "true");
-    expect(describedBy(screen.getByLabelText("Confirm password"))).toBe("Confirm your password");
+    // Its error first, then the live checklist.
+    expect(describedBy(password)).toMatch(/^Password doesn't meet the requirements\. \| .*8\+ characters/);
     expect(screen.getByLabelText("Email")).not.toHaveAttribute("aria-invalid");
     expect(auth.signUp).not.toHaveBeenCalled();
   });
 
-  it("says when the passwords don't match, on the confirm field", async () => {
+  it("shows an email format error on blur, and clears it once fixed", () => {
     renderWith(<SignupForm />);
-    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "mia@example.com" } });
-    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "Hunter222" } });
-    fireEvent.change(screen.getByLabelText("Confirm password"), { target: { value: "Hunter223" } });
+    const email = screen.getByLabelText("Email");
+    fireEvent.change(email, { target: { value: "mia@" } });
+    fireEvent.blur(email);
+    expect(email).toHaveAttribute("aria-invalid", "true");
+    expect(describedBy(email)).toBe("Enter a valid email");
+    fireEvent.change(email, { target: { value: "mia@example.com" } });
+    expect(email).not.toHaveAttribute("aria-invalid");
+  });
+
+  it("doesn't scold an empty field on blur, but does on submit (email first)", async () => {
+    renderWith(<SignupForm />);
+    fireEvent.blur(screen.getByLabelText("Email"));
+    fireEvent.blur(screen.getByLabelText("Password"));
+    expect(screen.getByLabelText("Email")).not.toHaveAttribute("aria-invalid");
     fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
-    const confirm = screen.getByLabelText("Confirm password");
-    await waitFor(() => expect(document.activeElement).toBe(confirm));
-    expect(describedBy(confirm)).toBe("Passwords don't match.");
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Email")));
+    expect(describedBy(screen.getByLabelText("Email"))).toBe("Enter your email");
+    expect(describedBy(screen.getByLabelText("Password"))).toMatch(/^Enter your password/);
+  });
+
+  it("shows a password rules error on blur", () => {
+    renderWith(<SignupForm />);
+    const password = screen.getByLabelText("Password");
+    fireEvent.change(password, { target: { value: "hunter" } });
+    fireEvent.blur(password);
+    expect(describedBy(password)).toMatch(/^Password doesn't meet the requirements\./);
+  });
+
+  it("ticks the password rules live, and announces what's missing only when that changes", () => {
+    renderWith(<SignupForm />);
+    const password = screen.getByLabelText("Password");
+    const items = () => screen.getAllByRole("listitem").map((li) => li.textContent);
+    const live = () => document.querySelector("[aria-live=polite]")?.textContent;
+    expect(items()).toEqual(["Needed: 8+ characters", "Needed: Uppercase letter", "Needed: Lowercase letter", "Needed: Number"]);
+    expect(live()).toBe("");
+    expect(describedBy(password)).toContain("Needed: 8+ characters");
+
+    fireEvent.change(password, { target: { value: "hunter" } });
+    expect(items()).toEqual(["Needed: 8+ characters", "Needed: Uppercase letter", "Met: Lowercase letter", "Needed: Number"]);
+    const before = live();
+    expect(before).toBe("Still needed: 8+ characters, uppercase letter, number");
+    fireEvent.change(password, { target: { value: "hunterx" } });
+    expect(live()).toBe(before);
+
+    fireEvent.change(password, { target: { value: "Hunter22x" } });
+    expect(items().every((t) => t?.startsWith("Met: "))).toBe(true);
+    expect(live()).toBe("Password meets the requirements");
+  });
+
+  it("show/hide password: a toggle button that keeps the value and the input's focus", () => {
+    renderWith(<SignupForm />);
+    const password = screen.getByLabelText("Password");
+    fireEvent.change(password, { target: { value: "Hunter22x" } });
+    const show = screen.getByRole("button", { name: "Show password" });
+    expect(show).toHaveAttribute("type", "button");
+    expect(show).toHaveAttribute("aria-pressed", "false");
+    expect(password).toHaveAttribute("type", "password");
+    expect(password).toHaveAttribute("autocomplete", "new-password");
+
+    fireEvent.click(show);
+    const hide = screen.getByRole("button", { name: "Hide password" });
+    expect(hide).toHaveAttribute("aria-pressed", "true");
+    expect(password).toHaveAttribute("type", "text");
+    expect(password).toHaveValue("Hunter22x");
+    fireEvent.click(hide);
+    expect(password).toHaveAttribute("type", "password");
+    // Pressing it doesn't take focus from the input.
+    expect(fireEvent.mouseDown(hide)).toBe(false);
   });
 
   it("a server error about the account marks the email", async () => {
     renderWith(<SignupForm />, { signUp: vi.fn().mockRejectedValue(new Error("User already registered")) });
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "mia@example.com" } });
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "Hunter222" } });
-    fireEvent.change(screen.getByLabelText("Confirm password"), { target: { value: "Hunter222" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("User already registered");
     const email = screen.getByLabelText("Email");
@@ -242,8 +301,20 @@ describe("ForgotPasswordForm", () => {
     expect(describedBy(code)).toBe("Enter the reset code");
     const newPassword = screen.getByLabelText("New password");
     expect(newPassword).toHaveAttribute("aria-invalid", "true");
-    expect(describedBy(newPassword)).toMatch(/^Enter your new password \| At least 8 characters/);
+    expect(describedBy(newPassword)).toMatch(/^Enter your new password \| .*8\+ characters/);
     expect(auth.confirmForgotPassword).not.toHaveBeenCalled();
+  });
+
+  it("the new password has the live rules and a show/hide toggle, and no confirm field", async () => {
+    renderWith(<ForgotPasswordForm />);
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "mia@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send reset code" }));
+    const newPassword = await screen.findByLabelText("New password");
+    expect(screen.queryByLabelText(/confirm/i)).toBeNull();
+    fireEvent.change(newPassword, { target: { value: "Hunter22x" } });
+    expect(screen.getAllByRole("listitem").every((li) => li.textContent?.startsWith("Met: "))).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Show password" }));
+    expect(newPassword).toHaveAttribute("type", "text");
   });
 
   it("Send reset code is busy while it works, not disabled", async () => {

@@ -90,9 +90,8 @@ function renderFlow(initial: Partial<AuthContextValue> = SIGNED_OUT, { at = `/in
   return { signOut, controls };
 }
 
-async function fillPasswords(password = "Secret123", confirm = password) {
+async function fillPassword(password = "Secret123") {
   fireEvent.change(await screen.findByLabelText("Password"), { target: { value: password } });
-  fireEvent.change(screen.getByLabelText("Confirm password"), { target: { value: confirm } });
 }
 
 beforeEach(() => {
@@ -232,14 +231,15 @@ describe("/invite: before anything is pressed", () => {
 });
 
 describe("/invite: Create account", () => {
-  it("checks the passwords first, calling nothing, and focuses the field", async () => {
+  it("checks the password first, calling nothing, and focuses the field; there is no confirm field", async () => {
     viewInvite.mockResolvedValue(ORGANISER_VIEW);
     renderFlow();
-    await fillPasswords("Secret123", "Secret124");
+    await fillPassword("secret");
+    expect(screen.queryByLabelText("Confirm password")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Create account" }));
-    const confirm = screen.getByLabelText("Confirm password");
-    await waitFor(() => expect(confirm).toHaveFocus());
-    expect(confirm).toHaveAccessibleDescription("Passwords don't match.");
+    const password = screen.getByLabelText("Password");
+    await waitFor(() => expect(password).toHaveFocus());
+    expect(password).toHaveAccessibleDescription(/^Password doesn't meet the requirements\./);
     expect(getInviteAccountLink).not.toHaveBeenCalled();
   });
 
@@ -249,7 +249,7 @@ describe("/invite: Create account", () => {
     getMyInvite.mockReset().mockResolvedValue(ORGANISER_INVITE);
     acceptInvite.mockResolvedValue({ kind: "organiser", organiserId: "org-9" });
     const { controls } = renderFlow();
-    await fillPasswords();
+    await fillPassword();
     fireEvent.click(screen.getByRole("button", { name: "Create account" }));
 
     const join = await screen.findByRole("heading", { level: 1, name: "Join Sheltüh as Neon Collective" });
@@ -281,7 +281,7 @@ describe("/invite: Create account", () => {
     getMyInvite.mockReset().mockResolvedValue(MEMBER_INVITE);
     acceptInvite.mockResolvedValue({ kind: "member" });
     renderFlow();
-    await fillPasswords();
+    await fillPassword();
     fireEvent.click(screen.getByRole("button", { name: "Create account" }));
     const done = await screen.findByRole("heading", { level: 1, name: "You’re in" });
     await waitFor(() => expect(done).toHaveFocus());
@@ -299,7 +299,7 @@ describe("/invite: Create account", () => {
     getMyInvite.mockReset().mockResolvedValue(MEMBER_INVITE);
     acceptInvite.mockRejectedValueOnce(error).mockResolvedValue({ kind: "member" });
     renderFlow();
-    await fillPasswords();
+    await fillPassword();
     fireEvent.click(screen.getByRole("button", { name: "Create account" }));
     const heading = await screen.findByRole("heading", { level: 1, name: "Accept your invite" });
     await waitFor(() => expect(heading).toHaveFocus());
@@ -319,7 +319,7 @@ describe("/invite: Create account", () => {
     const { controls } = renderFlow();
     const value = controls.auth;
     value.verifyInvite.mockRejectedValueOnce(new AuthApiError("Email link is invalid or has expired", 403, "otp_expired"));
-    await fillPasswords();
+    await fillPassword();
     fireEvent.click(screen.getByRole("button", { name: "Create account" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "The sign-up link we made for you expired before it could be used. Press Create account to try again.",
@@ -338,7 +338,7 @@ describe("/invite: Create account", () => {
     value.setNewPassword.mockRejectedValueOnce(
       new AuthApiError("Password is known to be weak and easy to guess", 422, "weak_password"),
     );
-    await fillPasswords();
+    await fillPassword();
     fireEvent.click(screen.getByRole("button", { name: "Create account" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Your account is set up, but its password wasn’t saved: Password is known to be weak and easy to guess. Choose a different password, then press Save password.",
@@ -349,7 +349,7 @@ describe("/invite: Create account", () => {
     // The account exists now: signing in to another isn't the way on.
     expect(screen.queryByRole("link", { name: "Sign in" })).toBeNull();
 
-    await fillPasswords("Better456x", "Better456x");
+    await fillPassword("Better456x");
     fireEvent.click(screen.getByRole("button", { name: "Save password" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Join Sheltüh as Neon Collective" })).toBeInTheDocument();
     expect(getInviteAccountLink).toHaveBeenCalledTimes(1);
@@ -364,7 +364,7 @@ describe("/invite: Create account", () => {
     const { controls } = renderFlow();
     const value = controls.auth;
     value.setNewPassword.mockRejectedValueOnce(new OtherSessionsSignOutError(new AuthApiError("Server error", 500, "unexpected_failure")));
-    await fillPasswords();
+    await fillPassword();
     fireEvent.click(screen.getByRole("button", { name: "Create account" }));
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Your password was saved, but we couldn’t sign out your other sessions. Press Save password to try again.");
@@ -383,7 +383,7 @@ describe("/invite: Create account", () => {
       new ApiError(409, "This email address already has a Sheltüh account.", undefined, { code: "has_account" }),
     );
     renderFlow();
-    await fillPasswords();
+    await fillPassword();
     fireEvent.click(screen.getByRole("button", { name: "Create account" }));
     const heading = await screen.findByRole("heading", { level: 1, name: "Sign in to accept your invite" });
     await waitFor(() => expect(heading).toHaveFocus());
@@ -397,7 +397,7 @@ describe("/invite: Create account", () => {
       new ApiError(503, "We can't set up your account from here right now.", undefined, { code: "unavailable" }),
     );
     renderFlow();
-    await fillPasswords();
+    await fillPassword();
     fireEvent.click(screen.getByRole("button", { name: "Create account" }));
     expect(await screen.findByText("We can't set up your account from here right now.")).toBeInTheDocument();
     expect(viewInvite).toHaveBeenCalledTimes(2);
@@ -409,7 +409,7 @@ describe("/invite: Create account", () => {
     viewInvite.mockResolvedValueOnce(ORGANISER_VIEW).mockResolvedValue({ ...ORGANISER_VIEW, account: "unconfirmed", passwordSetup: false });
     getInviteAccountLink.mockRejectedValue(new ApiError(503, "We can't set up your account from here right now.", undefined, { code: "unavailable" }));
     renderFlow();
-    await fillPasswords();
+    await fillPassword();
     fireEvent.click(screen.getByRole("button", { name: "Create account" }));
     const heading = await screen.findByRole("heading", { level: 1, name: "Reset your password to accept your invite" });
     await waitFor(() => expect(heading).toHaveFocus());
@@ -425,7 +425,7 @@ describe("/invite: Create account", () => {
     viewInvite.mockResolvedValue(ORGANISER_VIEW);
     getInviteAccountLink.mockRejectedValue(new ApiError(410, "Withdrawn.", undefined, { code: "revoked" }));
     renderFlow();
-    await fillPasswords();
+    await fillPassword();
     fireEvent.click(screen.getByRole("button", { name: "Create account" }));
     const heading = await screen.findByRole("heading", { level: 1, name: "This invite has been withdrawn" });
     await waitFor(() => expect(heading).toHaveFocus());
@@ -444,7 +444,7 @@ describe("/invite: Create account", () => {
         }),
     );
     getMyInvite.mockReset().mockResolvedValue(ORGANISER_INVITE);
-    await fillPasswords();
+    await fillPassword();
     fireEvent.click(screen.getByRole("button", { name: "Create account" }));
     await waitFor(() => expect(controls.auth.setNewPassword).toHaveBeenCalled());
     // verifyOtp signed the new account in.

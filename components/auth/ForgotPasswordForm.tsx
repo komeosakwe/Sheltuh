@@ -4,9 +4,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState, type FormEvent } from "react";
 import AuthField, { fieldsForAuthError, useFocusAfterRender, type AuthErrorField } from "@/components/auth/AuthField";
+import PasswordField from "@/components/auth/PasswordField";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { PASSWORD_HINT, PASSWORD_REGEX } from "@/lib/auth/password-rules";
+import { emailError, passwordError } from "@/lib/auth/password-rules";
 import { withNext } from "@/lib/safe-next-path";
 
 const FORM_ERROR_ID = "reset-error";
@@ -73,7 +74,7 @@ export default function ForgotPasswordForm({ next }: { next?: string } = {}) {
     event.preventDefault();
     if (loading) return;
     reset();
-    if (invalid({ email: email.trim() ? undefined : "Enter your email" }, ["email"])) return;
+    if (invalid({ email: emailError(email) }, ["email"])) return;
     setLoading(true);
     try {
       await auth.forgotPassword(email.trim());
@@ -92,8 +93,7 @@ export default function ForgotPasswordForm({ next }: { next?: string } = {}) {
     reset();
     const errors: Partial<Record<Field, string>> = {};
     if (!code.trim()) errors.code = "Enter the reset code";
-    if (!newPassword) errors.newPassword = "Enter your new password";
-    else if (!PASSWORD_REGEX.test(newPassword)) errors.newPassword = "Password doesn't meet the requirements.";
+    errors.newPassword = passwordError(newPassword, "Enter your new password");
     if (invalid(errors, ["code", "newPassword"])) return;
     setLoading(true);
     try {
@@ -160,19 +160,24 @@ export default function ForgotPasswordForm({ next }: { next?: string } = {}) {
         error={fieldErrors.code}
         invalidBy={invalidBy("code")}
       />
-      <AuthField
+      <PasswordField
         ref={newPasswordRef}
         id="newPassword"
         label="New password"
-        type="password"
         autoComplete="new-password"
         name="newPassword"
         required
         value={newPassword}
-        onChange={(e) => setNewPassword(e.target.value)}
+        onChange={(e) => {
+          setNewPassword(e.target.value);
+          if (fieldErrors.newPassword) setFieldErrors((f) => ({ ...f, newPassword: passwordError(e.target.value, "Enter your new password") }));
+        }}
+        onBlur={() => {
+          if (newPassword) setFieldErrors((f) => ({ ...f, newPassword: passwordError(newPassword, "Enter your new password") }));
+        }}
         error={fieldErrors.newPassword}
         invalidBy={invalidBy("newPassword")}
-        hint={PASSWORD_HINT}
+        rules
       />
       {formError}
       <Button type="submit" size="lg" busy={loading} className="w-full">
