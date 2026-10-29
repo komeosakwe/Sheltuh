@@ -94,13 +94,13 @@ describe("Inbox", () => {
     expect(within(alert).getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/login?next=%2Fmessages");
   });
 
-  it("empty: explains where messages come from", async () => {
+  it("empty: a short title only", async () => {
     listConversations.mockResolvedValue({ items: [] });
     renderInbox();
     expect(await screen.findByText("No messages yet")).toBeInTheDocument();
     // The page has its h1; an empty state's title stays a paragraph by default.
     expect(screen.queryByRole("heading", { name: "No messages yet" })).toBeNull();
-    expect(screen.getByText(/added yourself to its Who’s Going list/)).toBeInTheDocument();
+    expect(screen.queryByText(/added yourself to its Who’s Going list/)).toBeNull();
   });
 
   it("a load error is shown with Try again; a 403 says why", async () => {
@@ -147,7 +147,7 @@ describe("Inbox", () => {
   it("demo: a notice and the sample conversations, and never calls the API", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     renderInbox(fakeAuthValue({ configured: false, status: "signed-out" }));
-    expect(screen.getByRole("note")).toHaveTextContent("Messages aren’t sent in this demo.");
+    expect(screen.getByRole("note")).toHaveTextContent("Sample conversations.");
     expect(rows()).toHaveLength(3);
     expect(within(rows()[0]).getByRole("link")).toHaveAttribute("href", "/messages/priya-r");
     expect(listConversations).not.toHaveBeenCalled();

@@ -132,7 +132,7 @@ describe("Organiser links on /admin/invites", () => {
 
     fireEvent.click(copy);
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(URL));
-    expect(await within(section).findByText("Link copied. Paste it into a message to the organiser.")).toBeInTheDocument();
+    expect(await within(section).findByText("Link copied.")).toBeInTheDocument();
 
     fireEvent.click(within(section).getByRole("button", { name: "Share…" }));
     await waitFor(() => expect(share).toHaveBeenCalledWith(expect.objectContaining({ url: URL })));

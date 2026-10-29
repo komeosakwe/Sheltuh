@@ -155,9 +155,7 @@ export default function FollowingList() {
               Browse events
             </ButtonLink>
           }
-        >
-          Follow an organiser from their page, and their new events show on your home page.
-        </EmptyState>
+        />
       )}
       {load.status === "ready" && load.items.length > 0 && (
         <ul className="flex flex-col">

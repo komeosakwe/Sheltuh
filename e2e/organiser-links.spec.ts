@@ -137,7 +137,7 @@ for (const vp of [
       await expect(copy).toBeFocused();
       await minHeight(page, copy);
       await copy.click();
-      await expect(section.getByText("Link copied. Paste it into a message to the organiser.")).toBeVisible();
+      await expect(section.getByText("Link copied.")).toBeVisible();
       expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(LINK_URL);
       expect(posted).toEqual(["/api/admin/organiser-links"]);
       await noSidewaysScroll(page);

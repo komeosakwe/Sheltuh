@@ -13,7 +13,6 @@ export default function AdminHomePage() {
         size="md"
         eyebrow="Sheltüh"
         title="Admin"
-        intro="What’s waiting for you first, then the tools, then the jobs done outside this admin."
       />
       <AdminHub />
     </div>

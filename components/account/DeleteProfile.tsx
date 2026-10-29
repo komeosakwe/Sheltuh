@@ -88,9 +88,8 @@ export default function DeleteProfile({ getToken, onDeleted }: { getToken: GetTo
       </h2>
       <div id={panelId} hidden={!open} className="flex flex-col items-start gap-4 pt-2">
         <p className="text-sm">
-          Removes your display name and member profile (bio, Instagram and photo), takes you off every event&rsquo;s
-          Who&rsquo;s Going list and deletes your conversations, for you and the people you were talking to. Your
-          tickets and account aren&rsquo;t affected.
+          Removes your display name, bio, Instagram and photo, takes you off every Who&rsquo;s Going list and deletes
+          your conversations for both sides. Your tickets and account stay.
         </p>
         {confirming ? (
           <div role="group" aria-labelledby="delete-confirm-text" className="flex w-full flex-col gap-3">

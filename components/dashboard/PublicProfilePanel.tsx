@@ -99,8 +99,7 @@ function ProfileEditor({ organiser, getToken }: { organiser: OrganiserRecord; ge
     <div className="flex flex-col gap-8">
       <div className="flex flex-col items-start gap-4 border-t border-foreground pt-5">
         <p className="text-sm text-muted">
-          Changes here go live straight away, without a new review. To change your organiser name, contact
-          email or categories, contact us.
+          Changes go live straight away. To change your name, contact email or categories, contact us.
         </p>
         <ButtonLink href={profileHref} variant="outline" size="lg">
           View public profile

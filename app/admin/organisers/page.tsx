@@ -11,7 +11,7 @@ export default function AdminOrganisersPage() {
     <AdminPage
       crumbs={[{ href: "/admin", label: "Admin" }]}
       title="Organisers"
-      intro="People who want to list events on Sheltüh. Check their links before approving. A suspended organiser can only come back by applying again."
+      intro="Check their links before approving. A suspended organiser can only return by applying again."
     >
       {/* The filter lives in the URL (useSearchParams), so the list renders on the client. */}
       <Suspense fallback={<LoadingState text="Loading…" />}>

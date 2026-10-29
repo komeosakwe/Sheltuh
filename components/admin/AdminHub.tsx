@@ -52,7 +52,7 @@ function needsYouCards(summary: AdminSummary | null): HubCard[] {
       title: "Member reports",
       status: reports ? (reports.count ? `${countText(reports.count, "open", "open")}${since(reports.oldestAt)}` : "All clear") : null,
       waiting: Boolean(reports?.count),
-      todo: "Read each report, then dismiss it or suspend the member.",
+      todo: "Dismiss, or suspend the member.",
     },
     {
       href: "/admin/events",
@@ -67,7 +67,7 @@ function needsYouCards(summary: AdminSummary | null): HubCard[] {
           : "All clear"
         : null,
       waiting: Boolean(events?.count),
-      todo: "Check the details and ticket prices, then approve to publish, or reject with a reason.",
+      todo: "Approve, or reject with a reason.",
     },
     {
       href: "/admin/organisers",
@@ -78,7 +78,7 @@ function needsYouCards(summary: AdminSummary | null): HubCard[] {
           : "All clear"
         : null,
       waiting: Boolean(organisers?.count),
-      todo: "Check their links, then approve, or reject with a reason they’ll see.",
+      todo: "Approve, or reject with a reason.",
     },
     {
       href: "/admin/emails",
@@ -89,7 +89,7 @@ function needsYouCards(summary: AdminSummary | null): HubCard[] {
           }`
         : null,
       waiting: failed > 0,
-      todo: "A buyer didn’t get their tickets. Check the error, then resend.",
+      todo: "Check the error, then resend.",
     },
   ];
 }
@@ -116,14 +116,14 @@ function manageCards(summary: AdminSummary | null): HubCard[] {
       title: "Find an event",
       status: null,
       waiting: false,
-      todo: "Search by title or organiser to edit, unpublish, change a seat map or curate Trending.",
+      todo: "Edit, unpublish, change a seat map or curate Trending.",
     },
     {
       href: RECENTLY_PUBLISHED_HREF,
       title: "Recently published",
       status: selfPublishedStatus(summary),
       waiting: Boolean(summary?.eventsPublishedByOrganisers?.count),
-      todo: "Approved organisers publish without review. Check what went live, and unpublish anything that shouldn’t be on Sheltüh.",
+      todo: "Unpublish anything that shouldn’t be live.",
       counted: true,
     },
     {
@@ -131,28 +131,28 @@ function manageCards(summary: AdminSummary | null): HubCard[] {
       title: "Find an organiser",
       status: null,
       waiting: false,
-      todo: "Search approved organisers by name, email or handle: suspend one, or remove a logo or video.",
+      todo: "Suspend, or remove a logo or video.",
     },
     {
       href: "/admin/events/new",
       title: "Create an event",
       status: null,
       waiting: false,
-      todo: "For any approved organiser, or a Sheltüh-run (platform-managed) organiser with no account of its own.",
+      todo: "For an approved or Sheltüh-run organiser.",
     },
     {
       href: "/admin/invites",
       title: "Invite someone",
       status: null,
       waiting: false,
-      todo: "Invite a person who asked to join, as an organiser (approved when they accept) or a member.",
+      todo: "As an organiser or a member.",
     },
     {
       href: "/admin/trending",
       title: "Trending",
       status: null,
       waiting: false,
-      todo: "See what the home page’s Trending shows now, and boost an event or keep it out.",
+      todo: "Boost an event or keep it out.",
     },
     {
       href: DOOR_EVENTS_HREF,
@@ -163,7 +163,7 @@ function manageCards(summary: AdminSummary | null): HubCard[] {
           : `None in the next ${hoursText(door.windowHours)}`
         : null,
       waiting: Boolean(door?.count),
-      todo: "Check tickets in at Sheltüh-run events. Organisers run their own doors.",
+      todo: "Sheltüh-run events only. Organisers run their own doors.",
       counted: true,
     },
   ];
@@ -206,7 +206,7 @@ function HubSection({ id, title, intro, children }: { id: string; title: string;
 const OUTSIDE: { title: string; where: string }[] = [
   {
     title: "Refunds and disputes",
-    where: "In the Stripe dashboard. A full refund there voids the order’s tickets on Sheltüh; a partial refund doesn’t.",
+    where: "In the Stripe dashboard. A full refund voids the order’s tickets on Sheltüh; a partial one doesn’t.",
   },
   {
     title: "Who’s Going suspensions and switches",
@@ -239,7 +239,7 @@ export default function AdminHub() {
 
   return (
     <div className="flex flex-col gap-10">
-      <HubSection id="hub-needs-you" title="Needs you" intro="Waiting for an admin, most urgent first.">
+      <HubSection id="hub-needs-you" title="Needs you">
         {denied && (
           <Notice tone="danger" role="alert">
             Sheltüh says this account no longer has admin access, so what’s waiting can’t be shown. Sign out and in
@@ -274,7 +274,6 @@ export default function AdminHub() {
       <HubSection
         id="hub-outside"
         title="Done outside Sheltüh admin"
-        intro="There’s no screen for these here; this is where they’re done."
       >
         <ul className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
           {OUTSIDE.map((item) => (

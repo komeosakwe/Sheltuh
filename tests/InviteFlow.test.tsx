@@ -126,7 +126,7 @@ describe("/invite: before anything is pressed", () => {
     viewInvite.mockResolvedValue(ORGANISER_VIEW);
     renderFlow();
     const heading = await screen.findByRole("heading", { level: 1, name: "Set up Neon Collective on Sheltüh" });
-    expect(heading).toHaveAccessibleDescription(/as Neon Collective, approved from the start\. The invite is for m\*\*\*@example\.com and works until/);
+    expect(heading).toHaveAccessibleDescription(/as Neon Collective\. For m\*\*\*@example\.com, valid until/);
     expect(viewInvite).toHaveBeenCalledWith(TOKEN);
     expect(window.location.hash).toBe("");
     expect(window.location.pathname).toBe("/invite");
@@ -196,7 +196,7 @@ describe("/invite: before anything is pressed", () => {
     viewInvite.mockResolvedValue({ ...ORGANISER_VIEW, account: "existing" });
     renderFlow();
     expect(await screen.findByRole("heading", { level: 1, name: "Sign in to accept your invite" })).toHaveAccessibleDescription(
-      /m\*\*\*@example\.com already has a Sheltüh account/,
+      /m\*\*\*@example\.com already has an account/,
     );
     expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/login?next=%2Finvite");
     expect(screen.getByRole("link", { name: "Forgot your password?" })).toHaveAttribute("href", "/forgot-password?next=%2Finvite");
@@ -208,7 +208,7 @@ describe("/invite: before anything is pressed", () => {
     renderFlow();
     expect(
       await screen.findByRole("heading", { level: 1, name: "Reset your password to accept your invite" }),
-    ).toHaveAccessibleDescription(/m\*\*\*@example\.com was started but never confirmed/);
+    ).toHaveAccessibleDescription(/m\*\*\*@example\.com was never confirmed/);
     expect(screen.getByRole("link", { name: "Reset password" })).toHaveAttribute("href", "/forgot-password?next=%2Finvite");
     expect(screen.queryByRole("link", { name: "Create account" })).toBeNull();
     expect(screen.queryByLabelText("Password")).toBeNull();
@@ -305,7 +305,7 @@ describe("/invite: Create account", () => {
     await waitFor(() => expect(heading).toHaveFocus());
     // Focus lands on the heading: it's described by the intro and the error, so both are read.
     expect(heading).toHaveAccessibleDescription(
-      /^Accepting finishes setting up your Sheltüh account .* We couldn’t accept your invite just now\. Try again in a moment\.$/,
+      /^Finishes setting up .* We couldn’t accept your invite just now\. Try again in a moment\.$/,
     );
     expect(screen.getByRole("alert")).not.toHaveTextContent(error.message);
     expect(screen.getByText(/^By accepting, you agree/)).toBeInTheDocument();
@@ -387,7 +387,7 @@ describe("/invite: Create account", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create account" }));
     const heading = await screen.findByRole("heading", { level: 1, name: "Sign in to accept your invite" });
     await waitFor(() => expect(heading).toHaveFocus());
-    expect(heading).toHaveAccessibleDescription(/m\*\*\*@example\.com already has a Sheltüh account/);
+    expect(heading).toHaveAccessibleDescription(/m\*\*\*@example\.com already has an account/);
     expect(screen.queryByText("This email address already has a Sheltüh account.")).toBeNull();
   });
 
@@ -483,7 +483,7 @@ describe("/invite: signed in", () => {
     acceptInvite.mockResolvedValue({ kind: "organiser", organiserId: "org-9" });
     renderFlow({ status: "signed-in", email: "mia@example.com", userId: "u-mia" }, { at: "/invite" });
     expect(await screen.findByRole("heading", { level: 1, name: "Join Sheltüh as Neon Collective" })).toHaveAccessibleDescription(
-      /run by this account \(mia@example\.com\)/,
+      /approved organiser on mia@example\.com/,
     );
     expect(viewInvite).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Join as Neon Collective" }));

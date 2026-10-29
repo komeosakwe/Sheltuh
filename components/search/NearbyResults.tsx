@@ -68,7 +68,7 @@ export default function NearbyResults({
   return (
     <div className="flex flex-col gap-8 sm:gap-10">
       <p data-near-note="" className="text-sm leading-5 text-muted">
-        Closest to {originName} first. Distances are between suburb centres, so they’re approximate.
+        Closest to {originName} first. Distances are approximate.
         {capped && ` Sorted the ${NEAR_MAX_EVENTS} soonest events by distance.`}
       </p>
       {groups.map((group) => (

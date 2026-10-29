@@ -46,7 +46,7 @@ export default function MapSpotList({ events, onChoose, onClose }: MapSpotListPr
             {events.length} events {place}
           </p>
           {approximate && (
-            <p className="mt-0.5 font-sans text-xs text-muted">Pinned at the suburb centre until venue locations are added.</p>
+            <p className="mt-0.5 font-sans text-xs text-muted">Pinned at the suburb centre.</p>
           )}
         </div>
         <button

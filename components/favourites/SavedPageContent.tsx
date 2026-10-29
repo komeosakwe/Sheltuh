@@ -53,9 +53,7 @@ export default function SavedPageContent() {
             Sign in
           </ButtonLink>
         }
-      >
-        Tap the heart on any event to keep it here.
-      </EmptyState>
+      />
     );
   }
   return <LiveSaved key={auth.email ?? ""} getToken={auth.getAccessToken} />;
@@ -82,7 +80,7 @@ function DemoSaved() {
   return (
     <>
       <div className="mb-8">
-        <DemoNotice>Saved on this device only. Nothing leaves your browser.</DemoNotice>
+        <DemoNotice>Saved on this device only.</DemoNotice>
       </div>
       {!shown ? (
         <LoadingState text="Loading…" />
@@ -219,9 +217,7 @@ function SavedList({
             Browse events
           </ButtonLink>
         }
-      >
-        Tap the heart on any event and it&rsquo;ll wait for you here.
-      </EmptyState>
+      />
     );
   }
 
@@ -233,7 +229,7 @@ function SavedList({
         {upcoming.length > 0 ? (
           <EventResults events={upcoming} />
         ) : (
-          <p className="text-sm text-muted">Nothing coming up. Your past events are below.</p>
+          <p className="text-sm text-muted">Nothing coming up.</p>
         )}
       </section>
       {hadPast && (

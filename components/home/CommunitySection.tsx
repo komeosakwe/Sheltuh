@@ -23,7 +23,7 @@ export const COMMUNITY_DEMO_NOTE = `Example event · Sample count · ${PHOTOS_NO
 /** With no real example to show: what the card says instead of an event and a number. */
 export const COMMUNITY_TEASER = {
   title: "Know who’ll be there",
-  body: "Ticket holders can opt in to Who’s Going, so you can see the crowd before you book.",
+  body: "Ticket holders opt in to Who’s Going.",
   note: PHOTOS_NOTE,
 } as const;
 
@@ -136,17 +136,10 @@ export default function CommunitySection({ className = "" }: { className?: strin
         className={`${HOME_CONTAINER} py-10 sm:py-16 lg:grid lg:grid-cols-12 lg:items-center lg:gap-x-8 lg:py-20`}
       >
         <div className="lg:col-span-7">
-          <p className="eyebrow tracking-widest">Better together</p>
-          {/* The literal spaces keep the heading's name "See who’s going. Find your people." (and the body's) as sentences. */}
-          <h2 id="home-people" className="mt-3 text-4xl leading-none font-bold tracking-tighter sm:mt-5 sm:text-5xl lg:text-6xl">
+          {/* The literal space keeps the heading's name "See who’s going. Find your people." as sentences. */}
+          <h2 id="home-people" className="text-4xl leading-none font-bold tracking-tighter sm:text-5xl lg:text-6xl">
             <span className="block">See who’s going.</span> <span className="block">Find your people.</span>
           </h2>
-          <p className="mt-4 text-lg leading-7 sm:mt-6 sm:text-xl sm:leading-8">
-            <span className="block">Discover the crowd before you book.</span>{" "}
-            <span className="block">
-              {signedIn ? "Open an event to see who’s going." : "Create a free profile to see who’s going."}
-            </span>
-          </p>
           {/* The one action: signed out (or while auth loads, the server render), sign up; signed in, find an event. */}
           <ButtonLink
             href={signedIn ? "/events" : "/signup"}

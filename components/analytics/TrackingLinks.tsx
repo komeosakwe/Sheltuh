@@ -187,9 +187,8 @@ export default function TrackingLinks({ eventId, getToken }: { eventId: string; 
   return (
     <Panel title="Tracking links" titleId="links">
       <p className="mb-6 max-w-xl text-sm leading-relaxed">
-        Make a link for each place you share this event, like your Instagram bio or a newsletter. We count the views
-        and sales that come through each one. Sales count when someone buys in the same visit. Nothing identifies
-        the people who click.
+        One link per place you share this event. We count the views and sales through each. Sales count when someone
+        buys in the same visit. Nothing identifies who clicks.
       </p>
 
       {state.status === "loading" && <LoadingState text="Loading links…" />}
@@ -262,7 +261,7 @@ export default function TrackingLinks({ eventId, getToken }: { eventId: string; 
 
           <div ref={tableRef} className="mt-6">
             {links.length === 0 ? (
-              <p className="text-sm text-muted">No links yet. Make one for each place you post about this event.</p>
+              <p className="text-sm text-muted">No links yet.</p>
             ) : (
               <DataTable
                 caption="Tracking links, totals since each was created"

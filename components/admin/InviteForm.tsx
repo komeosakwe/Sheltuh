@@ -350,7 +350,7 @@ export default function InviteForm({
         <fieldset className="flex flex-col gap-5 border-t border-surface-border pt-4">
           <legend className="font-heading text-lg text-foreground">The organiser</legend>
           <p className="-mt-2 text-sm text-muted">
-            As on an organiser application. Its profile is public once they accept.
+            Public once they accept.
           </p>
           {textField(
             "organiser.displayName",

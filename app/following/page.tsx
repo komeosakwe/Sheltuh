@@ -14,7 +14,6 @@ export default function FollowingPage() {
           size="md"
           eyebrow="Your account"
           title="Organisers you follow"
-          intro="Their new events show on your home page. Choose which ones email you when they announce something new."
         />
         <FollowingList />
       </div>

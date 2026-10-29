@@ -75,7 +75,7 @@ describe("external event: the tickets section", () => {
   it("says the other site sells and prices the tickets, with no Sheltüh booking fee", () => {
     const { container } = render(<EventDetailsView event={HUMANITIX} demo />);
     expect(parts(container).tickets).toHaveTextContent(
-      "Tickets for this event are sold and priced by Humanitix, not Sheltüh, so there’s no Sheltüh booking fee.",
+      "Sold by Humanitix, not Sheltüh. No Sheltüh booking fee.",
     );
   });
 

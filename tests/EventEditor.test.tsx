@@ -102,6 +102,24 @@ describe("EventEditor — ticket id collisions after reopening a draft", () => {
     expect(ids).toContain("new-1"); // the existing ticket's id is preserved
     expect(ids.find((id) => id !== "new-1")).not.toBe("new-1");
   });
+
+  it("defaults a new ticket type to the organiser paying the booking fee, and keeps an existing ticket's choice", async () => {
+    updateEventDraft.mockResolvedValue({ ...BASE_EVENT });
+    renderEditor();
+
+    showStep(2);
+    fireEvent.click(screen.getByRole("button", { name: "Add ticket type" }));
+
+    const selects = screen.getAllByLabelText("Who pays the booking fee?") as HTMLSelectElement[];
+    expect(selects.map((s) => s.value)).toEqual(["buyer-pays", "organiser-absorbs"]);
+    fireEvent.change(screen.getAllByLabelText("Name")[1], { target: { value: "VIP" } });
+    fireEvent.change(selects[1], { target: { value: "buyer-pays" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(updateEventDraft).toHaveBeenCalledTimes(1));
+    const [, input] = updateEventDraft.mock.calls[0];
+    expect(input.ticketTypes.map((t: { feePolicy: string }) => t.feePolicy)).toEqual(["buyer-pays", "buyer-pays"]);
+  });
 });
 
 describe("EventEditor — Melbourne-local date/time inputs, independent of the browser's own timezone", () => {

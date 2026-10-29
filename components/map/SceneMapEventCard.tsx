@@ -43,9 +43,9 @@ export default function SceneMapEventCard({
   const start = startLabel(event);
   const pinned = resolveEventCoordinates(event, findSuburb);
   const locationNote = !pinned
-    ? "Not on the map yet: no venue location on file."
+    ? "Not on the map: no venue location."
     : !event.coordinates
-      ? "Pinned at the suburb centre, not the exact venue."
+      ? "Pinned at the suburb centre."
       : null;
   const sheet = variant === "sheet";
 

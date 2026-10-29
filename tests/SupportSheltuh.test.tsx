@@ -8,7 +8,7 @@ import { ApiError } from "@/lib/api/client";
 import type { OrderPaymentSummary as PaymentSummary } from "@/lib/api/types";
 import { SAMPLE_SEAT_MAPS } from "@/lib/sample-seat-maps";
 import { sampleEvents } from "@/lib/sample-events";
-import { SUPPORT_BLURB, SUPPORT_PAUSED, SUPPORT_RECIPIENT_NOTE } from "@/lib/support";
+import { SUPPORT_PAUSED, SUPPORT_RECIPIENT_NOTE } from "@/lib/support";
 import type { SheltuhEvent } from "@/lib/types";
 
 /**
@@ -79,8 +79,8 @@ describe("Support Sheltüh in the ticket selector (general admission)", () => {
     expect(radios.map((r) => r.getAttribute("value"))).toEqual(["200", "500", "1000", "other"]);
     expect(radios.map((r) => (r as HTMLInputElement).checked)).toEqual([false, false, false, false]);
     expect(radios.map((r) => r.closest("label")?.textContent)).toEqual(["A$2", "A$5", "A$10", "Other"]);
-    // The blurb and the recipient note describe the group, and come before the chips; "(optional)" is muted in the legend.
-    expect(group()).toHaveAccessibleDescription(`${SUPPORT_BLURB} ${SUPPORT_RECIPIENT_NOTE}`);
+    // The recipient note describes the group, and comes before the chips; "(optional)" is muted in the legend.
+    expect(group()).toHaveAccessibleDescription(SUPPORT_RECIPIENT_NOTE);
     expect(SUPPORT_RECIPIENT_NOTE).toBe("It goes to Sheltüh, not the event organiser.");
     const note = within(group()).getByText(SUPPORT_RECIPIENT_NOTE);
     expect(note.compareDocumentPosition(radios[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -428,7 +428,7 @@ describe("Support Sheltüh while paused (NEXT_PUBLIC_SUPPORT_SHELTUH isn't \"1\"
       render(<TicketSelector event={liveEvent(NEON)} />);
       addGa();
       expect(screen.queryByRole("group", { name: GROUP_NAME })).toBeNull();
-      expect(screen.queryByText(SUPPORT_BLURB)).toBeNull();
+      expect(screen.queryByText(SUPPORT_RECIPIENT_NOTE)).toBeNull();
       // The all-inclusive total is the tickets' alone.
       expect(total()).toHaveTextContent("A$32.30");
       fireEvent.click(screen.getByRole("button", { name: "Checkout" }));

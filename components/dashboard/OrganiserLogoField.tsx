@@ -189,10 +189,8 @@ export default function OrganiserLogoField({
             {hasLogo ? "Change logo" : "Choose a logo"}
           </label>
           <p id="organiser-logo-hint" className="max-w-sm text-xs text-muted">
-            JPEG, PNG or WebP, saved as soon as you choose it. It&rsquo;s public: on your profile and beside your
-            name on your event pages. We fit the whole image on a white square, so a square logo fills it best,
-            and remove everything stored in the file (such as camera and location details). Only upload a logo
-            you have the rights to use.
+            JPEG, PNG or WebP, saved when you choose it. It&rsquo;s public, on your profile and event pages. Camera and
+            location data is removed. Only upload a logo you have the rights to use.
           </p>
           {busy?.kind === "upload" && <DotsLoader label="Uploading" />}
           {hasLogo && busy?.kind !== "upload" && (

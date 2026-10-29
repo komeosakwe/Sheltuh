@@ -118,8 +118,8 @@ test.describe("general admission at 1280×900", () => {
     await page.goto(`/events/${sample!.slug}`);
     const tickets = page.locator("#tickets");
     await tickets.getByRole("button", { name: "Increase quantity for General admission" }).click({ timeout: 30_000 });
-    await expect(tickets).toContainText("You'll pay on the next page, in a secure form from Stripe, our payment provider.");
-    await expect(tickets.getByRole("list", { name: "How booking works" })).toContainText("2 Pay");
+    await expect(tickets).toContainText("You’ll pay on the next page, via Stripe.");
+    await expect(tickets.getByRole("list", { name: "How booking works" })).toHaveCount(0);
     // The event page never loads Stripe.js.
     expect(stripe.requests).toEqual([]);
 
@@ -310,7 +310,7 @@ test.describe("return page", () => {
     const seen = await mockApi(page, { orderPending: true });
     await page.goto(`/checkout/success?session_id=${ORDER_ID}`);
     await expect(page.getByRole("heading", { level: 1, name: "Payment not completed" })).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText("You haven’t been charged. Your checkout is still open, so you can try again.")).toBeVisible();
+    await expect(page.getByText("You haven’t been charged.")).toBeVisible();
     await expect(page.getByRole("link", { name: "Back to the event" })).toHaveAttribute("href", `/events/${sample!.slug}`);
     await noSidewaysScroll(page);
     // The return page doesn't load Stripe.js.

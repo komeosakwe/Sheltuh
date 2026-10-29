@@ -36,10 +36,7 @@ export const SUPPORT_LABEL = "Support Sheltüh";
 /** Beside the label at checkout (muted), so it's clear before the amounts that nothing has to be added. */
 export const SUPPORT_OPTIONAL = "(optional)";
 
-/** One line under the label at checkout. */
-export const SUPPORT_BLURB = "Add a little to support Sheltüh's mission: keeping the creative scene discoverable.";
-
-/** Who gets it, said plainly before the amounts (right after the blurb) and before the buyer pays. */
+/** Who gets it, said plainly before the amounts and before the buyer pays. */
 export const SUPPORT_RECIPIENT_NOTE = "It goes to Sheltüh, not the event organiser.";
 
 /**

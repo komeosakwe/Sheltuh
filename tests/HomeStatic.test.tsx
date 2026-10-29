@@ -5,7 +5,7 @@ import CategoryRow from "@/components/home/CategoryRow";
 import CreatorsCard from "@/components/home/CreatorsCard";
 import GuideCard from "@/components/home/GuideCard";
 import HomeHero from "@/components/home/HomeHero";
-import { HOME_HERO, HOME_INTRO, HOME_TITLE, HOME_TITLE_LINES, titleParts, titleText } from "@/components/home/home-content";
+import { HOME_HERO, HOME_TITLE, HOME_TITLE_LINES, titleParts, titleText } from "@/components/home/home-content";
 import HomeRail, { HOME_CONTAINER, HomeRailItem, isPairRail, PAIR_MAX } from "@/components/home/HomeRail";
 import SectionHead from "@/components/ui/SectionHead";
 
@@ -110,15 +110,11 @@ describe("HomeHero (mobile-redesign.md §6.1)", () => {
 
   // Refinement (owner, 22 Oct 2026): a shorter hero, so the first event's image and title reach a
   // phone's first screen.
-  it("has the eyebrow (the page's one use of the brand dots) and one short sentence", () => {
+  it("has the eyebrow (the page's one use of the brand dots) and no intro sentence under the headline", () => {
     const { container } = render(<HomeHero />);
     expect(screen.getByText("What’s on near you")).toHaveClass("eyebrow");
-    // Owner (23 Oct 2026, layout polish): these words, muted, at every width (no longer hidden on phones).
-    expect(HOME_INTRO).toBe("Music, art and pop-ups. See who’s going.");
-    const intro = screen.getByText(HOME_INTRO);
-    expect(intro).toHaveClass("text-muted", "mt-2");
-    expect(intro.className).not.toMatch(/\bhidden\b/);
-    expect(HOME_INTRO.length).toBeLessThanOrEqual(60);
+    // Owner (28 Oct 2026, less helper text): the "Music, art and pop-ups" line is gone; the h1 is followed by the search.
+    expect(screen.queryByText(/Music, art and pop-ups/)).toBeNull();
     expect(container.querySelectorAll("p.eyebrow svg")).toHaveLength(1);
   });
 

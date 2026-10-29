@@ -7,11 +7,11 @@ export const PAYOUTS_SETUP_HREF = "/dashboard/payouts";
 
 /** Said by the ticket types when an event with paid tickets can't be published until payouts are set up. */
 export const PAYOUTS_NEEDED_TO_PUBLISH =
-  "Set up payouts before you can publish this event. Paid tickets need a connected Stripe account so you get paid. Free events can be published now.";
+  "Paid tickets need payouts set up before you can publish.";
 
 /** By the Publish button (its aria-describedby), for the same reason. */
 export const PAYOUTS_PUBLISH_HINT =
-  "This event has paid tickets, so it can be published once your payouts are set up. You can still save it as a draft.";
+  "Set up payouts to publish. You can still save a draft.";
 
 /** Its own line, so it's a 44px target. */
 function SetUpPayoutsLink() {

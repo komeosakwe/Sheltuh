@@ -14,8 +14,7 @@ export default function FollowUnsubscribe() {
       title="Stop new-event emails"
       intro={
         <p>
-          Press Unsubscribe and we&rsquo;ll stop emailing you when this organiser announces new events. You&rsquo;ll
-          still follow them, and their events stay on your home page.
+          We&rsquo;ll stop emailing you about this organiser&rsquo;s new events. You&rsquo;ll still follow them.
         </p>
       }
       action="Unsubscribe"
@@ -26,8 +25,7 @@ export default function FollowUnsubscribe() {
         title: "You’re unsubscribed",
         body: (
           <p>
-            We won&rsquo;t email you about new events from {result.organiserName ?? "this organiser"}. You still
-            follow them: unfollow or turn emails back on from the organisers you follow.
+            No more new-event emails from {result.organiserName ?? "this organiser"}. You still follow them.
           </p>
         ),
         links: [

@@ -14,7 +14,6 @@ import type { EventRecord, OrderRecord } from "@/lib/server/types";
 import {
   isSupportSheltuhEnabled,
   isValidSupportCents,
-  SUPPORT_BLURB,
   SUPPORT_LABEL,
   SUPPORT_MAX_CENTS,
   SUPPORT_MIN_CENTS,
@@ -179,7 +178,7 @@ describe("lib/support.ts", () => {
     expect(SUPPORT_PRESETS_CENTS).toEqual([200, 500, 1000]);
     expect([SUPPORT_MIN_CENTS, SUPPORT_MAX_CENTS]).toEqual([100, 50_000]);
     expect(SUPPORT_LABEL).toBe("Support Sheltüh");
-    for (const copy of [SUPPORT_LABEL, SUPPORT_BLURB, SUPPORT_RECIPIENT_NOTE]) {
+    for (const copy of [SUPPORT_LABEL, SUPPORT_RECIPIENT_NOTE]) {
       expect(copy).not.toMatch(/donat|charit|tax|deductib|tip\b/i);
     }
   });

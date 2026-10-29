@@ -71,12 +71,12 @@ function JoinedWelcome({ name }: { name: string }) {
       <Notice>
         <p className="font-semibold">Welcome to Sheltüh, {name}.</p>
         <p className="mt-1">
-          You&rsquo;re an approved organiser, so you can create your first event now. Add a bio and your links on{" "}
+          Add a bio and links on{" "}
           <Link href="/dashboard/profile" className="text-accent underline underline-offset-2">
             your profile
           </Link>
-          , and set up payouts before you sell paid tickets. Your first paid event is checked by the Sheltüh team
-          before it goes live.
+          , and set up payouts before selling paid tickets. Your first paid event is checked by Sheltüh before it
+          goes live.
         </p>
       </Notice>
     </div>
@@ -234,11 +234,10 @@ export default function DashboardContent() {
         {welcome && <JoinedWelcome name={organiser.displayName} />}
         {!payoutsEnabled && (
           <p className="border-l-2 border-foreground py-1 pl-4 text-sm text-muted">
-            Free events don&rsquo;t need this, but{" "}
             <Link href="/dashboard/payouts" className="text-accent underline underline-offset-2">
-              set up payouts
+              Set up payouts
             </Link>{" "}
-            before you publish an event with paid tickets.
+            before publishing paid events.
           </p>
         )}
 
@@ -259,10 +258,7 @@ export default function DashboardContent() {
                 Create your first event
               </ButtonLink>
             }
-          >
-            Add your event&rsquo;s details and tickets, then publish it. Most events go live straight away; some
-            are checked by a person first.
-          </EmptyState>
+          />
         )}
 
         {events !== null && events.length > 0 && (

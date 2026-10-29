@@ -256,12 +256,11 @@ export default function OrganiserJoinFlow() {
       return {
         id: "signed-out",
         title: INVITED_TITLE,
-        intro: `Set up your organiser profile in a minute, and you’re approved straight away. This link works once, until ${until}.`,
+        intro: `You’re approved straight away. This link works once, until ${until}.`,
         body: (
           <div className="flex flex-col gap-4">
             <p className="text-sm text-foreground">
-              Create a Sheltüh account with any email address, or sign in if you have one. You’ll come back here to
-              name your organiser.
+              Sign in or create an account to continue.
             </p>
             <div className="flex flex-col gap-3 sm:flex-row">
               <ButtonLink variant="solid" size="lg" href={SIGN_UP_HREF} className="w-full sm:w-auto">
@@ -338,7 +337,7 @@ export default function OrganiserJoinFlow() {
       intro:
         organiser?.status === "pending"
           ? `Your application for ${organiser.displayName} is waiting for review. Joining with this link approves it now. The link works once, until ${until}.`
-          : `Name your organiser and you’re approved straight away. You can add a bio, links and a logo later. The link works once, until ${until}.`,
+          : `Name your organiser to be approved straight away. The link works once, until ${until}.`,
       body: (
         <JoinForm
           token={token as string}
@@ -502,7 +501,7 @@ function JoinForm({
               className="min-h-11 w-full min-w-0 border border-foreground bg-transparent px-3 py-2 text-foreground"
             />
             <p id={`${NAME_ID}-note`} className="text-sm text-muted">
-              As buyers will see it on your events. It can’t be changed later without asking us.
+              Buyers see this on your events. Changing it later needs us.
             </p>
             {errors.displayName && (
               <p id={`${NAME_ID}-error`} className="text-sm text-danger">

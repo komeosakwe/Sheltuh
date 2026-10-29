@@ -101,12 +101,12 @@ describe("ApplicationForm — validation errors are announced and focused", () =
     const name = screen.getByLabelText("Organiser name");
     await waitFor(() => expect(name).toHaveFocus());
     expect(screen.getByRole("alert")).toHaveTextContent("Please fix the highlighted fields.");
-    // The error first, then (for the public fields) the note that they're public.
+    // The error, then (for the description) the note that it's public.
     const expected: [string, string][] = [
       ["Organiser name", "Enter an organiser name."],
       ["Contact email", "Enter a contact email."],
       ["Short description", `Enter a short description. ${PUBLIC_NOTE}`],
-      ["Website (optional)", `Enter a valid URL, including https:// ${PUBLIC_NOTE}`],
+      ["Website (optional)", "Enter a valid URL, including https://"],
     ];
     for (const [label, message] of expected) {
       const field = screen.getByLabelText(label);
@@ -173,10 +173,9 @@ describe("ApplicationForm — optional social profiles", () => {
     );
   }
 
-  it("groups the four handles under 'Social profiles (optional)', noting they'll be public", () => {
+  it("groups the four handles under 'Social profiles (optional)'", () => {
     renderForm("apply");
     const group = screen.getByRole("group", { name: "Social profiles (optional)" });
-    expect(group).toHaveAccessibleDescription("Shown publicly on your organiser profile once approved.");
     for (const label of ["Instagram username", "TikTok username", "Facebook page", "X username"]) {
       expect(group).toContainElement(screen.getByLabelText(label));
     }
@@ -277,11 +276,11 @@ describe("ApplicationForm — website rule and public-profile notes", () => {
     fireEvent.click(screen.getByRole("button", { name: mode === "apply" ? "Submit application" : "Resubmit application" }));
   }
 
-  it("says the description and website are shown publicly once approved", () => {
+  it("says once, on the description, that the profile is shown publicly once approved", () => {
     renderForm();
     expect(screen.getByLabelText("Short description")).toHaveAccessibleDescription(PUBLIC_NOTE);
-    expect(screen.getByLabelText("Website (optional)")).toHaveAccessibleDescription(PUBLIC_NOTE);
-    expect(screen.getByRole("group", { name: "Social profiles (optional)" })).toHaveAccessibleDescription(PUBLIC_NOTE);
+    expect(screen.getByLabelText("Website (optional)")).not.toHaveAccessibleDescription();
+    expect(screen.getByRole("group", { name: "Social profiles (optional)" })).not.toHaveAccessibleDescription();
   });
 
   it.each([
@@ -298,7 +297,7 @@ describe("ApplicationForm — website rule and public-profile notes", () => {
     submit();
     await waitFor(() => expect(website).toHaveFocus());
     expect(website).toHaveAttribute("aria-invalid", "true");
-    expect(website).toHaveAccessibleDescription(`${message} ${PUBLIC_NOTE}`);
+    expect(website).toHaveAccessibleDescription(message);
     expect(applyAsOrganiser).not.toHaveBeenCalled();
   });
 
@@ -328,9 +327,7 @@ describe("ApplicationForm — website rule and public-profile notes", () => {
     fireEvent.change(website, { target: { value: "http://new.example" } });
     submit("resubmit");
     await waitFor(() => expect(website).toHaveFocus());
-    expect(website).toHaveAccessibleDescription(
-      `Use your site's secure address, starting with https:// ${PUBLIC_NOTE}`,
-    );
+    expect(website).toHaveAccessibleDescription("Use your site's secure address, starting with https://");
     expect(resubmitOrganiser).not.toHaveBeenCalled();
   });
 
@@ -347,9 +344,7 @@ describe("ApplicationForm — website rule and public-profile notes", () => {
     const website = screen.getByLabelText("Website (optional)");
     await waitFor(() => expect(website).toHaveFocus());
     expect(website).toHaveAttribute("aria-invalid", "true");
-    expect(website).toHaveAccessibleDescription(
-      `Use your site's secure address, starting with https:// ${PUBLIC_NOTE}`,
-    );
+    expect(website).toHaveAccessibleDescription("Use your site's secure address, starting with https://");
   });
 });
 

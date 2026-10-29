@@ -52,7 +52,7 @@ for (const vp of [
         "aria-disabled",
         "true",
       );
-      await expect(page.getByText("Following works once you’re signed in on the live site.")).toBeVisible();
+      await expect(page.getByText("Not available in this demo.")).toBeVisible();
       await noSidewaysScroll(page);
       checkNoApiCalls();
     });
@@ -138,7 +138,7 @@ for (const vp of [
       await expect(page.getByText(/fictional sample data/)).toHaveCount(0);
       // The booking points still say nothing is booked here.
       await expect(page.locator("#tickets")).toContainText(/Checkout unavailable in this demo/i);
-      await expect(page.getByRole("region", { name: "Who's going" }).getByRole("note")).toContainText("These names are samples.");
+      await expect(page.getByRole("region", { name: "Who's going" }).getByRole("note")).toContainText("Sample names.");
       await noSidewaysScroll(page);
       checkNoApiCalls();
     });

@@ -9,7 +9,7 @@ export default function AdminTrendingPage() {
     <AdminPage
       crumbs={[{ href: "/admin", label: "Admin" }]}
       title="Trending"
-      intro="What the home page’s Trending section shows now, best first. Open an event to boost it or keep it out. To bring back an event you kept out, find it under Events and open its Trending panel."
+      intro="Best first. To bring back an event you kept out, open its Trending panel under Events."
     >
       <AdminTrendingList />
     </AdminPage>

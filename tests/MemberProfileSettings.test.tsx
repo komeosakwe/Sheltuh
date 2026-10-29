@@ -81,13 +81,13 @@ describe("member profile settings (/account)", () => {
     expect(toggle).not.toBeChecked();
     expect(screen.getByRole("link", { name: "Organisers you follow" })).toHaveAttribute("href", "/following");
     fireEvent.click(screen.getByRole("button", { name: "Delete your profile" }));
-    expect(screen.getByText(/Removes your display name and member profile \(bio, Instagram and photo\)/)).toBeVisible();
+    expect(screen.getByText(/Removes your display name, bio, Instagram and photo/)).toBeVisible();
   });
 
   it("explains the toggle in words, tied to the checkbox", () => {
     renderSettings();
     const toggle = screen.getByRole("checkbox", { name: "Show my profile to other members" });
-    expect(toggle).toHaveAccessibleDescription(/Off by default\. .*your bio, Instagram, photo and upcoming events\. Never your email\./);
+    expect(toggle).toHaveAccessibleDescription(/Off by default\. .*your bio, Instagram, photo and upcoming events.*Never your email\./);
   });
 
   it("sends only what changed: visibility, bio, and a handle (a pasted link reduced to the name)", async () => {

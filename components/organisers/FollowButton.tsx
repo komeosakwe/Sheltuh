@@ -75,7 +75,7 @@ export default function FollowButton({ organiserId, organiserName }: { organiser
           </span>
         </Button>
         <div id={demoNoteId}>
-          <DemoNotice>Following works once you&rsquo;re signed in on the live site.</DemoNotice>
+          <DemoNotice>Not available in this demo.</DemoNotice>
         </div>
       </div>
     );

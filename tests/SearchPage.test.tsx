@@ -103,12 +103,12 @@ describe("/search?near= (owner round of 24 Oct 2026)", () => {
 
   it("an unknown suburb: a notice, a suggestion when one is close, and the usual results", async () => {
     render(await page({ q: "jazz", near: "Brunswik" }));
-    const notice = screen.getByText(/We don’t know where “Brunswik” is yet, so these are soonest first\./);
+    const notice = screen.getByText(/Can’t place “Brunswik”, so these are soonest first\./);
     expect(within(notice).getByRole("link", { name: "Brunswick, VIC" })).toHaveAttribute("href", "/search?q=jazz&near=Brunswick");
     expect(within(notice).getByRole("link", { name: "Search all of Australia" })).toHaveAttribute("href", "/search?q=jazz");
     cleanup();
     render(await page({ near: "Atlantis" }));
-    const atlantis = screen.getByText(/We don’t know where “Atlantis” is yet/);
+    const atlantis = screen.getByText(/Can’t place “Atlantis”/);
     expect(screen.queryByText(/Did you mean/)).toBeNull();
     expect(within(atlantis).getByRole("link", { name: "Search all of Australia" })).toHaveAttribute("href", "/search");
   });

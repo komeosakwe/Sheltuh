@@ -11,7 +11,7 @@ export default function AdminEmailsPage() {
     <AdminPage
       crumbs={[{ href: "/admin", label: "Admin" }]}
       title="Emails"
-      intro="Ticket emails by delivery status. Failed sends are retried automatically for about 9 hours (6 attempts). After that they wait here for a manual resend."
+      intro="Failed sends retry for about 9 hours (6 attempts), then wait here for a manual resend."
     >
       {/* The filter lives in the URL (useSearchParams), so the list renders on the client. */}
       <Suspense fallback={<LoadingState text="Loading…" />}>

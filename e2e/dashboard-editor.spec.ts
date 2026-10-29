@@ -175,7 +175,7 @@ test.describe("/dashboard/new with reserved seating", () => {
     expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
     await option.click();
     await expect(reserved).toBeChecked();
-    await expect(seating.getByText(/The seat map is set up next/)).toBeVisible();
+    await expect(seating.getByText(/Saving takes you to the seat map/)).toBeVisible();
     // Still no sideways scrolling at 320px with the note open.
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
 
@@ -427,11 +427,11 @@ test.describe("/dashboard/[eventId]: paid tickets before payouts are set up", ()
     await expect(form.getByLabel("Title", { exact: true })).toHaveValue("Neon Static", { timeout: 30_000 });
 
     await showStep(page, "Tickets");
-    await expect(form.getByText(/^Set up payouts before you can publish this event\./)).toBeVisible();
+    await expect(form.getByText(/^Paid tickets need payouts set up before you can publish\./)).toBeVisible();
     await showStep(page, "Publish");
     const submit = form.getByRole("button", { name: "Publish…" });
     await expect(submit).toBeEnabled();
-    await expect(submit).toHaveAccessibleDescription(/can be published once your payouts are set up/);
+    await expect(submit).toHaveAccessibleDescription(/Set up payouts to publish\. You can still save a draft\./);
     await expect(form.getByRole("button", { name: "Save draft" })).toBeEnabled();
     for (const link of await form.getByRole("link", { name: "Set up payouts" }).all()) {
       await expect(link).toHaveAttribute("href", "/dashboard/payouts");

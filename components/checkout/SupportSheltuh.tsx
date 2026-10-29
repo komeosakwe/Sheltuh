@@ -4,7 +4,6 @@ import { useEffect, useId, useRef, useState, type RefObject } from "react";
 import { formatAud } from "@/lib/format";
 import { NO_SUPPORT, supportErrorOf, type SupportChoice } from "@/lib/support-choice";
 import {
-  SUPPORT_BLURB,
   SUPPORT_LABEL,
   SUPPORT_MAX_CENTS,
   SUPPORT_MIN_CENTS,
@@ -40,7 +39,7 @@ function keyOf(choice: SupportChoice): OptionKey | null {
  * Checkout, for paid orders only (the parent leaves it out otherwise).
  *
  * "(optional)" is in the legend, and who gets it (Sheltüh, not the
- * organiser) is said with the blurb, before the amounts.
+ * organiser) is said before the amounts.
  *
  * A radio group of native radios drawn as chips (each radio transparent over
  * its chip): Tab reaches it, the arrow keys move through it, and its state is
@@ -56,7 +55,6 @@ function keyOf(choice: SupportChoice): OptionKey | null {
 export default function SupportSheltuh({ choice, onChange, revealError = false, serverError, otherInputRef }: SupportSheltuhProps) {
   const id = useId();
   const name = `${id}-support`;
-  const blurbId = `${id}-blurb`;
   const noteId = `${id}-note`;
   const serverErrorId = `${id}-server-error`;
   const otherId = `${id}-other`;
@@ -118,7 +116,7 @@ export default function SupportSheltuh({ choice, onChange, revealError = false, 
 
   return (
     <fieldset
-      aria-describedby={[blurbId, noteId, serverError ? serverErrorId : null].filter(Boolean).join(" ")}
+      aria-describedby={[noteId, serverError ? serverErrorId : null].filter(Boolean).join(" ")}
       // Not itself a flex box: Chromium laid the chips' size container out at zero size inside a flex
       // fieldset after a change (A$5, then Other). The div below does the layout.
       className="min-w-0"
@@ -129,15 +127,10 @@ export default function SupportSheltuh({ choice, onChange, revealError = false, 
         {SUPPORT_LABEL} <span className="font-normal text-muted">{SUPPORT_OPTIONAL}</span>
       </legend>
       <div className="flex flex-col gap-3">
-        {/* Who gets it, before the amounts: with the blurb, in the body text's size. */}
-        <div className="flex flex-col gap-1 text-sm">
-          <p id={blurbId} className="text-muted">
-            {SUPPORT_BLURB}
-          </p>
-          <p id={noteId} className="text-foreground">
-            {SUPPORT_RECIPIENT_NOTE}
-          </p>
-        </div>
+        {/* Who gets it, before the amounts, in the body text's size. */}
+        <p id={noteId} className="text-sm text-foreground">
+          {SUPPORT_RECIPIENT_NOTE}
+        </p>
 
         {/* Two by two in a narrow panel (phones up to about 400px), one row of four from 20rem of
             room, where even "✓ A$10" fits its chip. One column below 10rem (large text on a phone:

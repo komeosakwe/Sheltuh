@@ -216,7 +216,8 @@ function newTicketType(): TicketTypeInput {
     id: crypto.randomUUID(),
     name: "",
     priceCents: 0,
-    feePolicy: "buyer-pays",
+    // Organiser absorbs by default, so buyers see the ticket price as is; one select to change.
+    feePolicy: "organiser-absorbs",
     quantityAvailable: 20,
   };
 }
@@ -1159,24 +1160,16 @@ export default function EventEditor(props: Props) {
       : []),
   ];
 
-  const stepIntro: Record<EditorStep, { title: string; intro: ReactNode }> = {
-    1: { title: "Build your event page", intro: "Add a photo, the details, the venue and the date. You can save a draft at any point." },
-    2: {
-      title: "Add tickets",
-      intro: "Set prices, seating and refunds. Buyers see the all-inclusive price, with the booking fee included.",
-    },
+  const stepIntro: Record<EditorStep, { title: string; intro?: ReactNode }> = {
+    1: { title: "Build your event page" },
+    2: { title: "Add tickets", intro: "Buyers see the all-inclusive price." },
     3: {
       title: "Publish",
-      intro: isAdmin ? (
-        "Save your changes. Tick Publish when saved to put it live."
-      ) : removed ? (
+      intro: removed ? (
         "It goes to Sheltüh for review again before it goes live."
-      ) : (
-        <>
-          Check the list, then publish. Your changes are saved first.
-          {reviewReason && <span className="mt-1 block">{PUBLISH_REVIEW_REASON_TEXT[reviewReason]}</span>}
-        </>
-      ),
+      ) : reviewReason ? (
+        PUBLISH_REVIEW_REASON_TEXT[reviewReason]
+      ) : undefined,
     },
   };
 
@@ -1279,7 +1272,7 @@ export default function EventEditor(props: Props) {
 
         <StepPanel n={1} step={step} title={stepIntro[1].title} intro={stepIntro[1].intro} titleRef={stepTitleRef}>
           {isAdmin && ((!initial && !createdId) || initial?.status === "published" || platformManaged) && (
-            <EditorCard title="Event organiser" helper={!initial && !createdId ? "Whose event this is." : undefined}>
+            <EditorCard title="Event organiser">
               {!initial && !createdId && (
                 <AdminOrganiserPicker
                   getToken={saveToken}
@@ -1296,7 +1289,7 @@ export default function EventEditor(props: Props) {
                 />
               )}
               {initial?.status === "published" && (
-                <p className="text-sm text-muted">This event is published: your changes go live as soon as you save.</p>
+                <p className="text-sm text-muted">Published: changes go live when you save.</p>
               )}
               {platformManaged && (
                 <p className="border-l-2 border-foreground px-4 py-2 text-sm text-muted">
@@ -1308,11 +1301,6 @@ export default function EventEditor(props: Props) {
 
           <EditorCard
             title="Photo and clip"
-            helper={
-              clipField
-                ? "Add a photo to lead your event page. A short clip is optional: it plays when someone taps the photo."
-                : "Add a photo to lead your event page."
-            }
           >
             <EventImageField
               getToken={getToken}
@@ -1340,7 +1328,7 @@ export default function EventEditor(props: Props) {
             )}
           </EditorCard>
 
-          <EditorCard title="Event details" helper="The name and description people see first.">
+          <EditorCard title="Event details">
             <div className="flex flex-col gap-1">
               <label htmlFor="title" className="eyebrow text-muted">
                 Title
@@ -1382,13 +1370,9 @@ export default function EventEditor(props: Props) {
                 rows={6}
                 value={description}
                 {...invalidProps("description")}
-                aria-describedby={errors.description ? `description-hint ${errorId("description")}` : "description-hint"}
                 onChange={(e) => setDescription(e.target.value)}
                 className={fieldClass}
               />
-              <p id="description-hint" className="text-xs leading-4 text-muted">
-                Shown in About this event.
-              </p>
               {fieldError("description")}
             </div>
           </EditorCard>
@@ -1396,7 +1380,7 @@ export default function EventEditor(props: Props) {
           <EditorCard
             title="Venue"
             titleId="venue-heading"
-            helper="Where guests go. Publishing needs a confirmed pin on the map."
+            helper="Publishing needs a confirmed pin."
             id={VENUE_LOCATION_ID}
             tabIndex={-1}
             role="group"
@@ -1472,7 +1456,7 @@ export default function EventEditor(props: Props) {
             )}
           </EditorCard>
 
-          <EditorCard title="Date and time" helper="Times are in the venue's time zone, taken from its suburb.">
+          <EditorCard title="Date and time">
             <div className="flex flex-col gap-5">
               <fieldset className="flex min-w-0 flex-col gap-2">
                 <legend className="eyebrow mb-2 text-muted">Starts ({zoneName})</legend>
@@ -1680,7 +1664,7 @@ export default function EventEditor(props: Props) {
         </StepPanel>
 
         <StepPanel n={3} step={step} title={stepIntro[3].title} intro={stepIntro[3].intro} titleRef={stepTitleRef}>
-          <EditorCard title="Before you publish" helper="A checklist of what's left. Publishing is checked again when you do it.">
+          <EditorCard title="Before you publish">
             <PublishChecklist rows={checklist} onGo={jumpTo} />
             <p className="text-sm text-muted">Some events are checked by Sheltüh before going live.</p>
           </EditorCard>
@@ -1743,7 +1727,7 @@ export default function EventEditor(props: Props) {
                   )}
                 </>
               ) : (
-                <p className="text-sm text-muted">Save the draft first. Publishing opens once it is saved.</p>
+                <p className="text-sm text-muted">Save the draft first.</p>
               )}
             </EditorCard>
           )}
@@ -1843,7 +1827,7 @@ function StepPanel({
   n: EditorStep;
   step: EditorStep;
   title: string;
-  intro: ReactNode;
+  intro?: ReactNode;
   titleRef: Ref<HTMLHeadingElement>;
   children: ReactNode;
 }) {
@@ -1857,7 +1841,7 @@ function StepPanel({
         >
           {title}
         </h2>
-        <p className="max-w-prose text-sm leading-5 text-muted">{intro}</p>
+        {intro && <p className="max-w-prose text-sm leading-5 text-muted">{intro}</p>}
       </div>
       {children}
     </div>

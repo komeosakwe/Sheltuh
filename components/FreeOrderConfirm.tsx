@@ -153,8 +153,7 @@ export default function FreeOrderConfirm() {
     <div className="flex flex-col items-center gap-4 py-16 text-center">
       <h1 className="display-md">Confirm your free tickets</h1>
       <p className="max-w-md text-sm text-muted">
-        Press Confirm and your tickets are issued and emailed to you. Didn&rsquo;t ask for these? Just close this
-        page: nothing is issued.
+        Didn&rsquo;t ask for these? Close this page. Nothing is issued.
       </p>
       <Button variant="solid" size="lg" busy={busy} onClick={() => confirm(state.token)} className="w-full sm:w-auto">
         {busy ? "Confirming…" : "Confirm"}

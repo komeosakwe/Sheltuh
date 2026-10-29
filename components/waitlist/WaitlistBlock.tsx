@@ -212,7 +212,7 @@ export default function WaitlistBlock({
         <p role="status" className="text-sm text-foreground">
           We&rsquo;ll email{" "}
           {view.maskedEmail ? <span className="break-all font-semibold">{view.maskedEmail}</span> : "you"} if tickets
-          come up. It&rsquo;s first come, first served: joining doesn&rsquo;t hold a ticket.
+          come up. Joining doesn&rsquo;t hold a ticket.
         </p>
         {error && (
           <Notice tone="danger" role="alert">
@@ -242,10 +242,10 @@ export default function WaitlistBlock({
           Check your inbox
         </h3>
         <p role="status" className="text-sm text-foreground">
-          We&rsquo;ve emailed a link to <span className="break-all font-semibold">{view.email}</span>. Open it and
-          press Confirm to join the waitlist. The link works for {view.expiresInHours} hours.
+          Link sent to <span className="break-all font-semibold">{view.email}</span>. Press Confirm in the email within{" "}
+          {view.expiresInHours} hours.
         </p>
-        <p className="text-xs text-muted">Nothing there after a few minutes? Check your spam folder.</p>
+        <p className="text-xs text-muted">Not there? Check spam.</p>
         <Button
           variant="outline"
           size="lg"
@@ -276,12 +276,11 @@ export default function WaitlistBlock({
         Sold out. Join the waitlist.
       </h3>
       <p className="text-sm text-foreground">
-        We&rsquo;ll email you if tickets are released. Joining doesn&rsquo;t reserve a ticket or charge you. If
-        tickets come up, it&rsquo;s first come, first served.
+        We&rsquo;ll email you if tickets are released. Joining doesn&rsquo;t reserve a ticket or charge you.
       </p>
       {statusError && (
         <p className="text-xs text-muted">
-          We couldn&rsquo;t check whether you&rsquo;re on the waitlist already. Joining again is fine.
+          Couldn&rsquo;t check the waitlist. Joining again is fine.
         </p>
       )}
       <div className="flex flex-col gap-1">
@@ -308,8 +307,8 @@ export default function WaitlistBlock({
         />
         <p id="waitlist-email-hint" className="text-xs text-muted">
           {accountEmail
-            ? "Your account email joins straight away. Another address gets a link to confirm first."
-            : "We’ll email a link to confirm it’s you first."}
+            ? "Your account email joins now. Another address gets a confirm link."
+            : "We’ll email a confirm link."}
         </p>
         {emailError && (
           <p id="waitlist-email-error" className="text-sm text-danger">
@@ -334,7 +333,7 @@ export default function WaitlistBlock({
         {busy === "join" ? "Joining…" : "Join waitlist"}
       </Button>
       {demo ? (
-        <DemoNotice>Joining the waitlist isn&rsquo;t available in this demo: there&rsquo;s nothing to email.</DemoNotice>
+        <DemoNotice>Not available in this demo.</DemoNotice>
       ) : (
         <p className="text-xs text-muted">
           We only use your email for this event&rsquo;s waitlist, and every email has a link to leave it. See our{" "}

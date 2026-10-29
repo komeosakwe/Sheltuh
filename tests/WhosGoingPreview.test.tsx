@@ -243,7 +243,7 @@ describe("Who's Going preview: only real, permitted data (§6.4.3)", () => {
     const region = await panel();
     expect(faces(region)).toBeNull();
     expect(toggle(region)).toBeNull();
-    expect(within(region).getByText("No one’s added themselves yet.")).toBeInTheDocument();
+    expect(within(region).getByText("No one yet.")).toBeInTheDocument();
   });
 
   it("never more faces than names loaded, whatever the count: five at most", async () => {

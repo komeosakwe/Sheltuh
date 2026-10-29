@@ -226,7 +226,7 @@ describe("Footer", () => {
       Reflect.deleteProperty(window, "matchMedia");
     });
 
-    it("is one quiet line under the brand note, after it and before the link groups, with text buttons", () => {
+    it("is one quiet line under the campaign line, after it and before the link groups, with text buttons", () => {
       window.matchMedia = vi.fn().mockImplementation((query: string) => ({
         matches: false,
         media: query,
@@ -244,7 +244,7 @@ describe("Footer", () => {
         );
       });
       const offer = screen.getByRole("group", { name: "Get Sheltüh on your home screen" });
-      const note = screen.getByText(/Sample events only|Curated creative events/);
+      const note = document.querySelector('[data-campaign-line]') as HTMLElement;
       const firstGroup = screen.getByRole("navigation", { name: "Fan support" });
       expect(note.compareDocumentPosition(offer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       expect(offer.compareDocumentPosition(firstGroup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

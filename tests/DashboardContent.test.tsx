@@ -369,7 +369,7 @@ describe("DashboardContent — the welcome after joining with an organiser link"
     const welcome = await screen.findByText("Welcome to Sheltüh, Neon Collective.");
     const box = welcome.closest("[tabindex='-1']");
     await waitFor(() => expect(box).toHaveFocus());
-    expect(box).toHaveTextContent(/set up payouts before you sell paid tickets\. Your first paid event is checked/);
+    expect(box).toHaveTextContent(/set up payouts before selling paid tickets\. Your first paid event is checked/);
     expect(within(box as HTMLElement).getByRole("link", { name: "your profile" })).toHaveAttribute("href", "/dashboard/profile");
     expect(window.location.search).toBe("");
     expect(window.location.pathname).toBe("/dashboard");

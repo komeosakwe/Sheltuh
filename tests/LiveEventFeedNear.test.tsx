@@ -90,7 +90,7 @@ describe("LiveEventFeed — near a suburb (ordered in the browser)", () => {
       ["5–15 km", ["Event footscray"]],
       ["Location not on file", ["Event unknown"]],
     ]);
-    expect(screen.getByText(/Closest to Fitzroy, VIC first\. Distances are between suburb centres, so they’re approximate\./)).toBeInTheDocument();
+    expect(screen.getByText(/Closest to Fitzroy, VIC first\. Distances are approximate\./)).toBeInTheDocument();
     expect(screen.queryByText(/Sorted the 200 soonest/)).toBeNull();
     // Every result is read up front in near mode: no Load more.
     expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();

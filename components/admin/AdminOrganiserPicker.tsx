@@ -270,9 +270,8 @@ function NewPlatformOrganiser({
         New platform-managed organiser
       </p>
       <p className="text-sm text-muted">
-        For events Sheltüh lists on someone&rsquo;s behalf. It has no account, so its events can only have free
-        tickets here or link to another site, and Sheltüh admins check tickets in at the door. It&rsquo;s approved
-        straight away and its profile is public.
+        For events Sheltüh lists on someone&rsquo;s behalf. No account: free tickets or a link to another site only,
+        and admins run the door. Approved straight away, with a public profile.
       </p>
       {field(
         "new-organiser-displayName",

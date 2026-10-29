@@ -230,7 +230,7 @@ function ReportBody({ data, range, busy }: { data: Report; range: RangeState; bu
           range={data.range}
           days={days}
           previousLabel={previousLabel}
-          intro="Clicks on this event’s “Get tickets on …” link. Its tickets are sold on that site, so orders, tickets sold and money for this event aren’t counted here."
+          intro="Clicks on this event’s “Get tickets on …” link. Its sales happen on that site and aren’t counted here."
         />
       )}
 

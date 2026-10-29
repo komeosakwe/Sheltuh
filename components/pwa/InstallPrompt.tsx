@@ -86,7 +86,7 @@ export default function InstallPrompt() {
         role="status"
         className="mt-3 max-w-sm text-sm leading-5 text-muted focus:outline-none"
       >
-        Okay, we won&rsquo;t suggest this again. You can still add Sheltüh from your browser&rsquo;s menu.
+        Okay, we won&rsquo;t suggest this again.
       </p>
     ) : null;
   }

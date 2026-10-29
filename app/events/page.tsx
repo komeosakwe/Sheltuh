@@ -16,7 +16,6 @@ export default async function EventsPage({ searchParams }: PageProps<"/events">)
         brand
         eyebrow="Events · Australia"
         title="What’s on."
-        intro="Every live music night, exhibition, workshop and pop-up on Sheltüh. Filter by category, price or date."
       />
       {/* key: a new ?category=/?pricing= starts a fresh feed with those filters. */}
       <EventFeed key={`${category}|${pricing}`} initialCategory={category} initialPricing={pricing} />

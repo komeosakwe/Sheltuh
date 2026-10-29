@@ -96,7 +96,7 @@ test.describe("external event (Humanitix) at 1440×900", () => {
     await expect(link).toHaveAttribute("href", "https://events.humanitix.com/thornbury-dub-session-demo");
     await expect(link).toHaveAttribute("target", "_blank");
     await expect(link).toHaveAttribute("rel", "noopener noreferrer");
-    await expect(tickets).toContainText("sold and priced by Humanitix, not Sheltüh");
+    await expect(tickets).toContainText("Sold by Humanitix, not Sheltüh");
     await expect(tickets).not.toContainText("Tickets coming soon");
     await expect(tickets).not.toContainText("A$");
     // No Sheltüh refund policy: Humanitix's terms apply.
@@ -149,8 +149,9 @@ test.describe("Sheltüh-ticketed event at 390×844", () => {
     await expect(page.locator("#tickets")).toBeFocused();
     const tickets = page.locator("#tickets");
     await expect(tickets.getByText("A$32.30 incl. booking fee")).toBeVisible();
-    // The breakdown is there before anything's chosen.
-    await expect(tickets.getByText("A$30 ticket + A$2.30 booking fee")).toBeVisible();
+    // No per-ticket breakdown: the fee is said once, by Checkout.
+    await expect(tickets.getByText("A$30 ticket + A$2.30 booking fee")).toHaveCount(0);
+    await expect(tickets.getByText("Prices include a booking fee of 6% of ticket face value + A$0.50 per paid ticket.")).toBeVisible();
     await noSidewaysScroll(page);
   });
 });

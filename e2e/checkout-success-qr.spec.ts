@@ -75,7 +75,7 @@ for (const vp of VIEWPORTS) {
       expect(await qr.locator("rect").evaluate((el) => getComputedStyle(el).fill)).toBe("rgb(255, 255, 255)");
     }
     await expect(page.getByText("Turn your brightness up at the door.")).toHaveCount(2);
-    await expect(page.getByText("Show a QR code at the door, from this page or your ticket email.")).toBeVisible();
+    await expect(page.getByText("Each code works once. Don’t share it.")).toBeVisible();
 
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(0);

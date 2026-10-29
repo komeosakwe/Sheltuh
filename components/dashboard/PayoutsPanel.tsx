@@ -51,7 +51,7 @@ export default function PayoutsPanel() {
     );
   }
   if (!organiser || organiser.status !== "approved") {
-    return <p className="text-sm text-muted">Payouts are set up once your organiser application is approved.</p>;
+    return <p className="text-sm text-muted">Payouts open once your application is approved.</p>;
   }
 
   const enabled = Boolean(organiser.payoutsEnabled);
@@ -80,8 +80,8 @@ export default function PayoutsPanel() {
 
       <p className="text-sm text-muted">
         {enabled
-          ? "Stripe is set up to pay out ticket sales for your events."
-          : "Connect a Stripe account before selling paid tickets. Free events don't need this."}
+          ? "Payouts are on."
+          : "Needed before you sell paid tickets."}
       </p>
 
       {actionError && (

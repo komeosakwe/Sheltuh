@@ -25,7 +25,7 @@ describe("ApplyPageContent signed out", () => {
         <ApplyPageContent />
       </FakeAuthProvider>,
     );
-    expect(screen.getByText("Sign in or create an account to apply as an organiser.")).toBeInTheDocument();
+    expect(screen.getByText("Sign in to apply as an organiser.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/login?next=%2Forganisers%2Fapply");
     expect(screen.getByRole("link", { name: "Sign up" })).toHaveAttribute("href", "/signup?next=%2Forganisers%2Fapply");
   });

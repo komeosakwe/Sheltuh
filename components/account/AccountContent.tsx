@@ -48,17 +48,13 @@ function ProfileHeading({ privacyLink = true }: { privacyLink?: boolean }) {
       <h2 id="member-profile-title" className={headingClass}>
         Your profile
       </h2>
-      <p className="mt-1 mb-4 text-sm text-muted">
-        How you show on Who&rsquo;s Going lists.
-        {privacyLink && (
-          <>
-            {" "}
-            <Link href="/privacy#whos-going" className={linkClass}>
-              How we handle your information
-            </Link>
-          </>
-        )}
-      </p>
+      {privacyLink && (
+        <p className="mt-1 mb-4 text-sm text-muted">
+          <Link href="/privacy#whos-going" className={linkClass}>
+            How we handle your information
+          </Link>
+        </p>
+      )}
     </>
   );
 }
@@ -240,7 +236,7 @@ function ProfileSection({
     return (
       <div ref={deletedRef} tabIndex={-1} className="outline-offset-2">
         <Notice role="status">
-          Your profile is deleted. You&rsquo;re no longer shown on any event, and your conversations are gone.
+          Profile deleted.
         </Notice>
       </div>
     );
@@ -264,7 +260,7 @@ function ProfileSection({
         <>
           {notice?.kind === "created" && (
             <div ref={noticeRef} tabIndex={-1} className="mb-4 outline-offset-2">
-              <Notice role="status">Your profile is set up. You&rsquo;ll be shown as {endSentence(notice.name)}</Notice>
+              <Notice role="status">You&rsquo;ll be shown as {endSentence(notice.name)}</Notice>
             </div>
           )}
           {profile.suspended && (
@@ -279,9 +275,7 @@ function ProfileSection({
       ) : (
         <>
           <div ref={notice?.kind === "missing" ? noticeRef : undefined} tabIndex={-1} className="outline-offset-2">
-            <p className="text-sm">
-              You haven&rsquo;t set up a profile yet. Create one here, or when you first add yourself to an event.
-            </p>
+            <p className="text-sm">No profile yet.</p>
           </div>
           <div className="mt-4">
             <CreateProfileForm
@@ -354,8 +348,7 @@ function CreateProfileForm({
       <DisplayNameField id="account-name" value={name} onChange={setName} error={nameError} inputRef={nameRef} />
       <AdultCheckbox id="account-adult" checked={adult} onChange={setAdult} error={adultError} inputRef={adultRef} />
       <p id="account-create-consent" className="text-sm leading-5">
-        Your name is only shown on events you add yourself to, to people signed in to Sheltüh, and it&rsquo;s the
-        same on each of them.{" "}
+        Shown only on events you join, to signed-in members, with the same name on each.{" "}
         <Link href="/privacy#whos-going" className={linkClass}>
           How we handle your information
         </Link>

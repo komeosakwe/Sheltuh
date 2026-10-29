@@ -122,7 +122,7 @@ describe("/saved — live", () => {
   it("only past events: says nothing's coming up", async () => {
     live([fav("p", "Past P", "past")]);
     renderSaved();
-    expect(await screen.findByText("Nothing coming up. Your past events are below.")).toBeInTheDocument();
+    expect(await screen.findByText("Nothing coming up.")).toBeInTheDocument();
   });
 
   it("shows '{n} of 500' near the cap", async () => {
@@ -195,7 +195,7 @@ describe("/saved — demo", () => {
     const [a, b] = sampleEvents;
     localStorage.setItem(SAVED_STORAGE_KEY, JSON.stringify({ ids: [b.id, "unknown-id", a.id] }));
     renderSaved(demo());
-    expect(await screen.findByText("Saved on this device only. Nothing leaves your browser.")).toBeInTheDocument();
+    expect(await screen.findByText("Saved on this device only.")).toBeInTheDocument();
     expect(await screen.findByText("3 saved")).toBeInTheDocument();
     expect(screen.getAllByText(a.title).length).toBeGreaterThan(0);
     expect(screen.getAllByText(b.title).length).toBeGreaterThan(0);

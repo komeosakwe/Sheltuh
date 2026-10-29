@@ -457,12 +457,9 @@ export default function SceneMapPanel({
       {status === "failed" && (
         <div className="absolute inset-0 z-[1000] flex flex-col items-center justify-center gap-3 bg-background px-6 text-center">
           <p className="font-heading text-xl text-foreground">
-            Map couldn&rsquo;t load<span className="lg:hidden"> &mdash; show the list instead</span>
+            Map couldn&rsquo;t load
           </p>
-          <p className="max-w-xs text-sm text-muted">
-            Your connection or the map provider may be down right now.
-            <span className="hidden lg:inline"> The list beside the map still works.</span>
-          </p>
+          <p className="max-w-xs text-sm text-muted">Check your connection.</p>
           <div className="flex flex-wrap justify-center gap-3">
             {onShowList && (
               <button type="button" onClick={onShowList} className={buttonClass("solid", "md", "min-h-11 lg:hidden")}>

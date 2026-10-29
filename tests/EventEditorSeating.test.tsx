@@ -148,8 +148,8 @@ describe("EventEditor seating — organiser, new event", () => {
     const reserved = within(group).getByRole("radio", { name: RESERVED });
     expect(general).toBeChecked();
     expect(reserved).not.toBeChecked();
-    expect(general).toHaveAccessibleDescription(/ticket type and how many/);
-    expect(reserved).toHaveAccessibleDescription(/buyers choose their own seats/);
+    expect(general).toHaveAccessibleName(/General admission/);
+    expect(reserved).toHaveAccessibleName(/buyers pick seats on a map/);
     expect(screen.getByRole("button", { name: "Save draft" })).toBeInTheDocument();
     expect(within(group).queryByText(/set up next/)).toBeNull();
   });
@@ -159,7 +159,7 @@ describe("EventEditor seating — organiser, new event", () => {
     renderOrganiser();
     fireEvent.click(screen.getByRole("radio", { name: RESERVED }));
     expect(within(seatingGroup()).getByText(/seat map’s price tiers/)).toBeInTheDocument();
-    expect(within(seatingGroup()).getByText(/The seat map is set up next/)).toBeInTheDocument();
+    expect(within(seatingGroup()).getByText(/Saving takes you to the seat map/)).toBeInTheDocument();
 
     fillNewEvent();
     fireEvent.click(screen.getByRole("button", { name: "Save draft and set up seats" }));
@@ -242,7 +242,7 @@ describe("EventEditor seating — organiser, existing event", () => {
     renderOrganiser({ ...EVENT, status: "rejected", ticketingLocked: true, seating: { version: 3, seatCount: 120 } });
     expect(screen.getByRole("radio", { name: RESERVED })).toBeDisabled();
     expect(screen.getByRole("radio", { name: GENERAL })).toBeDisabled();
-    expect(within(seatingGroup()).getByText(/contact Sheltüh/)).toBeInTheDocument();
+    expect(within(seatingGroup()).getByText(/Contact Sheltüh/)).toBeInTheDocument();
     expect(within(seatingGroup()).getByRole("link", { name: "Seat map · 120 seats" })).toBeInTheDocument();
   });
 
@@ -269,7 +269,7 @@ describe("EventEditor seating — admin", () => {
     renderAdmin();
     await pickOrganiser();
     fireEvent.click(screen.getByRole("radio", { name: RESERVED }));
-    expect(within(seatingGroup()).getByText(/publish once the seats are in/)).toBeInTheDocument();
+    expect(within(seatingGroup()).getByText(/tickets sell as general admission/)).toBeInTheDocument();
     fillNewEvent();
     fireEvent.click(screen.getByRole("button", { name: "Create event and set up seats" }));
     await waitFor(() => expect(push).toHaveBeenCalledWith("/admin/events/evt-9/seat-map"));

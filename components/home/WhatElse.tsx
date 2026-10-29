@@ -13,7 +13,7 @@ const MIDDLE_BAND = "-45% 0px -45% 0px";
 /**
  * "What else?" (restored from the original home at the owner's request,
  * 23 Oct 2026; docs/design/mobile-redesign.md, owner round): a big
- * uppercase h2 and three promises, each an h3 with a one-line note, beside a
+ * uppercase h2 and three promises, each an h3, beside a
  * tall photo from 1024px. One item at a time is in full black: the first at
  * load, then whichever crosses the middle of the screen as you scroll (or
  * is under the pointer), and the photo changes to that item's. The others
@@ -77,7 +77,6 @@ export default function WhatElse({ className = "" }: { className?: string }) {
               className={`motion-safe:transition-colors motion-safe:duration-300 ${index === active ? "text-foreground" : "text-muted"}`}
             >
               <h3 className="text-xl leading-6 font-bold tracking-tight uppercase sm:text-2xl sm:leading-7">{item.title}</h3>
-              <p className="mt-1 text-base leading-6">{item.note}</p>
             </li>
           ))}
         </ul>

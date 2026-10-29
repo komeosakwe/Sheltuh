@@ -41,25 +41,25 @@ export const SOCIAL_HANDLE_FIELDS = [
     field: "instagramHandle",
     label: "Instagram username",
     prefix: "@",
-    hint: "Just your username, without the @. Letters, numbers, . and _, up to 30.",
+    hint: "Without the @. Letters, numbers, . and _, up to 30.",
   },
   {
     field: "tiktokHandle",
     label: "TikTok username",
     prefix: "@",
-    hint: "Just your username, without the @. Letters, numbers, . and _, up to 30.",
+    hint: "Without the @. Letters, numbers, . and _, up to 30.",
   },
   {
     field: "facebookPage",
     label: "Facebook page",
     prefix: "facebook.com/",
-    hint: "Your page's username, as in facebook.com/yourpage. Letters, numbers and ., 5 to 50.",
+    hint: "Letters, numbers and ., 5 to 50.",
   },
   {
     field: "xHandle",
     label: "X username",
     prefix: "@",
-    hint: "Just your username, without the @. Letters, numbers and _, up to 15.",
+    hint: "Without the @. Letters, numbers and _, up to 15.",
   },
 ] as const;
 

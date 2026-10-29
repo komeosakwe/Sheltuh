@@ -278,9 +278,9 @@ for (const width of [375, 1280]) {
       // Find your people (owner mockup, 23 Oct 2026): the pitch and one action; the step-by-step is on
       // the event page's Who's Going panel.
       const band = page.locator("#find-your-people");
-      await expect(band.getByText("Better together")).toBeVisible();
-      await expect(band).toContainText("Discover the crowd before you book.");
-      await expect(band).toContainText("Create a free profile to see who’s going.");
+      await expect(band.getByRole("heading", { name: "See who’s going. Find your people." })).toBeVisible();
+      await expect(band).not.toContainText("Better together");
+      await expect(band).not.toContainText("Discover the crowd before you book.");
       await expect(band.getByRole("link")).toHaveCount(1);
       await expect(band.getByRole("link", { name: "Create profile now" })).toHaveAttribute("href", "/signup");
       await expect(band.getByRole("listitem")).toHaveCount(0);

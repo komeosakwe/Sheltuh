@@ -273,7 +273,7 @@ export default function PublicProfileForm({ organiser, onSaved }: Props) {
       <fieldset className="flex flex-col gap-4" aria-describedby={`${ID_PREFIX}-social-note`}>
         <legend className="text-sm font-medium text-foreground">Social profiles (optional)</legend>
         <p id={`${ID_PREFIX}-social-note`} className="text-sm text-muted">
-          Shown as links on your public profile. Leave one blank to remove it.
+          Shown on your public profile.
         </p>
         <SocialHandleFields
           idPrefix={ID_PREFIX}

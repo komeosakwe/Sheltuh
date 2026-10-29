@@ -83,8 +83,7 @@ describe("OrganiserLogoField", () => {
     const hint = input.getAttribute("aria-describedby");
     expect(hint).toBe("organiser-logo-hint");
     expect(input).toHaveAccessibleDescription(/It’s public/);
-    expect(input).toHaveAccessibleDescription(/on a white square, so a square logo fills it best/);
-    expect(input).toHaveAccessibleDescription(/remove everything stored in the file/);
+    expect(input).toHaveAccessibleDescription(/Camera and location data is removed/);
     expect(input).toHaveAccessibleDescription(/Only upload a logo you have the rights to use\./);
     expect(screen.queryByRole("button", { name: "Remove logo" })).toBeNull();
   });

@@ -113,9 +113,7 @@ export default function LiveMemberProfile({ profileId }: { profileId: string }) 
             Sign in
           </ButtonLink>
         }
-      >
-        Member profiles are only shown to signed-in members with a Who&rsquo;s Going profile.
-      </EmptyState>,
+      />,
     );
   }
 
@@ -145,10 +143,7 @@ export default function LiveMemberProfile({ profileId }: { profileId: string }) 
             Create your profile
           </ButtonLink>
         }
-      >
-        Member profiles are shown to members with a Who&rsquo;s Going profile: a display name you choose. It takes a
-        moment.
-      </EmptyState>,
+      />,
     );
   }
 

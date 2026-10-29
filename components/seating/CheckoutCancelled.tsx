@@ -65,7 +65,7 @@ export default function CheckoutCancelled() {
           Nothing to cancel
         </h1>
         <p className="max-w-md text-sm text-muted">
-          {isApiConfigured ? "This link is missing its order reference." : "Checkout isn’t available in this demo, so nothing was held."}
+          {isApiConfigured ? "This link is missing its order reference." : "Demo only. Nothing was held."}
         </p>
         <Link href="/" className={linkClass}>
           Back to Sheltüh
@@ -90,8 +90,7 @@ export default function CheckoutCancelled() {
           We couldn&rsquo;t find that checkout
         </h1>
         <p className="max-w-md text-sm text-muted">
-          The link may be incomplete. Any seats held for it are released automatically within {SEAT_HOLD.holdMinutes} minutes, and
-          you weren&rsquo;t charged.
+          Held seats are released within {SEAT_HOLD.holdMinutes} minutes. You weren&rsquo;t charged.
         </p>
         <Link href="/" className={linkClass}>
           Back to Sheltüh
@@ -107,8 +106,8 @@ export default function CheckoutCancelled() {
           Checkout cancelled
         </h1>
         <Notice key={state.attempt} tone="danger" role="alert">
-          We couldn&rsquo;t release your seats just now. They&rsquo;ll be released automatically within {SEAT_HOLD.holdMinutes}{" "}
-          minutes. You weren&rsquo;t charged.
+          Couldn&rsquo;t release your seats. They&rsquo;re released within {SEAT_HOLD.holdMinutes} minutes. You weren&rsquo;t
+          charged.
         </Notice>
         <Button
           variant="outline"
@@ -140,7 +139,7 @@ export default function CheckoutCancelled() {
         <p className="max-w-md text-sm text-muted">
           {result.status === "paid"
             ? "Your tickets are ready on the confirmation page."
-            : "Stripe already has your payment. The confirmation page will show your tickets in a moment."}
+            : "Stripe has your payment. Your tickets will show on the order page."}
         </p>
         <ButtonLink variant="solid" size="lg" href={`/checkout/success?session_id=${encodeURIComponent(orderId)}`} className="w-full sm:w-auto">
           See your order
@@ -155,7 +154,7 @@ export default function CheckoutCancelled() {
       <h1 ref={headingRef} tabIndex={-1} className="display-md outline-offset-2">
         Checkout cancelled
       </h1>
-      <p className="max-w-md text-base leading-6">You weren&rsquo;t charged, and your seats have been released for others.</p>
+      <p className="max-w-md text-base leading-6">You weren&rsquo;t charged. Your seats were released.</p>
       {eventPath && (
         <>
           <ButtonLink variant="solid" size="lg" href={`${eventPath}/seats`} className="w-full sm:w-auto">

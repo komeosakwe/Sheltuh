@@ -66,7 +66,7 @@ export default function CheckoutPayment() {
   if (!isApiConfigured) {
     return (
       <Terminal title="Checkout isn’t available in this demo" action={{ href: "/", label: "Browse events" }}>
-        This is a local prototype. No payment information is collected and no tickets are issued.
+        Demo only. Nothing is charged or issued.
       </Terminal>
     );
   }
@@ -229,7 +229,7 @@ function PaymentFlow({ orderId }: { orderId: string }) {
     case "error":
       return (
         <div className="pt-6 pb-16 sm:pt-8 lg:pt-12">
-          <PayHeader back={back} seated={context?.seated} headingRef={headingRef} />
+          <PayHeader back={back} headingRef={headingRef} />
           <div className="mt-6 flex max-w-2xl flex-col items-start gap-4">
             <Notice tone="danger" role="alert">
               {state.kind === "not-ready"
@@ -248,7 +248,7 @@ function PaymentFlow({ orderId }: { orderId: string }) {
       const { payment } = state;
       return (
         <PayLayout
-          header={<PayHeader back={back} seated={payment.seated} headingRef={headingRef} />}
+          header={<PayHeader back={back} headingRef={headingRef} />}
           summary={<OrderPaymentSummary summary={payment} />}
           hold={
             payment.seated ? (
@@ -290,17 +290,14 @@ function PayLayout({ header, summary, hold, form }: { header: ReactNode; summary
   );
 }
 
-/** Back link, steps and the h1. Unknown order (still loading): space held for the first two. */
+/** Back link and the h1. */
 function PayHeader({
   back,
-  seated,
   headingRef,
 }: {
   back?: CheckoutLinkTarget;
-  seated?: boolean;
   headingRef?: Ref<HTMLHeadingElement>;
 }) {
-  const steps = [seated ? "Choose seats" : "Choose tickets", "Pay", "Tickets by email"];
   return (
     <div className="flex max-w-2xl flex-col gap-3">
       {back ? (
@@ -310,28 +307,6 @@ function PayHeader({
         </Link>
       ) : (
         <div aria-hidden="true" className="min-h-11" />
-      )}
-      {seated === undefined ? (
-        <div aria-hidden="true" className="h-4" />
-      ) : (
-        <ol aria-label="Checkout steps" className="eyebrow flex flex-wrap gap-x-2 gap-y-1">
-          {steps.map((step, i) => (
-            <li
-              key={step}
-              aria-current={i === 1 ? "step" : undefined}
-              className={`flex gap-x-2 ${i === 1 ? "text-foreground" : "text-muted"}`}
-            >
-              {i > 0 && (
-                <span aria-hidden="true" className="text-muted">
-                  &rarr;
-                </span>
-              )}
-              <span>
-                {i + 1} {step}
-              </span>
-            </li>
-          ))}
-        </ol>
       )}
       <h1 ref={headingRef} tabIndex={-1} className={headingClass}>
         {PAY_TITLE}
@@ -351,7 +326,7 @@ function LegalLine() {
       <Link href="/privacy" className={`${linkClass} py-1 whitespace-nowrap`}>
         Privacy Policy
       </Link>
-      . Card details go straight to Stripe, our payment provider, and never reach Sheltüh.
+      . Card details go to Stripe, not Sheltüh.
     </p>
   );
 }
@@ -386,7 +361,7 @@ export function CheckoutPaymentLoading() {
 function NotFound({ headingRef }: { headingRef?: Ref<HTMLHeadingElement> }) {
   return (
     <Terminal headingRef={headingRef} title="We couldn’t find that checkout" action={{ href: "/", label: "Back to Sheltüh" }}>
-      The link may be incomplete. If you were charged, your tickets are on their way to your email.
+      If you were charged, your tickets are on their way.
     </Terminal>
   );
 }

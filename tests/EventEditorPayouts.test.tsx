@@ -202,7 +202,7 @@ describe("EventEditor (organiser) — payouts before publishing paid tickets", (
     // Publishing opens once it's saved: the Publish step says so, with no Publish… button.
     showStep(3);
     expect(screen.queryByRole("button", { name: "Publish…" })).toBeNull();
-    expect(screen.getByText("Save the draft first. Publishing opens once it is saved.")).toBeInTheDocument();
+    expect(screen.getByText("Save the draft first.")).toBeInTheDocument();
   });
 
   it("a draft with paid tickets still saves", async () => {

@@ -42,7 +42,6 @@ function header(action?: ReactNode) {
       size="md"
       eyebrow="Organiser"
       title="Analytics"
-      intro="Ticket sales and page views across your events. Free for every organiser."
       action={action}
     />
   );
@@ -173,7 +172,7 @@ function OverviewBody({ data, busy }: { data: Overview; busy: boolean }) {
           range={data.range}
           days={days}
           previousLabel={data.previous ? previousLabelFor(data.range) : undefined}
-          intro="Clicks on the “Get tickets on …” links of your events sold on other sites. Their sales happen on those sites, so they aren’t in the sales numbers above."
+          intro="Clicks on “Get tickets on …” links. Those sales happen on other sites, so they aren’t in the sales numbers above."
         />
       )}
       <Panel title="By event" titleId="by-event">

@@ -55,10 +55,7 @@ export default function MessagesGate({
             Sign in
           </ButtonLink>
         }
-      >
-        Members going to the same event can message each other, starting from the event&rsquo;s Who&rsquo;s
-        Going list.
-      </EmptyState>,
+      />,
     );
   }
   return <Fragment key={accountKey(auth) ?? ""}>{children(auth.getAccessToken)}</Fragment>;

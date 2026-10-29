@@ -258,7 +258,7 @@ describe("EventQueue", () => {
     );
     expect(screen.getByRole("searchbox", { name: "Search by title or organiser" })).toHaveValue("neon");
     expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("Sheltüh-run events (1)");
-    expect(screen.getByText(/Admins run the door only for the ones ticketed on Sheltüh/)).toBeInTheDocument();
+    expect(screen.getByText(/Door check-in is only for events ticketed on Sheltüh/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Door check-in: Neon Static" })).toHaveAttribute(
       "href",
       "/dashboard/evt-1/check-in",
@@ -632,12 +632,12 @@ describe("EventQueue", () => {
     expect(screen.getByRole("article", { name: "Neon Static" })).not.toHaveTextContent("No door check-in here");
   });
 
-  it("an empty Sheltüh-run view says what belongs there", async () => {
+  it("an empty Sheltüh-run view is titled, with no extra text", async () => {
     nav.set("status=published&view=door");
     vi.mocked(adminListEvents).mockResolvedValue({ items: [] });
     renderQueue();
     expect(await screen.findByText("No upcoming Sheltüh-run events")).toBeInTheDocument();
-    expect(screen.getByText(/Admins run the door for the ones ticketed on Sheltüh/)).toBeInTheDocument();
+    expect(screen.queryByText(/Admins run the door/)).toBeNull();
   });
 
   it("doesn't offer Unpublish for an event that has ended", async () => {
@@ -730,8 +730,7 @@ describe("EventQueue — Recently published (organisers publish without review)"
     );
     const box = screen.getByLabelText("Reason (optional; the organiser sees this)");
     await waitFor(() => expect(box).toHaveFocus());
-    // The question and what the note is for describe the box, so they're read on arriving.
-    expect(box).toHaveAccessibleDescription(/Shown to the organiser on their event/);
+    // The question describes the box, so it's read on arriving.
     expect(box).toHaveAccessibleDescription(/If they publish it again it comes to you for review/);
     expect(screen.getByText("0/500")).toBeInTheDocument();
 

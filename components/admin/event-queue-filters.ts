@@ -116,7 +116,6 @@ interface ListWords {
   many: string;
   /** The empty state, without a search. */
   emptyTitle: string;
-  emptyText: string;
 }
 
 /** The list's heading, how a loaded list is announced, and its empty state, for each status (and published view). */
@@ -128,7 +127,6 @@ export function eventQueueWords(filters: EventQueueFilters): ListWords {
         one: "event waiting for review",
         many: "events waiting for review",
         emptyTitle: "Nothing to review",
-        emptyText: "New submissions appear here, soonest first, as organisers send them.",
       };
     case "draft":
       return {
@@ -136,7 +134,6 @@ export function eventQueueWords(filters: EventQueueFilters): ListWords {
         one: "draft",
         many: "drafts",
         emptyTitle: "No drafts",
-        emptyText: "Events organisers have started but not sent for review, and unpublished events, appear here.",
       };
     case "rejected":
       return {
@@ -144,7 +141,6 @@ export function eventQueueWords(filters: EventQueueFilters): ListWords {
         one: "rejected event",
         many: "rejected events",
         emptyTitle: "No rejected events",
-        emptyText: "Events you’ve rejected appear here with the reason the organiser was given.",
       };
     case "published":
       if (filters.view === "door") {
@@ -153,8 +149,6 @@ export function eventQueueWords(filters: EventQueueFilters): ListWords {
           one: "upcoming Sheltüh-run event",
           many: "upcoming Sheltüh-run events",
           emptyTitle: "No upcoming Sheltüh-run events",
-          emptyText:
-            "Events of Sheltüh-run (platform-managed) organisers appear here until they end. Admins run the door for the ones ticketed on Sheltüh; organisers run their own doors.",
         };
       }
       if (filters.view === "recent") {
@@ -163,8 +157,6 @@ export function eventQueueWords(filters: EventQueueFilters): ListWords {
           one: "event published in the last 14 days",
           many: "events published in the last 14 days",
           emptyTitle: "Nothing published in the last 14 days",
-          emptyText:
-            "Events appear here, newest first, for 14 days after they go live: the ones organisers published themselves, and the ones you approved.",
         };
       }
       if (filters.view === "all") {
@@ -173,7 +165,6 @@ export function eventQueueWords(filters: EventQueueFilters): ListWords {
           one: "published event",
           many: "published events",
           emptyTitle: "No published events",
-          emptyText: "Approved events appear here.",
         };
       }
       return {
@@ -181,7 +172,6 @@ export function eventQueueWords(filters: EventQueueFilters): ListWords {
         one: "upcoming published event",
         many: "upcoming published events",
         emptyTitle: "No upcoming published events",
-        emptyText: "Events that have ended are under “All, past included”.",
       };
   }
 }

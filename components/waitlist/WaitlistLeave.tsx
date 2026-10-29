@@ -11,7 +11,7 @@ export default function WaitlistLeave() {
   return (
     <EmailLinkAction
       title="Leave the waitlist"
-      intro={<p>Press Leave and we&rsquo;ll stop emailing you about tickets for this event.</p>}
+      intro={<p>We&rsquo;ll stop emailing you about this event.</p>}
       action="Leave the waitlist"
       busyLabel="Leaving…"
       working="Leaving the waitlist…"
@@ -20,8 +20,7 @@ export default function WaitlistLeave() {
         title: "You’ve left the waitlist",
         body: (
           <p>
-            We won&rsquo;t email you about {result.eventTitle ?? "that event"} again. Changed your mind? Join again
-            from the event page while it&rsquo;s sold out.
+            We won&rsquo;t email you about {result.eventTitle ?? "that event"} again.
           </p>
         ),
         links: [{ href: "/events", label: "Browse events" }],

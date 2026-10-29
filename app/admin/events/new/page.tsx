@@ -12,7 +12,7 @@ export default function AdminNewEventPage() {
         { href: "/admin/events", label: "Events" },
       ]}
       title="New event"
-      intro="For any approved organiser, or a Sheltüh-run (platform-managed) organiser with no account of its own. Save it as a draft, or publish it straight away."
+      intro="For an approved organiser, or a Sheltüh-run one with no account."
       width="editor"
     >
       <AdminNewEvent />

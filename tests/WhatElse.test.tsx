@@ -36,7 +36,7 @@ afterEach(() => {
 const items = () => within(screen.getByRole("list")).getAllByRole("listitem");
 
 describe("WhatElse", () => {
-  it("is a section named by its big uppercase h2, with the three promises as a list of h3s and notes", () => {
+  it("is a section named by its big uppercase h2, with the three promises as a list of h3s", () => {
     render(<WhatElse />);
     const region = screen.getByRole("region", { name: "What else?" });
     expect(within(region).getByRole("heading", { level: 2 })).toHaveClass("display-lg");
@@ -46,11 +46,8 @@ describe("WhatElse", () => {
       "See who’s going",
     ]);
     for (const h3 of within(region).getAllByRole("heading", { level: 3 })) expect(h3).toHaveClass("uppercase");
-    expect(items().map((li) => li.querySelector("p")?.textContent)).toEqual([
-      "Curated, not scraped.",
-      "Hand-picked music, art and pop-ups worth leaving the house for.",
-      "Ticket holders can show they’re going. Make a free profile to see who.",
-    ]);
+    // Owner (28 Oct 2026, less helper text): the headings only, no sentence under each.
+    for (const li of items()) expect(li.querySelector("p")).toBeNull();
   });
 
   it("starts with the first item in black and the rest muted but readable (a token colour, never faded out)", () => {

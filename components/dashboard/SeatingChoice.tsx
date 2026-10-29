@@ -29,16 +29,14 @@ export function seatMapLinkLabel(seating: EventSeating | undefined): string {
   return seating ? `Seat map · ${seating.seatCount} seats` : "Add a seat map";
 }
 
-const OPTIONS: { value: SeatingChoice; title: string; help: string }[] = [
+const OPTIONS: { value: SeatingChoice; title: string }[] = [
   {
     value: "general",
     title: "General admission (no assigned seats)",
-    help: "Buyers choose a ticket type and how many; each ticket type has its own quantity.",
   },
   {
     value: "reserved",
     title: "Reserved seating (buyers pick seats on a map)",
-    help: "You lay out the venue’s seats and give each one a ticket type; buyers choose their own seats.",
   },
 ];
 
@@ -85,15 +83,11 @@ export default function SeatingChoiceField({ value, onChange, event, admin, lock
               disabled={locked}
               onChange={() => onChange(option.value)}
               aria-labelledby={`${id}-${option.value}-title`}
-              aria-describedby={`${id}-${option.value}-help`}
               className="mt-0.5 size-5 shrink-0"
             />
             <span className="flex min-w-0 flex-col gap-1">
               <span id={`${id}-${option.value}-title`} className="font-semibold">
                 {option.title}
-              </span>
-              <span id={`${id}-${option.value}-help`} className="text-muted">
-                {option.help}
               </span>
             </span>
           </label>
@@ -102,19 +96,18 @@ export default function SeatingChoiceField({ value, onChange, event, admin, lock
 
       {locked && (
         <Notice>
-          The seating can&rsquo;t be changed because this event has been approved before. To change it, contact Sheltüh.
+          Seating is locked because this event was approved. Contact Sheltüh to change it.
         </Notice>
       )}
 
       {value === "reserved" && !event && (
         <Notice>
           <p>
-            The ticket types below are the seat map&rsquo;s price tiers (up to 5): each seat gets one, and its price is what
-            buyers pay for that seat. A tier&rsquo;s quantity then comes from its seats.
+            The ticket types below are the seat map&rsquo;s price tiers (up to 5). Quantities come from its seats.
           </p>
           <p className="mt-1">
-            The seat map is set up next: saving takes you to it.
-            {admin && " Until a map is saved, tickets sell as general admission, so publish once the seats are in."}
+            Saving takes you to the seat map.
+            {admin && " Until a map is saved, tickets sell as general admission."}
           </p>
         </Notice>
       )}
@@ -124,8 +117,8 @@ export default function SeatingChoiceField({ value, onChange, event, admin, lock
           {!locked && (
             <Notice>
               {seating
-                ? `Buyers choose from this event’s ${seating.seatCount} seats. Each seat’s tier is one of the ticket types below.`
-                : "The ticket types below are the seat map’s price tiers. Save any changes here first, then add the seats."}
+                ? `${seating.seatCount} seats. Each seat’s tier is one of the ticket types below.`
+                : "The ticket types below are the seat map’s price tiers. Save changes before adding seats."}
             </Notice>
           )}
           {/* Locked without a map: there's nothing to open (the organiser can't add one now). */}
@@ -141,8 +134,8 @@ export default function SeatingChoiceField({ value, onChange, event, admin, lock
       {value === "general" && seating && href && (
         <div className="flex flex-col gap-3">
           <Notice>
-            This event has a seat map ({seating.seatCount} seats), so buyers still pick seats until the map is removed.
-            Saving here doesn&rsquo;t remove it: to sell general admission instead, remove the map on its seat map page.
+            This event has a seat map ({seating.seatCount} seats). Saving here doesn&rsquo;t remove it: remove the map
+            on its seat map page.
           </Notice>
           <Link
             href={href}

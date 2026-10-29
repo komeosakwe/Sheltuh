@@ -424,7 +424,7 @@ describe("/organisers/[organiserId] (demo)", () => {
 
     const follow = screen.getByRole("button", { name: "Follow Small Hours Theatre" });
     expect(follow).toHaveAttribute("aria-disabled", "true");
-    expect(follow).toHaveAccessibleDescription(/Following works once you’re signed in on the live site\./);
+    expect(follow).toHaveAccessibleDescription(/Not available in this demo\./);
     fireEvent.click(follow);
     expect(screen.queryByRole("link", { name: "Sign in to follow" })).not.toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();

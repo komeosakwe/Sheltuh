@@ -219,7 +219,7 @@ describe("VerifyForm", () => {
     expect(resend).toHaveBeenCalledTimes(1);
 
     resolve();
-    expect(await screen.findByText("A new code is on its way — check your email.")).toHaveAttribute("role", "status");
+    expect(await screen.findByText("New code sent.")).toHaveAttribute("role", "status");
   });
 });
 

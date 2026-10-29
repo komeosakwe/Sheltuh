@@ -7,7 +7,7 @@ export const metadata: Metadata = { title: "Saved — Sheltüh" };
 export default function SavedPage() {
   return (
     <Page>
-      <PageHeader size="md" eyebrow="Your list" title="Saved" intro="Events you've saved. Only you can see this list." />
+      <PageHeader size="md" eyebrow="Your list" title="Saved" intro="Only you can see this list." />
       <SavedPageContent />
     </Page>
   );
