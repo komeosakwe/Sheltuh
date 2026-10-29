@@ -209,12 +209,12 @@ describe("dotted vowels in the CSS", () => {
     expect(layout).toContain("${instrumentDots.variable} ${instrument.variable} ${plexMono.variable}");
   });
 
-  it("keeps the sans plain and puts the dotted face only on display-lg and the display face; section titles (display-md) are plain", () => {
+  it("keeps the sans plain and puts the dotted face only on the display face (hero headlines); display-lg page titles and display-md section titles are plain", () => {
     // Headlines only (owner: all-text dots were too distracting): the sans is plain again.
     expect(css).toMatch(/--face-sans: var\(--font-instrument\), /);
     expect(css).toContain("--face-dots: var(--font-instrument-dots), var(--face-sans);");
     expect(css).toContain("--face-display: var(--face-dots);");
-    expect(css).toMatch(/@utility display-lg \{\s*font-family: var\(--face-dots\);/);
+    expect(css).toMatch(/@utility display-lg \{\s*font-family: var\(--face-sans\);/);
     expect(css).toMatch(/@utility display-md \{\s*font-family: var\(--face-sans\);/);
     expect(css).toContain("--font-sans: var(--face-sans);");
   });

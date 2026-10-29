@@ -36,11 +36,13 @@
   --door-hold-foreground: #0b0b0b;
   /* Faces (app/fonts.ts). --face-sans is plain Instrument Sans for all running text, buttons,
      prices and nav. --face-dots is Instrument Sans Dots (every vowel drawn with the brand's two
-     dots, in the font only, so the text stays plainly spelled), first in the line: only the big
-     headlines use it (display-lg, display-md section titles and --face-display), which the
-     owner asked for on 23 Oct 2026 after all-text dots proved too distracting; the home h1 is
-     plain but for two letters (`display-plain` + `font-dots`, 24 Oct 2026). Anything it lacks
-     falls through to the plain face. Form fields use --face-sans-plain. Mono stays plain. */
+     dots, in the font only, so the text stays plainly spelled), first in the line. Its one rule
+     (29 Oct 2026): the dotted face is for the SHELTÜH wordmark and the few major creative hero
+     headlines only (--face-display, i.e. `font-display`: the home h1's two letters via
+     `font-dots`, "What's on." and "Sheltüh near ü."). Every functional heading (section and
+     page titles, account / dashboard / admin / auth / checkout / help, nav, errors) is plain
+     Instrument Sans. Anything the dotted face lacks falls through to the plain face. Form
+     fields use --face-sans-plain. Mono stays plain. */
   --face-sans: var(--font-instrument), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
   --face-dots: var(--font-instrument-dots), var(--face-sans);
   --face-sans-plain: var(--face-sans);
@@ -302,10 +304,11 @@ h4 {
   letter-spacing: -0.025em;
 }
 
-/* A page's main headline (the home's h1, page headers): the one heavy uppercase style.
-   Instrument Sans 700, 32–40px on phones, 56–72px from lg. Event titles use title-lg. */
+/* A page's main headline (page headers): the one heavy uppercase style, in the plain face (the
+   dotted face is `font-display`'s, for hero headlines only). Instrument Sans 700, 32–40px on
+   phones, 56–72px from lg. Event titles use title-lg. */
 @utility display-lg {
-  font-family: var(--face-dots);
+  font-family: var(--face-sans);
   font-weight: 700;
   font-size: clamp(2rem, 8.5vw, 2.5rem);
   /* 1.08, not 0.95: room for the dots over the second line's capitals. */
@@ -369,11 +372,6 @@ h4 {
      plain face, with only its `font-dots` letters dotted (HOME_TITLE_LINES in
      components/home/home-content.ts). Three classes, so it wins over the rule above. */
   .display-lg.font-display.display-plain {
-    font-family: var(--face-sans);
-  }
-  /* Any other display-lg title in plain words (owner, 24 Oct 2026: section titles are normal
-     words), e.g. the home's "What else?". */
-  .display-lg.display-plain {
     font-family: var(--face-sans);
   }
 }
