@@ -90,6 +90,7 @@ export default function EditEventPageContent() {
           event={event}
           getToken={getToken}
           payoutsEnabled={organiser ? organiser.payoutsEnabled === true : undefined}
+          organiserHasLogo={organiser ? Boolean(organiser.logoUrl) : undefined}
           eventReviewRequired={organiser?.eventReviewRequired === true}
           onSaved={(record) => setLoaded({ account: as, event: record, error: null })}
         />
@@ -128,6 +129,7 @@ function EditorView({
   event,
   getToken,
   payoutsEnabled,
+  organiserHasLogo,
   eventReviewRequired,
   onSaved,
 }: {
@@ -135,6 +137,8 @@ function EditorView({
   getToken: GetToken;
   /** The organiser's, once known (the editor says when paid tickets need payouts before publishing). */
   payoutsEnabled: boolean | undefined;
+  /** The organiser has no logo (false) or one (true), once known: the checklist suggests adding one. */
+  organiserHasLogo: boolean | undefined;
   /** An admin checks this organiser's events before they go live (the editor's Publish… says so). */
   eventReviewRequired: boolean;
   onSaved: (record: EventRecord) => void;
@@ -166,6 +170,7 @@ function EditorView({
         getToken={getToken}
         initial={event}
         payoutsEnabled={payoutsEnabled}
+        organiserHasLogo={organiserHasLogo}
         eventReviewRequired={eventReviewRequired}
         onSaved={onSaved}
       />

@@ -10,7 +10,7 @@ vi.mock("@/lib/api/events", () => ({
   listMyEvents: (...args: unknown[]) => listMyEvents(...args),
 }));
 
-let organiser: Pick<OrganiserRecord, "organiserId" | "status" | "payoutsEnabled"> & { displayName?: string } = {
+let organiser: Pick<OrganiserRecord, "organiserId" | "status" | "payoutsEnabled" | "logoUrl"> & { displayName?: string } = {
   organiserId: "org-1",
   status: "approved",
 };
@@ -381,5 +381,31 @@ describe("DashboardContent — the welcome after joining with an organiser link"
     renderDashboard();
     await screen.findByText("No events yet");
     expect(screen.queryByText(/Welcome to Sheltüh/)).toBeNull();
+  });
+});
+
+describe("DashboardContent — the logo prompt", () => {
+  it("asks an approved organiser with no logo to add one, linking to the Profile page's logo field", async () => {
+    listMyEvents.mockResolvedValue({ items: [] });
+    renderDashboard();
+    await screen.findByText("No events yet");
+    expect(screen.getByText("Add your logo")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Add logo" })).toHaveAttribute("href", "/dashboard/profile#logo");
+  });
+
+  it("is gone once there's a logo", async () => {
+    organiser = { organiserId: "org-1", status: "approved", logoUrl: "/api/organisers/org-1/logo?v=1" };
+    listMyEvents.mockResolvedValue({ items: [] });
+    renderDashboard();
+    await screen.findByText("No events yet");
+    expect(screen.queryByText("Add your logo")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Add logo" })).toBeNull();
+  });
+
+  it("isn't shown before approval", async () => {
+    organiser = { organiserId: "org-1", status: "pending" };
+    renderDashboard();
+    await screen.findByText("Your organiser application is still pending review.");
+    expect(screen.queryByText("Add your logo")).toBeNull();
   });
 });

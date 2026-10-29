@@ -33,6 +33,7 @@ export default function NewEventPageContent() {
         key={editor.account}
         getToken={auth.getAccessToken}
         payoutsEnabled={organiser ? organiser.payoutsEnabled === true : undefined}
+        organiserHasLogo={organiser ? Boolean(organiser.logoUrl) : undefined}
         organiserName={organiser?.displayName}
         onSaved={(record) => router.push(`/dashboard/${record.eventId}`)}
       />

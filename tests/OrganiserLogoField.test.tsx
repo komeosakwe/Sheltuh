@@ -5,6 +5,7 @@ import OrganiserLogoField, { logoErrorMessage, logoFileError } from "@/component
 import { SESSION_EXPIRED_MESSAGE } from "@/components/whos-going/shared";
 import { ApiError } from "@/lib/api/client";
 import type { OrganiserRecord } from "@/lib/api/types";
+import { ADD_LOGO_HREF } from "@/lib/organiser-profile";
 import { SessionExpiredError } from "@/lib/auth/session-token";
 import { ImageError } from "@/lib/image";
 
@@ -71,6 +72,12 @@ function statusText(): string {
 const png = () => new File(["x"], "logo.png", { type: "image/png" });
 
 describe("OrganiserLogoField", () => {
+  it("is the target of every Add logo link (id logo)", () => {
+    const { container } = renderField();
+    expect(new URL(ADD_LOGO_HREF, "http://x").hash).toBe("#logo");
+    expect(container.querySelector("#logo")).toBe(container.querySelector("[data-organiser-logo-field]"));
+  });
+
   it("starts empty: a placeholder, a named file picker styled as a button, the rules, and no Remove", () => {
     renderField();
     expect(screen.getByText("No logo yet")).toBeInTheDocument();

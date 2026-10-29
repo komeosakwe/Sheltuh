@@ -400,7 +400,8 @@ describe("/organisers/[organiserId] (demo)", () => {
       "/events/dead-letter-office",
     );
     expect(screen.queryByRole("heading", { level: 2, name: "Past events" })).not.toBeInTheDocument();
-    expect(screen.getByText("Events hosted").nextElementSibling).toHaveTextContent("0");
+    // No past events yet: the zero isn't shown.
+    expect(screen.queryByText("Events hosted")).not.toBeInTheDocument();
     // The demo has no logos: the header is just the strap and name.
     expect(document.querySelector("[data-organiser-logo]")).toBeNull();
     expect(document.querySelector("header img")).toBeNull();
