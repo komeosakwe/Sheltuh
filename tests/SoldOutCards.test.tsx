@@ -45,8 +45,8 @@ describe("sold-out cards (brand-direction-one.md §6.5)", () => {
   it.each(["grid", "rail"] as const)("EventCard %s", (variant) => {
     render(<EventCard event={soldOut} variant={variant} showSave={false} />);
     expectSoldOutCard();
-    // The card link's name carries the price line, so "Sold out" is heard with the title.
-    expect(screen.getByRole("link", { name: /^Dead Letter Office .*Sold out/ })).toBeInTheDocument();
+    // The card link is named by the title alone; "Sold out" is the foot's text beside it.
+    expect(screen.getByRole("link", { name: "Dead Letter Office" })).toBeInTheDocument();
   });
 
   it("the map list row and the map card", () => {
