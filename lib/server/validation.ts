@@ -174,9 +174,18 @@ export function requireMelbourneDateTime(
   return requireLocalDateTime(value, field, errors, PLATFORM_TIME_ZONE);
 }
 
+/** The editor's limit (components/dashboard/editor/draft.ts), enforced here too. */
+export const MAX_TICKET_DESCRIPTION_LENGTH = 300;
+/** Ticket types per event: an event's moderation log and records carry the whole list, so it's bounded. */
+export const MAX_TICKET_TYPES = 20;
+
 export function requireTicketTypes(value: unknown, field: string, errors: Record<string, string>): TicketTypeInput[] {
   if (!Array.isArray(value) || value.length === 0) {
     errors[field] = "Add at least one ticket type.";
+    return [];
+  }
+  if (value.length > MAX_TICKET_TYPES) {
+    errors[field] = `Add at most ${MAX_TICKET_TYPES} ticket types.`;
     return [];
   }
   const result: TicketTypeInput[] = [];
@@ -193,6 +202,10 @@ export function requireTicketTypes(value: unknown, field: string, errors: Record
     const name = typeof t.name === "string" ? t.name.trim() : "";
     if (!name) errors[`${prefix}.name`] = "Enter a ticket name.";
     else if (name.length > 150) errors[`${prefix}.name`] = "Must be 150 characters or fewer.";
+
+    if (typeof t.description === "string" && t.description.trim().length > MAX_TICKET_DESCRIPTION_LENGTH) {
+      errors[`${prefix}.description`] = `Must be ${MAX_TICKET_DESCRIPTION_LENGTH} characters or fewer.`;
+    }
 
     const priceCents = t.priceCents;
     if (typeof priceCents !== "number" || !Number.isInteger(priceCents) || priceCents < 0) {

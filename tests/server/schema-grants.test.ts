@@ -219,6 +219,15 @@ describe("Data API lock-out", () => {
     expect(await privateFunctions(names)).toEqual(locked(names));
   });
 
+  it("release_tickets exists, pins search_path, isn't security definer and isn't client-executable", async () => {
+    const names = ["release_tickets"];
+    expect(await privateFunctions(names)).toEqual(locked(names));
+    const rows = await db.query<{ definer: boolean }>(
+      `select p.prosecdef as definer from pg_proc p where p.pronamespace = to_regnamespace('private') and p.proname = 'release_tickets'`,
+    );
+    expect(rows).toEqual([{ definer: false }]);
+  });
+
   it("the trending functions exist, pin search_path and aren't client-executable", async () => {
     const names = [
       "refresh_trending",
