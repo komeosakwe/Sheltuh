@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { filterChipClass } from "@/components/ui/FilterChip";
+import ScrollHint from "@/components/ui/ScrollHint";
 import CategoryIcon, { type CategoryIconName } from "./CategoryIcon";
 
 /** Every link opens /events with that filter already applied (see app/events/page.tsx). */
@@ -25,21 +26,23 @@ export const HOME_CATEGORIES: { label: string; href: string; icon: CategoryIconN
 export default function CategoryRow({ className = "" }: { className?: string }) {
   return (
     <nav aria-label="Browse by category" className={className}>
-      <ul className="no-scrollbar -mx-5 flex gap-2 overflow-x-auto overscroll-x-contain px-5 py-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
-        <li className="flex shrink-0">
-          <Link href="/events" className={filterChipClass(false, "font-semibold")}>
-            All events
-          </Link>
-        </li>
-        {HOME_CATEGORIES.map((item) => (
-          <li key={item.href} className="flex shrink-0">
-            <Link href={item.href} className={filterChipClass(false)}>
-              <CategoryIcon name={item.icon} className="h-4 w-4" />
-              {item.label}
+      <ScrollHint className="-mx-5 sm:mx-0" fadeClassName="sm:hidden">
+        <ul className="no-scrollbar flex gap-2 overflow-x-auto overscroll-x-contain px-5 py-1 sm:flex-wrap sm:overflow-visible sm:px-0">
+          <li className="flex shrink-0">
+            <Link href="/events" className={filterChipClass(false, "font-semibold")}>
+              All events
             </Link>
           </li>
-        ))}
-      </ul>
+          {HOME_CATEGORIES.map((item) => (
+            <li key={item.href} className="flex shrink-0">
+              <Link href={item.href} className={filterChipClass(false)}>
+                <CategoryIcon name={item.icon} className="h-4 w-4" />
+                {item.label}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </ScrollHint>
     </nav>
   );
 }

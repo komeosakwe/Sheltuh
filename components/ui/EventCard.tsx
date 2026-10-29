@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { useId } from "react";
 import EventArt from "@/components/EventArt";
 import ClipPlayButton from "@/components/events/ClipPlayButton";
 import SaveButton from "@/components/favourites/SaveButton";
@@ -7,7 +6,7 @@ import QuickBuyLink from "@/components/QuickBuyLink";
 import CardPrice from "@/components/ui/CardPrice";
 import PlaceLines from "@/components/ui/PlaceLines";
 import { isApiConfigured } from "@/lib/api/client";
-import { cardCta, cardDateLabel, cardGoing, cardState, categoryLabel, placeLabel, signalLabel } from "@/lib/event-card";
+import { cardCta, cardDateLabel, cardGoing, cardState, categoryLabel, signalLabel } from "@/lib/event-card";
 import type { TrendingSignal } from "@/lib/home-sections";
 import { organiserProfileHref } from "@/lib/sample-organisers";
 import type { SheltuhEvent } from "@/lib/types";
@@ -88,8 +87,10 @@ const WIDE = { width: "lg:w-full", media: "lg:aspect-[12/5] lg:max-h-50" } as co
  * The whole card opens the event: the title's link stretches over the card
  * (`::after`), and Save, the ticket action and the organiser link sit above
  * it (z-10) as siblings, so nothing interactive is nested in a link. The
- * link is named title first, then the date, place, price and going count
- * (the category is seen, not repeated in every link's name). An event with
+ * link is named by the title alone (owner brief, 29 Oct 2026); the date, place,
+ * price and going count are read as the text after it. Hover underlines the
+ * title and eases the image in; a press scales the card (dims it under
+ * reduced motion). An event with
  * a clip also has a Play button at the image's bottom-left
  * (docs/design/event-clips.md §5.1). Tab order: the card's link, Play (with
  * a clip), Save, the ticket action, then "By {organiser}". Keyboard
@@ -134,7 +135,6 @@ export default function EventCard({
   const state = cardState(event, now);
   const qualifier = signal ? signalLabel(signal, external) : null;
   const date = cardDateLabel(event, now);
-  const place = placeLabel(event);
   const going = cardGoing(event, mode, signal);
   const secondary = [categoryLabel(event), qualifier, state === "seated" ? "Reserved seating" : null].filter(Boolean).join(" · ");
   const showOrganiserRow = variant === "grid" && showOrganiser;
@@ -142,25 +142,13 @@ export default function EventCard({
   const hasCta = cardCta(event, now) !== null;
   const isWide = wide && variant === "rail";
 
-  const id = useId();
-  const ids = {
-    title: `${id}-title`,
-    date: `${id}-date`,
-    place: `${id}-place`,
-    price: `${id}-price`,
-    going: `${id}-going`,
-  };
-  const labelledBy = [ids.title, ids.date, place ? ids.place : null, ids.price, going ? ids.going : null]
-    .filter(Boolean)
-    .join(" ");
-
   return (
     <div
       data-event-card=""
       data-variant={variant}
       data-wide={isWide ? "" : undefined}
       data-card-state={state}
-      className={`group/card relative flex min-w-0 flex-col has-[[data-card-link]:focus-visible]:rounded-card has-[[data-card-link]:focus-visible]:outline-2 has-[[data-card-link]:focus-visible]:outline-offset-4 has-[[data-card-link]:focus-visible]:outline-foreground motion-safe:transition-transform motion-safe:duration-150 motion-safe:has-[[data-card-link]:active]:scale-[0.98] ${WIDTH[variant]} ${isWide ? WIDE.width : ""} ${className}`.replace(/\s+/g, " ").trim()}
+      className={`group/card relative flex min-w-0 flex-col has-[[data-card-link]:focus-visible]:rounded-card has-[[data-card-link]:focus-visible]:outline-2 has-[[data-card-link]:focus-visible]:outline-offset-4 has-[[data-card-link]:focus-visible]:outline-foreground motion-safe:transition-transform motion-safe:duration-150 motion-safe:has-[[data-card-link]:active]:scale-[0.98] motion-reduce:has-[[data-card-link]:active]:opacity-80 ${WIDTH[variant]} ${isWide ? WIDE.width : ""} ${className}`.replace(/\s+/g, " ").trim()}
     >
       <div data-card-media="" className="relative overflow-hidden rounded-card">
         <EventArt
@@ -173,18 +161,18 @@ export default function EventCard({
         />
       </div>
       <div className="flex min-w-0 flex-col pt-3">
-        {/* The heading is named by the title alone (its link's name is the whole card's). */}
-        <h3 aria-labelledby={ids.title} className={`line-clamp-2 font-semibold tracking-[-0.01em] break-words ${TITLE[variant]}`}>
+        {/* The card's one link, named by the title alone (the date, place and price are read as the
+            text that follows it, never repeated in the name). */}
+        <h3 className={`line-clamp-2 font-semibold tracking-[-0.01em] break-words ${TITLE[variant]}`}>
           <Link
             href={href}
             data-card-link=""
-            aria-labelledby={labelledBy}
             className="underline-offset-4 group-hover/card:underline after:absolute after:inset-0 after:z-0 after:content-['']"
           >
-            <span id={ids.title}>{event.title}</span>
+            {event.title}
           </Link>
         </h3>
-        <p id={ids.date} className={`mt-1 font-medium ${SMALL}`}>
+        <p data-card-date="" className={`mt-1 font-medium ${SMALL}`}>
           {"running" in date ? (
             date.running
           ) : (
@@ -204,16 +192,14 @@ export default function EventCard({
           )}
         </p>
         {/* The venue, then "Suburb, STATE", a line each: a narrow card cuts each short, never the state off. */}
-        <PlaceLines event={event} id={ids.place} className={`text-muted ${SMALL}`} />
+        <PlaceLines event={event} className={`text-muted ${SMALL}`} />
         {/* Secondary and small: what kind of event, and how many are going (a count only). */}
         <p data-card-secondary="" className="mt-1 line-clamp-2 text-xs leading-4 text-muted">
           {secondary}
           {going && (
             <>
               {" · "}
-              <span id={ids.going}>
-                {going.count} going{going.sample ? " (sample)" : ""}
-              </span>
+              {going.count} going{going.sample ? " (sample)" : ""}
             </>
           )}
         </p>
@@ -242,7 +228,7 @@ export default function EventCard({
           button line up across a rail or grid row. Not z-10 itself: a tap on the price still
           opens the event; only the button and the organiser link sit above the card's link. */}
       <div data-card-foot="" className="mt-auto flex flex-col pt-3">
-        <CardPrice id={ids.price} event={event} now={now} className={`${SMALL} ${PRICE_BOX[variant]}`.trim()} />
+        <CardPrice event={event} now={now} className={`${SMALL} ${PRICE_BOX[variant]}`.trim()} />
         {hasCta ? (
           <QuickBuyLink event={event} now={now} narrow={variant === "grid"} className="relative z-10 pt-2" />
         ) : (

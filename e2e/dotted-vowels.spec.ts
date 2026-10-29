@@ -3,9 +3,10 @@ import { expect, test, type Page } from "@playwright/test";
 /**
  * The dotted vowels (owner, 23 Oct 2026; app/fonts/instrument-sans-dots/
  * README.md) in a real Chromium. Instrument Sans Dots draws every vowel with
- * two dots while the text itself stays plainly spelled. Section titles are
- * in it; the home h1 is plain but for two letters (owner, 24 Oct 2026);
- * running text is plain Instrument Sans. Form fields keep the plain
+ * two dots while the text itself stays plainly spelled. Only the wordmark and the hero headlines
+ * are in it (owner, 29 Oct 2026): the home h1 is plain but for two letters (owner, 24 Oct 2026),
+ * and /events and /map keep their brand headlines dotted. Every other title, section head and
+ * card is plain Instrument Sans; running text is too. Form fields keep the plain
  * Instrument Sans and the mono stays IBM Plex Mono. /api is intercepted.
  */
 
@@ -39,11 +40,10 @@ test("only the headlines render in the dotted face; body, fields and mono stay p
     { text: "i", upper: "uppercase" },
   ]);
   // instrumentDots: the CSS family of Instrument Sans Dots (app/fonts.ts), then the plain face.
-  // Section titles (display-md) are plain words (owner, 24 Oct 2026); "This weekend" dots one letter.
-  // (This test's data has no weekend events, so This weekend's one dot is covered in jsdom.)
+  // Section titles are plain words, "This weekend" included (owner, 29 Oct 2026): no dotted letter in any h2.
   expect(await fontFamily(page, "main h2")).toMatch(/^"Instrument Sans", /);
   expect(await fontFamily(page, "#home-what-else")).toMatch(/^"Instrument Sans", /);
-  expect(await page.locator("main h2 [data-dotted-letter]").count()).toBeLessThanOrEqual(1);
+  expect(await page.locator("main h2 [data-dotted-letter]").count()).toBe(0);
   expect(await fontFamily(page, "#home-creators")).toMatch(/^"Instrument Sans", /);
   expect(await fontFamily(page, "body")).toMatch(/^"Instrument Sans", /);
   expect(await fontFamily(page, "main p:not(.eyebrow)")).toMatch(/^"Instrument Sans", /);
@@ -80,4 +80,20 @@ test("only the headlines render in the dotted face; body, fields and mono stay p
   expect(metrics.loaded).toBe(true);
   expect(metrics.dottedO).toBeGreaterThan(metrics.plainO + 8);
   expect(metrics.dottedN).toBeCloseTo(metrics.plainN, 1);
+});
+
+test("page titles are plain; only the brand headlines on /events and /map are dotted", async ({ page }) => {
+  const dotted = /^"?instrumentDots"?, "Instrument Sans", /;
+  // Brand headlines: the dotted face.
+  for (const path of ["/events", "/map"]) {
+    await page.goto(path);
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    await page.evaluate(() => document.fonts.ready);
+    expect(await fontFamily(page, "main h1")).toMatch(dotted);
+  }
+  // A page title (display-lg without the brand headline): plain.
+  await page.goto("/search");
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+  await page.evaluate(() => document.fonts.ready);
+  expect(await fontFamily(page, "main h1")).toMatch(/^"Instrument Sans", /);
 });

@@ -43,12 +43,6 @@ export function titleParts(line: string): TitlePart[] {
   return parts;
 }
 
-/**
- * "This weekend" with one dotted letter (owner, 24 Oct 2026: section titles are plain words, this
- * one keeps a single special character). Move the `^` to dot a different letter.
- */
-export const WEEKEND_TITLE = "Th^is weekend";
-
 /** A title line as plain text, without its dot marks. */
 export const titleText = (line: string) => line.split(DOT_MARK).join("");
 

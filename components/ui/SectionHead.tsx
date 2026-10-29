@@ -1,13 +1,12 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { ArrowRightIcon } from "@/components/home/icons";
-import DottedText from "@/components/ui/DottedText";
 
 /**
  * The site's one section head (docs/design/mobile-redesign.md §6.3.3 and its
  * Refinement, 22 Oct 2026), on the home, profiles and Saved alike: a calm
  * sentence-case h2 (display-md) and an optional link beside it, on the h2's
- * first-line baseline. No rule and no brand dots: the space above a section
+ * first-line baseline. No rule and no dotted vowels (a functional heading is plain, 29 Oct 2026): the space above a section
  * separates it, and heavy uppercase is kept for the page's main headline.
  * The only line under the h2 is an optional `note` with real context (This
  * weekend's dates), read after the heading. A long title wraps in balanced
@@ -22,16 +21,12 @@ import DottedText from "@/components/ui/DottedText";
 export default function SectionHead({
   id,
   title,
-  dottedTitle,
   note,
   link,
   actions,
 }: {
   id: string;
-  /** The plain title. */
   title: string;
-  /** Optional: the title with `^` before the letters drawn with dots (e.g. "Th^is weekend"). */
-  dottedTitle?: string;
   /** Context the title doesn't already say, e.g. "Fri 23 – Sun 25 Oct". */
   note?: string;
   link?: { href: string; label?: string; srLabel?: string };
@@ -62,7 +57,7 @@ export default function SectionHead({
     <div className="mb-3 flex items-baseline justify-between gap-4 sm:mb-4">
       <div className="min-w-0">
         <h2 id={id} tabIndex={-1} className="display-md break-words text-balance">
-          {dottedTitle ? <DottedText text={dottedTitle} /> : title}
+          {title}
         </h2>
         {note && <p className="mt-0.5 text-sm leading-5 text-muted">{note}</p>}
       </div>

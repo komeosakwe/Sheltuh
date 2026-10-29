@@ -13,26 +13,23 @@ import type { SheltuhEvent } from "@/lib/types";
  */
 export default function CardPrice({
   event,
-  id,
   className = "",
   now,
 }: {
   event: SheltuhEvent;
-  /** For a card link's aria-labelledby. */
-  id?: string;
   className?: string;
   now?: Date;
 }) {
   if (now && hasEnded(event, now)) {
     return (
-      <p id={id} className={`font-semibold text-muted ${className}`.trim()}>
+      <p className={`font-semibold text-muted ${className}`.trim()}>
         Ended
       </p>
     );
   }
   if (isSoldOut(event)) {
     return (
-      <p id={id} className={`font-semibold text-foreground ${className}`.trim()}>
+      <p className={`font-semibold text-foreground ${className}`.trim()}>
         {SOLD_OUT_LABEL}
       </p>
     );
@@ -40,7 +37,7 @@ export default function CardPrice({
   const parts = formatFeedPriceParts(event);
   if (!parts) {
     return (
-      <p id={id} className={`font-semibold ${className}`.trim()}>
+      <p className={`font-semibold ${className}`.trim()}>
         {NO_TICKETS_LABEL}
       </p>
     );
@@ -48,13 +45,13 @@ export default function CardPrice({
   if (!parts.note) {
     // A paid external event: where its tickets are, in the price's weight.
     return (
-      <p id={id} className={`font-semibold ${className}`.trim()}>
+      <p className={`font-semibold ${className}`.trim()}>
         {parts.amount}
       </p>
     );
   }
   return (
-    <p id={id} className={className}>
+    <p className={className}>
       <span className="font-semibold tabular-nums">{parts.amount}</span>{" "}
       <span className="text-muted">
         <LastWordsTogether text={parts.note} />

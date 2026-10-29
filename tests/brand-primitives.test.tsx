@@ -128,9 +128,9 @@ describe("StatusBadge", () => {
 });
 
 describe("NotFoundMessage (404)", () => {
-  it("asks 'Lost?' in the display face and points to what's on", () => {
+  it("asks 'Lost?' in the plain face (an error page) and points to what's on", () => {
     render(<NotFoundMessage />);
-    expect(screen.getByRole("heading", { level: 1, name: "Lost?" })).toHaveClass("display-lg", "font-display");
+    expect(screen.getByRole("heading", { level: 1, name: "Lost?" })).not.toHaveClass("font-display");
     expect(screen.getByText(/That page isn.t here\./)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "See what’s on" })).toHaveAttribute("href", "/events");
   });

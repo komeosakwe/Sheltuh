@@ -445,7 +445,7 @@ export default function EventDetailsView({
               <p className="text-sm text-muted">
                 <a
                   href={reportEventHref(event.title, event.slug, siteOrigin(), SUPPORT_EMAIL)}
-                  className="inline-flex min-h-6 items-center text-foreground underline underline-offset-4"
+                  className="inline-flex min-h-11 items-center text-foreground underline underline-offset-4"
                 >
                   Report this event
                 </a>
