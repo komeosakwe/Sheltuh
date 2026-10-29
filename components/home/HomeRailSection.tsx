@@ -2,6 +2,7 @@
 
 import { useRef, type ReactNode } from "react";
 import { useClipViewer } from "@/components/events/ClipViewer";
+import { ScrollEdges } from "@/components/ui/ScrollHint";
 import SectionHead from "@/components/ui/SectionHead";
 import HomeRail, { HOME_CONTAINER, isPairRail } from "./HomeRail";
 import RailArrows, { useRailScroll } from "./RailArrows";
@@ -36,7 +37,6 @@ const SURELY_OVERFLOWS = 5;
 export default function HomeRailSection({
   id,
   title,
-  dottedTitle,
   note,
   link,
   count,
@@ -47,8 +47,6 @@ export default function HomeRailSection({
   /** The h2's id; the rail is `${id}-rail`. */
   id: string;
   title: string;
-  /** The title with a `^`-marked dotted letter, for the h2 only (`SectionHead`). */
-  dottedTitle?: string;
   note?: string;
   link?: { href: string; label?: string; srLabel?: string };
   /** How many cards the rail holds (for the server render's arrows). */
@@ -73,7 +71,6 @@ export default function HomeRailSection({
         <SectionHead
           id={id}
           title={title}
-          dottedTitle={dottedTitle}
           note={note}
           link={link}
           actions={
@@ -90,9 +87,18 @@ export default function HomeRailSection({
         {empty}
       </div>
       {!empty && (
-        <HomeRail ref={railRef} id={railId} labelledBy={id} pair={pair} clones={auto.clones}>
-          {children}
-        </HomeRail>
+        // Not a pair from 1024px (a grid there): the cue is for a rail that scrolls.
+        <div className="relative flow-root">
+          <HomeRail ref={railRef} id={railId} labelledBy={id} pair={pair} clones={auto.clones}>
+            {children}
+          </HomeRail>
+          <ScrollEdges
+            canPrev={scroll.canPrev}
+            canNext={scroll.canNext}
+            className={pair ? "lg:hidden" : ""}
+            arrowClassName="top-18"
+          />
+        </div>
       )}
     </section>
   );

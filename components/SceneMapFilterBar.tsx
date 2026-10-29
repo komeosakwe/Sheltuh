@@ -1,6 +1,7 @@
 "use client";
 
 import { fieldClass } from "@/components/ui/Field";
+import ScrollHint from "@/components/ui/ScrollHint";
 import FilterChip, { filterChipClass, SelectedDots } from "@/components/ui/FilterChip";
 import type { ReactNode } from "react";
 import type { EventCategory } from "@/lib/types";
@@ -82,72 +83,74 @@ export default function SceneMapFilterBar({
 
       {/* Phones: one row that scrolls sideways (bleeding to the screen's edges), so the map starts
           near the top; it wraps from 640px. The vertical padding keeps focus rings inside the scroller. */}
-      <form
-        aria-label="Filter events"
-        className="no-scrollbar -mx-5 flex flex-nowrap items-center gap-2 overflow-x-auto px-5 py-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:py-0"
-        onSubmit={(event) => event.preventDefault()}
-      >
-        <FilterChip pressed={time === "tonight"} onClick={() => onTimeChange(time === "tonight" ? "all" : "tonight")}>
-          Tonight
-        </FilterChip>
-        <FilterChip pressed={time === "weekend"} onClick={() => onTimeChange(time === "weekend" ? "all" : "weekend")}>
-          This weekend
-        </FilterChip>
-        <ChipControl selected={time === "date"}>
-          <label>
-            <span className="sr-only">Choose a date</span>
-            <input
-              type="date"
-              value={specificDate}
-              onChange={(event) => {
-                const value = event.target.value;
-                onSpecificDateChange(value);
-                onTimeChange(value ? "date" : "all");
-              }}
-              // Selected (black), the browser's own calendar icon and text go light too.
-              className={filterChipClass(
-                time === "date",
-                `focus-visible:outline-offset-0 ${time === "date" ? "pl-8 scheme-dark dark:scheme-light" : ""}`,
-              )}
-            />
-          </label>
-        </ChipControl>
-
-        <label className="sr-only" htmlFor="scene-category-filter">
-          Category
-        </label>
-        <ChipControl selected={category !== "all"}>
-        <select
-          id="scene-category-filter"
-          value={category}
-          onChange={(event) => onCategoryChange(event.target.value as EventCategory | "all")}
-          className={filterChipClass(category !== "all", `focus-visible:outline-offset-0 ${category !== "all" ? "pl-8" : ""}`)}
+      <ScrollHint className="-mx-5 sm:mx-0" fadeClassName="sm:hidden">
+        <form
+          aria-label="Filter events"
+          className="no-scrollbar flex flex-nowrap items-center gap-2 overflow-x-auto px-5 py-1 sm:flex-wrap sm:overflow-visible sm:px-0 sm:py-0"
+          onSubmit={(event) => event.preventDefault()}
         >
-          <option value="all">All scenes</option>
-          {categories.map((c) => (
-            <option key={c.value} value={c.value}>
-              {c.label}
-            </option>
-          ))}
-        </select>
-        </ChipControl>
+          <FilterChip pressed={time === "tonight"} onClick={() => onTimeChange(time === "tonight" ? "all" : "tonight")}>
+            Tonight
+          </FilterChip>
+          <FilterChip pressed={time === "weekend"} onClick={() => onTimeChange(time === "weekend" ? "all" : "weekend")}>
+            This weekend
+          </FilterChip>
+          <ChipControl selected={time === "date"}>
+            <label>
+              <span className="sr-only">Choose a date</span>
+              <input
+                type="date"
+                value={specificDate}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  onSpecificDateChange(value);
+                  onTimeChange(value ? "date" : "all");
+                }}
+                // Selected (black), the browser's own calendar icon and text go light too.
+                className={filterChipClass(
+                  time === "date",
+                  `focus-visible:outline-offset-0 ${time === "date" ? "pl-8 scheme-dark dark:scheme-light" : ""}`,
+                )}
+              />
+            </label>
+          </ChipControl>
 
-        <label className="sr-only" htmlFor="scene-pricing-filter">
-          Price
-        </label>
-        <ChipControl selected={pricing !== "all"}>
+          <label className="sr-only" htmlFor="scene-category-filter">
+            Category
+          </label>
+          <ChipControl selected={category !== "all"}>
           <select
-            id="scene-pricing-filter"
-            value={pricing}
-            onChange={(event) => onPricingChange(event.target.value as ScenePricingFilter)}
-            className={filterChipClass(pricing !== "all", `focus-visible:outline-offset-0 ${pricing !== "all" ? "pl-8" : ""}`)}
+            id="scene-category-filter"
+            value={category}
+            onChange={(event) => onCategoryChange(event.target.value as EventCategory | "all")}
+            className={filterChipClass(category !== "all", `focus-visible:outline-offset-0 ${category !== "all" ? "pl-8" : ""}`)}
           >
-            <option value="all">Any price</option>
-            <option value="free">Free</option>
-            <option value="under25">Under $25</option>
+            <option value="all">All scenes</option>
+            {categories.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
           </select>
-        </ChipControl>
-      </form>
+          </ChipControl>
+
+          <label className="sr-only" htmlFor="scene-pricing-filter">
+            Price
+          </label>
+          <ChipControl selected={pricing !== "all"}>
+            <select
+              id="scene-pricing-filter"
+              value={pricing}
+              onChange={(event) => onPricingChange(event.target.value as ScenePricingFilter)}
+              className={filterChipClass(pricing !== "all", `focus-visible:outline-offset-0 ${pricing !== "all" ? "pl-8" : ""}`)}
+            >
+              <option value="all">Any price</option>
+              <option value="free">Free</option>
+              <option value="under25">Under $25</option>
+            </select>
+          </ChipControl>
+        </form>
+      </ScrollHint>
     </div>
   );
 }
