@@ -304,7 +304,8 @@ describe("EventEditor — publishing", () => {
 
     // By the field (the error summary at the top lists it too), on the Tickets step, which the save showed.
     await waitFor(() => expect(document.getElementById("ticket-0-price-error")).toHaveTextContent(/at least A\$1/));
-    expect(screen.getByLabelText("Price (A$)")).toHaveFocus();
+    // Focus moves in the effect after that render, so wait for it as the publish test above does.
+    await waitFor(() => expect(screen.getByLabelText("Price (A$)")).toHaveFocus());
     expect(updateEventDraft).not.toHaveBeenCalled();
   });
 });
