@@ -1,8 +1,9 @@
 import DotsMark from "@/components/brand/DotsMark";
+import DottedLine from "@/components/brand/DottedLine";
 import SearchBar from "@/components/SearchBar";
 import HeroCollage from "./HeroCollage";
 import HeroThumb from "./HeroThumb";
-import { HOME_TITLE_LINES, titleParts } from "./home-content";
+import { HOME_TITLE_LINES } from "./home-content";
 
 /**
  * One line of the h1: plain text, with its marked letters (`HOME_TITLE_LINES`)
@@ -12,15 +13,7 @@ import { HOME_TITLE_LINES, titleParts } from "./home-content";
 function TitleLine({ line }: { line: string }) {
   return (
     <span className="block">
-      {titleParts(line).map((part, i) =>
-        part.dotted ? (
-          <span key={i} data-dotted-letter="" className="font-dots">
-            {part.text}
-          </span>
-        ) : (
-          part.text
-        ),
-      )}
+      <DottedLine line={line} />
     </span>
   );
 }
