@@ -2,7 +2,17 @@ import type { ReactNode, Ref } from "react";
 import DotsMark from "@/components/brand/DotsMark";
 import Strap from "./Strap";
 
-/** Standard page container: generous gutters and vertical rhythm. */
+/**
+ * The site's one page container: centred, with the same responsive gutters as the header and
+ * footer (20px, 32px from 640px) and the same vertical rhythm, so every page lines up under the
+ * logo and nothing hugs one side of a wide screen.
+ *
+ * - `wide` (default): the 1152px page column (feeds, dashboards, event pages).
+ * - `narrow`: a centred 672px reading column (About, Help, legal, profile).
+ * - `form`: a centred 448px column that stacks its children with a gap (sign in, sign up,
+ *   verify, reset password).
+ * - `full`: only the gutters, for a page that sets its own `max-w-*` through `className`.
+ */
 export function Page({
   children,
   width = "wide",
@@ -10,18 +20,22 @@ export function Page({
   className = "",
 }: {
   children: ReactNode;
-  width?: "wide" | "narrow" | "full";
+  width?: "wide" | "narrow" | "form" | "full";
   /** `subNav`: less space above and below, for a page under a section sub-nav (the organiser area's). */
   padding?: "default" | "subNav";
   className?: string;
 }) {
-  // Narrow pages keep the site's left edge (in line with the logo): the same outer column as a
-  // wide page, with the content left-aligned in a max-w-2xl column inside it.
   const max = width === "full" ? "" : "max-w-6xl";
   const py = padding === "subNav" ? "py-8 sm:py-12" : "py-12 sm:py-20";
+  const inner =
+    width === "narrow"
+      ? "mx-auto w-full max-w-2xl"
+      : width === "form"
+        ? "mx-auto flex w-full max-w-md flex-col gap-8"
+        : null;
   return (
     <div className={`mx-auto w-full px-5 sm:px-8 ${py} ${max} ${className}`.trim()}>
-      {width === "narrow" ? <div className="max-w-2xl">{children}</div> : children}
+      {inner ? <div className={inner}>{children}</div> : children}
     </div>
   );
 }
@@ -32,8 +46,9 @@ export function Page({
  * h1, then an optional intro, with an action on the right from 640px.
  *
  * `size="md"` is the quieter tool header (account, dashboard, admin). `brand`
- * sets the h1 in the display face, for the brand lines only ("What's on.",
- * "Sheltüh near ü."): at most one per page. The h1 never animates in (it's
+ * is for the brand lines only ("What's on.", "Sheltüh near you."): at most one
+ * per page, plain Instrument Sans with a letter or two in the dotted face
+ * (pass the title through `DottedLine`; owner, 30 Oct 2026: never whole sentences). The h1 never animates in (it's
  * the LCP element); the strap, intro and action rise in on load.
  * `flush` drops the bottom margin, for a parent that spaces its own children.
  */
@@ -66,7 +81,7 @@ export function PageHeader({
   /** The h1's aria-describedby: the id(s) of what explains it, read when focus moves to it. */
   titleDescribedBy?: string;
 }) {
-  const titleClass = size === "md" ? "display-md" : brand ? "display-lg font-display" : "display-lg";
+  const titleClass = size === "md" ? "display-md" : brand ? "display-lg font-display display-plain" : "display-lg";
   return (
     <header
       className={`flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between ${flush ? "" : "mb-10 sm:mb-14"}`.trim()}
