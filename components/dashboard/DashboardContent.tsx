@@ -9,6 +9,7 @@ import { listMyEvents } from "@/lib/api/events";
 import type { EventRecord } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useOrganiser } from "@/lib/auth/useOrganiser";
+import { ADD_LOGO_HREF } from "@/lib/organiser-profile";
 import OrganiserEventRow from "./OrganiserEventRow";
 
 const NEW_EVENT_HREF = "/dashboard/new";
@@ -79,6 +80,21 @@ function JoinedWelcome({ name }: { name: string }) {
           goes live.
         </p>
       </Notice>
+    </div>
+  );
+}
+
+/** No logo yet: one line and a button to the Profile page's logo field. Gone once there's a logo. */
+function LogoPrompt() {
+  return (
+    <div
+      data-logo-prompt=""
+      className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-surface-border bg-surface px-4 py-3"
+    >
+      <p className="font-semibold">Add your logo</p>
+      <ButtonLink href={ADD_LOGO_HREF} variant="outline" className="min-h-11">
+        Add logo
+      </ButtonLink>
     </div>
   );
 }
@@ -232,6 +248,7 @@ export default function DashboardContent() {
     return (
       <div className="flex flex-col gap-4">
         {welcome && <JoinedWelcome name={organiser.displayName} />}
+        {!organiser.logoUrl && <LogoPrompt />}
         {!payoutsEnabled && (
           <p className="border-l-2 border-foreground py-1 pl-4 text-sm text-muted">
             <Link href="/dashboard/payouts" className="text-accent underline underline-offset-2">

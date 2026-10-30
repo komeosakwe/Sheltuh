@@ -214,7 +214,7 @@ Sizes are given as base / `sm` 640 / `lg` 1024. LH is line-height.
 | Utility / role | Face | Base | sm | lg | LH | Tracking | Case | Wt |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `display-xl`: home hero h1 only | **display token** | `clamp(2rem,10vw,2.625rem)` (32–42) | `clamp(3.375rem,8.5vw,6rem)` | ≤96px | `var(--display-leading)` 0.88 | `var(--display-tracking)` | upper | `var(--display-weight)` |
-| `display-lg`: page h1, event title | Instrument | `clamp(2rem,8.5vw,2.5rem)` (32–40) | `clamp(2.5rem,5.5vw,3.5rem)` | `clamp(3.5rem,5vw,4.5rem)` (56–72) | 0.95 | -0.035em | upper | 700 |
+| `display-lg`: page h1, event title (plain Instrument Sans, no dotted vowels: owner, 29 Oct 2026) | Instrument | `clamp(2rem,8.5vw,2.5rem)` (32–40) | `clamp(2.5rem,5.5vw,3.5rem)` | `clamp(3.5rem,5vw,4.5rem)` (56–72) | 0.95 | -0.035em | upper | 700 |
 | `display-lg font-display`: brand question h1 ("What's on.", "Sheltüh near ü.") | **display token** | as `display-lg` | | | 0.9 | display token | upper | display token |
 | `display-md`: section h2, empty-state titles | Instrument | 24px / 26 | 28 / 30 | 32 / 34 | — | -0.03em | upper | 700 |
 | h3/h4 base rule, `font-heading`: panel and dialog titles | Instrument | 20px / 24 | | | — | -0.025em | upper (base rule, as today) | 700 |
@@ -233,6 +233,7 @@ Sizes are given as base / `sm` 640 / `lg` 1024. LH is line-height.
 
 **Rules:**
 - **`font-display` appears at most once per view**, on the h1 of the home page, /events and /map, plus the 404 page. Never on event titles: user-supplied titles get Instrument.
+- **Dotted vowels are for the wordmark and the hero headlines only** (owner, 29 Oct 2026). The home h1's two letters, "What's on." on /events and "Sheltüh near ü." on /map are the only headlines in the dotted face (`font-display` / `font-dots`). Every other title (page titles, section heads such as "This weekend", auth, account, dashboard, admin and checkout titles, organiser and member profile h1s, nav menu items, card titles, the 404 line) is plain Instrument Sans, so `display-lg` alone has no dots. `DottedText` is retired.
 - **Uppercase** for display, headings, buttons, nav, eyebrow and meta. **Sentence case** for body, card titles, prices and venue names.
 - **Never letter-space lowercase text.**
 - Base `h1–h4` keeps `text-transform: uppercase` and `line-height: 0.95`. Its family becomes `var(--face-sans)`, weight 700, tracking -0.025em, so existing headings change by token only.

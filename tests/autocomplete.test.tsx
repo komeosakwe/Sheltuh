@@ -64,16 +64,11 @@ describe("sign in", () => {
 });
 
 describe("sign up", () => {
-  it("offers the email, and a new password (not the saved one) in both password fields", () => {
+  it("offers the email, and a new password (not the saved one), with no confirm field", () => {
     renderSignedOut(<SignupForm />);
     expect(fieldTraits("Email")).toEqual(EMAIL);
     expect(fieldTraits("Password")).toEqual({ autocomplete: "new-password", type: "password", inputMode: null, name: "password" });
-    expect(fieldTraits("Confirm password")).toEqual({
-      autocomplete: "new-password",
-      type: "password",
-      inputMode: null,
-      name: "confirmPassword",
-    });
+    expect(screen.queryByLabelText("Confirm password")).toBeNull();
   });
 });
 

@@ -211,7 +211,8 @@ export interface TicketingChanges {
 /**
  * What an admin's edit changed (`edited`): only the fields that did. Dates
  * are ISO instants with an offset; ticket types are the whole list before
- * and after. `image` is "set" while there's a photo, null otherwise (set →
+ * and after (an organiser's release of more tickets logs only the changed
+ * tier, `{id, name, quantityAvailable}`). `image` is "set" while there's a photo, null otherwise (set →
  * set is a replaced photo). `clip` is the clip's version (the `v` of its
  * URL, milliseconds as a string), null for none; `clipDescription` its text.
  */
@@ -304,13 +305,23 @@ export type VenueLocationInput =
 /** ModerationLogEntry.by for an admin's entry in an organiser's view: never the admin's account id. */
 export const SHELTUH_TEAM_ACTOR = "Sheltüh team";
 
+/** POST /events/{eventId}/ticket-types/{ticketTypeId}/release: the ticket type's quantities now. */
+export interface ReleaseTicketsResult {
+  eventId: string;
+  ticketTypeId: string;
+  /** The new total on sale. */
+  quantityAvailable: number;
+  quantitySold: number;
+}
+
 export interface ModerationLogEntry {
   /**
    * `ticketing_changed`: an admin changed the event's ticketing (PATCH
    * /admin/events/{id}/ticketing, or the ticketing part of PATCH
    * /admin/events/{id}). `created`: an admin created the event (POST
    * /admin/events). `edited`: an admin changed anything else, its photo
-   * included. `curated`: an admin changed the event's trending boost or
+   * included; or the organiser released more tickets (`by` is then their own
+   * account, `changes.ticketTypes`). `curated`: an admin changed the event's trending boost or
    * exclusion; never in an event's `moderationLog` (admins see those entries
    * through GET /admin/events/{id}/curation).
    */
@@ -384,6 +395,12 @@ export interface EventRecord {
   organiserLogoThumbUrl?: string;
   /** Always empty for an external event. */
   ticketTypes: TicketTypeInput[];
+  /**
+   * Tickets sold per ticket type id (`quantityAvailable` less what's left),
+   * for the organiser and admins only: never in a public event. Absent in
+   * older fixtures.
+   */
+  ticketsSold?: Record<string, number>;
   /**
    * Where tickets are sold: `sheltuh` (here, the default) or `external` (on
    * another site, at `externalTicketUrl`; no Sheltüh checkout, booking fee,

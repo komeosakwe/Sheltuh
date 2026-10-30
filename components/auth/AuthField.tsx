@@ -14,6 +14,8 @@ export default function AuthField({
   invalidBy,
   hint,
   labelAside,
+  inputAside,
+  describedBy: extraDescribedBy,
   compact = false,
   ref,
   className = "",
@@ -28,17 +30,31 @@ export default function AuthField({
   hint?: string;
   /** Beside the label, e.g. "Forgot password?". */
   labelAside?: ReactNode;
+  /** Inside the input's right edge, e.g. a show/hide button (the input leaves room for it). */
+  inputAside?: ReactNode;
+  /** Ids of other elements that describe the field (read after its error and hint). */
+  describedBy?: string;
   /** Smaller text and padding, for sign-in inside another message (InlineReauth). */
   compact?: boolean;
   ref?: Ref<HTMLInputElement>;
 }) {
   const errorId = `${id}-error`;
   const hintId = `${id}-hint`;
-  const describedBy = [error ? errorId : null, invalidBy ?? null, hint ? hintId : null].filter(Boolean).join(" ");
+  const describedBy = [error ? errorId : null, invalidBy ?? null, hint ? hintId : null, extraDescribedBy ?? null].filter(Boolean).join(" ");
   const labelEl = (
     <label htmlFor={id} className="eyebrow text-muted">
       {label}
     </label>
+  );
+  const inputEl = (
+    <input
+      ref={ref}
+      id={id}
+      aria-invalid={error || invalidBy ? true : undefined}
+      aria-describedby={describedBy || undefined}
+      className={`border border-foreground bg-transparent px-3 text-foreground ${compact ? "py-1.5 text-sm" : "py-2"} ${inputAside ? "min-h-11 w-full pr-12" : ""} ${className}`.trim()}
+      {...input}
+    />
   );
   return (
     <div className="flex flex-col gap-1">
@@ -50,14 +66,14 @@ export default function AuthField({
       ) : (
         labelEl
       )}
-      <input
-        ref={ref}
-        id={id}
-        aria-invalid={error || invalidBy ? true : undefined}
-        aria-describedby={describedBy || undefined}
-        className={`border border-foreground bg-transparent px-3 text-foreground ${compact ? "py-1.5 text-sm" : "py-2"} ${className}`.trim()}
-        {...input}
-      />
+      {inputAside ? (
+        <div className="relative">
+          {inputEl}
+          {inputAside}
+        </div>
+      ) : (
+        inputEl
+      )}
       {error && (
         <p id={errorId} className="text-sm text-danger">
           {error}

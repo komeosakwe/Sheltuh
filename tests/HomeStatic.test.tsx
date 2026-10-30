@@ -197,7 +197,9 @@ describe("CategoryRow: browse by category (Refinement, 22 Oct 2026)", () => {
   it("is one compact row that scrolls sideways inside its own container on phones and wraps from 640px; 44px chips", () => {
     render(<CategoryRow />);
     const list = screen.getByRole("list");
-    expect(list).toHaveClass("flex", "overflow-x-auto", "-mx-5", "px-5", "sm:flex-wrap", "sm:overflow-visible");
+    expect(list).toHaveClass("flex", "overflow-x-auto", "px-5", "sm:flex-wrap", "sm:overflow-visible");
+    // The row bleeds to the screen edges on phones through its frame, which also carries the scroll cue.
+    expect(list.parentElement).toHaveClass("relative", "-mx-5", "sm:mx-0");
     expect(list.className).not.toMatch(/\bgrid\b/);
     for (const item of within(list).getAllByRole("listitem")) expect(item).toHaveClass("shrink-0");
     expect(screen.getByRole("link", { name: "Theatre" })).toHaveClass("h-11", "sm:h-10", "rounded-control");
@@ -402,21 +404,11 @@ describe("GuideCard and CreatorsCard", () => {
   });
 });
 
-describe("section title dots (owner, 24 Oct 2026)", () => {
-  it("This weekend dots exactly one letter, and its text and name stay plain", async () => {
-    const { titleText, titleParts, WEEKEND_TITLE } = await import("@/components/home/home-content");
-    expect(titleText(WEEKEND_TITLE)).toBe("This weekend");
-    expect(titleParts(WEEKEND_TITLE).filter((p) => p.dotted).map((p) => p.text)).toEqual(["i"]);
-  });
-});
-
-describe("SectionHead dottedTitle", () => {
-  it("draws only the marked letter in the dotted face; the h2's name stays plain", () => {
-    render(<SectionHead id="w" title="This weekend" dottedTitle="Th^is weekend" />);
+describe("functional headings carry no dotted letters (29 Oct 2026)", () => {
+  it("SectionHead is a plain h2: no dotted letter, no dotted-face class", () => {
+    render(<SectionHead id="w" title="This weekend" />);
     const h2 = screen.getByRole("heading", { level: 2, name: "This weekend" });
-    const dots = h2.querySelectorAll("[data-dotted-letter]");
-    expect([...dots].map((el) => el.textContent)).toEqual(["i"]);
-    expect(dots[0]).toHaveClass("font-dots");
+    expect(h2.querySelector("[data-dotted-letter], .font-dots")).toBeNull();
     expect(h2.textContent).toBe("This weekend");
   });
 });

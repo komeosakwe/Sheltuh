@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { PAYOUTS_SETUP_HREF } from "@/components/dashboard/PayoutsRequired";
+import { ADD_LOGO_HREF } from "@/lib/organiser-profile";
 
 export type ChecklistState = "done" | "todo" | "optional";
 
@@ -13,6 +14,8 @@ export interface ChecklistRow {
   goTo?: { label: string; id: string };
   /** The payouts row: a link to set them up instead. */
   payoutsLink?: boolean;
+  /** The advisory Logo row: a link to add one on the Profile page. */
+  logoLink?: boolean;
 }
 
 function Glyph({ state }: { state: ChecklistState }) {
@@ -68,6 +71,14 @@ export default function PublishChecklist({ rows, onGo }: { rows: readonly Checkl
                 className="inline-flex min-h-11 items-center text-sm font-semibold text-accent underline underline-offset-4 sm:-my-3"
               >
                 Set up payouts
+              </Link>
+            )}
+            {row.logoLink && (
+              <Link
+                href={ADD_LOGO_HREF}
+                className="inline-flex min-h-11 items-center text-sm font-semibold text-accent underline underline-offset-4 sm:-my-3"
+              >
+                Add logo
               </Link>
             )}
           </li>

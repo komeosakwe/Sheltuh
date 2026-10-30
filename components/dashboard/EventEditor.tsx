@@ -9,6 +9,7 @@ import EventClipField, { clipStatusText } from "@/components/dashboard/EventClip
 import EventImageField from "@/components/dashboard/EventImageField";
 import { PayoutsNeededNotice, PayoutsPublishError, PayoutsPublishHint } from "@/components/dashboard/PayoutsRequired";
 import RefundPolicyField from "@/components/dashboard/RefundPolicyField";
+import ReleaseTicketsPanel from "@/components/dashboard/ReleaseTicketsPanel";
 import {
   locationChange,
   PLACES_UNAVAILABLE_NOTE,
@@ -127,6 +128,8 @@ interface OrganiserProps {
    * refused with 409 `payouts_required`). Saving a draft never needs them.
    */
   payoutsEnabled?: boolean;
+  /** False: the organiser has no logo yet, so "Before you publish" suggests adding one (advisory). Unset: not shown. */
+  organiserHasLogo?: boolean;
   /**
    * The organiser's `eventReviewRequired` (an admin checks their events before
    * they go live): Publish… says it will be sent for review, and why.
@@ -153,6 +156,7 @@ interface AdminProps {
   initial?: AdminEventRecord;
   onSaved: (record: AdminEventRecord) => void;
   payoutsEnabled?: never;
+  organiserHasLogo?: never;
   eventReviewRequired?: never;
   organiserName?: never;
   /** Fetch the latest version after a save conflict (remount the editor with it). */
@@ -984,6 +988,7 @@ export default function EventEditor(props: Props) {
             </p>
           </div>
         )}
+        {published && current && <ReleaseTicketsPanel event={current} getToken={getToken} />}
       </EditorShell>
     );
   }
@@ -1157,6 +1162,9 @@ export default function EventEditor(props: Props) {
             payoutsLink: payoutsNeeded,
           } satisfies ChecklistRow,
         ]
+      : []),
+    ...(!isAdmin && props.organiserHasLogo === false
+      ? [{ key: "logo", name: "Logo", state: "optional", word: "Optional", logoLink: true } satisfies ChecklistRow]
       : []),
   ];
 

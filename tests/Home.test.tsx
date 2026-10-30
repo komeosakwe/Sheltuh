@@ -95,9 +95,9 @@ describe("Home (demo data, Wed 21 Oct 2026)", () => {
     await settle();
     // The page's one sample-data disclosure is the layout's DemoBanner (not rendered here): no other notice.
     expect(screen.queryByRole("note")).toBeNull();
-    const counts = Array.from(container.querySelectorAll("[data-event-card] [id$='-going']"));
+    const counts = Array.from(container.querySelectorAll("[data-event-card] [data-card-secondary]")).filter((el) => /going/.test(el.textContent ?? ""));
     expect(counts.length).toBeGreaterThan(3);
-    for (const count of counts) expect(count).toHaveTextContent(/^\d+ going \(sample\)$/);
+    for (const count of counts) expect(count).toHaveTextContent(/ · \d+ going \(sample\)$/);
     // The band's example is a real sample count from a card on the page, labelled too.
     const example = container.querySelector("[data-community-example]");
     expect(example?.querySelector("[data-community-count]")).toHaveTextContent(/^\d+ people going$/);

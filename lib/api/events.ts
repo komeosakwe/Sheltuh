@@ -8,6 +8,7 @@ import type {
   Paginated,
   PublishEventConflictCode,
   PublishEventResponse,
+  ReleaseTicketsResult,
   TicketTypeInput,
   VenueLocationInput,
 } from "./types";
@@ -210,4 +211,20 @@ export async function fetchPrivateEventImage(imageUrl: string, getToken: GetToke
   const res = await fetch(imageUrl, { headers: { authorization: `Bearer ${token}` } });
   if (!res.ok) throw new Error("Couldn't load the image.");
   return URL.createObjectURL(await res.blob());
+}
+
+/**
+ * Raises one general admission ticket type's total on the caller's own
+ * published, not-yet-ended event (never lowers it; not for seated tiers or
+ * external ticketing). Waitlisted people are told by email. ApiError 400
+ * (fieldErrors.quantityAvailable: not above the current total, or too
+ * many), 403 not an approved organiser, 404 not theirs, 409 not published,
+ * ended, external or seated, 429 too many releases this hour.
+ */
+export async function releaseTickets(eventId: string, ticketTypeId: string, quantityAvailable: number, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<ReleaseTicketsResult>(
+    `/events/${encodeURIComponent(eventId)}/ticket-types/${encodeURIComponent(ticketTypeId)}/release`,
+    { method: "POST", body: { quantityAvailable }, token },
+  );
 }

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState, type FormEvent } from "react";
 import AuthField, { fieldsForAuthError, useFocusAfterRender, type AuthErrorField } from "@/components/auth/AuthField";
+import PasswordField from "@/components/auth/PasswordField";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { oauthProviderNames, offeredOAuthProviders } from "@/lib/auth/oauth";
@@ -106,11 +107,10 @@ export default function LoginForm({ next }: { next?: string } = {}) {
         error={fieldErrors.email}
         invalidBy={invalidBy("email")}
       />
-      <AuthField
+      <PasswordField
         ref={passwordRef}
         id="password"
         label="Password"
-        type="password"
         autoComplete="current-password"
         name="password"
         required
@@ -133,6 +133,14 @@ export default function LoginForm({ next }: { next?: string } = {}) {
         <p id={FORM_ERROR_ID} role="alert" className="text-sm text-danger">
           {error}
         </p>
+      )}
+      {error && /not confirmed/i.test(error) && (
+        <Link
+          href={withNext("/verify", next, email.trim() ? { email: email.trim() } : {})}
+          className="inline-flex min-h-11 items-center text-sm text-accent underline underline-offset-2"
+        >
+          Verify your email
+        </Link>
       )}
 
       <Button type="submit" size="lg" busy={loading} className="w-full">

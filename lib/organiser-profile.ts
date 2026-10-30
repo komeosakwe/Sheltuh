@@ -8,6 +8,9 @@ import type { OrganiserSocialLinks, PublicOrganiserProfile } from "@/lib/api/typ
 export type OrganiserProfileDetails = Omit<PublicOrganiserProfile, "upcomingEvents" | "recentEvents">;
 
 /** Longest bio the API accepts (organisers.description). */
+/** The dashboard Profile page's logo field (its id is `logo`), for every "Add logo" link. */
+export const ADD_LOGO_HREF = "/dashboard/profile#logo";
+
 export const MAX_BIO_LENGTH = 2000;
 
 export type SocialNetwork = keyof OrganiserSocialLinks;

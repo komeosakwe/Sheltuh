@@ -6,22 +6,20 @@ import type { SheltuhEvent } from "@/lib/types";
  * (visual QA, 26 Oct 2026): in a narrow card a long venue is cut short on
  * its own line, and so is a long suburb's name, but never its state
  * ("Fortitude Va… QLD"). A hidden " · " joins the lines, so the text read
- * out (and an aria-labelledby pointing at `id`) is placeLabel's "The Depot
+ * out is placeLabel's "The Depot
  * Theatre · Coburg, VIC". Nothing when there's neither.
  */
 export default function PlaceLines({
   event,
-  id,
   className = "",
 }: {
   event: SheltuhEvent;
-  id?: string;
   className?: string;
 }) {
   const { venue, place } = placeParts(event);
   if (!venue && !place) return null;
   return (
-    <p id={id} data-place-lines="" className={`min-w-0 ${className}`.trim()}>
+    <p data-place-lines="" className={`min-w-0 ${className}`.trim()}>
       {venue && <span className="block truncate">{venue}</span>}
       {/* Spaces as text of their own (between blocks they take no room), so a name computed from the
           parts' text still has them: "The Depot Theatre · Coburg, VIC". */}

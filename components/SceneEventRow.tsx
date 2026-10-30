@@ -17,19 +17,21 @@ interface SceneEventRowProps {
 
 /**
  * A map list row (docs/design/brand-direction-one.md §6.15, compact card
- * anatomy): the thumbnail, the date in mono, a title link to the event page,
+ * anatomy): the whole row opens the event (the title's link stretches over it, thumbnail
+ * included: hover, press and keyboard focus show on the row), with the Locate and ticket buttons
+ * above it. The thumbnail, the date in mono, a title link to the event page,
  * the venue and "Suburb, STATE" (a line each), category and the all-inclusive price, then the orange "Buy
  * tickets" (owner decision 6), and a separate "locate on map" button
- * (selects + pans). Independent, non-nested controls, rather than one big
- * clickable card wrapping a link. Selected: a sunken fill, a black edge and
+ * (selects + pans). Independent, non-nested controls: nothing is inside the link but the title. Selected: a sunken fill, a black edge and
  * the word "Selected", never colour alone.
  */
 export default function SceneEventRow({ event, selected, onLocate, hasLocation, detailsHref }: SceneEventRowProps) {
   const start = startLabel(event);
   return (
     <div
-      className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3 border-b border-l-2 border-b-surface-border px-4 py-3 last:border-b-0 ${
-        selected ? "border-l-foreground bg-surface" : "border-l-transparent"
+      data-scene-row=""
+      className={`group/row relative grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3 border-b border-l-2 border-b-surface-border px-4 py-3 last:border-b-0 has-[[data-card-link]:focus-visible]:outline-2 has-[[data-card-link]:focus-visible]:-outline-offset-2 has-[[data-card-link]:focus-visible]:outline-foreground has-[[data-card-link]:active]:bg-surface-border ${
+        selected ? "border-l-foreground bg-surface" : "border-l-transparent hover:bg-surface"
       }`}
     >
       <EventArt
@@ -58,7 +60,8 @@ export default function SceneEventRow({ event, selected, onLocate, hasLocation, 
         </p>
         <Link
           href={detailsHref}
-          className="mt-1 block text-base leading-[1.375rem] font-semibold break-words text-foreground underline-offset-4 hover:underline"
+          data-card-link=""
+          className="mt-1 block text-base leading-[1.375rem] font-semibold break-words text-foreground underline-offset-4 group-hover/row:underline after:absolute after:inset-0 after:z-0 after:content-['']"
         >
           {event.title}
         </Link>
@@ -77,7 +80,7 @@ export default function SceneEventRow({ event, selected, onLocate, hasLocation, 
         aria-pressed={selected}
         aria-label={`Locate ${event.title} on the map`}
         title="Locate on map"
-        className={`flex size-11 shrink-0 items-center justify-center rounded-control border disabled:cursor-not-allowed disabled:border-surface-border disabled:bg-surface disabled:text-muted ${
+        className={`relative z-10 flex size-11 shrink-0 items-center justify-center rounded-control border disabled:cursor-not-allowed disabled:border-surface-border disabled:bg-surface disabled:text-muted ${
           selected ? "border-foreground bg-foreground text-background" : "border-foreground bg-card text-foreground hover:bg-surface"
         }`}
       >
@@ -88,7 +91,7 @@ export default function SceneEventRow({ event, selected, onLocate, hasLocation, 
       </button>
 
       {/* Under the text and the locate button, so it has room at 320px. */}
-      <QuickBuyLink event={event} narrow className="col-span-2 col-start-2 pt-3" />
+      <QuickBuyLink event={event} narrow className="relative z-10 col-span-2 col-start-2 pt-3" />
     </div>
   );
 }

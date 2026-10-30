@@ -176,8 +176,8 @@ describe("the home's event sections", () => {
     await flush();
     const weekend = screen.getByRole("list", { name: "This weekend" });
     const popular = screen.getByRole("list", { name: "Popular right now" });
-    expect(within(weekend).getByRole("link", { name: /^Event sat / })).toBeInTheDocument();
-    expect(within(popular).queryByRole("link", { name: /^Event sat / })).toBeNull();
+    expect(within(weekend).getByRole("link", { name: /^Event sat$/ })).toBeInTheDocument();
+    expect(within(popular).queryByRole("link", { name: /^Event sat$/ })).toBeNull();
   });
 
   it("hides a section with no cards: nothing renders for an empty Popular / Coming up slot", async () => {
