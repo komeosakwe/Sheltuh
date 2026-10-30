@@ -180,27 +180,50 @@ describe("the home's event sections", () => {
     expect(within(popular).queryByRole("link", { name: /^Event sat$/ })).toBeNull();
   });
 
-  it("hides a section with no cards: nothing renders for an empty Popular / Coming up slot", async () => {
-    // One weekend event, one more later: too few for Coming up (needs two), and no trending.
+  it("a section with no cards renders nothing; a lone later event is still shown as Coming up", async () => {
     loadHomeEvents.mockResolvedValue([SAT, COMING[0]]);
     const { container } = renderHome();
     await flush();
-    expect(container.querySelectorAll("section[data-home-section]")).toHaveLength(1);
-    expect(screen.queryByRole("heading", { name: /Coming up|Popular/ })).not.toBeInTheDocument();
+    expect(container.querySelectorAll("section[data-home-section]")).toHaveLength(2);
+    expect(screen.getByRole("list", { name: "Coming up" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Popular right now" })).not.toBeInTheDocument();
     // No empty lists anywhere.
     for (const list of screen.getAllByRole("list")) expect(within(list).queryAllByRole("listitem").length).toBeGreaterThan(0);
   });
 
-  it("This weekend with nothing on (before the weekend): the heading and a note, no cards and so no See all", async () => {
-    loadHomeEvents.mockResolvedValue([NEXT, ...COMING]);
+  it("nothing this weekend but events later: no dead end, the next events are shown as Coming up", async () => {
+    loadHomeEvents.mockResolvedValue([COMING[0]]);
     renderHome();
     await flush();
-    const weekend = screen.getByRole("region", { name: "This weekend" });
-    expect(weekend).toHaveTextContent("Nothing this weekend yet.");
-    expect(within(weekend).queryByRole("list")).not.toBeInTheDocument();
-    // "See all" shows only beside cards (mobile-redesign.md §6.3.4); the dates note stays.
-    expect(within(weekend).queryByRole("link")).toBeNull();
-    expect(weekend).toHaveTextContent("Fri 23 – Sun 25 Oct");
+    expect(screen.queryByText(/Nothing this weekend/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "This weekend" })).not.toBeInTheDocument();
+    expect(screen.queryByText("No events yet.")).not.toBeInTheDocument();
+    const coming = screen.getByRole("list", { name: "Coming up" });
+    expect(within(coming).getAllByRole("listitem")).toHaveLength(1);
+    expect(within(coming).getByRole("link", { name: /^Event c0$/ })).toBeInTheDocument();
+  });
+
+  it("a few events show once each, in adjacent sections too", async () => {
+    loadHomeEvents.mockResolvedValue([SAT, NEXT, COMING[0]]);
+    loadHomeTrending.mockResolvedValue([NEXT, SAT, COMING[0]].map((e) => ({ event: e, signal: { kind: "going", count: 15 } })));
+    renderHome();
+    await flush();
+    const hrefs = cardHrefs();
+    expect(hrefs).toHaveLength(3);
+    expect(new Set(hrefs).size).toBe(3);
+  });
+
+  it("a saved state with none of its events upcoming: Coming up across Australia, never empty", async () => {
+    localStorage.setItem("sheltuh:near:v1", JSON.stringify({ suburb: "Perth", state: "WA" }));
+    try {
+      loadHomeEvents.mockResolvedValue([COMING[0]]);
+      renderHome();
+      await flush();
+      expect(screen.getByRole("heading", { level: 2, name: "Coming up across Australia" })).toBeInTheDocument();
+      expect(within(screen.getByRole("list", { name: "Coming up across Australia" })).getAllByRole("listitem")).toHaveLength(1);
+    } finally {
+      localStorage.clear();
+    }
   });
 
   it("on error: an alert with Try again in the first section's place, which loads again; the event sections are hidden", async () => {
@@ -283,6 +306,7 @@ describe("the home's event sections", () => {
     renderHome();
     await flush();
     expect(screen.getByText("No events yet.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "All events" })).toHaveAttribute("href", "/events");
     for (const name of ["This weekend", "Coming up", "Popular right now"]) {
       expect(screen.queryByRole("heading", { name })).not.toBeInTheDocument();
     }

@@ -21,7 +21,7 @@ const SURELY_OVERFLOWS = 5;
  * the page column (title, optional note and link, and from 640px the rail's
  * Previous/Next buttons while it overflows), then its cards as a
  * full-width rail (`HomeRail`). `empty` replaces the rail with a line of
- * text (This weekend with nothing on). One or two cards are a pair: a
+ * text. One or two cards are a pair: a
  * two-column grid from 1024px (`isPairRail`; the caller gives those cards
  * EventCard's `wide`). `data-home-section` marks it for Try again's focus
  * move and the e2e suite.

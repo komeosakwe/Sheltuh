@@ -20,8 +20,6 @@ import type { SheltuhEvent } from "@/lib/types";
 const SECTION_MAX = 6;
 /** "Popular right now" shows only with at least this many trending events left after de-duplication. */
 export const TRENDING_MIN = 3;
-/** Its "Coming up" fallback shows only with at least this many events. */
-export const COMING_MIN = 2;
 
 /** Why an event is trending. Never a raw view count, and a going count only when the server sends one. */
 export type TrendingSignal = { kind: "going"; count: number } | { kind: "just-announced" } | { kind: "popular" };
@@ -34,9 +32,12 @@ export interface TrendingItem {
 /**
  * The home's third slot (mobile-redesign.md §6.3.1): "Popular right now" from
  * real trending data, or, when that's too thin, "Coming up" with the soonest
- * events not yet started. Events that aren't trending are never called popular.
+ * events left (even one: a young marketplace has few). Events that aren't trending are never called popular.
  */
-export type PopularSection = { kind: "popular"; items: TrendingItem[] } | { kind: "coming"; items: SheltuhEvent[] };
+export type PopularSection =
+  | { kind: "popular"; items: TrendingItem[] }
+  /** `acrossAustralia`: a state was chosen and none of these is in it. */
+  | { kind: "coming"; items: SheltuhEvent[]; acrossAustralia: boolean };
 
 /**
  * A weekend in one zone's wall clock, as UTC instants (ms): the platform's
@@ -54,8 +55,8 @@ export interface HomeSections {
   anyUpcoming: boolean;
   weekend: {
     window: WeekendWindow;
-    /** `cards`: show them. `empty`: the heading and "Nothing listed" (before the weekend only). `hidden`: render nothing. */
-    status: "cards" | "empty" | "hidden";
+    /** `cards`: show them. `hidden`: render nothing (Coming up shows what's next). */
+    status: "cards" | "hidden";
     items: SheltuhEvent[];
   };
   /**
@@ -64,7 +65,7 @@ export interface HomeSections {
    * there are none (hidden).
    */
   following: SheltuhEvent[];
-  /** Popular right now, or its Coming up fallback; null when hidden (neither has enough events). */
+  /** Popular right now, or its Coming up fallback; null when nothing is left to show. */
   popular: PopularSection | null;
 }
 
@@ -225,8 +226,8 @@ export function selectHomeSections(
     preferredState,
     itself,
   ).slice(0, SECTION_MAX);
-  // Nothing on and the weekend has started: hide (Coming up shows what's next). Nothing on yet: say so.
-  const weekendStatus = weekendItems.length > 0 ? "cards" : window.during ? "hidden" : "empty";
+  // Nothing on: hide (Coming up shows what's next).
+  const weekendStatus = weekendItems.length > 0 ? "cards" : "hidden";
   claim(weekendItems);
 
   // 1b. From organisers you follow: soonest first, shown with even one event (the member asked for them).
@@ -241,18 +242,23 @@ export function selectHomeSections(
   claim(followingItems);
 
   // 2. Popular right now: trending, in the server's order, with three or more left. Otherwise the
-  // same slot is "Coming up": not yet started, soonest first, with two or more.
+  // same slot is "Coming up": soonest first (not yet started, then any still running), with even one.
   const trendingLeft = preferState(
     trending.filter(({ event }) => isUpcomingEvent(event, now) && unclaimed(event)),
     preferredState,
     (item) => item.event,
   ).slice(0, SECTION_MAX);
-  const comingLeft = preferState(notStarted.filter(unclaimed), preferredState, itself).slice(0, SECTION_MAX);
+  const running = upcoming.filter((event) => startMs(event) <= nowMs);
+  const comingLeft = preferState([...notStarted, ...running].filter(unclaimed), preferredState, itself).slice(0, SECTION_MAX);
   const popular: PopularSection | null =
     trendingLeft.length >= TRENDING_MIN
       ? { kind: "popular", items: trendingLeft }
-      : comingLeft.length >= COMING_MIN
-        ? { kind: "coming", items: comingLeft }
+      : comingLeft.length > 0
+        ? {
+            kind: "coming",
+            items: comingLeft,
+            acrossAustralia: preferredState !== null && comingLeft.every((event) => (event.state ?? "VIC") !== preferredState),
+          }
         : null;
 
   return {

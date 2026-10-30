@@ -176,9 +176,9 @@ describe("selectHomeSections", () => {
     expect(sections.weekend.items.map((e) => e.id)).toEqual(["up", "on-now"]);
   });
 
-  it("This weekend: empty state before the weekend, hidden during it", () => {
+  it("This weekend: hidden with nothing on, before or during it", () => {
     const empty = selectHomeSections([event("a", day(28)), event("b", day(29))], [], NOW);
-    expect(empty.weekend.status).toBe("empty");
+    expect(empty.weekend.status).toBe("hidden");
     expect(empty.weekend.items).toEqual([]);
 
     const during = selectHomeSections([event("a", day(28))], [], at("2026-10-24T01:00:00.000Z"));
@@ -219,7 +219,7 @@ describe("selectHomeSections", () => {
     // The Saturday event is This weekend's, leaving trending two.
     const events = [event("sat", day(24)), event("a", day(27)), event("b", day(28)), event("c", day(29))];
     const sections = selectHomeSections(events, [trend(events[0]), trend(events[1]), trend(events[2])], NOW);
-    expect(sections.popular).toEqual({ kind: "coming", items: [events[1], events[2], events[3]] });
+    expect(sections.popular).toEqual({ kind: "coming", items: [events[1], events[2], events[3]], acrossAustralia: false });
     // Non-trending events are never labelled popular.
     expect(sections.popular?.kind).not.toBe("popular");
   });
@@ -232,11 +232,31 @@ describe("selectHomeSections", () => {
     expect(shownEventIds(sections)).not.toContain("old");
   });
 
-  it("Coming up needs two not yet started; with fewer the slot is hidden (null)", () => {
-    expect(selectHomeSections([event("only", day(27))], [], NOW).popular).toBeNull();
-    // In progress (not yet ended, but started) doesn't count as coming up.
+  it("Coming up shows even one event; null only when nothing is left", () => {
+    expect(popularEvents(selectHomeSections([event("only", day(27))], [], NOW).popular).map((e) => e.id)).toEqual(["only"]);
+    expect(selectHomeSections([], [], NOW).popular).toBeNull();
+    // Not yet started first, then any still running (not ended, never hidden).
     const running = event("running", "2026-10-20T08:00:00.000Z", { endsAt: "2026-10-29T08:00:00.000Z" });
-    expect(selectHomeSections([running, event("only", day(27))], [], at("2026-10-26T01:00:00.000Z")).popular).toBeNull();
+    const later = at("2026-10-26T01:00:00.000Z");
+    expect(popularEvents(selectHomeSections([running, event("only", day(27))], [], later).popular).map((e) => e.id)).toEqual([
+      "only",
+      "running",
+    ]);
+    // A lone running event that ends before the weekend still shows.
+    const ends = event("ends", "2026-10-20T08:00:00.000Z", { endsAt: "2026-10-22T08:00:00.000Z" });
+    const sections = selectHomeSections([ends], [], NOW);
+    expect(sections.weekend.status).toBe("hidden");
+    expect(popularEvents(sections.popular).map((e) => e.id)).toEqual(["ends"]);
+  });
+
+  it("Coming up is Australia-wide when a state is saved and none of its events is in it", () => {
+    const vic = event("vic", day(27));
+    const wa = { ...event("wa", day(28)), state: "WA" as const };
+    const wide = (state: "VIC" | "WA" | "NSW" | null, events = [vic, wa]) => selectHomeSections(events, [], NOW, [], state).popular;
+    expect(wide(null)).toMatchObject({ kind: "coming", acrossAustralia: false });
+    expect(wide("WA")).toMatchObject({ acrossAustralia: false });
+    expect(wide("NSW")).toMatchObject({ acrossAustralia: true });
+    expect(popularEvents(wide("NSW")).map((e) => e.id)).toEqual(["vic", "wa"]);
   });
 
   it("caps the slot at six", () => {
