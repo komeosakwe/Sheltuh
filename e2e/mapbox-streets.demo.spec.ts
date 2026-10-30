@@ -190,6 +190,20 @@ for (const deviceScaleFactor of [1, 1.25, 1.5]) {
         content:
           ".leaflet-marker-pane, .leaflet-shadow-pane, .leaflet-overlay-pane, .leaflet-popup-pane, .leaflet-control-container { display: none !important; }",
       });
+      // Settled before the shot: no zoom or pan animation running, and every tile faded fully in
+      // (Leaflet fades each tile in; a slow CI machine could capture one mid-fade).
+      await expect
+        .poll(
+          () =>
+            page.evaluate(() => {
+              const container = document.querySelector(".leaflet-container");
+              if (!container || container.querySelector(".leaflet-zoom-anim")) return false;
+              const tiles = [...container.querySelectorAll<HTMLImageElement>("img.leaflet-tile")];
+              return tiles.length > 0 && tiles.every((tile) => getComputedStyle(tile).opacity === "1");
+            }),
+          { timeout: 10_000 },
+        )
+        .toBe(true);
       const shot = await page.locator(".leaflet-container").first().screenshot();
       // Pixels unlike the map's first inner one, skipping the rounded corners and any overlay along the top and bottom.
       const odd = await page.evaluate(
