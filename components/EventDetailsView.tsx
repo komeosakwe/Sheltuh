@@ -436,7 +436,7 @@ export default function EventDetailsView({
                     </div>
                   ))}
                 </dl>
-                <p className="mt-4 text-xs text-muted">As provided by the organiser.</p>
+                <p className="mt-4 text-sm leading-5 text-muted">As provided by the organiser.</p>
               </Panel>
             )}
 
@@ -469,7 +469,7 @@ export default function EventDetailsView({
             >
               <div className="min-w-0">
                 <p className="text-base leading-5 font-semibold tabular-nums">{price.amount}</p>
-                {price.note && <p className="text-xs leading-4 text-muted">{price.note}</p>}
+                {price.note && <p className="text-sm leading-5 text-muted">{price.note}</p>}
               </div>
               {seatPage ? (
                 // A seated event's buy bar goes straight to its seat page (manager decision 2,
@@ -498,7 +498,7 @@ export default function EventDetailsView({
                 {event.externalFree ? (
                   <>
                     <p className="text-base leading-5 font-semibold">Free</p>
-                    <p className="text-xs leading-4 text-muted">Tickets on {provider}</p>
+                    <p className="text-sm leading-5 text-muted">Tickets on {provider}</p>
                   </>
                 ) : (
                   <p className="text-sm leading-5 font-semibold">Tickets on {provider}</p>

@@ -421,12 +421,27 @@ describe("EventCard media: organiser artwork on a phone rail card", () => {
     expect(img).toHaveClass("object-contain");
   });
 
-  it("grid: always cropped to fill its square box", () => {
+  it("grid: a portrait poster is shown whole in the square box too, on a blurred copy of itself", () => {
     const { container } = render(<EventCard event={{ ...event, imageUrl: "/poster.jpg" }} variant="grid" mode="live" />);
     const img = container.querySelector("img");
     if (!img) throw new Error("no photo");
-    loadPortrait(img);
     expect(img).toHaveClass("object-cover");
+    loadPortrait(img);
+    expect(img).toHaveClass("object-contain");
+    expect(container.querySelector("[data-art-backdrop]")).not.toBeNull();
+  });
+
+  it("grid: a landscape photo still fills the square box", () => {
+    const { container } = render(<EventCard event={{ ...event, imageUrl: "/photo.jpg" }} variant="grid" mode="live" />);
+    const img = container.querySelector("img");
+    if (!img) throw new Error("no photo");
+    Object.defineProperty(img, "naturalWidth", { value: 1500 });
+    Object.defineProperty(img, "naturalHeight", { value: 1000 });
+    act(() => {
+      img.dispatchEvent(new Event("load"));
+    });
+    expect(img).toHaveClass("object-cover");
+    expect(container.querySelector("[data-art-backdrop]")).toBeNull();
   });
 });
 
