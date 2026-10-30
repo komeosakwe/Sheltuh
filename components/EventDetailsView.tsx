@@ -379,7 +379,9 @@ export default function EventDetailsView({
           {/* Tickets, then Who's Going: straight after the facts on phones; the right-hand column
               from lg (sticky, unstuck while Who's Going is expanded so a tall column can't hide
               the tickets). */}
-          <aside className="flex flex-col gap-8 lg:col-span-5 lg:col-start-8 lg:row-span-2 lg:row-start-1 lg:sticky lg:top-24 lg:self-start">
+          {/* Sticky beside the content from lg, but never taller than the window: a long ticket panel
+              (several tiers, Support Sheltüh) scrolls inside it, so Checkout is always reachable. */}
+          <aside className="flex flex-col gap-8 lg:col-span-5 lg:col-start-8 lg:row-span-2 lg:row-start-1 lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100dvh-7rem)] lg:overflow-y-auto lg:overscroll-contain lg:p-1 lg:-m-1">
             {/* The buy bar's target: focusable, so jumping here moves keyboard and
                 screen-reader focus to the tickets too, with the global focus-visible
                 ring around the section to show where you've landed. */}
