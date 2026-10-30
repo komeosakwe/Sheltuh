@@ -77,7 +77,7 @@ export default function PasswordField({ rules = false, ...field }: FieldProps & 
       />
       {rules && (
         <>
-          <ul id={rulesId} className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+          <ul id={rulesId} className="grid grid-cols-2 gap-x-3 gap-y-1 text-sm">
             {PASSWORD_RULES.map((rule) => {
               const met = rule.met(value);
               return (

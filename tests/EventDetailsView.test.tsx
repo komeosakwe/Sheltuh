@@ -482,11 +482,24 @@ describe("EventDetailsView Report this event", () => {
 });
 
 describe("EventDetailsView booking info beside the tickets", () => {
+  // The page: tickets, then About, Who's Going, Location and the refund info (owner, 30 Oct 2026).
   function tickets(container: HTMLElement): HTMLElement {
-    const el = container.querySelector<HTMLElement>("#tickets");
-    if (!el) throw new Error("#tickets not rendered");
-    return el;
+    return container;
   }
+
+  it("orders the page About, Who's Going, Location, then Refunds, with refunds outside the tickets panel", () => {
+    const { container } = render(<EventDetailsView event={findEvent("neon-static")} demo />);
+    const info = container.querySelector("[data-booking-info]");
+    if (!info) throw new Error("no booking info");
+    expect(container.querySelector("#tickets")?.contains(info)).toBe(false);
+    const about = screen.getByRole("heading", { name: "About this event" });
+    const going = screen.getByRole("heading", { name: /Who.s going/i });
+    const location = screen.getByRole("heading", { name: "Location" });
+    const follows = (a: Node, b: Node) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(follows(about, going)).toBe(true);
+    expect(follows(going, location)).toBe(true);
+    expect(follows(location, info)).toBe(true);
+  });
 
   // A6 (accessibility review, 22 Oct 2026): one plain sentence, linking the existing pages; then the
   // event's own refund policy before it (docs/architecture.md, Refund policy).
@@ -593,7 +606,9 @@ describe("EventDetailsView booking info beside the tickets", () => {
       <EventDetailsView event={{ ...findEvent("neon-static"), ageRestriction: "18+ (ID checked)" }} demo />,
     );
     expect(screen.getAllByText("Age restriction")).toHaveLength(1);
-    expect(within(tickets(container)).queryByText("Age restriction")).toBeNull();
+    const ticketsPanel = container.querySelector<HTMLElement>("#tickets");
+    if (!ticketsPanel) throw new Error("#tickets not rendered");
+    expect(within(ticketsPanel).queryByText("Age restriction")).toBeNull();
     expect(screen.getByRole("region", { name: "Good to know" })).toHaveTextContent("18+ (ID checked)");
   });
 });

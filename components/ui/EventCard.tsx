@@ -155,7 +155,7 @@ export default function EventCard({
           poster={event.poster}
           imageUrl={event.imageUrl}
           title={event.title}
-          fit={variant === "rail" ? "auto" : "cover"}
+          fit="auto"
           // An ended event's image is greyed: it's still there to look at, but nothing's on.
           className={`${MEDIA[variant]} ${isWide ? WIDE.media : ""} w-full motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-out motion-safe:group-hover/card:scale-[1.03] ${state === "ended" ? "grayscale" : ""}`.replace(/\s+/g, " ").trim()}
         />

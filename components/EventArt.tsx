@@ -171,6 +171,9 @@ function renderPattern(poster: EventPoster) {
   }
 }
 
+/** `fit="auto"`: how many times wider than the image a box must be before the image is contained, not cropped. */
+const FAR_STRIP = 1.3;
+
 export default function EventArt({
   poster,
   title,
@@ -197,7 +200,7 @@ export default function EventArt({
   /** Slowly pushes the photo in and back (reduced-motion safe). For hero and feature images only. */
   motion?: boolean;
   /**
-   * `auto` (the event page): a portrait poster (at least 1.2 times as tall as
+   * `auto` (the event page, rail and grid cards, editor previews): a portrait poster (at least 1.2 times as tall as
    * it is wide) in a landscape or square box is shown whole on black rather
    * than cropped to a strip; anything else is cropped to fill (`cover`, the
    * default). The box never changes size, so nothing shifts. A client-side
@@ -210,13 +213,20 @@ export default function EventArt({
   const showImage = Boolean(imageUrl) && failedUrl !== imageUrl;
   const contain = showImage && fit === "auto" && containedUrl === imageUrl;
 
-  /** `auto`: a loaded portrait poster in a box that isn't portrait is contained, not cropped. */
+  /**
+   * `auto`: a loaded image is shown whole (contained) rather than cropped when either it's a
+   * portrait poster in a box that isn't portrait, or the box is a much wider strip than the image
+   * (1.3 times or more, e.g. a 3:2 photo in the event page's phone strip), where cropping to fill
+   * would lose a third of it or more. A wide image in a squarer box still fills it.
+   */
   function fitLoaded(img: HTMLImageElement) {
     if (fit !== "auto" || !img.naturalWidth || !img.naturalHeight) return;
     const box = img.parentElement?.getBoundingClientRect();
     const portraitPoster = img.naturalHeight / img.naturalWidth >= 1.2;
     const boxNotPortrait = !box || box.height <= box.width;
-    setContainedUrl(portraitPoster && boxNotPortrait ? (imageUrl ?? null) : null);
+    const mismatch = box && box.width > 0 && box.height > 0 ? (img.naturalWidth / img.naturalHeight) / (box.width / box.height) : 1;
+    const stripBox = mismatch <= 1 / FAR_STRIP;
+    setContainedUrl((portraitPoster && boxNotPortrait) || stripBox ? (imageUrl ?? null) : null);
   }
 
   return (
@@ -225,6 +235,15 @@ export default function EventArt({
       className={`relative overflow-hidden ${className ?? ""}`}
       style={{ backgroundColor: contain ? "var(--ink)" : poster.background }}
     >
+      {/* A poster shown whole (contain) sits on a blurred, enlarged copy of itself rather than flat
+          black, so the letterboxing reads as the poster's own colours. Decorative (the box is aria-hidden). */}
+      {contain && imageUrl && (
+        <div
+          data-art-backdrop=""
+          className="absolute inset-0 scale-125 bg-cover bg-center opacity-60 blur-2xl"
+          style={{ backgroundImage: `url(${JSON.stringify(imageUrl)})` }}
+        />
+      )}
       {showImage ? (
         // eslint-disable-next-line @next/next/no-img-element -- remote/organiser-supplied URLs; sized by the parent
         <img

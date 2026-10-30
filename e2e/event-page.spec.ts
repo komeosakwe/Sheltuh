@@ -463,12 +463,12 @@ for (const width of [375, 1280]) {
       await expect(going.locator("[data-going-faces]")).toHaveCount(0);
       await expect(going.getByRole("button", { name: "See who’s going" })).toHaveCount(0);
 
-      // Fees and refunds beside the tickets, linking the existing pages.
+      // Fees in the tickets panel; refunds after Who's Going, linking the existing pages.
       const tickets = page.locator("#tickets");
       await expect(tickets.getByText("A$32.30 incl. booking fee")).toBeVisible();
       // (Live, the selector's own "By booking you agree to the Purchase Terms" line links them too:
       // that's consent at checkout; this is where refund conditions are.)
-      const refunds = tickets.locator("dl").filter({ hasText: "Refunds" });
+      const refunds = page.locator("[data-booking-info]");
       // The event's own policy (the default here), with the line that always applies.
       await expect(refunds.locator("[data-refund-policy]")).toHaveText("No refunds for change of mind.");
       await expect(refunds).toContainText(REFUND_ACL_STATEMENT);
@@ -527,12 +527,12 @@ test.describe("refund policy at 320px", () => {
       return route.fulfill({ status: 204 });
     });
     await page.goto("/events/neon-static");
-    const policy = page.locator("#tickets [data-refund-policy]");
+    const policy = page.locator("[data-booking-info] [data-refund-policy]");
     await expect(policy).toHaveText(
       /^Refunds available until \w{3} \d{1,2} \w{3}( \d{4})?, \d{1,2}:\d{2} [ap]m \(7 days before the event\)\.$/,
       { timeout: 30_000 },
     );
-    await expect(page.locator("#tickets [data-booking-info]")).toContainText(REFUND_ACL_STATEMENT);
+    await expect(page.locator("[data-booking-info]")).toContainText(REFUND_ACL_STATEMENT);
     await policy.scrollIntoViewIfNeeded();
     await expect(policy).toBeVisible();
     await noSidewaysScroll(page);
@@ -556,11 +556,11 @@ test.describe("refund window already closed", () => {
       return route.fulfill({ status: 204 });
     });
     await page.goto("/events/neon-static");
-    await expect(page.locator("#tickets [data-refund-policy]")).toHaveText(
+    await expect(page.locator("[data-booking-info] [data-refund-policy]")).toHaveText(
       "The refund window for this event has closed. No refunds for change of mind.",
       { timeout: 30_000 },
     );
-    await expect(page.locator("#tickets [data-booking-info]")).toContainText(REFUND_ACL_STATEMENT);
+    await expect(page.locator("[data-booking-info]")).toContainText(REFUND_ACL_STATEMENT);
   });
 });
 
@@ -583,7 +583,7 @@ test.describe("ended event at 375px", () => {
     await expect(page.getByRole("link", { name: "Sign in to save Neon Static" })).toHaveCount(1);
     await expect(page.getByRole("link", { name: "Sign in to save Neon Static" })).toBeVisible();
     // No refunds row where nothing can be bought (A6).
-    await expect(page.locator("#tickets [data-booking-info]")).toHaveCount(0);
+    await expect(page.locator("[data-booking-info]")).toHaveCount(0);
     await noSidewaysScroll(page);
   });
 });
@@ -659,7 +659,7 @@ for (const vp of [
   test.describe(`location section at ${vp.width}px`, () => {
     test.use({ viewport: vp });
 
-    test("after About, with the venue, a decorative map loaded on approach, and Google and Apple Maps links", async ({ page }) => {
+    test("after About and Who's Going, with the venue, a decorative map loaded on approach, and Google and Apple Maps links", async ({ page }) => {
       await mockApi(page);
       const tiles: string[] = [];
       await page.route("https://server.arcgisonline.com/**", (route) => {
@@ -677,10 +677,13 @@ for (const vp of [
       const address = `${event.venueName}, ${event.venueAddress}`;
       const href = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`;
 
-      // Straight after About (the live API sends no Good to know details).
+      // The owner's order (30 Oct 2026): About, Who's Going, then Location (the live API sends no Good to know details).
       const headings = await page.getByRole("heading", { level: 2 }).allTextContents();
-      expect(headings.slice(headings.indexOf("About this event"), headings.indexOf("About this event") + 2)).toEqual([
+      const about = headings.indexOf("About this event");
+      expect(about).toBeGreaterThanOrEqual(0);
+      expect(headings.slice(about, about + 3).map((h) => h.replace(/\u2019/g, "'"))).toEqual([
         "About this event",
+        "Who's going",
         "Location",
       ]);
       const location = page.getByRole("region", { name: "Location" });

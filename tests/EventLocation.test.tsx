@@ -85,12 +85,15 @@ const GOOGLE_MAPS = /^Google Maps: directions to /;
 const APPLE_MAPS = /^Apple Maps: /;
 
 describe("EventLocation", () => {
-  it("sits after About and before Good to know on the event page", () => {
+  it("sits after About and Who's Going, before Good to know, on the event page (owner's order, 30 Oct 2026)", () => {
     render(<EventDetailsView event={sample("neon-static")} demo />);
-    const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
+    const headings = screen
+      .getAllByRole("heading", { level: 2 })
+      .map((h) => (h.textContent ?? "").replace(/\u2019/g, "'"));
     const about = headings.indexOf("About this event");
     expect(about).toBeGreaterThanOrEqual(0);
-    expect(headings.slice(about, about + 3)).toEqual(["About this event", "Location", "Good to know"]);
+    // Refunds sit between Location and Good to know, but as a labelled list, not a heading.
+    expect(headings.slice(about, about + 4)).toEqual(["About this event", "Who's going", "Location", "Good to know"]);
   });
 
   it("names the venue and address, and links them to Google Maps and Apple Maps, the named controls", () => {

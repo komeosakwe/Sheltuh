@@ -1,3 +1,4 @@
+import { Page } from "@/components/ui/Section";
 import type { Metadata } from "next";
 import OrganiserJoinFlow from "@/components/organisers/OrganiserJoinFlow";
 
@@ -11,10 +12,8 @@ export const metadata: Metadata = {
 
 export default function OrganiserJoinPage() {
   return (
-    <div className="mx-auto max-w-6xl px-5 py-12 sm:px-8 sm:py-20">
-      <div className="flex max-w-md flex-col gap-8">
-        <OrganiserJoinFlow />
-      </div>
-    </div>
+    <Page width="form">
+      <OrganiserJoinFlow />
+    </Page>
   );
 }

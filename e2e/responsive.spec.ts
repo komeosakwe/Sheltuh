@@ -124,7 +124,7 @@ for (const width of [375, 390, 768, 1280, 1440]) {
       await page.goto("/");
       const hero = page.getByRole("region", { name: "Find your next thing." });
       await expect(hero.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your next thing.");
-      await expect(hero.getByText("What’s on near you")).toBeVisible();
+      await expect(hero.getByText("Less scrolling. More going.")).toBeVisible();
       // No intro sentence (owner, 28 Oct 2026, less helper text): the search follows the headline.
       await expect(hero.getByText("Music, art and pop-ups")).toHaveCount(0);
       const h1Box = await hero.getByRole("heading", { level: 1 }).boundingBox();

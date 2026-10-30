@@ -5,7 +5,7 @@ import { expect, test, type Page } from "@playwright/test";
  * README.md) in a real Chromium. Instrument Sans Dots draws every vowel with
  * two dots while the text itself stays plainly spelled. Only the wordmark and the hero headlines
  * are in it (owner, 29 Oct 2026): the home h1 is plain but for two letters (owner, 24 Oct 2026),
- * and /events and /map keep their brand headlines dotted. Every other title, section head and
+ * and /events and /map set their brand headlines the same way (one dotted letter each, owner, 30 Oct 2026). Every other title, section head and
  * card is plain Instrument Sans; running text is too. Form fields keep the plain
  * Instrument Sans and the mono stays IBM Plex Mono. /api is intercepted.
  */
@@ -82,14 +82,25 @@ test("only the headlines render in the dotted face; body, fields and mono stay p
   expect(metrics.dottedN).toBeCloseTo(metrics.plainN, 1);
 });
 
-test("page titles are plain; only the brand headlines on /events and /map are dotted", async ({ page }) => {
-  const dotted = /^"?instrumentDots"?, "Instrument Sans", /;
-  // Brand headlines: the dotted face.
-  for (const path of ["/events", "/map"]) {
+test("page titles are plain; the brand headlines on /events and /map dot only a letter", async ({ page }) => {
+  // Brand headlines: plain Instrument Sans, with one letter drawn in the dotted face (never the whole line).
+  const expected: Record<string, { text: string; name: string }> = {
+    "/events": { text: "o", name: "What’s on." },
+    "/map": { text: "u", name: "Sheltüh near you." },
+  };
+  for (const [path, { text, name }] of Object.entries(expected)) {
     await page.goto(path);
-    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    const h1 = page.getByRole("heading", { level: 1 });
+    await expect(h1).toBeVisible();
     await page.evaluate(() => document.fonts.ready);
-    expect(await fontFamily(page, "main h1")).toMatch(dotted);
+    await expect(h1).toHaveAccessibleName(name);
+    expect(await fontFamily(page, "main h1")).toMatch(/^"Instrument Sans", /);
+    const dotted = await h1.evaluate((el) =>
+      [...el.querySelectorAll("*")]
+        .filter((child) => /^"?instrumentDots"?, "Instrument Sans", /.test(getComputedStyle(child).fontFamily))
+        .map((child) => child.textContent),
+    );
+    expect(dotted).toEqual([text]);
   }
   // A page title (display-lg without the brand headline): plain.
   await page.goto("/search");

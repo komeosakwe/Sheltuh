@@ -9,7 +9,7 @@ import Link from "next/link";
  */
 export default function LegalNote({ lead = "How we handle your details:" }: { lead?: string } = {}) {
   return (
-    <p className="text-xs leading-4 text-muted">
+    <p className="text-sm leading-5 text-muted">
       {lead}{" "}
       <Link href="/privacy" className="text-foreground underline underline-offset-4">
         Privacy Policy

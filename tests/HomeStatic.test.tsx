@@ -112,7 +112,7 @@ describe("HomeHero (mobile-redesign.md §6.1)", () => {
   // phone's first screen.
   it("has the eyebrow (the page's one use of the brand dots) and no intro sentence under the headline", () => {
     const { container } = render(<HomeHero />);
-    expect(screen.getByText("What’s on near you")).toHaveClass("eyebrow");
+    expect(screen.getByText("Less scrolling. More going.")).toHaveClass("eyebrow");
     // Owner (28 Oct 2026, less helper text): the "Music, art and pop-ups" line is gone; the h1 is followed by the search.
     expect(screen.queryByText(/Music, art and pop-ups/)).toBeNull();
     expect(container.querySelectorAll("p.eyebrow svg")).toHaveLength(1);

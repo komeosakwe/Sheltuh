@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import DottedLine from "@/components/brand/DottedLine";
 import SceneEventRow from "@/components/SceneEventRow";
 import SceneMapFilterBar from "@/components/SceneMapFilterBar";
 import SceneMapEventCard from "@/components/map/SceneMapEventCard";
@@ -441,7 +442,7 @@ function SceneMapView({
         brand
         flush
         eyebrow="Map"
-        title="Sheltüh near you."
+        title={<DottedLine line="Sheltüh near yo^u." />}
       />
 
       <SceneMapFilterBar

@@ -58,7 +58,7 @@ export default function SceneMapFilterBar({
               value={search}
               onChange={(event) => onSearchChange(event.target.value)}
               placeholder="Search events"
-              className={`${fieldClass} pl-10`}
+              className={`${fieldClass} !pl-10`}
             />
           </div>
         </div>
@@ -66,7 +66,13 @@ export default function SceneMapFilterBar({
         <label className="relative sm:w-60">
           <span className="sr-only">Location</span>
           <PinIcon />
-          <select value={suburb} onChange={(event) => onSuburbChange(event.target.value)} className={`${fieldClass} pl-10`}>
+          {/* appearance-none: iOS Safari's native select ignored the left padding, so the pin sat
+              on the text; our own chevron replaces the native arrow. */}
+          <select
+            value={suburb}
+            onChange={(event) => onSuburbChange(event.target.value)}
+            className={`${fieldClass} appearance-none !pl-10 !pr-9`}
+          >
             <option value="all">All of Australia</option>
             {suburbGroups.map((group) => (
               <optgroup key={group.state} label={group.label}>
@@ -78,6 +84,7 @@ export default function SceneMapFilterBar({
               </optgroup>
             ))}
           </select>
+          <ChevronIcon />
         </label>
       </div>
 
@@ -179,6 +186,14 @@ function SearchIcon() {
     <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" className={iconClass}>
       <circle cx="11" cy="11" r="7" />
       <path d="m20 20-3.5-3.5" />
+    </svg>
+  );
+}
+
+function ChevronIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="pointer-events-none absolute top-1/2 right-3 h-4 w-4 -translate-y-1/2 text-muted">
+      <path d="m6 9 6 6 6-6" />
     </svg>
   );
 }

@@ -233,7 +233,7 @@ Sizes are given as base / `sm` 640 / `lg` 1024. LH is line-height.
 
 **Rules:**
 - **`font-display` appears at most once per view**, on the h1 of the home page, /events and /map, plus the 404 page. Never on event titles: user-supplied titles get Instrument.
-- **Dotted vowels are for the wordmark and the hero headlines only** (owner, 29 Oct 2026). The home h1's two letters, "What's on." on /events and "Sheltüh near ü." on /map are the only headlines in the dotted face (`font-display` / `font-dots`). Every other title (page titles, section heads such as "This weekend", auth, account, dashboard, admin and checkout titles, organiser and member profile h1s, nav menu items, card titles, the 404 line) is plain Instrument Sans, so `display-lg` alone has no dots. `DottedText` is retired.
+- **Dotted vowels are for the wordmark and the hero headlines only** (owner, 29 Oct 2026). The home h1 ("Find yo^ur next th^ing."), "What's on." on /events and "Sheltüh near you." on /map are the only headlines with dotted letters, and each dots a letter or two, never the whole line (30 Oct 2026): the h1 is `font-display display-plain` (plain Instrument Sans) and `DottedLine` draws only the letters marked with `^` in `font-dots`, so the text and the accessible name stay plainly spelled. Every other title (page titles, section heads such as "This weekend", auth, account, dashboard, admin and checkout titles, organiser and member profile h1s, nav menu items, card titles, the 404 line) is plain Instrument Sans, so `display-lg` alone has no dots. `DottedText` is retired.
 - **Uppercase** for display, headings, buttons, nav, eyebrow and meta. **Sentence case** for body, card titles, prices and venue names.
 - **Never letter-space lowercase text.**
 - Base `h1–h4` keeps `text-transform: uppercase` and `line-height: 0.95`. Its family becomes `var(--face-sans)`, weight 700, tracking -0.025em, so existing headings change by token only.
@@ -733,7 +733,7 @@ These are tools: quiet, dense and black-structured, with **no orange except the 
 | **Organiser** (apply, submit, dashboard, analytics, editor, payouts, profile) | §6.16. The public organiser profile `/organisers/[id]` is editorial: h1 `display-lg`, then the event grid. |
 | **Check-in** | Unchanged palette (§2.6). Fonts and shapes via shared classes. |
 | **Admin** | §6.16 |
-| **Legal, help, about, partners** (`ContentPage`) | `Page width="narrow"`. h2 `display-md` 24/26 (replace `[&_h2]:text-3xl`); square bullets (§5 #9) replace `list-disc`; links black underlined; the Draft label per §6.3. Help may add a strap TOC (`eyebrow` links) at the top. |
+| **Legal, help, about, partners** (`ContentPage`) | `Page width="narrow"` (a centred 672px reading column; 30 Oct 2026: it was left-aligned in the 1152px column, leaving the right side empty on desktop). Sign in, sign up, reset password, verify and the organiser join page use `Page width="form"` (a centred 448px stacked column); `wide` stays the 1152px page column. All share the header's gutters (20px, 32px from 640px). h2 `display-md` 24/26 (replace `[&_h2]:text-3xl`); square bullets (§5 #9) replace `list-disc`; links black underlined; the Draft label per §6.3. Help may add a strap TOC (`eyebrow` links) at the top. |
 | **404 / `NotFoundMessage`** | `DotsMark lg`, h1 `display-lg font-display` "Lost?", body "That page isn't here. Try what's on this week.", and `btn-solid` "See what's on" → /events |
 
 ## 8. Imagery and motion

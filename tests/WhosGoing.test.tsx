@@ -582,10 +582,12 @@ describe("Who's Going — signed in", () => {
       expect(add).toHaveAttribute("aria-expanded", "false");
     });
 
-    it("marks the panel expanded while the form is open (so the desktop aside unsticks)", async () => {
+    it("marks the panel expanded while the form is open, outside the sticky ticket column", async () => {
       const { region } = await openForm();
       expect(region.closest("#whos-going")).toHaveAttribute("data-wg-expanded");
-      expect(region.closest("aside")).toHaveClass("lg:has-[[data-wg-expanded]]:static");
+      // Who's Going sits in the page's main column (owner, 30 Oct 2026), so the open form never
+      // pushes the sticky tickets aside off screen.
+      expect(region.closest("aside")).toBeNull();
     });
   });
 
