@@ -80,7 +80,7 @@ const TIME_PATTERN = /(\d{1,2}:\d{2} [ap]m|midnight)/;
 const ENDED_TEXT = "This event has ended.";
 
 /**
- * Refunds beside the tickets (docs/design/mobile-redesign.md §6.5), only
+ * Refunds in the ticket column, after Who's Going (docs/design/mobile-redesign.md §6.5), only
  * where a paid purchase on Sheltüh is possible: an external event's own site
  * has its terms, and nothing is refunded on a free-only or ended event. The
  * event's own refund policy (lib/refund-policy.ts; the default for a demo
@@ -407,13 +407,15 @@ export default function EventDetailsView({
                         <TicketSelector event={event} />
                       </div>
                     )}
-                    {paidPurchasePossible && <BookingInfo event={event} />}
                   </>
                 )}
               </Panel>
             </div>
 
             {!external && !preview && <WhosGoing />}
+
+            {/* Refunds after Who's Going (owner, 30 Oct 2026): still in the ticket column. */}
+            {paidPurchasePossible && <BookingInfo event={event} />}
           </aside>
 
           <div className="flex flex-col gap-8 lg:col-span-7 lg:row-start-2">

@@ -482,11 +482,21 @@ describe("EventDetailsView Report this event", () => {
 });
 
 describe("EventDetailsView booking info beside the tickets", () => {
+  // The ticket column: the tickets panel, then Who's Going, then the refund info (owner, 30 Oct 2026).
   function tickets(container: HTMLElement): HTMLElement {
-    const el = container.querySelector<HTMLElement>("#tickets");
-    if (!el) throw new Error("#tickets not rendered");
+    const el = container.querySelector<HTMLElement>("#tickets")?.closest("aside");
+    if (!el) throw new Error("ticket column not rendered");
     return el;
   }
+
+  it("puts the refund info after Who's Going, below the tickets panel", () => {
+    const { container } = render(<EventDetailsView event={findEvent("neon-static")} demo />);
+    const info = tickets(container).querySelector("[data-booking-info]");
+    if (!info) throw new Error("no booking info");
+    expect(container.querySelector("#tickets")?.contains(info)).toBe(false);
+    const going = within(tickets(container)).getByRole("heading", { name: /Who.s going/i });
+    expect(going.compareDocumentPosition(info) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
 
   // A6 (accessibility review, 22 Oct 2026): one plain sentence, linking the existing pages; then the
   // event's own refund policy before it (docs/architecture.md, Refund policy).
