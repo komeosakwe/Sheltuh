@@ -144,6 +144,41 @@ for (const vp of VIEWPORTS) {
   });
 }
 
+test.describe("home with few events", () => {
+  test.use({ viewport: { width: 375, height: 667 } });
+
+  async function openWith(page: Page, count: number) {
+    // Well past this weekend, whatever day the suite runs.
+    const events = fixtures(Date.now())
+      .slice(2, 2 + count)
+      .map((event, i) => {
+        const start = Date.now() + (10 + i) * 24 * HOUR;
+        return { ...event, startsAt: new Date(start).toISOString(), endsAt: new Date(start + 3 * HOUR).toISOString() };
+      });
+    await page.route("**/api/**", (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname === "/api/events") return route.fulfill({ json: { items: events, nextCursor: undefined } });
+      return route.fulfill({ status: 404, json: { error: "not mocked in e2e" } });
+    });
+    await page.goto("/");
+  }
+
+  test("one event, none this weekend: shown as Coming up, no dead end", async ({ page }) => {
+    await openWith(page, 1);
+    const section = page.locator("[data-home-section]").filter({ has: page.getByRole("heading", { name: "Coming up", exact: true }) });
+    await expect(section.locator("[data-event-card]")).toHaveCount(1);
+    await expect(page.getByText(/Nothing this weekend/)).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "This weekend" })).toHaveCount(0);
+    await page.screenshot({ path: process.env.HOME_FEW_SHOT ?? "test-results/home-few.png" });
+  });
+
+  test("no events: says so with a link to all events", async ({ page }) => {
+    await openWith(page, 0);
+    await expect(page.getByText("No events yet.")).toBeVisible();
+    await expect(page.getByRole("link", { name: "All events" }).first()).toHaveAttribute("href", "/events");
+  });
+});
+
 test.describe("the photo push-in (the hero photo shows from 1024px)", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 

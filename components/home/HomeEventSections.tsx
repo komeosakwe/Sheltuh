@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import DotsMark from "@/components/brand/DotsMark";
-import { Button } from "@/components/ui/Button";
+import { Button, ButtonLink } from "@/components/ui/Button";
 import EventCard, { EventCardPlaceholder } from "@/components/ui/EventCard";
 import { Notice } from "@/components/ui/Section";
 import { formatWeekendRange } from "@/lib/home-sections";
@@ -21,7 +21,9 @@ const SECTION = "mt-6 sm:mt-10 lg:mt-12";
  * §6.3), in order: This weekend, From organisers you follow (signed-in
  * members who follow someone, when any of their events are left to show),
  * then Popular right now (real trending data), titled "Coming up" when that's
- * too thin to fill it. Each event appears once on the page (the provider's
+ * too thin to fill it ("Coming up across Australia" when a state is saved and
+ * none of them is in it). A weekend with nothing on is left out, so the few
+ * events a young marketplace has always show. Each event appears once on the page (the provider's
  * sections are already de-duplicated). A section with no cards renders
  * nothing, and a section's link shows only beside cards.
  * Every card is the `rail` EventCard, and every section is visible from the
@@ -45,7 +47,7 @@ export default function HomeEventSections() {
   const announceLoading = loading || retrying;
   const sections = state.status === "ready" ? state.sections : null;
   const now = state.status === "ready" ? state.now : undefined;
-  const weekend = sections?.anyUpcoming && sections.weekend.status !== "hidden" ? sections.weekend : null;
+  const weekend = sections && sections.weekend.status === "cards" ? sections.weekend : null;
   const popular = sections?.popular ?? null;
   const rootRef = useRef<HTMLDivElement>(null);
   const retried = useRef(false);
@@ -111,6 +113,9 @@ export default function HomeEventSections() {
           <div data-home-empty="" tabIndex={-1} className="rounded-card bg-surface p-5 sm:p-8">
             <DotsMark size="lg" className="text-foreground" />
             <p className="mt-6 text-base leading-6">No events yet.</p>
+            <ButtonLink href="/events" variant="outline" size="lg" className="mt-3">
+              All events
+            </ButtonLink>
           </div>
         </div>
       )}
@@ -121,23 +126,15 @@ export default function HomeEventSections() {
           title="This weekend"
           note={formatWeekendRange(weekend.window)}
           // /events isn't filtered to the weekend, so the link says where it goes.
-          link={weekend.status === "cards" ? { href: "/events", label: "All events" } : undefined}
-          count={weekend.status === "cards" ? weekend.items.length : 0}
-          empty={
-            weekend.status === "cards" ? undefined : (
-              <p className="text-sm leading-5 text-muted">
-                Nothing this weekend yet.
-              </p>
-            )
-          }
+          link={{ href: "/events", label: "All events" }}
+          count={weekend.items.length}
           className={SECTION}
         >
-          {weekend.status === "cards" &&
-            weekend.items.map((event) => (
-              <HomeRailItem key={event.id}>
-                <EventCard event={event} variant="rail" wide={isPairRail(weekend.items.length)} mode={mode} now={now} />
-              </HomeRailItem>
-            ))}
+          {weekend.items.map((event) => (
+            <HomeRailItem key={event.id}>
+              <EventCard event={event} variant="rail" wide={isPairRail(weekend.items.length)} mode={mode} now={now} />
+            </HomeRailItem>
+          ))}
         </HomeRailSection>
       )}
 
@@ -160,7 +157,7 @@ export default function HomeEventSections() {
       {popular && (
         <HomeRailSection
           id="home-popular"
-          title={popular.kind === "popular" ? "Popular right now" : "Coming up"}
+          title={popular.kind === "popular" ? "Popular right now" : popular.acrossAustralia ? "Coming up across Australia" : "Coming up"}
           // Nor sorted by popularity: "All events", as This weekend.
           link={{ href: "/events", label: "All events" }}
           count={popular.items.length}
