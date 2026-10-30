@@ -90,7 +90,7 @@ export default function Footer() {
               </Link>
             ))}
           </nav>
-          <p className="text-xs leading-4 text-muted">© {new Date().getFullYear()} Sheltüh</p>
+          <p className="text-sm leading-5 text-muted">© {new Date().getFullYear()} Sheltüh</p>
         </div>
       </div>
     </footer>

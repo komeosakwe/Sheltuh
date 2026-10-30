@@ -25,7 +25,7 @@ export function Field({
         {label}
       </label>
       {children}
-      {hint && <p className="text-xs text-muted">{hint}</p>}
+      {hint && <p className="text-sm leading-5 text-muted">{hint}</p>}
     </div>
   );
 }

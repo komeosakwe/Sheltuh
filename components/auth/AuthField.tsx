@@ -80,7 +80,7 @@ export default function AuthField({
         </p>
       )}
       {hint && (
-        <p id={hintId} className="text-xs text-muted">
+        <p id={hintId} className="text-sm leading-5 text-muted">
           {hint}
         </p>
       )}

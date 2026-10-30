@@ -122,7 +122,7 @@ export default function LoginForm({ next }: { next?: string } = {}) {
         labelAside={
           <Link
             href={withNext("/forgot-password", next)}
-            className="inline-flex min-h-11 items-center text-xs text-accent underline underline-offset-2"
+            className="inline-flex min-h-11 items-center text-sm text-accent underline underline-offset-2"
           >
             Forgot password?
           </Link>
