@@ -659,7 +659,7 @@ for (const vp of [
   test.describe(`location section at ${vp.width}px`, () => {
     test.use({ viewport: vp });
 
-    test("after About, with the venue, a decorative map loaded on approach, and Google and Apple Maps links", async ({ page }) => {
+    test("after About and Who's Going, with the venue, a decorative map loaded on approach, and Google and Apple Maps links", async ({ page }) => {
       await mockApi(page);
       const tiles: string[] = [];
       await page.route("https://server.arcgisonline.com/**", (route) => {
@@ -677,10 +677,13 @@ for (const vp of [
       const address = `${event.venueName}, ${event.venueAddress}`;
       const href = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`;
 
-      // Straight after About (the live API sends no Good to know details).
+      // The owner's order (30 Oct 2026): About, Who's Going, then Location (the live API sends no Good to know details).
       const headings = await page.getByRole("heading", { level: 2 }).allTextContents();
-      expect(headings.slice(headings.indexOf("About this event"), headings.indexOf("About this event") + 2)).toEqual([
+      const about = headings.indexOf("About this event");
+      expect(about).toBeGreaterThanOrEqual(0);
+      expect(headings.slice(about, about + 3).map((h) => h.replace(/\u2019/g, "'"))).toEqual([
         "About this event",
+        "Who's going",
         "Location",
       ]);
       const location = page.getByRole("region", { name: "Location" });
