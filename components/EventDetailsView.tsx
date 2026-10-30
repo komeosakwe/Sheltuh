@@ -188,6 +188,8 @@ export default function EventDetailsView({
   // no bar (docs/design/mobile-redesign.md §6.5).
   const soldOut = isSoldOut(event);
   const ended = Date.parse(event.endsAt ?? event.startsAt) <= new Date().getTime();
+  // The two buy bars below render on exactly these conditions.
+  const hasBuyBar = (Boolean(price) || Boolean(ticketUrl)) && !ended;
   const buyBarLabel = quickBuyLabel(event) ?? "Buy tickets";
   const seatPage = goesToSeatPage(event) && !ended;
   // Refunds only matter where someone can pay: a paid tier, not ended (external has no Booking info at all).
@@ -204,7 +206,13 @@ export default function EventDetailsView({
   return (
     // Phones: tight above the photo, so the title, date and venue are on the first screen,
     // above the sticky buy bar (e2e/event-page.spec.ts).
-    <div className="mx-auto flex max-w-6xl flex-col gap-2 px-5 pb-12 sm:gap-6 sm:px-8 sm:py-10">
+    // Below lg a buy bar is last on the page and settles there at the very end: no bottom padding
+    // then, so it meets the footer instead of leaving a white strip under it (owner, 30 Oct 2026).
+    <div
+      className={`mx-auto flex max-w-6xl flex-col gap-2 px-5 sm:gap-6 sm:px-8 sm:pt-10 ${
+        hasBuyBar ? "pb-0 lg:pb-10" : "pb-12 sm:pb-10"
+      }`}
+    >
       {!preview && <BackLink href="/">Back to all events</BackLink>}
 
       {/* Live only: one cookie-free view count per session, and finishing a save
