@@ -340,7 +340,7 @@ test.describe("near you, from the home at 390px", () => {
   });
 
   test("a short screen: opening the panel scrolls the page so all of it shows", async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 560 });
+    await page.setViewportSize({ width: 390, height: 500 });
     await mockApi(page);
     await page.goto("/");
     expect(await page.evaluate(() => window.scrollY)).toBe(0);
@@ -351,7 +351,7 @@ test.describe("near you, from the home at 390px", () => {
     const box = await panel.boundingBox();
     if (!bar || !box) throw new Error("not laid out");
     expect(box.y).toBeGreaterThan(bar.y + bar.height);
-    expect(box.y + box.height).toBeLessThanOrEqual(560);
+    expect(box.y + box.height).toBeLessThanOrEqual(500);
     // The whole panel, not a scrolling slice of it.
     expect(await panel.evaluate((el) => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(0);
     // The bar is still in view, below the site header.

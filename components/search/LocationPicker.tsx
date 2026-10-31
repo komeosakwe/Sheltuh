@@ -85,7 +85,6 @@ export default function LocationPicker({
   const titleId = useId();
   const inputId = useId();
   const listId = useId();
-  const helpId = useId();
   const statusId = useId();
   const buttonRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -350,7 +349,6 @@ export default function LocationPicker({
             <button
               type="button"
               onClick={locateMe}
-              aria-describedby={helpId}
               aria-disabled={locating || undefined}
               className="btn btn-outline mt-3 min-h-11 w-full"
             >
@@ -364,9 +362,6 @@ export default function LocationPicker({
               className={`text-sm leading-5 ${panelStatus ? "mt-2" : ""} ${danger ? "text-danger" : "text-muted"}`}
             >
               {panelStatus?.text ?? ""}
-            </p>
-            <p id={helpId} className="mt-2 text-sm leading-5 text-muted">
-              Your browser will ask first. We only use it to find your suburb, on this device.
             </p>
             <p aria-hidden="true" className="eyebrow mt-3 text-center text-muted">
               or

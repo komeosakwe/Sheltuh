@@ -390,9 +390,6 @@ export default function EventDetailsView({
                 {external ? (
                   <div className="flex flex-col gap-4 rounded-card border border-foreground bg-card p-4 sm:p-5">
                     {event.externalFree && <p className="text-base leading-6 font-semibold">Free entry</p>}
-                    <p className="text-sm text-muted">
-                      Sold by {provider}, not Sheltüh. No Sheltüh booking fee. Their terms apply.
-                    </p>
                     {ticketUrl ? (
                       outboundLink(buttonClass("solid", "lg", "w-full"))
                     ) : (

@@ -72,11 +72,11 @@ describe("external event: the tickets section", () => {
     expect(link).toHaveClass("btn-solid", "btn-lg");
   });
 
-  it("says the other site sells and prices the tickets, with no Sheltüh booking fee", () => {
+  it("names the other site on the button and carries no 'sold by' note (owner, 31 Oct 2026)", () => {
     const { container } = render(<EventDetailsView event={HUMANITIX} demo />);
-    expect(parts(container).tickets).toHaveTextContent(
-      "Sold by Humanitix, not Sheltüh. No Sheltüh booking fee.",
-    );
+    const { tickets } = parts(container);
+    expect(tickets).toHaveTextContent("Get tickets on Humanitix");
+    expect(tickets).not.toHaveTextContent(/Sold by|not Sheltüh|booking fee|Their terms apply/);
   });
 
   it("never shows 'Tickets coming soon', a price, the booking-fee rule or a ticket selector", () => {
@@ -95,7 +95,7 @@ describe("external event: the tickets section", () => {
     const { tickets } = parts(container);
     expect(within(tickets).queryByRole("link", { name: "Request a refund" })).toBeNull();
     expect(within(tickets).queryByRole("link", { name: "Purchase Terms" })).toBeNull();
-    expect(tickets).toHaveTextContent("Their terms apply.");
+    expect(tickets).not.toHaveTextContent(/Their terms apply|not Sheltüh|booking fee/);
     expect(within(container).getAllByRole("link", { name: /^Get directions to / })).toHaveLength(1);
   });
 

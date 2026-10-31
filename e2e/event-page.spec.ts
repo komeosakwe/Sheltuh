@@ -96,7 +96,9 @@ test.describe("external event (Humanitix) at 1440×900", () => {
     await expect(link).toHaveAttribute("href", "https://events.humanitix.com/thornbury-dub-session-demo");
     await expect(link).toHaveAttribute("target", "_blank");
     await expect(link).toHaveAttribute("rel", "noopener noreferrer");
-    await expect(tickets).toContainText("Sold by Humanitix, not Sheltüh");
+    // Owner (31 Oct 2026): no "sold by the organiser's site" note, just the labelled button.
+    await expect(tickets).not.toContainText("Sold by");
+    await expect(tickets).not.toContainText("Their terms apply");
     await expect(tickets).not.toContainText("Tickets coming soon");
     await expect(tickets).not.toContainText("A$");
     // No Sheltüh refund policy: Humanitix's terms apply.

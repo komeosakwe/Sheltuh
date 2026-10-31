@@ -10,7 +10,6 @@ export default function TermsPage() {
       eyebrow="Legal"
       title="Terms of Use"
       intro="The basic rules for using Sheltüh."
-      draft
     >
       <ContentSection title="Using Sheltüh">
         <p>

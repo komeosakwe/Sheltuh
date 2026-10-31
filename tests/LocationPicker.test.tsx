@@ -87,7 +87,7 @@ describe("LocationPicker — asking for the browser's position", () => {
     expect(screen.getByRole("button", { name: "Location: Your suburb" })).toHaveAttribute("popovertarget", panel.id);
     const use = within(panel).getByRole("button", { name: "Use my current location", hidden: true });
     expect(use).toHaveAttribute("type", "button");
-    expect(use).toHaveAccessibleDescription("Your browser will ask first. We only use it to find your suburb, on this device.");
+    expect(within(panel).queryByText(/Your browser will ask first/)).toBeNull();
     expect(within(panel).getByRole("link", { name: "How we use your location", hidden: true })).toHaveAttribute("href", "/privacy#location");
     // "Suburb", not a personal-data prompt, and not the button's "Your suburb" again; still no autofill.
     expect(within(panel).getByLabelText("Suburb")).toHaveAttribute("autocomplete", "off");

@@ -11,7 +11,6 @@ export default function PrivacyPage() {
       eyebrow="Legal"
       title="Privacy Policy"
       intro="What we collect, why, and who else sees it."
-      draft
     >
       <ContentSection title="What we collect">
         <ul>
