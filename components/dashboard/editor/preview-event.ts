@@ -43,6 +43,8 @@ export interface PreviewDraft {
   ticketingMode: TicketingMode;
   externalTicketUrl?: string;
   externalFree: boolean;
+  /** The "price from" in whole cents, when the field holds a valid one. */
+  externalPriceFromCents?: number | null;
   externalProvider?: string | null;
   refundPolicy: RefundPolicy;
   /** The days as typed, as a number (NaN when blank or not a number). */
@@ -112,6 +114,9 @@ export function draftToPreviewEvent(draft: PreviewDraft): { event: SheltuhEvent;
       ? {
           externalTicketUrl: draft.externalTicketUrl,
           externalFree: draft.externalFree,
+          ...(!draft.externalFree && typeof draft.externalPriceFromCents === "number"
+            ? { externalPriceFromCents: draft.externalPriceFromCents }
+            : {}),
           ...(draft.externalProvider !== undefined ? { externalProvider: draft.externalProvider } : {}),
         }
       : {

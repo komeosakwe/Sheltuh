@@ -68,7 +68,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261113000000_release_tickets.sql`. Never
+      newest, currently `20261114000000_external_price.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -299,6 +299,22 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           once both are live). Needs no new environment variable.
           Reversible: drop the function (the `edited` entries and the raised
           quantities it wrote stay)
+      42. `20261114000000_external_price.sql` (an external event's optional
+          "price from", docs/architecture.md "External ticketing": column
+          `events.external_price_from_cents` with check
+          `events_external_price_from`; `create_event_draft`,
+          `edit_event_draft` and `admin_edit_event` redefined; a
+          seven-argument `private.admin_set_event_ticketing`, the old form
+          kept and delegating to it. search_path pinned, execute revoked from
+          clients; no new table. Additive, no default, nothing to backfill.
+          Apply before the app that reads the column deploys (every event
+          read selects it); the previous app keeps working against it (its
+          writes send no price, so a stored one is kept on edit).
+          Reversible: restore the three functions from
+          `20261111000100_event_venue_location.sql`, drop the seven-argument
+          function (and restore the six-argument body from
+          `20261101000000_reserved_seating.sql`), then the constraint and
+          the column, which loses every price entered.
 
       **Files 33 to 37 can be applied ahead of this deploy, with the
       previous app still live.** "The previous app" here is the build of

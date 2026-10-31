@@ -80,6 +80,11 @@ export interface PublicEvent {
   /** The organiser says entry is free (external events only; false otherwise). Always sent. */
   externalFree?: boolean;
   /**
+   * External, paid events only: the organiser's "price from" in whole AUD
+   * cents (their price, so no booking fee). Absent when none was given.
+   */
+  externalPriceFromCents?: number;
+  /**
    * External events only: a known ticketing site's name ("Humanitix",
    * "Eventbrite", ...) for "Get tickets on {provider}", or null: then say
    * "the organiser's site", never the bare host. Always sent; null for

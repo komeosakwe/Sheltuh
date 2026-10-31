@@ -627,7 +627,7 @@ export const adminUnpublishEvent: Handler<{ eventId: string }> = async (req, { e
 
 /**
  * PATCH /api/admin/events/[eventId]/ticketing — body {ticketingMode,
- * externalTicketUrl?, externalFree?, reason}; ticketingMode is required
+ * externalTicketUrl?, externalFree?, externalPriceFromCents?, reason}; ticketingMode is required
  * here (unlike the organiser's form). Sets the event's ticketing
  * whatever its status (organisers can't once the event has been approved),
  * with the organiser's rules for the fields (lib/server/ticketing-input.ts,
@@ -657,8 +657,16 @@ export const adminSetEventTicketing: Handler<{ eventId: string }> = async (req, 
   if (Object.keys(errors).length > 0) fail(errors);
 
   const [row] = await deps.db.query<{ result: "updated" | "unchanged" | "not_found" | "has_orders" }>(
-    `select private.admin_set_event_ticketing($1, $2, $3, $4, $5, $6) as result`,
-    [eventId, admin.userId, ticketing.ticketingMode, ticketing.externalTicketUrl, ticketing.externalFree, reason],
+    `select private.admin_set_event_ticketing($1, $2, $3, $4, $5, $6, $7) as result`,
+    [
+      eventId,
+      admin.userId,
+      ticketing.ticketingMode,
+      ticketing.externalTicketUrl,
+      ticketing.externalFree,
+      ticketing.externalPriceFromCents,
+      reason,
+    ],
   );
   if (row.result === "not_found") throw new HttpError(404, "Event not found.");
   if (row.result === "has_orders") {

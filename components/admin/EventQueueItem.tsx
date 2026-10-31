@@ -15,7 +15,7 @@ import { SessionExpiredError } from "@/lib/auth/session-token";
 import { clipPlayName, clipTimeLabel } from "@/lib/clip-display";
 import { formatDayTime, formatEventWhen, formatTimeAgo } from "@/lib/format";
 import { validateMessage } from "@/lib/message-text";
-import { formatTicketBreakdown, formatTicketHeadline } from "@/lib/pricing";
+import { externalPriceFromLabel, formatTicketBreakdown, formatTicketHeadline } from "@/lib/pricing";
 import { ticketProviderName } from "@/lib/ticketing";
 import AdminSessionExpired from "./AdminSessionExpired";
 import { actionErrorText } from "./OrganiserItem";
@@ -303,12 +303,14 @@ function Tickets({ item }: { item: AdminEventRecord }) {
   if (item.ticketingMode === "external") {
     const provider =
       item.externalProvider ?? (item.externalTicketUrl ? ticketProviderName(item.externalTicketUrl) : null);
+    const from = externalPriceFromLabel(item);
     return (
       <div className="flex flex-col gap-1 text-sm">
         <p className="eyebrow text-muted">Tickets</p>
         <p>
           Sold on {provider ?? "the organiser’s site"}
           {item.externalFree ? " · free entry, the organiser says" : ""}
+          {from ? ` · ${from}, the organiser says` : ""}
         </p>
         {item.externalTicketUrl && (
           <a

@@ -3,7 +3,7 @@ import type { TicketTypeInput } from "@/lib/api/types";
 import { MAX_REFUND_DAYS, MIN_REFUND_DAYS, isValidRefundDays, type RefundPolicy } from "@/lib/refund-policy";
 import { MIN_PAID_TICKET_CENTS } from "@/lib/fees";
 import { formatAud } from "@/lib/format";
-import { checkExternalTicketUrl, type TicketingMode } from "@/lib/ticketing";
+import { checkExternalTicketUrl, MAX_EXTERNAL_PRICE_FROM_CENTS, type TicketingMode } from "@/lib/ticketing";
 
 /** What a platform-managed organiser's paid ticket is refused with (and the admin note says). */
 export const PLATFORM_FREE_ONLY = "A platform-managed organiser can only offer free tickets here, or link to another site.";
@@ -13,6 +13,24 @@ export const LOCATION_REQUIRED_TEXT = "Add the venue location and confirm the pi
 
 /** The longest ticket description the editor takes. The API has no limit of its own (it trims and stores the text). */
 export const MAX_TICKET_DESCRIPTION_LENGTH = 300;
+
+/** What a "Price from" that isn't a price is refused with (the API's own wording, lib/server/ticketing-input.ts). */
+export const EXTERNAL_PRICE_FROM_MESSAGE = "Enter a price between $0.01 and $10,000, or leave it blank.";
+
+/**
+ * The "Price from (A$)" field as typed, in whole cents: null while blank, NaN
+ * when it isn't a price (not a number, below 1 cent, above A$10,000, or with
+ * fractions of a cent). Pure.
+ */
+export function parseExternalPriceFrom(text: string): number | null {
+  const typed = text.trim();
+  if (!typed) return null;
+  const dollars = Number(typed);
+  if (!Number.isFinite(dollars)) return Number.NaN;
+  const cents = Math.round(dollars * 100);
+  if (Math.abs(dollars * 100 - cents) > 1e-6 || cents < 1 || cents > MAX_EXTERNAL_PRICE_FROM_CENTS) return Number.NaN;
+  return cents;
+}
 
 /** What the form's checks look at: the same values `buildInput` reads when saving. */
 export interface DraftCheckInput {
@@ -30,6 +48,9 @@ export interface DraftCheckInput {
   platformManaged: boolean;
   ticketingMode: TicketingMode;
   externalTicketUrl: string;
+  /** External events only: the "Price from (A$)" as typed, and the free flag that makes it moot. */
+  externalPrice?: string;
+  externalFree?: boolean;
   ticketTypes: readonly TicketTypeInput[];
   refundPolicy: RefundPolicy;
   /** The days as typed, as a number (NaN when blank or not a number). */
@@ -60,6 +81,9 @@ export function draftErrors(input: DraftCheckInput): Record<string, string> {
       const checked = checkExternalTicketUrl(url);
       if (!url) errors.externalTicketUrl = "Enter the address of the page where tickets are sold.";
       else if (!checked.ok) errors.externalTicketUrl = checked.message;
+    }
+    if (!input.externalFree && Number.isNaN(parseExternalPriceFrom(input.externalPrice ?? ""))) {
+      errors.externalPriceFromCents = EXTERNAL_PRICE_FROM_MESSAGE;
     }
   } else {
     if (input.ticketTypes.length === 0) errors.ticketTypes = "Add at least one ticket type.";
@@ -109,6 +133,7 @@ export function stepOfErrorKey(key: string): EditorStep {
   if (
     key.startsWith("ticket") ||
     key === "externalTicketUrl" ||
+    key === "externalPriceFromCents" ||
     key === "refundPolicy" ||
     key === "refundDays" ||
     key === "seating"
@@ -124,6 +149,7 @@ export function stepOfControlId(id: string): EditorStep {
     id.startsWith("ticket-") ||
     id === "add-ticket-type" ||
     id === "externalTicketUrl" ||
+    id === "externalPriceFromCents" ||
     id === "ticketingMode" ||
     id.startsWith("refund") ||
     id.startsWith("seating")
@@ -160,6 +186,8 @@ export function errorFieldLabel(key: string): string {
       return "End";
     case "externalTicketUrl":
       return "Ticket page address";
+    case "externalPriceFromCents":
+      return "Price from";
     case "ticketTypes":
       return "Ticket types";
     case "refundPolicy":

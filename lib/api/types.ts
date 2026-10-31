@@ -206,6 +206,7 @@ export interface TicketingChanges {
   ticketingMode?: TicketingFieldChange<TicketingMode>;
   externalTicketUrl?: TicketingFieldChange<string>;
   externalFree?: TicketingFieldChange<boolean>;
+  externalPriceFromCents?: TicketingFieldChange<number>;
 }
 
 /**
@@ -413,6 +414,12 @@ export interface EventRecord {
   /** External events only: the organiser says entry is free. Always sent (false for Sheltüh-ticketed events). */
   externalFree?: boolean;
   /**
+   * External, paid events only: the organiser's "price from" in whole AUD
+   * cents (1 to 1,000,000). Absent when none was given. Not our price: no
+   * booking fee applies.
+   */
+  externalPriceFromCents?: number;
+  /**
    * External events only: the ticketing site's name for "Get tickets on
    * {provider}" (lib/ticketing.ts, ticketProviderName), or null for a site
    * that isn't on the known list, which the UI calls "the organiser's site".
@@ -521,6 +528,8 @@ export interface AdminSetEventTicketingInput {
   externalTicketUrl?: string | null;
   /** `external` only (default false); must be absent or false for `sheltuh`. */
   externalFree?: boolean;
+  /** `external` and not free only: the "price from" in whole cents (1 to 1,000,000). Omitted clears it. */
+  externalPriceFromCents?: number | null;
   /** 1–500 characters, shown in the event's moderation log (the organiser sees it). */
   reason: string;
 }

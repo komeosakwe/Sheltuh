@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { calculateOrderSummary } from "../lib/fees";
 import {
+  EXTERNAL_NO_PRICE_LABEL,
+  externalPriceFromLabel,
   externalProviderLabel,
   formatFeedPrice,
   formatFeedPriceParts,
@@ -174,21 +176,38 @@ describe("an event ticketed on another site (external)", () => {
     externalProvider: "Humanitix",
   };
 
-  it("says where tickets are sold, never a price or 'Tickets coming soon'", () => {
-    expect(formatFeedPrice(base)).toBe("Tickets on Humanitix");
-    expect(formatFeedPriceParts(base)).toEqual({ amount: "Tickets on Humanitix", note: "" });
+  it("paid with no organiser price: 'Get tickets', never a price, the site's name or 'Tickets coming soon'", () => {
+    expect(formatFeedPrice(base)).toBe("Get tickets");
+    expect(formatFeedPrice(base)).toBe(EXTERNAL_NO_PRICE_LABEL);
+    expect(formatFeedPriceParts(base)).toEqual({ amount: "Get tickets", note: "" });
   });
 
-  it("free entry: 'Free · Tickets on {provider}'", () => {
+  it("free entry: just 'Free'", () => {
     const free = { ...base, externalFree: true };
-    expect(formatFeedPrice(free)).toBe("Free · Tickets on Humanitix");
-    expect(formatFeedPriceParts(free)).toEqual({ amount: "Free", note: "Tickets on Humanitix" });
+    expect(formatFeedPrice(free)).toBe("Free");
+    expect(formatFeedPriceParts(free)).toEqual({ amount: "Free", note: "" });
   });
 
-  it("an unknown site is 'the organiser's site', never the bare host", () => {
+  it("an unknown site reads the same as a known one", () => {
     const unknown = { ...base, externalTicketUrl: "https://www.example.com.au/rsvp", externalProvider: null };
-    expect(formatFeedPrice(unknown)).toBe("Tickets on the organiser's site");
-    expect(formatFeedPrice({ ...unknown, externalFree: true })).toBe("Free · Tickets on the organiser's site");
+    expect(formatFeedPrice(unknown)).toBe("Get tickets");
+    expect(formatFeedPrice({ ...unknown, externalFree: true })).toBe("Free");
+  });
+
+  it("never names the ticketing site, whatever the provider", () => {
+    const variants: SheltuhEvent[] = [
+      base,
+      { ...base, externalFree: true },
+      { ...base, externalPriceFromCents: 8900 },
+      { ...base, externalProvider: null, externalTicketUrl: "https://www.example.com.au/rsvp" },
+      { ...base, externalProvider: undefined, externalTicketUrl: "https://www.eventbrite.com.au/e/123" },
+    ];
+    for (const event of variants) {
+      const { amount, note } = formatFeedPriceParts(event) ?? { amount: "", note: "" };
+      for (const text of [formatFeedPrice(event), amount, note]) {
+        expect(text).not.toMatch(/Humanitix|Eventbrite|organiser.s site|Tickets on|Sold by/i);
+      }
+    }
   });
 
   it("without the API's provider name, reads it from the link (known sites only)", () => {
@@ -199,7 +218,22 @@ describe("an event ticketed on another site (external)", () => {
 
   it("covers the demo's two external events", () => {
     const external = sampleEvents.filter((e) => e.ticketingMode === "external");
-    expect(external.map(formatFeedPrice).sort()).toEqual(["Free · Tickets on the organiser's site", "Tickets on Humanitix"]);
+    expect(external.map(formatFeedPrice).sort()).toEqual(["Free", "From A$35"]);
+  });
+
+  it("the organiser's price: just 'From A$89', never 'incl. booking fee'", () => {
+    const priced = { ...base, externalPriceFromCents: 8900 };
+    expect(formatFeedPrice(priced)).toBe("From A$89");
+    expect(formatFeedPriceParts(priced)).toEqual({ amount: "From A$89", note: "" });
+    expect(formatFeedPrice({ ...base, externalPriceFromCents: 12050 })).toBe("From A$120.50");
+    expect(externalPriceFromLabel(priced)).toBe("From A$89");
+  });
+
+  it("is ignored for a free event, a missing or zero price, and a Sheltüh-ticketed event", () => {
+    expect(formatFeedPrice({ ...base, externalFree: true, externalPriceFromCents: 8900 })).toBe("Free");
+    expect(externalPriceFromLabel({ ...base, externalPriceFromCents: 0 })).toBeNull();
+    expect(externalPriceFromLabel(base)).toBeNull();
+    expect(externalPriceFromLabel({ ...findEvent("neon-static"), externalPriceFromCents: 8900 })).toBeNull();
   });
 });
 

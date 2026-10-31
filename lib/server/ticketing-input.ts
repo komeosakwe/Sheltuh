@@ -8,7 +8,12 @@
  * ticketing (the admin routes, and through them seating, clips and
  * trending) would otherwise load the table too.
  */
-import { checkExternalTicketUrl, TICKETING_MODES, type TicketingMode } from "@/lib/ticketing";
+import {
+  checkExternalTicketUrl,
+  MAX_EXTERNAL_PRICE_FROM_CENTS,
+  TICKETING_MODES,
+  type TicketingMode,
+} from "@/lib/ticketing";
 
 /** Longest reason for an admin's ticketing change (shown in the event's moderation log); also used for seat-map and clip reasons. */
 export const MAX_TICKETING_REASON_LENGTH = 500;
@@ -20,6 +25,12 @@ export interface Ticketing {
   externalTicketUrl: string | null;
   /** External only (false otherwise). */
   externalFree: boolean;
+  /**
+   * External only: the organiser's "price from", in whole AUD cents (1 to
+   * MAX_EXTERNAL_PRICE_FROM_CENTS). Null when none is given, and always for a
+   * free or Sheltüh-ticketed event.
+   */
+  externalPriceFromCents: number | null;
 }
 
 /** The body fields parseTicketing reads. */
@@ -27,6 +38,7 @@ export interface RawTicketingBody {
   ticketingMode?: unknown;
   externalTicketUrl?: unknown;
   externalFree?: unknown;
+  externalPriceFromCents?: unknown;
 }
 
 const absent = (value: unknown) => value === undefined || value === null || value === "";
@@ -43,7 +55,7 @@ export function parseTicketing(body: RawTicketingBody, errors: Record<string, st
   const rawMode = body.ticketingMode ?? "sheltuh";
   if (typeof rawMode !== "string" || !TICKETING_MODES.includes(rawMode as TicketingMode)) {
     errors.ticketingMode = "Choose where tickets are sold.";
-    return { ticketingMode: "sheltuh", externalTicketUrl: null, externalFree: false };
+    return { ticketingMode: "sheltuh", externalTicketUrl: null, externalFree: false, externalPriceFromCents: null };
   }
   const ticketingMode = rawMode as TicketingMode;
 
@@ -57,7 +69,10 @@ export function parseTicketing(body: RawTicketingBody, errors: Record<string, st
       errors.externalTicketUrl = "Only for events whose tickets are sold on another site.";
     }
     if (externalFree) errors.externalFree = "Only for events whose tickets are sold on another site.";
-    return { ticketingMode, externalTicketUrl: null, externalFree: false };
+    if (!absent(body.externalPriceFromCents)) {
+      errors.externalPriceFromCents = "Only for events whose tickets are sold on another site.";
+    }
+    return { ticketingMode, externalTicketUrl: null, externalFree: false, externalPriceFromCents: null };
   }
 
   let externalTicketUrl: string | null = null;
@@ -70,5 +85,19 @@ export function parseTicketing(body: RawTicketingBody, errors: Record<string, st
     if (checked.ok) externalTicketUrl = checked.url;
     else errors.externalTicketUrl = checked.message;
   }
-  return { ticketingMode, externalTicketUrl, externalFree };
+
+  let externalPriceFromCents: number | null = null;
+  if (!absent(body.externalPriceFromCents)) {
+    const price = body.externalPriceFromCents;
+    if (externalFree) {
+      errors.externalPriceFromCents = "A free event doesn't have a price.";
+    } else if (typeof price !== "number" || !Number.isSafeInteger(price)) {
+      errors.externalPriceFromCents = "Enter the price in dollars and cents.";
+    } else if (price < 1 || price > MAX_EXTERNAL_PRICE_FROM_CENTS) {
+      errors.externalPriceFromCents = "Enter a price between $0.01 and $10,000, or leave it blank.";
+    } else {
+      externalPriceFromCents = price;
+    }
+  }
+  return { ticketingMode, externalTicketUrl, externalFree, externalPriceFromCents };
 }

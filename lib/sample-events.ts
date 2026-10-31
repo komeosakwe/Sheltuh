@@ -292,6 +292,7 @@ const coreSampleEvents: SheltuhEvent[] = [
     ticketingMode: "external",
     externalTicketUrl: "https://events.humanitix.com/thornbury-dub-session-demo",
     externalFree: false,
+    externalPriceFromCents: 3500,
     externalProvider: "Humanitix",
   },
   {

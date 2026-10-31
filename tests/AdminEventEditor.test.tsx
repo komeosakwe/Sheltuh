@@ -198,6 +198,47 @@ describe("EventEditor (admin) — a new event", () => {
     });
   });
 
+  it("asks for an optional 'Price from (A$)' only while tickets are on another site, and sends it in cents", async () => {
+    adminCreateEvent.mockResolvedValue({ ...EVENT, eventId: "evt-new" });
+    renderEditor();
+    await pickOrganiser("org-1");
+    fillEventFields();
+    expect(screen.queryByLabelText("Price from (A$)")).toBeNull();
+    fireEvent.click(screen.getByLabelText("On another site"));
+    const price = screen.getByLabelText("Price from (A$)");
+    expect(price).toHaveAttribute("type", "number");
+    expect(price).not.toBeRequired();
+    fireEvent.change(screen.getByLabelText("Ticket page address"), { target: { value: "https://events.humanitix.com/neon" } });
+
+    // Not a price: refused before anything is sent, with its message on the field.
+    fireEvent.change(price, { target: { value: "0" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create event" }));
+    await waitFor(() => expect(price).toHaveAttribute("aria-invalid", "true"));
+    expect(screen.getAllByText("Enter a price between $0.01 and $10,000, or leave it blank.").length).toBeGreaterThan(0);
+    expect(adminCreateEvent).not.toHaveBeenCalled();
+
+    fireEvent.change(price, { target: { value: "89" } });
+    expect(price).not.toHaveAttribute("aria-invalid");
+    fireEvent.click(screen.getByRole("button", { name: "Create event" }));
+    await waitFor(() => expect(adminCreateEvent).toHaveBeenCalledTimes(1));
+    expect(adminCreateEvent.mock.calls[0][0]).toMatchObject({ ticketingMode: "external", externalFree: false, externalPriceFromCents: 8900 });
+  });
+
+  it("hides the price when entry is free or tickets are back on Sheltüh, and sends none", async () => {
+    adminCreateEvent.mockResolvedValue({ ...EVENT, eventId: "evt-new" });
+    renderEditor();
+    await pickOrganiser("org-1");
+    fillEventFields();
+    fireEvent.click(screen.getByLabelText("On another site"));
+    fireEvent.change(screen.getByLabelText("Ticket page address"), { target: { value: "https://events.humanitix.com/neon" } });
+    fireEvent.change(screen.getByLabelText("Price from (A$)"), { target: { value: "20.5" } });
+    fireEvent.click(screen.getByLabelText("Entry is free"));
+    expect(screen.queryByLabelText("Price from (A$)")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Create event" }));
+    await waitFor(() => expect(adminCreateEvent).toHaveBeenCalledTimes(1));
+    expect(adminCreateEvent.mock.calls[0][0]).toMatchObject({ externalFree: true, externalPriceFromCents: null });
+  });
+
   it("refuses a link shortener before sending anything", async () => {
     renderEditor();
     await pickOrganiser("org-1");
@@ -546,5 +587,36 @@ describe("EventEditor (organiser) — an external event", () => {
       externalTicketUrl: "https://events.humanitix.com/neon",
       externalFree: true,
     });
+  });
+
+  it("shows the stored 'Price from', keeps it on save, and can change or clear it", async () => {
+    const external: EventRecord = {
+      ...EVENT,
+      status: "draft",
+      ticketTypes: [],
+      ticketingMode: "external",
+      externalTicketUrl: "https://events.humanitix.com/neon",
+      externalProvider: "Humanitix",
+      externalFree: false,
+      externalPriceFromCents: 12050,
+    };
+    updateEventDraft.mockResolvedValue(external);
+    render(
+      <FakeAuthProvider value={fakeAuthValue({ email: "owner@example.com" })}>
+        <EventEditor getToken={vi.fn().mockResolvedValue("token")} initial={external} onSaved={vi.fn()} />
+      </FakeAuthProvider>,
+    );
+    const price = screen.getByLabelText("Price from (A$)");
+    expect(price).toHaveValue(120.5);
+    // The editor's summary shows it as the event page will.
+    expect(screen.getAllByText("From A$120.50").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(updateEventDraft).toHaveBeenCalledTimes(1));
+    expect(updateEventDraft.mock.calls[0][1]).toMatchObject({ ticketingMode: "external", externalPriceFromCents: 12050 });
+
+    fireEvent.change(price, { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(updateEventDraft).toHaveBeenCalledTimes(2));
+    expect(updateEventDraft.mock.calls[1][1]).toMatchObject({ externalPriceFromCents: null });
   });
 });

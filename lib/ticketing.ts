@@ -26,6 +26,13 @@ export function sellsPaidTicketsOnSheltuh(event: {
   return event.ticketingMode !== "external" && event.ticketTypes.some((ticket) => ticket.priceCents > 0);
 }
 
+/**
+ * The most an organiser can enter as an external event's "price from"
+ * (A$10,000, in cents); matches the events_external_price_from check
+ * constraint. The least is 1 cent: "free" is the externalFree flag.
+ */
+export const MAX_EXTERNAL_PRICE_FROM_CENTS = 1_000_000;
+
 /** Longest ticket link accepted (matches the events.external_ticket_url check constraint). */
 export const MAX_EXTERNAL_TICKET_URL_LENGTH = 2048;
 

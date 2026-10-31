@@ -290,7 +290,7 @@ describe("Data API lock-out", () => {
       "unavailable_seats",
       "write_seat_map",
     ];
-    expect(await privateFunctions(names)).toEqual(locked(names, { record_payment_refund: 2 }));
+    expect(await privateFunctions(names)).toEqual(locked(names, { record_payment_refund: 2, admin_set_event_ticketing: 2 }));
     // The version sequence isn't the Data API's either.
     const [seq] = await db.query<{ granted: number }>(
       `select count(*)::int as granted from pg_class c, aclexplode(coalesce(c.relacl, acldefault('s', c.relowner))) a

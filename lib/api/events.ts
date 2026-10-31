@@ -72,6 +72,14 @@ export interface EventInput {
   /** `external` only: entry is free. Absent or false for `sheltuh`. */
   externalFree?: boolean;
   /**
+   * `external`, not free: the optional "price from" in whole AUD cents
+   * (1 to 1,000,000), the organiser's own price. Absent or null: none
+   * (an edit that sends `ticketingMode` clears it; one without keeps the
+   * stored price). Sent with `sheltuh` or `externalFree`, or out of range:
+   * ApiError 400, fieldErrors.externalPriceFromCents.
+   */
+  externalPriceFromCents?: number | null;
+  /**
    * The refund policy (lib/refund-policy.ts). Absent (or null):
    * `no_change_of_mind` when creating; when editing, the stored policy and
    * days are kept. Any other value: ApiError 400, fieldErrors.refundPolicy.

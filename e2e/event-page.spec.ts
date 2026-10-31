@@ -42,6 +42,7 @@ function asPublic(slug: string): PublicEvent {
     ticketingMode: event.ticketingMode ?? "sheltuh",
     externalTicketUrl: event.externalTicketUrl,
     externalFree: event.externalFree ?? false,
+    ...(event.externalPriceFromCents ? { externalPriceFromCents: event.externalPriceFromCents } : {}),
     externalProvider: event.externalProvider ?? null,
   };
 }
@@ -87,19 +88,24 @@ async function noSidewaysScroll(page: Page) {
 test.describe("external event (Humanitix) at 1440×900", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test("links out from the tickets section with the click beacon; no price, selector or Who's Going", async ({ page }) => {
+  test("links out from the tickets section with the click beacon; the organiser's price, no selector or Who's Going", async ({ page }) => {
     const { outbound, going } = await mockApi(page);
     await page.goto("/events/thornbury-dub-session");
     const tickets = page.locator("#tickets");
-    const link = tickets.getByRole("link", { name: "Get tickets on Humanitix (opens in a new tab)" });
+    const link = tickets.getByRole("link", { name: "Get tickets (opens in a new tab)" });
     await expect(link).toBeVisible({ timeout: 30_000 });
     await expect(link).toHaveAttribute("href", "https://events.humanitix.com/thornbury-dub-session-demo");
     await expect(link).toHaveAttribute("target", "_blank");
     await expect(link).toHaveAttribute("rel", "noopener noreferrer");
-    await expect(tickets).toContainText("Sold by Humanitix, not Sheltüh");
+    await expect(link).toHaveText("Get tickets");
+    // The ticketing site is never named (owner, 31 Oct 2026): buyers go through our link.
+    await expect(tickets).not.toContainText(/Humanitix|Sold by|Tickets on|organiser.s site/i);
     await expect(tickets).not.toContainText("Tickets coming soon");
-    await expect(tickets).not.toContainText("A$");
-    // No Sheltüh refund policy: Humanitix's terms apply.
+    // The organiser's own price, labelled; never ours (no booking fee).
+    await expect(tickets).toContainText("From A$35");
+    await expect(tickets).toContainText("Price set by the organiser.");
+    await expect(tickets).not.toContainText("incl. booking fee");
+    // No Sheltüh refund policy (the other site's terms apply).
     await expect(tickets).not.toContainText("change of mind");
     await expect(tickets).not.toContainText("Australian Consumer Law");
     await expect(page.getByRole("heading", { name: /who.s going/i })).toHaveCount(0);
@@ -117,14 +123,15 @@ test.describe("external event (Humanitix) at 1440×900", () => {
 test.describe("external event (free, organiser's site) at 390×844", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test("the buy bar says where tickets are and is the outbound link itself", async ({ page }) => {
+  test("the buy bar shows only the price and is the outbound link itself, never naming the site", async ({ page }) => {
     const { outbound } = await mockApi(page);
     await page.goto("/events/footscray-open-studios");
     const bar = page.locator("[data-buy-bar]");
     await expect(bar).toBeVisible({ timeout: 30_000 });
     await expect(bar).toContainText("Free");
-    await expect(bar).toContainText("Tickets on the organiser's site");
-    const cta = bar.getByRole("link", { name: "Get tickets on the organiser's site (opens in a new tab)" });
+    await expect(bar).not.toContainText(/Tickets on|organiser.s site|Humanitix/i);
+    const cta = bar.getByRole("link", { name: "Get tickets (opens in a new tab)" });
+    await expect(cta).toHaveText("Get tickets");
     await expect(cta).toHaveAttribute("href", "https://www.example.com/footscray-open-studios/rsvp");
     await expect(page.locator("#tickets")).not.toContainText("Tickets coming soon");
     const [popup] = await Promise.all([page.waitForEvent("popup"), cta.click()]);
