@@ -14,17 +14,14 @@ import { ArrowRightIcon } from "./icons";
 /** The card's muted lines: black at 60% on white is #666 (5.74:1). Inside the band `--muted` is black. */
 const CARD_MUTED = "text-foreground/60";
 
-/** Every footnote ends with this: the faces are the owner's illustrative portraits, never anyone going. */
-const PHOTOS_NOTE = "Illustrative photos";
 /** Live mode's footnote: the count is the server's thresholded Who's Going count for a Popular right now event. */
-export const COMMUNITY_LIVE_NOTE = `Popular right now · Real count · ${PHOTOS_NOTE}`;
+export const COMMUNITY_LIVE_NOTE = "Popular right now · Real count";
 /** Demo mode's footnote: a real sample event, with its sample (made-up) count. */
-export const COMMUNITY_DEMO_NOTE = `Example event · Sample count · ${PHOTOS_NOTE}`;
+export const COMMUNITY_DEMO_NOTE = "Example event · Sample count";
 /** With no real example to show: what the card says instead of an event and a number. */
 export const COMMUNITY_TEASER = {
   title: "Know who’ll be there",
   body: "Ticket holders opt in to Who’s Going.",
-  note: PHOTOS_NOTE,
 } as const;
 
 interface Example {
@@ -79,7 +76,7 @@ function Faces() {
   );
 }
 
-/** A footnote whose " · " parts each stay on one line, so "Illustrative photos" never splits on a phone. */
+/** A footnote whose " · " parts each stay on one line, so no part splits on a phone. */
 function NoteParts({ note }: { note: string }) {
   return note.split(" · ").map((part, i) => (
     <span key={part}>
@@ -169,9 +166,12 @@ export default function CommunitySection({ className = "" }: { className?: strin
           ) : (
             <p className="mt-4 text-lg leading-7 sm:mt-6">{COMMUNITY_TEASER.body}</p>
           )}
-          <p data-community-note="" className={`mt-3 text-sm leading-5 ${CARD_MUTED}`}>
-            <NoteParts note={example ? (example.sample ? COMMUNITY_DEMO_NOTE : COMMUNITY_LIVE_NOTE) : COMMUNITY_TEASER.note} />
-          </p>
+          {/* No "Illustrative photos" line (owner, 31 Oct 2026); with no example there's no footnote. */}
+          {example && (
+            <p data-community-note="" className={`mt-3 text-sm leading-5 ${CARD_MUTED}`}>
+              <NoteParts note={example.sample ? COMMUNITY_DEMO_NOTE : COMMUNITY_LIVE_NOTE} />
+            </p>
+          )}
         </div>
       </div>
     </section>

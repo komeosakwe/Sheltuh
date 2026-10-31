@@ -102,7 +102,6 @@ describe("HomeHero (mobile-redesign.md §6.1)", () => {
     const text = row?.firstElementChild;
     expect(text).toHaveClass("min-w-0", "flex-1");
     expect(text?.querySelector("h1")).not.toBeNull();
-    expect(text?.querySelector("p.eyebrow")).not.toBeNull();
     // Its badge is a still copy: too small for a 44px Pause/Play target, so never a control.
     expect(thumb?.querySelector("[data-hero-badge]")).toHaveAttribute("aria-hidden", "true");
     expect(screen.queryByRole("button", { name: /badge animation/ })).toBeNull();
@@ -110,12 +109,13 @@ describe("HomeHero (mobile-redesign.md §6.1)", () => {
 
   // Refinement (owner, 22 Oct 2026): a shorter hero, so the first event's image and title reach a
   // phone's first screen.
-  it("has the eyebrow (the page's one use of the brand dots) and no intro sentence under the headline", () => {
+  it("has no eyebrow above the headline and no intro sentence under it", () => {
     const { container } = render(<HomeHero />);
-    expect(screen.getByText("Less scrolling. More going.")).toHaveClass("eyebrow");
+    // Owner (31 Oct 2026): the "Less scrolling. More going." eyebrow and its dots are gone.
+    expect(screen.queryByText("Less scrolling. More going.")).toBeNull();
+    expect(container.querySelector("p.eyebrow")).toBeNull();
     // Owner (28 Oct 2026, less helper text): the "Music, art and pop-ups" line is gone; the h1 is followed by the search.
     expect(screen.queryByText(/Music, art and pop-ups/)).toBeNull();
-    expect(container.querySelectorAll("p.eyebrow svg")).toHaveLength(1);
   });
 
   // Owner round of 24 Oct 2026 (the Eventbrite-style bar with a location): the submit is orange now, and

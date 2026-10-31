@@ -124,7 +124,7 @@ for (const width of [375, 390, 768, 1280, 1440]) {
       await page.goto("/");
       const hero = page.getByRole("region", { name: "Find your next thing." });
       await expect(hero.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your next thing.");
-      await expect(hero.getByText("Less scrolling. More going.")).toBeVisible();
+      await expect(hero.getByText("Less scrolling. More going.")).toHaveCount(0);
       // No intro sentence (owner, 28 Oct 2026, less helper text): the search follows the headline.
       await expect(hero.getByText("Music, art and pop-ups")).toHaveCount(0);
       const h1Box = await hero.getByRole("heading", { level: 1 }).boundingBox();
@@ -154,7 +154,7 @@ for (const width of [375, 390, 768, 1280, 1440]) {
 }
 
 // Owner (24 Oct 2026, the phone hero's empty space): "little image should be there". Below 1024px the
-// collage's lead photo is a small tile beside the eyebrow and the h1; from 1024px the collage instead.
+// collage's lead photo is a small tile beside the h1; from 1024px the collage instead.
 const THUMB_SIZES: Record<number, number | null> = { 320: 72, 375: 88, 390: 88, 768: 112, 1024: null, 1440: null };
 for (const [width, size] of Object.entries(THUMB_SIZES).map(([w, s]) => [Number(w), s] as const)) {
   test.describe(`home hero thumbnail at ${width}px`, () => {
@@ -192,10 +192,12 @@ for (const [width, size] of Object.entries(THUMB_SIZES).map(([w, s]) => [Number(
       if (!t || !h) throw new Error("hero not laid out");
       expect(Math.round(t.width)).toBe(size);
       expect(Math.round(t.height)).toBe(size);
-      // Top right of the column, no taller than the eyebrow and the h1, so the hero is no taller.
+      // Top right of the column. The eyebrow above the h1 is gone (owner, 31 Oct 2026), so the tile may
+      // hang below the h1 by no more than the eyebrow row (line + gap) did: the hero is no taller than before.
       const gutter = width < 640 ? 20 : 32;
       expect(Math.round(t.x + t.width)).toBe(width - gutter);
-      expect(t.y + t.height).toBeLessThanOrEqual(h.y + h.height + 0.5);
+      expect(Math.abs(t.y - h.y)).toBeLessThanOrEqual(0.5);
+      expect(t.y + t.height).toBeLessThanOrEqual(h.y + h.height + 28);
       const badgeRight = await thumb.locator("[data-hero-badge]").evaluate((el) => el.getBoundingClientRect().right);
       expect(badgeRight).toBeLessThanOrEqual(width);
       // The h1 keeps its two lines, each clear of the tile.

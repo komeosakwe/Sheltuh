@@ -98,8 +98,8 @@ describe("CommunitySection: the pitch", () => {
     const card = container.querySelector("[data-community-card]");
     expect(card).toHaveClass("mt-8", "sm:mt-10", "lg:mt-0", "p-5", "sm:p-8");
     expect(container.querySelector("[data-community-faces]")).toHaveClass("mt-4", "sm:mt-6");
-    // The footnote stays readable: 14px, #666 on white (5.74:1).
-    expect(container.querySelector("[data-community-note]")).toHaveClass("text-sm", "text-foreground/60");
+    // No example here, so no footnote (its styling is checked with the demo example below).
+    expect(container.querySelector("[data-community-note]")).toBeNull();
   });
 
   it("sends signed-in members to find an event, in the same style", () => {
@@ -132,7 +132,9 @@ describe("CommunitySection: the pitch", () => {
     expect(within(card).getByText("A look inside")).toHaveClass("eyebrow");
     expect(within(card).getByText(COMMUNITY_TEASER.title)).toHaveClass("font-bold");
     expect(within(card).getByText(COMMUNITY_TEASER.body)).toBeInTheDocument();
-    expect(card.querySelector("[data-community-note]")).toHaveTextContent(/^Illustrative photos$/);
+    // No footnote without an example, and never an "Illustrative photos" caption (owner, 31 Oct 2026).
+    expect(card.querySelector("[data-community-note]")).toBeNull();
+    expect(card).not.toHaveTextContent(/Illustrative photos/);
     expect(card.querySelector("[data-community-count]")).toBeNull();
     expect(card).not.toHaveTextContent(/people going/);
     // No number anywhere in the band, and no claim that anyone is going.
@@ -173,22 +175,21 @@ describe("CommunitySection: the 'A look inside' card (demo)", () => {
     expect(card).toHaveAttribute("data-community-example");
     const note = card.querySelector("[data-community-note]");
     expect(note?.textContent).toBe(COMMUNITY_DEMO_NOTE);
-    // Each part stays on one line, so "Illustrative photos" never splits.
+    // Each part stays on one line.
     expect(Array.from(note?.querySelectorAll(".whitespace-nowrap") ?? []).map((part) => part.textContent)).toEqual([
       "Example event",
       "Sample count",
-      "Illustrative photos",
     ]);
-    expect(COMMUNITY_DEMO_NOTE).toBe("Example event · Sample count · Illustrative photos");
+    expect(COMMUNITY_DEMO_NOTE).toBe("Example event · Sample count");
     // White card on the band, 16px corners; its muted lines are readable grey, not the band's black.
     expect(card).toHaveClass("bg-card", "rounded-2xl");
     expect(note).toHaveClass("text-foreground/60");
   });
 
-  it("keeps the illustrative faces beside the sample count, and the footnote says they're illustrative", async () => {
+  it("keeps the illustrative faces beside the sample count, with no photo caption", async () => {
     const { card } = await renderDemo();
     expectIllustrativeFaces(card);
-    expect(card.querySelector("[data-community-note]")).toHaveTextContent(/Illustrative photos$/);
+    expect(card).not.toHaveTextContent(/Illustrative photos/);
     // The no-example pitch isn't shown alongside an example.
     expect(within(card).queryByText(COMMUNITY_TEASER.body)).toBeNull();
   });

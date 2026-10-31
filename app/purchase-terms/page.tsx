@@ -11,7 +11,6 @@ export default function PurchaseTermsPage() {
       eyebrow="Legal"
       title="Purchase Terms"
       intro="What you’re agreeing to when you buy a ticket."
-      draft
     >
       <ContentSection title="The price">
         <p>

@@ -9,7 +9,6 @@ export default function RefundsPage() {
       eyebrow="Fan support"
       title="Request a refund"
       intro="How refunds work, and how to ask for one."
-      draft
     >
       <ContentSection title="How to ask">
         <p>

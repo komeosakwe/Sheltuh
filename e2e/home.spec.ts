@@ -329,7 +329,7 @@ for (const width of [375, 1280]) {
       await expect(card).toBeVisible();
       await expect(band.locator("[data-community-example]")).toHaveCount(0);
       await expect(card).toContainText("Know who’ll be there");
-      await expect(card.locator("[data-community-note]")).toHaveText("Illustrative photos");
+      await expect(card.locator("[data-community-note]")).toHaveCount(0);
       await expect(card.locator("[data-community-faces] img")).toHaveCount(5);
       expect(await band.textContent()).not.toMatch(/\d/);
       // The pitch's heading is two lines at every width.
@@ -358,7 +358,7 @@ for (const vp of [
       await expect(card).toBeVisible();
       await expect(card.getByText("A look inside")).toBeVisible();
       await expect(card.locator("[data-community-count]")).toHaveText("22 people going");
-      await expect(card.locator("[data-community-note]")).toHaveText("Popular right now · Real count · Illustrative photos");
+      await expect(card.locator("[data-community-note]")).toHaveText("Popular right now · Real count");
       await expect(card).not.toContainText(/sample/i);
       // Five round portraits, hidden from assistive tech, empty alt, and actually loaded.
       const faces = card.locator("[data-community-faces]");
@@ -418,7 +418,7 @@ for (const width of [320, 1024, 1440]) {
         await openHome(page, { trending: true, going });
         const card = page.locator("#find-your-people [data-community-card]");
         await card.scrollIntoViewIfNeeded();
-        await expect(card.locator("[data-community-note]")).toContainText("Illustrative photos");
+        await expect(card).not.toContainText("Illustrative photos");
         const cardBox = await card.boundingBox();
         const facesBox = await card.locator("[data-community-faces]").boundingBox();
         if (!cardBox || !facesBox) throw new Error("card not laid out");

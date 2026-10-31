@@ -1,4 +1,3 @@
-import DotsMark from "@/components/brand/DotsMark";
 import DottedLine from "@/components/brand/DottedLine";
 import SearchBar from "@/components/SearchBar";
 import HeroCollage from "./HeroCollage";
@@ -21,8 +20,7 @@ function TitleLine({ line }: { line: string }) {
 /**
  * The home's hero (docs/design/mobile-redesign.md §6.1 and its Refinement,
  * 22 Oct 2026): one message, kept short so the first event's image and title
- * come up on a phone's first screen. The eyebrow (the page's one use of the
- * brand dots), the h1 "Find your next thing." (the site's one heavy
+ * come up on a phone's first screen. The h1 "Find your next thing." (the site's one heavy
  * uppercase display line; two lines at every width, each free to wrap at
  * large text sizes: never `nowrap`), one short muted sentence (at every
  * width, one line on a phone), then the search,
@@ -48,11 +46,7 @@ export default function HomeHero() {
         {/* The tile takes a fixed column at the right, so the h1's two lines keep their own width. */}
         <div className="flex items-start gap-3 sm:gap-4">
           <div className="min-w-0 flex-1">
-            <p className="eyebrow flex items-center gap-2 text-muted">
-              <DotsMark size="xs" className="text-signal" />
-              Less scrolling. More going.
-            </p>
-            <h1 id="home-title" className="display-lg mt-2 font-display display-plain sm:mt-3">
+            <h1 id="home-title" className="display-lg font-display display-plain">
               {/* The literal space keeps the accessible name "Find your next thing.". */}
               <TitleLine line={first} /> <TitleLine line={second} />
             </h1>

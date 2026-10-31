@@ -113,7 +113,7 @@ describe("Home (demo data, Wed 21 Oct 2026)", () => {
     // The band's example is a real sample count from a card on the page, labelled too.
     const example = container.querySelector("[data-community-example]");
     expect(example?.querySelector("[data-community-count]")).toHaveTextContent(/^\d+ people going$/);
-    expect(example?.querySelector("[data-community-note]")).toHaveTextContent(/^Example event · Sample count · Illustrative photos$/);
+    expect(example?.querySelector("[data-community-note]")).toHaveTextContent(/^Example event · Sample count$/);
     const quick = screen.getAllByRole("link", { name: /tickets for/ });
     expect(quick.length).toBeGreaterThan(5);
     for (const link of quick) {
