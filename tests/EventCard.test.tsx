@@ -453,10 +453,10 @@ describe("EventCard ticket states, from real data only (§6.2.3)", () => {
     ["seated, on sale", seated, "From A$37.60 incl. booking fee", "Choose seats", "/events/glass-sessions/seats", "btn-signal"],
     ["sold out, waitlist open", soldOut, "Sold out", "Join waitlist", "/events/glass-sessions#tickets", "btn-outline"],
     ["seated and sold out", { ...seated, soldOut: true, ticketTypes: soldOut.ticketTypes.map((t) => ({ ...t, seated: true })) }, "Sold out", "Join waitlist", "/events/glass-sessions#tickets", "btn-outline"],
-    // A9: an external event's tickets aren't bought on Sheltüh, so "Get tickets"; the provider stays in the price line.
-    ["external, paid", external, "Tickets on Humanitix", "Get tickets", "/events/dub-session#tickets", "btn-signal"],
-    ["external, paid, with the organiser's price", { ...external, externalPriceFromCents: 8900 }, "From A$89 Tickets on Humanitix", "Get tickets", "/events/dub-session#tickets", "btn-signal"],
-    ["external, free", externalFree, "Free Tickets on the organiser's site", "Get free tickets", "/events/open-studios#tickets", "btn-signal"],
+    // A9: an external event's tickets aren't bought on Sheltüh, so "Get tickets"; the price line never names the ticket site (owner, 31 Oct 2026).
+    ["external, paid", external, "Get tickets", "Get tickets", "/events/dub-session#tickets", "btn-signal"],
+    ["external, paid, with the organiser's price", { ...external, externalPriceFromCents: 8900 }, "From A$89", "Get tickets", "/events/dub-session#tickets", "btn-signal"],
+    ["external, free", externalFree, "Free", "Get free tickets", "/events/open-studios#tickets", "btn-signal"],
     ["no ticket types yet", { ...event, ticketTypes: [] }, "Tickets coming soon", null, null, null],
   ])("%s", (_label, e, price, label, href, tone) => {
     const { container } = render(<EventCard event={e} variant="grid" mode="live" />);
@@ -547,12 +547,28 @@ describe("EventCard attendance and category qualifiers (§6.2.2, §6.2.5; Refine
   });
 });
 
+describe("an external event's card never names the ticket site", () => {
+  it.each<[string, SheltuhEvent, string]>([
+    ["paid, no price", external, "Get tickets"],
+    ["paid, organiser's price", { ...external, externalPriceFromCents: 8900 }, "From A$89"],
+    ["free", externalFree, "Free"],
+  ])("%s: the price line is only %j", (_label, e, price) => {
+    for (const variant of ["grid", "rail"] as const) {
+      const { container, unmount } = render(<EventCard event={e} variant={variant} mode="live" />);
+      const foot = container.querySelector("[data-card-foot]");
+      expect(foot?.firstElementChild?.textContent?.trim()).toBe(price);
+      expect(container).not.toHaveTextContent(/Humanitix|Eventbrite|organiser.s site|Tickets on|Sold by/i);
+      unmount();
+    }
+  });
+});
+
 describe("EventCard states are distinct (Refinement, 22 Oct 2026)", () => {
   it.each<[string, SheltuhEvent, string, string, string | null]>([
     ["paid", event, "paid", "From A$37.60 incl. booking fee", "Buy tickets"],
     ["free", allFree, "free", "Free No booking fee", "Get free tickets"],
     ["sold out (waitlist)", soldOut, "sold-out", "Sold out", "Join waitlist"],
-    ["external", external, "external", "Tickets on Humanitix", "Get tickets"],
+    ["external", external, "external", "Get tickets", "Get tickets"],
     ["seated", seated, "seated", "From A$37.60 incl. booking fee", "Choose seats"],
   ])("%s: its own state, price line and action", (_label, e, state, price, action) => {
     const { container } = render(<EventCard event={e} variant="rail" mode="live" />);

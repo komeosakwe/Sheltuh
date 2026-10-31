@@ -57,6 +57,9 @@ export function externalPriceFromLabel(
   return typeof cents === "number" && Number.isFinite(cents) && cents > 0 ? `From ${formatAud(cents)}` : null;
 }
 
+/** A paid external event's card price when its organiser gave none (never the ticket site's name). */
+export const EXTERNAL_NO_PRICE_LABEL = "Get tickets";
+
 /** An external event's ticketing site for "Tickets on {provider}": a known site's name, else "the organiser's site". */
 export function externalProviderLabel(event: SheltuhEvent): string {
   const known =
@@ -76,9 +79,9 @@ export function externalProviderLabel(event: SheltuhEvent): string {
  */
 export function formatFeedPrice(event: SheltuhEvent): string {
   if (isExternal(event)) {
-    const where = `Tickets on ${externalProviderLabel(event)}`;
+    // Never the ticket site's name (owner, 31 Oct 2026): buyers go through our "Get tickets" link.
     const from = externalPriceFromLabel(event);
-    return event.externalFree ? `Free · ${where}` : from ? `${from} · ${where}` : where;
+    return event.externalFree ? "Free" : from ?? EXTERNAL_NO_PRICE_LABEL;
   }
   if (isSoldOut(event)) return SOLD_OUT_LABEL;
   const minTotalCents = getMinBuyerTotalCents(event);
@@ -106,10 +109,9 @@ export interface FeedPriceParts {
  */
 export function formatFeedPriceParts(event: SheltuhEvent): FeedPriceParts | null {
   if (isExternal(event)) {
-    const where = `Tickets on ${externalProviderLabel(event)}`;
     const from = externalPriceFromLabel(event);
-    if (event.externalFree) return { amount: "Free", note: where };
-    return from ? { amount: from, note: where } : { amount: where, note: "" };
+    if (event.externalFree) return { amount: "Free", note: "" };
+    return { amount: from ?? EXTERNAL_NO_PRICE_LABEL, note: "" };
   }
   if (isSoldOut(event)) return { amount: SOLD_OUT_LABEL, note: "" };
   const minTotalCents = getMinBuyerTotalCents(event);
