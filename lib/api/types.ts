@@ -1,13 +1,13 @@
 import type { RefundPolicy } from "@/lib/refund-policy";
 import type { TicketingMode } from "@/lib/ticketing";
-import type { EventCategory, EventClip, FeePolicy } from "@/lib/types";
+import type { EventCategory, EventClip, FeePolicy, ImageFocus } from "@/lib/types";
 import type { FeaturedVideo } from "./featured-video";
 import type { PublicEvent } from "./public-events";
 import type { SeatMapTemplate, TicketSeat } from "@/lib/seating/template";
 import type { AustralianTimeZone, StateCode } from "@/lib/time-zones";
 
 export type { FeaturedVideo, FeaturedVideoProvider } from "./featured-video";
-export type { EventClip } from "@/lib/types";
+export type { EventClip, ImageFocus } from "@/lib/types";
 
 export type { TicketingMode } from "@/lib/ticketing";
 export type { RefundPolicy } from "@/lib/refund-policy";
@@ -231,6 +231,8 @@ export interface EventEditChanges {
   endsAt?: TicketingFieldChange<string>;
   ticketTypes?: TicketingFieldChange<TicketTypeInput[]>;
   image?: TicketingFieldChange<"set">;
+  /** An admin set, moved or cleared the photo's focus point. */
+  imageFocus?: TicketingFieldChange<ImageFocus>;
   /** An admin replaced or removed the seat map (or switched the event to external ticketing, removing it). */
   seatMap?: TicketingFieldChange<EventSeating>;
   /** An admin added, replaced or removed the clip (its versions). */
@@ -382,6 +384,8 @@ export interface EventRecord {
   organiserName: string;
   /** Same-origin path of the organiser's photo, if one was uploaded. Versioned (?v=) so it caches safely. */
   imageUrl?: string;
+  /** Where the photo's subject is (percent from the left and top), only when set: cropped renderings centre on it. */
+  imageFocus?: ImageFocus;
   /**
    * The event's clip, only when it has one (absent otherwise). Its `url`
    * plays only once the event is published; before that, the owner or an

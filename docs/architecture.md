@@ -85,7 +85,7 @@ iframe served by Stripe), with the publishable key
 | `ticket_types` | `(event_id, id)` | `id` is stable across draft edits. A trigger refuses a price above 0 for a platform-managed organiser's event (`ticket_types_platform_free_only`). `quantity_sold` only ever goes up in `fulfil_order`, and down only in `record_payment_refund` (a paid order refunded in full). `seated`: the tier has seats on the event's seat map; its `quantity_available` is then always its unblocked seats (trigger `ticket_types_seated_capacity`, whatever is written; see "Reserved seating"). |
 | `event_seat_maps` | `event_id` | An event's optional seat map (see "Reserved seating"): `layout` (the validated template, `lib/seating/template.ts`), `seat_count` (1–10,000) and `version` (from the sequence `private.seat_map_versions`: never reused, not even after a delete). Every write bumps the event's `updated_at` (`event_seat_maps_touch_event`). Refused for an external event (`event_seat_maps_sheltuh_only`). Deleted with the event. |
 | `event_seats` | `(event_id, id)` | The map's seats, derived from the layout in the same step (`write_seat_map`): `position` (map order: the availability bit), section, row (may be empty) and seat labels, `ticket_type_id` (no-action foreign key `event_seats_ticket_type_fkey`: a tier with seats can't be removed), `kind` (standard, wheelchair, companion), `blocked`; `hold_order_id` / `hold_expires_at` (a pending order's hold) and `sold_order_id`. Checks: never held and sold at once (`event_seats_one_owner`), never held or sold while blocked (`event_seats_blocked_unsold`). Deleted with the map. |
-| `event_images` | `event_id` | Optional organiser photo (≤2 MB, JPEG/PNG/WebP) stored as `bytea` — no Storage bucket or extra secret. Public via `GET /api/events/[id]/image` once published (versioned URL, shared at the CDN for an hour at the current version, ETag and 304; see "CDN windows"); before that only the owner/admins with a token. Every write (insert, update, delete) bumps the event's `updated_at` in the same transaction (`event_images_touch_event`), so a photo change is a new version of the event (see "Admin authoring"); writers lock the event row (for no key update) before the image row. Move to Storage/CDN if volume grows. |
+| `event_images` | `event_id` | Optional organiser photo (≤2 MB, JPEG/PNG/WebP) stored as `bytea` — no Storage bucket or extra secret. Public via `GET /api/events/[id]/image` once published (versioned URL, shared at the CDN for an hour at the current version, ETag and 304; see "CDN windows"); before that only the owner/admins with a token. Every write (insert, update, delete) bumps the event's `updated_at` in the same transaction (`event_images_touch_event`), so a photo change is a new version of the event (see "Admin authoring"); writers lock the event row (for no key update) before the image row. Move to Storage/CDN if volume grows. `focus_x` / `focus_y` (`20261115000000_event_image_focus.sql`; smallint 0..100, both null or both set, check constraint `event_images_focus_check`): where the photo's subject is, so cropped renderings centre on it (see "Photo focus"). No index: nothing filters on it. |
 | `event_moderation_log` | `id` | Append-only: submitted / approved / rejected / unpublished / ticketing_changed / created / edited / curated, by whom, and why. `approved` means "went live": an admin's approval or publish, or an approved organiser's own publish (`private.publish_event`, logged by the organiser's own account), so every reader of "approved before" treats the two alike (see "Publishing events"). Partial index `event_moderation_log_approved_idx (created_at, event_id) where action = 'approved'` serves the admins' "recently published" list and the admin home's count. `details` (jsonb object, null for the other actions): for `ticketing_changed`, the old and new value of each ticketing field the admin changed (full ticket links: see "External ticketing"); for `edited`, the old and new value of each other field an admin changed (see "Admin authoring"); for `curated`, the old and new `boost` and `excluded` (see "Trending"). Shown to the event's organiser and to admins (`moderationLog[].changes`), never publicly, except `curated` entries, which only admins see (`GET /admin/events/{id}/curation`). `by` is the actor's account id for admins; the organiser's view shows `"Sheltüh team"` (`SHELTUH_TEAM_ACTOR`) for anyone but the organiser's own account. No update trigger: personal information in `details` or `reason` is redacted in place (`docs/supabase-setup.md`, APP 11/13). |
 | `orders` | `id` (`ord_…`) | Priced snapshot of the line items and totals. `status`: pending → paid / failed / oversold_refund_required; oversold_refund_required → refunded (our automatic refund); paid → refunded (refunded in full in Stripe: Stripe's `refunded`, or at least `total_cents` refunded; see "Refunds made in Stripe"); pending → failed also when a paid session's amount or currency wasn't the order's (`private.fail_mismatched_order`, which also records the payment intent; the payment is then refunded). `amount_refunded_cents` (≥ 0, default 0) is Stripe's cumulative refunded amount, recorded only for paid orders (a partial refund leaves the order paid, whatever its amount; a refunded order with `amount_refunded_cents` below `total_cents` was voided by the tickets-only rule of `20261110000200_support_ticket_refund.sql`, before `20261111000300_refund_no_inference.sql` removed it). Indexed on `stripe_payment_intent_id` (partial, not null) for the refund webhook, and on `(event_id, created_at)` (partial, `paid`) for the trending refresh's 14-day read. `tickets_emailed_at` records the ticket email. `tracking_code` is the event tracking link the checkout came through (checked against the event's links when the order is created; null otherwise). `seat_ids` (1–10): a seated order's seats, set when it's made and never changed (what fulfilment and refunds act on). `support_cents` (0 to 50000, default 0; `20261110000100_order_support.sql`): Support Sheltüh, what the buyer added for the platform (see "Support Sheltüh"); only on an order with a paid ticket (`orders_support_paid_only`), and in `total_cents` (`orders_support_in_total`: total = subtotal + buyer fee + support when there is some), never in `subtotal_cents`, `buyer_fee_cents` or `application_fee_cents` (the booking fee). |
 | `tickets` | `code` | One row per admitted person. Rows are kept when their order is refunded, but only a `paid` order's tickets are valid: check-in checks the order's status. `checked_in_at`: when the ticket was admitted at the door (null until then, and again after an undo; cleared 25 months after the event ends). Indexed on `(event_id, ticket_type_id)` for the check-in counts. `seat_id`: its seat (reserved seating); the foreign key `ticket_seats_sold_fkey` (event, seat, order, ticket type) → `event_seats (event_id, id, sold_order_id, ticket_type_id)` means a ticket can only name a seat sold to its own order in its own tier, and `tickets_seat_key` one ticket per seat. A full refund clears it (the order's `seat_ids` keeps the history). `wallet_serial` (uuid, random, unique `tickets_wallet_serial_key`; `20261109000500_ticket_wallet_serial.sql`): the id of the ticket's wallet pass, read only by the wallet routes (see "Wallet passes"). |
@@ -2514,6 +2514,39 @@ to (`lib/ticketing.ts`, `lib/server/event-input.ts`,
   stale read, then the switch, then the order); run the suite on a real
   Postgres before go-live.
 
+## Photo focus
+
+An organiser (or an admin) can say where the subject of an event's photo is,
+so cropped renderings (map pins, cards, rails, the event page's strip) keep
+it in view instead of cropping to the middle.
+
+- **Data.** `event_images.focus_x` / `focus_y` (smallint, percent from the
+  left / top, 0..100; both null or both set). On the image row, not on
+  `events`: the photo is written by its own routes, not the draft write
+  functions (none of which changes), and replacing the photo without a focus
+  resets it while deleting it drops it. Every change bumps the event's
+  `updated_at` (`event_images_touch_event`); a focus-only change leaves the
+  photo's own version (`?v=`) alone, so its bytes stay cached.
+- **Writes.** `PUT /events/{id}/image?fx=&fy=` (and the admin's) sets the
+  photo and its focus together (no params: no focus, the crop centres; one
+  without the other, or a value that isn't an integer 0..100, is a 400 with
+  `fieldErrors.imageFocus`). `PATCH /events/{id}/image` with
+  `{"focus": {"x", "y"} | null}` changes only the focus of the saved photo
+  (the organiser: own draft or rejected event, as the photo; 409 while it's
+  pending or published, or when there is no photo; the admin's
+  `PATCH /admin/events/{id}/image`: any status, 404 unknown event, 409 no
+  photo, logged `edited`, nothing logged when unchanged). The organiser's
+  writes lock the event row before the image row, as every photo writer does.
+- **Reads.** `imageFocus: {x, y}` is on the event (absent without one),
+  including the public shape: it says nothing private.
+- **Rendering.** `components/EventArt.tsx` takes `imageFocus` and sets
+  `object-position: x% y%` on the cover image (and on the blurred backdrop
+  of a contained image, whose foreground stays whole); every caller that
+  shows an event's photo passes the event's. The editor's Photo card
+  (`components/dashboard/EventFocusControl.tsx`) places the marker by
+  pointer or keyboard (arrow keys move 5%, Home centres) with live pin and
+  card previews; the focus is saved with the photo.
+
 ## Admin authoring
 
 Admins create events themselves, for any organiser
@@ -2575,6 +2608,9 @@ Admins create events themselves, for any organiser
   from a version loaded before it is stale (409): an admin can't publish a
   photo they haven't seen. The photo routes answer with the event, and the
   editor takes its next `expectedUpdatedAt` from that answer.
+- **Photo focus** (`PATCH /admin/events/{id}/image`, `PUT …/image?fx=&fy=`):
+  see "Photo focus"; logged `edited` with `changes.imageFocus` (`{x, y}` or
+  null, each side).
 - **Audit.** `created`, `edited` and `ticketing_changed` entries carry the
   admin's user id, which admin routes show; the event's organiser sees the
   entries in their event's `moderationLog` with `by: "Sheltüh team"` instead
@@ -3595,7 +3631,7 @@ application is approved.
 | `POST /events/{eventId}/ticket-types/{ticketTypeId}/release` `{quantityAvailable}` | organiser (own event; see "Releasing more tickets"). 200 `{eventId, ticketTypeId, quantityAvailable, quantitySold}` (`private, no-store`). 400 `fieldErrors.quantityAvailable` (not a whole number, not above the current total, over 100,000); 403 not an approved organiser; 404 not theirs or no such ticket type; 409 not published, ended, external or a seated tier; 429 over 30 releases an hour. The waitlist's emails are sent after the response (`maxDuration` 60) |
 | `POST /places/autocomplete` `{input, sessionToken}` · `POST /places/details` `{placeId, sessionToken}` | approved organiser or admin (401, 403); `private, no-store` (see "Venue location"). Autocomplete: `input` 2–120 characters after control characters are removed; `sessionToken` `^[A-Za-z0-9_-]{8,36}$`, one per search. 200 `{suggestions: [{placeId, primaryText, secondaryText}]}` (at most 5, in Australia and its external territories). Details (ends the search's session): 200 `{placeId, formattedAddress, streetAddress, locality, state, postcode, googleMapsUrl}`, never a position. 400 fieldErrors (`input`, `sessionToken`, `placeId`: malformed, unknown to Google, or not in Australia); 429 per account (autocomplete 100 an hour and 400 a day; details, shared with event saves' place checks, 30 an hour and 120 a day); 503 `code: "places_unavailable"` (no key, Google unreachable, over quota, a bad key or disabled API, over 5 s, or the platform's cap for Google's day used: autocomplete 1,800, details 450). Bodies at most 4 KB. Nothing about the search is logged |
 | `GET /organisers/me/events` · `GET /organisers/me/events/{id}` | organiser (own events), `private, no-store` |
-| `PUT /events/{id}/image` · `DELETE /events/{id}/image` | organiser (own events, while draft or rejected). Admins: `…/admin/events/{id}/image` |
+| `PUT /events/{id}/image[?fx=&fy=]` · `PATCH /events/{id}/image` (`{focus}`) · `DELETE /events/{id}/image` | organiser (own events, while draft or rejected). Admins: `…/admin/events/{id}/image`. See "Photo focus" |
 | `GET /events/{id}/image?v=` | public once published: at the current `v` (as `imageUrl` gives it) `public, max-age=3600, s-maxage=3600`, with any other `v` or none the same image but `private, max-age=3600` (never shared: a guessed future version can't be cached ahead of a replacement); before that, the owning organiser or an admin, `private, no-store`. ETag `"<version>"` and Last-Modified; a matching `If-None-Match` is a 304 with the same headers (after the same access check, and without reading the bytes) |
 | `GET /events/{id}/going` | public (published only): `{count, closed, countHidden}`. No cache header (not CDN-cached, so the count keeps up with the names list) |
 | `GET /events/{id}/going/attendees?cursor` | verified email with a profile that isn't suspended (403 otherwise); published only; 429 when rate-limited |

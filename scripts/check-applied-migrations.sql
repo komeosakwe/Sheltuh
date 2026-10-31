@@ -175,6 +175,9 @@ select version, file, coalesce(applied, false) as applied
       and (select count(*) from pg_trigger t
             where t.tgrelid = to_regclass('public.organisers')
               and t.tgname in ('organisers_onboarding_email_insert', 'organisers_onboarding_email_approved')) = 2),
-    ('20261113000000', 'release_tickets', exists (select 1 from fn where proname = 'release_tickets'))
+    ('20261113000000', 'release_tickets', exists (select 1 from fn where proname = 'release_tickets')),
+    ('20261115000000', 'event_image_focus',
+      exists (select 1 from col where attrelid = to_regclass('public.event_images') and attname = 'focus_x')
+      and exists (select 1 from fn where proname = 'admin_set_event_image_focus'))
   ) as m(version, file, applied)
  order by version;

@@ -193,3 +193,10 @@ describe("adaptPublicEvent: the venue location", () => {
     for (const key of ["venuePlaceId", "venuePinned", "coordinates"]) expect(adapted).not.toHaveProperty(key);
   });
 });
+
+describe("adaptPublicEvent: the photo's focus point", () => {
+  it("carries it when sent, and leaves it out of a payload without one", () => {
+    expect(adaptPublicEvent({ ...base, imageUrl: "/api/events/evt-1/image?v=1", imageFocus: { x: 25, y: 75 } }).imageFocus).toEqual({ x: 25, y: 75 });
+    expect(adaptPublicEvent(base)).not.toHaveProperty("imageFocus");
+  });
+});

@@ -38,7 +38,7 @@ export default function MapClusterMarker({ events, stacked, expanded, onActivate
       {/* A second disc peeking out behind suggests a stack. */}
       <span aria-hidden="true" className="absolute inset-0 translate-x-1 -translate-y-1 rounded-dot border-2 border-foreground bg-surface" />
       <span className="relative block h-full w-full rounded-dot bg-foreground p-1 ring-2 ring-background motion-safe:transition-transform group-hover:scale-105">
-        <EventArt poster={lead.poster} title={lead.title} imageUrl={lead.imageUrl} className="h-full w-full rounded-dot" />
+        <EventArt poster={lead.poster} title={lead.title} imageUrl={lead.imageUrl} imageFocus={lead.imageFocus} className="h-full w-full rounded-dot" />
       </span>
       <span
         aria-hidden="true"

@@ -1,5 +1,6 @@
 import { apiFetch, type GetToken } from "./client";
-import type { EventInput } from "./events";
+import { focusQuery, type EventInput } from "./events";
+import type { ImageFocus } from "@/lib/types";
 import type {
   AdminCreateInviteInput,
   AdminCreateOrganiserInput,
@@ -325,11 +326,21 @@ export async function adminUpdateEvent(eventId: string, input: AdminUpdateEventI
 }
 
 /** Uploads (or replaces) any event's photo (logged `edited`). Returns the event, whose `imageUrl` is the new version. */
-export async function adminUploadEventImage(eventId: string, image: Blob, getToken: GetToken) {
+export async function adminUploadEventImage(eventId: string, image: Blob, getToken: GetToken, focus?: ImageFocus | null) {
   const token = await getToken();
-  return apiFetch<AdminEventRecord>(`/admin/events/${encodeURIComponent(eventId)}/image`, {
+  return apiFetch<AdminEventRecord>(`/admin/events/${encodeURIComponent(eventId)}/image${focusQuery(focus)}`, {
     method: "PUT",
     body: image,
+    token,
+  });
+}
+
+/** Moves (or, with null, clears) the focus point of any event's saved photo (logged `edited`). */
+export async function adminSetEventImageFocus(eventId: string, focus: ImageFocus | null, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<AdminEventRecord>(`/admin/events/${encodeURIComponent(eventId)}/image`, {
+    method: "PATCH",
+    body: { focus },
     token,
   });
 }

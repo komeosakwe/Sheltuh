@@ -68,7 +68,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261113000000_release_tickets.sql`. Never
+      newest, currently `20261115000000_event_image_focus.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -299,6 +299,21 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           once both are live). Needs no new environment variable.
           Reversible: drop the function (the `edited` entries and the raised
           quantities it wrote stay)
+      42. `20261115000000_event_image_focus.sql` (the photo focus point,
+          docs/architecture.md "Photo focus": nullable smallint
+          `event_images.focus_x` / `focus_y` with check constraint
+          `event_images_focus_check`, new `private.admin_set_event_image_focus`,
+          and `private.admin_put_event_image` redefined with two trailing
+          parameters that default to null, so the old four-argument call
+          still works. Search_path pinned, execute revoked from clients, no
+          new table, grant or index. Additive; the previous app keeps
+          working against it (it sends no focus, so photos stay centred), so
+          it can be applied ahead of the deploy. Needs no new environment
+          variable. Reversible: drop `admin_set_event_image_focus`, drop the
+          six-argument `admin_put_event_image` and recreate the
+          four-argument one from file 15's successor
+          (`20261023000100_review_hardening.sql`), then drop the constraint
+          and the two columns (focus points are lost)
 
       **Files 33 to 37 can be applied ahead of this deploy, with the
       previous app still live.** "The previous app" here is the build of

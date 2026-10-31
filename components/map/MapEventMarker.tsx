@@ -46,7 +46,7 @@ export function EventMarkerMark({
   event,
   selected = false,
 }: {
-  event: Pick<SheltuhEvent, "poster" | "title" | "imageUrl">;
+  event: Pick<SheltuhEvent, "poster" | "title" | "imageUrl" | "imageFocus">;
   selected?: boolean;
 }) {
   return (
@@ -57,7 +57,7 @@ export function EventMarkerMark({
           : "bg-foreground ring-2 ring-background group-hover:scale-105"
       }`}
     >
-      <EventArt poster={event.poster} title={event.title} imageUrl={event.imageUrl} className="h-full w-full rounded-dot" />
+      <EventArt poster={event.poster} title={event.title} imageUrl={event.imageUrl} imageFocus={event.imageFocus} className="h-full w-full rounded-dot" />
     </span>
   );
 }

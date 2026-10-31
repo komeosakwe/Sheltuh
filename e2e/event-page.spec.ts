@@ -755,3 +755,21 @@ for (const vp of [
     });
   });
 }
+
+// docs/architecture.md, "Photo focus": the page's photo is cropped on the organiser's focus point.
+test.describe("event photo focus", () => {
+  test("the event page's photo is cropped on the focus point", async ({ page }) => {
+    await page.route("**/api/**", (route) => {
+      const url = new URL(route.request().url());
+      if (/^\/api\/events\/slug\//.test(url.pathname)) {
+        return route.fulfill({ json: { ...asPublic("neon-static"), imageUrl: "/events/dj-crate-digging.jpg", imageFocus: { x: 15, y: 70 } } });
+      }
+      if (/\/going$/.test(url.pathname)) return route.fulfill({ json: { count: 0, countHidden: false, closed: false } });
+      return route.fulfill({ status: 204 });
+    });
+    await page.goto("/events/neon-static");
+    await expect(page.getByRole("heading", { level: 1, name: "Neon Static" })).toBeVisible({ timeout: 30_000 });
+    // The photo may fall back to the poster art if the file doesn't exist; the style is on the image element while it's there.
+    await expect(page.locator("img[style*='object-position']").first()).toHaveCSS("object-position", "15% 70%");
+  });
+});

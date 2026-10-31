@@ -80,6 +80,12 @@ export interface Coordinates {
   lng: number;
 }
 
+/** A photo's focus point: percent from the left (x) and top (y), integers 0..100. */
+export interface ImageFocus {
+  x: number;
+  y: number;
+}
+
 /**
  * An event's short silent video (docs/design/event-clips.md): shown only
  * when someone presses Play on the event's image. Absent when the event has
@@ -163,6 +169,8 @@ export interface SheltuhEvent {
   poster: EventPoster;
   /** Optional event photo/poster (path under /public or absolute URL). Falls back to `poster` art when absent or failing to load. */
   imageUrl?: string;
+  /** Where the photo's subject is, so cropped renderings centre on it (absent: the middle). */
+  imageFocus?: ImageFocus;
   /** Live events only, and only with a clip: its short silent video (a Play button over the image). */
   clip?: EventClip;
   /** Always empty for an external event (tickets sold on another site). */
