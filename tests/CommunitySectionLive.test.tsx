@@ -18,6 +18,7 @@ const loadHomeTrending = vi.fn<(now: Date) => Promise<TrendingItem[]>>();
 vi.mock("@/lib/home-events", () => ({
   loadHomeEvents: (now: Date) => loadHomeEvents(now),
   loadHomeTrending: (now: Date) => loadHomeTrending(now),
+  loadHomeRecent: () => Promise.resolve([]),
   loadHomeFollowing: () => Promise.resolve([]),
 }));
 

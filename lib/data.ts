@@ -1,4 +1,5 @@
 import { EVENT_CATEGORIES, type EventCategory, type SheltuhEvent } from "./types";
+import { byRecentlyEnded, isRecentlyEnded } from "./recent-events";
 import { sampleEvents } from "./sample-events";
 
 /**
@@ -49,4 +50,15 @@ export function isUpcomingEvent(event: SheltuhEvent, now: Date): boolean {
 /** The demo events that haven't ended yet, as `GET /api/events?upcoming=1` would list them. */
 export async function getUpcomingEvents(now: Date = new Date()): Promise<SheltuhEvent[]> {
   return (await getEvents()).filter((event) => isUpcomingEvent(event, now));
+}
+
+/**
+ * The demo feed (/events): the events that haven't ended, soonest first, then
+ * those that ended in the last 14 days, most recently ended first, as
+ * `GET /api/events?upcoming=1&recent=1` lists them.
+ */
+export async function getFeedEvents(now: Date = new Date()): Promise<SheltuhEvent[]> {
+  const all = await getEvents();
+  const upcoming = all.filter((event) => isUpcomingEvent(event, now)).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+  return [...upcoming, ...all.filter((event) => isRecentlyEnded(event, now)).sort(byRecentlyEnded)];
 }

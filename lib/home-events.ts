@@ -2,9 +2,10 @@ import { isApiConfigured, type GetToken } from "@/lib/api/client";
 import { listFollowingEvents } from "@/lib/api/follows";
 import { listPublicEvents } from "@/lib/api/public-events";
 import { getTrendingEvents } from "@/lib/api/trending";
-import { getUpcomingEvents, isUpcomingEvent } from "@/lib/data";
+import { getEvents, getUpcomingEvents, isUpcomingEvent } from "@/lib/data";
 import { bySoonest, latestWeekendEnd, type TrendingItem } from "@/lib/home-sections";
 import { adaptPublicEvent } from "@/lib/live/adapt";
+import { byRecentlyEnded, isRecentlyEnded } from "@/lib/recent-events";
 import { getSampleGoing } from "@/lib/sample-going";
 import type { SheltuhEvent } from "@/lib/types";
 
@@ -50,6 +51,21 @@ export async function loadHomeEvents(now: Date): Promise<SheltuhEvent[]> {
     page = await listPublicEvents({ upcoming: true, limit: HOME_WEEKEND_TOP_UP_LIMIT, cursor: page.nextCursor });
   }
   return [...byId.values()].filter(notEnded(now)).sort(bySoonest);
+}
+
+/** "Recently on" shows at most this many (the rail's size); the server is asked for just them. */
+export const HOME_RECENT_LIMIT = 6;
+
+/**
+ * Events that ended within the last 14 days (RECENT_EVENT_DAYS), most recently
+ * ended first, for "Recently on" (the API's `recent=only`; demo: the sample
+ * events). Those that fell outside the window by `now` are dropped.
+ */
+export async function loadHomeRecent(now: Date): Promise<SheltuhEvent[]> {
+  const recent = (event: SheltuhEvent) => isRecentlyEnded(event, now);
+  if (!isApiConfigured) return (await getEvents()).filter(recent).sort(byRecentlyEnded);
+  const page = await listPublicEvents({ upcoming: true, recent: "only", limit: HOME_RECENT_LIMIT });
+  return page.items.map(adaptPublicEvent).filter(recent).sort(byRecentlyEnded);
 }
 
 /**

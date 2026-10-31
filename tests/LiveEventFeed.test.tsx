@@ -54,8 +54,8 @@ describe("LiveEventFeed — pagination against the public API", () => {
     expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
     expect(listPublicEvents).toHaveBeenCalledTimes(2);
     expect(listPublicEvents.mock.calls[1][0]).toMatchObject({ cursor: "cursor-1" });
-    // Past events are never listed: the first page and the next both ask for upcoming only.
-    for (const [params] of listPublicEvents.mock.calls) expect(params).toMatchObject({ upcoming: true });
+    // Ended events are listed only for the last 2 weeks, after the upcoming ones: every page asks for upcoming + recent.
+    for (const [params] of listPublicEvents.mock.calls) expect(params).toMatchObject({ upcoming: true, recent: true });
   });
 
   it("skips past an empty filtered page that still carries a cursor, to reach a later page with matches", async () => {

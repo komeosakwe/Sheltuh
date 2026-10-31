@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { isApiConfigured } from "@/lib/api/client";
 import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
-import { loadHomeEvents, loadHomeFollowing, loadHomeTrending } from "@/lib/home-events";
+import { loadHomeEvents, loadHomeFollowing, loadHomeRecent, loadHomeTrending } from "@/lib/home-events";
 import { selectHomeSections, type HomeSections } from "@/lib/home-sections";
 import { readStoredNearState } from "@/lib/near-storage";
 
@@ -57,12 +57,14 @@ export function HomeEventsProvider({ children }: { children: ReactNode }) {
       loadHomeEvents(now),
       loadHomeTrending(now).catch(() => []),
       getToken ? loadHomeFollowing(getToken, now).catch(() => []) : Promise.resolve([]),
+      // A failure only hides "Recently on".
+      loadHomeRecent(now).catch(() => []),
     ]).then(
-      ([events, trending, following]) => {
+      ([events, trending, following, recent]) => {
         if (!cancelled) {
           setState({
             status: "ready",
-            sections: selectHomeSections(events, trending, now, following, preferredState),
+            sections: selectHomeSections(events, trending, now, following, preferredState, recent),
             now,
           });
         }

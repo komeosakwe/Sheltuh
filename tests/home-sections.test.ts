@@ -413,3 +413,57 @@ describe("selectHomeSections: the saved suburb's state first (owner decision D5)
     expect(following.map((e) => e.id)).toEqual(["p7", "v1", "v2", "v3", "v4", "v5"]);
   });
 });
+
+describe("selectHomeSections: Recently on (events ended within 14 days)", () => {
+  // NOW is Wed 21 Oct 2026, 12:00 AEDT (01:00Z). Each of these ends three hours after it starts.
+  const recent = (id: string, daysAgo: number) => event(id, iso(NOW.getTime() - daysAgo * 86_400_000 - 3 * 3600_000));
+  const justGone = recent("just", 0);
+  const lastWeek = recent("last-week", 6);
+  const twoWeeks = recent("two-weeks", 13.5);
+  const tooOld = recent("too-old", 14.5);
+  const upcoming = event("thu", day(22));
+
+  it("lists those ended in the last 14 days, most recently ended first; older ones are out", () => {
+    const sections = selectHomeSections([upcoming], [], NOW, [], null, [tooOld, twoWeeks, justGone, lastWeek]);
+    expect(sections.recent.map((e) => e.id)).toEqual(["just", "last-week", "two-weeks"]);
+  });
+
+  it("an event that ends exactly now is recent; the 14-day boundary is exclusive", () => {
+    const endsNow = { ...event("now", iso(NOW.getTime() - 3600_000)), endsAt: iso(NOW.getTime()) };
+    const exactly14 = { ...event("fourteen", iso(NOW.getTime() - 15 * 86_400_000)), endsAt: iso(NOW.getTime() - 14 * 86_400_000) };
+    expect(selectHomeSections([], [], NOW, [], null, [endsNow, exactly14]).recent.map((e) => e.id)).toEqual(["now"]);
+  });
+
+  it("never holds an upcoming or in-progress event, and ended events never enter the other sections", () => {
+    const running = event("running", iso(NOW.getTime() - 3600_000));
+    const sections = selectHomeSections([upcoming, justGone, lastWeek], [trend(justGone)], NOW, [justGone], null, [justGone, lastWeek, upcoming, running]);
+    expect(sections.recent.map((e) => e.id)).toEqual(["just", "last-week"]);
+    expect(sections.weekend.items.map((e) => e.id)).not.toEqual(expect.arrayContaining(["just"]));
+    expect(sections.following).toEqual([]);
+    expect(popularEvents(sections.popular).map((e) => e.id)).toEqual(["thu"]);
+    // Nothing repeats anywhere on the page.
+    const ids = shownEventIds(sections);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids.at(-2)).toBe("just");
+  });
+
+  it("de-duplicates repeats in the input, caps at six, and is empty (hidden) with none", () => {
+    expect(selectHomeSections([upcoming], [], NOW, [], null, [justGone, justGone]).recent).toHaveLength(1);
+    const many = Array.from({ length: 9 }, (_, i) => recent(`r${i}`, i + 1));
+    expect(selectHomeSections([], [], NOW, [], null, many).recent.map((e) => e.id)).toEqual(["r0", "r1", "r2", "r3", "r4", "r5"]);
+    expect(selectHomeSections([upcoming], [], NOW).recent).toEqual([]);
+  });
+
+  it("doesn't change anyUpcoming or the other sections", () => {
+    const without = selectHomeSections([upcoming], [], NOW);
+    const withRecent = selectHomeSections([upcoming], [], NOW, [], null, [justGone]);
+    expect(withRecent.anyUpcoming).toBe(true);
+    expect({ ...withRecent, recent: [] }).toEqual(without);
+    expect(selectHomeSections([], [], NOW, [], null, [justGone]).anyUpcoming).toBe(false);
+  });
+
+  it("the saved state's events come first, each part most recently ended first", () => {
+    const wa = { ...lastWeek, state: "WA" as const };
+    expect(selectHomeSections([], [], NOW, [], "WA", [justGone, wa]).recent.map((e) => e.id)).toEqual(["last-week", "just"]);
+  });
+});

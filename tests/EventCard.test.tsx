@@ -563,6 +563,16 @@ describe("EventCard states are distinct (Refinement, 22 Oct 2026)", () => {
     if (state === "seated") expect(root.querySelector("[data-card-secondary]")).toHaveTextContent("Reserved seating");
   });
 
+  it("ended: the card still opens the event (title link) in both variants", () => {
+    vi.setSystemTime(new Date("2026-10-18T11:00:00.000Z"));
+    for (const variant of ["rail", "grid"] as const) {
+      const { unmount } = render(<EventCard event={event} variant={variant} mode="live" />);
+      expect(screen.getByRole("link", { name: event.title })).toHaveAttribute("href", `/events/${event.slug}`);
+      expect(screen.getByText("Ended")).toBeInTheDocument();
+      unmount();
+    }
+  });
+
   it("ended: its own state, 'Ended', no action and a greyed image", () => {
     vi.setSystemTime(new Date("2026-10-18T11:00:00.000Z"));
     const { container } = render(<EventCard event={event} variant="rail" mode="live" />);

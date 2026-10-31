@@ -60,8 +60,8 @@ describe("LiveEventFeed — near a suburb (ordered in the browser)", () => {
     await screen.findByText("Event a");
     expect(listPublicEvents).toHaveBeenCalledTimes(1);
     const [params] = listPublicEvents.mock.calls[0];
-    expect(params).toMatchObject({ q: "jazz", upcoming: true, limit: 50 });
-    expect(Object.keys(params).sort()).toEqual(["category", "cursor", "limit", "onOrAfter", "pricing", "q", "upcoming"]);
+    expect(params).toMatchObject({ q: "jazz", upcoming: true, limit: 50, recent: false });
+    expect(Object.keys(params).sort()).toEqual(["category", "cursor", "limit", "onOrAfter", "pricing", "q", "recent", "upcoming"]);
     expect(JSON.stringify(params)).not.toMatch(/near|fitzroy|lat|lng|-37|144\./i);
   });
 

@@ -18,6 +18,7 @@ const loadHomeFollowing = vi.fn<(getToken: GetToken, now: Date) => Promise<Shelt
 vi.mock("@/lib/home-events", () => ({
   loadHomeEvents: (now: Date) => loadHomeEvents(now),
   loadHomeTrending: (now: Date) => loadHomeTrending(now),
+  loadHomeRecent: () => Promise.resolve([]),
   loadHomeFollowing: (getToken: GetToken, now: Date) => loadHomeFollowing(getToken, now),
 }));
 vi.mock("@/lib/api/going", () => ({ getGoingSummary: vi.fn(() => new Promise(() => {})) }));

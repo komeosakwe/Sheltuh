@@ -1,5 +1,6 @@
 import { isUpcomingEvent } from "@/lib/data";
 import { eventZone } from "@/lib/format";
+import { byRecentlyEnded, isRecentlyEnded } from "@/lib/recent-events";
 import {
   cachedDateTimeFormat,
   localToUtcIso,
@@ -67,6 +68,12 @@ export interface HomeSections {
   following: SheltuhEvent[];
   /** Popular right now, or its Coming up fallback; null when nothing is left to show. */
   popular: PopularSection | null;
+  /**
+   * "Recently on": events that ended within the last 14 days (RECENT_EVENT_DAYS), most
+   * recently ended first, after every other section and not repeated from one. Still
+   * openable; nothing to buy. Empty when there are none (hidden).
+   */
+  recent: SheltuhEvent[];
 }
 
 const WEEKDAY: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
@@ -188,6 +195,9 @@ const itself = (event: SheltuhEvent) => event;
  * `preferredState`: the state of the visitor's saved suburb, whose events
  * come first in every section (preferState), before each section takes its
  * share; absent, Australia-wide soonest first (owner decision D5).
+ * `recent`: events that have ended, for the last section ("Recently on"):
+ * only those ended within RECENT_EVENT_DAYS are kept, and never one a
+ * section above shows. Ended events never enter any other section.
  */
 export function selectHomeSections(
   events: SheltuhEvent[],
@@ -195,6 +205,7 @@ export function selectHomeSections(
   now: Date,
   following: SheltuhEvent[] = [],
   preferredState: StateCode | null = null,
+  recent: SheltuhEvent[] = [],
 ): HomeSections {
   const nowMs = now.getTime();
   const upcoming = events.filter((event) => isUpcomingEvent(event, now)).sort(bySoonest);
@@ -261,11 +272,24 @@ export function selectHomeSections(
           }
         : null;
 
+  claim(popularEvents(popular));
+
+  // 3. Recently on: ended in the last 14 days, most recently ended first; last, after everything upcoming.
+  const recentItems = preferState(
+    recent
+      .filter((event) => isRecentlyEnded(event, now) && unclaimed(event))
+      .sort(byRecentlyEnded)
+      .filter((event, index, list) => list.findIndex((other) => other.id === event.id) === index),
+    preferredState,
+    itself,
+  ).slice(0, SECTION_MAX);
+
   return {
     anyUpcoming: upcoming.length > 0,
     weekend: { window, status: weekendStatus, items: weekendItems },
     following: followingItems,
     popular,
+    recent: recentItems,
   };
 }
 
@@ -275,6 +299,7 @@ export function shownEventIds(sections: HomeSections): string[] {
     ...sections.weekend.items.map((event) => event.id),
     ...sections.following.map((event) => event.id),
     ...popularEvents(sections.popular).map((event) => event.id),
+    ...sections.recent.map((event) => event.id),
   ];
 }
 

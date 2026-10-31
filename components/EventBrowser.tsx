@@ -52,6 +52,8 @@ export default function EventBrowser({
   const [category, setCategory] = useState<EventCategory | "all">(initialCategory);
   const [pricing, setPricing] = useState<PricingFilter>(initialPricing);
   const [onOrAfter, setOnOrAfter] = useState("");
+  // When the page opened: events that had ended by then are the feed's "recently ended" tail.
+  const [nowMs] = useState(() => Date.now());
 
   const filteredEvents = useMemo(() => {
     return events
@@ -64,8 +66,13 @@ export default function EventBrowser({
       })
       // Each event's own local date, as the live feed's onOrAfter reads it.
       .filter((event) => onOrAfter === "" || formatEventDateKey(event.startsAt, eventZone(event.timeZone)) >= onOrAfter)
-      .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
-  }, [events, query, category, pricing, onOrAfter]);
+      // Soonest first; ended events (the feed's last 2 weeks) keep the order they came in, after the rest.
+      .sort((a, b) => {
+        const aEnded = Date.parse(a.endsAt ?? a.startsAt) <= nowMs;
+        const bEnded = Date.parse(b.endsAt ?? b.startsAt) <= nowMs;
+        return Number(aEnded) - Number(bEnded) || (aEnded ? 0 : a.startsAt.localeCompare(b.startsAt));
+      });
+  }, [nowMs, events, query, category, pricing, onOrAfter]);
 
   const hasActiveFilters = category !== "all" || pricing !== "all" || onOrAfter !== "";
   const summary = `Showing ${filteredEvents.length} of ${events.length} events`;
