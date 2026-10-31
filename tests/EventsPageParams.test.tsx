@@ -5,10 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventsPage from "@/app/events/page";
 import EventFeed from "@/components/EventFeed";
 import { isUpcomingEvent } from "@/lib/data";
+import { isRecentlyEnded } from "@/lib/recent-events";
 import { sampleEvents } from "@/lib/sample-events";
 
-// The demo feed lists only events that haven't ended (as upcoming=1 does live),
-// so the sample data is read as of a fixed day.
+// The demo feed lists events that haven't ended, then those that ended in the last 14 days (as
+// upcoming=1&recent=1 does live), so the sample data is read as of a fixed day.
 const NOW = new Date("2026-09-30T02:00:00.000Z");
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -19,7 +20,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-const upcoming = sampleEvents.filter((e) => isUpcomingEvent(e, NOW));
+const upcoming = sampleEvents.filter((e) => isUpcomingEvent(e, NOW) || isRecentlyEnded(e, NOW));
 
 /** The visible count line. The feed's polite status says the same sentence; that's what's announced. */
 const countLine = (text: string | RegExp) => screen.getByText(text, { selector: "p:not([role='status'])" });
@@ -67,14 +68,21 @@ describe("/events query params (demo)", () => {
     expect(countLine(`Showing ${upcoming.length} of ${upcoming.length} events`)).toBeInTheDocument();
   });
 
-  it("lists only events that haven't ended, like the live feed's upcoming=1", async () => {
+  it("lists events that haven't ended, then those ended in the last 14 days, like the live feed's upcoming=1&recent=1", async () => {
     await renderPage({});
-    const ended = sampleEvents.filter((e) => !isUpcomingEvent(e, NOW));
-    expect(ended.length).toBeGreaterThan(0);
+    const recent = sampleEvents.filter((e) => isRecentlyEnded(e, NOW));
+    expect(recent.length).toBeGreaterThan(0);
     expect(upcoming.length).toBeGreaterThan(0);
     expect(countLine(`Showing ${upcoming.length} of ${upcoming.length} events`)).toBeInTheDocument();
-    for (const event of ended) expect(screen.queryByText(event.title)).not.toBeInTheDocument();
     expect(screen.getAllByText(upcoming[0].title).length).toBeGreaterThan(0);
+    // The recently ended come after every upcoming one, marked Ended, and still link to their page.
+    const cards = Array.from(document.querySelectorAll("[data-event-card]"));
+    const states = cards.map((card) => card.getAttribute("data-card-state") === "ended");
+    expect(states.filter(Boolean)).toHaveLength(recent.length);
+    expect(states.indexOf(true)).toBe(states.length - recent.length);
+    for (const event of recent) {
+      expect(screen.getByRole("link", { name: event.title })).toHaveAttribute("href", `/events/${event.slug}`);
+    }
   });
 
   it("announces the result in the feed's persistent status, and the count line isn't a second live region", async () => {

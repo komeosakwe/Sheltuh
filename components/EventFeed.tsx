@@ -6,7 +6,7 @@ import FeedLoading from "@/components/FeedLoading";
 import { useLoadingProgress } from "@/components/ui/ProgressLoader";
 import LiveEventFeed from "@/components/LiveEventFeed";
 import { isApiConfigured } from "@/lib/api/client";
-import { getEventCategories, getUpcomingEvents } from "@/lib/data";
+import { getEventCategories, getFeedEvents, getUpcomingEvents } from "@/lib/data";
 import type { CategoryFilter, PricingFilter } from "@/lib/event-filter-params";
 import type { Locality } from "@/lib/location";
 import type { SheltuhEvent } from "@/lib/types";
@@ -32,16 +32,19 @@ function DemoEventFeed({ query, near, initialCategory, initialPricing }: FeedPro
   const [summary, setSummary] = useState("");
   const progress = useLoadingProgress(events === null);
 
+  const nearMode = near !== undefined;
+
   useEffect(() => {
     let cancelled = false;
-    // Same rule as the live feed (upcoming=1): only events that haven't ended.
-    getUpcomingEvents().then((loaded) => {
+    // Same rule as the live feed (upcoming=1&recent=1): events that haven't ended, then those that ended in the last 2 weeks.
+    // Near a suburb (ordered by distance) only the upcoming ones, as live.
+    (nearMode ? getUpcomingEvents() : getFeedEvents()).then((loaded) => {
       if (!cancelled) setEvents(loaded);
     });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [nearMode]);
 
   return (
     <div className="flex flex-col gap-4 sm:gap-6">

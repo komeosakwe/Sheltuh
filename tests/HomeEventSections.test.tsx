@@ -9,9 +9,11 @@ import type { SheltuhEvent } from "@/lib/types";
 
 const loadHomeEvents = vi.fn<(now: Date) => Promise<SheltuhEvent[]>>();
 const loadHomeTrending = vi.fn<(now: Date) => Promise<TrendingItem[]>>();
+const loadHomeRecent = vi.fn<(now: Date) => Promise<SheltuhEvent[]>>();
 vi.mock("@/lib/home-events", () => ({
   loadHomeEvents: (now: Date) => loadHomeEvents(now),
   loadHomeTrending: (now: Date) => loadHomeTrending(now),
+  loadHomeRecent: (now: Date) => loadHomeRecent(now),
 }));
 vi.mock("@/lib/api/going", () => ({ getGoingSummary: vi.fn(() => new Promise(() => {})) }));
 // The suburb table: the home never loads it (the saved suburb's state is stored with it), so any call is a bug.
@@ -53,6 +55,7 @@ beforeEach(() => {
   vi.setSystemTime(new Date(NOW));
   loadHomeEvents.mockReset();
   loadHomeTrending.mockReset().mockResolvedValue([]);
+  loadHomeRecent.mockReset().mockResolvedValue([]);
   loadLocation.mockReset();
 });
 afterEach(() => {
@@ -310,6 +313,44 @@ describe("the home's event sections", () => {
     for (const name of ["This weekend", "Coming up", "Popular right now"]) {
       expect(screen.queryByRole("heading", { name })).not.toBeInTheDocument();
     }
+  });
+
+  it("Recently on: last, after Coming up, its cards marked Ended and still linked; hidden when empty", async () => {
+    const gone = event("gone", "2026-10-19T08:00:00.000Z"); // ended 19 Oct 11:00Z, two days before NOW
+    loadHomeEvents.mockResolvedValue(EVENTS);
+    loadHomeRecent.mockResolvedValue([gone]);
+    renderHome();
+    await flush();
+    const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
+    expect(headings.at(-1)).toBe("Recently on");
+    const section = screen.getByRole("heading", { name: "Recently on" }).closest("[data-home-section]") as HTMLElement;
+    const card = section.querySelector("[data-event-card]") as HTMLElement;
+    expect(card).toHaveAttribute("data-card-state", "ended");
+    expect(within(card).getByText("Ended")).toBeInTheDocument();
+    expect(within(card).getByRole("link", { name: "Event gone" })).toHaveAttribute("href", "/events/gone");
+    expect(within(card).queryByRole("link", { name: / for / })).toBeNull();
+  });
+
+  it("Recently on is left out with none, and a failure to load it hides only it", async () => {
+    loadHomeEvents.mockResolvedValue(EVENTS);
+    renderHome();
+    await flush();
+    expect(screen.queryByRole("heading", { name: "Recently on" })).not.toBeInTheDocument();
+    cleanup();
+    loadHomeRecent.mockRejectedValue(new Error("down"));
+    renderHome();
+    await flush();
+    expect(screen.queryByRole("heading", { name: "Recently on" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "This weekend" })).toBeInTheDocument();
+  });
+
+  it("nothing upcoming but something recent: the rail shows and the empty note doesn't", async () => {
+    loadHomeEvents.mockResolvedValue([]);
+    loadHomeRecent.mockResolvedValue([event("gone", "2026-10-19T08:00:00.000Z")]);
+    renderHome();
+    await flush();
+    expect(screen.queryByText("No events yet.")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Recently on" })).toBeInTheDocument();
   });
 
   it("passes one `now` to both loaders", async () => {
