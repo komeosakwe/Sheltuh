@@ -87,7 +87,9 @@ describe("sold-out cards (brand-direction-one.md §6.5)", () => {
     };
     render(<EventCard event={external} variant="grid" showSave={false} />);
     expect(screen.queryByText("Sold out")).toBeNull();
-    expect(screen.getByText("Tickets on Humanitix")).toBeInTheDocument();
+    // The price line and the button both read "Get tickets"; neither names the site.
+    expect(screen.getAllByText("Get tickets")).toHaveLength(2);
+    expect(screen.queryByText(/Humanitix/)).toBeNull();
   });
 });
 

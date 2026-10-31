@@ -107,8 +107,10 @@ export default function LiveEventFeed({
         pricing: pricing === "all" ? undefined : pricing,
         onOrAfter: onOrAfter || undefined,
         q: query || undefined,
-        // Past events are never listed: only ones that haven't ended.
+        // Events that haven't ended, then (after them) ones that ended in the last 2 weeks, which the
+        // card marks "Ended". Near mode orders by distance, so it keeps to upcoming events only.
         upcoming: true,
+        recent: !nearMode,
       } as const;
       if (nearMode) {
         // Near mode: read the soonest pages, then the results are ordered by distance.

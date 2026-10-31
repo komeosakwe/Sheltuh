@@ -179,6 +179,88 @@ async function setTimes(eventId: string, startOffset: string, endOffset: string)
   );
 }
 
+describe("recent=1: ended in the last 14 days, after the upcoming ones", () => {
+  beforeEach(async () => {
+    const make = async (title: string, start: string, end: string) => {
+      const created = await publishedEvent(api, organiser, admin, { title });
+      await setTimes(created.eventId, start, end);
+      return created;
+    };
+    await make("Ended 20 days ago", "-20 days -3 hours", "-20 days");
+    await make("Ended 15 days ago", "-15 days -3 hours", "-15 days");
+    await make("Ended 13 days ago", "-13 days -3 hours", "-13 days");
+    await make("Ended 2 days ago", "-2 days -3 hours", "-2 days");
+    await make("Ended a minute ago", "-3 hours", "-1 minute");
+    await make("On now", "-1 hour", "2 hours");
+    await make("Tonight", "5 hours", "8 hours");
+    await make("Next week", "7 days", "7 days 3 hours");
+  });
+
+  it("upcoming by start, then ended ones, most recently ended first; older than 14 days is out", async () => {
+    for (const recent of ["1", "true"]) {
+      expect(titles(await api.call(listPublicEvents, { query: { upcoming: "1", recent } }))).toEqual([
+        "On now",
+        "Tonight",
+        "Next week",
+        "Ended a minute ago",
+        "Ended 2 days ago",
+        "Ended 13 days ago",
+      ]);
+    }
+  });
+
+  it("only: just the ended ones in that window", async () => {
+    expect(titles(await api.call(listPublicEvents, { query: { upcoming: "1", recent: "only" } }))).toEqual([
+      "Ended a minute ago",
+      "Ended 2 days ago",
+      "Ended 13 days ago",
+    ]);
+  });
+
+  it("pages across the boundary with the cursor, nothing repeated or missed", async () => {
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    for (let i = 0; i < 6; i++) {
+      const page = await api.call(listPublicEvents, { query: { upcoming: "1", recent: "1", limit: "2", ...(cursor ? { cursor } : {}) } });
+      seen.push(...titles(page));
+      cursor = page.body.nextCursor;
+      if (!cursor) break;
+    }
+    expect(seen).toEqual(["On now", "Tonight", "Next week", "Ended a minute ago", "Ended 2 days ago", "Ended 13 days ago"]);
+  });
+
+  it("combines with the other filters, and an unpublished event is never listed", async () => {
+    expect(titles(await api.call(listPublicEvents, { query: { upcoming: "1", recent: "1", q: "ended 2" } }))).toEqual(["Ended 2 days ago"]);
+    const [row] = await api.db.query(`select id from public.events where title = 'Ended 2 days ago'`);
+    await api.db.query(`update public.events set status = 'draft' where id = $1`, [(row as { id: string }).id]);
+    expect(titles(await api.call(listPublicEvents, { query: { upcoming: "1", recent: "only" } }))).not.toContain("Ended 2 days ago");
+  });
+
+  it("an ended event stays openable by slug", async () => {
+    const [row] = await api.db.query(`select slug from public.events where title = 'Ended 13 days ago'`);
+    const res = await api.call(getPublicEventBySlug, { params: { slug: (row as { slug: string }).slug } });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ title: "Ended 13 days ago" });
+  });
+
+  it("is additive: absent, 0, false or empty change nothing; it needs upcoming=1; junk is 400", async () => {
+    const plain = titles(await api.call(listPublicEvents, { query: { upcoming: "1" } }));
+    expect(plain).toEqual(["On now", "Tonight", "Next week"]);
+    for (const recent of ["0", "false", ""]) {
+      expect(titles(await api.call(listPublicEvents, { query: { upcoming: "1", recent } }))).toEqual(plain);
+      expect((await api.call(listPublicEvents, { query: { recent } })).status).toBe(200);
+    }
+    for (const query of [{ recent: "1" }, { recent: "only" }, { upcoming: "0", recent: "1" }] as Record<string, string>[]) {
+      expect((await api.call(listPublicEvents, { query })).status, JSON.stringify(query)).toBe(400);
+    }
+    for (const recent of ["yes", "2", "ONLY"]) {
+      const res = await api.call(listPublicEvents, { query: { upcoming: "1", recent } });
+      expect(res.status, recent).toBe(400);
+      expect(res.body).toMatchObject({ error: "recent must be 1, only or 0." });
+    }
+  });
+});
+
 describe("upcoming=1 (home page and /events)", () => {
   beforeEach(async () => {
     const ended = await publishedEvent(api, organiser, admin, { title: "Ended last week" });

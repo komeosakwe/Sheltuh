@@ -149,7 +149,7 @@ export async function withUniqueSlug<T>(title: string, insert: (slug: string) =>
 
 /**
  * An edit that doesn't send `ticketingMode` keeps the event's stored
- * ticketing: its mode, and its link and free flag unless those are sent.
+ * ticketing: its mode, and its link, free flag and price unless those are sent.
  * So a client that predates external ticketing can never turn an external
  * event into a Sheltüh-ticketed one (or trip the freeze) by leaving the
  * field out; sending ticket types for an external event is still a 400.
@@ -161,6 +161,8 @@ function withStoredTicketing(body: Record<string, unknown>, current: EventRecord
     ticketingMode: current.ticketingMode ?? "sheltuh",
     externalTicketUrl: body.externalTicketUrl === undefined ? (current.externalTicketUrl ?? null) : body.externalTicketUrl,
     externalFree: body.externalFree === undefined ? current.externalFree === true : body.externalFree,
+    externalPriceFromCents:
+      body.externalPriceFromCents === undefined ? (current.externalPriceFromCents ?? null) : body.externalPriceFromCents,
   };
 }
 

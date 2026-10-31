@@ -29,6 +29,8 @@ describe("Home (demo data, Wed 21 Oct 2026)", () => {
     expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual([
       "This weekend",
       "Popular right now",
+      // The demo's events that ended in the last 14 days (before Wed 21 Oct), last of the event sections.
+      "Recently on",
       "What else?",
       "See who’s going. Find your people.",
       "Bring your event to life",
@@ -61,14 +63,24 @@ describe("Home (demo data, Wed 21 Oct 2026)", () => {
     ]);
   });
 
-  it("has no Up next; every card is an upcoming event (demo data includes ended ones, which are nowhere)", async () => {
+  it("has no Up next; every card outside Recently on is an upcoming event, and every one in it ended in the last 14 days", async () => {
     render(<Home />);
     await settle();
     const now = Date.now();
     expect(screen.queryByRole("region", { name: "Up next" })).not.toBeInTheDocument();
     expect(screen.queryByText("Neon Static")).not.toBeInTheDocument();
+    const recent = screen.getByRole("region", { name: "Recently on" });
+    const sampleOf = (a: HTMLElement) => sampleEvents.find((e) => e.slug === /^\/events\/([^?#/]+)$/.exec(a.getAttribute("href") ?? "")?.[1]);
+    const recentSamples = within(recent).getAllByRole("link").map(sampleOf).filter((e) => e !== undefined);
+    expect(recentSamples.length).toBeGreaterThan(0);
+    for (const sample of recentSamples) {
+      const ended = Date.parse(sample.endsAt ?? sample.startsAt);
+      expect(ended).toBeLessThanOrEqual(now);
+      expect(ended).toBeGreaterThan(now - 14 * 86_400_000);
+    }
     const slugs = screen
       .getAllByRole("link")
+      .filter((a) => !recent.contains(a))
       .map((a) => /^\/events\/([^?#/]+)$/.exec(a.getAttribute("href") ?? "")?.[1])
       .filter((slug): slug is string => slug !== undefined);
     expect(slugs.length).toBeGreaterThan(5);
@@ -101,7 +113,7 @@ describe("Home (demo data, Wed 21 Oct 2026)", () => {
     // The band's example is a real sample count from a card on the page, labelled too.
     const example = container.querySelector("[data-community-example]");
     expect(example?.querySelector("[data-community-count]")).toHaveTextContent(/^\d+ people going$/);
-    expect(example?.querySelector("[data-community-note]")).toHaveTextContent(/^Example event · Sample count · Illustrative photos$/);
+    expect(example?.querySelector("[data-community-note]")).toHaveTextContent(/^Example event · Sample count$/);
     const quick = screen.getAllByRole("link", { name: /tickets for/ });
     expect(quick.length).toBeGreaterThan(5);
     for (const link of quick) {

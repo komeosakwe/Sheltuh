@@ -80,6 +80,11 @@ export interface PublicEvent {
   /** The organiser says entry is free (external events only; false otherwise). Always sent. */
   externalFree?: boolean;
   /**
+   * External, paid events only: the organiser's "price from" in whole AUD
+   * cents (their price, so no booking fee). Absent when none was given.
+   */
+  externalPriceFromCents?: number;
+  /**
    * External events only: a known ticketing site's name ("Humanitix",
    * "Eventbrite", ...) for "Get tickets on {provider}", or null: then say
    * "the organiser's site", never the bare host. Always sent; null for
@@ -131,6 +136,11 @@ export interface ListPublicEventsParams {
   q?: string;
   /** Only events that haven't ended yet (in progress included), still soonest first. */
   upcoming?: boolean;
+  /**
+   * With `upcoming`: also events that ended in the last 14 days (RECENT_EVENT_DAYS), after every
+   * upcoming one, most recently ended first. `"only"`: just those. Still openable, nothing to buy.
+   */
+  recent?: boolean | "only";
   /** Page size (the server's default is 20, its maximum 50). */
   limit?: number;
   cursor?: string;
@@ -143,6 +153,7 @@ export function listPublicEvents(params: ListPublicEventsParams = {}) {
   if (params.pricing) qs.set("pricing", params.pricing);
   if (params.q) qs.set("q", params.q);
   if (params.upcoming) qs.set("upcoming", "1");
+  if (params.recent) qs.set("recent", params.recent === "only" ? "only" : "1");
   if (params.limit !== undefined) qs.set("limit", String(params.limit));
   if (params.cursor) qs.set("cursor", params.cursor);
   const suffix = qs.toString() ? `?${qs.toString()}` : "";

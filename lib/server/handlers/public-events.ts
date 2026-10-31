@@ -94,6 +94,20 @@ export const listPublicEvents: Handler = async (req, _params, { db }) => {
     else if (upcomingParam !== "0" && upcomingParam !== "false") throw new HttpError(400, "upcoming must be 1 or 0.");
   }
 
+  // `recent`: with upcoming=1, also events that ended within RECENT_EVENT_DAYS,
+  // after every upcoming one, most recently ended first ("1"/"true"); "only"
+  // lists just those (the home's "Recently on"). They are still published
+  // events: nothing can be bought for them (orders_not_ended). Additive: absent
+  // or 0/false changes nothing; it needs upcoming=1, else 400.
+  const recentParam = qs.get("recent");
+  let recent: "include" | "only" | undefined;
+  if (recentParam !== null && recentParam !== "") {
+    if (recentParam === "1" || recentParam === "true") recent = "include";
+    else if (recentParam === "only") recent = "only";
+    else if (recentParam !== "0" && recentParam !== "false") throw new HttpError(400, "recent must be 1, only or 0.");
+    if (recent && !upcoming) throw new HttpError(400, "recent needs upcoming=1.");
+  }
+
   // Free-text search over title, venue, suburb, organiser and description.
   // LIKE wildcards in the user's text are escaped so they match literally.
   const q = qs.get("q")?.trim().slice(0, 100);
@@ -114,7 +128,7 @@ export const listPublicEvents: Handler = async (req, _params, { db }) => {
   const offsetParam = `$${params.length}`;
   const rows = await db.query(
     upcoming
-      ? upcomingPageQuery(EVENT_SELECT, where, limitParam, offsetParam)
+      ? upcomingPageQuery(EVENT_SELECT, where, limitParam, offsetParam, { recent })
       : `${EVENT_SELECT} where ${where.join(" and ")}
          order by e.starts_at, e.id limit ${limitParam} offset ${offsetParam}`,
     params,

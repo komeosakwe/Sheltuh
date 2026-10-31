@@ -51,12 +51,17 @@ function fixtures(now: number): PublicEvent[] {
  * `trending`: serve the trending list (the last few events, labelled
  * "popular"); otherwise it's a 404 and the home's third slot is Coming up.
  */
-async function mockApi(page: Page, { trending = false, going }: { trending?: boolean; going?: number } = {}) {
+async function mockApi(
+  page: Page,
+  { trending = false, going, ended }: { trending?: boolean; going?: number; ended?: PublicEvent[] } = {},
+) {
   const events = fixtures(Date.now()).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
   await page.route("**/api/**", (route) => {
     const url = new URL(route.request().url());
     if (url.pathname === "/api/events") {
       expect(url.searchParams.get("upcoming")).toBe("1");
+      // "Recently on" asks for just the events that ended in the last 2 weeks.
+      if (url.searchParams.get("recent") === "only") return route.fulfill({ json: { items: ended ?? [], nextCursor: undefined } });
       return route.fulfill({ json: { items: events, nextCursor: undefined } });
     }
     if (trending && url.pathname === "/api/events/trending") {
@@ -70,7 +75,7 @@ async function mockApi(page: Page, { trending = false, going }: { trending?: boo
   });
 }
 
-async function openHome(page: Page, options?: { trending?: boolean; going?: number }) {
+async function openHome(page: Page, options?: { trending?: boolean; going?: number; ended?: PublicEvent[] }) {
   await mockApi(page, options);
   await page.goto("/");
   await expect(page.locator("[data-home-section]").first()).toBeVisible();
@@ -324,7 +329,7 @@ for (const width of [375, 1280]) {
       await expect(card).toBeVisible();
       await expect(band.locator("[data-community-example]")).toHaveCount(0);
       await expect(card).toContainText("Know who’ll be there");
-      await expect(card.locator("[data-community-note]")).toHaveText("Illustrative photos");
+      await expect(card.locator("[data-community-note]")).toHaveCount(0);
       await expect(card.locator("[data-community-faces] img")).toHaveCount(5);
       expect(await band.textContent()).not.toMatch(/\d/);
       // The pitch's heading is two lines at every width.
@@ -353,7 +358,7 @@ for (const vp of [
       await expect(card).toBeVisible();
       await expect(card.getByText("A look inside")).toBeVisible();
       await expect(card.locator("[data-community-count]")).toHaveText("22 people going");
-      await expect(card.locator("[data-community-note]")).toHaveText("Popular right now · Real count · Illustrative photos");
+      await expect(card.locator("[data-community-note]")).toHaveText("Popular right now · Real count");
       await expect(card).not.toContainText(/sample/i);
       // Five round portraits, hidden from assistive tech, empty alt, and actually loaded.
       const faces = card.locator("[data-community-faces]");
@@ -413,7 +418,7 @@ for (const width of [320, 1024, 1440]) {
         await openHome(page, { trending: true, going });
         const card = page.locator("#find-your-people [data-community-card]");
         await card.scrollIntoViewIfNeeded();
-        await expect(card.locator("[data-community-note]")).toContainText("Illustrative photos");
+        await expect(card).not.toContainText("Illustrative photos");
         const cardBox = await card.boundingBox();
         const facesBox = await card.locator("[data-community-faces]").boundingBox();
         if (!cardBox || !facesBox) throw new Error("card not laid out");
@@ -549,3 +554,32 @@ for (const vp of [
     });
   });
 }
+
+test.describe("Recently on", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test("an event that ended 3 days ago is the last rail, marked Ended, with no ticket action, and still opens", async ({ page }) => {
+    const now = Date.now();
+    const [base] = fixtures(now);
+    const gone: PublicEvent = {
+      ...base,
+      eventId: "gone-id",
+      slug: "gone-slug",
+      title: "Gone last week",
+      startsAt: new Date(now - 3 * 24 * HOUR - 3 * HOUR).toISOString(),
+      endsAt: new Date(now - 3 * 24 * HOUR).toISOString(),
+    };
+    await openHome(page, { ended: [gone] });
+
+    const sections = page.locator("[data-home-section]");
+    const recent = sections.last();
+    await expect(recent.getByRole("heading", { level: 2, name: "Recently on" })).toBeVisible();
+    const card = recent.locator("[data-event-card]").first();
+    await expect(card).toHaveAttribute("data-card-state", "ended");
+    await expect(card.getByText("Ended", { exact: true })).toBeVisible();
+    await expect(card.getByRole("link", { name: / for / })).toHaveCount(0);
+    await expect(card.locator("[data-card-link]")).toHaveAttribute("href", "/events/gone-slug");
+    // Not among the upcoming sections.
+    await expect(sections.first().getByText("Gone last week")).toHaveCount(0);
+  });
+});

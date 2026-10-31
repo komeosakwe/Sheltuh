@@ -25,7 +25,7 @@ import { SUPPORT_EMAIL } from "@/lib/contact";
 import { isSafeTicketUrl, reportEventHref } from "@/lib/event-url";
 import { eventZone, formatEventDateShort, formatEventDateTimeRange, formatEventTime, formatTimeZoneLabel, zoneSuffix } from "@/lib/format";
 import { directionsHref } from "@/lib/maps";
-import { externalProviderLabel, formatFeedPriceParts, isSoldOut } from "@/lib/pricing";
+import { externalPriceFromLabel, formatFeedPriceParts, isSoldOut } from "@/lib/pricing";
 import { goesToSeatPage, quickBuyLabel } from "@/lib/quick-buy";
 import { DEFAULT_REFUND_POLICY, REFUND_ACL_STATEMENT, refundTermsLine } from "@/lib/refund-policy";
 import { organiserProfileHref } from "@/lib/sample-organisers";
@@ -146,8 +146,8 @@ function whenLabel(startsAt: string, endsAt: string | undefined, timeZone: strin
  * 1024px a compact buy bar sticks to the bottom (price and the one ticket
  * action, no Save) until it settles under the content at the page's end.
  *
- * An external event (tickets sold on another site) has a "Get tickets on
- * {provider}" link instead of the ticket selector, and no price or Who's
+ * An external event (tickets sold on another site) has a "Get tickets"
+ * link (never naming the site) instead of the ticket selector, and no price or Who's
  * Going (docs/architecture.md, "External ticketing"). In the demo, the
  * page's sample-data disclosure is the banner at the top (DemoBanner); the
  * ticket panel says nothing can be booked.
@@ -175,11 +175,11 @@ export default function EventDetailsView({
   ].filter((item) => item.value);
 
   const external = event.ticketingMode === "external";
-  const provider = externalProviderLabel(event);
   // Defence in depth: only an https ticket link is ever shown (or the buy bar with it).
   const ticketUrl = external && isSafeTicketUrl(event.externalTicketUrl) ? event.externalTicketUrl : undefined;
-  // No price for an external event: we can't vouch for another site's.
+  // An external event has no Sheltüh price; the organiser's own "From A$x", if they gave one, shows apart.
   const price = external ? null : formatFeedPriceParts(event);
+  const externalFrom = externalPriceFromLabel(event);
   // The event's own zone (Melbourne when it has none), named under the time.
   const zone = eventZone(event.timeZone);
   const when = whenLabel(event.startsAt, event.endsAt, zone);
@@ -200,7 +200,7 @@ export default function EventDetailsView({
   const directions = directionsHref(event);
   const address = [event.venueName, event.venueAddress].filter(Boolean).join(", ");
   const outboundLink = (className: string) => (
-    <ExternalTicketLink eventId={event.id} url={ticketUrl} provider={provider} className={className} preview={Boolean(preview)} />
+    <ExternalTicketLink eventId={event.id} url={ticketUrl} className={className} preview={Boolean(preview)} />
   );
 
   return (
@@ -390,9 +390,12 @@ export default function EventDetailsView({
                 {external ? (
                   <div className="flex flex-col gap-4 rounded-card border border-foreground bg-card p-4 sm:p-5">
                     {event.externalFree && <p className="text-base leading-6 font-semibold">Free entry</p>}
-                    <p className="text-sm text-muted">
-                      Sold by {provider}, not Sheltüh. No Sheltüh booking fee. Their terms apply.
-                    </p>
+                    {externalFrom && (
+                      <div>
+                        <p className="text-base leading-6 font-semibold tabular-nums">{externalFrom}</p>
+                        <p className="text-sm text-muted">Price set by the organiser.</p>
+                      </div>
+                    )}
                     {ticketUrl ? (
                       outboundLink(buttonClass("solid", "lg", "w-full"))
                     ) : (
@@ -499,7 +502,7 @@ export default function EventDetailsView({
               )}
             </div>
           )}
-          {/* An external event's buy bar: where tickets are sold (never a price), and
+          {/* An external event's buy bar: the organiser's price if given (never the site's name), and
               the outbound link itself, not a jump to #tickets. None once it has ended. */}
           {ticketUrl && !ended && (
             <div
@@ -508,21 +511,17 @@ export default function EventDetailsView({
               className={`${buyBarPosition} bottom-0 z-20 -mx-5 flex min-h-16 items-center justify-between gap-4 px-5 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:-mx-8 sm:px-8 lg:hidden dark:border-t dark:border-foreground`}
             >
               <div className="min-w-0">
+                {/* Never the ticket site's name (owner, 31 Oct 2026): buyers go through our link. */}
                 {event.externalFree ? (
-                  <>
-                    <p className="text-base leading-5 font-semibold">Free</p>
-                    <p className="text-sm leading-5 text-muted">Tickets on {provider}</p>
-                  </>
-                ) : (
-                  <p className="text-sm leading-5 font-semibold">Tickets on {provider}</p>
-                )}
+                  <p className="text-base leading-5 font-semibold">Free</p>
+                ) : externalFrom ? (
+                  <p className="text-base leading-5 font-semibold tabular-nums">{externalFrom}</p>
+                ) : null}
               </div>
               <ExternalTicketLink
                 eventId={event.id}
                 url={ticketUrl}
-                provider={provider}
                 preview={Boolean(preview)}
-                short
                 className={buttonClass("signal", "lg", "shrink-0 px-5 sm:px-7")}
               />
             </div>

@@ -52,6 +52,8 @@ export interface EventInput {
   externalTicketUrl: string | null;
   /** External only (false otherwise). */
   externalFree: boolean;
+  /** External, paid only: the organiser's "price from" in whole AUD cents (null: none). */
+  externalPriceFromCents: number | null;
   /**
    * Absent when the body didn't send one (parseRefundPolicy): the database
    * then uses the default on create and keeps the stored policy on edit.
@@ -95,6 +97,7 @@ interface RawEventBody {
   ticketingMode?: unknown;
   externalTicketUrl?: unknown;
   externalFree?: unknown;
+  externalPriceFromCents?: unknown;
   refundPolicy?: unknown;
   refundDays?: unknown;
   location?: unknown;

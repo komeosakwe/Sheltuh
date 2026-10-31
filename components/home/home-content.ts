@@ -140,6 +140,6 @@ export const HOME_CREATORS: HomeArt = {
  * (components/home/CommunitySection.tsx): the owner's five illustrative photos
  * (public/home/people/, see public/home/README.md), shown in demo and live
  * alike as overlapping circles. They're illustration, never attendees: the
- * card's footnote always says "Illustrative photos".
+ * card shows no photo caption (owner, 31 Oct 2026).
  */
 export const COMMUNITY_SAMPLE_FACES: readonly string[] = [1, 2, 3, 4, 5].map((n) => `/home/people/person-${n}.webp`);

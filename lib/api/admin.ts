@@ -253,12 +253,12 @@ export async function adminSetEventReviewRequired(
 }
 
 /**
- * Sets an event's ticketing (mode, ticket link, free flag), whatever its
+ * Sets an event's ticketing (mode, ticket link, free flag, "price from"), whatever its
  * status: the only way to change an approved event's mode or link. Logged in
  * the event's moderation log as `ticketing_changed`, with `reason` and the
  * old and new values (`ModerationLogEntry.changes`). Returns the event
  * (unchanged, with nothing logged, if nothing would change). ApiError 400
- * (fieldErrors ticketingMode / externalTicketUrl / externalFree / reason),
+ * (fieldErrors ticketingMode / externalTicketUrl / externalFree / externalPriceFromCents / reason),
  * 404 unknown event, 409 switching to external an event that has orders.
  */
 export async function adminSetEventTicketing(eventId: string, input: AdminSetEventTicketingInput, getToken: GetToken) {

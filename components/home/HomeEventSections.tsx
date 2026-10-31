@@ -22,7 +22,8 @@ const SECTION = "mt-6 sm:mt-10 lg:mt-12";
  * members who follow someone, when any of their events are left to show),
  * then Popular right now (real trending data), titled "Coming up" when that's
  * too thin to fill it ("Coming up across Australia" when a state is saved and
- * none of them is in it). A weekend with nothing on is left out, so the few
+ * none of them is in it), then "Recently on" (events that ended in the last
+ * 14 days: marked "Ended", nothing to buy; it fills a young marketplace's page). A weekend with nothing on is left out, so the few
  * events a young marketplace has always show. Each event appears once on the page (the provider's
  * sections are already de-duplicated). A section with no cards renders
  * nothing, and a section's link shows only beside cards.
@@ -108,7 +109,7 @@ export default function HomeEventSections() {
         </div>
       )}
 
-      {sections && !sections.anyUpcoming && (
+      {sections && !sections.anyUpcoming && sections.recent.length === 0 && (
         <div className={`${HOME_CONTAINER} ${SECTION}`}>
           <div data-home-empty="" tabIndex={-1} className="rounded-card bg-surface p-5 sm:p-8">
             <DotsMark size="lg" className="text-foreground" />
@@ -174,6 +175,23 @@ export default function HomeEventSections() {
                   <EventCard event={event} variant="rail" wide={isPairRail(popular.items.length)} mode={mode} now={now} />
                 </HomeRailItem>
               ))}
+        </HomeRailSection>
+      )}
+
+      {sections && sections.recent.length > 0 && (
+        // Last, after everything upcoming: these have ended (their cards say "Ended" and have no ticket action).
+        <HomeRailSection
+          id="home-recent"
+          title="Recently on"
+          link={{ href: "/events", label: "All events" }}
+          count={sections.recent.length}
+          className={SECTION}
+        >
+          {sections.recent.map((event) => (
+            <HomeRailItem key={event.id}>
+              <EventCard event={event} variant="rail" wide={isPairRail(sections.recent.length)} mode={mode} now={now} />
+            </HomeRailItem>
+          ))}
         </HomeRailSection>
       )}
     </div>

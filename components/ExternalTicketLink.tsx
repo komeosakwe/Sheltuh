@@ -6,7 +6,7 @@ import { recordOutboundClick } from "@/lib/api/analytics";
 import { isSafeTicketUrl } from "@/lib/event-url";
 
 /**
- * An external event's "Get tickets on {provider}" link (docs/architecture.md,
+ * An external event's "Get tickets" link (docs/architecture.md,
  * "External ticketing"). Opens the ticketing site in a new tab, without
  * giving it a handle on this page (`noopener`) or this page's address
  * (`noreferrer`), and counts the click with a cookie-free beacon that's
@@ -16,22 +16,12 @@ import { isSafeTicketUrl } from "@/lib/event-url";
 export default function ExternalTicketLink({
   eventId,
   url,
-  provider,
   className,
-  short = false,
   preview = false,
 }: {
   eventId: string;
   url: string | undefined;
-  /** "Humanitix", or "the organiser's site" (lib/pricing.ts, externalProviderLabel). */
-  provider: string;
   className: string;
-  /**
-   * Shows just "Get tickets" (the buy bar, where "Tickets on {provider}" is
-   * beside it); the provider stays in the accessible name, which starts with
-   * the visible words.
-   */
-  short?: boolean;
   /** The editor's live preview: the link looks the same but counts nothing. */
   preview?: boolean;
 }) {
@@ -54,10 +44,11 @@ export default function ExternalTicketLink({
       }}
       // The whole name, spelled out (as OrganiserLinks does): it starts with the
       // visible words, and says where it goes and that it opens a new tab.
-      aria-label={`Get tickets on ${provider} (opens in a new tab)`}
+      aria-label="Get tickets (opens in a new tab)"
       className={className}
     >
-      {short ? "Get tickets" : `Get tickets on ${provider}`}
+      {/* Never the ticket site's name (owner, 31 Oct 2026): buyers go through this link. */}
+      Get tickets
       <ExternalIcon />
     </a>
   );

@@ -273,7 +273,7 @@ const EVENT_COLUMNS = `
          e.id, e.organiser_id, e.slug, e.title, e.description, e.category::text as category,
          e.venue_name, e.venue_address, e.suburb, e.state, e.time_zone, e.starts_at, e.ends_at,
          e.status::text as status, e.rejection_reason, e.created_at, e.updated_at,
-         e.ticketing_mode, e.external_ticket_url, e.external_free, e.refund_policy, e.refund_days,
+         e.ticketing_mode, e.external_ticket_url, e.external_free, e.external_price_from_cents, e.refund_policy, e.refund_days,
          e.location_source, e.venue_place_id, e.venue_lat, e.venue_lng,
          o.display_name as organiser_name,
          -- Only while the organiser is approved: the logo route is a 404 otherwise.
@@ -356,6 +356,7 @@ const LOG_CHANGE_FIELDS = [
   "ticketingMode",
   "externalTicketUrl",
   "externalFree",
+  "externalPriceFromCents",
   "title",
   "description",
   "category",
@@ -531,6 +532,9 @@ function mapEvent(row: Row, audience: LogAudience): EventRecord {
     ticketingMode,
     externalTicketUrl,
     externalFree: row.external_free === true,
+    ...(externalTicketUrl && typeof row.external_price_from_cents === "number"
+      ? { externalPriceFromCents: row.external_price_from_cents }
+      : {}),
     externalProvider: externalTicketUrl ? ticketProviderName(externalTicketUrl) : null,
     // Once approved, the ticketing is frozen for the organiser (private.edit_event_draft).
     ticketingLocked: log.some((entry) => entry.action === "approved"),
@@ -628,6 +632,9 @@ export function toPublicEvent(event: EventRecord, remaining?: Record<string, num
       ? { externalTicketUrl: event.externalTicketUrl }
       : {}),
     externalFree: event.externalFree === true,
+    ...(external && typeof event.externalPriceFromCents === "number"
+      ? { externalPriceFromCents: event.externalPriceFromCents }
+      : {}),
     externalProvider: event.externalProvider ?? null,
     refundPolicy: event.refundPolicy ?? DEFAULT_REFUND_POLICY,
     // Only for days_before.

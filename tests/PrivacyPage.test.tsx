@@ -5,6 +5,15 @@ import PrivacyPage from "@/app/privacy/page";
 
 afterEach(cleanup);
 
+describe("/privacy — header", () => {
+  it("carries no draft badge or lawyer-review notice", () => {
+    render(<PrivacyPage />);
+    expect(screen.queryByText("Draft")).toBeNull();
+    expect(screen.queryByText(/plain-language draft/)).toBeNull();
+    expect(screen.queryByRole("note")).toBeNull();
+  });
+});
+
 describe("/privacy — Who's Going", () => {
   it("is linkable as #whos-going and matches the consent copy", () => {
     render(<PrivacyPage />);
@@ -45,7 +54,6 @@ describe("/privacy — Messages", () => {
     const whosGoing = screen.getByRole("heading", { name: "Who’s Going" }).closest("section");
     if (!whosGoing) throw new Error("Who's Going section not rendered");
     expect(within(whosGoing).getByRole("link", { name: "Messages" })).toHaveAttribute("href", "#messages");
-    expect(screen.getByRole("note")).toHaveTextContent("Draft");
   });
 });
 
@@ -68,7 +76,6 @@ describe("/privacy — Your location", () => {
     expect(section).toHaveTextContent("or search with the location left empty");
     // The address with the suburb in it also lives on in the browser's history.
     expect(section).toHaveTextContent("Search results pages you’ve visited, suburb and all, stay in your browser’s history until you clear it there.");
-    expect(screen.getByRole("note")).toHaveTextContent("Draft");
   });
 });
 
@@ -90,7 +97,6 @@ describe("/privacy — Signing in with Google or Apple", () => {
     expect(section).toHaveTextContent("if you let Apple share it, your name. Apple only sends your name the first time.");
     expect(section).toHaveTextContent("We use only the email address and the account ID");
     expect(section).toHaveTextContent("we don’t use them or show them to anyone");
-    expect(screen.getByRole("note")).toHaveTextContent("Draft");
   });
 
   it("explains automatic linking, Hide My Email and the providers' own policies", () => {
@@ -130,6 +136,5 @@ describe("/privacy — Payments", () => {
     expect(section).toHaveTextContent("Stripe’s script loads on our payment page, including when you open it and don’t pay");
     expect(section).toHaveTextContent("collects information about your device and how the page is used, to help prevent fraud");
     expect(section).toHaveTextContent("Stripe’s privacy policy covers that too.");
-    expect(screen.getByRole("note")).toHaveTextContent("Draft");
   });
 });
