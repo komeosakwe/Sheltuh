@@ -19,7 +19,7 @@ export interface EventLocationLeafletProps {
   lng: number;
   zoom: number;
   /** For the pin's look: the event's photo or poster art, as on /map. */
-  event: Pick<SheltuhEvent, "poster" | "title" | "imageUrl">;
+  event: Pick<SheltuhEvent, "poster" | "title" | "imageUrl" | "imageFocus">;
 }
 
 /** As /map (SceneMapPanel): with no tile in this long, the map says it couldn't load. */

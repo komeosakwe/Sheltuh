@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { ReactNode } from "react";
-import type { EventPoster } from "@/lib/types";
+import type { EventPoster, ImageFocus } from "@/lib/types";
 
 /**
  * Trig results differ in their last digits between the server's Math.cos/sin and
@@ -178,6 +178,7 @@ export default function EventArt({
   poster,
   title,
   imageUrl,
+  imageFocus,
   className,
   children,
   priority = false,
@@ -188,6 +189,12 @@ export default function EventArt({
   title: string;
   /** When set (and loading), the photo replaces the generated artwork. */
   imageUrl?: string;
+  /**
+   * Where the photo's subject is (percent from the left and top): a cropped photo keeps that point
+   * in view (`object-position`) instead of centring. Absent: the middle. A contained (whole) photo
+   * is unchanged; only its blurred backdrop follows the point.
+   */
+  imageFocus?: ImageFocus | null;
   className?: string;
   children?: ReactNode;
   /**
@@ -212,6 +219,7 @@ export default function EventArt({
   const [containedUrl, setContainedUrl] = useState<string | null>(null);
   const showImage = Boolean(imageUrl) && failedUrl !== imageUrl;
   const contain = showImage && fit === "auto" && containedUrl === imageUrl;
+  const position = imageFocus ? `${imageFocus.x}% ${imageFocus.y}%` : undefined;
 
   /**
    * `auto`: a loaded image is shown whole (contained) rather than cropped when either it's a
@@ -241,7 +249,7 @@ export default function EventArt({
         <div
           data-art-backdrop=""
           className="absolute inset-0 scale-125 bg-cover bg-center opacity-60 blur-2xl"
-          style={{ backgroundImage: `url(${JSON.stringify(imageUrl)})` }}
+          style={{ backgroundImage: `url(${JSON.stringify(imageUrl)})`, backgroundPosition: position }}
         />
       )}
       {showImage ? (
@@ -261,6 +269,7 @@ export default function EventArt({
           }}
           onError={() => setFailedUrl(imageUrl ?? null)}
           onLoad={(event) => fitLoaded(event.currentTarget)}
+          style={contain ? undefined : { objectPosition: position }}
           className={`absolute inset-0 h-full w-full ${contain ? "object-contain" : "object-cover"} ${motion ? "ken-burns" : ""}`.trim()}
         />
       ) : (

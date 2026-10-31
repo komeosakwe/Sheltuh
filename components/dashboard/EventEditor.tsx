@@ -71,6 +71,7 @@ import { fieldClass } from "@/components/ui/Field";
 import {
   adminCreateEvent,
   adminDeleteEventImage,
+  adminSetEventImageFocus,
   adminUpdateEvent,
   adminUploadEventImage,
 } from "@/lib/api/admin";
@@ -89,12 +90,13 @@ import {
   isRefundPolicyTightenedError,
   publishConflictCode,
   publishEvent,
+  setEventImageFocus,
   updateEventDraft,
   uploadEventImage,
   type EventInput,
 } from "@/lib/api/events";
 import { isPlacesUnavailableError } from "@/lib/api/places";
-import type { AdminEventRecord, EventRecord, PublishEventConflictCode, TicketTypeInput } from "@/lib/api/types";
+import type { AdminEventRecord, EventRecord, ImageFocus, PublishEventConflictCode, TicketTypeInput } from "@/lib/api/types";
 import { SessionExpiredError } from "@/lib/auth/AuthContext";
 import { useAccountOwner } from "@/lib/auth/useAccountOwner";
 import { eventClipsEnabled } from "@/lib/clips-flag";
@@ -361,6 +363,9 @@ export default function EventEditor(props: Props) {
 
   const [imageFile, setImageFile] = useState<Blob | null>(null);
   const [imageRemoved, setImageRemoved] = useState(false);
+  // Where the photo's subject is (null: the middle), and whether it's changed since the last save.
+  const [imageFocus, setImageFocus] = useState<ImageFocus | null>(initial?.imageFocus ?? null);
+  const [focusChanged, setFocusChanged] = useState(false);
   // Set once the draft exists, so a retry after a failed photo upload updates
   // it instead of creating a duplicate.
   const [createdId, setCreatedId] = useState<string | null>(null);
@@ -656,24 +661,57 @@ export default function EventEditor(props: Props) {
   /**
    * Applies a pending photo change to a saved event through `upload` or
    * `remove` (the organiser's routes or the admin's, which answer with the
-   * same kind of record they're given); returns the latest record.
+   * same kind of record they're given); returns the latest record. A new
+   * photo goes up with its focus point; a moved focus on the saved photo is
+   * `moveFocus`.
    */
   async function syncImage<R extends EventRecord>(
     record: R,
-    upload: (eventId: string, image: Blob, getToken: GetToken) => Promise<R>,
+    upload: (eventId: string, image: Blob, getToken: GetToken, focus?: ImageFocus | null) => Promise<R>,
     remove: (eventId: string, getToken: GetToken) => Promise<R>,
+    moveFocus: (eventId: string, focus: ImageFocus | null, getToken: GetToken) => Promise<R>,
   ): Promise<R> {
     if (imageFile) {
-      const updated = await upload(record.eventId, imageFile, saveToken);
+      const updated = await upload(record.eventId, imageFile, saveToken, imageFocus);
       setImageFile(null);
+      setFocusChanged(false);
       return updated;
     }
     if (imageRemoved && record.imageUrl) {
       const updated = await remove(record.eventId, saveToken);
       setImageRemoved(false);
+      setFocusChanged(false);
+      return updated;
+    }
+    if (focusChanged && record.imageUrl && !imageRemoved) {
+      const updated = await moveFocus(record.eventId, imageFocus, saveToken);
+      setFocusChanged(false);
       return updated;
     }
     return record;
+  }
+
+  function changeFocus(focus: ImageFocus | null) {
+    setImageFocus(focus);
+    setFocusChanged(true);
+  }
+
+  /** Discarding a new pick brings back the saved photo, and with it its saved focus. */
+  function changePending(image: Blob | null) {
+    setImageFile(image);
+    if (image === null) {
+      setImageFocus(savedRecord?.imageFocus ?? null);
+      setFocusChanged(false);
+    }
+  }
+
+  /** Removing the saved photo drops its focus with it. */
+  function changeRemoved(removedNow: boolean) {
+    setImageRemoved(removedNow);
+    if (removedNow) {
+      setImageFocus(null);
+      setFocusChanged(false);
+    }
   }
 
   /** Admin mode: creates the event, or saves the whole of it against the version being edited. */
@@ -722,7 +760,7 @@ export default function EventEditor(props: Props) {
         const note = reason.trim();
         let record = await adminSave(input);
         setPublish(false);
-        record = await syncImage(record, adminUploadEventImage, adminDeleteEventImage);
+        record = await syncImage(record, adminUploadEventImage, adminDeleteEventImage, (id, focus, token) => adminSetEventImageFocus(id, focus, token));
         // A photo change bumps the event's version too: the next save is made against it.
         setVersion(record.updatedAt);
         // So does a clip change: the admin routes answer with the event, whose version is the next.
@@ -751,7 +789,7 @@ export default function EventEditor(props: Props) {
           ? await updateEventDraft(existingId, input, saveToken)
           : await createEventDraft(input, saveToken);
         if (!existingId) setCreatedId(record.eventId);
-        record = await syncImage(record, uploadEventImage, deleteEventImage);
+        record = await syncImage(record, uploadEventImage, deleteEventImage, (id, focus, token) => setEventImageFocus(id, focus, token));
         const onSaved = props.onSaved;
         record = await syncClip(record, ORGANISER_CLIP_ROUTES, (kept) => {
           if (initial) onSaved(kept);
@@ -882,7 +920,7 @@ export default function EventEditor(props: Props) {
     }
     try {
       const saved = await updateEventDraft(initial.eventId, input, saveToken);
-      const withImage = await syncImage(saved, uploadEventImage, deleteEventImage);
+      const withImage = await syncImage(saved, uploadEventImage, deleteEventImage, (id, focus, token) => setEventImageFocus(id, focus, token));
       // Waits for a clip upload a save already started, and never publishes without the clip.
       setSavedRecord(await syncClip(withImage, ORGANISER_CLIP_ROUTES, props.onSaved));
       const record: PublishedEvent = await publishEvent(initial.eventId, saveToken);
@@ -950,6 +988,7 @@ export default function EventEditor(props: Props) {
     organiserName,
     organiserLogoThumbUrl: current?.organiserLogoThumbUrl,
     imageUrl: photoUrl ?? undefined,
+    imageFocus: photoUrl ? imageFocus : null,
     ticketTypes,
     ticketingMode,
     externalTicketUrl: isAdmin ? externalTicketUrl.trim() : initial?.externalTicketUrl,
@@ -973,6 +1012,7 @@ export default function EventEditor(props: Props) {
       lastSaved={savedAt}
       poster={poster}
       imageUrl={photoUrl ?? undefined}
+      imageFocus={photoUrl ? imageFocus : null}
       price={price}
       organiser={isAdmin ? `${current?.organiserName ?? organiser?.displayName ?? ""}${platformManaged ? " (platform-managed)" : ""}`.trim() || undefined : undefined}
     />
@@ -1357,9 +1397,11 @@ export default function EventEditor(props: Props) {
               getToken={getToken}
               existingUrl={savedRecord?.imageUrl}
               pending={imageFile}
-              onPendingChange={setImageFile}
+              onPendingChange={changePending}
               removed={imageRemoved}
-              onRemovedChange={setImageRemoved}
+              onRemovedChange={changeRemoved}
+              focus={imageFocus}
+              onFocusChange={changeFocus}
               error={errors.image}
               poster={poster}
               title={title}

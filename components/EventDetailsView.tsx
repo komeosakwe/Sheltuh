@@ -242,6 +242,7 @@ export default function EventDetailsView({
               <EventArt
                 poster={event.poster}
                 imageUrl={event.imageUrl}
+                imageFocus={event.imageFocus}
                 title={event.title}
                 priority
                 fit="auto"

@@ -95,3 +95,27 @@ describe("EventArt", () => {
     });
   });
 });
+
+describe("EventArt photo focus", () => {
+  it("centres the crop on the focus point, and leaves a photo without one alone", () => {
+    const { container, rerender } = render(<EventArt poster={poster} title="x" imageUrl="/events/x.jpg" />);
+    expect((container.querySelector("img") as HTMLImageElement).style.objectPosition).toBe("");
+    rerender(<EventArt poster={poster} title="x" imageUrl="/events/x.jpg" imageFocus={{ x: 20, y: 70 }} />);
+    expect((container.querySelector("img") as HTMLImageElement).style.objectPosition).toBe("20% 70%");
+    rerender(<EventArt poster={poster} title="x" imageUrl="/events/x.jpg" imageFocus={null} />);
+    expect((container.querySelector("img") as HTMLImageElement).style.objectPosition).toBe("");
+  });
+
+  it("keeps a contained photo whole (no position on it) and moves only its blurred backdrop", () => {
+    const { container } = render(<EventArt poster={poster} title="x" imageUrl="/events/tall.jpg" fit="auto" imageFocus={{ x: 10, y: 90 }} />);
+    const img = container.querySelector("img") as HTMLImageElement;
+    // A portrait poster in a (jsdom: zero-sized, so not-portrait) box is contained.
+    Object.defineProperty(img, "naturalWidth", { value: 400 });
+    Object.defineProperty(img, "naturalHeight", { value: 800 });
+    fireEvent.load(img);
+    expect(img.className).toContain("object-contain");
+    expect(img.style.objectPosition).toBe("");
+    const backdrop = container.querySelector("[data-art-backdrop]") as HTMLElement;
+    expect(backdrop.style.backgroundPosition).toBe("10% 90%");
+  });
+});

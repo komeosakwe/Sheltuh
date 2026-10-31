@@ -629,3 +629,16 @@ describe("QuickBuyLink (the card's ticket action, also on the map's list and car
     expect(within(screen.getByRole("link")).getByText("Buy tickets")).toHaveAttribute("aria-hidden", "true");
   });
 });
+
+describe("EventCard photo focus", () => {
+  it("crops its photo on the event's focus point", () => {
+    const { container } = render(
+      <FakeAuthProvider value={fakeAuthValue()}>
+        <FavouritesProvider>
+          <EventCard variant="rail" event={{ ...event, imageUrl: "/api/events/evt-1/image?v=1", imageFocus: { x: 12, y: 34 } }} />
+        </FavouritesProvider>
+      </FakeAuthProvider>,
+    );
+    expect((container.querySelector("[data-card-media] img") as HTMLImageElement).style.objectPosition).toBe("12% 34%");
+  });
+});

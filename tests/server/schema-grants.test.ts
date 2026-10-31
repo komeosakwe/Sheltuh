@@ -203,6 +203,7 @@ describe("Data API lock-out", () => {
       "admin_delete_event_image",
       "admin_edit_event",
       "admin_put_event_image",
+      "admin_set_event_image_focus",
       "event_images_touch_event",
       "events_external_ticket_url_valid",
       "events_platform_free_only",

@@ -3,7 +3,7 @@ import type { RefundPolicy } from "@/lib/refund-policy";
 import { localToUtcIso, type AustralianTimeZone, type StateCode } from "@/lib/time-zones";
 import type { TicketingMode } from "@/lib/ticketing";
 import type { TicketTypeInput } from "@/lib/api/types";
-import type { Coordinates, EventCategory, EventClip, SheltuhEvent } from "@/lib/types";
+import type { Coordinates, EventCategory, EventClip, ImageFocus, SheltuhEvent } from "@/lib/types";
 
 /** What the draft doesn't have yet: the event page shows its own muted stand-in for each (EventDetailsView's `preview`). */
 export interface PreviewMissing {
@@ -38,6 +38,8 @@ export interface PreviewDraft {
   organiserLogoThumbUrl?: string;
   /** The photo as it'd show: the new pick's, or the saved one's, as an object URL. */
   imageUrl?: string;
+  /** Where the photo's subject is, when set. */
+  imageFocus?: ImageFocus | null;
   clip?: EventClip;
   ticketTypes: readonly TicketTypeInput[];
   ticketingMode: TicketingMode;
@@ -98,6 +100,7 @@ export function draftToPreviewEvent(draft: PreviewDraft): { event: SheltuhEvent;
     ...(draft.organiserLogoThumbUrl ? { organiserLogoThumbUrl: draft.organiserLogoThumbUrl } : {}),
     poster: assignPoster(slug),
     ...(draft.imageUrl ? { imageUrl: draft.imageUrl } : {}),
+    ...(draft.imageUrl && draft.imageFocus ? { imageFocus: draft.imageFocus } : {}),
     ...(draft.clip ? { clip: draft.clip } : {}),
     ticketTypes: external
       ? []

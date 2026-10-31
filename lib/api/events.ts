@@ -1,7 +1,7 @@
 import { REFUND_POLICY_TIGHTENED_CODE, type RefundPolicy } from "@/lib/refund-policy";
 import type { TicketingMode } from "@/lib/ticketing";
 import type { AustralianTimeZone, StateCode } from "@/lib/time-zones";
-import type { EventCategory } from "@/lib/types";
+import type { EventCategory, ImageFocus } from "@/lib/types";
 import { ApiError, apiFetch, type GetToken } from "./client";
 import type {
   EventRecord,
@@ -200,9 +200,20 @@ export async function getMyEvent(eventId: string, getToken: GetToken) {
 }
 
 /** Uploads (or replaces) the event's photo. Returns the updated event, whose `imageUrl` is the new version. */
-export async function uploadEventImage(eventId: string, image: Blob, getToken: GetToken) {
+export async function uploadEventImage(eventId: string, image: Blob, getToken: GetToken, focus?: ImageFocus | null) {
   const token = await getToken();
-  return apiFetch<EventRecord>(`/events/${eventId}/image`, { method: "PUT", body: image, token });
+  return apiFetch<EventRecord>(`/events/${eventId}/image${focusQuery(focus)}`, { method: "PUT", body: image, token });
+}
+
+/** `?fx=&fy=` for an upload's focus point (none: no query, so the photo has no focus). */
+export function focusQuery(focus?: ImageFocus | null): string {
+  return focus ? `?fx=${focus.x}&fy=${focus.y}` : "";
+}
+
+/** Moves (or, with null, clears) the focus point of the event's saved photo. ApiError 409 when it has no photo or is locked. */
+export async function setEventImageFocus(eventId: string, focus: ImageFocus | null, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<EventRecord>(`/events/${eventId}/image`, { method: "PATCH", body: { focus }, token });
 }
 
 export async function deleteEventImage(eventId: string, getToken: GetToken) {

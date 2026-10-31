@@ -35,6 +35,8 @@ export function adaptPublicEvent(event: PublicEvent): SheltuhEvent {
     ...(event.organiserLogoThumbUrl ? { organiserLogoThumbUrl: event.organiserLogoThumbUrl } : {}),
     poster: assignPoster(event.slug),
     imageUrl: event.imageUrl,
+    // Only with a focus point: an event without one adapts exactly as before.
+    ...(event.imageFocus ? { imageFocus: { x: event.imageFocus.x, y: event.imageFocus.y } } : {}),
     // Only with a clip: an event without one adapts exactly as before.
     ...(event.clip
       ? {

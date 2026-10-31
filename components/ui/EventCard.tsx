@@ -154,6 +154,7 @@ export default function EventCard({
         <EventArt
           poster={event.poster}
           imageUrl={event.imageUrl}
+          imageFocus={event.imageFocus}
           title={event.title}
           fit="auto"
           // An ended event's image is greyed: it's still there to look at, but nothing's on.
