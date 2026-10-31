@@ -188,7 +188,7 @@ test.describe("the home's ways on, at 390px", () => {
     });
     expect(gap).toBe(32);
     expect(await card.evaluate((el) => getComputedStyle(el).paddingTop)).toBe("20px");
-    // Its disclosure stays readable: 14px.
-    expect(await card.locator("[data-community-note]").evaluate((el) => getComputedStyle(el).fontSize)).toBe("14px");
+    // No "Illustrative photos" caption (owner, 31 Oct 2026), and no footnote without a real example.
+    await expect(card.locator("[data-community-note]")).toHaveCount(0);
   });
 });
