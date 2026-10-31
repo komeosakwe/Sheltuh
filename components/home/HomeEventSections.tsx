@@ -183,7 +183,6 @@ export default function HomeEventSections() {
         <HomeRailSection
           id="home-recent"
           title="Recently on"
-          note="Ended in the last 2 weeks"
           link={{ href: "/events", label: "All events" }}
           count={sections.recent.length}
           className={SECTION}
