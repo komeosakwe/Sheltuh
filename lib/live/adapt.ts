@@ -78,6 +78,7 @@ export function adaptPublicEvent(event: PublicEvent): SheltuhEvent {
       ? {
           externalTicketUrl: event.externalTicketUrl,
           externalFree: event.externalFree === true,
+          ...(typeof event.externalPriceFromCents === "number" ? { externalPriceFromCents: event.externalPriceFromCents } : {}),
           externalProvider: event.externalProvider ?? null,
         }
       : {}),

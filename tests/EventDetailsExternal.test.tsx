@@ -49,7 +49,8 @@ function sample(slug: string): SheltuhEvent {
   if (!event) throw new Error(`Fixture event not found: ${slug}`);
   return event;
 }
-const HUMANITIX = sample("thornbury-dub-session"); // paid, Humanitix
+const PRICED = sample("thornbury-dub-session"); // paid, Humanitix, the organiser gave a price
+const HUMANITIX: SheltuhEvent = { ...PRICED, externalPriceFromCents: undefined }; // the same, no price given
 const OWN_SITE = sample("footscray-open-studios"); // free, the organiser's own site
 
 function parts(container: HTMLElement) {
@@ -177,6 +178,34 @@ describe("external event: the phone buy bar", () => {
       "href",
       OWN_SITE.externalTicketUrl,
     );
+  });
+});
+
+describe("external event: the organiser's price", () => {
+  it("tickets section: 'From A$35' and who set it; still no booking-fee talk", () => {
+    const { container } = render(<EventDetailsView event={PRICED} demo={false} />);
+    const { tickets } = parts(container);
+    expect(within(tickets).getByText("From A$35")).toBeInTheDocument();
+    expect(within(tickets).getByText("Price set by the organiser.")).toBeInTheDocument();
+    expect(container).not.toHaveTextContent(/incl\. booking fee/);
+  });
+
+  it("buy bar: 'From A$35' over where tickets are, with no note and no empty line", () => {
+    const { container } = render(<EventDetailsView event={PRICED} demo={false} />);
+    const { bar } = parts(container);
+    if (!bar) throw new Error("buy bar not rendered");
+    expect(within(bar).getByText("From A$35")).toBeInTheDocument();
+    expect(within(bar).getByText("Tickets on Humanitix")).toBeInTheDocument();
+    expect(bar).not.toHaveTextContent("Price set by the organiser.");
+    for (const p of bar.querySelectorAll("p")) expect(p.textContent?.trim()).not.toBe("");
+  });
+
+  it("without a price, or when free, nothing about a price shows", () => {
+    for (const event of [HUMANITIX, { ...PRICED, externalFree: true }]) {
+      const { container, unmount } = render(<EventDetailsView event={event} demo={false} />);
+      expect(container).not.toHaveTextContent(/From A\$|Price set by the organiser/);
+      unmount();
+    }
   });
 });
 

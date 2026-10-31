@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { calculateOrderSummary } from "../lib/fees";
 import {
+  externalPriceFromLabel,
   externalProviderLabel,
   formatFeedPrice,
   formatFeedPriceParts,
@@ -199,7 +200,25 @@ describe("an event ticketed on another site (external)", () => {
 
   it("covers the demo's two external events", () => {
     const external = sampleEvents.filter((e) => e.ticketingMode === "external");
-    expect(external.map(formatFeedPrice).sort()).toEqual(["Free · Tickets on the organiser's site", "Tickets on Humanitix"]);
+    expect(external.map(formatFeedPrice).sort()).toEqual([
+      "Free · Tickets on the organiser's site",
+      "From A$35 · Tickets on Humanitix",
+    ]);
+  });
+
+  it("the organiser's price: 'From A$89' over where tickets are, never 'incl. booking fee'", () => {
+    const priced = { ...base, externalPriceFromCents: 8900 };
+    expect(formatFeedPrice(priced)).toBe("From A$89 · Tickets on Humanitix");
+    expect(formatFeedPriceParts(priced)).toEqual({ amount: "From A$89", note: "Tickets on Humanitix" });
+    expect(formatFeedPrice({ ...base, externalPriceFromCents: 12050 })).toBe("From A$120.50 · Tickets on Humanitix");
+    expect(externalPriceFromLabel(priced)).toBe("From A$89");
+  });
+
+  it("is ignored for a free event, a missing or zero price, and a Sheltüh-ticketed event", () => {
+    expect(formatFeedPrice({ ...base, externalFree: true, externalPriceFromCents: 8900 })).toBe("Free · Tickets on Humanitix");
+    expect(externalPriceFromLabel({ ...base, externalPriceFromCents: 0 })).toBeNull();
+    expect(externalPriceFromLabel(base)).toBeNull();
+    expect(externalPriceFromLabel({ ...findEvent("neon-static"), externalPriceFromCents: 8900 })).toBeNull();
   });
 });
 

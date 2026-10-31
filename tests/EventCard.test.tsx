@@ -455,6 +455,7 @@ describe("EventCard ticket states, from real data only (§6.2.3)", () => {
     ["seated and sold out", { ...seated, soldOut: true, ticketTypes: soldOut.ticketTypes.map((t) => ({ ...t, seated: true })) }, "Sold out", "Join waitlist", "/events/glass-sessions#tickets", "btn-outline"],
     // A9: an external event's tickets aren't bought on Sheltüh, so "Get tickets"; the provider stays in the price line.
     ["external, paid", external, "Tickets on Humanitix", "Get tickets", "/events/dub-session#tickets", "btn-signal"],
+    ["external, paid, with the organiser's price", { ...external, externalPriceFromCents: 8900 }, "From A$89 Tickets on Humanitix", "Get tickets", "/events/dub-session#tickets", "btn-signal"],
     ["external, free", externalFree, "Free Tickets on the organiser's site", "Get free tickets", "/events/open-studios#tickets", "btn-signal"],
     ["no ticket types yet", { ...event, ticketTypes: [] }, "Tickets coming soon", null, null, null],
   ])("%s", (_label, e, price, label, href, tone) => {

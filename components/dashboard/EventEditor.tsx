@@ -58,6 +58,7 @@ import {
   EDITOR_STEPS,
   errorFieldLabel,
   LOCATION_REQUIRED_TEXT,
+  parseExternalPriceFrom,
   PLATFORM_FREE_ONLY,
   stepComplete,
   stepOfControlId,
@@ -257,6 +258,7 @@ function invalidControlIds(
     ["start", start.date ? "start-time" : "start-date"],
     ["end", end.date ? "end-time" : "end-date"],
     ["externalTicketUrl", "externalTicketUrl"],
+    ["externalPriceFromCents", "externalPriceFromCents"],
     ["ticketTypes", "add-ticket-type"],
   ];
   for (let i = 0; i < ticketCount; i++) {
@@ -334,6 +336,10 @@ export default function EventEditor(props: Props) {
   const [ticketingMode, setTicketingMode] = useState<TicketingMode>(initial?.ticketingMode ?? "sheltuh");
   const [externalTicketUrl, setExternalTicketUrl] = useState(initial?.externalTicketUrl ?? "");
   const [externalFree, setExternalFree] = useState(initial?.externalFree === true);
+  // The organiser's "price from" as typed, in dollars (a number input's text); blank: none.
+  const [externalPrice, setExternalPrice] = useState(
+    initial?.externalPriceFromCents ? String(initial.externalPriceFromCents / 100) : "",
+  );
   // Reserved seating (docs/design/seating.md §5.13): not a field of its own. An existing
   // event's comes from its seat map; a new event's decides where saving goes next.
   const [seatingChoice, setSeatingChoice] = useState<SeatingChoice>(() => initialSeatingChoice(initial));
@@ -599,6 +605,8 @@ export default function EventEditor(props: Props) {
       platformManaged,
       ticketingMode,
       externalTicketUrl,
+      externalPrice,
+      externalFree,
       ticketTypes,
       refundPolicy,
       refundDays: refundDaysNumber(),
@@ -639,6 +647,8 @@ export default function EventEditor(props: Props) {
       input.ticketingMode = ticketingMode;
       input.externalTicketUrl = external ? (isAdmin ? externalTicketUrl.trim() : (initial?.externalTicketUrl ?? null)) : null;
       input.externalFree = external && externalFree;
+      // The organiser's own price, for a paid external event; null clears a stored one.
+      input.externalPriceFromCents = external && !externalFree ? parseExternalPriceFrom(externalPrice) : null;
     }
     return input;
   }
@@ -944,11 +954,16 @@ export default function EventEditor(props: Props) {
     ticketingMode,
     externalTicketUrl: isAdmin ? externalTicketUrl.trim() : initial?.externalTicketUrl,
     externalFree,
+    externalPriceFromCents: ticketingMode === "external" ? parseExternalPriceFrom(externalPrice) : null,
     externalProvider: initial?.externalProvider,
     refundPolicy,
     refundDays: refundDaysNumber(),
   });
-  const price = ticketingMode === "sheltuh" ? formatFeedPriceParts(previewEvent) : null;
+  // An external event has a price line only when the organiser gave a price.
+  const price =
+    ticketingMode === "sheltuh" || previewEvent.externalPriceFromCents !== undefined
+      ? formatFeedPriceParts(previewEvent)
+      : null;
   const eventStatus = current ? organiserEventStatus(current) : null;
   const summary = (
     <EditorSummary
@@ -1000,6 +1015,32 @@ export default function EventEditor(props: Props) {
       "aria-describedby": errors[key] ? errorId(key) : undefined,
     };
   }
+
+  // An external event's optional "Price from (A$)": the organiser's own price, shown as "From A$x".
+  const priceFromField = (
+    <div className="flex flex-col gap-1">
+      <label htmlFor="externalPriceFromCents" className="eyebrow text-muted">
+        Price from (A$)
+      </label>
+      <input
+        id="externalPriceFromCents"
+        type="number"
+        placeholder="Optional"
+        inputMode="decimal"
+        min={0.01}
+        max={10000}
+        step={0.5}
+        value={externalPrice}
+        onChange={(e) => {
+          setExternalPrice(e.target.value);
+          clearErrors("externalPriceFromCents");
+        }}
+        {...invalidProps("externalPriceFromCents")}
+        className={fieldClass}
+      />
+      {fieldError("externalPriceFromCents")}
+    </div>
+  );
 
   /** A field's error message, with the id invalidProps points at. */
   function fieldError(name: string) {
@@ -1097,13 +1138,15 @@ export default function EventEditor(props: Props) {
     platformManaged,
     ticketingMode,
     externalTicketUrl,
+    externalPrice,
+    externalFree,
     ticketTypes,
     refundPolicy,
     refundDays: refundDaysNumber(),
   });
   const complete = { 1: stepComplete(1, problems, venueLocation.hasPin), 2: stepComplete(2, problems, venueLocation.hasPin) };
 
-  const ticketProblem = Object.keys(problems).find((key) => key === "ticketTypes" || key.startsWith("ticket-") || key === "externalTicketUrl");
+  const ticketProblem = Object.keys(problems).find((key) => key === "ticketTypes" || key.startsWith("ticket-") || key === "externalTicketUrl" || key === "externalPriceFromCents");
   // Typed but not publishable: it has ended already (the server refuses `event_ended`), or ends before it starts.
   const endIso = startInstant(end, timeZone);
   const dateProblem =
@@ -1580,6 +1623,7 @@ export default function EventEditor(props: Props) {
                       <input type="checkbox" checked={externalFree} onChange={(e) => setExternalFree(e.target.checked)} />
                       Entry is free
                     </label>
+                    {!externalFree && priceFromField}
                   </>
                 )}
               </fieldset>
@@ -1592,6 +1636,7 @@ export default function EventEditor(props: Props) {
                 <p className="font-medium">Tickets are sold on {initial?.externalProvider ?? "the organiser’s site"}</p>
                 <p className="mt-1 break-all text-muted">{initial?.externalTicketUrl}</p>
               </div>
+              {!externalFree && <div className="mt-3">{priceFromField}</div>}
             </EditorCard>
           )}
 
@@ -1792,7 +1837,7 @@ export default function EventEditor(props: Props) {
 
 /** Orders the keys of an error record as the form is laid out: step 1's fields, then tickets, then the note; the rest last. */
 function orderedErrorKeys(keys: string[], ticketCount: number): string[] {
-  const order = ["organiserId", "title", "description", "venueName", "venueAddress", "suburb", "state", "timeZone", "location", "start", "end", "image", "externalTicketUrl", "ticketTypes"];
+  const order = ["organiserId", "title", "description", "venueName", "venueAddress", "suburb", "state", "timeZone", "location", "start", "end", "image", "externalTicketUrl", "externalPriceFromCents", "ticketTypes"];
   for (let i = 0; i < ticketCount; i++) order.push(`ticket-${i}-name`, `ticket-${i}-price`, `ticket-${i}-qty`);
   order.push("refundPolicy", "refundDays", "reason");
   const known = order.filter((key) => keys.includes(key));

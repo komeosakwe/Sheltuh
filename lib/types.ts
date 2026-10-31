@@ -182,6 +182,12 @@ export interface SheltuhEvent {
   externalTicketUrl?: string;
   /** External events only: the organiser says entry is free. */
   externalFree?: boolean;
+  /**
+   * External, paid events only: the organiser's "price from" in whole AUD
+   * cents. Set by the organiser (never by us), so it carries no booking fee.
+   * Absent: no price shown.
+   */
+  externalPriceFromCents?: number;
   /** External events only: a known ticketing site's name, or null for "the organiser's site". */
   externalProvider?: string | null;
   /**

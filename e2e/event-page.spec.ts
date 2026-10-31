@@ -42,6 +42,7 @@ function asPublic(slug: string): PublicEvent {
     ticketingMode: event.ticketingMode ?? "sheltuh",
     externalTicketUrl: event.externalTicketUrl,
     externalFree: event.externalFree ?? false,
+    ...(event.externalPriceFromCents ? { externalPriceFromCents: event.externalPriceFromCents } : {}),
     externalProvider: event.externalProvider ?? null,
   };
 }
@@ -87,7 +88,7 @@ async function noSidewaysScroll(page: Page) {
 test.describe("external event (Humanitix) at 1440×900", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test("links out from the tickets section with the click beacon; no price, selector or Who's Going", async ({ page }) => {
+  test("links out from the tickets section with the click beacon; the organiser's price, no selector or Who's Going", async ({ page }) => {
     const { outbound, going } = await mockApi(page);
     await page.goto("/events/thornbury-dub-session");
     const tickets = page.locator("#tickets");
@@ -98,7 +99,10 @@ test.describe("external event (Humanitix) at 1440×900", () => {
     await expect(link).toHaveAttribute("rel", "noopener noreferrer");
     await expect(tickets).toContainText("Sold by Humanitix, not Sheltüh");
     await expect(tickets).not.toContainText("Tickets coming soon");
-    await expect(tickets).not.toContainText("A$");
+    // The organiser's own price, labelled; never ours (no booking fee).
+    await expect(tickets).toContainText("From A$35");
+    await expect(tickets).toContainText("Price set by the organiser.");
+    await expect(tickets).not.toContainText("incl. booking fee");
     // No Sheltüh refund policy: Humanitix's terms apply.
     await expect(tickets).not.toContainText("change of mind");
     await expect(tickets).not.toContainText("Australian Consumer Law");

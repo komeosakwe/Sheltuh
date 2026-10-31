@@ -25,7 +25,7 @@ import { SUPPORT_EMAIL } from "@/lib/contact";
 import { isSafeTicketUrl, reportEventHref } from "@/lib/event-url";
 import { eventZone, formatEventDateShort, formatEventDateTimeRange, formatEventTime, formatTimeZoneLabel, zoneSuffix } from "@/lib/format";
 import { directionsHref } from "@/lib/maps";
-import { externalProviderLabel, formatFeedPriceParts, isSoldOut } from "@/lib/pricing";
+import { externalPriceFromLabel, externalProviderLabel, formatFeedPriceParts, isSoldOut } from "@/lib/pricing";
 import { goesToSeatPage, quickBuyLabel } from "@/lib/quick-buy";
 import { DEFAULT_REFUND_POLICY, REFUND_ACL_STATEMENT, refundTermsLine } from "@/lib/refund-policy";
 import { organiserProfileHref } from "@/lib/sample-organisers";
@@ -178,8 +178,9 @@ export default function EventDetailsView({
   const provider = externalProviderLabel(event);
   // Defence in depth: only an https ticket link is ever shown (or the buy bar with it).
   const ticketUrl = external && isSafeTicketUrl(event.externalTicketUrl) ? event.externalTicketUrl : undefined;
-  // No price for an external event: we can't vouch for another site's.
+  // An external event has no Sheltüh price; the organiser's own "From A$x", if they gave one, shows apart.
   const price = external ? null : formatFeedPriceParts(event);
+  const externalFrom = externalPriceFromLabel(event);
   // The event's own zone (Melbourne when it has none), named under the time.
   const zone = eventZone(event.timeZone);
   const when = whenLabel(event.startsAt, event.endsAt, zone);
@@ -390,6 +391,12 @@ export default function EventDetailsView({
                 {external ? (
                   <div className="flex flex-col gap-4 rounded-card border border-foreground bg-card p-4 sm:p-5">
                     {event.externalFree && <p className="text-base leading-6 font-semibold">Free entry</p>}
+                    {externalFrom && (
+                      <div>
+                        <p className="text-base leading-6 font-semibold tabular-nums">{externalFrom}</p>
+                        <p className="text-sm text-muted">Price set by the organiser.</p>
+                      </div>
+                    )}
                     <p className="text-sm text-muted">
                       Sold by {provider}, not Sheltüh. No Sheltüh booking fee. Their terms apply.
                     </p>
@@ -511,6 +518,11 @@ export default function EventDetailsView({
                 {event.externalFree ? (
                   <>
                     <p className="text-base leading-5 font-semibold">Free</p>
+                    <p className="text-sm leading-5 text-muted">Tickets on {provider}</p>
+                  </>
+                ) : externalFrom ? (
+                  <>
+                    <p className="text-base leading-5 font-semibold tabular-nums">{externalFrom}</p>
                     <p className="text-sm leading-5 text-muted">Tickets on {provider}</p>
                   </>
                 ) : (
