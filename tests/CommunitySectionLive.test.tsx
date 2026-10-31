@@ -80,7 +80,7 @@ describe("CommunitySection in live mode", () => {
     if (!card) throw new Error("no example card");
     expect(within(card).getByText("Event t1")).toBeInTheDocument();
     expect(card.querySelector("[data-community-count]")).toHaveTextContent(/^22 people going$/);
-    expect(COMMUNITY_LIVE_NOTE).toBe("Popular right now · Real count · Illustrative photos");
+    expect(COMMUNITY_LIVE_NOTE).toBe("Popular right now · Real count");
     expect(card.querySelector("[data-community-note]")).toHaveTextContent(COMMUNITY_LIVE_NOTE);
     expect(card).not.toHaveTextContent(COMMUNITY_DEMO_NOTE);
     expect(card).not.toHaveTextContent(/sample/i);
@@ -104,7 +104,8 @@ describe("CommunitySection in live mode", () => {
     for (const e of T) expect(card).not.toHaveTextContent(e.title);
     expect(within(card).getByText(COMMUNITY_TEASER.title)).toBeInTheDocument();
     expect(card.querySelector("[data-community-count]")).toBeNull();
-    expect(card.querySelector("[data-community-note]")).toHaveTextContent(/^Illustrative photos$/);
+    expect(card.querySelector("[data-community-note]")).toBeNull();
+    expect(card).not.toHaveTextContent(/Illustrative photos/);
     expect(card.querySelectorAll("[data-community-faces] img")).toHaveLength(5);
     expect(container.querySelector("#find-your-people")?.textContent).not.toMatch(/\d/);
   });
