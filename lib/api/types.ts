@@ -1298,6 +1298,22 @@ export interface GoingSummary {
   countHidden: boolean;
 }
 
+/**
+ * Public: GET /api/events/{eventId}/external-going. A count-only "going" for
+ * an external-ticket event (no names, no ticket check): same fields and
+ * threshold rule as GoingSummary. `closed` for an event that sells tickets on
+ * Sheltüh (use Who's Going) or has ended.
+ */
+export type ExternalGoingSummary = GoingSummary;
+
+/** GET/PUT/DELETE /api/events/{eventId}/external-going/me. */
+export interface MyExternalGoing {
+  /** The caller tapped "I'm going". Always false once the event is closed. */
+  going: boolean;
+  /** The event is external and hasn't ended: the button works (PUT needs a verified email). */
+  open: boolean;
+}
+
 /** One entry in GET /api/events/{eventId}/going/attendees (verified members only). */
 export interface GoingAttendee {
   /** Opaque, and different on every event for the same person. */

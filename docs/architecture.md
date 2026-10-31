@@ -105,6 +105,7 @@ iframe served by Stripe), with the publishable key
 | `private.profile_avatars` | `user_id` | The member's photo as the server re-encoded it: `image` (512 × 512 WebP, ≤ 512 KB) and `thumb` (96 × 96 WebP, ≤ 64 KB), no metadata. Deleted with the profile. |
 | `private.profile_moderation_log` | `id` (identity) | An admin's removal of a member's photo, bio or Instagram handle: the member's account, the admin, which fields (never the content) and the reason (1–500). Deleted with the member's account, and 2 years after the entry (`purge_social_data`). |
 | `event_attendees` | `id` | One row per Who's Going opt-in, unique per `(event_id, user_id)`. `id` is the opaque `attendeeId` shown to members: a fresh one per event, so it can't be linked across events or to a user. Deleted with the profile or the event, and by `purge_social_data` 30 days after the event ends. |
+| `private.external_event_going` | `(event_id, user_id)` | One row per "I'm going" tap on an external-ticket event (`20261116000000_external_going.sql`; see "External ticketing"). Count only: no name, profile or ticket behind it. RLS on, no policies, no client grants. Deleted with the event or the member's account, and by `purge_social_data` 30 days after the event ends. Index on `user_id` for the account cascade. |
 | `private.social_suspensions` | `user_id` | Admin-set Who's Going suspensions (SQL only, `docs/supabase-setup.md`). Keyed on the auth user, not the profile, so a member can't clear one by deleting and recreating their profile. Deleted with the Supabase account. |
 | `private.rate_limits` | `(user_id, bucket)` | Fixed-window per-member request counters (`take_rate_limit`). Deleted with the account; stale rows purged daily. |
 | `conversations` | `id` | One per pair of members, ever: `(user_low, user_high)` unique with `user_low < user_high`. `initiator_id` sent the request; `status`: requested → accepted (a reply) / declined. `event_id` is where they met (set null if the event is deleted). Per-side last-read message ids; `last_message_at` for ordering and retention. `id` is the opaque `conversationId`. Deleted with either member's profile, and 12 months after the last message. Every conversation has a row in `private.conversation_pairs`. |
@@ -156,7 +157,10 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
 | `transition_event` | Changes status and writes the moderation log entry in one step. It only moves an event from an expected status, so two admins acting at once can't both succeed; the loser gets a 409. |
 | `set_going` | Opts a member in to an event's Who's Going, checking everything in one step: the event is published, enabled, Sheltüh-ticketed and hasn't ended; the member isn't suspended (checked before the profile, so a suspended member without one still gets `suspended`); they have a profile; and a `paid` order for the event has their verified email (case-insensitive). Share-locks the event, then the profile, so an unpublish or profile deletion can't interleave. A suspension recorded mid-call can't be locked in advance, but every count and list filters suspensions at read time. Idempotent. Returns `going`, `event_unavailable`, `suspended`, `no_profile` or `not_eligible`. |
 | `take_rate_limit` | Records one hit on a member's `(user, bucket)` counter and says whether it's within the limit for the window. One upsert, so concurrent requests can't both take the last slot. |
-| `purge_social_data` | Retention: deletes Who's Going opt-ins 30 days after their event ended, profile moderation log entries after 2 years, follower-email unsubscribe tokens after 90 days, report photos no report references (after a day unused), rate-limit rows idle for a day, conversations (with their messages) 12 months after their last message, resolved reports 2 years after resolution, pair records with no conversation 12 months after the pair's first request, and the waitlist (see "Waitlist": entries 30 days after their event ended, unconfirmed entries 8 days after their last link, entries 30 days after their person left, expired confirmation links after a week). Idempotent. Scheduled daily with Supabase Cron (`docs/supabase-setup.md`), not by a migration. |
+| `set_external_going` | "I'm going" on an external event: share-locks the event row, then re-checks it is published, external and not ended in the same step as the insert. Idempotent. Returns `going`, `event_unavailable` (404), `not_external` (409), `ended` (409) or `user_unavailable` (the account was deleted mid-call; 401). |
+| `unset_external_going` | Deletes the member's tap; works in any event state. Idempotent. |
+| `external_going_state` | One row for a published event: `open` (external and not ended), the count (0 when not open) and whether the given member is going. The threshold is applied by the handler. |
+| `purge_social_data` | Retention: deletes Who's Going opt-ins 30 days after their event ended, profile moderation log entries after 2 years, follower-email unsubscribe tokens after 90 days, report photos no report references (after a day unused), rate-limit rows idle for a day, external "going" taps 30 days after their event ended, conversations (with their messages) 12 months after their last message, resolved reports 2 years after resolution, pair records with no conversation 12 months after the pair's first request, and the waitlist (see "Waitlist": entries 30 days after their event ended, unconfirmed entries 8 days after their last link, entries 30 days after their person left, expired confirmation links after a week). Idempotent. Scheduled daily with Supabase Cron (`docs/supabase-setup.md`), not by a migration. |
 | `request_conversation` | A first message to the member behind an `attendeeId`, checked in one step: the sender isn't suspended and is opted in to the same event, which is open; the recipient isn't suspended; neither blocks the other; the pair has no conversation yet and none on record (`conversation_pairs`: a pair whose conversation went with a deleted profile is `unavailable`); the sender is within both rate limits; and the recipient is within their cap on requests received (over it, `unavailable`). Locks the sender's profile first (`for no key update`, so it doesn't block the other member's FK checks and mutual requests can't deadlock). Two members requesting each other at once: the pair's primary key makes the second insert fail, which rolls back its rate-limit hits (and the recipient's count) and returns `exists` (409). The recipient's profile or account deleted mid-call is `unavailable`. Returns `sent`, `sender_suspended`, `not_going`, `unavailable`, `self`, `exists` or `rate_limited`. |
 | `send_message` | Locks the sender's profile, then the conversation, then checks visibility (blocks, the other member's suspension, a declined request), that the sender isn't waiting on their own request, and the rate limit, before inserting. A reply to a request accepts it; a reply and a decline racing can't both win. Returns `sent`, `sender_suspended`, `not_found`, `awaiting_reply` or `rate_limited`. |
 | `file_report` | Checks the reporter is in the conversation (and the message is the other member's), takes the rate limit and copies the evidence into the report in one step. Key-share-locks the conversation, then the message, when it finds them, so a profile deletion or retention purge waits for the report; one already under way means the report finds nothing (`not_found`, 404). The reported account deleted mid-call (a foreign-key failure) or a deadlock with an account deletion is also `not_found`, never a 500. |
@@ -1770,6 +1774,9 @@ Who sees what:
 - Opting out (`DELETE …/going/me`) and deleting the profile always work,
   whatever state the event is in, and need no verified email.
 
+An external-ticket event has a smaller, separate signal: see "Going on
+external events" under "External ticketing". It shares only the threshold.
+
 ## Messages
 
 Direct messages between members who met on a Who's Going list
@@ -2407,7 +2414,8 @@ to (`lib/ticketing.ts`, `lib/server/event-input.ts`,
   for an external event, and switching to external while ticket types
   exist. Checkout is a 409 before anything else (and an order racing an
   admin's switch is refused by the trigger, which share-locks the event row:
-  also a 409). Who's Going reads as closed and `set_going` refuses it.
+  also a 409). Who's Going reads as closed and `set_going` refuses it (a
+  separate count-only signal exists: "Going on external events").
   Check-in, undo and the check-in summary are a 409 for the owner.
 - **The link's rules** (`checkExternalTicketUrl`, and the
   `events_external_ticket_url_valid` trigger over the stored form, run when a
@@ -2489,6 +2497,45 @@ to (`lib/ticketing.ts`, `lib/server/event-input.ts`,
   a swapped link needs the exact address. The organiser sees their own
   event's log; the public never does.
 - **Outbound clicks**: see "Organiser analytics".
+
+### Going on external events
+
+Owner decision (Nov 2026): Who's Going stays off for an external event
+(Sheltüh can't verify tickets sold elsewhere), but it gets a count-only
+signal. Not for Sheltüh-ticketed events, which keep the real Who's Going.
+
+- **What it is.** A signed-in member with a verified email taps "I'm going"
+  (and taps again to undo). The page shows "12 going" once at least
+  `GOING_COUNT_THRESHOLD` (3) have, the same privacy rule as Who's Going;
+  below it only the button shows. The tapper always sees their own state
+  ("Going ✓" / "I'm going"). No names, faces, messages, profiles or ticket
+  check, so nothing identifies who tapped.
+- **When.** The event must be published, external and not ended. An ended
+  event shows nothing (no read-only count). Undo always works.
+- **Data.** `private.external_event_going` (see the tables above), changed
+  only through `set_external_going` and `unset_external_going`; counts read
+  through `external_going_state`.
+- **API** (`lib/server/handlers/external-going.ts`; client in
+  `lib/api/going.ts`): `GET /events/{id}/external-going` is public and
+  cached like the event page (`PUBLIC_EVENT_CACHE_CONTROL`), `{count, closed,
+  countHidden}` (`closed` for a Sheltüh-ticketed or ended event; 404 unless
+  published). `GET`, `PUT` and `DELETE /events/{id}/external-going/me`
+  return `{going, open}`, `private, no-store`. PUT needs a verified email
+  (403), refuses a Sheltüh-ticketed or ended event (409) and an unpublished
+  one (404). PUT and DELETE share a limit of 30 an hour per member (429,
+  bucket `external_going`).
+- **UI.** `components/ExternalGoing.tsx` sits where Who's Going sits on a
+  Sheltüh event (tickets, About, "Who's going", Location, Refunds). Signed
+  out, "I'm going" links to sign-in with `next` back to the event. The demo
+  shows a sample count and a disabled button. Event cards show no count for
+  an external event (their going signal comes from the trending snapshot,
+  which has none for them).
+- **Privacy Policy wording needed before go-live** (owner/legal to add; the
+  legal pages are not edited here): that tapping "I'm going" on an event
+  whose tickets are sold elsewhere records the member's account against
+  that event, shows other people only a total (from three), never who, and
+  is deleted when the member undoes it, deletes their account, or 30 days
+  after the event ends.
 
 ### Accepted risks (external ticketing)
 
@@ -3656,6 +3703,9 @@ application is approved.
 | `GET /events/{id}/going/attendees?cursor` | verified email with a profile that isn't suspended (403 otherwise); published only; 429 when rate-limited |
 | `GET /events/{id}/going/me` · `DELETE /events/{id}/going/me` | signed in (own opt-in) |
 | `PUT /events/{id}/going/me` | verified email, eligible ticket holder with a profile. 404 if Who's Going isn't open, 409 without a profile, 403 if not eligible or suspended |
+| `GET /events/{id}/external-going` | public (published only): `{count, closed, countHidden}` for an external event ("Going on external events"). `public, max-age=0, s-maxage=15, stale-while-revalidate=45` |
+| `GET /events/{id}/external-going/me` · `DELETE …/me` | signed in; `{going, open}`, `private, no-store`. DELETE idempotent, 429 over 30 an hour (shared with PUT) |
+| `PUT /events/{id}/external-going/me` | verified email (403); 404 unpublished, 409 not external or ended, 429 over 30 an hour |
 | `GET /profiles/me` · `DELETE /profiles/me` | signed in (own profile; DELETE also removes every opt-in, every conversation the member is in, for both sides, and the photo, bio and handle). GET also has `profileId`, `profileVisible`, `bio?`, `instagramHandle?`, `hasAvatar`, `avatarUrl?`, `avatarThumbUrl?` |
 | `PATCH /profiles/me` `{displayName?, profileVisible?, bio?, instagramHandle?}` | verified email, a profile (404), not suspended (403). Absent: unchanged; null or "" clears bio or handle. 400 fieldErrors |
 | `PUT /profiles/me/avatar` (raw JPEG/PNG/WebP) · `DELETE …/avatar` · `GET …/avatar[?size=thumb]` | PUT: verified, a profile (404), not suspended (403); 200 the profile; 400 not a supported image (or over 24 megapixels); 413 over 5 MB; 429 over 20 a day; 503 too many photos being decoded on the instance. DELETE: signed in, 204 idempotent. GET: the caller's own |

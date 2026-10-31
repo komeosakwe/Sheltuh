@@ -68,7 +68,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261115000000_event_image_focus.sql`. Never
+      newest, currently `20261116000000_external_going.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -330,6 +330,21 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           four-argument one from file 15's successor
           (`20261023000100_review_hardening.sql`), then drop the constraint
           and the two columns (focus points are lost)
+      44. `20261116000000_external_going.sql` (count-only "going" for
+          external-ticket events, docs/architecture.md "Going on external
+          events": table `private.external_event_going` with RLS and no
+          grants; `set_external_going`, `unset_external_going` and
+          `external_going_state`; `purge_social_data` redefined with the same
+          signature plus one delete). search_path pinned, execute revoked from
+          clients. Additive; the previous app never calls it, so it can be
+          applied ahead of the deploy. Needs no new environment variable.
+          Because it redefines `purge_social_data` from
+          `20261102000100_social_hardening.sql`, any later file that
+          redefines it must carry its delete forward. The Privacy Policy needs a line
+          about this count (owner/legal).
+          Reversible: restore `purge_social_data` from
+          `20261102000100_social_hardening.sql`, drop the three functions,
+          then the table, which loses every tap.
 
       **Files 33 to 37 can be applied ahead of this deploy, with the
       previous app still live.** "The previous app" here is the build of

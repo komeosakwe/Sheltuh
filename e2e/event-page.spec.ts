@@ -67,6 +67,10 @@ async function mockApi(page: Page) {
       return route.fulfill({ status: 204 });
     }
     if (/\/view$/.test(url.pathname)) return route.fulfill({ status: 204 });
+    // The count-only "going" of an external event (not Who's Going, so not in `going`).
+    if (/\/external-going$/.test(url.pathname)) {
+      return route.fulfill({ json: { count: 12, countHidden: false, closed: false } });
+    }
     if (/\/going(\/|$)/.test(url.pathname)) {
       going.push(url.pathname);
       return route.fulfill({ json: { count: 0, countHidden: true, closed: false } });
@@ -108,7 +112,8 @@ test.describe("external event (Humanitix) at 1440×900", () => {
     // No Sheltüh refund policy (the other site's terms apply).
     await expect(tickets).not.toContainText("change of mind");
     await expect(tickets).not.toContainText("Australian Consumer Law");
-    await expect(page.getByRole("heading", { name: /who.s going/i })).toHaveCount(0);
+    // Only the count-only "Who's going": no names, no list, no Who's Going requests.
+    await expect(page.getByRole("button", { name: /see who.s going/i })).toHaveCount(0);
 
     const [popup] = await Promise.all([page.waitForEvent("popup"), link.click()]);
     await expect(popup).toHaveURL("https://events.humanitix.com/thornbury-dub-session-demo");
@@ -117,6 +122,27 @@ test.describe("external event (Humanitix) at 1440×900", () => {
     expect(await popup.evaluate(() => window.opener)).toBeNull();
     expect(going).toEqual([]);
     await noSidewaysScroll(page);
+  });
+});
+
+test.describe("external event: count-only going at 375×812", () => {
+  test.use({ viewport: { width: 375, height: 812 } });
+
+  test("shows '12 going' and an I'm going link that signs in and comes back to the event", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/events/thornbury-dub-session");
+    const section = page.getByRole("region", { name: "Who's going" });
+    await expect(section).toBeVisible({ timeout: 30_000 });
+    await expect(section).toContainText("12 going");
+    const link = section.getByRole("link", { name: "I’m going" });
+    await expect(link).toHaveAttribute("href", "/login?next=%2Fevents%2Fthornbury-dub-session");
+    // After the About section, before Location.
+    const order = await page.evaluate(() =>
+      ["about-title", "external-going-title"].map((id) => document.getElementById(id)?.getBoundingClientRect().top ?? -1),
+    );
+    expect(order[0]).toBeLessThan(order[1]);
+    await noSidewaysScroll(page);
+    if (process.env.EXTGOING_SHOTS) await section.screenshot({ path: `${process.env.EXTGOING_SHOTS}/signed-out-count.png` });
   });
 });
 

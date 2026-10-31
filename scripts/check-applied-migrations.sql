@@ -183,6 +183,11 @@ select version, file, coalesce(applied, false) as applied
             where p.pronamespace = to_regnamespace('private') and p.proname = 'admin_set_event_ticketing') = 2),
     ('20261115000000', 'event_image_focus',
       exists (select 1 from col where attrelid = to_regclass('public.event_images') and attname = 'focus_x')
-      and exists (select 1 from fn where proname = 'admin_set_event_image_focus'))
+      and exists (select 1 from fn where proname = 'admin_set_event_image_focus')),
+    ('20261116000000', 'external_going',
+      to_regclass('private.external_event_going') is not null
+      and exists (select 1 from fn where proname = 'set_external_going')
+      and exists (select 1 from fn where proname = 'external_going_state')
+      and exists (select 1 from fn where proname = 'unset_external_going'))
   ) as m(version, file, applied)
  order by version;

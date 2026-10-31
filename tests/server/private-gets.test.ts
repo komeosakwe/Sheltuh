@@ -15,6 +15,7 @@ import { adminEmailOutboxHealth, adminListEmailJobs, runEmailOutboxCron } from "
 import { getMyEvent, listMyEvents } from "@/lib/server/handlers/events";
 import { listFavouriteIds, listFavourites } from "@/lib/server/handlers/favourites";
 import { getFollow, listFollowingEvents, listMyFollowing } from "@/lib/server/handlers/follows";
+import { getMyExternalGoing } from "@/lib/server/handlers/external-going";
 import { getGoingSummary, getMyGoing, listGoingAttendees } from "@/lib/server/handlers/going";
 import { adminListInvites } from "@/lib/server/handlers/invites";
 import { adminGetMemberProfile } from "@/lib/server/handlers/member-profiles";
@@ -104,6 +105,7 @@ const PRIVATE_GETS: Case[] = [
   { name: "getFollow", handler: h(getFollow), as: asMember, params: () => ({ organiserId: organiser.organiserId }) },
   { name: "getMyProfile", handler: h(getMyProfile), as: asMember },
   { name: "getMyGoing", handler: h(getMyGoing), as: asMember, params: event },
+  { name: "getMyExternalGoing", handler: h(getMyExternalGoing), as: asMember, params: event },
   { name: "listGoingAttendees", handler: h(listGoingAttendees), as: asMember, params: event },
   { name: "getWaitlistStatus", handler: h(getWaitlistStatus), as: asMember, params: event },
   // An organiser's own records
@@ -135,6 +137,7 @@ const PUBLIC_GETS = new Set([
   "getSeatAvailability",
   "getEventClip",
   "eventCalendarRoute",
+  "getExternalGoingSummary", // external-going.test.ts pins its cache header
 ]);
 
 /**
