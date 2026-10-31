@@ -156,6 +156,7 @@ describe("Data API lock-out", () => {
       { table_name: "event_view_cap_days", rls: true },
       { table_name: "event_waitlist", rls: true },
       { table_name: "event_waitlist_tokens", rls: true },
+      { table_name: "external_event_going", rls: true },
       { table_name: "free_order_refusals", rls: true },
       { table_name: "onboarding_emails", rls: true },
       { table_name: "organiser_event_announcements", rls: true },
@@ -537,6 +538,15 @@ describe("Data API lock-out", () => {
     expect(await privateFunctions(names)).toEqual(locked(names));
     const [policies] = await db.query<{ n: number }>(
       `select count(*)::int as n from pg_policy p where p.polrelid = 'private.checkout_attempts'::regclass`,
+    );
+    expect(policies.n).toBe(0);
+  });
+
+  it("the external going functions exist, pin search_path and aren't client-executable; external_event_going has no policies", async () => {
+    const names = ["external_going_state", "set_external_going", "unset_external_going"];
+    expect(await privateFunctions(names)).toEqual(locked(names));
+    const [policies] = await db.query<{ n: number }>(
+      `select count(*)::int as n from pg_policy p where p.polrelid = 'private.external_event_going'::regclass`,
     );
     expect(policies.n).toBe(0);
   });

@@ -17,6 +17,7 @@ import TicketsHashFocus from "@/components/TicketsHashFocus";
 import BackLink from "@/components/ui/BackLink";
 import { buttonClass } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Section";
+import ExternalGoing from "@/components/ExternalGoing";
 import WhosGoing from "@/components/WhosGoing";
 import { WhosGoingProvider } from "@/components/whos-going/WhosGoingProvider";
 import type { PreviewMissing } from "@/components/dashboard/editor/preview-event";
@@ -436,6 +437,7 @@ export default function EventDetailsView({
 
             {/* Owner's order (30 Oct 2026): About, Who's Going, Location, Refunds, then Good to know. */}
             {!external && !preview && <WhosGoing />}
+            {external && !preview && <ExternalGoing event={event} />}
 
             {/* Where it is, with a small map and the Google Maps and Apple Maps links (none without a venue or suburb). */}
             <EventLocation event={event} map={!preview} />
