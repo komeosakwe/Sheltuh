@@ -107,21 +107,58 @@ export function connectPostgres(
   return ssl === undefined ? sql : postgres(databaseUrl, { ...options, ssl });
 }
 
+/** Connections per server instance; also the most queries in flight at once (see createPostgresDb). */
+export const POOL_MAX = 5;
+/** A query still running after this is cancelled, so a request fails fast instead of hanging to the platform's limit. */
+export const QUERY_TIMEOUT_MS = 20_000;
+
+/**
+ * At most `max` of the given tasks run at once; the rest wait their turn, in order.
+ * Exported for its test.
+ */
+export function concurrencyLimit(max: number) {
+  let active = 0;
+  const waiting: (() => void)[] = [];
+  return async function run<T>(task: () => Promise<T>): Promise<T> {
+    if (active >= max) await new Promise<void>((resolve) => waiting.push(resolve));
+    active += 1;
+    try {
+      return await task();
+    } finally {
+      active -= 1;
+      waiting.shift()?.();
+    }
+  };
+}
+
 export function createPostgresDb(databaseUrl: string): Db {
   const sql = connectPostgres(databaseUrl, {
     // Supabase's transaction-mode pooler (port 6543), which serverless
     // hosting should use, doesn't support prepared statements.
     prepare: false,
-    max: 5,
+    max: POOL_MAX,
     idle_timeout: 20,
     // Fail fast (seconds) when the database can't be reached, e.g. a paused
     // project, instead of holding the request open for postgres.js's 30s default.
     connect_timeout: 10,
   });
+  // Never more queries in flight than connections: past that postgres.js pipelines further
+  // queries onto busy connections, and through Supabase's transaction pooler a pipelined
+  // query can stall until the platform kills the request (organiser analytics, which runs
+  // a dozen queries at once, hung for 300s in production, 31 Oct 2026, with the database idle).
+  const limit = concurrencyLimit(POOL_MAX);
   return {
-    async query<T>(text: string, params: unknown[] = []) {
-      const rows = await sql.unsafe(text, params as postgres.ParameterOrJSON<never>[]);
-      return rows as unknown as T[];
+    query<T>(text: string, params: unknown[] = []) {
+      return limit(async () => {
+        const pending = sql.unsafe(text, params as postgres.ParameterOrJSON<never>[]);
+        const timer = setTimeout(() => void pending.cancel(), QUERY_TIMEOUT_MS);
+        try {
+          const rows = await pending;
+          return rows as unknown as T[];
+        } finally {
+          clearTimeout(timer);
+        }
+      });
     },
   };
 }
