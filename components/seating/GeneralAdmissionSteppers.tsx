@@ -35,7 +35,8 @@ export default function GeneralAdmissionSteppers({
           const hintId = `${idPrefix}-ga-${index}`;
           const soldOut = ticket.soldOut === true;
           // Waiting for the tier above to sell out: words in place of the stepper.
-          const waitingText = opensWhenText(ticket);
+          // A tier that sold out before it was set to wait says "Sold out", not "Opens when…".
+          const waitingText = soldOut ? null : opensWhenText(ticket);
           return (
             <li
               key={ticket.id}

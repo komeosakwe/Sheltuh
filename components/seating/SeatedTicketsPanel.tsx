@@ -47,7 +47,8 @@ export default function SeatedTicketsPanel({ event, demo }: { event: SheltuhEven
       <ul className="flex flex-col">
         {event.ticketTypes.map((ticket) => {
           const tierSoldOut = ticket.soldOut === true;
-          const waitingText = opensWhenText(ticket);
+          // A tier that sold out before it was set to wait says "Sold out", not "Opens when…".
+          const waitingText = tierSoldOut ? null : opensWhenText(ticket);
           return (
             // The standard ticket row (as TicketSelector's): the name, then the all-inclusive price under it at every width.
             <li

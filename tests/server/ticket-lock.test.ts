@@ -220,7 +220,8 @@ describe("saving ticket types with the setting", () => {
       body: { template: gridTemplate([{ label: "A", tier: "second", seats: 2 }]) },
     });
     expect(res.status).toBe(400);
-    expect(Object.keys(res.body.fieldErrors)).toEqual(["template.sections[0].rows[0].seats[0].ticketTypeId", "template.sections[0].rows[0].seats[1].ticketTypeId"]);
+    // One error naming the tier, not one per seat.
+    expect(res.body.fieldErrors).toEqual({ template: expect.stringContaining(`"${SECOND.name}"`) });
     const ok = await api.call(putSeatMap, {
       token: organiser.token,
       params: { eventId: draft.eventId },

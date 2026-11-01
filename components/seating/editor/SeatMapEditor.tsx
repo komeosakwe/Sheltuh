@@ -105,7 +105,8 @@ export default function SeatMapEditor({
     canvas.current = node;
   }, []);
 
-  const tiers = event.ticketTypes;
+  // A tier that waits for the one above it is general admission only, so it can't be painted.
+  const tiers = useMemo(() => event.ticketTypes.filter((t) => !t.opensAfterPrevious), [event.ticketTypes]);
   const tierIds = useMemo(() => tiers.map((t) => t.id), [tiers]);
   const sortedTiers = useMemo(() => seatedTiers(tiers, template), [tiers, template]);
   const treatments = useMemo(() => tierTreatments(sortedTiers), [sortedTiers]);

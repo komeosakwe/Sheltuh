@@ -701,6 +701,15 @@ describe("TicketSelector: sequential release (a tier waiting for the one above)"
     expect(screen.getByText("Opens when Second release sells out")).toBeInTheDocument();
   });
 
+  it("a tier that sold out before it was set to wait says Sold out, not Opens when", () => {
+    const event = cinder();
+    render(<TicketSelector event={{ ...event, ticketTypes: event.ticketTypes.map((t, i) => (i === 1 ? { ...t, soldOut: true } : t)) }} />);
+    const second = screen.getByText("Second release").closest("li") as HTMLElement;
+    expect(within(second).queryByText("Opens when First release sells out")).toBeNull();
+    expect(within(second).getByText(/Sold out/)).toBeInTheDocument();
+    expect(within(second).queryByRole("button")).toBeNull();
+  });
+
   it("shows the server's ticket_locked refusal", async () => {
     createCheckoutSession.mockRejectedValue(
       new ApiError(409, "\"Second release\" opens when \"First release\" sells out.", undefined, { code: "ticket_locked" }),

@@ -335,7 +335,8 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
               .join(" ") || undefined;
           const tierSoldOut = ticket.soldOut === true;
           // Waiting for the tier above to sell out: shown, muted, with words in place of the stepper.
-          const waitingText = opensWhenText(ticket);
+          // A tier that sold out before it was set to wait says "Sold out", not "Opens when…".
+          const waitingText = tierSoldOut ? null : opensWhenText(ticket);
           const dimmed = tierSoldOut || waitingText !== null;
           return (
             <li
