@@ -2,7 +2,7 @@
 
 import { stepperButtonClass } from "@/components/ui/stepper";
 import { formatTicketHeadline } from "@/lib/pricing";
-import { ownLimit, ownLimitHint, type Quantities } from "@/lib/ticket-limits";
+import { opensWhenText, ownLimit, ownLimitHint, type Quantities } from "@/lib/ticket-limits";
 import type { TicketType } from "@/lib/types";
 
 /**
@@ -34,21 +34,27 @@ export default function GeneralAdmissionSteppers({
           const { cap } = capFor(ticket);
           const hintId = `${idPrefix}-ga-${index}`;
           const soldOut = ticket.soldOut === true;
+          // Waiting for the tier above to sell out: words in place of the stepper.
+          const waitingText = opensWhenText(ticket);
           return (
             <li
               key={ticket.id}
               className="flex flex-wrap items-center justify-between gap-3 border-t border-surface-border py-3 first:border-t-0 first:pt-0"
             >
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold">{ticket.name}</p>
-                <p className={`text-sm font-semibold tabular-nums ${soldOut ? "text-muted" : ""}`}>{formatTicketHeadline(ticket)}</p>
-                {!soldOut && (
+                <p className={`text-sm font-semibold ${waitingText ? "text-muted" : ""}`.trim()}>{ticket.name}</p>
+                <p className={`text-sm font-semibold tabular-nums ${soldOut || waitingText ? "text-muted" : ""}`.trim()}>
+                  {formatTicketHeadline(ticket)}
+                </p>
+                {!soldOut && !waitingText && (
                   <p id={hintId} className="text-xs text-muted">
                     Standing. {ownLimit(ticket) > 0 ? ownLimitHint(ticket) : ""}
                   </p>
                 )}
               </div>
-              {soldOut ? (
+              {waitingText ? (
+                <p className="shrink-0 text-sm font-semibold">{waitingText}</p>
+              ) : soldOut ? (
                 <p className="eyebrow shrink-0">Sold out</p>
               ) : (
                 <div role="group" aria-label={`Quantity for ${ticket.name}`} className="flex shrink-0 items-center gap-2">

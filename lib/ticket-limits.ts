@@ -35,3 +35,8 @@ export function ownLimitHint(ticket: TicketType): string {
 
 /** The server said 10 or fewer are left (and some are). */
 export const isLow = (ticket: TicketType) => ticket.remaining !== undefined && ticket.remaining > 0;
+
+/** A tier that can't be bought yet (sequential release: it opens when the tier above sells out): the words that stand in for its stepper. */
+export function opensWhenText(ticket: TicketType): string | null {
+  return ticket.opensAfter ? `Opens when ${ticket.opensAfter.name} sells out` : null;
+}

@@ -250,7 +250,7 @@ export default function SeatPicker({
   const hasAnything = selectedSeats.length > 0 || gaCount > 0;
   const freeSeats = selectedSeats.filter((seat) => (tierById.get(seat.ticketTypeId)?.priceCents ?? 0) === 0).length;
   const freeTickets = freeSeats + freeTicketsIn(gaTiers, gaQuantities);
-  const freeBooking = hasAnything ? totals.totalCents === 0 : [...tiers, ...gaTiers].every((tier) => tier.priceCents === 0);
+  const freeBooking = hasAnything ? totals.totalCents === 0 : [...tiers, ...gaTiers.filter((tier) => !tier.opensAfter)].every((tier) => tier.priceCents === 0);
   const needsEmail = canCheckout && hasAnything && totals.totalCents === 0;
   const onSaleTiers = tiers.filter((tier) => !tier.soldOut);
   const fromCents = tiers.length ? Math.min(...(onSaleTiers.length ? onSaleTiers : tiers).map(getTicketBuyerTotalCents)) : null;
@@ -675,7 +675,7 @@ export default function SeatPicker({
   /** `bar`: the phone seat bar, where a disabled Checkout keeps the short label (§5.10) and the reason is in its name and the sheet's note. */
   function checkoutButton(className: string, bar = false) {
     if (readOnly) return null;
-    if (everySeatTaken && gaTiers.every((t) => t.soldOut)) return null;
+    if (everySeatTaken && gaTiers.every((t) => t.soldOut || t.opensAfter)) return null;
     if (mode === "preview" || !canCheckout) {
       const reason = mode === "preview" ? "is off in preview" : "unavailable in this demo";
       return (

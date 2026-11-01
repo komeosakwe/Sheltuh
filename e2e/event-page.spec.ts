@@ -806,3 +806,30 @@ test.describe("event photo focus", () => {
     await expect(page.locator("img[style*='object-position']").first()).toHaveCSS("object-position", "15% 70%");
   });
 });
+
+// docs/architecture.md, "Sequential ticket releases": a tier that opens when the one above sells out is shown, not buyable.
+for (const vp of [
+  { name: "desktop", width: 1280, height: 800 },
+  { name: "375px", width: 375, height: 740 },
+]) {
+  test.describe(`sequential ticket releases at ${vp.name}`, () => {
+    test.use({ viewport: { width: vp.width, height: vp.height } });
+
+    test("a waiting tier says what it opens after, has no stepper, and the page doesn't scroll sideways", async ({ page }) => {
+      await mockApi(page);
+      await page.goto("/events/cinder-warehouse-sessions");
+      const tickets = page.locator("#tickets");
+      const second = tickets.getByRole("listitem").filter({ has: page.getByText("Second release", { exact: true }) });
+      await expect(second).toBeVisible({ timeout: 30_000 });
+      await expect(second).toContainText("Opens when First release sells out");
+      await expect(second.getByRole("button")).toHaveCount(0);
+      const third = tickets.getByRole("listitem").filter({ has: page.getByText("Final release", { exact: true }) });
+      await expect(third).toContainText("Opens when Second release sells out");
+      await expect(third.getByRole("button")).toHaveCount(0);
+      // Only the first release can be chosen.
+      await expect(tickets.getByRole("button", { name: /Increase quantity/ })).toHaveCount(1);
+      await expect(tickets.getByRole("button", { name: "Increase quantity for First release" })).toBeVisible();
+      await noSidewaysScroll(page);
+    });
+  });
+}

@@ -102,11 +102,29 @@ export function draftErrors(input: DraftCheckInput): Record<string, string> {
   return errors;
 }
 
-/** A ticket type as it's sent: its description trimmed, and left out when blank (the API stores none then). */
-export function cleanTicketType(ticket: TicketTypeInput): TicketTypeInput {
-  const { description, ...rest } = ticket;
-  const text = description?.trim();
-  return text ? { ...rest, description: text } : rest;
+/**
+ * A ticket type as it's sent: its description trimmed, and left out when blank (the API stores none then).
+ * `opensAfterPrevious` is always an explicit boolean (an absent one would keep the stored value, so
+ * un-ticking it must send `false`), and only a general admission ticket after the first can have it.
+ * `opensAfter` is read-only and never sent. `index` is the ticket's place in the list.
+ */
+export function cleanTicketType(ticket: TicketTypeInput, index: number): TicketTypeInput {
+  const rest: TicketTypeInput = { ...ticket };
+  delete rest.description;
+  delete rest.opensAfter;
+  const text = ticket.description?.trim();
+  const opensAfterPrevious = index > 0 && ticket.seated !== true && ticket.opensAfterPrevious === true;
+  return text ? { ...rest, description: text, opensAfterPrevious } : { ...rest, opensAfterPrevious };
+}
+
+/** The API's `ticketTypes[2].opensAfterPrevious` error key, as this form keys it by the tick box (`ticket-2-lock`). */
+export function formKeyedFieldErrors(fieldErrors: Record<string, string>): Record<string, string> {
+  const keyed: Record<string, string> = {};
+  for (const [key, message] of Object.entries(fieldErrors)) {
+    const lock = /^ticketTypes\[(\d+)\]\.opensAfterPrevious$/.exec(key);
+    keyed[lock ? `ticket-${lock[1]}-lock` : key] = message;
+  }
+  return keyed;
 }
 
 /** Whether the form, as it stands, has no error in the step's fields (never blocks anything; a marker only). */
@@ -160,9 +178,9 @@ export function stepOfControlId(id: string): EditorStep {
 
 /** What each error key is called in the error summary ("Title: Enter an event title."). */
 export function errorFieldLabel(key: string): string {
-  const ticket = /^ticket-(\d+)-(name|price|qty)$/.exec(key);
+  const ticket = /^ticket-(\d+)-(name|price|qty|lock)$/.exec(key);
   if (ticket) {
-    const field = { name: "name", price: "price", qty: "quantity" }[ticket[2]];
+    const field = { name: "name", price: "price", qty: "quantity", lock: "release" }[ticket[2]];
     return `Ticket ${Number(ticket[1]) + 1} ${field}`;
   }
   switch (key) {

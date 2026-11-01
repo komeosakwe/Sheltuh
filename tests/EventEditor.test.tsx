@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventEditor from "@/components/dashboard/EventEditor";
+import { ApiError } from "@/lib/api/client";
 import type { EventRecord } from "@/lib/api/types";
 import { SessionExpiredError } from "@/lib/auth/session-token";
 import { callsTokenFirst, fakeAuthValue, FakeAuthProvider, switchableSession } from "./test-utils/fakeAuth";
@@ -428,5 +429,81 @@ describe("EventEditor — explains the booking-fee choice", () => {
     expect(text).toContain("A$2.30 on this ticket");
     expect(text).toContain("The buyer pays A$32.30 and you receive the full A$30");
     expect(text).toContain("the buyer pays just A$30 and the fee comes out of it, so you receive A$27.70");
+  });
+});
+
+describe("EventEditor — sequential release (opens when the ticket above sells out)", () => {
+  const TIER = (id: string, name: string, extra: Partial<EventRecord["ticketTypes"][number]> = {}) => ({
+    id,
+    name,
+    priceCents: 2000,
+    feePolicy: "buyer-pays" as const,
+    quantityAvailable: 50,
+    ...extra,
+  });
+  const LABEL = "Opens when the ticket above sells out";
+
+  it("is offered on the second general admission ticket on, not the first or a seated one", () => {
+    renderEditor({ ticketTypes: [TIER("a", "First"), TIER("b", "Second"), TIER("c", "Seats", { seated: true })] });
+    expect(screen.getAllByLabelText(LABEL)).toHaveLength(1);
+  });
+
+  it("always sends explicit booleans, and never the read-only opensAfter", async () => {
+    updateEventDraft.mockResolvedValue({ ...BASE_EVENT });
+    renderEditor({
+      ticketTypes: [
+        TIER("a", "First"),
+        TIER("b", "Second", { opensAfterPrevious: true, opensAfter: { ticketTypeId: "a", name: "First" } }),
+        TIER("c", "Third"),
+      ],
+    });
+    const [second, third] = screen.getAllByLabelText(LABEL);
+    expect(second).toBeChecked();
+    expect(third).not.toBeChecked();
+    fireEvent.click(third);
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(updateEventDraft).toHaveBeenCalledTimes(1));
+    const [, input] = updateEventDraft.mock.calls[0];
+    expect(input.ticketTypes.map((t: { opensAfterPrevious: boolean }) => t.opensAfterPrevious)).toEqual([false, true, true]);
+    for (const t of input.ticketTypes) expect(t).not.toHaveProperty("opensAfter");
+  });
+
+  it("unticking sends false (an absent value would keep the stored one)", async () => {
+    updateEventDraft.mockResolvedValue({ ...BASE_EVENT });
+    renderEditor({ ticketTypes: [TIER("a", "First"), TIER("b", "Second", { opensAfterPrevious: true })] });
+    fireEvent.click(screen.getByLabelText(LABEL));
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(updateEventDraft).toHaveBeenCalledTimes(1));
+    expect(updateEventDraft.mock.calls[0][1].ticketTypes[1].opensAfterPrevious).toBe(false);
+  });
+
+  it("removing the first ticket clears the flag of the one that becomes first", async () => {
+    updateEventDraft.mockResolvedValue({ ...BASE_EVENT });
+    renderEditor({ ticketTypes: [TIER("a", "First"), TIER("b", "Second", { opensAfterPrevious: true })] });
+    showStep(2);
+    fireEvent.click(screen.getAllByRole("button", { name: "Remove this ticket type" })[0]);
+    expect(screen.queryByLabelText(LABEL)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(updateEventDraft).toHaveBeenCalledTimes(1));
+    const tickets = updateEventDraft.mock.calls[0][1].ticketTypes;
+    expect(tickets).toHaveLength(1);
+    expect(tickets[0]).toMatchObject({ id: "b", opensAfterPrevious: false });
+  });
+
+  it("announces the API's refusal by the tick box", async () => {
+    updateEventDraft.mockRejectedValue(
+      new ApiError(400, "Please fix the highlighted fields.", {
+        "ticketTypes[1].opensAfterPrevious": "A seated ticket can't wait for another.",
+      }),
+    );
+    renderEditor({ ticketTypes: [TIER("a", "First"), TIER("b", "Second", { opensAfterPrevious: true })] });
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    const box = screen.getByLabelText(LABEL);
+    await waitFor(() => expect(box).toHaveAttribute("aria-invalid", "true"));
+    expect(box).toHaveAccessibleDescription("A seated ticket can't wait for another.");
+    expect(document.getElementById("ticket-1-lock-error")).toHaveTextContent("A seated ticket can't wait for another.");
+    // Changing it clears the old refusal.
+    fireEvent.click(box);
+    expect(box).not.toHaveAttribute("aria-invalid");
   });
 });

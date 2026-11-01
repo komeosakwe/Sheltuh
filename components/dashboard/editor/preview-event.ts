@@ -71,7 +71,7 @@ function instant(parts: { date: string; time: string }, timeZone: string): strin
  * `adaptPublicEvent`, with what's missing flagged so the page can show a
  * stand-in instead of an empty line. No `seating` (the preview has no seat
  * map: a reserved-seating draft previews as general admission), and no
- * `soldOut` on any ticket. Pure.
+ * `soldOut` on any ticket; a ticket set to open after the one above previews as waiting. Pure.
  */
 export function draftToPreviewEvent(draft: PreviewDraft): { event: SheltuhEvent; missing: PreviewMissing } {
   const startsAt = instant(draft.start, draft.timeZone);
@@ -104,13 +104,20 @@ export function draftToPreviewEvent(draft: PreviewDraft): { event: SheltuhEvent;
     ...(draft.clip ? { clip: draft.clip } : {}),
     ticketTypes: external
       ? []
-      : draft.ticketTypes.map((ticket) => ({
+      : draft.ticketTypes.map((ticket, index) => ({
           id: ticket.id,
           name: ticket.name.trim() || "Ticket",
           ...(ticket.description?.trim() ? { description: ticket.description.trim() } : {}),
           priceCents: Number.isInteger(ticket.priceCents) && ticket.priceCents > 0 ? ticket.priceCents : 0,
           feePolicy: ticket.feePolicy,
           quantityAvailable: Number.isInteger(ticket.quantityAvailable) ? Math.max(ticket.quantityAvailable, 0) : 0,
+          // Waiting for the ticket above (a general admission ticket after the first), as a buyer would see it.
+          ...(index > 0 && ticket.seated !== true && ticket.opensAfterPrevious === true
+            ? {
+                opensAfterPrevious: true,
+                opensAfter: { ticketTypeId: draft.ticketTypes[index - 1].id, name: draft.ticketTypes[index - 1].name.trim() || "Ticket" },
+              }
+            : {}),
         })),
     ticketingMode: draft.ticketingMode,
     ...(external

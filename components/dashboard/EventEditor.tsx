@@ -10,6 +10,7 @@ import EventImageField from "@/components/dashboard/EventImageField";
 import { PayoutsNeededNotice, PayoutsPublishError, PayoutsPublishHint } from "@/components/dashboard/PayoutsRequired";
 import RefundPolicyField from "@/components/dashboard/RefundPolicyField";
 import ReleaseTicketsPanel from "@/components/dashboard/ReleaseTicketsPanel";
+import TicketLockPanel from "@/components/dashboard/TicketLockPanel";
 import {
   locationChange,
   PLACES_UNAVAILABLE_NOTE,
@@ -54,6 +55,7 @@ import StepNav from "@/components/dashboard/editor/StepNav";
 import TicketTypeFields from "@/components/dashboard/editor/TicketTypeFields";
 import {
   cleanTicketType,
+  formKeyedFieldErrors,
   draftErrors,
   EDITOR_STEPS,
   errorFieldLabel,
@@ -264,7 +266,7 @@ function invalidControlIds(
     ["ticketTypes", "add-ticket-type"],
   ];
   for (let i = 0; i < ticketCount; i++) {
-    for (const field of ["name", "price", "qty"]) order.push([`ticket-${i}-${field}`, `ticket-${i}-${field}`]);
+    for (const field of ["name", "price", "qty", "lock"]) order.push([`ticket-${i}-${field}`, `ticket-${i}-${field}`]);
   }
   order.push(["refundDays", "refundDays"]);
   return order.filter(([key]) => errors[key]).map(([, id]) => id);
@@ -534,7 +536,7 @@ export default function EventEditor(props: Props) {
     // Google couldn't check the place being saved: the pin alone instead (a confirmed pin is kept).
     if (isPlacesUnavailableError(err)) venueLocation.manual(PLACES_UNAVAILABLE_NOTE);
     if (err instanceof ApiError && err.fieldErrors) {
-      const fieldErrors = err.fieldErrors;
+      const fieldErrors = formKeyedFieldErrors(err.fieldErrors);
       setErrors((prev) => ({ ...prev, ...fieldErrors }));
       // Focus the first field the API refused, as for this form's own errors (its message is read with it).
       focusFirstInvalid(fieldErrors);
@@ -578,10 +580,22 @@ export default function EventEditor(props: Props) {
 
   function updateTicket(index: number, patch: Partial<TicketTypeInput>) {
     setTicketTypes((prev) => prev.map((t, i) => (i === index ? { ...t, ...patch } : t)));
+    if (patch.opensAfterPrevious !== undefined) clearErrors(`ticket-${index}-lock`);
   }
 
   function removeTicket(index: number) {
-    setTicketTypes((prev) => prev.filter((_, i) => i !== index));
+    setTicketTypes((prev) =>
+      prev
+        .filter((_, i) => i !== index)
+        // A ticket that becomes the first has no ticket above it to wait for.
+        .map((t, i) => (i === 0 && t.opensAfterPrevious ? { ...t, opensAfterPrevious: false } : t)),
+    );
+    // The tick boxes' errors are keyed by position, which just changed.
+    setErrors((prev) => {
+      const next = { ...prev };
+      for (const key of Object.keys(next)) if (/^ticket-\d+-lock$/.test(key)) delete next[key];
+      return next;
+    });
   }
 
   /** The days as typed, as a number (NaN when it isn't one: blank, or not a number). */
@@ -1044,6 +1058,7 @@ export default function EventEditor(props: Props) {
           </div>
         )}
         {published && current && <ReleaseTicketsPanel event={current} getToken={getToken} />}
+        {published && current && <TicketLockPanel event={current} getToken={getToken} />}
       </EditorShell>
     );
   }
@@ -1880,7 +1895,7 @@ export default function EventEditor(props: Props) {
 /** Orders the keys of an error record as the form is laid out: step 1's fields, then tickets, then the note; the rest last. */
 function orderedErrorKeys(keys: string[], ticketCount: number): string[] {
   const order = ["organiserId", "title", "description", "venueName", "venueAddress", "suburb", "state", "timeZone", "location", "start", "end", "image", "externalTicketUrl", "externalPriceFromCents", "ticketTypes"];
-  for (let i = 0; i < ticketCount; i++) order.push(`ticket-${i}-name`, `ticket-${i}-price`, `ticket-${i}-qty`);
+  for (let i = 0; i < ticketCount; i++) order.push(`ticket-${i}-name`, `ticket-${i}-price`, `ticket-${i}-qty`, `ticket-${i}-lock`);
   order.push("refundPolicy", "refundDays", "reason");
   const known = order.filter((key) => keys.includes(key));
   return [...known, ...keys.filter((key) => !order.includes(key))];

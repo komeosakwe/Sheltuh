@@ -984,3 +984,31 @@ test.describe("/dashboard/[eventId]: photo focus at 375px", () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
   });
 });
+
+// docs/architecture.md, "Sequential ticket releases": the tick box is on tickets after the first only.
+for (const vp of [
+  { width: 375, height: 740 },
+  { width: 1440, height: 900 },
+]) {
+  test.describe(`/dashboard/new release order at ${vp.width}×${vp.height}`, () => {
+    test.use({ viewport: vp });
+
+    test("the second ticket has an easy-to-tap 'Opens when the ticket above sells out' box, the first has none", async ({ page }) => {
+      await signedInAsOrganiser(page);
+      await page.goto("/dashboard/new");
+      await expect(page.getByLabel("Title", { exact: true })).toBeVisible({ timeout: 30_000 });
+      await showStep(page, "Tickets");
+      const label = "Opens when the ticket above sells out";
+      await expect(page.getByLabel(label)).toHaveCount(0);
+      await page.getByRole("button", { name: "Add ticket type" }).click();
+      const box = page.getByLabel(label);
+      await expect(box).toBeVisible();
+      await expect(page.getByLabel(label)).toHaveCount(1);
+      const target = await page.locator("label").filter({ hasText: label }).boundingBox();
+      expect(target?.height ?? 0).toBeGreaterThanOrEqual(44);
+      await box.check();
+      await expect(box).toBeChecked();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    });
+  });
+}
