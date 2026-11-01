@@ -109,6 +109,27 @@ describe("ExternalGoing (live)", () => {
     expect(screen.getByText("5 going")).toBeInTheDocument();
   });
 
+  it("a sign-in to another account (same stable token getter) reloads the state and never shows the old account's tap", async () => {
+    api.summary.mockResolvedValue(summary(12));
+    api.mine.mockResolvedValueOnce({ going: true, open: true });
+    const first = fakeAuthValue({ userId: "user-a", email: "a@example.com" });
+    const { rerender } = renderGoing(first);
+    expect(await screen.findByRole("button", { name: "Going ✓" })).toBeInTheDocument();
+    let resolveB: (v: { going: boolean; open: boolean }) => void = () => undefined;
+    api.mine.mockReturnValueOnce(new Promise((r) => (resolveB = r)));
+    // getAccessToken is the same function: only the account changes.
+    const second = { ...first, userId: "user-b", email: "b@example.com" };
+    rerender(
+      <FakeAuthProvider value={second}>
+        <ExternalGoing event={EVENT} />
+      </FakeAuthProvider>,
+    );
+    expect(screen.queryByRole("button", { name: "Going ✓" })).toBeNull();
+    expect(api.mine).toHaveBeenCalledTimes(2);
+    resolveB({ going: false, open: true });
+    expect(await screen.findByRole("button", { name: "I’m going" })).toBeInTheDocument();
+  });
+
   it("shows the member's own state below the threshold without revealing a number", async () => {
     api.summary.mockResolvedValue(summary(1));
     api.mine.mockResolvedValue({ going: true, open: true });

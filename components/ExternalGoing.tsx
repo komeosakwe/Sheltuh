@@ -29,6 +29,10 @@ export default function ExternalGoing({
   const auth = useOptionalAuth();
   const authStatus = auth?.configured ? auth.status : "signed-out";
   const getToken = authStatus === "signed-in" ? auth?.getAccessToken : undefined;
+  // The personal state is tagged with the account it was loaded for (as
+  // WhosGoingProvider does): getAccessToken is stable across a sign-in in
+  // another tab, so a new account must never see, or undo, the old one's tap.
+  const accountKey = `${event.id}|${authStatus}|${auth?.userId ?? ""}`;
   const live = isApiConfigured && Boolean(event.organiserId);
 
   const [mountedAt] = useState(() => Date.now());
@@ -36,7 +40,8 @@ export default function ExternalGoing({
   const demoEnded = Number.isFinite(endMs) && endMs <= mountedAt;
 
   const [summary, setSummary] = useState<ExternalGoingSummary | "error" | null>(null);
-  const [mine, setMine] = useState<MyExternalGoing | null>(null);
+  const [mineFor, setMineFor] = useState<{ key: string; value: MyExternalGoing } | null>(null);
+  const mine = mineFor?.key === accountKey ? mineFor.value : null;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
@@ -57,13 +62,13 @@ export default function ExternalGoing({
     if (!live || !getToken) return;
     let cancelled = false;
     getMyExternalGoing(event.id, getToken).then(
-      (m) => !cancelled && setMine(m),
+      (m) => !cancelled && setMineFor({ key: accountKey, value: m }),
       () => undefined, // The button still works; a failed tap says why.
     );
     return () => {
       cancelled = true;
     };
-  }, [live, event.id, getToken]);
+  }, [live, event.id, getToken, accountKey]);
 
   if (!live) {
     if (demoEnded) return null;
@@ -92,7 +97,7 @@ export default function ExternalGoing({
     setError(null);
     try {
       const next = await (was ? unsetExternalGoing : setExternalGoing)(event.id, getToken);
-      setMine(next);
+      setMineFor({ key: accountKey, value: next });
       // A withheld count (under three) isn't known, so it stays withheld until the next load.
       setSummary((s) =>
         s && s !== "error" && !s.countHidden && next.going !== was
