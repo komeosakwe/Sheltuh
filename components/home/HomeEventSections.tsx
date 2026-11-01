@@ -5,10 +5,12 @@ import DotsMark from "@/components/brand/DotsMark";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import EventCard, { EventCardPlaceholder } from "@/components/ui/EventCard";
 import { Notice } from "@/components/ui/Section";
-import { formatWeekendRange } from "@/lib/home-sections";
+import { useIsPhone } from "@/components/ui/useIsPhone";
+import { formatWeekendRange, swipeFeedEvents } from "@/lib/home-sections";
 import { useHomeEvents } from "./HomeEventsProvider";
 import { HOME_CONTAINER, HomeRailItem, isPairRail, RAIL_SKELETON } from "./HomeRail";
 import HomeRailSection from "./HomeRailSection";
+import HomeSwipeEntry from "./HomeSwipeEntry";
 
 /** The page's one load error (docs/design/mobile-redesign.md §6.3.4). */
 export const HOME_LOAD_ERROR = "Couldn’t load events. Check your connection and try again.";
@@ -34,6 +36,16 @@ const SECTION = "mt-6 sm:mt-10 lg:mt-12";
  * outside the page column. A section of one or two cards is a pair: a
  * two-column grid of wide cards from 1024px (`isPairRail`, EventCard `wide`).
  *
+ * Below 640px (Tailwind `sm`) the rails give way to one big entry card,
+ * "Swipe through events", with the first upcoming event's photo and how many
+ * there are, linking to /swipe (the feed holds the same events in the same
+ * order, `swipeFeedEvents`; "Recently on" has ended, so it isn't in it). That
+ * is chosen in the browser (`useIsPhone`; the server and the first render
+ * are not a phone), but the loading skeleton is CSS (`sm:hidden` /
+ * `hidden sm:block`), so a phone never paints the rails' skeleton. The loading
+ * skeleton, the error and the empty state are the same on phones (the
+ * skeleton is the entry card's shape there).
+ *
  * The first slot holds the page's loading skeleton, its one load error (with
  * Try again), or, with nothing upcoming at all, a note saying so. Try again
  * keeps the error (and its focused button, now busy) on screen while it
@@ -50,6 +62,8 @@ export default function HomeEventSections() {
   const now = state.status === "ready" ? state.now : undefined;
   const weekend = sections && sections.weekend.status === "cards" ? sections.weekend : null;
   const popular = sections?.popular ?? null;
+  const phone = useIsPhone();
+  const swipeEvents = sections ? swipeFeedEvents(sections) : [];
   const rootRef = useRef<HTMLDivElement>(null);
   const retried = useRef(false);
 
@@ -67,7 +81,8 @@ export default function HomeEventSections() {
     // Only when focus went down with the button: never pull it from where the visitor moved it.
     const active = document.activeElement;
     if (active && active !== document.body) return;
-    rootRef.current?.querySelector<HTMLElement>("[data-home-section] h2, [data-home-empty]")?.focus();
+    // The first section's heading, or on a phone the entry card's link.
+    rootRef.current?.querySelector<HTMLElement>("[data-home-section] h2, [data-swipe-entry] a, [data-home-empty]")?.focus();
   }, [state.status]);
 
   function handleRetry() {
@@ -83,17 +98,23 @@ export default function HomeEventSections() {
       </p>
 
       {loading && (
-        <div aria-hidden="true" className={SECTION}>
-          <div className={HOME_CONTAINER}>
-            <div className="mb-3 h-6 w-40 bg-surface sm:mb-4" />
+        <>
+          <div aria-hidden="true" className={`hidden sm:block ${SECTION}`}>
+            <div className={HOME_CONTAINER}>
+              <div className="mb-3 h-6 w-40 bg-surface sm:mb-4" />
+            </div>
+            {/* As many as the widest screen shows; the row clips the rest. */}
+            <div className={RAIL_SKELETON}>
+              {Array.from({ length: 6 }, (_, i) => (
+                <EventCardPlaceholder key={i} variant="rail" />
+              ))}
+            </div>
           </div>
-          {/* As many as the widest screen shows; the row clips the rest. */}
-          <div className={RAIL_SKELETON}>
-            {Array.from({ length: 6 }, (_, i) => (
-              <EventCardPlaceholder key={i} variant="rail" />
-            ))}
+          {/* Phones: the entry card's shape. */}
+          <div aria-hidden="true" data-swipe-entry-skeleton="" className={`${HOME_CONTAINER} ${SECTION} sm:hidden`}>
+            <div className="aspect-square rounded-card bg-surface" />
           </div>
-        </div>
+        </>
       )}
 
       {state.status === "error" && (
@@ -109,91 +130,107 @@ export default function HomeEventSections() {
         </div>
       )}
 
-      {sections && !sections.anyUpcoming && sections.recent.length === 0 && (
-        <div className={`${HOME_CONTAINER} ${SECTION}`}>
-          <div data-home-empty="" tabIndex={-1} className="rounded-card bg-surface p-5 sm:p-8">
-            <DotsMark size="lg" className="text-foreground" />
-            <p className="mt-6 text-base leading-6">No events yet.</p>
-            <ButtonLink href="/events" variant="outline" size="lg" className="mt-3">
-              All events
-            </ButtonLink>
+      {/* Phones show no "Recently on", so there ended events alone leave them nothing: the same note. */}
+      {sections && !sections.anyUpcoming && (phone || sections.recent.length === 0) && <HomeEmpty />}
+
+      {phone ? (
+        swipeEvents.length > 0 && (
+          <div className={`${HOME_CONTAINER} ${SECTION}`}>
+            <HomeSwipeEntry events={swipeEvents} />
           </div>
-        </div>
-      )}
-
-      {weekend && (
-        <HomeRailSection
-          id="home-weekend"
-          title="This weekend"
-          note={formatWeekendRange(weekend.window)}
-          // /events isn't filtered to the weekend, so the link says where it goes.
-          link={{ href: "/events", label: "All events" }}
-          count={weekend.items.length}
-          className={SECTION}
-        >
-          {weekend.items.map((event) => (
-            <HomeRailItem key={event.id}>
-              <EventCard event={event} variant="rail" wide={isPairRail(weekend.items.length)} mode={mode} now={now} />
-            </HomeRailItem>
-          ))}
-        </HomeRailSection>
-      )}
-
-      {sections && sections.following.length > 0 && (
-        <HomeRailSection
-          id="home-following"
-          title="From organisers you follow"
-          link={{ href: "/following", srLabel: "organisers you follow" }}
-          count={sections.following.length}
-          className={SECTION}
-        >
-          {sections.following.map((event) => (
-            <HomeRailItem key={event.id}>
-              <EventCard event={event} variant="rail" wide={isPairRail(sections.following.length)} mode={mode} now={now} />
-            </HomeRailItem>
-          ))}
-        </HomeRailSection>
-      )}
-
-      {popular && (
-        <HomeRailSection
-          id="home-popular"
-          title={popular.kind === "popular" ? "Popular right now" : popular.acrossAustralia ? "Coming up across Australia" : "Coming up"}
-          // Nor sorted by popularity: "All events", as This weekend.
-          link={{ href: "/events", label: "All events" }}
-          count={popular.items.length}
-          className={SECTION}
-        >
-          {popular.kind === "popular"
-            ? popular.items.map(({ event, signal }) => (
+        )
+      ) : (
+        <>
+          {weekend && (
+            <HomeRailSection
+              id="home-weekend"
+              title="This weekend"
+              note={formatWeekendRange(weekend.window)}
+              // /events isn't filtered to the weekend, so the link says where it goes.
+              link={{ href: "/events", label: "All events" }}
+              count={weekend.items.length}
+              className={SECTION}
+            >
+              {weekend.items.map((event) => (
                 <HomeRailItem key={event.id}>
-                  <EventCard event={event} variant="rail" wide={isPairRail(popular.items.length)} mode={mode} signal={signal} now={now} />
-                </HomeRailItem>
-              ))
-            : popular.items.map((event) => (
-                <HomeRailItem key={event.id}>
-                  <EventCard event={event} variant="rail" wide={isPairRail(popular.items.length)} mode={mode} now={now} />
+                  <EventCard event={event} variant="rail" wide={isPairRail(weekend.items.length)} mode={mode} now={now} />
                 </HomeRailItem>
               ))}
-        </HomeRailSection>
-      )}
+            </HomeRailSection>
+          )}
 
-      {sections && sections.recent.length > 0 && (
-        // Last, after everything upcoming: these have ended (their cards say "Ended" and have no ticket action).
-        <HomeRailSection
-          id="home-recent"
-          title="Recently on"
-          link={{ href: "/events", label: "All events" }}
-          count={sections.recent.length}
-          className={SECTION}
-        >
-          {sections.recent.map((event) => (
-            <HomeRailItem key={event.id}>
-              <EventCard event={event} variant="rail" wide={isPairRail(sections.recent.length)} mode={mode} now={now} />
-            </HomeRailItem>
-          ))}
-        </HomeRailSection>
+          {sections && sections.following.length > 0 && (
+            <HomeRailSection
+              id="home-following"
+              title="From organisers you follow"
+              link={{ href: "/following", srLabel: "organisers you follow" }}
+              count={sections.following.length}
+              className={SECTION}
+            >
+              {sections.following.map((event) => (
+                <HomeRailItem key={event.id}>
+                  <EventCard event={event} variant="rail" wide={isPairRail(sections.following.length)} mode={mode} now={now} />
+                </HomeRailItem>
+              ))}
+            </HomeRailSection>
+          )}
+
+          {popular && (
+            <HomeRailSection
+              id="home-popular"
+              title={popular.kind === "popular" ? "Popular right now" : popular.acrossAustralia ? "Coming up across Australia" : "Coming up"}
+              // Nor sorted by popularity: "All events", as This weekend.
+              link={{ href: "/events", label: "All events" }}
+              count={popular.items.length}
+              className={SECTION}
+            >
+              {popular.kind === "popular"
+                ? popular.items.map(({ event, signal }) => (
+                    <HomeRailItem key={event.id}>
+                      <EventCard event={event} variant="rail" wide={isPairRail(popular.items.length)} mode={mode} signal={signal} now={now} />
+                    </HomeRailItem>
+                  ))
+                : popular.items.map((event) => (
+                    <HomeRailItem key={event.id}>
+                      <EventCard event={event} variant="rail" wide={isPairRail(popular.items.length)} mode={mode} now={now} />
+                    </HomeRailItem>
+                  ))}
+            </HomeRailSection>
+          )}
+
+          {sections && sections.recent.length > 0 && (
+            // Last, after everything upcoming: these have ended (their cards say "Ended" and have no ticket action).
+            <HomeRailSection
+              id="home-recent"
+              title="Recently on"
+              link={{ href: "/events", label: "All events" }}
+              count={sections.recent.length}
+              className={SECTION}
+            >
+              {sections.recent.map((event) => (
+                <HomeRailItem key={event.id}>
+                  <EventCard event={event} variant="rail" wide={isPairRail(sections.recent.length)} mode={mode} now={now} />
+                </HomeRailItem>
+              ))}
+            </HomeRailSection>
+          )}
+        </>
       )}
+    </div>
+  );
+}
+
+/** "No events yet." and the way to the full list (the page's empty state). */
+function HomeEmpty() {
+  return (
+    <div className={`${HOME_CONTAINER} ${SECTION}`}>
+      <div data-home-empty="" tabIndex={-1} className="rounded-card bg-surface p-5 sm:p-8">
+        <DotsMark size="lg" className="text-foreground" />
+        <p className="mt-6 text-base leading-6">No events yet.</p>
+        <ButtonLink href="/events" variant="outline" size="lg" className="mt-3">
+          All events
+        </ButtonLink>
+      </div>
     </div>
   );
 }

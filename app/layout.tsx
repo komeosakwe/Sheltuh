@@ -1,12 +1,12 @@
 import type { Metadata, Viewport } from "next";
 import { Suspense } from "react";
 import { AdminSummaryProvider } from "@/components/admin/AdminSummaryProvider";
-import DemoBanner from "@/components/DemoBanner";
 import { ClipViewerProvider } from "@/components/events/ClipViewer";
 import Footer from "@/components/Footer";
 import { FavouritesProvider } from "@/components/favourites/FavouritesProvider";
 import { UnreadProvider } from "@/components/messages/UnreadProvider";
 import Nav from "@/components/Nav";
+import { HideOnSwipe, SiteMain } from "@/components/SiteFrame";
 import ServiceWorkerRegistration from "@/components/pwa/ServiceWorkerRegistration";
 import RouteProgress from "@/components/RouteProgress";
 import ThemeSync from "@/components/theme/ThemeSync";
@@ -88,17 +88,17 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
               <FavouritesProvider>
                 {/* The page's one event-clip viewer (docs/design/event-clips.md §5.2), for every EventCard. */}
                 <ClipViewerProvider>
-                  <Nav />
+                  <HideOnSwipe>
+                    <Nav />
+                  </HideOnSwipe>
                   {/* useSearchParams needs a Suspense boundary to keep pages static. */}
                   <Suspense fallback={null}>
                     <RouteProgress />
                   </Suspense>
-                  <main id="main" tabIndex={-1} className="flex-1 focus:outline-none">
-                    {/* The demo's one sample-data disclosure, at the top of every page. */}
-                    {!isApiConfigured && <DemoBanner />}
-                    {children}
-                  </main>
-                  <Footer />
+                  <SiteMain>{children}</SiteMain>
+                  <HideOnSwipe>
+                    <Footer />
+                  </HideOnSwipe>
                 </ClipViewerProvider>
               </FavouritesProvider>
             </AdminSummaryProvider>

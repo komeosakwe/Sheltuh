@@ -101,11 +101,12 @@ test.describe("sold out: Join waitlist at 390×844", () => {
       return route.fulfill({ status: 404, json: { error: "not mocked in e2e" } });
     });
 
-    await page.goto("/");
+    // The cards on a phone are /events' (the home's phone layout is the swipe card, not cards).
+    await page.goto("/events");
     const join = page.getByRole("link", { name: `Join waitlist for ${soldOut.title}` }).first();
     await expect(join).toBeVisible({ timeout: 30_000 });
     await expect(join).toHaveAttribute("href", `/events/${soldOut.slug}#tickets`);
-    await shot(page, "home-sold-out-390");
+    await shot(page, "events-sold-out-390");
 
     await page.goto(`/events/${soldOut.slug}`);
     const bar = page.locator("[data-buy-bar]");

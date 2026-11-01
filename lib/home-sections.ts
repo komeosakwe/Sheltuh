@@ -308,3 +308,19 @@ export function popularEvents(popular: PopularSection | null): SheltuhEvent[] {
   if (!popular) return [];
   return popular.kind === "popular" ? popular.items.map(({ event }) => event) : popular.items;
 }
+
+/**
+ * The swipe feed's events (/swipe, and the phone home's entry card): the
+ * upcoming events the home's sections show, in their order (This weekend,
+ * From organisers you follow, then Popular right now or Coming up), each once.
+ * "Recently on" is left out: those have ended.
+ */
+export function swipeFeedEvents(sections: HomeSections): SheltuhEvent[] {
+  const weekend = sections.weekend.status === "cards" ? sections.weekend.items : [];
+  const seen = new Set<string>();
+  return [...weekend, ...sections.following, ...popularEvents(sections.popular)].filter((event) => {
+    if (seen.has(event.id)) return false;
+    seen.add(event.id);
+    return true;
+  });
+}

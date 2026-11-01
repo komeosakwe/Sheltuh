@@ -71,7 +71,8 @@ const PAGES: { name: string; path: string; ready: (page: Page) => Promise<void> 
   {
     name: "home",
     path: "/",
-    ready: (page) => expect(page.locator("[data-home-section]").first()).toBeVisible({ timeout: 30_000 }),
+    // The rails from 640px; below it, the one swipe card.
+    ready: (page) => expect(page.locator("[data-home-section], [data-swipe-entry]").first()).toBeVisible({ timeout: 30_000 }),
   },
   {
     name: "/events",
@@ -223,12 +224,13 @@ test.describe("home at 375px, without scrolling", () => {
   test("nothing is hidden at load: every section and card is fully opaque, and nothing waits for a scroll", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
-    await expect(page.locator("[data-home-section]").first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator("[data-swipe-entry]")).toBeVisible({ timeout: 30_000 });
     expect(await page.locator("main .reveal-pending, main [data-reveal], main [data-reveal-stagger]").count()).toBe(0);
     const opacities = await page
-      .locator("main section, main [data-event-card]")
+      .locator("main section, main [data-event-card], main [data-swipe-entry]")
       .evaluateAll((els) => els.map((el) => getComputedStyle(el).opacity));
-    expect(opacities.length).toBeGreaterThan(8);
+    // The swipe card and the sections below it (the rails' cards are not on phones).
+    expect(opacities.length).toBeGreaterThan(2);
     for (const opacity of opacities) expect(opacity).toBe("1");
     // The sections below the fold are there, not blank: For organisers included.
     await expect(page.getByRole("region", { name: "Bring your event to life" })).toBeAttached();
@@ -237,7 +239,8 @@ test.describe("home at 375px, without scrolling", () => {
     );
   });
 
-  test("a rail scrolled to its end leaves its last card 20px or more from the screen's edge", async ({ page }) => {
+  test("a rail scrolled to its end leaves its last card 20px or more from the screen's edge (at 640px, the narrowest rail)", async ({ page }) => {
+    await page.setViewportSize({ width: 640, height: 667 });
     // A still rail: the auto-scroll (e2e/home-autoscroll.spec.ts) would loop it back to the start.
     await page.emulateMedia({ reducedMotion: "reduce" });
     await mockApi(page);
@@ -248,70 +251,39 @@ test.describe("home at 375px, without scrolling", () => {
       ul.scrollLeft = ul.scrollWidth;
     });
     const right = await rail.locator("[data-event-card]").last().evaluate((card) => card.getBoundingClientRect().right);
-    expect(375 - right).toBeGreaterThanOrEqual(20 - 0.5);
+    expect(640 - right).toBeGreaterThanOrEqual(20 - 0.5);
   });
 });
 
-// Owner feedback (22 Oct 2026), the top priority: rails behave as carousels on every phone width.
+// Owner (1 Nov 2026): below 640px the rails give way to the one "Swipe through events" card, so on every
+// phone width it sits on the page gutter like the heading above it, fills the column, and the page stays still.
+// (Owner feedback of 22 Oct 2026, rails as carousels, now holds from 640px: the tests below.)
 for (const width of [320, 375, 390, 430]) {
-  test.describe(`home rails at ${width}px`, () => {
+  test.describe(`home swipe card at ${width}px`, () => {
     test.use({ viewport: { width, height: 844 } });
 
-    test("snap to each card's start at the page gutter, show the next card, never move up and down, and keep the page still", async ({ page }) => {
-      // A still rail, with its own snapping: the auto-scroll's drift turns snapping off and moves it
-      // from the first frame on screen (e2e/home-autoscroll.spec.ts covers that).
-      await page.emulateMedia({ reducedMotion: "reduce" });
+    test("replaces the rails: on the page gutter, the full column wide, and the page stays still", async ({ page }) => {
       await mockApi(page);
       await page.goto("/");
-      // A rail with at least three cards, so it can scroll a whole card's width. Late on a
-      // Sunday (Melbourne) "This weekend" holds only two, which can't.
-      const rail = page
-        .locator("[data-home-section] ul")
-        .filter({ has: page.locator("li:nth-of-type(3) [data-event-card]") })
-        .first();
-      await expect(rail).toBeVisible({ timeout: 30_000 });
+      const entry = page.locator("[data-swipe-entry]");
+      await expect(entry).toBeVisible({ timeout: 30_000 });
       await page.evaluate(() => document.fonts.ready);
+      await expect(page.locator("[data-home-section]")).toHaveCount(0);
 
-      const style = await rail.evaluate((ul) => {
-        const s = getComputedStyle(ul);
-        const first = ul.querySelector("li");
-        return {
-          snapType: s.scrollSnapType,
-          snapAlign: first ? getComputedStyle(first).scrollSnapAlign : "",
-          overflowX: s.overflowX,
-          overflowY: s.overflowY,
-          // Nothing to scroll vertically inside the rail: no jitter on a diagonal swipe.
-          verticalSlack: ul.scrollHeight - ul.clientHeight,
-        };
-      });
-      expect(style.snapType).toMatch(/^x mandatory/);
-      expect(style.snapAlign).toMatch(/start/);
-      expect(style.overflowX).toBe("auto");
-      expect(style.overflowY).toBe("hidden");
-      expect(style.verticalSlack).toBeLessThanOrEqual(0);
-
-      // The first card starts on the page gutter (20px), like the heading above it.
-      const cards = rail.locator("[data-event-card]");
-      const heading = await page.locator("[data-home-section]").first().getByRole("heading", { level: 2 }).boundingBox();
-      const first = await cards.nth(0).boundingBox();
-      const second = await cards.nth(1).boundingBox();
-      if (!first || !second || !heading) throw new Error("rail not laid out");
-      expect(Math.round(first.x)).toBe(20);
-      expect(Math.abs(first.x - heading.x)).toBeLessThanOrEqual(1);
-      // The next card peeks in: some of it is on screen, not all.
-      expect(second.x).toBeLessThan(width);
-      expect(second.x + second.width).toBeGreaterThan(width);
-      // Every card in the rail is the same height (equal-height cards: the prices and buttons line up).
-      const heights = await cards.evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().height)));
-      expect(new Set(heights).size).toBe(1);
-
-      // Scrolling most of the way to the next card settles with it on the gutter (start-aligned snap),
-      // and the page never scrolls sideways.
-      const step = second.x - first.x;
-      await rail.evaluate((ul, left) => ul.scrollTo({ left, behavior: "instant" }), step - 30);
-      await expect
-        .poll(async () => Math.round((await cards.nth(1).boundingBox())?.x ?? -1))
-        .toBe(20);
+      // The hero's headline starts on the same 20px gutter.
+      const heading = await page.getByRole("heading", { level: 1 }).boundingBox();
+      const card = await entry.boundingBox();
+      if (!heading || !card) throw new Error("home not laid out");
+      expect(Math.round(card.x)).toBe(20);
+      expect(Math.abs(card.x - heading.x)).toBeLessThanOrEqual(1);
+      expect(Math.round(card.width)).toBe(width - 40);
+      // Its photo fills it, and the title and count are inside it.
+      const image = await entry.locator("img").boundingBox();
+      expect(Math.round(image?.width ?? 0)).toBe(Math.round(card.width));
+      for (const part of [entry.getByRole("heading", { name: "Swipe through events" }), entry.locator("[data-swipe-count]")]) {
+        const box = await part.boundingBox();
+        expect((box?.x ?? -1) >= card.x && (box?.x ?? 0) + (box?.width ?? 0) <= card.x + card.width).toBe(true);
+      }
       expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(0);
     });
   });
@@ -319,7 +291,7 @@ for (const width of [320, 375, 390, 430]) {
 
 // Owner (23 Oct 2026): "keep using the horizontal scrolling". From 640px too, the rails scroll sideways:
 // fixed 256px cards from the page column's edge, running off the right edge, with Previous/Next buttons.
-for (const width of [390, 768, 1280, 1440]) {
+for (const width of [640, 768, 1280, 1440]) {
   test.describe(`home rails at ${width}px`, () => {
     test.use({ viewport: { width, height: width < 768 ? 844 : 900 } });
 
@@ -488,11 +460,12 @@ for (const width of [390, 768, 1280, 1440]) {
 test.describe("home first screen at 390×844", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  // Refinement (owner, 22 Oct 2026): the first event's image and title on a typical phone's first screen.
-  test("shows the search, the category row, then This weekend's heading and its first card's image and title", async ({ page }) => {
+  // Refinement (owner, 22 Oct 2026): the first event's image and title on a typical phone's first screen
+  // (since 1 Nov 2026 the swipe card's: first event's photo, "Swipe through events" and the count).
+  test("shows the search, the category row, then the swipe card with its photo, title and count", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
-    await expect(page.locator("[data-home-section]").first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator("[data-swipe-entry]")).toBeVisible({ timeout: 30_000 });
     await page.evaluate(() => document.fonts.ready);
     const inView = async (locator: ReturnType<Page["locator"]>) => {
       const b = await locator.boundingBox();
@@ -502,11 +475,11 @@ test.describe("home first screen at 390×844", () => {
     };
     await inView(page.getByRole("search", { name: "Search events" }));
     await inView(page.getByRole("navigation", { name: "Browse by category" }).getByRole("link").first());
-    const weekend = page.getByRole("region", { name: "This weekend" });
-    await inView(weekend.getByRole("heading", { level: 2 }));
-    const card = weekend.locator("[data-event-card]").first();
-    await inView(card.locator("[data-card-media]"));
-    await inView(card.getByRole("heading", { level: 3 }));
+    const card = page.locator("[data-swipe-entry]");
+    await inView(card);
+    await inView(card.locator("img"));
+    await inView(card.getByRole("heading", { level: 2, name: "Swipe through events" }));
+    await inView(card.locator("[data-swipe-count]"));
   });
 
   test("the category row scrolls inside its own container with 44px chips, and the page doesn't move sideways", async ({ page }) => {
@@ -532,7 +505,7 @@ test.describe("footer on a phone (375px)", () => {
   test("support and legal links are visible; Explore and Our company open and close from the keyboard", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
-    await expect(page.locator("[data-home-section]").first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator("[data-swipe-entry]")).toBeVisible({ timeout: 30_000 });
     const footer = page.locator("footer");
     await expect(footer.getByRole("link", { name: "Help & FAQs" })).toBeVisible();
     await expect(footer.getByRole("link", { name: "Contact support" })).toBeVisible();
