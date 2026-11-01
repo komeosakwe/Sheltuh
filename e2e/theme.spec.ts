@@ -93,6 +93,26 @@ test("at 375px, choosing Dark in the phone menu keeps the menu open", async ({ p
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
+test("at 375px, a Menu tap before the page hydrates stays open (and reads Close) once it does", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 667 });
+  // Hold the app's scripts so the tap lands on the server-rendered button (a native popover target).
+  let release: () => void = () => undefined;
+  const scriptsHeld = new Promise<void>((resolve) => (release = resolve));
+  await page.route(/\/_next\/static\/chunks\/.*\.js/, async (route) => {
+    await scriptsHeld;
+    await route.continue();
+  });
+  await page.goto("/events", { waitUntil: "commit" });
+  await page.getByRole("button", { name: "Menu" }).click();
+  const menu = page.locator("#site-menu");
+  await expect(menu).toBeVisible();
+  release();
+  await page.waitForLoadState("load");
+  // Hydrated: the button's label is React's, and it now says Close.
+  await expect(page.getByRole("button", { name: "Close" })).toBeVisible({ timeout: 15_000 });
+  await expect(menu).toBeVisible();
+});
+
 test.describe("a first visit with the OS set to dark", () => {
   test.use({ colorScheme: "dark" });
 
