@@ -89,6 +89,11 @@ test.describe("on a phone (375×667)", () => {
     await expect(entry.locator("img")).toBeVisible();
     await expect(page.locator("[data-home-section]")).toHaveCount(0);
     await expect(page.locator("[data-event-card]")).toHaveCount(0);
+    // A plain All events link under the card, a touch target tall enough.
+    const all = entry.locator("xpath=following-sibling::a");
+    await expect(all).toHaveText("All events");
+    await expect(all).toHaveAttribute("href", "/events");
+    expect((await all.boundingBox())?.height).toBeGreaterThanOrEqual(44);
     expect(await overflow(page)).toBeLessThanOrEqual(0);
   });
 
@@ -134,9 +139,11 @@ test.describe("on a phone (375×667)", () => {
     const box = await screenOne.boundingBox();
     expect(box?.height).toBe(667);
     expect(box?.width).toBe(375);
+    // Tall enough for a whole event: the snap is mandatory.
+    expect(await page.getByRole("main").evaluate((el) => getComputedStyle(el).scrollSnapType)).toBe("y mandatory");
 
     // The Close target is 44px.
-    const close = page.getByRole("link", { name: "Close" });
+    const close = page.getByRole("link", { name: "Close, back to home" });
     const closeBox = await close.boundingBox();
     expect(closeBox?.width).toBeGreaterThanOrEqual(44);
     expect(closeBox?.height).toBeGreaterThanOrEqual(44);
@@ -182,6 +189,76 @@ test.describe("on a phone (375×667)", () => {
     await expect.poll(() => visibleTitle(page)).toBe((await articles.nth(0).getAttribute("aria-label")) ?? "");
   });
 
+  test("each screen names its group; the feed is a feed of numbered articles; the link names say which event", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/swipe");
+    const articles = page.getByRole("article");
+    await expect(articles.first()).toBeVisible();
+    const count = await articles.count();
+    await expect(page.getByRole("feed")).toHaveAttribute("aria-busy", "false");
+    await expect(page.getByRole("main")).toHaveAccessibleName("Events");
+    await expect(page.getByRole("status").filter({ hasText: `${count} events` })).toHaveCount(1);
+    for (const [i, expected] of [[0, "1"], [count - 1, String(count)]] as const) {
+      await expect(articles.nth(i)).toHaveAttribute("aria-posinset", expected);
+      await expect(articles.nth(i)).toHaveAttribute("aria-setsize", String(count));
+    }
+    await expect(articles.first().locator("[data-swipe-section]")).toHaveText("This weekend");
+    const title = (await articles.first().getAttribute("aria-label")) ?? "";
+    await expect(articles.first().getByRole("link", { name: `View event ${title}` })).toBeVisible();
+  });
+
+  test("the last screen says that's everything, links to all events and goes back to the top", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/swipe");
+    const articles = page.getByRole("article");
+    await expect(articles.first()).toBeVisible();
+    const first = (await articles.first().getAttribute("aria-label")) ?? "";
+    const end = page.locator("[data-swipe-end]");
+    await end.scrollIntoViewIfNeeded();
+    await expect(end.getByText("That’s everything")).toBeInViewport({ ratio: 1 });
+    await expect(end.getByRole("link", { name: "All events" })).toHaveAttribute("href", "/events");
+    await end.getByRole("button", { name: "Back to top" }).tap();
+    await expect.poll(() => visibleTitle(page)).toBe(first);
+    expect(await page.getByRole("main").evaluate((el) => el.scrollTop)).toBe(0);
+  });
+
+  test("Back from an event lands on the screen you left", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/swipe");
+    const articles = page.getByRole("article");
+    await expect(articles.first()).toBeVisible();
+    const second = (await articles.nth(1).getAttribute("aria-label")) ?? "";
+    await page.getByRole("main").evaluate((el) => el.scrollBy({ top: el.clientHeight, behavior: "instant" }));
+    await expect.poll(() => visibleTitle(page)).toBe(second);
+    await expect.poll(() => page.evaluate(() => window.sessionStorage.getItem("sheltuh:swipe-position"))).not.toBeNull();
+
+    await articles.nth(1).getByRole("link", { name: /^View event/ }).tap();
+    // The first visit compiles the event page in dev.
+    await expect(page).toHaveURL(/\/events\/[^/]+$/, { timeout: 30_000 });
+    await page.goBack();
+    await expect(page).toHaveURL(/\/swipe$/);
+    await expect(articles.nth(1)).toBeInViewport({ ratio: 0.9 });
+    await expect.poll(() => visibleTitle(page)).toBe(second);
+
+    // Close starts the feed over next time.
+    await page.getByRole("link", { name: "Close, back to home" }).tap();
+    await expect(page).toHaveURL(/\/$/);
+    await page.goto("/swipe");
+    await expect(articles.first()).toBeVisible();
+    await expect.poll(() => visibleTitle(page)).toBe((await articles.first().getAttribute("aria-label")) ?? "");
+  });
+
+  test("the page behind the feed is black, and only there", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/swipe");
+    await expect(page.getByRole("article").first()).toBeVisible();
+    const background = () => page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor);
+    expect(await background()).toBe("rgb(0, 0, 0)");
+    await page.getByRole("link", { name: "Close, back to home" }).tap();
+    await expect(page).toHaveURL(/\/$/);
+    await expect.poll(background).not.toBe("rgb(0, 0, 0)");
+  });
+
   test("reduced motion: no smooth scrolling in the feed", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await mockApi(page);
@@ -195,7 +272,7 @@ test.describe("on a phone (375×667)", () => {
     await page.goto("/swipe");
     await expect(page.getByRole("main").getByRole("alert")).toContainText("Couldn’t load events");
     await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Close" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Close, back to home" })).toBeVisible();
   });
 });
 
@@ -232,5 +309,53 @@ test.describe("on a desktop (1280×800)", () => {
     expect(await overflow(page)).toBeLessThanOrEqual(0);
     // The page itself never scrolls: the feed does.
     expect(await page.evaluate(() => document.documentElement.scrollHeight - document.documentElement.clientHeight)).toBeLessThanOrEqual(0);
+  });
+});
+
+test.describe("in a 320×256 window (WCAG 1.4.10 reflow)", () => {
+  test.use({ viewport: { width: 320, height: 256 }, hasTouch: true });
+
+  test("nothing is clipped: View event and Save are reachable by scrolling, Close never covers the text, no sideways scroll", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/swipe");
+    const articles = page.getByRole("article");
+    await expect(articles.first()).toBeVisible();
+    const main = page.getByRole("main");
+
+    // Proximity snap (the default, so it computes as plain "y"), not mandatory, when there is no room for a whole event.
+    expect(await main.evaluate((el) => getComputedStyle(el).scrollSnapType)).toBe("y");
+
+    // The screen grows with its text; at the top, the text starts below Close.
+    const screenOne = articles.first();
+    expect((await screenOne.boundingBox())?.height).toBeGreaterThan(256);
+    const closeBottom = (await page.getByRole("link", { name: "Close, back to home" }).boundingBox())?.y;
+    const closeEnd = (closeBottom ?? 0) + 44;
+    const sectionTop = (await screenOne.locator("[data-swipe-section]").boundingBox())?.y ?? 0;
+    expect(sectionTop).toBeGreaterThanOrEqual(closeEnd);
+
+    // Scroll to the foot of the first screen: its two actions are fully visible.
+    const title = (await screenOne.getAttribute("aria-label")) ?? "";
+    await screenOne.getByRole("link", { name: `View event ${title}` }).scrollIntoViewIfNeeded();
+    const view = screenOne.getByRole("link", { name: /^View event/ });
+    const save = screenOne.getByRole("link", { name: `Sign in to save ${title}` });
+    await expect(view).toBeInViewport({ ratio: 1 });
+    await expect(save).toBeInViewport({ ratio: 1 });
+
+    expect(await overflow(page)).toBeLessThanOrEqual(0);
+    expect(await main.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
+  });
+});
+
+test.describe("in a short landscape phone (667×320)", () => {
+  test.use({ viewport: { width: 667, height: 320 }, hasTouch: true });
+
+  test("the text is whole and the actions are reachable", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/swipe");
+    const first = page.getByRole("article").first();
+    await expect(first).toBeVisible();
+    await first.getByRole("link", { name: /^View event/ }).scrollIntoViewIfNeeded();
+    await expect(first.getByRole("link", { name: /^View event/ })).toBeInViewport({ ratio: 1 });
+    expect(await overflow(page)).toBeLessThanOrEqual(0);
   });
 });

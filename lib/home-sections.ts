@@ -309,16 +309,34 @@ export function popularEvents(popular: PopularSection | null): SheltuhEvent[] {
   return popular.kind === "popular" ? popular.items.map(({ event }) => event) : popular.items;
 }
 
+/** The home's third section's title: Popular right now, or its Coming up fallback. */
+export function popularTitle(popular: PopularSection): string {
+  return popular.kind === "popular" ? "Popular right now" : popular.acrossAustralia ? "Coming up across Australia" : "Coming up";
+}
+
+/** One event in the swipe feed, with the title of the home section it comes from. */
+export interface SwipeFeedItem {
+  event: SheltuhEvent;
+  section: string;
+}
+
 /**
  * The swipe feed's events (/swipe, and the phone home's entry card): the
  * upcoming events the home's sections show, in their order (This weekend,
- * From organisers you follow, then Popular right now or Coming up), each once.
- * "Recently on" is left out: those have ended.
+ * From organisers you follow, then Popular right now or Coming up), each once,
+ * with that section's title. "Recently on" is left out: those have ended.
  */
-export function swipeFeedEvents(sections: HomeSections): SheltuhEvent[] {
+export function swipeFeedEvents(sections: HomeSections): SwipeFeedItem[] {
   const weekend = sections.weekend.status === "cards" ? sections.weekend.items : [];
+  const { popular } = sections;
+  const popularLabel = popular ? popularTitle(popular) : "";
+  const all: SwipeFeedItem[] = [
+    ...weekend.map((event) => ({ event, section: "This weekend" })),
+    ...sections.following.map((event) => ({ event, section: "From organisers you follow" })),
+    ...popularEvents(popular).map((event) => ({ event, section: popularLabel })),
+  ];
   const seen = new Set<string>();
-  return [...weekend, ...sections.following, ...popularEvents(sections.popular)].filter((event) => {
+  return all.filter(({ event }) => {
     if (seen.has(event.id)) return false;
     seen.add(event.id);
     return true;

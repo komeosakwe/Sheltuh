@@ -4,7 +4,7 @@ import type { SheltuhEvent } from "@/lib/types";
 
 /**
  * The phone home's one event entry (below 640px, in place of the rails):
- * a big card with the first upcoming event's photo, "Swipe through events"
+ * a big card (ringed when its link has the keyboard focus) with the first upcoming event's photo, "Swipe through events"
  * and how many there are, linking to the swipe feed (/swipe). The link is the
  * title's, stretched over the card; the count is read after it. White text on
  * a gradient that is solid black at the foot, so it passes WCAG AA on any photo.
@@ -15,7 +15,7 @@ export default function HomeSwipeEntry({ events }: { events: SheltuhEvent[] }) {
   return (
     <div
       data-swipe-entry=""
-      className="relative aspect-square overflow-hidden rounded-card bg-ink text-paper"
+      className="relative aspect-square overflow-hidden rounded-card bg-ink text-paper has-[a:focus-visible]:outline-2 has-[a:focus-visible]:outline-offset-4 has-[a:focus-visible]:outline-foreground"
     >
       <div className="absolute inset-0">
         <EventArt
@@ -30,7 +30,7 @@ export default function HomeSwipeEntry({ events }: { events: SheltuhEvent[] }) {
       <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-3 p-5">
         <div className="min-w-0">
           <h2 className="text-2xl leading-8 font-bold tracking-[-0.02em]">
-            <Link href="/swipe" className="after:absolute after:inset-0 after:content-[''] focus-visible:outline-paper">
+            <Link href="/swipe" className="after:absolute after:inset-0 after:content-[''] focus-visible:outline-hidden">
               Swipe through events
             </Link>
           </h2>

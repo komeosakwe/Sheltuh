@@ -86,6 +86,11 @@ describe("the phone entry card", () => {
     expect(container.querySelector("img")).toHaveAttribute("src", "https://img.example/sat.jpg");
   });
 
+  it("rings the whole card when its link has the keyboard focus", () => {
+    const { container } = render(<HomeSwipeEntry events={[SAT]} />);
+    expect(container.querySelector("[data-swipe-entry]")).toHaveClass("has-[a:focus-visible]:outline-2", "has-[a:focus-visible]:outline-foreground");
+  });
+
   it("says '1 event' for one, and shows the generated poster art without a photo", () => {
     const { container } = render(<HomeSwipeEntry events={[COMING[0]]} />);
     expect(container.querySelector("[data-swipe-count]")).toHaveTextContent("1 event");
@@ -108,6 +113,8 @@ describe("the home on a phone", () => {
     expect(screen.getByRole("link", { name: "Swipe through events" })).toHaveAttribute("href", "/swipe");
     // This weekend (1) + Coming up (4); the ended and the recently-on events aren't counted.
     expect(container.querySelector("[data-swipe-count]")).toHaveTextContent("5 events");
+    // A plain way to the full list under the card.
+    expect(screen.getByRole("link", { name: "All events" })).toHaveAttribute("href", "/events");
     expect(container.querySelectorAll("section[data-home-section]")).toHaveLength(0);
     expect(container.querySelectorAll("[data-event-card]")).toHaveLength(0);
     for (const name of ["This weekend", "Coming up", "Popular right now", "Recently on"]) {
