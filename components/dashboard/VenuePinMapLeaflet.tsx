@@ -46,9 +46,19 @@ function Sync({
   useEffect(() => {
     report.current = onMove;
   }, [onMove]);
+  // The view the picker holds, for putting the map back exactly after a re-measure.
+  const held = useRef({ centre, zoom });
+  useEffect(() => {
+    held.current = { centre, zoom };
+  }, [centre, zoom]);
+  // A re-measure isn't the organiser moving the map: Leaflet keeps the centre only to the
+  // nearest pixel and reports a moveend, which read as a move (the phone dialog's "move the
+  // map first" check passed without one when the dialog laid out late).
+  const remeasuring = useRef(false);
 
   useMapEvents({
     moveend: () => {
+      if (remeasuring.current) return;
       const at = map.getCenter();
       report.current({ lat: at.lat, lng: at.lng }, map.getZoom());
     },
@@ -61,7 +71,16 @@ function Sync({
   }, [map, centre.lat, centre.lng, zoom, reducedMotion]);
 
   useEffect(() => {
-    const observer = new ResizeObserver(() => map.invalidateSize());
+    const observer = new ResizeObserver(() => {
+      remeasuring.current = true;
+      try {
+        map.invalidateSize({ animate: false });
+        const { centre: at, zoom: level } = held.current;
+        map.setView([at.lat, at.lng], level, { animate: false });
+      } finally {
+        remeasuring.current = false;
+      }
+    });
     observer.observe(map.getContainer());
     return () => observer.disconnect();
   }, [map]);
