@@ -357,9 +357,12 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           pinned, execute revoked from clients, no new table or grant.
           Additive; the previous app never sends the flag (so a stored one
           is kept) and its reads don't select the new columns, so it can be
-          applied ahead of the deploy. Needs no new environment variable.
+          applied ahead of the deploy. **Apply it before the app that uses
+          it deploys:** every event read selects the new column and every
+          checkout calls `ticket_type_locks`, so the new app on the old
+          schema fails on every page. Needs no new environment variable.
           Reversible while no tier has the flag: drop the two triggers and
-          the three functions, restore the two redefined functions from
+          the four functions, restore the two redefined functions from
           `20261022000000_external_ticketing.sql` and
           `20261114000000_external_price.sql`, then drop the constraints and
           the two columns (the setting and the sold-out times are lost).

@@ -124,8 +124,10 @@ language plpgsql
 set search_path = ''
 as $$
 begin
-  -- The event's share lock is orders_sheltuh_only's (it fires first); an
+  -- Share-lock the event (already held from orders_sheltuh_only, so free) so
+  -- a set_ticket_lock in flight is waited out whatever the trigger order. An
   -- order for an event with no sequential release does one cheap read.
+  perform 1 from public.events e where e.id = new.event_id for share;
   if exists (
     select 1
       from private.ticket_type_locks(new.event_id) l
@@ -487,13 +489,14 @@ begin
         return;
       end if;
     end if;
-    -- Last, so only a change that would happen uses a slot: the event's
-    -- first (a plain read once it's over the limit), then the organiser's.
-    if not private.take_event_rate_limit(p_event_id, 'ticket_locks', p_event_limit, p_event_window) then
+    -- Last, so only a change that would happen uses a slot: the organiser's
+    -- first, then the event's, so retries refused by the organiser's hourly
+    -- limit never spend the event's daily allowance.
+    if not private.take_rate_limit(p_actor_id, 'ticket_locks', p_limit, p_window) then
       result := 'rate_limited';
       return;
     end if;
-    if not private.take_rate_limit(p_actor_id, 'ticket_locks', p_limit, p_window) then
+    if not private.take_event_rate_limit(p_event_id, 'ticket_locks', p_event_limit, p_event_window) then
       result := 'rate_limited';
       return;
     end if;
