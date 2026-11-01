@@ -182,10 +182,13 @@ test.describe("home rails at 1280×800", () => {
 test.describe("at 375×667", () => {
   test.use({ viewport: { width: 375, height: 667 } });
 
-  test("home: the Play chip sits in the image's bottom-left, a 44px target, with no sideways scroll", async ({ page }) => {
+  // /events' grid: the card on a phone (the home's phone layout is the swipe card, not cards).
+  test("/events: the Play chip sits in the image's bottom-left, a 44px target, with no sideways scroll", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
-    const { rail } = await openHome(page);
-    const first = realCards(rail).first();
+    await mockPublicApi(page);
+    await page.goto("/events");
+    const first = page.locator("[data-event-card]").filter({ has: page.locator("[data-clip-play]") }).first();
+    await expect(first).toBeVisible({ timeout: 30_000 });
     const media = await first.locator("[data-card-media]").boundingBox();
     const play = await first.locator("[data-clip-play]").boundingBox();
     const chip = await first.locator("[data-clip-play] > span:not(.sr-only)").boundingBox();

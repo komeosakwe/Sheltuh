@@ -160,7 +160,8 @@ test.describe("near you, from the home at 390px", () => {
     await countGeolocation(page);
     const requested = await mockApi(page);
     await page.goto("/");
-    await expect(page.locator("[data-home-section]").first()).toBeVisible({ timeout: 30_000 });
+    // Phones have the swipe card in place of the rails.
+    await expect(page.locator("[data-home-section], [data-swipe-entry]").first()).toBeVisible({ timeout: 30_000 });
     // Never on load.
     expect(await geoCalls(page)).toBe(0);
 

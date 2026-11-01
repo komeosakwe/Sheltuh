@@ -26,13 +26,18 @@ describe("DemoBanner", () => {
     expect(banner.querySelector("p")).toHaveClass("text-xs", "py-2", "max-w-6xl");
   });
 
-  it("is rendered once, by the root layout, and only in the demo (no API configured)", () => {
-    const layout = readFileSync(path.resolve(import.meta.dirname, "..", "app/layout.tsx"), "utf8");
-    expect(layout.match(/<DemoBanner \/>/g)).toHaveLength(1);
-    expect(layout).toContain("{!isApiConfigured && <DemoBanner />}");
+  it("is rendered once, by the root layout's main (SiteFrame), and only in the demo (no API configured)", () => {
+    const root = path.resolve(import.meta.dirname, "..");
+    const layout = readFileSync(path.resolve(root, "app/layout.tsx"), "utf8");
+    const frame = readFileSync(path.resolve(root, "components/SiteFrame.tsx"), "utf8");
+    // The layout's main is SiteFrame's SiteMain, which holds the one banner.
+    expect(layout.match(/<SiteMain>/g)).toHaveLength(1);
+    expect(layout).not.toContain("<DemoBanner");
+    expect(frame.match(/<DemoBanner \/>/g)).toHaveLength(1);
+    expect(frame).toContain("{!isApiConfigured && <DemoBanner />}");
     // Inside main, so it's in a landmark and the skip link lands just above it.
-    expect(layout.indexOf("<DemoBanner />")).toBeGreaterThan(layout.indexOf('<main id="main"'));
-    expect(layout.indexOf("<DemoBanner />")).toBeLessThan(layout.indexOf("{children}"));
+    expect(frame.indexOf("<DemoBanner />")).toBeGreaterThan(frame.indexOf('<main id="main"'));
+    expect(frame.indexOf("<DemoBanner />")).toBeLessThan(frame.indexOf("{children}", frame.indexOf('<main id="main"')));
   });
 });
 

@@ -110,7 +110,8 @@ for (const vp of [
     test("one sample-data banner per page, and the non-booking notices at the booking points", async ({ page }) => {
       const checkNoApiCalls = noApiCalls(page);
       await page.goto("/");
-      await expect(page.locator("[data-home-section]").first()).toBeVisible({ timeout: 60_000 });
+      // Phones have the swipe card in place of the rails.
+      await expect(page.locator("[data-home-section], [data-swipe-entry]").first()).toBeVisible({ timeout: 60_000 });
       const banner = page.locator("[data-demo-banner]");
       await expect(banner).toHaveCount(1);
       await expect(banner).toBeVisible();
@@ -118,8 +119,12 @@ for (const vp of [
       // Directly under the header, inside main, and the page's only demo note.
       expect(await banner.evaluate((el) => el.parentElement?.id)).toBe("main");
       await expect(page.locator("main [role='note']")).toHaveCount(1);
-      // Demo counts on cards stay labelled.
-      await expect(page.locator("[data-event-card] [data-card-secondary]").filter({ hasText: /going/ }).first()).toContainText("(sample)");
+      // Demo counts on cards stay labelled (the rails' cards: phones have the swipe card instead).
+      if (vp.width >= 640) {
+        await expect(page.locator("[data-event-card] [data-card-secondary]").filter({ hasText: /going/ }).first()).toContainText("(sample)");
+      } else {
+        await expect(page.locator("[data-swipe-entry]")).toBeVisible();
+      }
 
       const now = Date.now();
       const event = sampleEvents.find(
@@ -139,6 +144,22 @@ for (const vp of [
       // The booking points still say nothing is booked here.
       await expect(page.locator("#tickets")).toContainText(/Checkout unavailable in this demo/i);
       await expect(page.getByRole("region", { name: "Who's going" }).getByRole("note")).toContainText("Sample names.");
+      await noSidewaysScroll(page);
+      checkNoApiCalls();
+    });
+
+    test("/swipe is the sample events full screen, with its own demo note, and calls no API", async ({ page }) => {
+      const checkNoApiCalls = noApiCalls(page);
+      await page.goto("/swipe");
+      const articles = page.getByRole("article");
+      await expect(articles.first()).toBeVisible({ timeout: 60_000 });
+      expect(await articles.count()).toBeGreaterThan(1);
+      // No site header or footer, so no strip at the top: the feed's own corner note says it, once.
+      await expect(page.getByRole("banner")).toHaveCount(0);
+      await expect(page.getByRole("contentinfo")).toHaveCount(0);
+      await expect(page.locator("[data-demo-banner]")).toHaveCount(1);
+      await expect(page.locator("[data-demo-banner]")).toContainText("Demo · Sample data");
+      await expect(page.getByRole("link", { name: "Close" })).toHaveAttribute("href", "/");
       await noSidewaysScroll(page);
       checkNoApiCalls();
     });
