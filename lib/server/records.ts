@@ -293,7 +293,13 @@ const EVENT_COLUMNS = `
                     'priceCents', t.price_cents, 'feePolicy', t.fee_policy,
                     'quantityAvailable', t.quantity_available,
                     -- Only for a seated tier (stripped otherwise: a GA tier's JSON is unchanged).
-                    'seated', case when t.seated then true end)) order by t.position)
+                    'seated', case when t.seated then true end,
+                    -- Sequential release: the setting (only when on), and, while the tier is waiting, the
+                    -- tier it waits for (private.ticket_type_locks, the one definition of "waiting").
+                    'opensAfterPrevious', case when t.opens_after_previous then true end,
+                    'opensAfter', case when t.opens_after_previous then (
+                      select json_build_object('ticketTypeId', l.blocker_id, 'name', l.blocker_name)
+                        from private.ticket_type_locks(e.id) l where l.ticket_type_id = t.id) end)) order by t.position)
            from public.ticket_types t where t.event_id = e.id
          ), '[]'::json) as ticket_types,
          (select json_build_object('version', m.version, 'seatCount', m.seat_count)

@@ -188,6 +188,11 @@ select version, file, coalesce(applied, false) as applied
       to_regclass('private.external_event_going') is not null
       and exists (select 1 from fn where proname = 'set_external_going')
       and exists (select 1 from fn where proname = 'external_going_state')
-      and exists (select 1 from fn where proname = 'unset_external_going'))
+      and exists (select 1 from fn where proname = 'unset_external_going')),
+    ('20261117000000', 'ticket_release_lock',
+      exists (select 1 from col where attrelid = to_regclass('public.ticket_types') and attname = 'opens_after_previous')
+      and exists (select 1 from col where attrelid = to_regclass('public.ticket_types') and attname = 'sold_out_at')
+      and exists (select 1 from fn where proname = 'ticket_type_locks')
+      and exists (select 1 from fn where proname = 'set_ticket_lock'))
   ) as m(version, file, applied)
  order by version;

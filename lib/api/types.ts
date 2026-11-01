@@ -186,6 +186,27 @@ export interface TicketTypeInput {
    * so a general admission event's payload is unchanged. Ignored in edits.
    */
   seated?: true;
+  /**
+   * Sequential release (docs/architecture.md, "Sequential ticket releases"):
+   * this general admission tier opens only when the tier above it (the
+   * previous one in this list) has sold out. In a request: absent keeps the
+   * stored value, `false` turns it off; `true` is a 400
+   * (`fieldErrors["ticketTypes[i].opensAfterPrevious"]`) on the first tier
+   * and on a seated one. In a response: only when true.
+   */
+  opensAfterPrevious?: boolean;
+  /**
+   * Read-only, in responses only (ignored in a request): present while this
+   * tier is waiting, naming the tier it waits for. Gone once that tier has
+   * sold out (and, for good, from then on), so a buyer can order it.
+   */
+  opensAfter?: TicketOpensAfter;
+}
+
+/** The tier a waiting ticket type opens after (TicketTypeInput.opensAfter). */
+export interface TicketOpensAfter {
+  ticketTypeId: string;
+  name: string;
 }
 
 /** An event's seat map, as event records carry it (absent: general admission only). */
@@ -315,6 +336,17 @@ export interface ReleaseTicketsResult {
   /** The new total on sale. */
   quantityAvailable: number;
   quantitySold: number;
+}
+
+/**
+ * PUT /events/{eventId}/ticket-types/{ticketTypeId}/lock: the tier's setting
+ * now, and `opensAfter` while it's waiting.
+ */
+export interface TicketLockResult {
+  eventId: string;
+  ticketTypeId: string;
+  opensAfterPrevious: boolean;
+  opensAfter?: TicketOpensAfter;
 }
 
 export interface ModerationLogEntry {

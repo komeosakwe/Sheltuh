@@ -552,6 +552,27 @@ describe("Data API lock-out", () => {
     expect(policies.n).toBe(0);
   });
 
+  it("the sequential release functions and triggers exist, pin search_path, aren't security definer or client-executable; the constraints exist", async () => {
+    const names = ["orders_tiers_open", "replace_ticket_types", "set_ticket_lock", "ticket_type_locks", "ticket_types_sold_out_at"];
+    expect(await privateFunctions(names)).toEqual(locked(names));
+    const definers = await db.query<{ fn: string; definer: boolean }>(
+      `select p.proname as fn, p.prosecdef as definer from pg_proc p
+        where p.pronamespace = to_regnamespace('private') and p.proname = any($1::text[]) order by 1`,
+      [names],
+    );
+    expect(definers.every((r) => !r.definer)).toBe(true);
+    const triggers = await db.query<{ tgname: string }>(
+      `select t.tgname from pg_trigger t
+        where not t.tgisinternal and t.tgname in ('orders_tiers_open', 'ticket_types_sold_out_at') order by 1`,
+    );
+    expect(triggers).toEqual([{ tgname: "orders_tiers_open" }, { tgname: "ticket_types_sold_out_at" }]);
+    const constraints = await db.query<{ conname: string }>(
+      `select conname from pg_constraint
+        where conrelid = 'public.ticket_types'::regclass and conname in ('ticket_types_lock_not_first', 'ticket_types_lock_ga_only') order by 1`,
+    );
+    expect(constraints).toEqual([{ conname: "ticket_types_lock_ga_only" }, { conname: "ticket_types_lock_not_first" }]);
+  });
+
   it("every `public` and `private` function pins its search_path", async () => {
     // A function without a pinned search_path resolves names through the
     // caller's (Supabase's Security Advisor: "Function Search Path Mutable").

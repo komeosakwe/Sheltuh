@@ -88,6 +88,25 @@ describe("public event visibility", () => {
     expect(list.body.items[0]).toEqual(res.body);
   });
 
+  it("a ticket type's payload carries the sequential-release fields only for a waiting tier", async () => {
+    const live = await publishedEvent(api, organiser, admin, {
+      title: "Releases",
+      ticketTypes: [
+        { id: "one", name: "Round one", priceCents: 0, feePolicy: "buyer-pays", quantityAvailable: 40 },
+        { id: "two", name: "Round two", priceCents: 0, feePolicy: "buyer-pays", quantityAvailable: 40, opensAfterPrevious: true },
+        { id: "three", name: "Round three", priceCents: 0, feePolicy: "buyer-pays", quantityAvailable: 40 },
+      ],
+    });
+    const res = await api.call(getPublicEventBySlug, { params: { slug: live.slug } });
+    const [one, two, three] = res.body.ticketTypes;
+    expect(Object.keys(one).sort()).toEqual(["feePolicy", "id", "name", "priceCents", "quantityAvailable", "soldOut"]);
+    expect(Object.keys(three)).toEqual(Object.keys(one));
+    expect(two).toMatchObject({ opensAfterPrevious: true, opensAfter: { ticketTypeId: "one", name: "Round one" }, soldOut: false });
+    // The blocker's id and name only: no sales, no other tier's detail.
+    expect(Object.keys(two.opensAfter).sort()).toEqual(["name", "ticketTypeId"]);
+    expect(JSON.stringify(res.body)).not.toMatch(/sold_out|soldOutAt|quantitySold/);
+  });
+
   it("ignores any attempt to widen the feed with a status parameter", async () => {
     await draftEvent(api, organiser, { title: "Draft" });
     expect(titles(await api.call(listPublicEvents, { query: { status: "draft" } }))).toEqual([]);

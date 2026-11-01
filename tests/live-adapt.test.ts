@@ -101,6 +101,32 @@ describe("adaptPublicEvent: sold-out data (docs/architecture.md, Waitlist)", () 
   });
 });
 
+describe("adaptPublicEvent: sequential releases", () => {
+  const ga = { id: "t1", name: "Early bird", priceCents: 3000, feePolicy: "buyer-pays" as const, quantityAvailable: 100 };
+
+  it("carries the setting and the tier a waiting ticket opens after, on that ticket only", () => {
+    const adapted = adaptPublicEvent({
+      ...base,
+      ticketTypes: [
+        ga,
+        { ...ga, id: "t2", name: "Second release", opensAfterPrevious: true, opensAfter: { ticketTypeId: "t1", name: "Early bird" } },
+        { ...ga, id: "t3", name: "Final release", opensAfterPrevious: true },
+      ],
+    });
+    expect(adapted.ticketTypes[0]).toEqual(ga);
+    expect(adapted.ticketTypes[1]).toMatchObject({ opensAfterPrevious: true, opensAfter: { ticketTypeId: "t1", name: "Early bird" } });
+    // Opened already (sold out above): still the organiser's setting, no waiting.
+    expect(adapted.ticketTypes[2].opensAfterPrevious).toBe(true);
+    expect(adapted.ticketTypes[2]).not.toHaveProperty("opensAfter");
+  });
+
+  it("leaves a payload without them unchanged, and a false setting out", () => {
+    const adapted = adaptPublicEvent({ ...base, ticketTypes: [ga, { ...ga, id: "t2", opensAfterPrevious: false }] });
+    expect(adapted.ticketTypes[0]).toEqual(ga);
+    expect(adapted.ticketTypes[1]).not.toHaveProperty("opensAfterPrevious");
+  });
+});
+
 describe("adaptPublicEvent: reserved seating", () => {
   const ga = { id: "t1", name: "GA", priceCents: 3000, feePolicy: "buyer-pays" as const, quantityAvailable: 100 };
 

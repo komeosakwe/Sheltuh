@@ -280,6 +280,23 @@ describe("sold-out tiers (waitlist; brand-direction-one.md §6.5, §6.8)", () =>
     expect(isSoldOut({ ...base, soldOut: true, ticketTypes: [] })).toBe(false);
   });
 
+  it("a tier still waiting for the one above to sell out never sets 'From' or makes the event 'Free'", () => {
+    const waiting = { ...vip, opensAfterPrevious: true, opensAfter: { ticketTypeId: ga.id, name: ga.name } };
+    const event: SheltuhEvent = { ...base, ticketTypes: [ga, waiting] };
+    expect(pricedTicketTypes(event).map((t) => t.id)).toEqual([ga.id]);
+    expect(formatFeedPrice(event)).toBe("A$32.30 incl. booking fee");
+    expect(formatFeedPriceParts(event)).toEqual({ amount: "A$32.30", note: "incl. booking fee" });
+
+    // A free tier above a waiting paid one: free, and says nothing of the paid ticket.
+    const freeFirst: SheltuhEvent = { ...base, ticketTypes: [{ ...ga, priceCents: 0 }, waiting] };
+    expect(formatFeedPrice(freeFirst)).toBe("Free");
+    expect(formatFeedPriceParts(freeFirst)).toEqual({ amount: "Free", note: "No booking fee" });
+
+    // Once it opens (the server drops opensAfter) it counts again.
+    const open: SheltuhEvent = { ...base, ticketTypes: [{ ...ga, soldOut: true, remaining: 0 }, { ...waiting, opensAfter: undefined }] };
+    expect(pricedTicketTypes(open).map((t) => t.id)).toEqual([vip.id]);
+  });
+
   it("the demo has one sold-out event", () => {
     // Dead Letter Office; the seated demo (Off-Kilter) has seats left (lib/sample-seat-maps.ts).
     expect(sampleEvents.filter(isSoldOut).map((e) => e.slug)).toEqual(["dead-letter-office"]);

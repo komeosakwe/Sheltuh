@@ -27,8 +27,25 @@ export function parseSeatMapTemplate(
     }
     throw new HttpError(400, "Please fix the seat map.", fieldErrors);
   }
+  // Sequential release: a tier that waits for the one above it is general admission only (ticket_types_lock_ga_only).
+  const waiting = new Set(ticketTypes.filter((t) => t.opensAfterPrevious === true).map((t) => t.id));
+  if (waiting.size > 0) {
+    const fieldErrors: Record<string, string> = {};
+    checked.template.sections.forEach((section, si) =>
+      section.rows.forEach((row, ri) =>
+        row.seats.forEach((seat, ki) => {
+          if (waiting.has(seat.ticketTypeId)) {
+            fieldErrors[`template.sections[${si}].rows[${ri}].seats[${ki}].ticketTypeId`] = SEATS_ON_WAITING_TIER;
+          }
+        }),
+      ),
+    );
+    if (Object.keys(fieldErrors).length > 0) throw new HttpError(400, "Please fix the seat map.", fieldErrors);
+  }
   return { template: checked.template, seatCount: checked.seatCount };
 }
+
+const SEATS_ON_WAITING_TIER = "This ticket waits for another to sell out, so it can't have seats. Turn that off first.";
 
 /** A checkout's `seats` ({mapVersion, seatIds}): 1–10 distinct well-formed ids. 400 otherwise. */
 export function parseCheckoutSeats(raw: unknown): { mapVersion: number; seatIds: string[] } {

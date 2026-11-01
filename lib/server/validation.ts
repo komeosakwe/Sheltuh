@@ -224,6 +224,14 @@ export function requireTicketTypes(value: unknown, field: string, errors: Record
       errors[`${prefix}.quantityAvailable`] = "Enter how many tickets are available (1 or more).";
     }
 
+    // Sequential release: absent keeps the stored value (the database reads the missing key); a boolean otherwise.
+    const opensAfterPrevious = t.opensAfterPrevious;
+    if (opensAfterPrevious !== undefined && typeof opensAfterPrevious !== "boolean") {
+      errors[`${prefix}.opensAfterPrevious`] = "Must be true or false.";
+    } else if (opensAfterPrevious === true && i === 0) {
+      errors[`${prefix}.opensAfterPrevious`] = "The first ticket has nothing above it to wait for.";
+    }
+
     if (Object.keys(errors).some((k) => k.startsWith(prefix))) return;
 
     // Preserve a client-supplied id (so editing a draft keeps the same
@@ -246,6 +254,7 @@ export function requireTicketTypes(value: unknown, field: string, errors: Record
       priceCents: priceCents as number,
       feePolicy: feePolicy as FeePolicy,
       quantityAvailable: quantityAvailable as number,
+      ...(typeof opensAfterPrevious === "boolean" ? { opensAfterPrevious } : {}),
     });
   });
 

@@ -61,6 +61,8 @@ export function adaptPublicEvent(event: PublicEvent): SheltuhEvent {
       ...(ticket.soldOut === true ? { soldOut: true } : {}),
       ...(typeof ticket.remaining === "number" ? { remaining: ticket.remaining } : {}),
       ...(ticket.seated === true ? { seated: true as const } : {}),
+      ...(ticket.opensAfterPrevious === true ? { opensAfterPrevious: true } : {}),
+      ...(ticket.opensAfter ? { opensAfter: { ticketTypeId: ticket.opensAfter.ticketTypeId, name: ticket.opensAfter.name } } : {}),
     })),
     // An external event's stock isn't known, so it's never sold out here.
     ...(event.soldOut === true && event.ticketingMode !== "external" ? { soldOut: true } : {}),

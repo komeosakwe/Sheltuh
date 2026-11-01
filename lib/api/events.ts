@@ -9,6 +9,7 @@ import type {
   PublishEventConflictCode,
   PublishEventResponse,
   ReleaseTicketsResult,
+  TicketLockResult,
   TicketTypeInput,
   VenueLocationInput,
 } from "./types";
@@ -245,5 +246,23 @@ export async function releaseTickets(eventId: string, ticketTypeId: string, quan
   return apiFetch<ReleaseTicketsResult>(
     `/events/${encodeURIComponent(eventId)}/ticket-types/${encodeURIComponent(ticketTypeId)}/release`,
     { method: "POST", body: { quantityAvailable }, token },
+  );
+}
+
+/**
+ * Makes one general admission ticket type on the caller's own published,
+ * not-yet-ended event wait for the ticket above it to sell out
+ * (`opensAfterPrevious: true`), or stops it waiting. Allowed when the ticket
+ * has sales already: it only affects new orders. The result carries
+ * `opensAfter` while the ticket is waiting. ApiError 400
+ * (fieldErrors.opensAfterPrevious: not a boolean, or the first ticket), 403
+ * not an approved organiser, 404 not theirs, 409 not published, ended,
+ * external or seated, 429 too many changes.
+ */
+export async function setTicketLock(eventId: string, ticketTypeId: string, opensAfterPrevious: boolean, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<TicketLockResult>(
+    `/events/${encodeURIComponent(eventId)}/ticket-types/${encodeURIComponent(ticketTypeId)}/lock`,
+    { method: "PUT", body: { opensAfterPrevious }, token },
   );
 }

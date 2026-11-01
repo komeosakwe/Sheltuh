@@ -24,7 +24,7 @@ import { locationRequired } from "../location-refusal";
 import { EVENT_SELECT, toEvent } from "../records";
 import type { Handler } from "../route";
 import type { EventRecord } from "../types";
-import { slugify } from "../validation";
+import { fail, slugify } from "../validation";
 import { requireEvent, requireOwnEvent } from "./event-queries";
 import { requireApprovedOrganiser } from "./organiser-guard";
 import { refuseStaleVenueLocation, verifyVenuePlace } from "./places";
@@ -60,6 +60,11 @@ export function eventFields(input: EventInput): EventFields {
   };
 }
 
+/** A seated tier is sold by seat, not released in turn. */
+export const SEATED_NO_LOCK = "A ticket with seats on the seat map can't wait for another ticket to sell out.";
+/** The first ticket has none above it. */
+export const FIRST_NO_LOCK = "The first ticket has nothing above it to wait for.";
+
 /** Turns the database's inventory guards into messages an organiser can act on. */
 export function ticketTypeConflict(err: unknown): never {
   if (pgErrorCode(err) === PG_FOREIGN_KEY_VIOLATION && pgConstraint(err) === "event_seats_ticket_type_fkey") {
@@ -74,6 +79,13 @@ export function ticketTypeConflict(err: unknown): never {
   }
   if (pgErrorCode(err) === PG_CHECK_VIOLATION && pgConstraint(err) === "ticket_types_not_oversold") {
     throw new HttpError(409, "A ticket type's quantity can't go below the number already sold.");
+  }
+  // Sequential release: the handlers check these first; the constraints hold whatever else got through.
+  if (pgErrorCode(err) === PG_CHECK_VIOLATION && pgConstraint(err) === "ticket_types_lock_ga_only") {
+    throw new HttpError(400, SEATED_NO_LOCK, { ticketTypes: SEATED_NO_LOCK });
+  }
+  if (pgErrorCode(err) === PG_CHECK_VIOLATION && pgConstraint(err) === "ticket_types_lock_not_first") {
+    throw new HttpError(400, FIRST_NO_LOCK, { ticketTypes: FIRST_NO_LOCK });
   }
   throw err;
 }
@@ -99,6 +111,12 @@ export {
 export function withSeatedCapacity(input: EventInput, current: EventRecord): EventInput {
   const seated = new Map(current.ticketTypes.filter((t) => t.seated).map((t) => [t.id, t.quantityAvailable]));
   if (seated.size === 0) return input;
+  // Sequential release is for general admission tiers only (ticket_types_lock_ga_only): 400, not a database error.
+  input.ticketTypes.forEach((t, i) => {
+    if (t.opensAfterPrevious === true && seated.has(t.id)) {
+      fail({ [`ticketTypes[${i}].opensAfterPrevious`]: SEATED_NO_LOCK });
+    }
+  });
   return {
     ...input,
     ticketTypes: input.ticketTypes.map((t) => (seated.has(t.id) ? { ...t, quantityAvailable: seated.get(t.id) as number } : t)),

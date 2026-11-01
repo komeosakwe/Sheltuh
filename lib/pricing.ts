@@ -9,19 +9,21 @@ export function getTicketBuyerTotalCents(ticket: TicketType): number {
 }
 
 /**
- * The tiers a "From" price is taken from: those still on sale. When every
- * tier is sold out, all of them (their prices are still advertised, in
- * muted, on the event page: docs/design/brand-direction-one.md §6.8).
+ * The tiers a "From" price (and whether the event is free) is taken from:
+ * those on sale now, so neither sold out nor waiting for the tier above to
+ * sell out (`opensAfter`: it can't be bought yet). When every tier is sold
+ * out, all of them (their prices are still advertised, in muted, on the event
+ * page: docs/design/brand-direction-one.md §6.8).
  */
 export function pricedTicketTypes(event: SheltuhEvent): TicketType[] {
-  const onSale = event.ticketTypes.filter((ticket) => !ticket.soldOut);
+  const onSale = event.ticketTypes.filter((ticket) => !ticket.soldOut && !ticket.opensAfter);
   return onSale.length > 0 ? onSale : event.ticketTypes;
 }
 
 /**
  * Cheapest buyer-payable total across an event's ticket types still on sale
- * (a sold-out tier never sets the "From" price; when all are sold out, the
- * cheapest of them). `null` when the event has no ticket types: there's no
+ * (a sold-out tier, or one still waiting to open, never sets the "From"
+ * price; when all are sold out, the cheapest of them). `null` when the event has no ticket types: there's no
  * price yet (not a free event, and never `Math.min()`'s `Infinity`).
  */
 export function getMinBuyerTotalCents(event: SheltuhEvent): number | null {

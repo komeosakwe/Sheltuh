@@ -39,6 +39,21 @@ describe("demo sample events", () => {
     }
   });
 
+  it("include a three-release event whose later releases wait for the one above, as the API reports it", () => {
+    const releases = generatedSampleEvents.find((e) => e.slug === "cinder-warehouse-sessions");
+    expect(releases?.ticketTypes.map((t) => t.name)).toEqual(["First release", "Second release", "Final release"]);
+    const [first, second, final] = releases?.ticketTypes ?? [];
+    expect(first.opensAfter).toBeUndefined();
+    expect(first.opensAfterPrevious).toBeUndefined();
+    expect(second).toMatchObject({ opensAfterPrevious: true, opensAfter: { ticketTypeId: first.id, name: first.name } });
+    expect(final).toMatchObject({ opensAfterPrevious: true, opensAfter: { ticketTypeId: second.id, name: second.name } });
+    // The one on sale is the only one priced.
+    expect(releases?.soldOut).toBeUndefined();
+    // Nothing else in the demo waits.
+    const waiting = sampleEvents.filter((e) => e.ticketTypes.some((t) => t.opensAfter));
+    expect(waiting.map((e) => e.slug)).toEqual(["cinder-warehouse-sessions"]);
+  });
+
   it("include external-ticketing events that follow the API's rules (a valid link, no ticket types, provider by host)", () => {
     const external = sampleEvents.filter((event) => event.ticketingMode === "external");
     expect(external.length).toBeGreaterThanOrEqual(2);

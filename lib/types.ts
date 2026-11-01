@@ -67,6 +67,18 @@ export interface TicketType {
    * for general admission.
    */
   seated?: true;
+  /**
+   * Sequential release: this general admission tier opens only when the one
+   * above it sells out. Absent when off. The editor's setting; buyers use
+   * `opensAfter`.
+   */
+  opensAfterPrevious?: boolean;
+  /**
+   * Present while the tier is waiting: the tier it opens after. It can't be
+   * bought (or counted in a price or a free-ticket total) until that one
+   * sells out.
+   */
+  opensAfter?: { ticketTypeId: string; name: string };
 }
 
 /** An event's seat map (reserved seating): its version, for GET /events/{id}/seat-map?v={version}. */
