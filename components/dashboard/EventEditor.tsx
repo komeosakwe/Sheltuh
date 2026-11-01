@@ -1717,7 +1717,9 @@ export default function EventEditor(props: Props) {
                 <button
                   id="add-ticket-type"
                   type="button"
-                  onClick={() => setTicketTypes((prev) => [...prev, newTicketType()])}
+                  // A ticket added after another waits for the one above to sell out by default
+                  // (owner decision, Nov 2026: releases); one untick sells them side by side.
+                  onClick={() => setTicketTypes((prev) => [...prev, { ...newTicketType(), opensAfterPrevious: prev.length > 0 }])}
                   aria-describedby={errors.ticketTypes ? errorId("ticketTypes") : undefined}
                   className="btn btn-outline min-h-11 shrink-0"
                 >
