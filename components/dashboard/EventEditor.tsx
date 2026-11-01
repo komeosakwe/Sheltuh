@@ -10,6 +10,7 @@ import EventImageField from "@/components/dashboard/EventImageField";
 import { PayoutsNeededNotice, PayoutsPublishError, PayoutsPublishHint } from "@/components/dashboard/PayoutsRequired";
 import RefundPolicyField from "@/components/dashboard/RefundPolicyField";
 import ReleaseTicketsPanel from "@/components/dashboard/ReleaseTicketsPanel";
+import TicketLockPanel from "@/components/dashboard/TicketLockPanel";
 import {
   locationChange,
   PLACES_UNAVAILABLE_NOTE,
@@ -54,6 +55,7 @@ import StepNav from "@/components/dashboard/editor/StepNav";
 import TicketTypeFields from "@/components/dashboard/editor/TicketTypeFields";
 import {
   cleanTicketType,
+  formKeyedFieldErrors,
   draftErrors,
   EDITOR_STEPS,
   errorFieldLabel,
@@ -71,6 +73,7 @@ import { fieldClass } from "@/components/ui/Field";
 import {
   adminCreateEvent,
   adminDeleteEventImage,
+  adminSetEventImageFocus,
   adminUpdateEvent,
   adminUploadEventImage,
 } from "@/lib/api/admin";
@@ -89,12 +92,13 @@ import {
   isRefundPolicyTightenedError,
   publishConflictCode,
   publishEvent,
+  setEventImageFocus,
   updateEventDraft,
   uploadEventImage,
   type EventInput,
 } from "@/lib/api/events";
 import { isPlacesUnavailableError } from "@/lib/api/places";
-import type { AdminEventRecord, EventRecord, PublishEventConflictCode, TicketTypeInput } from "@/lib/api/types";
+import type { AdminEventRecord, EventRecord, ImageFocus, PublishEventConflictCode, TicketTypeInput } from "@/lib/api/types";
 import { SessionExpiredError } from "@/lib/auth/AuthContext";
 import { useAccountOwner } from "@/lib/auth/useAccountOwner";
 import { eventClipsEnabled } from "@/lib/clips-flag";
@@ -262,7 +266,7 @@ function invalidControlIds(
     ["ticketTypes", "add-ticket-type"],
   ];
   for (let i = 0; i < ticketCount; i++) {
-    for (const field of ["name", "price", "qty"]) order.push([`ticket-${i}-${field}`, `ticket-${i}-${field}`]);
+    for (const field of ["name", "price", "qty", "lock"]) order.push([`ticket-${i}-${field}`, `ticket-${i}-${field}`]);
   }
   order.push(["refundDays", "refundDays"]);
   return order.filter(([key]) => errors[key]).map(([, id]) => id);
@@ -361,6 +365,9 @@ export default function EventEditor(props: Props) {
 
   const [imageFile, setImageFile] = useState<Blob | null>(null);
   const [imageRemoved, setImageRemoved] = useState(false);
+  // Where the photo's subject is (null: the middle), and whether it's changed since the last save.
+  const [imageFocus, setImageFocus] = useState<ImageFocus | null>(initial?.imageFocus ?? null);
+  const [focusChanged, setFocusChanged] = useState(false);
   // Set once the draft exists, so a retry after a failed photo upload updates
   // it instead of creating a duplicate.
   const [createdId, setCreatedId] = useState<string | null>(null);
@@ -529,7 +536,7 @@ export default function EventEditor(props: Props) {
     // Google couldn't check the place being saved: the pin alone instead (a confirmed pin is kept).
     if (isPlacesUnavailableError(err)) venueLocation.manual(PLACES_UNAVAILABLE_NOTE);
     if (err instanceof ApiError && err.fieldErrors) {
-      const fieldErrors = err.fieldErrors;
+      const fieldErrors = formKeyedFieldErrors(err.fieldErrors);
       setErrors((prev) => ({ ...prev, ...fieldErrors }));
       // Focus the first field the API refused, as for this form's own errors (its message is read with it).
       focusFirstInvalid(fieldErrors);
@@ -573,10 +580,22 @@ export default function EventEditor(props: Props) {
 
   function updateTicket(index: number, patch: Partial<TicketTypeInput>) {
     setTicketTypes((prev) => prev.map((t, i) => (i === index ? { ...t, ...patch } : t)));
+    if (patch.opensAfterPrevious !== undefined) clearErrors(`ticket-${index}-lock`);
   }
 
   function removeTicket(index: number) {
-    setTicketTypes((prev) => prev.filter((_, i) => i !== index));
+    setTicketTypes((prev) =>
+      prev
+        .filter((_, i) => i !== index)
+        // A ticket that becomes the first has no ticket above it to wait for.
+        .map((t, i) => (i === 0 && t.opensAfterPrevious ? { ...t, opensAfterPrevious: false } : t)),
+    );
+    // The tick boxes' errors are keyed by position, which just changed.
+    setErrors((prev) => {
+      const next = { ...prev };
+      for (const key of Object.keys(next)) if (/^ticket-\d+-lock$/.test(key)) delete next[key];
+      return next;
+    });
   }
 
   /** The days as typed, as a number (NaN when it isn't one: blank, or not a number). */
@@ -656,24 +675,57 @@ export default function EventEditor(props: Props) {
   /**
    * Applies a pending photo change to a saved event through `upload` or
    * `remove` (the organiser's routes or the admin's, which answer with the
-   * same kind of record they're given); returns the latest record.
+   * same kind of record they're given); returns the latest record. A new
+   * photo goes up with its focus point; a moved focus on the saved photo is
+   * `moveFocus`.
    */
   async function syncImage<R extends EventRecord>(
     record: R,
-    upload: (eventId: string, image: Blob, getToken: GetToken) => Promise<R>,
+    upload: (eventId: string, image: Blob, getToken: GetToken, focus?: ImageFocus | null) => Promise<R>,
     remove: (eventId: string, getToken: GetToken) => Promise<R>,
+    moveFocus: (eventId: string, focus: ImageFocus | null, getToken: GetToken) => Promise<R>,
   ): Promise<R> {
     if (imageFile) {
-      const updated = await upload(record.eventId, imageFile, saveToken);
+      const updated = await upload(record.eventId, imageFile, saveToken, imageFocus);
       setImageFile(null);
+      setFocusChanged(false);
       return updated;
     }
     if (imageRemoved && record.imageUrl) {
       const updated = await remove(record.eventId, saveToken);
       setImageRemoved(false);
+      setFocusChanged(false);
+      return updated;
+    }
+    if (focusChanged && record.imageUrl && !imageRemoved) {
+      const updated = await moveFocus(record.eventId, imageFocus, saveToken);
+      setFocusChanged(false);
       return updated;
     }
     return record;
+  }
+
+  function changeFocus(focus: ImageFocus | null) {
+    setImageFocus(focus);
+    setFocusChanged(true);
+  }
+
+  /** Discarding a new pick brings back the saved photo, and with it its saved focus. */
+  function changePending(image: Blob | null) {
+    setImageFile(image);
+    if (image === null) {
+      setImageFocus(savedRecord?.imageFocus ?? null);
+      setFocusChanged(false);
+    }
+  }
+
+  /** Removing the saved photo drops its focus with it. */
+  function changeRemoved(removedNow: boolean) {
+    setImageRemoved(removedNow);
+    if (removedNow) {
+      setImageFocus(null);
+      setFocusChanged(false);
+    }
   }
 
   /** Admin mode: creates the event, or saves the whole of it against the version being edited. */
@@ -722,7 +774,7 @@ export default function EventEditor(props: Props) {
         const note = reason.trim();
         let record = await adminSave(input);
         setPublish(false);
-        record = await syncImage(record, adminUploadEventImage, adminDeleteEventImage);
+        record = await syncImage(record, adminUploadEventImage, adminDeleteEventImage, (id, focus, token) => adminSetEventImageFocus(id, focus, token));
         // A photo change bumps the event's version too: the next save is made against it.
         setVersion(record.updatedAt);
         // So does a clip change: the admin routes answer with the event, whose version is the next.
@@ -751,7 +803,7 @@ export default function EventEditor(props: Props) {
           ? await updateEventDraft(existingId, input, saveToken)
           : await createEventDraft(input, saveToken);
         if (!existingId) setCreatedId(record.eventId);
-        record = await syncImage(record, uploadEventImage, deleteEventImage);
+        record = await syncImage(record, uploadEventImage, deleteEventImage, (id, focus, token) => setEventImageFocus(id, focus, token));
         const onSaved = props.onSaved;
         record = await syncClip(record, ORGANISER_CLIP_ROUTES, (kept) => {
           if (initial) onSaved(kept);
@@ -882,7 +934,7 @@ export default function EventEditor(props: Props) {
     }
     try {
       const saved = await updateEventDraft(initial.eventId, input, saveToken);
-      const withImage = await syncImage(saved, uploadEventImage, deleteEventImage);
+      const withImage = await syncImage(saved, uploadEventImage, deleteEventImage, (id, focus, token) => setEventImageFocus(id, focus, token));
       // Waits for a clip upload a save already started, and never publishes without the clip.
       setSavedRecord(await syncClip(withImage, ORGANISER_CLIP_ROUTES, props.onSaved));
       const record: PublishedEvent = await publishEvent(initial.eventId, saveToken);
@@ -950,6 +1002,7 @@ export default function EventEditor(props: Props) {
     organiserName,
     organiserLogoThumbUrl: current?.organiserLogoThumbUrl,
     imageUrl: photoUrl ?? undefined,
+    imageFocus: photoUrl ? imageFocus : null,
     ticketTypes,
     ticketingMode,
     externalTicketUrl: isAdmin ? externalTicketUrl.trim() : initial?.externalTicketUrl,
@@ -973,6 +1026,7 @@ export default function EventEditor(props: Props) {
       lastSaved={savedAt}
       poster={poster}
       imageUrl={photoUrl ?? undefined}
+      imageFocus={photoUrl ? imageFocus : null}
       price={price}
       organiser={isAdmin ? `${current?.organiserName ?? organiser?.displayName ?? ""}${platformManaged ? " (platform-managed)" : ""}`.trim() || undefined : undefined}
     />
@@ -1004,6 +1058,7 @@ export default function EventEditor(props: Props) {
           </div>
         )}
         {published && current && <ReleaseTicketsPanel event={current} getToken={getToken} />}
+        {published && current && <TicketLockPanel event={current} getToken={getToken} />}
       </EditorShell>
     );
   }
@@ -1357,9 +1412,11 @@ export default function EventEditor(props: Props) {
               getToken={getToken}
               existingUrl={savedRecord?.imageUrl}
               pending={imageFile}
-              onPendingChange={setImageFile}
+              onPendingChange={changePending}
               removed={imageRemoved}
-              onRemovedChange={setImageRemoved}
+              onRemovedChange={changeRemoved}
+              focus={imageFocus}
+              onFocusChange={changeFocus}
               error={errors.image}
               poster={poster}
               title={title}
@@ -1838,7 +1895,7 @@ export default function EventEditor(props: Props) {
 /** Orders the keys of an error record as the form is laid out: step 1's fields, then tickets, then the note; the rest last. */
 function orderedErrorKeys(keys: string[], ticketCount: number): string[] {
   const order = ["organiserId", "title", "description", "venueName", "venueAddress", "suburb", "state", "timeZone", "location", "start", "end", "image", "externalTicketUrl", "externalPriceFromCents", "ticketTypes"];
-  for (let i = 0; i < ticketCount; i++) order.push(`ticket-${i}-name`, `ticket-${i}-price`, `ticket-${i}-qty`);
+  for (let i = 0; i < ticketCount; i++) order.push(`ticket-${i}-name`, `ticket-${i}-price`, `ticket-${i}-qty`, `ticket-${i}-lock`);
   order.push("refundPolicy", "refundDays", "reason");
   const known = order.filter((key) => keys.includes(key));
   return [...known, ...keys.filter((key) => !order.includes(key))];

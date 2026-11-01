@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventDetailsView from "@/components/EventDetailsView";
 import CheckoutCancelled from "@/components/seating/CheckoutCancelled";
 import SeatMapEditor from "@/components/seating/editor/SeatMapEditor";
+import GeneralAdmissionSteppers from "@/components/seating/GeneralAdmissionSteppers";
 import SeatedTicketsPanel from "@/components/seating/SeatedTicketsPanel";
 import { seatMapAccess } from "@/components/seating/editor/SeatMapEditorPage";
 import { ApiError } from "@/lib/api/client";
@@ -96,6 +97,46 @@ describe("seated panel tier rows (V6: the standard ticket row)", () => {
       }
     }
     expect(within(container).queryByText(/ ticket \+ A\$[\d.]+ booking fee$/)).toBeNull();
+  });
+});
+
+describe("a waiting general admission tier (sequential release)", () => {
+  const waiting = {
+    id: "ga-2",
+    name: "Second release",
+    priceCents: 3500,
+    feePolicy: "buyer-pays" as const,
+    quantityAvailable: 50,
+    opensAfterPrevious: true,
+    opensAfter: { ticketTypeId: "ga-1", name: "First release" },
+  };
+
+  it("the tickets panel mutes it and says what it waits for", () => {
+    const event: SheltuhEvent = { ...seated, ticketTypes: [...seated.ticketTypes, waiting] };
+    render(<SeatedTicketsPanel event={event} demo />);
+    const row = screen.getByText("Second release").closest("li") as HTMLElement;
+    expect(within(row).getByText("Opens when First release sells out")).toBeInTheDocument();
+    expect(within(row).getByText("Second release")).toHaveClass("text-muted");
+    expect(within(row).getByText("A$37.60 incl. booking fee")).toHaveClass("text-muted");
+    expect(within(row).queryByText(/Only \d+/)).toBeNull();
+  });
+
+  it("the seat page's steppers show words, not a stepper", () => {
+    const onChange = vi.fn();
+    render(
+      <GeneralAdmissionSteppers
+        tiers={[{ ...waiting, id: "ga-1", name: "First release", opensAfterPrevious: undefined, opensAfter: undefined }, waiting]}
+        quantities={{}}
+        capFor={() => ({ cap: 8, reason: "" })}
+        onChange={onChange}
+        idPrefix="t"
+      />,
+    );
+    const row = screen.getByText("Second release").closest("li") as HTMLElement;
+    expect(within(row).getByText("Opens when First release sells out")).toBeInTheDocument();
+    expect(within(row).queryByRole("button")).toBeNull();
+    expect(screen.getByRole("button", { name: "Increase quantity for First release" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Increase quantity for Second release" })).toBeNull();
   });
 });
 

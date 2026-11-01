@@ -28,7 +28,7 @@ export default function TicketTypeFields({
   onRemove: () => void;
 }) {
   const summary = calculateOrderSummary(ticket.priceCents, 1, ticket.feePolicy);
-  const field = (name: "name" | "price" | "qty") => `ticket-${index}-${name}`;
+  const field = (name: "name" | "price" | "qty" | "lock") => `ticket-${index}-${name}`;
   /** A field's error wiring: aria-invalid, and aria-describedby pointing at its error, while it has one. */
   const invalid = (key: string) => ({
     "aria-invalid": errors[key] ? (true as const) : undefined,
@@ -41,6 +41,8 @@ export default function TicketTypeFields({
       </p>
     ) : null;
   const description = ticket.description ?? "";
+  // Sequential release: only a general admission ticket after the first can wait for the one above it.
+  const canWait = index > 0 && ticket.seated !== true;
   return (
     <div className={`flex flex-col gap-3 ${index > 0 ? "border-t border-surface-border pt-5" : ""}`.trim()}>
       <div className="flex items-center justify-between gap-3">
@@ -140,6 +142,21 @@ export default function TicketTypeFields({
             </p>
           </div>
         </div>
+        {canWait && (
+          <div className="flex flex-col gap-1 sm:col-span-2">
+            <label htmlFor={field("lock")} className="flex min-h-11 items-center gap-2 text-sm text-foreground">
+              <input
+                id={field("lock")}
+                type="checkbox"
+                checked={ticket.opensAfterPrevious === true}
+                onChange={(e) => onChange({ opensAfterPrevious: e.target.checked })}
+                {...invalid(field("lock"))}
+              />
+              Opens when the ticket above sells out
+            </label>
+            {error(field("lock"))}
+          </div>
+        )}
       </div>
       <p className="text-sm leading-5 text-foreground">
         {ticket.priceCents === 0 ? (

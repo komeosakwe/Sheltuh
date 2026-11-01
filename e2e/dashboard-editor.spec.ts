@@ -941,3 +941,74 @@ for (const vp of [
     });
   });
 }
+
+// docs/architecture.md, "Photo focus": the Photo card's Focus control, saved apart from the photo's bytes.
+test.describe("/dashboard/[eventId]: photo focus at 375px", () => {
+  test.use({ viewport: { width: 375, height: 800 } });
+
+  test("moving the focus with the keyboard updates the crop previews and saves only the focus", async ({ page }) => {
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+      "base64",
+    );
+    const draft = freeDraft("evt-e2e-focus", { imageUrl: "/api/events/evt-e2e-focus/image?v=1", imageFocus: { x: 30, y: 40 } });
+    const saved: unknown[] = [];
+    await signedInAsOrganiser(page, (request, path) => {
+      const method = request.method();
+      if (method === "GET" && path === `/api/organisers/me/events/${draft.eventId}`) return { json: draft };
+      if (method === "PATCH" && path === `/api/events/${draft.eventId}`) return { json: draft };
+      if (method === "PATCH" && path === `/api/events/${draft.eventId}/image`) {
+        saved.push(request.postDataJSON());
+        return { json: { ...draft, imageFocus: { x: 35, y: 40 } } };
+      }
+      return null;
+    });
+    // Registered after the catch-all, so it answers first: the saved photo's bytes.
+    await page.route("**/api/events/evt-e2e-focus/image*", (route) =>
+      route.request().method() === "GET" ? route.fulfill({ contentType: "image/png", body: png }) : route.fallback(),
+    );
+    await page.goto(`/dashboard/${draft.eventId}`);
+    const focus = page.getByRole("slider", { name: "Focus" });
+    await expect(focus).toBeVisible({ timeout: 30_000 });
+    await expect(focus).toHaveAttribute("aria-valuetext", "30% across, 40% down");
+
+    await focus.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(focus).toHaveAttribute("aria-valuetext", "35% across, 40% down");
+    const crops = page.locator("[data-focus-control] img[style*='object-position']");
+    await expect(crops).toHaveCount(2);
+    for (const crop of await crops.all()) await expect(crop).toHaveCSS("object-position", "35% 40%");
+
+    await page.getByRole("button", { name: "Save draft" }).click();
+    await expect.poll(() => saved).toEqual([{ focus: { x: 35, y: 40 } }]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+  });
+});
+
+// docs/architecture.md, "Sequential ticket releases": the tick box is on tickets after the first only.
+for (const vp of [
+  { width: 375, height: 740 },
+  { width: 1440, height: 900 },
+]) {
+  test.describe(`/dashboard/new release order at ${vp.width}×${vp.height}`, () => {
+    test.use({ viewport: vp });
+
+    test("the second ticket has an easy-to-tap 'Opens when the ticket above sells out' box, the first has none", async ({ page }) => {
+      await signedInAsOrganiser(page);
+      await page.goto("/dashboard/new");
+      await expect(page.getByLabel("Title", { exact: true })).toBeVisible({ timeout: 30_000 });
+      await showStep(page, "Tickets");
+      const label = "Opens when the ticket above sells out";
+      await expect(page.getByLabel(label)).toHaveCount(0);
+      await page.getByRole("button", { name: "Add ticket type" }).click();
+      const box = page.getByLabel(label);
+      await expect(box).toBeVisible();
+      await expect(page.getByLabel(label)).toHaveCount(1);
+      const target = await page.locator("label").filter({ hasText: label }).boundingBox();
+      expect(target?.height ?? 0).toBeGreaterThanOrEqual(44);
+      await box.check();
+      await expect(box).toBeChecked();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    });
+  });
+}

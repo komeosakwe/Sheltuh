@@ -224,6 +224,14 @@ export function requireTicketTypes(value: unknown, field: string, errors: Record
       errors[`${prefix}.quantityAvailable`] = "Enter how many tickets are available (1 or more).";
     }
 
+    // Sequential release: absent keeps the stored value (the database reads the missing key); a boolean otherwise.
+    const opensAfterPrevious = t.opensAfterPrevious;
+    if (opensAfterPrevious !== undefined && typeof opensAfterPrevious !== "boolean") {
+      errors[`${prefix}.opensAfterPrevious`] = "Must be true or false.";
+    } else if (opensAfterPrevious === true && i === 0) {
+      errors[`${prefix}.opensAfterPrevious`] = "The first ticket has nothing above it to wait for.";
+    }
+
     if (Object.keys(errors).some((k) => k.startsWith(prefix))) return;
 
     // Preserve a client-supplied id (so editing a draft keeps the same
@@ -246,6 +254,7 @@ export function requireTicketTypes(value: unknown, field: string, errors: Record
       priceCents: priceCents as number,
       feePolicy: feePolicy as FeePolicy,
       quantityAvailable: quantityAvailable as number,
+      ...(typeof opensAfterPrevious === "boolean" ? { opensAfterPrevious } : {}),
     });
   });
 
@@ -269,4 +278,46 @@ export function slugify(title: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 80);
+}
+
+const FOCUS_MESSAGE = "Focus must be two whole numbers from 0 to 100.";
+
+function focusCoordinate(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 100 ? value : null;
+}
+
+/**
+ * A photo's focus point, `{ x, y }` as percentages from the left and top:
+ * integers 0..100. `null` for "no focus" (the crop centres) when both are
+ * null or undefined; one without the other, or anything else, is a 400 with
+ * `fieldErrors.imageFocus`. Mirrors the check constraint event_images_focus_check.
+ */
+export function parseImageFocus(x: unknown, y: unknown): { x: number; y: number } | null {
+  const missing = (value: unknown) => value === null || value === undefined;
+  if (missing(x) && missing(y)) return null;
+  const fx = focusCoordinate(x);
+  const fy = focusCoordinate(y);
+  if (fx === null || fy === null) fail({ imageFocus: FOCUS_MESSAGE });
+  return { x: fx, y: fy };
+}
+
+/** The focus in a request body: `{ focus: { x, y } }` or `{ focus: null }` (clear). A missing `focus` is a 400. */
+export function parseFocusBody(body: Record<string, unknown>): { x: number; y: number } | null {
+  if (!("focus" in body)) fail({ imageFocus: FOCUS_MESSAGE });
+  const focus = body.focus;
+  if (focus === null) return null;
+  if (typeof focus !== "object" || Array.isArray(focus)) fail({ imageFocus: FOCUS_MESSAGE });
+  const { x, y } = focus as Record<string, unknown>;
+  if (x === undefined || x === null || y === undefined || y === null) fail({ imageFocus: FOCUS_MESSAGE });
+  return parseImageFocus(x, y);
+}
+
+/** The focus in an upload's query string (`?fx=&fy=`, plain digits); absent means none. */
+export function parseFocusQuery(url: string): { x: number; y: number } | null {
+  const params = new URL(url).searchParams;
+  const digits = (name: string) => {
+    const raw = params.get(name);
+    return raw === null ? undefined : /^\d{1,3}$/.test(raw) ? Number(raw) : Number.NaN;
+  };
+  return parseImageFocus(digits("fx"), digits("fy"));
 }

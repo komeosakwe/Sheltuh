@@ -324,6 +324,8 @@ describe("ticket descriptions", () => {
       priceCents: 3000,
       feePolicy: "buyer-pays",
       quantityAvailable: 10,
+      // Always an explicit boolean (absent would keep the stored value).
+      opensAfterPrevious: false,
     });
   });
 

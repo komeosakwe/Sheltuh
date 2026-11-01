@@ -335,6 +335,40 @@ describe("requireTicketTypes", () => {
     expect(errors.ticketTypes).toBeUndefined();
     expect(result[0].id).not.toBe(result[1].id);
   });
+
+  it("opensAfterPrevious: absent stays absent, a boolean is kept, true on the first ticket or a non-boolean is an error", () => {
+    const tier = (id: string, extra: Record<string, unknown> = {}) => ({
+      id,
+      name: id,
+      priceCents: 0,
+      feePolicy: "buyer-pays",
+      quantityAvailable: 5,
+      ...extra,
+    });
+    const run = (value: unknown[]) => {
+      const errors: Record<string, string> = {};
+      return { result: requireTicketTypes(value, "ticketTypes", errors), errors };
+    };
+
+    const kept = run([tier("a"), tier("b", { opensAfterPrevious: true }), tier("c", { opensAfterPrevious: false })]);
+    expect(kept.errors).toEqual({});
+    expect(kept.result.map((t) => t.opensAfterPrevious)).toEqual([undefined, true, false]);
+    expect(kept.result[0]).not.toHaveProperty("opensAfterPrevious");
+
+    // The read-only opensAfter an editor echoes back from a record is dropped.
+    const echoed = run([tier("a"), tier("b", { opensAfterPrevious: true, opensAfter: { ticketTypeId: "a", name: "a" } })]);
+    expect(echoed.result[1]).not.toHaveProperty("opensAfter");
+
+    expect(run([tier("a", { opensAfterPrevious: true }), tier("b")]).errors).toEqual({
+      "ticketTypes[0].opensAfterPrevious": expect.stringMatching(/nothing above/),
+    });
+    expect(run([tier("a", { opensAfterPrevious: false }), tier("b")]).errors).toEqual({});
+    for (const bad of ["true", 1, null, {}]) {
+      expect(run([tier("a"), tier("b", { opensAfterPrevious: bad })]).errors).toEqual({
+        "ticketTypes[1].opensAfterPrevious": "Must be true or false.",
+      });
+    }
+  });
 });
 
 describe("slugify", () => {

@@ -82,10 +82,10 @@ iframe served by Stripe), with the publishable key
 | `private.organiser_profile_edits` | `id` (identity) | Append-only log per organiser: each profile edit made without review (`profile_edit`: old and new value of each changed field, by the owner, or by an admin with a reason: removing the featured video, logged as `featured_video` `"provider:id"`, or the logo, logged as `logo` with its version), each admin takedown (`suspended`, with the admin and reason; a takedown must have a reason), the organiser's creation by an accepted admin invite or an organiser link, or a link's approval of their pending application (`invite_accepted`, by the new owner: `status` null or pending → approved; see "Account invites" and "Organiser links"), and an admin's review switch (a `profile_edit` by the admin with a reason, `event_review_required` `"on"` / `"off"`; see "Publishing events"). A trigger refuses updates (except the `actor_id` foreign key's own set-null when that account is deleted). Admins see the newest 20 per organiser. Kept while the organiser exists; deleted with it. |
 | `private.organiser_logos` | `organiser_id` | An organiser's logo as the server re-encoded it: `image` (512 × 512 WebP, ≤ 512 KB) and `thumb` (96 × 96 WebP, ≤ 64 KB), the whole logo fitted on white, no transparency, no metadata. `updated_at` is its version (milliseconds since the epoch, in its URL and the log); every write moves it on by at least a millisecond. Deleted with the organiser (see "Organiser profiles"). |
 | `events` | `id` | Belongs to an organiser. Globally unique `slug`. `status`: draft → pending_review → published / rejected, or, for an approved organiser's own publish, draft / rejected → published directly (see "Publishing events"); unpublish returns it to draft. `rejection_reason`: the admin's reason on a rejection, an unpublish (optional) or a takedown, shown to the organiser; any later status change through `transition_event` replaces it (a publish or submit clears it). `is_free` (true only when the event has ticket types and all are free; for an external event, `external_free`) is kept up to date by `replace_ticket_types` for the feed's free filter. `whos_going_enabled` (default true) is an admin-only kill switch for that event's Who's Going, set in SQL (`docs/supabase-setup.md`). `ticketing_mode` (`sheltuh`, the default, or `external`), `external_ticket_url`, `external_free` and `external_price_from_cents`: see "External ticketing". Check constraints: an external event has a link, a Sheltüh-ticketed one has no link and isn't `external_free`, and an external event's `is_free` equals `external_free`. The trigger `events_external_ticket_url_valid` checks a link against `private.external_ticket_url_ok` when it's inserted or changed (only then, so tightening the rules never blocks a later status change; see "External ticketing"). `updated_at` changes on every update of the row, a photo change included (trigger `event_images_touch_event`). Triggers refuse ticket types and orders for an external event, and switching an event with ticket types to external. `state` (default `VIC`) and `time_zone` (default `Australia/Melbourne`): the event's state or territory and the IANA zone its times are in; check constraint `events_place_check` allows only the zones `ZONES_BY_STATE` lists for the state (see "Events: state and time zone"). The venue's location (`20261111000100_event_venue_location.sql`; see "Venue location"): `location_source` (`legacy`, the default and every earlier event; `places`; `manual_pin`), `venue_place_id` (a Google place id, the only Google Places data stored) and `venue_lat` / `venue_lng` (the organiser's own pin, never Google's coordinates); checks `events_venue_pin_pair`, `events_venue_pin_bounds` (`AUSTRALIA_BOUNDS`), `events_venue_place_id_shape` and `events_location_source_check` (`legacy`: neither; `places`: a place id, pin optional; `manual_pin`: a pin and no place id). No index: nothing filters or sorts on them. |
-| `ticket_types` | `(event_id, id)` | `id` is stable across draft edits. A trigger refuses a price above 0 for a platform-managed organiser's event (`ticket_types_platform_free_only`). `quantity_sold` only ever goes up in `fulfil_order`, and down only in `record_payment_refund` (a paid order refunded in full). `seated`: the tier has seats on the event's seat map; its `quantity_available` is then always its unblocked seats (trigger `ticket_types_seated_capacity`, whatever is written; see "Reserved seating"). |
+| `ticket_types` | `(event_id, id)` | `id` is stable across draft edits. A trigger refuses a price above 0 for a platform-managed organiser's event (`ticket_types_platform_free_only`). `quantity_sold` only ever goes up in `fulfil_order`, and down only in `record_payment_refund` (a paid order refunded in full). `seated`: the tier has seats on the event's seat map; its `quantity_available` is then always its unblocked seats (trigger `ticket_types_seated_capacity`, whatever is written; see "Reserved seating"). `opens_after_previous`: the tier waits for the one above it (by `position`) to sell out; `sold_out_at`: when `quantity_sold` first reached `quantity_available`, set by trigger `ticket_types_sold_out_at` and never cleared (see "Sequential ticket releases"). |
 | `event_seat_maps` | `event_id` | An event's optional seat map (see "Reserved seating"): `layout` (the validated template, `lib/seating/template.ts`), `seat_count` (1–10,000) and `version` (from the sequence `private.seat_map_versions`: never reused, not even after a delete). Every write bumps the event's `updated_at` (`event_seat_maps_touch_event`). Refused for an external event (`event_seat_maps_sheltuh_only`). Deleted with the event. |
 | `event_seats` | `(event_id, id)` | The map's seats, derived from the layout in the same step (`write_seat_map`): `position` (map order: the availability bit), section, row (may be empty) and seat labels, `ticket_type_id` (no-action foreign key `event_seats_ticket_type_fkey`: a tier with seats can't be removed), `kind` (standard, wheelchair, companion), `blocked`; `hold_order_id` / `hold_expires_at` (a pending order's hold) and `sold_order_id`. Checks: never held and sold at once (`event_seats_one_owner`), never held or sold while blocked (`event_seats_blocked_unsold`). Deleted with the map. |
-| `event_images` | `event_id` | Optional organiser photo (≤2 MB, JPEG/PNG/WebP) stored as `bytea` — no Storage bucket or extra secret. Public via `GET /api/events/[id]/image` once published (versioned URL, shared at the CDN for an hour at the current version, ETag and 304; see "CDN windows"); before that only the owner/admins with a token. Every write (insert, update, delete) bumps the event's `updated_at` in the same transaction (`event_images_touch_event`), so a photo change is a new version of the event (see "Admin authoring"); writers lock the event row (for no key update) before the image row. Move to Storage/CDN if volume grows. |
+| `event_images` | `event_id` | Optional organiser photo (≤2 MB, JPEG/PNG/WebP) stored as `bytea` — no Storage bucket or extra secret. Public via `GET /api/events/[id]/image` once published (versioned URL, shared at the CDN for an hour at the current version, ETag and 304; see "CDN windows"); before that only the owner/admins with a token. Every write (insert, update, delete) bumps the event's `updated_at` in the same transaction (`event_images_touch_event`), so a photo change is a new version of the event (see "Admin authoring"); writers lock the event row (for no key update) before the image row. Move to Storage/CDN if volume grows. `focus_x` / `focus_y` (`20261115000000_event_image_focus.sql`; smallint 0..100, both null or both set, check constraint `event_images_focus_check`): where the photo's subject is, so cropped renderings centre on it (see "Photo focus"). No index: nothing filters on it. |
 | `event_moderation_log` | `id` | Append-only: submitted / approved / rejected / unpublished / ticketing_changed / created / edited / curated, by whom, and why. `approved` means "went live": an admin's approval or publish, or an approved organiser's own publish (`private.publish_event`, logged by the organiser's own account), so every reader of "approved before" treats the two alike (see "Publishing events"). Partial index `event_moderation_log_approved_idx (created_at, event_id) where action = 'approved'` serves the admins' "recently published" list and the admin home's count. `details` (jsonb object, null for the other actions): for `ticketing_changed`, the old and new value of each ticketing field the admin changed (full ticket links: see "External ticketing"); for `edited`, the old and new value of each other field an admin changed (see "Admin authoring"); for `curated`, the old and new `boost` and `excluded` (see "Trending"). Shown to the event's organiser and to admins (`moderationLog[].changes`), never publicly, except `curated` entries, which only admins see (`GET /admin/events/{id}/curation`). `by` is the actor's account id for admins; the organiser's view shows `"Sheltüh team"` (`SHELTUH_TEAM_ACTOR`) for anyone but the organiser's own account. No update trigger: personal information in `details` or `reason` is redacted in place (`docs/supabase-setup.md`, APP 11/13). |
 | `orders` | `id` (`ord_…`) | Priced snapshot of the line items and totals. `status`: pending → paid / failed / oversold_refund_required; oversold_refund_required → refunded (our automatic refund); paid → refunded (refunded in full in Stripe: Stripe's `refunded`, or at least `total_cents` refunded; see "Refunds made in Stripe"); pending → failed also when a paid session's amount or currency wasn't the order's (`private.fail_mismatched_order`, which also records the payment intent; the payment is then refunded). `amount_refunded_cents` (≥ 0, default 0) is Stripe's cumulative refunded amount, recorded only for paid orders (a partial refund leaves the order paid, whatever its amount; a refunded order with `amount_refunded_cents` below `total_cents` was voided by the tickets-only rule of `20261110000200_support_ticket_refund.sql`, before `20261111000300_refund_no_inference.sql` removed it). Indexed on `stripe_payment_intent_id` (partial, not null) for the refund webhook, and on `(event_id, created_at)` (partial, `paid`) for the trending refresh's 14-day read. `tickets_emailed_at` records the ticket email. `tracking_code` is the event tracking link the checkout came through (checked against the event's links when the order is created; null otherwise). `seat_ids` (1–10): a seated order's seats, set when it's made and never changed (what fulfilment and refunds act on). `support_cents` (0 to 50000, default 0; `20261110000100_order_support.sql`): Support Sheltüh, what the buyer added for the platform (see "Support Sheltüh"); only on an order with a paid ticket (`orders_support_paid_only`), and in `total_cents` (`orders_support_in_total`: total = subtotal + buyer fee + support when there is some), never in `subtotal_cents`, `buyer_fee_cents` or `application_fee_cents` (the booking fee). |
 | `tickets` | `code` | One row per admitted person. Rows are kept when their order is refunded, but only a `paid` order's tickets are valid: check-in checks the order's status. `checked_in_at`: when the ticket was admitted at the door (null until then, and again after an undo; cleared 25 months after the event ends). Indexed on `(event_id, ticket_type_id)` for the check-in counts. `seat_id`: its seat (reserved seating); the foreign key `ticket_seats_sold_fkey` (event, seat, order, ticket type) → `event_seats (event_id, id, sold_order_id, ticket_type_id)` means a ticket can only name a seat sold to its own order in its own tier, and `tickets_seat_key` one ticket per seat. A full refund clears it (the order's `seat_ids` keeps the history). `wallet_serial` (uuid, random, unique `tickets_wallet_serial_key`; `20261109000500_ticket_wallet_serial.sql`): the id of the ticket's wallet pass, read only by the wallet routes (see "Wallet passes"). |
@@ -105,6 +105,7 @@ iframe served by Stripe), with the publishable key
 | `private.profile_avatars` | `user_id` | The member's photo as the server re-encoded it: `image` (512 × 512 WebP, ≤ 512 KB) and `thumb` (96 × 96 WebP, ≤ 64 KB), no metadata. Deleted with the profile. |
 | `private.profile_moderation_log` | `id` (identity) | An admin's removal of a member's photo, bio or Instagram handle: the member's account, the admin, which fields (never the content) and the reason (1–500). Deleted with the member's account, and 2 years after the entry (`purge_social_data`). |
 | `event_attendees` | `id` | One row per Who's Going opt-in, unique per `(event_id, user_id)`. `id` is the opaque `attendeeId` shown to members: a fresh one per event, so it can't be linked across events or to a user. Deleted with the profile or the event, and by `purge_social_data` 30 days after the event ends. |
+| `private.external_event_going` | `(event_id, user_id)` | One row per "I'm going" tap on an external-ticket event (`20261116000000_external_going.sql`; see "External ticketing"). Count only: no name, profile or ticket behind it. RLS on, no policies, no client grants. Deleted with the event or the member's account, and by `purge_social_data` 30 days after the event ends. Index on `user_id` for the account cascade. |
 | `private.social_suspensions` | `user_id` | Admin-set Who's Going suspensions (SQL only, `docs/supabase-setup.md`). Keyed on the auth user, not the profile, so a member can't clear one by deleting and recreating their profile. Deleted with the Supabase account. |
 | `private.rate_limits` | `(user_id, bucket)` | Fixed-window per-member request counters (`take_rate_limit`). Deleted with the account; stale rows purged daily. |
 | `conversations` | `id` | One per pair of members, ever: `(user_low, user_high)` unique with `user_low < user_high`. `initiator_id` sent the request; `status`: requested → accepted (a reply) / declined. `event_id` is where they met (set null if the event is deleted). Per-side last-read message ids; `last_message_at` for ordering and retention. `id` is the opaque `conversationId`. Deleted with either member's profile, and 12 months after the last message. Every conversation has a row in `private.conversation_pairs`. |
@@ -156,7 +157,10 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
 | `transition_event` | Changes status and writes the moderation log entry in one step. It only moves an event from an expected status, so two admins acting at once can't both succeed; the loser gets a 409. |
 | `set_going` | Opts a member in to an event's Who's Going, checking everything in one step: the event is published, enabled, Sheltüh-ticketed and hasn't ended; the member isn't suspended (checked before the profile, so a suspended member without one still gets `suspended`); they have a profile; and a `paid` order for the event has their verified email (case-insensitive). Share-locks the event, then the profile, so an unpublish or profile deletion can't interleave. A suspension recorded mid-call can't be locked in advance, but every count and list filters suspensions at read time. Idempotent. Returns `going`, `event_unavailable`, `suspended`, `no_profile` or `not_eligible`. |
 | `take_rate_limit` | Records one hit on a member's `(user, bucket)` counter and says whether it's within the limit for the window. One upsert, so concurrent requests can't both take the last slot. |
-| `purge_social_data` | Retention: deletes Who's Going opt-ins 30 days after their event ended, profile moderation log entries after 2 years, follower-email unsubscribe tokens after 90 days, report photos no report references (after a day unused), rate-limit rows idle for a day, conversations (with their messages) 12 months after their last message, resolved reports 2 years after resolution, pair records with no conversation 12 months after the pair's first request, and the waitlist (see "Waitlist": entries 30 days after their event ended, unconfirmed entries 8 days after their last link, entries 30 days after their person left, expired confirmation links after a week). Idempotent. Scheduled daily with Supabase Cron (`docs/supabase-setup.md`), not by a migration. |
+| `set_external_going` | "I'm going" on an external event: share-locks the event row, then re-checks it is published, external and not ended in the same step as the insert. Idempotent. Returns `going`, `event_unavailable` (404), `not_external` (409), `ended` (409) or `user_unavailable` (the account was deleted mid-call; 401). |
+| `unset_external_going` | Deletes the member's tap; works in any event state. Idempotent. |
+| `external_going_state` | One row for a published event: `open` (external and not ended), the count (0 when not open) and whether the given member is going. The threshold is applied by the handler. |
+| `purge_social_data` | Retention: deletes Who's Going opt-ins 30 days after their event ended, profile moderation log entries after 2 years, follower-email unsubscribe tokens after 90 days, report photos no report references (after a day unused), rate-limit rows idle for a day, external "going" taps 30 days after their event ended, conversations (with their messages) 12 months after their last message, resolved reports 2 years after resolution, pair records with no conversation 12 months after the pair's first request, and the waitlist (see "Waitlist": entries 30 days after their event ended, unconfirmed entries 8 days after their last link, entries 30 days after their person left, expired confirmation links after a week). Idempotent. Scheduled daily with Supabase Cron (`docs/supabase-setup.md`), not by a migration. |
 | `request_conversation` | A first message to the member behind an `attendeeId`, checked in one step: the sender isn't suspended and is opted in to the same event, which is open; the recipient isn't suspended; neither blocks the other; the pair has no conversation yet and none on record (`conversation_pairs`: a pair whose conversation went with a deleted profile is `unavailable`); the sender is within both rate limits; and the recipient is within their cap on requests received (over it, `unavailable`). Locks the sender's profile first (`for no key update`, so it doesn't block the other member's FK checks and mutual requests can't deadlock). Two members requesting each other at once: the pair's primary key makes the second insert fail, which rolls back its rate-limit hits (and the recipient's count) and returns `exists` (409). The recipient's profile or account deleted mid-call is `unavailable`. Returns `sent`, `sender_suspended`, `not_going`, `unavailable`, `self`, `exists` or `rate_limited`. |
 | `send_message` | Locks the sender's profile, then the conversation, then checks visibility (blocks, the other member's suspension, a declined request), that the sender isn't waiting on their own request, and the rate limit, before inserting. A reply to a request accepts it; a reply and a decline racing can't both win. Returns `sent`, `sender_suspended`, `not_found`, `awaiting_reply` or `rate_limited`. |
 | `file_report` | Checks the reporter is in the conversation (and the message is the other member's), takes the rate limit and copies the evidence into the report in one step. Key-share-locks the conversation, then the message, when it finds them, so a profile deletion or retention purge waits for the report; one already under way means the report finds nothing (`not_found`, 404). The reported account deleted mid-call (a foreign-key failure) or a deadlock with an account deletion is also `not_found`, never a 500. |
@@ -172,6 +176,8 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
 | `set_event_curation` | An admin's boost and exclusion for any event, any status: key-share-locks the event, then locks its curation row; nothing changing is `unchanged` (nothing logged); otherwise the update and a `curated` moderation log entry (admin, reason, old and new values), in one step. Returns `updated`, `unchanged` or `not_found`. |
 | `purge_analytics` | Retention: deletes view and outbound-click counters for days over 25 months ago and per-event rate-limit rows idle for a day, and, for events that ended over 25 months ago, the check-in log and the tickets' `checked_in_at`. Idempotent. Scheduled daily with Supabase Cron (`docs/supabase-setup.md`). |
 | `release_tickets` | The organiser's "Release more tickets" (`POST /events/{id}/ticket-types/{id}/release`; `20261113000000_release_tickets.sql`; see "Releasing more tickets"). Share-locks the organiser (owned by the caller, else `not_found`; not approved, `not_approved`), locks the event (for no key update, so it also excludes `fulfil_order` and seat holds, which share-lock it) and the ticket type (for update), and rechecks under them: the event is theirs and published (`not_published`), not ended (`ended`), Sheltüh-ticketed (`external`), the tier isn't seated (`seated`), the new total is above the current one (`not_increase`) and at most the cap the API passes (`too_many`), then the event's `ticket_releases` allowance (`take_event_rate_limit`, 10 per 24 hours) and the organiser's (`take_rate_limit`, 30 an hour), both `rate_limited`, taken last so refusals cost nothing; a null actor is `not_found`, a null quantity or limit raises. It raises `quantity_available` only, bumps the event's `updated_at` (an admin's older edit is stale) and logs an `edited` entry with `ticketTypes {old, new}` (only the changed tier, `[{id, name, quantityAvailable}]`) by the organiser's account. Returns `result`, and the tier's `total` and `sold`. Not security definer; search_path pinned. |
+| `set_ticket_lock` | The organiser's "Opens when the ticket above sells out" toggle (`PUT /events/{id}/ticket-types/{id}/lock`; `20261117000000_ticket_release_lock.sql`; see "Sequential ticket releases"). Locks as `release_tickets` (organiser share, event no key update, ticket type for update) and rechecks under them: the event is theirs (`not_found`), the organiser approved (`not_approved`), the event published (`not_published`), not ended (`ended`), Sheltüh-ticketed (`external`). Asking for what the tier already has is `unchanged` (nothing written, no allowance used). Turning it on for a seated tier is `seated`, for the tier with none above it `first_tier`. Then the organiser's `ticket_locks` allowance (30 an hour) and the event's (10 per 24 hours), `rate_limited`, taken last and in that order, so retries refused by the organiser's limit never spend the event's. Sets the flag, bumps the event's `updated_at` and logs an `edited` entry with `ticketTypes {old, new}` (only the changed tier). Allowed on a tier with sales. Returns `result`, and `locked`, `blocker_id`, `blocker_name` (whether the tier is waiting now, and for which tier). Not security definer; search_path pinned. |
+| `ticket_type_locks` | The one definition of which tiers of an event are waiting: `opens_after_previous` is set, there is a tier above (by `position`) and that tier has no `sold_out_at` and isn't sold out now. Returns `(ticket_type_id, blocker_id, blocker_name)`. Used by `orders_tiers_open`, the event reads (`opensAfter`), the checkout's early check and `set_ticket_lock`. Stable; search_path pinned. |
 | `check_in_ticket` | One scan, in one step (see "Check-in"): the event must be the organiser's (`not_found`; for an admin, the API passes the platform-managed organiser's id); a hit on the account's `check_in` allowance (`rate_limited`, nothing logged); then, under an advisory lock on (event, request id), a request id already logged returns its original result unchanged, or `conflict` (nothing logged; the API's 409) if the submitted code doesn't resolve to the logged one. Otherwise: a code that isn't one of the organiser's tickets is `invalid`; another of their events' tickets is `other_event`; else it share-locks the order, then locks the ticket (`for update`), and decides `not_admissible` (order not `paid`), `already_checked_in` (with the first time, and `admission_id`: the ticket's current admission, for undo) or `admitted` (sets `checked_in_at`; `admission_id` is the new row). Every result but `not_found`, `rate_limited` and `conflict` logs exactly one row. Ids returned are public ids. Also returns the ticket's seat (section, row, seat, kind) when it has one. |
 | `undo_check_in` | Reverses an admission (an `admitted` log row of the event, by its `public_id`) with a reason: same ownership check, allowance and locks as `check_in_ticket`. Returns `undone` (clears `checked_in_at`, logs an `undone` row with the reason), `not_found`, `not_checked_in` (already undone), `superseded` (admitted again since: undo the newer one) or `rate_limited`. Only `undone` logs a row. |
 | `place_free_order` | A member's free order, created and fulfilled in one step under an advisory lock on (event, person): the per-person cap, then the daily allowance, then `fulfil_order`. A refusal or sell-out writes nothing (beyond a refusal count). Returns `paid`, `person_event_limit`, `member_daily_limit` or `sold_out`. |
@@ -245,6 +251,10 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
      `fulfil_order` doesn't check it: a payment Stripe confirms after the
      end, for an order made before it, is still fulfilled (the buyer was
      charged).
+   - A ticket type that waits for the one above it to sell out can't be in a
+     new order: 409 `code: "ticket_locked"` (see "Sequential ticket
+     releases"), checked early in `assertAvailable` and enforced by the
+     `orders_tiers_open` trigger.
    - An optional `trackingCode` is stored on the order only if it's one of
      the event's tracking codes (anything else is silently ignored). It's
      attribution only: it never changes the price, the status, or what's
@@ -1770,6 +1780,9 @@ Who sees what:
 - Opting out (`DELETE …/going/me`) and deleting the profile always work,
   whatever state the event is in, and need no verified email.
 
+An external-ticket event has a smaller, separate signal: see "Going on
+external events" under "External ticketing". It shares only the threshold.
+
 ## Messages
 
 Direct messages between members who met on a Who's Going list
@@ -2407,7 +2420,8 @@ to (`lib/ticketing.ts`, `lib/server/event-input.ts`,
   for an external event, and switching to external while ticket types
   exist. Checkout is a 409 before anything else (and an order racing an
   admin's switch is refused by the trigger, which share-locks the event row:
-  also a 409). Who's Going reads as closed and `set_going` refuses it.
+  also a 409). Who's Going reads as closed and `set_going` refuses it (a
+  separate count-only signal exists: "Going on external events").
   Check-in, undo and the check-in summary are a 409 for the owner.
 - **The link's rules** (`checkExternalTicketUrl`, and the
   `events_external_ticket_url_valid` trigger over the stored form, run when a
@@ -2490,6 +2504,45 @@ to (`lib/ticketing.ts`, `lib/server/event-input.ts`,
   event's log; the public never does.
 - **Outbound clicks**: see "Organiser analytics".
 
+### Going on external events
+
+Owner decision (Nov 2026): Who's Going stays off for an external event
+(Sheltüh can't verify tickets sold elsewhere), but it gets a count-only
+signal. Not for Sheltüh-ticketed events, which keep the real Who's Going.
+
+- **What it is.** A signed-in member with a verified email taps "I'm going"
+  (and taps again to undo). The page shows "12 going" once at least
+  `GOING_COUNT_THRESHOLD` (3) have, the same privacy rule as Who's Going;
+  below it only the button shows. The tapper always sees their own state
+  ("Going ✓" / "I'm going"). No names, faces, messages, profiles or ticket
+  check, so nothing identifies who tapped.
+- **When.** The event must be published, external and not ended. An ended
+  event shows nothing (no read-only count). Undo always works.
+- **Data.** `private.external_event_going` (see the tables above), changed
+  only through `set_external_going` and `unset_external_going`; counts read
+  through `external_going_state`.
+- **API** (`lib/server/handlers/external-going.ts`; client in
+  `lib/api/going.ts`): `GET /events/{id}/external-going` is public and
+  cached like the event page (`PUBLIC_EVENT_CACHE_CONTROL`), `{count, closed,
+  countHidden}` (`closed` for a Sheltüh-ticketed or ended event; 404 unless
+  published). `GET`, `PUT` and `DELETE /events/{id}/external-going/me`
+  return `{going, open}`, `private, no-store`. PUT needs a verified email
+  (403), refuses a Sheltüh-ticketed or ended event (409) and an unpublished
+  one (404). PUT and DELETE share a limit of 30 an hour per member (429,
+  bucket `external_going`).
+- **UI.** `components/ExternalGoing.tsx` sits where Who's Going sits on a
+  Sheltüh event (tickets, About, "Who's going", Location, Refunds). Signed
+  out, "I'm going" links to sign-in with `next` back to the event. The demo
+  shows a sample count and a disabled button. Event cards show no count for
+  an external event (their going signal comes from the trending snapshot,
+  which has none for them).
+- **Privacy Policy wording needed before go-live** (owner/legal to add; the
+  legal pages are not edited here): that tapping "I'm going" on an event
+  whose tickets are sold elsewhere records the member's account against
+  that event, shows other people only a total (from three), never who, and
+  is deleted when the member undoes it, deletes their account, or 30 days
+  after the event ends.
+
 ### Accepted risks (external ticketing)
 
 - **The page behind an approved link can change.** The freeze stops the
@@ -2532,6 +2585,39 @@ to (`lib/ticketing.ts`, `lib/server/event-input.ts`,
   orders trigger), but the tests exercise the race only sequentially (a
   stale read, then the switch, then the order); run the suite on a real
   Postgres before go-live.
+
+## Photo focus
+
+An organiser (or an admin) can say where the subject of an event's photo is,
+so cropped renderings (map pins, cards, rails, the event page's strip) keep
+it in view instead of cropping to the middle.
+
+- **Data.** `event_images.focus_x` / `focus_y` (smallint, percent from the
+  left / top, 0..100; both null or both set). On the image row, not on
+  `events`: the photo is written by its own routes, not the draft write
+  functions (none of which changes), and replacing the photo without a focus
+  resets it while deleting it drops it. Every change bumps the event's
+  `updated_at` (`event_images_touch_event`); a focus-only change leaves the
+  photo's own version (`?v=`) alone, so its bytes stay cached.
+- **Writes.** `PUT /events/{id}/image?fx=&fy=` (and the admin's) sets the
+  photo and its focus together (no params: no focus, the crop centres; one
+  without the other, or a value that isn't an integer 0..100, is a 400 with
+  `fieldErrors.imageFocus`). `PATCH /events/{id}/image` with
+  `{"focus": {"x", "y"} | null}` changes only the focus of the saved photo
+  (the organiser: own draft or rejected event, as the photo; 409 while it's
+  pending or published, or when there is no photo; the admin's
+  `PATCH /admin/events/{id}/image`: any status, 404 unknown event, 409 no
+  photo, logged `edited`, nothing logged when unchanged). The organiser's
+  writes lock the event row before the image row, as every photo writer does.
+- **Reads.** `imageFocus: {x, y}` is on the event (absent without one),
+  including the public shape: it says nothing private.
+- **Rendering.** `components/EventArt.tsx` takes `imageFocus` and sets
+  `object-position: x% y%` on the cover image (and on the blurred backdrop
+  of a contained image, whose foreground stays whole); every caller that
+  shows an event's photo passes the event's. The editor's Photo card
+  (`components/dashboard/EventFocusControl.tsx`) places the marker by
+  pointer or keyboard (arrow keys move 5%, Home centres) with live pin and
+  card previews; the focus is saved with the photo.
 
 ## Admin authoring
 
@@ -2594,6 +2680,9 @@ Admins create events themselves, for any organiser
   from a version loaded before it is stale (409): an admin can't publish a
   photo they haven't seen. The photo routes answer with the event, and the
   editor takes its next `expectedUpdatedAt` from that answer.
+- **Photo focus** (`PATCH /admin/events/{id}/image`, `PUT …/image?fx=&fy=`):
+  see "Photo focus"; logged `edited` with `changes.imageFocus` (`{x, y}` or
+  null, each side).
 - **Audit.** `created`, `edited` and `ticketing_changed` entries carry the
   admin's user id, which admin routes show; the event's organiser sees the
   entries in their event's `moderationLog` with `by: "Sheltüh team"` instead
@@ -3376,6 +3465,70 @@ published event at `/dashboard/{eventId}`).
   admin event view). No decrease, no seated tiers (change the seat map), no
   new ticket types, no price changes on a published event.
 
+## Sequential ticket releases
+
+An organiser can make a general admission ticket type wait for the one above
+it: "Opens when the ticket above sells out" (owner request; a launch needs
+Early bird, then Second release, then Final release, each only when the last
+is gone). Order is `ticket_types.position`; the setting lives on the
+dependent tier (`opens_after_previous`, never the first, never a seated one:
+`ticket_types_lock_not_first`, `ticket_types_lock_ga_only`)
+(`supabase/migrations/20261117000000_ticket_release_lock.sql`,
+`lib/server/handlers/ticket-lock.ts`, `private.ticket_type_locks`,
+`private.set_ticket_lock`).
+
+- **Waiting.** A tier is waiting while `opens_after_previous` is set, there is
+  a tier above it and that tier has no `sold_out_at` and isn't sold out now
+  (`quantity_sold >= quantity_available`, the public `soldOut`).
+  `private.ticket_type_locks(event)` is the only definition; everything below
+  calls it. `sold_out_at` is sticky (trigger `ticket_types_sold_out_at`, never
+  cleared), so releasing more of the first tier, or a refund giving a ticket
+  back, doesn't shut the next tier again. A chain waits link by link: the
+  third tier opens when the second sells out, and the second is waiting for
+  the first. General admission reserves nothing, so a pending or abandoned
+  checkout never opens the next tier; whoever loses the race for the last
+  ticket gets the existing `oversold_refund_required` refund.
+- **Enforcement.** The `orders_tiers_open` trigger (before insert on
+  `orders`, after `orders_sheltuh_only`; it share-locks the event itself too,
+  so it never depends on trigger order) refuses
+  an order with a waiting tier in its line items (`check_violation`,
+  constraint `orders_tiers_open`): paid, free (member or guest) and
+  `hold_seats` alike. The checkout reads the locks first (`assertAvailable`)
+  and answers 409 `code: "ticket_locked"` naming the tier it waits for; a
+  trigger refusal (a toggle racing the checkout) maps to the same code.
+  `fulfil_order` is unchanged: an order made before the tier was locked still
+  fulfils. A guest's free order confirmed after a tier was locked is
+  fulfilled too.
+- **Setting it.** Two ways. In the ticket types an editor saves
+  (`opensAfterPrevious` on a `TicketTypeInput`; drafts, and an admin's edit):
+  absent keeps the stored value, a boolean sets it, `true` on the first ticket
+  is a 400 (`fieldErrors["ticketTypes[0].opensAfterPrevious"]`), `true` on a
+  seated tier a 400 (`ticketTypes[i].opensAfterPrevious`), and a seat map
+  can't put seats on a waiting tier (400 `template…`). `replace_ticket_types`
+  forces the first position to false (reordering can't leave the first tier
+  waiting). A flag-only admin edit is a change (logged `edited`, not
+  `unchanged`). And on a published event, by the organiser alone:
+  `PUT /events/{id}/ticket-types/{id}/lock` (`set_ticket_lock`), allowed even
+  when the tier has sales (it only affects new orders), with the rules in
+  the function's table row. Another organiser's event or an unknown tier is a
+  404.
+- **Reads.** A ticket type in an event record carries `opensAfterPrevious`
+  (only when true) and, while it is waiting, a read-only
+  `opensAfter {ticketTypeId, name}` (public, organiser and admin shapes; built
+  in `EVENT_COLUMNS`). The public shape's `soldOut` is unchanged, and a
+  waiting tier is never sold out. The UI's "From" price and free-ticket
+  counts skip waiting tiers (`pricedTicketTypes`).
+- **Not built.** No waitlist email when a tier opens. No locks on seated tiers
+  or on external events. No order other than `position`: reordering keeps the
+  setting on the tier, which then waits for whichever tier is now above it.
+- **Accepted risks.** `sold_out_at` is never cleared, so a tier that sold out
+  once keeps the next one open (by design: refunds don't re-lock). A free
+  tier above a paid one can be emptied by the free-ticket abuse "Free tickets"
+  accepts (catch-all inboxes), which opens the paid tier below for good; the
+  organiser can still turn the lock off or release more of the free tier, but
+  can't re-arm it. Pending guest free orders and open paid sessions made
+  before a lock was turned on still complete (the toggle is for new orders).
+
 ## Reserved seating
 
 Optional seat maps for concert-style events (owner request, 21 Oct 2026;
@@ -3612,14 +3765,18 @@ application is approved.
 | `POST /events` · `PATCH /events/{id}` · `POST /events/{id}/submit` | organiser (own events). Body adds optional `state` and `timeZone`, together or neither (see "Events: state and time zone"). Body adds `ticketingMode` (absent: `sheltuh` on POST; on PATCH, the stored ticketing is kept), `externalTicketUrl`, `externalFree`, `externalPriceFromCents` (see "External ticketing"). Body adds optional `location` (`{source: "places", placeId, pin?}`, `{source: "manual_pin", pin}` or `null`; absent: none on POST, kept on PATCH; see "Venue location"): 400 `fieldErrors.location` (shape, bounds, too far from the suburb, unknown or non-Australian Google place, or a kept Google place in another state after the suburb or state changed) or `fieldErrors.suburb` (a new Google place is in another state); 503 `fieldErrors.location`, `code: "places_unavailable"` (a new Google place couldn't be checked). PATCH: 409 unless draft or rejected; 409 (fieldErrors on the field) changing the mode or link of an event that has been approved before. Submit (always to review; the publish route below is the editor's): 409 `payouts_required` or `location_required` (`fieldErrors.location`) |
 | `POST /events/{id}/publish` | organiser (own events; see "Publishing events"). No body. 200 `PublishEventResponse` (`EventRecord`, `private, no-store`): `status` `published` (live now) or `pending_review` (sent to review, with `reviewReason`: `review_required`, `removed_before`, `seated`, `unknown_ticket_site`, `first_paid_event` or `daily_limit`); an event already published is a 200 too, unchanged. 403 not an approved organiser; 404 not theirs; 409 with `code`: `payouts_required`, `location_required` (`fieldErrors.location`), `event_ended`, `in_review` (already waiting), `event_changed` (its ticket link changed meanwhile: reload and retry). Emails after the response (`maxDuration` 60) |
 | `POST /events/{eventId}/ticket-types/{ticketTypeId}/release` `{quantityAvailable}` | organiser (own event; see "Releasing more tickets"). 200 `{eventId, ticketTypeId, quantityAvailable, quantitySold}` (`private, no-store`). 400 `fieldErrors.quantityAvailable` (not a whole number, not above the current total, over 100,000); 403 not an approved organiser; 404 not theirs or no such ticket type; 409 not published, ended, external or a seated tier; 429 over 30 releases an hour. The waitlist's emails are sent after the response (`maxDuration` 60) |
+| `PUT /events/{eventId}/ticket-types/{ticketTypeId}/lock` `{opensAfterPrevious}` | organiser (own event; see "Sequential ticket releases"). 200 `{eventId, ticketTypeId, opensAfterPrevious, opensAfter?}` (`private, no-store`; `opensAfter {ticketTypeId, name}` only while the tier is waiting). 400 `fieldErrors.opensAfterPrevious` (not a boolean, or the first ticket); 403 not an approved organiser; 404 not theirs or no such ticket type; 409 not published, ended, external or a seated tier; 429 over 30 changes an hour. Asking for the current value is a 200 and changes nothing |
 | `POST /places/autocomplete` `{input, sessionToken}` · `POST /places/details` `{placeId, sessionToken}` | approved organiser or admin (401, 403); `private, no-store` (see "Venue location"). Autocomplete: `input` 2–120 characters after control characters are removed; `sessionToken` `^[A-Za-z0-9_-]{8,36}$`, one per search. 200 `{suggestions: [{placeId, primaryText, secondaryText}]}` (at most 5, in Australia and its external territories). Details (ends the search's session): 200 `{placeId, formattedAddress, streetAddress, locality, state, postcode, googleMapsUrl}`, never a position. 400 fieldErrors (`input`, `sessionToken`, `placeId`: malformed, unknown to Google, or not in Australia); 429 per account (autocomplete 100 an hour and 400 a day; details, shared with event saves' place checks, 30 an hour and 120 a day); 503 `code: "places_unavailable"` (no key, Google unreachable, over quota, a bad key or disabled API, over 5 s, or the platform's cap for Google's day used: autocomplete 1,800, details 450). Bodies at most 4 KB. Nothing about the search is logged |
 | `GET /organisers/me/events` · `GET /organisers/me/events/{id}` | organiser (own events), `private, no-store` |
-| `PUT /events/{id}/image` · `DELETE /events/{id}/image` | organiser (own events, while draft or rejected). Admins: `…/admin/events/{id}/image` |
+| `PUT /events/{id}/image[?fx=&fy=]` · `PATCH /events/{id}/image` (`{focus}`) · `DELETE /events/{id}/image` | organiser (own events, while draft or rejected). Admins: `…/admin/events/{id}/image`. See "Photo focus" |
 | `GET /events/{id}/image?v=` | public once published: at the current `v` (as `imageUrl` gives it) `public, max-age=3600, s-maxage=3600`, with any other `v` or none the same image but `private, max-age=3600` (never shared: a guessed future version can't be cached ahead of a replacement); before that, the owning organiser or an admin, `private, no-store`. ETag `"<version>"` and Last-Modified; a matching `If-None-Match` is a 304 with the same headers (after the same access check, and without reading the bytes) |
 | `GET /events/{id}/going` | public (published only): `{count, closed, countHidden}`. No cache header (not CDN-cached, so the count keeps up with the names list) |
 | `GET /events/{id}/going/attendees?cursor` | verified email with a profile that isn't suspended (403 otherwise); published only; 429 when rate-limited |
 | `GET /events/{id}/going/me` · `DELETE /events/{id}/going/me` | signed in (own opt-in) |
 | `PUT /events/{id}/going/me` | verified email, eligible ticket holder with a profile. 404 if Who's Going isn't open, 409 without a profile, 403 if not eligible or suspended |
+| `GET /events/{id}/external-going` | public (published only): `{count, closed, countHidden}` for an external event ("Going on external events"). `public, max-age=0, s-maxage=15, stale-while-revalidate=45` |
+| `GET /events/{id}/external-going/me` · `DELETE …/me` | signed in; `{going, open}`, `private, no-store`. DELETE idempotent, 429 over 30 an hour (shared with PUT) |
+| `PUT /events/{id}/external-going/me` | verified email (403); 404 unpublished, 409 not external or ended, 429 over 30 an hour |
 | `GET /profiles/me` · `DELETE /profiles/me` | signed in (own profile; DELETE also removes every opt-in, every conversation the member is in, for both sides, and the photo, bio and handle). GET also has `profileId`, `profileVisible`, `bio?`, `instagramHandle?`, `hasAvatar`, `avatarUrl?`, `avatarThumbUrl?` |
 | `PATCH /profiles/me` `{displayName?, profileVisible?, bio?, instagramHandle?}` | verified email, a profile (404), not suspended (403). Absent: unchanged; null or "" clears bio or handle. 400 fieldErrors |
 | `PUT /profiles/me/avatar` (raw JPEG/PNG/WebP) · `DELETE …/avatar` · `GET …/avatar[?size=thumb]` | PUT: verified, a profile (404), not suspended (403); 200 the profile; 400 not a supported image (or over 24 megapixels); 413 over 5 MB; 429 over 20 a day; 503 too many photos being decoded on the instance. DELETE: signed in, 204 idempotent. GET: the caller's own |

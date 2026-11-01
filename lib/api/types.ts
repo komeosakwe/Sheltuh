@@ -1,13 +1,13 @@
 import type { RefundPolicy } from "@/lib/refund-policy";
 import type { TicketingMode } from "@/lib/ticketing";
-import type { EventCategory, EventClip, FeePolicy } from "@/lib/types";
+import type { EventCategory, EventClip, FeePolicy, ImageFocus } from "@/lib/types";
 import type { FeaturedVideo } from "./featured-video";
 import type { PublicEvent } from "./public-events";
 import type { SeatMapTemplate, TicketSeat } from "@/lib/seating/template";
 import type { AustralianTimeZone, StateCode } from "@/lib/time-zones";
 
 export type { FeaturedVideo, FeaturedVideoProvider } from "./featured-video";
-export type { EventClip } from "@/lib/types";
+export type { EventClip, ImageFocus } from "@/lib/types";
 
 export type { TicketingMode } from "@/lib/ticketing";
 export type { RefundPolicy } from "@/lib/refund-policy";
@@ -186,6 +186,27 @@ export interface TicketTypeInput {
    * so a general admission event's payload is unchanged. Ignored in edits.
    */
   seated?: true;
+  /**
+   * Sequential release (docs/architecture.md, "Sequential ticket releases"):
+   * this general admission tier opens only when the tier above it (the
+   * previous one in this list) has sold out. In a request: absent keeps the
+   * stored value, `false` turns it off; `true` is a 400
+   * (`fieldErrors["ticketTypes[i].opensAfterPrevious"]`) on the first tier
+   * and on a seated one. In a response: only when true.
+   */
+  opensAfterPrevious?: boolean;
+  /**
+   * Read-only, in responses only (ignored in a request): present while this
+   * tier is waiting, naming the tier it waits for. Gone once that tier has
+   * sold out (and, for good, from then on), so a buyer can order it.
+   */
+  opensAfter?: TicketOpensAfter;
+}
+
+/** The tier a waiting ticket type opens after (TicketTypeInput.opensAfter). */
+export interface TicketOpensAfter {
+  ticketTypeId: string;
+  name: string;
 }
 
 /** An event's seat map, as event records carry it (absent: general admission only). */
@@ -232,6 +253,8 @@ export interface EventEditChanges {
   endsAt?: TicketingFieldChange<string>;
   ticketTypes?: TicketingFieldChange<TicketTypeInput[]>;
   image?: TicketingFieldChange<"set">;
+  /** An admin set, moved or cleared the photo's focus point. */
+  imageFocus?: TicketingFieldChange<ImageFocus>;
   /** An admin replaced or removed the seat map (or switched the event to external ticketing, removing it). */
   seatMap?: TicketingFieldChange<EventSeating>;
   /** An admin added, replaced or removed the clip (its versions). */
@@ -315,6 +338,17 @@ export interface ReleaseTicketsResult {
   quantitySold: number;
 }
 
+/**
+ * PUT /events/{eventId}/ticket-types/{ticketTypeId}/lock: the tier's setting
+ * now, and `opensAfter` while it's waiting.
+ */
+export interface TicketLockResult {
+  eventId: string;
+  ticketTypeId: string;
+  opensAfterPrevious: boolean;
+  opensAfter?: TicketOpensAfter;
+}
+
 export interface ModerationLogEntry {
   /**
    * `ticketing_changed`: an admin changed the event's ticketing (PATCH
@@ -383,6 +417,8 @@ export interface EventRecord {
   organiserName: string;
   /** Same-origin path of the organiser's photo, if one was uploaded. Versioned (?v=) so it caches safely. */
   imageUrl?: string;
+  /** Where the photo's subject is (percent from the left and top), only when set: cropped renderings centre on it. */
+  imageFocus?: ImageFocus;
   /**
    * The event's clip, only when it has one (absent otherwise). Its `url`
    * plays only once the event is published; before that, the owner or an
@@ -1292,6 +1328,22 @@ export interface GoingSummary {
   closed: boolean;
   /** Fewer than 3 are going, so `count` is withheld (sent as 0). Always false when `closed`. */
   countHidden: boolean;
+}
+
+/**
+ * Public: GET /api/events/{eventId}/external-going. A count-only "going" for
+ * an external-ticket event (no names, no ticket check): same fields and
+ * threshold rule as GoingSummary. `closed` for an event that sells tickets on
+ * Sheltüh (use Who's Going) or has ended.
+ */
+export type ExternalGoingSummary = GoingSummary;
+
+/** GET/PUT/DELETE /api/events/{eventId}/external-going/me. */
+export interface MyExternalGoing {
+  /** The caller tapped "I'm going". Always false once the event is closed. */
+  going: boolean;
+  /** The event is external and hasn't ended: the button works (PUT needs a verified email). */
+  open: boolean;
 }
 
 /** One entry in GET /api/events/{eventId}/going/attendees (verified members only). */

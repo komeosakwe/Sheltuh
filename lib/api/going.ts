@@ -1,5 +1,5 @@
 import { apiFetch, type GetToken } from "./client";
-import type { GoingAttendee, GoingSummary, MyGoingStatus, Paginated } from "./types";
+import type { ExternalGoingSummary, GoingAttendee, GoingSummary, MyExternalGoing, MyGoingStatus, Paginated } from "./types";
 
 const base = (eventId: string) => `/events/${encodeURIComponent(eventId)}/going`;
 
@@ -34,4 +34,29 @@ export async function setGoing(eventId: string, getToken: GetToken) {
 export async function unsetGoing(eventId: string, getToken: GetToken) {
   const token = await getToken();
   return apiFetch<MyGoingStatus>(`${base(eventId)}/me`, { method: "DELETE", token });
+}
+
+// Count-only "going" for external-ticket events (docs/architecture.md, "External ticketing").
+const externalBase = (eventId: string) => `/events/${encodeURIComponent(eventId)}/external-going`;
+
+/** Public count; `countHidden` below three, `closed` if the event isn't external or has ended. */
+export function getExternalGoingSummary(eventId: string) {
+  return apiFetch<ExternalGoingSummary>(externalBase(eventId));
+}
+
+export async function getMyExternalGoing(eventId: string, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<MyExternalGoing>(`${externalBase(eventId)}/me`, { token });
+}
+
+/** "I'm going". ApiError 403 (unverified email), 409 (not external, or ended), 429 (rate limit). Idempotent. */
+export async function setExternalGoing(eventId: string, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<MyExternalGoing>(`${externalBase(eventId)}/me`, { method: "PUT", token });
+}
+
+/** Undo. Idempotent. */
+export async function unsetExternalGoing(eventId: string, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<MyExternalGoing>(`${externalBase(eventId)}/me`, { method: "DELETE", token });
 }

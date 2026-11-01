@@ -522,6 +522,42 @@ describe("EventEditor (admin) — editing", () => {
   });
 });
 
+describe("EventEditor (admin) — sequential release", () => {
+  const WITH_LOCK: AdminEventRecord = {
+    ...EVENT,
+    ticketTypes: [
+      { id: "ga", name: "First release", priceCents: 3000, feePolicy: "buyer-pays", quantityAvailable: 10 },
+      {
+        id: "ga2",
+        name: "Second release",
+        priceCents: 3500,
+        feePolicy: "buyer-pays",
+        quantityAvailable: 10,
+        opensAfterPrevious: true,
+        opensAfter: { ticketTypeId: "ga", name: "First release" },
+      },
+    ],
+  };
+
+  it("offers it on the second ticket, and sends explicit booleans without the read-only opensAfter", async () => {
+    adminUpdateEvent.mockResolvedValue(WITH_LOCK);
+    renderEditor({ initial: WITH_LOCK });
+    const box = screen.getByLabelText("Opens when the ticket above sells out");
+    expect(box).toBeChecked();
+    fireEvent.click(box);
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(adminUpdateEvent).toHaveBeenCalledTimes(1));
+    const tickets = adminUpdateEvent.mock.calls[0][1].ticketTypes;
+    expect(tickets.map((t: { opensAfterPrevious: boolean }) => t.opensAfterPrevious)).toEqual([false, false]);
+    for (const t of tickets) expect(t).not.toHaveProperty("opensAfter");
+  });
+
+  it("is not on a single-ticket event", () => {
+    renderEditor({ initial: EVENT });
+    expect(screen.queryByLabelText("Opens when the ticket above sells out")).toBeNull();
+  });
+});
+
 describe("EventEditor (admin) — never saves as another account", () => {
   const ADMIN_A = { userId: "admin-a", email: "a@sheltuh.example", isAdmin: true };
   const ADMIN_B = { userId: "admin-b", email: "b@sheltuh.example", isAdmin: true };

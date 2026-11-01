@@ -1,7 +1,7 @@
 import { REFUND_POLICY_TIGHTENED_CODE, type RefundPolicy } from "@/lib/refund-policy";
 import type { TicketingMode } from "@/lib/ticketing";
 import type { AustralianTimeZone, StateCode } from "@/lib/time-zones";
-import type { EventCategory } from "@/lib/types";
+import type { EventCategory, ImageFocus } from "@/lib/types";
 import { ApiError, apiFetch, type GetToken } from "./client";
 import type {
   EventRecord,
@@ -9,6 +9,7 @@ import type {
   PublishEventConflictCode,
   PublishEventResponse,
   ReleaseTicketsResult,
+  TicketLockResult,
   TicketTypeInput,
   VenueLocationInput,
 } from "./types";
@@ -200,9 +201,20 @@ export async function getMyEvent(eventId: string, getToken: GetToken) {
 }
 
 /** Uploads (or replaces) the event's photo. Returns the updated event, whose `imageUrl` is the new version. */
-export async function uploadEventImage(eventId: string, image: Blob, getToken: GetToken) {
+export async function uploadEventImage(eventId: string, image: Blob, getToken: GetToken, focus?: ImageFocus | null) {
   const token = await getToken();
-  return apiFetch<EventRecord>(`/events/${eventId}/image`, { method: "PUT", body: image, token });
+  return apiFetch<EventRecord>(`/events/${eventId}/image${focusQuery(focus)}`, { method: "PUT", body: image, token });
+}
+
+/** `?fx=&fy=` for an upload's focus point (none: no query, so the photo has no focus). */
+export function focusQuery(focus?: ImageFocus | null): string {
+  return focus ? `?fx=${focus.x}&fy=${focus.y}` : "";
+}
+
+/** Moves (or, with null, clears) the focus point of the event's saved photo. ApiError 409 when it has no photo or is locked. */
+export async function setEventImageFocus(eventId: string, focus: ImageFocus | null, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<EventRecord>(`/events/${eventId}/image`, { method: "PATCH", body: { focus }, token });
 }
 
 export async function deleteEventImage(eventId: string, getToken: GetToken) {
@@ -234,5 +246,23 @@ export async function releaseTickets(eventId: string, ticketTypeId: string, quan
   return apiFetch<ReleaseTicketsResult>(
     `/events/${encodeURIComponent(eventId)}/ticket-types/${encodeURIComponent(ticketTypeId)}/release`,
     { method: "POST", body: { quantityAvailable }, token },
+  );
+}
+
+/**
+ * Makes one general admission ticket type on the caller's own published,
+ * not-yet-ended event wait for the ticket above it to sell out
+ * (`opensAfterPrevious: true`), or stops it waiting. Allowed when the ticket
+ * has sales already: it only affects new orders. The result carries
+ * `opensAfter` while the ticket is waiting. ApiError 400
+ * (fieldErrors.opensAfterPrevious: not a boolean, or the first ticket), 403
+ * not an approved organiser, 404 not theirs, 409 not published, ended,
+ * external or seated, 429 too many changes.
+ */
+export async function setTicketLock(eventId: string, ticketTypeId: string, opensAfterPrevious: boolean, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<TicketLockResult>(
+    `/events/${encodeURIComponent(eventId)}/ticket-types/${encodeURIComponent(ticketTypeId)}/lock`,
+    { method: "PUT", body: { opensAfterPrevious }, token },
   );
 }

@@ -14,7 +14,17 @@ import type { EventCategory, FeePolicy, SheltuhEvent } from "./types";
  * that zone.
  */
 
-type TicketSeed = [name: string, priceCents: number, feePolicy?: FeePolicy, quantity?: number];
+/**
+ * `opensAfterPrevious`: the tier waits for the one above it to sell out (sequential release), as the API
+ * reports it while it's waiting (`opensAfter` on the tier above it).
+ */
+type TicketSeed = [
+  name: string,
+  priceCents: number,
+  feePolicy?: FeePolicy,
+  quantity?: number,
+  opensAfterPrevious?: true,
+];
 
 interface Seed {
   slug: string;
@@ -353,6 +363,25 @@ const SEEDS: Seed[] = [
       "Life drawing with a live jazz trio: short poses to warm up, long ones to finish. Paper and charcoal provided.",
     tickets: [["Drawing place", 3000, "buyer-pays", 30]],
   },
+  {
+    slug: "cinder-warehouse-sessions",
+    title: "Cinder Warehouse Sessions",
+    category: "live-music",
+    venue: "Cinder Yard",
+    address: "9 Rouse Street, Port Melbourne VIC 3207",
+    suburb: "Port Melbourne",
+    coordinates: [-37.8353, 144.9306],
+    start: "2026-12-12 20:00",
+    hours: 5,
+    organiser: "Cinder Collective",
+    description:
+      "Four live sets in a converted warehouse, with the tickets released in three rounds: each opens when the one before it sells out.",
+    tickets: [
+      ["First release", 2800, "buyer-pays", 80],
+      ["Second release", 3500, "buyer-pays", 80, true],
+      ["Final release", 4200, "buyer-pays", 80, true],
+    ],
+  },
 ];
 
 export const generatedSampleEvents: SheltuhEvent[] = SEEDS.map((seed) => ({
@@ -371,12 +400,18 @@ export const generatedSampleEvents: SheltuhEvent[] = SEEDS.map((seed) => ({
   organiserName: seed.organiser,
   poster: assignPoster(seed.slug),
   ...(seed.soldOut ? { soldOut: true } : {}),
-  ticketTypes: seed.tickets.map(([name, priceCents, feePolicy = "buyer-pays", quantity = 100], i) => ({
+  ticketTypes: seed.tickets.map(([name, priceCents, feePolicy = "buyer-pays", quantity = 100, opensAfterPrevious], i) => ({
     id: `${seed.slug}-${i}`,
     name,
     priceCents,
     feePolicy,
     quantityAvailable: quantity,
     ...(seed.soldOut ? { soldOut: true, remaining: 0 } : {}),
+    ...(opensAfterPrevious && i > 0
+      ? {
+          opensAfterPrevious: true as const,
+          opensAfter: { ticketTypeId: `${seed.slug}-${i - 1}`, name: seed.tickets[i - 1][0] },
+        }
+      : {}),
   })),
 }));

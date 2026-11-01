@@ -280,6 +280,8 @@ const EVENT_COLUMNS = `
          case when o.status = 'approved' then ${organiserLogoVersionOf("e.organiser_id")} end as organiser_logo_version,
          (select '/api/events/' || e.id::text || '/image?v=' || floor(extract(epoch from i.updated_at))::bigint::text
             from public.event_images i where i.event_id = e.id) as image_url,
+         (select json_build_object('x', i.focus_x, 'y', i.focus_y)
+            from public.event_images i where i.event_id = e.id and i.focus_x is not null) as image_focus,
          -- The clip (private.event_clips, by primary key), versioned in milliseconds (every write moves it on).
          (select json_build_object('version', floor(extract(epoch from c.updated_at) * 1000)::bigint::text,
                                    'durationMs', c.duration_ms, 'width', c.width, 'height', c.height,
@@ -291,7 +293,13 @@ const EVENT_COLUMNS = `
                     'priceCents', t.price_cents, 'feePolicy', t.fee_policy,
                     'quantityAvailable', t.quantity_available,
                     -- Only for a seated tier (stripped otherwise: a GA tier's JSON is unchanged).
-                    'seated', case when t.seated then true end)) order by t.position)
+                    'seated', case when t.seated then true end,
+                    -- Sequential release: the setting (only when on), and, while the tier is waiting, the
+                    -- tier it waits for (private.ticket_type_locks, the one definition of "waiting").
+                    'opensAfterPrevious', case when t.opens_after_previous then true end,
+                    'opensAfter', case when t.opens_after_previous then (
+                      select json_build_object('ticketTypeId', l.blocker_id, 'name', l.blocker_name)
+                        from private.ticket_type_locks(e.id) l where l.ticket_type_id = t.id) end)) order by t.position)
            from public.ticket_types t where t.event_id = e.id
          ), '[]'::json) as ticket_types,
          (select json_build_object('version', m.version, 'seatCount', m.seat_count)
@@ -369,6 +377,7 @@ const LOG_CHANGE_FIELDS = [
   "endsAt",
   "ticketTypes",
   "image",
+  "imageFocus",
   "seatMap",
   "clip",
   "clipDescription",
@@ -423,6 +432,12 @@ export function toEvent(row: Row): EventRecord {
 /** For rows of EVENT_SELECT, in admin routes: log entries keep every actor's account id. */
 export function toEventForAdmin(row: Row): EventRecord {
   return mapEvent(row, "admin");
+}
+
+/** The `imageFocus` field for a row of EVENT_SELECT: absent without a focus point. */
+function imageFocusOf(row: Row): { imageFocus?: { x: number; y: number } } {
+  const focus = row.image_focus as { x: number; y: number } | null | undefined;
+  return focus ? { imageFocus: { x: focus.x, y: focus.y } } : {};
 }
 
 /** The `organiserLogoThumbUrl` field for a row of EVENT_SELECT: absent with no logo (or an organiser not approved). */
@@ -525,6 +540,7 @@ function mapEvent(row: Row, audience: LogAudience): EventRecord {
     endsAt: iso(row.ends_at),
     organiserName: row.organiser_name as string,
     imageUrl: opt(row.image_url),
+    ...imageFocusOf(row),
     ...clipOf(row),
     ...organiserLogoThumbOf(row),
     ticketTypes: row.ticket_types as TicketTypeInput[],
@@ -609,6 +625,8 @@ export function toPublicEvent(event: EventRecord, remaining?: Record<string, num
     endsAt: event.endsAt,
     organiserName: event.organiserName,
     imageUrl: event.imageUrl,
+    // Only with a focus point (not sensitive: where the subject of the public photo is).
+    ...(event.imageFocus ? { imageFocus: { x: event.imageFocus.x, y: event.imageFocus.y } } : {}),
     // Only with a clip (and, like every field here, only ever on a published event's public shape).
     ...(event.clip
       ? {

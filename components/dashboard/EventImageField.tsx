@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import EventArt from "@/components/EventArt";
+import EventFocusControl from "@/components/dashboard/EventFocusControl";
 import { Button, buttonClass } from "@/components/ui/Button";
 import { fetchPrivateEventImage } from "@/lib/api/events";
 import type { GetToken } from "@/lib/api/client";
 import { ImageError, prepareEventImage } from "@/lib/image";
-import type { EventPoster } from "@/lib/types";
+import type { EventPoster, ImageFocus } from "@/lib/types";
 
 interface Props {
   getToken: GetToken;
@@ -18,6 +19,9 @@ interface Props {
   /** True when the organiser has chosen to remove the saved photo. */
   removed: boolean;
   onRemovedChange: (removed: boolean) => void;
+  /** Where the photo's subject is (null: the middle). Saved with the photo. */
+  focus: ImageFocus | null;
+  onFocusChange: (focus: ImageFocus | null) => void;
   error?: string;
   /** The generated artwork the event shows until it has a photo (the same the public card shows). */
   poster: EventPoster;
@@ -38,6 +42,8 @@ export default function EventImageField({
   onPendingChange,
   removed,
   onRemovedChange,
+  focus,
+  onFocusChange,
   error,
   poster,
   title,
@@ -91,6 +97,8 @@ export default function EventImageField({
     try {
       onPendingChange(await prepareEventImage(file));
       onRemovedChange(false);
+      // The focus belongs to the photo it was set on.
+      onFocusChange(null);
     } catch (err) {
       setPickError(err instanceof ImageError ? err.message : "Couldn't read that image.");
     }
@@ -122,6 +130,7 @@ export default function EventImageField({
               <EventArt
                 poster={poster}
                 imageUrl={shown ?? undefined}
+                imageFocus={focus}
                 title={title.trim() || "Untitled event"}
                 fit="auto"
                 className="size-full"
@@ -177,6 +186,15 @@ export default function EventImageField({
           )}
         </div>
       </div>
+      {shown && (
+        <EventFocusControl
+          imageUrl={shown}
+          focus={focus}
+          onChange={onFocusChange}
+          poster={poster}
+          title={title.trim() || "Untitled event"}
+        />
+      )}
       {(pickError || error) && (
         <p id="event-image-error" className="text-sm text-danger">
           {pickError ?? error}

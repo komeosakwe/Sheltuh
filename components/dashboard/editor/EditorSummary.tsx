@@ -1,6 +1,6 @@
 import EventArt from "@/components/EventArt";
 import StatusBadge, { type StatusTone } from "@/components/ui/StatusBadge";
-import type { EventPoster } from "@/lib/types";
+import type { EventPoster, ImageFocus } from "@/lib/types";
 
 /**
  * The event summary (docs/design/event-editor.md §5.2): the top of the rail on lg and up (a card with a
@@ -14,6 +14,7 @@ export default function EditorSummary({
   lastSaved,
   poster,
   imageUrl,
+  imageFocus,
   price,
   organiser,
 }: {
@@ -25,6 +26,7 @@ export default function EditorSummary({
   lastSaved?: string;
   poster: EventPoster;
   imageUrl?: string;
+  imageFocus?: ImageFocus | null;
   /** "From A$13.30" (or "Free"): the all-inclusive price the event page shows. */
   price?: { amount: string; note?: string } | null;
   /** Admin: whose event it is. */
@@ -39,6 +41,7 @@ export default function EditorSummary({
       <EventArt
         poster={poster}
         imageUrl={imageUrl}
+        imageFocus={imageFocus}
         title={name || "Untitled event"}
         fit="auto"
         className="aspect-square size-12 shrink-0 overflow-hidden rounded-control lg:aspect-[3/2] lg:size-auto lg:w-full"

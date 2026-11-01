@@ -156,6 +156,7 @@ describe("Data API lock-out", () => {
       { table_name: "event_view_cap_days", rls: true },
       { table_name: "event_waitlist", rls: true },
       { table_name: "event_waitlist_tokens", rls: true },
+      { table_name: "external_event_going", rls: true },
       { table_name: "free_order_refusals", rls: true },
       { table_name: "onboarding_emails", rls: true },
       { table_name: "organiser_event_announcements", rls: true },
@@ -203,6 +204,7 @@ describe("Data API lock-out", () => {
       "admin_delete_event_image",
       "admin_edit_event",
       "admin_put_event_image",
+      "admin_set_event_image_focus",
       "event_images_touch_event",
       "events_external_ticket_url_valid",
       "events_platform_free_only",
@@ -539,6 +541,36 @@ describe("Data API lock-out", () => {
       `select count(*)::int as n from pg_policy p where p.polrelid = 'private.checkout_attempts'::regclass`,
     );
     expect(policies.n).toBe(0);
+  });
+
+  it("the external going functions exist, pin search_path and aren't client-executable; external_event_going has no policies", async () => {
+    const names = ["external_going_state", "set_external_going", "unset_external_going"];
+    expect(await privateFunctions(names)).toEqual(locked(names));
+    const [policies] = await db.query<{ n: number }>(
+      `select count(*)::int as n from pg_policy p where p.polrelid = 'private.external_event_going'::regclass`,
+    );
+    expect(policies.n).toBe(0);
+  });
+
+  it("the sequential release functions and triggers exist, pin search_path, aren't security definer or client-executable; the constraints exist", async () => {
+    const names = ["orders_tiers_open", "replace_ticket_types", "set_ticket_lock", "ticket_type_locks", "ticket_types_sold_out_at"];
+    expect(await privateFunctions(names)).toEqual(locked(names));
+    const definers = await db.query<{ fn: string; definer: boolean }>(
+      `select p.proname as fn, p.prosecdef as definer from pg_proc p
+        where p.pronamespace = to_regnamespace('private') and p.proname = any($1::text[]) order by 1`,
+      [names],
+    );
+    expect(definers.every((r) => !r.definer)).toBe(true);
+    const triggers = await db.query<{ tgname: string }>(
+      `select t.tgname from pg_trigger t
+        where not t.tgisinternal and t.tgname in ('orders_tiers_open', 'ticket_types_sold_out_at') order by 1`,
+    );
+    expect(triggers).toEqual([{ tgname: "orders_tiers_open" }, { tgname: "ticket_types_sold_out_at" }]);
+    const constraints = await db.query<{ conname: string }>(
+      `select conname from pg_constraint
+        where conrelid = 'public.ticket_types'::regclass and conname in ('ticket_types_lock_not_first', 'ticket_types_lock_ga_only') order by 1`,
+    );
+    expect(constraints).toEqual([{ conname: "ticket_types_lock_ga_only" }, { conname: "ticket_types_lock_not_first" }]);
   });
 
   it("every `public` and `private` function pins its search_path", async () => {

@@ -8,9 +8,10 @@ import type { SheltuhEvent } from "@/lib/types";
 /**
  * An external event's page (docs/architecture.md, "External ticketing"):
  * tickets are sold on another site, so the page links out with a click
- * beacon, and shows no price, booking fee, ticket selector or Who's Going.
- * Live mode is on for the file (a live event has an organiserId; a demo
- * sample event doesn't), so the Who's Going API must not be called for one.
+ * beacon, and shows no price, booking fee, ticket selector or Who's Going
+ * (its count-only "Who's going" is tests/ExternalGoing.test.tsx). Live mode is
+ * on for the file (a live event has an organiserId; a demo sample event
+ * doesn't), so the Who's Going API must not be called for one.
  */
 vi.mock("@/lib/api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/client")>()),
@@ -22,13 +23,17 @@ vi.mock("@/lib/api/analytics", () => ({
   recordOutboundClick: (...a: unknown[]) => recordOutboundClick(...a),
   recordEventView: (...a: unknown[]) => recordEventView(...a),
 }));
-const going = { getGoingSummary: vi.fn(), getMyGoingStatus: vi.fn(), listGoingAttendees: vi.fn() };
+const going = { getGoingSummary: vi.fn(), getMyGoingStatus: vi.fn(), listGoingAttendees: vi.fn(), getExternalGoingSummary: vi.fn() };
 vi.mock("@/lib/api/going", () => ({
   getGoingSummary: (...a: unknown[]) => going.getGoingSummary(...a),
   getMyGoingStatus: (...a: unknown[]) => going.getMyGoingStatus(...a),
   listGoingAttendees: (...a: unknown[]) => going.listGoingAttendees(...a),
+  getExternalGoingSummary: (...a: unknown[]) => going.getExternalGoingSummary(...a),
+  getMyExternalGoing: vi.fn(),
   setGoing: vi.fn(),
   unsetGoing: vi.fn(),
+  setExternalGoing: vi.fn(),
+  unsetExternalGoing: vi.fn(),
 }));
 
 beforeEach(() => {
@@ -218,19 +223,24 @@ describe("external event: the organiser's price", () => {
   });
 });
 
-describe("external event: Who's Going is closed", () => {
-  it("demo: no panel, no count under the title, even though the sample has names", () => {
+describe("external event: Who's Going is closed (only the count-only signal remains)", () => {
+  it("demo: no names panel, no count under the title; the count-only section is disabled", () => {
     render(<EventDetailsView event={HUMANITIX} demo />);
-    expect(screen.queryByRole("heading", { name: /who.s going/i })).toBeNull();
     expect(screen.queryByRole("link", { name: /going$/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /see who.s going/i })).toBeNull();
+    expect(screen.queryByText("Sample names.")).toBeNull();
+    expect(screen.getByRole("button", { name: "I’m going" })).toBeDisabled();
     expect(going.getGoingSummary).not.toHaveBeenCalled();
+    expect(going.getExternalGoingSummary).not.toHaveBeenCalled();
   });
 
-  it("live: no panel and no request", () => {
+  it("live: no Who's Going requests; only the count-only summary is asked for", () => {
+    going.getExternalGoingSummary.mockReturnValue(new Promise(() => {}));
     render(<EventDetailsView event={{ ...HUMANITIX, id: "evt-live-ext", organiserId: "org-1" }} demo={false} />);
     expect(screen.queryByRole("heading", { name: /who.s going/i })).toBeNull();
     expect(going.getGoingSummary).not.toHaveBeenCalled();
     expect(going.listGoingAttendees).not.toHaveBeenCalled();
+    expect(going.getExternalGoingSummary).toHaveBeenCalledWith("evt-live-ext");
   });
 
   it("a Sheltüh-ticketed demo event still shows its sample Who's Going (control)", () => {

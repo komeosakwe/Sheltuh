@@ -67,6 +67,18 @@ export interface TicketType {
    * for general admission.
    */
   seated?: true;
+  /**
+   * Sequential release: this general admission tier opens only when the one
+   * above it sells out. Absent when off. The editor's setting; buyers use
+   * `opensAfter`.
+   */
+  opensAfterPrevious?: boolean;
+  /**
+   * Present while the tier is waiting: the tier it opens after. It can't be
+   * bought (or counted in a price or a free-ticket total) until that one
+   * sells out.
+   */
+  opensAfter?: { ticketTypeId: string; name: string };
 }
 
 /** An event's seat map (reserved seating): its version, for GET /events/{id}/seat-map?v={version}. */
@@ -78,6 +90,12 @@ export interface EventSeatingRef {
 export interface Coordinates {
   lat: number;
   lng: number;
+}
+
+/** A photo's focus point: percent from the left (x) and top (y), integers 0..100. */
+export interface ImageFocus {
+  x: number;
+  y: number;
 }
 
 /**
@@ -163,6 +181,8 @@ export interface SheltuhEvent {
   poster: EventPoster;
   /** Optional event photo/poster (path under /public or absolute URL). Falls back to `poster` art when absent or failing to load. */
   imageUrl?: string;
+  /** Where the photo's subject is, so cropped renderings centre on it (absent: the middle). */
+  imageFocus?: ImageFocus;
   /** Live events only, and only with a clip: its short silent video (a Play button over the image). */
   clip?: EventClip;
   /** Always empty for an external event (tickets sold on another site). */

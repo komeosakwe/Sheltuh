@@ -13,7 +13,7 @@ import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
 import { calculateOrderSummary, describeBookingFeeNote, sumOrderSummaries } from "@/lib/fees";
 import { formatAud } from "@/lib/format";
 import { formatTicketHeadline, isSoldOut, pricedTicketTypes } from "@/lib/pricing";
-import { freeTicketsIn, isLow, ownLimit, ownLimitHint, type Quantities } from "@/lib/ticket-limits";
+import { freeTicketsIn, isLow, opensWhenText, ownLimit, ownLimitHint, type Quantities } from "@/lib/ticket-limits";
 import {
   isEmptyOther,
   NO_SUPPORT,
@@ -118,8 +118,8 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
 
   // Free tickets: at most MAX_FREE_TICKETS_PER_ORDER in total per booking,
   // across every free type, whether or not paid tickets are in it too (the
-  // checkout API refuses anything more with a 400). Sold-out types don't count.
-  const freeTypeCount = ticketTypes.filter((t) => t.priceCents === 0 && !t.soldOut).length;
+  // checkout API refuses anything more with a 400). Sold-out types, and ones not open yet, don't count.
+  const freeTypeCount = ticketTypes.filter((t) => t.priceCents === 0 && !t.soldOut && !t.opensAfter).length;
   const freeLimitReached = freeTicketsIn(ticketTypes, quantities) >= MAX_FREE_TICKETS_PER_ORDER;
   const freeLimitText = `Up to ${MAX_FREE_TICKETS_PER_ORDER} free tickets per booking.`;
 
@@ -334,23 +334,29 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
               .filter(Boolean)
               .join(" ") || undefined;
           const tierSoldOut = ticket.soldOut === true;
+          // Waiting for the tier above to sell out: shown, muted, with words in place of the stepper.
+          // A tier that sold out before it was set to wait says "Sold out", not "Opens when…".
+          const waitingText = tierSoldOut ? null : opensWhenText(ticket);
+          const dimmed = tierSoldOut || waitingText !== null;
           return (
             <li
               key={ticket.id}
               className="flex flex-col gap-3 border-t border-surface-border py-4 first:border-t-0 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
             >
               <div className="min-w-0 flex-1">
-                <p className="text-base leading-snug font-semibold text-foreground">{ticket.name}</p>
+                <p className={`text-base leading-snug font-semibold ${waitingText ? "text-muted" : "text-foreground"}`}>
+                  {ticket.name}
+                </p>
                 {/* The all-inclusive price per ticket comes first and is the loudest
                     number, at every width (ACCC: brand-direction-one.md §6.8). A sold-out
-                    tier keeps its total (it's still advertised), muted. */}
+                    or not-yet-open tier keeps its total (it's still advertised), muted. */}
                 <p
-                  className={`mt-1 text-xl leading-7 font-bold tabular-nums ${tierSoldOut ? "text-muted" : "text-foreground"}`}
+                  className={`mt-1 text-xl leading-7 font-bold tabular-nums ${dimmed ? "text-muted" : "text-foreground"}`}
                 >
                   {formatTicketHeadline(ticket)}
                 </p>
                 {ticket.description && <p className="mt-1 text-sm text-muted">{ticket.description}</p>}
-                {showOwnLimit && !tierSoldOut && (
+                {showOwnLimit && !tierSoldOut && !waitingText && (
                   // "Only N left" is the server's own count (10 or fewer), in black, never orange. The plain per-booking
                   // limit is for screen readers only: the stepper's + is disabled at it.
                   <p
@@ -361,7 +367,10 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                   </p>
                 )}
               </div>
-              {tierSoldOut ? (
+              {waitingText ? (
+                // Words in place of the stepper: never a colour alone. Nothing here can be chosen.
+                <p className="shrink-0 text-sm font-semibold text-foreground sm:max-w-48 sm:text-right">{waitingText}</p>
+              ) : tierSoldOut ? (
                 // Words in place of the stepper: never a colour alone.
                 <p className="eyebrow shrink-0 text-foreground">Sold out</p>
               ) : (

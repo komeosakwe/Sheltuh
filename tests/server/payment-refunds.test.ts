@@ -145,6 +145,22 @@ describe("full refund (charge.refunded, refunded: true)", () => {
     expect(await lookup(next)).not.toHaveProperty("refundReason");
   });
 
+  it("a refund that gives the last ticket back doesn't un-sell the tier (sold_out_at stays: sequential releases)", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const soldOutAt = async () =>
+      (await api.db.query<{ sold_out: boolean }>(
+        `select sold_out_at is not null as sold_out from public.ticket_types where event_id = $1 and id = 'vip'`,
+        [event.eventId],
+      ))[0].sold_out;
+    expect(await soldOutAt()).toBe(false);
+    const orderId = await paidOrder([{ ticketTypeId: "vip", quantity: 1 }], "pi_last");
+    expect(await soldOutAt()).toBe(true);
+    await refund("pi_last", 8000, true);
+    expect(await internal(orderId)).toMatchObject({ status: "refunded" });
+    expect(await sold()).toEqual({ ga: 0, vip: 0 });
+    expect(await soldOutAt()).toBe(true);
+  });
+
   it("releases inventory exactly once, however often Stripe redelivers", async () => {
     vi.spyOn(console, "info").mockImplementation(() => {});
     const kept = await paidOrder([{ ticketTypeId: "ga", quantity: 3 }], "pi_kept");

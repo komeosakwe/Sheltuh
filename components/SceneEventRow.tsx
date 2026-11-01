@@ -38,6 +38,7 @@ export default function SceneEventRow({ event, selected, onLocate, hasLocation, 
         poster={event.poster}
         title={event.title}
         imageUrl={event.imageUrl}
+        imageFocus={event.imageFocus}
         className="h-20 w-20 shrink-0 overflow-hidden rounded-control sm:h-24 sm:w-24"
       />
 

@@ -68,7 +68,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261114000000_external_price.sql`. Never
+      newest, currently `20261117000000_ticket_release_lock.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -315,6 +315,57 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           function (and restore the six-argument body from
           `20261101000000_reserved_seating.sql`), then the constraint and
           the column, which loses every price entered.
+      43. `20261115000000_event_image_focus.sql` (the photo focus point,
+          docs/architecture.md "Photo focus": nullable smallint
+          `event_images.focus_x` / `focus_y` with check constraint
+          `event_images_focus_check`, new `private.admin_set_event_image_focus`,
+          and `private.admin_put_event_image` redefined with two trailing
+          parameters that default to null, so the old four-argument call
+          still works. Search_path pinned, execute revoked from clients, no
+          new table, grant or index. Additive; the previous app keeps
+          working against it (it sends no focus, so photos stay centred), so
+          it can be applied ahead of the deploy. Needs no new environment
+          variable. Reversible: drop `admin_set_event_image_focus`, drop the
+          six-argument `admin_put_event_image` and recreate the
+          four-argument one from file 15's successor
+          (`20261023000100_review_hardening.sql`), then drop the constraint
+          and the two columns (focus points are lost)
+      44. `20261116000000_external_going.sql` (count-only "going" for
+          external-ticket events, docs/architecture.md "Going on external
+          events": table `private.external_event_going` with RLS and no
+          grants; `set_external_going`, `unset_external_going` and
+          `external_going_state`; `purge_social_data` redefined with the same
+          signature plus one delete). search_path pinned, execute revoked from
+          clients. Additive; the previous app never calls it, so it can be
+          applied ahead of the deploy. Needs no new environment variable.
+          Because it redefines `purge_social_data` from
+          `20261102000100_social_hardening.sql`, any later file that
+          redefines it must carry its delete forward. The Privacy Policy needs a line
+          about this count (owner/legal).
+          Reversible: restore `purge_social_data` from
+          `20261102000100_social_hardening.sql`, drop the three functions,
+          then the table, which loses every tap.
+      45. `20261117000000_ticket_release_lock.sql` (sequential ticket
+          releases, docs/architecture.md "Sequential ticket releases":
+          `ticket_types.opens_after_previous` and a sticky `sold_out_at`
+          (existing sold-out tiers are backfilled with now()), the checks
+          `ticket_types_lock_not_first` and `ticket_types_lock_ga_only`, the
+          triggers `ticket_types_sold_out_at` and `orders_tiers_open`, the
+          functions `ticket_type_locks` and `set_ticket_lock`, and
+          `replace_ticket_types` and `admin_edit_event` redefined to carry the
+          flag). search_path
+          pinned, execute revoked from clients, no new table or grant.
+          Additive; the previous app never sends the flag (so a stored one
+          is kept) and its reads don't select the new columns, so it can be
+          applied ahead of the deploy. **Apply it before the app that uses
+          it deploys:** every event read selects the new column and every
+          checkout calls `ticket_type_locks`, so the new app on the old
+          schema fails on every page. Needs no new environment variable.
+          Reversible while no tier has the flag: drop the two triggers and
+          the four functions, restore the two redefined functions from
+          `20261022000000_external_ticketing.sql` and
+          `20261114000000_external_price.sql`, then drop the constraints and
+          the two columns (the setting and the sold-out times are lost).
 
       **Files 33 to 37 can be applied ahead of this deploy, with the
       previous app still live.** "The previous app" here is the build of

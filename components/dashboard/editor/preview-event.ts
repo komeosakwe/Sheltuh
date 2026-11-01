@@ -3,7 +3,7 @@ import type { RefundPolicy } from "@/lib/refund-policy";
 import { localToUtcIso, type AustralianTimeZone, type StateCode } from "@/lib/time-zones";
 import type { TicketingMode } from "@/lib/ticketing";
 import type { TicketTypeInput } from "@/lib/api/types";
-import type { Coordinates, EventCategory, EventClip, SheltuhEvent } from "@/lib/types";
+import type { Coordinates, EventCategory, EventClip, ImageFocus, SheltuhEvent } from "@/lib/types";
 
 /** What the draft doesn't have yet: the event page shows its own muted stand-in for each (EventDetailsView's `preview`). */
 export interface PreviewMissing {
@@ -38,6 +38,8 @@ export interface PreviewDraft {
   organiserLogoThumbUrl?: string;
   /** The photo as it'd show: the new pick's, or the saved one's, as an object URL. */
   imageUrl?: string;
+  /** Where the photo's subject is, when set. */
+  imageFocus?: ImageFocus | null;
   clip?: EventClip;
   ticketTypes: readonly TicketTypeInput[];
   ticketingMode: TicketingMode;
@@ -69,7 +71,7 @@ function instant(parts: { date: string; time: string }, timeZone: string): strin
  * `adaptPublicEvent`, with what's missing flagged so the page can show a
  * stand-in instead of an empty line. No `seating` (the preview has no seat
  * map: a reserved-seating draft previews as general admission), and no
- * `soldOut` on any ticket. Pure.
+ * `soldOut` on any ticket; a ticket set to open after the one above previews as waiting. Pure.
  */
 export function draftToPreviewEvent(draft: PreviewDraft): { event: SheltuhEvent; missing: PreviewMissing } {
   const startsAt = instant(draft.start, draft.timeZone);
@@ -98,16 +100,24 @@ export function draftToPreviewEvent(draft: PreviewDraft): { event: SheltuhEvent;
     ...(draft.organiserLogoThumbUrl ? { organiserLogoThumbUrl: draft.organiserLogoThumbUrl } : {}),
     poster: assignPoster(slug),
     ...(draft.imageUrl ? { imageUrl: draft.imageUrl } : {}),
+    ...(draft.imageUrl && draft.imageFocus ? { imageFocus: draft.imageFocus } : {}),
     ...(draft.clip ? { clip: draft.clip } : {}),
     ticketTypes: external
       ? []
-      : draft.ticketTypes.map((ticket) => ({
+      : draft.ticketTypes.map((ticket, index) => ({
           id: ticket.id,
           name: ticket.name.trim() || "Ticket",
           ...(ticket.description?.trim() ? { description: ticket.description.trim() } : {}),
           priceCents: Number.isInteger(ticket.priceCents) && ticket.priceCents > 0 ? ticket.priceCents : 0,
           feePolicy: ticket.feePolicy,
           quantityAvailable: Number.isInteger(ticket.quantityAvailable) ? Math.max(ticket.quantityAvailable, 0) : 0,
+          // Waiting for the ticket above (a general admission ticket after the first), as a buyer would see it.
+          ...(index > 0 && ticket.seated !== true && ticket.opensAfterPrevious === true
+            ? {
+                opensAfterPrevious: true,
+                opensAfter: { ticketTypeId: draft.ticketTypes[index - 1].id, name: draft.ticketTypes[index - 1].name.trim() || "Ticket" },
+              }
+            : {}),
         })),
     ticketingMode: draft.ticketingMode,
     ...(external

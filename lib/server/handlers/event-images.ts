@@ -1,8 +1,9 @@
 import { requireCaller } from "../auth";
-import { HttpError, ok } from "../http";
+import { HttpError, ok, readJson } from "../http";
 import { isUuid } from "../pagination";
 import type { Handler } from "../route";
 import { requireEvent, requireOwnEvent } from "./event-queries";
+import { parseFocusBody, parseFocusQuery } from "../validation";
 import { findOrganiserByOwner, requireApprovedOrganiser } from "./organiser-guard";
 
 /** Mirrors the event_images check constraint. The client downsizes well below this. */
@@ -75,7 +76,12 @@ export async function readEventImage(req: Request): Promise<{ bytes: Uint8Array;
   return { bytes, contentType };
 }
 
-/** PUT /api/events/[eventId]/image — raw image bytes; only while the event is a draft or rejected. */
+/**
+ * PUT /api/events/[eventId]/image[?fx=&fy=] — raw image bytes; only while the
+ * event is a draft or rejected. `fx` / `fy` (whole percentages 0..100, both or
+ * neither; 400 otherwise) set the photo's focus point; none means no focus, so
+ * replacing a photo resets it.
+ */
 export const putEventImage: Handler<{ eventId: string }> = async (req, { eventId }, { db, verifyAccessToken }) => {
   const caller = await requireCaller(req, verifyAccessToken);
   const organiser = await requireApprovedOrganiser(db, caller);
@@ -84,6 +90,7 @@ export const putEventImage: Handler<{ eventId: string }> = async (req, { eventId
     throw new HttpError(409, EDIT_LOCKED_MESSAGE);
   }
 
+  const focus = parseFocusQuery(req.url);
   const { bytes, contentType } = await readEventImage(req);
 
   // Ownership and "still a draft/rejected" are re-checked inside the write
@@ -95,17 +102,51 @@ export const putEventImage: Handler<{ eventId: string }> = async (req, { eventId
   // updated_at (20261023000100_review_hardening.sql), so an admin editing the
   // event sees a new version.
   const written = await db.query(
-    `insert into public.event_images (event_id, content_type, data)
-     select e.id, $2::text, $3::bytea
+    `insert into public.event_images (event_id, content_type, data, focus_x, focus_y)
+     select e.id, $2::text, $3::bytea, $5::smallint, $6::smallint
        from public.events e
       where e.id = $1 and e.organiser_id = $4 and e.status in ('draft', 'rejected')
         for no key update of e
      on conflict (event_id) do update set content_type = excluded.content_type,
-       data = excluded.data, updated_at = now()
+       data = excluded.data, focus_x = excluded.focus_x, focus_y = excluded.focus_y, updated_at = now()
      returning event_id`,
-    [eventId, contentType, bytes, organiser.organiserId],
+    [eventId, contentType, bytes, organiser.organiserId, focus?.x ?? null, focus?.y ?? null],
   );
   if (written.length === 0) throw new HttpError(409, EDIT_LOCKED_MESSAGE);
+  return ok(await requireEvent(db, eventId));
+};
+
+/**
+ * PATCH /api/events/[eventId]/image — `{ "focus": { "x", "y" } | null }`: moves
+ * (or clears) the focus point of the saved photo, without touching its bytes
+ * or version. Draft or rejected events only (409), and only with a photo (409).
+ */
+export const patchEventImageFocus: Handler<{ eventId: string }> = async (req, { eventId }, { db, verifyAccessToken }) => {
+  const caller = await requireCaller(req, verifyAccessToken);
+  const organiser = await requireApprovedOrganiser(db, caller);
+  const event = await requireOwnEvent(db, organiser.organiserId, eventId);
+  const focus = parseFocusBody(await readJson(req));
+  if (event.status !== "draft" && event.status !== "rejected") {
+    throw new HttpError(409, EDIT_LOCKED_MESSAGE);
+  }
+  // The event row first (for no key update), then the image: see putEventImage.
+  const updated = await db.query(
+    `with e as (
+       select e.id from public.events e
+        where e.id = $1 and e.organiser_id = $2 and e.status in ('draft', 'rejected')
+          for no key update
+     )
+     update public.event_images i set focus_x = $3::smallint, focus_y = $4::smallint
+       from e
+      where i.event_id = e.id
+      returning i.event_id`,
+    [eventId, organiser.organiserId, focus?.x ?? null, focus?.y ?? null],
+  );
+  if (updated.length === 0) {
+    const current = await requireEvent(db, eventId);
+    if (current.status !== "draft" && current.status !== "rejected") throw new HttpError(409, EDIT_LOCKED_MESSAGE);
+    throw new HttpError(409, "Add a photo first.");
+  }
   return ok(await requireEvent(db, eventId));
 };
 

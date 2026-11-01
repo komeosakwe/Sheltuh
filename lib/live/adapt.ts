@@ -35,6 +35,8 @@ export function adaptPublicEvent(event: PublicEvent): SheltuhEvent {
     ...(event.organiserLogoThumbUrl ? { organiserLogoThumbUrl: event.organiserLogoThumbUrl } : {}),
     poster: assignPoster(event.slug),
     imageUrl: event.imageUrl,
+    // Only with a focus point: an event without one adapts exactly as before.
+    ...(event.imageFocus ? { imageFocus: { x: event.imageFocus.x, y: event.imageFocus.y } } : {}),
     // Only with a clip: an event without one adapts exactly as before.
     ...(event.clip
       ? {
@@ -59,6 +61,8 @@ export function adaptPublicEvent(event: PublicEvent): SheltuhEvent {
       ...(ticket.soldOut === true ? { soldOut: true } : {}),
       ...(typeof ticket.remaining === "number" ? { remaining: ticket.remaining } : {}),
       ...(ticket.seated === true ? { seated: true as const } : {}),
+      ...(ticket.opensAfterPrevious === true ? { opensAfterPrevious: true } : {}),
+      ...(ticket.opensAfter ? { opensAfter: { ticketTypeId: ticket.opensAfter.ticketTypeId, name: ticket.opensAfter.name } } : {}),
     })),
     // An external event's stock isn't known, so it's never sold out here.
     ...(event.soldOut === true && event.ticketingMode !== "external" ? { soldOut: true } : {}),

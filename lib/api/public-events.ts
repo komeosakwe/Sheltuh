@@ -50,6 +50,8 @@ export interface PublicEvent {
   endsAt: string;
   organiserName: string;
   imageUrl?: string;
+  /** Only when the photo has a focus point: where its subject is (percent from the left and top). */
+  imageFocus?: { x: number; y: number };
   /** Only when the event has a clip (absent otherwise): its short silent video, played when someone presses Play. */
   clip?: EventClip;
   /**

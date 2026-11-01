@@ -10,6 +10,7 @@ import {
   isSoldOut,
 } from "@/lib/pricing";
 import { tierTreatments } from "@/lib/seating/selection";
+import { opensWhenText } from "@/lib/ticket-limits";
 import type { SheltuhEvent } from "@/lib/types";
 import { patternIdsFor, SeatPatternDefs, SeatSwatch } from "./SeatGlyph";
 
@@ -46,6 +47,8 @@ export default function SeatedTicketsPanel({ event, demo }: { event: SheltuhEven
       <ul className="flex flex-col">
         {event.ticketTypes.map((ticket) => {
           const tierSoldOut = ticket.soldOut === true;
+          // A tier that sold out before it was set to wait says "Sold out", not "Opens when…".
+          const waitingText = tierSoldOut ? null : opensWhenText(ticket);
           return (
             // The standard ticket row (as TicketSelector's): the name, then the all-inclusive price under it at every width.
             <li
@@ -56,12 +59,14 @@ export default function SeatedTicketsPanel({ event, demo }: { event: SheltuhEven
                 {ticket.seated && <SeatSwatch size={16} treatment={treatments.get(ticket.id) ?? "outline"} patterns={patterns} />}
               </span>
               <div className="min-w-0">
-                <p className="text-base leading-snug font-semibold">{ticket.name}</p>
-                <p className={`mt-1 text-base leading-6 font-semibold tabular-nums ${tierSoldOut ? "text-muted" : ""}`.trim()}>
+                <p className={`text-base leading-snug font-semibold ${waitingText ? "text-muted" : ""}`.trim()}>{ticket.name}</p>
+                <p className={`mt-1 text-base leading-6 font-semibold tabular-nums ${tierSoldOut || waitingText ? "text-muted" : ""}`.trim()}>
                   {formatTicketHeadline(ticket)}
                 </p>
                 {!ticket.seated && <p className="mt-1 text-xs text-muted">Standing</p>}
-                {tierSoldOut ? (
+                {waitingText ? (
+                  <p className="mt-1 text-sm font-semibold">{waitingText}</p>
+                ) : tierSoldOut ? (
                   <p className="eyebrow mt-1">Sold out</p>
                 ) : (
                   ticket.remaining !== undefined &&

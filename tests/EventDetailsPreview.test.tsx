@@ -103,6 +103,31 @@ describe("draftToPreviewEvent", () => {
     expect("description" in event.ticketTypes[1]).toBe(false);
   });
 
+  it("a ticket set to open after the one above previews as waiting (not the first, not a seated one)", () => {
+    const tier = (id: string, name: string, extra: Partial<PreviewDraft["ticketTypes"][number]> = {}) => ({
+      id,
+      name,
+      priceCents: 3000,
+      feePolicy: "buyer-pays" as const,
+      quantityAvailable: 5,
+      ...extra,
+    });
+    const { event } = draftToPreviewEvent({
+      ...DRAFT,
+      ticketTypes: [
+        tier("a", " First ", { opensAfterPrevious: true }),
+        tier("b", "Second", { opensAfterPrevious: true }),
+        tier("c", "Third", { opensAfterPrevious: true, seated: true }),
+        tier("d", "Fourth", { opensAfterPrevious: false }),
+      ],
+    });
+    const [a, b, c, d] = event.ticketTypes;
+    expect(a.opensAfter).toBeUndefined();
+    expect(b.opensAfter).toEqual({ ticketTypeId: "a", name: "First" });
+    expect(c.opensAfter).toBeUndefined();
+    expect(d.opensAfter).toBeUndefined();
+  });
+
   it("an external draft has no ticket types, and no refund terms", () => {
     const { event } = draftToPreviewEvent({
       ...DRAFT,
@@ -115,6 +140,23 @@ describe("draftToPreviewEvent", () => {
 });
 
 describe("EventDetailsView preview", () => {
+  it("shows a waiting ticket as waiting, with no stepper, and prices from the tickets on sale", () => {
+    previewOf({
+      ...DRAFT,
+      ticketTypes: [
+        { id: "a", name: "First release", priceCents: 3000, feePolicy: "buyer-pays", quantityAvailable: 5 },
+        { id: "b", name: "Second release", priceCents: 2000, feePolicy: "buyer-pays", quantityAvailable: 5, opensAfterPrevious: true },
+      ],
+    });
+    expect(screen.getByText("Opens when First release sells out")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Increase quantity for Second release" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Increase quantity for First release" })).toBeInTheDocument();
+    // The cheaper second ticket isn't on sale yet: one price on sale, so no "From", and not A$20.
+    expect(screen.queryByText(/From A\$/)).toBeNull();
+    expect(screen.queryByText(/^A\$21\.\d\d$/)).toBeNull();
+    expect(screen.getAllByText(/A\$32\.30/).length).toBeGreaterThan(0);
+  });
+
   it("shows the draft, with the ticket's all-inclusive price and description", () => {
     previewOf({
       ...DRAFT,

@@ -67,6 +67,10 @@ async function mockApi(page: Page) {
       return route.fulfill({ status: 204 });
     }
     if (/\/view$/.test(url.pathname)) return route.fulfill({ status: 204 });
+    // The count-only "going" of an external event (not Who's Going, so not in `going`).
+    if (/\/external-going$/.test(url.pathname)) {
+      return route.fulfill({ json: { count: 12, countHidden: false, closed: false } });
+    }
     if (/\/going(\/|$)/.test(url.pathname)) {
       going.push(url.pathname);
       return route.fulfill({ json: { count: 0, countHidden: true, closed: false } });
@@ -108,7 +112,8 @@ test.describe("external event (Humanitix) at 1440×900", () => {
     // No Sheltüh refund policy (the other site's terms apply).
     await expect(tickets).not.toContainText("change of mind");
     await expect(tickets).not.toContainText("Australian Consumer Law");
-    await expect(page.getByRole("heading", { name: /who.s going/i })).toHaveCount(0);
+    // Only the count-only "Who's going": no names, no list, no Who's Going requests.
+    await expect(page.getByRole("button", { name: /see who.s going/i })).toHaveCount(0);
 
     const [popup] = await Promise.all([page.waitForEvent("popup"), link.click()]);
     await expect(popup).toHaveURL("https://events.humanitix.com/thornbury-dub-session-demo");
@@ -117,6 +122,27 @@ test.describe("external event (Humanitix) at 1440×900", () => {
     expect(await popup.evaluate(() => window.opener)).toBeNull();
     expect(going).toEqual([]);
     await noSidewaysScroll(page);
+  });
+});
+
+test.describe("external event: count-only going at 375×812", () => {
+  test.use({ viewport: { width: 375, height: 812 } });
+
+  test("shows '12 going' and an I'm going link that signs in and comes back to the event", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/events/thornbury-dub-session");
+    const section = page.getByRole("region", { name: "Who's going" });
+    await expect(section).toBeVisible({ timeout: 30_000 });
+    await expect(section).toContainText("12 going");
+    const link = section.getByRole("link", { name: "I’m going" });
+    await expect(link).toHaveAttribute("href", "/login?next=%2Fevents%2Fthornbury-dub-session");
+    // After the About section, before Location.
+    const order = await page.evaluate(() =>
+      ["about-title", "external-going-title"].map((id) => document.getElementById(id)?.getBoundingClientRect().top ?? -1),
+    );
+    expect(order[0]).toBeLessThan(order[1]);
+    await noSidewaysScroll(page);
+    if (process.env.EXTGOING_SHOTS) await section.screenshot({ path: `${process.env.EXTGOING_SHOTS}/signed-out-count.png` });
   });
 });
 
@@ -759,6 +785,51 @@ for (const vp of [
       ]);
       await expect(popup).toHaveURL(href);
       await popup.close();
+    });
+  });
+}
+
+// docs/architecture.md, "Photo focus": the page's photo is cropped on the organiser's focus point.
+test.describe("event photo focus", () => {
+  test("the event page's photo is cropped on the focus point", async ({ page }) => {
+    await page.route("**/api/**", (route) => {
+      const url = new URL(route.request().url());
+      if (/^\/api\/events\/slug\//.test(url.pathname)) {
+        return route.fulfill({ json: { ...asPublic("neon-static"), imageUrl: "/events/dj-crate-digging.jpg", imageFocus: { x: 15, y: 70 } } });
+      }
+      if (/\/going$/.test(url.pathname)) return route.fulfill({ json: { count: 0, countHidden: false, closed: false } });
+      return route.fulfill({ status: 204 });
+    });
+    await page.goto("/events/neon-static");
+    await expect(page.getByRole("heading", { level: 1, name: "Neon Static" })).toBeVisible({ timeout: 30_000 });
+    // The photo may fall back to the poster art if the file doesn't exist; the style is on the image element while it's there.
+    await expect(page.locator("img[style*='object-position']").first()).toHaveCSS("object-position", "15% 70%");
+  });
+});
+
+// docs/architecture.md, "Sequential ticket releases": a tier that opens when the one above sells out is shown, not buyable.
+for (const vp of [
+  { name: "desktop", width: 1280, height: 800 },
+  { name: "375px", width: 375, height: 740 },
+]) {
+  test.describe(`sequential ticket releases at ${vp.name}`, () => {
+    test.use({ viewport: { width: vp.width, height: vp.height } });
+
+    test("a waiting tier says what it opens after, has no stepper, and the page doesn't scroll sideways", async ({ page }) => {
+      await mockApi(page);
+      await page.goto("/events/cinder-warehouse-sessions");
+      const tickets = page.locator("#tickets");
+      const second = tickets.getByRole("listitem").filter({ has: page.getByText("Second release", { exact: true }) });
+      await expect(second).toBeVisible({ timeout: 30_000 });
+      await expect(second).toContainText("Opens when First release sells out");
+      await expect(second.getByRole("button")).toHaveCount(0);
+      const third = tickets.getByRole("listitem").filter({ has: page.getByText("Final release", { exact: true }) });
+      await expect(third).toContainText("Opens when Second release sells out");
+      await expect(third.getByRole("button")).toHaveCount(0);
+      // Only the first release can be chosen.
+      await expect(tickets.getByRole("button", { name: /Increase quantity/ })).toHaveCount(1);
+      await expect(tickets.getByRole("button", { name: "Increase quantity for First release" })).toBeVisible();
+      await noSidewaysScroll(page);
     });
   });
 }

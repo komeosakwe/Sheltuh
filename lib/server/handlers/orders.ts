@@ -66,8 +66,36 @@ async function findOrder(db: Db, orderId: string): Promise<OrderRecord | undefin
   return row ? toOrder(row) : undefined;
 }
 
-/** Friendly early rejection. The binding check is private.fulfil_order, at payment time. */
+/** The error code of a 409 for a ticket type that isn't on sale yet (sequential release). */
+export const TICKET_LOCKED_CODE = "ticket_locked";
+
+const TICKET_NOT_ON_SALE = "A ticket in your order isn't on sale yet. Reload and choose again.";
+
+/** A 409 for a ticket type that waits for another to sell out. */
+function ticketLocked(ticketTypeName: string, blockerName: string): HttpError {
+  return new HttpError(409, `"${ticketTypeName}" opens when "${blockerName}" sells out.`, undefined, {
+    code: TICKET_LOCKED_CODE,
+  });
+}
+
+/**
+ * Friendly early rejection. The binding checks are the database's:
+ * private.fulfil_order, at payment time, for stock, and the orders_tiers_open
+ * trigger, when the order is made, for a ticket type that waits for the one
+ * above it to sell out (private.ticket_type_locks; sequential release).
+ */
 async function assertAvailable(db: Db, eventId: string, lineItems: OrderLineItem[]) {
+  const locks = await db.query<{ ticket_type_id: string; blocker_name: string }>(
+    `select ticket_type_id, blocker_name from private.ticket_type_locks($1)`,
+    [eventId],
+  );
+  if (locks.length > 0) {
+    const waiting = new Map(locks.map((l) => [l.ticket_type_id, l.blocker_name]));
+    for (const line of lineItems) {
+      const blocker = waiting.get(line.ticketTypeId);
+      if (blocker !== undefined) throw ticketLocked(line.ticketTypeName, blocker);
+    }
+  }
   const rows = await db.query<{ id: string; remaining: number }>(
     `select id, quantity_available - quantity_sold as remaining from public.ticket_types where event_id = $1`,
     [eventId],
@@ -533,9 +561,10 @@ export const EXTERNAL_CHECKOUT_REFUSED = "Tickets for this event are sold on ano
 /**
  * A database trigger refused a new order: orders_sheltuh_only because the
  * event became external since it was read (an admin's change racing the
- * checkout), or orders_not_ended because the event has ended (the end passed,
- * or its time was changed, since it was read). The same 409s as the early
- * checks. Anything else is rethrown.
+ * checkout), orders_not_ended because the event has ended (the end passed,
+ * or its time was changed, since it was read), or orders_tiers_open because a
+ * ticket type was locked since (409 `code: "ticket_locked"`). The same 409s as
+ * the early checks. Anything else is rethrown.
  */
 async function refuseIfClosed<T>(work: () => Promise<T>): Promise<T> {
   try {
@@ -545,6 +574,10 @@ async function refuseIfClosed<T>(work: () => Promise<T>): Promise<T> {
       const constraint = pgConstraint(err);
       if (constraint === "orders_sheltuh_only") throw new HttpError(409, EXTERNAL_CHECKOUT_REFUSED);
       if (constraint === "orders_not_ended") throw new HttpError(409, EVENT_ENDED);
+      // A tier that was open when the basket was read, locked since (the organiser's change racing the checkout).
+      if (constraint === "orders_tiers_open") {
+        throw new HttpError(409, TICKET_NOT_ON_SALE, undefined, { code: TICKET_LOCKED_CODE });
+      }
     }
     throw err;
   }
