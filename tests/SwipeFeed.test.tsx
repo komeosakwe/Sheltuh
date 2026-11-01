@@ -58,7 +58,41 @@ const SOON = event("soon", "2026-10-22T08:00:00.000Z");
 const ENDED = event("ended", "2026-10-01T08:00:00.000Z");
 const RECENT = event("recent", "2026-10-19T08:00:00.000Z");
 
+/** A stand-in IntersectionObserver that records what it watches, so a test can report a screen crossing the middle. */
+class FakeObserver {
+  static all: FakeObserver[] = [];
+  watched: Element[] = [];
+  options: IntersectionObserverInit | undefined;
+  disconnected = false;
+  constructor(
+    private callback: IntersectionObserverCallback,
+    options?: IntersectionObserverInit,
+  ) {
+    this.options = options;
+    FakeObserver.all.push(this);
+  }
+  observe(el: Element) {
+    this.watched.push(el);
+  }
+  unobserve() {}
+  disconnect() {
+    this.disconnected = true;
+  }
+  takeRecords(): IntersectionObserverEntry[] {
+    return [];
+  }
+  cross(el: Element) {
+    this.callback([{ target: el, isIntersecting: true } as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+  }
+}
+const scrollIntoView = vi.fn();
+
 beforeEach(() => {
+  window.sessionStorage.clear();
+  FakeObserver.all = [];
+  scrollIntoView.mockReset();
+  vi.stubGlobal("IntersectionObserver", FakeObserver);
+  Element.prototype.scrollIntoView = scrollIntoView;
   apiConfigured = true;
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date(NOW));
@@ -69,6 +103,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 
@@ -95,24 +130,31 @@ describe("the swipe feed", () => {
     renderFeed();
     const main = screen.getByRole("main");
     expect(main).toHaveAttribute("tabindex", "0");
-    expect(main).toHaveClass("h-dvh", "overflow-y-auto", "snap-y", "snap-mandatory");
+    expect(main).toHaveClass("h-dvh", "overflow-y-auto", "snap-y");
+    // Mandatory only in a window tall enough for a whole event; proximity below that.
+    expect(main).toHaveClass("snap-proximity", "[@media(min-height:560px)]:snap-mandatory");
+    expect(main).toHaveAccessibleName("Events");
     expect(main).toHaveFocus();
+    expect(main).toHaveAccessibleDescription("Use arrow keys or Page Down to move between events.");
     expect(screen.getByRole("heading", { level: 1, name: "Events" })).toHaveClass("sr-only");
-    expect(screen.getByRole("link", { name: "Close" })).toHaveAttribute("href", "/");
-    expect(screen.getByRole("link", { name: "Close" })).toHaveClass("size-11");
+    expect(screen.getByRole("link", { name: "Close, back to home" })).toHaveAttribute("href", "/");
+    expect(screen.getByRole("link", { name: "Close, back to home" })).toHaveClass("size-11");
   });
 
   it("while loading: announces it and shows no event", () => {
     loadHomeEvents.mockReturnValue(new Promise(() => {}));
     renderFeed();
     expect(screen.getByRole("status")).toHaveTextContent("Loading events…");
+    expect(screen.getByRole("feed")).toHaveAttribute("aria-busy", "true");
     expect(titles()).toEqual([]);
   });
 
   it("lists This weekend, then Coming up, one article each, once each, upcoming only", async () => {
     renderFeed();
     await flush();
-    expect(screen.getByRole("status")).toHaveTextContent("");
+    // Ready: the status says how many, and the feed is no longer busy.
+    expect(screen.getByRole("status")).toHaveTextContent("7 events");
+    expect(screen.getByRole("feed")).toHaveAttribute("aria-busy", "false");
     // The weekend's events first, then what's coming (no trending data: Coming up, soonest first).
     expect(titles()).toEqual(["Event sat", "Event sun", "Event soon", "Event followed", "Event t0", "Event t1", "Event t2"]);
     expect(new Set(titles()).size).toBe(titles().length);
@@ -136,13 +178,59 @@ describe("the swipe feed", () => {
     await flush();
     const screenOne = screen.getByRole("article", { name: "Event sat" });
     expect(within(screenOne).getByRole("heading", { level: 2, name: "Event sat" })).toBeInTheDocument();
-    expect(within(screenOne).getByText("Art")).toBeInTheDocument();
+    expect(screenOne.querySelector("[data-swipe-section]")).toHaveTextContent("This weekend");
+    expect(screenOne).toHaveTextContent("This weekend · Art");
     expect(screenOne.querySelector("[data-swipe-date]")).toHaveTextContent(/Sat 24 Oct · 7:00 pm/);
     expect(screenOne).toHaveTextContent("Venue");
     expect(screenOne).toHaveTextContent("Fitzroy, VIC");
     expect(screenOne).toHaveTextContent("incl. booking fee");
-    expect(within(screenOne).getByRole("link", { name: "View event" })).toHaveAttribute("href", "/events/sat");
-    expect(screenOne).toHaveClass("h-dvh", "snap-start");
+    // The link's name says which event, for a list of links.
+    expect(within(screenOne).getByRole("link", { name: "View event Event sat" })).toHaveAttribute("href", "/events/sat");
+    expect(screenOne).toHaveClass("min-h-dvh", "snap-start");
+    expect(screenOne).not.toHaveClass("h-dvh", "overflow-hidden");
+  });
+
+  it("names the group on each screen: This weekend, From organisers you follow, Popular right now", async () => {
+    loadHomeFollowing.mockResolvedValue([FOLLOWED]);
+    loadHomeTrending.mockResolvedValue([...T].map((e) => ({ event: e, signal: { kind: "popular" } })));
+    renderFeed(true);
+    await flush();
+    const sectionOf = (name: string) => screen.getByRole("article", { name }).querySelector("[data-swipe-section]")?.textContent;
+    expect(sectionOf("Event sat")).toBe("This weekend");
+    expect(sectionOf("Event followed")).toBe("From organisers you follow");
+    expect(sectionOf("Event t0")).toBe("Popular right now");
+  });
+
+  it("each article knows its place in the feed, and the last screen says that's everything", async () => {
+    renderFeed();
+    await flush();
+    const articles = screen.getAllByRole("article");
+    expect(articles.map((a) => a.getAttribute("aria-posinset"))).toEqual(["1", "2", "3", "4", "5", "6", "7"]);
+    for (const a of articles) expect(a).toHaveAttribute("aria-setsize", "7");
+    expect(screen.getByRole("feed")).toContainElement(articles[6]);
+    const end = document.querySelector<HTMLElement>("[data-swipe-end]");
+    expect(end).toHaveClass("snap-start", "min-h-dvh");
+    expect(within(end as HTMLElement).getByText("That’s everything")).toBeInTheDocument();
+    expect(within(end as HTMLElement).getByRole("link", { name: "All events" })).toHaveAttribute("href", "/events");
+  });
+
+  it("Back to top scrolls the feed to its start", async () => {
+    renderFeed();
+    await flush();
+    const main = screen.getByRole("main");
+    const scrollTo = vi.fn();
+    main.scrollTo = scrollTo;
+    fireEvent.click(screen.getByRole("button", { name: "Back to top" }));
+    expect(scrollTo).toHaveBeenCalledWith({ top: 0 });
+    expect(main).toHaveFocus();
+  });
+
+  it("keeps the page behind the feed black while it is open, and restores it after", () => {
+    document.documentElement.style.backgroundColor = "";
+    const { unmount } = renderFeed();
+    expect(document.documentElement.style.backgroundColor).toBe("var(--ink)");
+    unmount();
+    expect(document.documentElement.style.backgroundColor).toBe("");
   });
 
   it("shows the Swipe up hint on the first screen only", async () => {
@@ -170,7 +258,8 @@ describe("the swipe feed", () => {
     expect(titles()).toEqual([]);
     expect(screen.getByText("No events yet.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "All events" })).toHaveAttribute("href", "/events");
-    expect(screen.getByRole("link", { name: "Close" })).toBeInTheDocument();
+    expect(screen.queryByRole("feed")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Close, back to home" })).toBeInTheDocument();
   });
 
   it("on error: an alert with Try again, which loads again and returns focus to the feed", async () => {
@@ -201,5 +290,59 @@ describe("the swipe feed", () => {
     renderFeed();
     await flush();
     expect(screen.getByRole("note")).toHaveTextContent("Demo · Sample data");
+  });
+
+  describe("keeping the place", () => {
+    it("stores the event that crosses the middle of the feed", async () => {
+      renderFeed();
+      await flush();
+      const observer = FakeObserver.all.at(-1);
+      expect(observer?.options?.rootMargin).toBe("-50% 0px -50% 0px");
+      expect(observer?.watched).toHaveLength(7);
+      observer?.cross(screen.getByRole("article", { name: "Event soon" }));
+      expect(window.sessionStorage.getItem("sheltuh:swipe-position")).toBe("soon");
+    });
+
+    it("on mount jumps to the stored event, instantly, at the top of its screen", async () => {
+      window.sessionStorage.setItem("sheltuh:swipe-position", "soon");
+      renderFeed();
+      await flush();
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "instant", block: "start" });
+      expect(scrollIntoView.mock.contexts[0]).toBe(screen.getByRole("article", { name: "Event soon" }));
+    });
+
+    it("starts at the top when nothing is stored, or the stored event has gone", async () => {
+      renderFeed();
+      await flush();
+      expect(scrollIntoView).not.toHaveBeenCalled();
+      cleanup();
+      window.sessionStorage.setItem("sheltuh:swipe-position", "gone");
+      renderFeed();
+      await flush();
+      expect(scrollIntoView).not.toHaveBeenCalled();
+    });
+
+    it("still works when storage is blocked", async () => {
+      vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+        throw new Error("blocked");
+      });
+      vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+        throw new Error("blocked");
+      });
+      renderFeed();
+      await flush();
+      expect(titles()).toHaveLength(7);
+      expect(() => FakeObserver.all.at(-1)?.cross(screen.getByRole("article", { name: "Event sat" }))).not.toThrow();
+      vi.restoreAllMocks();
+    });
+
+    it("Close forgets the place, so the feed starts over next time", async () => {
+      window.sessionStorage.setItem("sheltuh:swipe-position", "soon");
+      renderFeed();
+      await flush();
+      fireEvent.click(screen.getByRole("link", { name: "Close, back to home" }));
+      expect(window.sessionStorage.getItem("sheltuh:swipe-position")).toBeNull();
+    });
   });
 });

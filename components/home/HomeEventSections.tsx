@@ -1,12 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import DotsMark from "@/components/brand/DotsMark";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import EventCard, { EventCardPlaceholder } from "@/components/ui/EventCard";
 import { Notice } from "@/components/ui/Section";
 import { useIsPhone } from "@/components/ui/useIsPhone";
-import { formatWeekendRange, swipeFeedEvents } from "@/lib/home-sections";
+import { formatWeekendRange, popularTitle, swipeFeedEvents } from "@/lib/home-sections";
 import { useHomeEvents } from "./HomeEventsProvider";
 import { HOME_CONTAINER, HomeRailItem, isPairRail, RAIL_SKELETON } from "./HomeRail";
 import HomeRailSection from "./HomeRailSection";
@@ -63,7 +64,7 @@ export default function HomeEventSections() {
   const weekend = sections && sections.weekend.status === "cards" ? sections.weekend : null;
   const popular = sections?.popular ?? null;
   const phone = useIsPhone();
-  const swipeEvents = sections ? swipeFeedEvents(sections) : [];
+  const swipeEvents = sections ? swipeFeedEvents(sections).map(({ event }) => event) : [];
   const rootRef = useRef<HTMLDivElement>(null);
   const retried = useRef(false);
 
@@ -137,6 +138,9 @@ export default function HomeEventSections() {
         swipeEvents.length > 0 && (
           <div className={`${HOME_CONTAINER} ${SECTION}`}>
             <HomeSwipeEntry events={swipeEvents} />
+            <Link href="/events" className="mt-2 inline-flex min-h-11 items-center text-base leading-6 font-semibold underline underline-offset-4">
+              All events
+            </Link>
           </div>
         )
       ) : (
@@ -178,7 +182,7 @@ export default function HomeEventSections() {
           {popular && (
             <HomeRailSection
               id="home-popular"
-              title={popular.kind === "popular" ? "Popular right now" : popular.acrossAustralia ? "Coming up across Australia" : "Coming up"}
+              title={popularTitle(popular)}
               // Nor sorted by popularity: "All events", as This weekend.
               link={{ href: "/events", label: "All events" }}
               count={popular.items.length}

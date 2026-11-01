@@ -478,13 +478,27 @@ describe("swipeFeedEvents", () => {
   it("is This weekend, then followed organisers, then Popular or Coming up, in the home's order, each event once", () => {
     const trending: TrendingItem[] = [sat, ...later].map((e) => ({ event: e, signal: { kind: "popular" } }));
     const sections = selectHomeSections([sat, followed, ...later], trending, NOW, [followed, sat]);
-    expect(swipeFeedEvents(sections).map((e) => e.id)).toEqual(["sat", "followed", "l0", "l1", "l2"]);
+    expect(swipeFeedEvents(sections).map(({ event }) => event.id)).toEqual(["sat", "followed", "l0", "l1", "l2"]);
+  });
+
+  it("names each event's section as the home titles it", () => {
+    const trending: TrendingItem[] = later.map((e) => ({ event: e, signal: { kind: "popular" } }));
+    const popular = selectHomeSections([sat, followed, ...later], trending, NOW, [followed, sat]);
+    expect(swipeFeedEvents(popular).map(({ section }) => section)).toEqual([
+      "This weekend",
+      "From organisers you follow",
+      "Popular right now",
+      "Popular right now",
+      "Popular right now",
+    ]);
+    const coming = selectHomeSections([sat, ...later], [], NOW, []);
+    expect(swipeFeedEvents(coming).map(({ section }) => section)).toEqual(["This weekend", "Coming up", "Coming up", "Coming up"]);
   });
 
   it("leaves out ended events and Recently on, and a weekend with nothing on", () => {
     const sections = selectHomeSections([event("ended", "2026-10-01T08:00:00.000Z"), ...later], [], NOW, [], null, [gone]);
     expect(sections.recent.map((e) => e.id)).toEqual(["gone"]);
-    expect(swipeFeedEvents(sections).map((e) => e.id)).toEqual(["l0", "l1", "l2"]);
+    expect(swipeFeedEvents(sections).map(({ event }) => event.id)).toEqual(["l0", "l1", "l2"]);
   });
 
   it("is empty when nothing is upcoming", () => {
