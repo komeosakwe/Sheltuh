@@ -199,7 +199,7 @@ function EventReport({
         ) : (
           <>
             {controls}
-            <ReportBody data={data} range={range} busy={loading || stale} />
+            <ReportBody data={data} range={range} busy={loading || stale} admin={admin} />
           </>
         )}
 
@@ -216,7 +216,18 @@ function EventReport({
   );
 }
 
-function ReportBody({ data, range, busy }: { data: Report; range: RangeState; busy: boolean }) {
+function ReportBody({
+  data,
+  range,
+  busy,
+  admin,
+}: {
+  data: Report;
+  range: RangeState;
+  busy: boolean;
+  /** An admin's read-only report: no organiser-only actions. */
+  admin: boolean;
+}) {
   const coverage = viewsCoverage(data.range, data.viewsTrackedSince);
   const counted = coverage !== "none";
   const previous = data.previous;
@@ -280,7 +291,7 @@ function ReportBody({ data, range, busy }: { data: Report; range: RangeState; bu
         />
       )}
 
-      <Attendance attendance={data.attendance} event={data.event} />
+      <Attendance attendance={data.attendance} event={data.event} doorLink={!admin} />
 
       <Panel title="Over time" titleId="over-time">
         <div className="flex flex-col gap-8">

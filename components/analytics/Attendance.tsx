@@ -12,9 +12,12 @@ import { backLinkClass } from "./shared";
 export default function Attendance({
   attendance,
   event,
+  doorLink = true,
 }: {
   attendance: EventAttendance | null | undefined;
   event: AnalyticsEventSummary;
+  /** The organiser's door link; off in an admin's read-only report (the door is the organiser's). */
+  doorLink?: boolean;
 }) {
   if (attendance === undefined) return null;
   const sold = attendance?.ticketsSold ?? 0;
@@ -36,7 +39,7 @@ export default function Attendance({
           </dd>
         </dl>
       )}
-      {event.status === "published" && (
+      {doorLink && event.status === "published" && (
         <Link href={`/dashboard/${encodeURIComponent(event.eventId)}/check-in`} className={`${backLinkClass} mt-2`}>
           Open door check-in
         </Link>
