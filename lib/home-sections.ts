@@ -321,7 +321,7 @@ export interface SwipeFeedItem {
 }
 
 /**
- * The swipe feed's events (/swipe, and the phone home's entry card): the
+ * The swipe feed's events (/swipe, and the phone home's inline event screens): the
  * upcoming events the home's sections show, in their order (This weekend,
  * From organisers you follow, then Popular right now or Coming up), each once,
  * with that section's title. "Recently on" is left out: those have ended.

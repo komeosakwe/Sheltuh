@@ -8,6 +8,9 @@ import { cardDateLabel, categoryLabel } from "@/lib/event-card";
 import type { SheltuhEvent } from "@/lib/types";
 import { clearSwipePosition } from "./swipePosition";
 
+/** The phone home's screen height: what's visible under the sticky site header (its `--header-h` and the safe area). */
+export const INLINE_SCREEN_MIN_H = "min-h-[calc(100svh-var(--header-h)-env(safe-area-inset-top))]";
+
 /**
  * One event's screen in the swipe feed (/swipe): the photo (or the generated
  * poster art) filling the screen, a dark gradient under the text, then the
@@ -15,6 +18,16 @@ import { clearSwipePosition } from "./swipePosition";
  * place and all-inclusive price, with View event and Save at the foot. An
  * article named by the event's title, number `position` of `total` in the feed.
  * `hint` (the first screen, when there's more to swipe to) adds "Swipe up".
+ * `inline` is the phone home's screen (components/home/HomeInlineFeed): as
+ * tall as the area under the sticky site header (`--header-h` and the safe
+ * area) instead of the window, with no Close button to clear above the
+ * text. It snaps to the page's scroller flush under the header: the root's
+ * `scroll-padding-top` already clears the header and 0.5rem more, which the
+ * negative scroll margin takes back. The first inline screen has no snap
+ * point: Chrome's proximity reach is about 30% of the window, so a snap point
+ * at the first event would pull a tall phone's page past the hero and search
+ * (on load, and after any small scroll). It is reached by scrolling, and the
+ * snapping starts at the second.
  *
  * At least a screen high, taller when the text needs it (a 320×256 window, a
  * phone on its side): nothing is clipped, the feed scrolls instead. The text
@@ -32,6 +45,7 @@ export default function SwipeScreen({
   now,
   first = false,
   hint = false,
+  inline = false,
 }: {
   event: SheltuhEvent;
   /** The home section's title, as a small eyebrow. */
@@ -43,6 +57,7 @@ export default function SwipeScreen({
   /** The feed's first screen: its photo loads at once. */
   first?: boolean;
   hint?: boolean;
+  inline?: boolean;
 }) {
   const date = cardDateLabel(event, now);
   return (
@@ -52,7 +67,10 @@ export default function SwipeScreen({
       aria-setsize={total}
       data-swipe-screen=""
       data-event-id={event.id}
-      className="relative flex min-h-dvh snap-start snap-always flex-col justify-end bg-ink text-paper"
+      data-surface={inline ? "ink" : undefined}
+      className={`relative flex flex-col justify-end bg-ink text-paper ${
+        inline ? `${INLINE_SCREEN_MIN_H} -scroll-mt-2 ${first ? "" : "snap-start snap-always"}` : "min-h-dvh snap-start snap-always"
+      }`}
     >
       <div className="absolute inset-0 overflow-hidden">
         <EventArt
@@ -68,7 +86,11 @@ export default function SwipeScreen({
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-ink/25" />
       <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 h-4/5 bg-linear-to-t from-ink from-40% via-ink/90 via-70% to-transparent" />
       {/* The top padding keeps the text below the Close button (0.75rem + 44px) however short the window. */}
-      <div className="relative flex flex-col px-5 pt-[calc(4.5rem+env(safe-area-inset-top))] pb-[calc(1.25rem+env(safe-area-inset-bottom))]">
+      <div
+        className={`relative flex flex-col px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] ${
+          inline ? "pt-12" : "pt-[calc(4.5rem+env(safe-area-inset-top))]"
+        }`}
+      >
         <p className="text-sm leading-5 font-semibold">
           <span data-swipe-section="">{section}</span> · {categoryLabel(event)}
         </p>
