@@ -4,8 +4,7 @@ import { weekendWindow } from "@/lib/home-sections";
 import { sampleEvents } from "@/lib/sample-events";
 
 /**
- * The phone home's "Swipe through events" entry card and the /swipe feed in a
- * real browser. The e2e server runs in live mode with every /api/* request
+ * The phone home's inline event screens and the /swipe feed in a real browser. The e2e server runs in live mode with every /api/* request
  * intercepted here, so the events are the sample events served as the live list
  * API would, re-timed relative to the real clock (two inside this weekend's
  * window), as e2e/home.spec.ts does.
@@ -77,40 +76,181 @@ async function visibleTitle(page: Page): Promise<string | null> {
 test.describe("on a phone (375×667)", () => {
   test.use({ viewport: { width: 375, height: 667 }, hasTouch: true });
 
-  test("the home shows the Swipe through events card and no rails", async ({ page }) => {
+  test("the home shows the hero, the search and categories, then the first event screen right under them, and no rails", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
-    const entry = page.locator("[data-swipe-entry]");
-    await expect(entry).toBeVisible();
-    // Title and count are on the phone's first screen, with the photo behind them.
-    await expect(entry.getByRole("heading", { level: 2, name: "Swipe through events" })).toBeInViewport({ ratio: 1 });
-    await expect(entry.locator("[data-swipe-count]")).toBeInViewport({ ratio: 1 });
-    await expect(entry.locator("[data-swipe-count]")).toHaveText(/^\d+ events$/);
-    await expect(entry.locator("img")).toBeVisible();
+    const feed = page.locator("[data-home-feed]");
+    await expect(feed).toBeVisible();
+    const articles = feed.getByRole("article");
+    const count = await articles.count();
+    expect(count).toBeGreaterThan(2);
+
+    // One h1 (the hero's) and one main; no Swipe through events card, Close or Swipe up cue.
+    await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
+    await expect(page.getByRole("main")).toHaveCount(1);
+    await expect(page.getByText("Swipe through events")).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "Close, back to home" })).toHaveCount(0);
+    await expect(page.locator("[data-swipe-hint]")).toHaveCount(0);
     await expect(page.locator("[data-home-section]")).toHaveCount(0);
     await expect(page.locator("[data-event-card]")).toHaveCount(0);
-    // A plain All events link under the card, a touch target tall enough.
-    const all = entry.locator("xpath=following-sibling::a");
-    await expect(all).toHaveText("All events");
-    await expect(all).toHaveAttribute("href", "/events");
-    expect((await all.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+
+    // The hero, search and category row come first, as before; the first event follows directly.
+    const hero = await page.getByRole("heading", { level: 1 }).boundingBox();
+    const search = await page.getByRole("search", { name: "Search events" }).boundingBox();
+    const chips = await page.getByRole("navigation", { name: "Browse by category" }).boundingBox();
+    const first = await articles.first().boundingBox();
+    if (!hero || !search || !chips || !first) throw new Error("home not laid out");
+    expect(hero.y).toBeLessThan(search.y);
+    expect(search.y).toBeLessThan(chips.y);
+    expect(first.y).toBeGreaterThanOrEqual(chips.y + chips.height);
+    expect(first.y - (chips.y + chips.height)).toBeLessThanOrEqual(24);
+    // The event's photo begins on the phone's first screen.
+    expect(first.y).toBeLessThan(667);
+    expect(first.x).toBe(0);
+    expect(first.width).toBe(375);
+
+    // Each screen fills what's under the sticky header (56px) and never clips.
+    expect(first.height).toBeGreaterThanOrEqual(667 - 56);
+    expect(await articles.first().evaluate((el) => getComputedStyle(el).scrollMarginTop)).toBe("-8px");
+
+    // The same content as the /swipe screens, and the feed's semantics.
+    await expect(feed).toHaveAttribute("role", "feed");
+    await expect(feed).toHaveAttribute("aria-busy", "false");
+    await expect(page.getByRole("status").filter({ hasText: `${count} events` })).toHaveCount(1);
+    for (const [i, expected] of [[0, "1"], [count - 1, String(count)]] as const) {
+      await expect(articles.nth(i)).toHaveAttribute("aria-posinset", expected);
+      await expect(articles.nth(i)).toHaveAttribute("aria-setsize", String(count));
+    }
+    const title = (await articles.first().getAttribute("aria-label")) ?? "";
+    await expect(articles.first().getByRole("heading", { level: 2, name: title })).toBeVisible();
+    await expect(articles.first().locator("[data-swipe-section]")).toHaveText("This weekend");
+    await expect(articles.first().getByRole("link", { name: `View event ${title}` })).toHaveAttribute("href", /^\/events\/[^/?#]+$/);
+    await expect(articles.first().getByRole("link", { name: `Sign in to save ${title}` })).toBeVisible();
+
+    // The first photo loads at once, the rest lazily.
+    const loading = await articles.evaluateAll((els) => els.map((el) => el.querySelector("img")?.getAttribute("loading") ?? "none"));
+    expect(loading[0]).not.toBe("lazy");
+    expect(loading.slice(1).filter((l) => l === "eager")).toEqual([]);
+
     expect(await overflow(page)).toBeLessThanOrEqual(0);
   });
 
-  test("an events error shows Try again, not the card or the rails", async ({ page }) => {
+  test("the page snaps to the events (proximity), and lets the hero scroll freely", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/");
+    const articles = page.locator("[data-home-feed]").getByRole("article");
+    await expect(articles.first()).toBeVisible();
+    // Proximity (the default strictness) computes as plain "y", as /swipe's does.
+    expect(await page.evaluate(() => getComputedStyle(document.documentElement).scrollSnapType)).toBe("y");
+
+    // The first screen is reached by scrolling, not snapped to; the ones after it snap.
+    expect(await articles.first().evaluate((el) => getComputedStyle(el).scrollSnapAlign)).toBe("none");
+    expect(await articles.nth(1).evaluate((el) => getComputedStyle(el).scrollSnapAlign)).toBe("start");
+
+    // Scrolling a little in the hero doesn't pull to an event: it stays where it was put.
+    await page.evaluate(() => window.scrollTo({ top: 40, behavior: "instant" }));
+    await page.waitForTimeout(300);
+    expect(await page.evaluate(() => window.scrollY)).toBe(40);
+
+    // Land the first screen under the header, then scroll most of a screen: the next event snaps flush under it.
+    const headerBottom = (await page.getByRole("banner").boundingBox())?.height ?? 56;
+    await articles.first().scrollIntoViewIfNeeded();
+    await page.evaluate(() => window.scrollBy({ top: 540, behavior: "instant" }));
+    await expect.poll(async () => Math.round((await articles.nth(1).boundingBox())?.y ?? -1)).toBe(Math.round(headerBottom));
+    await expect(articles.nth(1).getByRole("heading", { level: 2 })).toBeInViewport({ ratio: 1 });
+    // And the next one, by a wheel-sized scroll.
+    await page.evaluate(() => window.scrollBy({ top: 560, behavior: "instant" }));
+    await expect.poll(async () => Math.round((await articles.nth(2).boundingBox())?.y ?? -1)).toBe(Math.round(headerBottom));
+  });
+
+  test("on a tall phone (390×844) the page still opens on the hero, and a small scroll stays put", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockApi(page);
+    await page.goto("/");
+    await expect(page.locator("[data-home-feed] article").first()).toBeVisible();
+    // Chrome's proximity reach is about 30% of the window: nothing may pull the page off the hero.
+    await page.waitForTimeout(500);
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    await expect(page.getByRole("heading", { level: 1 })).toBeInViewport({ ratio: 1 });
+    await expect(page.getByRole("search", { name: "Search events" })).toBeInViewport({ ratio: 1 });
+    await page.evaluate(() => window.scrollTo({ top: 150, behavior: "instant" }));
+    await page.waitForTimeout(500);
+    expect(await page.evaluate(() => window.scrollY)).toBe(150);
+    // Tapping the search button works without the page jumping away.
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+    await page.getByRole("search", { name: "Search events" }).getByRole("searchbox").fill("jazz");
+    await page.getByRole("search", { name: "Search events" }).getByRole("button", { name: "Search" }).click({ timeout: 5000 });
+    await expect(page).toHaveURL(/\/search\?q=jazz$/, { timeout: 30_000 });
+  });
+
+  test("an events error shows Try again, not the screens or the rails", async ({ page }) => {
     await mockApi(page, { fail: true });
     await page.goto("/");
     await expect(page.getByRole("main").getByRole("alert")).toContainText("Couldn’t load events");
     await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
-    await expect(page.locator("[data-swipe-entry]")).toHaveCount(0);
+    await expect(page.locator("[data-home-feed]")).toHaveCount(0);
+    await expect(page.getByRole("article")).toHaveCount(0);
     await expect(page.locator("[data-home-section]")).toHaveCount(0);
   });
 
-  test("tapping the card opens /swipe on the first event; a screen down is the second; Close goes home", async ({ page }) => {
+  test("after the last event: That’s everything, then the rest of the home and the footer; Back to top returns to the hero", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
-    await page.locator("[data-swipe-entry]").getByRole("link", { name: "Swipe through events" }).tap();
-    await expect(page).toHaveURL(/\/swipe$/);
+    const end = page.locator("[data-swipe-end]");
+    await expect(page.getByRole("article").first()).toBeVisible();
+    await end.scrollIntoViewIfNeeded();
+    await expect(end.getByText("That’s everything")).toBeInViewport({ ratio: 1 });
+    await expect(end.getByRole("link", { name: "All events" })).toHaveAttribute("href", "/events");
+    // The rest of the page carries on below it.
+    const endBox = await end.boundingBox();
+    const community = await page.locator("#find-your-people").boundingBox();
+    expect((community?.y ?? -1) >= (endBox?.y ?? 0) + (endBox?.height ?? 0)).toBe(true);
+    await expect(page.getByRole("contentinfo")).toBeAttached();
+    await end.getByRole("button", { name: "Back to top" }).tap();
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+    await expect(page.getByRole("heading", { level: 1 })).toBeInViewport();
+  });
+
+  test("View event, then Back, returns to the event you left; a plain link to the home starts at the top", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/");
+    const articles = page.locator("[data-home-feed]").getByRole("article");
+    await expect(articles.first()).toBeVisible();
+    const third = (await articles.nth(2).getAttribute("aria-label")) ?? "";
+    await articles.nth(2).scrollIntoViewIfNeeded();
+    await articles.nth(2).getByRole("link", { name: /^View event/ }).tap();
+    // The first visit compiles the event page in dev.
+    await expect(page).toHaveURL(/\/events\/[^/]+$/, { timeout: 30_000 });
+
+    await page.goBack();
+    await expect(page).toHaveURL(/\/$/);
+    await expect(articles.nth(2)).toBeVisible();
+    const headerBottom = (await page.getByRole("banner").boundingBox())?.height ?? 56;
+    await expect.poll(async () => Math.round((await articles.nth(2).boundingBox())?.y ?? -1)).toBe(Math.round(headerBottom));
+    await expect(articles.nth(2)).toHaveAttribute("aria-label", third);
+
+    // Leave by View event again, but come back by the logo: the home starts at the top.
+    await articles.nth(2).getByRole("link", { name: /^View event/ }).tap();
+    await expect(page).toHaveURL(/\/events\/[^/]+$/, { timeout: 30_000 });
+    await page.getByRole("link", { name: "Sheltüh home" }).first().tap();
+    await expect(page).toHaveURL(/\/$/);
+    await expect(page.getByRole("heading", { level: 1 })).toBeInViewport();
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  });
+
+  test("growing the window to desktop width swaps the screens for the rails and lets the snap go", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/");
+    await expect(page.locator("[data-home-feed]")).toBeVisible();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.locator("[data-home-section]").first()).toBeVisible();
+    await expect(page.locator("[data-home-feed]")).toHaveCount(0);
+    expect(await page.evaluate(() => getComputedStyle(document.documentElement).scrollSnapType)).toBe("none");
+  });
+
+  test("/swipe still opens on the first event; a screen down is the second; Close goes home to the inline events", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/swipe");
     await expect(page).toHaveTitle("Swipe events | Sheltüh");
 
     // A full-screen page: no site header or footer, one main with a hidden h1.
@@ -161,7 +301,7 @@ test.describe("on a phone (375×667)", () => {
 
     await close.tap();
     await expect(page).toHaveURL(/\/$/);
-    await expect(page.locator("[data-swipe-entry]")).toBeVisible();
+    await expect(page.locator("[data-home-feed]")).toBeVisible();
     // The header is back.
     await expect(page.getByRole("banner")).toBeVisible();
   });
@@ -279,11 +419,13 @@ test.describe("on a phone (375×667)", () => {
 test.describe("on a desktop (1280×800)", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
-  test("the home keeps its rails and has no swipe card", async ({ page }) => {
+  test("the home keeps its rails and has no inline event screens or snapping", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
     await expect(page.locator("[data-home-section]").first()).toBeVisible();
-    await expect(page.locator("[data-swipe-entry]")).toHaveCount(0);
+    await expect(page.locator("[data-home-feed]")).toHaveCount(0);
+    await expect(page.getByRole("article")).toHaveCount(0);
+    expect(await page.evaluate(() => getComputedStyle(document.documentElement).scrollSnapType)).toBe("none");
     expect(await overflow(page)).toBeLessThanOrEqual(0);
   });
 
@@ -343,6 +485,29 @@ test.describe("in a 320×256 window (WCAG 1.4.10 reflow)", () => {
 
     expect(await overflow(page)).toBeLessThanOrEqual(0);
     expect(await main.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
+  });
+});
+
+test.describe("the home in a 320×256 window (WCAG 1.4.10 reflow)", () => {
+  test.use({ viewport: { width: 320, height: 256 }, hasTouch: true });
+
+  test("an event screen grows with its text: View event and Save are reachable, nothing scrolls sideways", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/");
+    const first = page.locator("[data-home-feed]").getByRole("article").first();
+    await expect(first).toBeVisible();
+    // Taller than the window when the text needs it, never a fixed height.
+    expect((await first.boundingBox())?.height).toBeGreaterThan(256 - 56);
+    const title = (await first.getAttribute("aria-label")) ?? "";
+    const view = first.getByRole("link", { name: `View event ${title}` });
+    const save = first.getByRole("link", { name: `Sign in to save ${title}` });
+    await view.scrollIntoViewIfNeeded();
+    await expect(view).toBeInViewport({ ratio: 1 });
+    await expect(save).toBeInViewport({ ratio: 1 });
+    // The sticky header (56px) doesn't cover them.
+    const header = await page.getByRole("banner").boundingBox();
+    expect((await view.boundingBox())?.y).toBeGreaterThanOrEqual((header?.y ?? 0) + (header?.height ?? 0));
+    expect(await overflow(page)).toBeLessThanOrEqual(0);
   });
 });
 

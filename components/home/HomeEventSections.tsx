@@ -1,17 +1,17 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import DotsMark from "@/components/brand/DotsMark";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import EventCard, { EventCardPlaceholder } from "@/components/ui/EventCard";
 import { Notice } from "@/components/ui/Section";
+import { INLINE_SCREEN_MIN_H } from "@/components/swipe/SwipeScreen";
 import { useIsPhone } from "@/components/ui/useIsPhone";
 import { formatWeekendRange, popularTitle, swipeFeedEvents } from "@/lib/home-sections";
 import { useHomeEvents } from "./HomeEventsProvider";
 import { HOME_CONTAINER, HomeRailItem, isPairRail, RAIL_SKELETON } from "./HomeRail";
 import HomeRailSection from "./HomeRailSection";
-import HomeSwipeEntry from "./HomeSwipeEntry";
+import HomeInlineFeed from "./HomeInlineFeed";
 
 /** The page's one load error (docs/design/mobile-redesign.md §6.3.4). */
 export const HOME_LOAD_ERROR = "Couldn’t load events. Check your connection and try again.";
@@ -37,15 +37,15 @@ const SECTION = "mt-6 sm:mt-10 lg:mt-12";
  * outside the page column. A section of one or two cards is a pair: a
  * two-column grid of wide cards from 1024px (`isPairRail`, EventCard `wide`).
  *
- * Below 640px (Tailwind `sm`) the rails give way to one big entry card,
- * "Swipe through events", with the first upcoming event's photo and how many
- * there are, linking to /swipe (the feed holds the same events in the same
- * order, `swipeFeedEvents`; "Recently on" has ended, so it isn't in it). That
- * is chosen in the browser (`useIsPhone`; the server and the first render
- * are not a phone), but the loading skeleton is CSS (`sm:hidden` /
- * `hidden sm:block`), so a phone never paints the rails' skeleton. The loading
- * skeleton, the error and the empty state are the same on phones (the
- * skeleton is the entry card's shape there).
+ * Below 640px (Tailwind `sm`) the rails give way to the swipe feed's event
+ * screens, inline and one after another (`HomeInlineFeed`; the same events in
+ * the same order as /swipe, `swipeFeedEvents`; "Recently on" has ended, so
+ * it isn't in them). That is chosen in the browser (`useIsPhone`; the server
+ * and the first render are not a phone), but the loading skeleton is CSS
+ * (`sm:hidden` / `hidden sm:block`), so a phone never paints the rails'
+ * skeleton. The loading skeleton, the error and the empty state are the same
+ * on phones (the skeleton is one screen's size there). The status line also
+ * says how many events there are.
  *
  * The first slot holds the page's loading skeleton, its one load error (with
  * Try again), or, with nothing upcoming at all, a note saying so. Try again
@@ -64,7 +64,7 @@ export default function HomeEventSections() {
   const weekend = sections && sections.weekend.status === "cards" ? sections.weekend : null;
   const popular = sections?.popular ?? null;
   const phone = useIsPhone();
-  const swipeEvents = sections ? swipeFeedEvents(sections).map(({ event }) => event) : [];
+  const feedItems = useMemo(() => (sections ? swipeFeedEvents(sections) : []), [sections]);
   const rootRef = useRef<HTMLDivElement>(null);
   const retried = useRef(false);
 
@@ -82,8 +82,8 @@ export default function HomeEventSections() {
     // Only when focus went down with the button: never pull it from where the visitor moved it.
     const active = document.activeElement;
     if (active && active !== document.body) return;
-    // The first section's heading, or on a phone the entry card's link.
-    rootRef.current?.querySelector<HTMLElement>("[data-home-section] h2, [data-swipe-entry] a, [data-home-empty]")?.focus();
+    // The first section's heading, or on a phone the first event's link.
+    rootRef.current?.querySelector<HTMLElement>("[data-home-section] h2, [data-home-feed] a, [data-home-empty]")?.focus();
   }, [state.status]);
 
   function handleRetry() {
@@ -95,7 +95,7 @@ export default function HomeEventSections() {
     <div ref={rootRef}>
       {/* Always mounted so "Loading events…" is announced. */}
       <p role="status" className="sr-only">
-        {announceLoading ? "Loading events…" : ""}
+        {announceLoading ? "Loading events…" : phone && feedItems.length > 0 ? `${feedItems.length} ${feedItems.length === 1 ? "event" : "events"}` : ""}
       </p>
 
       {loading && (
@@ -111,9 +111,9 @@ export default function HomeEventSections() {
               ))}
             </div>
           </div>
-          {/* Phones: the entry card's shape. */}
-          <div aria-hidden="true" data-swipe-entry-skeleton="" className={`${HOME_CONTAINER} ${SECTION} sm:hidden`}>
-            <div className="aspect-square rounded-card bg-surface" />
+          {/* Phones: one event screen's size. */}
+          <div role="feed" aria-busy="true" aria-label="Upcoming events" className="mt-4 sm:hidden">
+            <div aria-hidden="true" data-home-feed-loading="" className={`${INLINE_SCREEN_MIN_H} bg-surface`} />
           </div>
         </>
       )}
@@ -135,14 +135,7 @@ export default function HomeEventSections() {
       {sections && !sections.anyUpcoming && (phone || sections.recent.length === 0) && <HomeEmpty />}
 
       {phone ? (
-        swipeEvents.length > 0 && (
-          <div className={`${HOME_CONTAINER} ${SECTION}`}>
-            <HomeSwipeEntry events={swipeEvents} />
-            <Link href="/events" className="mt-2 inline-flex min-h-11 items-center text-base leading-6 font-semibold underline underline-offset-4">
-              All events
-            </Link>
-          </div>
-        )
+        now && feedItems.length > 0 && <HomeInlineFeed items={feedItems} now={now} />
       ) : (
         <>
           {weekend && (

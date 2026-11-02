@@ -71,8 +71,8 @@ const PAGES: { name: string; path: string; ready: (page: Page) => Promise<void> 
   {
     name: "home",
     path: "/",
-    // The rails from 640px; below it, the one swipe card.
-    ready: (page) => expect(page.locator("[data-home-section], [data-swipe-entry]").first()).toBeVisible({ timeout: 30_000 }),
+    // The rails from 640px; below it, the inline event screens.
+    ready: (page) => expect(page.locator("[data-home-section], [data-home-feed] article").first()).toBeVisible({ timeout: 30_000 }),
   },
   {
     name: "/events",
@@ -224,12 +224,12 @@ test.describe("home at 375px, without scrolling", () => {
   test("nothing is hidden at load: every section and card is fully opaque, and nothing waits for a scroll", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
-    await expect(page.locator("[data-swipe-entry]")).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator("[data-home-feed] article").first()).toBeVisible({ timeout: 30_000 });
     expect(await page.locator("main .reveal-pending, main [data-reveal], main [data-reveal-stagger]").count()).toBe(0);
     const opacities = await page
-      .locator("main section, main [data-event-card], main [data-swipe-entry]")
+      .locator("main section, main [data-event-card], main [data-home-feed] article")
       .evaluateAll((els) => els.map((el) => getComputedStyle(el).opacity));
-    // The swipe card and the sections below it (the rails' cards are not on phones).
+    // The event screens and the sections below them (the rails' cards are not on phones).
     expect(opacities.length).toBeGreaterThan(2);
     for (const opacity of opacities) expect(opacity).toBe("1");
     // The sections below the fold are there, not blank: For organisers included.
@@ -255,35 +255,33 @@ test.describe("home at 375px, without scrolling", () => {
   });
 });
 
-// Owner (1 Nov 2026): below 640px the rails give way to the one "Swipe through events" card, so on every
-// phone width it sits on the page gutter like the heading above it, fills the column, and the page stays still.
+// Owner (2 Nov 2026): below 640px the rails give way to the swipe feed's event screens, inline: on every
+// phone width each runs edge to edge under the category row, its photo fills it, and the page stays still.
 // (Owner feedback of 22 Oct 2026, rails as carousels, now holds from 640px: the tests below.)
 for (const width of [320, 375, 390, 430]) {
-  test.describe(`home swipe card at ${width}px`, () => {
+  test.describe(`home event screens at ${width}px`, () => {
     test.use({ viewport: { width, height: 844 } });
 
-    test("replaces the rails: on the page gutter, the full column wide, and the page stays still", async ({ page }) => {
+    test("replace the rails: full width, photo filling each, and the page stays still", async ({ page }) => {
       await mockApi(page);
       await page.goto("/");
-      const entry = page.locator("[data-swipe-entry]");
-      await expect(entry).toBeVisible({ timeout: 30_000 });
+      const screens = page.locator("[data-home-feed]").getByRole("article");
+      await expect(screens.first()).toBeVisible({ timeout: 30_000 });
       await page.evaluate(() => document.fonts.ready);
       await expect(page.locator("[data-home-section]")).toHaveCount(0);
 
-      // The hero's headline starts on the same 20px gutter.
-      const heading = await page.getByRole("heading", { level: 1 }).boundingBox();
-      const card = await entry.boundingBox();
-      if (!heading || !card) throw new Error("home not laid out");
-      expect(Math.round(card.x)).toBe(20);
-      expect(Math.abs(card.x - heading.x)).toBeLessThanOrEqual(1);
-      expect(Math.round(card.width)).toBe(width - 40);
-      // Its photo fills it, and the title and count are inside it.
-      const image = await entry.locator("img").boundingBox();
-      expect(Math.round(image?.width ?? 0)).toBe(Math.round(card.width));
-      for (const part of [entry.getByRole("heading", { name: "Swipe through events" }), entry.locator("[data-swipe-count]")]) {
-        const box = await part.boundingBox();
-        expect((box?.x ?? -1) >= card.x && (box?.x ?? 0) + (box?.width ?? 0) <= card.x + card.width).toBe(true);
-      }
+      const screen = await screens.first().boundingBox();
+      if (!screen) throw new Error("home not laid out");
+      expect(Math.round(screen.x)).toBe(0);
+      expect(Math.round(screen.width)).toBe(width);
+      // Its photo fills it.
+      const image = await screens.first().locator("img").boundingBox();
+      expect(Math.round(image?.width ?? 0)).toBe(width);
+      expect(Math.round(image?.height ?? 0)).toBe(Math.round(screen.height));
+      // The title and the actions are inside it, and View event is a 44px target.
+      const title = await screens.first().getByRole("heading", { level: 2 }).boundingBox();
+      expect((title?.x ?? -1) >= 0 && (title?.x ?? 0) + (title?.width ?? 0) <= width).toBe(true);
+      expect((await screens.first().getByRole("link", { name: /^View event/ }).boundingBox())?.height).toBeGreaterThanOrEqual(44);
       expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(0);
     });
   });
@@ -461,11 +459,11 @@ test.describe("home first screen at 390×844", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
   // Refinement (owner, 22 Oct 2026): the first event's image and title on a typical phone's first screen
-  // (since 1 Nov 2026 the swipe card's: first event's photo, "Swipe through events" and the count).
-  test("shows the search, the category row, then the swipe card with its photo, title and count", async ({ page }) => {
+  // (since 2 Nov 2026 the first event screen starts right under the category row, with its photo.)
+  test("shows the search, the category row, then the first event screen starting with its photo", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
-    await expect(page.locator("[data-swipe-entry]")).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator("[data-home-feed] article").first()).toBeVisible({ timeout: 30_000 });
     await page.evaluate(() => document.fonts.ready);
     const inView = async (locator: ReturnType<Page["locator"]>) => {
       const b = await locator.boundingBox();
@@ -475,11 +473,11 @@ test.describe("home first screen at 390×844", () => {
     };
     await inView(page.getByRole("search", { name: "Search events" }));
     await inView(page.getByRole("navigation", { name: "Browse by category" }).getByRole("link").first());
-    const card = page.locator("[data-swipe-entry]");
-    await inView(card);
-    await inView(card.locator("img"));
-    await inView(card.getByRole("heading", { level: 2, name: "Swipe through events" }));
-    await inView(card.locator("[data-swipe-count]"));
+    const first = page.locator("[data-home-feed] article").first();
+    const top = await first.boundingBox();
+    const chips = await page.getByRole("navigation", { name: "Browse by category" }).boundingBox();
+    expect((top?.y ?? Infinity) >= (chips?.y ?? 0) + (chips?.height ?? 0) && (top?.y ?? Infinity) < 844).toBe(true);
+    await expect(first.locator("img")).toBeInViewport();
   });
 
   test("the category row scrolls inside its own container with 44px chips, and the page doesn't move sideways", async ({ page }) => {
@@ -505,7 +503,7 @@ test.describe("footer on a phone (375px)", () => {
   test("support and legal links are visible; Explore and Our company open and close from the keyboard", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
-    await expect(page.locator("[data-swipe-entry]")).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator("[data-home-feed] article").first()).toBeVisible({ timeout: 30_000 });
     const footer = page.locator("footer");
     await expect(footer.getByRole("link", { name: "Help & FAQs" })).toBeVisible();
     await expect(footer.getByRole("link", { name: "Contact support" })).toBeVisible();
