@@ -1006,8 +1006,10 @@ for (const vp of [
       await expect(page.getByLabel(label)).toHaveCount(1);
       const target = await page.locator("label").filter({ hasText: label }).boundingBox();
       expect(target?.height ?? 0).toBeGreaterThanOrEqual(44);
-      await box.check();
+      // A ticket added after another starts locked.
       await expect(box).toBeChecked();
+      await box.uncheck();
+      await expect(box).not.toBeChecked();
       expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
     });
   });

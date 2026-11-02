@@ -671,13 +671,13 @@ describe("TicketSelector: sequential release (a tier waiting for the one above)"
   it("a waiting tier is muted, has no stepper, and says what it waits for", () => {
     render(<TicketSelector event={cinder()} />);
     const second = screen.getByText("Second release").closest("li") as HTMLElement;
-    expect(within(second).getByText("Opens when First release sells out")).toBeInTheDocument();
+    expect(within(second).getByText("Opens after First release")).toBeInTheDocument();
     expect(within(second).queryByRole("button")).toBeNull();
     expect(within(second).queryByRole("group")).toBeNull();
     expect(within(second).getByText("Second release")).toHaveClass("text-muted");
     expect(within(second).getByText("A$37.60 incl. booking fee")).toHaveClass("text-muted");
     const final = screen.getByText("Final release").closest("li") as HTMLElement;
-    expect(within(final).getByText("Opens when Second release sells out")).toBeInTheDocument();
+    expect(within(final).getByText("Opens after Second release")).toBeInTheDocument();
     expect(within(final).queryByRole("button")).toBeNull();
     // The first tier is the only one that can be chosen.
     expect(screen.getAllByRole("button", { name: /Increase quantity/ })).toHaveLength(1);
@@ -696,29 +696,29 @@ describe("TicketSelector: sequential release (a tier waiting for the one above)"
         }}
       />,
     );
-    expect(screen.queryByText("Opens when First release sells out")).toBeNull();
+    expect(screen.queryByText("Opens after First release")).toBeNull();
     expect(screen.getByRole("button", { name: "Increase quantity for Second release" })).toBeInTheDocument();
-    expect(screen.getByText("Opens when Second release sells out")).toBeInTheDocument();
+    expect(screen.getByText("Opens after Second release")).toBeInTheDocument();
   });
 
   it("a tier that sold out before it was set to wait says Sold out, not Opens when", () => {
     const event = cinder();
     render(<TicketSelector event={{ ...event, ticketTypes: event.ticketTypes.map((t, i) => (i === 1 ? { ...t, soldOut: true } : t)) }} />);
     const second = screen.getByText("Second release").closest("li") as HTMLElement;
-    expect(within(second).queryByText("Opens when First release sells out")).toBeNull();
+    expect(within(second).queryByText("Opens after First release")).toBeNull();
     expect(within(second).getByText(/Sold out/)).toBeInTheDocument();
     expect(within(second).queryByRole("button")).toBeNull();
   });
 
   it("shows the server's ticket_locked refusal", async () => {
     createCheckoutSession.mockRejectedValue(
-      new ApiError(409, "\"Second release\" opens when \"First release\" sells out.", undefined, { code: "ticket_locked" }),
+      new ApiError(409, "\"Second release\" opens after \"First release\" sells out.", undefined, { code: "ticket_locked" }),
     );
     render(<TicketSelector event={cinder()} />);
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for First release" }));
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
     await waitFor(() =>
-      expect(screen.getByRole("alert")).toHaveTextContent("\"Second release\" opens when \"First release\" sells out."),
+      expect(screen.getByRole("alert")).toHaveTextContent("\"Second release\" opens after \"First release\" sells out."),
     );
   });
 });

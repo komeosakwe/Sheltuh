@@ -448,6 +448,17 @@ describe("EventEditor — sequential release (opens when the ticket above sells 
     expect(screen.getAllByLabelText(LABEL)).toHaveLength(1);
   });
 
+  it("a ticket added after another starts locked (ticked); the organiser can untick it", () => {
+    renderEditor({ ticketTypes: [TIER("a", "First")] });
+    showStep(2);
+    expect(screen.queryByLabelText(LABEL)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Add ticket type" }));
+    const box = screen.getByLabelText(LABEL);
+    expect(box).toBeChecked();
+    fireEvent.click(box);
+    expect(box).not.toBeChecked();
+  });
+
   it("always sends explicit booleans, and never the read-only opensAfter", async () => {
     updateEventDraft.mockResolvedValue({ ...BASE_EVENT });
     renderEditor({

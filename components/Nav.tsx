@@ -13,6 +13,15 @@ import { ButtonLink } from "@/components/ui/Button";
 
 const MENU_ID = "site-menu";
 
+/** Whether a popover is showing; false where the selector isn't supported (jsdom, old browsers). */
+function isPopoverOpen(element: HTMLElement): boolean {
+  try {
+    return element.matches(":popover-open");
+  } catch {
+    return false;
+  }
+}
+
 const PRIMARY_LINKS = [
   { href: "/", label: "Discover" },
   { href: "/map", label: "Map" },
@@ -76,6 +85,12 @@ export default function Nav() {
     }
     menu.addEventListener("toggle", handleToggle);
     menu.addEventListener("focusout", handleFocusOut);
+    // The button is a native popoverTarget, so a tap before hydration already
+    // opened the menu, and its toggle event fired before this listener: sync to it.
+    if (isPopoverOpen(menu)) {
+      setMenuOpen(true);
+      setPageInert(true);
+    }
     return () => {
       menu.removeEventListener("toggle", handleToggle);
       menu.removeEventListener("focusout", handleFocusOut);
@@ -85,7 +100,12 @@ export default function Nav() {
 
   // A completed navigation always closes the menu. hidePopover() is a no-op
   // when it's already closed; the optional call covers DOMs without the API.
+  // Only on a change: on mount it would close a menu tapped open before
+  // hydration (slow phones), so the menu flashed open and shut.
+  const lastPathname = useRef(pathname);
   useEffect(() => {
+    if (lastPathname.current === pathname) return;
+    lastPathname.current = pathname;
     menuRef.current?.hidePopover?.();
   }, [pathname]);
 

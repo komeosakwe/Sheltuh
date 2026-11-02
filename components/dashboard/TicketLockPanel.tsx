@@ -134,7 +134,7 @@ function LockRow({
             aria-invalid={error ? true : undefined}
             aria-describedby={error ? errorId : undefined}
           />
-          Opens when {aboveName} sells out
+          Opens after {aboveName}
         </label>
         <Button type="submit" busy={busy} aria-disabled={changed ? undefined : true} aria-label={`Save ${name}`} className="min-h-11">
           {busy ? "Saving…" : "Save"}

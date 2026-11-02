@@ -115,7 +115,7 @@ describe("a waiting general admission tier (sequential release)", () => {
     const event: SheltuhEvent = { ...seated, ticketTypes: [...seated.ticketTypes, waiting] };
     render(<SeatedTicketsPanel event={event} demo />);
     const row = screen.getByText("Second release").closest("li") as HTMLElement;
-    expect(within(row).getByText("Opens when First release sells out")).toBeInTheDocument();
+    expect(within(row).getByText("Opens after First release")).toBeInTheDocument();
     expect(within(row).getByText("Second release")).toHaveClass("text-muted");
     expect(within(row).getByText("A$37.60 incl. booking fee")).toHaveClass("text-muted");
     expect(within(row).queryByText(/Only \d+/)).toBeNull();
@@ -133,7 +133,7 @@ describe("a waiting general admission tier (sequential release)", () => {
       />,
     );
     const row = screen.getByText("Second release").closest("li") as HTMLElement;
-    expect(within(row).getByText("Opens when First release sells out")).toBeInTheDocument();
+    expect(within(row).getByText("Opens after First release")).toBeInTheDocument();
     expect(within(row).queryByRole("button")).toBeNull();
     expect(screen.getByRole("button", { name: "Increase quantity for First release" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Increase quantity for Second release" })).toBeNull();
