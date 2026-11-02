@@ -821,10 +821,10 @@ for (const vp of [
       const tickets = page.locator("#tickets");
       const second = tickets.getByRole("listitem").filter({ has: page.getByText("Second release", { exact: true }) });
       await expect(second).toBeVisible({ timeout: 30_000 });
-      await expect(second).toContainText("Opens when First release sells out");
+      await expect(second).toContainText("Opens after First release");
       await expect(second.getByRole("button")).toHaveCount(0);
       const third = tickets.getByRole("listitem").filter({ has: page.getByText("Final release", { exact: true }) });
-      await expect(third).toContainText("Opens when Second release sells out");
+      await expect(third).toContainText("Opens after Second release");
       await expect(third.getByRole("button")).toHaveCount(0);
       // Only the first release can be chosen.
       await expect(tickets.getByRole("button", { name: /Increase quantity/ })).toHaveCount(1);

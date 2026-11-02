@@ -78,9 +78,9 @@ describe("TicketLockPanel", () => {
     expect(screen.queryByText("First release", { selector: "p" })).not.toBeInTheDocument();
     expect(screen.queryByText("Front row")).not.toBeInTheDocument();
     expect(within(row("Second release")).getByText("Waiting")).toBeInTheDocument();
-    expect(within(row("Second release")).getByLabelText("Opens when First release sells out")).toBeChecked();
+    expect(within(row("Second release")).getByLabelText("Opens after First release")).toBeChecked();
     expect(within(row("Final release")).getByText("On sale")).toBeInTheDocument();
-    expect(within(row("Final release")).getByLabelText("Opens when Second release sells out")).not.toBeChecked();
+    expect(within(row("Final release")).getByLabelText("Opens after Second release")).not.toBeChecked();
   });
 
   it("renders nothing when nothing can be changed", () => {
@@ -97,19 +97,19 @@ describe("TicketLockPanel", () => {
     });
     render(<TicketLockPanel event={event()} getToken={getToken} />);
     const final = row("Final release");
-    fireEvent.click(within(final).getByLabelText("Opens when Second release sells out"));
+    fireEvent.click(within(final).getByLabelText("Opens after Second release"));
     fireEvent.click(within(final).getByRole("button", { name: "Save Final release" }));
     await waitFor(() => expect(within(final).getByRole("status")).toHaveTextContent("Saved."));
     expect(setTicketLock).toHaveBeenCalledWith("evt-1", "t3", true, getToken);
     expect(within(final).getByText("Waiting")).toBeInTheDocument();
-    expect(within(final).getByLabelText("Opens when Second release sells out")).toBeChecked();
+    expect(within(final).getByLabelText("Opens after Second release")).toBeChecked();
   });
 
   it("unticking saves false, and the tier is on sale", async () => {
     setTicketLock.mockResolvedValue({ eventId: "evt-1", ticketTypeId: "t2", opensAfterPrevious: false });
     render(<TicketLockPanel event={event()} getToken={getToken} />);
     const second = row("Second release");
-    fireEvent.click(within(second).getByLabelText("Opens when First release sells out"));
+    fireEvent.click(within(second).getByLabelText("Opens after First release"));
     fireEvent.click(within(second).getByRole("button", { name: "Save Second release" }));
     await waitFor(() => expect(within(second).getByText("On sale")).toBeInTheDocument());
     expect(setTicketLock).toHaveBeenCalledWith("evt-1", "t2", false, getToken);
@@ -129,7 +129,7 @@ describe("TicketLockPanel", () => {
     );
     render(<TicketLockPanel event={event()} getToken={getToken} />);
     const final = row("Final release");
-    const box = within(final).getByLabelText("Opens when Second release sells out");
+    const box = within(final).getByLabelText("Opens after Second release");
     fireEvent.click(box);
     fireEvent.click(within(final).getByRole("button", { name: "Save Final release" }));
     await waitFor(() => expect(within(final).getByRole("alert")).toHaveTextContent("The first ticket can't wait."));

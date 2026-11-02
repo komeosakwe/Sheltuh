@@ -73,7 +73,7 @@ const TICKET_NOT_ON_SALE = "A ticket in your order isn't on sale yet. Reload and
 
 /** A 409 for a ticket type that waits for another to sell out. */
 function ticketLocked(ticketTypeName: string, blockerName: string): HttpError {
-  return new HttpError(409, `"${ticketTypeName}" opens when "${blockerName}" sells out.`, undefined, {
+  return new HttpError(409, `"${ticketTypeName}" opens after "${blockerName}" sells out.`, undefined, {
     code: TICKET_LOCKED_CODE,
   });
 }

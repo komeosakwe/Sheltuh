@@ -271,7 +271,7 @@ describe("buying a waiting tier", () => {
     const res = await buy("second");
     expect(res.status).toBe(409);
     expect(res.body.code).toBe(TICKET_LOCKED_CODE);
-    expect(res.body.error).toBe('"Second release" opens when "Early bird" sells out.');
+    expect(res.body.error).toBe('"Second release" opens after "Early bird" sells out.');
     expect(await api.db.query(`select 1 from public.orders`)).toEqual([]);
     expect(api.stripe.checkout.sessions.create).not.toHaveBeenCalled();
 
@@ -281,7 +281,7 @@ describe("buying a waiting tier", () => {
       body: { lineItems: [{ ticketTypeId: "early", quantity: 1 }, { ticketTypeId: "final", quantity: 1 }] },
     });
     expect(mixed.status).toBe(409);
-    expect(mixed.body.error).toBe('"Final release" opens when "Second release" sells out.');
+    expect(mixed.body.error).toBe('"Final release" opens after "Second release" sells out.');
     // The open tier alone is fine.
     expect((await buy("early")).status).toBe(201);
   });

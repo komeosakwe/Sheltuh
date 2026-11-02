@@ -148,7 +148,7 @@ describe("EventDetailsView preview", () => {
         { id: "b", name: "Second release", priceCents: 2000, feePolicy: "buyer-pays", quantityAvailable: 5, opensAfterPrevious: true },
       ],
     });
-    expect(screen.getByText("Opens when First release sells out")).toBeInTheDocument();
+    expect(screen.getByText("Opens after First release")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Increase quantity for Second release" })).toBeNull();
     expect(screen.getByRole("button", { name: "Increase quantity for First release" })).toBeInTheDocument();
     // The cheaper second ticket isn't on sale yet: one price on sale, so no "From", and not A$20.

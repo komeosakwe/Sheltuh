@@ -38,5 +38,5 @@ export const isLow = (ticket: TicketType) => ticket.remaining !== undefined && t
 
 /** A tier that can't be bought yet (sequential release: it opens when the tier above sells out): the words that stand in for its stepper. */
 export function opensWhenText(ticket: TicketType): string | null {
-  return ticket.opensAfter ? `Opens when ${ticket.opensAfter.name} sells out` : null;
+  return ticket.opensAfter ? `Opens after ${ticket.opensAfter.name}` : null;
 }
