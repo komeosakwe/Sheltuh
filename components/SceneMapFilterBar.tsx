@@ -102,25 +102,14 @@ export default function SceneMapFilterBar({
           <FilterChip pressed={time === "weekend"} onClick={() => onTimeChange(time === "weekend" ? "all" : "weekend")}>
             This weekend
           </FilterChip>
-          <ChipControl selected={time === "date"}>
-            <label>
-              <span className="sr-only">Choose a date</span>
-              <input
-                type="date"
-                value={specificDate}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  onSpecificDateChange(value);
-                  onTimeChange(value ? "date" : "all");
-                }}
-                // Selected (black), the browser's own calendar icon and text go light too.
-                className={filterChipClass(
-                  time === "date",
-                  `focus-visible:outline-offset-0 ${time === "date" ? "pl-8 scheme-dark dark:scheme-light" : ""}`,
-                )}
-              />
-            </label>
-          </ChipControl>
+          <DateChip
+            value={specificDate}
+            selected={time === "date"}
+            onChange={(value) => {
+              onSpecificDateChange(value);
+              onTimeChange(value ? "date" : "all");
+            }}
+          />
 
           <label className="sr-only" htmlFor="scene-category-filter">
             Category
@@ -159,6 +148,61 @@ export default function SceneMapFilterBar({
         </form>
       </ScrollHint>
     </div>
+  );
+}
+
+/** "3 Nov" for a date field's YYYY-MM-DD (a calendar day, so no time zone shifts it). */
+function shortDate(value: string): string {
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return value;
+  return new Date(Date.UTC(year, month - 1, day)).toLocaleDateString("en-AU", {
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+  });
+}
+
+/**
+ * The date chip: a chip that shows its own words ("Date", or the day chosen, with the two
+ * dots when set) under an invisible native date field that fills it, so a tap anywhere opens
+ * the browser's own picker. iOS Safari ignores a date field's padding (the dots sat on the
+ * date) and shows an empty field with no placeholder, so the field can't be the chip itself.
+ */
+function DateChip({
+  value,
+  selected,
+  onChange,
+}: {
+  value: string;
+  selected: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label
+      data-date-chip=""
+      className={filterChipClass(
+        selected,
+        "relative cursor-pointer has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-[3px] has-[input:focus-visible]:outline-foreground has-[input:focus-visible]:outline-solid",
+      )}
+    >
+      {selected && <SelectedDots />}
+      <span aria-hidden="true">{value ? shortDate(value) : "Date"}</span>
+      <input
+        type="date"
+        aria-label="Choose a date"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        onClick={(event) => {
+          // Desktop browsers open the picker only from their own icon, which is hidden here.
+          try {
+            event.currentTarget.showPicker?.();
+          } catch {
+            // Not allowed here (e.g. inside a cross-origin frame): the field still takes typing.
+          }
+        }}
+        className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+      />
+    </label>
   );
 }
 

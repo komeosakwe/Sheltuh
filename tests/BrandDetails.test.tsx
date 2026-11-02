@@ -61,8 +61,10 @@ describe("the map's filter chips", () => {
     const { container } = render(
       <SceneMapFilterBar {...props} category="art" time="date" specificDate="2026-11-01" pricing="free" />,
     );
-    const date = screen.getByLabelText("Choose a date");
-    expect(date).toHaveClass("bg-foreground", "scheme-dark");
+    const date = screen.getByLabelText("Choose a date").closest("[data-date-chip]");
+    expect(date).toHaveClass("bg-foreground");
+    // The chip shows the day itself (iOS Safari draws no padding or placeholder in a date field).
+    expect(date).toHaveTextContent("1 Nov");
     expect(screen.getByLabelText("Category")).toHaveClass("bg-foreground");
     expect(screen.getByLabelText("Price")).toHaveClass("bg-foreground");
     expect(container.querySelectorAll("[data-selected-dots]")).toHaveLength(3);
@@ -71,7 +73,9 @@ describe("the map's filter chips", () => {
   it("unset, they're white with no dots", () => {
     const { container } = render(<SceneMapFilterBar {...props} category="all" />);
     expect(screen.getByLabelText("Category")).toHaveClass("bg-card");
-    expect(screen.getByLabelText("Choose a date")).not.toHaveClass("scheme-dark");
+    const date = screen.getByLabelText("Choose a date").closest("[data-date-chip]");
+    expect(date).toHaveClass("bg-card");
+    expect(date).toHaveTextContent("Date");
     expect(container.querySelectorAll("[data-selected-dots]")).toHaveLength(0);
   });
 
