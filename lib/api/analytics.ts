@@ -19,6 +19,8 @@ import type {
 
 const myEvent = (eventId: string) => `/organisers/me/events/${encodeURIComponent(eventId)}`;
 
+const adminEvent = (eventId: string) => `/admin/events/${encodeURIComponent(eventId)}`;
+
 function query(q: AnalyticsQuery = {}): string {
   const qs = new URLSearchParams();
   if (q.from) qs.set("from", q.from);
@@ -125,6 +127,17 @@ async function fetchCsv(path: string, getToken: GetToken): Promise<Blob> {
     throw new ApiError(res.status, message, data?.fieldErrors);
   }
   return res.blob();
+}
+
+/** Admin only: any event's analytics (same shape and query as getEventAnalytics). 403 for non-admins, 404 for no such event. */
+export async function getAdminEventAnalytics(eventId: string, getToken: GetToken, q: AnalyticsQuery = {}) {
+  const token = await getToken();
+  return apiFetch<EventAnalytics>(`${adminEvent(eventId)}/analytics${query(q)}`, { token });
+}
+
+/** Admin only: any event's analytics as a CSV file. */
+export function downloadAdminEventAnalyticsCsv(eventId: string, getToken: GetToken, q: AnalyticsQuery = {}) {
+  return fetchCsv(`${adminEvent(eventId)}/analytics.csv${query(q)}`, getToken);
 }
 
 /** The event's analytics as a CSV file (no buyer details). Same query and errors as getEventAnalytics. */

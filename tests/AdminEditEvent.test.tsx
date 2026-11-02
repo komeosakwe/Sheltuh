@@ -102,6 +102,12 @@ describe("AdminEditEvent", () => {
     expect(screen.getByTestId("event-editor")).toBeInTheDocument();
   });
 
+  it("links to the event's analytics, whoever runs it", async () => {
+    adminGetEvent.mockResolvedValue({ ...EVENT, organiserPlatformManaged: false });
+    renderPage();
+    expect(await screen.findByRole("link", { name: "Analytics" })).toHaveAttribute("href", "/admin/events/evt-1/analytics");
+  });
+
   it("offers no check-in for an organiser's own event (they run their door)", async () => {
     adminGetEvent.mockResolvedValue({ ...EVENT, organiserPlatformManaged: false });
     renderPage();

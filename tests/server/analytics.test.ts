@@ -8,6 +8,8 @@ import { adminApproveOrganiser, adminUnpublishEvent } from "@/lib/server/handler
 import {
   getAnalyticsOverview,
   getAnalyticsOverviewCsv,
+  adminGetEventAnalytics,
+  adminGetEventAnalyticsCsv,
   getEventAnalytics,
   getEventAnalyticsCsv,
   ORGANISER_GROSS,
@@ -94,7 +96,7 @@ const overview = (token: string | undefined, query?: Record<string, string>) =>
 
 /** A CSV route's raw text (TestApi.call parses JSON). */
 async function csv(
-  handler: typeof getEventAnalyticsCsv | typeof getAnalyticsOverviewCsv,
+  handler: typeof getEventAnalyticsCsv | typeof getAnalyticsOverviewCsv | typeof adminGetEventAnalyticsCsv,
   token: string,
   params: Record<string, string> = {},
   query: Record<string, string> = {},
@@ -1059,5 +1061,40 @@ describe("retention", () => {
       [draft.eventId],
     );
     expect({ v, r }).toEqual({ v: 0, r: 0 });
+  });
+});
+
+describe("admin event analytics", () => {
+  const adminAnalytics = (token: string | undefined, eventId: string = event.eventId, query?: Record<string, string>) =>
+    api.call(adminGetEventAnalytics, { token, params: { eventId }, query });
+
+  it("an admin gets any organiser's event, the same report the organiser sees", async () => {
+    await insertOrder(api, event, "buyer@example.com");
+    const res = await adminAnalytics(admin.token);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toMatch(/no-store/);
+    const own = await analytics(organiser.token);
+    expect(res.body).toEqual(own.body);
+  });
+
+  it("signed out is 401; an organiser or member is 403; an unknown or malformed event is 404", async () => {
+    expect((await adminAnalytics(undefined)).status).toBe(401);
+    expect((await adminAnalytics(organiser.token)).status).toBe(403);
+    expect((await adminAnalytics((await api.signUp()).token)).status).toBe(403);
+    for (const eventId of ["nope", crypto.randomUUID()]) {
+      expect((await adminAnalytics(admin.token, eventId)).status).toBe(404);
+    }
+  });
+
+  it("the CSV works for an admin and is refused to everyone else", async () => {
+    const params = { eventId: event.eventId };
+    const ok = await csv(adminGetEventAnalyticsCsv, admin.token, params);
+    expect(ok.status).toBe(200);
+    expect(ok.headers.get("content-type")).toMatch(/text\/csv/);
+    expect(ok.headers.get("cache-control")).toMatch(/no-store/);
+    const own = await csv(getEventAnalyticsCsv, organiser.token, params);
+    expect(ok.text).toBe(own.text);
+    expect((await csv(adminGetEventAnalyticsCsv, organiser.token, params)).status).toBe(403);
+    expect((await csv(adminGetEventAnalyticsCsv, admin.token, { eventId: crypto.randomUUID() })).status).toBe(404);
   });
 });

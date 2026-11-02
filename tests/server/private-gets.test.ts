@@ -6,6 +6,8 @@ import { adminGetEvent } from "@/lib/server/handlers/admin-authoring";
 import {
   getAnalyticsOverview,
   getAnalyticsOverviewCsv,
+  adminGetEventAnalytics,
+  adminGetEventAnalyticsCsv,
   getEventAnalytics,
   getEventAnalyticsCsv,
 } from "@/lib/server/handlers/analytics";
@@ -114,6 +116,8 @@ const PRIVATE_GETS: Case[] = [
   { name: "getMyEvent", handler: h(getMyEvent), as: asOrganiser, params: event },
   { name: "getAnalyticsOverview", handler: h(getAnalyticsOverview), as: asOrganiser },
   { name: "getAnalyticsOverviewCsv", handler: h(getAnalyticsOverviewCsv), as: asOrganiser },
+  { name: "adminGetEventAnalytics", handler: h(adminGetEventAnalytics), as: asAdmin, params: event },
+  { name: "adminGetEventAnalyticsCsv", handler: h(adminGetEventAnalyticsCsv), as: asAdmin, params: event },
   { name: "getEventAnalytics", handler: h(getEventAnalytics), as: asOrganiser, params: event },
   { name: "getEventAnalyticsCsv", handler: h(getEventAnalyticsCsv), as: asOrganiser, params: event },
   { name: "listTrackingLinks", handler: h(listTrackingLinks), as: asOrganiser, params: event },

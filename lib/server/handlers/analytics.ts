@@ -13,7 +13,7 @@ import type {
 import { VIEW_SOURCES } from "@/lib/api/types";
 import type { FeePolicy } from "@/lib/types";
 import { PLATFORM_TIME_ZONE, type AustralianTimeZone, type StateCode } from "@/lib/time-zones";
-import { requireCaller } from "../auth";
+import { requireAdmin, requireCaller } from "../auth";
 import { DEFAULT_RANGE_DAYS, addDays, melbourneDateOf, parseAnalyticsQuery, previousPeriod } from "../analytics-range";
 import {
   NO_ORDERS,
@@ -37,7 +37,7 @@ import { okPrivate } from "../http";
 import type { Handler } from "../route";
 import type { EventRecord, TicketingMode } from "../types";
 import { eventAttendance } from "./check-ins";
-import { requireOwnEvent } from "./event-queries";
+import { requireEventForAdmin, requireOwnEvent } from "./event-queries";
 import { requireApprovedOrganiser } from "./organiser-guard";
 
 /**
@@ -320,6 +320,26 @@ export const getEventAnalytics: Handler<{ eventId: string }> = async (req, { eve
 /** GET /api/organisers/me/events/[eventId]/analytics.csv?from&to&compare=prevPeriod */
 export const getEventAnalyticsCsv: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
   const analytics = await eventAnalyticsFor(req, eventId, deps);
+  return csvResponse(
+    `sheltuh-${analytics.event.slug}_${analytics.range.from}_${analytics.range.to}.csv`,
+    eventAnalyticsCsv(analytics),
+  );
+};
+
+/** An admin's view of any event: the same report as the organiser's (read-only, no buyer data). */
+async function adminEventAnalyticsFor(req: Request, eventId: string, deps: Deps) {
+  await requireAdmin(req, deps.verifyAccessToken);
+  const event = await requireEventForAdmin(deps.db, eventId);
+  return buildEventAnalytics(deps.db, event, new URL(req.url).searchParams);
+}
+
+/** GET /api/admin/events/[eventId]/analytics?from&to&compare=prevPeriod — admins only; any event (404 if none). */
+export const adminGetEventAnalytics: Handler<{ eventId: string }> = async (req, { eventId }, deps) =>
+  okPrivate(await adminEventAnalyticsFor(req, eventId, deps));
+
+/** GET /api/admin/events/[eventId]/analytics.csv?from&to&compare=prevPeriod */
+export const adminGetEventAnalyticsCsv: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
+  const analytics = await adminEventAnalyticsFor(req, eventId, deps);
   return csvResponse(
     `sheltuh-${analytics.event.slug}_${analytics.range.from}_${analytics.range.to}.csv`,
     eventAnalyticsCsv(analytics),

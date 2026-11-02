@@ -94,6 +94,14 @@ export default function AdminEditEvent() {
           — replace or remove while there are no orders.
         </p>
       )}
+      <p className="text-sm text-muted">
+        <Link
+          href={`/admin/events/${encodeURIComponent(event.eventId)}/analytics`}
+          className="inline-flex min-h-11 items-center font-medium text-foreground underline underline-offset-4"
+        >
+          Analytics
+        </Link>
+      </p>
       {adminCheckIn && (
         <p className="text-sm text-muted">
           <Link
