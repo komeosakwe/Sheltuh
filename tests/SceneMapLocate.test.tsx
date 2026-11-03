@@ -65,15 +65,43 @@ const sydneyShow = makeEvent({
 });
 const events = [fitzroyGig, sydneyShow];
 
+/** jsdom has no layout: an element is this size, or 0×0 inside a `hidden` one (the phone's other tab). */
+let screenSize = { width: 800, height: 600 };
+function laidOut(this: HTMLElement, size: number): number {
+  return this.closest(".hidden") ? 0 : size;
+}
+
+/** The map's ResizeObserver callbacks, for `resized()` to run once the test has shown or hidden the map. */
+const resizeCallbacks = new Set<() => void>();
+const resized = () => act(() => resizeCallbacks.forEach((callback) => callback()));
+
 beforeAll(async () => {
-  Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 800 });
-  Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 600 });
+  Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return laidOut.call(this, screenSize.width);
+    },
+  });
+  Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return laidOut.call(this, screenSize.height);
+    },
+  });
   vi.stubGlobal(
     "ResizeObserver",
     class {
-      observe() {}
+      private readonly callback: () => void;
+      constructor(callback: () => void) {
+        this.callback = callback;
+      }
+      observe() {
+        resizeCallbacks.add(this.callback);
+      }
       unobserve() {}
-      disconnect() {}
+      disconnect() {
+        resizeCallbacks.delete(this.callback);
+      }
     },
   );
   Element.prototype.scrollIntoView = vi.fn();
@@ -328,6 +356,73 @@ describe("Near me", () => {
     expect(onDefaultView()).toBe(true);
     expect(screen.getByRole("button", { name: "Near me" })).not.toHaveAttribute("aria-disabled");
     expect(localStorage.getItem(NEAR_STORAGE_KEY)).toBeNull();
+  });
+});
+
+describe("the phone's List and Map tabs", () => {
+  // A 375px phone's map: at the desktop's size the whole of Australia is smaller than the view, which
+  // Leaflet's max bounds then pans after forever (an artefact of the test, not of a phone).
+  beforeEach(() => {
+    screenSize = { width: 343, height: 420 };
+  });
+  afterEach(() => {
+    screenSize = { width: 800, height: 600 };
+  });
+
+  /** Lets the map's deferred (next animation frame) reveal handling run. */
+  const settle = () => new Promise<void>((done) => setTimeout(done, 150));
+
+  it("Near me, then List, then Map: the map keeps the visitor's location", async () => {
+    params = new URLSearchParams("cat=live-music");
+    answerAt(SYDNEY.lat, SYDNEY.lng);
+    await renderMap();
+    fireEvent.click(screen.getByRole("button", { name: "Near me" }));
+    await expectCentredOn(SYDNEY);
+    const fit = vi.spyOn(L.Map.prototype, "fitBounds");
+
+    fireEvent.click(screen.getByRole("button", { name: "List" }));
+    await resized();
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Map" }));
+    await resized();
+    await settle();
+
+    expect(fit).not.toHaveBeenCalled();
+    await expectCentredOn(SYDNEY);
+  });
+
+  it("a suburb picked while the map is hidden is centred on when it's shown", async () => {
+    params = new URLSearchParams("cat=live-music&view=list");
+    await renderMap();
+    const surryHills = findLocality("Surry Hills NSW");
+    fireEvent.change(screen.getByRole("combobox", { name: "Location" }), { target: { value: "Surry Hills" } });
+    await settle();
+    expect(onDefaultView()).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "Map" }));
+    await resized();
+    await expectCentredOn({ lat: surryHills?.lat ?? 0, lng: surryHills?.lng ?? 0 });
+    await settle();
+  });
+
+  it("a filter changed while the map is hidden refits the matching events when it's shown", async () => {
+    params = new URLSearchParams("cat=live-music");
+    answerAt(SYDNEY.lat, SYDNEY.lng);
+    await renderMap();
+    fireEvent.click(screen.getByRole("button", { name: "Near me" }));
+    await expectCentredOn(SYDNEY);
+
+    fireEvent.click(screen.getByRole("button", { name: "List" }));
+    await resized();
+    await settle();
+    const fit = vi.spyOn(L.Map.prototype, "fitBounds");
+    fireEvent.change(screen.getByRole("searchbox", { name: /Search events/ }), { target: { value: "Fitzroy Gig" } });
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Map" }));
+    await resized();
+    await waitFor(() => expect(fit).toHaveBeenCalled());
+    // Let the animated refit finish before the map is torn down (Leaflet would finish it on a removed map).
+    await new Promise<void>((done) => setTimeout(done, 600));
   });
 });
 

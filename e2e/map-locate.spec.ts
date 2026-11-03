@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { mockMapNetwork } from "./map-network";
+import { fixtures, mockMapNetwork } from "./map-network";
 
 /**
  * /map centred on the visitor (owner request, creator call). Live mode, /api/* and tiles answered
@@ -144,5 +144,65 @@ test.describe("/map centres on the visitor at 1280×800", () => {
     await openMap(page, "/map?sel=evt-neon-static");
     expect(await asks(page)).toBe(0);
     expect(await page.evaluate(() => localStorage.getItem("sheltuh:near:v1"))).toBeNull();
+  });
+});
+
+test.describe("/map when every event has a venue pin", () => {
+  test.use({ viewport: { width: 1280, height: 800 }, permissions: [] });
+
+  // With pins and no saved suburb, nothing needs the suburb table, so /map hasn't loaded it when a
+  // suburb is picked: the pick has to load it, not fall back to the Melbourne-only list.
+  test("picking a suburb outside Melbourne centres on it before the suburb table was ever loaded", async ({ page }) => {
+    await mockMapNetwork(page);
+    await page.route("**/api/events?*", (route) =>
+      route.fulfill({
+        json: {
+          items: fixtures(Date.now()).map((event, i) => ({
+            ...event,
+            // The first is in Surry Hills; the rest are spread around inner Melbourne.
+            ...(i === 0 ? { suburb: "Surry Hills", state: "NSW", timeZone: "Australia/Sydney" } : {}),
+            location: {
+              source: "manual_pin",
+              pin: i === 0 ? { lat: -33.8861, lng: 151.2111 } : { lat: -37.8 + i * 0.01, lng: 144.96 },
+            },
+          })),
+          nextCursor: undefined,
+        },
+      }),
+    );
+    await page.goto("/map");
+    await expect(page.locator(".leaflet-tile-loaded").first()).toBeVisible({ timeout: 20_000 });
+    await page.getByRole("combobox", { name: "Location" }).selectOption({ label: "Surry Hills, NSW" });
+    await expectCentredOn(page, { latitude: -33.8861, longitude: 151.2111 });
+    await expect(page.getByRole("button", { name: "Search this area" })).toHaveCount(0);
+  });
+});
+
+test.describe("/map on a 375px phone", () => {
+  test.use({ viewport: { width: 375, height: 667 }, hasTouch: true, permissions: [] });
+
+  test("Near me, then List, then Map: the map keeps the visitor's location", async ({ page, context }) => {
+    // The list is hidden on a phone's Map tab, so there are no Locate buttons to wait for: the tiles will do.
+    // A filter in the address means no saved suburb to open on, and a view that would fit the events.
+    await mockMapNetwork(page);
+    await page.goto(`/map?cat=${fixtures(Date.now())[0].category}`);
+    await expect(page.locator(".leaflet-tile-loaded").first()).toBeVisible({ timeout: 20_000 });
+    await context.grantPermissions(["geolocation"]);
+    await context.setGeolocation(SYDNEY);
+    await page.getByRole("button", { name: "Near me" }).click();
+    await expectCentredOn(page, SYDNEY);
+    const before = await readView(mapContainer(page));
+
+    await page.getByRole("button", { name: "List", exact: true }).click();
+    await expect(mapContainer(page)).toBeHidden();
+    await page.getByRole("button", { name: "Map", exact: true }).click();
+    await expect(mapContainer(page)).toBeVisible();
+    await expect(page.locator(".leaflet-tile-loaded").first()).toBeVisible({ timeout: 20_000 });
+    // Past the reveal's deferred framing (a frame) and any animation it would start.
+    await page.waitForTimeout(1500);
+
+    expect(await readView(mapContainer(page))).toEqual(before);
+    await expectCentredOn(page, SYDNEY);
+    await expect(page.getByRole("button", { name: "Search this area" })).toHaveCount(0);
   });
 });

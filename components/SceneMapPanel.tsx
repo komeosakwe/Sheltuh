@@ -151,6 +151,14 @@ function MapController({
   const isFirstFraming = (current: MarkerDatum[]) => firstFramed.current === null || firstFramed.current === current;
   // The id of the last centre request applied.
   const appliedFocus = useRef<number | null>(null);
+  // What the map's viewport was last set for (markers framed, a centre request applied, the selected
+  // event flown to), to tell a map revealed after being hidden (the phone's Map tab) that already has
+  // its viewport, which stays, from one with a framing still owed.
+  const framed = useRef<{ markers: MarkerDatum[]; selectedEventId: string | null } | null>(null);
+  const needsFraming = (current: { markers: MarkerDatum[]; selectedEventId: string | null }) =>
+    framed.current === null ||
+    framed.current.markers !== current.markers ||
+    (current.selectedEventId !== null && framed.current.selectedEventId !== current.selectedEventId);
 
   // Re-fits whenever the visible marker set actually changes (e.g. a
   // filter narrows it) — `markers` only gets a new reference when the
@@ -178,13 +186,23 @@ function MapController({
       frameFirst(map, markers, latest.current.near, isFirstFraming(markers), reducedMotion, programmaticMoveRef);
     }
     firstFramed.current ??= markers;
+    framed.current = { markers, selectedEventId: current.selectedEventId };
   }, [map, markers, programmaticMoveRef, reducedMotion]);
 
   // A new centre request: the visitor's location, or a suburb picked in the location filter.
   useEffect(() => {
     const current = latest.current;
-    applyFocus(map, focus, appliedFocus, current.reducedMotion, programmaticMoveRef, current.onFocused);
+    if (applyFocus(map, focus, appliedFocus, current.reducedMotion, programmaticMoveRef, current.onFocused)) {
+      framed.current = { markers: current.markers, selectedEventId: current.selectedEventId };
+    }
   }, [map, focus, programmaticMoveRef]);
+
+  // Nothing selected on a shown map: a later selection (even of the same event) needs flying to.
+  useEffect(() => {
+    if (!selectedEventId && framed.current && hasSize(map)) {
+      framed.current = { markers: framed.current.markers, selectedEventId: null };
+    }
+  }, [map, selectedEventId]);
 
   useEffect(() => {
     if (!selectedEventId) return;
@@ -195,9 +213,13 @@ function MapController({
     if (!hasSize(map)) return;
     frameMarkers(map, markers, null, false, selectedEventId, reducedMotion, programmaticMoveRef);
     firstFramed.current ??= markers;
+    framed.current = { markers, selectedEventId };
   }, [map, markers, selectedEventId, programmaticMoveRef, reducedMotion]);
 
-  // The first time a hidden map gets a real size (the phone's Map tab), frame it then.
+  // When a hidden map gets a real size (the phone's Map tab), do the framing it was owed: a centre
+  // request, new markers or a selection made while it was hidden, or its first framing. A map
+  // that was already framed keeps its viewport (a located one, say); Leaflet's invalidateSize,
+  // which raised this resize, keeps the centre.
   // Deferred a frame: `resize` fires from inside invalidateSize(), and framing
   // must start after that call (and its own moveend) has finished.
   useEffect(() => {
@@ -212,8 +234,10 @@ function MapController({
         stopQuietly(map, programmaticMoveRef);
         if (applyFocus(map, current.focus, appliedFocus, current.reducedMotion, programmaticMoveRef, current.onFocused)) {
           firstFramed.current ??= current.markers;
+          framed.current = { markers: current.markers, selectedEventId: current.selectedEventId };
           return;
         }
+        if (!needsFraming(current)) return;
         frameMarkers(
           map,
           current.markers,
@@ -224,6 +248,7 @@ function MapController({
           programmaticMoveRef,
         );
         firstFramed.current ??= current.markers;
+        framed.current = { markers: current.markers, selectedEventId: current.selectedEventId };
       });
     }
     map.on("resize", handleResize);

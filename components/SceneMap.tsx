@@ -368,13 +368,14 @@ function SceneMapView({
     locate.clearFocus();
   }
 
-  // Picking a suburb centres the map on it (from the suburb table), zoomed in.
+  // Picking a suburb centres the map on it, zoomed in. Looked up in the full suburb table, which
+  // loads here if nothing needed it yet (the page doesn't fetch it up front when every event has
+  // coordinates); `findSuburb` may still be the small Melbourne-only fallback.
   function handleSuburbChange(suburb: string) {
     setFilters((f) => ({ ...f, suburb }));
     if (suburb === "all") return;
     const state = events.find((event) => event.suburb === suburb)?.state;
-    const place = findSuburb(placeQuery({ suburb, state }));
-    if (place) locate.centreOn(place);
+    locate.centreOnSuburb(placeQuery({ suburb, state }));
   }
 
   // Phones: Locate switches to the map, hiding the row (and its button) that had focus, so focus

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { hasGeolocation } from "@/lib/geolocation";
 import { locateMe, rememberLocateRefused, wasLocateRefused } from "@/lib/locate-me";
-import { loadLocation } from "@/lib/location-loader";
+import { loadLocation, loadedLocation, type LocationModule } from "@/lib/location-loader";
 import { readStoredNear, subscribeStoredNear, writeStoredNear } from "@/lib/near-storage";
 import { placeName } from "@/lib/place";
 import type { Coordinates } from "@/lib/types";
@@ -36,7 +36,8 @@ type Status = { tone: "info" | "danger"; text: string } | null;
  *    state only, as the search bar's "Use my current location" does); the position is dropped
  *    once the map has used it;
  *  - the saved suburb changing while on the map (the search bar, another tab) centres on it too;
- *  - `centreOn` centres on any place (the location filter).
+ *  - `centreOn` centres on a place already in hand; `centreOnSuburb` finds a suburb by its name
+ *    first (the location filter), loading the suburb table if nothing has yet.
  */
 export function useMapLocate(promptOnOpen: boolean) {
   const [focus, setFocus] = useState<MapFocus | null>(null);
@@ -48,15 +49,46 @@ export function useMapLocate(promptOnOpen: boolean) {
   const prompted = useRef(false);
   // The suburb this hook is saving itself, so its own write isn't taken for a change to follow.
   const saving = useRef<string | null>(null);
+  // The latest suburb asked for by name: a slow table load for an earlier pick mustn't win over a later one.
+  const suburbAsk = useRef(0);
 
   const centreOn = useCallback((place: Coordinates, smooth = true) => {
     nextId.current += 1;
     setFocus({ id: nextId.current, lat: place.lat, lng: place.lng, smooth });
   }, []);
 
+  /** Centres on the suburb `query` finds (lib/place.ts placeQuery), once the suburb table has loaded. */
+  const centreOnSuburb = useCallback(
+    (query: string) => {
+      suburbAsk.current += 1;
+      const ask = suburbAsk.current;
+      const centreIn = (table: LocationModule) => {
+        const place = table.findLocality(query);
+        if (place) centreOn(place);
+      };
+      // Already loaded: centre in this very update, with the filter change that asked for it.
+      const loaded = loadedLocation();
+      if (loaded) {
+        centreIn(loaded);
+        return;
+      }
+      loadLocation()
+        .then((table) => {
+          if (ask === suburbAsk.current) centreIn(table);
+        })
+        .catch(() => {
+          if (ask === suburbAsk.current) setStatus({ tone: "danger", text: CENTRE_FAILED });
+        });
+    },
+    [centreOn],
+  );
+
   /** The map has applied request `id`: drop its coordinates. */
   const focused = useCallback((id: number) => setFocus((current) => (current?.id === id ? null : current)), []);
-  const clearFocus = useCallback(() => setFocus(null), []);
+  const clearFocus = useCallback(() => {
+    suburbAsk.current += 1;
+    setFocus(null);
+  }, []);
 
   const locate = useCallback(
     async (onOpen: boolean) => {
@@ -95,14 +127,9 @@ export function useMapLocate(promptOnOpen: boolean) {
       subscribeStoredNear(() => {
         const suburb = readStoredNear();
         if (!suburb || suburb === saving.current) return;
-        loadLocation()
-          .then((table) => {
-            const place = table.findLocality(suburb);
-            if (place) centreOn(place);
-          })
-          .catch(() => setStatus({ tone: "danger", text: CENTRE_FAILED }));
+        centreOnSuburb(suburb);
       }),
-    [centreOn],
+    [centreOnSuburb],
   );
 
   // A message is brief: it goes after a few seconds.
@@ -112,5 +139,5 @@ export function useMapLocate(promptOnOpen: boolean) {
     return () => window.clearTimeout(timer);
   }, [status]);
 
-  return { focus, focused, clearFocus, centreOn, canLocate, locating, status, locate: () => locate(false) };
+  return { focus, focused, clearFocus, centreOn, centreOnSuburb, canLocate, locating, status, locate: () => locate(false) };
 }

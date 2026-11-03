@@ -14,7 +14,7 @@ const TILE = Buffer.from(
   "base64",
 );
 
-function fixtures(now: number): PublicEvent[] {
+export function fixtures(now: number): PublicEvent[] {
   return sampleEvents.map((event, i) => {
     const start = now + HOUR + i * 26 * HOUR;
     return {
