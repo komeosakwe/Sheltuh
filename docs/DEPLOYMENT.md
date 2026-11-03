@@ -498,9 +498,10 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       retried and Trending stays empty.
 - [ ] **Cron schedules.** See [`schedules.md`](schedules.md) for every
       timed job (Vercel and Supabase), its time in Melbourne, and how to run
-      it more often. `vercel.json` runs both crons once a day (17:00 and
-      17:20 UTC: 4:00 and 4:20 am AEDT, 3:00 and 3:20 am AEST), the Hobby
-      plan's limit. Moving to **Vercel Pro** changes nothing by itself: edit
+      it more often. `vercel.json` runs both crons once a day (the outbox at
+      21:00 UTC: 8:00 am AEDT, 7:00 am AEST, so the day-before reminders
+      arrive in the morning; Trending at 17:20 UTC: 4:20 am AEDT, 3:20 am
+      AEST), the Hobby plan's limit. Moving to **Vercel Pro** changes nothing by itself: edit
       `vercel.json` (`*/5 * * * *` for `/api/cron/email-outbox`,
       `*/15 * * * *` for `/api/cron/trending`) and redeploy. On Hobby,
       Supabase Cron can run the trending refresh directly or call the outbox

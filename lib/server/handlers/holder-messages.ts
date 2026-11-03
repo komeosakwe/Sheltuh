@@ -43,9 +43,9 @@ export const HOLDER_MESSAGE_LIMITS: HolderMessageLimits = {
   bodyMin: 20,
   bodyMax: 1500,
   maxRecipients: 1000,
-  perEventPerDay: 2,
-  perEventTotal: 6,
-  perOrganiserPerDay: 4,
+  perEventPerDay: 1,
+  perEventTotal: 3,
+  perOrganiserPerDay: 2,
 };
 
 /** A message can be sent until this long after the event ends. */

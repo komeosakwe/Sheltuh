@@ -511,7 +511,7 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
      `after()`), for that order only. `GET /api/cron/email-outbox` (bearer
      `CRON_SECRET` compared in constant time) sends everything else that's
      due, and records the run in `private.cron_runs`. Two schedulers call it:
-     Vercel Cron (`vercel.json`: daily at 17:00 UTC, the Hobby plan's limit;
+     Vercel Cron (`vercel.json`: daily at 21:00 UTC, the Hobby plan's limit;
      every 5 minutes once on Pro, which needs `vercel.json` edited and
      redeployed: the plan change alone does nothing) and, on Hobby, Supabase
      Cron with `pg_net` every 5 minutes, with the secret in Supabase Vault,
@@ -3583,7 +3583,7 @@ job kind `event_reminder`, one job per recipient, no new cron route.
   default 0) holds events that are *tomorrow* (not today) until the event's
   local clock reaches that hour. **Owner decision:** with 0, a frequent runner
   (every 5 minutes) sends the reminder just after local midnight; with the
-  daily 17:00 UTC Vercel run (3 or 4 am in Melbourne) it goes out at that run.
+  daily 21:00 UTC Vercel run (8 am in Melbourne in summer, 7 am in winter; owner decision, Nov 2026: a morning reminder the day before) it goes out at that run.
   Setting 8 with a 5-minute runner sends it in the morning; setting it with
   only the daily run would delay the reminder to the morning of the event.
 - **Once.** `private.event_reminders (event_id, recipient_hash)` is unique and
@@ -3670,8 +3670,8 @@ address).
   expected count, and the caps; then inserts the message, its recipients
   (`holder_message_recipients`, a hash per address, never the address) and
   their outbox jobs. The caps (counted under the event's lock, so racing sends
-  can't exceed them): 2 per event per rolling 24 hours, 6 per event in all
-  (cancelled messages count), and 4 per organiser account per 24 hours
+  can't exceed them): 1 per event per rolling 24 hours, 3 per event in all
+  (cancelled messages count), and 2 per organiser account per 24 hours
   (`take_rate_limit 'holder_messages'`, taken last so a refusal costs nothing).
 - **Text.** Subject 5 to 100 characters, on one line; body 20 to 1500; plain
   text; no links or web addresses, no email addresses (an `@handle` is fine),
@@ -4005,7 +4005,7 @@ application is approved.
 | `POST /events/{id}/publish` | organiser (own events; see "Publishing events"). No body. 200 `PublishEventResponse` (`EventRecord`, `private, no-store`): `status` `published` (live now) or `pending_review` (sent to review, with `reviewReason`: `review_required`, `removed_before`, `seated`, `unknown_ticket_site`, `first_paid_event` or `daily_limit`); an event already published is a 200 too, unchanged. 403 not an approved organiser; 404 not theirs; 409 with `code`: `payouts_required`, `location_required` (`fieldErrors.location`), `event_ended`, `in_review` (already waiting), `event_changed` (its ticket link changed meanwhile: reload and retry). Emails after the response (`maxDuration` 60) |
 | `POST /events/{eventId}/ticket-types/{ticketTypeId}/release` `{quantityAvailable}` | organiser (own event; see "Releasing more tickets"). 200 `{eventId, ticketTypeId, quantityAvailable, quantitySold}` (`private, no-store`). 400 `fieldErrors.quantityAvailable` (not a whole number, not above the current total, over 100,000); 403 not an approved organiser; 404 not theirs or no such ticket type; 409 not published, ended, external or a seated tier; 429 over 30 releases an hour. The waitlist's emails are sent after the response (`maxDuration` 60) |
 | `PUT /events/{eventId}/ticket-types/{ticketTypeId}/lock` `{opensAfterPrevious}` | organiser (own event; see "Sequential ticket releases"). 200 `{eventId, ticketTypeId, opensAfterPrevious, opensAfter?}` (`private, no-store`; `opensAfter {ticketTypeId, name}` only while the tier is waiting). 400 `fieldErrors.opensAfterPrevious` (not a boolean, or the first ticket); 403 not an approved organiser; 404 not theirs or no such ticket type; 409 not published, ended, external or a seated tier; 429 over 30 changes an hour. Asking for the current value is a 200 and changes nothing |
-| `GET /events/{eventId}/holder-messages` · `POST /events/{eventId}/holder-messages` `{requestId, subject, body, attest: true, expectedRecipients}` | organiser (own event; see "Messages to ticket holders"). GET 200 `HolderMessagesState` (`audienceCount`, `canSend`, `blockedReason`, `limits`, `remaining`, `messages`; never an address). POST 201 `{messageId, recipientCount, createdAt, replayed: false}` (200 with `replayed: true` for a repeated `requestId`); the emails are sent after the response (`maxDuration` 60). 400 `fieldErrors` `requestId`, `subject`, `body`, `attest`, `expectedRecipients`; 403 not an approved organiser; 404 not theirs or a bad id; 409 `code` `not_published`, `external`, `outside_window`, `no_recipients`, `too_many`, `audience_changed` (`audienceCount`); 429 `code` `event_day_cap` (2 per rolling 24 hours), `event_total_cap` (6), `rate_limited` (4 per 24 hours per account) |
+| `GET /events/{eventId}/holder-messages` · `POST /events/{eventId}/holder-messages` `{requestId, subject, body, attest: true, expectedRecipients}` | organiser (own event; see "Messages to ticket holders"). GET 200 `HolderMessagesState` (`audienceCount`, `canSend`, `blockedReason`, `limits`, `remaining`, `messages`; never an address). POST 201 `{messageId, recipientCount, createdAt, replayed: false}` (200 with `replayed: true` for a repeated `requestId`); the emails are sent after the response (`maxDuration` 60). 400 `fieldErrors` `requestId`, `subject`, `body`, `attest`, `expectedRecipients`; 403 not an approved organiser; 404 not theirs or a bad id; 409 `code` `not_published`, `external`, `outside_window`, `no_recipients`, `too_many`, `audience_changed` (`audienceCount`); 429 `code` `event_day_cap` (1 per rolling 24 hours), `event_total_cap` (3), `rate_limited` (2 per 24 hours per account) |
 | `GET /admin/holder-messages?eventId&cursor&limit` · `GET /admin/holder-messages/{messageId}` · `POST /admin/holder-messages/{messageId}/cancel` | admin. The list has no text; the detail has the text and counts (`sentCount`, `skippedCount`); cancel stops what hasn't gone out (200 also when already stopped). 400 bad `eventId`; 404 unknown or malformed id |
 | `POST /places/autocomplete` `{input, sessionToken}` · `POST /places/details` `{placeId, sessionToken}` | approved organiser or admin (401, 403); `private, no-store` (see "Venue location"). Autocomplete: `input` 2–120 characters after control characters are removed; `sessionToken` `^[A-Za-z0-9_-]{8,36}$`, one per search. 200 `{suggestions: [{placeId, primaryText, secondaryText}]}` (at most 5, in Australia and its external territories). Details (ends the search's session): 200 `{placeId, formattedAddress, streetAddress, locality, state, postcode, googleMapsUrl}`, never a position. 400 fieldErrors (`input`, `sessionToken`, `placeId`: malformed, unknown to Google, or not in Australia); 429 per account (autocomplete 100 an hour and 400 a day; details, shared with event saves' place checks, 30 an hour and 120 a day); 503 `code: "places_unavailable"` (no key, Google unreachable, over quota, a bad key or disabled API, over 5 s, or the platform's cap for Google's day used: autocomplete 1,800, details 450). Bodies at most 4 KB. Nothing about the search is logged |
 | `GET /organisers/me/events` · `GET /organisers/me/events/{id}` | organiser (own events), `private, no-store` |

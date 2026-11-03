@@ -61,6 +61,15 @@ async function holders(emails: string[], of: EventRecord = event) {
   return ids;
 }
 
+const LIMITS = HOLDER_MESSAGE_LIMITS;
+
+/** The allowances of an organiser who has sent nothing. */
+const FULL_ALLOWANCE = {
+  eventToday: LIMITS.perEventPerDay,
+  eventTotal: LIMITS.perEventTotal,
+  organiserToday: LIMITS.perOrganiserPerDay,
+};
+
 const FIVE = ["a@example.com", "b@example.com", "c@example.com", "d@example.com", "e@example.com"];
 
 const SUBJECT = "Doors now open at 7pm";
@@ -81,6 +90,16 @@ const get = (token?: string, eventId = event.eventId) =>
 /** POST as the organiser by default; `null` for no token. */
 const post = (body: unknown, token: string | null = organiser.token, eventId = event.eventId) =>
   api.call(sendHolderMessage, { token: token ?? undefined, params: { eventId }, body });
+
+/**
+ * A day later: every message sent so far is over 24 hours old, so the rolling
+ * day caps (the event's and the organiser's) are open again. The messages
+ * still count towards the event's total.
+ */
+async function nextDay() {
+  await api.db.query(`update private.holder_messages set created_at = created_at - interval '25 hours'`);
+  await api.db.query(`delete from private.rate_limits`);
+}
 
 const cron = () =>
   api.send(
@@ -114,14 +133,18 @@ describe("GET /api/events/{eventId}/holder-messages", () => {
       audienceCount: 5,
       canSend: true,
       limits: HOLDER_MESSAGE_LIMITS,
-      remaining: { eventToday: 2, eventTotal: 6, organiserToday: 4 },
+      remaining: FULL_ALLOWANCE,
       messages: [],
     });
 
     expect((await post(validBody())).status).toBe(201);
     await api.runDeferred();
     const after = await get(organiser.token);
-    expect(after.body.remaining).toEqual({ eventToday: 1, eventTotal: 5, organiserToday: 3 });
+    expect(after.body.remaining).toEqual({
+      eventToday: LIMITS.perEventPerDay - 1,
+      eventTotal: LIMITS.perEventTotal - 1,
+      organiserToday: LIMITS.perOrganiserPerDay - 1,
+    });
     expect(after.body.messages).toEqual([
       {
         messageId: expect.any(String),
@@ -174,12 +197,15 @@ describe("GET /api/events/{eventId}/holder-messages", () => {
     expect((await get(organiser.token, external.eventId)).body).toMatchObject({ canSend: false, blockedReason: "external" });
 
     await holders(FIVE);
-    await post(validBody());
-    await post(validBody());
+    for (let i = 0; i < LIMITS.perEventPerDay; i++) expect((await post(validBody())).status).toBe(201);
     expect((await get(organiser.token)).body).toMatchObject({
       canSend: false,
       blockedReason: "event_day_cap",
-      remaining: { eventToday: 0, eventTotal: 4, organiserToday: 2 },
+      remaining: {
+        eventToday: 0,
+        eventTotal: LIMITS.perEventTotal - LIMITS.perEventPerDay,
+        organiserToday: LIMITS.perOrganiserPerDay - LIMITS.perEventPerDay,
+      },
     });
   });
 
@@ -271,7 +297,11 @@ describe("POST /api/events/{eventId}/holder-messages", () => {
     expect(holderMails()).toHaveLength(5);
     expect(await jobs()).toHaveLength(5);
     // A replay costs no allowance.
-    expect((await get(organiser.token)).body.remaining).toEqual({ eventToday: 1, eventTotal: 5, organiserToday: 3 });
+    expect((await get(organiser.token)).body.remaining).toEqual({
+      eventToday: LIMITS.perEventPerDay - 1,
+      eventTotal: LIMITS.perEventTotal - 1,
+      organiserToday: LIMITS.perOrganiserPerDay - 1,
+    });
   });
 
   it("a double click (parallel posts of one requestId) sends once", async () => {
@@ -432,7 +462,8 @@ describe("POST /api/events/{eventId}/holder-messages", () => {
       const late = await post(validBody());
       expect(late.status).toBe(409);
       expect(late.body.code).toBe("outside_window");
-      // Not yet started.
+      // Not yet started (a day later: the first send used the day's allowance).
+      await nextDay();
       await api.db.query(`update public.events set starts_at = now() + interval '30 days', ends_at = now() + interval '30 days 3 hours'`);
       expect((await post(validBody())).status).toBe(201);
     });
@@ -464,62 +495,111 @@ describe("POST /api/events/{eventId}/holder-messages", () => {
   });
 
   describe("allowances (429)", () => {
-    it("an event can send 2 messages in 24 hours and 6 in all", async () => {
+    it("an event can send its day's messages in 24 hours and its total in all", async () => {
       await holders(FIVE);
-      expect((await post(validBody())).status).toBe(201);
-      expect((await post(validBody())).status).toBe(201);
-      const third = await post(validBody());
-      expect(third.status).toBe(429);
-      expect(third.body.code).toBe("event_day_cap");
-
-      // A day later: two more at a time, until six have gone.
-      for (let round = 0; round < 2; round++) {
-        await api.db.query(`update private.holder_messages set created_at = created_at - interval '25 hours'`);
-        await api.db.query(`delete from private.rate_limits`);
-        expect((await post(validBody())).status).toBe(201);
-        expect((await post(validBody())).status).toBe(201);
+      let sent = 0;
+      while (sent < LIMITS.perEventTotal) {
+        // A day's worth, then the day cap stops the next one.
+        for (let i = 0; i < LIMITS.perEventPerDay && sent < LIMITS.perEventTotal; i++) {
+          expect((await post(validBody())).status).toBe(201);
+          sent++;
+        }
+        if (sent < LIMITS.perEventTotal) {
+          const over = await post(validBody());
+          expect(over.status).toBe(429);
+          expect(over.body.code).toBe("event_day_cap");
+          await nextDay();
+        }
       }
-      await api.db.query(`update private.holder_messages set created_at = created_at - interval '25 hours'`);
-      await api.db.query(`delete from private.rate_limits`);
-      const seventh = await post(validBody());
-      expect(seventh.status).toBe(429);
-      expect(seventh.body.code).toBe("event_total_cap");
-      expect((await get(organiser.token)).body).toMatchObject({ canSend: false, blockedReason: "event_total_cap" });
+      // The total is what stops it now, the same day and on a fresh day.
+      expect(sent).toBe(LIMITS.perEventTotal);
+      expect((await post(validBody())).body.code).toBe("event_total_cap");
+      await nextDay();
+      const beyond = await post(validBody());
+      expect(beyond.status).toBe(429);
+      expect(beyond.body.code).toBe("event_total_cap");
+      expect((await get(organiser.token)).body).toMatchObject({
+        canSend: false,
+        blockedReason: "event_total_cap",
+        remaining: { eventTotal: 0 },
+      });
+      expect(await api.db.query(`select 1 from private.holder_messages`)).toHaveLength(LIMITS.perEventTotal);
     });
 
-    it("an organiser can send 4 messages in 24 hours, across events", async () => {
-      const second = await publish(organiser, { title: "Second Night" });
+    it("an organiser can send their day's messages across events, and an event's own day cap still applies", async () => {
+      // The first event uses its own day cap; other events take the rest of the account's allowance.
+      expect(LIMITS.perOrganiserPerDay).toBeGreaterThan(LIMITS.perEventPerDay);
       await holders(FIVE);
-      await holders(FIVE, second);
-      expect((await post(validBody())).status).toBe(201);
-      expect((await post(validBody())).status).toBe(201);
-      expect((await post(validBody(), organiser.token, second.eventId)).status).toBe(201);
-      expect((await post(validBody(), organiser.token, second.eventId)).status).toBe(201);
-      const fifth = await post(validBody(), organiser.token, second.eventId);
-      expect(fifth.status).toBe(429);
-      expect(fifth.body.code).toBe("event_day_cap");
+      for (let i = 0; i < LIMITS.perEventPerDay; i++) expect((await post(validBody())).status).toBe(201);
+      for (let i = 0; i < LIMITS.perOrganiserPerDay - LIMITS.perEventPerDay; i++) {
+        const next = await publish(organiser, { title: `Night ${i + 2}` });
+        await holders(FIVE, next);
+        expect((await post(validBody(), organiser.token, next.eventId)).status).toBe(201);
+      }
 
-      const third = await publish(organiser, { title: "Third Night" });
-      await holders(FIVE, third);
-      const sixth = await post(validBody(), organiser.token, third.eventId);
-      expect(sixth.status).toBe(429);
-      expect(sixth.body.code).toBe("rate_limited");
+      // The first event is over its own day cap: that answer comes first.
+      const again = await post(validBody(), organiser.token, event.eventId);
+      expect(again.status).toBe(429);
+      expect(again.body.code).toBe("event_day_cap");
+
+      // A new event is under its own cap, but the account is out of messages for the day.
+      const extra = await publish(organiser, { title: "One Night Too Many" });
+      await holders(FIVE, extra);
+      const over = await post(validBody(), organiser.token, extra.eventId);
+      expect(over.status).toBe(429);
+      expect(over.body.code).toBe("rate_limited");
+      expect((await get(organiser.token, extra.eventId)).body.remaining).toMatchObject({ eventToday: LIMITS.perEventPerDay, organiserToday: 0 });
+      expect(await api.db.query(`select 1 from private.holder_messages`)).toHaveLength(LIMITS.perOrganiserPerDay);
+
+      // Another organiser's allowance is their own.
+      const other = await approvedOrganiser(api, admin, { displayName: "Other Collective", contactEmail: "other@example.com" });
+      const theirs = await publish(other, { title: "Theirs Night" });
+      await holders(FIVE, theirs);
+      expect((await post(validBody(), other.token, theirs.eventId)).status).toBe(201);
+
+      // A day later the account can send again.
+      await nextDay();
+      expect((await post(validBody(), organiser.token, extra.eventId)).status).toBe(201);
     });
 
     it("a refusal costs no allowance", async () => {
       await holders(FIVE);
       expect((await post(validBody({ expectedRecipients: 4 }))).status).toBe(409);
       expect((await post({ ...validBody(), attest: false })).status).toBe(400);
-      expect((await get(organiser.token)).body.remaining).toEqual({ eventToday: 2, eventTotal: 6, organiserToday: 4 });
+      expect((await get(organiser.token)).body.remaining).toEqual(FULL_ALLOWANCE);
+
+      // Nor does a message refused for the event's day cap use the account's allowance.
+      for (let i = 0; i < LIMITS.perEventPerDay; i++) expect((await post(validBody())).status).toBe(201);
+      expect((await post(validBody())).status).toBe(429);
+      expect((await get(organiser.token)).body.remaining.organiserToday).toBe(
+        LIMITS.perOrganiserPerDay - LIMITS.perEventPerDay,
+      );
     });
 
-    it("racing sends of different messages for one event: exactly 2 are queued", async () => {
+    it("racing sends of different messages for one event: exactly the day's allowance is queued", async () => {
       await holders(FIVE);
-      const results = await Promise.all(Array.from({ length: 6 }, () => post(validBody())));
-      expect(results.map((r) => r.status).sort()).toEqual([201, 201, 429, 429, 429, 429]);
-      expect(await api.db.query(`select 1 from private.holder_messages`)).toHaveLength(2);
-      expect(await jobs()).toHaveLength(10);
+      const attempts = LIMITS.perEventPerDay + 4;
+      const results = await Promise.all(Array.from({ length: attempts }, () => post(validBody())));
+      expect(results.map((r) => r.status).sort()).toEqual([
+        ...Array(LIMITS.perEventPerDay).fill(201),
+        ...Array(attempts - LIMITS.perEventPerDay).fill(429),
+      ]);
+      expect(await api.db.query(`select 1 from private.holder_messages`)).toHaveLength(LIMITS.perEventPerDay);
+      expect(await jobs()).toHaveLength(5 * LIMITS.perEventPerDay);
       expect(results.filter((r) => r.status === 429).every((r) => r.body.code === "event_day_cap")).toBe(true);
+    });
+
+    it("racing sends from one organiser's different events: exactly the account's day allowance is queued", async () => {
+      const events = [event];
+      for (let i = 1; i < LIMITS.perOrganiserPerDay + 3; i++) events.push(await publish(organiser, { title: `Night ${i + 1}` }));
+      for (const e of events) await holders(FIVE, e);
+      const results = await Promise.all(events.map((e) => post(validBody(), organiser.token, e.eventId)));
+      expect(results.map((r) => r.status).sort()).toEqual([
+        ...Array(LIMITS.perOrganiserPerDay).fill(201),
+        ...Array(events.length - LIMITS.perOrganiserPerDay).fill(429),
+      ]);
+      expect(results.filter((r) => r.status === 429).every((r) => r.body.code === "rate_limited")).toBe(true);
+      expect(await api.db.query(`select 1 from private.holder_messages`)).toHaveLength(LIMITS.perOrganiserPerDay);
     });
   });
 });
@@ -687,7 +767,10 @@ describe("admin", () => {
     expect((await detail(messageId)).body).toMatchObject({ sentCount: 0, skippedCount: 5, cancelled: true });
     expect((await get(organiser.token)).body.messages[0]).toMatchObject({ cancelled: true, sentCount: 0, skippedCount: 5 });
     // A stopped message still counts against the event's allowance.
-    expect((await get(organiser.token)).body.remaining.eventToday).toBe(1);
+    expect((await get(organiser.token)).body.remaining).toMatchObject({
+      eventToday: LIMITS.perEventPerDay - 1,
+      eventTotal: LIMITS.perEventTotal - 1,
+    });
   });
 
   it("stopping after some were sent keeps those, and skips the rest", async () => {
@@ -850,6 +933,8 @@ describe("stopping an organiser's messages", () => {
     await sendToFive();
     await stop(tokenFor("a@example.com"));
     api.sendEmail.mockClear();
+    // A day later, so the day's allowance doesn't get in the way.
+    await nextDay();
 
     expect((await get(organiser.token)).body.audienceCount).toBe(4);
     // The count they confirmed before the opt-out is stale.
@@ -902,7 +987,7 @@ describe("stopping an organiser's messages", () => {
     await sendToFive();
     const token = tokenFor("c@example.com");
     // A second message is queued but not yet sent when they stop.
-    await api.db.query(`delete from private.rate_limits`);
+    await nextDay();
     expect((await post(validBody({ requestId: crypto.randomUUID() }))).status).toBe(201);
     await stop(token);
     const skipped = await api.db.query<{ skip_reason: string }>(
@@ -938,7 +1023,7 @@ describe("stopping an organiser's messages", () => {
     expect(holderMails().map((m) => m.to)).toEqual(["A@Example.com"]);
 
     await api.db.query(`update public.orders set status = 'refunded'`);
-    await api.db.query(`delete from private.rate_limits`);
+    await nextDay();
     // (No audience left to send to.)
     expect((await post(validBody({ expectedRecipients: 1 }))).status).toBe(409);
   });
