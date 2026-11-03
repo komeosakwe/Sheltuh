@@ -319,7 +319,7 @@ describe("platform-managed organisers (no owner, never paid out)", () => {
   async function platformOrganiser(): Promise<string> {
     const res = await api.call(adminCreateOrganiser, {
       token: admin.token,
-      body: { ...application, displayName: "Sheltüh Presents", contactEmail: "events@sheltuh.example" },
+      body: { ...application, displayName: "Neon Presents", contactEmail: "events@sheltuh.example" },
     });
     return res.body.organiserId as string;
   }

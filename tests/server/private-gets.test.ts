@@ -164,6 +164,7 @@ const COVERED_ELSEWHERE: Record<string, string> = {
   getMyAvatar: "member-profiles.test.ts (`private, no-cache` with an ETag, 304 included)",
   adminGetReportAvatar: "member-profiles.test.ts (a report with a photo)",
   adminGetHolderMessage: "holder-messages.test.ts (a message sent to ticket holders)",
+  openStopHolderMessages: "holder-messages.test.ts (the stop link redirects and changes nothing)",
   getMyInvite: "invites.test.ts (a pending invite)",
   getEventClipPreview: "event-clips.test.ts (an uploaded clip)",
   getOrderBySession: "orders.test.ts (a checkout session; no token: the session id is the capability)",

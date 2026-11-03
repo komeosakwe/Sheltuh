@@ -4,6 +4,8 @@ import { confirmFreeOrder } from "@/lib/server/handlers/free-orders";
 import { createCheckout } from "@/lib/server/handlers/orders";
 import type { EventRecord } from "@/lib/server/types";
 import { CRON_SECRET, SITE_URL, TestApi } from "./helpers/api";
+import { drainEmailOutbox } from "@/lib/server/email-outbox";
+import { ticketPageLink } from "@/lib/server/ticket-email";
 import { approvedOrganiser, insertOrder, publishedEvent, selfPublishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 
@@ -349,6 +351,59 @@ describe("which orders and events qualify", () => {
     expect(named.map((j) => j.job_kind)).toEqual(["event_reminder"]);
   });
 
+  describe("the drain's budget", () => {
+    /** Ticket-email jobs for the `n` newest orders: queued after the reminders, so only the phase order puts them first. */
+    const queueTicketEmails = (n: number) =>
+      api.db.query(
+        `insert into private.email_outbox (kind, order_id)
+         select 'ticket_email', o.id from public.orders o order by o.created_at desc limit $1`,
+        [n],
+      );
+    const ticketMails = () => api.sendEmail.mock.calls.map(([m]) => m).filter((m) => m.subject.startsWith("Your tickets"));
+    const buyers = (n: number) => Array.from({ length: n }, (_, i) => `fan${i}@example.com`);
+
+    it("sends tickets first, and reminders only within their share, so a burst of reminders never starves a ticket email", async () => {
+      await soon(buyers(12), 20);
+      expect(await queue()).toBe(12);
+      await queueTicketEmails(3);
+
+      const summary = await drainEmailOutbox(api.deps, { maxJobs: 10 });
+      expect(ticketMails()).toHaveLength(3);
+      // 60% of 10 for reminders, however many are waiting: 6.
+      expect(reminderMails()).toHaveLength(6);
+      expect(summary.claimed).toBe(9);
+      // The rest wait for the next run.
+      const next = await drainEmailOutbox(api.deps, { maxJobs: 10 });
+      expect(next.claimed).toBe(6);
+      expect(reminderMails()).toHaveLength(12);
+    });
+
+    it("with the default budget of 100, reminders take at most 60 of a run", async () => {
+      await soon(buyers(70), 20);
+      expect(await queue()).toBe(70);
+      const summary = await drainEmailOutbox(api.deps);
+      expect(summary.claimed).toBe(60);
+      expect(reminderMails()).toHaveLength(60);
+    });
+
+    it("a drain for the reminder kind alone (a named kind) is not cut to the share", async () => {
+      await soon(buyers(8), 20);
+      expect(await queue()).toBe(8);
+      const summary = await drainEmailOutbox(api.deps, { kind: "event_reminder", maxJobs: 10 });
+      expect(summary.claimed).toBe(8);
+    });
+
+    it("tickets fill the whole budget when there are enough of them, and reminders wait", async () => {
+      await soon(buyers(12), 20);
+      expect(await queue()).toBe(12);
+      await queueTicketEmails(12);
+      const summary = await drainEmailOutbox(api.deps, { maxJobs: 10 });
+      expect(summary.claimed).toBe(10);
+      expect(ticketMails()).toHaveLength(10);
+      expect(reminderMails()).toHaveLength(0);
+    });
+  });
+
   it("a purge of sent jobs doesn't send a reminder again", async () => {
     await soon(["a@example.com"], 20);
     await cron();
@@ -400,6 +455,35 @@ describe("the reminder email", () => {
     expect(reminderMails()).toEqual([]);
     const [job] = await jobs();
     expect(job).toMatchObject({ status: "failed", last_error: "the order isn't paid any more" });
+  });
+
+  it("is still sent when the order it was queued for was refunded but the holder has another paid order, to that order's tickets", async () => {
+    const { event, orderIds } = await soon(["fan@example.com"], 20);
+    // A second paid order by the same person (another spelling of the address), made later.
+    const second = await insertOrder(api, event, "FAN@Example.com", "paid");
+    await api.db.query(`update public.orders set created_at = now() - interval '12 hours' where id = $1`, [second]);
+    expect(await queue()).toBe(1);
+    expect(await reminders()).toEqual([{ event_id: event.eventId, order_id: orderIds[0] }]);
+    await api.db.query(`update public.orders set status = 'refunded' where id = $1`, [orderIds[0]]);
+
+    await cron();
+    const [message] = reminderMails();
+    expect(message.to).toBe("FAN@Example.com");
+    expect(message.text).toContain(`View your tickets: ${ticketPageLink(SITE_URL, second)}`);
+    expect(message.text).not.toContain(orderIds[0]);
+    expect(await jobs()).toEqual([expect.objectContaining({ status: "sent" })]);
+  });
+
+  it("is skipped only when no paid order is left for that person, not when someone else's order remains", async () => {
+    const { event, orderIds } = await soon(["fan@example.com", "other@example.com"], 20);
+    expect(await queue()).toBe(2);
+    await api.db.query(`update public.orders set status = 'refunded' where id = $1`, [orderIds[0]]);
+    await insertOrder(api, event, "third@example.com", "paid");
+    await cron();
+    expect(reminderMails().map((m) => m.to)).toEqual(["other@example.com"]);
+    const states = await jobs();
+    expect(states.map((j) => j.status).sort()).toEqual(["failed", "sent"]);
+    expect(states.find((j) => j.status === "failed")?.last_error).toBe("the order isn't paid any more");
   });
 
   it.each([

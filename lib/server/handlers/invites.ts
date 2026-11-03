@@ -110,7 +110,8 @@ function parseCreateBody(body: Record<string, unknown>): {
     } else {
       // The application's fields and rules (the bio included), as for a platform-managed organiser.
       try {
-        const input = parseApplication(body.organiser as Record<string, unknown>);
+        // An admin writes it (the invited organiser is approved on accepting), so the reserved-name rule is lifted as for a platform-managed organiser.
+        const input = parseApplication(body.organiser as Record<string, unknown>, undefined, { reservedNames: false });
         profile = {
           display_name: input.displayName,
           contact_email: input.contactEmail,

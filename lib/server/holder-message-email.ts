@@ -21,16 +21,27 @@ import { organiserPageLink } from "./follower-email";
  * (docs/architecture.md, "Messages to ticket holders"). Sheltüh sends it from
  * its own address with no Reply-To (a reply would hand the organiser the
  * buyer's address); the footer says who it is from and why the reader got it,
- * links the organiser's page and offers a way to report it. The text is the
- * organiser's, shown as escaped plain text in a labelled block; it has no
- * unsubscribe link (it's about tickets the reader holds) and no marketing, and
- * is sent as an automatic message (`Auto-Submitted`).
+ * links the organiser's page and offers a way to report it and a way to stop
+ * this organiser's messages (a "Stop messages from {organiser}" link, plus
+ * List-Unsubscribe and List-Unsubscribe-Post headers). The text is the
+ * organiser's, shown as escaped plain text in a labelled block; there is no
+ * marketing, and it is sent as an automatic message (`Auto-Submitted`).
  */
 
 /** The report link: a mailto to support naming the message (its id reveals nothing about the reader). */
 export function holderMessageReportLink(messageId: string, organiserName: string): string {
   const subject = subjectLine(`Report a message from ${organiserName}`);
   return `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(`Message reference: ${messageId}\n\nWhat's wrong with it?\n`)}`;
+}
+
+/** The "Stop messages from {organiser}" page. The token is in the fragment, which browsers never send. */
+export function holderMessageStopLink(siteUrl: string, token: string): string {
+  return `${siteUrl}/holder-messages/stop#token=${token}`;
+}
+
+/** The List-Unsubscribe URL: the API endpoint, so a mail client's one-click POST (RFC 8058) reaches it; opening it in a browser redirects to the page. */
+export function holderMessageOneClickUrl(siteUrl: string, token: string): string {
+  return `${siteUrl}/api/holder-messages/stop?token=${encodeURIComponent(token)}`;
 }
 
 /** Escaped plain text as HTML: line breaks kept. */
@@ -47,8 +58,17 @@ export function buildHolderMessageEmail(input: {
   subject: string;
   body: string;
   siteUrl: string;
+  /** The recipient's stop token (32 random bytes, base64url): only its hash is stored. */
+  stopToken: string;
 }): EmailMessage {
-  const { to, messageId, eventTitle, organiserName, organiserId, subject: topic, body, siteUrl } = input;
+  const { to, messageId, organiserId, subject: topic, body, siteUrl } = input;
+  // The event title and the organiser's name are organiser-supplied: control, invisible and bidi characters
+  // become a space and line breaks go, so neither can hide, reorder or bend what the reader sees.
+  const eventTitle = subjectLine(input.eventTitle);
+  const organiserName = subjectLine(input.organiserName);
+  // The stop link: a page with a button (nothing changes on opening it), and the same endpoint for a mail client's one-click.
+  const stopLink = holderMessageStopLink(siteUrl, input.stopToken);
+  const stopLabel = `Stop messages from ${organiserName}`;
   const subject = subjectLine(`${eventTitle}: ${topic}`);
   const organiserLink = organiserPageLink(siteUrl, organiserId);
   const reportLink = holderMessageReportLink(messageId, organiserName);
@@ -71,7 +91,8 @@ export function buildHolderMessageEmail(input: {
       `</td></tr></table>` +
       `<p style="margin:16px 0 0 0;${small}">` +
       `<a href="${escapeHtml(organiserLink)}" style="color:${MUTED};text-decoration:underline">About ${escapeHtml(organiserName)}</a> &middot; ` +
-      `<a href="${escapeHtml(reportLink)}" style="color:${MUTED};text-decoration:underline">Report this message</a></p>`,
+      `<a href="${escapeHtml(reportLink)}" style="color:${MUTED};text-decoration:underline">Report this message</a> &middot; ` +
+      `<a href="${escapeHtml(stopLink)}" style="color:${MUTED};text-decoration:underline">${escapeHtml(stopLabel)}</a></p>`,
     footer: emailFooter({ reason, siteUrl }),
   });
 
@@ -85,6 +106,7 @@ export function buildHolderMessageEmail(input: {
     "",
     `About ${organiserName}: ${organiserLink}`,
     `Report this message: ${reportLink}`,
+    `${stopLabel}: ${stopLink}`,
     "",
     emailFooterText({ reason, siteUrl }),
   ].join("\n");
@@ -95,6 +117,10 @@ export function buildHolderMessageEmail(input: {
     text,
     html,
     inlineImages: [wordmarkImage()],
-    headers: { "Auto-Submitted": "auto-generated" },
+    headers: {
+      "Auto-Submitted": "auto-generated",
+      "List-Unsubscribe": `<${holderMessageOneClickUrl(siteUrl, input.stopToken)}>`,
+      "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+    },
   };
 }

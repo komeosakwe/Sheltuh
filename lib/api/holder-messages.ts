@@ -6,6 +6,7 @@ import type {
   HolderMessageSent,
   HolderMessagesState,
   Paginated,
+  StopHolderMessagesResult,
 } from "./types";
 
 /**
@@ -79,4 +80,14 @@ export async function adminCancelHolderMessage(messageId: string, getToken: GetT
     method: "POST",
     token,
   });
+}
+
+/**
+ * The emailed "Stop messages from {organiser}" link's page
+ * (/holder-messages/stop#token=…): POST the fragment's token when the button
+ * is pressed. That organiser sends nothing more to the inbox the email went
+ * to, for any event. ApiError 400 (incomplete link), 404.
+ */
+export function stopHolderMessages(token: string) {
+  return apiFetch<StopHolderMessagesResult>("/holder-messages/stop", { method: "POST", body: { token } });
 }

@@ -53,13 +53,14 @@ import { buildWaitlistAvailableEmail, waitlistEventLink, waitlistLeaveLink } fro
  *   an organiser's "next steps" after approval (queued by the cron route's
  *   private.queue_member_welcomes and by triggers on public.organisers); one
  *   email, to the account's own address, at most once per account and kind.
- *   Only leased when asked for by kind, and drained last
- *   (docs/architecture.md, "Onboarding emails").
+ *   Only leased when asked for by kind, and drained after the other
+ *   original kinds (docs/architecture.md, "Onboarding emails").
  * - `event_reminder`: the cron route's private.queue_event_reminders queues
  *   one per ticket holder per event, once the event is today or tomorrow in
  *   its own time zone; one email to the buyer's address, never twice for an
- *   event. Only leased when asked for by kind, and drained after the original
- *   kinds (docs/architecture.md, "Event reminders").
+ *   event. Only leased when asked for by kind, and drained last, within a
+ *   sub-budget shared with holder messages (BULK_SHARE_OF_DRAIN;
+ *   docs/architecture.md, "Event reminders").
  * - `holder_message`: private.send_holder_message queues one per address
  *   when an organiser messages their event's ticket holders; one email each,
  *   sent by Sheltüh with no Reply-To. Leased by kind only, like the reminder
@@ -701,9 +702,31 @@ async function deliverOnboardingEmail(deps: Deps, jobId: string): Promise<Outcom
 }
 
 /**
+ * The inbox's oldest paid order for the event, when the order a reminder or
+ * message was queued for has stopped being paid (refunded since): a holder
+ * with another paid order still holds a ticket and is still sent to. Matched
+ * on the recipient hash the job was queued with, so it is the same inbox.
+ */
+async function otherPaidOrder(
+  deps: Deps,
+  eventId: string,
+  recipientHash: string,
+): Promise<{ id: string; buyer_email: string } | undefined> {
+  const [order] = await deps.db.query<{ id: string; buyer_email: string }>(
+    `select o.id, o.buyer_email from public.orders o
+      where o.event_id = $1 and o.status = 'paid' and o.buyer_email is not null
+        and private.email_recipient_hash(o.buyer_email) = $2
+      order by o.created_at, o.id limit 1`,
+    [eventId, recipientHash],
+  );
+  return order;
+}
+
+/**
  * Sends one event reminder to the buyer of the order it was queued for.
  * Everything is read now, not when the job was queued: skipped, not retried,
- * if the order isn't paid any more (refunded in full), the event was
+ * if the holder has no paid order for the event any more (the order it was
+ * queued for was refunded in full and they have no other), the event was
  * unpublished, has started or was moved further off than a day or so, the
  * organiser isn't approved, or the address isn't a plain one. Over the
  * platform's daily allowance the job waits an hour, without using an attempt.
@@ -715,6 +738,7 @@ async function deliverEventReminder(deps: Deps, jobId: string): Promise<Outcome>
       order_id: string;
       order_status: string;
       buyer_email: string | null;
+      recipient_hash: string;
       event_id: string;
       event_status: string;
       upcoming: boolean;
@@ -722,7 +746,7 @@ async function deliverEventReminder(deps: Deps, jobId: string): Promise<Outcome>
       organiser_id: string;
       organiser_status: string;
     }>(
-      `select r.order_id, o.status::text as order_status, o.buyer_email, e.id as event_id, e.status::text as event_status,
+      `select r.order_id, o.status::text as order_status, o.buyer_email, r.recipient_hash, e.id as event_id, e.status::text as event_status,
               e.starts_at > now() as upcoming, e.starts_at < now() + $2::interval as soon,
               g.id as organiser_id, g.status::text as organiser_status
          from private.email_outbox j
@@ -734,12 +758,20 @@ async function deliverEventReminder(deps: Deps, jobId: string): Promise<Outcome>
       [jobId, REMINDER_MAX_LEAD],
     );
     if (!row) return skip("the order or event no longer exists");
-    if (row.order_status !== "paid") return skip("the order isn't paid any more");
+    // The order it was queued for may have been refunded since; another paid order of the inbox's will do.
+    let orderId = row.order_id;
+    let buyerEmail = row.buyer_email;
+    if (row.order_status !== "paid") {
+      const other = await otherPaidOrder(deps, row.event_id, row.recipient_hash);
+      if (!other) return skip("the order isn't paid any more");
+      orderId = other.id;
+      buyerEmail = other.buyer_email;
+    }
     if (row.event_status !== "published") return skip("the event isn't published any more");
     if (row.organiser_status !== "approved") return skip("the organiser isn't approved any more");
     if (!row.upcoming) return skip("the event has started");
     if (!row.soon) return skip("the event is further off now");
-    if (!row.buyer_email || !isPlainEmailAddress(row.buyer_email)) return skip("the order has no usable email address");
+    if (!buyerEmail || !isPlainEmailAddress(buyerEmail)) return skip("the order has no usable email address");
     const event = await findEventById(deps.db, row.event_id);
     if (!event) return skip("the event no longer exists");
     // Last, so a skipped job never uses the allowance. Over it, the job waits (it isn't dropped, nor does it use an attempt).
@@ -752,8 +784,8 @@ async function deliverEventReminder(deps: Deps, jobId: string): Promise<Outcome>
     }
     await deps.sendEmail(
       buildEventReminderEmail({
-        to: row.buyer_email,
-        orderId: row.order_id,
+        to: buyerEmail,
+        orderId,
         event,
         organiserId: row.organiser_id,
         siteUrl: deps.siteUrl(),
@@ -781,7 +813,8 @@ async function recordHolderMessageSkip(deps: Deps, recipientId: string, reason: 
 /**
  * Sends one organiser message to one ticket holder. Everything is read now:
  * skipped (and recorded on the recipient), not retried, if an admin stopped
- * the message, the order isn't paid any more, the event was unpublished, the
+ * the message, the holder asked the organiser to stop messaging them, they
+ * have no paid order for the event any more, the event was unpublished, the
  * organiser isn't approved, or the address isn't a plain one. Already sent
  * (a worker that died before recording it) is a success, not a second email.
  * Over the platform's daily allowance the job waits an hour, without using an
@@ -803,9 +836,15 @@ async function deliverHolderMessage(deps: Deps, jobId: string): Promise<Outcome>
       organiser_status: string;
       order_status: string;
       buyer_email: string | null;
+      event_id: string;
+      recipient_hash: string;
+      suppressed: boolean;
     }>(
       `select r.id as recipient_id, m.id as message_id, r.sent_at is not null as sent, m.subject, m.body,
               m.cancelled_at is not null as cancelled, e.title as event_title, e.status::text as event_status,
+              e.id as event_id, r.recipient_hash,
+              exists (select 1 from private.holder_message_suppressions s
+                       where s.organiser_id = m.organiser_id and s.recipient_hash = r.recipient_hash) as suppressed,
               g.id as organiser_id, g.display_name as organiser_name, g.status::text as organiser_status,
               o.status::text as order_status, o.buyer_email
          from private.email_outbox j
@@ -824,10 +863,18 @@ async function deliverHolderMessage(deps: Deps, jobId: string): Promise<Outcome>
       return skip(reason);
     };
     if (row.cancelled) return refuse("an admin stopped the message");
-    if (row.order_status !== "paid") return refuse("the order isn't paid any more");
+    // They asked this organiser (any message of theirs) to stop: checked now, so it also holds for messages already queued.
+    if (row.suppressed) return refuse("they asked to stop messages from this organiser");
+    // The order it was queued for may have been refunded since; another paid order of the inbox's will do.
+    let buyerEmail = row.buyer_email;
+    if (row.order_status !== "paid") {
+      const other = await otherPaidOrder(deps, row.event_id, row.recipient_hash);
+      if (!other) return refuse("the order isn't paid any more");
+      buyerEmail = other.buyer_email;
+    }
     if (row.event_status !== "published") return refuse("the event isn't published any more");
     if (row.organiser_status !== "approved") return refuse("the organiser isn't approved any more");
-    if (!row.buyer_email || !isPlainEmailAddress(row.buyer_email)) return refuse("the order has no usable email address");
+    if (!buyerEmail || !isPlainEmailAddress(buyerEmail)) return refuse("the order has no usable email address");
     const [{ allowed }] = await deps.db.query<{ allowed: boolean }>(
       `select private.take_platform_rate_limit($1, $2, interval '1 day') as allowed`,
       [HOLDER_MESSAGES_DAILY.bucket, HOLDER_MESSAGES_DAILY.limit],
@@ -835,9 +882,16 @@ async function deliverHolderMessage(deps: Deps, jobId: string): Promise<Outcome>
     if (!allowed) {
       return { sent: false, error: "over the daily allowance for messages", permanent: false, deferSeconds: SEND_CAP_DEFER_SECONDS };
     }
+    // A fresh stop link per attempt (its hash stored first, so it works the moment the email lands); earlier copies' links stay valid.
+    const stopToken = randomBytes(32).toString("base64url");
+    await deps.db.query(`insert into private.holder_message_stop_tokens (token_hash, recipient_id) values ($1, $2::uuid)`, [
+      createHash("sha256").update(stopToken, "utf8").digest("hex"),
+      row.recipient_id,
+    ]);
     await deps.sendEmail(
       buildHolderMessageEmail({
-        to: row.buyer_email,
+        to: buyerEmail,
+        stopToken,
         messageId: row.message_id,
         eventTitle: row.event_title,
         organiserName: row.organiser_name,
@@ -990,45 +1044,67 @@ async function leaseJobs(deps: Deps, limit: number, orderId: string | null, kind
   return rows.map((row): ClaimedJob => ({ ...row, job_event_id: null, job_organiser_id: null }));
 }
 
+/** A drain's default `maxJobs`. */
+export const DRAIN_DEFAULT_MAX_JOBS = 100;
+/**
+ * Of a drain's `maxJobs`, at most this share goes to event reminders and
+ * organiser messages together (60 of the default 100). Both can queue
+ * hundreds of jobs at once; they run after every other kind and only within
+ * this sub-budget, so a day-before burst can't take the run's whole budget
+ * from onboarding and admin emails, and tickets (leased first) never wait
+ * behind them.
+ */
+export const BULK_SHARE_OF_DRAIN = 0.6;
+
 /**
  * Leases due jobs and sends them, until none are due, `maxJobs` have been
  * taken or `budgetMs` has passed. With `orderId`, only that order's job (the
  * attempt straight after payment); with `kind`, only jobs of that kind.
- * With neither, ops alerts first, then the original kinds (tickets, waitlist,
- * followers, reviews), then event reminders, organiser messages to ticket
- * holders, the organiser-published and organiser-joined emails, and the
- * onboarding emails last, so a burst of welcomes never delays
- * a ticket (private.lease_outbox_jobs without a kind leases only an allowlist
- * of the original kinds; every other kind only when asked for it by name, so
- * a release that can't send one never takes it).
+ * With neither: ops alerts first, then the original kinds (tickets, waitlist,
+ * followers, reviews), then the organiser-published and organiser-joined
+ * emails, the onboarding emails, and last the bulk kinds, event reminders and
+ * organiser messages to ticket holders, which share a sub-budget of
+ * BULK_SHARE_OF_DRAIN of `maxJobs`. So tickets and everything that was
+ * already there come first and can never be starved by a burst of reminders,
+ * and reminders always get their share when the others have little to send
+ * (private.lease_outbox_jobs without a kind leases only an allowlist of the
+ * original kinds; every other kind only when asked for it by name, so a
+ * release that can't send one never takes it).
  * Safe to run concurrently with itself.
  */
 export async function drainEmailOutbox(
   deps: Deps,
   options: { orderId?: string; kind?: EmailJobKind; maxJobs?: number; budgetMs?: number; random?: () => number } = {},
 ): Promise<DrainSummary> {
-  const { orderId, kind, maxJobs = 100, budgetMs = DRAIN_BUDGET_MS, random = Math.random } = options;
+  const { orderId, kind, maxJobs = DRAIN_DEFAULT_MAX_JOBS, budgetMs = DRAIN_BUDGET_MS, random = Math.random } = options;
   const deadline = Date.now() + budgetMs;
   const summary: DrainSummary = { claimed: 0, sent: 0, retrying: 0, failed: 0 };
-  const phases: (EmailJobKind | null)[] = kind
+  const order: (EmailJobKind | null)[] = kind
     ? [kind]
     : orderId
       ? [null]
-      : ["ops_alert", null, "event_reminder", "holder_message", "event_published", "organiser_joined", "onboarding"];
-  for (const phase of phases) {
+      : ["ops_alert", null, "event_published", "organiser_joined", "onboarding", "event_reminder", "holder_message"];
+  const phases = order.map((phase) => ({ phase, bulk: phase === "event_reminder" || phase === "holder_message" }));
+  const bulkBudget = Math.floor(maxJobs * BULK_SHARE_OF_DRAIN);
+  let bulkClaimed = 0;
+  for (const { phase, bulk } of phases) {
+    // A drain for one kind (a message's own send) is the whole budget; in the full drain the bulk kinds get their share.
+    const limited = bulk && !kind;
     while (summary.claimed < maxJobs && Date.now() < deadline) {
+      const room = limited ? Math.min(maxJobs - summary.claimed, bulkBudget - bulkClaimed) : maxJobs - summary.claimed;
+      if (room <= 0) break;
       // Taken before the lease starts, so the lease ends no sooner than this says.
       const leaseEndsAt = Date.now() + EMAIL_LEASE_MS;
-      const jobs = await leaseJobs(deps, Math.min(CLAIM_BATCH, maxJobs - summary.claimed), orderId ?? null, phase);
+      const jobs = await leaseJobs(deps, Math.min(CLAIM_BATCH, room), orderId ?? null, phase);
       if (jobs.length === 0) break;
       summary.claimed += jobs.length;
+      if (limited) bulkClaimed += jobs.length;
       for (const job of jobs) await runJob(deps, job, leaseEndsAt, summary, random);
     }
   }
   return summary;
 }
 
-/** Queues the first attempt at `orderId`'s ticket email for straight after the response. */
 export function sendTicketEmailSoon(deps: Deps, orderId: string): void {
   deps.defer(async () => {
     await drainEmailOutbox(deps, { orderId, maxJobs: 1 });

@@ -1125,6 +1125,12 @@ export interface HolderMessageSent {
   replayed: boolean;
 }
 
+/** POST /holder-messages/stop {token}: the emailed link's token is the credential. */
+export interface StopHolderMessagesResult {
+  status: "stopped";
+  organiserName?: string;
+}
+
 /** One message in the admin's list (GET /admin/holder-messages). Never an address. */
 export interface AdminHolderMessage extends Omit<HolderMessageSummary, "body"> {
   eventId: string;

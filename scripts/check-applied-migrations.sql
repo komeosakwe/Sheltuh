@@ -203,10 +203,13 @@ select version, file, coalesce(applied, false) as applied
     ('20261118000100', 'ticket_holder_messages',
       to_regclass('private.holder_messages') is not null
       and to_regclass('private.holder_message_recipients') is not null
+      and to_regclass('private.holder_message_suppressions') is not null
+      and to_regclass('private.holder_message_stop_tokens') is not null
       and exists (select 1 from col where attrelid = to_regclass('private.email_outbox') and attname = 'message_recipient_id')
       and exists (select 1 from outbox_check where conname = 'email_outbox_kind_check' and def like '%holder_message%')
       and exists (select 1 from fn where proname = 'send_holder_message')
       and exists (select 1 from fn where proname = 'cancel_holder_message')
+      and exists (select 1 from fn where proname = 'stop_holder_messages')
       and exists (select 1 from fn where proname = 'purge_operational_data'
                    and 'holder_messages_deleted' = any(proargnames)))
   ) as m(version, file, applied)

@@ -81,7 +81,7 @@ async function pendingApplication(overrides: Record<string, unknown> = {}) {
 async function platformOrganiser(): Promise<string> {
   const res = await api.call(adminCreateOrganiser, {
     token: admin.token,
-    body: { ...application, displayName: "Sheltüh Presents", contactEmail: "events@sheltuh.example" },
+    body: { ...application, displayName: "Neon Presents", contactEmail: "events@sheltuh.example" },
   });
   if (res.status !== 201) throw new Error(`adminCreateOrganiser failed: ${JSON.stringify(res.body)}`);
   return res.body.organiserId as string;

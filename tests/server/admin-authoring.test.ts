@@ -70,6 +70,17 @@ async function platformOrganiser(): Promise<string> {
   return res.body.organiserId as string;
 }
 
+describe("a platform-managed organiser's name", () => {
+  it("may be the platform's own (Sheltüh Presents), but not carry invisible or control characters", async () => {
+    expect((await api.call(adminCreateOrganiser, { token: admin.token, body: platformOrganiserBody })).status).toBe(201);
+    for (const displayName of ["Static\u200B Collective", "Static\u202E Collective", "Static\nCollective"]) {
+      const res = await api.call(adminCreateOrganiser, { token: admin.token, body: { ...platformOrganiserBody, displayName } });
+      expect(res.status, JSON.stringify(displayName)).toBe(400);
+      expect(Object.keys(res.body.fieldErrors)).toEqual(["displayName"]);
+    }
+  });
+});
+
 function createEvent(body: Record<string, unknown>, token = admin.token) {
   return api.call(adminCreateEvent, { token, body });
 }

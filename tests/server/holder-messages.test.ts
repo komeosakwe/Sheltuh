@@ -7,7 +7,9 @@ import {
   adminListHolderMessages,
   getHolderMessages,
   HOLDER_MESSAGE_LIMITS,
+  openStopHolderMessages,
   sendHolderMessage,
+  stopHolderMessages,
 } from "@/lib/server/handlers/holder-messages";
 import type { EventRecord } from "@/lib/server/types";
 import { applyAsOrganiser } from "@/lib/server/handlers/organisers";
@@ -222,7 +224,13 @@ describe("POST /api/events/{eventId}/holder-messages", () => {
       expect(mail.text).toContain("can’t see your address");
       expect(mail.text).toContain("Report this message: mailto:");
       expect(mail.html).toContain(BODY);
-      expect(mail.headers).toEqual({ "Auto-Submitted": "auto-generated" });
+      const stop = /holder-messages\/stop#token=([A-Za-z0-9_-]{43})/.exec(mail.text)?.[1];
+      expect(stop).toBeDefined();
+      expect(mail.headers).toEqual({
+        "Auto-Submitted": "auto-generated",
+        "List-Unsubscribe": `<${SITE_URL}/api/holder-messages/stop?token=${stop}>`,
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+      });
       expect(Object.keys(mail.headers ?? {}).map((h) => h.toLowerCase())).not.toContain("reply-to");
       // The one recipient only: no other buyer's address in the message.
       for (const other of FIVE.filter((a) => a !== mail.to)) {
@@ -289,6 +297,21 @@ describe("POST /api/events/{eventId}/holder-messages", () => {
       ["a body over 1500 characters", { body: "x".repeat(1501) }, "body"],
       ["a body with a link", { body: "Doors now open at 7pm, details at https://example.com/x for everyone." }, "body"],
       ["a body with a bare domain", { body: "Doors now open at 7pm, details at sheltuh.com.au for everyone." }, "body"],
+      ["a body with a .ru domain", { body: "Doors now open at 7pm, details at x.ru for everyone tonight." }, "body"],
+      ["a body with a .top domain", { body: "Doors now open at 7pm, details at x.top for everyone tonight." }, "body"],
+      ["a body with a .ai domain", { body: "Doors now open at 7pm, details at x.ai for everyone tonight." }, "body"],
+      ["a body with a .cc domain", { body: "Doors now open at 7pm, details at x.cc for everyone tonight." }, "body"],
+      ["a body with a .click domain", { body: "Doors now open at 7pm, details at x.click for everyone tonight." }, "body"],
+      ["a body with a .uk domain", { body: "Doors now open at 7pm, details at x.uk for everyone tonight." }, "body"],
+      ["a body with a .nz domain", { body: "Doors now open at 7pm, details at x.nz for everyone tonight." }, "body"],
+      ["a body with is.gd", { body: "Doors now open at 7pm, details at is.gd/abc for everyone tonight." }, "body"],
+      ["a body with goo.gl", { body: "Doors now open at 7pm, details at goo.gl/abc for everyone tonight." }, "body"],
+      ["a body with rb.gy", { body: "Doors now open at 7pm, details at rb.gy/abc for everyone tonight." }, "body"],
+      ["a body with lnkd.in", { body: "Doors now open at 7pm, details at lnkd.in/abc for everyone tonight." }, "body"],
+      ["a body with a bare IPv4 address", { body: "Doors now open at 7pm, details at 203.0.113.5/login for everyone." }, "body"],
+      ["a body with an obfuscated address", { body: "Doors now open at 7pm, write to a [at] b [dot] ru if you are lost." }, "body"],
+      ["a body with an (at) address", { body: "Doors now open at 7pm, write to boss(at)example if you are lost." }, "body"],
+      ["a subject with an unlisted TLD", { subject: "Details at x.ru now" }, "subject"],
       ["a body with an email address", { body: "Doors now open at 7pm, write to me at boss@example.org if lost." }, "body"],
       ["a body with a right-to-left override", { body: "Doors now open at 7pm ‮so please arrive early." }, "body"],
       ["a body with a zero-width space", { body: "Doors now open at 7pm so​ please arrive early." }, "body"],
@@ -308,6 +331,17 @@ describe("POST /api/events/{eventId}/holder-messages", () => {
       expect(Object.keys(res.body.fieldErrors)).toContain(field);
       expect(await jobs()).toEqual([]);
       expect(await api.db.query(`select 1 from private.holder_messages`)).toEqual([]);
+    });
+
+    it("times, prices, levels and abbreviations are not links", async () => {
+      await holders(FIVE);
+      const res = await post(
+        validBody({
+          subject: "Doors 7.30pm at St. Kilda",
+          body: "Doors 7.30pm, music from 8.00. Level 2.5, tickets A$12.50 e.g. bring ID, i.e. photo ID. Mr. Lee on at 9 p.m. sharp.",
+        }),
+      );
+      expect(res.status).toBe(201);
     });
 
     it("an @handle is fine; all the fields' errors come back together", async () => {
@@ -715,5 +749,205 @@ describe("retention and constraints", () => {
     await api.db.query(`delete from public.orders where id = $1`, [id]);
     expect(await recipients()).toEqual([]);
     expect(await jobs()).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Opting out: "Stop messages from {organiser}"
+// ---------------------------------------------------------------------------
+
+describe("stopping an organiser's messages", () => {
+  const stop = (token: unknown) => api.call(stopHolderMessages, { body: { token } });
+  const stopOpen = (query: Record<string, string>) => api.callRaw(openStopHolderMessages, { query });
+  const suppressions = () =>
+    api.db.query<{ organiser_id: string; recipient_hash: string }>(
+      `select organiser_id, recipient_hash from private.holder_message_suppressions`,
+    );
+
+  /** The stop token in the email sent to `to`. */
+  function tokenFor(to: string): string {
+    const mail = holderMails().find((m) => m.to === to);
+    const token = /holder-messages\/stop#token=([A-Za-z0-9_-]{43})/.exec(mail?.text ?? "")?.[1];
+    if (!token) throw new Error(`no stop link in the email to ${to}`);
+    return token;
+  }
+
+  async function sendToFive() {
+    await holders(FIVE);
+    expect((await post(validBody())).status).toBe(201);
+    await api.runDeferred();
+  }
+
+  it("every email carries its own random token; only its hash is stored", async () => {
+    await sendToFive();
+    const tokens = FIVE.map(tokenFor);
+    expect(new Set(tokens).size).toBe(5);
+    const rows = await api.db.query<{ token_hash: string }>(`select token_hash from private.holder_message_stop_tokens`);
+    expect(rows).toHaveLength(5);
+    for (const token of tokens) {
+      expect(JSON.stringify(rows)).not.toContain(token);
+      const [{ n }] = await api.db.query<{ n: number }>(
+        `select count(*)::int as n from private.holder_message_stop_tokens where token_hash = encode(sha256($1::bytea), 'hex')`,
+        [Buffer.from(token)],
+      );
+      expect(n).toBe(1);
+    }
+  });
+
+  it("GET changes nothing: it redirects to the confirm page with the token in the fragment", async () => {
+    await sendToFive();
+    const token = tokenFor("a@example.com");
+    const res = await stopOpen({ token });
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toBe(`${SITE_URL}/holder-messages/stop#token=${token}`);
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
+    expect(await suppressions()).toEqual([]);
+    // A malformed token is never echoed.
+    const bad = await stopOpen({ token: "x\r\nSet-Cookie: a=b" });
+    expect(bad.headers.get("location")).toBe(`${SITE_URL}/holder-messages/stop`);
+    expect((await stopOpen({})).headers.get("location")).toBe(`${SITE_URL}/holder-messages/stop`);
+  });
+
+  it("POST suppresses that inbox for that organiser (idempotent), naming the organiser", async () => {
+    await sendToFive();
+    const token = tokenFor("a@example.com");
+    const res = await stop(token);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
+    expect(res.body).toEqual({ status: "stopped", organiserName: "Static Collective" });
+    expect(await suppressions()).toEqual([{ organiser_id: organiser.organiserId, recipient_hash: expect.stringMatching(/^[0-9a-f]{64}$/) }]);
+    expect((await stop(token)).status).toBe(200);
+    expect(await suppressions()).toHaveLength(1);
+    // The address is never stored in the suppression.
+    expect(JSON.stringify(await api.db.query(`select * from private.holder_message_suppressions`))).not.toContain("example.com");
+  });
+
+  it("a mail client's one-click POST (token in the query, form body) suppresses too", async () => {
+    await sendToFive();
+    const token = tokenFor("b@example.com");
+    const res = await api.send(
+      stopHolderMessages,
+      new Request(`${SITE_URL}/api/holder-messages/stop?token=${token}`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: "List-Unsubscribe=One-Click",
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(await suppressions()).toHaveLength(1);
+  });
+
+  it("a malformed, missing or unknown token is refused and suppresses nobody", async () => {
+    await sendToFive();
+    expect((await stop("short")).status).toBe(400);
+    expect((await stop(undefined)).status).toBe(400);
+    expect((await stop(12345)).status).toBe(400);
+    expect((await stop("A".repeat(43))).status).toBe(404);
+    expect(await suppressions()).toEqual([]);
+  });
+
+  it("a suppressed inbox leaves the audience count and the next send, for every event of the organiser, and only for that organiser", async () => {
+    await sendToFive();
+    await stop(tokenFor("a@example.com"));
+    api.sendEmail.mockClear();
+
+    expect((await get(organiser.token)).body.audienceCount).toBe(4);
+    // The count they confirmed before the opt-out is stale.
+    const stale = await post(validBody());
+    expect(stale.status).toBe(409);
+    expect(stale.body).toMatchObject({ code: "audience_changed", audienceCount: 4 });
+    expect((await post(validBody({ expectedRecipients: 4 }))).status).toBe(201);
+    await api.runDeferred();
+    expect(holderMails().map((m) => m.to).sort()).toEqual(FIVE.slice(1));
+
+    // Another event of the same organiser: still nothing for them.
+    const second = await publish(organiser, { title: "Second Night" });
+    await holders(["a@example.com", "b@example.com"], second);
+    expect((await get(organiser.token, second.eventId)).body.audienceCount).toBe(1);
+
+    // Another organiser can still message them.
+    const other = await approvedOrganiser(api, admin, { displayName: "Other Collective", contactEmail: "other@example.com" });
+    const theirs = await publish(other, { title: "Theirs Night" });
+    await holders(["a@example.com"], theirs);
+    const sent = await api.call(sendHolderMessage, {
+      token: other.token,
+      params: { eventId: theirs.eventId },
+      body: validBody({ expectedRecipients: 1 }),
+    });
+    expect(sent.status).toBe(201);
+  });
+
+  it("a message already queued for them is skipped at send time, with the reason recorded", async () => {
+    await holders(FIVE);
+    expect((await post(validBody())).status).toBe(201);
+    // Stopped through an earlier message's link before this one went out.
+    const [first] = await api.db.query<{ id: string; recipient_hash: string }>(
+      `select r.id, r.recipient_hash from private.holder_message_recipients r
+         join public.orders o on o.id = r.order_id where o.buyer_email = 'a@example.com'`,
+    );
+    await api.db.query(`insert into private.holder_message_suppressions (organiser_id, recipient_hash) values ($1, $2)`, [
+      organiser.organiserId,
+      first.recipient_hash,
+    ]);
+    await api.runDeferred();
+    expect(holderMails().map((m) => m.to).sort()).toEqual(FIVE.slice(1));
+    const rows = await api.db.query<{ skip_reason: string | null; sent: boolean }>(
+      `select skip_reason, sent_at is not null as sent from private.holder_message_recipients where id = $1`,
+      [first.id],
+    );
+    expect(rows).toEqual([{ skip_reason: "they asked to stop messages from this organiser", sent: false }]);
+  });
+
+  it("stopping marks the inbox's unsent rows from this organiser as skipped", async () => {
+    await sendToFive();
+    const token = tokenFor("c@example.com");
+    // A second message is queued but not yet sent when they stop.
+    await api.db.query(`delete from private.rate_limits`);
+    expect((await post(validBody({ requestId: crypto.randomUUID() }))).status).toBe(201);
+    await stop(token);
+    const skipped = await api.db.query<{ skip_reason: string }>(
+      `select skip_reason from private.holder_message_recipients where skip_reason is not null`,
+    );
+    expect(skipped).toEqual([{ skip_reason: "they asked to stop messages from this organiser" }]);
+    api.sendEmail.mockClear();
+    await api.runDeferred();
+    expect(holderMails().map((m) => m.to)).not.toContain("c@example.com");
+    expect(holderMails()).toHaveLength(4);
+  });
+
+  it("an earlier copy's link keeps working after a resend", async () => {
+    await sendToFive();
+    const token = tokenFor("a@example.com");
+    await api.db.query(`update private.email_outbox set status = 'pending', sent_at = null, attempts = 0`);
+    await api.db.query(`update private.holder_message_recipients set sent_at = null`);
+    api.sendEmail.mockClear();
+    await cron();
+    const again = tokenFor("a@example.com");
+    expect(again).not.toBe(token);
+    expect((await stop(token)).status).toBe(200);
+    expect((await stop(again)).status).toBe(200);
+  });
+
+  it("a refunded first order still reaches a holder with another paid order, and none reaches one with no paid order", async () => {
+    const [first] = await holders(["a@example.com"]);
+    await holders(["A@Example.com"]);
+    await api.db.query(`update public.orders set created_at = now() - interval '2 days' where id = $1`, [first]);
+    expect((await post(validBody({ expectedRecipients: 1 }))).status).toBe(201);
+    await api.db.query(`update public.orders set status = 'refunded' where id = $1`, [first]);
+    await api.runDeferred();
+    expect(holderMails().map((m) => m.to)).toEqual(["A@Example.com"]);
+
+    await api.db.query(`update public.orders set status = 'refunded'`);
+    await api.db.query(`delete from private.rate_limits`);
+    // (No audience left to send to.)
+    expect((await post(validBody({ expectedRecipients: 1 }))).status).toBe(409);
+  });
+
+  it("deleting the message deletes its tokens and keeps the suppression", async () => {
+    await sendToFive();
+    await stop(tokenFor("a@example.com"));
+    await api.db.query(`delete from private.holder_messages`);
+    expect(await api.db.query(`select 1 from private.holder_message_stop_tokens`)).toEqual([]);
+    expect(await suppressions()).toHaveLength(1);
   });
 });

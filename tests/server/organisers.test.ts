@@ -40,6 +40,59 @@ describe("authentication", () => {
   });
 });
 
+describe("organiser display names", () => {
+  // The name appears in the emails Sheltüh sends for the organiser (lib/server/profile-input.ts, checkOrganiserDisplayName).
+  it.each([
+    ["Sheltüh Support"],
+    ["Sheltuh Support"],
+    ["SHELTÜH"],
+    ["Ѕheltüh Events"], // a Cyrillic S
+    ["Sheltüh Team"],
+    ["Official Admin"],
+    ["Platform Moderator"],
+    ["Static\u200B Collective"], // zero-width space
+    ["Static\u202E Collective"], // right-to-left override
+    ["Static\nCollective"],
+    ["Static\u2028Collective"],
+    ["Static\u00AD Collective"], // soft hyphen
+    ["Static\u2800Collective"], // blank Braille pattern
+  ])("an application named %j is refused", async (displayName) => {
+    const user = await api.signUp();
+    const res = await api.call(applyAsOrganiser, { token: user.token, body: { ...application, displayName } });
+    expect(res.status).toBe(400);
+    expect(Object.keys(res.body.fieldErrors)).toEqual(["displayName"]);
+    expect(await api.db.query(`select 1 from public.organisers`)).toEqual([]);
+  });
+
+  it("says which rule: reserved, or invisible characters", async () => {
+    const user = await api.signUp();
+    const reserved = await api.call(applyAsOrganiser, { token: user.token, body: { ...application, displayName: "Sheltüh Support" } });
+    expect(reserved.body.fieldErrors.displayName).toBe("That name is reserved. Choose another.");
+    const hidden = await api.call(applyAsOrganiser, { token: user.token, body: { ...application, displayName: "Static\u200B Collective" } });
+    expect(hidden.body.fieldErrors.displayName).toBe("Names can't contain invisible or control characters.");
+  });
+
+  it("ordinary names, accents, punctuation and long names are fine; a resubmission is held to the same rules", async () => {
+    for (const displayName of ["Café Ünder", "100% Fun_Times", "Static Collective Pty. Ltd. (Melbourne) — Live Music & Art Nights", "Shelter Presents"]) {
+      const user = await api.signUp();
+      const res = await api.call(applyAsOrganiser, { token: user.token, body: { ...application, displayName } });
+      expect(res.status, displayName).toBe(201);
+    }
+    const user = await api.signUp();
+    await api.call(applyAsOrganiser, { token: user.token, body: application });
+    const admin = await signUpAdmin(api);
+    const [{ id }] = await api.db.query<{ id: string }>(`select id from public.organisers where owner_user_id = $1`, [user.userId]);
+    await api.call(adminRejectOrganiser, { token: admin.token, params: { organiserId: id }, body: { reason: "Need a portfolio link" } });
+    const res = await api.call(resubmitOrganiser, {
+      token: user.token,
+      body: { ...application, displayName: "Sheltüh Support" },
+      method: "PATCH",
+    });
+    expect(res.status).toBe(400);
+    expect(Object.keys(res.body.fieldErrors)).toEqual(["displayName"]);
+  });
+});
+
 describe("organiser applications", () => {
   it("creates a pending application owned by the caller", async () => {
     const user = await api.signUp();
@@ -185,7 +238,7 @@ describe("GET /admin/organisers?q (admin search)", () => {
 
   beforeEach(async () => {
     admin = await signUpAdmin(api);
-    await approvedOrganiser(api, admin, { displayName: "Sheltüh Presents", contactEmail: "events@sheltuh.example" });
+    await approvedOrganiser(api, admin, { displayName: "Néon Presents", contactEmail: "events@sheltuh.example" });
     await approvedOrganiser(api, admin, {
       displayName: "Static Collective",
       contactEmail: "bookings@warehouse.example",
@@ -197,8 +250,8 @@ describe("GET /admin/organisers?q (admin search)", () => {
   });
 
   it("matches name, contact email and handles, ignoring case and accents", async () => {
-    expect(await search("SHELTUH")).toEqual(["Sheltüh Presents"]);
-    expect(await search("sheltüh")).toEqual(["Sheltüh Presents"]);
+    expect(await search("NEON")).toEqual(["Néon Presents"]);
+    expect(await search("néon")).toEqual(["Néon Presents"]);
     expect(await search("cafe under")).toEqual(["Café Ünder"]);
     expect(await search("CAFÉ")).toEqual(["Café Ünder"]);
     expect(await search("warehouse.example")).toEqual(["Static Collective"]);
@@ -226,10 +279,10 @@ describe("GET /admin/organisers?q (admin search)", () => {
 
   it("only searches the status asked for", async () => {
     const user = await api.signUp();
-    await api.call(applyAsOrganiser, { token: user.token, body: { ...application, displayName: "Sheltuh Pending" } });
-    expect(await search("sheltuh")).toEqual(["Sheltüh Presents"]);
-    const pending = await api.call(adminListOrganisers, { token: admin.token, query: { status: "pending", q: "sheltuh" } });
-    expect(pending.body.items.map((o: { displayName: string }) => o.displayName)).toEqual(["Sheltuh Pending"]);
+    await api.call(applyAsOrganiser, { token: user.token, body: { ...application, displayName: "Neon Pending" } });
+    expect(await search("neon")).toEqual(["Néon Presents"]);
+    const pending = await api.call(adminListOrganisers, { token: admin.token, query: { status: "pending", q: "neon" } });
+    expect(pending.body.items.map((o: { displayName: string }) => o.displayName)).toEqual(["Neon Pending"]);
   });
 
   it("pages the matches, at most 50 a page, so an organiser past any first page is reachable", async () => {
@@ -240,8 +293,8 @@ describe("GET /admin/organisers?q (admin search)", () => {
     expect(first.body.items).toHaveLength(50);
     expect(first.body.nextCursor).toBeTruthy();
     // The oldest organiser isn't on the first page of everyone, but a search finds it.
-    expect(first.body.items.map((o: { displayName: string }) => o.displayName)).not.toContain("Sheltüh Presents");
-    expect(await search("presents")).toEqual(["Sheltüh Presents"]);
+    expect(first.body.items.map((o: { displayName: string }) => o.displayName)).not.toContain("Néon Presents");
+    expect(await search("presents")).toEqual(["Néon Presents"]);
 
     const bulk1 = await api.call(adminListOrganisers, { token: admin.token, query: { status: "approved", q: "bulk", limit: "50" } });
     expect(bulk1.body.items).toHaveLength(50);

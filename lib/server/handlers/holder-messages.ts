@@ -6,6 +6,7 @@
  * Sheltüh sends it. Everything is rechecked, under locks, in
  * private.send_holder_message; the admin can read every message and stop one.
  */
+import { createHash } from "node:crypto";
 import type {
   AdminHolderMessage,
   AdminHolderMessageDetail,
@@ -13,16 +14,17 @@ import type {
   HolderMessageInput,
   HolderMessageLimits,
   HolderMessageSent,
+  StopHolderMessagesResult,
   HolderMessagesState,
   Paginated,
 } from "@/lib/api/types";
+import { containsEmailAddress, containsWebAddress } from "@/lib/contact-detail";
 import { requireAdmin, requireCaller } from "../auth";
 import type { Deps } from "../deps";
 import { sendHolderMessagesSoon } from "../email-outbox";
 import { createdPrivate, HttpError, okPrivate, readJson } from "../http";
 import { parseMessageText } from "../message-input";
 import { decodeCursor, isUuid, parseLimit, toPage } from "../pagination";
-import { containsLink } from "../profile-input";
 import {
   adminHolderMessageSelect,
   HOLDER_MESSAGE_SELECT,
@@ -56,8 +58,6 @@ const HISTORY_LIMIT = 20;
 const EVENT_NOT_FOUND = "Event not found.";
 const MESSAGE_NOT_FOUND = "Message not found.";
 
-/** An address ("a@b"): organisers can't put one in a message (a handle like "@name" is fine). */
-const EMAIL_LIKE = /\S+@\S+/;
 /** Most an expected audience size can be (far above the real cap, below any integer overflow). */
 const MAX_EXPECTED = 100_000;
 
@@ -77,11 +77,11 @@ function parseField(
     errors[field] = "The subject must be on one line.";
     return "";
   }
-  if (containsLink(text)) {
+  if (containsWebAddress(text)) {
     errors[field] = `${label} can't include links or web addresses.`;
     return "";
   }
-  if (EMAIL_LIKE.test(text)) {
+  if (containsEmailAddress(text)) {
     errors[field] = `${label} can't include email addresses.`;
     return "";
   }
@@ -312,4 +312,65 @@ export const adminCancelHolderMessage: Handler<{ messageId: string }> = async (r
   ]);
   if (row.result === "not_found") throw new HttpError(404, MESSAGE_NOT_FOUND);
   return okPrivate(await readAdminMessage(deps, messageId));
+};
+
+// ---------------------------------------------------------------------------
+// Opting out
+// ---------------------------------------------------------------------------
+
+/** 32 random bytes, base64url: 43 characters. */
+const STOP_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const STOP_LINK_INVALID = "This link isn't valid. Check it's the whole link from your email.";
+/** The page the stop link opens (components/holder-messages/StopHolderMessages.tsx). */
+export const STOP_PAGE_PATH = "/holder-messages/stop";
+
+/**
+ * GET /api/holder-messages/stop?token=… — changes nothing. Sends a browser
+ * (or a mail client opening the List-Unsubscribe link) on to the page with
+ * the confirm button, the token moved into its fragment, so a mail scanner
+ * that fetches the link doesn't unsubscribe anyone and the token isn't sent
+ * on from the page. A malformed token goes to the page without one (which
+ * says the link isn't valid); it is never echoed.
+ */
+export const openStopHolderMessages: Handler = async (req, _params, deps) => {
+  const token = new URL(req.url).searchParams.get("token") ?? "";
+  const fragment = STOP_TOKEN_PATTERN.test(token) ? `#token=${token}` : "";
+  return new Response(null, {
+    status: 303,
+    headers: {
+      location: `${deps.siteUrl()}${STOP_PAGE_PATH}${fragment}`,
+      "cache-control": "private, no-store",
+      "referrer-policy": "no-referrer",
+    },
+  });
+};
+
+/**
+ * POST /api/holder-messages/stop — the button on the page (JSON `{token}`) or
+ * a mail client's one-click unsubscribe (RFC 8058: `?token=…` with the form
+ * body `List-Unsubscribe=One-Click`). Public: the emailed token is the
+ * credential. Stops that organiser's messages to the inbox the email went to,
+ * for every event (private.stop_holder_messages), and is idempotent. 200;
+ * 400 malformed; 404 unknown.
+ */
+export const stopHolderMessages: Handler = async (req, _params, { db }) => {
+  let token = new URL(req.url).searchParams.get("token") ?? "";
+  if (!token) {
+    const body = await readJson(req);
+    token = typeof body.token === "string" ? body.token : "";
+  }
+  if (!STOP_TOKEN_PATTERN.test(token)) fail({ token: "This link is incomplete. Open it from your email again." });
+  const [row] = await db.query<{ result: string; out_organiser_id: string | null }>(
+    `select result, out_organiser_id from private.stop_holder_messages($1)`,
+    [createHash("sha256").update(token, "utf8").digest("hex")],
+  );
+  if (row.result !== "stopped") throw new HttpError(404, STOP_LINK_INVALID);
+  const [organiser] = await db.query<{ display_name: string }>(`select display_name from public.organisers where id = $1`, [
+    row.out_organiser_id,
+  ]);
+  const result: StopHolderMessagesResult = {
+    status: "stopped",
+    ...(organiser ? { organiserName: organiser.display_name } : {}),
+  };
+  return okPrivate(result);
 };

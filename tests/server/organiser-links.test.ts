@@ -343,6 +343,9 @@ describe("joining (POST /api/organiser-links/join)", () => {
     expect(Object.keys(blank.body.fieldErrors).sort()).toEqual(["categories", "displayName"]);
     const tooLong = await join(person.token, { token, displayName: "x".repeat(121), categories: ["art"] });
     expect(Object.keys(tooLong.body.fieldErrors)).toEqual(["displayName"]);
+    // Approved without review, so a name only Sheltüh may use is refused as well.
+    const reserved = await join(person.token, { token, displayName: "Sheltüh Support", categories: ["art"] });
+    expect(reserved.body.fieldErrors).toEqual({ displayName: "That name is reserved. Choose another." });
     const badCategory = await join(person.token, { token, displayName: "Neon", categories: ["karaoke"] });
     expect(Object.keys(badCategory.body.fieldErrors)).toEqual(["categories"]);
     expectUnavailable(await join(person.token, { token: "cut-short", ...DETAILS }));

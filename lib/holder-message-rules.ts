@@ -1,32 +1,17 @@
 import type { HolderMessageBlockReason, HolderMessageLimits, HolderMessagesState } from "@/lib/api/types";
+import { containsEmailAddress, containsWebAddress } from "@/lib/contact-detail";
 import { messageLength, normaliseMessage, validateMessage } from "@/lib/message-text";
 
 /**
  * What the "Message ticket holders" form checks before a round trip, and the
  * words it uses for what the API says. The API checks everything again
  * (lib/server/handlers/holder-messages.ts, parseField) and its field error
- * is always shown: it is the source of truth.
+ * is always shown: it is the source of truth. Links and email addresses are
+ * found by lib/contact-detail.ts, the one definition the API uses too.
  */
 
 /** How long after an event ends its ticket holders can still be messaged (the API's AFTER_END). */
 export const MESSAGE_WINDOW_DAYS = 2;
-
-// Links, as the API sees them (lib/server/profile-input.ts, LINK): a scheme,
-// "www.", or a domain-like "name.tld" with a common TLD, including the
-// obfuscations "name . com", "name[.]com", "name (dot) com" and "name dot com".
-// The API keeps the same patterns; this is the subset worth checking before
-// sending, and the API catches the rest.
-const DOT = String.raw`(?:\.|\s+\.\s*|\s*(?:\[\s*(?:\.|dot)\s*\]|\(\s*(?:\.|dot)\s*\)|\{\s*(?:\.|dot)\s*\}|<\s*(?:\.|dot)\s*>)\s*|\s+dot\s+)`;
-const TLD = "(?:com|net|org|au|io|co|app|xyz|me|info|biz|link|ly|gg|tv|to|site|online|shop|store|dev|page|club|live)";
-const LINK = new RegExp(String.raw`(\b[a-z][a-z0-9+.-]*:\/\/|\bwww(?:\s*\.|\s+dot\s)|[\p{L}\p{N}-]${DOT}${TLD}\b)`, "iu");
-const DEFAULT_IGNORABLE = /\p{Default_Ignorable_Code_Point}/gu;
-const OTHER_FULL_STOPS = /[。｡︒]/gu;
-// An address ("a@b"). A handle like "@name" is fine.
-const EMAIL_LIKE = /\S+@\S+/;
-
-function foldForLinks(value: string): string {
-  return value.normalize("NFKC").replace(DEFAULT_IGNORABLE, "").replace(OTHER_FULL_STOPS, ".");
-}
 
 export type HolderMessageField = "subject" | "body";
 
@@ -49,8 +34,8 @@ export function validateHolderField(field: HolderMessageField, value: string, li
   if (basic) return basic;
   const text = cleanedHolderText(value);
   if (subject && /[\r\n\t]/.test(text)) return "The subject must be on one line.";
-  if (LINK.test(foldForLinks(text))) return `${label} can't include links or web addresses.`;
-  if (EMAIL_LIKE.test(text)) return `${label} can't include email addresses.`;
+  if (containsWebAddress(text)) return `${label} can't include links or web addresses.`;
+  if (containsEmailAddress(text)) return `${label} can't include email addresses.`;
   if (messageLength(text) < min) return `${label} must be at least ${min} characters.`;
   return null;
 }

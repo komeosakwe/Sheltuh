@@ -142,6 +142,7 @@ describe("every email's subject is cleaned", () => {
         subject: HOSTILE_TITLE,
         body: "Doors open at 7pm.",
         siteUrl: site,
+        stopToken: "t".repeat(43),
       }),
   };
 
@@ -182,5 +183,62 @@ describe("every email's subject is cleaned", () => {
     const headers = (info.message as Buffer).toString("utf8").split("\n\n")[0];
     expect(headers).not.toMatch(/^bcc:/im);
     expect(headers).not.toMatch(/[\u202E\u200B\u2066\u2028]/);
+  });
+});
+
+// The bodies of the reminder and the message, not only their subjects: the
+// event title and the organiser's name come from the organiser, and are
+// cleaned of control, invisible and bidi characters and line breaks first.
+describe("organiser-supplied names in the reminder and the holder message", () => {
+  const messages = {
+    reminder: () =>
+      buildEventReminderEmail({
+        to: "fan@example.com",
+        orderId: "ord_abc",
+        event: { ...event, organiserName: HOSTILE_NAME } as EventRecord,
+        organiserId: "org_1",
+        siteUrl: site,
+        now: new Date("2027-03-05T09:00:00.000Z"),
+      }),
+    message: () =>
+      buildHolderMessageEmail({
+        to: "fan@example.com",
+        messageId: "00000000-0000-4000-8000-000000000002",
+        eventTitle: HOSTILE_TITLE,
+        organiserName: HOSTILE_NAME,
+        organiserId: "org_1",
+        subject: "Doors open at 7pm",
+        body: "Doors open at 7pm.\nBring ID.",
+        siteUrl: site,
+        stopToken: "t".repeat(43),
+      }),
+  };
+
+  it.each(Object.entries(messages))("%s: no control, invisible or bidi characters, and no line breaks, in the title or the name", (_name, build) => {
+    const { html, text, subject } = build();
+    expect(subject).not.toMatch(UNSAFE);
+    const clean = (value: string) => decodeURIComponent(value).replace(/\n/g, "");
+    // Only the message body's own line breaks (and the layout's) may remain; the title and name appear on one line.
+    for (const field of [html, text]) {
+      expect(field).not.toMatch(/[\p{Cf}\p{Zl}\p{Zp}]/u);
+      expect(field).not.toContain("Rogue Records\nX");
+    }
+    expect(text).toContain("Rogue Records X");
+    expect(html).toContain("Rogue Records X");
+    expect(clean(text)).toContain(CLEAN_NAME);
+  });
+
+  it("the holder message's title line, its report link and its stop label carry the cleaned name", () => {
+    const { text } = messages.message();
+    expect(text.split("\n")[0]).toBe(CLEAN_TITLE);
+    expect(text).toContain(`A message from ${CLEAN_NAME}`);
+    expect(text).toContain(`Stop messages from ${CLEAN_NAME}: `);
+    expect(text).toContain(`About ${CLEAN_NAME}: `);
+  });
+
+  it("the reminder's title line and host line carry the cleaned title and name", () => {
+    const { text } = messages.reminder();
+    expect(text).toContain(`\n${CLEAN_TITLE}\n`);
+    expect(text).toContain(`Hosted by ${CLEAN_NAME}: `);
   });
 });

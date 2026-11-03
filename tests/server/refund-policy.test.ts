@@ -437,7 +437,7 @@ describe("an admin's edit", () => {
   it("an admin can create a platform-managed organiser's event with a policy", async () => {
     const org = await api.call(adminCreateOrganiser, {
       token: admin.token,
-      body: { ...application, displayName: "Sheltüh Presents", contactEmail: "events@sheltuh.example" },
+      body: { ...application, displayName: "Neon Presents", contactEmail: "events@sheltuh.example" },
     });
     const res = await api.call(adminCreateEvent, {
       token: admin.token,

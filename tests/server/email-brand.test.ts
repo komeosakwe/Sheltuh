@@ -121,6 +121,7 @@ const emails: Record<string, () => EmailMessage> = {
       subject: "Doors now open at 7pm",
       body: "Doors open at 7pm & not 8pm.\nBring <ID>.",
       siteUrl: site,
+      stopToken: "t".repeat(43),
     }),
 };
 
@@ -215,7 +216,7 @@ describe("every transactional email uses the shared brand layout", () => {
     expect(emails.ticketPaid().html).toContain(`color:${INK};font-weight:bold;overflow-wrap:break-word;word-wrap:break-word">${escapeHtml(event.title)}</h1>`);
   });
 
-  it("the reminder and the holder message: escaped text, no unsubscribe, an automatic message, who it is from and why", () => {
+  it("the reminder and the holder message: escaped text, an automatic message, who it is from and why; only the message has a stop link", () => {
     const reminder = emails.eventReminder();
     expect(reminder.html).toContain("Cellar Door &#60;Sound&#62;");
     expect(reminder.html).not.toContain("<Sound>");
@@ -228,10 +229,19 @@ describe("every transactional email uses the shared brand layout", () => {
     expect(message.text).toContain("Cellar Door <Sound>, who can’t see your address");
     expect(message.text).toContain("Report this message: mailto:support@sheltuh.com.au?subject=");
     expect(message.text).toContain("About Cellar Door <Sound>: https://sheltuh.test/organisers/org_1");
-    for (const email of [reminder, message]) {
-      expect(email.headers).toEqual({ "Auto-Submitted": "auto-generated" });
-      expect(`${email.html}${email.text}`.toLowerCase()).not.toContain("unsubscribe");
-    }
+    // The reminder is service information about a purchase: no opt-out.
+    expect(reminder.headers).toEqual({ "Auto-Submitted": "auto-generated" });
+    expect(`${reminder.html}${reminder.text}`.toLowerCase()).not.toContain("unsubscribe");
+    // The message offers "Stop messages from {organiser}" (a page with a button) and the one-click headers.
+    const token = "t".repeat(43);
+    expect(message.text).toContain(`Stop messages from Cellar Door <Sound>: https://sheltuh.test/holder-messages/stop#token=${token}`);
+    expect(message.html).toContain(`href="https://sheltuh.test/holder-messages/stop#token=${token}"`);
+    expect(message.html).toContain("Stop messages from Cellar Door &#60;Sound&#62;");
+    expect(message.headers).toEqual({
+      "Auto-Submitted": "auto-generated",
+      "List-Unsubscribe": `<https://sheltuh.test/api/holder-messages/stop?token=${token}>`,
+      "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+    });
   });
 
   it("keeps each email's own content: QR tickets, seat lines, totals with booking fees, footer banner", () => {

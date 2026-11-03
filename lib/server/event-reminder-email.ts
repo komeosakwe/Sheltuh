@@ -45,15 +45,19 @@ export function buildEventReminderEmail(input: {
   /** When it is built, to say "today" or "tomorrow" in the event's zone. */
   now: Date;
 }): EmailMessage {
-  const { to, orderId, event, organiserId, siteUrl, now } = input;
+  const { to, orderId, organiserId, siteUrl, now } = input;
+  // Organiser-supplied text: control, invisible and bidi characters become a space and line breaks go.
+  const title = subjectLine(input.event.title);
+  const organiserName = subjectLine(input.event.organiserName);
+  const event = input.event;
   const day = reminderDay(event.startsAt, now, event.timeZone);
   const when = ticketWhen(event.startsAt, event.endsAt, event);
-  const venue = event.venueName?.trim() ?? "";
-  const address = event.venueAddress?.trim() || placeName(event.suburb ?? "", event.state);
+  const venue = subjectLine(event.venueName ?? "");
+  const address = subjectLine(event.venueAddress ?? "") || placeName(event.suburb ?? "", event.state);
   const directions = ticketDirectionsLink(event);
   const ticketsLink = ticketPageLink(siteUrl, orderId);
   const organiserLink = organiserPageLink(siteUrl, organiserId);
-  const subject = subjectLine(`${day === "today" ? "Today" : "Tomorrow"}: ${event.title}`);
+  const subject = subjectLine(`${day === "today" ? "Today" : "Tomorrow"}: ${title}`);
   const heading = day === "today" ? "It’s today." : "See you tomorrow.";
   const intro = "A reminder about an event you have tickets for.";
   const reason = "You’re getting this one-off reminder because you have tickets for this event on Sheltüh.";
@@ -62,7 +66,7 @@ export function buildEventReminderEmail(input: {
   const body =
     displayHeading(heading, 16) +
     paragraph(intro, 24) +
-    eventBlock(event.title, [...whenLines, venue, address], directions ? 12 : 24) +
+    eventBlock(title, [...whenLines, venue, address], directions ? 12 : 24) +
     (directions
       ? paragraphHtml(
           `<a href="${escapeHtml(directions)}" style="color:${INK};text-decoration:underline">Get directions</a>`,
@@ -71,7 +75,7 @@ export function buildEventReminderEmail(input: {
       : "") +
     button("View your tickets", ticketsLink, "0 0 24px 0") +
     paragraphHtml(
-      `Hosted by <a href="${escapeHtml(organiserLink)}" style="color:${INK};text-decoration:underline">${escapeHtml(event.organiserName)}</a>`,
+      `Hosted by <a href="${escapeHtml(organiserLink)}" style="color:${INK};text-decoration:underline">${escapeHtml(organiserName)}</a>`,
       0,
     );
 
@@ -89,7 +93,7 @@ export function buildEventReminderEmail(input: {
     "",
     intro,
     "",
-    event.title,
+    title,
     ...whenLines,
     ...(venue ? [`Venue: ${venue}`] : []),
     ...(address ? [`Address: ${address}`] : []),
@@ -97,7 +101,7 @@ export function buildEventReminderEmail(input: {
     "",
     `View your tickets: ${ticketsLink}`,
     "",
-    `Hosted by ${event.organiserName}: ${organiserLink}`,
+    `Hosted by ${organiserName}: ${organiserLink}`,
     "",
     emailFooterText({ reason, siteUrl }),
   ].join("\n");

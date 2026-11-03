@@ -160,6 +160,8 @@ describe("Data API lock-out", () => {
       { table_name: "external_event_going", rls: true },
       { table_name: "free_order_refusals", rls: true },
       { table_name: "holder_message_recipients", rls: true },
+      { table_name: "holder_message_stop_tokens", rls: true },
+      { table_name: "holder_message_suppressions", rls: true },
       { table_name: "holder_messages", rls: true },
       { table_name: "onboarding_emails", rls: true },
       { table_name: "organiser_event_announcements", rls: true },
@@ -584,6 +586,7 @@ describe("Data API lock-out", () => {
       "purge_operational_data",
       "queue_event_reminders",
       "send_holder_message",
+      "stop_holder_messages",
     ];
     expect(await privateFunctions(names)).toEqual(locked(names));
     const definers = await db.query<{ fn: string; definer: boolean }>(
@@ -592,7 +595,13 @@ describe("Data API lock-out", () => {
       [names],
     );
     expect(definers.every((r) => !r.definer)).toBe(true);
-    const tables = ["event_reminders", "holder_message_recipients", "holder_messages"];
+    const tables = [
+      "event_reminders",
+      "holder_message_recipients",
+      "holder_message_stop_tokens",
+      "holder_message_suppressions",
+      "holder_messages",
+    ];
     const rows = await db.query<{ table_name: string; rls: boolean; policies: number; grants: number }>(
       `select c.relname as table_name, c.relrowsecurity as rls,
               (select count(*)::int from pg_policy p where p.polrelid = c.oid) as policies,

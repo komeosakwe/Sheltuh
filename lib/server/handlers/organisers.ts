@@ -5,6 +5,7 @@ import { sendOnboardingEmailsSoon, sendReviewEmailsSoon } from "../email-outbox"
 import { redactForLog } from "../email-address";
 import { created, HttpError, ok, okPrivate, readJson } from "../http";
 import { parseMessageText } from "../message-input";
+import { checkOrganiserDisplayName } from "../profile-input";
 import { parseSocialHandles, SOCIAL_RULES } from "../organiser-input";
 import { ORGANISER_SELECT, toOrganiser, toOwnOrganiserView } from "../records";
 import type { Handler } from "../route";
@@ -58,11 +59,18 @@ export function parseFeaturedVideo(value: unknown, errors: Record<string, string
  * An organiser application's fields (also an admin's platform-managed
  * organiser: lib/server/handlers/admin-authoring.ts). `existing`: the
  * rejected application being resubmitted, if any (its stored website is
- * kept as it is).
+ * kept as it is). The name can't contain invisible characters or be one only
+ * Sheltüh may use ("Sheltüh Support"); `reservedNames: false` (an admin's
+ * platform-managed organiser) lifts the second rule.
  */
-export function parseApplication(body: Record<string, unknown>, existing?: OrganiserRecord) {
+export function parseApplication(
+  body: Record<string, unknown>,
+  existing?: OrganiserRecord,
+  options: { reservedNames?: boolean } = {},
+) {
   const errors: Record<string, string> = {};
   const displayName = requireString(body.displayName, "displayName", errors, 120);
+  checkOrganiserDisplayName(body.displayName, "displayName", errors, { reserved: options.reservedNames !== false });
   const contactEmail = requireEmail(body.contactEmail, "contactEmail", errors);
   const description = parseDescription(body.description, errors);
   const categories = requireCategories(body.categories, "categories", errors);

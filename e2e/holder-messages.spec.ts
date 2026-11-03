@@ -324,3 +324,52 @@ test.describe("admin: event messages", () => {
     });
   }
 });
+
+// The "Stop messages from {organiser}" link in a message email: a page with a
+// button. Opening it (a mail scanner prefetching the link) stops nothing;
+// pressing the button posts the fragment's token, which leaves the address bar.
+test.describe("stop messages from an organiser", () => {
+  const TOKEN = "Z".repeat(40) + "a_-";
+  for (const vp of [
+    { width: 375, height: 740 },
+    { width: 1280, height: 900 },
+  ]) {
+    test(`confirms on a button, then says it is done at ${vp.width}px`, async ({ page }) => {
+      await page.setViewportSize(vp);
+      await page.route("**/supabase-mock/**", (route) => route.fulfill({ status: 200, json: {} }));
+      const posts: unknown[] = [];
+      await page.route("**/api/**", (route) => {
+        const request = route.request();
+        const path = new URL(request.url()).pathname;
+        if (path === "/api/holder-messages/stop" && request.method() === "POST") {
+          posts.push(request.postDataJSON());
+          return route.fulfill({ json: { status: "stopped", organiserName: "Northside Noise" } });
+        }
+        return route.fulfill({ status: 404, json: { error: "not mocked in e2e" } });
+      });
+
+      await page.goto(`/holder-messages/stop#token=${TOKEN}`);
+      const button = page.getByRole("button", { name: "Stop messages" });
+      await expect(button).toBeVisible();
+      expect(posts).toEqual([]);
+      expect((await button.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+      await noSidewaysScroll(page);
+      // The token is out of the address bar once read, and the page is kept out of search indexes.
+      await expect.poll(() => page.evaluate(() => window.location.hash)).toBe("");
+      await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", /noindex/);
+
+      await button.click();
+      await expect(page.getByRole("heading", { name: "Messages stopped" })).toBeFocused();
+      await expect(page.getByText("Northside Noise won’t message you about their events again.")).toBeVisible();
+      expect(posts).toEqual([{ token: TOKEN }]);
+      await noSidewaysScroll(page);
+    });
+  }
+
+  test("a link without its token says so and offers no button", async ({ page }) => {
+    await page.route("**/supabase-mock/**", (route) => route.fulfill({ status: 200, json: {} }));
+    await page.goto("/holder-messages/stop");
+    await expect(page.getByRole("heading", { name: "This link is incomplete" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Stop messages" })).toHaveCount(0);
+  });
+});

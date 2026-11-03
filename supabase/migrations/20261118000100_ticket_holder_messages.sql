@@ -35,12 +35,28 @@
 --     kind, and every other kind also requires message_recipient_id to be
 --     null. private.lease_outbox_jobs is not changed: an older release, leasing
 --     "every kind", takes only its allowlist, so it never takes this kind.
+--   * private.holder_message_suppressions (organiser_id, recipient_hash,
+--     created_at; primary key (organiser_id, recipient_hash)): an inbox
+--     (private.email_recipient_hash, never the address) that asked to hear no
+--     more from one organiser. Cascades from the organiser. Kept as long as
+--     the organiser exists: honouring a request must outlast the message it
+--     was made from.
+--   * private.holder_message_stop_tokens (token_hash, recipient_id, created_at):
+--     the credential behind the "Stop messages from {organiser}" link in every
+--     message email. The link carries a random 32-byte token; only its SHA-256
+--     is stored (as the waitlist's and follower links do), one row per email
+--     sent, so a resend never invalidates the link in an earlier copy.
+--     Cascades from the recipient row, so it goes with the message (12 months).
 --   * private.holder_message_audience(event): the one definition of "who holds
 --     a ticket": the buyer of a `paid` order of the event (a partly refunded
 --     order stays paid; pending, failed and refunded ones don't count; free
 --     member and confirmed guest orders do) with an address, once per inbox
---     (private.email_recipient_hash), using the inbox's oldest order. Used by
---     the send and by the organiser's read of the audience size.
+--     (private.email_recipient_hash), using the inbox's oldest order, leaving
+--     out inboxes that suppressed the event's organiser. Used by the send and
+--     by the organiser's read of the audience size.
+--   * private.stop_holder_messages(token_hash): the opt-out. Suppresses the
+--     inbox behind the token for the message's organiser (idempotent) and
+--     marks that inbox's unsent recipient rows for the organiser as skipped.
 --   * private.send_holder_message: one atomic step. It locks the organiser
 --     (for share) and then the event (for no key update), as
 --     private.release_tickets (20261113000000_release_tickets.sql) does, so
@@ -68,11 +84,12 @@
 -- p_attested not true, raises.
 --
 -- What is sent, to whom, is decided again at send time
--- (lib/server/email-outbox.ts, deliverHolderMessage): the order must still be
--- paid, the event published, the organiser approved, the message not
--- cancelled, the address a plain one. The platform sends at most 600 of these
--- a day (bucket 'holder_messages_daily', taken just before sending): past it a
--- job is put back an hour, never dropped.
+-- (lib/server/email-outbox.ts, deliverHolderMessage): the inbox must still
+-- hold a paid order for the event (the queued one, or another of theirs), the
+-- event published, the organiser approved, the message not cancelled, the
+-- address a plain one, the inbox not suppressed. The platform sends at most 600
+-- of these a day (bucket 'holder_messages_daily', taken just before sending):
+-- past it a job is put back an hour, never dropped.
 --
 -- The deadlock note: the recipient rows' foreign key to public.orders takes a
 -- key-share lock on each order, which waits only for a transaction holding an
@@ -95,10 +112,11 @@
 -- Additive; reversible, but not without losing data: in one transaction,
 -- delete the `holder_message` jobs; restore the outbox's two kind checks from
 -- 20261118000000_event_reminders.sql; drop the functions send_holder_message,
--- cancel_holder_message and holder_message_audience; drop the column
--- email_outbox.message_recipient_id, then the tables
--- private.holder_message_recipients and private.holder_messages (every message
--- and its history are lost for good); restore private.purge_operational_data
+-- cancel_holder_message, stop_holder_messages and holder_message_audience; drop
+-- the column email_outbox.message_recipient_id, then the tables
+-- private.holder_message_stop_tokens, private.holder_message_suppressions (every
+-- opt-out is lost for good), private.holder_message_recipients and
+-- private.holder_messages (every message and its history are lost for good); restore private.purge_operational_data
 -- from 20261111000500_organiser_invite_links.sql.
 
 -- ---------------------------------------------------------------------------
@@ -141,6 +159,27 @@ create index holder_message_recipients_order_idx on private.holder_message_recip
 
 alter table private.holder_message_recipients enable row level security;
 revoke all on private.holder_message_recipients from public, anon, authenticated;
+
+create table private.holder_message_suppressions (
+  organiser_id uuid not null references public.organisers (id) on delete cascade,
+  recipient_hash text not null check (recipient_hash ~ '^[0-9a-f]{64}$'),
+  created_at timestamptz not null default now(),
+  primary key (organiser_id, recipient_hash)
+);
+
+alter table private.holder_message_suppressions enable row level security;
+revoke all on private.holder_message_suppressions from public, anon, authenticated;
+
+create table private.holder_message_stop_tokens (
+  token_hash text primary key check (token_hash ~ '^[0-9a-f]{64}$'),
+  recipient_id uuid not null references private.holder_message_recipients (id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
+create index holder_message_stop_tokens_recipient_idx on private.holder_message_stop_tokens (recipient_id);
+
+alter table private.holder_message_stop_tokens enable row level security;
+revoke all on private.holder_message_stop_tokens from public, anon, authenticated;
 
 -- ---------------------------------------------------------------------------
 -- The outbox
@@ -222,7 +261,49 @@ as $$
        where o.event_id = p_event_id and o.status = 'paid'
          and o.buyer_email is not null and btrim(o.buyer_email) <> ''
     ) k
+   where not exists (
+           select 1
+             from public.events e
+             join private.holder_message_suppressions s on s.organiser_id = e.organiser_id
+            where e.id = p_event_id and s.recipient_hash = k.hash)
    order by k.hash, k.created_at, k.id
+$$;
+
+-- The opt-out behind a message email's "Stop messages from {organiser}" link:
+-- the inbox that received that email is suppressed for that message's
+-- organiser, for every event. Idempotent. Recipient rows of that organiser's
+-- messages that haven't been sent are marked skipped (the send checks again).
+-- Returns 'stopped' or 'not_found' (an unknown token).
+create function private.stop_holder_messages(p_token_hash text, out result text, out out_organiser_id uuid)
+language plpgsql
+set search_path = ''
+as $$
+declare
+  v_hash text;
+begin
+  select r.recipient_hash, m.organiser_id
+    into v_hash, out_organiser_id
+    from private.holder_message_stop_tokens t
+    join private.holder_message_recipients r on r.id = t.recipient_id
+    join private.holder_messages m on m.id = r.message_id
+   where t.token_hash = p_token_hash;
+  if not found then
+    result := 'not_found';
+    return;
+  end if;
+
+  insert into private.holder_message_suppressions (organiser_id, recipient_hash)
+  values (out_organiser_id, v_hash)
+  on conflict do nothing;
+
+  update private.holder_message_recipients r
+     set skip_reason = 'they asked to stop messages from this organiser'
+    from private.holder_messages m
+   where m.id = r.message_id and m.organiser_id = out_organiser_id
+     and r.recipient_hash = v_hash and r.sent_at is null and r.skip_reason is null;
+
+  result := 'stopped';
+end;
 $$;
 
 -- ---------------------------------------------------------------------------
@@ -478,4 +559,5 @@ revoke all on function private.send_holder_message(
   uuid, uuid, uuid, uuid, text, text, boolean, integer, integer, interval, integer, integer, integer, interval)
   from public, anon, authenticated;
 revoke all on function private.cancel_holder_message(uuid, uuid) from public, anon, authenticated;
+revoke all on function private.stop_holder_messages(text) from public, anon, authenticated;
 revoke all on function private.purge_operational_data() from public, anon, authenticated;
