@@ -115,6 +115,7 @@ export default function EventCard({
   showSave = true,
   showOrganiser = true,
   wide = false,
+  priority = false,
   now = new Date(),
   className = "",
 }: {
@@ -127,6 +128,8 @@ export default function EventCard({
   wide?: boolean;
   /** `grid` only: "By {organiser}", where the organiser has a profile (off on their own profile). */
   showOrganiser?: boolean;
+  /** The image loads eagerly (a card in the page's first row); by default it is lazy. */
+  priority?: boolean;
   now?: Date;
   className?: string;
 }) {
@@ -157,6 +160,7 @@ export default function EventCard({
           imageFocus={event.imageFocus}
           title={event.title}
           fit="auto"
+          priority={priority}
           // An ended event's image is greyed: it's still there to look at, but nothing's on.
           className={`${MEDIA[variant]} ${isWide ? WIDE.media : ""} w-full motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-out motion-safe:group-hover/card:scale-[1.03] ${state === "ended" ? "grayscale" : ""}`.replace(/\s+/g, " ").trim()}
         />
