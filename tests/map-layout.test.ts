@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  framingTargets,
   isSinglePoint,
   layoutMapPoints,
-  NEAR_FRAME_KM,
+  MAP_NEAR_ZOOM,
   padPixelBounds,
   type MapLayoutItem,
 } from "@/lib/map-layout";
@@ -127,21 +126,9 @@ describe("Australia-wide map (owner plan S9)", () => {
   });
 });
 
-describe("framingTargets (/map's first view, owner decision D5)", () => {
-  const fitzroy = { id: "fitzroy", lat: -37.7997, lng: 144.9784 };
-  const frankston = { id: "frankston", lat: -38.1425, lng: 145.1257 }; // about 40 km away
-  const geelong = { id: "geelong", lat: -38.1499, lng: 144.3617 }; // about 65 km away
-  const perth = { id: "perth", lat: -31.9523, lng: 115.8613 };
-  const markers = [fitzroy, frankston, geelong, perth];
-
-  it("opens on the markers within 50 km of the saved suburb", () => {
-    expect(NEAR_FRAME_KM).toBe(50);
-    expect(framingTargets(markers, { lat: -37.8, lng: 144.97 }, true).map((m) => m.id)).toEqual(["fitzroy", "frankston"]);
-  });
-
-  it("fits every marker when none is near the saved suburb, without one, and after the first framing", () => {
-    expect(framingTargets(markers, { lat: -27.47, lng: 153.03 }, true)).toEqual(markers); // Brisbane
-    expect(framingTargets(markers, null, true)).toEqual(markers);
-    expect(framingTargets(markers, { lat: -37.8, lng: 144.97 }, false)).toEqual(markers);
+describe("MAP_NEAR_ZOOM (/map centred on the visitor or a suburb)", () => {
+  it("is a suburb-and-neighbours zoom, 13 to 14", () => {
+    expect(MAP_NEAR_ZOOM).toBeGreaterThanOrEqual(13);
+    expect(MAP_NEAR_ZOOM).toBeLessThanOrEqual(14);
   });
 });

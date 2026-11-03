@@ -67,6 +67,8 @@ describe("/privacy — Your location", () => {
     expect(section).toHaveTextContent("your browser asks you first");
     expect(section).toHaveTextContent("used only in your browser, to find the nearest suburb we know, and is then thrown away");
     expect(section).toHaveTextContent("It isn’t sent to us, stored, or put in a web address.");
+    expect(section).toHaveTextContent("The map asks the same way: when you open it with no suburb saved, and when you press “Near me”.");
+    expect(section).toHaveTextContent("if you say no it doesn’t ask again on the map until your next browser session");
     expect(section).toHaveTextContent("only the suburb’s name is kept");
     expect(section).toHaveTextContent("/search?near=Fitzroy");
     expect(section).toHaveTextContent("hosting provider’s request logs");
