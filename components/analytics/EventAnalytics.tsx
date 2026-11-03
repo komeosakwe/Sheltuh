@@ -7,9 +7,15 @@ import { EmptyState, Notice, Panel } from "@/components/ui/Section";
 import { isViewsUnreliable, unreliableDays, viewsCoverage } from "@/lib/analytics-data";
 import { daysInRange, formatAudExact, formatCount, formatDay } from "@/lib/analytics-format";
 import { rangeLabel, rangeSearch, toQuery, type RangeState } from "@/lib/analytics-range";
-import { downloadEventAnalyticsCsv, getEventAnalytics } from "@/lib/api/analytics";
+import {
+  downloadAdminEventAnalyticsCsv,
+  downloadEventAnalyticsCsv,
+  getAdminEventAnalytics,
+  getEventAnalytics,
+} from "@/lib/api/analytics";
 import type { GetToken } from "@/lib/api/client";
 import type { EventAnalytics as Report } from "@/lib/api/types";
+import { useAuth } from "@/lib/auth/AuthContext";
 import { eventZone, formatEventDateShort } from "@/lib/format";
 import AnalyticsGate, { NotApprovedOrganiser } from "./AnalyticsGate";
 import Attendance from "./Attendance";
@@ -30,8 +36,15 @@ import { useAnalyticsRange } from "./useAnalyticsRange";
 import { LoadingState } from "@/components/ui/ProgressLoader";
 import Strap from "@/components/ui/Strap";
 
-/** /dashboard/events/[id]/analytics (docs/design/favourites-analytics.md §5.19). */
-export default function EventAnalytics({ eventId }: { eventId: string }) {
+export type AnalyticsScope = "organiser" | "admin";
+
+/**
+ * /dashboard/events/[id]/analytics (docs/design/favourites-analytics.md §5.19),
+ * or with `scope="admin"` /admin/events/[id]/analytics: any event's report,
+ * read-only (no tracking-link management). The admin layout does the gating.
+ */
+export default function EventAnalytics({ eventId, scope = "organiser" }: { eventId: string; scope?: AnalyticsScope }) {
+  if (scope === "admin") return <AdminEventReport eventId={eventId} />;
   const path = `/dashboard/events/${encodeURIComponent(eventId)}/analytics`;
   return (
     <AnalyticsGate title="Event analytics" returnTo={path}>
@@ -40,7 +53,24 @@ export default function EventAnalytics({ eventId }: { eventId: string }) {
   );
 }
 
-function BackLinks({ eventId }: { eventId: string }) {
+function AdminEventReport({ eventId }: { eventId: string }) {
+  const { getAccessToken } = useAuth();
+  return <EventReport eventId={eventId} getToken={getAccessToken} scope="admin" />;
+}
+
+function BackLinks({ eventId, scope }: { eventId: string; scope: AnalyticsScope }) {
+  if (scope === "admin") {
+    return (
+      <nav aria-label="Event" className="mb-6 flex flex-wrap gap-x-6">
+        <Link href="/admin/events" className={backLinkClass}>
+          &larr; Events
+        </Link>
+        <Link href={`/admin/events/${encodeURIComponent(eventId)}/edit`} className={backLinkClass}>
+          Edit event
+        </Link>
+      </nav>
+    );
+  }
   return (
     <nav aria-label="Event" className="mb-6 flex flex-wrap gap-x-6">
       <Link href="/dashboard/analytics" className={backLinkClass}>
@@ -53,12 +83,24 @@ function BackLinks({ eventId }: { eventId: string }) {
   );
 }
 
-function EventReport({ eventId, getToken }: { eventId: string; getToken: GetToken }) {
+function EventReport({
+  eventId,
+  getToken,
+  scope = "organiser",
+}: {
+  eventId: string;
+  getToken: GetToken;
+  scope?: AnalyticsScope;
+}) {
+  const admin = scope === "admin";
   const { range, setRange, today } = useAnalyticsRange({ allowAllTime: true, defaultPreset: "all" });
   const [attempt, setAttempt] = useState(0);
   const query = useMemo(() => toQuery(range, today), [range, today]);
   const key = `${eventId}|${rangeSearch(range)}|${attempt}`;
-  const load = useCallback(() => getEventAnalytics(eventId, getToken, query), [eventId, getToken, query]);
+  const load = useCallback(
+    () => (admin ? getAdminEventAnalytics(eventId, getToken, query) : getEventAnalytics(eventId, getToken, query)),
+    [admin, eventId, getToken, query],
+  );
   const { loading, error, data, stale } = useKeyedLoad<Report>(key, load);
   const failure = error ? failureKind(error) : null;
   const label = rangeLabel(range);
@@ -69,12 +111,12 @@ function EventReport({ eventId, getToken }: { eventId: string; getToken: GetToke
         headingLevel={1}
         title="Event not found"
         action={
-          <ButtonLink size="lg" variant="outline" href="/dashboard/analytics">
-            Back to analytics
+          <ButtonLink size="lg" variant="outline" href={admin ? "/admin/events" : "/dashboard/analytics"}>
+            {admin ? "Back to events" : "Back to analytics"}
           </ButtonLink>
         }
       >
-        It may have been deleted, or it belongs to another organiser account.
+        {admin ? "It may have been deleted." : "It may have been deleted, or it belongs to another organiser account."}
       </EmptyState>
     );
   }
@@ -82,7 +124,7 @@ function EventReport({ eventId, getToken }: { eventId: string; getToken: GetToke
     return (
       <>
         <h1 className="display-md mb-8">Event analytics</h1>
-        <NotApprovedOrganiser />
+        {admin ? <Notice tone="danger" role="alert">Admin access required.</Notice> : <NotApprovedOrganiser />}
       </>
     );
   }
@@ -102,7 +144,7 @@ function EventReport({ eventId, getToken }: { eventId: string; getToken: GetToke
 
   return (
     <>
-      <BackLinks eventId={eventId} />
+      <BackLinks eventId={eventId} scope={scope} />
       <header className="mb-10 flex flex-col gap-6 sm:mb-14 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex max-w-3xl flex-col gap-3">
           <Strap label="Event analytics" rule={false} />
@@ -124,7 +166,11 @@ function EventReport({ eventId, getToken }: { eventId: string; getToken: GetToke
               <ExportCsvButton
                 rangeLabel={label}
                 filename={`sheltuh-${event.slug}_${data.range.from}_${data.range.to}.csv`}
-                fetchCsv={() => downloadEventAnalyticsCsv(eventId, getToken, query)}
+                fetchCsv={() =>
+                  admin
+                    ? downloadAdminEventAnalyticsCsv(eventId, getToken, query)
+                    : downloadEventAnalyticsCsv(eventId, getToken, query)
+                }
               />
             )}
           </div>
@@ -153,12 +199,12 @@ function EventReport({ eventId, getToken }: { eventId: string; getToken: GetToke
         ) : (
           <>
             {controls}
-            <ReportBody data={data} range={range} busy={loading || stale} />
+            <ReportBody data={data} range={range} busy={loading || stale} admin={admin} />
           </>
         )}
 
         {/* Links can be made before launch, so they show whatever the report's state. */}
-        {showExtras && <TrackingLinks eventId={eventId} getToken={getToken} />}
+        {showExtras && !admin && <TrackingLinks eventId={eventId} getToken={getToken} />}
         {showExtras && <AnalyticsPrivacyNote />}
         {showExtras && <LaterStagesNote />}
       </div>
@@ -170,7 +216,18 @@ function EventReport({ eventId, getToken }: { eventId: string; getToken: GetToke
   );
 }
 
-function ReportBody({ data, range, busy }: { data: Report; range: RangeState; busy: boolean }) {
+function ReportBody({
+  data,
+  range,
+  busy,
+  admin,
+}: {
+  data: Report;
+  range: RangeState;
+  busy: boolean;
+  /** An admin's read-only report: no organiser-only actions. */
+  admin: boolean;
+}) {
   const coverage = viewsCoverage(data.range, data.viewsTrackedSince);
   const counted = coverage !== "none";
   const previous = data.previous;
@@ -234,7 +291,7 @@ function ReportBody({ data, range, busy }: { data: Report; range: RangeState; bu
         />
       )}
 
-      <Attendance attendance={data.attendance} event={data.event} />
+      <Attendance attendance={data.attendance} event={data.event} doorLink={!admin} />
 
       <Panel title="Over time" titleId="over-time">
         <div className="flex flex-col gap-8">

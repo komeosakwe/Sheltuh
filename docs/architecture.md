@@ -2013,6 +2013,12 @@ No verified email is needed: nothing here involves anyone else.
 Stages A (page views and sales) and B (tracking links), in
 `lib/server/handlers/analytics.ts`, `event-views.ts` and `tracking-links.ts`.
 
+**Admin access.** `GET /api/admin/events/{id}/analytics` (and `.csv`) return
+any event's report, unchanged (`requireAdmin`, 404 for an unknown event,
+`private, no-store`). The page is `/admin/events/{id}/analytics`
+(`EventAnalytics scope="admin"`): read-only, so no tracking-link management
+(the tracking-link API stays organiser-only; admins see each link's numbers).
+
 **Privacy first.** Page views are aggregate daily counters
 (`event_view_counts`): event, Melbourne day, a source bucket and, for
 tracking links, the code. No cookie, IP address, user id, email, user agent

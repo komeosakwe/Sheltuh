@@ -19,6 +19,8 @@ vi.mock("@/lib/auth/useOrganiser", () => ({
 
 const api = {
   getEventAnalytics: vi.fn(),
+  getAdminEventAnalytics: vi.fn(),
+  downloadAdminEventAnalyticsCsv: vi.fn(),
   downloadEventAnalyticsCsv: vi.fn(),
   listTrackingLinks: vi.fn(),
   createTrackingLink: vi.fn(),
@@ -26,6 +28,8 @@ const api = {
 };
 vi.mock("@/lib/api/analytics", () => ({
   getEventAnalytics: (...a: unknown[]) => api.getEventAnalytics(...a),
+  getAdminEventAnalytics: (...a: unknown[]) => api.getAdminEventAnalytics(...a),
+  downloadAdminEventAnalyticsCsv: (...a: unknown[]) => api.downloadAdminEventAnalyticsCsv(...a),
   downloadEventAnalyticsCsv: (...a: unknown[]) => api.downloadEventAnalyticsCsv(...a),
   listTrackingLinks: (...a: unknown[]) => api.listTrackingLinks(...a),
   createTrackingLink: (...a: unknown[]) => api.createTrackingLink(...a),
@@ -230,5 +234,46 @@ describe("EventAnalytics — report", () => {
     renderEvent();
     await screen.findByRole("region", { name: "Over time" });
     expect(screen.queryByRole("region", { name: "At the door" })).toBeNull();
+  });
+});
+
+describe("EventAnalytics — admin scope", () => {
+  function renderAdmin() {
+    return render(
+      <FakeAuthProvider value={fakeAuthValue({ isAdmin: true })}>
+        <Suspense fallback={null}>
+          <EventAnalytics eventId="evt-1" scope="admin" />
+        </Suspense>
+      </FakeAuthProvider>,
+    );
+  }
+
+  it("fetches the admin endpoint, never the organiser one, and has no tracking-link management", async () => {
+    api.getAdminEventAnalytics.mockResolvedValue(eventReport());
+    renderAdmin();
+    await screen.findByRole("region", { name: "Over time" });
+    expect(api.getAdminEventAnalytics).toHaveBeenCalledWith("evt-1", expect.any(Function), expect.anything());
+    expect(api.getEventAnalytics).not.toHaveBeenCalled();
+    expect(api.listTrackingLinks).not.toHaveBeenCalled();
+    expect(screen.getByRole("link", { name: /Events/ })).toHaveAttribute("href", "/admin/events");
+    expect(screen.getByRole("link", { name: "Edit event" })).toHaveAttribute("href", "/admin/events/evt-1/edit");
+    expect(screen.queryByRole("link", { name: /Analytics$/ })).toBeNull();
+  });
+
+  it("shows attendance but not the organiser's door check-in link (admins can't open another organiser's door)", async () => {
+    api.getAdminEventAnalytics.mockResolvedValue(
+      eventReport({ attendance: { checkedIn: 129, ticketsSold: 240, byTicketType: [] } }),
+    );
+    renderAdmin();
+    const panel = await screen.findByRole("region", { name: "At the door" });
+    expect(within(panel).getByText("129")).toBeInTheDocument();
+    expect(within(panel).queryByRole("link", { name: "Open door check-in" })).toBeNull();
+  });
+
+  it("a missing event (404) links back to the admin events", async () => {
+    api.getAdminEventAnalytics.mockRejectedValue(new ApiError(404, "Event not found."));
+    renderAdmin();
+    expect(await screen.findByRole("heading", { level: 1, name: "Event not found" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Back to events" })).toHaveAttribute("href", "/admin/events");
   });
 });
