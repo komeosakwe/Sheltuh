@@ -2,8 +2,10 @@ import nodemailer from "nodemailer";
 import { describe, expect, it } from "vitest";
 import { buildEventReviewEmail, buildOrganiserJoinedEmail, buildOrganiserReviewEmail } from "@/lib/server/admin-review-email";
 import { mailOptions, subjectLine } from "@/lib/server/email";
+import { buildEventReminderEmail } from "@/lib/server/event-reminder-email";
 import { buildFollowerNewEventsEmail } from "@/lib/server/follower-email";
 import { buildFreeConfirmationEmail } from "@/lib/server/free-confirmation-email";
+import { buildHolderMessageEmail } from "@/lib/server/holder-message-email";
 import { buildInviteEmail } from "@/lib/server/invite-email";
 import { buildMemberWelcomeEmail, buildOrganiserNextStepsEmail, buildOrganiserWelcomeEmail } from "@/lib/server/onboarding-email";
 import { buildTicketEmail } from "@/lib/server/ticket-email";
@@ -112,6 +114,35 @@ describe("every email's subject is cleaned", () => {
     organiserWelcomeApproved: () =>
       buildOrganiserWelcomeEmail({ to: "fan@example.com", firstName: HOSTILE_NAME, status: "approved", siteUrl: site }),
     organiserNextSteps: () => buildOrganiserNextStepsEmail({ to: "fan@example.com", firstName: HOSTILE_NAME, siteUrl: site }),
+    reminderTomorrow: () =>
+      buildEventReminderEmail({
+        to: "fan@example.com",
+        orderId: "ord_abc",
+        event: { ...event, organiserName: HOSTILE_NAME } as EventRecord,
+        organiserId: "org_1",
+        siteUrl: site,
+        now: new Date("2027-03-05T09:00:00.000Z"),
+      }),
+    reminderToday: () =>
+      buildEventReminderEmail({
+        to: "fan@example.com",
+        orderId: "ord_abc",
+        event: { ...event, organiserName: CLEAN_NAME } as EventRecord,
+        organiserId: "org_1",
+        siteUrl: site,
+        now: new Date("2027-03-05T21:30:00.000Z"),
+      }),
+    holderMessage: () =>
+      buildHolderMessageEmail({
+        to: "fan@example.com",
+        messageId: "00000000-0000-4000-8000-000000000002",
+        eventTitle: HOSTILE_TITLE,
+        organiserName: HOSTILE_NAME,
+        organiserId: "org_1",
+        subject: HOSTILE_TITLE,
+        body: "Doors open at 7pm.",
+        siteUrl: site,
+      }),
   };
 
   it.each(Object.entries(emails))("%s", (_name, build) => {
@@ -133,6 +164,9 @@ describe("every email's subject is cleaned", () => {
     expect(emails.organiserJoined().subject).toBe("Organiser joined with a link");
     expect(emails.inviteOrganiser().subject).toBe(`You're invited to Sheltüh: ${CLEAN_NAME}`);
     expect(emails.inviteMember().subject).toBe("You're invited to Sheltüh");
+    expect(emails.reminderTomorrow().subject).toBe(`Tomorrow: ${CLEAN_TITLE}`);
+    expect(emails.reminderToday().subject).toBe(`Today: ${CLEAN_TITLE}`);
+    expect(emails.holderMessage().subject).toBe(`${CLEAN_TITLE}: ${CLEAN_TITLE}`);
   });
 
   it("mailOptions cleans a subject again, and the header that goes out has one line and no injected header", async () => {

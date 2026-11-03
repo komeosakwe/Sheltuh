@@ -68,7 +68,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261117000000_ticket_release_lock.sql`. Never
+      newest, currently `20261118000100_ticket_holder_messages.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -366,6 +366,42 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           `20261022000000_external_ticketing.sql` and
           `20261114000000_external_price.sql`, then drop the constraints and
           the two columns (the setting and the sold-out times are lost).
+      46. `20261118000000_event_reminders.sql` (the day-before reminder to
+          ticket holders, docs/architecture.md "Event reminders": table
+          `private.event_reminders`, `email_outbox.reminder_id` with a unique
+          index, the outbox's two kind checks redefined with the new kind
+          `event_reminder`, and the functions `email_recipient_hash` and
+          `queue_event_reminders`). RLS on, no grants, search_path pinned,
+          execute revoked from clients. Additive; an older app never
+          leases the new kind (`lease_outbox_jobs` is unchanged), so it can
+          be applied ahead of the deploy. The new app on the old schema
+          still works (the cron warns once that `queue_event_reminders` is
+          missing and queues no reminders). Needs no new environment
+          variable. Nothing is sent about events that are already happening:
+          the first cron run after deploy queues reminders for every event
+          that is today or tomorrow with paid orders. Reversible: delete the
+          `event_reminder` jobs, restore the two kind checks from
+          `20261111000700_onboarding_emails.sql`, drop the two functions,
+          the column and the table (that forgets whom was reminded).
+      47. `20261118000100_ticket_holder_messages.sql` (organisers'
+          "Message ticket holders", docs/architecture.md "Messages to ticket
+          holders": tables `private.holder_messages` and
+          `private.holder_message_recipients`, `email_outbox.message_recipient_id`
+          with a unique index, the kind checks redefined with `holder_message`,
+          the functions `holder_message_audience`, `send_holder_message` and
+          `cancel_holder_message`, and `purge_operational_data` redefined with
+          two more result columns, `holder_messages_deleted` and
+          `event_reminders_deleted`). RLS on, no grants, search_path pinned,
+          execute revoked from clients. Needs file 46. Additive; apply it
+          ahead of the deploy (no old release calls it). If you call
+          `purge_operational_data` by hand or from `pg_cron`, the daily job
+          (`select private.purge_operational_data()`) is unchanged. Needs no
+          new environment variable. Reversible, but dropping the tables
+          loses every message and its history: delete the `holder_message`
+          jobs, restore the kind checks from file 46, drop the three
+          functions, the column and the two tables, and restore
+          `purge_operational_data` from
+          `20261111000500_organiser_invite_links.sql`.
 
       **Files 33 to 37 can be applied ahead of this deploy, with the
       previous app still live.** "The previous app" here is the build of

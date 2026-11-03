@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { buildEventReviewEmail, buildOrganiserJoinedEmail, buildOrganiserReviewEmail } from "@/lib/server/admin-review-email";
 import type { EmailMessage } from "@/lib/server/email";
+import { buildEventReminderEmail } from "@/lib/server/event-reminder-email";
 import { button, EMAIL_COLOURS, emailFooterImageUrl, escapeHtml, INK, SIGNAL, supportFooter, WORDMARK_CID } from "@/lib/server/email-layout";
 import { buildFollowerNewEventsEmail } from "@/lib/server/follower-email";
 import { buildFreeConfirmationEmail } from "@/lib/server/free-confirmation-email";
+import { buildHolderMessageEmail } from "@/lib/server/holder-message-email";
 import { buildInviteEmail } from "@/lib/server/invite-email";
 import { buildTicketEmail } from "@/lib/server/ticket-email";
 import type { EventRecord, OrderLineItem, OrderRecord, TicketSeat } from "@/lib/server/types";
@@ -100,6 +102,26 @@ const emails: Record<string, () => EmailMessage> = {
     }),
   inviteMember: () =>
     buildInviteEmail({ to: "fan@example.com", kind: "member", link: `${site}/invite#token=x`, daysValid: 14, siteUrl: site }),
+  eventReminder: () =>
+    buildEventReminderEmail({
+      to: "fan@example.com",
+      orderId: "ord_abc",
+      event: { ...event, organiserName: "Cellar Door <Sound>" } as EventRecord,
+      organiserId: "org_1",
+      siteUrl: site,
+      now: new Date("2027-03-05T09:00:00.000Z"),
+    }),
+  holderMessage: () =>
+    buildHolderMessageEmail({
+      to: "fan@example.com",
+      messageId: "00000000-0000-4000-8000-000000000002",
+      eventTitle: event.title,
+      organiserName: "Cellar Door <Sound>",
+      organiserId: "org_1",
+      subject: "Doors now open at 7pm",
+      body: "Doors open at 7pm & not 8pm.\nBring <ID>.",
+      siteUrl: site,
+    }),
 };
 
 /** Every colour value in the markup: style properties and bgcolor attributes. */
@@ -115,7 +137,10 @@ const OLD_PALETTE = ["#2b3cff", "#f3f0e8", "#0b0b0b", "#5b574e", "#e3ded1"];
 /** The ticket email's orange label, the only other orange fill: black text on it. */
 const YOURE_IN_CELL = /<td bgcolor="#ff4800" style="background-color:#ff4800;border-radius:4px;[^"]*color:#000000[^"]*">YOU&rsquo;RE IN<\/td>/;
 const TICKET_EMAILS = ["ticketPaid", "ticketFreeOne", "ticketSeated"];
-const BRANDED = [...TICKET_EMAILS, "freeConfirmation", "freeConfirmationSeated"];
+/** Emails with the wordmark header and the branded footer (emailFooter). */
+const BRANDED = [...TICKET_EMAILS, "freeConfirmation", "freeConfirmationSeated", "eventReminder", "holderMessage"];
+/** An organiser's own words are this email's content: it has no call-to-action button, so no orange at all. */
+const NO_CTA = ["holderMessage"];
 
 describe("every transactional email uses the shared brand layout", () => {
   it.each(Object.entries(emails))("%s: no old palette colour, and only the shared tokens", (_name, build) => {
@@ -129,15 +154,18 @@ describe("every transactional email uses the shared brand layout", () => {
 
   it.each(Object.entries(emails))("%s: Signal Orange only as a fill with black text: its one button (and the ticket email's label)", (name, build) => {
     const { html } = build();
-    expect(html.split(BUTTON_CELL)).toHaveLength(2); // exactly one call-to-action
+    // Exactly one call-to-action, except an email that is an organiser's message (none).
+    expect(html.split(BUTTON_CELL)).toHaveLength(NO_CTA.includes(name) ? 1 : 2);
     let rest = html.replace(BUTTON_CELL, "");
     if (TICKET_EMAILS.includes(name)) {
       expect(rest).toMatch(YOURE_IN_CELL);
       rest = rest.replace(YOURE_IN_CELL, "");
     }
     expect(rest).not.toContain(SIGNAL); // no orange anywhere else
-    const label = html.slice(html.indexOf(BUTTON_CELL)).match(/<a [^>]*style="([^"]*)"/)![1];
-    expect(label).toContain(`color:${INK}`);
+    if (!NO_CTA.includes(name)) {
+      const label = html.slice(html.indexOf(BUTTON_CELL)).match(/<a [^>]*style="([^"]*)"/)![1];
+      expect(label).toContain(`color:${INK}`);
+    }
     expect(html).not.toMatch(/(?<![-\w])color:\s*(#fff\b|#ffffff|white)/i); // no white text, on orange or anywhere
   });
 
@@ -185,6 +213,25 @@ describe("every transactional email uses the shared brand layout", () => {
     }
     // The ticket email's heading is the event title.
     expect(emails.ticketPaid().html).toContain(`color:${INK};font-weight:bold;overflow-wrap:break-word;word-wrap:break-word">${escapeHtml(event.title)}</h1>`);
+  });
+
+  it("the reminder and the holder message: escaped text, no unsubscribe, an automatic message, who it is from and why", () => {
+    const reminder = emails.eventReminder();
+    expect(reminder.html).toContain("Cellar Door &#60;Sound&#62;");
+    expect(reminder.html).not.toContain("<Sound>");
+    expect(reminder.html).toContain("View your tickets");
+    expect(reminder.text).toContain("See you tomorrow.");
+    expect(reminder.text).toContain("You’re getting this one-off reminder because you have tickets for this event on Sheltüh.");
+    const message = emails.holderMessage();
+    expect(message.html).toContain("Doors open at 7pm &#38; not 8pm.<br>Bring &#60;ID&#62;.");
+    expect(message.html).not.toContain("<ID>");
+    expect(message.text).toContain("Cellar Door <Sound>, who can’t see your address");
+    expect(message.text).toContain("Report this message: mailto:support@sheltuh.com.au?subject=");
+    expect(message.text).toContain("About Cellar Door <Sound>: https://sheltuh.test/organisers/org_1");
+    for (const email of [reminder, message]) {
+      expect(email.headers).toEqual({ "Auto-Submitted": "auto-generated" });
+      expect(`${email.html}${email.text}`.toLowerCase()).not.toContain("unsubscribe");
+    }
   });
 
   it("keeps each email's own content: QR tickets, seat lines, totals with booking fees, footer banner", () => {

@@ -15,6 +15,7 @@ import { listBlocks } from "@/lib/server/handlers/blocks";
 import { getCheckInSummary } from "@/lib/server/handlers/check-ins";
 import { adminEmailOutboxHealth, adminListEmailJobs, runEmailOutboxCron } from "@/lib/server/handlers/email-outbox";
 import { getMyEvent, listMyEvents } from "@/lib/server/handlers/events";
+import { adminListHolderMessages, getHolderMessages } from "@/lib/server/handlers/holder-messages";
 import { listFavouriteIds, listFavourites } from "@/lib/server/handlers/favourites";
 import { getFollow, listFollowingEvents, listMyFollowing } from "@/lib/server/handlers/follows";
 import { getMyExternalGoing } from "@/lib/server/handlers/external-going";
@@ -122,6 +123,8 @@ const PRIVATE_GETS: Case[] = [
   { name: "getEventAnalyticsCsv", handler: h(getEventAnalyticsCsv), as: asOrganiser, params: event },
   { name: "listTrackingLinks", handler: h(listTrackingLinks), as: asOrganiser, params: event },
   { name: "getCheckInSummary", handler: h(getCheckInSummary), as: asOrganiser, params: event },
+  { name: "getHolderMessages", handler: h(getHolderMessages), as: asOrganiser, params: event },
+  { name: "adminListHolderMessages", handler: h(adminListHolderMessages), as: asAdmin },
 ];
 
 /**
@@ -160,6 +163,7 @@ const COVERED_ELSEWHERE: Record<string, string> = {
   getMemberAvatar: "member-profiles.test.ts (`private, no-cache` with an ETag)",
   getMyAvatar: "member-profiles.test.ts (`private, no-cache` with an ETag, 304 included)",
   adminGetReportAvatar: "member-profiles.test.ts (a report with a photo)",
+  adminGetHolderMessage: "holder-messages.test.ts (a message sent to ticket holders)",
   getMyInvite: "invites.test.ts (a pending invite)",
   getEventClipPreview: "event-clips.test.ts (an uploaded clip)",
   getOrderBySession: "orders.test.ts (a checkout session; no token: the session id is the capability)",

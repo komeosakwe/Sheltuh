@@ -36,7 +36,10 @@ import type {
 import { REMAINING_SHOWN_AT_MOST, type PublicTicketType } from "@/lib/api/public-events";
 import {
   SHELTUH_TEAM_ACTOR,
+  type AdminHolderMessage,
+  type AdminHolderMessageDetail,
   type AdminOrganiserLinkRecord,
+  type HolderMessageSummary,
   type EventClip,
   type VenueLocation,
 } from "@/lib/api/types";
@@ -1234,4 +1237,63 @@ export function toAdminReport(row: Row): AdminReport {
     reportedInstagramHandle: opt(row.reported_instagram),
     ...(row.has_reported_avatar === true ? { reportedAvatarUrl: `/api/admin/reports/${row.id as string}/avatar` } : {}),
   };
+}
+
+/**
+ * An organiser's view of their event's messages to ticket holders; append
+ * `where m.event_id = $1 …`. The recipient counts come from the recipient
+ * rows (never an address).
+ */
+export const HOLDER_MESSAGE_SELECT = `
+  select m.id, m.subject, m.body, m.recipient_count, m.created_at, m.cancelled_at,
+         (select count(*) from private.holder_message_recipients r where r.message_id = m.id and r.sent_at is not null)::integer as sent_count,
+         (select count(*) from private.holder_message_recipients r where r.message_id = m.id and r.skip_reason is not null)::integer as skipped_count
+    from private.holder_messages m`;
+
+export function toHolderMessageSummary(row: Row): HolderMessageSummary {
+  return {
+    messageId: row.id as string,
+    subject: row.subject as string,
+    body: row.body as string,
+    recipientCount: row.recipient_count as number,
+    sentCount: row.sent_count as number,
+    skippedCount: row.skipped_count as number,
+    createdAt: iso(row.created_at),
+    cancelled: row.cancelled_at !== null && row.cancelled_at !== undefined,
+  };
+}
+
+/**
+ * The admin's view of a message (`withBody`: the detail, otherwise the list);
+ * append `where …`.
+ */
+export function adminHolderMessageSelect(withBody: boolean): string {
+  return `
+  select m.id, m.event_id, e.title as event_title, g.display_name as organiser_name,
+         m.subject, ${withBody ? "m.body" : "null::text as body"}, m.recipient_count, m.created_at, m.cancelled_at,
+         (select count(*) from private.holder_message_recipients r where r.message_id = m.id and r.sent_at is not null)::integer as sent_count,
+         (select count(*) from private.holder_message_recipients r where r.message_id = m.id and r.skip_reason is not null)::integer as skipped_count
+    from private.holder_messages m
+    join public.events e on e.id = m.event_id
+    join public.organisers g on g.id = m.organiser_id`;
+}
+
+export function toAdminHolderMessage(row: Row): AdminHolderMessage {
+  return {
+    messageId: row.id as string,
+    eventId: row.event_id as string,
+    eventTitle: row.event_title as string,
+    organiserName: row.organiser_name as string,
+    subject: row.subject as string,
+    recipientCount: row.recipient_count as number,
+    sentCount: row.sent_count as number,
+    skippedCount: row.skipped_count as number,
+    createdAt: iso(row.created_at),
+    cancelled: row.cancelled_at !== null && row.cancelled_at !== undefined,
+    cancelledAt: row.cancelled_at ? iso(row.cancelled_at) : undefined,
+  };
+}
+
+export function toAdminHolderMessageDetail(row: Row): AdminHolderMessageDetail {
+  return { ...toAdminHolderMessage(row), body: row.body as string };
 }

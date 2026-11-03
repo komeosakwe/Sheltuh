@@ -16,7 +16,7 @@ winter than in its summer. The conversions below were checked with
 
 | Job | Schedule (UTC) | Melbourne, AEDT | Melbourne, AEST | What it does |
 | --- | --- | --- | --- | --- |
-| `GET /api/cron/email-outbox` | `0 17 * * *` (daily 17:00) | 4:00 am | 3:00 am | Sends due outbox emails: retries of failed ticket emails, waitlist emails and follower emails that weren't sent straight after the request that queued them, and follower emails held back by the one-a-day limit. |
+| `GET /api/cron/email-outbox` | `0 17 * * *` (daily 17:00) | 4:00 am | 3:00 am | Sends due outbox emails: retries of failed ticket emails, waitlist emails and follower emails that weren't sent straight after the request that queued them, follower emails held back by the one-a-day limit, and organisers' messages to ticket holders that weren't sent straight away. First it **queues the day-before event reminders** (`private.queue_event_reminders`): each run queues a reminder for every ticket holder of an event that starts today (3 hours or more away) or tomorrow in its own time zone, once per person per event. |
 | `GET /api/cron/trending` | `20 17 * * *` (daily 17:20) | 4:20 am | 3:20 am | Rebuilds the home page's Trending snapshot (`private.refresh_trending()`). |
 
 Both routes need `CRON_SECRET` in Vercel; Vercel sends it as
@@ -35,6 +35,16 @@ Daily is the Hobby plan's limit, not a design choice. What it costs:
   rest, and any follower email held back by the one-a-day limit, wait for
   the next daily run.
 - Trending is up to a day old.
+- **Event reminders go out at the daily run.** An event tomorrow gets its
+  reminders at that day's 4 am (3 am) Melbourne run, the morning before; an
+  event that is already today at the run (and at least 3 hours away) gets
+  one that morning ("Today: …"). Anything booked after the run, or an event
+  that starts before the next run, is reminded by the next run or not at
+  all. With a 5-minute runner the reminders are queued just after the
+  event's local midnight; `EVENT_REMINDER_FROM_HOUR`
+  (`lib/server/handlers/email-outbox.ts`, 0 now) holds tomorrow's events
+  until a morning hour (say 8) once a frequent runner is in place. An email
+  at midnight on the 5-minute runner is the owner's call to make.
 
 ### Supabase Cron (`pg_cron`, scheduled by hand)
 

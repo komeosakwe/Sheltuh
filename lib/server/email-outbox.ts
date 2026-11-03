@@ -12,8 +12,10 @@ import { PG_UNDEFINED_FUNCTION, pgErrorCode } from "./db";
 import type { Deps } from "./deps";
 import type { EmailMessage } from "./email";
 import { isPlainEmailAddress, redactForLog } from "./email-address";
+import { buildEventReminderEmail } from "./event-reminder-email";
 import { buildFollowerNewEventsEmail, FOLLOWER_EMAIL_MAX_EVENTS, followerUnsubscribeLink } from "./follower-email";
 import { findEventById } from "./handlers/event-queries";
+import { buildHolderMessageEmail } from "./holder-message-email";
 import { CHECKOUT_LIMITS } from "./checkout-attempts";
 import { buildMemberWelcomeEmail, buildOrganiserNextStepsEmail, buildOrganiserWelcomeEmail } from "./onboarding-email";
 import { buildCheckoutSurgeAlertEmail, buildOpsAlertEmail } from "./ops-alert-email";
@@ -27,8 +29,9 @@ import { buildWaitlistAvailableEmail, waitlistEventLink, waitlistLeaveLink } fro
  * 20261024000000_waitlist.sql, 20261024000200_organiser_follows.sql,
  * 20261107000000_admin_review_emails.sql, 20261109000200_payment_reconciliation.sql,
  * 20261109000400_checkout_attempts.sql, 20261111000000_event_publish_now.sql,
- * 20261111000500_organiser_invite_links.sql, 20261111000700_onboarding_emails.sql).
- * Nine kinds of job:
+ * 20261111000500_organiser_invite_links.sql, 20261111000700_onboarding_emails.sql,
+ * 20261118000000_event_reminders.sql, 20261118000100_ticket_holder_messages.sql).
+ * Eleven kinds of job:
  * - `ticket_email`: private.fulfil_order queues one when an order becomes paid.
  * - `waitlist_available`: private.notify_waitlist queues one per person told
  *   that tickets are available again (docs/architecture.md, "Waitlist").
@@ -52,6 +55,15 @@ import { buildWaitlistAvailableEmail, waitlistEventLink, waitlistLeaveLink } fro
  *   email, to the account's own address, at most once per account and kind.
  *   Only leased when asked for by kind, and drained last
  *   (docs/architecture.md, "Onboarding emails").
+ * - `event_reminder`: the cron route's private.queue_event_reminders queues
+ *   one per ticket holder per event, once the event is today or tomorrow in
+ *   its own time zone; one email to the buyer's address, never twice for an
+ *   event. Only leased when asked for by kind, and drained after the original
+ *   kinds (docs/architecture.md, "Event reminders").
+ * - `holder_message`: private.send_holder_message queues one per address
+ *   when an organiser messages their event's ticket holders; one email each,
+ *   sent by Sheltüh with no Reply-To. Leased by kind only, like the reminder
+ *   (docs/architecture.md, "Messages to ticket holders").
  * - `ops_alert`: private.raise_payment_exception queues one when a payment
  *   exception is opened or reopened (at most 20 a day), and
  *   private.queue_checkout_surge_alert one when an event's paid checkouts
@@ -180,6 +192,15 @@ const skip = (error: string): Outcome => ({ sent: false, error, permanent: true,
 export const ONBOARDING_ORGANISER_DAILY = { bucket: "onboarding_organiser_emails_daily", limit: 200 } as const;
 /** How long a job over that cap waits before it tries again. */
 export const ONBOARDING_CAP_DEFER_SECONDS = 3600;
+
+/** Event reminders sent a day, platform-wide: private.take_platform_rate_limit's bucket and cap. */
+export const EVENT_REMINDERS_DAILY = { bucket: "event_reminders_daily", limit: 800 } as const;
+/** Organiser messages to ticket holders sent a day, platform-wide: the bucket and cap. */
+export const HOLDER_MESSAGES_DAILY = { bucket: "holder_messages_daily", limit: 600 } as const;
+/** How long a reminder or message over its cap waits before it tries again. */
+export const SEND_CAP_DEFER_SECONDS = 3600;
+/** A reminder is skipped, not sent, if its event is further off than this (it was moved later since the job was queued). */
+const REMINDER_MAX_LEAD = "50 hours";
 
 /**
  * Builds and sends one "tickets are available again" email, with a fresh
@@ -679,9 +700,171 @@ async function deliverOnboardingEmail(deps: Deps, jobId: string): Promise<Outcom
   }
 }
 
+/**
+ * Sends one event reminder to the buyer of the order it was queued for.
+ * Everything is read now, not when the job was queued: skipped, not retried,
+ * if the order isn't paid any more (refunded in full), the event was
+ * unpublished, has started or was moved further off than a day or so, the
+ * organiser isn't approved, or the address isn't a plain one. Over the
+ * platform's daily allowance the job waits an hour, without using an attempt.
+ * Never throws, and never puts an address in an error.
+ */
+async function deliverEventReminder(deps: Deps, jobId: string): Promise<Outcome> {
+  try {
+    const [row] = await deps.db.query<{
+      order_id: string;
+      order_status: string;
+      buyer_email: string | null;
+      event_id: string;
+      event_status: string;
+      upcoming: boolean;
+      soon: boolean;
+      organiser_id: string;
+      organiser_status: string;
+    }>(
+      `select r.order_id, o.status::text as order_status, o.buyer_email, e.id as event_id, e.status::text as event_status,
+              e.starts_at > now() as upcoming, e.starts_at < now() + $2::interval as soon,
+              g.id as organiser_id, g.status::text as organiser_status
+         from private.email_outbox j
+         join private.event_reminders r on r.id = j.reminder_id
+         join public.orders o on o.id = r.order_id
+         join public.events e on e.id = r.event_id
+         join public.organisers g on g.id = e.organiser_id
+        where j.id = $1::bigint`,
+      [jobId, REMINDER_MAX_LEAD],
+    );
+    if (!row) return skip("the order or event no longer exists");
+    if (row.order_status !== "paid") return skip("the order isn't paid any more");
+    if (row.event_status !== "published") return skip("the event isn't published any more");
+    if (row.organiser_status !== "approved") return skip("the organiser isn't approved any more");
+    if (!row.upcoming) return skip("the event has started");
+    if (!row.soon) return skip("the event is further off now");
+    if (!row.buyer_email || !isPlainEmailAddress(row.buyer_email)) return skip("the order has no usable email address");
+    const event = await findEventById(deps.db, row.event_id);
+    if (!event) return skip("the event no longer exists");
+    // Last, so a skipped job never uses the allowance. Over it, the job waits (it isn't dropped, nor does it use an attempt).
+    const [{ allowed }] = await deps.db.query<{ allowed: boolean }>(
+      `select private.take_platform_rate_limit($1, $2, interval '1 day') as allowed`,
+      [EVENT_REMINDERS_DAILY.bucket, EVENT_REMINDERS_DAILY.limit],
+    );
+    if (!allowed) {
+      return { sent: false, error: "over the daily allowance for reminders", permanent: false, deferSeconds: SEND_CAP_DEFER_SECONDS };
+    }
+    await deps.sendEmail(
+      buildEventReminderEmail({
+        to: row.buyer_email,
+        orderId: row.order_id,
+        event,
+        organiserId: row.organiser_id,
+        siteUrl: deps.siteUrl(),
+        now: new Date(),
+      }),
+    );
+    return { sent: true };
+  } catch (err) {
+    return { sent: false, error: redactForLog(err instanceof Error ? err.message : "unknown error"), permanent: false };
+  }
+}
+
+/** Records, best effort, that a message's recipient will never be sent to (a fixed phrase, never an address). */
+async function recordHolderMessageSkip(deps: Deps, recipientId: string, reason: string): Promise<void> {
+  try {
+    await deps.db.query(
+      `update private.holder_message_recipients set skip_reason = $2 where id = $1::uuid and sent_at is null`,
+      [recipientId, reason],
+    );
+  } catch {
+    // The job is still skipped; only the organiser's and admin's count misses it.
+  }
+}
+
+/**
+ * Sends one organiser message to one ticket holder. Everything is read now:
+ * skipped (and recorded on the recipient), not retried, if an admin stopped
+ * the message, the order isn't paid any more, the event was unpublished, the
+ * organiser isn't approved, or the address isn't a plain one. Already sent
+ * (a worker that died before recording it) is a success, not a second email.
+ * Over the platform's daily allowance the job waits an hour, without using an
+ * attempt. Never throws, and never puts an address or the text in an error.
+ */
+async function deliverHolderMessage(deps: Deps, jobId: string): Promise<Outcome> {
+  try {
+    const [row] = await deps.db.query<{
+      recipient_id: string;
+      message_id: string;
+      sent: boolean;
+      subject: string;
+      body: string;
+      cancelled: boolean;
+      event_title: string;
+      event_status: string;
+      organiser_id: string;
+      organiser_name: string;
+      organiser_status: string;
+      order_status: string;
+      buyer_email: string | null;
+    }>(
+      `select r.id as recipient_id, m.id as message_id, r.sent_at is not null as sent, m.subject, m.body,
+              m.cancelled_at is not null as cancelled, e.title as event_title, e.status::text as event_status,
+              g.id as organiser_id, g.display_name as organiser_name, g.status::text as organiser_status,
+              o.status::text as order_status, o.buyer_email
+         from private.email_outbox j
+         join private.holder_message_recipients r on r.id = j.message_recipient_id
+         join private.holder_messages m on m.id = r.message_id
+         join public.orders o on o.id = r.order_id
+         join public.events e on e.id = m.event_id
+         join public.organisers g on g.id = m.organiser_id
+        where j.id = $1::bigint`,
+      [jobId],
+    );
+    if (!row) return skip("the message or order no longer exists");
+    if (row.sent) return { sent: true };
+    const refuse = async (reason: string): Promise<Outcome> => {
+      await recordHolderMessageSkip(deps, row.recipient_id, reason);
+      return skip(reason);
+    };
+    if (row.cancelled) return refuse("an admin stopped the message");
+    if (row.order_status !== "paid") return refuse("the order isn't paid any more");
+    if (row.event_status !== "published") return refuse("the event isn't published any more");
+    if (row.organiser_status !== "approved") return refuse("the organiser isn't approved any more");
+    if (!row.buyer_email || !isPlainEmailAddress(row.buyer_email)) return refuse("the order has no usable email address");
+    const [{ allowed }] = await deps.db.query<{ allowed: boolean }>(
+      `select private.take_platform_rate_limit($1, $2, interval '1 day') as allowed`,
+      [HOLDER_MESSAGES_DAILY.bucket, HOLDER_MESSAGES_DAILY.limit],
+    );
+    if (!allowed) {
+      return { sent: false, error: "over the daily allowance for messages", permanent: false, deferSeconds: SEND_CAP_DEFER_SECONDS };
+    }
+    await deps.sendEmail(
+      buildHolderMessageEmail({
+        to: row.buyer_email,
+        messageId: row.message_id,
+        eventTitle: row.event_title,
+        organiserName: row.organiser_name,
+        organiserId: row.organiser_id,
+        subject: row.subject,
+        body: row.body,
+        siteUrl: deps.siteUrl(),
+      }),
+    );
+  } catch (err) {
+    return { sent: false, error: redactForLog(err instanceof Error ? err.message : "unknown error"), permanent: false };
+  }
+  // Sent. Recording it can't turn a delivered email into a retry (a second copy).
+  try {
+    await deps.db.query(`update private.holder_message_recipients r set sent_at = now()
+                          from private.email_outbox j where j.id = $1::bigint and r.id = j.message_recipient_id and r.sent_at is null`, [jobId]);
+  } catch {
+    // The count under-reports this one; the job is still marked sent.
+  }
+  return { sent: true };
+}
+
 function deliver(deps: Deps, job: ClaimedJob, leaseEndsAt: number): Promise<Outcome> {
   if (job.job_kind === "ops_alert") return deliverOpsAlert(deps, String(job.job_id));
   if (job.job_kind === "onboarding") return deliverOnboardingEmail(deps, String(job.job_id));
+  if (job.job_kind === "event_reminder") return deliverEventReminder(deps, String(job.job_id));
+  if (job.job_kind === "holder_message") return deliverHolderMessage(deps, String(job.job_id));
   if (isAdminJob(job.job_kind)) return deliverReviewEmail(deps, job, leaseEndsAt);
   if (job.job_kind === "waitlist_available" && job.job_waitlist_entry_id) {
     return deliverWaitlistEmail(deps, job.job_waitlist_entry_id);
@@ -691,6 +874,24 @@ function deliver(deps: Deps, job: ClaimedJob, leaseEndsAt: number): Promise<Outc
   }
   if (job.job_kind === "ticket_email" && job.job_order_id) return deliverTicketEmail(deps, job.job_order_id);
   return Promise.resolve({ sent: false, error: "unknown job", permanent: true });
+}
+
+/** How a kind of job is named in the log. */
+function jobLabel(kind: EmailJobKind): string {
+  switch (kind) {
+    case "waitlist_available":
+      return "Waitlist";
+    case "ops_alert":
+      return "Ops alert";
+    case "onboarding":
+      return "Onboarding";
+    case "event_reminder":
+      return "Reminder";
+    case "holder_message":
+      return "Holder message";
+    default:
+      return "Follower";
+  }
 }
 
 async function runJob(deps: Deps, job: ClaimedJob, leaseEndsAt: number, summary: DrainSummary, random: () => number) {
@@ -718,7 +919,7 @@ async function runJob(deps: Deps, job: ClaimedJob, leaseEndsAt: number, summary:
       `update private.email_outbox set attempts = greatest(attempts - 1, 0) where id = $1::bigint and status = 'pending'`,
       [String(job.job_id)],
     );
-    console.info(`Onboarding email job ${job.job_id} held back: ${outcome.error}.`);
+    console.info(`${jobLabel(job.job_kind)} email job ${job.job_id} held back: ${outcome.error}.`);
     return;
   }
   if (result === "sent") summary.sent += 1;
@@ -740,18 +941,12 @@ async function runJob(deps: Deps, job: ClaimedJob, leaseEndsAt: number, summary:
     job.job_kind === "waitlist_available" ||
     job.job_kind === "organiser_new_events" ||
     job.job_kind === "ops_alert" ||
-    job.job_kind === "onboarding"
+    job.job_kind === "onboarding" ||
+    job.job_kind === "event_reminder" ||
+    job.job_kind === "holder_message"
   ) {
-    // The job id only: never the address, the entry, the follow, the account or the exception.
-    const label =
-      job.job_kind === "waitlist_available"
-        ? "Waitlist"
-        : job.job_kind === "ops_alert"
-          ? "Ops alert"
-          : job.job_kind === "onboarding"
-            ? "Onboarding"
-            : "Follower";
-    const message = `${label} email job ${job.job_id} attempt ${job.job_attempts}`;
+    // The job id only: never the address, the entry, the follow, the account, the exception, the order or the message.
+    const message = `${jobLabel(job.job_kind)} email job ${job.job_id} attempt ${job.job_attempts}`;
     if (outcome.skipped) console.info(`${message} not sent: ${outcome.error}.`);
     else console.error(`${message} ${result === "failed" ? "failed for good" : "failed, will retry"}: ${outcome.error}`);
     return;
@@ -800,8 +995,9 @@ async function leaseJobs(deps: Deps, limit: number, orderId: string | null, kind
  * taken or `budgetMs` has passed. With `orderId`, only that order's job (the
  * attempt straight after payment); with `kind`, only jobs of that kind.
  * With neither, ops alerts first, then the original kinds (tickets, waitlist,
- * followers, reviews), then the organiser-published and organiser-joined
- * emails, and the onboarding emails last, so a burst of welcomes never delays
+ * followers, reviews), then event reminders, organiser messages to ticket
+ * holders, the organiser-published and organiser-joined emails, and the
+ * onboarding emails last, so a burst of welcomes never delays
  * a ticket (private.lease_outbox_jobs without a kind leases only an allowlist
  * of the original kinds; every other kind only when asked for it by name, so
  * a release that can't send one never takes it).
@@ -814,7 +1010,11 @@ export async function drainEmailOutbox(
   const { orderId, kind, maxJobs = 100, budgetMs = DRAIN_BUDGET_MS, random = Math.random } = options;
   const deadline = Date.now() + budgetMs;
   const summary: DrainSummary = { claimed: 0, sent: 0, retrying: 0, failed: 0 };
-  const phases: (EmailJobKind | null)[] = kind ? [kind] : orderId ? [null] : ["ops_alert", null, "event_published", "organiser_joined", "onboarding"];
+  const phases: (EmailJobKind | null)[] = kind
+    ? [kind]
+    : orderId
+      ? [null]
+      : ["ops_alert", null, "event_reminder", "holder_message", "event_published", "organiser_joined", "onboarding"];
   for (const phase of phases) {
     while (summary.claimed < maxJobs && Date.now() < deadline) {
       // Taken before the lease starts, so the lease ends no sooner than this says.
@@ -904,6 +1104,20 @@ export const ONBOARDING_DRAIN_MAX_JOBS = 10;
 export function sendOnboardingEmailsSoon(deps: Deps): void {
   deps.defer(async () => {
     await drainEmailOutbox(deps, { kind: "onboarding", maxJobs: ONBOARDING_DRAIN_MAX_JOBS });
+  });
+}
+
+/** Messages to ticket holders sent straight after an organiser queues one (the rest wait for the cron route). */
+export const HOLDER_MESSAGE_DRAIN_MAX_JOBS = 100;
+
+/**
+ * Queues a run over due messages to ticket holders for straight after the
+ * response that queued them: up to HOLDER_MESSAGE_DRAIN_MAX_JOBS within
+ * DRAIN_BUDGET_MS. Whatever it doesn't send waits for the cron route.
+ */
+export function sendHolderMessagesSoon(deps: Deps): void {
+  deps.defer(async () => {
+    await drainEmailOutbox(deps, { kind: "holder_message", maxJobs: HOLDER_MESSAGE_DRAIN_MAX_JOBS });
   });
 }
 
