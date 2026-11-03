@@ -6,6 +6,8 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import DottedLine from "@/components/brand/DottedLine";
 import SceneEventRow from "@/components/SceneEventRow";
 import SceneMapFilterBar from "@/components/SceneMapFilterBar";
+import NearMeButton from "@/components/map/NearMeButton";
+import { useMapLocate } from "@/components/map/useMapLocate";
 import SceneMapEventCard from "@/components/map/SceneMapEventCard";
 import { Button } from "@/components/ui/Button";
 import { SelectedDots } from "@/components/ui/FilterChip";
@@ -21,7 +23,7 @@ import { useMapTileStyle } from "@/components/map/useMapTileStyle";
 import { useLocationModule } from "@/components/search/useLocationModule";
 import { findListedSuburb, resolveMapCoordinates, type SuburbLookup } from "@/lib/geo";
 import { readStoredNear } from "@/lib/near-storage";
-import { placeName } from "@/lib/place";
+import { placeName, placeQuery } from "@/lib/place";
 import { formatFeedPrice } from "@/lib/pricing";
 import {
   matchesPricing,
@@ -49,7 +51,7 @@ type Status = "loading" | "loaded" | "error";
 export const MAP_PAGES_PER_LOAD = 4;
 const PAGE_LIMIT = 50;
 
-// The saved "near" suburb (lib/near-storage.ts), read once in the browser: the map opens on its area.
+// The saved "near" suburb (lib/near-storage.ts), read once in the browser: the map opens centred on it.
 const noSubscribe = () => () => {};
 const serverNoNear = () => "";
 
@@ -122,6 +124,16 @@ const DEFAULT_FILTERS: FilterState = {
   pricing: "all",
 };
 
+/**
+ * What an address can carry that is the visitor's own view of the map: filters, a selected event,
+ * the list. It wins over the visitor's location (no centring on a saved suburb, no asking for one).
+ */
+const VIEW_PARAMS = ["q", "cat", "time", "date", "suburb", "price", "sel", "view"] as const;
+
+function carriesViewState(params: URLSearchParams): boolean {
+  return VIEW_PARAMS.some((key) => params.has(key));
+}
+
 function readFiltersFromParams(params: URLSearchParams): FilterState {
   return {
     search: params.get("q") ?? "",
@@ -182,7 +194,7 @@ function SceneMapView({
   // twice. If it can't load, the few hand-entered centres in lib/geo.ts stand in, and the page
   // says so.
   // The table also finds the visitor's saved suburb (owner decision D5: browser-only, never sent),
-  // for the map to open on the events near it.
+  // for the map to open centred on it.
   const savedNear = useSyncExternalStore(noSubscribe, readStoredNear, serverNoNear);
   const needsSuburbs = events.some((event) => !event.coordinates);
   const needsTable = needsSuburbs || savedNear !== "";
@@ -191,13 +203,20 @@ function SceneMapView({
   const status: Status =
     eventsStatus === "loaded" && needsTable && !suburbTable.module && !suburbTable.failed ? "loading" : eventsStatus;
   const nearPlace = savedNear && suburbTable.module ? suburbTable.module.findLocality(savedNear) : null;
-  const near = useMemo(() => (nearPlace ? { lat: nearPlace.lat, lng: nearPlace.lng } : null), [nearPlace]);
+  const nearLat = nearPlace?.lat;
+  const nearLng = nearPlace?.lng;
+  const near = useMemo(
+    () => (nearLat !== undefined && nearLng !== undefined ? { lat: nearLat, lng: nearLng } : null),
+    [nearLat, nearLng],
+  );
 
   // Read once on mount — the URL is the source of truth for "coming back",
   // not for reacting to every subsequent change (that would fight typing).
   const initial = useMemo(() => readFiltersFromParams(searchParams), []); // eslint-disable-line react-hooks/exhaustive-deps
   const initialSelected = useMemo(() => searchParams.get("sel"), []); // eslint-disable-line react-hooks/exhaustive-deps
   const initialView = useMemo<MobileView>(() => (searchParams.get("view") === "list" ? "list" : "map"), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const [urlSteers] = useState(() => carriesViewState(searchParams));
+  const locate = useMapLocate(!urlSteers);
 
   // The desktop event card sits above the Mapbox wordmark in the map's lower-left corner (components/map/MapboxLogo.tsx).
   const mapboxLogo = useMapTileStyle().id === "mapbox-streets";
@@ -346,6 +365,16 @@ function SceneMapView({
   function resetFilters() {
     setFilters(DEFAULT_FILTERS);
     setAreaBounds(null);
+    locate.clearFocus();
+  }
+
+  // Picking a suburb centres the map on it (from the suburb table), zoomed in.
+  function handleSuburbChange(suburb: string) {
+    setFilters((f) => ({ ...f, suburb }));
+    if (suburb === "all") return;
+    const state = events.find((event) => event.suburb === suburb)?.state;
+    const place = findSuburb(placeQuery({ suburb, state }));
+    if (place) locate.centreOn(place);
   }
 
   // Phones: Locate switches to the map, hiding the row (and its button) that had focus, so focus
@@ -457,7 +486,7 @@ function SceneMapView({
         onSpecificDateChange={(specificDate) => setFilters((f) => ({ ...f, specificDate }))}
         suburbGroups={suburbGroups}
         suburb={filters.suburb}
-        onSuburbChange={(suburb) => setFilters((f) => ({ ...f, suburb }))}
+        onSuburbChange={handleSuburbChange}
         pricing={filters.pricing}
         onPricingChange={(pricing) => setFilters((f) => ({ ...f, pricing }))}
       />
@@ -551,12 +580,17 @@ function SceneMapView({
                   <SceneMapPanel
                     events={filtered}
                     findSuburb={findSuburb}
-                    near={near}
+                    near={urlSteers ? null : near}
+                    focus={locate.focus}
+                    onFocused={locate.focused}
                     selectedEventId={selectedEventId}
                     onSelect={handleMapSelect}
                     onSearchArea={setAreaBounds}
                     onShowList={showList}
                   />
+                  {locate.canLocate && (
+                    <NearMeButton onLocate={locate.locate} locating={locate.locating} status={locate.status} />
+                  )}
                   {/* Desktop: the selected event over the map's lower-left corner (phones get the bottom card below). */}
                   {selectedEvent && (
                     <SceneMapEventCard

@@ -12,7 +12,8 @@ import { runQuietly, stopQuietly } from "@/components/map/quiet-map";
 import { useMapTileStyle } from "@/components/map/useMapTileStyle";
 import { buttonClass } from "@/components/ui/Button";
 import { ProgressLoader, useLoadingProgress } from "@/components/ui/ProgressLoader";
-import { framingTargets } from "@/lib/map-layout";
+import type { MapFocus } from "@/components/map/useMapLocate";
+import { MAP_NEAR_ZOOM } from "@/lib/map-layout";
 import {
   AUSTRALIA_BOUNDS,
   AUSTRALIA_MIN_ZOOM,
@@ -46,11 +47,59 @@ function fitTargets(map: L.Map, targets: MarkerDatum[], reducedMotion: boolean, 
   map.fitBounds(bounds, { padding: [48, 48], maxZoom: 15, animate: !reducedMotion });
 }
 
-/** Centres on the selected event if there is one, otherwise fits `targets` (framingTargets). */
+/** Centres on `place` at the suburb zoom: flies there when `smooth` (and motion is welcome), else jumps. */
+function centreOn(
+  map: L.Map,
+  place: Coordinates,
+  smooth: boolean,
+  reducedMotion: boolean,
+  programmaticMoveRef: RefObject<boolean>,
+) {
+  programmaticMoveRef.current = true;
+  if (smooth && !reducedMotion) map.flyTo([place.lat, place.lng], MAP_NEAR_ZOOM, { duration: 0.8 });
+  else map.setView([place.lat, place.lng], MAP_NEAR_ZOOM, { animate: false });
+}
+
+/**
+ * Applies a centre request the map hasn't yet (`applied` holds the last one's id), once it has a
+ * size (a hidden map waits for its resize). Returns whether it did, so the caller skips fitting
+ * the markers over it. `onFocused` lets the owner drop the request (and its coordinates).
+ */
+function applyFocus(
+  map: L.Map,
+  focus: MapFocus | null,
+  applied: RefObject<number | null>,
+  reducedMotion: boolean,
+  programmaticMoveRef: RefObject<boolean>,
+  onFocused: ((id: number) => void) | undefined,
+): boolean {
+  if (!focus || focus.id === applied.current || !hasSize(map)) return false;
+  applied.current = focus.id;
+  stopQuietly(map, programmaticMoveRef);
+  centreOn(map, focus, focus.smooth, reducedMotion, programmaticMoveRef);
+  onFocused?.(focus.id);
+  return true;
+}
+
+/** The first framing: on the saved suburb (`near`) if there is one, else every marker (or Australia). */
+function frameFirst(
+  map: L.Map,
+  markers: MarkerDatum[],
+  near: Coordinates | null,
+  first: boolean,
+  reducedMotion: boolean,
+  programmaticMoveRef: RefObject<boolean>,
+) {
+  if (first && near) centreOn(map, near, false, reducedMotion, programmaticMoveRef);
+  else fitTargets(map, markers, reducedMotion, programmaticMoveRef);
+}
+
+/** Centres on the selected event if there is one, otherwise frames the markers (frameFirst). */
 function frameMarkers(
   map: L.Map,
   markers: MarkerDatum[],
-  targets: MarkerDatum[],
+  near: Coordinates | null,
+  first: boolean,
   selectedEventId: string | null,
   reducedMotion: boolean,
   programmaticMoveRef: RefObject<boolean>,
@@ -63,38 +112,45 @@ function frameMarkers(
     else map.flyTo([selected.lat, selected.lng], zoom, { duration: 0.6 });
     return;
   }
-  fitTargets(map, targets, reducedMotion, programmaticMoveRef);
+  frameFirst(map, markers, near, first, reducedMotion, programmaticMoveRef);
 }
 
 /**
  * Recentres/zooms the map when the selected event changes, and fits the
- * markers whenever they change: the first time, those near the saved suburb
- * (`near`) if any are; with none, Australia.
+ * markers whenever they change: the first time, centred on the saved suburb
+ * (`near`) if there is one; with none, Australia. A centre request (`focus`:
+ * the visitor's location, a suburb they picked) wins over fitting the markers.
  */
 function MapController({
   markers,
   near,
+  focus,
+  onFocused,
   selectedEventId,
   programmaticMoveRef,
   reducedMotion,
 }: {
   markers: MarkerDatum[];
   near: Coordinates | null;
+  focus: MapFocus | null;
+  onFocused?: (id: number) => void;
   selectedEventId: string | null;
   programmaticMoveRef: RefObject<boolean>;
   reducedMotion: boolean;
 }) {
   const map = useMap();
   // Latest props for the resize listener below, which is registered once.
-  const latest = useRef({ markers, near, selectedEventId, reducedMotion });
+  const latest = useRef({ markers, near, focus, onFocused, selectedEventId, reducedMotion });
   useEffect(() => {
-    latest.current = { markers, near, selectedEventId, reducedMotion };
+    latest.current = { markers, near, focus, onFocused, selectedEventId, reducedMotion };
   });
-  // The markers the map was first framed with: only that framing looks near the saved suburb. Kept
+  // The markers the map was first framed with: only that framing centres on the saved suburb. Kept
   // as the markers themselves rather than a flag, so framing them again (React re-running effects
   // in development) is still the first framing; a new set of markers (a filter) isn't.
   const firstFramed = useRef<MarkerDatum[] | null>(null);
   const isFirstFraming = (current: MarkerDatum[]) => firstFramed.current === null || firstFramed.current === current;
+  // The id of the last centre request applied.
+  const appliedFocus = useRef<number | null>(null);
 
   // Re-fits whenever the visible marker set actually changes (e.g. a
   // filter narrows it) — `markers` only gets a new reference when the
@@ -116,9 +172,19 @@ function MapController({
     // Hidden (the phone's list tab): fitting a 0×0 map snaps to max zoom
     // around the centre. Wait for the resize listener below instead.
     if (!hasSize(map)) return;
-    fitTargets(map, framingTargets(markers, latest.current.near, isFirstFraming(markers)), reducedMotion, programmaticMoveRef);
+    const current = latest.current;
+    // A centre request made with this change (the location filter) wins over fitting.
+    if (!applyFocus(map, current.focus, appliedFocus, reducedMotion, programmaticMoveRef, current.onFocused)) {
+      frameFirst(map, markers, latest.current.near, isFirstFraming(markers), reducedMotion, programmaticMoveRef);
+    }
     firstFramed.current ??= markers;
   }, [map, markers, programmaticMoveRef, reducedMotion]);
+
+  // A new centre request: the visitor's location, or a suburb picked in the location filter.
+  useEffect(() => {
+    const current = latest.current;
+    applyFocus(map, focus, appliedFocus, current.reducedMotion, programmaticMoveRef, current.onFocused);
+  }, [map, focus, programmaticMoveRef]);
 
   useEffect(() => {
     if (!selectedEventId) return;
@@ -127,7 +193,7 @@ function MapController({
     stopQuietly(map, programmaticMoveRef);
     runQuietly(programmaticMoveRef, () => map.invalidateSize());
     if (!hasSize(map)) return;
-    frameMarkers(map, markers, markers, selectedEventId, reducedMotion, programmaticMoveRef);
+    frameMarkers(map, markers, null, false, selectedEventId, reducedMotion, programmaticMoveRef);
     firstFramed.current ??= markers;
   }, [map, markers, selectedEventId, programmaticMoveRef, reducedMotion]);
 
@@ -144,8 +210,19 @@ function MapController({
         frame = null;
         const current = latest.current;
         stopQuietly(map, programmaticMoveRef);
-        const targets = framingTargets(current.markers, current.near, isFirstFraming(current.markers));
-        frameMarkers(map, current.markers, targets, current.selectedEventId, current.reducedMotion, programmaticMoveRef);
+        if (applyFocus(map, current.focus, appliedFocus, current.reducedMotion, programmaticMoveRef, current.onFocused)) {
+          firstFramed.current ??= current.markers;
+          return;
+        }
+        frameMarkers(
+          map,
+          current.markers,
+          current.near,
+          isFirstFraming(current.markers),
+          current.selectedEventId,
+          current.reducedMotion,
+          programmaticMoveRef,
+        );
         firstFramed.current ??= current.markers;
       });
     }
@@ -156,6 +233,29 @@ function MapController({
     };
   }, [map, programmaticMoveRef]);
 
+  return null;
+}
+
+/**
+ * Publishes where the map is (centre rounded to about 100 m, zoom) as data attributes on its
+ * container, for the end-to-end tests. Written straight to the DOM on each move: no React state.
+ */
+function MapViewProbe() {
+  const map = useMap();
+  useEffect(() => {
+    const container = map.getContainer();
+    function publish() {
+      const centre = map.getCenter();
+      container.dataset.centerLat = centre.lat.toFixed(3);
+      container.dataset.centerLng = centre.lng.toFixed(3);
+      container.dataset.zoom = String(map.getZoom());
+    }
+    publish();
+    map.on("moveend", publish);
+    return () => {
+      map.off("moveend", publish);
+    };
+  }, [map]);
   return null;
 }
 
@@ -255,10 +355,13 @@ interface SceneMapPanelProps {
   findSuburb?: SuburbLookup;
   /**
    * The centre of the visitor's saved suburb (browser-only, never sent):
-   * the map opens on the events within NEAR_FRAME_KM (lib/map-layout.ts) of
-   * it, if any.
+   * the map opens centred on it, at MAP_NEAR_ZOOM (lib/map-layout.ts).
    */
   near?: Coordinates | null;
+  /** Centre here now and zoom in (the visitor's location, a suburb picked); applied once per `id`. */
+  focus?: MapFocus | null;
+  /** Called with a request's `id` once the map has applied it. */
+  onFocused?: (id: number) => void;
 }
 
 const TILE_LOAD_TIMEOUT_MS = 9000;
@@ -277,6 +380,8 @@ export default function SceneMapPanel({
   onShowList,
   findSuburb,
   near = null,
+  focus = null,
+  onFocused,
 }: SceneMapPanelProps) {
   const [status, setStatus] = useState<TileStatus>("loading");
   const [retryKey, setRetryKey] = useState(0);
@@ -419,10 +524,13 @@ export default function SceneMapPanel({
         <MapController
           markers={markers}
           near={near}
+          focus={focus}
+          onFocused={onFocused}
           selectedEventId={selectedEventId}
           programmaticMoveRef={programmaticMoveRef}
           reducedMotion={reducedMotion}
         />
+        <MapViewProbe />
       </MapContainer>
 
       {/* Outside the Leaflet container so its wheel/drag handling doesn't capture the list's scrolling. */}

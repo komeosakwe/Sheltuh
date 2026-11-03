@@ -7,6 +7,7 @@ import {
   parseStoredNearState,
   readStoredNear,
   readStoredNearState,
+  subscribeStoredNear,
   writeStoredNear,
 } from "@/lib/near-storage";
 
@@ -79,5 +80,40 @@ describe("near-storage", () => {
     expect(readStoredNearState()).toBeNull();
     expect(writeStoredNear("Fitzroy")).toBe(false);
     expect(clearStoredNear()).toBe(false);
+  });
+});
+
+describe("subscribeStoredNear", () => {
+  it("is called when the suburb is written or forgotten in this page, and not after unsubscribing", () => {
+    const onChange = vi.fn();
+    const unsubscribe = subscribeStoredNear(onChange);
+    writeStoredNear("Fitzroy", "VIC");
+    expect(onChange).toHaveBeenCalledTimes(1);
+    clearStoredNear();
+    expect(onChange).toHaveBeenCalledTimes(2);
+    unsubscribe();
+    writeStoredNear("Perth", "WA");
+    expect(onChange).toHaveBeenCalledTimes(2);
+  });
+
+  it("is called for another tab's change (the storage event), for this key only", () => {
+    const onChange = vi.fn();
+    const unsubscribe = subscribeStoredNear(onChange);
+    window.dispatchEvent(new StorageEvent("storage", { key: "something-else" }));
+    expect(onChange).not.toHaveBeenCalled();
+    window.dispatchEvent(new StorageEvent("storage", { key: NEAR_STORAGE_KEY }));
+    expect(onChange).toHaveBeenCalledTimes(1);
+    unsubscribe();
+  });
+
+  it("isn't called when the write fails", () => {
+    const onChange = vi.fn();
+    const unsubscribe = subscribeStoredNear(onChange);
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("quota");
+    });
+    expect(writeStoredNear("Fitzroy")).toBe(false);
+    expect(onChange).not.toHaveBeenCalled();
+    unsubscribe();
   });
 });

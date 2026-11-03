@@ -11,6 +11,7 @@ import {
 } from "@/lib/near-storage";
 // The suburb table loads only when someone opens the picker or asks for their location.
 import { loadLocation, type LocationModule } from "@/lib/location-loader";
+import { GEOLOCATION_OPTIONS, hasGeolocation } from "@/lib/geolocation";
 import { placeName } from "@/lib/place";
 
 function subscribeStorage(onChange: () => void) {
@@ -23,10 +24,6 @@ function subscribeStorage(onChange: () => void) {
 const noSubscribe = () => () => {};
 const serverEmpty = () => "";
 const serverFalse = () => false;
-const hasGeolocation = () => typeof navigator !== "undefined" && "geolocation" in navigator;
-
-/** Finds the browser's position: coarse, at most 10 seconds, a reading up to 10 minutes old is fine. */
-const GEOLOCATION_OPTIONS: PositionOptions = { enableHighAccuracy: false, timeout: 10_000, maximumAge: 600_000 };
 
 type PanelStatus = { tone: "info" | "danger"; text: string } | null;
 

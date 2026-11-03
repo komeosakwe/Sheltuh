@@ -86,6 +86,29 @@ export function readStoredNearState(): StateCode | null {
   return parseStoredNearState(readRaw());
 }
 
+const listeners = new Set<() => void>();
+
+/**
+ * Calls `onChange` when the stored suburb is written or forgotten, in this
+ * page (the `storage` event only reaches other tabs) or another tab. For a
+ * page that follows the visitor's location (/map).
+ */
+export function subscribeStoredNear(onChange: () => void): () => void {
+  function handle(event: StorageEvent) {
+    if (event.key === null || event.key === NEAR_STORAGE_KEY) onChange();
+  }
+  listeners.add(onChange);
+  window.addEventListener("storage", handle);
+  return () => {
+    listeners.delete(onChange);
+    window.removeEventListener("storage", handle);
+  };
+}
+
+function notify() {
+  for (const listener of Array.from(listeners)) listener();
+}
+
 /** Stores `suburb` (the table's name for it) and its state; false when storage can't be written. */
 export function writeStoredNear(suburb: string, state?: StateCode | null): boolean {
   const store = local();
@@ -93,10 +116,11 @@ export function writeStoredNear(suburb: string, state?: StateCode | null): boole
   try {
     const value = { suburb: suburb.trim().slice(0, NEAR_MAX_LENGTH), ...(state ? { state } : {}) };
     store.setItem(NEAR_STORAGE_KEY, JSON.stringify(value));
-    return true;
   } catch {
     return false;
   }
+  notify();
+  return true;
 }
 
 /** Forgets the stored suburb; false when storage can't be written. */
@@ -105,8 +129,9 @@ export function clearStoredNear(): boolean {
   if (!store) return false;
   try {
     store.removeItem(NEAR_STORAGE_KEY);
-    return true;
   } catch {
     return false;
   }
+  notify();
+  return true;
 }
