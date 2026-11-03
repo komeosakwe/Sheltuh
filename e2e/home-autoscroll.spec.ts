@@ -13,7 +13,7 @@ import { sampleEvents } from "@/lib/sample-events";
  * the tab order, but clickable). Live mode with /api/* answered
  * here: two events this weekend (a pair, which never auto-scrolls; on a
  * Friday to Sunday the next few events fall in the weekend too) and the rest
- * in Coming up, which overflows at both widths (640px up: phones have the swipe card).
+ * in Coming up, which overflows at both widths (640px up: phones have grids).
  */
 
 const HOUR = 3600_000;
@@ -141,7 +141,7 @@ function unwrap(frames: Frame[], period: number): { travelled: number[]; wraps: 
   return { travelled, wraps };
 }
 
-// 640px is the narrowest width with rails: below it the home has the one swipe card (e2e/swipe.spec.ts).
+// 640px is the narrowest width with rails: below it the home has two-column grids (e2e/home-grid.spec.ts).
 for (const width of [640, 1440]) {
   test.describe(`home rail auto-scroll at ${width}px`, () => {
     test.use({ viewport: { width, height: width < 768 ? 844 : 900 } });

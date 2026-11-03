@@ -101,7 +101,7 @@ test.describe("sold out: Join waitlist at 390×844", () => {
       return route.fulfill({ status: 404, json: { error: "not mocked in e2e" } });
     });
 
-    // The cards on a phone are /events' (the home's phone layout is the swipe card, not cards).
+    // The cards on a phone are /events' (the home's phone layout is grids of the same cards).
     await page.goto("/events");
     const join = page.getByRole("link", { name: `Join waitlist for ${soldOut.title}` }).first();
     await expect(join).toBeVisible({ timeout: 30_000 });

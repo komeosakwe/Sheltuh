@@ -78,15 +78,14 @@ async function mockApi(
 async function openHome(page: Page, options?: { trending?: boolean; going?: number; ended?: PublicEvent[] }) {
   await mockApi(page, options);
   await page.goto("/");
-  // Below 640px the rails give way to the one "Swipe through events" card (e2e/swipe.spec.ts).
-  await expect(page.locator("[data-home-section], [data-swipe-entry]").first()).toBeVisible();
+  await expect(page.locator("[data-home-section]").first()).toBeVisible();
   await page.evaluate(() => document.fonts.ready);
 }
 
 const VIEWPORTS = [
   { name: "desktop 1440×900", width: 1440, height: 900, phone: false },
   { name: "desktop 1280×800", width: 1280, height: 800, phone: false },
-  // The narrowest width with rails (Tailwind's `sm`); below it the home has the swipe card instead.
+  // The narrowest width with rails (Tailwind's `sm`); below it the sections are two-column grids instead.
   { name: "tablet 640×900", width: 640, height: 900, phone: false },
 ];
 
@@ -168,20 +167,25 @@ async function openWith(page: Page, count: number) {
   await page.goto("/");
 }
 
-// Below 640px the rails are replaced by one "Swipe through events" card (owner, 1 Nov 2026).
+// Below 640px the rails are replaced by two-column grids of cards (owner, 3 Nov 2026).
 test.describe("home at phone 390×844", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test("one h1, the swipe card above the fold in place of the rails, no sideways scroll", async ({ page }) => {
+  test("one h1, the first section's heading and a row of cards under the hero, grids in place of the rails, no sideways scroll", async ({ page }) => {
     await openHome(page);
     await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
     await expect(page.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your next thing.");
 
-    const entry = page.locator("[data-swipe-entry]");
-    await expect(entry.getByRole("heading", { level: 2, name: "Swipe through events" })).toBeInViewport({ ratio: 1 });
-    await expect(entry.getByRole("link", { name: "Swipe through events" })).toHaveAttribute("href", "/swipe");
-    await expect(page.locator("[data-home-section]")).toHaveCount(0);
-    await expect(page.locator("[data-event-card]")).toHaveCount(0);
+    const first = page.locator("[data-home-section]").first();
+    await expect(first.getByRole("heading", { level: 2 })).toHaveText("This weekend");
+    const grid = first.getByRole("list");
+    await expect(grid).toHaveCSS("display", "grid");
+    expect((await grid.evaluate((el) => getComputedStyle(el).gridTemplateColumns)).split(" ")).toHaveLength(2);
+    await expect(first.locator("[data-event-card]").first()).toBeVisible();
+    await expect(page.locator("[data-rail-layout]")).toHaveCount(0);
+    await expect(page.locator("[data-event-card][data-variant='rail']")).toHaveCount(0);
+    await expect(page.locator("[data-home-feed]")).toHaveCount(0);
+    await expect(page.getByText("Swipe through events")).toHaveCount(0);
     await expect(page.locator("main").getByRole("alert")).toHaveCount(0);
 
     const overflow = await page.evaluate(
@@ -194,9 +198,10 @@ test.describe("home at phone 390×844", () => {
 test.describe("home with few events", () => {
   test.use({ viewport: { width: 375, height: 667 } });
 
-  test("one event, none this weekend: the swipe card says 1 event, no dead end", async ({ page }) => {
+  test("one event, none this weekend: shown as Coming up in the grid's first cell, no dead end", async ({ page }) => {
     await openWith(page, 1);
-    await expect(page.locator("[data-swipe-entry] [data-swipe-count]")).toHaveText("1 event");
+    const section = page.locator("[data-home-section]").filter({ has: page.getByRole("heading", { name: "Coming up", exact: true }) });
+    await expect(section.locator("[data-event-card]")).toHaveCount(1);
     await expect(page.getByText(/Nothing this weekend/)).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "This weekend" })).toHaveCount(0);
     await page.screenshot({ path: process.env.HOME_FEW_SHOT ?? "test-results/home-few.png" });
@@ -278,7 +283,7 @@ test("a card's Buy tickets lands on the event page with focus on the tickets", a
 });
 
 test.describe("keyboard", () => {
-  // The narrowest rail (from 640px; phones have the swipe card).
+  // The narrowest rail (from 640px; phones have the inline event screens).
   test.use({ viewport: { width: 640, height: 844 } });
 
   test("at 640px, a card reached with Tab is brought fully into view in its rail", async ({ page }) => {
@@ -381,15 +386,17 @@ for (const width of [640, 1280]) {
   });
 }
 
-// Below 640px: the swipe card stands in for the event sections, the rest of the page is as before.
+// Below 640px: the sections are grids, in the rails' order; the rest of the page is as before.
 test.describe("home order at 375px", () => {
   test.use({ viewport: { width: 375, height: 812 } });
 
-  test("hero, the category row, the swipe card, Find your people, For organisers, footer", async ({ page }) => {
+  test("hero, the category row, the grids, Find your people, For organisers, footer", async ({ page }) => {
     await openHome(page, { trending: true });
+    // Section headings are h2s under the hero's h1; the event titles are h3s inside the cards.
     const headings = await page.locator("main h2").allTextContents();
     expect(headings.map((h) => h.trim())).toEqual([
-      "Swipe through events",
+      "This weekend",
+      "Popular right now",
       "What else?",
       "See who’s going. Find your people.",
       "Bring your event to life",
@@ -398,10 +405,14 @@ test.describe("home order at 375px", () => {
     await expect(page.locator("[data-what-else]")).toBeHidden();
     const hero = await page.getByRole("search", { name: "Search events" }).boundingBox();
     const chips = await page.getByRole("navigation", { name: "Browse by category" }).boundingBox();
-    const swipe = await page.locator("[data-swipe-entry]").boundingBox();
-    expect((hero?.y ?? Infinity) < (chips?.y ?? -1) && (chips?.y ?? Infinity) < (swipe?.y ?? -1)).toBe(true);
+    const sections = page.locator("[data-home-section]");
+    await expect(sections).toHaveCount(2);
+    const first = await sections.first().boundingBox();
+    const last = await sections.last().boundingBox();
+    const community = await page.locator("#find-your-people").boundingBox();
+    expect((hero?.y ?? Infinity) < (chips?.y ?? -1) && (chips?.y ?? Infinity) < (first?.y ?? -1)).toBe(true);
+    expect((first?.y ?? Infinity) < (last?.y ?? -1) && (last?.y ?? Infinity) < (community?.y ?? -1)).toBe(true);
     await expect(page.locator("footer")).toBeAttached();
-    await expect(page.locator("[data-home-section]")).toHaveCount(0);
   });
 });
 
@@ -493,17 +504,23 @@ for (const width of [320, 1024, 1440]) {
   });
 }
 
-test.describe("the swipe card on a phone (375×667)", () => {
+test.describe("the home's grids on a phone (375×667)", () => {
   test.use({ viewport: { width: 375, height: 667 } });
 
-  test("fits the first screen, image to count, under the hero (the rails it replaces ran past it)", async ({ page }) => {
+  test("two columns on the page's 20px gutters with 12px between, the first heading under the category row", async ({ page }) => {
     await openHome(page);
-    const card = await page.locator("[data-swipe-entry]").boundingBox();
-    if (!card) throw new Error("card not laid out");
-    // Inside the 20px gutters, a square, and all of it above the fold.
-    expect(card.x).toBe(20);
-    expect(card.width).toBe(375 - 40);
-    expect(card.y + card.height).toBeLessThanOrEqual(667);
+    const section = page.locator("[data-home-section]").first();
+    const cards = section.locator("[data-event-card]");
+    const [a, b] = [await cards.nth(0).boundingBox(), await cards.nth(1).boundingBox()];
+    const chips = await page.getByRole("navigation", { name: "Browse by category" }).boundingBox();
+    const heading = await section.getByRole("heading", { level: 2 }).boundingBox();
+    if (!a || !b || !chips || !heading) throw new Error("home not laid out");
+    expect(a.x).toBe(20);
+    expect(b.x + b.width).toBe(375 - 20);
+    expect(b.x - (a.x + a.width)).toBe(12);
+    expect(a.y).toBe(b.y);
+    expect(heading.y).toBeGreaterThanOrEqual(chips.y + chips.height);
+    expect(heading.y).toBeLessThan(667);
   });
 });
 
@@ -645,7 +662,7 @@ test.describe("Recently on", () => {
 test.describe("Recently on, on a phone", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test("isn't shown: the swipe card is upcoming events only", async ({ page }) => {
+  test("is the last grid, its card marked Ended, with no ticket action, and still opens", async ({ page }) => {
     const now = Date.now();
     const [base] = fixtures(now);
     const gone: PublicEvent = {
@@ -657,8 +674,13 @@ test.describe("Recently on, on a phone", () => {
       endsAt: new Date(now - 3 * 24 * HOUR).toISOString(),
     };
     await openHome(page, { ended: [gone] });
-    await expect(page.locator("[data-swipe-entry]")).toBeVisible();
-    await expect(page.getByText("Gone last week")).toHaveCount(0);
-    await expect(page.getByRole("heading", { name: "Recently on" })).toHaveCount(0);
+    const recent = page.locator("[data-home-section]").last();
+    await expect(recent.getByRole("heading", { level: 2, name: "Recently on" })).toBeVisible();
+    await expect(recent.getByRole("link", { name: "All events" })).toHaveAttribute("href", "/events");
+    const card = recent.locator("[data-event-card]").first();
+    await expect(card).toHaveAttribute("data-card-state", "ended");
+    await expect(card.getByText("Ended", { exact: true })).toBeVisible();
+    await expect(card.locator("[data-card-link]")).toHaveAttribute("href", "/events/gone-slug");
+    await expect(page.locator("[data-home-section]").first().getByText("Gone last week")).toHaveCount(0);
   });
 });

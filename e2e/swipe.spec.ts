@@ -4,8 +4,7 @@ import { weekendWindow } from "@/lib/home-sections";
 import { sampleEvents } from "@/lib/sample-events";
 
 /**
- * The phone home's "Swipe through events" entry card and the /swipe feed in a
- * real browser. The e2e server runs in live mode with every /api/* request
+ * The /swipe feed (and that the phone home no longer links to it) in a real browser. The e2e server runs in live mode with every /api/* request
  * intercepted here, so the events are the sample events served as the live list
  * API would, re-timed relative to the real clock (two inside this weekend's
  * window), as e2e/home.spec.ts does.
@@ -77,40 +76,45 @@ async function visibleTitle(page: Page): Promise<string | null> {
 test.describe("on a phone (375×667)", () => {
   test.use({ viewport: { width: 375, height: 667 }, hasTouch: true });
 
-  test("the home shows the Swipe through events card and no rails", async ({ page }) => {
+  test("the home shows its sections as grids of cards, with no event screens, no rails and no link to /swipe", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
-    const entry = page.locator("[data-swipe-entry]");
-    await expect(entry).toBeVisible();
-    // Title and count are on the phone's first screen, with the photo behind them.
-    await expect(entry.getByRole("heading", { level: 2, name: "Swipe through events" })).toBeInViewport({ ratio: 1 });
-    await expect(entry.locator("[data-swipe-count]")).toBeInViewport({ ratio: 1 });
-    await expect(entry.locator("[data-swipe-count]")).toHaveText(/^\d+ events$/);
-    await expect(entry.locator("img")).toBeVisible();
-    await expect(page.locator("[data-home-section]")).toHaveCount(0);
-    await expect(page.locator("[data-event-card]")).toHaveCount(0);
-    // A plain All events link under the card, a touch target tall enough.
-    const all = entry.locator("xpath=following-sibling::a");
-    await expect(all).toHaveText("All events");
-    await expect(all).toHaveAttribute("href", "/events");
-    expect((await all.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+    await expect(page.locator("[data-home-section]").first()).toBeVisible();
+    await expect(page.locator("[data-home-grid]").first()).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
+    await expect(page.getByRole("main")).toHaveCount(1);
+    await expect(page.getByText("Swipe through events")).toHaveCount(0);
+    await expect(page.getByRole("article")).toHaveCount(0);
+    await expect(page.locator("[data-rail-layout]")).toHaveCount(0);
+    await expect(page.locator("a[href='/swipe']")).toHaveCount(0);
+    // No snapping: the page scrolls freely.
+    expect(await page.evaluate(() => getComputedStyle(document.documentElement).scrollSnapType)).toBe("none");
     expect(await overflow(page)).toBeLessThanOrEqual(0);
   });
 
-  test("an events error shows Try again, not the card or the rails", async ({ page }) => {
+  test("an events error shows Try again, not the grids or the rails", async ({ page }) => {
     await mockApi(page, { fail: true });
     await page.goto("/");
     await expect(page.getByRole("main").getByRole("alert")).toContainText("Couldn’t load events");
     await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
-    await expect(page.locator("[data-swipe-entry]")).toHaveCount(0);
+    await expect(page.locator("[data-home-grid]")).toHaveCount(0);
+    await expect(page.getByRole("article")).toHaveCount(0);
     await expect(page.locator("[data-home-section]")).toHaveCount(0);
   });
 
-  test("tapping the card opens /swipe on the first event; a screen down is the second; Close goes home", async ({ page }) => {
+
+  test("growing the window to desktop width swaps the grids for the rails", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
-    await page.locator("[data-swipe-entry]").getByRole("link", { name: "Swipe through events" }).tap();
-    await expect(page).toHaveURL(/\/swipe$/);
+    await expect(page.locator("[data-home-grid]").first()).toBeVisible();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.locator("[data-rail-layout]").first()).toBeVisible();
+    await expect(page.locator("[data-home-grid]")).toHaveCount(0);
+  });
+
+  test("/swipe still opens on the first event; a screen down is the second; Close goes home", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/swipe");
     await expect(page).toHaveTitle("Swipe events | Sheltüh");
 
     // A full-screen page: no site header or footer, one main with a hidden h1.
@@ -161,7 +165,7 @@ test.describe("on a phone (375×667)", () => {
 
     await close.tap();
     await expect(page).toHaveURL(/\/$/);
-    await expect(page.locator("[data-swipe-entry]")).toBeVisible();
+    await expect(page.locator("[data-home-grid]").first()).toBeVisible();
     // The header is back.
     await expect(page.getByRole("banner")).toBeVisible();
   });
@@ -279,11 +283,13 @@ test.describe("on a phone (375×667)", () => {
 test.describe("on a desktop (1280×800)", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
-  test("the home keeps its rails and has no swipe card", async ({ page }) => {
+  test("the home keeps its rails and has no grids, event screens or snapping", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
     await expect(page.locator("[data-home-section]").first()).toBeVisible();
-    await expect(page.locator("[data-swipe-entry]")).toHaveCount(0);
+    await expect(page.locator("[data-home-grid]")).toHaveCount(0);
+    await expect(page.getByRole("article")).toHaveCount(0);
+    expect(await page.evaluate(() => getComputedStyle(document.documentElement).scrollSnapType)).toBe("none");
     expect(await overflow(page)).toBeLessThanOrEqual(0);
   });
 

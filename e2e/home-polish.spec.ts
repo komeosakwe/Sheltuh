@@ -146,7 +146,7 @@ test.describe("the home's ways on, at 390px", () => {
     await expect(page.getByRole("heading", { level: 1 })).toContainText("jazz");
   });
 
-  test("a card's title opens its event page (at 640px, the narrowest rail; phones have the swipe card)", async ({ page }) => {
+  test("a card's title opens its event page (at 640px, the narrowest rail; phones have grids)", async ({ page }) => {
     await page.setViewportSize({ width: 640, height: 844 });
     await mockApi(page);
     await page.goto("/");
@@ -178,8 +178,8 @@ test.describe("the home's ways on, at 390px", () => {
   test("the band is compact: about 32px between the action and the card, 20px inside the card", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
-    // Measured once the events are in (the swipe card replaces the skeleton and moves everything below it), both in the same frame.
-    await expect(page.locator("[data-swipe-entry]")).toBeVisible({ timeout: 30_000 });
+    // Measured once the events are in (the sections replace the skeleton and move everything below them), both in the same frame.
+    await expect(page.locator("[data-home-section]").first()).toBeVisible({ timeout: 30_000 });
     const band = page.locator("#find-your-people");
     const card = band.locator("[data-community-card]");
     const gap = await band.evaluate((el) => {

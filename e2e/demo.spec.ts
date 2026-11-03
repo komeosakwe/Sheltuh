@@ -110,8 +110,7 @@ for (const vp of [
     test("one sample-data banner per page, and the non-booking notices at the booking points", async ({ page }) => {
       const checkNoApiCalls = noApiCalls(page);
       await page.goto("/");
-      // Phones have the swipe card in place of the rails.
-      await expect(page.locator("[data-home-section], [data-swipe-entry]").first()).toBeVisible({ timeout: 60_000 });
+      await expect(page.locator("[data-home-section]").first()).toBeVisible({ timeout: 60_000 });
       const banner = page.locator("[data-demo-banner]");
       await expect(banner).toHaveCount(1);
       await expect(banner).toBeVisible();
@@ -119,12 +118,8 @@ for (const vp of [
       // Directly under the header, inside main, and the page's only demo note.
       expect(await banner.evaluate((el) => el.parentElement?.id)).toBe("main");
       await expect(page.locator("main [role='note']")).toHaveCount(1);
-      // Demo counts on cards stay labelled (the rails' cards: phones have the swipe card instead).
-      if (vp.width >= 640) {
-        await expect(page.locator("[data-event-card] [data-card-secondary]").filter({ hasText: /going/ }).first()).toContainText("(sample)");
-      } else {
-        await expect(page.locator("[data-swipe-entry]")).toBeVisible();
-      }
+      // Demo counts on cards stay labelled, in the rails and the phone grids alike.
+      await expect(page.locator("[data-event-card] [data-card-secondary]").filter({ hasText: /going/ }).first()).toContainText("(sample)");
 
       const now = Date.now();
       const event = sampleEvents.find(
