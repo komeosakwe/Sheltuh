@@ -1,6 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import type { PublicEvent } from "@/lib/api/public-events";
-import { sampleEvents } from "@/lib/sample-events";
+import { mockMapNetwork } from "./map-network";
 
 /**
  * /map's basemap with NEXT_PUBLIC_MAPBOX_TOKEN unset (docs/maps.md): Esri
@@ -10,61 +9,6 @@ import { sampleEvents } from "@/lib/sample-events";
  * e2e/mapbox-streets.demo.spec.ts.
  */
 
-const HOUR = 3600_000;
-const TILE = Buffer.from(
-  "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAGklEQVR42mM4QSJgOHHixCNSwKiGUQ1DRwMAAaucrZWSFIMAAAAASUVORK5CYII=",
-  "base64",
-);
-
-function fixtures(now: number): PublicEvent[] {
-  return sampleEvents.map((event, i) => {
-    const start = now + HOUR + i * 26 * HOUR;
-    return {
-      organiserId: "org-demo",
-      eventId: event.id,
-      slug: event.slug,
-      title: event.title,
-      description: event.description,
-      category: event.category,
-      venueName: event.venueName,
-      venueAddress: event.venueAddress,
-      suburb: event.suburb,
-      // The API always sends the place (absent on a demo sample: Victoria, on Melbourne time).
-      state: event.state ?? "VIC",
-      timeZone: event.timeZone ?? "Australia/Melbourne",
-      startsAt: new Date(start).toISOString(),
-      endsAt: new Date(start + 3 * HOUR).toISOString(),
-      organiserName: event.organiserName,
-      imageUrl: event.imageUrl,
-      ticketTypes: event.ticketTypes,
-      ticketingMode: event.ticketingMode ?? "sheltuh",
-      externalTicketUrl: event.externalTicketUrl,
-      externalFree: event.externalFree ?? false,
-      externalProvider: event.externalProvider ?? null,
-    };
-  });
-}
-
-/** Answers the API and every tile request; returns the tile URLs the page asked for, by provider. */
-async function mockNetwork(page: Page) {
-  const events = fixtures(Date.now());
-  const requested = { esri: [] as string[], mapbox: [] as string[] };
-  await page.route("**/api/**", (route) => {
-    const url = new URL(route.request().url());
-    if (url.pathname === "/api/events") return route.fulfill({ json: { items: events, nextCursor: undefined } });
-    return route.fulfill({ status: 404, json: { error: "not mocked in e2e" } });
-  });
-  await page.route("https://server.arcgisonline.com/**", (route) => {
-    requested.esri.push(route.request().url());
-    return route.fulfill({ contentType: "image/png", body: TILE });
-  });
-  await page.route("https://api.mapbox.com/**", (route) => {
-    requested.mapbox.push(route.request().url());
-    return route.abort();
-  });
-  return requested;
-}
-
 for (const vp of [
   { name: "390×844", width: 390, height: 844 },
   { name: "1440×900", width: 1440, height: 900 },
@@ -73,7 +17,7 @@ for (const vp of [
     test.use({ viewport: { width: vp.width, height: vp.height } });
 
     test("Esri tiles and credit only, and no map style control", async ({ page }) => {
-      const requested = await mockNetwork(page);
+      const requested = await mockMapNetwork(page);
       await page.goto("/map");
 
       await expect(page.locator(".leaflet-tile-loaded").first()).toBeVisible({ timeout: 20_000 });
@@ -98,7 +42,7 @@ test.describe("/map is Australia-wide (owner plan S9) at 1440×900", () => {
     page.locator(`.leaflet-container [data-event-id="${eventId}"], .leaflet-container [data-event-ids~="${eventId}"]`);
 
   test("pins Melbourne and Perth events alike, and opens on all of them", async ({ page }) => {
-    await mockNetwork(page);
+    await mockMapNetwork(page);
     await page.goto("/map");
     await expect(page.locator(".leaflet-tile-loaded").first()).toBeVisible({ timeout: 20_000 });
     // Melbourne's (clustered at this zoom) and Perth's, both drawn in the first view.
@@ -123,7 +67,7 @@ test.describe("/map is Australia-wide (owner plan S9) at 1440×900", () => {
 
   test("with a saved suburb, opens on the events near it (owner decision D5), the rest still listed", async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem("sheltuh:near:v1", JSON.stringify({ suburb: "Perth" })));
-    await mockNetwork(page);
+    await mockMapNetwork(page);
     await page.goto("/map");
     await expect(page.locator(".leaflet-tile-loaded").first()).toBeVisible({ timeout: 20_000 });
     await expect(pin(page, "evt-northbridge-late-sketch")).toHaveCount(1, { timeout: 20_000 });
@@ -138,7 +82,7 @@ test.describe("/map is Australia-wide (owner plan S9) at 1440×900", () => {
   // jsdom has no zoom animation, so only a browser shows this.
   test("with a saved suburb, the visitor's first zoom offers Search this area", async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem("sheltuh:near:v1", JSON.stringify({ suburb: "Fitzroy", state: "VIC" })));
-    await mockNetwork(page);
+    await mockMapNetwork(page);
     await page.goto("/map");
     await expect(page.locator(".leaflet-tile-loaded").first()).toBeVisible({ timeout: 20_000 });
     // Framed near Fitzroy: Melbourne's events drawn, Perth's not.

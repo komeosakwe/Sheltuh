@@ -163,6 +163,11 @@ export default function PrivacyPage() {
             web address.
           </li>
           <li>
+            The map asks the same way: when you open it with no suburb saved, and when you press
+            &ldquo;Near me&rdquo;. It centres on where you are, and if you say no it doesn&rsquo;t
+            ask again on the map until your next browser session.
+          </li>
+          <li>
             You can type a suburb instead. Either way, only the suburb&rsquo;s name is kept: on this
             device, in your browser&rsquo;s storage, so the search bar remembers it; and in the
             address of the search results page (for example /search?near=Fitzroy).

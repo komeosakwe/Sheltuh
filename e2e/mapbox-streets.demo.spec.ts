@@ -170,7 +170,7 @@ test.describe("Mapbox Streets on the event page's Location map", () => {
 });
 
 // The owner's report (27 Oct 2026): a 1px hairline between tiles in Chromium on Windows. Here every
-// tile is one flat colour and everything Leaflet draws over the tiles is hidden, so any other colour
+// tile is one flat colour and everything drawn over the tiles (Leaflet's, and the Near me button) is hidden, so any other colour
 // inside the map is a seam (components/map/MapStyles.tsx). /map sits at a fractional offset on the
 // page, so a seam shows at a devicePixelRatio of 1 too without the fix.
 const FLAT_TILE = Buffer.from(
@@ -188,7 +188,7 @@ for (const deviceScaleFactor of [1, 1.25, 1.5]) {
       await expectStreetsTiles(page);
       await page.addStyleTag({
         content:
-          ".leaflet-marker-pane, .leaflet-shadow-pane, .leaflet-overlay-pane, .leaflet-popup-pane, .leaflet-control-container { display: none !important; }",
+          ".leaflet-marker-pane, .leaflet-shadow-pane, .leaflet-overlay-pane, .leaflet-popup-pane, .leaflet-control-container, [data-near-me] { display: none !important; }",
       });
       // Settled before the shot: no zoom or pan animation running, and every tile faded fully in
       // (Leaflet fades each tile in; a slow CI machine could capture one mid-fade).

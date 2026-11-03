@@ -24,6 +24,7 @@ vi.mock("@/lib/data", async (importOriginal) => {
 
 import SceneMap from "@/components/SceneMap";
 import { loadLocation } from "@/lib/location-loader";
+import { MAP_NEAR_ZOOM } from "@/lib/map-layout";
 
 const sizeDescriptors = {
   clientWidth: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth"),
@@ -266,7 +267,7 @@ describe("SceneMap photo markers", () => {
     expect(screen.getByText(/1 event not on the map/)).toBeInTheDocument();
   });
 
-  it("opens on the events within 50 km of a saved suburb, and on all of them without one (owner decision D5)", async () => {
+  it("opens centred on a saved suburb, zoomed in, and on all the events without one", async () => {
     await renderMap([withPhoto, interstate]);
     // Without a saved suburb: both cities in view.
     await markerButton("Photo Night");
@@ -277,16 +278,19 @@ describe("SceneMap photo markers", () => {
     try {
       await renderMap([withPhoto, interstate]);
       await markerButton("Photo Night", 5_000);
-      // Framed on Melbourne: Sydney is well outside the view, so its marker isn't drawn (it's still listed).
+      expect(mapPanel().dataset.zoom).toBe(String(MAP_NEAR_ZOOM));
+      // Centred on Melbourne: Sydney is well outside the view, so its marker isn't drawn (it's still listed).
       expect(within(mapPanel()).queryByRole("button", { name: /^Sydney Show\./ })).toBeNull();
       expect(screen.getByRole("button", { name: "Locate Sydney Show on the map" })).toBeEnabled();
       cleanup();
 
-      // No event near the saved suburb (Perth): every event is in view.
+      // A suburb with no event near it (Perth): still centred there, zoomed in; the events stay listed.
       localStorage.setItem("sheltuh:near:v1", JSON.stringify({ suburb: "Perth" }));
       await renderMap([withPhoto, interstate]);
-      await markerButton("Photo Night", 5_000);
-      await markerButton("Sydney Show");
+      await waitFor(() => expect(mapPanel().dataset.zoom).toBe(String(MAP_NEAR_ZOOM)));
+      expect(Number(mapPanel().dataset.centerLng)).toBeCloseTo(115.86, 1);
+      expect(within(mapPanel()).queryByRole("button", { name: /^Photo Night\./ })).toBeNull();
+      expect(screen.getByRole("button", { name: "Locate Photo Night on the map" })).toBeEnabled();
     } finally {
       localStorage.removeItem("sheltuh:near:v1");
     }

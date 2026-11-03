@@ -4262,7 +4262,8 @@ Search can order results by how close they are to a suburb (owner round,
 
 - `components/search/LocationPicker.tsx` (the search bar's location
   segment): "Use my current location" calls `navigator.geolocation` only
-  on that click, never on load (coarse, 10 s timeout, 10 min cache). The
+  on that click, never on load (coarse, 10 s timeout, 10 min cache:
+  `lib/geolocation.ts`, shared with `/map`, below). The
   position is matched to a suburb anywhere in Australia (`lib/location.ts`
   `nearestLocality`: of the localities whose boundary could reach it, the
   one with the nearest centre; "outside" overseas or out at sea) and
@@ -4324,13 +4325,44 @@ Search can order results by how close they are to a suburb (owner round,
   95..170: Norfolk, Christmas and the Cocos Islands included) is pinned,
   and the map can't be panned past it; an unknown suburb (a typo) or a
   position overseas is listed and counted as unplaced. It opens on every
-  marker; with a saved "near" suburb, on the markers within 50 km of it
-  (`lib/map-layout.ts` `framingTargets`; all of them if none are), and with
+  marker; with a saved "near" suburb, centred on it (below), and with
   none, on the mainland and Tasmania (`AUSTRALIA_VIEW`, minimum zoom 3, so
   it fits a 375px phone). Live, it reads up to 4 pages of 50 at a time (and
   Load more the next 4). The location filter lists the events' suburbs
   under "All of Australia", grouped by state (`<optgroup>`,
   `suburbsByState`). Markers cluster by pixel distance at any zoom.
+- **`/map` follows the visitor's location** (owner request, creator call,
+  Nov 2026). The map's position is data attributes on its container
+  (`data-center-lat`, `data-center-lng`, rounded to about 100 m, and
+  `data-zoom`) for the e2e specs. Everything below zooms to `MAP_NEAR_ZOOM`
+  (13; the old "markers within 50 km" framing, `framingTargets`, is gone, since
+  it opened too far out) and is the map's own move, so "Search this area"
+  doesn't appear for it.
+  - Opening with a saved suburb centres on its table centre, with no ask and
+    no animation. With none saved, no refusal this session and nothing in
+    the address that should win, it calls `navigator.geolocation` **once, on
+    open** (`useMapLocate`, `lib/locate-me.ts`; the same coarse, 10 s, 10 min
+    options as the picker, `lib/geolocation.ts`): a position centres the map
+    (it flies there, or jumps with `prefers-reduced-motion`) and its suburb
+    is matched with `nearestLocality` and saved with `writeStoredNear`, so
+    the home and search use it and the next visit doesn't ask. Denied,
+    error, timeout, or a position outside Australia: the default view stays,
+    silently, and `sessionStorage` `sheltuh:map-locate-refused:v1` stops it
+    asking again that browser session.
+  - An address with `q`, `cat`, `time`, `date`, `suburb`, `price`, `sel` or
+    `view` wins: no ask, no centring on a saved suburb (a selected event or
+    filtered results frame themselves, as before).
+  - "Near me" (44px, under the zoom buttons; only where the browser has
+    geolocation) runs the same flow on demand, ignoring the refusal. It's busy
+    ("Locating…") while it looks; a failure says "Couldn’t find your
+    location." in a polite status, and a success is announced.
+  - Picking a suburb in the map's location filter, or the saved suburb
+    changing while on the map (the search bar's "Use my current location",
+    another tab: `subscribeStoredNear` in `lib/near-storage.ts`), centres on
+    that suburb's table centre.
+  - The position is only in `useMapLocate`'s state until the map has applied
+    it, then dropped: never storage (only the suburb's name and state), a URL,
+    the API or a log. The map's centre is in the DOM as the attributes above.
 - Disclosed at `/privacy#location` (draft) and in the popover.
 - Venue pins now exist for events with a confirmed location (the
   organiser's own pin, never Google's coordinates; see "Venue location"):
