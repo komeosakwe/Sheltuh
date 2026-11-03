@@ -77,7 +77,7 @@ beforeAll(async () => {
   // A platform-managed organiser's (no owner account), for the admin list's platformManaged.
   const platform = await api.call(adminCreateOrganiser, {
     token: admin.token,
-    body: { ...application, displayName: "Sheltüh Presents", contactEmail: "events@sheltuh.example" },
+    body: { ...application, displayName: "Neon Presents", contactEmail: "events@sheltuh.example" },
   });
   const platformEvent = await api.call(adminCreateEvent, {
     token: admin.token,

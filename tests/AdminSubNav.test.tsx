@@ -72,6 +72,8 @@ describe("AdminSubNav", () => {
     expect(adminSectionFor("/admin")).toBe("/admin");
     expect(adminSectionFor("/admin/trending")).toBe("/admin/trending");
     expect(adminSectionFor("/admin/invites")).toBe("/admin/invites");
+    // Messages to ticket holders are reached from Emails.
+    expect(adminSectionFor("/admin/event-messages")).toBe("/admin/emails");
   });
 
   it("each area's page is titled with its sub-nav label", async () => {

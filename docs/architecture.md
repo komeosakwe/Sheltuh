@@ -95,8 +95,13 @@ iframe served by Stripe), with the publishable key
 | `private.early_charge_refunds` | `payment_intent_id` | A `charge.refunded` that arrived before its order's payment was recorded, for a payment to one of our organisers' Stripe accounts (any other payment writes nothing): charge, destination, cumulative amount (the greatest seen), full flag (OR-ed), last Stripe event, and `applied_at` / `applied_order_id` once `fulfil_order` acted on it. No buyer data. Deleted 35 days after its last update (`purge_operational_data`). See "Refunds made in Stripe". |
 | `private.refund_status_marks` | `refund_id` | The newest Stripe refund event applied per refund (its status, the event's `created` time and id), written by `record_refund_status` for events only (never for our own refund call's answer, which has no event time). An event older than the mark, delivered later, is `stale` and changes nothing: a `succeeded` that arrives before an older `requires_action` or `failed` leaves a resolved tombstone, so the late one opens no exception. Statuses only, no buyer data. Deleted 35 days after its last update (`purge_operational_data`). |
 | `private.payment_exceptions` | `id` | Payment problems that need a person (see "Refunds made in Stripe"): `kind` `refund_not_completed` (keyed on the refund id, unique), `partial_refund`, `manual_refund_required` or `amount_mismatch` (`20261110000150_support_in_exceptions.sql`; one open per order); `status` open → resolved (`resolution` `auto` or `admin`, with the admin and a 1–500 character note); order (null until a payment is matched to one; set null if the order is deleted), payment intent, refund and latest Stripe event ids and that event's time (older events are ignored); `details`: amounts and statuses only (the order's total and its Support Sheltüh amount, `supportCents`, when the order is known; `20261110000150_support_in_exceptions.sql`; `supportKeptCents` only on a `partial_refund` closed by the tickets-only rule while `20261110000200_support_ticket_refund.sql` was the latest definition; nothing sets it since `20261111000300_refund_no_inference.sql`); `amount_mismatch` is always `urgent` and its payment is refunded automatically as it opens (`20261110000300_amount_mismatch_refund.sql`); `alerted_at` (an ops alert queued). Resolved ones are deleted 2 years after resolution; open ones never. |
-| `private.email_outbox` | `id` | Transactional email jobs of nine kinds: `ticket_email`, one per paid order (`(order_id, kind)` unique), `waitlist_available`, one per person told that tickets are available again (`waitlist_entry_id`; at most one pending or sending per entry), `organiser_new_events`, a follower's new-event email (`follow_id`; at most one pending or sending per follow; see "Following organisers"), `event_review` / `organiser_review`, the admins' "waiting for your review" email (`event_id` / `organiser_id`; at most one pending or sending per event or application; see "Admin review emails"), `event_published`, the admins' "an organiser published an event" email (`event_id`, sharing the per-event active-job index with `event_review`; see "Publishing events"), `organiser_joined`, the admins' "an organiser joined with a link" email (`organiser_id`, sharing the per-organiser active-job index with `organiser_review`; see "Organiser links"), `onboarding`, a welcome or next-steps email to one account (`onboarding_id`, unique: one job per record, ever; see "Onboarding emails"), and `ops_alert`, keyed on `payment_exception_id` for a payment exception (see "Refunds made in Stripe") or on `ops_event_id` for a checkout surge (see "Checkout idempotency"), exactly one of the two, at most one pending or sending per exception and per event. A check ties each kind to its key. Status, attempts, next attempt, lease, redacted last error. No address or content (read from the order, the waitlist entry, the follow, the event, the application or the exception, at send time). Deleted with the order, the entry, the follow, the event, the organiser or the exception. |
+| `private.email_outbox` | `id` | Transactional email jobs of eleven kinds: `ticket_email`, one per paid order (`(order_id, kind)` unique), `waitlist_available`, one per person told that tickets are available again (`waitlist_entry_id`; at most one pending or sending per entry), `organiser_new_events`, a follower's new-event email (`follow_id`; at most one pending or sending per follow; see "Following organisers"), `event_review` / `organiser_review`, the admins' "waiting for your review" email (`event_id` / `organiser_id`; at most one pending or sending per event or application; see "Admin review emails"), `event_published`, the admins' "an organiser published an event" email (`event_id`, sharing the per-event active-job index with `event_review`; see "Publishing events"), `organiser_joined`, the admins' "an organiser joined with a link" email (`organiser_id`, sharing the per-organiser active-job index with `organiser_review`; see "Organiser links"), `onboarding`, a welcome or next-steps email to one account (`onboarding_id`, unique: one job per record, ever; see "Onboarding emails"), `event_reminder`, the day-before reminder to one ticket holder (`reminder_id`, unique; see "Event reminders"), `holder_message`, an organiser's message to one ticket holder (`message_recipient_id`, unique; see "Messages to ticket holders"), and `ops_alert`, keyed on `payment_exception_id` for a payment exception (see "Refunds made in Stripe") or on `ops_event_id` for a checkout surge (see "Checkout idempotency"), exactly one of the two, at most one pending or sending per exception and per event. A check ties each kind to its key. Status, attempts, next attempt, lease, redacted last error. No address or content (read from the order, the waitlist entry, the follow, the event, the application or the exception, at send time). Deleted with the order, the entry, the follow, the event, the organiser or the exception. |
 | `private.onboarding_emails` | `id` | One row per (account, kind) ever queued: `member_welcome`, `organiser_welcome` or `organiser_next_steps` (`(user_id, kind)` unique, so none is ever queued twice; deleting the account deletes it and, through `email_outbox.onboarding_id`, its job). It outlives its job (the purge deletes sent jobs after 90 days, never these). RLS on, no grants. See "Onboarding emails". |
+| `private.event_reminders` | `id` | One row per (event, recipient) ever queued for the day-before reminder: `(event_id, recipient_hash)` unique, so a person is never queued twice for an event (the hash is `private.email_recipient_hash`, SHA-256 of `private.email_key` of the buyer's address, never the address); `order_id` is the order whose address and ticket page the reminder uses. Its outbox job hangs off it (`email_outbox.reminder_id`, unique, cascade). It outlives its job (the purge deletes sent jobs after 90 days); deleted 12 months after the event ended (`purge_operational_data`), and with the order or event. RLS on, no grants. See "Event reminders". |
+| `private.holder_messages` | `id` | An organiser's message to their event's ticket holders: event, organiser, sender (set null if the account goes), `request_id` (`(event_id, request_id)` unique: a repeat is the same message), subject (5–100 characters) and body (20–1500), plain text with no control characters (table checks), `recipient_count`, `attested_at`, `cancelled_at` / `cancelled_by` (an admin stopped it), `created_at`. Indexes `(event_id, created_at desc)` (the per-event caps and history) and `(created_at desc, id desc)` (the admin list, the purge). Deleted 12 months after it was sent (`purge_operational_data`), with its recipients and jobs. RLS on, no grants. See "Messages to ticket holders". |
+| `private.holder_message_suppressions` | `(organiser_id, recipient_hash)` | An inbox (`recipient_hash`, never the address) that asked one organiser to stop messaging it ("Stop messages from {organiser}"); applies to all of that organiser's events. Cascades from the organiser; kept otherwise, because an opt-out must outlast the message it came from. RLS on, no grants. See "Messages to ticket holders". |
+| `private.holder_message_stop_tokens` | `token_hash` | SHA-256 hashes of the stop tokens in message emails (one per email sent), never the tokens. Cascades from the recipient row (so deleted with the message, 12 months after it was sent). RLS on, no grants. |
+| `private.holder_message_recipients` | `id` | One row per address a message was queued for: message, order (whose buyer address is read at send time), `recipient_hash` (`(message_id, recipient_hash)` unique; never the address), `sent_at`, `skip_reason` (a fixed phrase). Its outbox job hangs off it (`email_outbox.message_recipient_id`, unique, cascade). RLS on, no grants. |
 | `private.email_job_recipients` | `(job_id, recipient_hash)` | Which admins already have a review job's email (the lower-cased address's SHA-256 only), so a retry skips them. Deleted with the job. |
 | `private.cron_runs` | `name` | One row per cron route (only `email_outbox` so far): when its last run finished and that run's counts (claimed, sent, retrying, failed), written by the route. Read by `GET /api/admin/emails/health`. Nothing personal. |
 | `private.event_waitlist` | `id` | One entry per `(event_id, email_key)` (see "Waitlist"): the address as typed and `private.email_key` of it, `user_id` (only when a member joined with their own verified email; deleted with the account), `confirmed_at` (on the list from then: join order), `unsubscribed_at` (left), `notified_at` and `notify_count`. Deleted with the event, and by `purge_social_data` 30 days after the event ends. Never shown to organisers except as a count. |
@@ -219,6 +224,12 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
 | `lease_outbox_jobs` | `claim_email_outbox` for every kind, also returning the event and the organiser (the review emails). `claim_email_outbox` (the previous release's) now leaves `event_review` and `organiser_review` alone, for the deploy window. Since `20261109000200_payment_reconciliation.sql`, `ops_alert` jobs only when asked for that kind (the app drains them first, then the rest), so a release that can't send them never leases one; `claim_email_outbox` never takes them either. Since `20261111000000_event_publish_now.sql`, `event_published` jobs likewise only when asked for by kind (this app's drain asks for them last), so the previous release's cron can't lease one and fail it as an unknown job. Since `20261111000500_organiser_invite_links.sql`, `organiser_joined` jobs the same way (drained after `event_published`). Since `20261111000700_onboarding_emails.sql`, without a kind it leases only an allowlist (`ticket_email`, `waitlist_available`, `organiser_new_events`, `event_review`, `organiser_review`): every other kind, `onboarding` included and kinds added later, only when asked for by name (drained last). |
 | `queue_onboarding_email` | Records that an account is to get a welcome kind and queues its `onboarding` job to run at a given time, only if the `(user_id, kind)` record was new (returns whether it queued). Idempotent; never queues twice. |
 | `queue_member_welcomes` | Called at the start of each cron run: queues `member_welcome` for up to N accounts with a confirmed email, not banned or deleted, with an address and no welcome record, oldest confirmation first, within a platform cap of 300 a day (`take_platform_rate_limit`, bucket `onboarding_emails_daily`; the rest wait for the next window). One run at a time (`pg_try_advisory_xact_lock`): a concurrent run queues nothing. |
+| `email_recipient_hash` | SHA-256 (hex) of `email_key(address)`: what identifies one inbox across orders without storing the address. Immutable, strict. |
+| `queue_event_reminders` | Called at the start of each cron run, after `queue_member_welcomes` (`20261118000000_event_reminders.sql`; see "Event reminders"): queues a reminder (the `private.event_reminders` row and its `event_reminder` job, in one statement) for up to `p_limit` ticket holders, soonest event first, of published, Sheltüh-ticketed events of approved organisers that start more than 3 hours from `p_now` and before the end of tomorrow in the event's own `time_zone` (DST-exact; a 50 hour bound on `starts_at` keeps `events_status_starts_idx` usable), for `paid` orders at least 6 hours old, one per recipient per event (the oldest order). With `p_from_hour` > 0, tomorrow's events wait for that local hour. One run at a time (`pg_try_advisory_xact_lock`). Returns how many it queued. |
+| `holder_message_audience` | The one definition of who holds a ticket: the buyer of a `paid` order of the event with an address, once per inbox (`email_recipient_hash`), using the inbox's oldest order, leaving out inboxes that suppressed the event's organiser. Used by the send and by the organiser's read. |
+| `stop_holder_messages` | The opt-out behind a message email's stop link, by the token's hash: suppresses that inbox for the message's organiser (idempotent) and marks that inbox's unsent recipient rows for the organiser skipped. Returns `stopped` or `not_found`. |
+| `send_holder_message` | The organiser's "Message ticket holders" (`POST /events/{id}/holder-messages`; `20261118000100_ticket_holder_messages.sql`; see "Messages to ticket holders"). Share-locks the organiser (owned by the caller, else `not_found`), locks the event (for no key update), returns a repeat of `request_id` as `replayed`, then rechecks under the locks: approved (`not_approved`), published (`not_published`), Sheltüh-ticketed (`external`), before the event's end plus 2 days (`outside_window`), 1 to `p_max_recipients` holders (`no_recipients`, `too_many`), the confirmed count (`audience_changed`), the event's caps (`event_total_cap`, `event_day_cap`) and the organiser's (`rate_limited`, `take_rate_limit 'holder_messages'`, taken last); then inserts the message, its recipients and their `holder_message` jobs. A null actor is `not_found`; a null input or limit, or `p_attested` not true, raises. Not security definer; search_path pinned. |
+| `cancel_holder_message` | An admin stops a message (`cancelled`, `already_cancelled`, `not_found`): each send checks `cancelled_at` again. |
 | `organisers_onboarding_email` | The deferred triggers' function on `public.organisers`: queues `organiser_welcome` on insert with an owner, and `organiser_next_steps` one hour after the organiser is inserted approved or updated to approved. Never fails the organiser's change (an error is a warning with the organiser id and SQLSTATE). |
 | `queue_review_email` | Queues the admins' review email for an event in review or a pending application of an account's organiser (called by deferred triggers on `events` and `organisers`), or (`event_published`, called by `publish_event`) the "an organiser published an event" email for a published event of an account's organiser: nothing if one is already waiting or being sent for the subject (whatever its kind), due an hour after the last one sent, at most 10 a day per account and 100 a day platform-wide. The published emails count in buckets of their own (`published_emails`, `admin_published_emails_daily`; the review emails' are `review_emails`, `admin_review_emails_daily`), so publishes never use up the review emails. An advisory lock per subject serialises calls. Returns whether it queued. A trigger deletes a still-waiting job when its subject leaves review, and `drop_published_email` (trigger `events_published_email_drop`) a still-waiting `event_published` job when its event leaves `published`. |
 | `suspend_organiser` | An admin takedown, only from `approved` (a second admin gets 409): locks the organiser row, then its published and pending-review events in id order; sets the organiser `rejected` with the reason and reviewer; moves each published event to draft (`unpublished`) and each pending one to `rejected`, through `transition_event`, so the event moderation log records each with the admin and reason; logs the takedown. Deletes nothing. Returns the result and how many events moved. |
@@ -500,7 +511,7 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
      `after()`), for that order only. `GET /api/cron/email-outbox` (bearer
      `CRON_SECRET` compared in constant time) sends everything else that's
      due, and records the run in `private.cron_runs`. Two schedulers call it:
-     Vercel Cron (`vercel.json`: daily at 17:00 UTC, the Hobby plan's limit;
+     Vercel Cron (`vercel.json`: daily at 21:00 UTC, the Hobby plan's limit;
      every 5 minutes once on Pro, which needs `vercel.json` edited and
      redeployed: the plan change alone does nothing) and, on Hobby, Supabase
      Cron with `pg_net` every 5 minutes, with the secret in Supabase Vault,
@@ -3121,8 +3132,10 @@ step, `InviteCreateAccount.tsx` is "Create account" with a password,
 
 - **Creating** (`POST /admin/invites {kind, email, consent: true, organiser?}`,
   admin only). `consent` must be true: the admin confirms the person asked to
-  be invited (Spam Act 2003). There are no automatic reminders: an email goes
-  out only when an admin creates or resends an invite. An organiser invite
+  be invited (Spam Act 2003). There are no automatic reminders of an invite:
+  an invite email goes out only when an admin creates or resends an invite.
+  (The automatic reminders to ticket holders, "Event reminders", are a
+  different thing: service information about tickets someone bought.) An organiser invite
   carries the organiser, with the application's fields and rules (the same
   parser as `POST /organisers/apply`, so the bio is required; errors are
   `fieldErrors["organiser.<field>"]`); a member invite carries nothing else.
@@ -3535,6 +3548,226 @@ dependent tier (`opens_after_previous`, never the first, never a seated one:
   can't re-arm it. Pending guest free orders and open paid sessions made
   before a lock was turned on still complete (the toggle is for new orders).
 
+## Event reminders
+
+One email to each ticket holder the day before an event, or the morning of it
+(owner request, Nov 2026;
+`supabase/migrations/20261118000000_event_reminders.sql`,
+`lib/server/event-reminder-email.ts`, `deliverEventReminder` in
+`lib/server/email-outbox.ts`, `queueEventReminders` in
+`lib/server/handlers/email-outbox.ts`). It reuses the SMTP email outbox: a new
+job kind `event_reminder`, one job per recipient, no new cron route.
+
+- **Who.** The buyer of a `paid` order of a published, Sheltüh-ticketed event
+  of an approved organiser. A partly refunded order stays `paid` and is
+  reminded; pending, failed, refunded and oversold orders are not; free
+  member orders and confirmed guest orders are paid orders and are included;
+  an unconfirmed guest order is not. External-ticket events have no orders,
+  so none. One reminder per person per event: the recipient is identified by
+  `private.email_recipient_hash` (SHA-256 of `private.email_key`: lower-cased,
+  no `+tag`, Gmail dots folded), and of a person's orders the oldest is used
+  (its ticket page is the button's link).
+- **When.** `private.queue_event_reminders(p_limit, p_now, p_from_hour)` runs
+  at the start of every run of the email cron route (like
+  `queue_member_welcomes`). An event is eligible once it starts more than 3
+  hours from now and before the end of tomorrow **in its own time zone**
+  (`events.time_zone`): the end of tomorrow is local midnight of the day
+  after, converted back to an instant, so it is exact across daylight-saving
+  changes (a 25- or 23-hour day) and for zones like Perth (UTC+8, no
+  daylight saving) and Lord Howe (UTC+10:30/+11, a 30-minute change). A 50
+  hour bound on `starts_at` lets `events_status_starts_idx` prune the scan.
+  An order must be at least 6 hours old (the ticket email isn't followed by a
+  reminder minutes later); a buyer who comes later is reminded in a later run
+  if their order is 6 hours old while the event is still more than 3 hours
+  away, otherwise gets none. `p_from_hour` (`EVENT_REMINDER_FROM_HOUR`,
+  default 0) holds events that are *tomorrow* (not today) until the event's
+  local clock reaches that hour. **Owner decision:** with 0, a frequent runner
+  (every 5 minutes) sends the reminder just after local midnight; with the
+  daily 21:00 UTC Vercel run (8 am in Melbourne in summer, 7 am in winter; owner decision, Nov 2026: a morning reminder the day before) it goes out at that run.
+  Setting 8 with a 5-minute runner sends it in the morning; setting it with
+  only the daily run would delay the reminder to the morning of the event.
+- **Once.** `private.event_reminders (event_id, recipient_hash)` is unique and
+  the outbox job hangs off it (`email_outbox.reminder_id`, unique); the row
+  and its job are inserted by one statement, under a transaction-level advisory
+  lock (a run that finds another in progress queues nothing). Parallel cron
+  runs, repeated runs and a purge of sent jobs (90 days) cannot produce a
+  second reminder; the records are deleted 12 months after the event ended
+  (`purge_operational_data`).
+- **Sending.** `lease_outbox_jobs` is unchanged: without a kind it leases only
+  the original allowlist, so an older release never takes an `event_reminder`
+  job. The drain order is ops alerts, the original kinds, the admin kinds,
+  onboarding, then `event_reminder` and `holder_message` last, within a shared
+  sub-budget: of a run's `maxJobs` (100) they may take at most 60% (60)
+  between them (`BULK_SHARE_OF_DRAIN`), so a day-before burst can never take a
+  run's whole budget from ticket, waitlist, review or onboarding emails, which
+  are leased first. A drain for one named kind (a message's own send) is not
+  cut. At send time the data is read
+  again and the job is skipped (recorded as failed, never retried, logged at
+  info) if the person has no paid order for the event any more, the event was
+  unpublished, has started, or moved further than 50 hours off, the organiser
+  isn't approved, or the address isn't a plain one. If only the order the
+  reminder was queued for was refunded, the person's oldest other paid order
+  for the event (same recipient hash) is used instead, for the address and the
+  ticket page: a holder who still has tickets is not left without a reminder.
+  The event title, venue, address and organiser name in the email are cleaned
+  first (`subjectLine`: control, invisible and bidi characters become a space,
+  so line breaks go too). The platform sends at most 800 reminders a day
+  (bucket `event_reminders_daily`): past it a job is put back an hour without
+  using an attempt. Logs carry the job id only.
+- **The email.** Subject "Today: {title}" or "Tomorrow: {title}" (decided at
+  send time from the event's own calendar day); the event's date and time in
+  its zone, venue, address, "Get directions", a "View your tickets" button
+  (the order's ticket page), the organiser's name linking their page, and a
+  footer saying why the reader got it. Sent with `Auto-Submitted:
+  auto-generated`, no `List-Unsubscribe` and no unsubscribe link.
+- **Spam Act 2003 (Cth).** A reminder about tickets the reader bought is
+  service information, not a commercial electronic message: it carries no
+  promotion and no offer. It is sent once per event with no opt-out; the
+  footer says why. Anything promotional must not go through this path.
+- **Deploy.** The cron tolerates `undefined_function` from
+  `queue_event_reminders` (a deploy window with the new code on the old
+  schema): it warns once and carries on. Any other error is logged as a fixed
+  message with the SQLSTATE only and never stops a ticket email.
+
+## Messages to ticket holders
+
+An approved organiser sends one short plain-text email about their own event
+to everyone holding a ticket for it, without ever seeing an address (owner
+request, Nov 2026;
+`supabase/migrations/20261118000100_ticket_holder_messages.sql`,
+`lib/server/handlers/holder-messages.ts`, `lib/server/holder-message-email.ts`,
+`deliverHolderMessage`, `lib/api/holder-messages.ts`). Sheltüh sends it from
+its own address with **no Reply-To** (a reply would expose the buyer's
+address).
+
+- **Routes.** `GET /api/events/{eventId}/holder-messages` (the audience size,
+  whether a message can be sent now, the allowances left, and the event's
+  history: never an address). `POST` the same path
+  `{requestId, subject, body, attest: true, expectedRecipients}`: 201
+  `{messageId, recipientCount, createdAt, replayed: false}`; a repeat of a
+  `requestId` already sent for the event is 200 with `replayed: true` and
+  changes nothing. 400 `fieldErrors` (`requestId`, `subject`, `body`,
+  `attest`, `expectedRecipients`); 401; 403 not an approved organiser; 404
+  another organiser's event, an unknown event or a malformed id; 409 with
+  `code` `not_published`, `external`, `outside_window`, `no_recipients`,
+  `too_many` or `audience_changed` (with `audienceCount`); 429 with `code`
+  `event_day_cap`, `event_total_cap` or `rate_limited`. Admin
+  (`requireAdmin`): `GET /api/admin/holder-messages?eventId&cursor&limit`
+  (no bodies), `GET /api/admin/holder-messages/{id}` (text and counts) and
+  `POST /api/admin/holder-messages/{id}/cancel` (stops it; 200 also when
+  already stopped).
+- **Holder.** Same as reminders: the buyer on a `paid` order, once per inbox
+  (`private.holder_message_audience`, the single definition used by the send
+  and the read). The organiser confirms the count they saw
+  (`expectedRecipients`); a different count now is 409 `audience_changed`
+  carrying the current one.
+- **One atomic step.** `private.send_holder_message` locks the organiser (share),
+  then the event (no key update), as `release_tickets` does; proves ownership
+  (a null actor, another organiser's event: `not_found`, a 404), returns a
+  repeat of the `requestId` as it is, then rechecks under the locks:
+  approved, published, Sheltüh-ticketed, now before the event's end plus 2
+  days (it may be sent before the event starts), 1 to 1000 recipients, the
+  expected count, and the caps; then inserts the message, its recipients
+  (`holder_message_recipients`, a hash per address, never the address) and
+  their outbox jobs. The caps (counted under the event's lock, so racing sends
+  can't exceed them): 1 per event per rolling 24 hours, 3 per event in all
+  (cancelled messages count), and 2 per organiser account per 24 hours
+  (`take_rate_limit 'holder_messages'`, taken last so a refusal costs nothing).
+- **Text.** Subject 5 to 100 characters, on one line; body 20 to 1500; plain
+  text; no links or web addresses, no email addresses (an `@handle` is fine),
+  no control, invisible or text-direction characters, no stacked marks
+  (`parseMessageText`); checked in the handler and again by the table's
+  constraints. Links and addresses are found by `lib/contact-detail.ts`
+  (`containsWebAddress`, `containsEmailAddress`), the single definition used by
+  the handler and by the compose form (`lib/holder-message-rules.ts`; there is
+  no client copy to drift). Unlike the profile and bio filter in
+  `lib/server/profile-input.ts` (a closed list of common TLDs, unchanged), it is
+  open: after folding fullwidth forms, zero-width and other invisible
+  characters and ideographic full stops, and undoing "[dot]", "(dot)", "{dot}",
+  "<dot>", "[.]", "name . com", "name .ru", "name dot com" (the last two spaced
+  forms only for a list of common TLDs, because " dot " and " . " are ordinary
+  prose) and "[at]" / "(at)", it refuses a URL scheme, `www.`, any
+  `label(.label)*.tld` with a TLD of two or more letters (or punycode `xn--`),
+  any IPv4 address, and `a@b`. Times, prices and abbreviations are not matched
+  (a digit or a lone letter after the dot, or a space: "Doors 7.30pm", "8.00",
+  "A$12.50", "Level 2.5", "St. Kilda", "e.g.", "i.e.", "a.m."). A sentence run
+  together without a space ("tonight.Bring ID") looks like a domain and is
+  refused; that is the known false positive. IPv6 literals are not checked. The organiser also ticks "this is about the event, no
+  promotion" (`attest`, stored as `attested_at`).
+- **Sending.** One `holder_message` job per recipient, leased by name only
+  (older releases never take one). The POST defers a drain of up to 100
+  (`sendHolderMessagesSoon`); the rest go with the cron route. At send time
+  everything is read again; the job is skipped, and the reason recorded on the
+  recipient (`skip_reason`), if an admin stopped the message, the holder opted
+  out of this organiser (see "Stopping messages"), they have no paid order for
+  the event any more (another paid order of theirs is used if only the queued
+  one was refunded), the event isn't published, the organiser isn't approved or
+  the address isn't plain. A recipient already marked sent is not sent a
+  second copy. The platform sends at most 600 a day (bucket
+  `holder_messages_daily`): past it a job waits an hour without using an
+  attempt. Logs carry the job id only, never an address or the text.
+- **The email.** Subject "{event}: {subject}", the text escaped in a labelled
+  block ("A message from {organiser}"), links to the organiser's page and a
+  mailto Report link naming the message, and a footer: "Sheltüh sent this for
+  {organiser}, who can’t see your address." `Auto-Submitted: auto-generated`,
+  no Reply-To. The event title and the organiser's name are cleaned
+  (`subjectLine`) before they go into the subject, the heading, the labels and
+  the Report link. Every message carries "Stop messages from {organiser}" (see
+  below) and the `List-Unsubscribe` / `List-Unsubscribe-Post` headers; the
+  reminder, which is service information with no organiser text, has neither.
+- **Stopping messages.** Every message email has a per-recipient, per-organiser
+  opt-out. The link in the body is `/holder-messages/stop#token=…` (a page
+  under `app/holder-messages/stop` with a button, `components/holder-messages/StopHolderMessages.tsx`;
+  the token is in the fragment, which browsers and mail scanners' fetches
+  never send, and the page does nothing until the button is pressed).
+  **Token scheme:** 32 random bytes, base64url (43 characters), made fresh
+  for each email sent; only its SHA-256 is stored, in
+  `private.holder_message_stop_tokens` (token hash → the recipient row), before
+  the email is sent, as the waitlist and follower links do. No server secret is
+  involved (there is none used for links), so nothing to rotate, and an
+  earlier copy's link (a resend) keeps working. `POST /api/holder-messages/stop`
+  `{token}` (public; the token is the credential) calls
+  `private.stop_holder_messages`: it inserts `(organiser_id, recipient_hash)`
+  into `private.holder_message_suppressions` (idempotent) and marks the inbox's
+  unsent rows for that organiser skipped. 200 `{status: "stopped",
+  organiserName?}`; 400 a malformed or missing token; 404 unknown. The same
+  endpoint accepts the token in the query string with a form body
+  (`List-Unsubscribe=One-Click`, RFC 8058) for mail clients' one-click button;
+  that is what `List-Unsubscribe: <…/api/holder-messages/stop?token=…>` points
+  to. `GET /api/holder-messages/stop?token=…` changes nothing: it answers 303
+  to the confirm page with the token moved into the fragment (a malformed token
+  is never echoed). A suppressed inbox is left out of
+  `private.holder_message_audience`, so out of the audience count the organiser
+  sees (a count that shrinks by one, nothing more), out of the next send (a
+  stale `expectedRecipients` is 409 `audience_changed`) and out of any message
+  already queued (`deliverHolderMessage` checks at send time). It applies to
+  all of the organiser's events and to no other organiser. The suppression is
+  kept as long as the organiser exists. The stop page is `noindex` with
+  `Referrer-Policy: no-referrer`. Your tickets and Sheltüh's own reminders are
+  not affected.
+- **Organiser names.** The name an organiser gives (application, resubmission,
+  an organiser link's join) can't contain control, invisible or bidi
+  characters, and can't be one only Sheltüh may use: the member display-name
+  skeleton check (`isReserved`: "Sheltüh", "Admin", "Support", "Moderator",
+  with accents, lookalikes and spacing folded) is applied through
+  `checkOrganiserDisplayName` (`lib/server/profile-input.ts`). A
+  platform-managed organiser created by an admin (`POST /admin/organisers`) and
+  an admin-written organiser invite get the invisible-character rule but not
+  the reserved-name rule, because the platform's own organiser ("Sheltüh
+  Presents") is made that way. Existing organisers are not rechecked. Names
+  such as "Support Act" are caught by the word rule; an admin can create them.
+- **Retention.** A message is deleted 12 months after it was sent, with its
+  recipients and jobs.
+- **Accepted risks.** An organiser could write something misleading in 1500
+  characters of plain text: no links or addresses, the "from the organiser"
+  label and the report link are the mitigation, and an admin can read and stop
+  any message. A refund racing a send is rechecked per recipient at send time.
+  The recipient rows' foreign key takes a key-share lock on each order that
+  waits only for a transaction holding that order `for update` (a fulfilment
+  or refund); those lock the order and then the event, a send the event and
+  then the orders, so a cycle needs both on one paid order at once: Postgres
+  aborts one (a plain 500; a retry works). The admin list has no search.
+
 ## Reserved seating
 
 Optional seat maps for concert-style events (owner request, 21 Oct 2026;
@@ -3758,7 +3991,7 @@ application is approved.
 | `GET /orders/by-session/{orderId}` | public (id is the credential). `CustomerOrder` only (see "Payment flow"), `private, no-store`; `wallet: {google, apple}` when the tickets can be added to a wallet (see "Wallet passes") |
 | `GET /orders/by-session/{orderId}/wallet/google?ticket={n}` · `…/wallet/apple?ticket={n}` | public (id is the credential, as the ticket page; see "Wallet passes"). Google: 302 to `https://pay.google.com/gp/v/save/{jwt}`; Apple: 200 `application/vnd.apple.pkpass`. `private, no-store`. 404 malformed (no query), the wallet not configured (no query), unknown, not paid, the event not published, or no ticket `n`; 400 `fieldErrors.ticket`; 429 over 30 a minute from this client, or 60 a minute for this order |
 | `GET /orders/by-session/{orderId}/payment` | public (id is the credential), read-only. `OrderPaymentLookup` (see "Payment flow", step 2), `private, no-store`: `{status: "open", clientSecret, expiresAt, …summary}`, `{status: "processing", delayed}`, `{status: "done"}`, or `{status: "closed" \| "sold_out", eventTitle, eventSlug?, seated}` (`closed` also when the event is no longer published or has ended while the session is open); 404 malformed (no query), unknown or a guest's free booking; 409 still being set up; 429 over 30 reads a minute from this client, or 20 Stripe reads a minute for this order; 500 an open session without a client secret |
-| `GET /cron/email-outbox` | Vercel Cron, and on Hobby Supabase Cron + `pg_net` (`Authorization: Bearer $CRON_SECRET`, 401 otherwise): sends due outbox jobs (ops alerts first, then tickets, waitlist, followers, admin review emails, then the admins' `event_published` and `organiser_joined` emails, then the welcome emails), first queueing member welcomes (`queue_member_welcomes`), records the run, returns counts `{claimed, sent, retrying, failed}` |
+| `GET /cron/email-outbox` | Vercel Cron, and on Hobby Supabase Cron + `pg_net` (`Authorization: Bearer $CRON_SECRET`, 401 otherwise): sends due outbox jobs (ops alerts first, then tickets, waitlist, followers, admin review emails, then the admins' `event_published` and `organiser_joined` emails, then event reminders, messages to ticket holders and the welcome emails), first queueing member welcomes (`queue_member_welcomes`) and event reminders (`queue_event_reminders`), records the run, returns counts `{claimed, sent, retrying, failed}` |
 | `GET /cron/trending` | Vercel Cron (same secret, 401 otherwise): rebuilds the trending snapshot, returns `{eligible, ranked}` |
 | `GET /events/trending` | public: `{items: [{event, label, goingCount?}]}` (see "Trending"), at most 24, best first; `items: []` with fewer than 3. `cache-control: public, max-age=0, s-maxage=300, stale-while-revalidate=600` |
 | `GET /admin/emails?status&cursor` · `POST /admin/emails/{jobId}/resend` | admin. Status `failed` (default), `pending`, `sending`, `sent`. Resend: 404 unknown, 409 being sent, 429 resent in the last 5 minutes or over 20 an hour |
@@ -3772,6 +4005,8 @@ application is approved.
 | `POST /events/{id}/publish` | organiser (own events; see "Publishing events"). No body. 200 `PublishEventResponse` (`EventRecord`, `private, no-store`): `status` `published` (live now) or `pending_review` (sent to review, with `reviewReason`: `review_required`, `removed_before`, `seated`, `unknown_ticket_site`, `first_paid_event` or `daily_limit`); an event already published is a 200 too, unchanged. 403 not an approved organiser; 404 not theirs; 409 with `code`: `payouts_required`, `location_required` (`fieldErrors.location`), `event_ended`, `in_review` (already waiting), `event_changed` (its ticket link changed meanwhile: reload and retry). Emails after the response (`maxDuration` 60) |
 | `POST /events/{eventId}/ticket-types/{ticketTypeId}/release` `{quantityAvailable}` | organiser (own event; see "Releasing more tickets"). 200 `{eventId, ticketTypeId, quantityAvailable, quantitySold}` (`private, no-store`). 400 `fieldErrors.quantityAvailable` (not a whole number, not above the current total, over 100,000); 403 not an approved organiser; 404 not theirs or no such ticket type; 409 not published, ended, external or a seated tier; 429 over 30 releases an hour. The waitlist's emails are sent after the response (`maxDuration` 60) |
 | `PUT /events/{eventId}/ticket-types/{ticketTypeId}/lock` `{opensAfterPrevious}` | organiser (own event; see "Sequential ticket releases"). 200 `{eventId, ticketTypeId, opensAfterPrevious, opensAfter?}` (`private, no-store`; `opensAfter {ticketTypeId, name}` only while the tier is waiting). 400 `fieldErrors.opensAfterPrevious` (not a boolean, or the first ticket); 403 not an approved organiser; 404 not theirs or no such ticket type; 409 not published, ended, external or a seated tier; 429 over 30 changes an hour. Asking for the current value is a 200 and changes nothing |
+| `GET /events/{eventId}/holder-messages` · `POST /events/{eventId}/holder-messages` `{requestId, subject, body, attest: true, expectedRecipients}` | organiser (own event; see "Messages to ticket holders"). GET 200 `HolderMessagesState` (`audienceCount`, `canSend`, `blockedReason`, `limits`, `remaining`, `messages`; never an address). POST 201 `{messageId, recipientCount, createdAt, replayed: false}` (200 with `replayed: true` for a repeated `requestId`); the emails are sent after the response (`maxDuration` 60). 400 `fieldErrors` `requestId`, `subject`, `body`, `attest`, `expectedRecipients`; 403 not an approved organiser; 404 not theirs or a bad id; 409 `code` `not_published`, `external`, `outside_window`, `no_recipients`, `too_many`, `audience_changed` (`audienceCount`); 429 `code` `event_day_cap` (1 per rolling 24 hours), `event_total_cap` (3), `rate_limited` (2 per 24 hours per account) |
+| `GET /admin/holder-messages?eventId&cursor&limit` · `GET /admin/holder-messages/{messageId}` · `POST /admin/holder-messages/{messageId}/cancel` | admin. The list has no text; the detail has the text and counts (`sentCount`, `skippedCount`); cancel stops what hasn't gone out (200 also when already stopped). 400 bad `eventId`; 404 unknown or malformed id |
 | `POST /places/autocomplete` `{input, sessionToken}` · `POST /places/details` `{placeId, sessionToken}` | approved organiser or admin (401, 403); `private, no-store` (see "Venue location"). Autocomplete: `input` 2–120 characters after control characters are removed; `sessionToken` `^[A-Za-z0-9_-]{8,36}$`, one per search. 200 `{suggestions: [{placeId, primaryText, secondaryText}]}` (at most 5, in Australia and its external territories). Details (ends the search's session): 200 `{placeId, formattedAddress, streetAddress, locality, state, postcode, googleMapsUrl}`, never a position. 400 fieldErrors (`input`, `sessionToken`, `placeId`: malformed, unknown to Google, or not in Australia); 429 per account (autocomplete 100 an hour and 400 a day; details, shared with event saves' place checks, 30 an hour and 120 a day); 503 `code: "places_unavailable"` (no key, Google unreachable, over quota, a bad key or disabled API, over 5 s, or the platform's cap for Google's day used: autocomplete 1,800, details 450). Bodies at most 4 KB. Nothing about the search is logged |
 | `GET /organisers/me/events` · `GET /organisers/me/events/{id}` | organiser (own events), `private, no-store` |
 | `PUT /events/{id}/image[?fx=&fy=]` · `PATCH /events/{id}/image` (`{focus}`) · `DELETE /events/{id}/image` | organiser (own events, while draft or rejected). Admins: `…/admin/events/{id}/image`. See "Photo focus" |
@@ -3792,6 +4027,7 @@ application is approved.
 | `GET /admin/reports/{reportId}/avatar` | admin: a profile report's copy of the photo. 404 none |
 | `GET /organisers/{organiserId}/follow` · `POST …/follow` `{notifyNewEvents?}` · `DELETE …/follow` | GET signed in, `{following, notifyNewEvents}` (404 not approved). POST verified email: 201 new (emails off unless `notifyNewEvents: true`) / 200 existing; 400 not a boolean (null included) or own organiser; 404; 409 500 follows; 429. DELETE signed in, 204 idempotent |
 | `GET /me/following?cursor&limit` · `GET /me/following/events?cursor&limit` | signed in: `FollowedOrganiser` items; upcoming events of followed organisers (public event shape), soonest first |
+| `POST /holder-messages/stop` `{token}` (or `?token=…` with a form body, RFC 8058 one-click) · `GET /holder-messages/stop?token=…` | public (the emailed token is the credential; see "Messages to ticket holders", "Stopping messages"). POST 200 `{status: "stopped", organiserName?}` (idempotent); 400; 404. GET changes nothing: 303 to `/holder-messages/stop#token=…` |
 | `POST /follows/unsubscribe` `{token}` | public (the emailed token is the credential). 200 `{status: "unsubscribed", organiserName?}` (idempotent); 400; 404 |
 | `POST /admin/organisers/{organiserId}/remove-video` `{reason}` | admin. 200 `AdminOrganiserRecord` (unchanged, nothing logged, without a video); 400; 404 |
 | `PUT /organisers/me/logo` (raw JPEG/PNG/WebP) · `DELETE /organisers/me/logo` | PUT: an approved organiser (403 otherwise, before the body is read); 200 the organiser record (`logoUrl`), `private, no-store`; 400 `fieldErrors.logo` (not a supported image, or over 24 megapixels); 409 no longer approved by the time it's written; 413 over 2 MB; 429 over 20 a day; 503 too many images being decoded on the instance. DELETE: signed in, any status; 200 the record without `logoUrl` (idempotent); 404 no organiser |
@@ -3827,7 +4063,7 @@ application is approved.
 | `GET /invites/me` · `POST /invites/accept` `{inviteId}` | verified email. Me: the pending invite for the caller's address (`MyInvite`); 404 none. Accept: 200 `{kind, organiserId?}` (idempotent); 404 unknown or another address's; 409 the account already has an organiser; 410 `code` |
 | `GET /admin/organiser-links?cursor&limit` · `POST /admin/organiser-links` · `POST /admin/organiser-links/{linkId}/cancel` | admin (see "Organiser links"). List: `Paginated<AdminOrganiserLinkRecord>`, every link newest first (`status` `active`, `used`, `cancelled` or `expired`, the creator's email, the organiser's current name), never a token or its hash. Create: no body; 201 `{link, url}` (`url` = `${NEXT_PUBLIC_SITE_URL}/organisers/join#token=…`, the only response that ever carries the token); 429 over 20 an hour (this admin) or 50 a day (everyone). Cancel: 200 the link; 404; 409 not active (used, cancelled or expired) |
 | `POST /organiser-links/view` `{token}` | public (the token is the credential), private, no-store; read-only. 200 `{expiresAt}`; 404 `code: "unavailable"` for a malformed, unknown, used, expired or cancelled link, or one whose creator is no longer an admin (one message for all: "This link has expired or was already used — ask Sheltüh for a new one."); 429 over 60 an hour per client (every request counts) |
-| `POST /organiser-links/join` `{token, displayName?, categories?}` | verified email (any address). 200 `{organiserId, displayName}` (idempotent for the account that used the link); 400 fieldErrors `displayName` / `categories` (the application's rules, plus no control or invisible characters in the name and at most 5 categories as sent, repeats dropped; required when the account has no organiser, ignored for a pending application); 401; 403 unverified; 404 `code: "unavailable"` (as view); 409 `code` `already_organiser` / `rejected` (rejected, taken down, or pending again after a takedown; the link stays unused) or `conflict` (an application arrived at the same moment); 429 over 10 an hour per account or 30 per client (every attempt counts) |
+| `POST /organiser-links/join` `{token, displayName?, categories?}` | verified email (any address). 200 `{organiserId, displayName}` (idempotent for the account that used the link); 400 fieldErrors `displayName` / `categories` (the application's rules, plus no control or invisible characters in the name, no name only Sheltüh may use, and at most 5 categories as sent, repeats dropped; required when the account has no organiser, ignored for a pending application); 401; 403 unverified; 404 `code: "unavailable"` (as view); 409 `code` `already_organiser` / `rejected` (rejected, taken down, or pending again after a takedown; the link stays unused) or `conflict` (an application arrived at the same moment); 429 over 10 an hour per account or 30 per client (every attempt counts) |
 | `GET /admin/events/{id}` · `POST /admin/events` · `PATCH /admin/events/{id}` | admin (see "Admin authoring"). `AdminEventRecord`. The event body's `state` and `timeZone` as the organiser's (see "Events: state and time zone"; PATCH without them keeps the stored place). The body's optional `location` as the organiser's (400 / 503 as there; an admin's publish needs none). POST: the event body plus `organiserId`, `publish?`; 201; 400 fieldErrors (`organiserId` unknown; `ticketTypes` paid for a platform-managed organiser); 409 organiser not approved. PATCH: the event body with `ticketingMode` required, `expectedUpdatedAt`, `publish?`, `reason?` (≤500); 200 (unchanged if nothing changes); 400 fieldErrors (incl. `reason` to change an approved event's mode or link); 404; 409 stale version (`fieldErrors.expectedUpdatedAt`), orders on a switch to external, sold ticket types, or organiser not approved when publishing |
 | `PUT /admin/events/{id}/image` · `DELETE /admin/events/{id}/image` | admin, any status. As the organiser's (413, 400), logged `edited`; 404 |
 | `GET /admin/events/{id}/curation` · `PUT …/curation` `{boost, excluded, reason}` | admin, any status (see "Trending"). `{eventId, boost, excluded, updatedAt, log}` (newest 20 changes). PUT: 200 (unchanged, nothing logged, if nothing changes; logged `curated` otherwise); 400 fieldErrors (`boost` a number from 0.5 to 2, rounded to 2 places; `excluded` a boolean; `reason` 1–500 characters); 404 |

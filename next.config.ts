@@ -118,6 +118,16 @@ export const nextConfig: NextConfig = {
           { key: "X-Robots-Tag", value: "noindex, nofollow" },
         ],
       },
+      // The "Stop messages from {organiser}" link in a ticket-holder message
+      // (/holder-messages/stop#token=…) carries its token in the fragment: the
+      // same headers.
+      {
+        source: "/holder-messages/:path*",
+        headers: [
+          { key: "Referrer-Policy", value: "no-referrer" },
+          { key: "X-Robots-Tag", value: "noindex, nofollow" },
+        ],
+      },
       // An account invite's link (/invite#token=…) carries its token in the
       // fragment: the same headers as the other emailed-link pages.
       {

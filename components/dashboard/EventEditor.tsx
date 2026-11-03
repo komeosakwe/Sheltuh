@@ -9,6 +9,7 @@ import EventClipField, { clipStatusText } from "@/components/dashboard/EventClip
 import EventImageField from "@/components/dashboard/EventImageField";
 import { PayoutsNeededNotice, PayoutsPublishError, PayoutsPublishHint } from "@/components/dashboard/PayoutsRequired";
 import RefundPolicyField from "@/components/dashboard/RefundPolicyField";
+import MessageHoldersPanel from "@/components/dashboard/MessageHoldersPanel";
 import ReleaseTicketsPanel from "@/components/dashboard/ReleaseTicketsPanel";
 import TicketLockPanel from "@/components/dashboard/TicketLockPanel";
 import {
@@ -1059,6 +1060,7 @@ export default function EventEditor(props: Props) {
         )}
         {published && current && <ReleaseTicketsPanel event={current} getToken={getToken} />}
         {published && current && <TicketLockPanel event={current} getToken={getToken} />}
+        {published && current && <MessageHoldersPanel event={current} getToken={getToken} />}
       </EditorShell>
     );
   }
