@@ -182,7 +182,7 @@ test.describe("home rails at 1280×800", () => {
 test.describe("at 375×667", () => {
   test.use({ viewport: { width: 375, height: 667 } });
 
-  // /events' grid: the card on a phone (the home's phone layout is event screens, not cards).
+  // /events' grid: the card on a phone (the home's phone layout is grids of the same cards).
   test("/events: the Play chip sits in the image's bottom-left, a 44px target, with no sideways scroll", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await mockPublicApi(page);

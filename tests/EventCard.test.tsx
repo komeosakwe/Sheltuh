@@ -326,6 +326,15 @@ describe("EventCard: prices and buttons line up across sibling cards (owner feed
 });
 
 describe("EventCard variants", () => {
+  it("loads its photo lazily, or at once with `priority` (the home's first row)", () => {
+    const withPhoto: SheltuhEvent = { ...event, imageUrl: "https://img.example/a.jpg" };
+    const { container } = render(<EventCard event={withPhoto} variant="grid" mode="live" />);
+    expect(container.querySelector("img")).toHaveAttribute("loading", "lazy");
+    cleanup();
+    const eager = render(<EventCard event={withPhoto} variant="grid" priority mode="live" />);
+    expect(eager.container.querySelector("img")).toHaveAttribute("loading", "eager");
+  });
+
   it("rail: a fixed width at every size (256px from 640px, never stretched); 18px title, 14px details; the CTA sized to its label; no organiser link", () => {
     const { container } = render(<EventCard event={event} variant="rail" mode="live" />);
     expect(cardRoot(container)).toHaveClass("w-[min(62vw,15rem)]", "shrink-0", "sm:w-64");

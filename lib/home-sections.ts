@@ -321,10 +321,9 @@ export interface SwipeFeedItem {
 }
 
 /**
- * The swipe feed's events (/swipe, and the phone home's inline event screens): the
- * upcoming events the home's sections show, in their order (This weekend,
- * From organisers you follow, then Popular right now or Coming up), each once,
- * with that section's title. "Recently on" is left out: those have ended.
+ * The swipe feed's events (/swipe): the upcoming events the home's sections
+ * show, in their order (This weekend, From organisers you follow, then Popular
+ * right now or Coming up), each once, with that section's title. "Recently on" is left out: those have ended.
  */
 export function swipeFeedEvents(sections: HomeSections): SwipeFeedItem[] {
   const weekend = sections.weekend.status === "cards" ? sections.weekend.items : [];
