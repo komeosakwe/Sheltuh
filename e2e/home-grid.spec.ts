@@ -122,7 +122,11 @@ for (const vp of [
       const loading = await page.locator("[data-home-section] [data-event-card]").evaluateAll((cards) =>
         cards.map((card) => card.querySelector("img")?.getAttribute("loading") ?? "none"),
       );
-      expect(loading.slice(0, 2)).toEqual(["eager", "eager"]);
+      // The first row's photos load at once and the rest lazily. A card without a photo shows its
+      // poster art (no img), and which events fall on the first row changes with the date.
+      const firstRow = loading.slice(0, 2).filter((l) => l !== "none");
+      expect(firstRow.length).toBeGreaterThan(0);
+      expect(firstRow.every((l) => l === "eager")).toBe(true);
       expect(loading.slice(2).filter((l) => l === "eager")).toEqual([]);
       // 44px targets: Save, and the section links.
       const first = page.locator("[data-home-section] [data-event-card]").first();
