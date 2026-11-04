@@ -1,0 +1,137 @@
+import { describe, expect, it } from "vitest";
+import { inAppBrowserName, inAppLocationHelp, openInBrowserHref } from "@/lib/in-app-browser";
+
+const IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148";
+const ANDROID = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/126.0.0.0 Mobile Safari/537.36";
+
+const AGENTS = {
+  instagramIos: `${IPHONE} Instagram 340.0.0.26.108 (iPhone15,2; iOS 18_1; en_AU; en-AU; scale=3.00; 1170x2532; 650834098)`,
+  instagramAndroid: `${ANDROID} Instagram 340.0.0.30.109 Android (34/14; 480dpi; 1080x2400; Google/google; Pixel 8; shiba; shiba; en_AU; 650834098)`,
+  facebookIos: `${IPHONE} [FBAN/FBIOS;FBAV/470.0.0.40.108;FBBV/600000000;FBDV/iPhone15,2;FBMD/iPhone;FBSN/iOS;FBSV/18.1;FBSS/3;FBID/phone;FBLC/en_US;FBOP/5]`,
+  facebookAndroid: `${ANDROID} [FB_IAB/FB4A;FBAV/470.0.0.40.108;]`,
+  messengerIos: `${IPHONE} [FBAN/MessengerForiOS;FBAV/460.0.0.40.108;FBBV/600000000;FBDV/iPhone15,2;FBMD/iPhone;FBSN/iOS;FBSV/18.1]`,
+  messengerAndroid: `${ANDROID} [FB_IAB/Orca-Android;FBAV/460.0.0.40.108;]`,
+  tiktokIos: `${IPHONE} musical_ly_36.5.0 JsSdk/2.0 NetType/WIFI Channel/App Store ByteLocale/en Region/AU`,
+  tiktokAndroid: `${ANDROID} BytedanceWebview/d8a21c6`,
+  snapchat: `${IPHONE} Snapchat/12.80.0.40 (iPhone15,2; iOS 18.1; gzip)`,
+  linkedin: `${IPHONE} [LinkedInApp]/9.30.1234`,
+  threads: `${IPHONE} Barcelona 340.0.0.26.108 (iPhone15,2; iOS 18_1; en_AU)`,
+  pinterest: `${IPHONE} [Pinterest/iOS]`,
+  xIos: `${IPHONE} Twitter for iPhone`,
+  xAndroid: `${ANDROID} TwitterAndroid`,
+};
+
+const ORDINARY = {
+  safariIos: `${IPHONE} Version/18.1 Safari/604.1`,
+  chromeIos: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/130.0.6723.37 Mobile/15E148 Safari/604.1",
+  chromeAndroid: ANDROID,
+  firefoxAndroid: "Mozilla/5.0 (Android 14; Mobile; rv:131.0) Gecko/131.0 Firefox/131.0",
+  firefoxMac: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:131.0) Gecko/20100101 Firefox/131.0",
+  edgeWindows: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0",
+  edgeAndroid: "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36 EdgA/130.0.0.0",
+  samsung: "Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/26.0 Chrome/122.0.0.0 Mobile Safari/537.36",
+  safariMac: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15",
+};
+
+describe("inAppBrowserName", () => {
+  it.each([
+    ["instagramIos", "Instagram"],
+    ["instagramAndroid", "Instagram"],
+    ["facebookIos", "Facebook"],
+    ["facebookAndroid", "Facebook"],
+    ["messengerIos", "Messenger"],
+    ["messengerAndroid", "Messenger"],
+    ["tiktokIos", "TikTok"],
+    ["tiktokAndroid", "TikTok"],
+    ["snapchat", "Snapchat"],
+    ["linkedin", "LinkedIn"],
+    ["threads", "Threads"],
+    ["pinterest", "Pinterest"],
+    ["xIos", "X"],
+    ["xAndroid", "X"],
+  ] as const)("%s is %s", (key, name) => {
+    expect(inAppBrowserName(AGENTS[key])).toBe(name);
+  });
+
+  it.each(Object.entries(ORDINARY))("%s is an ordinary browser", (_name, agent) => {
+    expect(inAppBrowserName(agent)).toBeNull();
+  });
+
+  it("is null for an empty agent", () => {
+    expect(inAppBrowserName("")).toBeNull();
+  });
+});
+
+describe("openInBrowserHref", () => {
+  const PAGE = "https://app.sheltuh.com.au/search?q=jazz&near=Northcote%20VIC";
+
+  it("iOS: Safari via x-safari-https, scheme stripped", () => {
+    expect(openInBrowserHref(PAGE, AGENTS.instagramIos)).toEqual({
+      label: "Open in Safari",
+      browser: "Safari",
+      href: "x-safari-https://app.sheltuh.com.au/search?q=jazz&near=Northcote%20VIC",
+    });
+  });
+
+  it("iPadOS asking for the desktop site (Macintosh + Mobile) counts as iOS; a desktop Mac doesn't", () => {
+    const ipad = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 340.0.0.26.108";
+    expect(openInBrowserHref(PAGE, ipad)?.label).toBe("Open in Safari");
+    expect(openInBrowserHref(PAGE, ORDINARY.safariMac)).toBeNull();
+  });
+
+  it("Android: Chrome via an intent URL", () => {
+    expect(openInBrowserHref(PAGE, AGENTS.instagramAndroid)).toEqual({
+      label: "Open in Chrome",
+      browser: "Chrome",
+      href: "intent://app.sheltuh.com.au/search?q=jazz&near=Northcote%20VIC#Intent;scheme=https;package=com.android.chrome;end",
+    });
+  });
+
+  it("leaves the fragment and any user info off", () => {
+    expect(openInBrowserHref("https://user:pw@app.sheltuh.com.au/a#access_token=secret", AGENTS.instagramIos)?.href).toBe(
+      "x-safari-https://app.sheltuh.com.au/a",
+    );
+    expect(openInBrowserHref("https://app.sheltuh.com.au/a#access_token=secret", AGENTS.tiktokAndroid)?.href).toBe(
+      "intent://app.sheltuh.com.au/a#Intent;scheme=https;package=com.android.chrome;end",
+    );
+  });
+
+  it("keeps a port", () => {
+    expect(openInBrowserHref("https://example.test:8443/x", AGENTS.instagramIos)?.href).toBe("x-safari-https://example.test:8443/x");
+  });
+
+  it("is null for http, other schemes, unparseable addresses and other platforms", () => {
+    expect(openInBrowserHref("http://app.sheltuh.com.au/", AGENTS.instagramIos)).toBeNull();
+    expect(openInBrowserHref("javascript:alert(1)", AGENTS.instagramIos)).toBeNull();
+    expect(openInBrowserHref("not a url", AGENTS.instagramIos)).toBeNull();
+    expect(openInBrowserHref(PAGE, ORDINARY.edgeWindows)).toBeNull();
+  });
+});
+
+describe("inAppLocationHelp", () => {
+  const PAGE = "https://app.sheltuh.com.au/";
+
+  it("names the app and offers Safari on iOS", () => {
+    expect(inAppLocationHelp(PAGE, AGENTS.instagramIos)).toEqual({
+      text: "Instagram’s browser can’t share your location. Type your suburb, or open Sheltüh in Safari.",
+      link: { label: "Open in Safari", href: "x-safari-https://app.sheltuh.com.au/" },
+    });
+  });
+
+  it("offers Chrome on Android", () => {
+    expect(inAppLocationHelp(PAGE, AGENTS.facebookAndroid)?.text).toBe(
+      "Facebook’s browser can’t share your location. Type your suburb, or open Sheltüh in Chrome.",
+    );
+  });
+
+  it("ends after the suburb advice when there's no link to offer", () => {
+    expect(inAppLocationHelp("http://localhost:3000/", AGENTS.instagramIos)).toEqual({
+      text: "Instagram’s browser can’t share your location. Type your suburb.",
+      link: null,
+    });
+  });
+
+  it("is null in an ordinary browser", () => {
+    expect(inAppLocationHelp(PAGE, ORDINARY.safariIos)).toBeNull();
+  });
+});

@@ -12,6 +12,7 @@ import {
 // The suburb table loads only when someone opens the picker or asks for their location.
 import { loadLocation, type LocationModule } from "@/lib/location-loader";
 import { GEOLOCATION_OPTIONS, hasGeolocation } from "@/lib/geolocation";
+import { currentInAppLocationHelp } from "@/lib/in-app-browser";
 import { placeName } from "@/lib/place";
 
 function subscribeStorage(onChange: () => void) {
@@ -25,7 +26,7 @@ const noSubscribe = () => () => {};
 const serverEmpty = () => "";
 const serverFalse = () => false;
 
-type PanelStatus = { tone: "info" | "danger"; text: string } | null;
+type PanelStatus = { tone: "info" | "danger"; text: string; link?: { label: string; href: string } } | null;
 
 const SIZES = {
   // The header: a 36px segment in a 44px bar. In a bar under 20rem (the bar is a size
@@ -228,8 +229,13 @@ export default function LocationPicker({
   }
 
   /** A failed "Use my current location": say why, and move to the suburb field (described by the message). */
-  function failLocating(text: string) {
-    setPanelStatus({ tone: "danger", text });
+  function failLocating(text: string, inAppBrowserCause = true) {
+    // In an in-app browser (Instagram, Facebook…) location usually can't work: say so, and offer the
+    // real browser. Not for a position that was read fine but isn't in Australia.
+    const inApp = inAppBrowserCause ? currentInAppLocationHelp() : null;
+    setPanelStatus(
+      inApp ? { tone: "danger", text: inApp.text, link: inApp.link ?? undefined } : { tone: "danger", text },
+    );
     inputRef.current?.focus();
   }
 
@@ -255,7 +261,7 @@ export default function LocationPicker({
             setTable(loaded);
             const result = loaded.nearestLocality(here);
             if (result.kind === "outside") {
-              failLocating("We couldn’t match your location to an Australian suburb. Type your suburb instead.");
+              failLocating("We couldn’t match your location to an Australian suburb. Type your suburb instead.", false);
               return;
             }
             // Its name says the state when the suburb's name alone is another one's ("Richmond NSW").
@@ -359,6 +365,14 @@ export default function LocationPicker({
               className={`text-sm leading-5 ${panelStatus ? "mt-2" : ""} ${danger ? "text-danger" : "text-muted"}`}
             >
               {panelStatus?.text ?? ""}
+              {panelStatus?.link && (
+                <a
+                  href={panelStatus.link.href}
+                  className="mt-1 flex min-h-11 items-center font-semibold text-foreground underline underline-offset-4"
+                >
+                  {panelStatus.link.label}
+                </a>
+              )}
             </p>
             <p aria-hidden="true" className="eyebrow mt-3 text-center text-muted">
               or

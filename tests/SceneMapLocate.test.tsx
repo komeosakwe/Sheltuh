@@ -357,6 +357,48 @@ describe("Near me", () => {
     expect(screen.getByRole("button", { name: "Near me" })).not.toHaveAttribute("aria-disabled");
     expect(localStorage.getItem(NEAR_STORAGE_KEY)).toBeNull();
   });
+
+  describe("inside an in-app browser", () => {
+    const INSTAGRAM_IOS =
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 340.0.0.26.108 (iPhone15,2; iOS 18_1; en_AU)";
+
+    // Not vi.unstubAllGlobals(): that would also drop this file's ResizeObserver stub.
+    const realNavigator = navigator;
+    const realLocation = window.location;
+    function pretend(userAgent: string, url: string) {
+      vi.stubGlobal("navigator", Object.create(navigator, { userAgent: { value: userAgent } }));
+      vi.stubGlobal("location", new URL(url));
+    }
+    afterEach(() => {
+      vi.stubGlobal("navigator", realNavigator);
+      vi.stubGlobal("location", realLocation);
+    });
+
+    it("on failure: names the app, says to type a suburb, and links to Safari", async () => {
+      pretend(INSTAGRAM_IOS, "https://app.sheltuh.com.au/map?cat=live-music#token=secret");
+      answerWithError(1);
+      await renderMap();
+      fireEvent.click(screen.getByRole("button", { name: "Near me" }));
+      const status = await screen.findByRole("status", {
+        name: (_name, element) => element.textContent?.includes("Instagram’s browser") ?? false,
+      });
+      expect(status).toHaveTextContent("Instagram’s browser can’t share your location. Type your suburb, or open Sheltüh in Safari.");
+      expect(screen.getByRole("link", { name: "Open in Safari" })).toHaveAttribute(
+        "href",
+        "x-safari-https://app.sheltuh.com.au/map?cat=live-music",
+      );
+      expect(screen.queryByText("Couldn’t find your location.")).toBeNull();
+      expect(localStorage.getItem(NEAR_STORAGE_KEY)).toBeNull();
+    });
+
+    it("on open the refusal stays silent, as in any browser", async () => {
+      pretend(INSTAGRAM_IOS, "https://app.sheltuh.com.au/map");
+      answerWithError(1);
+      await renderMap();
+      await waitFor(() => expect(sessionStorage.getItem(LOCATE_REFUSED_KEY)).toBe("1"));
+      expect(screen.queryByRole("link", { name: "Open in Safari" })).toBeNull();
+    });
+  });
 });
 
 describe("the phone's List and Map tabs", () => {
