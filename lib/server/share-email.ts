@@ -47,6 +47,25 @@ export function tellAFriendHtml(links: readonly TellAFriendLink[], marginTopPx =
   return `<p style="margin:${marginTopPx}px 0 0 0;font-family:${SANS};font-size:15px;line-height:22px;color:${INK}"><span style="font-weight:bold">Tell a friend:</span> ${anchors}</p>`;
 }
 
+/**
+ * The same links, small and quiet, for the emails in the newer look
+ * (lib/server/email-modern-layout.ts): 13px, the label in `muted` and each
+ * link in `ink`, underlined, at weight 600. The colours come from the caller
+ * so this file needn't know that look.
+ */
+export function tellAFriendCompactHtml(
+  links: readonly TellAFriendLink[],
+  look: { ink: string; muted: string; font: string },
+): string {
+  const anchors = links
+    .map(
+      (l) =>
+        `<a href="${escapeHtml(l.href)}" style="color:${look.ink};text-decoration:underline;font-weight:600">${escapeHtml(l.label)}</a>`,
+    )
+    .join(`<span style="color:${look.muted}"> &middot; </span>`);
+  return `<p style="margin:0;font-family:${look.font};font-size:13px;line-height:20px;font-weight:400;color:${look.muted}">Tell a friend: ${anchors}</p>`;
+}
+
 /** The plain-text lines. */
 export function tellAFriendText(title: string, date: string, link: string): string[] {
   return ["TELL A FRIEND", inviteText(title, date, link)];

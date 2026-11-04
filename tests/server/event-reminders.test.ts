@@ -443,7 +443,10 @@ describe("the reminder email", () => {
     expect(message.headers).toEqual({ "Auto-Submitted": "auto-generated" });
     expect(message.html).not.toContain("List-Unsubscribe");
     expect(message.text).not.toMatch(/unsubscribe/i);
-    expect(message.inlineImages?.length).toBe(1);
+    // The modern look hosts its wordmark and icons: nothing is attached inline.
+    expect(message.inlineImages ?? []).toEqual([]);
+    expect(message.html).toContain("/brand/sheltuh-wordmark-email.png");
+    expect(message.html).toContain(">Event Reminder</td>");
   });
 
   it("is skipped, not retried, when the order was refunded since it was queued", async () => {
