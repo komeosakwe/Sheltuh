@@ -17,6 +17,7 @@ export const OPEN_TRANSFER_STATUSES: readonly TransferStatus[] = ["failed", "hel
 const ERROR_WORDS: Record<string, string> = {
   refunded: "Refunded",
   partly_refunded: "Partly refunded",
+  refunded_outcome_unknown: "Refunded; may already be sent (check Stripe)",
   disputed: "Disputed",
   balance_insufficient: "Not enough in the Stripe balance",
   destination_account: "Organiser’s Stripe account can’t receive",

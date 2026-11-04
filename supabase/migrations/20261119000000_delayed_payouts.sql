@@ -52,10 +52,19 @@
 --     the lease) and, under the order's lock, re-checks the order: refunded
 --     meanwhile means a transfer_reversal_required exception, and so does a
 --     transfer that lands on a row an admin cancelled.
+--   * private.begin_transfer_create: the worker's last step before it asks Stripe
+--     to create the transfer. Under the order's lock it re-checks the order and
+--     the lease and sets order_transfers.create_started, which never goes back:
+--     it is the proof that a create request may have reached Stripe.
 --   * private.flag_transfer_after_refund: called after a refund is recorded.
---     Unsent rows are cancelled (full refund) or held (partial); a sent row opens
---     a transfer_reversal_required payment exception (Stripe never claws a
---     transfer back by itself): an owner action, docs/supabase-setup.md.
+--     A row whose create can't have reached Stripe (create_started false) is
+--     cancelled (full refund) or held (partial). A row whose create may have
+--     reached Stripe (the response was lost, the worker died) is never
+--     cancelled: the organiser may hold the money, so it is held and a
+--     transfer_reversal_required exception (reason refunded_outcome_unknown) asks
+--     an admin to check Stripe (the admin cancel asks Stripe first). A sent row
+--     opens the same kind of exception (Stripe never claws a transfer back by
+--     itself): an owner action, docs/supabase-setup.md.
 --   * private.admin_transfer_action: an admin's retry / release / cancel, with
 --     the expected current status guarded (a lost race is a 409). The app asks
 --     Stripe for an existing transfer before it cancels
@@ -170,6 +179,10 @@ create table private.order_transfers (
   stripe_transfer_id text check (char_length(stripe_transfer_id) between 1 and 255),
   -- A short machine code (lower case and underscores), never a Stripe message.
   last_error text check (char_length(last_error) <= 100),
+  -- A create request may have reached Stripe: set by begin_transfer_create just before the worker calls Stripe,
+  -- and never cleared (a lost response, a timeout or a dead worker leave no other trace). False proves that
+  -- Stripe was never asked, so a row refunded in full can be cancelled; true means "ask Stripe first".
+  create_started boolean not null default false,
   -- Set with stripe_transfer_id. A cancelled row has both only when a transfer reached Stripe after an
   -- admin cancelled it (finish_order_transfer): the organiser has been paid, so it is not "never sent".
   sent_at timestamptz,
@@ -639,16 +652,81 @@ begin
 end;
 $$;
 
+-- The worker's last step before it asks Stripe to create the transfer: under
+-- the payment intent's lock and the order's lock (the order in the same lock
+-- order as a refund's record and flag_transfer_after_refund), it checks the
+-- order is still paid and not refunded, even in part, and the row still leased
+-- to this worker and not past its lease, and only then sets create_started.
+-- Because create_started is set here, in the same transaction as the check, a
+-- refund either is seen here (nothing is created) or finds create_started true
+-- (flag_transfer_after_refund then knows a create may have reached Stripe).
+-- result: 'ok' (go ahead), 'order_not_found', 'refunded' (not paid, or refunded
+-- in part or in full), 'lease_lost' (not this worker's row any more),
+-- 'lapsed' (its lease has run out: another worker may take it any moment), or
+-- 'not_found'. Anything but 'ok' changes nothing.
+create function private.begin_transfer_create(p_id bigint, p_lease_token uuid, out result text)
+language plpgsql
+set search_path = ''
+as $$
+declare
+  v_order_id text;
+  v_pre record;
+  v_order public.orders;
+  v_t private.order_transfers;
+begin
+  select t.order_id into v_order_id from private.order_transfers t where t.id = p_id;
+  if not found then
+    result := 'not_found';
+    return;
+  end if;
+  select o.stripe_payment_intent_id into v_pre from public.orders o where o.id = v_order_id;
+  if v_pre.stripe_payment_intent_id is not null then
+    perform private.lock_payment_intent(v_pre.stripe_payment_intent_id);
+  end if;
+  select * into v_order from public.orders o where o.id = v_order_id for share;
+  if not found then
+    result := 'order_not_found';
+    return;
+  end if;
+  select * into v_t from private.order_transfers t where t.id = p_id for update;
+  if v_order.status <> 'paid' or v_order.amount_refunded_cents > 0 then
+    result := 'refunded';
+  elsif v_t.status <> 'sending' or v_t.lease_token is distinct from p_lease_token then
+    result := 'lease_lost';
+  elsif v_t.lease_expires_at <= now() then
+    result := 'lapsed';
+  else
+    update private.order_transfers t set create_started = true where t.id = p_id;
+    result := 'ok';
+  end if;
+end;
+$$;
+
 -- After a refund is recorded (charge.refunded, any delivery of it: this is
 -- idempotent). Looks only at a 'transfer' order with a refund on record:
---   its transfer not sent yet: cancelled if the order was refunded in full;
---     held (a person decides) if refunded in part;
+--   its transfer not sent yet (sending, retry, held or failed):
+--     refunded in part: held (a person decides);
+--     refunded in full and create_started is false (no create request can have
+--       reached Stripe: begin_transfer_create is what sets it, before every
+--       Stripe create, and it refuses a refunded order): cancelled;
+--     refunded in full and create_started is true: NOT cancelled. A request may
+--       have been accepted by Stripe whose response was lost (or its worker died
+--       before recording it), so the organiser may hold the money, and a
+--       cancelled row is skipped by the claim and by the admin's look at Stripe,
+--       which would hide it for good. The row is held ('refunded_outcome_unknown';
+--       a worker's late 'sent' is still recorded) and a transfer_reversal_required
+--       exception (reason refunded_outcome_unknown, with an ops alert) tells an
+--       admin to check Stripe: the admin cancel asks Stripe first, records a
+--       transfer it finds as sent (and the same exception becomes
+--       refunded_after_transfer: reverse it) and, when Stripe has none, cancels
+--       the row and resolves the exception (admin_transfer_action);
 --   its transfer sent (or one that reached Stripe after an admin cancelled the
 --     row: cancelled but paid): Stripe never takes a transfer back by itself, so a
 --     transfer_reversal_required exception (and an ops alert) asks the owner to
 --     reverse it (docs/supabase-setup.md, "Reversing a transfer after a late refund");
 --   cancelled already, or no row: nothing.
--- result: 'cancelled' | 'held' | 'flagged' | 'unchanged' | 'none'.
+-- result: 'cancelled' | 'held' | 'unknown' (held, outcome unknown: exception
+-- opened) | 'flagged' | 'unchanged' | 'none'.
 create function private.flag_transfer_after_refund(
   p_payment_intent_id text, p_event_id text, out result text, out alert_queued boolean)
 language plpgsql
@@ -684,12 +762,27 @@ begin
   end if;
 
   if v_t.status in ('sending', 'retry', 'held', 'failed') then
-    if v_full then
+    if v_full and not v_t.create_started then
       update private.order_transfers t
          set status = 'cancelled', lease_token = null, lease_expires_at = null, last_error = 'refunded'
        where t.id = v_t.id;
       result := 'cancelled';
-    elsif v_t.status = 'held' and v_t.last_error = 'partly_refunded' then
+    elsif v_full then
+      if v_t.status = 'held' and v_t.last_error = 'refunded_outcome_unknown' then
+        result := 'unchanged';
+      else
+        update private.order_transfers t
+           set status = 'held', lease_token = null, lease_expires_at = null, last_error = 'refunded_outcome_unknown'
+         where t.id = v_t.id;
+        select * into v_raised from private.raise_payment_exception(
+          'transfer_reversal_required', v_order.id, p_payment_intent_id, null, p_event_id, null,
+          jsonb_build_object('reason', 'refunded_outcome_unknown', 'transferAmountCents', v_t.amount_cents,
+                             'amountRefundedCents', v_order.amount_refunded_cents, 'totalCents', v_order.total_cents,
+                             'orderStatus', v_order.status::text));
+        alert_queued := v_raised.alert_queued;
+        result := 'unknown';
+      end if;
+    elsif v_t.status = 'held' and v_t.last_error in ('partly_refunded', 'refunded_outcome_unknown') then
       result := 'unchanged';
     else
       update private.order_transfers t
@@ -721,7 +814,11 @@ $$;
 --              this function can't see Stripe, and a cancel that follows an
 --              unknown outcome could otherwise lead to a second payment. A
 --              transfer that appears after all ends as 'cancelled_paid'
---              (finish_order_transfer).
+--              (finish_order_transfer). A cancel also resolves the open
+--              transfer_reversal_required exception of reason
+--              refunded_outcome_unknown (a refund in full while the transfer's
+--              outcome was unknown, flag_transfer_after_refund): Stripe was asked
+--              and has no transfer, so nothing is left to reverse.
 -- A retry or release is refused ('not_payable') when the order has been
 -- refunded since: the claim wouldn't send it anyway. Other results:
 -- 'ok', 'not_found', 'in_progress' (a worker has it), 'conflict' (not in a
@@ -778,6 +875,13 @@ begin
            last_admin_action = p_action, last_admin_id = p_admin_id, last_admin_at = now()
      where t.id = p_id;
     new_status := 'cancelled';
+    -- The app asked Stripe before calling this, and it has no transfer for the order: the refunded-while-unknown
+    -- exception (flag_transfer_after_refund) is answered.
+    update private.payment_exceptions e
+       set status = 'resolved', resolution = 'admin', resolved_at = now(), resolved_by = p_admin_id,
+           resolution_note = 'Cancelled: Stripe has no transfer for the order.'
+     where e.kind = 'transfer_reversal_required' and e.order_id = v_order_id and e.status = 'open'
+       and e.refund_id is null and e.details ->> 'reason' = 'refunded_outcome_unknown';
   else
     update private.order_transfers t
        set status = 'retry', lease_token = null, lease_expires_at = null, attempts = 0, next_attempt_at = now(),
@@ -801,5 +905,6 @@ revoke all on function private.due_transfer_orders(interval) from public, anon, 
 revoke all on function private.claim_due_transfers(integer, interval, integer, interval) from public, anon, authenticated;
 revoke all on function private.finish_order_transfer(bigint, uuid, text, text, interval, text, boolean, boolean)
   from public, anon, authenticated;
+revoke all on function private.begin_transfer_create(bigint, uuid) from public, anon, authenticated;
 revoke all on function private.flag_transfer_after_refund(text, text) from public, anon, authenticated;
 revoke all on function private.admin_transfer_action(bigint, text, uuid) from public, anon, authenticated;

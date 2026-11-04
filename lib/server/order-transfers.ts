@@ -220,31 +220,37 @@ export async function lookupOrderTransfer(
 }
 
 /**
- * Reads the order and the row again from the database, just before the transfer is created. Returns the
- * decision to take instead of creating (held, or retried when its lease lapsed), or undefined when it is still payable:
- * the order paid and not refunded even in part, and the row still leased to this worker. A refund recorded by the webhook meanwhile
- * has usually cancelled or held the row already (flag_transfer_after_refund), in which case the lease is gone
- * and recording the hold changes nothing ('lease_lost'); if only record_payment_refund has run, the hold is
- * recorded here and flag_transfer_after_refund cancels (full) or keeps it held (partial) when it follows.
- * A failure to read is thrown (nothing is created; the lease lapses and the next run looks in Stripe first).
+ * The last step before the transfer is created, in one database call (private.begin_transfer_create): under the
+ * order's lock it checks the order is still paid and not refunded even in part and the row still leased to this
+ * worker, and marks the row `create_started`, the record that Stripe may have been asked (it is what lets a later
+ * full refund tell a row nothing was ever created for, which is cancelled, from one whose outcome is unknown,
+ * which is held for an admin to check in Stripe). Returns the decision to take instead of creating (held, or
+ * retried when its lease lapsed), or undefined when it is still payable. A refund recorded by the webhook meanwhile
+ * has usually cancelled or held the row already (flag_transfer_after_refund), in which case the lease is gone and
+ * recording the hold changes nothing ('lease_lost'); if only record_payment_refund has run, the hold is recorded
+ * here and flag_transfer_after_refund cancels (full) or keeps it held (partial) when it follows.
+ * A failure to call it is thrown (nothing is created; the lease lapses and the next run looks in Stripe first).
  */
 async function recheckBeforeCreate(deps: Deps, job: ClaimedTransfer): Promise<Decision | undefined> {
-  const [row] = await deps.db.query<{ order_status: string; amount_refunded_cents: number; owned: boolean; lapsed: boolean }>(
-    `select o.status::text as order_status, o.amount_refunded_cents,
-            coalesce(t.status = 'sending' and t.lease_token = $3::uuid, false) as owned,
-            coalesce(t.lease_expires_at <= now(), false) as lapsed
-       from public.orders o
-       left join private.order_transfers t on t.id = $2::bigint
-      where o.id = $1`,
-    [job.transfer_order_id, String(job.transfer_id), job.transfer_lease_token],
+  const [row] = await deps.db.query<{ result: string }>(
+    `select result from private.begin_transfer_create($1::bigint, $2::uuid)`,
+    [String(job.transfer_id), job.transfer_lease_token],
   );
-  if (!row) return { outcome: "held", error: "order_not_found" };
-  if (row.order_status !== "paid" || row.amount_refunded_cents > 0) return { outcome: "held", error: "refunded" };
-  // Not this worker's row any more: recording anything is refused by the lease check, and nothing is created.
-  if (!row.owned) return { outcome: "held", error: "lease_lost" };
-  // Still its row, but stalled past the lease: another worker may take it any moment, so leave it to the next attempt.
-  if (row.lapsed) return { outcome: "retry", error: "lease_lapsed", bumpKey: false, alert: false };
-  return undefined;
+  switch (row?.result) {
+    case "ok":
+      return undefined;
+    case "refunded":
+      return { outcome: "held", error: "refunded" };
+    // Not this worker's row any more: recording anything is refused by the lease check, and nothing is created.
+    case "lease_lost":
+    case "not_found":
+      return { outcome: "held", error: "lease_lost" };
+    // Still its row, but stalled past the lease: another worker may take it any moment, so leave it to the next attempt.
+    case "lapsed":
+      return { outcome: "retry", error: "lease_lapsed", bumpKey: false, alert: false };
+    default:
+      return { outcome: "held", error: "order_not_found" };
+  }
 }
 
 /** What to do with one claimed transfer: Stripe is asked about the payment and any earlier transfer, then the transfer is made. */

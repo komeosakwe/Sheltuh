@@ -591,8 +591,9 @@ async function recordPaymentRefund(deps: Deps, eventId: string, charge: Stripe.C
     `select result, order_id from private.record_payment_refund($1, $2, $3, $4, $5, $6)`,
     [paymentIntentId, amount, charge.refunded, stripeId(charge.id) ?? null, destination ?? null, stripeId(eventId) ?? null],
   );
-  // A transfer order's organiser share, not sent yet, is cancelled (refunded in full) or held (in part); one
-  // already sent can only be reversed by a person: a payment exception and an ops alert. Run for every
+  // A transfer order's organiser share, not sent yet, is cancelled (refunded in full, and Stripe never asked to
+  // create it) or held (in part, or in full when Stripe may have made it: outcome unknown); one already sent, or
+  // possibly sent, can only be settled by a person: a payment exception and an ops alert. Run for every
   // delivery of the event (idempotent), whatever record_payment_refund made of it.
   let flag: { result: string; alert_queued: boolean } | undefined;
   try {
@@ -608,6 +609,11 @@ async function recordPaymentRefund(deps: Deps, eventId: string, charge: Stripe.C
   if (flag?.result === "flagged") {
     console.error(
       `Order ${row.order_id ? orderReference(row.order_id) : "(unmatched)"} was refunded after its organiser's transfer was sent: reverse the transfer (a payment exception was opened).`,
+    );
+  }
+  if (flag?.result === "unknown") {
+    console.error(
+      `Order ${row.order_id ? orderReference(row.order_id) : "(unmatched)"} was refunded in full while its organiser's transfer may already exist in Stripe: the transfer is held and a payment exception was opened (check Stripe, then cancel it in the transfer queue).`,
     );
   }
   // Logs name the order by its short reference only: never its id (the confirmation page's credential) or the buyer.

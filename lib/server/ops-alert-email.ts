@@ -58,7 +58,11 @@ const ACTIONS: Record<PaymentExceptionKind, string> = {
     "transfer in the Stripe dashboard (Connect, Transfers, the transfer, Reverse; docs/supabase-setup.md, " +
     "\"Reversing a transfer after a late refund\"), then resolve the exception with a note. If the details say " +
     "transfer_after_cancel, an admin cancelled the payout and a transfer reached the organiser anyway: reverse " +
-    "that transfer in Stripe, or if the organiser was also paid by hand, keep one payment and reverse the other.",
+    "that transfer in Stripe, or if the organiser was also paid by hand, keep one payment and reverse the other. " +
+    "If the details say refunded_outcome_unknown, the order was refunded in full while the payout may or may not " +
+    "have been made (a request whose answer was lost): the payout is held and nothing was cancelled. Cancel it in " +
+    "the admin transfers list: the app asks Stripe first, and if Stripe has the transfer it is recorded as sent and " +
+    "this exception becomes a reversal to do; if Stripe has none the payout is cancelled and this exception resolves.",
 };
 
 const URGENT: Partial<Record<PaymentExceptionKind, string>> = {

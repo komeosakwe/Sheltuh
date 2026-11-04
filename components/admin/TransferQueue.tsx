@@ -75,6 +75,11 @@ export default function TransferQueue() {
   const state: LoadState = result?.key === key ? result.state : { status: "loading" };
   const [loadingMore, setLoadingMore] = useState(false);
   const [moreError, setMoreError] = useState<string | null>(null);
+  // The list is being fetched again from the start after a transfer left it (see changed): its cursor can't be trusted until then.
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<{ key: string; message: string } | null>(null);
+  // Bumped by every refetch from the start; a "Load more" or an older refetch that finishes after one is dropped.
+  const listVersion = useRef(0);
   const [announcement, setAnnouncement] = useState("");
   // Where focus goes once an acted-on transfer has left the list (its button is gone): an element id.
   const focusAfterRemoval = useRef<string | null>(null);
@@ -102,6 +107,36 @@ export default function TransferQueue() {
     };
   }, [view, getToken, key]);
 
+  /**
+   * Fetches the list again from the start. Cursors are row offsets (lib/server/pagination.ts), so once a transfer has
+   * left the list every later row sits one place earlier on the server: the cursor of the page held here would make
+   * "Load more" skip a row for each one that left. The fresh first page (as many rows as were showing, up to the
+   * server's 50) brings its own counts and cursor. If it can't be fetched the cursor is dropped rather than trusted.
+   */
+  async function refetchFromStart(forKey: string, shown: number) {
+    const version = ++listVersion.current;
+    setRefreshing(true);
+    setRefreshError(null);
+    setMoreError(null);
+    try {
+      const limit = Math.min(Math.max(shown, 20), 50);
+      const fresh = await adminListTransfers(getToken, { status: view, ...(limit > 20 ? { limit } : {}) });
+      if (version !== listVersion.current) return;
+      setResult((current) =>
+        current && current.key === forKey && current.state.status === "ready" ? { key: forKey, state: { status: "ready", page: fresh } } : current,
+      );
+    } catch {
+      if (version !== listVersion.current) return;
+      setResult((current) => {
+        if (!current || current.key !== forKey || current.state.status !== "ready") return current;
+        return { key: forKey, state: { status: "ready", page: { ...current.state.page, nextCursor: undefined } } };
+      });
+      setRefreshError({ key: forKey, message: "Couldn’t refresh the list, so the rest of it isn’t shown. Reload to see it." });
+    } finally {
+      if (version === listVersion.current) setRefreshing(false);
+    }
+  }
+
   function changed(before: AdminTransfer, after: AdminTransfer, action: TransferAction) {
     const stays = inTransferView(view, after.status);
     const what = `${TRANSFER_ACTION_LABEL[action]} for order ${after.orderReference}: now ${TRANSFER_STATUS_LABEL[after.status].toLowerCase()}.`;
@@ -121,15 +156,18 @@ export default function TransferQueue() {
       return { key, state: { status: "ready", page: { ...page, items } } };
     });
     setAnnouncement(stays ? what : `${what} It’s moved out of this list.`);
+    if (!stays && state.status === "ready") void refetchFromStart(key, state.page.items.length);
   }
 
   async function loadMore() {
-    if (state.status !== "ready" || !state.page.nextCursor || loadingMore) return;
+    if (state.status !== "ready" || !state.page.nextCursor || loadingMore || refreshing) return;
+    const version = listVersion.current;
     setLoadingMore(true);
     setMoreError(null);
     try {
       const more = await adminListTransfers(getToken, { status: view, cursor: state.page.nextCursor });
-      // Only onto the list it was loaded for: another filter may be showing by now.
+      // Only onto the list it was loaded for: another filter may be showing by now, or the list was fetched again.
+      if (version !== listVersion.current) return;
       setResult((current) => {
         if (!current || current.key !== key || current.state.status !== "ready") return current;
         const known = new Set(current.state.page.items.map((t) => t.transferId));
@@ -218,6 +256,17 @@ export default function TransferQueue() {
           </ul>
         )}
 
+        {refreshError?.key === key && (
+          <div className="mt-6 flex flex-col items-start gap-3">
+            <Notice tone="danger" role="alert">
+              {refreshError.message}
+            </Notice>
+            <Button variant="outline" size="sm" className="min-h-11" onClick={() => setAttempt((n) => n + 1)}>
+              Reload
+            </Button>
+          </div>
+        )}
+
         {page?.nextCursor && (
           <div className="mt-6 flex flex-col items-start gap-3">
             {moreError && (
@@ -225,7 +274,7 @@ export default function TransferQueue() {
                 {moreError}
               </Notice>
             )}
-            <Button variant="outline" busy={loadingMore} onClick={loadMore} className="min-h-11">
+            <Button variant="outline" busy={loadingMore || refreshing} onClick={loadMore} className="min-h-11">
               {loadingMore ? "Loading…" : "Load more"}
             </Button>
           </div>

@@ -86,6 +86,7 @@ describe("transfer copy", () => {
     expect(transferErrorWords("refunded")).toBe("Refunded");
     expect(transferErrorWords("balance_insufficient")).toBe("Not enough in the Stripe balance");
     expect(transferErrorWords("destination_account")).toBe("Organiser’s Stripe account can’t receive");
+    expect(transferErrorWords("refunded_outcome_unknown")).toBe("Refunded; may already be sent (check Stripe)");
     expect(transferErrorWords("some_new_code")).toBe("Some new code");
     expect(transferErrorWords("rejected_amount_too_small")).toBe("Stripe turned it down: amount too small");
   });
@@ -176,8 +177,11 @@ describe("TransferQueue", () => {
   });
 
   it("Cancel asks first; Keep it does nothing, Cancel transfer cancels, drops owed and moves focus on", async () => {
+    const late = transfer({ transferId: "12", orderReference: "#8D2A3B1C", eventTitle: "Late Bloom" });
+    adminListTransfers.mockResolvedValueOnce(page([transfer(), late]));
+    // After the cancel the list is fetched again from the start, so its counts and cursor are the server's.
     adminListTransfers.mockResolvedValue(
-      page([transfer(), transfer({ transferId: "12", orderReference: "#8D2A3B1C", eventTitle: "Late Bloom" })]),
+      page([late], { counts: { failed: 0, held: 2, retry: 0, sending: 1, sent: 7, cancelled: 4 }, owedToOrganisersCents: 118_900 }),
     );
     adminTransferAction.mockResolvedValue(transfer({ status: "cancelled", lastAdminAction: { action: "cancel", at: "2026-11-04T03:00:00.000Z" } }));
     renderQueue();
@@ -256,6 +260,104 @@ describe("TransferQueue", () => {
     expect(await screen.findByRole("heading", { name: "Order #8D2A3B1C: Late Bloom" })).toBeInTheDocument();
     expect(adminListTransfers).toHaveBeenLastCalledWith(expect.any(Function), { status: "open", cursor: "c1" });
     expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+  });
+
+  describe("after a transfer leaves the list (cursors are row offsets)", () => {
+    /** A server with failed transfers and a default page size, whose cursor is an offset into the rows still failed. */
+    function serverWith(ids: string[], pageSize = 2) {
+      const status = new Map(ids.map((id) => [id, "failed" as AdminTransfer["status"]]));
+      const row = (id: string) => transfer({ transferId: id, orderReference: `#REF${id}`, eventTitle: `Event ${id}`, status: status.get(id) });
+      const counts = () => ({
+        failed: ids.filter((id) => status.get(id) === "failed").length, held: 0, retry: 0, sending: 0, sent: 0,
+        cancelled: ids.filter((id) => status.get(id) === "cancelled").length,
+      });
+      adminListTransfers.mockImplementation(async (_getToken: unknown, query: { limit?: number; cursor?: string }) => {
+        const open = ids.filter((id) => status.get(id) === "failed");
+        const offset = query.cursor ? Number(query.cursor) : 0;
+        const size = query.limit ?? pageSize;
+        const items = open.slice(offset, offset + size).map(row);
+        return page(items, { counts: counts(), ...(offset + size < open.length ? { nextCursor: String(offset + size) } : {}) });
+      });
+      adminTransferAction.mockImplementation(async (id: string) => {
+        status.set(id, "cancelled");
+        return row(id);
+      });
+    }
+
+    async function cancel(reference: string) {
+      const item = screen.getByRole("heading", { name: new RegExp(`^Order #REF${reference}:`) }).closest("article")!;
+      fireEvent.click(within(item).getByRole("button", { name: "Cancel" }));
+      fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Cancel transfer" }));
+    }
+
+    const shown = () => screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
+
+    it("fetches the list again from the start, so Load more skips no row", async () => {
+      serverWith(["1", "2", "3", "4", "5"]);
+      renderQueue();
+      await screen.findByRole("heading", { name: "Order #REF1: Event 1" });
+      expect(shown()).toEqual(["Order #REF1: Event 1", "Order #REF2: Event 2"]);
+
+      await cancel("1");
+      await waitFor(() => expect(screen.getByRole("heading", { name: "Order #REF3: Event 3" })).toBeInTheDocument());
+      expect(shown()).toEqual(["Order #REF2: Event 2", "Order #REF3: Event 3"]);
+      expect(adminListTransfers).toHaveBeenLastCalledWith(expect.any(Function), { status: "open" });
+      expect(screen.getByRole("button", { name: "Cancelled (1)" })).toBeInTheDocument();
+
+      // The server's offset moved up by one: with the old cursor ("2") row 3 would have been skipped.
+      fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+      await screen.findByRole("heading", { name: "Order #REF5: Event 5" });
+      expect(shown()).toEqual(["Order #REF2: Event 2", "Order #REF3: Event 3", "Order #REF4: Event 4", "Order #REF5: Event 5"]);
+      expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+    });
+
+    it("keeps what was loaded: after Load more and a cancel, it asks for as many rows as were showing", async () => {
+      const ids = Array.from({ length: 45 }, (_, i) => String(i + 1));
+      serverWith(ids, 20);
+      renderQueue();
+      fireEvent.click(await screen.findByRole("button", { name: "Load more" }));
+      await screen.findByRole("heading", { name: "Order #REF40: Event 40" });
+      expect(shown()).toHaveLength(40);
+
+      await cancel("2");
+      await waitFor(() => expect(screen.getByRole("heading", { name: "Order #REF41: Event 41" })).toBeInTheDocument());
+      expect(adminListTransfers).toHaveBeenLastCalledWith(expect.any(Function), { status: "open", limit: 40 });
+      // Not cut back to one page, and the next one starts right after the last row shown.
+      expect(shown()).toHaveLength(40);
+      expect(screen.queryByRole("heading", { name: "Order #REF2: Event 2" })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+      await screen.findByRole("heading", { name: "Order #REF45: Event 45" });
+      expect(shown()).toHaveLength(44);
+      expect(new Set(shown()).size).toBe(44);
+    });
+
+    it("a refetch that fails drops the cursor instead of trusting it, and offers Reload", async () => {
+      serverWith(["1", "2", "3", "4", "5"]);
+      renderQueue();
+      await screen.findByRole("heading", { name: "Order #REF1: Event 1" });
+      const working = adminListTransfers.getMockImplementation()!;
+      adminListTransfers.mockRejectedValueOnce(new Error("offline"));
+      await cancel("1");
+      expect(await screen.findByRole("alert")).toHaveTextContent("Couldn’t refresh the list");
+      expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+      expect(shown()).toEqual(["Order #REF2: Event 2"]);
+
+      adminListTransfers.mockImplementation(working);
+      fireEvent.click(screen.getByRole("button", { name: "Reload" }));
+      await screen.findByRole("heading", { name: "Order #REF3: Event 3" });
+      expect(shown()).toEqual(["Order #REF2: Event 2", "Order #REF3: Event 3"]);
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+
+    it("a transfer that stays in the list (a retry) fetches nothing again", async () => {
+      serverWith(["1", "2", "3"]);
+      adminTransferAction.mockResolvedValue(transfer({ transferId: "1", orderReference: "#REF1", eventTitle: "Event 1", status: "retry", attempts: 0, lastError: undefined }));
+      renderQueue();
+      await screen.findByRole("heading", { name: "Order #REF1: Event 1" });
+      fireEvent.click(within(card("Order #REF1: Event 1")).getByRole("button", { name: "Retry" }));
+      await waitFor(() => expect(within(card("Order #REF1: Event 1")).getByText("Retrying")).toBeInTheDocument());
+      expect(adminListTransfers).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("a failed Load more says so and keeps the list", async () => {

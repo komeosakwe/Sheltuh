@@ -409,7 +409,8 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           once the order isn't pending, the table `private.order_transfers`
           (RLS on, no grants) with its guard trigger, the functions
           `due_transfer_orders`, `claim_due_transfers`,
-          `finish_order_transfer`, `flag_transfer_after_refund` and
+          `begin_transfer_create`, `finish_order_transfer`,
+          `flag_transfer_after_refund` and
           `admin_transfer_action`, the payment exception kinds
           `transfer_failed` and `transfer_reversal_required`
           (`raise_payment_exception` redefined) and `payouts` as a

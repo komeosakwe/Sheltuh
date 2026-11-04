@@ -230,6 +230,7 @@ describe("Data API lock-out", () => {
   it("the delayed payouts functions and triggers exist, pin search_path, aren't security definer and aren't client-executable", async () => {
     const names = [
       "admin_transfer_action",
+      "begin_transfer_create",
       "claim_due_transfers",
       "due_transfer_orders",
       "finish_order_transfer",
