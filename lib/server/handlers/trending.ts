@@ -1,6 +1,7 @@
 import { requireAdmin } from "../auth";
 import { requireCronSecret } from "../cron-auth";
 import type { Db } from "../db";
+import type { Deps } from "../deps";
 import { HttpError, okPrivate, readJson } from "../http";
 import { parseMessageText } from "../message-input";
 import { isUuid } from "../pagination";
@@ -82,20 +83,32 @@ export const getTrendingEvents: Handler = async (_req, _params, { db }) => {
 };
 
 /**
- * GET /api/cron/trending — Vercel Cron (daily on the Hobby plan; every 15
- * minutes on Pro: vercel.json, docs/supabase-setup.md). Rebuilds the
- * snapshot. Returns counts only: how many events were eligible and how many
- * were ranked. After the response, it also runs the event clips' cleanup
- * sweep (sweepEventClips, lib/server/handlers/event-clips.ts), so it needs
- * no cron of its own (vercel.json's cron count stays as it is).
+ * Rebuilds the trending snapshot and, after the response, runs the event
+ * clips' cleanup sweep (sweepEventClips, lib/server/handlers/event-clips.ts),
+ * so the sweep needs no cron of its own. Returns how many events were eligible
+ * and how many were ranked. Shared by GET /api/cron/trending and the email
+ * outbox's cron run (runEmailOutboxCron), which is where Vercel Cron calls it
+ * from since the payouts job took trending's slot (vercel.json, docs/schedules.md).
  */
-export const runTrendingCron: Handler = async (req, _params, deps) => {
-  requireCronSecret(req, deps.cronSecret());
+export async function refreshTrending(deps: Deps): Promise<{ eligible: number; ranked: number }> {
   const [row] = await deps.db.query<{ eligible: number; ranked: number }>(
     `select eligible, ranked from private.refresh_trending()`,
   );
   sweepEventClipsSoon(deps);
-  return okPrivate({ eligible: row.eligible, ranked: row.ranked });
+  return { eligible: row.eligible, ranked: row.ranked };
+}
+
+/**
+ * GET /api/cron/trending — rebuilds the snapshot (refreshTrending). Still
+ * callable (with the cron secret), but no longer scheduled in vercel.json: the
+ * Hobby plan allows two crons, so the email outbox's daily run does this
+ * (lib/server/handlers/email-outbox.ts) and the payouts job has the other slot.
+ * Every 15 minutes on Pro (docs/schedules.md, docs/supabase-setup.md). Returns
+ * counts only.
+ */
+export const runTrendingCron: Handler = async (req, _params, deps) => {
+  requireCronSecret(req, deps.cronSecret());
+  return okPrivate(await refreshTrending(deps));
 };
 
 /** An event's curation and its newest log entries, or undefined for an unknown event. */

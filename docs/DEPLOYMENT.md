@@ -68,7 +68,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261117000000_ticket_release_lock.sql`. Never
+      newest, currently `20261119000000_delayed_payouts.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -366,6 +366,31 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           `20261022000000_external_ticketing.sql` and
           `20261114000000_external_price.sql`, then drop the constraints and
           the two columns (the setting and the sold-out times are lost).
+      46. `20261119000000_delayed_payouts.sql` (organisers paid 2 days after
+          their event, docs/architecture.md "Delayed payouts":
+          `orders.payout_method` (default `destination`: every existing order
+          stays one and is never transferred) with a trigger that freezes it
+          once the order isn't pending, the table `private.order_transfers`
+          (RLS on, no grants) with its guard trigger, the functions
+          `due_transfer_orders`, `claim_due_transfers`,
+          `finish_order_transfer`, `flag_transfer_after_refund` and
+          `admin_transfer_action`, the payment exception kinds
+          `transfer_failed` and `transfer_reversal_required`
+          (`raise_payment_exception` redefined) and `payouts` as a
+          `cron_runs` name). search_path pinned, execute revoked from
+          clients, no data changed. Additive; the previous app never reads
+          the column or the table and makes `destination` orders, so it can
+          be applied ahead of the deploy, and **should be**: the new app's
+          checkout reads `payout_method` on every paid checkout, so the new
+          app on the old schema fails every paid checkout. Needs no new
+          environment variable to apply; the switch is `DELAYED_PAYOUTS`
+          (below, and Stripe step 7). Reversible while no order is
+          `transfer`: deploy the previous app, resolve the two new exception
+          kinds, drop the functions, the triggers and the table, restore the
+          two checks and `raise_payment_exception`
+          (`20261110000150_support_in_exceptions.sql`), then drop the column.
+          After a `transfer` order has been paid the table is the record of
+          what was sent: export it first, and reverse those orders by hand.
 
       **Files 33 to 37 can be applied ahead of this deploy, with the
       previous app still live.** "The previous app" here is the build of
@@ -458,17 +483,23 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       all is also unverified: the check above covers every file.
 - [ ] **`CRON_SECRET`** in Vercel (Production): a long random string
       (`openssl rand -hex 32`). Without it `/api/cron/email-outbox` and
-      `/api/cron/trending` refuse every call: failed ticket emails are never
-      retried and Trending stays empty.
+      `/api/cron/payouts` refuse every call: failed ticket emails are never
+      retried, Trending stays empty (the email run refreshes it) and, with
+      `DELAYED_PAYOUTS=1`, organisers are never paid.
 - [ ] **Cron schedules.** See [`schedules.md`](schedules.md) for every
       timed job (Vercel and Supabase), its time in Melbourne, and how to run
-      it more often. `vercel.json` runs both crons once a day (17:00 and
-      17:20 UTC: 4:00 and 4:20 am AEDT, 3:00 and 3:20 am AEST), the Hobby
-      plan's limit. Moving to **Vercel Pro** changes nothing by itself: edit
-      `vercel.json` (`*/5 * * * *` for `/api/cron/email-outbox`,
-      `*/15 * * * *` for `/api/cron/trending`) and redeploy. On Hobby,
-      Supabase Cron can run the trending refresh directly or call the outbox
-      route through `pg_net` (`schedules.md`, option 2).
+      it more often. `vercel.json` runs both crons once a day, the Hobby
+      plan's limit: `/api/cron/email-outbox` at 17:00 UTC (4:00 am AEDT,
+      3:00 am AEST), which also refreshes Trending after its drain, and
+      `/api/cron/payouts` at 21:30 UTC (8:30 am AEDT, 7:30 am AEST), which
+      sends the organisers' shares that are due. (`/api/cron/trending` is no
+      longer scheduled: the payouts job took its slot; it still works when
+      called.) Moving to **Vercel Pro** changes nothing by itself: edit
+      `vercel.json` (`*/5 * * * *` for `/api/cron/email-outbox`, which
+      refreshes Trending every run, or add `/api/cron/trending` at
+      `*/15 * * * *` as a third cron) and redeploy. On Hobby, Supabase Cron
+      can run the trending refresh directly or call the outbox route through
+      `pg_net` (`schedules.md`, option 2).
       - **On Hobby:** set up the 5-minute email retry runner in Supabase
         (Supabase Cron + `pg_net`, `CRON_SECRET` and the route's URL in
         Supabase Vault: `supabase-setup.md` §3, "The 5-minute runner on
@@ -776,6 +807,31 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        secret all change together), steps 3–4 included: run
        `npm run payment-domains -- --register sheltuh.com.au` again with
        a **live** restricted key, then delete that key.
+7. [ ] **Delayed payouts** (optional, owner decision: organisers paid 2 days
+       after their event; `architecture.md` "Delayed payouts",
+       `supabase-setup.md` "Delayed payouts"). In order, test mode first:
+       apply `20261119000000_delayed_payouts.sql`; deploy with
+       `DELAYED_PAYOUTS` unset; on the Preview deployment set
+       `DELAYED_PAYOUTS=1`, buy a ticket with test card `4242…`, move the
+       event's end back in the test database (`update public.events set
+       starts_at = now() - interval '4 days', ends_at = now() - interval '3
+       days'` on the **test** project only), call
+       `GET /api/cron/payouts` with the cron secret, and check in the Stripe
+       test dashboard that a transfer was made to the organiser's account with
+       the charge as its source, the right amount (total less booking fee and
+       Support Sheltüh) and the order id as its transfer group; refund
+       one before and one after its transfer and check the exception
+       (`transfer_reversal_required`). **Set the platform account's Stripe
+       payouts to manual** (Stripe → Settings → Business → Payouts) before
+       turning the switch on in Production: otherwise Stripe pays the
+       platform's whole balance, the organisers' money included, to the
+       platform's bank every day, and a transfer would fail with
+       `balance_insufficient`. Then set `DELAYED_PAYOUTS=1` in Production and
+       redeploy. Orders made before the switch stay paid at payment time. To
+       stop: unset it and redeploy (existing delayed orders are still paid
+       out). Unverified until this is done: that Stripe accepts
+       `transfer_group` together with `source_transaction`, and copies the
+       session's `payment_intent_data.metadata` onto the charge.
 
 ## Vercel
 
@@ -791,6 +847,11 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        `pk_test_…`). Redeploy after changing any `NEXT_PUBLIC_*` value.
        Optional: `NEXT_PUBLIC_DISABLE_SERVICE_WORKER=1` turns the offline
        service worker off (needs a fresh build; see `docs/pwa.md`).
+       Optional: `DELAYED_PAYOUTS=1` (server-only, never `NEXT_PUBLIC_`):
+       pay organisers 2 days after their event instead of with each ticket.
+       **Leave it unset** until the migration is applied, it has been tried in
+       Stripe test mode on a Preview deployment, and the platform's Stripe
+       payouts are set to manual (Stripe step 7). Unset = today's behaviour.
        Optional: `OPS_ALERT_EMAIL` (server-only), one address for ops alerts
        about payment exceptions and checkout surges (unset = logged only).
        Optional: `ADMIN_NOTIFY_EMAILS` (server-only, never `NEXT_PUBLIC_`),

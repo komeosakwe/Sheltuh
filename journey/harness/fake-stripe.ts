@@ -5,7 +5,8 @@ import Stripe from "stripe";
 
 /**
  * A local stand-in for the parts of Stripe's v1 API the app calls (Connect
- * accounts and links, Checkout Sessions, refunds), plus the "customer" and
+ * accounts and links, Checkout Sessions, refunds, and for delayed payouts
+ * payment intents and transfers), plus the "customer" and
  * "dashboard" sides a journey needs: paying a session, refunding a payment,
  * and the webhook events Stripe would send for each.
  *
@@ -45,13 +46,35 @@ export interface FakeSession {
 export interface FakeCharge {
   id: string;
   object: "charge";
+  status: "succeeded";
+  paid: boolean;
   amount: number;
   amount_refunded: number;
   refunded: boolean;
+  disputed: boolean;
   currency: string;
   payment_intent: string;
+  /** A destination charge's; null for a charge made on the platform (delayed payouts). */
   transfer_data: { destination: string } | null;
+  on_behalf_of: string | null;
   application_fee_amount: number | null;
+  /** What the payment intent was made with (payment_intent_data.metadata): a charge inherits it. */
+  metadata: Record<string, string>;
+  transfer_group: string | null;
+}
+
+export interface FakeTransfer {
+  id: string;
+  object: "transfer";
+  amount: number;
+  currency: string;
+  destination: string;
+  source_transaction: string | null;
+  transfer_group: string | null;
+  metadata: Record<string, string>;
+  reversed: boolean;
+  amount_reversed: number;
+  idempotencyKey: string | null;
 }
 
 export interface FakeRefund {
@@ -106,6 +129,9 @@ export class FakeStripe {
   readonly sessions = new Map<string, FakeSession>();
   readonly charges = new Map<string, FakeCharge>();
   readonly refunds: FakeRefund[] = [];
+  readonly transfers: FakeTransfer[] = [];
+  /** The next POST /v1/transfers is refused with this Stripe error code (e.g. balance_insufficient), once. */
+  failNextTransfer: { code: string; statusCode?: number } | undefined;
   readonly accounts = new Map<string, { id: string; object: "account"; charges_enabled: boolean; payouts_enabled: boolean; email?: string }>();
   readonly requests: RecordedRequest[] = [];
   private readonly stored = new Map<string, { body: string; status: number; response: string }>();
@@ -204,6 +230,28 @@ export class FakeStripe {
         return reply(200, this.publicSession(session));
       }
       if (route === "POST /v1/refunds") return reply(...this.createRefund(params, idempotencyKey));
+      // Delayed payouts: the job reads the payment (with its charge) and makes one transfer per order.
+      if ((m = route.match(/^GET \/v1\/payment_intents\/([^/]+)$/))) {
+        const charge = [...this.charges.values()].find((c) => c.payment_intent === m![1]);
+        if (!charge) return reply(404, { error: { type: "invalid_request_error", code: "resource_missing", message: "No such payment_intent" } });
+        return reply(200, { id: charge.payment_intent, object: "payment_intent", status: "succeeded", metadata: charge.metadata, latest_charge: charge });
+      }
+      if (route === "POST /v1/transfers") return reply(...this.createTransfer(params, idempotencyKey));
+      if (route === "GET /v1/transfers") {
+        const query = new URL(req.url ?? "/", "http://fake").searchParams;
+        const group = query.get("transfer_group");
+        const destination = query.get("destination");
+        const data = this.transfers.filter((t) => (!group || t.transfer_group === group) && (!destination || t.destination === destination));
+        return reply(200, { object: "list", has_more: false, url: "/v1/transfers", data: data.map((t) => this.publicTransfer(t)) });
+      }
+      if ((m = route.match(/^POST \/v1\/transfers\/([^/]+)\/reversals$/))) {
+        const transfer = this.transfers.find((t) => t.id === m![1]);
+        if (!transfer) return reply(404, { error: { type: "invalid_request_error", code: "resource_missing", message: "No such transfer" } });
+        const amount = params.amount === undefined ? transfer.amount - transfer.amount_reversed : Number(params.amount);
+        transfer.amount_reversed += amount;
+        transfer.reversed = transfer.amount_reversed >= transfer.amount;
+        return reply(200, { id: this.id("trr"), object: "transfer_reversal", amount, transfer: transfer.id });
+      }
       // Asked before the app reports a refund as not completed (its current status).
       if ((m = route.match(/^GET \/v1\/refunds\/([^/]+)$/))) {
         const refundId = m[1];
@@ -225,8 +273,15 @@ export class FakeStripe {
     if (!Array.isArray(lines) || lines.length === 0) return invalid("line_items is required");
     const pid = params.payment_intent_data as { application_fee_amount?: string; transfer_data?: { destination?: string } } | undefined;
     const destination = pid?.transfer_data?.destination;
-    const account = destination ? this.accounts.get(destination) : undefined;
-    if (!account || !account.charges_enabled) return invalid("The destination account can't take charges.");
+    if (destination) {
+      const account = this.accounts.get(destination);
+      if (!account || !account.charges_enabled) return invalid("The destination account can't take charges.");
+    } else if (pid?.application_fee_amount !== undefined) {
+      // As Stripe: an application fee needs a destination (or on_behalf_of) to be taken from.
+      return invalid("application_fee_amount can only be used with transfer_data or on_behalf_of.");
+    } else if (!pid) {
+      return invalid("The destination account can't take charges.");
+    }
     let amount = 0;
     for (const line of lines as { price_data?: { unit_amount?: string; currency?: string }; quantity?: string }[]) {
       const unit = Number(line.price_data?.unit_amount);
@@ -299,6 +354,52 @@ export class FakeStripe {
     return [200, { id, object, amount, status, charge: chargeId, payment_intent, metadata }];
   }
 
+  private createTransfer(params: Params, idempotencyKey: string | null): [number, unknown] {
+    const rejected = (code: string, message: string, statusCode = 400): [number, unknown] => [
+      statusCode,
+      { error: { type: "invalid_request_error", code, message } },
+    ];
+    if (this.failNextTransfer) {
+      const { code, statusCode } = this.failNextTransfer;
+      this.failNextTransfer = undefined;
+      return rejected(code, "The transfer was refused.", statusCode);
+    }
+    const destination = this.accounts.get(params.destination as string);
+    if (!destination || !destination.payouts_enabled) return rejected("account_invalid", "The destination account can't take transfers.");
+    const amount = Number(params.amount);
+    if (!Number.isInteger(amount) || amount < 1 || params.currency !== "aud") return rejected("parameter_invalid_integer", "Invalid amount or currency.");
+    const source = params.source_transaction === undefined ? undefined : [...this.charges.values()].find((c) => c.id === params.source_transaction);
+    if (params.source_transaction !== undefined) {
+      if (!source) return rejected("resource_missing", "No such charge", 404);
+      const already = this.transfers.filter((t) => t.source_transaction === source.id).reduce((n, t) => n + t.amount - t.amount_reversed, 0);
+      if (already + amount > source.amount - source.amount_refunded) return rejected("amount_too_large", "The transfer is more than the charge has left.");
+    }
+    const transfer: FakeTransfer = {
+      id: this.id("tr"),
+      object: "transfer",
+      amount,
+      currency: "aud",
+      destination: destination.id,
+      source_transaction: source?.id ?? null,
+      transfer_group: (params.transfer_group as string | undefined) ?? source?.transfer_group ?? null,
+      metadata: (params.metadata as Record<string, string>) ?? {},
+      reversed: false,
+      amount_reversed: 0,
+      idempotencyKey,
+    };
+    this.transfers.push(transfer);
+    return [200, this.publicTransfer(transfer)];
+  }
+
+  private publicTransfer(transfer: FakeTransfer) {
+    return Object.fromEntries(Object.entries(transfer).filter(([key]) => key !== "idempotencyKey"));
+  }
+
+  /** Transfers actually made (not idempotent replays) to this account. */
+  transfersTo(accountId: string): FakeTransfer[] {
+    return this.transfers.filter((t) => t.destination === accountId);
+  }
+
   /** The session as the API returns it (without the harness's bookkeeping). */
   publicSession(session: FakeSession) {
     const { id, object, status, payment_status, ui_mode, url, client_secret, expires_at, client_reference_id } = session;
@@ -347,18 +448,29 @@ export class FakeStripe {
     const session = this.sessions.get(sessionId);
     if (!session) throw new Error(`No fake session ${sessionId}`);
     if (session.status !== "open") throw new Error(`Session ${sessionId} is ${session.status}, not open`);
-    const pid = session.params.payment_intent_data as { application_fee_amount?: string; transfer_data?: { destination?: string } };
+    const pid = session.params.payment_intent_data as {
+      application_fee_amount?: string;
+      transfer_data?: { destination?: string };
+      transfer_group?: string;
+      metadata?: Record<string, string>;
+    };
     const paymentIntent = this.id("pi");
     const charge: FakeCharge = {
       id: this.id("ch"),
       object: "charge",
+      status: "succeeded",
+      paid: true,
       amount: session.amount_total,
       amount_refunded: 0,
       refunded: false,
+      disputed: false,
       currency: "aud",
       payment_intent: paymentIntent,
       transfer_data: pid.transfer_data?.destination ? { destination: pid.transfer_data.destination } : null,
+      on_behalf_of: null,
       application_fee_amount: pid.application_fee_amount === undefined ? null : Number(pid.application_fee_amount),
+      metadata: pid.metadata ?? {},
+      transfer_group: pid.transfer_group ?? null,
     };
     this.charges.set(charge.id, charge);
     session.status = "complete";

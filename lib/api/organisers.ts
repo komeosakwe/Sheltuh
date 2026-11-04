@@ -1,6 +1,6 @@
 import type { EventCategory } from "@/lib/types";
 import { ApiError, apiFetch, isApiConfigured, type GetToken } from "./client";
-import type { OrganiserRecord, PublicOrganiserProfile } from "./types";
+import type { OrganiserPayouts, OrganiserRecord, PublicOrganiserProfile } from "./types";
 
 /**
  * Social handles, as the organiser types them: a leading '@' and surrounding
@@ -127,4 +127,19 @@ export async function connectStripeOnboarding(getToken: GetToken) {
 export async function refreshStripeConnectStatus(getToken: GetToken) {
   const token = await getToken();
   return apiFetch<OrganiserRecord>("/organisers/me/connect/refresh", { method: "POST", token });
+}
+
+/**
+ * The signed-in organiser's money, per event with paid orders (newest end
+ * first): paid out with the payment, waiting for its transfer (about 2 days
+ * after the event ends) and sent, plus totals. ApiError 404 without an
+ * organiser application.
+ */
+export async function getMyPayouts(getToken: GetToken, query: { limit?: number; cursor?: string } = {}) {
+  const token = await getToken();
+  const qs = new URLSearchParams({
+    ...(query.limit ? { limit: String(query.limit) } : {}),
+    ...(query.cursor ? { cursor: query.cursor } : {}),
+  });
+  return apiFetch<OrganiserPayouts>(`/organisers/me/payouts${qs.size > 0 ? `?${qs}` : ""}`, { token });
 }

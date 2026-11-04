@@ -25,6 +25,7 @@ import { getUnreadCount, listConversations } from "@/lib/server/handlers/message
 import { adminListOrganiserLinks } from "@/lib/server/handlers/organiser-links";
 import { getMyOrganiser } from "@/lib/server/handlers/organisers";
 import { adminListPaymentExceptions } from "@/lib/server/handlers/payment-exceptions";
+import { adminListTransfers, getMyPayouts, runPayoutsCron } from "@/lib/server/handlers/payouts";
 import { getMyProfile, putMyProfile } from "@/lib/server/handlers/profiles";
 import { adminListReports } from "@/lib/server/handlers/reports";
 import { listTrackingLinks } from "@/lib/server/handlers/tracking-links";
@@ -93,9 +94,11 @@ const PRIVATE_GETS: Case[] = [
   { name: "adminGetMemberProfile", handler: h(adminGetMemberProfile), as: asAdmin, params: () => ({ profileId }) },
   { name: "adminListReports", handler: h(adminListReports), as: asAdmin },
   { name: "adminSummary", handler: h(adminSummary), as: asAdmin },
+  { name: "adminListTransfers", handler: h(adminListTransfers), as: asAdmin },
   // Cron
   { name: "runEmailOutboxCron", handler: h(runEmailOutboxCron), as: asCron },
   { name: "runTrendingCron", handler: h(runTrendingCron), as: asCron },
+  { name: "runPayoutsCron", handler: h(runPayoutsCron), as: asCron },
   // A member's own things
   { name: "listBlocks", handler: h(listBlocks), as: asMember },
   { name: "listConversations", handler: h(listConversations), as: asMember },
@@ -112,6 +115,7 @@ const PRIVATE_GETS: Case[] = [
   { name: "getWaitlistStatus", handler: h(getWaitlistStatus), as: asMember, params: event },
   // An organiser's own records
   { name: "getMyOrganiser", handler: h(getMyOrganiser), as: asOrganiser },
+  { name: "getMyPayouts", handler: h(getMyPayouts), as: asOrganiser },
   { name: "listMyEvents", handler: h(listMyEvents), as: asOrganiser },
   { name: "getMyEvent", handler: h(getMyEvent), as: asOrganiser, params: event },
   { name: "getAnalyticsOverview", handler: h(getAnalyticsOverview), as: asOrganiser },

@@ -193,6 +193,19 @@ select version, file, coalesce(applied, false) as applied
       exists (select 1 from col where attrelid = to_regclass('public.ticket_types') and attname = 'opens_after_previous')
       and exists (select 1 from col where attrelid = to_regclass('public.ticket_types') and attname = 'sold_out_at')
       and exists (select 1 from fn where proname = 'ticket_type_locks')
-      and exists (select 1 from fn where proname = 'set_ticket_lock'))
+      and exists (select 1 from fn where proname = 'set_ticket_lock')),
+    ('20261119000000', 'delayed_payouts',
+      to_regclass('private.order_transfers') is not null
+      and exists (select 1 from col where attrelid = to_regclass('public.orders') and attname = 'payout_method')
+      and exists (select 1 from fn where proname = 'claim_due_transfers')
+      and exists (select 1 from fn where proname = 'finish_order_transfer')
+      and exists (select 1 from fn where proname = 'flag_transfer_after_refund')
+      and exists (select 1 from fn where proname = 'admin_transfer_action')
+      -- The widened checks and the redefined raise_payment_exception.
+      and exists (select 1 from pg_constraint where conname = 'payment_exceptions_kind_check'
+                   and pg_get_constraintdef(oid) like '%transfer_reversal_required%')
+      and exists (select 1 from pg_constraint where conname = 'cron_runs_name_check'
+                   and pg_get_constraintdef(oid) like '%payouts%')
+      and exists (select 1 from fn where proname = 'raise_payment_exception' and prosrc like '%transfer_failed%'))
   ) as m(version, file, applied)
  order by version;

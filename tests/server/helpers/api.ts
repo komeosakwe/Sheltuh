@@ -48,8 +48,121 @@ export const OPS_ALERT_EMAIL = "ops@sheltuh.test";
 /** Stripe's own offline signing/verification, for realistic webhook tests. */
 const realStripe = new Stripe("sk_test_not_a_real_key");
 
-export function createFakeStripe() {
+/** A Stripe transfer as the fake makes and lists it (lib/server/order-transfers.ts). */
+export interface FakeTransfer {
+  id: string;
+  object: "transfer";
+  amount: number;
+  currency: string;
+  destination: string;
+  source_transaction: string | null;
+  transfer_group: string | null;
+  metadata: Record<string, string>;
+  reversed: boolean;
+  amount_reversed: number;
+}
+
+/**
+ * What a payment intent (with its latest charge expanded) looks like to the payouts job: a succeeded, whole,
+ * undisputed A$ platform charge unless a test says otherwise (`charge` overrides the charge's fields, the
+ * other overrides the payment intent's).
+ */
+export function fakePaymentIntent(
+  id: string,
+  options: { orderId?: string; amount: number; status?: string; metadata?: Record<string, string>; charge?: Record<string, unknown> },
+) {
   return {
+    id,
+    object: "payment_intent",
+    status: options.status ?? "succeeded",
+    metadata: options.metadata ?? (options.orderId ? { orderId: options.orderId } : {}),
+    latest_charge: {
+      id: `ch_${id}`,
+      object: "charge",
+      status: "succeeded",
+      paid: true,
+      amount: options.amount,
+      amount_refunded: 0,
+      refunded: false,
+      disputed: false,
+      currency: "aud",
+      transfer_data: null,
+      on_behalf_of: null,
+      ...options.charge,
+    },
+  };
+}
+
+export function createFakeStripe() {
+  // Payment intents the payouts job can read (set with payments.set), and the transfers Stripe has made.
+  const intents = new Map<string, ReturnType<typeof fakePaymentIntent>>();
+  const madeTransfers: FakeTransfer[] = [];
+  const byIdempotencyKey = new Map<string, FakeTransfer>();
+  return {
+    payments: {
+      intents,
+      set(paymentIntentId: string, options: Parameters<typeof fakePaymentIntent>[1]) {
+        const intent = fakePaymentIntent(paymentIntentId, options);
+        intents.set(paymentIntentId, intent);
+        return intent;
+      },
+    },
+    /** The transfers Stripe has made, oldest first. */
+    madeTransfers,
+    paymentIntents: {
+      retrieve: vi.fn(async (id: string) => {
+        const intent = intents.get(id);
+        if (!intent) {
+          throw new Stripe.errors.StripeInvalidRequestError({
+            message: `No such payment_intent: '${id}'`,
+            type: "invalid_request_error",
+            code: "resource_missing",
+            statusCode: 404,
+          });
+        }
+        return JSON.parse(JSON.stringify(intent)) as typeof intent;
+      }),
+    },
+    transfers: {
+      // Stripe's idempotency: the same key gets the transfer the first call made.
+      create: vi.fn(async (params: Record<string, unknown>, options?: { idempotencyKey?: string }) => {
+        const key = options?.idempotencyKey;
+        const replay = key ? byIdempotencyKey.get(key) : undefined;
+        if (replay) return replay;
+        const transfer: FakeTransfer = {
+          id: `tr_test_${madeTransfers.length + 1}`,
+          object: "transfer",
+          amount: params.amount as number,
+          currency: params.currency as string,
+          destination: params.destination as string,
+          source_transaction: (params.source_transaction as string | undefined) ?? null,
+          transfer_group: (params.transfer_group as string | undefined) ?? null,
+          metadata: (params.metadata as Record<string, string> | undefined) ?? {},
+          reversed: false,
+          amount_reversed: 0,
+        };
+        madeTransfers.push(transfer);
+        if (key) byIdempotencyKey.set(key, transfer);
+        return transfer;
+      }),
+      list: vi.fn(async (params: { transfer_group?: string; destination?: string; limit?: number } = {}) => ({
+        object: "list",
+        has_more: false,
+        data: madeTransfers
+          .filter((t) => (params.transfer_group === undefined || t.transfer_group === params.transfer_group) &&
+            (params.destination === undefined || t.destination === params.destination))
+          .slice(-(params.limit ?? 10))
+          .reverse(),
+      })),
+      createReversal: vi.fn(async (id: string, params: { amount?: number } = {}) => {
+        const transfer = madeTransfers.find((t) => t.id === id);
+        if (!transfer) throw new Stripe.errors.StripeInvalidRequestError({ message: "No such transfer", type: "invalid_request_error", code: "resource_missing", statusCode: 404 });
+        transfer.amount_reversed += params.amount ?? transfer.amount - transfer.amount_reversed;
+        transfer.reversed = transfer.amount_reversed >= transfer.amount;
+        return { id: `trr_test_${transfer.id}`, object: "transfer_reversal", amount: params.amount ?? transfer.amount, transfer: id };
+      }),
+    },
+
     accounts: {
       create: vi.fn().mockResolvedValue({ id: "acct_test_1" }),
       retrieve: vi.fn().mockResolvedValue({ id: "acct_test_1", charges_enabled: true, payouts_enabled: true }),
@@ -332,6 +445,8 @@ export class TestApi {
   cronSecret: string | undefined = CRON_SECRET;
   /** The Stripe publishable key as Deps reports it; undefined to simulate it unset or of the wrong mode. */
   stripePublishableKey: string | undefined = PUBLISHABLE_KEY;
+  /** DELAYED_PAYOUTS as Deps reports it: false (today's destination charges) unless a test turns it on. */
+  delayedPayouts = false;
   /** Event clips' Storage; undefined to simulate SUPABASE_CLIP_STORAGE_KEY being unset. */
   clipStorage: FakeClipStorage | undefined = new FakeClipStorage();
   /** Supabase Auth's admin API for invites; undefined to simulate SUPABASE_ADMIN_INVITE_KEY being unset. */
@@ -365,6 +480,7 @@ export class TestApi {
         this.deferred.push(task);
       },
       cronSecret: () => this.cronSecret,
+      delayedPayouts: () => this.delayedPayouts,
       clipStorage: () => this.clipStorage,
       authAdmin: () => this.authAdmin,
       adminNotifyEmails: () => this.adminNotifyEmails,

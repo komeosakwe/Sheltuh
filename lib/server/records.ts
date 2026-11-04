@@ -7,6 +7,7 @@ import type { Db } from "./db";
 import type {
   AdminEmailJob,
   AdminPaymentException,
+  AdminTransfer,
   AdminMemberProfile,
   AdminEventRecord,
   AdminInviteRecord,
@@ -32,6 +33,7 @@ import type {
   PublicOrganiserProfile,
   TicketSeat,
   TicketTypeInput,
+  TransferAction,
 } from "./types";
 import { REMAINING_SHOWN_AT_MOST, type PublicTicketType } from "@/lib/api/public-events";
 import {
@@ -872,17 +874,24 @@ const DETAIL_NUMBERS = [
   "supportCents",
   "amountChargedCents",
   "supportKeptCents",
+  "transferAmountCents",
 ] as const;
 
 /**
  * An exception that can't wait: a refund that didn't complete for an order
  * already voided (the buyer has neither tickets nor their money), or any
  * payment whose amount or currency wasn't its order's (the money went
- * somewhere it shouldn't have: the automatic refund needs checking). Shared
+ * somewhere it shouldn't have: the automatic refund needs checking), or an
+ * order refunded after its organiser's transfer was sent (the money is
+ * with the organiser until the transfer is reversed). Shared
  * by the admin list and the ops alert email.
  */
 export function paymentExceptionUrgent(kind: string, orderStatus: string | null | undefined): boolean {
-  return kind === "amount_mismatch" || (kind === "refund_not_completed" && orderStatus === "refunded");
+  return (
+    kind === "amount_mismatch" ||
+    kind === "transfer_reversal_required" ||
+    (kind === "refund_not_completed" && orderStatus === "refunded")
+  );
 }
 
 /** Only the known amounts and statuses, whatever else the jsonb holds. */
@@ -923,6 +932,44 @@ export function toAdminPaymentException(row: Row): AdminPaymentException {
     resolution: opt(row.resolution),
     resolvedBy: opt(row.resolved_by),
     resolutionNote: opt(row.resolution_note),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Delayed payouts
+// ---------------------------------------------------------------------------
+
+/** Admin view of an organiser transfer; append `where …`. The order by short reference only: never the buyer or the order id. */
+export const ADMIN_TRANSFER_SELECT = `
+  select t.id, t.order_id, t.status, t.amount_cents, t.attempts, t.next_attempt_at, t.last_error, t.stripe_transfer_id,
+         t.sent_at, t.last_admin_action, t.last_admin_at, t.created_at, t.updated_at,
+         o.status::text as order_status, o.event_title, e.ends_at as event_ends_at, g.display_name as organiser_name
+    from private.order_transfers t
+    join public.orders o on o.id = t.order_id
+    join public.events e on e.id = o.event_id
+    join public.organisers g on g.id = o.organiser_id`;
+
+export function toAdminTransfer(row: Row): AdminTransfer {
+  const status = row.status as AdminTransfer["status"];
+  return {
+    transferId: String(row.id),
+    orderReference: orderReference(row.order_id as string),
+    orderStatus: row.order_status as AdminTransfer["orderStatus"],
+    eventTitle: row.event_title as string,
+    eventEndsAt: iso(row.event_ends_at),
+    organiserName: row.organiser_name as string,
+    amountCents: Number(row.amount_cents),
+    status,
+    attempts: Number(row.attempts),
+    nextAttemptAt: status === "retry" ? iso(row.next_attempt_at) : undefined,
+    lastError: opt(row.last_error),
+    stripeTransferId: opt(row.stripe_transfer_id),
+    sentAt: row.sent_at ? iso(row.sent_at) : undefined,
+    lastAdminAction: row.last_admin_action
+      ? { action: row.last_admin_action as TransferAction, at: iso(row.last_admin_at) }
+      : undefined,
+    createdAt: iso(row.created_at),
+    updatedAt: iso(row.updated_at),
   };
 }
 

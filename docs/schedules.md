@@ -17,7 +17,13 @@ winter than in its summer. The conversions below were checked with
 | Job | Schedule (UTC) | Melbourne, AEDT | Melbourne, AEST | What it does |
 | --- | --- | --- | --- | --- |
 | `GET /api/cron/email-outbox` | `0 17 * * *` (daily 17:00) | 4:00 am | 3:00 am | Sends due outbox emails: retries of failed ticket emails, waitlist emails and follower emails that weren't sent straight after the request that queued them, and follower emails held back by the one-a-day limit. |
-| `GET /api/cron/trending` | `20 17 * * *` (daily 17:20) | 4:20 am | 3:20 am | Rebuilds the home page's Trending snapshot (`private.refresh_trending()`). |
+| `GET /api/cron/payouts` | `30 21 * * *` (daily 21:30) | 8:30 am | 7:30 am | Sends the organisers' shares that are due, for orders made with `DELAYED_PAYOUTS=1`: 2 days after the event ended (`lib/server/order-transfers.ts`, docs/architecture.md "Delayed payouts"). With nothing due, or the switch off, it does nothing. |
+
+The email outbox's run also rebuilds the home page's Trending snapshot
+(`private.refresh_trending()`) and sweeps stale event-clip objects, after it
+has sent its emails. That used to be its own cron, `GET /api/cron/trending`,
+at `20 17 * * *`; the payouts job took the slot (Hobby allows two crons). The
+trending route still works when called with the secret, but nothing schedules it.
 
 Both routes need `CRON_SECRET` in Vercel; Vercel sends it as
 `Authorization: Bearer …`, and without it the routes refuse every call
@@ -34,7 +40,13 @@ Daily is the Hobby plan's limit, not a design choice. What it costs:
   queued them, up to 100 per run and within the drain's time budget. The
   rest, and any follower email held back by the one-a-day limit, wait for
   the next daily run.
-- Trending is up to a day old.
+- Trending is up to a day old (a 5-minute email runner from Supabase Cron
+  refreshes it every 5 minutes too).
+- A payout that fails (Stripe unreachable, the platform balance too low) is
+  retried by the next daily run, not after the designed 1 hour, 6 hours and
+  24 hours; an organiser's share can therefore arrive a day or two after it
+  was due. The payout schedule is "2 to 3 days after the event ends": the
+  shares become due 48 hours after `ends_at` and the job runs once a day.
 
 ### Supabase Cron (`pg_cron`, scheduled by hand)
 
@@ -65,7 +77,7 @@ the schedules live in `vercel.json`, so edit it and redeploy, for example:
 
 ```json
 { "path": "/api/cron/email-outbox", "schedule": "*/5 * * * *" },
-{ "path": "/api/cron/trending", "schedule": "*/15 * * * *" }
+{ "path": "/api/cron/payouts", "schedule": "30 * * * *" }
 ```
 
 Then check the new schedules under Settings → Cron Jobs after the deploy.
@@ -74,6 +86,11 @@ refuses deployments with more frequent crons.)
 
 ### Option 2: stay on Hobby, schedule from Supabase
 
+- **Payouts: call the endpoint with `pg_net`**, as for the email outbox
+  (below), with the route `/api/cron/payouts` and the same Vault secret, for
+  example every hour (`30 * * * *`), so a retry doesn't wait a day. The job is
+  safe to call as often as you like: with nothing due it is one indexed claim,
+  and two runs at once never send an order twice.
 - **Trending: call the function directly.** Already described in
   `docs/supabase-setup.md` §3:
   `select cron.schedule('refresh-trending', '*/15 * * * *', $$select private.refresh_trending()$$);`

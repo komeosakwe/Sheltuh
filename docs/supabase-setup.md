@@ -888,7 +888,7 @@ an exception: refund again in the Stripe dashboard if needed, then close it
 with `POST /api/admin/payment-exceptions/{exceptionId}/resolve {"note": "…"}`.
 A refund that later succeeds closes its exception by itself.
 
-**Refunding a paid order.** Refund it from the Stripe dashboard (Payments →
+**Refunding a paid order.** (Orders paid for delayed payouts are different: no transfer exists until the event has been over for 2 days, so "reverse transfer" and "refund application fee" are not available before that; see "Delayed payouts" below.) Refund it from the Stripe dashboard (Payments →
 the payment → Refund). **Only a full refund voids an order's tickets in the
 app**: Stripe's "refunded" (the whole charge), or at least `total_cents`
 refunded. Any smaller refund, whatever it was for (the tickets only, Support
@@ -1088,6 +1088,32 @@ update orders set status = 'refunded'
 where id = '<order id>' and status = 'oversold_refund_required';
 ```
 
+### Delayed payouts (organisers paid 2 days after the event)
+
+Optional, switched by `DELAYED_PAYOUTS=1` in Vercel (server-only; docs/DEPLOYMENT.md, Stripe step 7; design in docs/architecture.md, "Delayed payouts"). With it, a new paid checkout is a plain charge on the platform's Stripe account, and the job `GET /api/cron/payouts` (daily, 21:30 UTC) sends each organiser their share as a Stripe **transfer** once their event ended 48 hours ago. Orders made before the switch, or while it is off, are paid out with the payment, as before.
+
+**1. Set the platform's Stripe payouts to manual, before turning the switch on.** The platform's money is Stripe balance until it is transferred. With Stripe's default automatic payouts, Stripe pays the platform's whole available balance, the organisers' unsent shares included, to Sheltüh's bank account every day, and a transfer would then fail with `balance_insufficient` (or worse, succeed from a balance the owner has since spent). So, in **test mode first, then live** (they are separate): Stripe dashboard → Settings → Business → Payouts → **Payout schedule → Manual** (the Dashboard path may be worded differently: it is the platform's own payout schedule, not a connected account's). Then pay out Sheltüh's own money by hand: Balances → Pay out, taking only what Sheltüh has earned.
+
+- **What is the organisers' money?** `GET /api/admin/transfers` → `owedToOrganisersCents`: the shares of paid delayed orders not sent yet. Keep at least that much in the platform's Stripe balance, and pay out only the rest. (Charges on a new account can take a few days to become available; a transfer made with `source_transaction` can be sent before then, which is why the job uses it.)
+- Check it took effect: Settings → Business → Payouts shows "Manual".
+- Don't turn it on for live until the test-mode run in docs/DEPLOYMENT.md has passed.
+
+**2. Watch the queue.** `GET /api/admin/transfers` (counts per status, `owedToOrganisersCents`, the last run) and the ops alert emails: `transfer_failed` (a payout couldn't be sent: top up the balance if it says `balance_insufficient`, or look at the organiser's Stripe account, then retry from the queue) and `transfer_reversal_required` (below). `select * from private.cron_runs where name = 'payouts';` shows when the job last finished. If a run was missed (`CRON_SECRET` unset, the deployment down), the next one catches up: due transfers stay due.
+
+**3. Paying one organiser by hand.** If a transfer is cancelled (or the organiser's Stripe account can't take it), pay them in the Stripe dashboard (Connect → Transfers → New transfer, the amount in `GET /api/admin/transfers`, with the order's id as the transfer group) and `cancel` it in the queue so the job never sends it as well. Never both.
+
+**4. Reversing a transfer after a late refund.** An order refunded **after** its transfer was sent leaves the organiser holding money the buyer was refunded (the platform's balance paid the refund). Stripe does not take it back by itself: the app opens a `transfer_reversal_required` payment exception (urgent) and emails the ops address. To close it:
+
+1. `GET /api/admin/payment-exceptions` → the exception (order reference, `transferAmountCents`). Find the order's payment in the Stripe dashboard (Payments, by the refund) and its **transfer** (Connect → Transfers; the payment's page lists the related transfer, or search the transfer group = the order id).
+2. Open the transfer → **Reverse transfer**. The amount is the exception's `transferAmountCents` for a full refund. For a **partial** refund, reverse only what you and the organiser agree is theirs to return (no amount is inferred: the exception only says the refund happened). If the organiser's Stripe balance can't cover the reversal, Stripe says so: sort it out with them directly and note it.
+3. Resolve the exception: `POST /api/admin/payment-exceptions/{exceptionId}/resolve {"note": "Reversed tr_… on <date>"}`.
+
+The same applies to a **dispute** lost after the transfer: the platform bears the loss (these accounts' losses are the platform's), so reverse the transfer if you want the organiser to bear it, by the same steps. The transfer's row stays `sent` in the app either way. From the API, a reversal is `stripe.transfers.createReversal(transferId, {amount})`, but there is no button in the app for it: it is a deliberate owner action.
+
+**5. Before the transfer.** A refund of a delayed order that has not been transferred yet (whether made in the dashboard or by the app) simply comes out of the platform's balance; the app cancels the transfer (a full refund) or holds it (a partial one, until you decide: `release` it in the queue if the organiser should still be paid, `cancel` it if not). Don't tick "reverse transfer" or "refund application fee": there is nothing to reverse.
+
+**6. What the organiser's bank sees.** Stripe pays an organiser's bank on their own payout schedule after a transfer lands, usually 1 to 3 business days; the dashboard copy says so.
+
 ## 3. Ticket emails
 
 After every paid or free order, the buyer gets an email with their ticket
@@ -1273,14 +1299,14 @@ remove it at any time.
 schedules come from `vercel.json`, which stays Hobby-compatible (daily) until
 you edit it and redeploy:
 
-1. Edit `vercel.json` (trending as in "Trending" below):
+1. Edit `vercel.json` (the email run refreshes Trending every time it runs; the payouts job can run hourly so a retry doesn't wait a day):
 
    ```json
    {
      "$schema": "https://openapi.vercel.sh/vercel.json",
      "crons": [
        { "path": "/api/cron/email-outbox", "schedule": "*/5 * * * *" },
-       { "path": "/api/cron/trending", "schedule": "*/15 * * * *" }
+       { "path": "/api/cron/payouts", "schedule": "30 * * * *" }
      ]
    }
    ```
@@ -1309,11 +1335,16 @@ select * from private.email_outbox_health('15 minutes');
 select * from private.cron_runs;
 ```
 
-**Trending.** `vercel.json` also runs `GET /api/cron/trending` once a day
-(17:20 UTC), with the same `CRON_SECRET`: it rebuilds the home page's
-Trending list (`private.refresh_trending()`, docs/architecture.md,
-"Trending"). Daily is a Hobby-plan limit, not a design choice: **on Pro, set
-its schedule to every 15 minutes (`*/15 * * * *`)**. On Hobby you can refresh
+**Trending.** The email outbox's run (`GET /api/cron/email-outbox`, daily at
+17:00 UTC on Hobby) also rebuilds the home page's Trending list after it has
+sent its emails (`private.refresh_trending()`, docs/architecture.md,
+"Trending"), with the same `CRON_SECRET`. (It used to be its own Vercel cron,
+`GET /api/cron/trending`; the payouts job took that slot because Hobby allows
+two crons. The route still works when called, with the secret.) Daily is a
+Hobby-plan limit, not a design choice: on Pro the 5-minute email run
+refreshes it every 5 minutes, or add `/api/cron/trending` as a third cron at
+`*/15 * * * *`. A 5-minute Supabase runner for the email route (above) also
+refreshes it every 5 minutes. You can also refresh
 more often from Supabase Cron instead (the function needs no secret: it only
 reads and rewrites the snapshot):
 

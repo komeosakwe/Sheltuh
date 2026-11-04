@@ -27,6 +27,8 @@ const TITLES: Record<PaymentExceptionKind, string> = {
   partial_refund: "Partial refund",
   manual_refund_required: "Manual refund required",
   amount_mismatch: "Payment amount mismatch",
+  transfer_failed: "Organiser payout failed",
+  transfer_reversal_required: "Transfer to reverse",
 };
 
 const ACTIONS: Record<PaymentExceptionKind, string> = {
@@ -44,11 +46,24 @@ const ACTIONS: Record<PaymentExceptionKind, string> = {
     "order was marked failed and the payment is being refunded in full automatically (transfer reversed and " +
     "application fee refunded). Check the payment and its refund in the Stripe dashboard, find out how the " +
     "amount came to differ, then resolve the exception with a note.",
+  transfer_failed:
+    "An organiser's payout (a transfer, sent 2 days after their event) couldn't be sent: Stripe refused it or the " +
+    "platform balance couldn't cover it. Fix the cause (top up the balance, or check the organiser's Stripe " +
+    "account), then retry it from the admin transfers list (POST /api/admin/transfers/{id}/action with " +
+    "action retry). It resolves itself once the transfer is sent. To pay the organiser by hand instead, " +
+    "cancel the transfer and resolve the exception with a note.",
+  transfer_reversal_required:
+    "The order was refunded after the organiser's share had already been transferred to them. Stripe doesn't " +
+    "take a transfer back by itself, so the refund came out of the platform's own balance. Reverse the " +
+    "transfer in the Stripe dashboard (Connect, Transfers, the transfer, Reverse; docs/supabase-setup.md, " +
+    "\"Reversing a transfer after a late refund\"), then resolve the exception with a note.",
 };
 
 const URGENT: Partial<Record<PaymentExceptionKind, string>> = {
   refund_not_completed: "URGENT: the order was voided (its tickets are void) but the refund didn't complete.",
   amount_mismatch: "URGENT: a payment didn't match its order. Check it, and its automatic refund, in Stripe.",
+  transfer_reversal_required:
+    "URGENT: a refunded order's money is still with the organiser. Reverse the transfer in the Stripe dashboard.",
 };
 
 function dollars(cents: number): string {
@@ -103,6 +118,9 @@ export function opsAlertLines(alert: OpsAlert): string[] {
     lines.push(`Currency charged: ${details.currency.toUpperCase()}`);
   }
   if (details.totalCents !== undefined) lines.push(`Order total: ${dollars(details.totalCents)}`);
+  if (details.transferAmountCents !== undefined) {
+    lines.push(`Organiser's share (the transfer): ${dollars(details.transferAmountCents)}`);
+  }
   if (details.supportCents !== undefined) lines.push(`Support Sheltüh (in the total, Sheltüh's): ${dollars(details.supportCents)}`);
   if (details.source) lines.push(`Refund made by: ${details.source === "sheltuh" ? "Sheltüh (automatic)" : "the Stripe dashboard"}`);
   const eventId = stripeEventId(alert.stripeEventId);
