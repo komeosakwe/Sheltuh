@@ -6,6 +6,7 @@ import { fieldClass } from "@/components/ui/Field";
 import { ApiError, type GetToken } from "@/lib/api/client";
 import { releaseTickets } from "@/lib/api/events";
 import type { EventRecord } from "@/lib/api/types";
+import { admitsOf } from "@/lib/ticket-groups";
 
 /**
  * Whether an organiser can raise a ticket type's total here (the server
@@ -19,7 +20,11 @@ export function releasableTicketTypes(event: EventRecord, now = Date.now()): Eve
   return event.ticketTypes.filter((ticket) => ticket.seated !== true);
 }
 
-/** Sold / total per general admission ticket type, each with a "release more" control (raise the total, never lower it). */
+/**
+ * Sold / total per general admission ticket type, each with a "release more" control (raise the total,
+ * never lower it). A group ticket is counted and released in groups (the API counts people: groups x
+ * people per ticket), so what's offered is always whole groups.
+ */
 export default function ReleaseTicketsPanel({ event, getToken }: { event: EventRecord; getToken: GetToken }) {
   const tickets = releasableTicketTypes(event);
   // Totals and sales as last confirmed by the server, by ticket type id.
@@ -39,6 +44,7 @@ export default function ReleaseTicketsPanel({ event, getToken }: { event: EventR
               eventId={event.eventId}
               ticketTypeId={ticket.id}
               name={ticket.name}
+              admits={admitsOf(ticket)}
               total={now?.total ?? ticket.quantityAvailable}
               sold={now?.sold ?? event.ticketsSold?.[ticket.id] ?? 0}
               getToken={getToken}
@@ -55,6 +61,7 @@ function ReleaseRow({
   eventId,
   ticketTypeId,
   name,
+  admits,
   total,
   sold,
   getToken,
@@ -63,6 +70,8 @@ function ReleaseRow({
   eventId: string;
   ticketTypeId: string;
   name: string;
+  /** People per ticket: above 1, `total` and `sold` are people and are shown (and asked for) in groups. */
+  admits: number;
   total: number;
   sold: number;
   getToken: GetToken;
@@ -72,6 +81,10 @@ function ReleaseRow({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<number | null>(null);
+  const isGroup = admits > 1;
+  // What's shown and typed: groups for a group ticket (the API takes and gives people).
+  const shownTotal = Math.floor(total / admits);
+  const shownSold = Math.floor(sold / admits);
   const inputId = `release-${ticketTypeId}`;
   const errorId = `${inputId}-error`;
 
@@ -80,16 +93,16 @@ function ReleaseRow({
     if (busy) return;
     const next = Number(value);
     setDone(null);
-    if (value.trim() === "" || !Number.isInteger(next) || next <= total) {
-      setError(`Enter more than ${total}.`);
+    if (value.trim() === "" || !Number.isInteger(next) || next <= shownTotal) {
+      setError(`Enter more than ${shownTotal}.`);
       return;
     }
     setError(null);
     setBusy(true);
     try {
-      const result = await releaseTickets(eventId, ticketTypeId, next, getToken);
+      const result = await releaseTickets(eventId, ticketTypeId, next * admits, getToken);
       onReleased(result.quantityAvailable, result.quantitySold);
-      setDone(result.quantityAvailable);
+      setDone(Math.floor(result.quantityAvailable / admits));
       setValue("");
     } catch (err) {
       setError(
@@ -107,25 +120,26 @@ function ReleaseRow({
       <div className="flex flex-wrap items-baseline justify-between gap-x-4">
         <p className="font-semibold">{name}</p>
         <p className="text-sm text-muted">
-          {sold} sold / {total}
+          {shownSold} sold / {shownTotal}
+          {isGroup && " groups"}
         </p>
       </div>
       <form onSubmit={submit} noValidate className="mt-2 flex flex-wrap items-end gap-2">
         <div className="flex min-w-0 flex-1 flex-col gap-1 sm:max-w-48">
           <label htmlFor={inputId} className="eyebrow text-muted">
-            New total
+            {isGroup ? "New total (groups)" : "New total"}
           </label>
           <input
             id={inputId}
             type="number"
             inputMode="numeric"
-            min={total + 1}
+            min={shownTotal + 1}
             step={1}
             value={value}
             onChange={(e) => setValue(e.target.value)}
             aria-invalid={error ? true : undefined}
             aria-describedby={error ? errorId : undefined}
-            placeholder={String(total + 1)}
+            placeholder={String(shownTotal + 1)}
             className={`${fieldClass} min-h-11`}
           />
         </div>
@@ -140,7 +154,8 @@ function ReleaseRow({
       )}
       {done !== null && (
         <p role="status" className="mt-1 text-sm">
-          Released. Now {done} on sale.
+          Released. Now {done}
+          {isGroup ? " groups" : ""} on sale.
         </p>
       )}
     </li>

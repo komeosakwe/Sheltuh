@@ -326,6 +326,8 @@ describe("ticket descriptions", () => {
       quantityAvailable: 10,
       // Always an explicit boolean (absent would keep the stored value).
       opensAfterPrevious: false,
+      // Always sent too (absent would keep the stored value): 1 for a single ticket.
+      admits: 1,
     });
   });
 

@@ -239,4 +239,20 @@ describe("TicketStub", () => {
     expect(screen.getByText("K7M2-QW3R")).toBeInTheDocument();
     expect(screen.getByText("Ready to scan")).toBeInTheDocument();
   });
+
+  it("names a group ticket's person in their group, and numbers it in the order", () => {
+    const { unmount } = render(
+      <ul>
+        <TicketStub code="K7M2-QW3R" typeName="Group of 4" group={{ position: 2, size: 4 }} />
+      </ul>,
+    );
+    expect(screen.getByText("Group of 4 (2 of 4)")).toBeInTheDocument();
+    unmount();
+    render(
+      <ul>
+        <TicketStub code="K7M2-QW3R" typeName="Group of 4" group={{ position: 2, size: 4 }} ticketNumber={6} ticketCount={8} />
+      </ul>,
+    );
+    expect(screen.getByText("Ticket 6 of 8 · Group of 4 (2 of 4)")).toBeInTheDocument();
+  });
 });

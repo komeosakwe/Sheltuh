@@ -1,10 +1,11 @@
 import SeatLine from "@/components/seating/SeatLine";
 import TicketQr from "@/components/tickets/TicketQr";
 import UBarcode from "@/components/tickets/UBarcode";
-import type { TicketSeat } from "@/lib/api/types";
+import type { TicketGroup, TicketSeat } from "@/lib/api/types";
 import { SUPPORT_EMAIL } from "@/lib/contact";
 import { eventZone, formatMessageTime } from "@/lib/format";
 import { TICKET_CODE_PATTERN } from "@/lib/ticket-code";
+import { ticketNameWithGroup } from "@/lib/ticket-groups";
 
 interface TicketStubProps {
   code: string;
@@ -12,6 +13,8 @@ interface TicketStubProps {
   /** Its place in the order ("Ticket 2 of 3"), numbered as in the ticket email. Shown only when the order has more than one. */
   ticketNumber?: number;
   ticketCount?: number;
+  /** A group ticket's person: "Group of 4 (2 of 4)" (CustomerTicket.group). */
+  group?: TicketGroup;
   /** Its seat, for a reserved-seating event ("Stalls · Row F · Seat 12", docs/design/seating.md §5.15). */
   seat?: TicketSeat;
   /** The event, so each ticket stands on its own (a screenshot of one ticket says what it's for). */
@@ -55,6 +58,7 @@ export default function TicketStub({
   typeName,
   ticketNumber,
   ticketCount,
+  group,
   seat,
   eventTitle,
   when,
@@ -64,10 +68,11 @@ export default function TicketStub({
   timeZone,
 }: TicketStubProps) {
   const hasQr = TICKET_CODE_PATTERN.test(code);
+  const name = ticketNameWithGroup(typeName, group);
   const label =
     ticketNumber !== undefined && ticketCount !== undefined && ticketCount > 1
-      ? `Ticket ${ticketNumber} of ${ticketCount} · ${typeName}`
-      : typeName;
+      ? `Ticket ${ticketNumber} of ${ticketCount} · ${name}`
+      : name;
   const status = checkedInAt
     ? `Checked in ${formatMessageTime(checkedInAt, new Date(), eventZone(timeZone))}`
     : hasQr

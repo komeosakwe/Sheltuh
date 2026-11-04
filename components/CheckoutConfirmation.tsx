@@ -25,6 +25,7 @@ import { eventZone, formatAud, formatEventWhen } from "@/lib/format";
 import { REFUND_ACL_STATEMENT, refundTermsLine } from "@/lib/refund-policy";
 import { placeName } from "@/lib/place";
 import { SUPPORT_REFUND_NOTE } from "@/lib/support";
+import { ticketNameWithGroup } from "@/lib/ticket-groups";
 import { compareSeats } from "@/lib/seating/format";
 import { forgetPendingCheckout } from "@/lib/seating/pending-checkout";
 import type { CustomerOrder, StateCode } from "@/lib/api/types";
@@ -374,7 +375,8 @@ export default function CheckoutConfirmation() {
 
       <section aria-labelledby="your-tickets" className="flex flex-col gap-3">
         <h2 id="your-tickets" className="font-heading text-xl text-foreground">
-          Your tickets
+          {/* A group ticket's people each have one: the count says how many tickets the order holds. */}
+          {order.tickets.some((ticket) => ticket.group) ? `Your tickets (${order.tickets.length})` : "Your tickets"}
         </h2>
         <ul className="flex flex-col gap-3">
           {/* Numbered as in the ticket email and at the door: both order an order's
@@ -388,6 +390,7 @@ export default function CheckoutConfirmation() {
               typeName={ticket.ticketTypeName}
               ticketNumber={number}
               ticketCount={order.tickets.length}
+              group={ticket.group}
               seat={ticket.seat}
               eventTitle={order.eventTitle}
               when={when}
@@ -407,7 +410,7 @@ export default function CheckoutConfirmation() {
               <li key={ticket.ticketCode} className="flex flex-col gap-1">
                 {order.tickets.length > 1 && (
                   <p className="text-xs text-muted">
-                    Ticket {number} of {order.tickets.length} · {ticket.ticketTypeName}
+                    Ticket {number} of {order.tickets.length} · {ticketNameWithGroup(ticket.ticketTypeName, ticket.group)}
                   </p>
                 )}
                 <WalletButtons

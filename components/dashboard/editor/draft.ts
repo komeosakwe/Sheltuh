@@ -3,6 +3,7 @@ import type { TicketTypeInput } from "@/lib/api/types";
 import { MAX_REFUND_DAYS, MIN_REFUND_DAYS, isValidRefundDays, type RefundPolicy } from "@/lib/refund-policy";
 import { MIN_PAID_TICKET_CENTS } from "@/lib/fees";
 import { formatAud } from "@/lib/format";
+import { admitsOf, groupOfLabel, MAX_GROUP_SIZE } from "@/lib/ticket-groups";
 import { checkExternalTicketUrl, MAX_EXTERNAL_PRICE_FROM_CENTS, type TicketingMode } from "@/lib/ticketing";
 
 /** What a platform-managed organiser's paid ticket is refused with (and the admin note says). */
@@ -93,8 +94,10 @@ export function draftErrors(input: DraftCheckInput): Record<string, string> {
       else if (t.priceCents > 0 && input.platformManaged) errors[`ticket-${i}-price`] = PLATFORM_FREE_ONLY;
       else if (t.priceCents > 0 && t.priceCents < MIN_PAID_TICKET_CENTS)
         errors[`ticket-${i}-price`] = `A paid ticket must cost at least ${formatAud(MIN_PAID_TICKET_CENTS)} (or make it free).`;
+      // A group ticket is paid (the API refuses a free one); said by the price, the field to fix.
+      if (admitsOf(t) > 1 && t.priceCents === 0 && !errors[`ticket-${i}-price`]) errors[`ticket-${i}-price`] = GROUP_NEEDS_PRICE;
       if (!Number.isInteger(t.quantityAvailable) || t.quantityAvailable < 1)
-        errors[`ticket-${i}-qty`] = "Enter how many are available.";
+        errors[`ticket-${i}-qty`] = admitsOf(t) > 1 ? "Enter how many groups are available." : "Enter how many are available.";
     });
     if (input.refundPolicy === "days_before" && !isValidRefundDays(input.refundDays))
       errors.refundDays = `Enter a whole number of days from ${MIN_REFUND_DAYS} to ${MAX_REFUND_DAYS}.`;
@@ -102,8 +105,69 @@ export function draftErrors(input: DraftCheckInput): Record<string, string> {
   return errors;
 }
 
+/** What a free group ticket is refused with (and the people-per-ticket field's reason while a free ticket can't be one). */
+export const GROUP_NEEDS_PRICE = "A group ticket needs a price.";
+
+/** Why a ticket's "People per ticket" can't be changed (group tickets, docs/architecture.md), or null when it can. */
+export const GROUP_REASON_SEATED = "Not available with reserved seating.";
+export const GROUP_REASON_SOLD = "Can\u2019t change once tickets are sold.";
+export const GROUP_REASON_FREE = "Group tickets are paid. Set a price first.";
+export const GROUP_REASON_OFF = "Group tickets are switched off.";
+
+/**
+ * Why "People per ticket" is disabled on this ticket, in a few words, or null while it can be changed.
+ * Seating and sales are checked before the price: a free ticket that's already a group stays editable so
+ * it can go back to one person (it can't be saved free otherwise).
+ */
+export function groupDisabledReason(
+  ticket: TicketTypeInput,
+  context: { enabled: boolean; reservedSeating: boolean; sold: number },
+): string | null {
+  if (ticket.seated === true || context.reservedSeating) return GROUP_REASON_SEATED;
+  if (context.sold > 0) return GROUP_REASON_SOLD;
+  if (!context.enabled) return GROUP_REASON_OFF;
+  if (ticket.priceCents === 0 && admitsOf(ticket) === 1) return GROUP_REASON_FREE;
+  return null;
+}
+
+/**
+ * A new "Group of 4" ticket type (the editor's "Add a group ticket"): 5 groups (20 people), the organiser
+ * absorbing the fee as for any new ticket. Its price is left for the organiser to set: a free one can't be saved.
+ */
+export const GROUP_PRESET_SIZE = 4;
+const GROUP_PRESET_COUNT = 5;
+
+export function groupTicketPreset(id: string): TicketTypeInput {
+  return {
+    id,
+    name: groupOfLabel(GROUP_PRESET_SIZE),
+    priceCents: 0,
+    feePolicy: "organiser-absorbs",
+    quantityAvailable: GROUP_PRESET_SIZE * GROUP_PRESET_COUNT,
+    admits: GROUP_PRESET_SIZE,
+  };
+}
+
+/**
+ * The change to a ticket when its people per ticket becomes `admits`. Capacity is held in people, so the
+ * number of people stays and goes down to whole groups (at least one, unless none were entered). An
+ * empty name, or the "Group of N" this made, follows the size.
+ */
+export function admitsPatch(ticket: TicketTypeInput, admits: number): Partial<TicketTypeInput> {
+  const next = Math.min(Math.max(Math.trunc(admits) || 1, 1), MAX_GROUP_SIZE);
+  const people = Number.isInteger(ticket.quantityAvailable) ? Math.max(ticket.quantityAvailable, 0) : 0;
+  const patch: Partial<TicketTypeInput> = {
+    admits: next,
+    quantityAvailable: people > 0 ? Math.max(Math.floor(people / next), 1) * next : 0,
+  };
+  const was = admitsOf(ticket);
+  if (!ticket.name.trim() || (was > 1 && ticket.name === groupOfLabel(was))) patch.name = next > 1 ? groupOfLabel(next) : "";
+  return patch;
+}
+
 /**
  * A ticket type as it's sent: its description trimmed, and left out when blank (the API stores none then).
+ * `admits` is always sent (the API keeps the stored value when it's absent, so a single ticket sends 1).
  * `opensAfterPrevious` is always an explicit boolean (an absent one would keep the stored value, so
  * un-ticking it must send `false`), and only a general admission ticket after the first can have it.
  * `opensAfter` is read-only and never sent. `index` is the ticket's place in the list.
@@ -113,16 +177,17 @@ export function cleanTicketType(ticket: TicketTypeInput, index: number): TicketT
   delete rest.description;
   delete rest.opensAfter;
   const text = ticket.description?.trim();
+  rest.admits = admitsOf(ticket);
   const opensAfterPrevious = index > 0 && ticket.seated !== true && ticket.opensAfterPrevious === true;
   return text ? { ...rest, description: text, opensAfterPrevious } : { ...rest, opensAfterPrevious };
 }
 
-/** The API's `ticketTypes[2].opensAfterPrevious` error key, as this form keys it by the tick box (`ticket-2-lock`). */
+/** The API's `ticketTypes[2].opensAfterPrevious` / `.admits` error keys, as this form keys them by their controls (`ticket-2-lock`, `ticket-2-admits`). */
 export function formKeyedFieldErrors(fieldErrors: Record<string, string>): Record<string, string> {
   const keyed: Record<string, string> = {};
   for (const [key, message] of Object.entries(fieldErrors)) {
-    const lock = /^ticketTypes\[(\d+)\]\.opensAfterPrevious$/.exec(key);
-    keyed[lock ? `ticket-${lock[1]}-lock` : key] = message;
+    const field = /^ticketTypes\[(\d+)\]\.(opensAfterPrevious|admits)$/.exec(key);
+    keyed[field ? `ticket-${field[1]}-${field[2] === "admits" ? "admits" : "lock"}` : key] = message;
   }
   return keyed;
 }
@@ -166,6 +231,7 @@ export function stepOfControlId(id: string): EditorStep {
   if (
     id.startsWith("ticket-") ||
     id === "add-ticket-type" ||
+    id === "add-group-ticket" ||
     id === "externalTicketUrl" ||
     id === "externalPriceFromCents" ||
     id === "ticketingMode" ||
@@ -178,9 +244,9 @@ export function stepOfControlId(id: string): EditorStep {
 
 /** What each error key is called in the error summary ("Title: Enter an event title."). */
 export function errorFieldLabel(key: string): string {
-  const ticket = /^ticket-(\d+)-(name|price|qty|lock)$/.exec(key);
+  const ticket = /^ticket-(\d+)-(name|price|qty|lock|admits)$/.exec(key);
   if (ticket) {
-    const field = { name: "name", price: "price", qty: "quantity", lock: "release" }[ticket[2]];
+    const field = { name: "name", price: "price", qty: "quantity", lock: "release", admits: "people per ticket" }[ticket[2]];
     return `Ticket ${Number(ticket[1]) + 1} ${field}`;
   }
   switch (key) {

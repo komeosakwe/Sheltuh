@@ -74,6 +74,16 @@ const coreSampleEvents: SheltuhEvent[] = [
         feePolicy: "organiser-absorbs",
         quantityAvailable: 12,
       },
+      {
+        // A group ticket (docs/architecture.md, "Group tickets"): 8 groups of 4, so 32 people (capacity counts people).
+        id: "paper-moon-group",
+        name: "Group of 4",
+        description: "Four seats at the table, booked together.",
+        priceCents: 24000,
+        feePolicy: "organiser-absorbs",
+        quantityAvailable: 32,
+        admits: 4,
+      },
     ],
   },
   {
