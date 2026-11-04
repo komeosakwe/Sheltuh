@@ -16,6 +16,7 @@ import {
   wordmarkImage,
 } from "./email-layout";
 import { organiserPageLink } from "./follower-email";
+import { eventPublicLink, tellAFriendHtml, tellAFriendLinks, tellAFriendText } from "./share-email";
 import { ticketDirectionsLink, ticketPageLink, ticketWhen } from "./ticket-email";
 import type { EventRecord } from "./types";
 
@@ -62,6 +63,7 @@ export function buildEventReminderEmail(input: {
   const intro = "A reminder about an event you have tickets for.";
   const reason = "You’re getting this one-off reminder because you have tickets for this event on Sheltüh.";
   const whenLines = [when.date, ...when.lines];
+  const eventLink = event.slug ? eventPublicLink(siteUrl, event.slug) : null;
 
   const body =
     displayHeading(heading, 16) +
@@ -77,7 +79,8 @@ export function buildEventReminderEmail(input: {
     paragraphHtml(
       `Hosted by <a href="${escapeHtml(organiserLink)}" style="color:${INK};text-decoration:underline">${escapeHtml(organiserName)}</a>`,
       0,
-    );
+    ) +
+    (eventLink ? tellAFriendHtml(tellAFriendLinks(title, when.date, eventLink)) : "");
 
   const html = page({
     title: subject,
@@ -103,6 +106,7 @@ export function buildEventReminderEmail(input: {
     "",
     `Hosted by ${organiserName}: ${organiserLink}`,
     "",
+    ...(eventLink ? [...tellAFriendText(title, when.date, eventLink), ""] : []),
     emailFooterText({ reason, siteUrl }),
   ].join("\n");
 
