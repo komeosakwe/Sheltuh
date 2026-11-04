@@ -49,6 +49,16 @@ export interface Deps {
   /** The shared secret Vercel Cron sends as `Authorization: Bearer …`; undefined when unset (cron routes then refuse everything). */
   cronSecret(): string | undefined;
   /**
+   * DELAYED_PAYOUTS=1 (server-only): new paid checkouts are charged on the
+   * platform with the organiser's share transferred about 2 days after the
+   * event ends ("separate charges and transfers", lib/server/order-transfers.ts),
+   * instead of a destination charge that pays the organiser at once. Unset
+   * (or anything but "1") is today's behaviour exactly. Read when an order is
+   * made only: the order records its method, and everything after follows the
+   * order, not this switch.
+   */
+  delayedPayouts(): boolean;
+  /**
    * Event clips' Supabase Storage (lib/server/clip-storage.ts), created on
    * first use; undefined when SUPABASE_CLIP_STORAGE_KEY (or the Supabase URL)
    * is unset, and the clip routes then answer 503.
@@ -176,6 +186,7 @@ export function getDeps(): Deps {
       });
     },
     cronSecret: () => process.env.CRON_SECRET || undefined,
+    delayedPayouts: () => process.env.DELAYED_PAYOUTS?.trim() === "1",
     clipStorage() {
       if (clipStorage === undefined) clipStorage = createClipStorage() ?? null;
       return clipStorage ?? undefined;

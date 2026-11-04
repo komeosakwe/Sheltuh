@@ -211,6 +211,19 @@ select version, file, coalesce(applied, false) as applied
       and exists (select 1 from fn where proname = 'cancel_holder_message')
       and exists (select 1 from fn where proname = 'stop_holder_messages')
       and exists (select 1 from fn where proname = 'purge_operational_data'
-                   and 'holder_messages_deleted' = any(proargnames)))
+                   and 'holder_messages_deleted' = any(proargnames))),
+    ('20261119000000', 'delayed_payouts',
+      to_regclass('private.order_transfers') is not null
+      and exists (select 1 from col where attrelid = to_regclass('public.orders') and attname = 'payout_method')
+      and exists (select 1 from fn where proname = 'claim_due_transfers')
+      and exists (select 1 from fn where proname = 'finish_order_transfer')
+      and exists (select 1 from fn where proname = 'flag_transfer_after_refund')
+      and exists (select 1 from fn where proname = 'admin_transfer_action')
+      -- The widened checks and the redefined raise_payment_exception.
+      and exists (select 1 from pg_constraint where conname = 'payment_exceptions_kind_check'
+                   and pg_get_constraintdef(oid) like '%transfer_reversal_required%')
+      and exists (select 1 from pg_constraint where conname = 'cron_runs_name_check'
+                   and pg_get_constraintdef(oid) like '%payouts%')
+      and exists (select 1 from fn where proname = 'raise_payment_exception' and prosrc like '%transfer_failed%'))
   ) as m(version, file, applied)
  order by version;

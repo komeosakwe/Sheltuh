@@ -3,6 +3,6 @@
   "regions": ["syd1"],
   "crons": [
     { "path": "/api/cron/email-outbox", "schedule": "0 21 * * *" },
-    { "path": "/api/cron/trending", "schedule": "20 17 * * *" }
+    { "path": "/api/cron/payouts", "schedule": "30 21 * * *" }
   ]
 }

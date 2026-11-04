@@ -1198,8 +1198,24 @@ export interface EmailOutboxHealth {
  *   issued, the order was marked `failed` and the payment refunded in full
  *   automatically: check the refund and the payment in the Stripe
  *   dashboard. Always `urgent`.
+ * - `transfer_failed`: an organiser's delayed payout (a transfer, sent about
+ *   2 days after the event) couldn't be sent: Stripe kept refusing it, or
+ *   the platform balance couldn't cover it. Retry it from GET
+ *   /api/admin/transfers, or pay the organiser by hand and cancel it.
+ *   Resolved automatically once the transfer is sent.
+ * - `transfer_reversal_required`: an order was refunded after its
+ *   organiser's transfer was sent. Stripe doesn't take a transfer back by
+ *   itself: reverse it in the Stripe dashboard (docs/supabase-setup.md,
+ *   "Reversing a transfer after a late refund"), then resolve the exception.
+ *   Always `urgent`.
  */
-export type PaymentExceptionKind = "refund_not_completed" | "partial_refund" | "manual_refund_required" | "amount_mismatch";
+export type PaymentExceptionKind =
+  | "refund_not_completed"
+  | "partial_refund"
+  | "manual_refund_required"
+  | "amount_mismatch"
+  | "transfer_failed"
+  | "transfer_reversal_required";
 
 export type PaymentExceptionStatus = "open" | "resolved";
 
@@ -1220,7 +1236,8 @@ export interface AdminPaymentException {
   status: PaymentExceptionStatus;
   /**
    * Needs a person first: a `refund_not_completed` whose order was voided (the
-   * buyer has neither tickets nor their money), or any `amount_mismatch`.
+   * buyer has neither tickets nor their money), or any `amount_mismatch` or
+   * `transfer_reversal_required`.
    */
   urgent: boolean;
   /** Unset while the payment isn't matched to an order yet. */
@@ -1258,6 +1275,8 @@ export interface PaymentExceptionDetails {
    * "Refunding a paid order"). Unset on exceptions opened before it was recorded.
    */
   supportCents?: number;
+  /** `transfer_failed` / `transfer_reversal_required`: the organiser's share of the order (the transfer's amount), in cents. */
+  transferAmountCents?: number;
   /** `amount_mismatch`: what Stripe's session says was charged (amount_total), in `currency`'s minor unit. */
   amountChargedCents?: number;
   /** `amount_mismatch`: the session's currency, lower case as Stripe sends it ("aud"). */
@@ -1275,6 +1294,109 @@ export interface PaymentExceptionDetails {
   /** `sheltuh`: our automatic refund; `stripe`: one made in the Stripe dashboard. */
   source?: string;
   reason?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Delayed payouts (organiser and admin)
+// ---------------------------------------------------------------------------
+
+/**
+ * One order's organiser payout, when payouts are delayed (DELAYED_PAYOUTS):
+ * `sending` a worker has it now; `retry` waiting for its next attempt;
+ * `sent` the transfer was made in Stripe; `held` waiting for a person (partly
+ * refunded, disputed, or the organiser's Stripe account refused it); `failed`
+ * out of attempts (a payment exception was opened); `cancelled` refunded in
+ * full, or cancelled by an admin: never sent.
+ */
+export type TransferStatus = "sending" | "retry" | "sent" | "held" | "failed" | "cancelled";
+
+export const TRANSFER_STATUSES: readonly TransferStatus[] = ["failed", "held", "retry", "sending", "sent", "cancelled"];
+
+/**
+ * An admin's action on a transfer (POST /api/admin/transfers/{transferId}/action):
+ * `retry` a failed or waiting one now, `release` a held one, `cancel` a held,
+ * waiting or failed one (the organiser is then paid by hand).
+ */
+export type TransferAction = "retry" | "release" | "cancel";
+
+export const TRANSFER_ACTIONS: readonly TransferAction[] = ["retry", "release", "cancel"];
+
+/**
+ * GET /api/admin/transfers. One transfer. The order is shown by its short
+ * reference only, never its id; no buyer data.
+ */
+export interface AdminTransfer {
+  /** Opaque. POST /api/admin/transfers/{transferId}/action. */
+  transferId: string;
+  orderReference: string;
+  orderStatus: OrderStatus;
+  eventTitle: string;
+  /** When the event ends; the transfer is due 48 hours later. */
+  eventEndsAt: string;
+  organiserName: string;
+  /** What the organiser is sent, in cents: the order's total less Support Sheltüh and the booking fee. */
+  amountCents: number;
+  status: TransferStatus;
+  /** Attempts made (reset by an admin's retry or release). */
+  attempts: number;
+  /** When the next attempt is due (`retry` only). */
+  nextAttemptAt?: string;
+  /** Why it is held, waiting or failed: a short code such as `refunded`, `disputed`, `balance_insufficient`. Never a Stripe message. */
+  lastError?: string;
+  /** The Stripe transfer (`sent` only), to find it in the Stripe dashboard. */
+  stripeTransferId?: string;
+  sentAt?: string;
+  /** The last admin action on it and when. */
+  lastAdminAction?: { action: TransferAction; at: string };
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** GET /api/admin/transfers?status&limit&cursor. `status` is a TransferStatus, or `open` (the default): not yet sent and not cancelled. */
+export interface AdminTransfersPage {
+  /** Rows per status (zeros included). */
+  counts: Record<TransferStatus, number>;
+  /**
+   * Cents the platform holds for organisers: the shares of paid orders made for delayed payouts whose transfer
+   * isn't sent or cancelled yet (not due yet, waiting, held or failed). Includes orders not claimed yet.
+   */
+  owedToOrganisersCents: number;
+  /** The last run of GET /api/cron/payouts that finished. Unset: none recorded yet. */
+  lastRun?: { finishedAt: string; claimed: number; sent: number; retrying: number; failed: number };
+  items: AdminTransfer[];
+  nextCursor?: string;
+}
+
+/** One event's money for the organiser (GET /api/organisers/me/payouts), in cents. */
+export interface OrganiserPayoutEvent {
+  eventId: string;
+  title: string;
+  endsAt: string;
+  /** Paid out with the payment (orders made before delayed payouts): total less Support Sheltüh and the booking fee. */
+  paidOutCents: number;
+  /** Paid for, not sent yet: due 48 hours after the event ends (or held, or waiting for a retry). */
+  pendingCents: number;
+  /** Sent to your Stripe account as a transfer. */
+  sentCents: number;
+  /** When the pending amount becomes due (the event's end plus 48 hours). Unset when nothing is pending. */
+  dueAt?: string;
+}
+
+/**
+ * GET /api/organisers/me/payouts. Per event with paid orders, newest end first.
+ * Amounts are the organiser's share (not what buyers paid). Stripe then pays
+ * the organiser's bank on its own schedule, usually 1 to 3 business days
+ * after a transfer.
+ */
+export interface OrganiserPayouts {
+  /** New paid checkouts pay the organiser after the event (DELAYED_PAYOUTS is on). When false, they are paid with each payment. */
+  delayedPayouts: boolean;
+  /** Hours after an event ends that its shares are sent. */
+  payoutDelayHours: number;
+  /** Over every event, not just this page. */
+  totals: { paidOutCents: number; pendingCents: number; sentCents: number };
+  items: OrganiserPayoutEvent[];
+  nextCursor?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -1319,6 +1441,13 @@ export interface AdminSummary {
    * API; optional so a client tolerates an older server.
    */
   eventsPublishedByOrganisers?: { count: number; windowHours: number };
+  /**
+   * Organiser payouts that need an admin: transfers that failed or are held
+   * (GET /admin/transfers?status=failed or held; the retrying ones fix
+   * themselves). Always sent by the API; optional so a client tolerates an
+   * older server.
+   */
+  transfersOpen?: { count: number };
 }
 
 // ---------------------------------------------------------------------------

@@ -164,6 +164,7 @@ describe("Data API lock-out", () => {
       { table_name: "holder_message_suppressions", rls: true },
       { table_name: "holder_messages", rls: true },
       { table_name: "onboarding_emails", rls: true },
+      { table_name: "order_transfers", rls: true },
       { table_name: "organiser_event_announcements", rls: true },
       { table_name: "organiser_follow_tokens", rls: true },
       { table_name: "organiser_invite_links", rls: true },
@@ -224,6 +225,30 @@ describe("Data API lock-out", () => {
   it("the onboarding email functions and trigger exist, pin search_path and aren't client-executable", async () => {
     const names = ["lease_outbox_jobs", "organisers_onboarding_email", "queue_member_welcomes", "queue_onboarding_email"];
     expect(await privateFunctions(names)).toEqual(locked(names));
+  });
+
+  it("the delayed payouts functions and triggers exist, pin search_path, aren't security definer and aren't client-executable", async () => {
+    const names = [
+      "admin_transfer_action",
+      "claim_due_transfers",
+      "due_transfer_orders",
+      "finish_order_transfer",
+      "flag_transfer_after_refund",
+      "order_transfers_guard",
+      "orders_payout_method_frozen",
+    ];
+    expect(await privateFunctions(names)).toEqual(locked(names));
+    const definers = await db.query(
+      `select p.proname from pg_proc p where p.pronamespace = to_regnamespace('private') and p.proname = any($1::text[]) and p.prosecdef`,
+      [names],
+    );
+    expect(definers).toEqual([]);
+    // The transfer table has RLS on, no policies and nothing granted (the generic checks above also list it).
+    const [table] = await db.query<{ rls: boolean; policies: number }>(
+      `select c.relrowsecurity as rls, (select count(*)::int from pg_policy p where p.polrelid = c.oid) as policies
+         from pg_class c where c.oid = to_regclass('private.order_transfers')`,
+    );
+    expect(table).toEqual({ rls: true, policies: 0 });
   });
 
   it("release_tickets exists, pins search_path, isn't security definer and isn't client-executable", async () => {

@@ -22,6 +22,7 @@ import { HttpError, ok, okPrivate, readJson } from "../http";
 import { parseCheckoutLineItems, parseSupportCents, refuseSupportOnFreeOrder } from "../order-input";
 import { parseCheckoutSeats } from "../seat-map-input";
 import { ORDER_ID_PATTERN, orderReference } from "../order-reference";
+import { payoutsSchemaMissing } from "../payout-schema";
 import { CUSTOMER_ORDER_SELECT, eventPlaceOf, ORDER_SELECT, toCustomerOrder, toOrder } from "../records";
 import type { Handler } from "../route";
 import { parseTrackingCode } from "../tracking-codes";
@@ -360,6 +361,27 @@ async function failMismatchedOrder(
 }
 
 /**
+ * The flags an automatic refund sends for a destination charge: the organiser's transfer is reversed and the
+ * application fee refunded, so the refund costs the platform nothing. An order paid by separate charge and
+ * transfer ('transfer', DELAYED_PAYOUTS) has no transfer yet at this point (it is only sent after the
+ * event) and no application fee on the charge, and Stripe refuses these flags on a charge that has neither:
+ * the platform's own balance pays the refund, and the transfer job never sends it (the order isn't paid).
+ * Read from the order, never from the environment, so every retry of a refund sends Stripe the same
+ * parameters. An unknown order is a destination order, as today.
+ */
+async function refundReversalFlags(db: Db, orderId: string): Promise<{ reverse_transfer?: true; refund_application_fee?: true }> {
+  let payoutMethod: string | undefined;
+  try {
+    const [row] = await db.query<{ payout_method: string }>(`select payout_method from public.orders where id = $1`, [orderId]);
+    payoutMethod = row?.payout_method;
+  } catch (err) {
+    // Before 20261119000000_delayed_payouts.sql is applied every order is a destination order, as it always was.
+    if (!(await payoutsSchemaMissing(db, err))) throw err;
+  }
+  return payoutMethod === "transfer" ? {} : { reverse_transfer: true, refund_application_fee: true };
+}
+
+/**
  * Refunds a paid order that couldn't be fulfilled (sold out, or the event
  * was unpublished, before payment confirmed) — including Sheltüh's fee and
  * the organiser's transfer. Stripe's idempotency key makes a retry (e.g.
@@ -383,8 +405,7 @@ async function refundOversoldOrder(deps: Deps, orderId: string, paymentIntentId:
     refund = await deps.stripe().refunds.create(
       {
         payment_intent: paymentIntentId,
-        reverse_transfer: true,
-        refund_application_fee: true,
+        ...(await refundReversalFlags(deps.db, orderId)),
         metadata: { orderId, reason: "could_not_fulfil_after_payment" },
       },
       { idempotencyKey: `oversold-refund-${orderId}` },
@@ -463,8 +484,7 @@ async function refundPaymentForFailedOrder(
     refund = await deps.stripe().refunds.create(
       {
         payment_intent: paymentIntentId,
-        reverse_transfer: true,
-        refund_application_fee: true,
+        ...(await refundReversalFlags(deps.db, orderId)),
         metadata: { orderId, reason },
       },
       { idempotencyKey: `failed-order-refund-${orderId}` },
@@ -481,7 +501,53 @@ async function refundPaymentForFailedOrder(
   await recordRefundStatus(deps, refund, { orderId, paymentIntentId });
 }
 
+/** Stripe answered that the object doesn't exist (HTTP 404, code resource_missing): the only failure that proves a payment isn't ours. */
+function isStripeNotFound(err: unknown): boolean {
+  const { statusCode, code } = (typeof err === "object" && err !== null ? err : {}) as { statusCode?: unknown; code?: unknown };
+  return statusCode === 404 || code === "resource_missing";
+}
+
 type PaymentRefundResult = "refunded" | "partial" | "unchanged" | "deferred" | "not_found";
+
+/**
+ * The connected account an early refund (one that arrives before its payment is recorded) of a separate charge
+ * and transfer belongs to: the organiser of the 'transfer' order that the charge's metadata names (the
+ * payment intent's, which the charge inherits; the payment intent is asked for when the charge lacks it).
+ * Undefined when the payment is already recorded (the destination is then not needed), the charge isn't one
+ * of those, or Stripe says it has no such payment intent (logged by error type and code; the refund is then
+ * dropped as not ours). Any other Stripe failure is thrown, so the webhook is answered 500 and retried.
+ */
+async function organiserAccountOfCharge(deps: Deps, charge: Stripe.Charge, paymentIntentId: string): Promise<string | undefined> {
+  const [recorded] = await deps.db.query(`select 1 from public.orders where stripe_payment_intent_id = $1 limit 1`, [paymentIntentId]);
+  if (recorded) return undefined;
+  let orderId = charge.metadata?.orderId;
+  if (!orderId || !ORDER_ID_PATTERN.test(orderId)) {
+    try {
+      const paymentIntent = await deps.stripe().paymentIntents.retrieve(paymentIntentId);
+      orderId = paymentIntent.metadata?.orderId;
+    } catch (err) {
+      // Only Stripe saying there is no such payment means it isn't ours. Anything else (a timeout, a 5xx, rate
+      // limiting, our key failing) is unknown: rethrown, so the webhook answers 500 and Stripe sends it again,
+      // instead of dropping the refund of one of our payments for good.
+      if (!isStripeNotFound(err)) throw err;
+      console.warn(`A refund's payment intent is unknown to Stripe (${stripeErrorLabel(err)}); treated as not ours.`);
+      return undefined;
+    }
+  }
+  if (!orderId || !ORDER_ID_PATTERN.test(orderId)) return undefined;
+  try {
+    const [row] = await deps.db.query<{ stripe_account_id: string | null }>(
+      `select g.stripe_account_id from public.orders o join public.organisers g on g.id = o.organiser_id
+        where o.id = $1 and o.payout_method = 'transfer'`,
+      [orderId],
+    );
+    return row?.stripe_account_id ?? undefined;
+  } catch (err) {
+    // Before 20261119000000_delayed_payouts.sql there are no transfer orders, so no charge of that kind.
+    if (!(await payoutsSchemaMissing(deps.db, err))) throw err;
+    return undefined;
+  }
+}
 
 /**
  * charge.refunded: a refund of one of our payments, whoever made it (usually
@@ -496,8 +562,10 @@ type PaymentRefundResult = "refunded" | "partial" | "unchanged" | "deferred" | "
  * One that arrives before its order's payment is recorded, for a payment to
  * one of our organisers' accounts, is held for fulfilment (`deferred`) and
  * judged by the same rule then: in full, nothing is issued; in part, the
- * tickets are issued and flagged. Never throws for a payment that isn't ours:
- * Stripe would retry it for days. Returns the result (undefined when the
+ * tickets are issued and flagged. Never throws for a payment that isn't ours
+ * (Stripe would retry it for days), but does for a failure to find that out
+ * (Stripe unreachable: organiserAccountOfCharge), so the webhook answers 500
+ * and the refund is delivered again. Returns the result (undefined when the
  * charge was unusable).
  */
 async function recordPaymentRefund(deps: Deps, eventId: string, charge: Stripe.Charge): Promise<PaymentRefundResult | undefined> {
@@ -513,16 +581,35 @@ async function recordPaymentRefund(deps: Deps, eventId: string, charge: Stripe.C
     console.warn(`Stripe ${eventId}: charge.refunded without a usable payment intent or amount; ignored.`);
     return undefined;
   }
-  // Only a charge paying out to one of our organisers can be held as an early refund. Today's checkouts are
-  // destination charges (payment_intent_data.transfer_data.destination, lib/server/checkout-attempts.ts), so
-  // the charge itself names the organiser's account. If checkout moves to separate charges and transfers
-  // (planned), the charge has no transfer_data: this match must then change (e.g. to the charge's
-  // transfer_group or metadata.orderId), or every early refund would be dropped as not ours.
-  const destination = expandableId(charge.transfer_data?.destination);
+  // Only a charge paying out to one of our organisers can be held as an early refund. A destination charge
+  // (payment_intent_data.transfer_data.destination, lib/server/checkout-attempts.ts) names the organiser's
+  // account itself. A charge made for separate charges and transfers (DELAYED_PAYOUTS) has no transfer_data:
+  // its organiser is the one of the order its metadata names (organiserAccountOfCharge).
+  const destination =
+    expandableId(charge.transfer_data?.destination) ?? (await organiserAccountOfCharge(deps, charge, paymentIntentId));
   const [row] = await deps.db.query<{ result: PaymentRefundResult; order_id: string | null }>(
     `select result, order_id from private.record_payment_refund($1, $2, $3, $4, $5, $6)`,
     [paymentIntentId, amount, charge.refunded, stripeId(charge.id) ?? null, destination ?? null, stripeId(eventId) ?? null],
   );
+  // A transfer order's organiser share, not sent yet, is cancelled (refunded in full) or held (in part); one
+  // already sent can only be reversed by a person: a payment exception and an ops alert. Run for every
+  // delivery of the event (idempotent), whatever record_payment_refund made of it.
+  let flag: { result: string; alert_queued: boolean } | undefined;
+  try {
+    [flag] = await deps.db.query<{ result: string; alert_queued: boolean }>(
+      `select result, alert_queued from private.flag_transfer_after_refund($1, $2)`,
+      [paymentIntentId, stripeId(eventId) ?? null],
+    );
+  } catch (err) {
+    // Before 20261119000000_delayed_payouts.sql there are no transfers to cancel, hold or flag.
+    if (!(await payoutsSchemaMissing(deps.db, err))) throw err;
+  }
+  if (flag?.alert_queued) sendOpsAlertsSoon(deps);
+  if (flag?.result === "flagged") {
+    console.error(
+      `Order ${row.order_id ? orderReference(row.order_id) : "(unmatched)"} was refunded after its organiser's transfer was sent: reverse the transfer (a payment exception was opened).`,
+    );
+  }
   // Logs name the order by its short reference only: never its id (the confirmation page's credential) or the buyer.
   const reference = row.order_id ? orderReference(row.order_id) : undefined;
   if (row.result === "refunded") {

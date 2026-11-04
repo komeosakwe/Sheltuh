@@ -12,6 +12,7 @@ export function adminSummary(overrides: Partial<AdminSummary> = {}): AdminSummar
     emailsFailed: { count: 0 },
     emailsRetrying: { count: 0 },
     doorEvents: { count: 0, windowHours: 24 },
+    transfersOpen: { count: 0 },
     ...overrides,
   };
 }

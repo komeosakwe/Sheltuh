@@ -147,7 +147,32 @@ describe("GET /api/admin/summary", () => {
       emailsRetrying: { count: 0 },
       doorEvents: { count: 0, windowHours: DOOR_EVENT_WINDOW_HOURS },
       eventsPublishedByOrganisers: { count: 0, windowHours: SELF_PUBLISHED_WINDOW_HOURS },
+      transfersOpen: { count: 0 },
     });
+  });
+
+  it("counts organiser transfers that need an admin: failed and held, not retrying, sending, sent or cancelled", async () => {
+    const organiser = await approvedOrganiser(api, admin);
+    const event = await publishedEvent(api, organiser, admin);
+    const transfer = async (status: "failed" | "held" | "retry" | "sending" | "sent" | "cancelled") => {
+      const orderId = `ord_${crypto.randomUUID().replace(/-/g, "")}`;
+      await api.db.query(
+        `insert into public.orders (id, event_id, organiser_id, event_title, buyer_email, line_items,
+           subtotal_cents, buyer_fee_cents, total_cents, application_fee_cents, status, payout_method, stripe_payment_intent_id)
+         values ($1, $2, $3, 'Test event', 'buyer@example.com', '[]'::jsonb, 3000, 0, 3000, 300, 'paid', 'transfer', $4)`,
+        [orderId, event.eventId, event.organiserId, `pi_${orderId}`],
+      );
+      await api.db.query(
+        `insert into private.order_transfers (order_id, destination_account_id, amount_cents, status, lease_token, lease_expires_at,
+           stripe_transfer_id, sent_at)
+         values ($1, 'acct_test_1', 2700, $2, case when $2 = 'sending' then gen_random_uuid() end,
+           case when $2 = 'sending' then now() + interval '2 minutes' end,
+           case when $2 = 'sent' then 'tr_' || $1 end, case when $2 = 'sent' then now() end)`,
+        [orderId, status],
+      );
+    };
+    for (const status of ["failed", "failed", "held", "retry", "sending", "sent", "cancelled"] as const) await transfer(status);
+    expect((await summary()).transfersOpen).toEqual({ count: 3 });
   });
 
   it("counts open reports only, with the oldest one's time", async () => {

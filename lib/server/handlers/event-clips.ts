@@ -24,7 +24,7 @@
  *      row locked. The staged object, and any clip it replaced, are deleted
  *      after the response (deps.defer). A final object is never deleted on a
  *      refusal or an error (only the staged one is): the daily sweep
- *      (sweepEventClips, run from the trending cron) deletes it once it's a
+ *      (sweepEventClips, run after the trending refresh: refreshTrending) deletes it once it's a
  *      day old and nothing refers to it.
  *
  * Uploads are switched off unless NEXT_PUBLIC_EVENT_CLIPS is "1"
@@ -769,7 +769,7 @@ export async function sweepEventClips(deps: Deps): Promise<{ removed: number; up
   return { removed: rows.length, uploadIdsPurged };
 }
 
-/** For the trending cron (runTrendingCron): the sweep after its response, best-effort (Deps.defer logs a failure). */
+/** For the trending refresh (refreshTrending, run by the email outbox's cron and GET /api/cron/trending): the sweep after the response, best-effort (Deps.defer logs a failure). */
 export function sweepEventClipsSoon(deps: Deps): void {
   if (!deps.clipStorage()) return;
   deps.defer(async () => {

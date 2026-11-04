@@ -82,6 +82,7 @@ describe("Admin hub", () => {
       "/admin/organisers?status=approved",
       "/admin/events/new",
       "/admin/invites",
+      "/admin/payouts",
       "/admin/trending",
       "/admin/events?status=published&view=door",
     ]);
@@ -90,6 +91,24 @@ describe("Admin hub", () => {
       "As an organiser or a member.",
     );
     expect(within(section("Done outside Sheltüh admin")).getByText(/Stripe dashboard/)).toBeInTheDocument();
+  });
+
+  it("Payouts: how many transfers are failed or held, as in the nav; All clear when none; no line from an older server", () => {
+    const { unmount } = renderHub(fakeAuthValue({ isAdmin: true }), { summary: adminSummary({ transfersOpen: { count: 3 } }) });
+    const card = within(section("Manage")).getByRole("link", { name: /^Payouts/ });
+    expect(card).toHaveAttribute("href", "/admin/payouts");
+    expect(card).toHaveTextContent("3 to check");
+    expect(within(card).getByText("3 to check")).toHaveClass("text-foreground");
+    expect(card).toHaveAccessibleDescription("Retry, release or cancel organiser transfers.");
+    unmount();
+
+    const one = renderHub(fakeAuthValue({ isAdmin: true }), { summary: adminSummary({ transfersOpen: { count: 0 } }) });
+    const clear = within(section("Manage")).getByRole("link", { name: /^Payouts/ });
+    expect(within(clear).getByText("All clear")).toHaveClass("text-muted");
+    one.unmount();
+
+    renderHub(fakeAuthValue({ isAdmin: true }), { summary: adminSummary({ transfersOpen: undefined }) });
+    expect(within(section("Manage")).getByRole("link", { name: /^Payouts/ })).toHaveTextContent(/^Payouts$/);
   });
 
   it("Recently published: how many organisers published themselves lately, linking to the recent view", () => {
