@@ -193,7 +193,10 @@ describe("every transactional email uses the shared brand layout", () => {
     const cells = html.match(/<td [^>]*>/g)!.filter((tag) => tag.toUpperCase().includes(accent));
     expect(cells).toHaveLength(1);
     expect(cells[0]).toMatch(new RegExp(`bgcolor="${accent}" style="background-color:${accent};border:1px solid ${accent};border-radius:12px`));
-    expect(html.toUpperCase().split(accent)).toHaveLength(4); // bgcolor, background-color, border: in that cell only
+    // bgcolor, background-color, border in that cell, and the time's underline (a decoration, never text colour).
+    expect(html.toUpperCase().split(accent)).toHaveLength(5);
+    expect(html).toContain(`text-decoration-color:${accent}`);
+    expect(html).not.toMatch(new RegExp(`(?<![-\\w])color:\\s*${accent}`, "i"));
     const label = html.slice(html.indexOf(cells[0])).match(/<a [^>]*style="([^"]*)"/)![1];
     expect(label).toContain(`color:${MODERN_COLOURS.ink}`);
   });
@@ -297,7 +300,7 @@ describe("every transactional email uses the shared brand layout", () => {
     expect(reminder.html).toContain("Cellar Door &#60;Sound&#62;");
     expect(reminder.html).not.toContain("<Sound>");
     expect(reminder.html).toContain("View your tickets");
-    expect(reminder.text).toContain("See you tomorrow.");
+    expect(reminder.text).toContain("Tomorrow, you’re in.");
     expect(reminder.text).toContain("You’re getting this one-off reminder because you have tickets for this event on Sheltüh.");
     const message = emails.holderMessage();
     expect(message.html).toContain("Doors open at 7pm &#38; not 8pm.<br>Bring &#60;ID&#62;.");
@@ -409,7 +412,7 @@ describe("the event reminder", () => {
     const order = [
       "brand/sheltuh-wordmark-email.png",
       IMAGE_PATH.replace(/&/g, "&#38;"),
-      "See you tomorrow.",
+      "Tomorrow, you’re in.",
       "A reminder about an event you have tickets for.",
       ">Neon &#38; &#60;Static&#62;</td>", // the details card's title (the alt text has it too)
       "View your tickets",
@@ -424,8 +427,8 @@ describe("the event reminder", () => {
 
   it("says it's today when it is", () => {
     const { html, text } = reminderOf({}, site, new Date("2027-03-05T21:30:00.000Z"));
-    expect(html).toContain("It’s today.");
-    expect(text).toContain("It’s today.");
+    expect(html).toContain("Today’s the day.");
+    expect(text).toContain("Today’s the day.");
   });
 
   it("shows the artwork across the column, rounded, when the event has one; leaves it out cleanly otherwise", () => {
@@ -441,7 +444,7 @@ describe("the event reminder", () => {
     ]) {
       expect(gone.html).not.toContain("Event image for");
       expect(gone.html).not.toContain("evil.example");
-      expect(gone.html.match(/<img /g)).toHaveLength(2 + 3); // the two logos and three icons
+      expect(gone.html.match(/<img /g)).toHaveLength(2 + 5); // the two logos, three detail icons and two button icons
     }
   });
 
@@ -473,15 +476,17 @@ describe("the event reminder", () => {
     expect(html).toContain("/icons/calendar.png");
   });
 
-  it("has a full-width orange 'View your tickets →' button and an outlined 'Get directions' one", () => {
+  it("has a full-width orange 'View your tickets' button and an outlined 'Get directions' one, each with its icon", () => {
     const { html, text } = reminderOf();
     const tickets = `href="${site}/checkout/success?session_id=ord_abc" style="display:block;padding:16px 24px;`;
     expect(html).toContain(tickets);
-    expect(html).toContain("View your tickets →</a>");
+    // A decorative 20 x 20 icon on the label's line: the label names the action.
+    expect(html).toMatch(/<img src="[^"]*\/email\/icons\/ticket\.png" width="20" height="20" alt="" [^>]*>View your tickets<\/a>/);
+    expect(html).toMatch(/<img src="[^"]*\/email\/icons\/navigate\.png" width="20" height="20" alt="" [^>]*>Get directions<\/a>/);
     const primary = html.slice(0, html.indexOf(tickets)).match(/<table [^>]*>(?:(?!<table)[\s\S])*$/)![0];
     expect(primary).toContain('width="100%"');
     expect(primary).toContain(`bgcolor="${MODERN_COLOURS.accent}"`);
-    const directions = html.match(/<td align="center" bgcolor="#FFF9E8" style="[^"]*border:1px solid #171411;[^"]*"><a href="(https:\/\/[^"]*)"[^>]*>Get directions<\/a>/);
+    const directions = html.match(/<td align="center" bgcolor="#FFF9E8" style="[^"]*border:1px solid #171411;[^"]*"><a href="(https:\/\/[^"]*)"[^>]*>(?:<img [^>]*>)?Get directions<\/a>/);
     expect(directions).not.toBeNull();
     expect(text).toContain(`Get directions: ${directions![1].replace(/&#38;/g, "&")}`);
     // Without anywhere to route to, there's no second button.
@@ -489,6 +494,15 @@ describe("the event reminder", () => {
     expect(none.html).not.toContain("Get directions");
     expect(none.text).not.toContain("Get directions");
     expect(none.html).toContain("View your tickets");
+    expect(none.html).not.toContain("/icons/navigate.png");
+  });
+
+  it("underlines the time in the accent", () => {
+    const { html } = reminderOf();
+    const time = html.slice(html.indexOf("/icons/clock.png"));
+    expect(time.slice(0, time.indexOf("</td></tr>"))).toContain(
+      `text-decoration:underline;text-decoration-color:${MODERN_COLOURS.accent};text-decoration-thickness:2px`,
+    );
   });
 
   it("says who hosts it with a link to the organiser, then Tell a friend (small), then the compact footer", () => {
@@ -512,7 +526,7 @@ describe("the event reminder", () => {
     const email = reminderOf();
     expect(email.inlineImages ?? []).toEqual([]);
     expect(email.headers).toEqual({ "Auto-Submitted": "auto-generated" });
-    expect(email.text).toContain("See you tomorrow.");
+    expect(email.text).toContain("Tomorrow, you’re in.");
     expect(email.text).toContain("Venue: The Cellar Door");
     expect(email.text).toContain("Address: 12 Hosier Lane, Melbourne VIC 3000");
     expect(email.text).toContain("View your tickets: https://sheltuh.test/checkout/success?session_id=ord_abc");

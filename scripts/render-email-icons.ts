@@ -1,6 +1,6 @@
 /**
- * Draws the three small line icons the event reminder shows beside its
- * details (calendar, clock, map pin) as transparent PNGs, with no browser and
+ * Draws the small line icons the event reminder shows beside its details
+ * (calendar, clock, map pin) and in its buttons (ticket, navigation arrow) as transparent PNGs, with no browser and
  * no new dependency.
  *
  *   node --import tsx scripts/render-email-icons.ts
@@ -57,7 +57,40 @@ function roundedRect(x: number, y: number, w: number, h: number, r: number): Pat
   ];
 }
 
+/** Rotates and scales paths about the grid's centre (12, 12). */
+function turn(paths: Path[], degrees: number, scale = 1): Path[] {
+  const a = (degrees * Math.PI) / 180;
+  const [c, s] = [Math.cos(a), Math.sin(a)];
+  return paths.map((p) => p.map(([x, y]) => [12 + scale * (c * (x - 12) - s * (y - 12)), 12 + scale * (s * (x - 12) + c * (y - 12))] as Point));
+}
+
+/** A ticket: a rounded stub with a half-round notch in each end and a dashed tear line. */
+const TICKET: Path[] = [
+  [
+    [4, 5],
+    [20, 5],
+    ...arc(20, 7, 2, -Math.PI / 2, 0, 8),
+    [22, 9],
+    ...arc(22, 12, 3, -Math.PI / 2, -(3 * Math.PI) / 2, 24),
+    [22, 17],
+    ...arc(20, 17, 2, 0, Math.PI / 2, 8),
+    [4, 19],
+    ...arc(4, 17, 2, Math.PI / 2, Math.PI, 8),
+    [2, 15],
+    ...arc(2, 12, 3, Math.PI / 2, -Math.PI / 2, 24),
+    [2, 7],
+    ...arc(4, 7, 2, Math.PI, (3 * Math.PI) / 2, 8),
+  ],
+  [[14, 5], [14, 7]],
+  [[14, 11], [14, 13]],
+  [[14, 17], [14, 19]],
+];
+
 const ICONS: Record<string, Path[]> = {
+  // Tilted, as the app's ticket mark is, and shrunk to stay inside the grid.
+  ticket: turn(TICKET, -35, 0.86),
+  // A navigation arrow pointing up and left.
+  navigate: [[[21, 11], [3, 3], [11, 21], [13, 13], [21, 11]]],
   calendar: [
     roundedRect(3, 5, 18, 16, 3),
     [[3, 10], [21, 10]],

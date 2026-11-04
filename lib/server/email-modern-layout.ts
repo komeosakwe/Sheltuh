@@ -25,7 +25,7 @@ export const MODERN_COLOURS = {
   bg: "#FFF9E8",
   /** Text, the outline button's border and its label, and the label on orange (17.5:1 on ivory). */
   ink: "#171411",
-  /** The accent: a fill for the primary button only, always with ink text (5.5:1), never as text. */
+  /** The accent: the primary button's fill (always with ink text, 5.5:1) and the reminder time's underline; never as text. */
   accent: "#FF4D00",
   /** Hairlines and card borders. */
   border: "#E9E1CC",
@@ -53,6 +53,8 @@ export const ICON_PATHS = {
   calendar: "/email/icons/calendar.png",
   clock: "/email/icons/clock.png",
   pin: "/email/icons/pin.png",
+  ticket: "/email/icons/ticket.png",
+  navigate: "/email/icons/navigate.png",
 } as const;
 export type EmailIcon = keyof typeof ICON_PATHS;
 
@@ -69,7 +71,7 @@ export function textStyle(size: number, line: number, options: { weight?: 400 | 
 
 /** The email's h1: 36/44, weight 600 (30/36 on a phone via `.h1`). `html` is trusted markup. */
 export function modernHeading(html: string): string {
-  return `<h1 class="h1" style="margin:0;${textStyle(36, 44, { weight: 600, extra: "letter-spacing:normal;overflow-wrap:break-word;word-wrap:break-word" })}">${html}</h1>`;
+  return `<h1 class="h1" style="margin:0;${textStyle(36, 44, { weight: 600, extra: "letter-spacing:-0.5px;overflow-wrap:break-word;word-wrap:break-word" })}">${html}</h1>`;
 }
 
 /** A paragraph: 16/24 by default. `html` is trusted markup. */
@@ -126,26 +128,41 @@ export function icon(siteUrl: string, name: EmailIcon, alt: string): string {
   return `<img src="${escapeHtml(emailAssetUrl(siteUrl, ICON_PATHS[name]))}" width="20" height="20" alt="${escapeHtml(alt)}" style="display:block;border:0;width:20px;height:20px;${textStyle(12, 20, { colour: MUTED })}">`;
 }
 
+/** A button's leading icon: which one, and the site it's hosted on. */
+export interface ButtonIcon {
+  siteUrl: string;
+  name: EmailIcon;
+}
+
+/**
+ * A 20 x 20 icon before a button's label, on the label's line. Decorative
+ * (empty alt): the label says what the button does.
+ */
+function buttonIcon(lead: ButtonIcon | undefined): string {
+  if (!lead) return "";
+  return `<img src="${escapeHtml(emailAssetUrl(lead.siteUrl, ICON_PATHS[lead.name]))}" width="20" height="20" alt="" style="display:inline-block;border:0;width:20px;height:20px;vertical-align:-4px;margin:0 8px 0 0">`;
+}
+
 /**
  * The call to action: a full-width orange fill with an ink label (5.5:1), 16px
  * of padding on a 20px line (54px tall), 12px radius. Outlook for Windows
  * ignores padding on an <a>, so the cell repeats it as `mso-padding-alt`.
  */
-export function primaryButton(label: string, href: string): string {
+export function primaryButton(label: string, href: string, lead?: ButtonIcon): string {
   return (
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>` +
     `<td align="center" bgcolor="${ACCENT}" style="background-color:${ACCENT};border:1px solid ${ACCENT};border-radius:12px;mso-padding-alt:16px 24px">` +
-    `<a href="${escapeHtml(href)}" style="display:block;padding:16px 24px;${textStyle(16, 20, { weight: 600, extra: "text-decoration:none;text-align:center" })}">${escapeHtml(label)}</a>` +
+    `<a href="${escapeHtml(href)}" style="display:block;padding:16px 24px;${textStyle(16, 20, { weight: 600, extra: "text-decoration:none;text-align:center" })}">${buttonIcon(lead)}${escapeHtml(label)}</a>` +
     `</td></tr></table>`
   );
 }
 
 /** The secondary action: full width, ivory with a 1px ink outline and an ink label, the same size as the primary. */
-export function outlineButton(label: string, href: string): string {
+export function outlineButton(label: string, href: string, lead?: ButtonIcon): string {
   return (
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>` +
     `<td align="center" bgcolor="${BG}" style="background-color:${BG};border:1px solid ${INK};border-radius:12px;mso-padding-alt:16px 24px">` +
-    `<a href="${escapeHtml(href)}" style="display:block;padding:16px 24px;${textStyle(16, 20, { weight: 600, extra: "text-decoration:none;text-align:center" })}">${escapeHtml(label)}</a>` +
+    `<a href="${escapeHtml(href)}" style="display:block;padding:16px 24px;${textStyle(16, 20, { weight: 600, extra: "text-decoration:none;text-align:center" })}">${buttonIcon(lead)}${escapeHtml(label)}</a>` +
     `</td></tr></table>`
   );
 }
