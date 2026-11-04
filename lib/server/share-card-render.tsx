@@ -1,7 +1,9 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { ImageResponse } from "next/og";
 import type { ReactElement } from "react";
 import { DOTS_MARK, WORDMARK, type BrandMark } from "@/components/brand/marks";
-import { cardText, cardTitleSize, SHARE_CARD_SIZE } from "@/lib/share-card";
+import { cardText, cardTitleSize, dottedText, SHARE_CARD_SIZE } from "@/lib/share-card";
 
 /**
  * The link-preview cards (docs/design/brand-direction-one.md §4), 1200 × 630:
@@ -18,10 +20,12 @@ import { cardText, cardTitleSize, SHARE_CARD_SIZE } from "@/lib/share-card";
  *     their name large in black and "on" with the wordmark small beneath.
  *
  * The marks are the official vectors from components/brand/marks.ts, drawn
- * whole, at their own ratio, in one colour. All other type is next/og's
- * default face (Geist Regular): the brand faces ship only as WebP-wrapped
- * WOFF2, which Satori can't read, and no usable TTF/OTF/WOFF is in the repo.
- * Satori also has no bold to synthesise, so the type is set large and light.
+ * whole, at their own ratio, in one colour. Type is in the brand faces:
+ * Instrument Sans SemiBold for titles and names, with the brand's two dots
+ * over every vowel (dottedText: what the site's Instrument Sans Dots does by
+ * remapping its character map), and IBM Plex Mono Medium for the date line,
+ * as the site sets dates. Satori can't read the site's WOFF2 files, so the
+ * same OFL faces are vendored as WOFF in app/fonts/og/ (licences beside them).
  */
 
 const { width: WIDTH, height: HEIGHT } = SHARE_CARD_SIZE;
@@ -51,8 +55,26 @@ function Mark({ mark, width, color }: { mark: BrandMark; width: number; color: s
   );
 }
 
+const SANS = "Instrument Sans";
+const MONO = "IBM Plex Mono";
+
+type CardFont = { name: string; data: Buffer; weight: 500 | 600; style: "normal" };
+let fonts: CardFont[] | null = null;
+
+/** The two faces, read once per server instance (process.cwd() is the app root, so the files are traced into the deployment). */
+function cardFonts(): CardFont[] {
+  if (!fonts) {
+    const dir = path.join(process.cwd(), "app", "fonts", "og");
+    fonts = [
+      { name: SANS, data: readFileSync(path.join(dir, "instrument-sans-latin-600-normal.woff")), weight: 600, style: "normal" },
+      { name: MONO, data: readFileSync(path.join(dir, "ibm-plex-mono-latin-500-normal.woff")), weight: 500, style: "normal" },
+    ];
+  }
+  return fonts;
+}
+
 function render(element: ReactElement, cache: string): ImageResponse {
-  return new ImageResponse(element, { ...SHARE_CARD_SIZE, headers: { "cache-control": cache } });
+  return new ImageResponse(element, { ...SHARE_CARD_SIZE, fonts: cardFonts(), headers: { "cache-control": cache } });
 }
 
 /** The site card: Signal Orange, the two-dot mark and the wordmark, black. */
@@ -86,6 +108,8 @@ function Title({ text, size, color }: { text: string; size: number; color: strin
     <div
       style={{
         display: "block",
+        fontFamily: SANS,
+        fontWeight: 600,
         fontSize: size,
         lineHeight: 1.08,
         letterSpacing: -2,
@@ -95,7 +119,7 @@ function Title({ text, size, color }: { text: string; size: number; color: strin
         textOverflow: "ellipsis",
       }}
     >
-      {text}
+      {dottedText(text)}
     </div>
   );
 }
@@ -147,7 +171,7 @@ export function eventCard({ title, detail, photo }: EventCardContent): ImageResp
         }}
       >
         <Title text={text} size={cardTitleSize(text)} color={ink} />
-        <div style={{ display: "block", fontSize: 32, lineHeight: 1.2, color: soft, lineClamp: 1, overflow: "hidden", textOverflow: "ellipsis" }}>
+        <div style={{ display: "block", fontFamily: MONO, fontWeight: 500, fontSize: 28, lineHeight: 1.2, color: soft, lineClamp: 1, overflow: "hidden", textOverflow: "ellipsis" }}>
           {detail}
         </div>
       </div>
@@ -188,7 +212,9 @@ export function organiserCard({ displayName, logo }: OrganiserCardContent): Imag
       <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
         <Title text={text} size={cardTitleSize(text)} color={BLACK} />
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <div style={{ display: "block", fontSize: 32, lineHeight: 1, color: "rgba(0, 0, 0, 0.78)" }}>on</div>
+          <div style={{ display: "block", fontFamily: SANS, fontWeight: 600, fontSize: 32, lineHeight: 1, color: "rgba(0, 0, 0, 0.78)" }}>
+            {dottedText("on")}
+          </div>
           <Mark mark={WORDMARK} width={132} color={BLACK} />
         </div>
       </div>

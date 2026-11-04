@@ -10,6 +10,7 @@ import {
   cardTitleSize,
   cardVersion,
   eventCardDetail,
+  dottedText,
 } from "@/lib/share-card";
 import { coverToCardImage, logoToCardImage } from "@/lib/server/share-card-data";
 import { CARD_CACHE, FALLBACK_CARD_CACHE } from "@/lib/server/share-card-render";
@@ -198,5 +199,13 @@ describe("the preview cards in demo mode", () => {
 
   it("never reads the database", () => {
     expect(getDeps).not.toHaveBeenCalled();
+  });
+});
+
+describe("dottedText", () => {
+  it("puts the brand's dots over every plain vowel and leaves everything else alone", () => {
+    expect(dottedText("Neon Static")).toBe("Nëön Stätïc");
+    expect(dottedText("UNDER the Sea 2027")).toBe("ÜNDËR thë Sëä 2027");
+    expect(dottedText("Sheltüh · café · Rhythm")).toBe("Shëltüh · cäfé · Rhythm");
   });
 });

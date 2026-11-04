@@ -59,3 +59,14 @@ export function cardVersion(...parts: (string | undefined)[]): string {
 
 /** The id of the plain brand card: an unknown or unpublished slug, or one that couldn't be read. */
 export const BRAND_CARD_ID = "brand";
+
+const DOTTED: Record<string, string> = { a: "ä", e: "ë", i: "ï", o: "ö", u: "ü", A: "Ä", E: "Ë", I: "Ï", O: "Ö", U: "Ü" };
+
+/**
+ * The brand's two dots over every plain vowel ("Neon Static" → "Nëön Stätïc"),
+ * as the site draws headings with Instrument Sans Dots (app/fonts/instrument-sans-dots).
+ * For a card's pixels only: the image's alt text and every page keep the plain spelling.
+ */
+export function dottedText(text: string): string {
+  return text.replace(/[aeiouAEIOU]/g, (vowel) => DOTTED[vowel]);
+}
