@@ -1,3 +1,4 @@
+import { eventPublicLink, tellAFriendHtml, tellAFriendLinks, tellAFriendText } from "./share-email";
 import { SUPPORT_EMAIL } from "@/lib/contact";
 import { formatAud } from "@/lib/format";
 import { directionsHref } from "@/lib/maps";
@@ -437,6 +438,9 @@ export function buildTicketEmail(
   const total = order.tickets.length;
   const refunds = ticketEmailRefundPolicy(order, event, now);
   const walletLinks = (i: number) => ticketWalletLinks(order, event, siteUrl, wallet, i);
+  // Only a published event is shared: its public page exists.
+  const eventLink = listed && event.slug ? eventPublicLink(siteUrl, event.slug) : null;
+  const share = when && eventLink ? tellAFriendLinks(event.title, when.date, eventLink) : null;
 
   // --- Plain text ---
   const plain = [
@@ -478,6 +482,7 @@ export function buildTicketEmail(
     ...(support ? [`${SUPPORT_LABEL}: ${formatAud(support)}`] : []),
     `Total paid: ${totalText}`,
     ...(refunds ? ["", `Refund policy: ${refunds}`, ...(support ? [SUPPORT_REFUND_NOTE] : []), REFUND_ACL_STATEMENT] : []),
+    ...(when && eventLink ? ["", ...tellAFriendText(event.title, when.date, eventLink)] : []),
     "",
     `Need a hand? Email ${SUPPORT_EMAIL}`,
     "Sheltüh, Melbourne",
@@ -551,7 +556,7 @@ ${support ? `<tr><td style="padding:4px 12px 4px 0;${text(15, 22, MUTED, "white-
 ${panels}
 ${tip}${button(`${buttonLabel} →`, link, "4px 0 12px 0", true)}
 ${fallback}
-${summary}${refundNote}`;
+${summary}${refundNote}${share ? tellAFriendHtml(share, 20) : ""}`;
 
   const preheader = `Your ${one ? "ticket" : "tickets"} for ${event.title}. Show your ${anyQr ? "QR code" : "entry code"} at the door.`;
   const html = page({

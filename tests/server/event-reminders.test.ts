@@ -443,7 +443,10 @@ describe("the reminder email", () => {
     expect(message.headers).toEqual({ "Auto-Submitted": "auto-generated" });
     expect(message.html).not.toContain("List-Unsubscribe");
     expect(message.text).not.toMatch(/unsubscribe/i);
-    expect(message.inlineImages?.length).toBe(1);
+    // The modern look hosts its wordmark and icons: nothing is attached inline.
+    expect(message.inlineImages ?? []).toEqual([]);
+    expect(message.html).toContain("/brand/sheltuh-wordmark-email.png");
+    expect(message.html).toContain(">Event Reminder</td>");
   });
 
   it("is skipped, not retried, when the order was refunded since it was queued", async () => {
@@ -501,6 +504,26 @@ describe("the reminder email", () => {
     expect(reminderMails()).toEqual([]);
     const [job] = await jobs();
     expect(job).toMatchObject({ status: "failed", last_error: reason });
+  });
+
+  it("moved to the day after tomorrow (still inside the lead window): waits, never says Tomorrow, uses no attempt", async () => {
+    await soon(["fan@example.com"], 20);
+    expect(await queue()).toBe(1);
+    // 00:30 the day after tomorrow in Melbourne: 24.5 to 48.5 hours away whatever the time now, so inside the
+    // 50-hour lead window, but two calendar days off.
+    await api.db.query(
+      `update public.events
+          set starts_at = (((now() at time zone 'Australia/Melbourne')::date + 2) + time '00:30') at time zone 'Australia/Melbourne',
+              ends_at = (((now() at time zone 'Australia/Melbourne')::date + 2) + time '03:30') at time zone 'Australia/Melbourne',
+              time_zone = 'Australia/Melbourne', state = 'VIC'`,
+    );
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    await cron();
+    expect(reminderMails()).toEqual([]);
+    const [job] = await jobs();
+    expect(job).toMatchObject({ status: "pending", attempts: 0, last_error: "the event isn't tomorrow yet" });
+    expect(job.secs).toBeGreaterThan(6 * 3600 - 100);
+    expect(job.secs).toBeLessThanOrEqual(6 * 3600);
   });
 
   it("retries a failed send, and keeps the platform's daily allowance for sent reminders only", async () => {

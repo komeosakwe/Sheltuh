@@ -282,6 +282,26 @@ describe("POST /api/events/{eventId}/holder-messages", () => {
     expect(mail.html).not.toContain("<b>ID</b>");
   });
 
+  it("has no artwork in the announcement when the event has none, and attaches nothing inline", async () => {
+    await holders(["a@example.com"]);
+    expect((await post(validBody({ expectedRecipients: 1 }))).status).toBe(201);
+    await api.runDeferred();
+    const [mail] = holderMails();
+    expect(mail.html).not.toContain("Event image for");
+    expect(mail.html).toContain("/brand/sheltuh-wordmark-email.png");
+    expect(mail.inlineImages ?? []).toEqual([]);
+  });
+
+  it("shows the event's artwork in the announcement when it has some", async () => {
+    await holders(["a@example.com"]);
+    await api.db.query(`insert into public.event_images (event_id, content_type, data) values ($1, 'image/png', '\\x89504e47'::bytea)`, [event.eventId]);
+    expect((await post(validBody({ expectedRecipients: 1 }))).status).toBe(201);
+    await api.runDeferred();
+    const [mail] = holderMails();
+    expect(mail.html).toMatch(new RegExp(`<img src="${SITE_URL}/api/events/${event.eventId}/image\\?v=\\d+" width="552" alt="Event image for `));
+    expect(mail.inlineImages ?? []).toEqual([]);
+  });
+
   it("a repeat of the same requestId is the same message: 200 replayed, no second send", async () => {
     await holders(FIVE);
     const body = validBody();

@@ -12,7 +12,7 @@ import { PG_UNDEFINED_FUNCTION, pgErrorCode } from "./db";
 import type { Deps } from "./deps";
 import type { EmailMessage } from "./email";
 import { isPlainEmailAddress, redactForLog } from "./email-address";
-import { buildEventReminderEmail } from "./event-reminder-email";
+import { buildEventReminderEmail, reminderDaysAway } from "./event-reminder-email";
 import { buildFollowerNewEventsEmail, FOLLOWER_EMAIL_MAX_EVENTS, followerUnsubscribeLink } from "./follower-email";
 import { findEventById } from "./handlers/event-queries";
 import { buildHolderMessageEmail } from "./holder-message-email";
@@ -200,6 +200,8 @@ export const EVENT_REMINDERS_DAILY = { bucket: "event_reminders_daily", limit: 8
 export const HOLDER_MESSAGES_DAILY = { bucket: "holder_messages_daily", limit: 600 } as const;
 /** How long a reminder or message over its cap waits before it tries again. */
 export const SEND_CAP_DEFER_SECONDS = 3600;
+/** A reminder whose event was moved to after tomorrow waits this long before it is looked at again. */
+export const REMINDER_NOT_YET_DEFER_SECONDS = 6 * 3600;
 /** A reminder is skipped, not sent, if its event is further off than this (it was moved later since the job was queued). */
 const REMINDER_MAX_LEAD = "50 hours";
 
@@ -774,6 +776,11 @@ async function deliverEventReminder(deps: Deps, jobId: string): Promise<Outcome>
     if (!buyerEmail || !isPlainEmailAddress(buyerEmail)) return skip("the order has no usable email address");
     const event = await findEventById(deps.db, row.event_id);
     if (!event) return skip("the event no longer exists");
+    // Moved since it was queued (e.g. postponed by a day): it says "Today" or "Tomorrow", so it waits until that's
+    // true in the event's own zone, without using an attempt. Further off than the lead window, it's skipped above.
+    if (reminderDaysAway(event.startsAt, new Date(), event.timeZone) > 1) {
+      return { sent: false, error: "the event isn't tomorrow yet", permanent: false, deferSeconds: REMINDER_NOT_YET_DEFER_SECONDS };
+    }
     // Last, so a skipped job never uses the allowance. Over it, the job waits (it isn't dropped, nor does it use an attempt).
     const [{ allowed }] = await deps.db.query<{ allowed: boolean }>(
       `select private.take_platform_rate_limit($1, $2, interval '1 day') as allowed`,
@@ -837,12 +844,16 @@ async function deliverHolderMessage(deps: Deps, jobId: string): Promise<Outcome>
       order_status: string;
       buyer_email: string | null;
       event_id: string;
+      /** The event's artwork path, as EventRecord.imageUrl has it (lib/server/records.ts), or null. */
+      event_image_url: string | null;
       recipient_hash: string;
       suppressed: boolean;
     }>(
       `select r.id as recipient_id, m.id as message_id, r.sent_at is not null as sent, m.subject, m.body,
               m.cancelled_at is not null as cancelled, e.title as event_title, e.status::text as event_status,
               e.id as event_id, r.recipient_hash,
+              (select '/api/events/' || e.id::text || '/image?v=' || floor(extract(epoch from i.updated_at))::bigint::text
+                 from public.event_images i where i.event_id = e.id) as event_image_url,
               exists (select 1 from private.holder_message_suppressions s
                        where s.organiser_id = m.organiser_id and s.recipient_hash = r.recipient_hash) as suppressed,
               g.id as organiser_id, g.display_name as organiser_name, g.status::text as organiser_status,
@@ -899,6 +910,7 @@ async function deliverHolderMessage(deps: Deps, jobId: string): Promise<Outcome>
         subject: row.subject,
         body: row.body,
         siteUrl: deps.siteUrl(),
+        ...(row.event_image_url ? { eventImageUrl: row.event_image_url } : {}),
       }),
     );
   } catch (err) {
