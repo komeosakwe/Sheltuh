@@ -1319,6 +1319,13 @@ export interface AdminSummary {
    * API; optional so a client tolerates an older server.
    */
   eventsPublishedByOrganisers?: { count: number; windowHours: number };
+  /**
+   * Organiser payouts that need an admin: transfers that failed or are held
+   * (GET /admin/transfers?status=failed or held; the retrying ones fix
+   * themselves). Always sent by the API; optional so a client tolerates an
+   * older server.
+   */
+  transfersOpen?: { count: number };
 }
 
 // ---------------------------------------------------------------------------

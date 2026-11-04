@@ -9,6 +9,7 @@ import type { Deps } from "./deps";
 import { sendOpsAlertsSoon } from "./email-outbox";
 import { HttpError, PRIVATE_NO_STORE, createdPrivate } from "./http";
 import { orderReference } from "./order-reference";
+import { payoutsSchemaMissing } from "./payout-schema";
 import type { CheckoutResult, EventRecord, OrderLineItem, TicketSeat } from "./types";
 
 /**
@@ -399,6 +400,16 @@ interface SessionOrder {
 
 /** Everything the session is made from, read back from the order, so a retry for the same order sends Stripe the same parameters. */
 async function loadSessionOrder(db: Db, orderId: string): Promise<SessionOrder | undefined> {
+  try {
+    return await loadSessionOrderWith(db, orderId, "o.payout_method");
+  } catch (err) {
+    // The app deployed before 20261119000000_delayed_payouts.sql: the column isn't there, and every order is a destination order.
+    if (!(await payoutsSchemaMissing(db, err))) throw err;
+    return loadSessionOrderWith(db, orderId, "'destination'::text as payout_method");
+  }
+}
+
+async function loadSessionOrderWith(db: Db, orderId: string, payoutMethod: string): Promise<SessionOrder | undefined> {
   const [row] = await db.query<SessionOrder>(
     `select o.line_items, o.application_fee_cents, o.total_cents, o.support_cents, o.buyer_email, o.event_title,
             floor(extract(epoch from o.created_at))::float8 as created_epoch,
@@ -409,7 +420,7 @@ async function loadSessionOrder(db: Db, orderId: string): Promise<SessionOrder |
             end as seats,
             (select min(s.hold_expires_at) from public.event_seats s
               where s.event_id = o.event_id and s.hold_order_id = o.id) as hold_expires_at,
-            o.payout_method
+            ${payoutMethod}
        from public.orders o where o.id = $1`,
     [orderId],
   );
@@ -634,10 +645,15 @@ export async function runPaidCheckout(deps: Deps, checkout: PaidCheckout): Promi
       // before any session exists: with the switch off nothing is written, and the order is a destination
       // order exactly as before. A reused order (a retry after a failed try) keeps what it was made with.
       if (deps.delayedPayouts()) {
-        await db.query(
-          `update public.orders set payout_method = 'transfer' where id = $1 and status = 'pending' and payout_method = 'destination'`,
-          [orderId],
-        );
+        try {
+          await db.query(
+            `update public.orders set payout_method = 'transfer' where id = $1 and status = 'pending' and payout_method = 'destination'`,
+            [orderId],
+          );
+        } catch (err) {
+          // The migration isn't applied yet: today's destination order (loadSessionOrder reads it the same way).
+          if (!(await payoutsSchemaMissing(db, err))) throw err;
+        }
       }
     } catch (err) {
       await failAttempt(db, checkout, lease, false);

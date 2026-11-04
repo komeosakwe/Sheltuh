@@ -380,9 +380,14 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           `cron_runs` name). search_path pinned, execute revoked from
           clients, no data changed. Additive; the previous app never reads
           the column or the table and makes `destination` orders, so it can
-          be applied ahead of the deploy, and **should be**: the new app's
-          checkout reads `payout_method` on every paid checkout, so the new
-          app on the old schema fails every paid checkout. Needs no new
+          be applied ahead of the deploy, and **should be**: the migration
+          goes first. The new app does tolerate the old schema for the
+          few reads that would otherwise break paid checkouts and refunds
+          (`payout_method`, `flag_transfer_after_refund`, the admin
+          summary's transfer count: it treats every order as a `destination`
+          order and logs one warning), but the payouts job and the
+          Payouts admin pages need the migration, and nothing is
+          transferred without it. Needs no new
           environment variable to apply; the switch is `DELAYED_PAYOUTS`
           (below, and Stripe step 7). Reversible while no order is
           `transfer`: deploy the previous app, resolve the two new exception

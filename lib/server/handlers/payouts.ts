@@ -1,8 +1,12 @@
 import { requireAdmin, requireCaller } from "../auth";
+import type { Deps } from "../deps";
 import { requireCronSecret } from "../cron-auth";
 import { HttpError, okPrivate, readJson } from "../http";
 import { decodeCursor, parseLimit, toPage } from "../pagination";
-import { runOrderTransfers, TRANSFER_DELAY, TRANSFER_DELAY_HOURS } from "../order-transfers";
+import { sendOpsAlertsSoon } from "../email-outbox";
+import { lookupOrderTransfer, runOrderTransfers, TRANSFER_DELAY, TRANSFER_DELAY_HOURS } from "../order-transfers";
+import { orderReference } from "../order-reference";
+import { stripeErrorLabel } from "../checkout-attempts";
 import { ADMIN_TRANSFER_SELECT, toAdminTransfer } from "../records";
 import type { Handler } from "../route";
 import { fail } from "../validation";
@@ -56,7 +60,7 @@ const PENDING = "o.payout_method = 'transfer' and (t.id is null or t.status not 
  * event with paid orders, newest end first, and totals over all of them.
  * `paidOutCents`: orders paid out with their payment (destination charges);
  * `pendingCents`: orders waiting for their transfer (due 48 hours after the
- * event ends); `sentCents`: transferred. 404 without an organiser
+ * event ends); `sentCents`: transferred (a transfer that reached Stripe after an admin cancelled the row counts: the organiser has it). 404 without an organiser
  * application (a pending or rejected one has no orders: empty). Amounts are
  * the organiser's share only. `private, no-store`.
  */
@@ -70,7 +74,7 @@ export const getMyPayouts: Handler = async (req, _params, deps) => {
 
   const sums = `coalesce(sum(${SHARE}) filter (where o.payout_method = 'destination'), 0)::text as paid_out,
                 coalesce(sum(${SHARE}) filter (where ${PENDING}), 0)::text as pending,
-                coalesce(sum(${SHARE}) filter (where o.payout_method = 'transfer' and t.status = 'sent'), 0)::text as sent`;
+                coalesce(sum(${SHARE}) filter (where o.payout_method = 'transfer' and t.stripe_transfer_id is not null), 0)::text as sent`;
   const [totals] = await deps.db.query<{ paid_out: string; pending: string; sent: string }>(
     `select ${sums}
        from public.events e
@@ -175,15 +179,71 @@ export const adminListTransfers: Handler = async (req, _params, deps) => {
 };
 
 /**
+ * Before an admin cancels a transfer (so as to pay the organiser by hand), asks Stripe whether one already
+ * exists for the order: a request that timed out, or a worker that died, may have been accepted by Stripe, and
+ * cancelling then paying by hand would pay twice. A whole transfer for the organiser's share is recorded as sent
+ * ("adopted": the same as the job does for an unknown outcome) and the cancel doesn't happen; the caller returns
+ * it. Another transfer Stripe has for the order (another amount, reversed in part) is a 409 for a person to look
+ * at; Stripe unreachable is a 503 and nothing is cancelled. Always asked, whatever the row's status or last
+ * error: any row a worker has claimed may have reached Stripe. Returns true when the transfer was adopted.
+ */
+async function adoptTransferBeforeCancel(deps: Deps, transferId: string): Promise<boolean> {
+  const [row] = await deps.db.query<{ order_id: string; destination_account_id: string; amount_cents: number; status: TransferStatus }>(
+    `select order_id, destination_account_id, amount_cents, status from private.order_transfers where id = $1::bigint`,
+    [transferId],
+  );
+  // Unknown, sent or cancelled: the database answers 404 or 409 below, with nothing to look up.
+  if (!row || row.status === "sent" || row.status === "cancelled") return false;
+  const reference = orderReference(row.order_id);
+  let found;
+  try {
+    found = await lookupOrderTransfer(deps, {
+      orderId: row.order_id,
+      destination: row.destination_account_id,
+      amountCents: row.amount_cents,
+    });
+  } catch (err) {
+    console.error(`Cancelling the transfer for order ${reference}: Stripe couldn't be asked for an existing transfer (${stripeErrorLabel(err)}); nothing was cancelled.`);
+    throw new HttpError(503, "Couldn't check Stripe for an existing transfer, so nothing was cancelled. Try again in a minute.", undefined, {
+      code: "transfer_stripe_unavailable",
+    });
+  }
+  if (found.kind === "none") return false;
+  if (found.kind === "unclear") {
+    throw new HttpError(
+      409,
+      "Stripe has a transfer for this order that doesn't match its share. Check it in Stripe before cancelling.",
+      undefined,
+      { code: "transfer_exists_in_stripe" },
+    );
+  }
+  const [finished] = await deps.db.query<{ result: string; alert_queued: boolean }>(
+    `select result, alert_queued from private.finish_order_transfer($1::bigint, null, 'sent', null, null, $2, false, false)`,
+    [transferId, found.transferId],
+  );
+  if (finished?.alert_queued) sendOpsAlertsSoon(deps);
+  if (finished?.result !== "sent") {
+    // Another action got there first (a cancel by someone else, or a different transfer on record): nothing more is done here.
+    throw new HttpError(409, "That action doesn't apply to the transfer's status.", undefined, { code: "transfer_state_conflict" });
+  }
+  console.warn(`Cancelling the transfer for order ${reference}: Stripe already has the transfer, so it was recorded as sent instead.`);
+  return true;
+}
+
+/**
  * POST /api/admin/transfers/[transferId]/action {action} — admin: `retry` a
  * failed or waiting transfer, `release` a held one (both: due now, with a
  * fresh set of attempts, sent by the next run of GET /api/cron/payouts), or
  * `cancel` a held, waiting or failed one (never sent: pay the organiser by
- * hand). Returns the transfer. 400 `fieldErrors.action`; 404 unknown; 409
+ * hand, once Stripe has been asked and has no transfer for the order: if it has
+ * one, that transfer is recorded as sent and returned instead of cancelling).
+ * Returns the transfer. 400 `fieldErrors.action`; 404 unknown; 409
  * with a `code`: `transfer_in_progress` (a worker has it right now),
  * `transfer_state_conflict` (not in a status this action applies to, e.g.
  * already sent or cancelled), `transfer_not_payable` (the order was refunded
- * since: retry and release are refused; cancel it).
+ * since: retry and release are refused; cancel it), `transfer_exists_in_stripe`
+ * (cancel: Stripe has a transfer for the order that isn't its share). 503
+ * `transfer_stripe_unavailable`: cancel couldn't ask Stripe, so nothing changed.
  */
 export const adminTransferAction: Handler<{ transferId: string }> = async (req, { transferId }, deps) => {
   const admin = await requireAdmin(req, deps.verifyAccessToken);
@@ -191,6 +251,10 @@ export const adminTransferAction: Handler<{ transferId: string }> = async (req, 
   const body = await readJson(req);
   if (typeof body.action !== "string" || !TRANSFER_ACTIONS.includes(body.action as TransferAction)) {
     fail({ action: `Action must be one of: ${TRANSFER_ACTIONS.join(", ")}.` });
+  }
+  if (body.action === "cancel" && (await adoptTransferBeforeCancel(deps, transferId))) {
+    const [adopted] = await deps.db.query(`${ADMIN_TRANSFER_SELECT} where t.id = $1::bigint`, [transferId]);
+    return okPrivate(toAdminTransfer(adopted));
   }
   const [row] = await deps.db.query<{ result: string }>(
     `select result from private.admin_transfer_action($1::bigint, $2, $3::uuid)`,

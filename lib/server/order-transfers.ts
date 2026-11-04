@@ -40,8 +40,12 @@ export const TRANSFER_LEASE = "2 minutes";
 export const MAX_TRANSFER_ATTEMPTS = 5;
 /** Seconds to wait after the 1st, 2nd, 3rd and 4th failed attempt: 1 hour, 6 hours, then a day. */
 export const TRANSFER_RETRY_DELAYS_SECONDS = [3_600, 21_600, 86_400, 86_400] as const;
-/** One run: at most this many transfers, this many at once, and no new one started after the budget. */
-export const TRANSFER_RUN = { maxTransfers: 50, concurrency: 4, budgetMs: 45_000 } as const;
+/**
+ * One run: at most this many transfers, this many at once, and no new one started after the budget. A transfer
+ * started at the last moment makes three Stripe calls of TRANSFER_STRIPE_REQUEST.timeout (10 s) each, so the run
+ * ends within budgetMs + 30 s: 25 s keeps that (55 s, plus the database) inside the cron route's maxDuration of 60.
+ */
+export const TRANSFER_RUN = { maxTransfers: 50, concurrency: 4, budgetMs: 25_000 } as const;
 /** Every Stripe call of a transfer: no automatic retry (the next attempt is the retry, and it looks first). */
 export const TRANSFER_STRIPE_REQUEST = { timeout: 10_000, maxNetworkRetries: 0 } as const;
 
@@ -153,8 +157,8 @@ function checkCharge(paymentIntent: Stripe.PaymentIntent, job: ClaimedTransfer):
   if (charge.currency !== "aud" || charge.amount !== job.transfer_total_cents) return { held: "amount_mismatch" };
   // A destination charge already paid its organiser with the payment: never transfer it again.
   if (charge.transfer_data?.destination || charge.on_behalf_of) return { held: "destination_charge" };
-  const metadataOrderId = paymentIntent.metadata?.orderId;
-  if (metadataOrderId !== undefined && metadataOrderId !== job.transfer_order_id) return { held: "metadata_mismatch" };
+  // A payment that doesn't name this order (its metadata is missing, or names another) isn't proved to be ours.
+  if (paymentIntent.metadata?.orderId !== job.transfer_order_id) return { held: "metadata_mismatch" };
   return { chargeId: charge.id };
 }
 
@@ -184,6 +188,65 @@ async function findExistingTransfer(
   return other ? { held: "transfer_mismatch" } : undefined;
 }
 
+/** What Stripe has for an order's transfer group and an organiser's account: see lookupOrderTransfer. */
+export type TransferLookup = { kind: "none" } | { kind: "found"; transferId: string } | { kind: "unclear" };
+
+/**
+ * Asks Stripe whether a transfer of this order's share already exists (in the order's transfer group, to the
+ * organiser's account): for an admin who is about to cancel a transfer and pay by hand. A cancel after an
+ * unknown outcome (a timeout, a worker that died) could otherwise pay the organiser twice, because Stripe may
+ * have accepted the request. `found`: a whole transfer for exactly the share (to be recorded as sent);
+ * `none`: none, or only ones reversed in full (the money came back, so paying by hand is right); `unclear`:
+ * one for another amount or reversed in part, or more than one page of them: a person looks in Stripe.
+ * Throws when Stripe can't be asked: the caller must not cancel then.
+ */
+export async function lookupOrderTransfer(
+  deps: Deps,
+  order: { orderId: string; destination: string; amountCents: number },
+): Promise<TransferLookup> {
+  const list = await deps.stripe().transfers.list(
+    { transfer_group: order.orderId, destination: order.destination, limit: 100 },
+    TRANSFER_STRIPE_REQUEST,
+  );
+  let unclear = list.has_more === true;
+  for (const transfer of list.data) {
+    if (transfer.reversed) continue;
+    if (transfer.amount === order.amountCents && transfer.amount_reversed === 0) {
+      return { kind: "found", transferId: transfer.id };
+    }
+    unclear = true;
+  }
+  return unclear ? { kind: "unclear" } : { kind: "none" };
+}
+
+/**
+ * Reads the order and the row again from the database, just before the transfer is created. Returns the
+ * decision to take instead of creating (held, or retried when its lease lapsed), or undefined when it is still payable:
+ * the order paid and not refunded even in part, and the row still leased to this worker. A refund recorded by the webhook meanwhile
+ * has usually cancelled or held the row already (flag_transfer_after_refund), in which case the lease is gone
+ * and recording the hold changes nothing ('lease_lost'); if only record_payment_refund has run, the hold is
+ * recorded here and flag_transfer_after_refund cancels (full) or keeps it held (partial) when it follows.
+ * A failure to read is thrown (nothing is created; the lease lapses and the next run looks in Stripe first).
+ */
+async function recheckBeforeCreate(deps: Deps, job: ClaimedTransfer): Promise<Decision | undefined> {
+  const [row] = await deps.db.query<{ order_status: string; amount_refunded_cents: number; owned: boolean; lapsed: boolean }>(
+    `select o.status::text as order_status, o.amount_refunded_cents,
+            coalesce(t.status = 'sending' and t.lease_token = $3::uuid, false) as owned,
+            coalesce(t.lease_expires_at <= now(), false) as lapsed
+       from public.orders o
+       left join private.order_transfers t on t.id = $2::bigint
+      where o.id = $1`,
+    [job.transfer_order_id, String(job.transfer_id), job.transfer_lease_token],
+  );
+  if (!row) return { outcome: "held", error: "order_not_found" };
+  if (row.order_status !== "paid" || row.amount_refunded_cents > 0) return { outcome: "held", error: "refunded" };
+  // Not this worker's row any more: recording anything is refused by the lease check, and nothing is created.
+  if (!row.owned) return { outcome: "held", error: "lease_lost" };
+  // Still its row, but stalled past the lease: another worker may take it any moment, so leave it to the next attempt.
+  if (row.lapsed) return { outcome: "retry", error: "lease_lapsed", bumpKey: false, alert: false };
+  return undefined;
+}
+
 /** What to do with one claimed transfer: Stripe is asked about the payment and any earlier transfer, then the transfer is made. */
 async function decide(deps: Deps, job: ClaimedTransfer): Promise<Decision> {
   const stripe = deps.stripe();
@@ -209,6 +272,12 @@ async function decide(deps: Deps, job: ClaimedTransfer): Promise<Decision> {
     // Not knowing whether it exists is not a reason to send another: try again later.
     return beforeCreate(err);
   }
+
+  // The last look before money moves: a refund (or a lost lease) since the claim stops the transfer. The webhook
+  // that records a refund and this check are not one transaction, so a refund landing after this still ends in
+  // finish_order_transfer's transfer_reversal_required exception, but the window is now milliseconds, not minutes.
+  const stillPayable = await recheckBeforeCreate(deps, job);
+  if (stillPayable) return stillPayable;
 
   try {
     const transfer = await stripe.transfers.create(
@@ -277,6 +346,12 @@ async function finish(deps: Deps, job: ClaimedTransfer, decision: Decision, summ
     case "duplicate":
       summary.failed += 1;
       console.error(`Transfer for order ${reference}: a second transfer exists in Stripe; a payment exception was opened.`);
+      break;
+    case "cancelled_paid":
+      summary.failed += 1;
+      console.error(
+        `Transfer for order ${reference}: it was sent after an admin cancelled it; the row stays cancelled and a payment exception was opened (reverse the transfer, or the payment made by hand).`,
+      );
       break;
     default:
       summary.leaseLost += 1;

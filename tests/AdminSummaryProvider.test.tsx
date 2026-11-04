@@ -80,6 +80,7 @@ describe("Admin badge in the main nav", () => {
         organisersPending: { count: 1, oldestAt: null },
         emailsRetrying: { count: 9 },
         doorEvents: { count: 3, windowHours: 24 },
+        transfersOpen: { count: 4 },
       }),
     );
     renderNav(fakeAuthValue({ isAdmin: true, email: "admin@sheltuh.example" }));
@@ -87,8 +88,8 @@ describe("Admin badge in the main nav", () => {
     const links = adminLinks();
     expect(links).toHaveLength(2);
     for (const link of links) {
-      expect(link).toHaveAccessibleName("Admin, 3 waiting");
-      expect(link.querySelector("[data-admin-badge]")).toHaveTextContent("3");
+      expect(link).toHaveAccessibleName("Admin, 7 waiting");
+      expect(link.querySelector("[data-admin-badge]")).toHaveTextContent("7");
     }
   });
 

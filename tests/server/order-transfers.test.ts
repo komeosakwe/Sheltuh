@@ -10,6 +10,8 @@ import {
   classifyTransferError,
   MAX_TRANSFER_ATTEMPTS,
   runOrderTransfers,
+  TRANSFER_RUN,
+  TRANSFER_STRIPE_REQUEST,
   transferIdempotencyKey,
   transferRetryDelaySeconds,
 } from "@/lib/server/order-transfers";
@@ -364,6 +366,21 @@ describe("checkout with DELAYED_PAYOUTS on", () => {
       /cannot change/,
     );
   });
+
+  it("one UPDATE that marks a pending destination order paid and a transfer order together is refused", async () => {
+    const pending = await makeOrder({ delayed: false, paid: false });
+    await expect(
+      api.db.query(`update public.orders set status = 'paid', payout_method = 'transfer' where id = $1`, [pending.orderId]),
+    ).rejects.toThrow(/cannot change/);
+    expect(await orderRow(pending.orderId)).toMatchObject({ status: "pending", payout_method: "destination" });
+    // A status change alone (what the webhook does) is not affected.
+    await expect(api.db.query(`update public.orders set status = 'paid' where id = $1`, [pending.orderId])).resolves.toBeDefined();
+    expect(await orderRow(pending.orderId)).toMatchObject({ status: "paid", payout_method: "destination" });
+    // The choice itself, made while pending (what checkout does), is still allowed.
+    const next = await makeOrder({ delayed: false, paid: false });
+    await api.db.query(`update public.orders set payout_method = 'transfer' where id = $1 and status = 'pending'`, [next.orderId]);
+    expect((await orderRow(next.orderId)).payout_method).toBe("transfer");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -597,6 +614,18 @@ describe("Stripe is asked about the payment first", () => {
     api.stripe.payments.set(order.pi, { orderId: order.orderId, amount: order.total, status: "processing" });
     await run();
     expect(await transferOf(order.orderId)).toMatchObject({ status: "held", last_error: "charge_not_successful" });
+  });
+
+  it("a payment intent that doesn't name an order is held, not paid", async () => {
+    const order = await dueOrder();
+    api.stripe.payments.set(order.pi, { amount: order.total });
+    expect(await run()).toMatchObject({ claimed: 1, held: 1, sent: 0 });
+    expect(await transferOf(order.orderId)).toMatchObject({ status: "held", last_error: "metadata_mismatch" });
+    expect(api.stripe.transfers.create).not.toHaveBeenCalled();
+    // Released once Stripe's record is right (the metadata names the order).
+    api.stripe.payments.set(order.pi, { orderId: order.orderId, amount: order.total });
+    await api.call(adminTransferAction, { token: admin.token, params: { transferId: (await transferOf(order.orderId)).id }, body: { action: "release" } });
+    expect(await run()).toMatchObject({ sent: 1 });
   });
 
   it("a payment intent for another order is held", async () => {
@@ -1034,6 +1063,36 @@ describe("refunds Sheltüh makes itself, and refunds that come early", () => {
     expect(await api.db.query(`select 1 from private.early_charge_refunds where payment_intent_id = 'pi_other'`)).toHaveLength(0);
   });
 
+  it.each([
+    ["Stripe unreachable", () => new Stripe.errors.StripeConnectionError({ message: "down" })],
+    ["a Stripe server error", () => new Stripe.errors.StripeAPIError({ message: "boom", statusCode: 500 })],
+    ["rate limiting", () => new Stripe.errors.StripeRateLimitError({ message: "slow down", statusCode: 429 })],
+    ["our key failing", () => new Stripe.errors.StripeAuthenticationError({ message: "bad key", statusCode: 401 })],
+  ])("an early refund whose payment intent can't be read (%s) is answered 500 so Stripe sends it again, not dropped", async (_name, failure) => {
+    api.delayedPayouts = true;
+    const res = await api.call(createCheckout, { params: { eventId: event.eventId }, body: { lineItems: [{ ticketTypeId: "ga", quantity: 1 }] } });
+    const orderId = res.body.orderId as string;
+    const total = (await orderRow(orderId)).total_cents;
+    api.stripe.payments.set("pi_early", { orderId, amount: total });
+    api.stripe.paymentIntents.retrieve.mockRejectedValueOnce(failure());
+    const failed = await api.send(stripeWebhook, chargeRefunded("pi_early", total, true, { eventId: "evt_early_refund" }));
+    expect(failed.status).toBe(500);
+    expect(await api.db.query(`select 1 from private.early_charge_refunds where payment_intent_id = 'pi_early'`)).toHaveLength(0);
+
+    // Stripe's redelivery, once it can answer: held for the payment, as for any early refund.
+    const again = await api.send(stripeWebhook, chargeRefunded("pi_early", total, true, { eventId: "evt_early_refund" }));
+    expect(again.status).toBe(200);
+    expect(await api.db.query(`select 1 from private.early_charge_refunds where payment_intent_id = 'pi_early'`)).toHaveLength(1);
+    expect(error.mock.calls.flat().map(String).join("\n")).not.toContain(orderId);
+  });
+
+  it("only Stripe saying there's no such payment intent drops an early refund as not ours (200)", async () => {
+    api.stripe.payments.intents.delete("pi_unknown");
+    const res = await api.send(stripeWebhook, chargeRefunded("pi_unknown", 1000, true));
+    expect(res.status).toBe(200);
+    expect(await api.db.query(`select 1 from private.early_charge_refunds where payment_intent_id = 'pi_unknown'`)).toHaveLength(0);
+  });
+
   it("a recorded payment needs no Stripe lookup for its refund", async () => {
     const order = await makeOrder();
     api.stripe.paymentIntents.retrieve.mockClear();
@@ -1279,6 +1338,344 @@ describe("POST /api/admin/transfers/{id}/action", () => {
     );
     expect(late.result).toBe("lease_lost");
     expect((await transferOf(order.orderId)).status).toBe("sending");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cancelling a transfer, when Stripe may already have made it
+// ---------------------------------------------------------------------------
+
+describe("cancelling a transfer asks Stripe first (the organiser could be paid twice)", () => {
+  const act = (transferId: string, action: unknown, token = admin.token) =>
+    api.call(adminTransferAction, { token, params: { transferId }, body: { action } });
+
+  /** A due order whose transfer Stripe accepted, with the answer lost: the row waits for a retry. */
+  async function unknownOutcome() {
+    const order = await makeOrder();
+    await endedHoursAgo(49);
+    const original = originalTransferCreate();
+    api.stripe.transfers.create.mockImplementationOnce(async (params, options) => {
+      await original(params, options);
+      throw new Stripe.errors.StripeConnectionError({ message: "Request aborted due to timeout being reached (10000ms)" });
+    });
+    await run();
+    const row = await transferOf(order.orderId);
+    expect(row).toMatchObject({ status: "retry", last_error: "stripe_unreachable" });
+    expect(api.stripe.madeTransfers).toHaveLength(1);
+    return { order, row };
+  }
+
+  it("after an unknown outcome the transfer Stripe made is recorded as sent, and the cancel does not happen", async () => {
+    const { order, row } = await unknownOutcome();
+    api.stripe.transfers.list.mockClear();
+    const res = await act(row.id, "cancel");
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ status: "sent", stripeTransferId: "tr_test_1", amountCents: order.share });
+    expect(api.stripe.transfers.list).toHaveBeenCalledWith(
+      { transfer_group: order.orderId, destination: ACCOUNT, limit: 100 },
+      { timeout: 10_000, maxNetworkRetries: 0 },
+    );
+    expect(await transferOf(order.orderId)).toMatchObject({ status: "sent", stripe_transfer_id: "tr_test_1" });
+    // Nothing more is sent, and the organiser isn't paid again by a run.
+    await dueNow();
+    expect(await run()).toMatchObject({ claimed: 0 });
+    expect(api.stripe.madeTransfers).toHaveLength(1);
+    // The row is final: a second cancel is a plain conflict, with no look at Stripe.
+    api.stripe.transfers.list.mockClear();
+    expect((await act(row.id, "cancel")).body.code).toBe("transfer_state_conflict");
+    expect(api.stripe.transfers.list).not.toHaveBeenCalled();
+  });
+
+  it("a worker that died after Stripe accepted the request (a lapsed sending row) is adopted, not cancelled", async () => {
+    const order = await makeOrder();
+    await endedHoursAgo(49);
+    await api.db.query(`select * from private.claim_due_transfers(1, interval '2 minutes', 5)`);
+    await originalTransferCreate()(
+      { amount: order.share, currency: "aud", destination: ACCOUNT, source_transaction: `ch_${order.pi}`, transfer_group: order.orderId, metadata: {} },
+      { idempotencyKey: transferIdempotencyKey(order.orderId, 1) },
+    );
+    await api.db.query(`update private.order_transfers set lease_expires_at = now() - interval '1 second'`);
+    // Not due any more, so nobody takes the row over: only the admin can act on it.
+    await api.db.query(`update public.events set status = 'draft' where id = $1`, [event.eventId]);
+    const row = await transferOf(order.orderId);
+    expect(row.status).toBe("sending");
+    const res = await act(row.id, "cancel");
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ status: "sent", stripeTransferId: "tr_test_1" });
+    expect(api.stripe.madeTransfers).toHaveLength(1);
+  });
+
+  it.each([
+    ["failed after an unfinished last attempt", "failed", "last_attempt_unfinished"],
+    ["held", "held", "idempotency_conflict"],
+  ])("a %s row whose transfer exists in Stripe is adopted too", async (_name, status, lastError) => {
+    const order = await makeOrder();
+    await endedHoursAgo(49);
+    await run();
+    // Put the row in the state it would be in had the worker lost the answer: the transfer exists in Stripe only.
+    const sent = await transferOf(order.orderId);
+    await api.db.query(
+      `update private.order_transfers set status = $2, last_error = $3, stripe_transfer_id = null, sent_at = null where id = $1`,
+      [sent.id, status, lastError],
+    );
+    const res = await act(sent.id, "cancel");
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ status: "sent", stripeTransferId: "tr_test_1" });
+  });
+
+  it("with no transfer in Stripe the cancel goes ahead (a transfer reversed in full doesn't count)", async () => {
+    const order = await makeOrder();
+    const reversed = await makeOrder();
+    await endedHoursAgo(49);
+    // Stripe fails for the first order only (the run takes the two in no particular order).
+    const create = originalTransferCreate();
+    api.stripe.transfers.create.mockImplementation(async (params, options) => {
+      if (params.transfer_group === order.orderId) throw new Stripe.errors.StripeAPIError({ message: "boom", statusCode: 500 });
+      return create(params, options);
+    });
+    await run();
+    const row = await transferOf(order.orderId);
+    expect(row.status).toBe("retry");
+    const res = await act(row.id, "cancel");
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ status: "cancelled", lastError: "cancelled_by_admin" });
+    expect(api.stripe.transfers.list).toHaveBeenCalled();
+
+    const second = await transferOf(reversed.orderId);
+    expect(second.status).toBe("sent");
+    // Back to a held row whose transfer was reversed in Stripe: the money came back, paying by hand is right.
+    await api.db.query(
+      `update private.order_transfers set status = 'held', last_error = 'transfer_reversed', stripe_transfer_id = null, sent_at = null where id = $1`,
+      [second.id],
+    );
+    await api.stripe.transfers.createReversal(api.stripe.madeTransfers.find((t) => t.transfer_group === reversed.orderId)!.id, {});
+    expect((await act(second.id, "cancel")).body).toMatchObject({ status: "cancelled" });
+  });
+
+  it("a transfer for another amount is a 409 for a person to check in Stripe: nothing is cancelled", async () => {
+    const order = await makeOrder();
+    await endedHoursAgo(49);
+    api.stripe.transfers.create.mockRejectedValueOnce(new Stripe.errors.StripeAPIError({ message: "boom", statusCode: 500 }));
+    await run();
+    await originalTransferCreate()(
+      { amount: order.share + 1, currency: "aud", destination: ACCOUNT, transfer_group: order.orderId, metadata: {} },
+      undefined,
+    );
+    const row = await transferOf(order.orderId);
+    const res = await act(row.id, "cancel");
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("transfer_exists_in_stripe");
+    expect((await transferOf(order.orderId)).status).toBe("retry");
+  });
+
+  it("when Stripe can't be asked nothing is cancelled (503), and the log has no order id or Stripe message", async () => {
+    const { order, row } = await unknownOutcome();
+    api.stripe.transfers.list.mockRejectedValueOnce(new Stripe.errors.StripeConnectionError({ message: "secret detail" }));
+    const res = await act(row.id, "cancel");
+    expect(res.status).toBe(503);
+    expect(res.body.code).toBe("transfer_stripe_unavailable");
+    expect((await transferOf(order.orderId)).status).toBe("retry");
+    const logged = error.mock.calls.flat().map(String).join("\n");
+    expect(logged).toContain(orderReference(order.orderId));
+    expect(logged).not.toContain(order.orderId);
+    expect(logged).not.toContain("secret detail");
+    // And once Stripe answers, the transfer it already made is adopted.
+    expect((await act(row.id, "cancel")).body.status).toBe("sent");
+  });
+
+  it("retry and release don't look at Stripe (the job's own look-before-create covers them)", async () => {
+    const { row } = await unknownOutcome();
+    api.stripe.transfers.list.mockClear();
+    expect((await act(row.id, "retry")).status).toBe(200);
+    expect(api.stripe.transfers.list).not.toHaveBeenCalled();
+  });
+});
+
+describe("a transfer that reaches Stripe after an admin cancelled the row", () => {
+  const act = (transferId: string, action: unknown) => api.call(adminTransferAction, { token: admin.token, params: { transferId }, body: { action } });
+
+  it("a worker stalled past its lease: the row stays cancelled but records the transfer, with an urgent exception and an alert", async () => {
+    const order = await makeOrder();
+    await endedHoursAgo(49);
+    const original = originalTransferCreate();
+    let cancel: { status: number; body: Record<string, unknown> } | undefined;
+    api.stripe.transfers.create.mockImplementationOnce(async (params, options) => {
+      // The worker is held up: its lease lapses, and an admin cancels the row (Stripe has no transfer yet) ...
+      await api.db.query(`update private.order_transfers set lease_expires_at = now() - interval '1 second'`);
+      cancel = await act((await transferOf(order.orderId)).id, "cancel");
+      // ... then Stripe accepts the worker's request after all.
+      return original(params, options);
+    });
+    expect(await run()).toMatchObject({ claimed: 1, sent: 0, failed: 1 });
+    expect(cancel?.status).toBe(200);
+    expect(cancel?.body).toMatchObject({ status: "cancelled" });
+
+    const row = await transferOf(order.orderId);
+    expect(row).toMatchObject({ status: "cancelled", stripe_transfer_id: "tr_test_1", last_error: "cancelled_by_admin" });
+    const [times] = await api.db.query<{ sent_at: Date | null }>(`select sent_at from private.order_transfers where id = $1`, [row.id]);
+    expect(times.sent_at).not.toBeNull();
+    expect(await exceptions()).toEqual([
+      expect.objectContaining({
+        kind: "transfer_reversal_required",
+        status: "open",
+        order_id: order.orderId,
+        details: expect.objectContaining({ reason: "transfer_after_cancel", transferAmountCents: order.share }),
+      }),
+    ]);
+    await api.runDeferred();
+    expect(api.sendEmail).toHaveBeenCalledTimes(1);
+    expect(api.sendEmail.mock.calls[0][0].subject).toContain("URGENT");
+    expect(api.sendEmail.mock.calls[0][0].text).not.toContain(order.orderId);
+    expect(error.mock.calls.flat().map(String).join("\n")).toContain("sent after an admin cancelled it");
+
+    // Nothing is sent again, and the admin view shows the transfer id.
+    expect(await run()).toMatchObject({ claimed: 0 });
+    const listed = await api.call(adminListTransfers, { token: admin.token, query: { status: "cancelled" } });
+    expect(listed.body.items[0]).toMatchObject({ status: "cancelled", stripeTransferId: "tr_test_1" });
+    // The organiser has that money: it counts as sent for them, and the platform no longer owes it.
+    expect(listed.body.owedToOrganisersCents).toBe(0);
+  });
+
+  it("is idempotent: the same transfer again changes nothing; another transfer is a duplicate", async () => {
+    const order = await makeOrder();
+    await endedHoursAgo(49);
+    await api.db.query(`select * from private.claim_due_transfers(1, interval '2 minutes', 5)`);
+    const row = await transferOf(order.orderId);
+    await api.db.query(`update private.order_transfers set lease_expires_at = now() - interval '1 second'`);
+    await api.db.query(`update public.events set status = 'draft' where id = $1`, [event.eventId]);
+    expect((await act(row.id, "cancel")).body.status).toBe("cancelled");
+
+    const finish = async (transferId: string) =>
+      (
+        await api.db.query<{ result: string }>(
+          `select result from private.finish_order_transfer($1::bigint, null, 'sent', null, null, $2, false, false)`,
+          [row.id, transferId],
+        )
+      )[0].result;
+    expect(await finish("tr_late_1")).toBe("cancelled_paid");
+    expect(await finish("tr_late_1")).toBe("cancelled_paid");
+    expect(await finish("tr_late_2")).toBe("duplicate");
+    expect(await transferOf(order.orderId)).toMatchObject({ status: "cancelled", stripe_transfer_id: "tr_late_1" });
+    expect((await exceptions()).map((e) => [e.kind, e.details.reason])).toEqual([["transfer_reversal_required", "duplicate_transfer"]]);
+  });
+
+  it("a refund after that is flagged for reversal too", async () => {
+    const order = await makeOrder();
+    await endedHoursAgo(49);
+    await api.db.query(`select * from private.claim_due_transfers(1, interval '2 minutes', 5)`);
+    const row = await transferOf(order.orderId);
+    await api.db.query(`update private.order_transfers set lease_expires_at = now() - interval '1 second'`);
+    await api.db.query(`update public.events set status = 'draft' where id = $1`, [event.eventId]);
+    expect((await act(row.id, "cancel")).body.status).toBe("cancelled");
+    await api.db.query(`select * from private.finish_order_transfer($1::bigint, null, 'sent', null, null, 'tr_late_1', false, false)`, [row.id]);
+    expect((await exceptions()).map((e) => e.details.reason)).toEqual(["transfer_after_cancel"]);
+    await refund(order, order.total);
+    expect((await exceptions()).map((e) => e.details.reason)).toEqual(["refunded_after_transfer"]);
+    expect((await transferOf(order.orderId)).status).toBe("cancelled");
+  });
+
+  it("a transfer id is only ever kept on a sent or cancelled row", async () => {
+    const order = await makeOrder();
+    await endedHoursAgo(49);
+    api.stripe.transfers.create.mockRejectedValueOnce(new Stripe.errors.StripeAPIError({ message: "boom", statusCode: 500 }));
+    await run();
+    const row = await transferOf(order.orderId);
+    expect(row.status).toBe("retry");
+    await expect(
+      api.db.query(`update private.order_transfers set stripe_transfer_id = 'tr_x', sent_at = now() where id = $1`, [row.id]),
+    ).rejects.toThrow(/order_transfers_sent_state/);
+    await expect(api.db.query(`update private.order_transfers set status = 'sent' where id = $1`, [row.id])).rejects.toThrow(
+      /order_transfers_sent_state|order_transfers_lease_only_while_sending/,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The last look before the transfer is created
+// ---------------------------------------------------------------------------
+
+describe("a refund while the job is working up to the transfer", () => {
+  it("a full refund recorded after the job read Stripe, before it creates: nothing is sent, and the row ends cancelled", async () => {
+    const order = await makeOrder();
+    await endedHoursAgo(49);
+    // The refund's webhook is handled between the job's look at Stripe and its create (inside the look for an existing transfer).
+    api.stripe.transfers.list.mockImplementationOnce(async () => {
+      await refund(order, order.total, { eventId: "evt_before_create" });
+      return { object: "list", has_more: false, data: [] } as never;
+    });
+    expect(await run()).toMatchObject({ claimed: 1, sent: 0 });
+    expect(api.stripe.transfers.create).not.toHaveBeenCalled();
+    expect(await transferOf(order.orderId)).toMatchObject({ status: "cancelled", last_error: "refunded" });
+    expect(await exceptions()).toEqual([]);
+  });
+
+  it("a refund recorded but not yet applied to the transfer row is held by the job itself", async () => {
+    const order = await makeOrder();
+    await endedHoursAgo(49);
+    api.stripe.transfers.list.mockImplementationOnce(async () => {
+      // record_payment_refund has run; flag_transfer_after_refund has not.
+      await api.db.query(`update public.orders set amount_refunded_cents = 100 where id = $1`, [order.orderId]);
+      return { object: "list", has_more: false, data: [] } as never;
+    });
+    expect(await run()).toMatchObject({ claimed: 1, held: 1, sent: 0 });
+    expect(api.stripe.transfers.create).not.toHaveBeenCalled();
+    expect(await transferOf(order.orderId)).toMatchObject({ status: "held", last_error: "refunded" });
+  });
+
+  it("an order that is no longer paid is not transferred either", async () => {
+    const order = await makeOrder();
+    await endedHoursAgo(49);
+    api.stripe.transfers.list.mockImplementationOnce(async () => {
+      await api.db.query(`update public.orders set status = 'refunded' where id = $1`, [order.orderId]);
+      return { object: "list", has_more: false, data: [] } as never;
+    });
+    await run();
+    expect(api.stripe.transfers.create).not.toHaveBeenCalled();
+    expect((await transferOf(order.orderId)).status).not.toBe("sent");
+  });
+
+  it("a row another worker took over is not created for by the first", async () => {
+    const order = await makeOrder();
+    await endedHoursAgo(49);
+    api.stripe.transfers.list.mockImplementationOnce(async () => {
+      await api.db.query(`update private.order_transfers set lease_token = gen_random_uuid()`);
+      return { object: "list", has_more: false, data: [] } as never;
+    });
+    expect(await run()).toMatchObject({ claimed: 1, sent: 0, leaseLost: 1 });
+    expect(api.stripe.transfers.create).not.toHaveBeenCalled();
+    expect((await transferOf(order.orderId)).status).toBe("sending");
+  });
+
+  it("a worker stalled past its lease sends nothing and leaves the row for the next attempt", async () => {
+    const order = await makeOrder();
+    await endedHoursAgo(49);
+    api.stripe.transfers.list.mockImplementationOnce(async () => {
+      await api.db.query(`update private.order_transfers set lease_expires_at = now() - interval '1 second'`);
+      return { object: "list", has_more: false, data: [] } as never;
+    });
+    expect(await run()).toMatchObject({ claimed: 1, sent: 0, retrying: 1 });
+    expect(api.stripe.transfers.create).not.toHaveBeenCalled();
+    expect(await transferOf(order.orderId)).toMatchObject({ status: "retry", last_error: "lease_lapsed", key_version: 1 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The run's time budget
+// ---------------------------------------------------------------------------
+
+describe("the run's time budget", () => {
+  it("leaves room for the three Stripe calls of the last transfer inside the route's maxDuration", async () => {
+    const { maxDuration } = await import("@/app/api/cron/payouts/route");
+    expect(TRANSFER_RUN.budgetMs + 3 * TRANSFER_STRIPE_REQUEST.timeout).toBeLessThan(maxDuration * 1000);
+    expect(TRANSFER_RUN.budgetMs).toBeLessThanOrEqual(25_000);
+  });
+
+  it("starts no new transfer once the budget is spent", async () => {
+    await makeOrder();
+    await makeOrder();
+    await endedHoursAgo(49);
+    expect(await runOrderTransfers(api.deps, { budgetMs: 0 })).toMatchObject({ claimed: 0 });
+    expect(await run()).toMatchObject({ claimed: 2, sent: 2 });
   });
 });
 

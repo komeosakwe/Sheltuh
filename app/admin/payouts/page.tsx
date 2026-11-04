@@ -8,11 +8,7 @@ export const metadata: Metadata = { title: "Payouts — Sheltüh admin" };
 
 export default function AdminPayoutsPage() {
   return (
-    <AdminPage
-      crumbs={[{ href: "/admin", label: "Admin" }]}
-      title="Payouts"
-      intro="Organisers are sent their share about 2 days after their event ends. Anything stuck waits here for you."
-    >
+    <AdminPage crumbs={[{ href: "/admin", label: "Admin" }]} title="Payouts">
       {/* The filter lives in the URL (useSearchParams), so the list renders on the client. */}
       <Suspense fallback={<LoadingState text="Loading…" />}>
         <TransferQueue />

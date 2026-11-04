@@ -56,14 +56,16 @@ const ACTIONS: Record<PaymentExceptionKind, string> = {
     "The order was refunded after the organiser's share had already been transferred to them. Stripe doesn't " +
     "take a transfer back by itself, so the refund came out of the platform's own balance. Reverse the " +
     "transfer in the Stripe dashboard (Connect, Transfers, the transfer, Reverse; docs/supabase-setup.md, " +
-    "\"Reversing a transfer after a late refund\"), then resolve the exception with a note.",
+    "\"Reversing a transfer after a late refund\"), then resolve the exception with a note. If the details say " +
+    "transfer_after_cancel, an admin cancelled the payout and a transfer reached the organiser anyway: reverse " +
+    "that transfer in Stripe, or if the organiser was also paid by hand, keep one payment and reverse the other.",
 };
 
 const URGENT: Partial<Record<PaymentExceptionKind, string>> = {
   refund_not_completed: "URGENT: the order was voided (its tickets are void) but the refund didn't complete.",
   amount_mismatch: "URGENT: a payment didn't match its order. Check it, and its automatic refund, in Stripe.",
   transfer_reversal_required:
-    "URGENT: a refunded order's money is still with the organiser. Reverse the transfer in the Stripe dashboard.",
+    "URGENT: an organiser holds money they shouldn't (a refunded order, or a cancelled payout that was sent anyway). Reverse the transfer in the Stripe dashboard.",
 };
 
 function dollars(cents: number): string {

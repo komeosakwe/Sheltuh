@@ -65,6 +65,22 @@ function renderQueue() {
 
 const card = (name: string) => screen.getByRole("heading", { name }).closest("article")!;
 
+describe("the Payouts page", () => {
+  it("has the heading and the queue, with no explanatory paragraph under the heading", async () => {
+    adminListTransfers.mockResolvedValue(page([transfer()]));
+    const { default: AdminPayoutsPage } = await import("@/app/admin/payouts/page");
+    render(
+      <FakeAuthProvider value={fakeAuthValue({ isAdmin: true })}>
+        <AdminPayoutsPage />
+      </FakeAuthProvider>,
+    );
+    expect(screen.getByRole("heading", { level: 1, name: "Payouts" })).toBeInTheDocument();
+    expect(screen.queryByText(/about 2 days after their event ends/)).not.toBeInTheDocument();
+    expect(await screen.findByText(/Owed to organisers/)).toBeInTheDocument();
+    expect(screen.getByText(/Last run/)).toBeInTheDocument();
+  });
+});
+
 describe("transfer copy", () => {
   it("maps codes to words, and makes up words for a code it doesn't know", () => {
     expect(transferErrorWords("refunded")).toBe("Refunded");

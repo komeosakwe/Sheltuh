@@ -1100,7 +1100,13 @@ Optional, switched by `DELAYED_PAYOUTS=1` in Vercel (server-only; docs/DEPLOYMEN
 
 **2. Watch the queue.** `GET /api/admin/transfers` (counts per status, `owedToOrganisersCents`, the last run) and the ops alert emails: `transfer_failed` (a payout couldn't be sent: top up the balance if it says `balance_insufficient`, or look at the organiser's Stripe account, then retry from the queue) and `transfer_reversal_required` (below). `select * from private.cron_runs where name = 'payouts';` shows when the job last finished. If a run was missed (`CRON_SECRET` unset, the deployment down), the next one catches up: due transfers stay due.
 
-**3. Paying one organiser by hand.** If a transfer is cancelled (or the organiser's Stripe account can't take it), pay them in the Stripe dashboard (Connect → Transfers → New transfer, the amount in `GET /api/admin/transfers`, with the order's id as the transfer group) and `cancel` it in the queue so the job never sends it as well. Never both.
+**3. Paying one organiser by hand.** Always in this order, so the organiser is never paid twice:
+
+1. **`cancel` the transfer in the queue first**, so the job can never send it as well. Before it cancels, the app asks Stripe whether a transfer already exists for the order (a request that timed out, or a worker that died, may have been accepted by Stripe): if one does for the organiser's share, it is recorded as **sent** instead and nothing is cancelled (the organiser has been paid: stop here). If Stripe has a transfer that is not the share, or can't be asked, the cancel is refused (409 `transfer_exists_in_stripe`, 503 `transfer_stripe_unavailable`) and you look in Stripe yourself.
+2. **Confirm in Stripe that there is no transfer for the order**: Connect → Transfers, search the transfer group (the order's id, `GET /api/admin/transfers` gives its short reference) and the organiser's account. A transfer that was reversed in full doesn't count.
+3. **Only then pay them by hand** in the Stripe dashboard (Connect → Transfers → New transfer, the amount in `GET /api/admin/transfers`, with the order's id as the transfer group).
+
+Never pay by hand first and cancel afterwards: a transfer the job had already started could still land. If one does reach Stripe after a cancel, the row stays `cancelled` but records the transfer, and a `transfer_reversal_required` exception (details `reason: transfer_after_cancel`, urgent, with an ops alert) asks you to reverse it, or the hand payment, so the organiser keeps one payment.
 
 **4. Reversing a transfer after a late refund.** An order refunded **after** its transfer was sent leaves the organiser holding money the buyer was refunded (the platform's balance paid the refund). Stripe does not take it back by itself: the app opens a `transfer_reversal_required` payment exception (urgent) and emails the ops address. To close it:
 

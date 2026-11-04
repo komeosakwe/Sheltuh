@@ -20,6 +20,7 @@ const SUMMARY = adminSummary({
   emailsFailed: { count: 1 },
   emailsRetrying: { count: 5 },
   doorEvents: { count: 4, windowHours: 24 },
+  transfersOpen: { count: 2 },
 });
 
 function renderSubNav() {
@@ -48,6 +49,7 @@ describe("AdminSubNav", () => {
     expect(within(nav).getByRole("link", { name: "Reports, 3 open" })).toBeInTheDocument();
     expect(within(nav).getByRole("link", { name: "Events, 2 waiting" })).toBeInTheDocument();
     expect(within(nav).getByRole("link", { name: "Emails, 1 failed" })).toBeInTheDocument();
+    expect(within(nav).getByRole("link", { name: "Payouts, 2 to check" })).toBeInTheDocument();
     // Nothing waiting: no badge, no count in the name.
     expect(within(nav).getByRole("link", { name: "Organisers" })).toBeInTheDocument();
     // The number is decorative, not a live region.
@@ -91,8 +93,18 @@ describe("AdminSubNav", () => {
     }
   });
 
-  it("totals only what needs an admin (not retrying emails or door events)", () => {
-    expect(needsYouTotal(SUMMARY)).toBe(6);
+  it("totals only what needs an admin (not retrying emails or door events): stuck payouts count", () => {
+    expect(needsYouTotal(SUMMARY)).toBe(8);
+    // An older server that doesn't send the count: nothing is added, and the Payouts link has no badge.
+    const older = { ...SUMMARY, transfersOpen: undefined };
+    expect(needsYouTotal(older)).toBe(6);
+    cleanup();
+    render(
+      <FakeAdminSummaryProvider value={{ summary: older }}>
+        <AdminSubNav />
+      </FakeAdminSummaryProvider>,
+    );
+    expect(within(screen.getByRole("navigation", { name: "Admin" })).getByRole("link", { name: "Payouts" })).toBeInTheDocument();
   });
 });
 

@@ -36,7 +36,11 @@
 --     refund, dispute, rejected by the account), failed (five attempts used),
 --     cancelled (refunded in full, or an admin's cancel). key_version is part of
 --     the Stripe idempotency key; it only goes up after Stripe definitely
---     rejected a request.
+--     rejected a request. A row an admin cancelled can still end up with a
+--     transfer in Stripe (a worker whose request Stripe accepted after the
+--     cancel): it stays cancelled but records the transfer id and sent_at
+--     ("cancelled but paid") and opens a transfer_reversal_required exception,
+--     because the organiser may be paid twice (by it and by hand).
 --   * private.due_transfer_orders(p_delay): the one definition of "due": paid,
 --     payout_method 'transfer', nothing refunded (not even in part), event still
 --     published and ended at least p_delay ago, organiser approved with payouts
@@ -46,13 +50,16 @@
 --   * private.finish_order_transfer: records an outcome. Lease-checked, except
 --     that 'sent' is always recorded (a transfer exists in Stripe whoever holds
 --     the lease) and, under the order's lock, re-checks the order: refunded
---     meanwhile means a transfer_reversal_required exception.
+--     meanwhile means a transfer_reversal_required exception, and so does a
+--     transfer that lands on a row an admin cancelled.
 --   * private.flag_transfer_after_refund: called after a refund is recorded.
 --     Unsent rows are cancelled (full refund) or held (partial); a sent row opens
 --     a transfer_reversal_required payment exception (Stripe never claws a
 --     transfer back by itself): an owner action, docs/supabase-setup.md.
 --   * private.admin_transfer_action: an admin's retry / release / cancel, with
---     the expected current status guarded (a lost race is a 409).
+--     the expected current status guarded (a lost race is a 409). The app asks
+--     Stripe for an existing transfer before it cancels
+--     (lib/server/handlers/payouts.ts) and adopts one it finds.
 --   * Two payment exception kinds, transfer_failed and
 --     transfer_reversal_required (payment_exceptions_kind_check and
 --     raise_payment_exception, as 20261110000150 did for amount_mismatch), and
@@ -106,13 +113,15 @@ create index orders_transfer_paid_idx on public.orders (event_id)
 
 -- The method is chosen once, while the order is pending (before any Stripe
 -- session exists); after that it can't change, so a destination order (already
--- paid out by Stripe) can never become a transferable one, or the reverse.
+-- paid out by Stripe) can never become a transferable one, or the reverse. The
+-- order must also still be pending afterwards, so one UPDATE that sets the
+-- status (paid) together with the method can't slip through either.
 create function private.orders_payout_method_frozen() returns trigger
 language plpgsql
 set search_path = ''
 as $$
 begin
-  if old.status <> 'pending' then
+  if old.status <> 'pending' or new.status <> 'pending' then
     raise exception 'orders.payout_method of a non-pending order cannot change' using errcode = '23514';
   end if;
   return new;
@@ -161,6 +170,8 @@ create table private.order_transfers (
   stripe_transfer_id text check (char_length(stripe_transfer_id) between 1 and 255),
   -- A short machine code (lower case and underscores), never a Stripe message.
   last_error text check (char_length(last_error) <= 100),
+  -- Set with stripe_transfer_id. A cancelled row has both only when a transfer reached Stripe after an
+  -- admin cancelled it (finish_order_transfer): the organiser has been paid, so it is not "never sent".
   sent_at timestamptz,
   last_admin_action text check (last_admin_action in ('retry', 'release', 'cancel')),
   last_admin_id uuid references auth.users (id) on delete set null,
@@ -172,7 +183,9 @@ create table private.order_transfers (
   constraint order_transfers_lease_only_while_sending
     check ((status = 'sending') = (lease_token is not null and lease_expires_at is not null)),
   constraint order_transfers_sent_state
-    check ((status = 'sent') = (stripe_transfer_id is not null and sent_at is not null))
+    check ((stripe_transfer_id is null) = (sent_at is null)
+           and (status <> 'sent' or stripe_transfer_id is not null)
+           and (stripe_transfer_id is null or status in ('sent', 'cancelled')))
 );
 
 create index order_transfers_due_idx on private.order_transfers (next_attempt_at, id) where status = 'retry';
@@ -491,7 +504,10 @@ $$;
 --            or in part) opens a transfer_reversal_required exception, and an
 --            open transfer_failed exception is resolved. A row already sent with
 --            another transfer id is a duplicate: 'duplicate', and the same
---            exception kind.
+--            exception kind. On a row an admin cancelled, the row stays
+--            cancelled but records the transfer ('cancelled_paid') and a
+--            transfer_reversal_required exception (reason transfer_after_cancel)
+--            asks the owner to reverse the transfer or the payment made by hand.
 --   'retry'  failed, try again after p_retry_in (default 1 hour); p_bump_key
 --            moves the idempotency key on (Stripe definitely rejected this one);
 --            p_alert opens a transfer_failed exception (and its ops alert).
@@ -499,7 +515,7 @@ $$;
 --   'failed' out of attempts: a transfer_failed exception.
 -- The three non-sent outcomes need the worker still to hold the lease
 -- ('lease_lost' otherwise, nothing changed). result is the outcome, or
--- 'lease_lost' / 'duplicate' / 'not_found'. alert_queued: an ops alert was queued.
+-- 'lease_lost' / 'duplicate' / 'cancelled_paid' / 'not_found'. alert_queued: an ops alert was queued.
 create function private.finish_order_transfer(
   p_id bigint, p_lease_token uuid, p_outcome text, p_error text, p_retry_in interval,
   p_stripe_transfer_id text, p_bump_key boolean, p_alert boolean,
@@ -534,6 +550,32 @@ begin
   select * into v_t from private.order_transfers t where t.id = p_id for update;
 
   if p_outcome = 'sent' then
+    if v_t.status = 'cancelled' and v_t.last_error = 'cancelled_by_admin' then
+      -- An admin cancelled the row (so they would pay the organiser by hand), yet a transfer exists in Stripe: a
+      -- worker's request that Stripe accepted after the cancel. The row stays cancelled (the admin's decision is
+      -- on record) but keeps the transfer, and the owner is told to reverse it (or the hand payment).
+      if v_t.stripe_transfer_id is null then
+        update private.order_transfers t
+           set stripe_transfer_id = p_stripe_transfer_id, sent_at = now()
+         where t.id = p_id;
+        select * into v_raised from private.raise_payment_exception(
+          'transfer_reversal_required', v_order_id, v_order.stripe_payment_intent_id, null, null, null,
+          jsonb_build_object('reason', 'transfer_after_cancel', 'transferAmountCents', v_t.amount_cents,
+                             'totalCents', v_order.total_cents, 'orderStatus', v_order.status::text));
+        alert_queued := v_raised.alert_queued;
+        result := 'cancelled_paid';
+      elsif v_t.stripe_transfer_id = p_stripe_transfer_id then
+        result := 'cancelled_paid';
+      else
+        select * into v_raised from private.raise_payment_exception(
+          'transfer_reversal_required', v_order_id, v_order.stripe_payment_intent_id, null, null, null,
+          jsonb_build_object('reason', 'duplicate_transfer', 'transferAmountCents', v_t.amount_cents,
+                             'totalCents', v_order.total_cents, 'orderStatus', v_order.status::text));
+        alert_queued := v_raised.alert_queued;
+        result := 'duplicate';
+      end if;
+      return;
+    end if;
     if v_t.status = 'sent' then
       if v_t.stripe_transfer_id = p_stripe_transfer_id then
         result := 'sent';
@@ -601,7 +643,8 @@ $$;
 -- idempotent). Looks only at a 'transfer' order with a refund on record:
 --   its transfer not sent yet: cancelled if the order was refunded in full;
 --     held (a person decides) if refunded in part;
---   its transfer sent: Stripe never takes a transfer back by itself, so a
+--   its transfer sent (or one that reached Stripe after an admin cancelled the
+--     row: cancelled but paid): Stripe never takes a transfer back by itself, so a
 --     transfer_reversal_required exception (and an ops alert) asks the owner to
 --     reverse it (docs/supabase-setup.md, "Reversing a transfer after a late refund");
 --   cancelled already, or no row: nothing.
@@ -654,7 +697,7 @@ begin
        where t.id = v_t.id;
       result := 'held';
     end if;
-  elsif v_t.status = 'sent' then
+  elsif v_t.status = 'sent' or (v_t.status = 'cancelled' and v_t.stripe_transfer_id is not null) then
     select * into v_raised from private.raise_payment_exception(
       'transfer_reversal_required', v_order.id, p_payment_intent_id, null, p_event_id, null,
       jsonb_build_object('reason', 'refunded_after_transfer', 'transferAmountCents', v_t.amount_cents,
@@ -672,7 +715,13 @@ $$;
 -- the update, so two admins, or an admin and a worker, can't both win):
 --   'retry'    failed or waiting for a retry: due now, with a fresh set of attempts
 --   'release'  held: due now, with a fresh set of attempts
---   'cancel'   held, waiting or failed: never sent (the organiser is paid by hand)
+--   'cancel'   held, waiting or failed: never sent (the organiser is paid by hand).
+--              Only after the app has asked Stripe whether a transfer already
+--              exists (lib/server/handlers/payouts.ts adopts one it finds):
+--              this function can't see Stripe, and a cancel that follows an
+--              unknown outcome could otherwise lead to a second payment. A
+--              transfer that appears after all ends as 'cancelled_paid'
+--              (finish_order_transfer).
 -- A retry or release is refused ('not_payable') when the order has been
 -- refunded since: the claim wouldn't send it anyway. Other results:
 -- 'ok', 'not_found', 'in_progress' (a worker has it), 'conflict' (not in a

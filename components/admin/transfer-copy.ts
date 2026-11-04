@@ -33,6 +33,7 @@ const ERROR_WORDS: Record<string, string> = {
   stripe_unreachable: "Couldn’t reach Stripe",
   stripe_unknown_outcome: "Stripe didn’t answer",
   rejected_by_stripe: "Stripe turned it down",
+  lease_lapsed: "The attempt stalled before sending",
   last_attempt_unfinished: "The last attempt didn’t finish",
   cancelled_by_admin: "Cancelled by an admin",
 };

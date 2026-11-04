@@ -105,6 +105,8 @@ const SUMMARY: AdminSummary = {
   emailsRetrying: { count: 0 },
   doorEvents: { count: 0, windowHours: 24 },
   eventsPublishedByOrganisers: { count: 0, windowHours: 72 },
+  // The failed and the held transfer of the list below.
+  transfersOpen: { count: 2 },
 };
 
 function transfer(id: number, overrides: Partial<AdminTransfer> = {}): AdminTransfer {
@@ -207,6 +209,9 @@ for (const vp of [
       );
       await expect(main.getByRole("button", { name: "Open (2)" })).toHaveAttribute("aria-pressed", "true");
       expect(queries[0]).toBe("?status=open");
+      // The sub-nav carries the count of what needs an admin; there is no explanatory text under the heading.
+      await expect(page.getByRole("navigation", { name: "Admin" }).getByRole("link", { name: /^Payouts\s*, 2 to check$/ })).toBeVisible();
+      await expect(main.getByText(/about 2 days after their event ends/)).toHaveCount(0);
 
       const failed = main.getByRole("heading", { name: "Order #7C1F2E01: Neon Static 1" }).locator("xpath=ancestor::article");
       const held = main.getByRole("heading", { name: "Order #7C1F2E02: Neon Static 2" }).locator("xpath=ancestor::article");
