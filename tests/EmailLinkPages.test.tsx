@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import FollowUnsubscribe from "@/components/following/FollowUnsubscribe";
+import StopHolderMessages from "@/components/holder-messages/StopHolderMessages";
 import WaitlistConfirm from "@/components/waitlist/WaitlistConfirm";
 import WaitlistLeave from "@/components/waitlist/WaitlistLeave";
 import { ApiError } from "@/lib/api/client";
@@ -10,12 +11,17 @@ import { ApiError } from "@/lib/api/client";
 const confirmWaitlist = vi.fn();
 const leaveWaitlist = vi.fn();
 const unsubscribeFromFollowEmails = vi.fn();
+const stopHolderMessages = vi.fn();
 vi.mock("@/lib/api/waitlist", () => ({
   confirmWaitlist: (...args: unknown[]) => confirmWaitlist(...args),
   leaveWaitlist: (...args: unknown[]) => leaveWaitlist(...args),
 }));
 vi.mock("@/lib/api/follows", () => ({
   unsubscribeFromFollowEmails: (...args: unknown[]) => unsubscribeFromFollowEmails(...args),
+}));
+
+vi.mock("@/lib/api/holder-messages", () => ({
+  stopHolderMessages: (...args: unknown[]) => stopHolderMessages(...args),
 }));
 
 const { api } = vi.hoisted(() => ({ api: { configured: true } }));
@@ -37,6 +43,7 @@ beforeEach(() => {
   confirmWaitlist.mockReset();
   leaveWaitlist.mockReset();
   unsubscribeFromFollowEmails.mockReset();
+  stopHolderMessages.mockReset();
 });
 afterEach(() => {
   cleanup();
@@ -151,6 +158,37 @@ describe("/following/unsubscribe", () => {
     render(<FollowUnsubscribe />);
     fireEvent.click(await screen.findByRole("button", { name: "Unsubscribe" }));
     expect(await screen.findByRole("heading", { name: "This link isn’t valid" })).toBeInTheDocument();
+  });
+});
+
+describe("/holder-messages/stop", () => {
+  it("stops only on the button (opening the link changes nothing), names the organiser, and clears the token from the URL", async () => {
+    at(`/holder-messages/stop#token=${TOKEN}`);
+    stopHolderMessages.mockResolvedValue({ status: "stopped", organiserName: "Static Collective" });
+    render(<StopHolderMessages />);
+    const button = await screen.findByRole("button", { name: "Stop messages" });
+    expect(stopHolderMessages).not.toHaveBeenCalled();
+    expect(window.location.hash).toBe("");
+    expect(screen.getByText(/Your tickets and Sheltüh’s own reminders aren’t affected/)).toBeInTheDocument();
+    fireEvent.click(button);
+    expect(stopHolderMessages).toHaveBeenCalledWith(TOKEN);
+    const heading = await screen.findByRole("heading", { name: "Messages stopped" });
+    await waitFor(() => expect(heading).toHaveFocus());
+    expect(screen.getByText(/Static Collective won’t message you about their events again/)).toBeInTheDocument();
+  });
+
+  it("an unknown link is invalid; a link without a token is incomplete and has no button", async () => {
+    at(`/holder-messages/stop#token=${TOKEN}`);
+    stopHolderMessages.mockRejectedValue(new ApiError(404, "nope"));
+    const { unmount } = render(<StopHolderMessages />);
+    fireEvent.click(await screen.findByRole("button", { name: "Stop messages" }));
+    expect(await screen.findByRole("heading", { name: "This link isn’t valid" })).toBeInTheDocument();
+    unmount();
+
+    at("/holder-messages/stop");
+    render(<StopHolderMessages />);
+    expect(await screen.findByRole("heading", { name: "This link is incomplete" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Stop messages" })).toBeNull();
   });
 });
 

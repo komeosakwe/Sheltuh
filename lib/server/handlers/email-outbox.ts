@@ -33,44 +33,104 @@ export const MEMBER_WELCOMES_PER_RUN = 50;
 
 /** Logged once per process while the database lacks private.queue_member_welcomes. */
 let warnedNoWelcomeQueue = false;
+/** Logged once per process while the database lacks private.queue_event_reminders. */
+let warnedNoReminderQueue = false;
 
 /**
- * Queues the welcome for members who've confirmed their email since the last
- * run. Never fails or delays the run, whatever goes wrong: queueing welcomes
- * must not stop a ticket email going out. In a deploy window where this code
- * runs before 20261111000700_onboarding_emails.sql is applied the function
- * doesn't exist, which is warned about once; any other error (a timeout, an
- * account deleted while the function ran) is logged as a fixed message with
- * its SQLSTATE only (never a message, which could carry data), and the next
- * run tries again.
+ * Reminders queued per cron run (private.queue_event_reminders; what is sent
+ * is capped at 800 a day when sending). A run queues them soonest event
+ * first, so a bigger backlog is finished by the next run.
  */
-async function queueMemberWelcomes(deps: Deps): Promise<void> {
+export const EVENT_REMINDERS_PER_RUN = 2000;
+
+/**
+ * The local hour (0 to 23, in the event's own time zone) from which an event
+ * that is tomorrow gets its reminder; an event that is today always does.
+ * 0: from local midnight, so a daily run at any hour reminds the day before.
+ * Raise it (say to 8) only with a runner that comes every few minutes, so a
+ * reminder doesn't arrive in the night: with a daily run before that hour
+ * the reminder would then wait until the morning of the event.
+ */
+export const EVENT_REMINDER_FROM_HOUR = 0;
+
+/**
+ * Runs one of the cron route's queueing functions, never failing or delaying
+ * the run whatever goes wrong: queueing must not stop a ticket email going
+ * out. In a deploy window where this code runs before the function's
+ * migration is applied the function doesn't exist, which is warned about once
+ * (`warned`); any other error (a timeout, an account deleted while the
+ * function ran) is logged as a fixed message with its SQLSTATE only (never a
+ * message, which could carry data), and the next run tries again.
+ */
+async function runQueueing(
+  deps: Deps,
+  what: { call: string; params: unknown[]; signature: string; label: string; migration: string },
+  warned: boolean,
+): Promise<boolean> {
   try {
-    await deps.db.query(`select private.queue_member_welcomes($1)`, [MEMBER_WELCOMES_PER_RUN]);
-    return;
+    await deps.db.query(what.call, what.params);
+    return warned;
   } catch (err) {
     const code = pgErrorCode(err);
     // undefined_function can also come from inside the function, so ask the catalogue.
     let missing = false;
     try {
+      // The signature is one of this file's own constants, never input.
       const [row] = await deps.db.query<{ missing: boolean }>(
-        `select to_regprocedure('private.queue_member_welcomes(integer)') is null as missing`,
+        `select to_regprocedure('${what.signature}') is null as missing`,
       );
       missing = row?.missing === true;
     } catch {
       // Treated as the general failure below.
     }
     if (missing) {
-      if (!warnedNoWelcomeQueue) {
-        warnedNoWelcomeQueue = true;
+      if (!warned) {
         console.warn(
-          "Email outbox: private.queue_member_welcomes is missing (migration 20261111000700_onboarding_emails.sql isn't applied); no welcome emails are queued until it is.",
+          `Email outbox: ${what.signature.replace(/\(.*$/, "")} is missing (migration ${what.migration} isn't applied); no ${what.label} are queued until it is.`,
         );
       }
-      return;
+      return true;
     }
-    console.error(`Email outbox: queueing member welcomes failed (SQLSTATE ${code ?? "unknown"}); sending what is due.`);
+    console.error(`Email outbox: queueing ${what.label} failed (SQLSTATE ${code ?? "unknown"}); sending what is due.`);
+    return warned;
   }
+}
+
+/**
+ * Queues the welcome for members who've confirmed their email since the last
+ * run (runQueueing; 20261111000700_onboarding_emails.sql).
+ */
+async function queueMemberWelcomes(deps: Deps): Promise<void> {
+  warnedNoWelcomeQueue = await runQueueing(
+    deps,
+    {
+      call: `select private.queue_member_welcomes($1)`,
+      params: [MEMBER_WELCOMES_PER_RUN],
+      signature: "private.queue_member_welcomes(integer)",
+      label: "welcome emails",
+      migration: "20261111000700_onboarding_emails.sql",
+    },
+    warnedNoWelcomeQueue,
+  );
+}
+
+/**
+ * Queues the reminders now due: ticket holders of events that are today (3
+ * hours or more away) or tomorrow in their own time zone, once each
+ * (runQueueing; 20261118000000_event_reminders.sql).
+ */
+async function queueEventReminders(deps: Deps): Promise<void> {
+  warnedNoReminderQueue = await runQueueing(
+    deps,
+    {
+      call: `select private.queue_event_reminders($1, now(), $2)`,
+      params: [EVENT_REMINDERS_PER_RUN, EVENT_REMINDER_FROM_HOUR],
+      signature: "private.queue_event_reminders(integer,timestamptz,integer)",
+      label: "event reminders",
+      migration: "20261118000000_event_reminders.sql",
+    },
+    warnedNoReminderQueue,
+  );
 }
 
 /**
@@ -84,11 +144,12 @@ async function queueMemberWelcomes(deps: Deps): Promise<void> {
  * job at a time with `skip locked` (two runs never send the same job), takes
  * at most 100 jobs and stops claiming after DRAIN_BUDGET_MS (30 s, inside the
  * route's 60-second maxDuration), and with nothing due it's one welcome
- * queueing call, five indexed claims (one per drain phase) and one upsert.
+ * queueing call, one reminder queueing call, seven indexed claims (one per drain phase) and one upsert.
  */
 export const runEmailOutboxCron: Handler = async (req, _params, deps) => {
   requireCronSecret(req, deps.cronSecret());
   await queueMemberWelcomes(deps);
+  await queueEventReminders(deps);
   const summary = await drainEmailOutbox(deps);
   await deps.db.query(
     `insert into private.cron_runs (name, finished_at, claimed, sent, retrying, failed)

@@ -13,6 +13,7 @@ import type { Deps } from "../deps";
 import { sendOnboardingEmailsSoon, sendReviewEmailsSoon } from "../email-outbox";
 import { createdPrivate, HttpError, okPrivate, readJson } from "../http";
 import { decodeCursor, isUuid, parseLimit, toPage } from "../pagination";
+import { checkOrganiserDisplayName } from "../profile-input";
 import { ADMIN_ORGANISER_LINK_SELECT, toAdminOrganiserLink } from "../records";
 import type { Handler } from "../route";
 import { EVENT_CATEGORIES } from "../types";
@@ -243,6 +244,9 @@ function parseDetails(body: Record<string, unknown>): { displayName: string; cat
   const displayName = requireString(body.displayName, "displayName", errors, MAX_DISPLAY_NAME_LENGTH);
   if (!errors.displayName && UNSAFE_NAME_CHARS.test(displayName)) {
     errors.displayName = "Use letters, numbers, spaces and punctuation only.";
+  } else {
+    // Approved without review, and shown in the emails Sheltüh sends: not a name only Sheltüh may use.
+    checkOrganiserDisplayName(displayName, "displayName", errors);
   }
   // Capped as sent (a long list isn't walked), then repeats dropped.
   let categories: EventCategory[] = [];

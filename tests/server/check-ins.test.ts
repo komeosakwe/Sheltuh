@@ -224,7 +224,7 @@ const FREE_TICKETS = [{ id: "free", name: "Free entry", priceCents: 0, feePolicy
 async function platformOrganiser(): Promise<string> {
   const res = await api.call(adminCreateOrganiser, {
     token: admin.token,
-    body: { ...application, displayName: "Sheltüh Presents", contactEmail: "events@sheltuh.example" },
+    body: { ...application, displayName: "Neon Presents", contactEmail: "events@sheltuh.example" },
   });
   expect(res.status).toBe(201);
   return res.body.organiserId as string;
@@ -235,7 +235,7 @@ async function platformEventWithTickets(quantity = 1, overrides: Record<string, 
   const organiserId = await platformOrganiser();
   const created = await api.call(adminCreateEvent, {
     token: admin.token,
-    body: { ...eventInput({ title: "Sheltüh Presents: Late Night", ticketTypes: FREE_TICKETS, ...overrides }), organiserId, publish: true },
+    body: { ...eventInput({ title: "Neon Presents: Late Night", ticketTypes: FREE_TICKETS, ...overrides }), organiserId, publish: true },
   });
   expect(created.status).toBe(201);
   const eventId = created.body.eventId as string;
@@ -322,7 +322,7 @@ describe("admins at the door of a platform-managed organiser's event", () => {
 
   it("an admin who also owns an approved organiser checks in for its events as usual", async () => {
     const adminOrganiser = await api.signUp({ admin: true });
-    const applied = await api.call(applyAsOrganiser, { token: adminOrganiser.token, body: { ...application, displayName: "Admin's Collective" } });
+    const applied = await api.call(applyAsOrganiser, { token: adminOrganiser.token, body: { ...application, displayName: "Backstage Collective" } });
     await api.call(adminApproveOrganiser, { token: admin.token, params: { organiserId: applied.body.organiserId }, method: "POST" });
     const theirs = await publishedEvent(api, adminOrganiser, admin, { title: "Their Own Night", ticketTypes: FREE_TICKETS });
     const res = await scan(adminOrganiser.token, UNKNOWN_CODE, crypto.randomUUID(), theirs.eventId);

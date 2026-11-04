@@ -1,3 +1,4 @@
+import { foldForLinks } from "@/lib/contact-detail";
 import { fail } from "./validation";
 
 /** Mirrors the profiles.display_name check constraint (counted in code points, like char_length). */
@@ -31,20 +32,6 @@ const LETTER_OR_NUMBER = /[\p{L}\p{N}]/u;
 const DOT = String.raw`(?:\.|\s+\.\s*|\s*(?:\[\s*(?:\.|dot)\s*\]|\(\s*(?:\.|dot)\s*\)|\{\s*(?:\.|dot)\s*\}|<\s*(?:\.|dot)\s*>)\s*|\s+dot\s+)`;
 const TLD = "(?:com|net|org|au|io|co|app|xyz|me|info|biz|link|ly|gg|tv|to|site|online|shop|store|dev|page|club|live)";
 const LINK = new RegExp(String.raw`(\b[a-z][a-z0-9+.-]*:\/\/|\bwww(?:\s*\.|\s+dot\s)|[\p{L}\p{N}-]${DOT}${TLD}\b)`, "iu");
-// Invisible characters (zero-width joiners, variation selectors, tags, ...),
-// removed before looking for links so "exa‍mple.com" is still a link.
-const DEFAULT_IGNORABLE = /\p{Default_Ignorable_Code_Point}/gu;
-// Full stops that NFKC doesn't turn into "." (ideographic, halfwidth, vertical).
-const OTHER_FULL_STOPS = /[。｡︒]/gu;
-
-/**
- * The form links are looked for in: compatibility-folded (fullwidth
- * "ｅｘａｍｐｌｅ．ｃｏｍ" → "example.com"), invisible characters removed,
- * other full stops turned into ".". Only ever used for checking, never stored.
- */
-export function foldForLinks(value: string): string {
-  return value.normalize("NFKC").replace(DEFAULT_IGNORABLE, "").replace(OTHER_FULL_STOPS, ".");
-}
 // Emails and @handles are contact details, which a display name shouldn't carry.
 const AT_SIGN = /[@＠]/u;
 // Names only Sheltüh itself may appear as. Compared on a confusable skeleton (see skeleton()).
@@ -122,6 +109,31 @@ function isReserved(name: string): boolean {
   return (
     RESERVED_SUBSTRING_SKELETONS.some((r) => compact.includes(r)) || words.some((w) => RESERVED_WORD_SKELETONS.has(w))
   );
+}
+
+/**
+ * Checks an organiser's display name (already trimmed and length-checked by
+ * requireString): no control or invisible characters, and none of the names
+ * only Sheltüh may use ("Sheltüh Support", "Admin"), compared on a confusable
+ * skeleton like a member's. The rest of a member's rules (no links or @, 40
+ * characters, no mixed scripts) don't apply: organisers are reviewed, and
+ * names like "Static Collective Pty Ltd" are longer. The name appears in the
+ * emails Sheltüh sends for the organiser, which is why it is held to this.
+ * `reserved: false` skips the reserved-name rule only: an admin creating the
+ * platform's own organiser ("Sheltüh Presents") is the one who may use it.
+ */
+export function checkOrganiserDisplayName(
+  value: unknown,
+  field: string,
+  errors: Record<string, string>,
+  { reserved = true }: { reserved?: boolean } = {},
+): void {
+  if (typeof value !== "string" || errors[field]) return;
+  if (INVISIBLE_OR_CONTROL.test(value) || INVISIBLE.test(value)) {
+    errors[field] = "Names can't contain invisible or control characters.";
+  } else if (reserved && isReserved(value)) {
+    errors[field] = "That name is reserved. Choose another.";
+  }
 }
 
 /**

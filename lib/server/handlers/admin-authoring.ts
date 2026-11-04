@@ -76,7 +76,7 @@ export const adminGetEvent: Handler<{ eventId: string }> = async (req, { eventId
  */
 export const adminCreateOrganiser: Handler = async (req, _params, { db, verifyAccessToken }) => {
   const admin = await requireAdmin(req, verifyAccessToken);
-  const input = parseApplication(await readJson(req));
+  const input = parseApplication(await readJson(req), undefined, { reservedNames: false });
   const [row] = await db.query<{ id: string }>(
     `insert into public.organisers (owner_user_id, display_name, contact_email, description, categories, website_url,
                                     instagram_handle, tiktok_handle, facebook_page, x_handle,

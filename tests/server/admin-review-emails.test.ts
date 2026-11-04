@@ -174,7 +174,7 @@ describe("an event submitted for review", () => {
   it("isn't queued for events an admin creates (for an organiser or a platform-managed one), or for a platform organiser", async () => {
     const platform = await api.call(adminCreateOrganiser, {
       token: admin.token,
-      body: { ...application, displayName: "Sheltüh Presents", contactEmail: "events@sheltuh.example" },
+      body: { ...application, displayName: "Neon Presents", contactEmail: "events@sheltuh.example" },
     });
     expect(platform.status).toBe(201);
     for (const organiserId of [organiser.organiserId, platform.body.organiserId as string]) {
@@ -524,7 +524,7 @@ describe("an organiser application", () => {
     expect((await apply(invalid.token, { contactEmail: "nope" })).status).toBe(400);
     await api.call(adminCreateOrganiser, {
       token: admin.token,
-      body: { ...application, displayName: "Sheltüh Presents", contactEmail: "events@sheltuh.example" },
+      body: { ...application, displayName: "Neon Presents", contactEmail: "events@sheltuh.example" },
     });
     await api.runDeferred();
     expect(await reviewJobs("organiser_review")).toEqual([]);

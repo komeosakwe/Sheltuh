@@ -1009,7 +1009,9 @@ export type EmailOutboxKind =
   | "ops_alert"
   | "event_published"
   | "organiser_joined"
-  | "onboarding";
+  | "onboarding"
+  | "event_reminder"
+  | "holder_message";
 
 export const EMAIL_OUTBOX_KINDS: readonly EmailOutboxKind[] = [
   "ticket_email",
@@ -1021,7 +1023,127 @@ export const EMAIL_OUTBOX_KINDS: readonly EmailOutboxKind[] = [
   "event_published",
   "organiser_joined",
   "onboarding",
+  "event_reminder",
+  "holder_message",
 ];
+
+// ---------------------------------------------------------------------------
+// Messages to ticket holders (docs/architecture.md, "Messages to ticket holders")
+// ---------------------------------------------------------------------------
+
+/**
+ * Why a message can't be sent right now (HolderMessagesState.blockedReason;
+ * the same words are `code` in the 409 and 429 errors of the send).
+ * - `not_published`: the event isn't published.
+ * - `external`: its tickets are sold on another site (Sheltüh has no holders).
+ * - `outside_window`: it ended more than 2 days ago.
+ * - `no_recipients`: nobody holds a paid or free ticket yet.
+ * - `too_many`: more than `limits.maxRecipients` addresses.
+ * - `event_day_cap` / `event_total_cap`: this event's allowance is used up
+ *   (per rolling 24 hours / ever).
+ * - `rate_limited`: the organiser's own allowance is used up.
+ */
+export type HolderMessageBlockReason =
+  | "not_published"
+  | "external"
+  | "outside_window"
+  | "no_recipients"
+  | "too_many"
+  | "event_day_cap"
+  | "event_total_cap"
+  | "rate_limited";
+
+/** What the compose form enforces (the API enforces it again). Lengths in characters (code points). */
+export interface HolderMessageLimits {
+  subjectMin: number;
+  subjectMax: number;
+  bodyMin: number;
+  bodyMax: number;
+  maxRecipients: number;
+  /** Per event, in any rolling 24 hours. */
+  perEventPerDay: number;
+  /** Per event, ever. */
+  perEventTotal: number;
+  /** Per organiser account, per 24 hours. */
+  perOrganiserPerDay: number;
+}
+
+/** One message an organiser sent. Never an address. */
+export interface HolderMessageSummary {
+  messageId: string;
+  subject: string;
+  body: string;
+  /** How many addresses it was queued for. */
+  recipientCount: number;
+  /** How many have been sent so far. */
+  sentCount: number;
+  /** How many will never be sent (the ticket was refunded, the address wasn't usable, an admin stopped it…). */
+  skippedCount: number;
+  createdAt: string;
+  /** An admin stopped it: nothing more is sent. */
+  cancelled: boolean;
+}
+
+/** GET /events/{eventId}/holder-messages. */
+export interface HolderMessagesState {
+  eventId: string;
+  /** How many people would get a message sent now: one per address holding a paid (or free) ticket. */
+  audienceCount: number;
+  canSend: boolean;
+  /** Set when `canSend` is false. */
+  blockedReason?: HolderMessageBlockReason;
+  limits: HolderMessageLimits;
+  remaining: {
+    /** Messages this event can still send in the next 24 hours. */
+    eventToday: number;
+    /** Messages this event can still send, ever. */
+    eventTotal: number;
+    /** Messages this organiser account can still send in the next 24 hours. */
+    organiserToday: number;
+  };
+  /** Newest first. */
+  messages: HolderMessageSummary[];
+}
+
+/** POST /events/{eventId}/holder-messages body. */
+export interface HolderMessageInput {
+  /** A fresh uuid per compose form: sending the same one again is the same message (200, `replayed: true`). */
+  requestId: string;
+  subject: string;
+  body: string;
+  /** The organiser's tick: this is about the event, with no promotion. Must be `true`. */
+  attest: true;
+  /** The `audienceCount` the organiser confirmed. A different current count is refused (409 `audience_changed`). */
+  expectedRecipients: number;
+}
+
+/** POST /events/{eventId}/holder-messages: 201 when queued, 200 when `requestId` had been sent already. */
+export interface HolderMessageSent {
+  messageId: string;
+  recipientCount: number;
+  createdAt: string;
+  replayed: boolean;
+}
+
+/** POST /holder-messages/stop {token}: the emailed link's token is the credential. */
+export interface StopHolderMessagesResult {
+  status: "stopped";
+  organiserName?: string;
+}
+
+/** One message in the admin's list (GET /admin/holder-messages). Never an address. */
+export interface AdminHolderMessage extends Omit<HolderMessageSummary, "body"> {
+  eventId: string;
+  eventTitle: string;
+  organiserName: string;
+  /** When an admin stopped it. */
+  cancelledAt?: string;
+}
+
+/** GET /admin/holder-messages/{id} and POST /admin/holder-messages/{id}/cancel: the message with its body. */
+export interface AdminHolderMessageDetail extends AdminHolderMessage {
+  body: string;
+}
 
 /** One kind's (or every kind's) outbox counts in EmailOutboxHealth. Sent jobs aren't counted. */
 export interface EmailOutboxHealthCounts {

@@ -1131,7 +1131,8 @@ Set it up once:
    `CRON_SECRET` (Production), then redeploy. Without it the cron route
    refuses every request and nothing is retried.
 2. `vercel.json` schedules `GET /api/cron/email-outbox` once a day
-   (17:00 UTC, early morning in Melbourne), because the project is on the
+   (21:00 UTC, 8 am in Melbourne in summer and 7 am in winter, so the
+   day-before event reminders arrive in the morning), because the project is on the
    Hobby plan, which refuses deployments with more frequent crons. Vercel
    sends the secret as a bearer token. Keep it: it's the backstop.
 3. **On Hobby, add the 5-minute runner in Supabase** (below). **On Pro**,

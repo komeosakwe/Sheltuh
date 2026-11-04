@@ -424,7 +424,7 @@ describe("cron route", () => {
 });
 
 describe("cron route, called every 5 minutes", () => {
-  it("with nothing due, answers with zeros in seven queries, sends nothing and touches no job", async () => {
+  it("with nothing due, answers with zeros in ten queries, sends nothing and touches no job", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     api.sendEmail.mockRejectedValueOnce(new Error("down"));
     await paidOrder("fan@example.com", { runDeferred: true }); // a retry, not due for a minute
@@ -448,9 +448,10 @@ describe("cron route, called every 5 minutes", () => {
       );
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ claimed: 0, sent: 0, retrying: 0, failed: 0 });
-      // Queueing member welcomes (private.queue_member_welcomes), five claims (ops alerts, everything else, then
-      // the organiser-published, organiser-joined and onboarding emails) and recording the run.
-      expect(queries).toBe(7);
+      // Queueing member welcomes (private.queue_member_welcomes) and event reminders (private.queue_event_reminders),
+      // seven claims (ops alerts, everything else, then event reminders, messages to ticket holders and the
+      // organiser-published, organiser-joined and onboarding emails) and recording the run.
+      expect(queries).toBe(10);
     }
     expect(counting.sendEmail).not.toHaveBeenCalled();
     expect(await stored()).toEqual(before);
@@ -559,6 +560,8 @@ describe("admin health", () => {
         "event_published",
         "organiser_joined",
         "onboarding",
+        "event_reminder",
+        "holder_message",
       ].map(
         (kind) => ({ kind, ...zeros }),
       ),

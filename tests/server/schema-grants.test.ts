@@ -153,11 +153,16 @@ describe("Data API lock-out", () => {
       { table_name: "event_clips", rls: true },
       { table_name: "event_curation", rls: true },
       { table_name: "event_rate_limits", rls: true },
+      { table_name: "event_reminders", rls: true },
       { table_name: "event_view_cap_days", rls: true },
       { table_name: "event_waitlist", rls: true },
       { table_name: "event_waitlist_tokens", rls: true },
       { table_name: "external_event_going", rls: true },
       { table_name: "free_order_refusals", rls: true },
+      { table_name: "holder_message_recipients", rls: true },
+      { table_name: "holder_message_stop_tokens", rls: true },
+      { table_name: "holder_message_suppressions", rls: true },
+      { table_name: "holder_messages", rls: true },
       { table_name: "onboarding_emails", rls: true },
       { table_name: "organiser_event_announcements", rls: true },
       { table_name: "organiser_follow_tokens", rls: true },
@@ -571,6 +576,50 @@ describe("Data API lock-out", () => {
         where conrelid = 'public.ticket_types'::regclass and conname in ('ticket_types_lock_not_first', 'ticket_types_lock_ga_only') order by 1`,
     );
     expect(constraints).toEqual([{ conname: "ticket_types_lock_ga_only" }, { conname: "ticket_types_lock_not_first" }]);
+  });
+
+  it("the reminder and ticket-holder message functions exist, pin search_path, aren't security definer or client-executable; their tables have RLS, no policies and no grants", async () => {
+    const names = [
+      "cancel_holder_message",
+      "email_recipient_hash",
+      "holder_message_audience",
+      "purge_operational_data",
+      "queue_event_reminders",
+      "send_holder_message",
+      "stop_holder_messages",
+    ];
+    expect(await privateFunctions(names)).toEqual(locked(names));
+    const definers = await db.query<{ fn: string; definer: boolean }>(
+      `select p.proname as fn, p.prosecdef as definer from pg_proc p
+        where p.pronamespace = to_regnamespace('private') and p.proname = any($1::text[]) order by 1`,
+      [names],
+    );
+    expect(definers.every((r) => !r.definer)).toBe(true);
+    const tables = [
+      "event_reminders",
+      "holder_message_recipients",
+      "holder_message_stop_tokens",
+      "holder_message_suppressions",
+      "holder_messages",
+    ];
+    const rows = await db.query<{ table_name: string; rls: boolean; policies: number; grants: number }>(
+      `select c.relname as table_name, c.relrowsecurity as rls,
+              (select count(*)::int from pg_policy p where p.polrelid = c.oid) as policies,
+              (select count(*)::int from information_schema.role_table_grants g
+                where g.table_schema = 'private' and g.table_name = c.relname
+                  and g.grantee in ('anon', 'authenticated', 'PUBLIC')) as grants
+         from pg_class c join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = 'private' and c.relname = any($1::text[]) order by 1`,
+      [tables],
+    );
+    expect(rows).toEqual(tables.map((table_name) => ({ table_name, rls: true, policies: 0, grants: 0 })));
+    // The outbox accepts the two new kinds, each with its own key and no other.
+    const kinds = await db.query<{ def: string }>(
+      `select pg_get_constraintdef(c.oid) as def from pg_constraint c
+        where c.conrelid = 'private.email_outbox'::regclass and c.conname = 'email_outbox_kind_check'`,
+    );
+    expect(kinds[0].def).toContain("event_reminder");
+    expect(kinds[0].def).toContain("holder_message");
   });
 
   it("every `public` and `private` function pins its search_path", async () => {
