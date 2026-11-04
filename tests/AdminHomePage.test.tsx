@@ -82,6 +82,7 @@ describe("Admin hub", () => {
       "/admin/organisers?status=approved",
       "/admin/events/new",
       "/admin/invites",
+      "/admin/payouts",
       "/admin/trending",
       "/admin/events?status=published&view=door",
     ]);

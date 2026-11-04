@@ -148,6 +148,13 @@ function manageCards(summary: AdminSummary | null): HubCard[] {
       todo: "As an organiser or a member.",
     },
     {
+      href: "/admin/payouts",
+      title: "Payouts",
+      status: null,
+      waiting: false,
+      todo: "Retry, release or cancel organiser transfers.",
+    },
+    {
       href: "/admin/trending",
       title: "Trending",
       status: null,

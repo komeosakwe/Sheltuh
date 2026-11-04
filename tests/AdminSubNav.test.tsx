@@ -40,6 +40,7 @@ describe("AdminSubNav", () => {
       ["Events", "/admin/events"],
       ["Organisers", "/admin/organisers"],
       ["Emails", "/admin/emails"],
+      ["Payouts", "/admin/payouts"],
       ["Trending", "/admin/trending"],
       ["Invites", "/admin/invites"],
       ["New event", "/admin/events/new"],
@@ -71,6 +72,7 @@ describe("AdminSubNav", () => {
     expect(adminSectionFor("/admin/events/new")).toBe("/admin/events/new");
     expect(adminSectionFor("/admin")).toBe("/admin");
     expect(adminSectionFor("/admin/trending")).toBe("/admin/trending");
+    expect(adminSectionFor("/admin/payouts")).toBe("/admin/payouts");
     expect(adminSectionFor("/admin/invites")).toBe("/admin/invites");
   });
 
@@ -80,6 +82,7 @@ describe("AdminSubNav", () => {
       "/admin/events": await import("@/app/admin/events/page"),
       "/admin/organisers": await import("@/app/admin/organisers/page"),
       "/admin/emails": await import("@/app/admin/emails/page"),
+      "/admin/payouts": await import("@/app/admin/payouts/page"),
       "/admin/trending": await import("@/app/admin/trending/page"),
       "/admin/invites": await import("@/app/admin/invites/page"),
     };
