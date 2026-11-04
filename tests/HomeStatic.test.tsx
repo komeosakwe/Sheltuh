@@ -279,8 +279,8 @@ describe("HomeRail", () => {
     expect(within(list).getAllByRole("listitem")[0]).toHaveClass("snap-start", "shrink-0");
   });
 
-  // Owner (23 Oct 2026, layout polish): one or two cards left most of a desktop row empty.
-  it("a pair (one or two cards) is the same rail below 1024px and a two-column grid in the page column from 1024px", () => {
+  // Owner (4 Nov 2026): the pair's giant two-up grid is gone; it's the same rail, left-aligned.
+  it("a pair (one or two cards) is marked, but is the same rail as any other at every width", () => {
     expect(PAIR_MAX).toBe(2);
     expect([0, 1, 2, 3, 5].map(isPairRail)).toEqual([false, true, true, false, false]);
     render(
@@ -291,18 +291,8 @@ describe("HomeRail", () => {
     );
     const list = screen.getByRole("list");
     expect(list).toHaveAttribute("data-rail-layout", "pair");
-    // Below 1024px: the carousel, untouched.
     expect(list).toHaveClass("flex", "snap-x", "snap-mandatory", "overflow-x-auto", "ps-5", "pe-0", "after:block");
-    // From 1024px: two columns between the column's edges, nothing to scroll or snap, no end spacer.
-    expect(list).toHaveClass(
-      "lg:grid",
-      "lg:grid-cols-2",
-      "lg:overflow-visible",
-      "lg:snap-none",
-      "sm:ps-[max(2rem,(100%_-_72rem)/2_+_2rem)]",
-      "lg:pe-[max(2rem,(100%_-_72rem)/2_+_2rem)]",
-      "lg:after:hidden",
-    );
+    expect(list.className).not.toMatch(/\bgrid\b|grid-cols|lg:/);
     cleanup();
     render(
       <HomeRail labelledBy="x">

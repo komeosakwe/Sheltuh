@@ -157,11 +157,6 @@ describe("the Play button (§5.1)", () => {
     expect(button).toHaveClass("focus-visible:outline-none!");
   });
 
-  it("a pair's card repeats the wide image box from 1024px", () => {
-    const { container } = withProviders(<EventCard event={event} variant="rail" wide mode="demo" />);
-    expect(container.querySelector("[data-clip-frame]")).toHaveClass("lg:aspect-[12/5]", "lg:max-h-50");
-  });
-
   it("an ended event's chip keeps its colour (only the image is greyed)", () => {
     vi.setSystemTime(new Date("2026-11-01T00:00:00.000Z"));
     withProviders(<EventCard event={event} variant="grid" mode="demo" />);

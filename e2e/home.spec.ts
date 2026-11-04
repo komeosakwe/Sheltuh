@@ -549,17 +549,13 @@ test.describe("/events", () => {
 test.describe("hero collage at 1280px", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
-  test("shows its lead photo, two photo tiles and the badge, which turns slowly and can be paused", async ({ page }) => {
+  test("shows its one photo and the badge, which turns slowly and can be paused", async ({ page }) => {
     await openHome(page);
     const collage = page.locator("[data-hero-collage]");
     await expect(collage).toBeVisible();
-    // Owner (26 Oct 2026): "reuse the event photos for now": the lead and both tiles are photos.
-    await expect(collage.locator("img")).toHaveCount(3);
-    expect(await collage.locator("img").evaluateAll((imgs) => imgs.map((img) => img.getAttribute("src")))).toEqual([
-      "/events/gallery-opening.jpg",
-      "/events/record-shop-dj.jpg",
-      "/events/jazz-drummer.webp",
-    ]);
+    // Owner (4 Nov 2026): the hero is compact, so the collage is the lead photo alone.
+    await expect(collage.locator("img")).toHaveCount(1);
+    expect(await collage.locator("img").evaluateAll((imgs) => imgs.map((img) => img.getAttribute("src")))).toEqual(["/events/gallery-opening.jpg"]);
     const badge = page.getByRole("button", { name: "Pause the badge animation" });
     await expect(badge).toBeVisible();
     // Its name changes with its state, so find the drawing by its own marker (the collage's: the

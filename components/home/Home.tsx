@@ -26,7 +26,7 @@ const SECTION_GAP = "mt-8 sm:mt-10 lg:mt-12";
 export default function Home() {
   return (
     <HomeEventsProvider>
-      <div className={`${HOME_CONTAINER} pt-4 sm:pt-8 lg:pt-10`}>
+      <div className={`${HOME_CONTAINER} pt-4 sm:pt-8 lg:pt-6`}>
         <HomeHero />
         {/* Close under the search: it's the other way in. */}
         <CategoryRow className="mt-3 sm:mt-4" />

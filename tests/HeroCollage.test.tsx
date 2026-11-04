@@ -76,28 +76,21 @@ describe("HeroBadge", () => {
 });
 
 describe("HeroCollage", () => {
-  // Owner (26 Oct 2026): "reuse the event photos for now": the lead and both tiles are sample-event
-  // photos until the owner supplies promo photos of their own.
-  it("has three decorative photo tiles (the lead with its one-off push-in), the asterisk and the badge", () => {
+  // Owner (4 Nov 2026): the hero takes less of the screen: one photo and the badge.
+  it("is one decorative photo (with its one-off push-in) and the badge", () => {
     stubMotion(false);
     const { container } = render(<HeroCollage />);
     const collage = container.querySelector("[data-hero-collage]");
     const art = collage?.querySelector(":scope > [aria-hidden='true']");
-    expect(Array.from(art?.querySelectorAll("img") ?? []).map((img) => img.getAttribute("src"))).toEqual([
-      "/events/gallery-opening.jpg",
-      "/events/record-shop-dj.jpg",
-      "/events/jazz-drummer.webp",
-    ]);
+    expect(Array.from(art?.querySelectorAll("img") ?? []).map((img) => img.getAttribute("src"))).toEqual(["/events/gallery-opening.jpg"]);
     expect(art?.querySelectorAll("img.ken-burns")).toHaveLength(1);
-    // The gaps between the photos are the page's own background, whatever colour the site is.
-    expect(art?.querySelectorAll(".border-background")).toHaveLength(2);
     expect(collage?.querySelector("[data-hero-badge]")).not.toBeNull();
   });
 
-  it("shows in the hero from 1024px only: phones keep a short hero", () => {
+  it("shows in the hero from 1024px only, beside the text: phones keep a short hero", () => {
     stubMotion(false);
     const { container } = render(<HomeHero />);
-    expect(container.querySelector("[data-hero-collage]")).toHaveClass("hidden", "lg:block", "lg:col-span-5");
+    expect(container.querySelector("[data-hero-collage]")).toHaveClass("hidden", "lg:block");
   });
 
   it("where motion is fine, the hero has one badge control (the collage's): the thumbnail's badge stays still", () => {
