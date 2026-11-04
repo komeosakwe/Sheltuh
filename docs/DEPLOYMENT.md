@@ -68,7 +68,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261118000100_ticket_holder_messages.sql`. Never
+      newest, currently `20261120000000_group_tickets.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -402,6 +402,34 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           functions, the column and the two tables, and restore
           `purge_operational_data` from
           `20261111000500_organiser_invite_links.sql`.
+      48. `20261120000000_group_tickets.sql` (group tickets,
+          docs/architecture.md "Group tickets": `ticket_types.admits` with
+          the checks `ticket_types_admits_range`, `ticket_types_admits_multiple`,
+          `ticket_types_group_paid` and `ticket_types_admits_ga_only`,
+          `tickets.group_size`, the trigger `ticket_types_admits_frozen`, the
+          function `order_group_size`, and `fulfil_order_detailed`,
+          `record_payment_refund`, `replace_ticket_types` and
+          `admin_edit_event` redefined). search_path pinned, execute revoked
+          from clients, no new table or grant. Additive and dark: every
+          existing ticket type has `admits` 1, so nothing changes until a
+          group ticket is made, and the previous app never sends or reads it.
+          **Deploy in this order: this migration, then the app, then turn the
+          feature on** with `NEXT_PUBLIC_GROUP_TICKETS=1` (Vercel, redeploy
+          after changing it: it's baked in at build time). The new app on the
+          old schema fails on every event page (it selects `admits`), so apply
+          the file first. Switching the flag off again only hides authoring and
+          refuses new group tickets (400); group tickets that exist keep
+          selling, scanning and refunding. Needs file 45
+          (`ticket_release_lock`, whose two functions it redefines) and
+          `20261111000300_refund_no_inference.sql` (the other two). If
+          `feat/delayed-payouts` (file `20261119000000_delayed_payouts.sql`) is
+          merged too, it redefines none of the four functions; run it before
+          this file. Reversible, not destructive, until a group ticket exists:
+          restore the four functions from `20261111000300_refund_no_inference.sql`
+          (the two payment ones) and `20261117000000_ticket_release_lock.sql`
+          (the other two), drop the trigger, `order_group_size`, the checks and
+          the two columns. After a group order exists, dropping them would turn
+          its tickets into ordinary ones and lose the people count.
 
       **Files 33 to 37 can be applied ahead of this deploy, with the
       previous app still live.** "The previous app" here is the build of
@@ -859,6 +887,11 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        have leaked. No Supabase template change is needed, and **don't use
        the dashboard's "Invite user" button** (its link doesn't land in the
        app); invite from `/admin/invites`.
+       Optional: `NEXT_PUBLIC_GROUP_TICKETS=1` lets organisers and admins make
+       group tickets ("Group of 4", one ticket admitting several people).
+       Unset (the default) they can't be made and the API refuses `admits`
+       above 1; existing group tickets keep selling. Turn it on only after
+       file 48 is applied and the app is deployed.
        Optional: `NEXT_PUBLIC_EVENT_CLIPS=1` turns clip uploads on (the
        editor's clip field, the admin queue's clip row), once that key is set.
        Without it the server also refuses new uploads (503), whatever a

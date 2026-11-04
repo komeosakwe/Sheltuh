@@ -897,7 +897,12 @@ valid, and opens a `partial_refund` exception for you
 (`20261111000300_refund_no_inference.sql`; the app never guesses a refund's
 purpose from its amount). The same holds when the refund reaches the app
 before the payment does. There's no admin action to void tickets without a
-full refund (below). Support Sheltüh is paused by default
+full refund (below). **A group ticket order is refunded as a whole, like
+any other**: there is no refunding "one person of the group" in the app. A
+full refund gives back every person of the order (`quantity x admits` of the
+tier's `quantity_sold`) and voids all of its tickets; a smaller refund, for
+one person's share say, leaves every ticket valid and opens a `partial_refund`
+exception for you to settle by hand (the same rule as above). Support Sheltüh is paused by default
 (`NEXT_PUBLIC_SUPPORT_SHELTUH`, docs/DEPLOYMENT.md), so new orders have
 `support_cents = 0` and a refund of the tickets is simply a full refund. Every Sheltüh payment is a destination charge with an
 application fee of `application_fee_cents + support_cents` (the booking fee

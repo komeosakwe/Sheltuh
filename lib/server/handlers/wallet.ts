@@ -1,3 +1,4 @@
+import { ticketNameWithGroup } from "@/lib/ticket-groups";
 import { orderKey } from "../client-key";
 import type { Deps } from "../deps";
 import { HttpError, PRIVATE_NO_STORE } from "../http";
@@ -134,7 +135,8 @@ async function walletTicket(req: Request, sessionId: string, provider: Provider,
     ...(order.venueName ? { venueName: order.venueName } : {}),
     ...(event.venue_address?.trim() ? { venueAddress: event.venue_address.trim() } : {}),
     ...(order.suburb ? { suburb: order.suburb } : {}),
-    ticketTypeName: ticket.ticketTypeName,
+    // A group ticket's person: "Group of 4 (2 of 4)", on the pass as in the email.
+    ticketTypeName: ticketNameWithGroup(ticket.ticketTypeName, ticket.group),
     ticketNumber: n,
     ticketCount: order.tickets.length,
     ...(ticket.seat ? { seat: ticket.seat } : {}),

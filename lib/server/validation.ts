@@ -1,4 +1,6 @@
 import { MIN_PAID_TICKET_CENTS } from "@/lib/fees";
+import { groupTicketsEnabled } from "@/lib/group-tickets-flag";
+import { MAX_GROUP_SIZE } from "@/lib/ticket-groups";
 import { URL_DISALLOWED } from "@/lib/ticketing";
 import { localToUtcIso, PLATFORM_TIME_ZONE } from "@/lib/time-zones";
 import { isPlainEmailAddress, MAX_EMAIL_LENGTH } from "./email-address";
@@ -179,7 +181,30 @@ export const MAX_TICKET_DESCRIPTION_LENGTH = 300;
 /** Ticket types per event: an event's moderation log and records carry the whole list, so it's bounded. */
 export const MAX_TICKET_TYPES = 20;
 
-export function requireTicketTypes(value: unknown, field: string, errors: Record<string, string>): TicketTypeInput[] {
+/** What requireTicketTypes may know about the tiers an edit changes (none for a new event). */
+export interface TicketTypeOptions {
+  /**
+   * Ticket type id -> the `admits` stored for it. While group tickets are
+   * switched off (groupTicketsEnabled), an edit may still send the value a
+   * tier already has, so an event with a group ticket stays editable.
+   */
+  storedAdmits?: ReadonlyMap<string, number>;
+}
+
+export const ADMITS_RANGE_MESSAGE = `People per ticket must be a whole number from 1 to ${MAX_GROUP_SIZE}.`;
+export const ADMITS_OFF_MESSAGE = "Group tickets aren't available yet.";
+export const ADMITS_FREE_MESSAGE = "A group ticket can't be free. Set a price, or admit one person.";
+
+export function ticketAdmitsMultipleMessage(admits: number): string {
+  return `A ticket for ${admits} people needs a quantity that's a multiple of ${admits}.`;
+}
+
+export function requireTicketTypes(
+  value: unknown,
+  field: string,
+  errors: Record<string, string>,
+  options: TicketTypeOptions = {},
+): TicketTypeInput[] {
   if (!Array.isArray(value) || value.length === 0) {
     errors[field] = "Add at least one ticket type.";
     return [];
@@ -232,6 +257,24 @@ export function requireTicketTypes(value: unknown, field: string, errors: Record
       errors[`${prefix}.opensAfterPrevious`] = "The first ticket has nothing above it to wait for.";
     }
 
+    // Group tickets: absent keeps the stored value (the database reads the missing key). 1 is a single ticket.
+    // Paid only, and the quantity (in people) a multiple of it: the database's checks, said here first.
+    const admits = t.admits;
+    const givenId = typeof t.id === "string" && t.id ? t.id : undefined;
+    if (admits !== undefined) {
+      if (typeof admits !== "number" || !Number.isInteger(admits) || admits < 1 || admits > MAX_GROUP_SIZE) {
+        errors[`${prefix}.admits`] = ADMITS_RANGE_MESSAGE;
+      } else if (admits > 1) {
+        if (!groupTicketsEnabled() && !(givenId !== undefined && options.storedAdmits?.get(givenId) === admits)) {
+          errors[`${prefix}.admits`] = ADMITS_OFF_MESSAGE;
+        } else if (priceCents === 0) {
+          errors[`${prefix}.admits`] = ADMITS_FREE_MESSAGE;
+        } else if (typeof quantityAvailable === "number" && Number.isInteger(quantityAvailable) && quantityAvailable % admits !== 0) {
+          errors[`${prefix}.quantityAvailable`] = ticketAdmitsMultipleMessage(admits);
+        }
+      }
+    }
+
     if (Object.keys(errors).some((k) => k.startsWith(prefix))) return;
 
     // Preserve a client-supplied id (so editing a draft keeps the same
@@ -255,6 +298,7 @@ export function requireTicketTypes(value: unknown, field: string, errors: Record
       feePolicy: feePolicy as FeePolicy,
       quantityAvailable: quantityAvailable as number,
       ...(typeof opensAfterPrevious === "boolean" ? { opensAfterPrevious } : {}),
+      ...(typeof admits === "number" ? { admits } : {}),
     });
   });
 

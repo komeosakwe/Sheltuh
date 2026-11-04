@@ -557,6 +557,41 @@ describe("Data API lock-out", () => {
     expect(policies.n).toBe(0);
   });
 
+  it("the group ticket functions and triggers exist, pin search_path, aren't security definer or client-executable; the constraints and columns exist", async () => {
+    const names = ["fulfil_order_detailed", "order_group_size", "record_payment_refund", "ticket_types_admits_frozen"];
+    // record_payment_refund has two forms: the 6-argument one, and the previous app version's 3-argument wrapper of it.
+    expect(await privateFunctions(names)).toEqual(locked(names, { record_payment_refund: 2 }));
+    const definers = await db.query<{ fn: string; definer: boolean }>(
+      `select p.proname as fn, p.prosecdef as definer from pg_proc p
+        where p.pronamespace = to_regnamespace('private') and p.proname = any($1::text[]) order by 1`,
+      [names],
+    );
+    expect(definers.every((r) => !r.definer)).toBe(true);
+    const triggers = await db.query<{ tgname: string }>(
+      `select t.tgname from pg_trigger t where not t.tgisinternal and t.tgname = 'ticket_types_admits_frozen'`,
+    );
+    expect(triggers).toEqual([{ tgname: "ticket_types_admits_frozen" }]);
+    const constraints = await db.query<{ conname: string }>(
+      `select conname from pg_constraint
+        where conrelid in ('public.ticket_types'::regclass, 'public.tickets'::regclass)
+          and conname in ('ticket_types_admits_range', 'ticket_types_admits_multiple', 'ticket_types_group_paid',
+                          'ticket_types_admits_ga_only', 'tickets_group_size_range') order by 1`,
+    );
+    expect(constraints.map((c) => c.conname)).toEqual([
+      "ticket_types_admits_ga_only",
+      "ticket_types_admits_multiple",
+      "ticket_types_admits_range",
+      "ticket_types_group_paid",
+      "tickets_group_size_range",
+    ]);
+    // Existing rows are single tickets.
+    const [columns] = await db.query<{ admits: string; group_size: string }>(
+      `select (select column_default from information_schema.columns where table_schema = 'public' and table_name = 'ticket_types' and column_name = 'admits') as admits,
+              (select is_nullable from information_schema.columns where table_schema = 'public' and table_name = 'tickets' and column_name = 'group_size') as group_size`,
+    );
+    expect(columns).toEqual({ admits: "1", group_size: "YES" });
+  });
+
   it("the sequential release functions and triggers exist, pin search_path, aren't security definer or client-executable; the constraints exist", async () => {
     const names = ["orders_tiers_open", "replace_ticket_types", "set_ticket_lock", "ticket_type_locks", "ticket_types_sold_out_at"];
     expect(await privateFunctions(names)).toEqual(locked(names));

@@ -211,6 +211,12 @@ select version, file, coalesce(applied, false) as applied
       and exists (select 1 from fn where proname = 'cancel_holder_message')
       and exists (select 1 from fn where proname = 'stop_holder_messages')
       and exists (select 1 from fn where proname = 'purge_operational_data'
-                   and 'holder_messages_deleted' = any(proargnames)))
+                   and 'holder_messages_deleted' = any(proargnames))),
+    ('20261120000000', 'group_tickets',
+      exists (select 1 from col where attrelid = to_regclass('public.ticket_types') and attname = 'admits')
+      and exists (select 1 from col where attrelid = to_regclass('public.tickets') and attname = 'group_size')
+      and exists (select 1 from fn where proname = 'ticket_types_admits_frozen')
+      and exists (select 1 from fn where proname = 'order_group_size')
+      and exists (select 1 from fn where proname = 'fulfil_order_detailed' and prosrc like '%order_group_size%'))
   ) as m(version, file, applied)
  order by version;

@@ -201,6 +201,21 @@ export interface TicketTypeInput {
    * sold out (and, for good, from then on), so a buyer can order it.
    */
   opensAfter?: TicketOpensAfter;
+  /**
+   * Group tickets (docs/architecture.md, "Group tickets"): how many people one
+   * ticket of this type admits, a whole number from 2 to 10. In a response:
+   * only when above 1 (a single ticket's payload is unchanged). In a request:
+   * absent keeps the stored value, 1 makes it a single ticket again. A 400
+   * (`fieldErrors["ticketTypes[i].admits"]`) when not a whole number from 1 to
+   * 10, when above 1 on a free ticket, when `quantityAvailable` isn't a
+   * multiple of it, and while group tickets are switched off
+   * (NEXT_PUBLIC_GROUP_TICKETS) unless it equals the stored value; a 409 when
+   * it would change on a tier that has sales or payable orders, or sits on a
+   * seat map. `quantityAvailable` and `remaining` stay counted in PEOPLE: one
+   * group sold is `admits` people taken. A checkout's `quantity` for such a
+   * ticket counts groups.
+   */
+  admits?: number;
 }
 
 /** The tier a waiting ticket type opens after (TicketTypeInput.opensAfter). */
@@ -638,9 +653,17 @@ export type OrderStatus = "pending" | "paid" | "failed" | "oversold_refund_requi
 export interface OrderLineItem {
   ticketTypeId: string;
   ticketTypeName: string;
+  /** What one ticket costs: for a group ticket (`admits` above 1), the whole group's price. */
   unitPriceCents: number;
   feePolicy: FeePolicy;
+  /** How many tickets: for a group ticket, how many groups (each admits `admits` people). */
   quantity: number;
+  /**
+   * The ticket type's `admits` when the order was made (a snapshot, copied by
+   * the server from the database, never from the client): only above 1. People
+   * in the line = `quantity` x `admits`; one ticket code is issued per person.
+   */
+  admits?: number;
 }
 
 export interface IssuedTicket {
@@ -649,6 +672,8 @@ export interface IssuedTicket {
   ticketTypeName: string;
   /** The ticket's seat, for a seated order (lib/seating/format.ts says it). */
   seat?: TicketSeat;
+  /** Only for a ticket of a group ticket type: which person of the group it is (as CustomerTicket.group). */
+  group?: TicketGroup;
 }
 
 export interface OrderRecord {
@@ -868,6 +893,20 @@ export interface CustomerTicket {
    * from an older API, which didn't send it: treat a missing one as null.
    */
   checkedInAt?: string | null;
+  /**
+   * Only for a ticket of a group ticket type: which person of the group this
+   * ticket is. Every person in a group has their own code and QR; the
+   * numbering follows the tickets' order in the response, group by group.
+   */
+  group?: TicketGroup;
+}
+
+/** One person of a group ticket: "2 of 4" is `{ position: 2, size: 4 }` (CustomerTicket.group). */
+export interface TicketGroup {
+  /** 1-based, within its group. */
+  position: number;
+  /** How many people the group admits (the ticket type's `admits`). */
+  size: number;
 }
 
 export type CustomerOrderLookup = CustomerOrder | { status: "pending" };
@@ -875,7 +914,10 @@ export type CustomerOrderLookup = CustomerOrder | { status: "pending" };
 /** One line of OrderPaymentSummary. Amounts are the buyer's (booking fee included when they pay it; lib/fees.ts). */
 export interface OrderPaymentLine {
   ticketTypeName: string;
+  /** Tickets, or for a group ticket (`admits`), groups. */
   quantity: number;
+  /** Only for a group ticket: how many people each one admits (above 1). */
+  admits?: number;
   /** One ticket, all-inclusive: 0 for a free line. */
   unitTotalCents: number;
   /** `quantity` tickets, all-inclusive. */

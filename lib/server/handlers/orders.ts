@@ -102,16 +102,19 @@ async function assertAvailable(db: Db, eventId: string, lineItems: OrderLineItem
   );
   const left = new Map(rows.map((r) => [r.id, r.remaining]));
   for (const line of lineItems) {
+    // Stock is in people; a group ticket's line takes quantity x admits of it (and says what's left in groups).
+    const admits = line.admits ?? 1;
     const remaining = left.get(line.ticketTypeId) ?? 0;
-    if (line.quantity > remaining) {
-      // An exact count only when public payloads show one too (REMAINING_SHOWN_AT_MOST): a large stock, and
-      // through it sales, is never given away by asking for more than there is.
+    if (line.quantity * admits > remaining) {
+      // An exact count only when public payloads show one too (REMAINING_SHOWN_AT_MOST, in people): a large
+      // stock, and through it sales, is never given away by asking for more than there is.
+      const groups = Math.floor(remaining / admits);
       throw new HttpError(
         409,
-        remaining <= 0
+        groups <= 0
           ? `"${line.ticketTypeName}" is sold out.`
           : remaining <= REMAINING_SHOWN_AT_MOST
-            ? `Only ${remaining} of "${line.ticketTypeName}" left.`
+            ? `Only ${groups} of "${line.ticketTypeName}" left.`
             : `There aren't that many "${line.ticketTypeName}" tickets left. Choose fewer.`,
       );
     }
@@ -1332,7 +1335,8 @@ async function openOrderState(db: Db, orderId: string, eventId: string, lineItem
   );
   const remaining = row.remaining ?? {};
   const soldOut =
-    lineItems.some((line) => line.quantity > (remaining[line.ticketTypeId] ?? 0)) || (seatIds !== null && row.seats_unavailable);
+    lineItems.some((line) => line.quantity * (line.admits ?? 1) > (remaining[line.ticketTypeId] ?? 0)) ||
+    (seatIds !== null && row.seats_unavailable);
   return { soldOut, seats: row.seats ?? [] };
 }
 
@@ -1346,6 +1350,7 @@ function paymentLines(lineItems: OrderLineItem[], seats: (TicketSeat & { ticketT
     return {
       ticketTypeName: line.ticketTypeName,
       quantity: line.quantity,
+      ...(line.admits !== undefined && line.admits > 1 ? { admits: line.admits } : {}),
       unitTotalCents: unit.totalCents,
       lineTotalCents: calculateOrderSummary(line.unitPriceCents, line.quantity, line.feePolicy).totalCents,
       // This line's own fee policy: a paid buyer-pays ticket (an organiser-absorbed or free one has none).

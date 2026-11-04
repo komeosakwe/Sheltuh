@@ -8,6 +8,7 @@ import {
   formatFeedPriceParts,
   formatTicketBreakdown,
   formatTicketHeadline,
+  fromPriceTicketTypes,
   getMinBuyerTotalCents,
   getTicketBuyerTotalCents,
   isSoldOut,
@@ -16,7 +17,7 @@ import {
   SOLD_OUT_LABEL,
 } from "../lib/pricing";
 import { sampleEvents } from "../lib/sample-events";
-import type { SheltuhEvent } from "../lib/types";
+import type { SheltuhEvent, TicketType } from "../lib/types";
 
 function findEvent(slug: string): SheltuhEvent {
   const event = sampleEvents.find((e) => e.slug === slug);
@@ -302,3 +303,52 @@ describe("sold-out tiers (waitlist; brand-direction-one.md §6.5, §6.8)", () =>
     expect(sampleEvents.filter(isSoldOut).map((e) => e.slug)).toEqual(["dead-letter-office"]);
   });
 });
+
+describe("group tickets in the 'From' price", () => {
+  const single: TicketType = { id: "ga", name: "General admission", priceCents: 3500, feePolicy: "buyer-pays", quantityAvailable: 100 };
+  const group: TicketType = { id: "grp", name: "Group of 4", priceCents: 12000, feePolicy: "buyer-pays", quantityAvailable: 40, admits: 4 };
+  const groupOf6: TicketType = { id: "g6", name: "Group of 6", priceCents: 15000, feePolicy: "buyer-pays", quantityAvailable: 60, admits: 6 };
+  const base: SheltuhEvent = { ...findEvent("neon-static"), ticketTypes: [], soldOut: undefined };
+  const event = (ticketTypes: TicketType[]): SheltuhEvent => ({ ...base, ticketTypes });
+
+  it("skips group tickets when a single is on sale: a group's price is not a price per person", () => {
+    const e = event([group, single]);
+    expect(fromPriceTicketTypes(e).map((t) => t.id)).toEqual(["ga"]);
+    expect(getMinBuyerTotalCents(e)).toBe(3760);
+    expect(formatFeedPrice(e)).toBe("A$37.60 incl. booking fee");
+    expect(formatFeedPriceParts(e)).toEqual({ amount: "A$37.60", note: "incl. booking fee" });
+    // "On sale" and "free" are still read from every tier on sale.
+    expect(pricedTicketTypes(e).map((t) => t.id)).toEqual(["grp", "ga"]);
+  });
+
+  it("says 'for 4' when only group tickets are on sale", () => {
+    const e = event([group]);
+    expect(formatFeedPrice(e)).toBe("A$127.70 for 4 incl. booking fee");
+    expect(formatFeedPriceParts(e)).toEqual({ amount: "A$127.70 for 4", note: "incl. booking fee" });
+    // Two groups: 'From' the cheaper, and says its size.
+    expect(formatFeedPrice(event([groupOf6, group]))).toBe("From A$127.70 for 4 incl. booking fee");
+    expect(formatFeedPriceParts(event([groupOf6, group]))).toEqual({ amount: "From A$127.70 for 4", note: "incl. booking fee" });
+  });
+
+  it("a sold-out single leaves the group as the price", () => {
+    const e = event([{ ...single, soldOut: true, remaining: 0 }, group]);
+    expect(formatFeedPrice(e)).toBe("A$127.70 for 4 incl. booking fee");
+  });
+
+  it("an event whose every tier is sold out reads 'Sold out'", () => {
+    const e: SheltuhEvent = { ...base, soldOut: true, ticketTypes: [{ ...group, soldOut: true, remaining: 0 }] };
+    expect(formatFeedPrice(e)).toBe(SOLD_OUT_LABEL);
+  });
+
+  it("a free single beside a group ticket is 'Free', and says the group is paid", () => {
+    const e = event([{ ...single, priceCents: 0 }, group]);
+    expect(formatFeedPrice(e)).toBe("Free");
+    expect(formatFeedPriceParts(e)).toEqual({ amount: "Free", note: "Paid tickets incl. booking fee" });
+  });
+
+  it("an event of single tickets reads as before", () => {
+    expect(formatFeedPrice(event([single]))).toBe("A$37.60 incl. booking fee");
+    expect(formatFeedPrice(event([single, { ...single, id: "vip", priceCents: 5500 }]))).toBe("From A$37.60 incl. booking fee");
+  });
+});
+

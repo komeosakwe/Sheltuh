@@ -44,6 +44,7 @@ import {
   type VenueLocation,
 } from "@/lib/api/types";
 import { isFeaturedVideo, type FeaturedVideo } from "@/lib/api/featured-video";
+import { withGroupPositions } from "@/lib/ticket-groups";
 import { ticketProviderName, type TicketingMode } from "@/lib/ticketing";
 import { DEFAULT_REFUND_POLICY, type RefundPolicy } from "@/lib/refund-policy";
 import { PLATFORM_TIME_ZONE, type AustralianTimeZone, type StateCode } from "@/lib/time-zones";
@@ -300,6 +301,8 @@ const EVENT_COLUMNS = `
                     -- Sequential release: the setting (only when on), and, while the tier is waiting, the
                     -- tier it waits for (private.ticket_type_locks, the one definition of "waiting").
                     'opensAfterPrevious', case when t.opens_after_previous then true end,
+                    -- Group tickets: only above 1 (a single ticket's JSON is unchanged).
+                    'admits', case when t.admits > 1 then t.admits end,
                     'opensAfter', case when t.opens_after_previous then (
                       select json_build_object('ticketTypeId', l.blocker_id, 'name', l.blocker_name)
                         from private.ticket_type_locks(e.id) l where l.ticket_type_id = t.id) end)) order by t.position)
@@ -697,10 +700,25 @@ export const ORDER_SELECT = `
          coalesce((
            select json_agg(json_strip_nulls(json_build_object(
                     'ticketCode', t.code, 'ticketTypeId', t.ticket_type_id,
-                    'ticketTypeName', t.ticket_type_name, 'seat', ${TICKET_SEAT_JSON})) order by t.ticket_type_id, t.code)
+                    'ticketTypeName', t.ticket_type_name, 'seat', ${TICKET_SEAT_JSON},
+                    'groupSize', t.group_size)) order by t.ticket_type_id, t.code)
            from public.tickets t where t.order_id = o.id
          ), '[]'::json) as tickets
   from public.orders o`;
+
+// json_strip_nulls drops a missing seat (general admission) and a missing group size (a single ticket).
+type IssuedTicketRow = IssuedTicket & { groupSize?: number };
+
+/** The tickets of ORDER_SELECT's `tickets`: a group ticket's people numbered in their group (withGroupPositions: the SQL's order). */
+function issuedTicketsOf(rows: IssuedTicketRow[]): IssuedTicket[] {
+  return withGroupPositions(rows).map((ticket) => ({
+    ticketCode: ticket.ticketCode,
+    ticketTypeId: ticket.ticketTypeId,
+    ticketTypeName: ticket.ticketTypeName,
+    ...(ticket.seat ? { seat: ticket.seat } : {}),
+    ...(ticket.group ? { group: ticket.group } : {}),
+  }));
+}
 
 export function toOrder(row: Row): OrderRecord {
   return {
@@ -720,7 +738,7 @@ export function toOrder(row: Row): OrderRecord {
     stripeCheckoutSessionId: opt(row.stripe_checkout_session_id),
     stripePaymentIntentId: opt(row.stripe_payment_intent_id),
     ...(Array.isArray(row.seat_ids) ? { seatIds: row.seat_ids as string[] } : {}),
-    tickets: row.tickets as IssuedTicket[],
+    tickets: issuedTicketsOf(row.tickets as IssuedTicketRow[]),
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
   };
@@ -754,7 +772,9 @@ export const CUSTOMER_ORDER_SELECT = `
          coalesce((
            select json_agg(json_strip_nulls(json_build_object('ticketCode', t.code, 'ticketTypeName', t.ticket_type_name,
                                                               'seat', ${TICKET_SEAT_JSON},
-                                                              'checkedInAt', t.checked_in_at))
+                                                              'checkedInAt', t.checked_in_at,
+                                                              -- Only to number a group's people (withGroupPositions).
+                                                              'ticketTypeId', t.ticket_type_id, 'groupSize', t.group_size))
                            order by t.ticket_type_id, t.code)
            from public.tickets t where t.order_id = o.id and o.status = 'paid'
          ), '[]'::json) as tickets,
@@ -785,7 +805,14 @@ export function eventPlaceOf(row: Row): { eventTimeZone: AustralianTimeZone; eve
 }
 
 // json_strip_nulls drops a missing seat (general admission) and a null check-in time.
-type CustomerTicketRow = { ticketCode: string; ticketTypeName: string; seat?: TicketSeat; checkedInAt?: string | null };
+type CustomerTicketRow = {
+  ticketCode: string;
+  ticketTypeName: string;
+  ticketTypeId: string;
+  groupSize?: number;
+  seat?: TicketSeat;
+  checkedInAt?: string | null;
+};
 
 export function toCustomerOrder(row: Row): CustomerOrder {
   const email = opt<string>(row.buyer_email);
@@ -796,11 +823,12 @@ export function toCustomerOrder(row: Row): CustomerOrder {
   const details = paid && listed;
   // Belt and braces with the SQL: never a code for an order that isn't paid.
   const tickets = paid
-    ? (row.tickets as CustomerTicketRow[]).map((t) => ({
+    ? withGroupPositions(row.tickets as CustomerTicketRow[]).map((t) => ({
         ticketCode: t.ticketCode,
         ticketTypeName: t.ticketTypeName,
         ...(t.seat ? { seat: t.seat } : {}),
         checkedInAt: t.checkedInAt ? iso(t.checkedInAt) : null,
+        ...(t.group ? { group: t.group } : {}),
       }))
     : [];
   return {

@@ -1,5 +1,6 @@
 import { calculateBookingFeeCents, calculateOrderSummary } from "./fees";
 import { formatAud } from "./format";
+import { admitsOf } from "./ticket-groups";
 import { ticketProviderName } from "./ticketing";
 import type { SheltuhEvent, TicketType } from "./types";
 
@@ -21,15 +22,43 @@ export function pricedTicketTypes(event: SheltuhEvent): TicketType[] {
 }
 
 /**
+ * The tiers the "From" PRICE is read from: pricedTicketTypes, less group
+ * tickets (one ticket for several people) whenever a single ticket is among
+ * them, since a group's price is not "from" a price per person. An event that
+ * only has group tickets on sale prices them as they are, per group ("From
+ * A$127.70 for 4"). Whether the event is free (or paid) is still read from
+ * pricedTicketTypes: a group ticket is always paid.
+ */
+export function fromPriceTicketTypes(event: SheltuhEvent): TicketType[] {
+  const tiers = pricedTicketTypes(event);
+  const singles = tiers.filter((ticket) => admitsOf(ticket) === 1);
+  return singles.length > 0 ? singles : tiers;
+}
+
+/**
  * Cheapest buyer-payable total across an event's ticket types still on sale
  * (a sold-out tier, or one still waiting to open, never sets the "From"
- * price; when all are sold out, the cheapest of them). `null` when the event has no ticket types: there's no
- * price yet (not a free event, and never `Math.min()`'s `Infinity`).
+ * price; when all are sold out, the cheapest of them; group tickets only when
+ * there is no single: fromPriceTicketTypes). `null` when the event has no ticket
+ * types: there's no price yet (not a free event, and never `Math.min()`'s
+ * `Infinity`).
  */
 export function getMinBuyerTotalCents(event: SheltuhEvent): number | null {
-  const tiers = pricedTicketTypes(event);
+  const tiers = fromPriceTicketTypes(event);
   if (tiers.length === 0) return null;
   return Math.min(...tiers.map(getTicketBuyerTotalCents));
+}
+
+/**
+ * " for 4" when the price is a group's (the cheapest of the priced tiers is a
+ * group ticket, which only happens when there are no singles): a group's price
+ * is never read as a price per person.
+ */
+function groupSuffix(event: SheltuhEvent): string {
+  const tiers = fromPriceTicketTypes(event);
+  if (tiers.length === 0) return "";
+  const cheapest = tiers.reduce((a, b) => (getTicketBuyerTotalCents(b) < getTicketBuyerTotalCents(a) ? b : a));
+  return admitsOf(cheapest) > 1 ? ` for ${admitsOf(cheapest)}` : "";
 }
 
 /** Card and buy-bar label for an event whose every ticket type is sold out. */
@@ -89,8 +118,8 @@ export function formatFeedPrice(event: SheltuhEvent): string {
   const minTotalCents = getMinBuyerTotalCents(event);
   if (minTotalCents === null) return NO_TICKETS_LABEL;
   if (minTotalCents === 0) return "Free";
-  const prefix = pricedTicketTypes(event).length > 1 ? "From " : "";
-  return `${prefix}${formatAud(minTotalCents)} incl. booking fee`;
+  const prefix = fromPriceTicketTypes(event).length > 1 ? "From " : "";
+  return `${prefix}${formatAud(minTotalCents)}${groupSuffix(event)} incl. booking fee`;
 }
 
 export interface FeedPriceParts {
@@ -118,13 +147,14 @@ export function formatFeedPriceParts(event: SheltuhEvent): FeedPriceParts | null
   if (isSoldOut(event)) return { amount: SOLD_OUT_LABEL, note: "" };
   const minTotalCents = getMinBuyerTotalCents(event);
   if (minTotalCents === null) return null;
-  const tiers = pricedTicketTypes(event);
+  const tiers = fromPriceTicketTypes(event);
   if (minTotalCents === 0) {
-    const hasPaid = tiers.some((ticket) => ticket.priceCents > 0);
+    // Every tier on sale, group tickets included: "Free" never hides a paid one.
+    const hasPaid = pricedTicketTypes(event).some((ticket) => ticket.priceCents > 0);
     return { amount: "Free", note: hasPaid ? "Paid tickets incl. booking fee" : "No booking fee" };
   }
   const prefix = tiers.length > 1 ? "From " : "";
-  return { amount: `${prefix}${formatAud(minTotalCents)}`, note: "incl. booking fee" };
+  return { amount: `${prefix}${formatAud(minTotalCents)}${groupSuffix(event)}`, note: "incl. booking fee" };
 }
 
 /** Per-ticket headline price shown on the event details page. */

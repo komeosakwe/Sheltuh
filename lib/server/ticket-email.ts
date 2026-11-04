@@ -6,6 +6,7 @@ import { placeName } from "@/lib/place";
 import { DEFAULT_REFUND_POLICY, REFUND_ACL_STATEMENT, refundTermsLine } from "@/lib/refund-policy";
 import { formatSeatLine, speakSeatLine } from "@/lib/seating/format";
 import { SUPPORT_LABEL, SUPPORT_REFUND_NOTE } from "@/lib/support";
+import { ticketNameWithGroup } from "@/lib/ticket-groups";
 import { QR_QUIET_ZONE_MODULES, ticketQrLabel, ticketQrMatrix } from "@/lib/ticket-qr";
 import { cachedDateTimeFormat, PLATFORM_TIME_ZONE, zoneLabel, type StateCode } from "@/lib/time-zones";
 import { subjectLine, type EmailMessage, type InlineImage } from "./email";
@@ -470,7 +471,7 @@ export function buildTicketEmail(
       : ["YOUR TICKETS (show these codes at the door)"]),
     ...order.tickets.flatMap((t, i) => [
       "",
-      `Ticket ${i + 1} of ${total}${t.ticketTypeName ? ` - ${t.ticketTypeName}` : ""}`,
+      `Ticket ${i + 1} of ${total}${t.ticketTypeName ? ` - ${ticketNameWithGroup(t.ticketTypeName, t.group)}` : ""}`,
       ...(t.seat ? [`Seat: ${speakSeatLine(t.seat)}`] : []),
       `Entry code: ${t.ticketCode}`,
       ...walletLinks(i).map((l) => `${l.label}: ${l.href}`),
@@ -523,7 +524,7 @@ ${
       );
 
   const panels = order.tickets
-    .map((t, i) => ticketPanel(t.ticketCode, t.ticketTypeName, i, total, qrs[i], t.seat, walletLinks(i)))
+    .map((t, i) => ticketPanel(t.ticketCode, t.ticketTypeName ? ticketNameWithGroup(t.ticketTypeName, t.group) : "", i, total, qrs[i], t.seat, walletLinks(i)))
     .join("\n");
   const tip = anyQr
     ? para(
