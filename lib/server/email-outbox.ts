@@ -12,7 +12,7 @@ import { PG_UNDEFINED_FUNCTION, pgErrorCode } from "./db";
 import type { Deps } from "./deps";
 import type { EmailMessage } from "./email";
 import { isPlainEmailAddress, redactForLog } from "./email-address";
-import { buildEventReminderEmail } from "./event-reminder-email";
+import { buildEventReminderEmail, reminderDaysAway } from "./event-reminder-email";
 import { buildFollowerNewEventsEmail, FOLLOWER_EMAIL_MAX_EVENTS, followerUnsubscribeLink } from "./follower-email";
 import { findEventById } from "./handlers/event-queries";
 import { buildHolderMessageEmail } from "./holder-message-email";
@@ -200,6 +200,8 @@ export const EVENT_REMINDERS_DAILY = { bucket: "event_reminders_daily", limit: 8
 export const HOLDER_MESSAGES_DAILY = { bucket: "holder_messages_daily", limit: 600 } as const;
 /** How long a reminder or message over its cap waits before it tries again. */
 export const SEND_CAP_DEFER_SECONDS = 3600;
+/** A reminder whose event was moved to after tomorrow waits this long before it is looked at again. */
+export const REMINDER_NOT_YET_DEFER_SECONDS = 6 * 3600;
 /** A reminder is skipped, not sent, if its event is further off than this (it was moved later since the job was queued). */
 const REMINDER_MAX_LEAD = "50 hours";
 
@@ -774,6 +776,11 @@ async function deliverEventReminder(deps: Deps, jobId: string): Promise<Outcome>
     if (!buyerEmail || !isPlainEmailAddress(buyerEmail)) return skip("the order has no usable email address");
     const event = await findEventById(deps.db, row.event_id);
     if (!event) return skip("the event no longer exists");
+    // Moved since it was queued (e.g. postponed by a day): it says "Today" or "Tomorrow", so it waits until that's
+    // true in the event's own zone, without using an attempt. Further off than the lead window, it's skipped above.
+    if (reminderDaysAway(event.startsAt, new Date(), event.timeZone) > 1) {
+      return { sent: false, error: "the event isn't tomorrow yet", permanent: false, deferSeconds: REMINDER_NOT_YET_DEFER_SECONDS };
+    }
     // Last, so a skipped job never uses the allowance. Over it, the job waits (it isn't dropped, nor does it use an attempt).
     const [{ allowed }] = await deps.db.query<{ allowed: boolean }>(
       `select private.take_platform_rate_limit($1, $2, interval '1 day') as allowed`,

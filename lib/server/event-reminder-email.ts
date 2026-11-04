@@ -30,10 +30,16 @@ import type { EventRecord } from "./types";
  * out-of-office replies and the like don't answer it.
  */
 
+/** Calendar days from `now` to the event's start, both in the event's own zone (0 today, 1 tomorrow, negative if past). */
+export function reminderDaysAway(startsAt: string, now: Date, timeZone: string = PLATFORM_TIME_ZONE): number {
+  const dayKey = cachedDateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" });
+  const day = (d: Date) => Date.parse(`${dayKey.format(d)}T00:00:00Z`);
+  return Math.round((day(new Date(startsAt)) - day(now)) / 86_400_000);
+}
+
 /** "today" when the event starts on the same calendar day as `now` in the event's own zone, otherwise "tomorrow". */
 export function reminderDay(startsAt: string, now: Date, timeZone: string = PLATFORM_TIME_ZONE): "today" | "tomorrow" {
-  const dayKey = cachedDateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" });
-  return dayKey.format(new Date(startsAt)) === dayKey.format(now) ? "today" : "tomorrow";
+  return reminderDaysAway(startsAt, now, timeZone) <= 0 ? "today" : "tomorrow";
 }
 
 export function buildEventReminderEmail(input: {

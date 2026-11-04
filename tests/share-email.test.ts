@@ -88,3 +88,16 @@ describe("the reminder's Tell a friend", () => {
     expect(email.text).toContain("https://sheltuh.com.au/events/paint-and-sip");
   });
 });
+
+describe("reminderDaysAway (the event's own calendar)", () => {
+  it("counts calendar days in the event's zone, not 24-hour blocks", async () => {
+    const { reminderDaysAway, reminderDay } = await import("@/lib/server/event-reminder-email");
+    const now = new Date("2026-11-05T21:00:00.000Z"); // 8 am Fri 6 Nov in Melbourne
+    expect(reminderDaysAway("2026-11-06T08:00:00.000Z", now, "Australia/Melbourne")).toBe(0); // 7 pm Fri
+    expect(reminderDaysAway("2026-11-06T14:00:00.000Z", now, "Australia/Melbourne")).toBe(1); // 1 am Sat
+    expect(reminderDaysAway("2026-11-07T23:00:00.000Z", now, "Australia/Melbourne")).toBe(2); // 10 am Sun
+    expect(reminderDay("2026-11-06T14:00:00.000Z", now, "Australia/Melbourne")).toBe("tomorrow");
+    // Perth: 5 am Fri there now, and the 4 pm Fri start is the same day.
+    expect(reminderDaysAway("2026-11-06T08:00:00.000Z", now, "Australia/Perth")).toBe(0);
+  });
+});
