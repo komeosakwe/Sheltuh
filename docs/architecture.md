@@ -3598,16 +3598,22 @@ person (`supabase/migrations/20261120000000_group_tickets.sql`,
   and the door admits them one at a time (`check_in_ticket` is unchanged).
   Which person of the group a ticket is, is derived, not stored:
   `withGroupPositions` numbers the tickets of a type in the existing order
-  (type, code) in groups of `group_size`, so the ticket page, the email, the
-  wallet passes and the door's "Ticket 2 of 4" agree. It is
+  (type, code) in groups of `group_size`, so the ticket page, the email and the
+  wallet passes agree. The door doesn't use it: `check_in_ticket` is unchanged,
+  so a scan shows the order's "Ticket n of N" and the ticket type's name, not a
+  place in a group (adding one needs a new migration; not built). It is
   `CustomerTicket.group` / `IssuedTicket.group` `{position, size}`, and the
   email and passes say "Group of 4 (2 of 4)" (`ticketNameWithGroup`).
 - **Authoring.** `TicketTypeInput.admits` (absent keeps the stored value, as
   `opensAfterPrevious`); `replace_ticket_types` and `admin_edit_event` carry it
   and log it only when above 1. Group tickets and a seat map are refused
-  together in both directions (400: `withSeatedCapacity` for the event's
-  ticket types, `parseSeatMapTemplate` for the map; the database's
-  `ticket_types_admits_ga_only` is the backstop, 409). Releasing more tickets
+  together in both directions, **enforced in the handlers** (400:
+  `withSeatedCapacity` for the event's ticket types, `parseSeatMapTemplate` for
+  the map). The database's `ticket_types_admits_ga_only` covers seated tiers
+  only (a seated tier can't be a group), so it is not a backstop for an event:
+  a concurrent edit racing a map upload could leave a general admission group
+  ticket next to a seat map. That still works (the tier is sold as a quantity,
+  the seated tiers by seat), so it is accepted, not repaired. Releasing more tickets
   takes people, so a quantity that isn't a multiple of `admits` is a 400
   (`ticket_types_admits_multiple`).
 - **Analytics.** Tickets (`ticketsSold`, orders' ticket counts, tracking links)
@@ -3616,7 +3622,10 @@ person (`supabase/migrations/20261120000000_group_tickets.sql`,
 - **Not built.** Free groups, seated groups, refunding one person, a per-person
   price or name, a minimum group size to book.
 - **Rollback.** Reversible until a group order exists (the migration's
-  header); switching the flag off only stops new group tickets.
+  header); after that, roll forward only (an older build refunds group
+  checkouts and fails their webhooks: docs/supabase-setup.md, "Group tickets
+  (incident runbook)"). Switching the flag off only stops new group tickets:
+  to stop a live one selling, unpublish the event or sell out the tier.
 
 ## Event reminders
 

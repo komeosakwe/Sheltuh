@@ -2,12 +2,12 @@ import { fieldClass } from "@/components/ui/Field";
 import type { TicketTypeInput } from "@/lib/api/types";
 import { calculateBookingFeeCents, calculateOrderSummary, describeBookingFee } from "@/lib/fees";
 import { formatAud } from "@/lib/format";
-import { admitsOf, groupsIn, groupOfLabel, MAX_GROUP_SIZE } from "@/lib/ticket-groups";
-import { admitsPatch, groupDisabledReason, MAX_TICKET_DESCRIPTION_LENGTH } from "./draft";
+import { admitsOf, groupsIn, groupOfLabel } from "@/lib/ticket-groups";
+import { admitsPatch, groupDisabledReason, groupSizeOptions, MAX_TICKET_DESCRIPTION_LENGTH } from "./draft";
 
 /** What decides whether a ticket's "People per ticket" shows and can change (group tickets, behind NEXT_PUBLIC_GROUP_TICKETS). */
 export interface GroupContext {
-  /** The flag is on (and the organiser can sell paid tickets). Off: only an existing group ticket shows it, read-only. */
+  /** The flag is on (and the organiser can sell paid tickets). Off: only an existing group ticket shows it, and (without sales) it can only go back to 1. */
   enabled: boolean;
   /** The event has (or is getting) a seat map: group tickets and seats exclude each other. */
   reservedSeating: boolean;
@@ -15,11 +15,9 @@ export interface GroupContext {
   sold: number;
 }
 
-const PEOPLE_OPTIONS = Array.from({ length: MAX_GROUP_SIZE }, (_, i) => i + 1);
-
 /**
- * One ticket type's fields (docs/design/event-editor.md §5.6): name, price, who pays the booking fee,
- * quantity, and the optional description buyers see under the name. A block, not a nested box: the
+ * One ticket type's fields (docs/design/event-editor.md §5.6): name, price, people per ticket (when shown),
+ * quantity, who pays the booking fee, and the optional description buyers see under the name. A block, not a nested box: the
  * second and later ones are ruled off. Prices are the all-inclusive amounts from lib/fees.ts.
  *
  * A group ticket (one ticket that admits several people) keeps its capacity in PEOPLE (as the API does):
@@ -63,7 +61,7 @@ export default function TicketTypeFields({
   const canWait = index > 0 && ticket.seated !== true;
   const admits = admitsOf(ticket);
   const isGroup = admits > 1;
-  // Off, only a group ticket that already exists shows its size (read-only); otherwise it's not shown at all.
+  // Off, only a group ticket that already exists shows its size (without sales it can go back to 1); otherwise it's not shown at all.
   const showPeople = groups.enabled || isGroup;
   const peopleReason = groupDisabledReason(ticket, groups);
   const groupCount = groupsIn(ticket, Math.max(ticket.quantityAvailable, 0));
@@ -111,8 +109,6 @@ export default function TicketTypeFields({
           />
           {error(field("price"))}
         </div>
-        {showPeople ? (
-          <>
         {showPeople && (
           <div className="flex flex-col gap-1">
             <label htmlFor={field("admits")} className="eyebrow text-muted">
@@ -131,7 +127,7 @@ export default function TicketTypeFields({
               aria-invalid={errors[field("admits")] ? true : undefined}
               className={fieldClass}
             >
-              {PEOPLE_OPTIONS.map((n) => (
+              {groupSizeOptions(ticket, groups.enabled).map((n) => (
                 <option key={n} value={n}>
                   {n}
                 </option>
@@ -156,7 +152,8 @@ export default function TicketTypeFields({
             value={isGroup ? groupCount : ticket.quantityAvailable}
             onChange={(e) => {
               const typed = Number(e.target.value) || 0;
-              onChange({ quantityAvailable: typed * admits });
+              // Groups are whole: 2.5 groups of 4 would be 10 people. Truncated as typed.
+              onChange({ quantityAvailable: isGroup ? Math.trunc(typed) * admits : typed });
             }}
             aria-invalid={errors[field("qty")] ? true : undefined}
             aria-describedby={
@@ -188,54 +185,6 @@ export default function TicketTypeFields({
             <option value="buyer-pays">Buyer pays</option>
           </select>
         </div>
-          </>
-        ) : (
-          <>
-        <div className="flex flex-col gap-1">
-          <label htmlFor={`ticket-${index}-fee-policy`} className="eyebrow text-muted">
-            Who pays the booking fee?
-          </label>
-          <select
-            id={`ticket-${index}-fee-policy`}
-            value={ticket.feePolicy}
-            onChange={(e) => onChange({ feePolicy: e.target.value as TicketTypeInput["feePolicy"] })}
-            aria-describedby={`ticket-${index}-fee-help`}
-            className={fieldClass}
-          >
-            <option value="organiser-absorbs">Organiser pays</option>
-            <option value="buyer-pays">Buyer pays</option>
-          </select>
-        </div>
-        <div className="flex flex-col gap-1">
-          <label htmlFor={field("qty")} className="eyebrow text-muted">
-            {isGroup ? "Groups available" : "Quantity available"}
-          </label>
-          <input
-            id={field("qty")}
-            type="number"
-            min={1}
-            value={isGroup ? groupCount : ticket.quantityAvailable}
-            onChange={(e) => {
-              const typed = Number(e.target.value) || 0;
-              onChange({ quantityAvailable: typed * admits });
-            }}
-            aria-invalid={errors[field("qty")] ? true : undefined}
-            aria-describedby={
-              [isGroup ? `${field("qty")}-hint` : null, errors[field("qty")] ? `${field("qty")}-error` : null]
-                .filter(Boolean)
-                .join(" ") || undefined
-            }
-            className={fieldClass}
-          />
-          {isGroup && (
-            <p id={`${field("qty")}-hint`} className="meta text-muted tabular-nums">
-              {groupCount * admits} people in total
-            </p>
-          )}
-          {error(field("qty"))}
-        </div>
-          </>
-        )}
         <div className="sm:col-span-2">
           <FeePolicyHelp id={`ticket-${index}-fee-help`} priceCents={ticket.priceCents} isAdmin={isAdmin} />
         </div>

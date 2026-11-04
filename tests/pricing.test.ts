@@ -330,6 +330,12 @@ describe("group tickets in the 'From' price", () => {
     expect(formatFeedPriceParts(event([groupOf6, group]))).toEqual({ amount: "From A$127.70 for 4", note: "incl. booking fee" });
   });
 
+  it("a group ticket's headline is the whole group's, said like the feed ('for 4')", () => {
+    expect(formatTicketHeadline(group)).toBe("A$127.70 for 4 incl. booking fee");
+    expect(formatTicketHeadline({ ...group, feePolicy: "organiser-absorbs" })).toBe("A$120 for 4 incl. booking fee");
+    expect(formatTicketHeadline(single)).toBe("A$37.60 incl. booking fee");
+  });
+
   it("a sold-out single leaves the group as the price", () => {
     const e = event([{ ...single, soldOut: true, remaining: 0 }, group]);
     expect(formatFeedPrice(e)).toBe("A$127.70 for 4 incl. booking fee");

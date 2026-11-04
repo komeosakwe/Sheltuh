@@ -52,12 +52,11 @@ export function getMinBuyerTotalCents(event: SheltuhEvent): number | null {
 /**
  * " for 4" when the price is a group's (the cheapest of the priced tiers is a
  * group ticket, which only happens when there are no singles): a group's price
- * is never read as a price per person.
+ * is never read as a price per person. Only called with a price to show, so
+ * there is at least one tier.
  */
 function groupSuffix(event: SheltuhEvent): string {
-  const tiers = fromPriceTicketTypes(event);
-  if (tiers.length === 0) return "";
-  const cheapest = tiers.reduce((a, b) => (getTicketBuyerTotalCents(b) < getTicketBuyerTotalCents(a) ? b : a));
+  const cheapest = fromPriceTicketTypes(event).reduce((a, b) => (getTicketBuyerTotalCents(b) < getTicketBuyerTotalCents(a) ? b : a));
   return admitsOf(cheapest) > 1 ? ` for ${admitsOf(cheapest)}` : "";
 }
 
@@ -157,10 +156,14 @@ export function formatFeedPriceParts(event: SheltuhEvent): FeedPriceParts | null
   return { amount: `${prefix}${formatAud(minTotalCents)}${groupSuffix(event)}`, note: "incl. booking fee" };
 }
 
-/** Per-ticket headline price shown on the event details page. */
+/**
+ * Per-ticket headline price shown on the event details page and in the admin queue. A group ticket's is the
+ * whole group's, said like the feed's: "A$240 for 4 incl. booking fee" (never read as a price per person).
+ */
 export function formatTicketHeadline(ticket: TicketType): string {
   if (ticket.priceCents === 0) return "Free";
-  return `${formatAud(getTicketBuyerTotalCents(ticket))} incl. booking fee`;
+  const people = admitsOf(ticket);
+  return `${formatAud(getTicketBuyerTotalCents(ticket))}${people > 1 ? ` for ${people}` : ""} incl. booking fee`;
 }
 
 /**

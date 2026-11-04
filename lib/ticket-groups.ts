@@ -57,8 +57,9 @@ export function ticketNameWithGroup(typeName: string, group?: TicketGroup): stri
  * Numbers the people of each group: `tickets` in their order in the order's
  * response (by ticket type, then code), the first `size` tickets of a type are
  * one group, the next `size` another. A ticket without a `groupSize` isn't
- * part of one. The server, the door list, the email and the wallet pass all
- * read it, so keep that order.
+ * part of one. The ticket page, the email and the wallet pass all read it, so
+ * keep that order. (The door list doesn't: it admits each code on its own and
+ * shows the order's "Ticket n of N", not a place in a group.)
  */
 export function withGroupPositions<T extends { ticketTypeId: string; groupSize?: number | null }>(
   tickets: readonly T[],
@@ -99,7 +100,7 @@ export function groupSaving(group: TicketType, ticketTypes: readonly TicketType[
   let best: TicketType | undefined;
   for (const ticket of ticketTypes) {
     if (ticket.id === group.id || admitsOf(ticket) !== 1 || !onSale(ticket)) continue;
-    // `remaining` is only sent at 10 or fewer: absent means more than that are left.
+    // `remaining` is only sent at 10 or fewer for a single: absent means more than that are left.
     if (ticket.remaining !== undefined && ticket.remaining < size) continue;
     if (best === undefined || buyerTotal(ticket) < buyerTotal(best)) best = ticket;
   }

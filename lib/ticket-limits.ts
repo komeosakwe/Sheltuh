@@ -26,7 +26,8 @@ export function freeTicketsIn(ticketTypes: TicketType[], quantities: Quantities)
 /**
  * What's left of a ticket type in tickets as a buyer orders them: people for
  * a single ticket, whole groups for a group ticket (`remaining` counts people).
- * Undefined when the server didn't say (more than 10 people are left).
+ * Undefined when the server didn't say (more than 10 people are left, or for a
+ * group ticket more than MAX_PEOPLE_PER_TYPE).
  */
 export function remainingUnits(ticket: TicketType): number | undefined {
   return ticket.remaining === undefined ? undefined : groupsIn(ticket, ticket.remaining);
@@ -35,7 +36,7 @@ export function remainingUnits(ticket: TicketType): number | undefined {
 /**
  * A ticket type's own limit per booking, in tickets (groups, for a group
  * ticket): its capacity, what's left when the server says (`remaining`, only
- * sent at 10 or fewer people), and at most MAX_QUANTITY_PER_TYPE, or for a
+ * sent at 10 or fewer people, or 20 for a group ticket), and at most MAX_QUANTITY_PER_TYPE, or for a
  * group MAX_PEOPLE_PER_TYPE people. `quantityAvailable` is the capacity, not
  * what's still unsold, so "Only N left" comes from `remaining` alone.
  */

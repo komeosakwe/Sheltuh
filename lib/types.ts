@@ -57,8 +57,9 @@ export interface TicketType {
    */
   soldOut?: boolean;
   /**
-   * Tickets left, only when the API says so (10 or fewer; 0 when sold out).
-   * Absent when more are left: never inferred from `quantityAvailable`.
+   * Tickets left, only when the API says so (10 or fewer; for a group ticket
+   * 20 or fewer people; 0 when sold out). Absent when more are left: never
+   * inferred from `quantityAvailable`.
    */
   remaining?: number;
   /**

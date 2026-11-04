@@ -116,7 +116,7 @@ for (const vp of [
       const tickets = page.locator("#tickets");
       const row = tickets.getByRole("listitem").filter({ hasText: "Group of 4" });
       await expect(row).toContainText("4 tickets · save A$20", { timeout: 30_000 });
-      await expect(row).toContainText("A$240 incl. booking fee");
+      await expect(row).toContainText("A$240 for 4 incl. booking fee");
 
       await row.getByRole("button", { name: "Increase quantity for Group of 4" }).click();
       await row.getByRole("button", { name: "Increase quantity for Group of 4" }).click();

@@ -890,8 +890,12 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        Optional: `NEXT_PUBLIC_GROUP_TICKETS=1` lets organisers and admins make
        group tickets ("Group of 4", one ticket admitting several people).
        Unset (the default) they can't be made and the API refuses `admits`
-       above 1; existing group tickets keep selling. Turn it on only after
-       file 48 is applied and the app is deployed.
+       above 1; existing group tickets keep selling (the flag gates authoring
+       only: to stop a live one, unpublish the event or sell out the tier,
+       see supabase-setup.md "Group tickets (incident runbook)"). Turn it on
+       only after file 48 is applied and the app is deployed. Once a group
+       order exists, roll forward only: never redeploy a build from before
+       group tickets.
        Optional: `NEXT_PUBLIC_EVENT_CLIPS=1` turns clip uploads on (the
        editor's clip field, the admin queue's clip row), once that key is set.
        Without it the server also refuses new uploads (503), whatever a

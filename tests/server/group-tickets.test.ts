@@ -517,6 +517,17 @@ describe("what a group does to the rest of the event", () => {
     expect(mine.body.ticketsSold).toEqual({ ga: 0, grp: 8 });
   });
 
+  it("sends remaining for a group tier up to 20 people (12 left = 3 groups), but a single only at 10 or fewer", async () => {
+    const pub = await api.call(getPublicEventBySlug, { params: { slug: event.slug } });
+    // 12 people left on the group (more than the 10 a single shows), 20 on the single (not shown).
+    expect(pub.body.ticketTypes[1]).toMatchObject({ admits: 4, remaining: 12, soldOut: false });
+    expect(pub.body.ticketTypes[0].remaining).toBeUndefined();
+    // The checkout's 409 then gives the same count in groups.
+    const over = await checkout([{ ticketTypeId: "grp", quantity: 4 }]);
+    expect(over.status).toBe(409);
+    expect(over.body.error).toBe('Only 3 of "Group of 4" left.');
+  });
+
   it("releasing more tickets takes people: a multiple of admits, else a 400", async () => {
     const release = (quantityAvailable: number) =>
       api.call(releaseTickets, {

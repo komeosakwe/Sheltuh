@@ -741,7 +741,7 @@ describe("TicketSelector: group tickets", () => {
     const row = screen.getByText("Group of 4").closest("li") as HTMLElement;
     expect(row).toHaveTextContent("4 tickets · save A$22.70");
     // The headline is the group's all-inclusive price.
-    expect(within(row).getByText("A$127.70 incl. booking fee")).toBeInTheDocument();
+    expect(within(row).getByText("A$127.70 for 4 incl. booking fee")).toBeInTheDocument();
     // A single says neither.
     const single = screen.getByText("Single").closest("li") as HTMLElement;
     expect(single).not.toHaveTextContent("tickets");
@@ -808,6 +808,16 @@ describe("TicketSelector: group tickets", () => {
     fireEvent.click(more);
     fireEvent.click(more);
     expect(screen.getByRole("group", { name: "Quantity for Group of 4" })).toHaveTextContent("2 groups");
+  });
+
+  it("caps at the groups left when 12 people are left (more than the 10 a single shows)", () => {
+    render(<TicketSelector event={groupEvent({ remaining: 12 })} />);
+    const row = screen.getByText("Group of 4").closest("li") as HTMLElement;
+    expect(row).toHaveTextContent("Only 3 groups left.");
+    const more = screen.getByRole("button", { name: "Increase quantity for Group of 4" });
+    for (let i = 0; i < 5; i++) fireEvent.click(more);
+    expect(screen.getByRole("group", { name: "Quantity for Group of 4" })).toHaveTextContent("3 groups");
+    expect(more).toHaveAttribute("aria-disabled", "true");
   });
 
   it("only compares with a single that has enough left", () => {

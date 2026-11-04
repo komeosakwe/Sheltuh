@@ -208,10 +208,10 @@ export interface TicketTypeInput {
    * absent keeps the stored value, 1 makes it a single ticket again. A 400
    * (`fieldErrors["ticketTypes[i].admits"]`) when not a whole number from 1 to
    * 10, when above 1 on a free ticket, when `quantityAvailable` isn't a
-   * multiple of it, and while group tickets are switched off
-   * (NEXT_PUBLIC_GROUP_TICKETS) unless it equals the stored value; a 409 when
-   * it would change on a tier that has sales or payable orders, or sits on a
-   * seat map. `quantityAvailable` and `remaining` stay counted in PEOPLE: one
+   * multiple of it, when above 1 on an event with a seat map or on a seated
+   * tier, and while group tickets are switched off (NEXT_PUBLIC_GROUP_TICKETS)
+   * unless it equals the stored value; a 409 when it would change on a tier
+   * that has sales or payable orders. `quantityAvailable` and `remaining` stay counted in PEOPLE: one
    * group sold is `admits` people taken. A checkout's `quantity` for such a
    * ticket counts groups.
    */

@@ -34,6 +34,11 @@ describe("a group ticket's limits are in groups", () => {
     expect(remainingUnits(group)).toBeUndefined();
   });
 
+  it("caps at the groups left when the server sends 'remaining' above 10 people (12 left, groups of 4)", () => {
+    expect(ownLimit({ ...group, remaining: 12 })).toBe(3);
+    expect(ownLimitHint({ ...group, remaining: 12 })).toBe("Only 3 groups left.");
+  });
+
   it("says what's left in groups", () => {
     expect(ownLimitHint({ ...group, remaining: 8 })).toBe("Only 2 groups left.");
     expect(ownLimitHint({ ...group, remaining: 4 })).toBe("Only 1 group left.");

@@ -33,7 +33,7 @@ import type {
   TicketSeat,
   TicketTypeInput,
 } from "./types";
-import { REMAINING_SHOWN_AT_MOST, type PublicTicketType } from "@/lib/api/public-events";
+import { remainingShownAtMost, type PublicTicketType } from "@/lib/api/public-events";
 import {
   SHELTUH_TEAM_ACTOR,
   type AdminHolderMessage,
@@ -44,7 +44,7 @@ import {
   type VenueLocation,
 } from "@/lib/api/types";
 import { isFeaturedVideo, type FeaturedVideo } from "@/lib/api/featured-video";
-import { withGroupPositions } from "@/lib/ticket-groups";
+import { admitsOf, withGroupPositions } from "@/lib/ticket-groups";
 import { ticketProviderName, type TicketingMode } from "@/lib/ticketing";
 import { DEFAULT_REFUND_POLICY, type RefundPolicy } from "@/lib/refund-policy";
 import { PLATFORM_TIME_ZONE, type AustralianTimeZone, type StateCode } from "@/lib/time-zones";
@@ -591,12 +591,14 @@ export function toAdminEvent(row: Row): AdminEventRecord {
 /**
  * A public ticket type: whether it's sold out, and how many are left only
  * when that's REMAINING_SHOWN_AT_MOST or fewer (never an exact large stock).
+ * A group ticket shows it up to MAX_PEOPLE_PER_TYPE people (the most one order
+ * can take), so the selector never offers more groups than are left.
  * A ticket type missing from `remaining` (none read) counts as on sale.
  */
 function toPublicTicketType(ticket: TicketTypeInput, remaining: Record<string, number> | null | undefined): PublicTicketType {
   const left = remaining?.[ticket.id];
   if (left === undefined) return { ...ticket, soldOut: false };
-  return { ...ticket, soldOut: left <= 0, ...(left <= REMAINING_SHOWN_AT_MOST ? { remaining: Math.max(left, 0) } : {}) };
+  return { ...ticket, soldOut: left <= 0, ...(left <= remainingShownAtMost(admitsOf(ticket)) ? { remaining: Math.max(left, 0) } : {}) };
 }
 
 /**

@@ -5,7 +5,7 @@ import { PG_CHECK_VIOLATION, pgConstraint, pgErrorCode, type Db } from "../db";
 import type { Deps } from "../deps";
 import { sendOpsAlertsSoon, sendTicketEmailSoon, sendWaitlistEmailsSoon } from "../email-outbox";
 import { MAX_SEATS_PER_ORDER } from "@/lib/seating/template";
-import { REMAINING_SHOWN_AT_MOST } from "@/lib/api/public-events";
+import { remainingShownAtMost } from "@/lib/api/public-events";
 import { SEAT_HOLD } from "@/lib/api/types";
 import {
   CHECKOUT_LIMITS,
@@ -106,14 +106,14 @@ async function assertAvailable(db: Db, eventId: string, lineItems: OrderLineItem
     const admits = line.admits ?? 1;
     const remaining = left.get(line.ticketTypeId) ?? 0;
     if (line.quantity * admits > remaining) {
-      // An exact count only when public payloads show one too (REMAINING_SHOWN_AT_MOST, in people): a large
+      // An exact count only when public payloads show one too (remainingShownAtMost, in people): a large
       // stock, and through it sales, is never given away by asking for more than there is.
       const groups = Math.floor(remaining / admits);
       throw new HttpError(
         409,
         groups <= 0
           ? `"${line.ticketTypeName}" is sold out.`
-          : remaining <= REMAINING_SHOWN_AT_MOST
+          : remaining <= remainingShownAtMost(admits)
             ? `Only ${groups} of "${line.ticketTypeName}" left.`
             : `There aren't that many "${line.ticketTypeName}" tickets left. Choose fewer.`,
       );

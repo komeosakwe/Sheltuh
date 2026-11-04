@@ -3,7 +3,10 @@ import type { TicketTypeInput } from "@/lib/api/types";
 import {
   admitsPatch,
   cleanTicketType,
+  draftErrors,
   errorFieldLabel,
+  GROUP_NEEDS_WHOLE_GROUPS,
+  groupSizeOptions,
   formKeyedFieldErrors,
   groupDisabledReason,
   groupTicketPreset,
@@ -77,12 +80,49 @@ describe("groupDisabledReason", () => {
     expect(groupDisabledReason(single, { ...ON, reservedSeating: true })).toBe(GROUP_REASON_SEATED);
     expect(groupDisabledReason({ ...single, seated: true }, ON)).toBe(GROUP_REASON_SEATED);
     expect(groupDisabledReason(single, { ...ON, sold: 1, enabled: false })).toBe(GROUP_REASON_SOLD);
-    expect(groupDisabledReason(group, { ...ON, enabled: false })).toBe(GROUP_REASON_OFF);
+    expect(groupDisabledReason(single, { ...ON, enabled: false })).toBe(GROUP_REASON_OFF);
     expect(groupDisabledReason({ ...single, priceCents: 0 }, ON)).toBe(GROUP_REASON_FREE);
   });
 
   it("lets a free ticket that's already a group go back to one person", () => {
     expect(groupDisabledReason({ ...group, priceCents: 0 }, ON)).toBeNull();
+  });
+
+  it("while off, lets an unsold group ticket go back to 1 (only), and nothing else change", () => {
+    const off = { ...ON, enabled: false };
+    expect(groupDisabledReason(group, off)).toBeNull();
+    expect(groupDisabledReason(single, off)).toBe(GROUP_REASON_OFF);
+    expect(groupDisabledReason(group, { ...off, sold: 4 })).toBe(GROUP_REASON_SOLD);
+    expect(groupSizeOptions(group, false)).toEqual([1, 4]);
+    expect(groupSizeOptions(single, false)).toEqual([1]);
+    expect(groupSizeOptions(single, true)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  });
+});
+
+describe("draftErrors: whole groups", () => {
+  const draft = (ticket: TicketTypeInput) =>
+    draftErrors({
+      title: "t",
+      description: "d",
+      venueName: "v",
+      venueAddress: "a",
+      place: { kind: "empty" },
+      start: { date: "", time: "" },
+      end: { date: "", time: "" },
+      organiserMissing: false,
+      isAdmin: false,
+      platformManaged: false,
+      ticketingMode: "sheltuh",
+      externalTicketUrl: "",
+      ticketTypes: [ticket],
+      refundPolicy: "no_change_of_mind",
+      refundDays: Number.NaN,
+    });
+
+  it("refuses a quantity that isn't a multiple of the people per ticket", () => {
+    expect(draft({ ...group, quantityAvailable: 10 })["ticket-0-qty"]).toBe(GROUP_NEEDS_WHOLE_GROUPS);
+    expect(draft({ ...group, quantityAvailable: 20 })["ticket-0-qty"]).toBeUndefined();
+    expect(draft({ ...single, quantityAvailable: 7 })["ticket-0-qty"]).toBeUndefined();
   });
 });
 
@@ -94,6 +134,7 @@ describe("the API's admits error, as the form keys it", () => {
       title: "z",
     });
     expect(errorFieldLabel("ticket-2-admits")).toBe("Ticket 3 people per ticket");
+    expect(formKeyedFieldErrors({ "ticketTypes[1].quantityAvailable": "q" })).toEqual({ "ticket-1-qty": "q" });
   });
 });
 
