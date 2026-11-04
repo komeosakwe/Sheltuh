@@ -179,6 +179,8 @@ async function endedHoursAgo(hours: number, eventId = event.eventId) {
 }
 
 const run = () => runOrderTransfers(api.deps);
+/** A run with a single worker, for tests that lapse a lease by hand while it works. */
+const runOne = () => runOrderTransfers(api.deps, { concurrency: 1 });
 
 async function transfers() {
   return api.db.query<{
@@ -1506,7 +1508,9 @@ describe("a transfer that reaches Stripe after an admin cancelled the row", () =
       // ... then Stripe accepts the worker's request after all.
       return original(params, options);
     });
-    expect(await run()).toMatchObject({ claimed: 1, sent: 0, failed: 1 });
+    // One worker: this lapses the lease by hand mid-run, which a real run can't (a 2-minute lease, a 25 s budget), and
+    // with the run's other workers still looping one of them would rightly take the lapsed row (claimed: 2).
+    expect(await runOne()).toMatchObject({ claimed: 1, sent: 0, failed: 1 });
     expect(cancel?.status).toBe(200);
     expect(cancel?.body).toMatchObject({ status: "cancelled" });
 
@@ -1653,7 +1657,7 @@ describe("a refund while the job is working up to the transfer", () => {
       await api.db.query(`update private.order_transfers set lease_expires_at = now() - interval '1 second'`);
       return { object: "list", has_more: false, data: [] } as never;
     });
-    expect(await run()).toMatchObject({ claimed: 1, sent: 0, retrying: 1 });
+    expect(await runOne()).toMatchObject({ claimed: 1, sent: 0, retrying: 1 }); // one worker: see the test above
     expect(api.stripe.transfers.create).not.toHaveBeenCalled();
     expect(await transferOf(order.orderId)).toMatchObject({ status: "retry", last_error: "lease_lapsed", key_version: 1 });
   });
