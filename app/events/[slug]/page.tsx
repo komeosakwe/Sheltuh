@@ -1,11 +1,11 @@
-import type { Metadata, ResolvingMetadata } from "next";
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import EventDetailsView from "@/components/EventDetailsView";
 import LiveEventDetails from "@/components/LiveEventDetails";
 import { isApiConfigured } from "@/lib/api/client";
 import { getEventBySlug } from "@/lib/data";
 import { liveEventMetadata } from "@/lib/server/share-metadata";
-import { EVENT_NOT_FOUND_METADATA, eventMetadata, inheritedShareImages, siteOrigin } from "@/lib/share-metadata";
+import { EVENT_NOT_FOUND_METADATA, eventMetadata, siteOrigin } from "@/lib/share-metadata";
 
 interface EventDetailsPageProps {
   params: Promise<{ slug: string }>;
@@ -17,17 +17,15 @@ interface EventDetailsPageProps {
  * client-side. Live: a published event's details, read with the page's own
  * visibility rule (lib/server/share-metadata.ts); anything else is the same
  * noindex "not found", and a database error generic metadata, never a 500.
- * Demo: the sample event's, the same way.
+ * Demo: the sample event's, the same way. The preview image is the segment's
+ * own opengraph-image / twitter-image (the event's card), which Next only
+ * uses when this metadata sets no `images`, so it sets none.
  */
-export async function generateMetadata(
-  { params }: EventDetailsPageProps,
-  parent: ResolvingMetadata,
-): Promise<Metadata> {
+export async function generateMetadata({ params }: EventDetailsPageProps): Promise<Metadata> {
   const { slug } = await params;
-  const fallback = await inheritedShareImages(parent);
-  if (isApiConfigured) return liveEventMetadata(slug, fallback);
+  if (isApiConfigured) return liveEventMetadata(slug);
   const event = await getEventBySlug(slug);
-  return event ? eventMetadata(event, siteOrigin(), fallback) : EVENT_NOT_FOUND_METADATA;
+  return event ? eventMetadata(event, siteOrigin()) : EVENT_NOT_FOUND_METADATA;
 }
 
 export default async function EventDetailsPage({ params }: EventDetailsPageProps) {

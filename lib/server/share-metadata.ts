@@ -5,7 +5,6 @@ import {
   EVENT_NOT_FOUND_METADATA,
   eventMetadata,
   type EventShareFields,
-  type InheritedShareImages,
   ORGANISER_METADATA_UNAVAILABLE,
   ORGANISER_NOT_FOUND_METADATA,
   organiserMetadata,
@@ -51,11 +50,9 @@ export async function findPublicEventShare(db: Db, slug: string): Promise<EventS
     time_zone: string;
     state: StateCode;
     image_version: string | null;
-    image_type: string | null;
   }>(
     `select e.id, e.slug, e.title, e.description, e.venue_name, e.suburb, e.starts_at, e.time_zone, e.state,
-            floor(extract(epoch from i.updated_at))::bigint::text as image_version,
-            i.content_type as image_type
+            floor(extract(epoch from i.updated_at))::bigint::text as image_version
        from public.events e
        left join public.event_images i on i.event_id = e.id
       where e.slug = $1 and e.status = 'published'`,
@@ -72,12 +69,39 @@ export async function findPublicEventShare(db: Db, slug: string): Promise<EventS
     timeZone: row.time_zone,
     state: row.state,
     // The same versioned URL the public event shape gives it (records.ts,
-    // EVENT_COLUMNS): GET /api/events/{id}/image serves a published event's
-    // image to anyone, crawlers included. Only reviewed images get there: an
-    // event's image can only change while it's a draft or rejected.
-    ...(row.image_version !== null
-      ? { imageUrl: `/api/events/${row.id}/image?v=${row.image_version}`, imageType: row.image_type ?? undefined }
-      : {}),
+    // EVENT_COLUMNS). The preview card draws the photo from the database
+    // itself (findPublicEventCover); this is what tells a card its photo changed.
+    // Only reviewed images get here: an event's image can only change while
+    // it's a draft or rejected.
+    ...(row.image_version !== null ? { imageUrl: `/api/events/${row.id}/image?v=${row.image_version}` } : {}),
+  };
+}
+
+/** A published event's cover photo as stored (JPEG, PNG or WebP) and where its focus point is, for the preview card. */
+export interface PublicEventCover {
+  bytes: Uint8Array;
+  focus: { x: number; y: number } | null;
+}
+
+/**
+ * The cover photo of a published event, under the same rule as
+ * findPublicEventShare (`status = 'published'`) and GET /api/events/{id}/image
+ * (which serves a published event's image to anyone). Null for anything else,
+ * or an event without a photo.
+ */
+export async function findPublicEventCover(db: Db, slug: string): Promise<PublicEventCover | null> {
+  if (slug.length > MAX_SLUG_LENGTH || !SLUG_PATTERN.test(slug)) return null;
+  const [row] = await db.query<{ data: Uint8Array; focus_x: number | null; focus_y: number | null }>(
+    `select i.data, i.focus_x, i.focus_y
+       from public.events e
+       join public.event_images i on i.event_id = e.id
+      where e.slug = $1 and e.status = 'published'`,
+    [slug],
+  );
+  if (!row) return null;
+  return {
+    bytes: new Uint8Array(row.data),
+    focus: row.focus_x !== null && row.focus_y !== null ? { x: Number(row.focus_x), y: Number(row.focus_y) } : null,
   };
 }
 
@@ -90,11 +114,37 @@ export const readPublicEventShare = cache(findPublicEventShare);
 /** The share fields of an approved organiser, or null for anything else (unknown, pending, rejected or suspended, not a uuid). */
 export async function findPublicOrganiserShare(db: Db, organiserId: string): Promise<OrganiserShareFields | null> {
   if (!isUuid(organiserId)) return null;
-  const [row] = await db.query<{ id: string; display_name: string; description: string }>(
-    `select o.id, o.display_name, o.description from public.organisers o where o.id = $1 and o.status = 'approved'`,
+  const [row] = await db.query<{ id: string; display_name: string; description: string; logo_version: string | null }>(
+    `select o.id, o.display_name, o.description,
+            floor(extract(epoch from l.updated_at) * 1000)::bigint::text as logo_version
+       from public.organisers o
+       left join private.organiser_logos l on l.organiser_id = o.id
+      where o.id = $1 and o.status = 'approved'`,
     [organiserId],
   );
-  return row ? { organiserId: row.id, displayName: row.display_name, description: row.description } : null;
+  if (!row) return null;
+  return {
+    organiserId: row.id,
+    displayName: row.display_name,
+    description: row.description,
+    ...(row.logo_version !== null ? { logoVersion: row.logo_version } : {}),
+  };
+}
+
+/**
+ * An approved organiser's logo (the 512 px WebP GET /api/organisers/{id}/logo
+ * serves), for the preview card; null for anyone else or no logo.
+ */
+export async function findPublicOrganiserLogo(db: Db, organiserId: string): Promise<Uint8Array | null> {
+  if (!isUuid(organiserId)) return null;
+  const [row] = await db.query<{ image: Uint8Array }>(
+    `select l.image
+       from public.organisers o
+       join private.organiser_logos l on l.organiser_id = o.id
+      where o.id = $1 and o.status = 'approved'`,
+    [organiserId],
+  );
+  return row ? new Uint8Array(row.image) : null;
 }
 
 /** What generateMetadata needs from the outside world: the database and the configured site origin. */
@@ -107,14 +157,13 @@ function logUnavailable(what: string, err: unknown) {
 /** A live event page's metadata: full for a published event, the not-found metadata otherwise, generic on an error. */
 export async function liveEventMetadata(
   slug: string,
-  fallback: InheritedShareImages,
   deps: () => MetadataDeps = getDeps,
 ): Promise<Metadata> {
   try {
     const { db, siteUrl } = deps();
     const event = await readPublicEventShare(db, slug);
     if (!event) return EVENT_NOT_FOUND_METADATA;
-    return eventMetadata(event, siteUrl(), fallback);
+    return eventMetadata(event, siteUrl());
   } catch (err) {
     logUnavailable("Event", err);
     return EVENT_METADATA_UNAVAILABLE;
@@ -124,14 +173,13 @@ export async function liveEventMetadata(
 /** A live organiser profile's metadata: full for an approved organiser, "not available" otherwise, generic on an error. */
 export async function liveOrganiserMetadata(
   organiserId: string,
-  fallback: InheritedShareImages,
   deps: () => MetadataDeps = getDeps,
 ): Promise<Metadata> {
   try {
     const { db, siteUrl } = deps();
     const organiser = await findPublicOrganiserShare(db, organiserId);
     if (!organiser) return ORGANISER_NOT_FOUND_METADATA;
-    return organiserMetadata(organiser, siteUrl(), fallback);
+    return organiserMetadata(organiser, siteUrl());
   } catch (err) {
     logUnavailable("Organiser", err);
     return ORGANISER_METADATA_UNAVAILABLE;

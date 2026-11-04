@@ -61,6 +61,14 @@ export const nextConfig: NextConfig = {
   // navigates to http://127.0.0.1:<port>. Ignored outside development.
   allowedDevOrigins: ["127.0.0.1"],
 
+  // Next streams generateMetadata into the body for any user agent outside its
+  // built-in bot list (Google, Bing, Twitterbot, Slackbot, ...), so a link-preview
+  // fetcher not on it (Telegram, Signal, Viber, in-app browsers,
+  // Mastodon, Teams, iMessage variants, ...) would see no title or og: tags in
+  // <head>. Block on metadata for every agent: our generateMetadata is one
+  // indexed read.
+  htmlLimitedBots: /.*/,
+
   async headers() {
     return [
       // No page may be framed by another site (clickjacking): the legacy

@@ -4052,10 +4052,21 @@ What that means:
   (`status = 'approved'`). The page bodies still load client-side. Anything
   not public gets one noindex "not found"; a database error gets a generic
   title, never a 500. Absolute URLs come from `NEXT_PUBLIC_SITE_URL`, never
-  the Host header. An event's `og:image` is its cover photo at
-  `/api/events/{id}/image?v=…` (public for published events), or the site's
-  `app/opengraph-image.tsx` (inherited from the parent segment, since a
-  page's `openGraph` replaces the parent's whole object).
+  the Host header. `next.config.ts` sets `htmlLimitedBots: /.*/`, so every
+  user agent gets the metadata in `<head>` (Next otherwise streams it into
+  the body for agents outside its bot list, which most messaging apps are).
+  Event and organiser pages set no `images` in their metadata: Next uses a
+  segment's own `opengraph-image` / `twitter-image` file only when the page
+  has no `images` property at all. Those files draw a 1200 x 630 card
+  (`lib/server/share-card-render.tsx`): an event's cover photo under an ink
+  scrim with its title, date and place and the wordmark, or Signal Orange
+  without a photo; an organiser's name and logo on Signal Orange. The photo
+  or logo is read from the database (`lib/server/share-card-data.ts`; sharp
+  re-encodes it, since Satori can't draw WebP), under the same visibility
+  rule as the metadata; anything else gets the plain brand card. The
+  image's `id` (`generateImageMetadata`) is a hash of what the card shows,
+  so its URL changes when the card does. Pages with nothing of their own
+  inherit the site's `app/opengraph-image.tsx`.
 
 ## Event clips
 
@@ -4992,7 +5003,7 @@ node:crypto, never forge).
   organiser (the owner decided against it for the first version: it's a
   one-way ownership transfer, moving door check-in to the new owner), and
   any reminder emails (deliberately none: Spam Act).
-- Organiser logos, later: the logo as the organiser page's `og:image`, logos
+- Organiser logos, later: logos
   on event cards and the Following list, and logos for platform-managed
   organisers (an admin upload; today only the organiser's own account can
   upload, and a platform-managed organiser has none).

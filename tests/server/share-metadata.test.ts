@@ -1,19 +1,31 @@
-import type { Metadata, ResolvingMetadata } from "next";
+import type { Metadata } from "next";
+import sharp from "sharp";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { generateMetadata as eventPageMetadata } from "@/app/events/[slug]/page";
+import EventCardImage, { generateImageMetadata as eventCardImages } from "@/app/events/[slug]/opengraph-image";
 import { generateMetadata as organiserPageMetadata } from "@/app/organisers/[organiserId]/page";
+import OrganiserCardImage, { generateImageMetadata as organiserCardImages } from "@/app/organisers/[organiserId]/opengraph-image";
+import { BRAND_CARD_ID } from "@/lib/share-card";
+import { eventCardId, organiserCardId } from "@/lib/server/share-card-data";
+import { CARD_CACHE, FALLBACK_CARD_CACHE } from "@/lib/server/share-card-render";
 import type { Db } from "@/lib/server/db";
 import type { Deps } from "@/lib/server/deps";
 import { adminRejectEvent, adminUnpublishEvent } from "@/lib/server/handlers/admin";
-import { EVENT_IMAGE_CACHE, getEventImage, putEventImage } from "@/lib/server/handlers/event-images";
+import { putEventImage } from "@/lib/server/handlers/event-images";
 import { submitEventForReview } from "@/lib/server/handlers/events";
+import { putMyOrganiserLogo } from "@/lib/server/handlers/organiser-logos";
 import { applyAsOrganiser } from "@/lib/server/handlers/organisers";
-import { runHandler } from "@/lib/server/route";
-import { findPublicEventShare, liveEventMetadata, liveOrganiserMetadata } from "@/lib/server/share-metadata";
+import {
+  findPublicEventCover,
+  findPublicEventShare,
+  findPublicOrganiserLogo,
+  findPublicOrganiserShare,
+  liveEventMetadata,
+  liveOrganiserMetadata,
+} from "@/lib/server/share-metadata";
 import {
   EVENT_METADATA_UNAVAILABLE,
   EVENT_NOT_FOUND_METADATA,
-  type InheritedShareImages,
   ORGANISER_METADATA_UNAVAILABLE,
   ORGANISER_NOT_FOUND_METADATA,
 } from "@/lib/share-metadata";
@@ -36,15 +48,6 @@ vi.mock("@/lib/server/deps", () => ({
   },
 }));
 
-/** The site's share image, as the root segment's opengraph-image / twitter-image resolve. */
-const SITE_OG_IMAGE = { url: `${SITE_URL}/opengraph-image?abc123`, width: 1200, height: 630, alt: "Sheltüh", type: "image/png" };
-const SITE_TWITTER_IMAGE = { url: `${SITE_URL}/twitter-image?abc123`, width: 1200, height: 630, alt: "Sheltüh", type: "image/png" };
-const FALLBACK: InheritedShareImages = { openGraph: [SITE_OG_IMAGE], twitter: [SITE_TWITTER_IMAGE] };
-const parent = Promise.resolve({
-  openGraph: { images: [SITE_OG_IMAGE] },
-  twitter: { images: [SITE_TWITTER_IMAGE] },
-}) as unknown as ResolvingMetadata;
-
 let api: TestApi;
 let reset: () => Promise<void>;
 let admin: { token: string; userId: string };
@@ -66,7 +69,7 @@ beforeEach(async () => {
 });
 
 const deps = () => api.deps;
-const eventMeta = (slug: string, d: () => Pick<Deps, "db" | "siteUrl"> = deps) => liveEventMetadata(slug, FALLBACK, d);
+const eventMeta = (slug: string, d: () => Pick<Deps, "db" | "siteUrl"> = deps) => liveEventMetadata(slug, d);
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
 
@@ -110,41 +113,38 @@ describe("live event metadata (generateMetadata on /events/[slug])", () => {
         description,
         siteName: "Sheltüh",
         locale: "en_AU",
-        // No cover image: the site's own share image.
-        images: [SITE_OG_IMAGE],
+        // No `images` key at all: the segment's opengraph-image supplies the card.
       },
-      twitter: { card: "summary_large_image", title: "Neon Static — Sheltüh", description, images: [SITE_TWITTER_IMAGE] },
+      twitter: { card: "summary_large_image", title: "Neon Static — Sheltüh", description },
     });
   });
 
-  it("its cover image as an absolute, versioned URL that anyone (a crawler) can fetch", async () => {
+  it("no images of its own, so Next uses the segment's card; the card's cover is the published photo, readable by a crawler", async () => {
     const draft = await draftEvent(api, organiser);
     await withImage(draft.eventId);
     // Its tickets are paid (eventInput), which needs payouts to be submitted.
     await setUpPayouts(api, organiser.organiserId);
     await api.call(submitEventForReview, { token: organiser.token, params: { eventId: draft.eventId }, method: "POST" });
+
+    // In review: no cover is readable yet, and the metadata is the generic one.
+    expect(await findPublicEventCover(api.db, draft.slug)).toBeNull();
+    expect(await eventMeta(draft.slug)).toEqual(EVENT_NOT_FOUND_METADATA);
+
     const { adminApproveEvent } = await import("@/lib/server/handlers/admin");
     await api.call(adminApproveEvent, { token: admin.token, params: { eventId: draft.eventId }, method: "POST" });
 
     const metadata = await eventMeta(draft.slug);
-    const og = metadata.openGraph as { images: { url: string; alt: string; type: string }[] };
-    expect(og.images).toHaveLength(1);
-    const [image] = og.images;
-    expect(image.url).toMatch(new RegExp(`^${SITE_URL}/api/events/${draft.eventId}/image\\?v=\\d+$`));
-    expect(image).toMatchObject({ alt: "Neon Static", type: "image/png" });
-    expect((metadata.twitter as { images: unknown[] }).images).toEqual([image]);
+    expect(metadata.openGraph).not.toHaveProperty("images");
+    expect(metadata.twitter).not.toHaveProperty("images");
 
-    // The same URL the public event shape gives the page.
+    const cover = await findPublicEventCover(api.db, draft.slug);
+    expect(Array.from(cover!.bytes)).toEqual(Array.from(PNG));
+    expect(cover!.focus).toBeNull();
+
+    // The share fields carry the photo's versioned address (the card's cache key), the same one the public event shape gives the page.
     const { getPublicEventBySlug } = await import("@/lib/server/handlers/public-events");
     const shown = await api.call(getPublicEventBySlug, { params: { slug: draft.slug } });
-    expect(`${SITE_URL}${shown.body.imageUrl}`).toBe(image.url);
-
-    // Served without a token, and shared at the CDN: the URL is the current version's.
-    const path = new URL(image.url);
-    const res = await runHandler(getEventImage, new Request(path), { eventId: draft.eventId }, api.deps);
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toBe("image/png");
-    expect(res.headers.get("cache-control")).toBe(EVENT_IMAGE_CACHE);
+    expect((await findPublicEventShare(api.db, draft.slug))?.imageUrl).toBe(shown.body.imageUrl);
   });
 
   it("holds nothing about tickets, buyers or the organiser's account", async () => {
@@ -222,14 +222,15 @@ describe("live event metadata (generateMetadata on /events/[slug])", () => {
 });
 
 describe("the event page's generateMetadata", () => {
-  const pageMeta = (slug: string): Promise<Metadata> => eventPageMetadata({ params: Promise.resolve({ slug }) }, parent);
+  const pageMeta = (slug: string): Promise<Metadata> => eventPageMetadata({ params: Promise.resolve({ slug }) });
 
-  it("live: the database's published event, with the inherited site image", async () => {
+  it("live: the database's published event, without images (the segment's card supplies them)", async () => {
     const event = await publishedEvent(api, organiser, admin);
     const metadata = await pageMeta(event.slug);
     expect(metadata.title).toBe("Neon Static — Sheltüh");
     expect(metadata.alternates).toEqual({ canonical: `${SITE_URL}/events/${event.slug}` });
-    expect(metadata.openGraph).toMatchObject({ url: `${SITE_URL}/events/${event.slug}`, images: [SITE_OG_IMAGE] });
+    expect(metadata.openGraph).toMatchObject({ url: `${SITE_URL}/events/${event.slug}` });
+    expect(metadata.openGraph).not.toHaveProperty("images");
     expect(await pageMeta("never-existed")).toEqual(EVENT_NOT_FOUND_METADATA);
   });
 
@@ -245,9 +246,9 @@ describe("the event page's generateMetadata", () => {
 });
 
 describe("live organiser metadata (generateMetadata on /organisers/[organiserId])", () => {
-  const orgMeta = (id: string, d: () => Pick<Deps, "db" | "siteUrl"> = deps) => liveOrganiserMetadata(id, FALLBACK, d);
+  const orgMeta = (id: string, d: () => Pick<Deps, "db" | "siteUrl"> = deps) => liveOrganiserMetadata(id, d);
 
-  it("an approved organiser: name, bio excerpt, canonical and the site image", async () => {
+  it("an approved organiser: name, bio excerpt and canonical, no images (the segment's card supplies them)", async () => {
     const url = `${SITE_URL}/organisers/${organiser.organiserId}`;
     const description = "Warehouse gigs in Collingwood.";
     expect(await orgMeta(organiser.organiserId)).toEqual({
@@ -261,13 +262,11 @@ describe("live organiser metadata (generateMetadata on /organisers/[organiserId]
         description,
         siteName: "Sheltüh",
         locale: "en_AU",
-        images: [SITE_OG_IMAGE],
       },
-      twitter: { card: "summary_large_image", title: "Static Collective — Sheltüh", description, images: [SITE_TWITTER_IMAGE] },
+      twitter: { card: "summary_large_image", title: "Static Collective — Sheltüh", description },
     });
     const viaPage = await organiserPageMetadata(
       { params: Promise.resolve({ organiserId: organiser.organiserId }), searchParams: Promise.resolve({}) },
-      parent,
     );
     expect(viaPage.alternates).toEqual({ canonical: url });
   });
@@ -292,6 +291,197 @@ describe("live organiser metadata (generateMetadata on /organisers/[organiserId]
       );
     } finally {
       error.mockRestore();
+    }
+  });
+});
+
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47];
+const isPng = async (res: Response) => Array.from(new Uint8Array(await res.arrayBuffer()).slice(0, 4));
+
+/** A real, small image: sharp decodes the cards' photo and logo. */
+const photo = (format: "png" | "webp" | "jpeg", width = 400, height = 300) =>
+  sharp({ create: { width, height, channels: 3, background: { r: 200, g: 120, b: 40 } } })
+    [format]()
+    .toBuffer();
+
+describe("the event's preview card (app/events/[slug]/opengraph-image.tsx)", () => {
+  const cardFor = async (slug: string, id?: string) => {
+    const [image] = await eventCardImages({ params: { slug } });
+    return EventCardImage({
+      params: Promise.resolve({ slug }),
+      id: Promise.resolve(id ?? image.id),
+    }) as Promise<Response>;
+  };
+
+  async function publishWithPhoto(bytes: Buffer, title = "Neon Static") {
+    const draft = await draftEvent(api, organiser, { title });
+    const put = await api.send(
+      putEventImage,
+      new Request(`${SITE_URL}/api/events/${draft.eventId}/image`, {
+        method: "PUT",
+        headers: { authorization: `Bearer ${organiser.token}` },
+        body: new Uint8Array(bytes),
+      }),
+      { eventId: draft.eventId },
+    );
+    expect(put.status).toBe(200);
+    await setUpPayouts(api, organiser.organiserId);
+    await api.call(submitEventForReview, { token: organiser.token, params: { eventId: draft.eventId }, method: "POST" });
+    const { adminApproveEvent } = await import("@/lib/server/handlers/admin");
+    await api.call(adminApproveEvent, { token: admin.token, params: { eventId: draft.eventId }, method: "POST" });
+    return draft;
+  }
+
+  it("a published event with a WebP or JPEG cover: a 1200 x 630 PNG, with its title as the image's alt", async () => {
+    for (const format of ["webp", "jpeg"] as const) {
+      await reset();
+      api = new TestApi(api.db);
+      mode.deps = api.deps;
+      admin = await signUpAdmin(api);
+      organiser = await approvedOrganiser(api, admin);
+      const event = await publishWithPhoto(await photo(format), "Neon Static");
+      const [image] = await eventCardImages({ params: { slug: event.slug } });
+      expect(image).toMatchObject({ alt: "Neon Static", contentType: "image/png", size: { width: 1200, height: 630 } });
+      expect(image.id).not.toBe(BRAND_CARD_ID);
+
+      const res = await cardFor(event.slug);
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toBe("image/png");
+      expect(res.headers.get("cache-control")).toBe(CARD_CACHE);
+      const bytes = Buffer.from(await res.arrayBuffer());
+      expect(Array.from(bytes.subarray(0, 4)), format).toEqual(PNG_SIGNATURE);
+      expect(await sharp(bytes).metadata()).toMatchObject({ width: 1200, height: 630 });
+    }
+  });
+
+  it("a published event without a photo: the orange card, with its own id", async () => {
+    const event = await publishedEvent(api, organiser, admin);
+    const res = await cardFor(event.slug);
+    expect(res.headers.get("content-type")).toBe("image/png");
+    expect(res.headers.get("cache-control")).toBe(CARD_CACHE);
+    expect(await isPng(res)).toEqual(PNG_SIGNATURE);
+  });
+
+  it("its id changes with the photo, so the card's URL does too", async () => {
+    const event = await publishWithPhoto(await photo("png"));
+    const before = eventCardId((await findPublicEventShare(api.db, event.slug))!);
+    // Same inputs, same id.
+    expect(eventCardId((await findPublicEventShare(api.db, event.slug))!)).toBe(before);
+    const share = (await findPublicEventShare(api.db, event.slug))!;
+    expect(eventCardId({ ...share, imageUrl: `${share.imageUrl}1` })).not.toBe(before);
+    expect(eventCardId({ ...share, title: "Another Title" })).not.toBe(before);
+  });
+
+  it("draft, in review, rejected, unpublished and unknown slugs: the plain brand card, never a title", async () => {
+    const draft = await draftEvent(api, organiser, { title: "Secret Draft" });
+    const unpublished = await publishedEvent(api, organiser, admin, { title: "Taken Down" });
+    const fullCard = await cardFor(unpublished.slug);
+    const fullId = (await eventCardImages({ params: { slug: unpublished.slug } }))[0].id;
+    await api.call(adminUnpublishEvent, { token: admin.token, params: { eventId: unpublished.eventId }, method: "POST" });
+    expect(fullCard.headers.get("cache-control")).toBe(CARD_CACHE);
+
+    for (const slug of [draft.slug, unpublished.slug, "never-existed", "NEON'; --"]) {
+      const images = await eventCardImages({ params: { slug } });
+      expect(images, slug).toHaveLength(1);
+      expect(images[0], slug).toMatchObject({ id: BRAND_CARD_ID, alt: "Sheltüh" });
+      expect(JSON.stringify(images)).not.toMatch(/Secret Draft|Taken Down/);
+      const res = await cardFor(slug);
+      expect(res.status, slug).toBe(200);
+      expect(res.headers.get("content-type"), slug).toBe("image/png");
+      expect(res.headers.get("cache-control"), slug).toBe(FALLBACK_CARD_CACHE);
+    }
+    // The old card's id no longer draws the unpublished event.
+    const stale = await cardFor(unpublished.slug, fullId);
+    expect(stale.headers.get("cache-control")).toBe(FALLBACK_CARD_CACHE);
+  });
+
+  it("a database error: the brand card (briefly cached), no 500", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      mode.deps = { ...api.deps, db: failingDb };
+      const [image] = await eventCardImages({ params: { slug: "neon-static" } });
+      expect(image.id).toBe(BRAND_CARD_ID);
+      const res = await cardFor("neon-static");
+      expect(res.status).toBe(200);
+      expect(res.headers.get("cache-control")).toBe(FALLBACK_CARD_CACHE);
+      expect(JSON.stringify(error.mock.calls)).not.toContain("someone@example.com");
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it("a cover that can't be decoded: the card without it, not an error", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      // A valid JPEG header with nothing after it: accepted as an upload, but not drawable.
+      const event = await publishWithPhoto(Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]));
+      const res = await cardFor(event.slug);
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toBe("image/png");
+      expect(res.headers.get("cache-control")).toBe(CARD_CACHE);
+    } finally {
+      error.mockRestore();
+    }
+  });
+});
+
+describe("the organiser's preview card (app/organisers/[organiserId]/opengraph-image.tsx)", () => {
+  const cardFor = async (organiserId: string, id?: string) => {
+    const [image] = await organiserCardImages({ params: { organiserId } });
+    return OrganiserCardImage({
+      params: Promise.resolve({ organiserId }),
+      id: Promise.resolve(id ?? image.id),
+    }) as Promise<Response>;
+  };
+
+  async function addLogo() {
+    const res = await api.send(
+      putMyOrganiserLogo,
+      new Request(`${SITE_URL}/api/test`, {
+        method: "PUT",
+        headers: { authorization: `Bearer ${organiser.token}` },
+        body: new Uint8Array(await photo("webp", 600, 400)),
+      }),
+    );
+    expect(res.status).toBe(200);
+  }
+
+  it("an approved organiser, without or with a logo: a PNG named for them, a new id once they add a logo", async () => {
+    const [plain] = await organiserCardImages({ params: { organiserId: organiser.organiserId } });
+    expect(plain).toMatchObject({ alt: "Static Collective", contentType: "image/png", size: { width: 1200, height: 630 } });
+    expect(plain.id).not.toBe(BRAND_CARD_ID);
+    const without = await cardFor(organiser.organiserId);
+    expect(without.headers.get("content-type")).toBe("image/png");
+    expect(without.headers.get("cache-control")).toBe(CARD_CACHE);
+    expect(await findPublicOrganiserLogo(api.db, organiser.organiserId)).toBeNull();
+    expect((await findPublicOrganiserShare(api.db, organiser.organiserId))?.logoVersion).toBeUndefined();
+
+    await addLogo();
+    const share = await findPublicOrganiserShare(api.db, organiser.organiserId);
+    expect(share?.logoVersion).toMatch(/^\d+$/);
+    expect(organiserCardId(share!)).not.toBe(plain.id);
+    const logo = await findPublicOrganiserLogo(api.db, organiser.organiserId);
+    expect((await sharp(Buffer.from(logo!)).metadata()).format).toBe("webp");
+
+    const withLogo = await cardFor(organiser.organiserId);
+    expect(withLogo.headers.get("cache-control")).toBe(CARD_CACHE);
+    const bytes = Buffer.from(await withLogo.arrayBuffer());
+    expect(Array.from(bytes.subarray(0, 4))).toEqual(PNG_SIGNATURE);
+    expect(await sharp(bytes).metadata()).toMatchObject({ width: 1200, height: 630 });
+  });
+
+  it("pending, unknown or not a uuid: the plain brand card, never the name or the logo", async () => {
+    const applicant = await api.signUp();
+    const applied = await api.call(applyAsOrganiser, {
+      token: applicant.token,
+      body: { ...application, displayName: "Pending Secret" },
+    });
+    for (const id of [applied.body.organiserId as string, crypto.randomUUID(), "not-a-uuid"]) {
+      const images = await organiserCardImages({ params: { organiserId: id } });
+      expect(images, id).toEqual([expect.objectContaining({ id: BRAND_CARD_ID, alt: "Sheltüh" })]);
+      expect(JSON.stringify(images)).not.toContain("Pending Secret");
+      expect((await cardFor(id)).headers.get("cache-control"), id).toBe(FALLBACK_CARD_CACHE);
+      expect(await findPublicOrganiserLogo(api.db, id)).toBeNull();
     }
   });
 });

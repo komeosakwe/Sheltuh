@@ -70,10 +70,13 @@ export interface EventShareFields {
   timeZone?: string;
   /** The event's state, for the zone's name (the ACT's "Canberra time"; absent: VIC). */
   state?: StateCode;
-  /** The approved cover image: a path on this site or an absolute URL. Absent: the site's share image. */
+  /**
+   * The approved cover image's address, when it has one: live, the versioned
+   * path of GET /api/events/{id}/image (new when the photo changes); demo, a
+   * path under public/. The preview card (app/events/[slug]/opengraph-image.tsx)
+   * draws the photo itself, so this is only its cache key and, in demo, its source.
+   */
   imageUrl?: string;
-  /** The image's MIME type, when known (og:image:type). */
-  imageType?: string;
 }
 
 /**
@@ -105,6 +108,8 @@ export interface InheritedShareImages {
  * The parent segments' resolved share images. A page that sets `openGraph` or
  * `twitter` replaces the parent's whole object (Next merges metadata
  * shallowly), images included, so a page without its own image passes these on.
+ * (A page whose segment has its own opengraph-image / twitter-image file passes
+ * `null` to pageShareMetadata instead: see there.)
  */
 export async function inheritedShareImages(parent: ResolvingMetadata | undefined): Promise<InheritedShareImages> {
   if (!parent) return { openGraph: [], twitter: [] };
@@ -116,11 +121,20 @@ export async function inheritedShareImages(parent: ResolvingMetadata | undefined
   }
 }
 
-/** A page's title, description, canonical URL and link preview, with the inherited share image. */
+/**
+ * A page's title, description, canonical URL and link preview, with the
+ * inherited share image.
+ *
+ * `images: null` leaves the `images` key out of `openGraph` and `twitter`
+ * altogether, for a page whose segment has its own opengraph-image /
+ * twitter-image file: Next uses that file's image only when the page's own
+ * metadata has no `images` property at all (resolve-metadata's
+ * mergeStaticMetadata checks `hasOwnProperty('images')`), even an empty one.
+ */
 export function pageShareMetadata(
   page: { title: string; description: string; path: string },
   origin: string | undefined,
-  images: InheritedShareImages,
+  images: InheritedShareImages | null,
 ): Metadata {
   const url = absoluteUrl(page.path, origin);
   return {
@@ -134,9 +148,14 @@ export function pageShareMetadata(
       description: page.description,
       siteName: SITE_NAME,
       locale: OG_LOCALE,
-      images: images.openGraph,
+      ...(images ? { images: images.openGraph } : {}),
     },
-    twitter: { card: "summary_large_image", title: page.title, description: page.description, images: images.twitter },
+    twitter: {
+      card: "summary_large_image",
+      title: page.title,
+      description: page.description,
+      ...(images ? { images: images.twitter } : {}),
+    },
   };
 }
 
@@ -144,23 +163,20 @@ export function pageShareMetadata(
  * A published event's metadata: "{title} — Sheltüh", a plain-text
  * description (date, venue, an excerpt), canonical and og:url at its public
  * address (lib/event-url.ts's shape: no query string, so a tracking `?ref=` is
- * never canonical), and its cover image or the site's.
+ * never canonical). No images: the segment's opengraph-image and
+ * twitter-image files supply the branded card (the cover photo, title, date
+ * and place), the one og:image and twitter:image.
  */
-export function eventMetadata(event: EventShareFields, origin: string | undefined, fallback: InheritedShareImages): Metadata {
-  const title = `${event.title} — ${SITE_NAME}`;
-  const description = eventShareDescription(event);
-  const base = pageShareMetadata({ title, description, path: `/events/${encodeURIComponent(event.slug)}` }, origin, fallback);
-  if (!event.imageUrl) return base;
-  const image = {
-    url: absoluteUrl(event.imageUrl, origin),
-    alt: event.title,
-    ...(event.imageType ? { type: event.imageType } : {}),
-  };
-  return {
-    ...base,
-    openGraph: { ...base.openGraph, images: [image] },
-    twitter: { ...base.twitter, images: [image] },
-  };
+export function eventMetadata(event: EventShareFields, origin: string | undefined): Metadata {
+  return pageShareMetadata(
+    {
+      title: `${event.title} — ${SITE_NAME}`,
+      description: eventShareDescription(event),
+      path: `/events/${encodeURIComponent(event.slug)}`,
+    },
+    origin,
+    null,
+  );
 }
 
 /** No robots indexing or following, for a page that isn't (or is no longer) public. */
@@ -184,14 +200,16 @@ export interface OrganiserShareFields {
   organiserId: string;
   displayName: string;
   description: string;
+  /** When they have a logo, its version (changes with the logo): the preview card's cache key. */
+  logoVersion?: string;
 }
 
-/** An approved organiser's profile: "{name} — Sheltüh", an excerpt of their bio, canonical, and the site's share image. */
-export function organiserMetadata(
-  organiser: OrganiserShareFields,
-  origin: string | undefined,
-  fallback: InheritedShareImages,
-): Metadata {
+/**
+ * An approved organiser's profile: "{name} — Sheltüh", an excerpt of their
+ * bio, canonical. No images: the segment's opengraph-image and twitter-image
+ * files supply the card (their name and logo).
+ */
+export function organiserMetadata(organiser: OrganiserShareFields, origin: string | undefined): Metadata {
   const bio = plainExcerpt(organiser.description, SHARE_DESCRIPTION_MAX);
   return pageShareMetadata(
     {
@@ -200,7 +218,7 @@ export function organiserMetadata(
       path: `/organisers/${encodeURIComponent(organiser.organiserId)}`,
     },
     origin,
-    fallback,
+    null,
   );
 }
 

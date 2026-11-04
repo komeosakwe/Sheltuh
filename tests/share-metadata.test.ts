@@ -34,10 +34,10 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-const eventMeta = (slug: string) => eventPageMetadata({ params: Promise.resolve({ slug }) }, parent);
+const eventMeta = (slug: string) => eventPageMetadata({ params: Promise.resolve({ slug }) });
 
 describe("demo event metadata", () => {
-  it("a sample event gets the same full metadata, its photo as the image", async () => {
+  it("a sample event gets the same full metadata, and no images of its own (its card is the segment's opengraph-image)", async () => {
     vi.stubEnv("NEXT_PUBLIC_SITE_URL", "https://demo.sheltuh.test/");
     const metadata = await eventMeta("neon-static");
     expect(metadata.title).toBe("Neon Static — Sheltüh");
@@ -50,12 +50,13 @@ describe("demo event metadata", () => {
       url: "https://demo.sheltuh.test/events/neon-static",
       siteName: "Sheltüh",
       locale: "en_AU",
-      images: [{ url: "https://demo.sheltuh.test/events/record-shop-dj.jpg", alt: "Neon Static" }],
     });
-    expect(metadata.twitter).toMatchObject({
-      card: "summary_large_image",
-      images: [{ url: "https://demo.sheltuh.test/events/record-shop-dj.jpg", alt: "Neon Static" }],
-    });
+    // Next uses a segment's opengraph-image / twitter-image file only when the
+    // page's metadata has no `images` property at all, so there must be none
+    // (not even an empty list), or the inherited site card would win over the event's.
+    expect(metadata.openGraph).not.toHaveProperty("images");
+    expect(metadata.twitter).toMatchObject({ card: "summary_large_image" });
+    expect(metadata.twitter).not.toHaveProperty("images");
     expect(metadata.robots).toBeUndefined();
     expect(getDeps).not.toHaveBeenCalled();
   });
@@ -64,7 +65,6 @@ describe("demo event metadata", () => {
     vi.stubEnv("NEXT_PUBLIC_SITE_URL", "");
     const metadata = await eventMeta("neon-static");
     expect(metadata.alternates).toEqual({ canonical: "/events/neon-static" });
-    expect(metadata.openGraph).toMatchObject({ images: [{ url: "/events/record-shop-dj.jpg" }] });
   });
 
   it("an unknown slug: noindex 'not found'", async () => {
@@ -74,11 +74,12 @@ describe("demo event metadata", () => {
   it("a sample organiser, or noindex 'not available'", async () => {
     vi.stubEnv("NEXT_PUBLIC_SITE_URL", "https://demo.sheltuh.test");
     const meta = (organiserId: string) =>
-      organiserPageMetadata({ params: Promise.resolve({ organiserId }), searchParams: Promise.resolve({}) }, parent);
+      organiserPageMetadata({ params: Promise.resolve({ organiserId }), searchParams: Promise.resolve({}) });
     const found = await meta("small-hours-theatre");
     expect(found.title).toBe("Small Hours Theatre — Sheltüh");
     expect(found.alternates).toEqual({ canonical: "https://demo.sheltuh.test/organisers/small-hours-theatre" });
-    expect(found.openGraph).toMatchObject({ images: [SITE_IMAGE] });
+    expect(found.openGraph).not.toHaveProperty("images");
+    expect(found.twitter).not.toHaveProperty("images");
     expect(await meta("no-such-organiser")).toEqual(ORGANISER_NOT_FOUND_METADATA);
   });
 });
