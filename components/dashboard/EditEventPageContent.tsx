@@ -154,6 +154,17 @@ function EditorView({
         >
           Analytics
         </ButtonLink>
+        {/* Who bought (names and emails): Sheltüh-ticketed events that have gone live. */}
+        {event.status === "published" && event.ticketingMode !== "external" && (
+          <ButtonLink
+            variant="outline"
+            size="sm"
+            className="min-h-11 w-fit"
+            href={`/dashboard/events/${encodeURIComponent(event.eventId)}/orders`}
+          >
+            Orders
+          </ButtonLink>
+        )}
         {/* Reserved seating: optional, for Sheltüh-ticketed events (docs/design/seating.md §5.13); also in the editor's Seating section. */}
         {event.ticketingMode !== "external" && (
           <ButtonLink

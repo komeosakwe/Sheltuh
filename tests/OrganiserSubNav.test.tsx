@@ -72,6 +72,9 @@ describe("OrganiserSubNav", () => {
     expect(current(renderAt("/dashboard/evt-1/seat-map"))).toEqual([["Events", "true"]]);
     cleanup();
     expect(current(renderAt("/dashboard/events/evt-1/analytics"))).toEqual([["Analytics", "true"]]);
+    cleanup();
+    // An event's orders are part of that event: Events stays current.
+    expect(current(renderAt("/dashboard/events/evt-1/orders"))).toEqual([["Events", "true"]]);
   });
 
   it("isn't shown at the door scanner, which has its own way back", () => {

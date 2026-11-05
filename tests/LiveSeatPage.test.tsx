@@ -8,6 +8,7 @@ import { SAMPLE_SEAT_MAPS } from "@/lib/sample-seat-maps";
 import { sampleEvents } from "@/lib/sample-events";
 import { encodeAvailability } from "@/lib/seating/availability";
 import type { SheltuhEvent } from "@/lib/types";
+import { typeName } from "./test-utils/buyerName";
 
 const { getPublicEventBySlug, getSeatMap, getSeatAvailability, createSeatedCheckout } = vi.hoisted(() => ({
   getPublicEventBySlug: vi.fn(),
@@ -86,6 +87,9 @@ describe("live seat page: a map replaced while open (docs/design/seating.md §5.
     render(<LiveSeatPage slug={event.slug} />);
     const rowA = await screen.findByRole("group", { name: "North, Row A" });
     fireEvent.click(within(rowA).getByRole("checkbox", { name: /^Seat 1, / }));
+    // On a phone the name is asked for in the sheet: the first press opens it, the second books.
+    fireEvent.click(screen.getAllByRole("button", { name: "Checkout" })[0]);
+    typeName();
     await act(async () => {
       fireEvent.click(screen.getAllByRole("button", { name: "Checkout" })[0]);
     });

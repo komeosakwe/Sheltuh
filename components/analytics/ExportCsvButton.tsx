@@ -7,7 +7,7 @@ import { SessionExpiredError } from "@/lib/auth/AuthContext";
 import { ApiError } from "@/lib/api/client";
 
 /** Saves a Blob as a file through a temporary link. */
-function saveBlob(blob: Blob, filename: string) {
+export function saveBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;

@@ -56,12 +56,13 @@ export async function publishedEvent(j: Journey, organiser: User, admin: User, o
 export function checkout(
   j: Journey,
   eventId: string,
-  options: { quantity?: number; buyerEmail?: string; key?: string; ip?: string; ticketTypeId?: string } = {},
+  options: { quantity?: number; buyerEmail?: string; buyerName?: string; key?: string; ip?: string; ticketTypeId?: string } = {},
 ): Promise<JourneyResponse> {
   return j.request("POST", `/api/events/${eventId}/checkout`, {
     body: {
       lineItems: [{ ticketTypeId: options.ticketTypeId ?? "ga", quantity: options.quantity ?? 1 }],
       ...(options.buyerEmail ? { buyerEmail: options.buyerEmail } : {}),
+      ...(options.buyerName ? { buyerName: options.buyerName } : {}),
     },
     headers: {
       ...(options.key ? { "idempotency-key": options.key } : {}),

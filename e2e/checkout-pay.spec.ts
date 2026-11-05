@@ -123,9 +123,13 @@ test.describe("general admission at 1280×900", () => {
     // The event page never loads Stripe.js.
     expect(stripe.requests).toEqual([]);
 
+    // The name is asked for first, with who sees it.
+    const name = tickets.getByLabel("Your name");
+    await expect(name).toHaveAccessibleDescription("Your name and email are shared with the organiser of this event.");
+    await name.fill("Alex Doe");
     await tickets.getByRole("button", { name: "Checkout" }).click();
     await expect(page).toHaveURL(`/checkout/pay?order=${ORDER_ID}`);
-    expect(seen.checkouts).toEqual([{ lineItems: [{ ticketTypeId: ga!.id, quantity: 1 }] }]);
+    expect(seen.checkouts).toEqual([{ lineItems: [{ ticketTypeId: ga!.id, quantity: 1 }], buyerName: "Alex Doe" }]);
 
     await expect(page.getByRole("heading", { level: 1, name: "Pay for your tickets" })).toBeVisible({ timeout: 30_000 });
     const summary = page.getByRole("region", { name: sample!.title });

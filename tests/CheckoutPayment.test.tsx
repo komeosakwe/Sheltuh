@@ -389,6 +389,9 @@ describe("CheckoutPayment: open", () => {
     expect(screen.getByRole("link", { name: "Purchase Terms" })).toHaveClass("whitespace-nowrap");
     expect(screen.getByRole("link", { name: "Privacy Policy" })).toHaveClass("whitespace-nowrap");
     expect(screen.getByText(/Card details go to Stripe, not Sheltüh\./)).toBeInTheDocument();
+    // Said once, above Stripe's form: who sees the name and email.
+    const notice = screen.getByText("Your name and email are shared with the organiser of this event.");
+    expect(screen.getAllByText(notice.textContent ?? "")).toHaveLength(1);
     // No hold line without seats.
     expect(screen.queryByText(/Your seats are held/)).toBeNull();
   });
