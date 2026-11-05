@@ -37,10 +37,11 @@ function numberFrom(value: unknown): number | null {
 
 /**
  * "Message ticket holders" on a published event's page: one short plain-text
- * email about the event to everyone holding a ticket. Sheltüh sends it; the
- * organiser never sees an address. Live mode only, and not for an event whose
- * tickets are sold elsewhere (there are no holders). Docs/architecture.md,
- * "Messages to ticket holders".
+ * email about the event to everyone holding a ticket. Sheltüh sends it, so
+ * this tool never shows the organiser an address (buyers' names and emails are
+ * in the Orders tab, for 12 months after the event). Live mode only, and not
+ * for an event whose tickets are sold elsewhere (there are no holders).
+ * Docs/architecture.md, "Messages to ticket holders".
  */
 export default function MessageHoldersPanel({ event, getToken }: { event: EventRecord; getToken: GetToken }) {
   if (!isApiConfigured || event.ticketingMode === "external") return null;

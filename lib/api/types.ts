@@ -1912,6 +1912,12 @@ export interface CheckoutBuyerDetails {
   buyerName?: string;
 }
 
+/** One line of an order: how many of a ticket type. */
+export interface EventOrderTicket {
+  ticketTypeName: string;
+  quantity: number;
+}
+
 /** EventOrders.items: one order of an event, as its organiser sees it. */
 export interface EventOrderRow {
   /** The short reference ("#A1B2C3D4") only: never the order's `ord_` id (that is the buyer's credential). */
@@ -1928,7 +1934,7 @@ export interface EventOrderRow {
   buyerName: string | null;
   buyerEmail: string | null;
   /** One entry per ticket type bought, from the order's priced snapshot. */
-  tickets: { ticketTypeName: string; quantity: number }[];
+  tickets: EventOrderTicket[];
   /** What the buyer paid in all (tickets, fees; Support Sheltüh excluded), in cents. 0 for a free order. */
   paidCents: number;
   /** Refunded so far, in cents (a refund of the tickets' price; 0 for none). */
@@ -2489,48 +2495,3 @@ export interface OrganiserLinkJoinResult {
   organiserId: string;
   displayName: string;
 }
-
-// ---------------------------------------------------------------------------
-// BEGIN organiser orders (frontend's copy of the contract: reconcile with the
-// backend's at merge). GET /api/organisers/me/events/{eventId}/orders and
-// .../orders.csv; checkout requests also take an optional `buyerName` (see
-// createCheckoutSession and SeatedCheckoutInput).
-// ---------------------------------------------------------------------------
-
-/** One line of an order: how many of a ticket type. */
-export interface EventOrderTicket {
-  ticketTypeName: string;
-  quantity: number;
-}
-
-/**
- * One paid or refunded order of an event, as its organiser sees it. `reference`
- * is the short reference only, never the order's `ord_…` id. `buyerName` and
- * `buyerEmail` are null for orders placed before names were shared, and for
- * every order once the details expire (`EventOrdersPage.detailsVisibleUntil`).
- */
-export interface EventOrderRow {
-  reference: string;
-  /** ISO 8601. */
-  placedAt: string;
-  status: "paid" | "refunded";
-  buyerName: string | null;
-  buyerEmail: string | null;
-  tickets: EventOrderTicket[];
-  /** What the buyer paid for the tickets: the total less any Support Sheltüh. */
-  paidCents: number;
-  /** 0 for a paid order that wasn't refunded at all; less than `paidCents` for a part refund. */
-  refundedCents: number;
-}
-
-/** GET /api/organisers/me/events/{eventId}/orders?q&cursor&limit: newest first. */
-export interface EventOrdersPage {
-  event: { title: string; slug: string; timeZone: string; endsAt: string };
-  /** ISO 8601: names and emails show until then (12 months after the event ends). */
-  detailsVisibleUntil: string;
-  items: EventOrderRow[];
-  nextCursor?: string;
-  /** Orders matching `q` (all of them with none). */
-  total: number;
-}
-// END organiser orders

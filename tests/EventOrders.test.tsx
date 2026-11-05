@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventOrders from "@/components/dashboard/EventOrders";
 import { ApiError } from "@/lib/api/client";
-import type { EventOrderRow, EventOrdersPage } from "@/lib/api/types";
+import type { EventOrderRow, EventOrders as EventOrdersData } from "@/lib/api/types";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 
 vi.mock("@/lib/auth/useOrganiser", () => ({
@@ -33,7 +33,7 @@ function order(n: number, extra: Partial<EventOrderRow> = {}): EventOrderRow {
   };
 }
 
-function pageOf(items: EventOrderRow[], extra: Partial<EventOrdersPage> = {}): EventOrdersPage {
+function pageOf(items: EventOrderRow[], extra: Partial<EventOrdersData> = {}): EventOrdersData {
   return {
     event: { title: "Night Market", slug: "night-market", timeZone: "Australia/Melbourne", endsAt: "2027-03-06T12:30:00.000Z" },
     detailsVisibleUntil: "2028-03-06T12:30:00.000Z",

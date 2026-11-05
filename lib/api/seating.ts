@@ -7,6 +7,7 @@ import { runCheckoutAttempt } from "./checkout-attempt";
 import { ApiError, apiFetch, type GetToken } from "./client";
 import type {
   CancelOrderResult,
+  CheckoutBuyerDetails,
   CheckoutResult,
   CheckoutSeatsInput,
   SeatAvailability,
@@ -87,14 +88,12 @@ export async function adminSaveSeatMap(
   return apiFetch<SeatMapRecord>(`/admin/events/${eventId}/seat-map`, { method: "PUT", body: { template, reason }, token });
 }
 
-export interface SeatedCheckoutInput {
+export interface SeatedCheckoutInput extends CheckoutBuyerDetails {
   seats: CheckoutSeatsInput;
   /** General admission tiers of a mixed event (not seated tiers; they don't count towards the 10 seats). */
   lineItems?: CheckoutLineItemInput[];
   /** Required when the order is free. */
   buyerEmail?: string;
-  /** The name shared with the organiser (lib/buyer-details.ts), as for createCheckoutSession. */
-  buyerName?: string;
   trackingCode?: string;
   /** Support Sheltüh (lib/support.ts), as for createCheckoutSession: paid orders only, sent only when above 0. */
   supportCents?: number;

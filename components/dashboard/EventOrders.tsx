@@ -11,7 +11,7 @@ import { EmptyState, Notice } from "@/components/ui/Section";
 import Strap from "@/components/ui/Strap";
 import { ApiError, type GetToken } from "@/lib/api/client";
 import { downloadEventOrdersCsv, getEventOrders } from "@/lib/api/event-orders";
-import type { EventOrderRow, EventOrdersPage } from "@/lib/api/types";
+import type { EventOrderRow, EventOrders as EventOrdersData } from "@/lib/api/types";
 import { DETAILS_VISIBLE_MONTHS, ORGANISER_USE_NOTE } from "@/lib/buyer-details";
 import { orderPaidText, orderPlacedText, orderStatusText, orderTicketsText } from "@/lib/event-orders-format";
 
@@ -36,7 +36,7 @@ export default function EventOrders({ eventId }: { eventId: string }) {
 
 interface Loaded {
   q: string;
-  page: EventOrdersPage;
+  page: EventOrdersData;
   items: EventOrderRow[];
   nextCursor?: string;
 }

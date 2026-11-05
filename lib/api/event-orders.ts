@@ -1,6 +1,6 @@
 import { apiFetch, type GetToken } from "./client";
 import { fetchCsv } from "./analytics";
-import type { EventOrdersPage } from "./types";
+import type { EventOrders } from "./types";
 
 /**
  * Organiser orders (docs/architecture.md, "Organiser orders"): who bought, for
@@ -30,7 +30,7 @@ function query(q: EventOrdersQuery): string {
 /** One page, newest first. ApiError 429 `rate_limited`: asked too often (try again in a few minutes). */
 export async function getEventOrders(eventId: string, getToken: GetToken, q: EventOrdersQuery = {}) {
   const token = await getToken();
-  return apiFetch<EventOrdersPage>(`${base(eventId)}${query(q)}`, { token });
+  return apiFetch<EventOrders>(`${base(eventId)}${query(q)}`, { token });
 }
 
 /**
