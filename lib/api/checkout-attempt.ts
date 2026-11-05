@@ -6,7 +6,7 @@
  * the same order and Stripe session back instead of a second one.
  *
  * - One attempt per event (the scope). A different basket (lines, seats,
- *   email, tracking code) is a new attempt with a new key; so is the same
+ *   name, email, tracking code) is a new attempt with a new key; so is the same
  *   basket after the old key is 30 minutes old.
  * - A request already in flight for the attempt is shared: a double click
  *   gets the same promise, and only one request is sent.

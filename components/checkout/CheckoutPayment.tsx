@@ -8,6 +8,7 @@ import { Button, ButtonLink } from "@/components/ui/Button";
 import { Notice } from "@/components/ui/Section";
 import { ApiError, isApiConfigured } from "@/lib/api/client";
 import { getOrderPayment } from "@/lib/api/orders";
+import { DETAILS_NOTICE } from "@/lib/buyer-details";
 import type { OrderPaymentLookup } from "@/lib/api/types";
 import {
   CHECKOUT_CLOSED_LABEL,
@@ -259,6 +260,7 @@ function PaymentFlow({ orderId }: { orderId: string }) {
           }
           form={
             <>
+              <p className="mb-4 text-xs text-muted lg:max-w-xl">{DETAILS_NOTICE}</p>
               <EmbeddedPaymentForm
                 key={formKey}
                 clientSecret={payment.clientSecret}

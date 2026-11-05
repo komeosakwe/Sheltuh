@@ -12,6 +12,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { navLinkClass } from "@/components/AuthNavLinks";
+import BuyerNameField from "@/components/checkout/BuyerNameField";
 import SupportSheltuh, { SupportSummaryLine } from "@/components/checkout/SupportSheltuh";
 import { Button } from "@/components/ui/Button";
 import { Notice } from "@/components/ui/Section";
@@ -21,6 +22,7 @@ import { ApiError, type GetToken } from "@/lib/api/client";
 import { createCheckoutSession } from "@/lib/api/orders";
 import { createSeatedCheckout, getSeatAvailability, seatErrorDetails } from "@/lib/api/seating";
 import { MAX_FREE_TICKETS_PER_ORDER, SEAT_HOLD } from "@/lib/api/types";
+import { buyerNameError } from "@/lib/buyer-details";
 import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
 import { startDateTimeLine } from "@/lib/event-card";
 import { eventZone, formatAud, formatEventTime } from "@/lib/format";
@@ -196,6 +198,9 @@ export default function SeatPicker({
   const [typedEmail, setTypedEmail] = useState<string | null>(null);
   const buyerEmail = typedEmail ?? accountEmail ?? "";
   const [emailError, setEmailError] = useState<string | null>(null);
+  // The name shared with the organiser (lib/buyer-details.ts): every checkout, paid or free. Not prefilled.
+  const [buyerName, setBuyerName] = useState("");
+  const [nameError, setNameError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [checkoutError, setCheckoutError] = useState<{ text: string; n: number } | null>(null);
   const [sentTo, setSentTo] = useState<string | null>(null);
@@ -211,9 +216,10 @@ export default function SeatPicker({
   const sheetHeadingRef = useRef<HTMLHeadingElement>(null);
   const sheetToggleRef = useRef<HTMLButtonElement>(null);
   const emailRef = useRef<HTMLInputElement>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
   const removeRefs = useRef(new Map<string, HTMLButtonElement>());
   const pendingFocus = useRef<
-    { kind: "remove"; index: number } | { kind: "list" } | { kind: "email" } | { kind: "support" } | { kind: "sheet" } | null
+    { kind: "remove"; index: number } | { kind: "list" } | { kind: "name" } | { kind: "email" } | { kind: "support" } | { kind: "sheet" } | null
   >(null);
 
   // What can happen here.
@@ -367,6 +373,7 @@ export default function SeatPicker({
     if (!target) return;
     pendingFocus.current = null;
     if (target.kind === "list") listHeaderRef.current?.focus();
+    else if (target.kind === "name") nameRef.current?.focus();
     else if (target.kind === "email") emailRef.current?.focus();
     else if (target.kind === "support") supportInputRef.current?.focus();
     else if (target.kind === "sheet") sheetHeadingRef.current?.focus();
@@ -567,6 +574,14 @@ export default function SeatPicker({
     if (!canCheckout || !hasAnything) return;
     setCheckoutError(null);
     setEmailError(null);
+    setNameError(null);
+    const nameProblem = buyerNameError(buyerName);
+    if (nameProblem) {
+      setNameError(nameProblem);
+      if (!sheetOpen) setSheetOpen(true);
+      pendingFocus.current = { kind: "name" };
+      return;
+    }
     if (needsEmail && !EMAIL_REGEX.test(buyerEmail.trim())) {
       setEmailError("Enter the email address to send your tickets to.");
       if (!sheetOpen) setSheetOpen(true);
@@ -593,6 +608,7 @@ export default function SeatPicker({
     }
     const lineItems = gaLines.map((line) => ({ ticketTypeId: line.ticket.id, quantity: line.quantity }));
     const email = needsEmail ? buyerEmail.trim() : accountEmail;
+    const name = buyerName.trim();
     const getToken = needsEmail && auth?.status === "signed-in" ? auth.getAccessToken : undefined;
     try {
       const result =
@@ -602,6 +618,7 @@ export default function SeatPicker({
               {
                 seats: { mapVersion: map.version, seatIds: selectedIds },
                 lineItems,
+                buyerName: name,
                 ...(email ? { buyerEmail: email } : {}),
                 ...(getTrackingRef(event.id) ? { trackingCode: getTrackingRef(event.id) } : {}),
                 // Paid orders only, and only when there is some. Part of the checkout attempt's
@@ -617,6 +634,7 @@ export default function SeatPicker({
               getTrackingRef(event.id),
               getToken,
               supportCents > 0 ? supportCents : undefined,
+              name,
             );
       if ("url" in result) {
         // No setBusy(false): the page is navigating away, and re-enabling Checkout would invite a double press.
@@ -641,6 +659,11 @@ export default function SeatPicker({
         text = "You’ve tried to hold seats a lot in a short time. Wait a few minutes and try again.";
       } else if (err instanceof ApiError && err.status === 429) {
         text = "A lot of people are checking out for this event right now. Try again in a minute.";
+      } else if (err instanceof ApiError && err.fieldErrors?.buyerName) {
+        setNameError(err.fieldErrors.buyerName);
+        if (!sheetOpen) setSheetOpen(true);
+        pendingFocus.current = { kind: "name" };
+        return;
       } else if (err instanceof ApiError && err.fieldErrors?.buyerEmail) {
         setEmailError(err.fieldErrors.buyerEmail);
         if (!sheetOpen) setSheetOpen(true);
@@ -811,28 +834,17 @@ export default function SeatPicker({
           {gaCount > 0 && ` + ${gaCount} general admission`}
         </p>
 
-        {/* Right above Checkout (the desktop card's button, or the phone bar's under the sheet). */}
-        {offerSupport && sentTo === null && (
-          <div className="border-t border-surface-border pt-4">
-            <SupportSheltuh
-              choice={support}
-              onChange={changeSupport}
-              revealError={revealSupportError}
-              serverError={supportServerError}
-              otherInputRef={supportInputRef}
-            />
-          </div>
-        )}
-
-        {sentTo !== null && (
-          <div className="flex flex-col gap-2">
-            <h3 className="font-heading text-xl">Check your inbox</h3>
-            <p role="status" className="text-sm">
-              Link sent to <span className="font-semibold break-all">{sentTo}</span>. Press Confirm in the email within
-              24 hours.
-            </p>
-            <p className="text-xs text-muted">Seats are held once you confirm.</p>
-          </div>
+        {canCheckout && hasAnything && sentTo === null && (
+          <BuyerNameField
+            id={`${idPrefix}-name`}
+            value={buyerName}
+            onChange={(value) => {
+              setBuyerName(value);
+              setNameError(null);
+            }}
+            error={nameError}
+            inputRef={nameRef}
+          />
         )}
 
         {needsEmail && sentTo === null && (
@@ -859,6 +871,30 @@ export default function SeatPicker({
                 {emailError}
               </p>
             )}
+          </div>
+        )}
+
+        {/* Right above Checkout (the desktop card's button, or the phone bar's under the sheet). */}
+        {offerSupport && sentTo === null && (
+          <div className="border-t border-surface-border pt-4">
+            <SupportSheltuh
+              choice={support}
+              onChange={changeSupport}
+              revealError={revealSupportError}
+              serverError={supportServerError}
+              otherInputRef={supportInputRef}
+            />
+          </div>
+        )}
+
+        {sentTo !== null && (
+          <div className="flex flex-col gap-2">
+            <h3 className="font-heading text-xl">Check your inbox</h3>
+            <p role="status" className="text-sm">
+              Link sent to <span className="font-semibold break-all">{sentTo}</span>. Press Confirm in the email within
+              24 hours.
+            </p>
+            <p className="text-xs text-muted">Seats are held once you confirm.</p>
           </div>
         )}
       </div>

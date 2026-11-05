@@ -47,12 +47,18 @@ export function NotApprovedOrganiser({
 export default function AnalyticsGate({
   title,
   returnTo,
+  signInTitle = "Sign in to see your analytics",
+  need,
   children,
 }: {
   /** The page's h1 while the gate is showing (the report has its own). */
   title: string;
   /** Where sign-in comes back to. */
   returnTo: string;
+  /** The sign-in prompt's heading, for a page that isn't analytics. */
+  signInTitle?: string;
+  /** What the viewer is trying to do, for the not-approved copy (NotApprovedOrganiser). */
+  need?: string;
   children: (getToken: GetToken) => ReactNode;
 }) {
   const auth = useAuth();
@@ -81,7 +87,7 @@ export default function AnalyticsGate({
     return (
       <EmptyState
         headingLevel={1}
-        title="Sign in to see your analytics"
+        title={signInTitle}
         action={
           <ButtonLink size="lg" href={withNext("/login", returnTo)}>
             Sign in
@@ -104,7 +110,7 @@ export default function AnalyticsGate({
     return (
       <>
         {heading}
-        <NotApprovedOrganiser status={organiser?.status === "approved" ? undefined : organiser?.status} />
+        <NotApprovedOrganiser status={organiser?.status === "approved" ? undefined : organiser?.status} need={need} />
       </>
     );
   }

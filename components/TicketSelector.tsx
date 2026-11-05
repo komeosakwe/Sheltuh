@@ -4,11 +4,13 @@ import Link from "next/link";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Notice } from "@/components/ui/Section";
+import BuyerNameField from "@/components/checkout/BuyerNameField";
 import SupportSheltuh, { SupportSummaryLine } from "@/components/checkout/SupportSheltuh";
 import WaitlistBlock from "@/components/waitlist/WaitlistBlock";
 import { ApiError, isApiConfigured } from "@/lib/api/client";
 import { createCheckoutSession } from "@/lib/api/orders";
 import { MAX_FREE_TICKETS_PER_ORDER } from "@/lib/api/types";
+import { buyerNameError } from "@/lib/buyer-details";
 import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
 import { calculateOrderSummary, describeBookingFeeNote, sumOrderSummaries } from "@/lib/fees";
 import { formatAud } from "@/lib/format";
@@ -58,6 +60,10 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   const [typedEmail, setTypedEmail] = useState<string | null>(null);
   const buyerEmail = typedEmail ?? accountEmail ?? "";
   const [emailError, setEmailError] = useState<string | null>(null);
+  // The name shared with the organiser (lib/buyer-details.ts): every checkout, paid or free. Not prefilled.
+  const [buyerName, setBuyerName] = useState("");
+  const [nameError, setNameError] = useState<string | null>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
   // Bumped with every email error (even the same words again), so focus can
   // follow each one to the field once it's rendered.
   const [emailErrorCount, setEmailErrorCount] = useState(0);
@@ -228,7 +234,14 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
     if (!event.organiserId) return;
     setError(null);
     setEmailError(null);
+    setNameError(null);
     setSupportServerError(null);
+    const nameProblem = buyerNameError(buyerName);
+    if (nameProblem) {
+      setNameError(nameProblem);
+      nameInputRef.current?.focus();
+      return;
+    }
     if (needsEmail && !EMAIL_REGEX.test(buyerEmail.trim())) {
       showEmailError("Enter the email address to send your tickets to.");
       return;
@@ -263,6 +276,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
         // Paid orders only, and only when there is some (lib/api/orders.ts leaves 0 out). Part
         // of the checkout attempt's basket, so a changed amount gets a new idempotency key.
         supportCents > 0 ? supportCents : undefined,
+        buyerName.trim(),
       );
       if ("url" in result) {
         window.location.href = result.url;
@@ -279,12 +293,16 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
         // tickets in `lineItems`) has no field to highlight, so it's said in
         // full rather than as "fix the highlighted fields".
         // Support Sheltüh's is said by its chips (with the rest while they aren't offered, so it's never lost).
-        const { buyerEmail: emailMessage, supportCents: supportMessage, ...others } = err.fieldErrors;
+        const { buyerName: nameMessage, buyerEmail: emailMessage, supportCents: supportMessage, ...others } = err.fieldErrors;
         const supportByChips = Boolean(supportMessage) && offerSupport;
+        if (nameMessage) {
+          setNameError(nameMessage);
+          nameInputRef.current?.focus();
+        }
         if (emailMessage) showEmailError(emailMessage);
         if (supportByChips && supportMessage) setSupportServerError(supportMessage);
         const otherMessages = [...Object.values(others), supportByChips ? undefined : supportMessage].filter(Boolean).join(" ");
-        if (otherMessages || (!emailMessage && !supportByChips)) setError(otherMessages || err.message);
+        if (otherMessages || (!nameMessage && !emailMessage && !supportByChips)) setError(otherMessages || err.message);
       } else {
         setError(err instanceof Error ? err.message : "Couldn't start checkout. Try again.");
       }
@@ -462,6 +480,18 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
             </div>
           ) : canCheckout ? (
             <>
+              <div className="mt-4">
+                <BuyerNameField
+                  id="buyer-name"
+                  value={buyerName}
+                  onChange={(value) => {
+                    setBuyerName(value);
+                    setNameError(null);
+                  }}
+                  error={nameError}
+                  inputRef={nameInputRef}
+                />
+              </div>
               {needsEmail && (
                 <div className="mt-4 flex flex-col gap-1">
                   <label htmlFor="buyer-email" className="eyebrow text-muted">

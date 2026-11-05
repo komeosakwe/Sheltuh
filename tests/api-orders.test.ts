@@ -36,6 +36,31 @@ describe("createCheckoutSession", () => {
   });
 });
 
+describe("createCheckoutSession and createSeatedCheckout (buyer name)", () => {
+  const lines = [{ ticketTypeId: "ga", quantity: 1 }];
+
+  it("send buyerName only when there is one", async () => {
+    const fetch = stubFetch({ url: "https://checkout.example/x" }, 201);
+    await createCheckoutSession("evt-name", lines, "fan@example.com", undefined, undefined, undefined, "Alex Doe");
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ lineItems: lines, buyerEmail: "fan@example.com", buyerName: "Alex Doe" });
+    await createCheckoutSession("evt-name", lines, "fan@example.com");
+    expect(JSON.parse(fetch.mock.calls[1][1].body)).not.toHaveProperty("buyerName");
+    await createSeatedCheckout("evt-name-seated", { seats: { mapVersion: 1, seatIds: ["A1"] }, buyerName: "Alex Doe" });
+    expect(JSON.parse(fetch.mock.calls[2][1].body)).toEqual({ seats: { mapVersion: 1, seatIds: ["A1"] }, buyerName: "Alex Doe" });
+  });
+
+  it("a changed name is a new attempt (a new Idempotency-Key)", async () => {
+    resetCheckoutAttempt();
+    const fetch = stubFetch({ url: "https://checkout.example/x" }, 400);
+    const key = (i: number) => (fetch.mock.calls[i][1].headers as Record<string, string>)["idempotency-key"];
+    await createCheckoutSession("evt-name-key", lines, undefined, undefined, undefined, undefined, "Alex").catch(() => {});
+    await createCheckoutSession("evt-name-key", lines, undefined, undefined, undefined, undefined, "Alex").catch(() => {});
+    await createCheckoutSession("evt-name-key", lines, undefined, undefined, undefined, undefined, "Alexa").catch(() => {});
+    expect(key(0)).toBeTruthy();
+    expect(key(2)).not.toBe(key(0));
+  });
+});
+
 describe("createCheckoutSession and createSeatedCheckout (Support Sheltüh)", () => {
   it("send supportCents only when above 0, and a changed amount is a new attempt (a new key)", async () => {
     const fetch = stubFetch({ url: "/checkout/pay?order=o", orderId: "o" }, 201);

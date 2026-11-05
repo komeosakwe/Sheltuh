@@ -20,8 +20,9 @@ export default function PrivacyPage() {
             <a href="#google-apple">Signing in with Google or Apple</a>).
           </li>
           <li>
-            The email address you enter at checkout, so we can send your tickets, and your order
-            details.
+            The name and email address you enter at checkout, so we can send your tickets, and your
+            order details. The organiser of the event also sees them (see{" "}
+            <a href="#organiser-orders">What organisers see</a>).
           </li>
           <li>
             If you apply as an organiser: your organisation name, contact email, description,
@@ -188,6 +189,36 @@ export default function PrivacyPage() {
           location off for this site in your browser&rsquo;s settings at any time.
         </p>
       </ContentSection>
+      <ContentSection title="What organisers see" id="organiser-orders">
+        <p>
+          Checkout tells you that your name and email are shared with the organiser of the event.
+          For each order, its organiser sees:
+        </p>
+        <ul>
+          <li>Your name and email address, the tickets you bought, what you paid and when.</li>
+          <li>
+            That, for 12 months after the event ends. Then it&rsquo;s removed from their view.
+            Files they exported are theirs, and we can&rsquo;t take them back.
+          </li>
+        </ul>
+        <p>Organisers may use these details only for that event.</p>
+        <p>Not shared:</p>
+        <ul>
+          <li>
+            Your card details. Stripe handles those. Who&rsquo;s Going only ever shows display
+            names.
+          </li>
+          <li>Orders placed before this change. Organisers can&rsquo;t see who bought them.</li>
+        </ul>
+        <p>
+          Organisers can also email the people holding tickets to their events through Sheltüh.
+          Each email has a link to stop messages from that organiser.
+        </p>
+        <p>
+          To ask us to stop sharing your details for an order, email{" "}
+          <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>.
+        </p>
+      </ContentSection>
       <ContentSection title="Payments">
         <p>
           Card payments are handled by Stripe. We never see or store your card number. Stripe’s
@@ -202,8 +233,9 @@ export default function PrivacyPage() {
       <ContentSection title="Who we share it with">
         <p>
           We use service providers to run Sheltüh — for hosting, sign-in, our database (located in Sydney),
-          payments and sending email. They only handle data on our behalf. Organisers can see the
-          orders for their own events. We don’t sell your personal information.
+          payments and sending email. They only handle data on our behalf. Organisers see
+          who bought tickets to their own events (see{" "}
+          <a href="#organiser-orders">What organisers see</a>). We don’t sell your personal information.
         </p>
       </ContentSection>
       <ContentSection title="Marketing email">

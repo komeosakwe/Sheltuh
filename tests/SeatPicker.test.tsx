@@ -8,6 +8,7 @@ import { sampleEvents } from "@/lib/sample-events";
 import { encodeAvailability } from "@/lib/seating/availability";
 import type { SeatMapTemplate } from "@/lib/seating/template";
 import type { SheltuhEvent } from "@/lib/types";
+import { typeName } from "./test-utils/buyerName";
 
 const { createSeatedCheckout, getSeatAvailability, cancelPendingOrder } = vi.hoisted(() => ({
   createSeatedCheckout: vi.fn(),
@@ -252,6 +253,7 @@ describe("seat page: checkout (§5.11)", () => {
     showList();
     fireEvent.click(within(row("North, Row A")).getByRole("checkbox", { name: /^Seat 2, / }));
     fireEvent.click(within(row("North, Row A")).getByRole("checkbox", { name: /^Seat 1, / }));
+    typeName();
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
     await waitFor(() => expect(createSeatedCheckout).toHaveBeenCalledTimes(1));
     const [eventId, input] = createSeatedCheckout.mock.calls[0];
@@ -259,6 +261,48 @@ describe("seat page: checkout (§5.11)", () => {
     expect(input.seats).toEqual({ mapVersion: 1, seatIds: ["N-A2", "N-A1"] });
     expect(input.lineItems).toEqual([]);
     expect(screen.getByRole("button", { name: "Holding your seats…" })).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("asks for a name before holding anything, and sends it with the seats", async () => {
+    createSeatedCheckout.mockReturnValue(new Promise(() => {}));
+    renderPicker({ event: live, mode: "live" });
+    showList();
+    fireEvent.click(within(row("North, Row A")).getByRole("checkbox", { name: /^Seat 1, / }));
+    const name = screen.getByLabelText("Your name");
+    expect(name).toBeRequired();
+    expect(name).toHaveAttribute("autocomplete", "name");
+    expect(name).toHaveAccessibleDescription("Your name and email are shared with the organiser of this event.");
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    expect(createSeatedCheckout).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter your name.");
+    await waitFor(() => expect(name).toHaveFocus());
+    fireEvent.change(name, { target: { value: " Alex Doe " } });
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    await waitFor(() => expect(createSeatedCheckout).toHaveBeenCalledTimes(1));
+    expect(createSeatedCheckout.mock.calls[0][1].buyerName).toBe("Alex Doe");
+  });
+
+  it("on a phone, Checkout without a name opens the sheet at the field", async () => {
+    setViewport(false);
+    renderPicker({ event: live, mode: "live" });
+    showList();
+    fireEvent.click(within(row("North, Row A")).getByRole("checkbox", { name: /^Seat 1, / }));
+    expect(screen.queryByLabelText("Your name")).toBeNull();
+    fireEvent.click(screen.getAllByRole("button", { name: "Checkout" })[0]);
+    expect(createSeatedCheckout).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByLabelText("Your name")).toHaveFocus());
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter your name.");
+  });
+
+  it("puts the API's refusal of the name on the field", async () => {
+    createSeatedCheckout.mockRejectedValue(new ApiError(400, "Fix the fields.", { buyerName: "Enter your name." }));
+    renderPicker({ event: live, mode: "live" });
+    showList();
+    fireEvent.click(within(row("North, Row A")).getByRole("checkbox", { name: /^Seat 1, / }));
+    typeName();
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    await waitFor(() => expect(screen.getByLabelText("Your name")).toHaveAttribute("aria-invalid", "true"));
+    await waitFor(() => expect(screen.getByLabelText("Your name")).toHaveFocus());
   });
 
   it("seats taken meanwhile are removed and marked unavailable, an alert names them, and focus stays on Checkout", async () => {
@@ -271,6 +315,7 @@ describe("seat page: checkout (§5.11)", () => {
     fireEvent.click(within(row("North, Row A")).getByRole("checkbox", { name: /^Seat 2, / }));
     const checkout = screen.getByRole("button", { name: "Checkout" });
     checkout.focus();
+    typeName();
     await act(async () => {
       fireEvent.click(checkout);
     });
@@ -291,6 +336,7 @@ describe("seat page: checkout (§5.11)", () => {
     showList();
     fireEvent.click(within(row("North, Row A")).getByRole("checkbox", { name: /^Seat 1, / }));
     await act(async () => {
+      typeName();
       fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
     });
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -305,6 +351,7 @@ describe("seat page: checkout (§5.11)", () => {
     showList();
     fireEvent.click(within(row("North, Row A")).getByRole("checkbox", { name: /^Seat 1, / }));
     await act(async () => {
+      typeName();
       fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
     });
     expect(await screen.findByRole("alert")).toHaveTextContent("You’ve tried to hold seats a lot in a short time. Wait a few minutes and try again.");
@@ -352,6 +399,7 @@ describe("seat page: availability polling (§5.2)", () => {
     // The seat is now held for this buyer: a poll would see it unavailable.
     getSeatAvailability.mockResolvedValue(availability([...sample.unavailable, 0]));
     await act(async () => {
+      typeName();
       fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
     });
     expect(createSeatedCheckout).toHaveBeenCalledTimes(1);
@@ -480,6 +528,7 @@ describe("seat page: back from Stripe releases the hold (§5.11)", () => {
     showList();
     fireEvent.click(within(row("North, Row A")).getByRole("checkbox", { name: /^Seat 1, / }));
     await act(async () => {
+      typeName();
       fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
     });
     expect(JSON.parse(window.sessionStorage.getItem(KEY) ?? "null")).toEqual({
@@ -499,6 +548,7 @@ describe("seat page: back from Stripe releases the hold (§5.11)", () => {
     showList();
     fireEvent.click(within(row("North, Row A")).getByRole("checkbox", { name: /^Seat 1, / }));
     await act(async () => {
+      typeName();
       fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
     });
     expect(cancelPendingOrder).not.toHaveBeenCalled();
@@ -551,6 +601,7 @@ describe("seat page: back from Stripe releases the hold (§5.11)", () => {
     // Still failing: no new checkout, and the order is still kept.
     cancelPendingOrder.mockRejectedValueOnce(new ApiError(503, "Unavailable."));
     await act(async () => {
+      typeName();
       fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
     });
     expect(cancelPendingOrder).toHaveBeenCalledTimes(2);
@@ -563,6 +614,7 @@ describe("seat page: back from Stripe releases the hold (§5.11)", () => {
     // Released now: the new checkout starts, and its order replaces the old one.
     cancelPendingOrder.mockResolvedValueOnce({ status: "released", eventTitle: event.title, eventSlug: event.slug });
     await act(async () => {
+      typeName();
       fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
     });
     expect(cancelPendingOrder).toHaveBeenCalledTimes(3);

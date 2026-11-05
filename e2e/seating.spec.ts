@@ -199,9 +199,11 @@ for (const vp of [
       expect((await checkout.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
       // Stripe.js only loads on the payment page.
       expect(seen.stripe.requests).toEqual([]);
+      // The name is asked for in the sheet, before anything is held.
+      await seatBar.getByLabel("Your name").fill("Alex Doe");
       await checkout.click();
       await expect(page).toHaveURL(`/checkout/pay?order=${ORDER_ID}`);
-      expect(seen.checkouts).toEqual([{ seats: { mapVersion: 1, seatIds: ["N-A1", "N-A2"] } }]);
+      expect(seen.checkouts).toEqual([{ seats: { mapVersion: 1, seatIds: ["N-A1", "N-A2"] }, buyerName: "Alex Doe" }]);
 
       // The payment page: the seats, the hold, and Stripe's form (the stub) with this order's secret.
       await expect(page.getByRole("heading", { level: 1, name: "Pay for your tickets" })).toBeVisible({ timeout: 30_000 });
@@ -266,6 +268,7 @@ test.describe("seated event at 1280×900", () => {
     expect(seen.availability).toBeGreaterThanOrEqual(1);
 
     const checkout = page.getByRole("button", { name: "Checkout" });
+    await page.getByLabel("Your name").fill("Alex Doe");
     await checkout.click();
     await expect(page.getByRole("alert").filter({ hasText: "Some seats were taken" })).toContainText(
       "Some seats were taken while you were choosing: North · Row A · Seat 1",
@@ -277,8 +280,8 @@ test.describe("seated event at 1280×900", () => {
     await checkout.click();
     await expect(page).toHaveURL(`/checkout/pay?order=${ORDER_ID}`);
     expect(seen.checkouts).toEqual([
-      { seats: { mapVersion: 1, seatIds: ["N-A1", "N-A2"] } },
-      { seats: { mapVersion: 1, seatIds: ["N-A2"] } },
+      { seats: { mapVersion: 1, seatIds: ["N-A1", "N-A2"] }, buyerName: "Alex Doe" },
+      { seats: { mapVersion: 1, seatIds: ["N-A2"] }, buyerName: "Alex Doe" },
     ]);
     await expect(page.locator('iframe[title="Secure payment form (e2e stub)"]')).toBeVisible({ timeout: 30_000 });
     await expect(page.getByRole("region", { name: event!.title })).toContainText("North · Row A · Seat 2");

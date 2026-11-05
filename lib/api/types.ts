@@ -2429,3 +2429,48 @@ export interface OrganiserLinkJoinResult {
   organiserId: string;
   displayName: string;
 }
+
+// ---------------------------------------------------------------------------
+// BEGIN organiser orders (frontend's copy of the contract: reconcile with the
+// backend's at merge). GET /api/organisers/me/events/{eventId}/orders and
+// .../orders.csv; checkout requests also take an optional `buyerName` (see
+// createCheckoutSession and SeatedCheckoutInput).
+// ---------------------------------------------------------------------------
+
+/** One line of an order: how many of a ticket type. */
+export interface EventOrderTicket {
+  ticketTypeName: string;
+  quantity: number;
+}
+
+/**
+ * One paid or refunded order of an event, as its organiser sees it. `reference`
+ * is the short reference only, never the order's `ord_…` id. `buyerName` and
+ * `buyerEmail` are null for orders placed before names were shared, and for
+ * every order once the details expire (`EventOrdersPage.detailsVisibleUntil`).
+ */
+export interface EventOrderRow {
+  reference: string;
+  /** ISO 8601. */
+  placedAt: string;
+  status: "paid" | "refunded";
+  buyerName: string | null;
+  buyerEmail: string | null;
+  tickets: EventOrderTicket[];
+  /** What the buyer paid for the tickets: the total less any Support Sheltüh. */
+  paidCents: number;
+  /** 0 for a paid order that wasn't refunded at all; less than `paidCents` for a part refund. */
+  refundedCents: number;
+}
+
+/** GET /api/organisers/me/events/{eventId}/orders?q&cursor&limit: newest first. */
+export interface EventOrdersPage {
+  event: { title: string; slug: string; timeZone: string; endsAt: string };
+  /** ISO 8601: names and emails show until then (12 months after the event ends). */
+  detailsVisibleUntil: string;
+  items: EventOrderRow[];
+  nextCursor?: string;
+  /** Orders matching `q` (all of them with none). */
+  total: number;
+}
+// END organiser orders
