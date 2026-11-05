@@ -18,7 +18,22 @@ export function runQuietly(programmaticMoveRef: RefObject<boolean>, action: () =
   }
 }
 
-/** `map.stop()` without it counting as a user move. */
+/**
+ * `map.stop()` without it counting as a user move, and without the animation it would start.
+ *
+ * Leaflet's `stop()` is `setZoom(limitZoom(zoom))`, then cancelling any flight. That setZoom
+ * *animates* the snap of a flight's part-way zoom to a whole one: the animation starts on the next
+ * frame and, 250 ms later, puts the zoom and centre it was called at back over whatever the map was
+ * set to meanwhile. A centre request applied right after the stop (a located visitor, a picked
+ * suburb) was undone whenever the flight had got part-way. So this does the same without the
+ * animation: the same snap (as Leaflet's `_limitZoom`), jumping. A setView cancels a flight too,
+ * and fires one `moveend`, which is all `stop()` fired (SceneMapPanel.tsx's SearchThisAreaControl
+ * counts one quiet `moveend` per programmatic move).
+ */
 export function stopQuietly(map: L.Map, programmaticMoveRef: RefObject<boolean>) {
-  runQuietly(programmaticMoveRef, () => map.stop());
+  runQuietly(programmaticMoveRef, () => {
+    const snap = map.options.zoomSnap;
+    const snapped = snap ? Math.round(map.getZoom() / snap) * snap : map.getZoom();
+    map.setZoom(Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), snapped)), { animate: false });
+  });
 }
