@@ -90,6 +90,26 @@ describe("next.config headers", () => {
   });
 });
 
+describe("next.config: link previews", () => {
+  it("blocks on metadata for every user agent, so any link-preview fetcher finds og: tags in <head>", () => {
+    const bots = nextConfig.htmlLimitedBots;
+    expect(bots).toBeInstanceOf(RegExp);
+    // Next tests the user-agent header against it. Telegram, Signal, Viber, Mastodon, Teams, an unknown fetcher, an empty header...
+    for (const userAgent of [
+      "TelegramBot (like TwitterBot)",
+      "Mozilla/5.0 (compatible; Signal-Desktop)",
+      "Viber",
+      "Mastodon/4.3 (http.rb/5.2; +https://mastodon.example/)",
+      "Mozilla/5.0 (Windows NT 10.0) SkypeUriPreview Preview/0.5 Teams",
+      "facebookexternalhit/1.1",
+      "Mozilla/5.0",
+      "",
+    ]) {
+      expect((bots as RegExp).test(userAgent), userAgent).toBe(true);
+    }
+  });
+});
+
 describe("next.config: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY guard", () => {
   afterEach(() => {
     vi.unstubAllEnvs();

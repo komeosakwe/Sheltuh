@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import type { ResolvingMetadata } from "next";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import OrganiserProfilePage, { generateMetadata } from "@/app/organisers/[organiserId]/page";
 import { ApiError } from "@/lib/api/client";
@@ -445,10 +444,7 @@ describe("/organisers/[organiserId] (demo)", () => {
 
 describe("/organisers/[organiserId] title", () => {
   async function title(organiserId: string) {
-    const metadata = await generateMetadata(
-      { params: Promise.resolve({ organiserId }), searchParams: Promise.resolve({}) },
-      Promise.resolve({}) as unknown as ResolvingMetadata,
-    );
+    const metadata = await generateMetadata({ params: Promise.resolve({ organiserId }), searchParams: Promise.resolve({}) });
     return metadata.title;
   }
 
