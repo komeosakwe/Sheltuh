@@ -123,10 +123,11 @@ for (const vp of [
       await expect(tickets.getByRole("status")).toContainText("Group of 4: 2 groups, 8 tickets. Total A$480");
       await expect(tickets).toContainText("Tickets (8)");
 
+      await tickets.getByLabel("Your name").fill("Alex Doe");
       await tickets.getByRole("button", { name: "Checkout" }).click();
       await expect(page).toHaveURL(`/checkout/pay?order=${ORDER_ID}`);
       // Quantity is groups: the server multiplies by the people the ticket type admits.
-      expect(seen.checkouts).toEqual([{ lineItems: [{ ticketTypeId: group!.id, quantity: 2 }] }]);
+      expect(seen.checkouts).toEqual([{ lineItems: [{ ticketTypeId: group!.id, quantity: 2 }], buyerName: "Alex Doe" }]);
 
       const summary = page.getByRole("region", { name: sample!.title });
       await expect(summary).toContainText("Admits 4", { timeout: 30_000 });
