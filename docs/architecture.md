@@ -4584,6 +4584,18 @@ Search can order results by how close they are to a suburb (owner round,
   The table has one centre per locality, not boundaries, so near a border
   the position can be named for the neighbouring suburb (about 1 in 5
   random points inside localities, checked against the ABS polygons).
+- In-app browsers (Instagram, Facebook, TikTok… opening a link in their own
+  WebView) often can't share a location, especially on iOS. "Use my current
+  location" and the map's "Near me" stay as they are; when one fails (denied,
+  unavailable, timed out, or the suburb table won't load) and the user agent
+  is one of those apps (`lib/in-app-browser.ts` `inAppBrowserName`; the
+  sign-in notice's `lib/auth/in-app-browser.ts` answers a different question),
+  the message becomes "{App}’s browser can’t share your location. Type your
+  suburb, or open Sheltüh in Safari." with an "Open in Safari" link
+  (`x-safari-https://…`; Chrome and an `intent:` URL on Android). The link
+  is built from the https address without its fragment, and is left out
+  (the message ends "Type your suburb.") on http or an unknown platform.
+  A position that read fine but is outside Australia keeps its own message.
 - Only the suburb's name (and its state) leaves that function: localStorage
   `sheltuh:near:v1` = `{"suburb": …, "state": …}` (`lib/near-storage.ts`;
   the state is for the home's order, above), and the
