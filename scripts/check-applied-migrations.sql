@@ -211,6 +211,12 @@ select version, file, coalesce(applied, false) as applied
       and exists (select 1 from fn where proname = 'cancel_holder_message')
       and exists (select 1 from fn where proname = 'stop_holder_messages')
       and exists (select 1 from fn where proname = 'purge_operational_data'
-                   and 'holder_messages_deleted' = any(proargnames)))
+                   and 'holder_messages_deleted' = any(proargnames))),
+    ('20261122000000', 'order_buyer_details',
+      exists (select 1 from col where attrelid = to_regclass('public.orders') and attname = 'buyer_name')
+      and exists (select 1 from col where attrelid = to_regclass('public.orders') and attname = 'details_notice_at')
+      and to_regclass('private.order_detail_exports') is not null
+      and exists (select 1 from fn where proname = 'record_order_export')
+      and exists (select 1 from fn where proname = 'hold_seats' and 'p_buyer_name' = any(proargnames)))
   ) as m(version, file, applied)
  order by version;

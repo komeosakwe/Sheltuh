@@ -164,6 +164,7 @@ describe("Data API lock-out", () => {
       { table_name: "holder_message_suppressions", rls: true },
       { table_name: "holder_messages", rls: true },
       { table_name: "onboarding_emails", rls: true },
+      { table_name: "order_detail_exports", rls: true },
       { table_name: "organiser_event_announcements", rls: true },
       { table_name: "organiser_follow_tokens", rls: true },
       { table_name: "organiser_invite_links", rls: true },
@@ -321,8 +322,45 @@ describe("Data API lock-out", () => {
          from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'private' and p.proname = 'hold_seats'`,
     );
-    expect(hold.defaults).toBe(1);
+    // p_support_cents and p_buyer_name (20261122000000_order_buyer_details.sql).
+    expect(hold.defaults).toBe(2);
     expect(hold.names).toContain("p_support_cents");
+    expect(hold.names).toContain("p_buyer_name");
+  });
+
+  it("buyer details: the order-creating functions take a trailing p_buyer_name, and the audit helpers are locked down", async () => {
+    const names = [
+      "hold_seats",
+      "place_free_order",
+      "place_free_seated_order",
+      "request_free_order",
+      "request_free_seated_order",
+      "record_order_export",
+      "orders_details_notice",
+    ];
+    // request_free_order keeps its 13-argument delegating form for the previous release.
+    expect(await privateFunctions(names)).toEqual(locked(names, { request_free_order: 2 }));
+    // Every overload that takes a name (all but request_free_order's 13-argument form) has it as a defaulted argument.
+    const rows = await db.query<{ fn: string; args: number; named: boolean }>(
+      `select p.proname as fn, p.pronargs::int as args, 'p_buyer_name' = any(p.proargnames) as named
+         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'private' and p.proname = any($1::text[]) and p.pronargdefaults > 0
+          and 'p_buyer_name' = any(p.proargnames) order by 1`,
+      [["hold_seats", "place_free_order", "place_free_seated_order", "request_free_order", "request_free_seated_order"]],
+    );
+    expect(rows.map((r) => r.fn)).toEqual([
+      "hold_seats",
+      "place_free_order",
+      "place_free_seated_order",
+      "request_free_order",
+      "request_free_seated_order",
+    ]);
+    const [audit] = await db.query<{ columns: string[] }>(
+      `select array_agg(column_name::text order by ordinal_position) as columns
+         from information_schema.columns where table_schema = 'private' and table_name = 'order_detail_exports'`,
+    );
+    // No buyer data in the audit log.
+    expect(audit.columns).toEqual(["id", "event_id", "organiser_id", "actor_id", "row_count", "created_at"]);
   });
 
   it("the member profile and organiser follow functions and triggers exist, pin search_path and aren't client-executable", async () => {
