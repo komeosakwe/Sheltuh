@@ -22,8 +22,8 @@ afterEach(() => {
   getMyEvent.mockReset();
 });
 
-function renderPage(status: string) {
-  getMyEvent.mockResolvedValue({ eventId: "evt-1", title: "Night Market", status });
+function renderPage(status: string, extra: Record<string, unknown> = {}) {
+  getMyEvent.mockResolvedValue({ eventId: "evt-1", title: "Night Market", status, ...extra });
   render(
     <FakeAuthProvider value={fakeAuthValue()}>
       <EditEventPageContent />
@@ -37,6 +37,25 @@ describe("EditEventPageContent", () => {
     const link = await screen.findByRole("link", { name: "Analytics" });
     expect(link).toHaveAttribute("href", "/dashboard/events/evt-1/analytics");
     expect(link.compareDocumentPosition(screen.getByText("Editor")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("links a published, Sheltüh-ticketed event's Orders beside Analytics", async () => {
+    renderPage("published", { ticketingMode: "sheltuh" });
+    const link = await screen.findByRole("link", { name: "Orders" });
+    expect(link).toHaveAttribute("href", "/dashboard/events/evt-1/orders");
+    expect(link).toHaveClass("min-h-11");
+    expect(screen.getByRole("link", { name: "Analytics" }).compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it.each([
+    ["an unpublished event", "draft", "sheltuh"],
+    ["a pending event", "pending_review", "sheltuh"],
+    ["a rejected event", "rejected", "sheltuh"],
+    ["an external-ticketing event", "published", "external"],
+  ])("has no Orders link for %s", async (_what, status, ticketingMode) => {
+    renderPage(status, { ticketingMode });
+    await screen.findByRole("link", { name: "Analytics" });
+    expect(screen.queryByRole("link", { name: "Orders" })).toBeNull();
   });
 
   it.each([

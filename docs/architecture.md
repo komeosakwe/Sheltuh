@@ -87,7 +87,9 @@ iframe served by Stripe), with the publishable key
 | `event_seats` | `(event_id, id)` | The map's seats, derived from the layout in the same step (`write_seat_map`): `position` (map order: the availability bit), section, row (may be empty) and seat labels, `ticket_type_id` (no-action foreign key `event_seats_ticket_type_fkey`: a tier with seats can't be removed), `kind` (standard, wheelchair, companion), `blocked`; `hold_order_id` / `hold_expires_at` (a pending order's hold) and `sold_order_id`. Checks: never held and sold at once (`event_seats_one_owner`), never held or sold while blocked (`event_seats_blocked_unsold`). Deleted with the map. |
 | `event_images` | `event_id` | Optional organiser photo (≤2 MB, JPEG/PNG/WebP) stored as `bytea` — no Storage bucket or extra secret. Public via `GET /api/events/[id]/image` once published (versioned URL, shared at the CDN for an hour at the current version, ETag and 304; see "CDN windows"); before that only the owner/admins with a token. Every write (insert, update, delete) bumps the event's `updated_at` in the same transaction (`event_images_touch_event`), so a photo change is a new version of the event (see "Admin authoring"); writers lock the event row (for no key update) before the image row. Move to Storage/CDN if volume grows. `focus_x` / `focus_y` (`20261115000000_event_image_focus.sql`; smallint 0..100, both null or both set, check constraint `event_images_focus_check`): where the photo's subject is, so cropped renderings centre on it (see "Photo focus"). No index: nothing filters on it. |
 | `event_moderation_log` | `id` | Append-only: submitted / approved / rejected / unpublished / ticketing_changed / created / edited / curated, by whom, and why. `approved` means "went live": an admin's approval or publish, or an approved organiser's own publish (`private.publish_event`, logged by the organiser's own account), so every reader of "approved before" treats the two alike (see "Publishing events"). Partial index `event_moderation_log_approved_idx (created_at, event_id) where action = 'approved'` serves the admins' "recently published" list and the admin home's count. `details` (jsonb object, null for the other actions): for `ticketing_changed`, the old and new value of each ticketing field the admin changed (full ticket links: see "External ticketing"); for `edited`, the old and new value of each other field an admin changed (see "Admin authoring"); for `curated`, the old and new `boost` and `excluded` (see "Trending"). Shown to the event's organiser and to admins (`moderationLog[].changes`), never publicly, except `curated` entries, which only admins see (`GET /admin/events/{id}/curation`). `by` is the actor's account id for admins; the organiser's view shows `"Sheltüh team"` (`SHELTUH_TEAM_ACTOR`) for anyone but the organiser's own account. No update trigger: personal information in `details` or `reason` is redacted in place (`docs/supabase-setup.md`, APP 11/13). |
-| `orders` | `id` (`ord_…`) | Priced snapshot of the line items and totals. `status`: pending → paid / failed / oversold_refund_required; oversold_refund_required → refunded (our automatic refund); paid → refunded (refunded in full in Stripe: Stripe's `refunded`, or at least `total_cents` refunded; see "Refunds made in Stripe"); pending → failed also when a paid session's amount or currency wasn't the order's (`private.fail_mismatched_order`, which also records the payment intent; the payment is then refunded). `amount_refunded_cents` (≥ 0, default 0) is Stripe's cumulative refunded amount, recorded only for paid orders (a partial refund leaves the order paid, whatever its amount; a refunded order with `amount_refunded_cents` below `total_cents` was voided by the tickets-only rule of `20261110000200_support_ticket_refund.sql`, before `20261111000300_refund_no_inference.sql` removed it). Indexed on `stripe_payment_intent_id` (partial, not null) for the refund webhook, and on `(event_id, created_at)` (partial, `paid`) for the trending refresh's 14-day read. `tickets_emailed_at` records the ticket email. `tracking_code` is the event tracking link the checkout came through (checked against the event's links when the order is created; null otherwise). `seat_ids` (1–10): a seated order's seats, set when it's made and never changed (what fulfilment and refunds act on). `support_cents` (0 to 50000, default 0; `20261110000100_order_support.sql`): Support Sheltüh, what the buyer added for the platform (see "Support Sheltüh"); only on an order with a paid ticket (`orders_support_paid_only`), and in `total_cents` (`orders_support_in_total`: total = subtotal + buyer fee + support when there is some), never in `subtotal_cents`, `buyer_fee_cents` or `application_fee_cents` (the booking fee). `payout_method` (`destination` default, or `transfer`; `orders_payout_method_check`; `20261119000000_delayed_payouts.sql`): how the organiser's share is paid. `destination`: a destination charge, paid out with the payment (every order made before delayed payouts, and while `DELAYED_PAYOUTS` is off). `transfer`: charged on the platform and transferred after the event (see "Delayed payouts"). Chosen once, while the order is `pending` (`orders_payout_method_frozen` refuses any later change), and every Stripe call about the order follows it. Partial index `orders_transfer_paid_idx` on `(event_id)` for paid `transfer` orders. |
+| `orders` | `id` (`ord_…`) | Priced snapshot of the line items and totals. `status`: pending → paid / failed / oversold_refund_required; oversold_refund_required → refunded (our automatic refund); paid → refunded (refunded in full in Stripe: Stripe's `refunded`, or at least `total_cents` refunded; see "Refunds made in Stripe"); pending → failed also when a paid session's amount or currency wasn't the order's (`private.fail_mismatched_order`, which also records the payment intent; the payment is then refunded). `amount_refunded_cents` (≥ 0, default 0) is Stripe's cumulative refunded amount, recorded only for paid orders (a partial refund leaves the order paid, whatever its amount; a refunded order with `amount_refunded_cents` below `total_cents` was voided by the tickets-only rule of `20261110000200_support_ticket_refund.sql`, before `20261111000300_refund_no_inference.sql` removed it). Indexed on `stripe_payment_intent_id` (partial, not null) for the refund webhook, and on `(event_id, created_at)` (partial, `paid`) for the trending refresh's 14-day read. `tickets_emailed_at` records the ticket email. `tracking_code` is the event tracking link the checkout came through (checked against the event's links when the order is created; null otherwise). `seat_ids` (1–10): a seated order's seats, set when it's made and never changed (what fulfilment and refunds act on). `support_cents` (0 to 50000, default 0; `20261110000100_order_support.sql`): Support Sheltüh, what the buyer added for the platform (see "Support Sheltüh"); only on an order with a paid ticket (`orders_support_paid_only`), and in `total_cents` (`orders_support_in_total`: total = subtotal + buyer fee + support when there is some), never in `subtotal_cents`, `buyer_fee_cents` or `application_fee_cents` (the booking fee). `payout_method` (`destination` default, or `transfer`; `orders_payout_method_check`; `20261119000000_delayed_payouts.sql`): how the organiser's share is paid. `destination`: a destination charge, paid out with the payment (every order made before delayed payouts, and while `DELAYED_PAYOUTS` is off). `transfer`: charged on the platform and transferred after the event (see "Delayed payouts"). Chosen once, while the order is `pending` (`orders_payout_method_frozen` refuses any later change), and every Stripe call about the order follows it. Partial index `orders_transfer_paid_idx` on `(event_id)` for paid `transfer` orders. `buyer_name` (1–80 characters, trimmed, no control, invisible or line-separator characters, written as escapes only so pasting the migration can't lose them; the zero-width joiners U+200C/U+200D are allowed there and by the API only between letters: `orders_buyer_name_check`) and `details_notice_at` are set together or not at all (`orders_details_notice_pair`): the name the buyer typed at checkout, and when it was made, which the database stamps itself (the `orders_details_notice` trigger: `now()` on insert when there is a name; a client can't set it), proof the checkout's notice "Your name and email are shared with the organiser of this event." had been shown (`20261122000000_order_buyer_details.sql`; see "Organiser orders"). Once set they can only be cleared, both together (the `orders_details_immutable` trigger: the withdrawal runbook). Null for every order made before it and for any made without a name. Never in `ORDER_SELECT` or `CustomerOrder`: only the Orders view reads them. |
+| `private.order_detail_exports` | `id` (identity) | The audit log of the Orders view's CSV exports (see "Organiser orders"): event, organiser, the exporting account (`actor_id`, set null if the account goes) and row count, with the time. No buyer data. Written by `record_order_export`. RLS on, no grants. Kept (it is the record of who took the data). |
+| `private.order_detail_views` | `(actor_id, event_id, day)` | The audit of the Orders view's page reads, as an aggregate: per account, event and UTC day, `rows_served` (rows of buyer details returned by the list, search and export together) and `requests`, with the organiser. It is also the daily budget's counter (see "Organiser orders"). No buyer data; `actor_id` is a plain uuid (part of the key). Written by `take_order_detail_budget`. RLS on, no grants. Kept. |
 | `tickets` | `code` | One row per admitted person. Rows are kept when their order is refunded, but only a `paid` order's tickets are valid: check-in checks the order's status. `checked_in_at`: when the ticket was admitted at the door (null until then, and again after an undo; cleared 25 months after the event ends). Indexed on `(event_id, ticket_type_id)` for the check-in counts. `seat_id`: its seat (reserved seating); the foreign key `ticket_seats_sold_fkey` (event, seat, order, ticket type) → `event_seats (event_id, id, sold_order_id, ticket_type_id)` means a ticket can only name a seat sold to its own order in its own tier, and `tickets_seat_key` one ticket per seat. A full refund clears it (the order's `seat_ids` keeps the history). `wallet_serial` (uuid, random, unique `tickets_wallet_serial_key`; `20261109000500_ticket_wallet_serial.sql`): the id of the ticket's wallet pass, read only by the wallet routes (see "Wallet passes"). |
 | `ticket_check_ins` | `id` (identity) | The check-in log (see "Check-in"): one row per scan or undo, with a random `public_id` (uuid, unique: the only id the API shows, as `checkInId`; the sequential `id` stays internal, so ids don't reveal platform-wide scan volume), the event scanned for, the ticket `code` (null for an `invalid` scan: what was scanned is never stored), the acting account (the organiser's, or the admin's for a platform-managed organiser's event), the client's `request_id` (unique per event: the idempotency key), the `result` and, for an undo only, its `reason` (3–200 characters). Check constraints tie `invalid` to a null code and `undone` to a reason. Deleted with the event or the ticket, and by `purge_analytics` 25 months after the event ends. No buyer data. |
 | `private.platform_rate_limits` | `bucket` | Platform-wide fixed-window counters (`take_platform_rate_limit`): the hourly and 24-hour confirmation-email caps, the self-publish cap, and the Google Places caps per Google day (`places_*_day:<date>`, see "Venue location"). Idle rows purged daily. |
@@ -187,8 +189,10 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
 | `ticket_type_locks` | The one definition of which tiers of an event are waiting: `opens_after_previous` is set, there is a tier above (by `position`) and that tier has no `sold_out_at` and isn't sold out now. Returns `(ticket_type_id, blocker_id, blocker_name)`. Used by `orders_tiers_open`, the event reads (`opensAfter`), the checkout's early check and `set_ticket_lock`. Stable; search_path pinned. |
 | `check_in_ticket` | One scan, in one step (see "Check-in"): the event must be the organiser's (`not_found`; for an admin, the API passes the platform-managed organiser's id); a hit on the account's `check_in` allowance (`rate_limited`, nothing logged); then, under an advisory lock on (event, request id), a request id already logged returns its original result unchanged, or `conflict` (nothing logged; the API's 409) if the submitted code doesn't resolve to the logged one. Otherwise: a code that isn't one of the organiser's tickets is `invalid`; another of their events' tickets is `other_event`; else it share-locks the order, then locks the ticket (`for update`), and decides `not_admissible` (order not `paid`), `already_checked_in` (with the first time, and `admission_id`: the ticket's current admission, for undo) or `admitted` (sets `checked_in_at`; `admission_id` is the new row). Every result but `not_found`, `rate_limited` and `conflict` logs exactly one row. Ids returned are public ids. Also returns the ticket's seat (section, row, seat, kind) when it has one. |
 | `undo_check_in` | Reverses an admission (an `admitted` log row of the event, by its `public_id`) with a reason: same ownership check, allowance and locks as `check_in_ticket`. Returns `undone` (clears `checked_in_at`, logs an `undone` row with the reason), `not_found`, `not_checked_in` (already undone), `superseded` (admitted again since: undo the newer one) or `rate_limited`. Only `undone` logs a row. |
-| `place_free_order` | A member's free order, created and fulfilled in one step under an advisory lock on (event, person): the per-person cap, then the daily allowance, then `fulfil_order`. A refusal or sell-out writes nothing (beyond a refusal count). Returns `paid`, `person_event_limit`, `member_daily_limit` or `sold_out`. |
-| `request_free_order` | A guest's pending free order: the platform's hourly and 24-hour caps (read-only), then, under an advisory lock on the address, the hourly link limit, then a hit on each platform cap. Returns `requested`, `address_limited`, `platform_limited` or `platform_daily_limited`. (The previous 13-argument form delegates to it with the same daily cap, for the deploy window; the app doesn't call it.) |
+| `take_order_detail_budget` | Adds the rows a page of the Orders view is about to serve to the account's `private.order_detail_views` row for the event and UTC day, in one upsert, unless that passes the daily limit (25,000, passed in by the API): then nothing is written and it returns false and the API serves nothing (429 `daily_limit`). Nothing is written for 0 rows (`20261122000000_order_buyer_details.sql`). |
+| `record_order_export` | The Orders CSV's audit, rate limit and budget in one step: a hit on the account's `order_exports` bucket (`take_rate_limit`, 10 an hour), then `take_order_detail_budget` for the export's row count, then, within both, the `private.order_detail_exports` row. Returns `recorded`, `rate_limited` or `budget_exceeded` (nothing written beyond the hit). The API reads the rows and sends the file only after `recorded`, so an export that can't be logged is not served. |
+| `place_free_order` | A member's free order, created and fulfilled in one step under an advisory lock on (event, person): the per-person cap, then the daily allowance, then `fulfil_order`. A refusal or sell-out writes nothing (beyond a refusal count). Returns `paid`, `person_event_limit`, `member_daily_limit` or `sold_out`. `20261122000000_order_buyer_details.sql` added a trailing `p_buyer_name text default null` (stored as `orders.buyer_name`; the old argument lists still work, and `request_free_order` keeps its 13-argument delegating form). |
+| `request_free_order` | A guest's pending free order: the platform's hourly and 24-hour caps (read-only), then, under an advisory lock on the address, the hourly link limit, then a hit on each platform cap. Returns `requested`, `address_limited`, `platform_limited` or `platform_daily_limited`. (The previous 13-argument form delegates to it with the same daily cap, for the deploy window; the app doesn't call it.) `20261122000000_order_buyer_details.sql` added a trailing `p_buyer_name text default null` (stored as `orders.buyer_name`; the old argument lists still work, and `request_free_order` keeps its 13-argument delegating form). |
 | `confirm_free_order` | Confirms by token hash: locks the order, then (event, person), then the event (share) to check every ticket type is still free, then `fulfil_order`'s locks. Idempotent within the link's 24 hours. Returns `confirmed`, `already_confirmed`, `expired_confirmed`, `not_found`, `expired`, `unavailable`, `ended` (the event ended before the link was confirmed: read before the allowance, and again under the event's share lock), `person_event_limit`, `no_longer_free`, `seats_taken` (a seated order's seats went to someone else since the link was sent) or `sold_out` (the last five mark the order `failed`). A seated order takes the seat lock before the order row. |
 | `purge_operational_data` | Retention for free-ticket and outbox data (see "Free tickets" and "Payment flow"); sent outbox jobs after 90 days, failed ones after a year; per-client counters (`client_rate_limits`) idle for a day; account invites 90 days after they were accepted, revoked or expired (`account_invites_deleted`, `20261108000000_account_invites.sql`); early refund rows and refund status marks 35 days after their last update; resolved payment exceptions 2 years after resolution (open ones never); checkout attempts 2 days after creation, first failing any order a failed attempt kept pending with no session recorded (no Checkout Session lives that long); organiser links 90 days after they were used or cancelled, or expired (`organiser_invite_links_deleted`, `20261111000500_organiser_invite_links.sql`). Idempotent; Supabase Cron daily. |
 | `begin_checkout_attempt` | Claims an `Idempotency-Key` for one request from one client key (see "Checkout idempotency"): insert-or-lock the attempt row, then `mismatch`, `other_client` (the attempt's client key differs; nothing given out or changed), `in_progress` (live lease; seconds left), `replay` (order, URL, hold expiry), `expired`, `completed` (with the order's status), or `create` under a 90-second lease (a new key, or a retry of a failed one). A new key's row and its limits are one subtransaction, so a limit refusal (`client_event_limit`, `client_all_limit`) writes nothing; `alert_queued` says the event's checkout circuit breaker queued an ops alert. A retry reuses a still-pending order with no session that's young enough (`reused`), else takes the limits again and releases the old pending order (seats freed). Lock order: the attempt row, the limit counters, then the seat lock and the order when releasing. |
@@ -243,10 +247,10 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
 | `replace_seat_map`, `delete_seat_map` | The organiser's map (see "Reserved seating"): the seat lock, then the event row (owned by the organiser, else `not_found`); only while draft or rejected (`not_editable`) and never approved (`frozen`), not external (`external`), and the event has no orders of any status (`has_orders`); then `write_seat_map` / `clear_seat_map`. |
 | `admin_replace_seat_map` | An admin's replacement (layout) or removal (null), any status, only while the event has no orders of any status (`has_orders`); a reason is required; logged `edited` with `changes.seatMap` (old and new `{version, seatCount}`). Nothing changing is `unchanged`, nothing logged. |
 | `write_seat_map`, `clear_seat_map` | Internal: store a layout (the seats derived from it in SQL, so the two can't disagree; at most 5 tiers, `event_seat_maps_max_tiers`; then every tier's `seated` and capacity recomputed) or remove it. An identical layout is `unchanged` (version kept). Either refuses (check_violation, `event_seat_maps_no_orders`, the API's 409) when the event has any order, whatever the caller checked: defence in depth, so no caller can rewrite seats a pending order holds or a paid one has sold. |
-| `hold_seats` | A paid seated checkout's pending order (with its Support Sheltüh amount, `p_support_cents`, default 0: `20261110000100_order_support.sql`) and its holds, all or nothing (see "Reserved seating"): the seat lock; a used-up hold window refused with a plain read (`rate_limited`, nothing written); then the order, the event (published, Sheltüh-ticketed), the map version, every seat free (else `seats_unavailable` with the ids), lines matching the seats' tiers, and the held-seat cap; only then, with every refusal decided, one hit on the event's hold counter (`take_event_rate_limit`, bucket `seat_holds`, its row locked last) and the holds. A refusal writes nothing at all, so refused attempts (the cap above all) never use up the allowance (`20261102000000_seating_hardening.sql`). Returns `held` (with `hold_expires_at`), `rate_limited`, `not_on_sale`, `version`, `seats_unavailable`, `tier_mismatch` or `hold_cap`. |
+| `hold_seats` | A paid seated checkout's pending order (with its Support Sheltüh amount, `p_support_cents`, default 0: `20261110000100_order_support.sql`) and its holds, all or nothing (see "Reserved seating"): the seat lock; a used-up hold window refused with a plain read (`rate_limited`, nothing written); then the order, the event (published, Sheltüh-ticketed), the map version, every seat free (else `seats_unavailable` with the ids), lines matching the seats' tiers, and the held-seat cap; only then, with every refusal decided, one hit on the event's hold counter (`take_event_rate_limit`, bucket `seat_holds`, its row locked last) and the holds. A refusal writes nothing at all, so refused attempts (the cap above all) never use up the allowance (`20261102000000_seating_hardening.sql`). Returns `held` (with `hold_expires_at`), `rate_limited`, `not_on_sale`, `version`, `seats_unavailable`, `tier_mismatch` or `hold_cap`. `20261122000000_order_buyer_details.sql` added a trailing `p_buyer_name text default null` (stored as `orders.buyer_name`; the old argument lists still work, and `request_free_order` keeps its 13-argument delegating form). |
 | `release_seat_holds` | A pending order marked `failed` and its holds cleared, under the seat lock; anything not pending is returned unchanged (its status). |
 | `take_client_rate_limit`, `take_seat_hold_attempt` | `take_rate_limit`'s fixed-window counter keyed on a client key (or, for `order_payment:order`, an order key). `take_seat_hold_attempt` takes one hit on the client's `seat_holds:<event id>` bucket, then one on its `seat_holds` (all events) bucket, in that order (nothing else writes them), and returns `ok`, `event` or `all`; a refusal keeps neither hit (`20261103000000_seat_hold_client_limits.sql`). |
-| `place_free_seated_order`, `request_free_seated_order` | `place_free_order` / `request_free_order` for a seated free order (the seat lock first; the order records its seats). A guest's order holds nothing until confirmed. `seats_unavailable` when a member's seat is gone. |
+| `place_free_seated_order`, `request_free_seated_order` | `place_free_order` / `request_free_order` for a seated free order (the seat lock first; the order records its seats). A guest's order holds nothing until confirmed. `seats_unavailable` when a member's seat is gone. `20261122000000_order_buyer_details.sql` added a trailing `p_buyer_name text default null` (stored as `orders.buyer_name`; the old argument lists still work, and `request_free_order` keeps its 13-argument delegating form). |
 | `fulfil_order` | Queues the ticket email in the same step (see "Payment flow"). Takes inventory for every line item, issues the tickets and marks the order paid. If any ticket type has sold out, or the event is no longer published, it takes nothing and marks the order `oversold_refund_required`. Rows are locked in a fixed order, so concurrent orders can't deadlock. It's idempotent, so Stripe's webhook redeliveries are harmless. A seated order takes the event's seat lock first, needs every seat (free, its own hold, or an expired hold) and lines that match its seats exactly (no order buys a seated tier without seats), and gives each ticket one of its tier's seats; otherwise the oversold path, which also clears its holds. A paid order takes the payment intent's lock first and, after the pending check, applies an early refund recorded for its payment (once), by `record_payment_refund`'s rule (`20261111000300_refund_no_inference.sql`): in full (Stripe's `refunded`, or at least `total_cents`), the order becomes `refunded` with nothing taken, issued or emailed (holds cleared; returns `refunded`); in part (anything less), it's fulfilled as normal, then the amount is recorded and a `partial_refund` exception opened. The body is `fulfil_order_detailed`, which also returns `alert_queued` (that exception queued an ops alert), so the webhook drains the alert outbox only then; `fulfil_order` (same signature, the free paths') returns its status. |
 
 ## Payment flow
@@ -268,6 +272,21 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
      new order: 409 `code: "ticket_locked"` (see "Sequential ticket
      releases"), checked early in `assertAvailable` and enforced by the
      `orders_tiers_open` trigger.
+   - An optional `buyerName` (`parseBuyerName`, `lib/server/order-input.ts`:
+     cleaned, 1–80 characters, a letter or number, no control or invisible
+     characters, no "@" or links, else 400 `fieldErrors.buyerName`) is stored
+     on the order with the notice stamp (`orders.buyer_name`,
+     `details_notice_at`), whatever the order's kind (paid or free, general
+     admission or seated: the insert, `hold_seats`, `place_free_order`,
+     `place_free_seated_order`, `request_free_order`,
+     `request_free_seated_order`). It is part of the checkout attempt's
+     fingerprint, appended only when there is one, so a basket without it
+     hashes as before and a replay with another name is 422
+     `idempotency_key_reused`. The buyer's own pages, the ticket emails, the
+     Stripe session and the logs never carry it: it is read only by the
+     Orders view ("Organiser orders"). A paid guest's email is still collected
+     in Stripe's form, and `/checkout/pay` says above it that the name and email
+     are shared with the organiser.
    - An optional `trackingCode` is stored on the order only if it's one of
      the event's tracking codes (anything else is silently ignored). It's
      attribution only: it never changes the price, the status, or what's
@@ -1614,6 +1633,12 @@ people behind one address) and without a CAPTCHA
 - **Retention** (`purge_operational_data`, daily): unconfirmed or refused
   guest orders a week after their link expired; refusal counts after 13
   months.
+- **The buyer's name.** A free booking carries the optional `buyerName` like
+  any checkout (see "Payment flow", "Organiser orders"): a member's order
+  stores it at once, a guest's on the pending order when the link is
+  requested (so it is there once the link is confirmed; `confirm_free_order`
+  is unchanged). The confirmation email doesn't repeat it, and an
+  unconfirmed order is never listed to the organiser.
 - Live mode without SMTP configured can't send a confirmation link: every
   guest free booking gets its 202, the send fails after the response
   (logged) and the order is dropped, so nothing can be confirmed (members
@@ -2152,7 +2177,7 @@ Defaults: an event's whole life (from its creation, capped), or the last 30
 days for the overview. `compare=prevPeriod` adds the period of the same
 length just before.
 
-**CSV exports** contain no buyer data. Every cell is quoted; text starting
+**CSV exports** contain no buyer data (the buyer's name and email are only in the Orders view and its own export, see "Organiser orders"). Every cell is quoted; text starting
 with `= + - @`, a tab or a carriage return (after any leading whitespace) gets
 a leading `'` so spreadsheets don't run it as a formula; money is decimal
 dollars; the file starts with a UTF-8 BOM for Excel.
@@ -2197,6 +2222,108 @@ which the API and the UI both use; see "Booking fee"). It's either
 buyer-paid or absorbed by the organiser, set per ticket type. Either way the
 platform keeps it. The Fees figure sums each order's recorded
 `application_fee_cents`, so a range spanning a fee change mixes both rates.
+
+## Organiser orders
+
+The organiser sees the name and email of the people who bought tickets to
+their event, for 12 months after it ends. Owner decision, 5 Nov 2026 ("names
+and emails"; before it, organisers saw aggregates only). The buyer is told at
+checkout and the privacy policy says so (`app/privacy`, to be approved by the
+owner). `supabase/migrations/20261122000000_order_buyer_details.sql`,
+`lib/server/handlers/event-orders.ts`, `lib/server/orders-report.ts`,
+`lib/server/order-input.ts` (`parseBuyerName`), `lib/api/types.ts`
+(`EventOrders`, `EventOrderRow`, `CheckoutBuyerDetails`).
+
+- **What is collected.** The checkout asks for "Your name" (`buyerName`, every
+  checkout, paid or free, general admission or seated) and shows the notice
+  "Your name and email are shared with the organiser of this event."
+  beside it. The API takes the name as optional for one release (older clients
+  omit it: those orders are listed with no details); the UI requires it. The
+  email is the one the buyer typed (free orders, and an optional prefill for
+  paid ones) or, for a guest's paid order, the one Stripe's form collected,
+  with a second notice above that form (`/checkout/pay`). A name is stored with
+  `details_notice_at`, which the database sets: proof the notice was shown.
+  Orders made before this release have neither, and are never shared (no
+  backfill).
+- **Who sees it.** `GET /organisers/me/events/{eventId}/orders`,
+  `POST …/orders/search` and `…/orders.csv`, through `requireEventOperator` (`handlers/organiser-guard.ts`,
+  shared with check-in): the event's approved owner organiser, or an admin
+  for a platform-managed organiser's event (no admin screen in v1); anyone
+  else's event, a missing one or a malformed id is 404, a user with no
+  approved organiser (a suspended one included) 403, signed out 401. Every
+  response is `private, no-store`. Nothing about a buyer is logged.
+- **Which orders.** Paid ones (a free order is a paid A$0 order), and refunded
+  ones that had tickets issued. Pending, failed and oversold orders, orders
+  refunded before any ticket was issued, and a guest's unconfirmed bookings are
+  not listed. Newest first (`created_at`, `id`), `limit` 20 (at most 50) and a
+  cursor like every list; `total` counts the orders matching `q`.
+- **Which details.** An order's name and email are returned only if it has
+  `details_notice_at` **and** `now() < events.ends_at + 12 months`
+  (`detailsVisibleUntil`, computed in UTC by the database); otherwise both are
+  null, and the row stays (reference, time, tickets, amounts, status). The
+  search can't find what is hidden: a hidden name or email never matches `q`.
+  The short reference (`#A1B2C3D4`, `orderReference`) is the only order id: the
+  `ord_…` id is the buyer's credential (it opens their tickets), so it is
+  never selected into the response, the CSV or a log, and tests check that
+  neither contains it.
+- **Row.** `reference`, `placedAt`, `status` (`paid` or `refunded`; a part
+  refund stays `paid` with `refundedCents` above 0), `buyerName`,
+  `buyerEmail`, `tickets` (`{ticketTypeName, quantity}` from the order's priced
+  snapshot), `paidCents` (what the buyer paid less Support Sheltüh, which is
+  the platform's; 0 for a free order) and `refundedCents`.
+- **Search.** `POST …/orders/search` with the JSON body `{q, cursor, limit}`
+  (at most 2 KB): the text searched for is a buyer's name or email, so it is
+  never in a URL (request logs, browser history); `GET …/orders?q=` is a 400.
+  `q` (control characters removed, trimmed, at most 100
+  characters) matches the shown name or email, case- and accent-insensitively
+  (the same fold as the admin searches: NFKD, combining marks removed, lower
+  case), or the short reference (with or without `#`). `%`, `_` and `\` match
+  literally. It scans one event's orders through `orders_event_idx` (no index
+  can serve a substring of a folded expression); an event's orders are bounded
+  by its sales.
+- **Limits and audit.** Reads (list, search, and the start of an export): 240
+  per 10 minutes per account (`take_rate_limit` bucket `event_orders`), then
+  429 `code: "rate_limited"`. Exports: 10 an hour per account
+  (`order_exports`, inside `record_order_export`). A **daily budget of 25,000
+  rows of buyer details per account per event per UTC day**, shared by the
+  list, the search and the export (`EVENT_ORDERS_LIMITS.dailyRows`; sized so
+  one full 20,000-row export fits with 5,000 rows of paging to spare): each
+  page adds the rows it returns, each export its row count, to
+  `private.order_detail_views` in one atomic upsert
+  (`take_order_detail_budget`) before anything is returned. Past it: 429
+  `code: "daily_limit"` and nothing served. If the count can't be recorded the
+  request is a 500 and serves nothing (fail closed, as for the export log). So
+  reading names page by page leaves the same kind of record as exporting them
+  (who, which event, which day, how many rows; no buyer data), and can't get
+  round the export's limits.
+- **The CSV** (`orders.csv`): every listed order (no search), newest
+  first: Reference, Placed (in the event's zone), Name, Email, Tickets, Paid
+  (A$), Refunded (A$), Status. Built with `toCsv` (every cell quoted; text
+  starting with `= + - @`, a tab or a carriage return gets a leading `'`, so a
+  buyer's "=HYPERLINK(…)" or an email starting with `+` is plain text; a BOM for
+  Excel). The order of work: a cheap `count(*)` of the listed orders (no details read);
+  more than 20,000 is a 409 before anything else (nothing logged or counted);
+  then `record_order_export` takes the rate limit and the daily budget and
+  writes the audit row (`private.order_detail_exports`: who, which event, how
+  many rows, when; no buyer data); only then are the rows read (at most as many
+  as were logged) and the file returned: an export that can't be logged is a
+  500, not a file, and a refused one a 429 (`rate_limited` or `daily_limit`). The analytics CSVs stay aggregate-only, and
+  check-in stays name-free.
+- **After the organiser has them.** The notice tells buyers organisers may use
+  their details only for the event (the page says so beside "Export CSV");
+  what an organiser does with a file is theirs to answer for (the organiser
+  agreement, still to be drafted, and the Spam Act: no marketing email
+  without consent). Sheltüh cannot recall an exported file.
+- **Withdrawing someone.** Self-serve withdrawal is not built: the buyer asks
+  support, and an admin clears the name for an address with the SQL in
+  `docs/supabase-setup.md` (the order then reads like a pre-release one).
+  This doesn't recall files already exported.
+- **Accepted limits.** The name stays in `orders` after the 12 months (only
+  hidden from the API; there is no purge yet, so the privacy policy's
+  retention wording should match). An organiser's account that is compromised
+  exposes its events' buyers: exports are rate-limited and logged, not
+  prevented. A buyer's name is checked for links, "@" and invisible
+  characters but not for rude words.
 
 ## Trending
 
@@ -2448,7 +2575,8 @@ scanner at `/dashboard/[eventId]/check-in` (`components/check-in/*`,
   otherwise, including for `other_event` entries and once a refund has
   freed the seat).
 - **Privacy.** A scan shows no buyer identity: no name, email or order id,
-  anywhere in check-in. The log stores the event, ticket code (never the
+  anywhere in check-in (the organiser's Orders view, a separate feature, is
+  where buyers' names are, and check-in does not read it). The log stores the event, ticket code (never the
   text of an invalid scan), acting account, result, an undo's reason and the
   time, and responses show only codes' last four characters. Every response
   is `private, no-store`. Deleted 25 months after the event ends
@@ -3808,8 +3936,9 @@ job kind `event_reminder`, one job per recipient, no new cron route.
 ## Messages to ticket holders
 
 An approved organiser sends one short plain-text email about their own event
-to everyone holding a ticket for it, without ever seeing an address (owner
-request, Nov 2026;
+to everyone holding a ticket for it, without this feature ever showing an
+address (owner request, Nov 2026; the Orders view, a separate feature, shows
+buyers' names and emails: see "Organiser orders";
 `supabase/migrations/20261118000100_ticket_holder_messages.sql`,
 `lib/server/handlers/holder-messages.ts`, `lib/server/holder-message-email.ts`,
 `deliverHolderMessage`, `lib/api/holder-messages.ts`). Sheltüh sends it from
@@ -3885,7 +4014,10 @@ address).
 - **The email.** Subject "{event}: {subject}", the text escaped in a labelled
   block ("A message from {organiser}"), links to the organiser's page and a
   mailto Report link naming the message, and a footer: "Sheltüh sent this for
-  {organiser}, who can’t see your address." `Auto-Submitted: auto-generated`,
+  {organiser}. You’re getting it because you have tickets for {event} on
+  Sheltüh." (The footer used to say the organiser "can’t see your address":
+  no longer true, since organisers see buyers' names and emails in Orders.)
+  `Auto-Submitted: auto-generated`,
   no Reply-To. The event title and the organiser's name are cleaned
   (`subjectLine`) before they go into the subject, the heading, the labels and
   the Report link. Every message carries "Stop messages from {organiser}" (see
@@ -4156,7 +4288,7 @@ application is approved.
 | `POST /events/{eventId}/waitlist` `{email?}` · `DELETE /events/{eventId}/waitlist` | POST: public (a member's token is read, optionally). 201/200 `{status: "joined", maskedEmail, alreadyJoined}` for a member's own verified email; 202 `{status: "confirmation_sent", expiresInHours}` for anyone else, whatever the address's history; 400 email; 404 not published; 409 external, ended or not sold out; 503 busy (the platform caps; the link is emailed after the response, so a failed send isn't reported). DELETE: signed in, leaves (204, idempotent) |
 | `GET /events/{eventId}/waitlist/status` | signed in: `{joined, maskedEmail?}`; 404 not published |
 | `POST /waitlist/confirm` `{token}` · `POST /waitlist/leave` `{token}` | public (the emailed token is the credential). Confirm: 200 `{status: "joined", eventTitle, eventSlug, ticketsAvailable}` (also when already on the list); 400; 404; 410 expired or used; 409 closed. Leave: 200 `{status: "left", eventTitle?}` (the title only while the event is published; idempotent); 400; 404 |
-| `POST /events/{eventId}/checkout` | public (a member's token is read, optionally, for free orders). Optional `Idempotency-Key` header (a random v4 UUID; see "Checkout idempotency"). 409 for an external event, before anything else is read; 409 for a paid order from a platform-managed organiser. 201 `{url}` (a paid order: `{url, orderId}`, `private, no-store`, `url` being the payment page `/checkout/pay?order={orderId}`; see "Payment flow" and "Reserved seating", "Back from the payment page"); a paid order's key again: 200 the same `{url, orderId}` while its session is open, 409 `checkout_in_progress` (Retry-After) / `checkout_expired` / `checkout_completed` (worded for a paid, refunded or being-refunded order) / `checkout_other_client` (the key is another client's: no URL or order id), 422 `idempotency_key_reused`; 400 `invalid_idempotency_key`; 503 `payment_provider_unavailable` (Stripe didn't answer: retry with the same key); 202 free order waiting on its emailed link; 400 (incl. over 4 free tickets in any order, paid or free); 404; 409 sold out or the person's free allowance for the event; 429 member's daily free allowance, or this client's paid checkouts used up (10 a minute, and 20 per event and 60 in all per 10 minutes; `code: "client_rate_limited"`, nothing written; past 600 per event per 10 minutes only an ops alert is queued, nobody is refused); 503 free bookings busy (the guest's link is emailed after the response), or card payments not configured (a paid order, before anything is written: the publishable key is missing or isn't the secret key's mode). Optional `supportCents` (see "Support Sheltüh"): 400 `fieldErrors.supportCents` while it's paused (the default) for anything but none. 409 for too many of a ticket type names the number left only when it's 10 or fewer |
+| `POST /events/{eventId}/checkout` | public (a member's token is read, optionally, for free orders). Optional `buyerName` (here and for seated checkouts; see "Organiser orders"): 400 `fieldErrors.buyerName` if invalid; part of the basket for the key (a replay with another name is 422). Optional `Idempotency-Key` header (a random v4 UUID; see "Checkout idempotency"). 409 for an external event, before anything else is read; 409 for a paid order from a platform-managed organiser. 201 `{url}` (a paid order: `{url, orderId}`, `private, no-store`, `url` being the payment page `/checkout/pay?order={orderId}`; see "Payment flow" and "Reserved seating", "Back from the payment page"); a paid order's key again: 200 the same `{url, orderId}` while its session is open, 409 `checkout_in_progress` (Retry-After) / `checkout_expired` / `checkout_completed` (worded for a paid, refunded or being-refunded order) / `checkout_other_client` (the key is another client's: no URL or order id), 422 `idempotency_key_reused`; 400 `invalid_idempotency_key`; 503 `payment_provider_unavailable` (Stripe didn't answer: retry with the same key); 202 free order waiting on its emailed link; 400 (incl. over 4 free tickets in any order, paid or free); 404; 409 sold out or the person's free allowance for the event; 429 member's daily free allowance, or this client's paid checkouts used up (10 a minute, and 20 per event and 60 in all per 10 minutes; `code: "client_rate_limited"`, nothing written; past 600 per event per 10 minutes only an ops alert is queued, nobody is refused); 503 free bookings busy (the guest's link is emailed after the response), or card payments not configured (a paid order, before anything is written: the publishable key is missing or isn't the secret key's mode). Optional `supportCents` (see "Support Sheltüh"): 400 `fieldErrors.supportCents` while it's paused (the default) for anything but none. 409 for too many of a ticket type names the number left only when it's 10 or fewer |
 | `POST /events/{eventId}/checkout` with `seats: {mapVersion, seatIds}` | public: a seated checkout (see "Reserved seating"). Paid: 201 `{url, holdExpiresAt, orderId}` (private, no-store; `url` as above), or 503 when card payments aren't configured (before any hold or hold attempt). Free: as above (201 member, 202 guest). 400 (bad seats, over 10, a seated tier in `lineItems`, no map); 404; 409 `seats` taken (body `code`, `seatIds`) or `seatMapVersion` changed; 429 too many seats held or hold attempts for the event, or this client's hold attempts used up (`code: "client_rate_limited"`; body `seatIds`); the `Idempotency-Key` answers as above (200 replay with `holdExpiresAt`) |
 | `GET /events/{eventId}/seat-map?v=` | public once published (`public, max-age=31536000, s-maxage=3600, immutable`, only at the current `v`; any other `v` or none is a `307` to `?v={current}`, `no-store`, no body); before that the owning organiser or an admin (bearer), private. `SeatMapRecord`. 404 no map or not visible |
 | `GET /events/{eventId}/seat-availability` | as above: `SeatAvailability` (the bitmap), `public, max-age=0, s-maxage=5` once published |
@@ -4229,6 +4361,7 @@ application is approved.
 | `POST /events/{id}/outbound` | public, no body needed (`{}`). 204 (counted or not); 404 not a published external event |
 | `GET /organisers/me/events/{id}/tracking-links` · `POST …` `{label}` · `DELETE …/tracking-links/{linkId}` | organiser (own events). POST 201; 400 label; 409 label taken or 20 links. DELETE 204, idempotent |
 | `GET /organisers/me/events/{id}/analytics?from&to&compare` · `…/analytics.csv` | organiser (own events). 400 bad range. The JSON has `waitlistCount` (people on the event's waitlist now: a count only) |
+| `GET /organisers/me/events/{id}/orders?cursor&limit` · `POST …/orders/search` `{q, cursor, limit}` · `GET …/orders.csv` | organiser (own events), or admin (platform-managed organisers' events only; anything else 404); 403 suspended or not approved. The event's orders with buyers' names and emails for 12 months after it ends (`EventOrders`); see "Organiser orders". `GET …/orders?q=` is 400 (search is the POST, so the text is never in a URL). 429 `rate_limited` (reads 240 per 10 minutes; exports 10 an hour, each logged) or `daily_limit` (25,000 rows per account per event per day, list and export together); the CSV is 409 over 20,000 orders, decided on a count before anything is logged. `private, no-store` |
 | `POST /organisers/me/events/{id}/check-ins` `{code, requestId}` · `GET …/check-ins` · `POST …/check-ins/{checkInId}/undo` `{reason}` | organiser (own events), or admin (platform-managed organisers' events only; anything else 404); see "Check-in". Every ticket outcome is 200; 400 bad body, 404, 409 request id reused for another code, 413, 429. `checkInId`s are uuids |
 | `GET /organisers/me/analytics/overview?from&to&compare` · `…/overview.csv` | organiser: all own events. 400 bad range |
 | `GET /admin/organisers?status&q&limit&cursor` · `POST /admin/organisers/{id}/approve` · `…/reject` | admin. Items (and the decision responses) are `AdminOrganiserRecord`: the full record plus `recentEdits` (newest 20 log entries), most recently updated first. `q` (optional, at most 100 characters used): name, contact email or social handle containing it, ignoring case and accents (NFKD, combining marks removed; a leading `@` is ignored for handles; LIKE wildcards match literally); no index (a substring of a folded expression), it scans one status's organisers. Control characters in `q` are dropped. `limit` 20 by default, at most 50. The admin event editor's organiser picker searches with it. Approve/reject: 409 unless pending |

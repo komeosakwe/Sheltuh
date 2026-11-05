@@ -7,6 +7,7 @@ import { runCheckoutAttempt } from "./checkout-attempt";
 import { ApiError, apiFetch, type GetToken } from "./client";
 import type {
   CancelOrderResult,
+  CheckoutBuyerDetails,
   CheckoutResult,
   CheckoutSeatsInput,
   SeatAvailability,
@@ -87,7 +88,7 @@ export async function adminSaveSeatMap(
   return apiFetch<SeatMapRecord>(`/admin/events/${eventId}/seat-map`, { method: "PUT", body: { template, reason }, token });
 }
 
-export interface SeatedCheckoutInput {
+export interface SeatedCheckoutInput extends CheckoutBuyerDetails {
   seats: CheckoutSeatsInput;
   /** General admission tiers of a mixed event (not seated tiers; they don't count towards the 10 seats). */
   lineItems?: CheckoutLineItemInput[];
@@ -118,6 +119,7 @@ export async function createSeatedCheckout(eventId: string, input: SeatedCheckou
     seats: input.seats,
     ...(input.lineItems && input.lineItems.length > 0 ? { lineItems: input.lineItems } : {}),
     ...(input.buyerEmail ? { buyerEmail: input.buyerEmail } : {}),
+    ...(input.buyerName ? { buyerName: input.buyerName } : {}),
     ...(input.trackingCode ? { trackingCode: input.trackingCode } : {}),
     ...(input.supportCents && input.supportCents > 0 ? { supportCents: input.supportCents } : {}),
   };

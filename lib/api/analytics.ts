@@ -110,7 +110,7 @@ export async function deleteTrackingLink(eventId: string, linkId: string, getTok
   });
 }
 
-async function fetchCsv(path: string, getToken: GetToken): Promise<Blob> {
+export async function fetchCsv(path: string, getToken: GetToken): Promise<Blob> {
   if (!isApiConfigured) {
     throw new Error("The live API is not configured in this environment (Supabase is unset).");
   }

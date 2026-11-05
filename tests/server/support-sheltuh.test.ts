@@ -1275,14 +1275,15 @@ describe("the database", () => {
     await insert({ subtotal: 3000, fee: 230, total: 3230, support: 0 });
   });
 
-  it("hold_seats has one form, its new argument defaulting to 0, so the previous app's 18-argument call still holds seats", async () => {
+  it("hold_seats has one form, its new arguments defaulting (support 0, no buyer name), so the previous app's 18-argument call still holds seats", async () => {
     const [fn] = await api.db.query<{ forms: number; args: string }>(
       `select count(*)::int as forms, min(pg_get_function_identity_arguments(p.oid)) as args
          from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'private' and p.proname = 'hold_seats'`,
     );
     expect(fn.forms).toBe(1);
-    expect(fn.args).toMatch(/p_cap_share numeric, p_support_cents integer, OUT result text/);
+    // p_buyer_name (20261122000000_order_buyer_details.sql) follows p_support_cents; both default.
+    expect(fn.args).toMatch(/p_cap_share numeric, p_support_cents integer, p_buyer_name text, OUT result text/);
 
     const { event, map } = await seatedEvent(api, organiser, admin);
     const orderId = `ord_${crypto.randomUUID().replace(/-/g, "")}`;

@@ -164,16 +164,19 @@ export interface CheckoutBasket {
   trackingCode: string | null;
   /** Support Sheltüh (validated: 0 for none). */
   supportCents?: number;
+  /** The buyer's name as parseBuyerName cleaned it (null or absent for none). */
+  buyerName?: string | null;
 }
 
 /**
  * SHA-256 (hex) over the event, the kind, the canonical basket (lines sorted
  * by ticket type, seats sorted, the map version), the normalised buyer email,
  * the tracking code and, only when there is one, the Support Sheltüh amount
- * (so a basket without it hashes exactly as before it existed, and an attempt
- * begun before a deploy still replays). Stored instead of the basket, so the
- * attempts table holds no email. A replay with another support amount is a
- * mismatch (422), like any other change.
+ * and then the buyer's name (so a basket without them hashes exactly as
+ * before they existed, and an attempt begun before a deploy still replays).
+ * Stored instead of the basket, so the attempts table holds neither email nor
+ * name. A replay with another support amount or name is a mismatch (422),
+ * like any other change.
  */
 export function checkoutFingerprint(basket: CheckoutBasket): string {
   const lines = basket.lines
@@ -189,6 +192,8 @@ export function checkoutFingerprint(basket: CheckoutBasket): string {
     email,
     basket.trackingCode,
     ...(basket.supportCents && basket.supportCents > 0 ? [basket.supportCents] : []),
+    // Tagged, so a name can never be read as a support amount.
+    ...(basket.buyerName ? [{ buyerName: basket.buyerName }] : []),
   ]);
   return createHash("sha256").update(canonical, "utf8").digest("hex");
 }

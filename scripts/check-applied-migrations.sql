@@ -236,6 +236,15 @@ select version, file, coalesce(applied, false) as applied
         where attrelid = to_regclass('public.organisers')
           and attname in ('spotify_path', 'soundcloud_handle', 'youtube_channel', 'linkedin_path')) = 4
       and exists (select 1 from fn where proname = 'edit_organiser_profile' and prosrc like '%linkedin_path%')
-      and exists (select 1 from fn where proname = 'accept_account_invite' and prosrc like '%linkedin_path%'))
+      and exists (select 1 from fn where proname = 'accept_account_invite' and prosrc like '%linkedin_path%')),
+    ('20261122000000', 'order_buyer_details',
+      exists (select 1 from col where attrelid = to_regclass('public.orders') and attname = 'buyer_name')
+      and exists (select 1 from col where attrelid = to_regclass('public.orders') and attname = 'details_notice_at')
+      and to_regclass('private.order_detail_exports') is not null
+      and to_regclass('private.order_detail_views') is not null
+      and exists (select 1 from fn where proname = 'take_order_detail_budget')
+      and exists (select 1 from pg_trigger where tgname = 'orders_details_immutable' and not tgisinternal)
+      and exists (select 1 from fn where proname = 'record_order_export')
+      and exists (select 1 from fn where proname = 'hold_seats' and 'p_buyer_name' = any(proargnames)))
   ) as m(version, file, applied)
  order by version;

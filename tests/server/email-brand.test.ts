@@ -7,6 +7,7 @@ import { buildEventReminderEmail } from "@/lib/server/event-reminder-email";
 import { button, EMAIL_COLOURS, emailFooterImageUrl, escapeHtml, INK, SIGNAL, supportFooter, WORDMARK_CID } from "@/lib/server/email-layout";
 import { MODERN_COLOURS, ICON_PATHS } from "@/lib/server/email-modern-layout";
 import { buildFollowerNewEventsEmail } from "@/lib/server/follower-email";
+import { DETAILS_NOTICE } from "@/lib/buyer-details";
 import { buildFreeConfirmationEmail } from "@/lib/server/free-confirmation-email";
 import { buildHolderMessageEmail } from "@/lib/server/holder-message-email";
 import { buildInviteEmail } from "@/lib/server/invite-email";
@@ -305,7 +306,7 @@ describe("every transactional email uses the shared brand layout", () => {
     const message = emails.holderMessage();
     expect(message.html).toContain("Doors open at 7pm &#38; not 8pm.<br>Bring &#60;ID&#62;.");
     expect(message.html).not.toContain("<ID>");
-    expect(message.text).toContain("Cellar Door <Sound>, who can’t see your address");
+    expect(message.text).toContain("Sheltüh sent this for Cellar Door <Sound>. You’re getting it because you have tickets for");
     expect(message.text).toContain("Report this message: mailto:support@sheltuh.com.au?subject=");
     expect(message.text).toContain("About Cellar Door <Sound>: https://sheltuh.test/organisers/org_1");
     // The reminder is service information about a purchase: no opt-out.
@@ -337,6 +338,14 @@ describe("every transactional email uses the shared brand layout", () => {
     expect(seated.html).toContain("Stalls · Row A · Seat 2");
     expect(seated.html).toContain("only held once you confirm");
     expect(emails.freeConfirmation().html).toContain("Tickets: 2 × General admission");
+  });
+
+  it("the free-ticket confirmation repeats the sharing notice, in both parts: confirming is when the organiser can see the guest", () => {
+    for (const name of ["freeConfirmation", "freeConfirmationSeated"] as const) {
+      const mail = emails[name]();
+      expect(mail.text, name).toContain(DETAILS_NOTICE);
+      expect(mail.html, name).toContain(DETAILS_NOTICE);
+    }
   });
 });
 
@@ -567,7 +576,7 @@ describe("the organiser announcement", () => {
     expect(html).toContain(">Report this message</a> &middot; ");
     expect(html).toContain(`href="https://sheltuh.test/holder-messages/stop#token=${"t".repeat(43)}"`);
     expect(html).toContain(">Stop messages from Static Collective</a>");
-    expect(html).toContain("Sheltüh sent this for Static Collective, who can’t see your address.");
+    expect(html).toContain("Sheltüh sent this for Static Collective. You’re getting it because you have tickets for");
     expect(html).toContain('href="https://sheltuh.test/privacy"');
   });
 

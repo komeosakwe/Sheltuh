@@ -21,6 +21,10 @@ export interface CheckoutLineItemInput {
  * tickets reach the buyer). For paid orders it's optional: Stripe collects
  * the email, prefilled with this one when it's given.
  *
+ * `buyerName`: the name shared with the organiser (lib/buyer-details.ts),
+ * asked for on every checkout (the API still accepts none for one release).
+ * Part of the basket, so a changed name starts a new attempt.
+ *
  * `trackingCode` is the event's tracking-link code the buyer arrived with
  * (lib/tracking-ref.ts), for attribution only: the server ignores anything
  * that isn't one of the event's codes, and it never changes the price.
@@ -43,7 +47,7 @@ export interface CheckoutLineItemInput {
  * new attempt. Network failures, 503s and an in-progress 409 are retried
  * with the same key before the promise rejects.
  *
- * ApiError: 400 (fieldErrors `buyerEmail` / `lineItems` / `supportCents`, e.g. over 4 free
+ * ApiError: 400 (fieldErrors `buyerName` / `buyerEmail` / `lineItems` / `supportCents`, e.g. over 4 free
  * tickets in any order, paid or free), 404 event not on sale, 409 sold out or this email already has its
  * free tickets for the event, 429 too many free bookings today (members)
  * or too many paid checkouts from this connection (body
@@ -61,10 +65,12 @@ export async function createCheckoutSession(
   trackingCode?: string,
   getToken?: GetToken,
   supportCents?: number,
+  buyerName?: string,
 ) {
   const body = {
     lineItems,
     ...(buyerEmail ? { buyerEmail } : {}),
+    ...(buyerName ? { buyerName } : {}),
     ...(trackingCode ? { trackingCode } : {}),
     ...(supportCents && supportCents > 0 ? { supportCents } : {}),
   };

@@ -8,6 +8,7 @@ import { sampleEvents } from "@/lib/sample-events";
 import { setTrackingRef } from "@/lib/tracking-ref";
 import type { SheltuhEvent } from "@/lib/types";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
+import { typeName } from "./test-utils/buyerName";
 
 // Live mode: checkout is only offered when the API is configured.
 vi.mock("@/lib/api/client", async (importOriginal) => ({
@@ -59,6 +60,7 @@ describe("TicketSelector (live)", () => {
     const email = screen.getByLabelText("Email for your tickets");
     expect(email).toHaveClass("min-h-12", "text-base");
     fireEvent.change(email, { target: { value: "not-an-email" } });
+    typeName();
     fireEvent.click(screen.getByRole("button", { name: "Get free tickets" }));
     expect(screen.getByRole("alert")).toHaveTextContent("Enter the email address to send your tickets to.");
     expect(email).toHaveAttribute("aria-invalid", "true");
@@ -88,6 +90,7 @@ describe("TicketSelector (live, signed in)", () => {
     expect(email).toHaveAccessibleDescription(
       "Tickets are sent here. Use your account email to join Who’s Going.",
     );
+    typeName();
     fireEvent.click(screen.getByRole("button", { name: "Get free tickets" }));
     // Signed in: a free order carries the account's token, so booking with
     // the account's own email issues the tickets straight away.
@@ -99,6 +102,7 @@ describe("TicketSelector (live, signed in)", () => {
       expect.any(Function),
       // No Support Sheltüh on a free order.
       undefined,
+      "Alex Doe",
     );
   });
 
@@ -108,6 +112,7 @@ describe("TicketSelector (live, signed in)", () => {
     const email = screen.getByLabelText("Email for your tickets");
     fireEvent.change(email, { target: { value: "" } });
     expect(email).toHaveValue("");
+    typeName();
     fireEvent.click(screen.getByRole("button", { name: "Get free tickets" }));
     expect(screen.getByRole("alert")).toHaveTextContent("Enter the email address to send your tickets to.");
     expect(createCheckoutSession).not.toHaveBeenCalled();
@@ -121,6 +126,7 @@ describe("TicketSelector (live, signed in)", () => {
     const checkout = screen.getByRole("button", { name: "Checkout" });
     // The hint is read before the button, not after it.
     expect(hint.compareDocumentPosition(checkout) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    typeName();
     fireEvent.click(checkout);
     expect(createCheckoutSession).toHaveBeenCalledWith(
       expect.any(String),
@@ -130,6 +136,7 @@ describe("TicketSelector (live, signed in)", () => {
       undefined,
       // Nothing pre-selected: no Support Sheltüh unless the buyer picks some.
       undefined,
+      "Alex Doe",
     );
   });
 });
@@ -147,8 +154,9 @@ describe("TicketSelector (live, no auth)", () => {
     render(<TicketSelector event={live("neon-static")} />);
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
     expect(screen.queryByText(/Booking as/)).toBeNull();
+    typeName();
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
-    expect(createCheckoutSession).toHaveBeenCalledWith(expect.any(String), expect.any(Array), undefined, undefined, undefined, undefined);
+    expect(createCheckoutSession).toHaveBeenCalledWith(expect.any(String), expect.any(Array), undefined, undefined, undefined, undefined, "Alex Doe");
   });
 });
 
@@ -215,6 +223,7 @@ describe("TicketSelector (free tickets)", () => {
 
     // A refusal on screen survives a press on the capped "+" (nothing changed).
     fireEvent.change(screen.getByLabelText("Email for your tickets"), { target: { value: "fan@example.com" } });
+    typeName();
     fireEvent.click(screen.getByRole("button", { name: "Get free tickets" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Those tickets just ran out.");
     fireEvent.click(more);
@@ -273,6 +282,7 @@ describe("TicketSelector (free tickets)", () => {
     render(<TicketSelector event={mixedEvent()} />);
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Supporter" }));
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Free entry" }));
+    typeName();
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("You can book up to 4 free tickets at a time.");
@@ -290,6 +300,7 @@ describe("TicketSelector (free tickets)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Free entry" }));
     const email = screen.getByLabelText("Email for your tickets");
     fireEvent.change(email, { target: { value: "fan@example.com" } });
+    typeName();
     fireEvent.click(screen.getByRole("button", { name: "Get free tickets" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("That email can't receive tickets.");
     expect(screen.getAllByRole("alert")).toHaveLength(1);
@@ -301,6 +312,7 @@ describe("TicketSelector (free tickets)", () => {
     render(<TicketSelector event={freeEvent()} />);
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Free entry" }));
     fireEvent.change(screen.getByLabelText("Email for your tickets"), { target: { value: "fan@example.com" } });
+    typeName();
     fireEvent.click(screen.getByRole("button", { name: "Get free tickets" }));
 
     const heading = await screen.findByRole("heading", { name: "Check your inbox" });
@@ -324,6 +336,7 @@ describe("TicketSelector (free tickets)", () => {
     render(<TicketSelector event={freeEvent()} />);
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Free entry" }));
     fireEvent.change(screen.getByLabelText("Email for your tickets"), { target: { value: "fan@example.com" } });
+    typeName();
     fireEvent.click(screen.getByRole("button", { name: "Get free tickets" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("This email address already has them.");
   });
@@ -337,8 +350,9 @@ describe("TicketSelector (tracking-link attribution)", () => {
     setTrackingRef("some-other-event", "zzzz9999");
     render(<TicketSelector event={event} />);
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
+    typeName();
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
-    expect(createCheckoutSession).toHaveBeenCalledWith(event.id, expect.any(Array), undefined, "abcd2345", undefined, undefined);
+    expect(createCheckoutSession).toHaveBeenCalledWith(event.id, expect.any(Array), undefined, "abcd2345", undefined, undefined, "Alex Doe");
   });
 });
 
@@ -412,6 +426,7 @@ describe("TicketSelector checkout focus and errors (WCAG 2.2)", () => {
     render(<TicketSelector event={live("neon-static")} />);
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
     const checkout = screen.getByRole("button", { name: "Checkout" });
+    typeName();
     fireEvent.click(checkout);
     expect(checkout).toHaveTextContent("Opening checkout…");
     // A fresh load isn't a restore: nothing to reset.
@@ -434,6 +449,7 @@ describe("TicketSelector checkout focus and errors (WCAG 2.2)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
     const checkout = screen.getByRole("button", { name: "Checkout" });
     checkout.focus();
+    typeName();
     fireEvent.click(checkout);
     expect(checkout).toHaveTextContent("Opening checkout…");
     expect(checkout).toHaveAttribute("aria-disabled", "true");
@@ -455,6 +471,7 @@ describe("TicketSelector checkout focus and errors (WCAG 2.2)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Free entry" }));
     const email = screen.getByLabelText("Email for your tickets");
     const book = screen.getByRole("button", { name: "Get free tickets" });
+    typeName();
     book.focus();
     fireEvent.click(book);
     await waitFor(() => expect(email).toHaveFocus());
@@ -474,6 +491,7 @@ describe("TicketSelector checkout focus and errors (WCAG 2.2)", () => {
     const email = screen.getByLabelText("Email for your tickets");
     fireEvent.change(email, { target: { value: "fan@example.con" } });
     const book = screen.getByRole("button", { name: "Get free tickets" });
+    typeName();
     book.focus();
     fireEvent.click(book);
     expect(await screen.findByRole("alert")).toHaveTextContent("That email address doesn’t look right.");
@@ -659,6 +677,7 @@ describe("TicketSelector never sells a seated tier (reserved seating)", () => {
     expect(screen.queryByText(vip.name)).toBeNull();
     expect(screen.queryByRole("button", { name: `Increase quantity for ${vip.name}` })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: `Increase quantity for ${ga.name}` }));
+    typeName();
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
     await waitFor(() => expect(createCheckoutSession).toHaveBeenCalledTimes(1));
     expect(createCheckoutSession.mock.calls[0][1]).toEqual([{ ticketTypeId: ga.id, quantity: 1 }]);
@@ -716,6 +735,7 @@ describe("TicketSelector: sequential release (a tier waiting for the one above)"
     );
     render(<TicketSelector event={cinder()} />);
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for First release" }));
+    typeName();
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
     await waitFor(() =>
       expect(screen.getByRole("alert")).toHaveTextContent("\"Second release\" opens after \"First release\" sells out."),
@@ -772,6 +792,7 @@ describe("TicketSelector: group tickets", () => {
     expect(stepper).toHaveTextContent("2 groups");
     // The order summary counts tickets as people get them.
     expect(screen.getByText("Tickets (8)")).toBeInTheDocument();
+    typeName();
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
     expect(createCheckoutSession).toHaveBeenCalledWith(
       expect.any(String),
@@ -780,6 +801,7 @@ describe("TicketSelector: group tickets", () => {
       undefined,
       undefined,
       undefined,
+      "Alex Doe",
     );
   });
 
@@ -829,5 +851,86 @@ describe("TicketSelector: group tickets", () => {
   it("the demo's Paper Moon workshop offers a Group of 4 that saves A$20", () => {
     render(<TicketSelector event={findEvent("paper-moon-ceramics-lab")} />);
     expect(screen.getByText("Group of 4").closest("li")).toHaveTextContent("4 tickets · save A$20");
+  });
+});
+
+describe("TicketSelector (buyer name)", () => {
+  function chooseOne(slug = "neon-static", ticket = "General admission") {
+    render(<TicketSelector event={live(slug)} />);
+    fireEvent.click(screen.getByRole("button", { name: `Increase quantity for ${ticket}` }));
+    return screen.getByLabelText("Your name");
+  }
+
+  it("asks for a name on a paid and a free order, with the notice as its hint", () => {
+    for (const [slug, ticket] of [
+      ["neon-static", "General admission"],
+      ["brunswick-zine-fair", "Free entry"],
+    ]) {
+      const name = chooseOne(slug, ticket);
+      expect(name).toHaveAttribute("autocomplete", "name");
+      expect(name).toBeRequired();
+      expect(name).toHaveClass("min-h-12", "text-base");
+      expect(name).toHaveValue("");
+      expect(name).toHaveAccessibleDescription("Your name and email are shared with the organiser of this event.");
+      cleanup();
+    }
+  });
+
+  it("is not prefilled from the account", () => {
+    render(
+      <FakeAuthProvider value={fakeAuthValue({ email: "mia@example.com" })}>
+        <TicketSelector event={live("neon-static")} />
+      </FakeAuthProvider>,
+    );
+    expect(screen.getByLabelText("Your name")).toHaveValue("");
+  });
+
+  it("sits before the email and Checkout, and sends the trimmed name", () => {
+    createCheckoutSession.mockReturnValue(new Promise(() => {}));
+    const name = chooseOne("brunswick-zine-fair", "Free entry");
+    const email = screen.getByLabelText("Email for your tickets");
+    expect(name.compareDocumentPosition(email) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.change(email, { target: { value: "fan@example.com" } });
+    fireEvent.change(name, { target: { value: "  Alex Doe  " } });
+    fireEvent.click(screen.getByRole("button", { name: "Get free tickets" }));
+    expect(createCheckoutSession.mock.calls[0][2]).toBe("fan@example.com");
+    expect(createCheckoutSession.mock.calls[0][6]).toBe("Alex Doe");
+  });
+
+  it("stops an empty name with an announced error and focus on the field, then clears it on typing", async () => {
+    const name = chooseOne();
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    expect(createCheckoutSession).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter your name.");
+    expect(name).toHaveAttribute("aria-invalid", "true");
+    expect(name).toHaveAccessibleDescription(/Enter your name\.$/);
+    await waitFor(() => expect(name).toHaveFocus());
+    fireEvent.change(name, { target: { value: "A" } });
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(name).not.toHaveAttribute("aria-invalid");
+  });
+
+  it("refuses a name over 80 characters, counting characters not code units", () => {
+    const name = chooseOne();
+    fireEvent.change(name, { target: { value: "a".repeat(81) } });
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Use 80 characters or fewer.");
+    expect(createCheckoutSession).not.toHaveBeenCalled();
+    fireEvent.change(name, { target: { value: "😀".repeat(80) } });
+    createCheckoutSession.mockReturnValue(new Promise(() => {}));
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    expect(createCheckoutSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("puts the API's refusal of the name on the field and focuses it", async () => {
+    createCheckoutSession.mockRejectedValue(
+      new ApiError(400, "Please fix the highlighted fields.", { buyerName: "Use your name, not an email or a link." }),
+    );
+    const name = chooseOne();
+    fireEvent.change(name, { target: { value: "a@b.co" } });
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Use your name, not an email or a link.");
+    await waitFor(() => expect(name).toHaveFocus());
+    expect(name).toHaveAttribute("aria-invalid", "true");
   });
 });

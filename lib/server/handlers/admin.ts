@@ -49,11 +49,11 @@ export function foldOrganiserSearch(text: string): string {
   return text.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 }
 
-const ORGANISER_SEARCH_FOLD = (column: string) =>
+export const ORGANISER_SEARCH_FOLD = (column: string) =>
   `lower(regexp_replace(normalize(coalesce(${column}, ''), NFKD), '[\\u0300-\\u036f]', '', 'g'))`;
 
 /** A LIKE pattern matching `text` anywhere, its wildcards (and the escape character) matched literally. */
-function containsPattern(text: string): string {
+export function containsPattern(text: string): string {
   return `%${text.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
 }
 

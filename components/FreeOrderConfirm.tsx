@@ -6,6 +6,7 @@ import { Button, ButtonLink } from "@/components/ui/Button";
 import { ApiError } from "@/lib/api/client";
 import { confirmFreeOrder } from "@/lib/api/orders";
 import { seatErrorDetails } from "@/lib/api/seating";
+import { DETAILS_NOTICE } from "@/lib/buyer-details";
 import { compareSeats, formatSeatLine } from "@/lib/seating/format";
 import { useFragmentToken } from "@/lib/link-token";
 
@@ -155,6 +156,8 @@ export default function FreeOrderConfirm() {
       <p className="max-w-md text-sm text-muted">
         Didn&rsquo;t ask for these? Close this page. Nothing is issued.
       </p>
+      {/* Confirming is when the guest's name and email become visible to the organiser: say so here too. */}
+      <p className="max-w-md text-sm text-muted">{DETAILS_NOTICE}</p>
       <Button variant="solid" size="lg" busy={busy} onClick={() => confirm(state.token)} className="w-full sm:w-auto">
         {busy ? "Confirming…" : "Confirm"}
       </Button>

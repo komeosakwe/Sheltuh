@@ -2091,6 +2091,77 @@ export interface EventAnalytics {
   waitlistCount?: number;
 }
 
+/**
+ * The optional `buyerName` of POST /api/events/{eventId}/checkout (general
+ * admission and seated, paid and free alike): what the buyer typed in the
+ * "Your name" field, shown to the event's organiser with the buyer's email
+ * in their Orders view for 12 months after the event (EventOrders). The API
+ * takes it as optional for one release (older clients omit it: the order is
+ * then listed without details); the checkout UI always asks for it. Trimmed
+ * and cleaned by the server: 1 to 80 characters with a letter or digit, no
+ * control or invisible characters, no "@" and no links, else 400
+ * `fieldErrors.buyerName`. It is part of the basket for Idempotency-Key
+ * purposes: a replay with another name is a 422 `idempotency_key_reused`.
+ * Never returned to the buyer or in any CustomerOrder.
+ */
+export interface CheckoutBuyerDetails {
+  buyerName?: string;
+}
+
+/** One line of an order: how many of a ticket type. */
+export interface EventOrderTicket {
+  ticketTypeName: string;
+  quantity: number;
+}
+
+/** EventOrders.items: one order of an event, as its organiser sees it. */
+export interface EventOrderRow {
+  /** The short reference ("#A1B2C3D4") only: never the order's `ord_` id (that is the buyer's credential). */
+  reference: string;
+  /** When the order was made (ISO 8601). */
+  placedAt: string;
+  /** `refunded`: refunded in full (a part refund stays `paid`, with `refundedCents` above 0). */
+  status: "paid" | "refunded";
+  /**
+   * The buyer's name and email, or null: for an order made without a name (every
+   * order before this release), a guest's paid order whose email only Stripe has,
+   * or once EventOrders.detailsVisibleUntil has passed (both are then null).
+   */
+  buyerName: string | null;
+  buyerEmail: string | null;
+  /** One entry per ticket type bought, from the order's priced snapshot. */
+  tickets: EventOrderTicket[];
+  /** What the buyer paid in all (tickets, fees; Support Sheltüh excluded), in cents. 0 for a free order. */
+  paidCents: number;
+  /** Refunded so far, in cents (a refund of the tickets' price; 0 for none). */
+  refundedCents: number;
+}
+
+/**
+ * GET /api/organisers/me/events/{eventId}/orders?cursor&limit, or, to search,
+ * POST .../orders/search with the JSON body {q, cursor, limit} (the text is a
+ * buyer's name or email, so never in a URL: GET ?q= is a 400) (the event's
+ * owner, approved; an admin for a platform-managed organiser's event; anyone
+ * else 404; a suspended organiser 403). Orders that were paid or free-issued
+ * (or refunded after tickets were issued), newest first. `q` (at most 100
+ * characters) matches the name, email or short reference, ignoring case and
+ * accents; `total` counts the orders matching it. Pages of `limit` (default
+ * 20, at most 50). Rate limited (429 `rate_limited`), and 25,000 rows of
+ * details per account per event per day, list and export together (429
+ * `daily_limit`). `private, no-store`.
+ * GET .../orders.csv downloads every visible order (at most 20,000, else 409;
+ * 10 exports an hour per account, 429 `rate_limited`; each is logged and
+ * counts to the daily rows).
+ */
+export interface EventOrders {
+  event: { title: string; slug: string; timeZone: AustralianTimeZone; endsAt: string };
+  /** The event's end plus 12 months (ISO 8601): the buyers' names and emails are removed from view after it. */
+  detailsVisibleUntil: string;
+  items: EventOrderRow[];
+  nextCursor?: string;
+  total: number;
+}
+
 /** EventAnalytics.attendance. */
 export interface EventAttendance {
   checkedIn: number;

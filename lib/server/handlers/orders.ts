@@ -19,7 +19,7 @@ import {
 } from "../checkout-attempts";
 import { clientIp, clientKey, orderKey } from "../client-key";
 import { HttpError, ok, okPrivate, readJson } from "../http";
-import { parseCheckoutLineItems, parseSupportCents, refuseSupportOnFreeOrder } from "../order-input";
+import { parseBuyerName, parseCheckoutLineItems, parseSupportCents, refuseSupportOnFreeOrder } from "../order-input";
 import { parseCheckoutSeats } from "../seat-map-input";
 import { ORDER_ID_PATTERN, orderReference } from "../order-reference";
 import { payoutsSchemaMissing } from "../payout-schema";
@@ -822,6 +822,13 @@ export async function takeClientLimit(req: Request, deps: Deps, secret: string |
  * its total and of the attempt's fingerprint (a replay with another amount is
  * a 422), a line of its own in Stripe's session, and all of it goes to
  * Sheltüh (application_fee_amount): ../checkout-attempts.ts.
+ *
+ * Optional `buyerName` (CheckoutBuyerDetails in lib/api/types.ts; paid, free,
+ * general admission and seated alike): cleaned by parseBuyerName (400
+ * `fieldErrors.buyerName`), stored on the order (the database stamps
+ * `details_notice_at`) and part of the attempt's fingerprint (a replay with
+ * another name is a 422). It reaches the event's organiser's Orders view
+ * (./event-orders.ts), and nothing else: never a CustomerOrder, an email or a log.
  */
 export const createCheckout: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
   const { db } = deps;
@@ -843,6 +850,8 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
   // Support Sheltüh: validated here, and only on an order with a paid ticket (400 otherwise).
   const supportCents = parseSupportCents(body.supportCents);
   refuseSupportOnFreeOrder(supportCents, totals.subtotalCents);
+  // Shown to the organiser with the email; optional for one release (null: no details). Part of the attempt's fingerprint.
+  const buyerName = parseBuyerName(body.buyerName);
   const isFree = totals.totalCents === 0;
   // Free: tickets straight away for a member's own verified email, an emailed confirmation link for anyone else.
   if (isFree) {
@@ -850,7 +859,13 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
     await assertFreeTicketsPerOrder(deps, lineItems);
     await assertAvailable(db, eventId, lineItems);
     return refuseIfClosed(() =>
-      createFreeOrder(req, deps, { event, lineItems, buyerEmail, trackingCode: parseTrackingCode(body.trackingCode) }),
+      createFreeOrder(req, deps, {
+        event,
+        lineItems,
+        buyerEmail,
+        buyerName,
+        trackingCode: parseTrackingCode(body.trackingCode),
+      }),
     );
   }
 
@@ -865,6 +880,7 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
     buyerEmail: body.buyerEmail,
     trackingCode,
     supportCents,
+    buyerName,
   });
   // The attempt is bound to this client: a replay or retry from another client key is refused.
   const client = requestClientKey(req, deps);
@@ -880,9 +896,9 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
   const insertOrder = (orderId: string) =>
     db.query(
       `insert into public.orders (id, event_id, organiser_id, event_title, line_items, subtotal_cents,
-         buyer_fee_cents, total_cents, application_fee_cents, buyer_email, tracking_code, support_cents)
+         buyer_fee_cents, total_cents, application_fee_cents, buyer_email, tracking_code, support_cents, buyer_name)
        values ($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9, $10,
-         (select l.code from public.event_tracking_links l where l.event_id = $2 and l.code = $11), $12)`,
+         (select l.code from public.event_tracking_links l where l.event_id = $2 and l.code = $11), $12, $13)`,
       [
         orderId,
         eventId,
@@ -897,6 +913,7 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
         buyerEmail,
         trackingCode,
         supportCents,
+        buyerName,
       ],
     );
 
@@ -1201,6 +1218,7 @@ async function createSeatedCheckout(
   const trackingCode = parseTrackingCode(body.trackingCode);
   // Support Sheltüh: its form here; whether the order may carry it once it's priced (below).
   const supportCents = parseSupportCents(body.supportCents);
+  const buyerName = parseBuyerName(body.buyerName);
   // The same key and basket again: the same order and holds, before the seat check (which would see them held).
   const fingerprint = checkoutFingerprint({
     kind: "seated",
@@ -1210,6 +1228,7 @@ async function createSeatedCheckout(
     buyerEmail: body.buyerEmail,
     trackingCode,
     supportCents,
+    buyerName,
   });
   const client = requestClientKey(req, deps);
   const peeked = await peekCheckoutAttempt(db, key, fingerprint, client.key);
@@ -1248,7 +1267,7 @@ async function createSeatedCheckout(
     await assertFreeTicketsPerOrder(deps, lineItems);
     await assertAvailable(db, event.eventId, lineItems);
     return refuseIfClosed(() =>
-      createFreeOrder(req, deps, { event, lineItems, buyerEmail, trackingCode, seats: { seatIds, labels } }),
+      createFreeOrder(req, deps, { event, lineItems, buyerEmail, buyerName, trackingCode, seats: { seatIds, labels } }),
     );
   }
 
@@ -1267,7 +1286,7 @@ async function createSeatedCheckout(
       db.query<{ result: string; unavailable_seat_ids: string[] | null }>(
         `select result, unavailable_seat_ids
            from private.hold_seats($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9, $10, $11, $12, $13::text[],
-                                   $14::interval, $15, $16::interval, $17, $18, $19)`,
+                                   $14::interval, $15, $16::interval, $17, $18, $19, $20)`,
         [
           orderId,
           event.eventId,
@@ -1288,6 +1307,7 @@ async function createSeatedCheckout(
           SEAT_HOLD_LIMITS.capMin,
           SEAT_HOLD_LIMITS.capShare,
           supportCents,
+          buyerName,
         ],
       ),
     );

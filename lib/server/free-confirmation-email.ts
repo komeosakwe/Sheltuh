@@ -1,3 +1,4 @@
+import { DETAILS_NOTICE } from "@/lib/buyer-details";
 import { SUPPORT_EMAIL } from "@/lib/contact";
 import { formatSeatLine } from "@/lib/seating/format";
 import { subjectLine, type EmailMessage } from "./email";
@@ -61,6 +62,7 @@ export function buildFreeConfirmationEmail(
     `Confirm here (the link works for ${hoursValid} hours): ${link}`,
     "",
     "Open the link and press Confirm. Your tickets are issued then, and emailed to you.",
+    DETAILS_NOTICE,
     "Didn't ask for this? Ignore this email: no tickets will be issued.",
     "",
     `Need help? Email ${SUPPORT_EMAIL}`,
@@ -85,6 +87,7 @@ export function buildFreeConfirmationEmail(
         : "") +
       button("Confirm my tickets", link, "0 0 24px 0", true) +
       `<p style="margin:0 0 8px 0;font-family:${SANS};font-size:15px;line-height:22px;color:${INK}">The link works for ${hoursValid} hours. Open it and press Confirm: your tickets are issued then, and emailed to you.</p>` +
+      `<p style="margin:0 0 8px 0;font-family:${SANS};font-size:15px;line-height:22px;color:${INK}">${escapeHtml(DETAILS_NOTICE)}</p>` +
       `<p style="margin:0;font-family:${SANS};font-size:15px;line-height:22px;color:${MUTED}">Didn&rsquo;t ask for this? Ignore this email: no tickets will be issued.</p>`,
   });
 

@@ -2,6 +2,7 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import PrivacyPage from "@/app/privacy/page";
+import { DETAILS_VISIBLE_MONTHS } from "@/lib/buyer-details";
 
 afterEach(cleanup);
 
@@ -138,5 +139,42 @@ describe("/privacy — Payments", () => {
     expect(section).toHaveTextContent("Stripe’s script loads on our payment page, including when you open it and don’t pay");
     expect(section).toHaveTextContent("collects information about your device and how the page is used, to help prevent fraud");
     expect(section).toHaveTextContent("Stripe’s privacy policy covers that too.");
+  });
+});
+
+describe("/privacy — What organisers see", () => {
+  it("is linkable as #organiser-orders and says what is shared, for how long, the limits and how to stop it", () => {
+    render(<PrivacyPage />);
+    const section = screen.getByRole("heading", { name: "What organisers see" }).closest("section");
+    if (!section) throw new Error("Organiser orders section not rendered");
+    expect(section).toHaveAttribute("id", "organiser-orders");
+    expect(section).toHaveTextContent("Checkout tells you that your name and email are shared with the organiser");
+    expect(section).toHaveTextContent("Your name and email address, the tickets you bought, what you paid and when.");
+    expect(section).toHaveTextContent(`for ${DETAILS_VISIBLE_MONTHS} months after the event ends`);
+    expect(section).toHaveTextContent("for 12 months after the event ends");
+    expect(section).toHaveTextContent("Files they exported are theirs, and we can’t take them back.");
+    expect(section).toHaveTextContent("Organisers may use these details only for that event.");
+    expect(section).toHaveTextContent("Your card details. Stripe handles those.");
+    expect(section).toHaveTextContent("Who’s Going only ever shows display names.");
+    expect(section).toHaveTextContent("Orders placed before this change.");
+    // Organiser messages to ticket holders, with the way out.
+    expect(section).toHaveTextContent("Organisers can also email the people holding tickets to their events through Sheltüh.");
+    expect(section).toHaveTextContent("link to stop messages from that organiser");
+    expect(within(section).getByRole("link", { name: "support@sheltuh.com.au" })).toHaveAttribute(
+      "href",
+      "mailto:support@sheltuh.com.au",
+    );
+  });
+
+  it("is pointed to from What we collect and Who we share it with, which no longer leave it at 'orders'", () => {
+    render(<PrivacyPage />);
+    for (const title of ["What we collect", "Who we share it with"]) {
+      const section = screen.getByRole("heading", { name: title }).closest("section");
+      if (!section) throw new Error(`${title} not rendered`);
+      expect(within(section).getByRole("link", { name: "What organisers see" })).toHaveAttribute("href", "#organiser-orders");
+    }
+    expect(screen.getByRole("heading", { name: "What we collect" }).closest("section")).toHaveTextContent(
+      "The name and email address you enter at checkout",
+    );
   });
 });
