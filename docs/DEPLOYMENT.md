@@ -68,7 +68,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261120000000_group_tickets.sql`. Never
+      newest, currently `20261122000000_order_buyer_details.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -461,6 +461,26 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           (the other two), drop the trigger, `order_group_size`, the checks and
           the two columns. After a group order exists, dropping them would turn
           its tickets into ordinary ones and lose the people count.
+      50. `20261121000000_organiser_more_socials.sql` (Spotify, SoundCloud,
+          YouTube and LinkedIn on an organiser's profile, shown in the Host card
+          on event pages: four nullable `organisers` columns, with
+          `private.edit_organiser_profile` and `private.accept_account_invite`
+          redefined from their latest bodies, `20261024000200_organiser_follows.sql`
+          and `20261108000000_account_invites.sql`). Additive; the previous app
+          never sends or reads the columns. Apply it before the app.
+          Reversible: restore those two functions, then drop the columns.
+      51. `20261122000000_order_buyer_details.sql` (the buyer's name on every
+          order and the organiser Orders view, docs/architecture.md "Organiser
+          orders": `orders.buyer_name` and `details_notice_at`, their checks and
+          triggers, `private.order_detail_exports` and `order_detail_views`,
+          `take_order_detail_budget`, `record_order_export`, and the five order
+          functions `hold_seats`, `place_free_order`, `place_free_seated_order`,
+          `request_free_order` and `request_free_seated_order` dropped and
+          recreated with a trailing `p_buyer_name` argument). Apply it before the
+          app: the new app passes the argument, the previous app does not and
+          keeps working (the argument defaults to null). Needs files 44 and 49's
+          predecessors in place; it redefines none of the functions files 45 to
+          50 redefine. Not reversible once orders carry names without losing them.
 
       **Files 33 to 37 can be applied ahead of this deploy, with the
       previous app still live.** "The previous app" here is the build of
