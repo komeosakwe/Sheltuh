@@ -173,10 +173,19 @@ describe("ApplicationForm — optional social profiles", () => {
     );
   }
 
-  it("groups the four handles under 'Social profiles (optional)'", () => {
+  it("groups the eight social fields under 'Social links (optional)'", () => {
     renderForm("apply");
-    const group = screen.getByRole("group", { name: "Social profiles (optional)" });
-    for (const label of ["Instagram username", "TikTok username", "Facebook page", "X username"]) {
+    const group = screen.getByRole("group", { name: "Social links (optional)" });
+    for (const label of [
+      "Instagram username",
+      "TikTok username",
+      "Spotify",
+      "SoundCloud",
+      "YouTube",
+      "Facebook page",
+      "X username",
+      "LinkedIn",
+    ]) {
       expect(group).toContainElement(screen.getByLabelText(label));
     }
   });
@@ -280,7 +289,7 @@ describe("ApplicationForm — website rule and public-profile notes", () => {
     renderForm();
     expect(screen.getByLabelText("Short description")).toHaveAccessibleDescription(PUBLIC_NOTE);
     expect(screen.getByLabelText("Website (optional)")).not.toHaveAccessibleDescription();
-    expect(screen.getByRole("group", { name: "Social profiles (optional)" })).not.toHaveAccessibleDescription();
+    expect(screen.getByRole("group", { name: "Social links (optional)" })).not.toHaveAccessibleDescription();
   });
 
   it.each([

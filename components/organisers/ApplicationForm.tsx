@@ -306,7 +306,7 @@ export default function ApplicationForm({ mode, initial, onSuccess }: Props) {
       </div>
 
       <fieldset className="flex flex-col gap-4">
-        <legend className="eyebrow text-muted">Social profiles (optional)</legend>
+        <legend className="eyebrow text-muted">Social links (optional)</legend>
         <SocialHandleFields
           idPrefix={ID_PREFIX}
           values={handles}

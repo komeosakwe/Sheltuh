@@ -61,19 +61,19 @@ export const SOCIAL_HANDLE_FIELDS = [
     field: "spotifyPath",
     label: "Spotify",
     prefix: "open.spotify.com/",
-    hint: "Paste the link to your artist, podcast or profile page.",
+    hint: "Paste your Spotify artist, podcast or profile link.",
   },
   {
     field: "soundcloudHandle",
-    label: "SoundCloud name",
+    label: "SoundCloud",
     prefix: "soundcloud.com/",
-    hint: "Letters, numbers, - and _, up to 40.",
+    hint: "Your name after soundcloud.com/, or paste your link.",
   },
   {
     field: "youtubeChannel",
-    label: "YouTube channel",
+    label: "YouTube",
     prefix: "youtube.com/",
-    hint: "Your @handle, or paste the link to your channel.",
+    hint: "Your @handle, or paste your channel link.",
   },
   {
     field: "facebookPage",
@@ -91,7 +91,7 @@ export const SOCIAL_HANDLE_FIELDS = [
     field: "linkedinPath",
     label: "LinkedIn",
     prefix: "linkedin.com/",
-    hint: "Paste the link to your profile or company page.",
+    hint: "Paste your LinkedIn profile or company page link.",
   },
 ] as const;
 

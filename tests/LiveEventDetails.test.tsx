@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import LiveEventDetails from "@/components/LiveEventDetails";
 import { ApiError } from "@/lib/api/client";
@@ -85,6 +85,22 @@ describe("LiveEventDetails", () => {
     await act(async () => load.resolve(publicEvent("neon-static")));
     expect(screen.getByRole("heading", { level: 1, name: "Neon Static" })).toBeInTheDocument();
     expect(document.title).toBe("Neon Static — Sheltüh");
+  });
+
+  it("carries the organiser's website, links and bio from the API into the Host card", async () => {
+    getPublicEventBySlug.mockResolvedValue({
+      ...publicEvent("neon-static"),
+      organiserWebsiteUrl: "https://host.example/",
+      organiserSocialLinks: { youtube: "https://www.youtube.com/@host", linkedin: "https://www.linkedin.com/company/host" },
+      organiserBio: "We host things.",
+    });
+    render(<LiveEventDetails slug="neon-static" />);
+    const host = await screen.findByRole("region", { name: "Host" });
+    expect(within(host).getByRole("link", { name: /^Website: host\.example/ })).toBeInTheDocument();
+    expect(within(host).getByRole("link", { name: /^YouTube/ })).toHaveAttribute("href", "https://www.youtube.com/@host");
+    expect(within(host).getByRole("link", { name: /^LinkedIn/ })).toBeInTheDocument();
+    expect(within(host).getByText("We host things.")).toBeInTheDocument();
+    expect(within(host).getByRole("link", { name: /^View profile/ })).toHaveAttribute("href", "/organisers/org-1");
   });
 
   it("titles a missing event 'Event not found'", async () => {
