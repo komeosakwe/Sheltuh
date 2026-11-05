@@ -10,7 +10,7 @@ import { useIsPhone } from "@/components/ui/useIsPhone";
 import { formatWeekendRange, popularTitle, type HomeSections, type TrendingSignal } from "@/lib/home-sections";
 import type { SheltuhEvent } from "@/lib/types";
 import { useHomeEvents } from "./HomeEventsProvider";
-import { HOME_CONTAINER, HomeRailItem, isPairRail, RAIL_SKELETON } from "./HomeRail";
+import { HOME_CONTAINER, HomeRailItem, RAIL_SKELETON } from "./HomeRail";
 import HomeGridSection, { HomeGridItem } from "./HomeGridSection";
 import HomeRailSection from "./HomeRailSection";
 
@@ -18,7 +18,7 @@ import HomeRailSection from "./HomeRailSection";
 export const HOME_LOAD_ERROR = "Couldn’t load events. Check your connection and try again.";
 
 /** Every home section's spacing, the first after the category row included (Refinement, 22 Oct 2026: tighter). */
-const SECTION = "mt-6 sm:mt-10 lg:mt-12";
+const SECTION = "mt-6 sm:mt-10 lg:mt-8";
 
 /**
  * The home's event sections below the hero (docs/design/mobile-redesign.md
@@ -35,8 +35,8 @@ const SECTION = "mt-6 sm:mt-10 lg:mt-12";
  * start: nothing waits for a scroll to appear. Each section's head sits in
  * the page column and its cards run full width as a horizontal rail at
  * every width (`HomeRailSection`, `HomeRail`), so the caller places this
- * outside the page column. From 640px a section of one or two cards is a pair: a
- * two-column grid of wide cards from 1024px (`isPairRail`, EventCard `wide`).
+ * outside the page column. From 640px the cards are 224px wide (256px from
+ * 1280px): three whole cards at 768, four at 1024.
  *
  * Below 640px (Tailwind `sm`) the rails give way to the same sections as
  * two-column grids of `grid` EventCards, as /events has (`HomeGridSection`;
@@ -146,7 +146,7 @@ export default function HomeEventSections() {
             </HomeGridItem>
           ) : (
             <HomeRailItem key={event.id}>
-              <EventCard event={event} variant="rail" wide={isPairRail(spec.cards.length)} mode={mode} signal={signal} now={now} />
+              <EventCard event={event} variant="rail" mode={mode} signal={signal} now={now} />
             </HomeRailItem>
           ),
         );

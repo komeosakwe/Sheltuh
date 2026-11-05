@@ -16,10 +16,12 @@ export type EventCardVariant = "rail" | "grid";
 /**
  * A rail card is a fixed width at every size, never stretched to fill a row
  * (the home's rails scroll sideways at every width: owner, 23 Oct 2026):
- * 198 / 232 / 240px at 320 / 375 / 430, then 256px from 640px.
+ * 198 / 232 / 240px at 320 / 375 / 430, then 224px from 640px (owner, 4 Nov
+ * 2026: "show more than 2 events": three whole cards at 768, four at 1024)
+ * and 256px from 1280px, as wide as a /events card.
  */
 const WIDTH: Record<EventCardVariant, string> = {
-  rail: "w-[min(62vw,15rem)] shrink-0 sm:w-64",
+  rail: "w-[min(62vw,15rem)] shrink-0 sm:w-56 xl:w-64",
   grid: "w-full",
 };
 /**
@@ -46,26 +48,16 @@ const PRICE_BOX: Record<EventCardVariant, string> = {
  * The media box (Refinement, 22 Oct 2026: shorter cards). A rail card is
  * 4:3 at every width (owner, 23 Oct 2026: "the pictures still way too big";
  * it was square from 640px): 149 / 174 / 180px tall at 320 / 375 / 430, and
- * 192px for the 256px card from 640px, so a card's image and title fit a
- * phone's first screen under the hero. Portrait posters show whole
- * (`fit="auto"` letterboxes them on black rather than cropping them to a
- * strip); photos cover. A grid card (/events, profiles) stays square.
+ * 168px for the 224px card from 640px (192px for the 256px one from 1280px),
+ * so a card's image and title fit a phone's first screen under the hero. A
+ * rail photo always fills its box (`cover`, the photo's `imageFocus` kept in
+ * view; owner, 4 Nov 2026: no letterboxing on the home); a grid card
+ * (/events, profiles) stays square and shows a portrait poster whole.
  */
 const MEDIA: Record<EventCardVariant, string> = {
   rail: "aspect-[4/3]",
   grid: "aspect-square",
 };
-/**
- * `wide` (a `rail` card in a home rail of one or two, HomeRail's pair): from
- * 1024px the card fills its half of the page column (468–532px) and its
- * image is a wide landscape strip, 12:5 (2.4:1) and never taller than 200px
- * (195px at 1024, 200px from about 1100; owner, 23 Oct 2026: "the pictures
- * still way too big", it was 16:9 and up to 299px), so the pair reads as a
- * compact row, not a hero, at about a rail card's image height (192px).
- * Below 1024px it's an ordinary rail card.
- */
-const WIDE = { width: "lg:w-full", media: "lg:aspect-[12/5] lg:max-h-50" } as const;
-
 /**
  * The one event card (docs/design/mobile-redesign.md §6.2 and its
  * Refinement, 22 Oct 2026), image first with no container, in the order a
@@ -105,7 +97,6 @@ const WIDE = { width: "lg:w-full", media: "lg:aspect-[12/5] lg:max-h-50" } as co
  * button-high row; a grid organiser without a profile: the name as text).
  *
  * `signal` (Popular right now) adds one qualifier to the secondary line. `mode` decides the going count (default: the app's mode).
- * `wide` (rail only) is a pair's card: full cell width and a 12:5 image, at most 200px tall, from 1024px (`WIDE`).
  */
 export default function EventCard({
   event,
@@ -114,7 +105,6 @@ export default function EventCard({
   signal,
   showSave = true,
   showOrganiser = true,
-  wide = false,
   priority = false,
   now = new Date(),
   className = "",
@@ -124,8 +114,6 @@ export default function EventCard({
   mode?: "demo" | "live";
   signal?: TrendingSignal;
   showSave?: boolean;
-  /** `rail` only: a card in a rail of one or two, which fills its grid cell with a landscape image from 1024px. */
-  wide?: boolean;
   /** `grid` only: "By {organiser}", where the organiser has a profile (off on their own profile). */
   showOrganiser?: boolean;
   /** The image loads eagerly (a card in the page's first row); by default it is lazy. */
@@ -143,15 +131,13 @@ export default function EventCard({
   const showOrganiserRow = variant === "grid" && showOrganiser;
   const organiserHref = showOrganiserRow ? organiserProfileHref(event) : null;
   const hasCta = cardCta(event, now) !== null;
-  const isWide = wide && variant === "rail";
 
   return (
     <div
       data-event-card=""
       data-variant={variant}
-      data-wide={isWide ? "" : undefined}
       data-card-state={state}
-      className={`group/card relative flex min-w-0 flex-col has-[[data-card-link]:focus-visible]:rounded-card has-[[data-card-link]:focus-visible]:outline-2 has-[[data-card-link]:focus-visible]:outline-offset-4 has-[[data-card-link]:focus-visible]:outline-foreground motion-safe:transition-transform motion-safe:duration-150 motion-safe:has-[[data-card-link]:active]:scale-[0.98] motion-reduce:has-[[data-card-link]:active]:opacity-80 ${WIDTH[variant]} ${isWide ? WIDE.width : ""} ${className}`.replace(/\s+/g, " ").trim()}
+      className={`group/card relative flex min-w-0 flex-col has-[[data-card-link]:focus-visible]:rounded-card has-[[data-card-link]:focus-visible]:outline-2 has-[[data-card-link]:focus-visible]:outline-offset-4 has-[[data-card-link]:focus-visible]:outline-foreground motion-safe:transition-transform motion-safe:duration-150 motion-safe:[@media(hover:hover)]:hover:-translate-y-0.5 motion-safe:has-[[data-card-link]:active]:scale-[0.98] motion-reduce:has-[[data-card-link]:active]:opacity-80 ${WIDTH[variant]} ${className}`.replace(/\s+/g, " ").trim()}
     >
       <div data-card-media="" className="relative overflow-hidden rounded-card">
         <EventArt
@@ -159,10 +145,10 @@ export default function EventCard({
           imageUrl={event.imageUrl}
           imageFocus={event.imageFocus}
           title={event.title}
-          fit="auto"
+          fit={variant === "rail" ? "cover" : "auto"}
           priority={priority}
           // An ended event's image is greyed: it's still there to look at, but nothing's on.
-          className={`${MEDIA[variant]} ${isWide ? WIDE.media : ""} w-full motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-out motion-safe:group-hover/card:scale-[1.03] ${state === "ended" ? "grayscale" : ""}`.replace(/\s+/g, " ").trim()}
+          className={`${MEDIA[variant]} w-full motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-out motion-safe:group-hover/card:scale-[1.03] ${state === "ended" ? "grayscale" : ""}`.replace(/\s+/g, " ").trim()}
         />
       </div>
       <div className="flex min-w-0 flex-col pt-3">
@@ -216,7 +202,7 @@ export default function EventCard({
         // button in it takes pointer events, so a tap anywhere else on the image still opens the event.
         <div
           data-clip-frame=""
-          className={`pointer-events-none absolute inset-x-0 top-0 z-10 ${MEDIA[variant]} ${isWide ? WIDE.media : ""}`.trim()}
+          className={`pointer-events-none absolute inset-x-0 top-0 z-10 ${MEDIA[variant]}`.trim()}
         >
           <ClipPlayButton event={event} className="pointer-events-auto absolute bottom-1 left-2" />
         </div>

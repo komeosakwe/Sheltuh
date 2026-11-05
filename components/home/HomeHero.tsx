@@ -31,8 +31,11 @@ function TitleLine({ line }: { line: string }) {
  * FIND YOÜR NEXT THÏNG. (owner, 24 Oct 2026: "only two letters with dots";
  * the letters are chosen in `HOME_TITLE_LINES`).
  *
- * The photo collage (`HeroCollage`, with its slowly turning badge) shows from
- * 1024px only, beside the text; its lead photo is lazy (a hidden image is
+ * From 1024px the hero is compact (owner, 4 Nov 2026: "hero and search bar
+ * take too much of the screen"): a smaller h1, the search right under it, and
+ * one short photo with the badge (`HeroCollage`, its badge slowly turning)
+ * beside them, so the first events come up on a laptop's first screen. The
+ * photo shows from 1024px only; its lead photo is lazy (a hidden image is
  * never fetched) with a high fetch priority where it shows. Below 1024px the
  * same photo is a small tile beside the eyebrow and h1 (`HeroThumb`, owner,
  * 24 Oct 2026), no taller than them, so the first event still reaches a
@@ -41,12 +44,12 @@ function TitleLine({ line }: { line: string }) {
 export default function HomeHero() {
   const [first, second] = HOME_TITLE_LINES;
   return (
-    <section aria-labelledby="home-title" className="lg:grid lg:grid-cols-12 lg:items-center lg:gap-x-8">
-      <div className="lg:col-span-7">
+    <section aria-labelledby="home-title" className="lg:flex lg:items-center lg:justify-between lg:gap-x-12">
+      <div className="lg:min-w-0 lg:flex-1">
         {/* The tile takes a fixed column at the right, so the h1's two lines keep their own width. */}
         <div className="flex items-start gap-3 sm:gap-4">
           <div className="min-w-0 flex-1">
-            <h1 id="home-title" className="display-lg font-display display-plain">
+            <h1 id="home-title" className="display-lg font-display display-plain lg:text-5xl">
               {/* The literal space keeps the accessible name "Find your next thing.". */}
               <TitleLine line={first} /> <TitleLine line={second} />
             </h1>
@@ -55,11 +58,11 @@ export default function HomeHero() {
         </div>
         {/* Search is the hero's main action: full width on phones, a comfortable field from 640px.
             The Eventbrite-style bar with a location and an orange submit (owner, 24 Oct 2026); still 52px tall. */}
-        <div className="mt-4 sm:mt-5 sm:max-w-xl">
+        <div className="mt-4 sm:mt-5 sm:max-w-xl lg:mt-4 lg:max-w-2xl">
           <SearchBar size="lg" tone="signal" label="Search events" placeholder="Search events" />
         </div>
       </div>
-      <HeroCollage className="hidden lg:col-span-5 lg:col-start-8 lg:block" />
+      <HeroCollage className="hidden shrink-0 lg:block" />
     </section>
   );
 }

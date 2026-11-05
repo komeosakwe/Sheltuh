@@ -75,23 +75,6 @@ export const HOME_HERO: HomeArt = {
 };
 
 /**
- * The collage's two smaller tiles, beside and under the lead (restored at the
- * owner's request, 23 Oct 2026). Sample-event photos for now (owner, 26 Oct
- * 2026: "reuse the event photos for now"), until promo photos of their own
- * arrive (public/home/README.md); the poster shows if a photo fails to load.
- */
-export const HOME_HERO_TILES: readonly [HomeArt, HomeArt] = [
-  {
-    imageUrl: "/events/record-shop-dj.jpg",
-    poster: { pattern: "halftone", background: "#fffae7", primary: "#000000", secondary: "#000000" },
-  },
-  {
-    imageUrl: "/events/jazz-drummer.webp",
-    poster: { pattern: "waves", background: "#ff4800", primary: "#000000", secondary: "#fffae7" },
-  },
-];
-
-/**
  * "What else?" (owner, 23 Oct 2026: kept from the original home): three
  * promises the product keeps (organisers checked by a person, all-inclusive prices, no fee
  * on free tickets), each with the photo that shows beside the list while

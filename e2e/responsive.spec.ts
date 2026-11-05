@@ -293,7 +293,7 @@ for (const width of [320, 375, 390, 430]) {
 }
 
 // Owner (23 Oct 2026): "keep using the horizontal scrolling". From 640px too, the rails scroll sideways:
-// fixed 256px cards from the page column's edge, running off the right edge, with Previous/Next buttons.
+// fixed 224px (256px from 1280px) cards from the page column's edge, running off the right edge, with Previous/Next buttons.
 for (const width of [640, 768, 1280, 1440]) {
   test.describe(`home rails at ${width}px`, () => {
     test.use({ viewport: { width, height: width < 768 ? 844 : 900 } });
@@ -333,7 +333,7 @@ for (const width of [640, 768, 1280, 1440]) {
 
       // Fixed-width cards (not stretched), all the same height, so prices and buttons line up.
       const sizes = await cards.evaluateAll((els) => els.map((el) => el.getBoundingClientRect()).map((r) => ({ w: Math.round(r.width), h: Math.round(r.height), x: r.x })));
-      expect(new Set(sizes.map((size) => size.w))).toEqual(new Set([256]));
+      expect(new Set(sizes.map((size) => size.w))).toEqual(new Set([width >= 1280 ? 256 : 224]));
       expect(new Set(sizes.map((size) => size.h)).size).toBe(1);
       // A card is cut by the right edge: there's more.
       expect(sizes.some((size) => size.x < width && size.x + size.w > width)).toBe(true);
@@ -363,9 +363,9 @@ for (const width of [640, 768, 1280, 1440]) {
       expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(0);
     });
 
-    // Owner (23 Oct 2026, layout polish): a rail of one or two cards left most of a desktop row empty. From
-    // 1024px it's a two-column grid in the page column with landscape images; below, the same carousel.
-    test(`a rail of two is ${width >= 1024 ? "a two-column grid of wide, landscape cards" : "a carousel of fixed cards"}`, async ({ page }) => {
+    // Owner (4 Nov 2026, "show more than 2 events"): a rail of one or two cards is the same carousel of the
+    // same fixed cards at every width, left-aligned on the column's edge (it was a two-up grid of wide cards).
+    test("a rail of two is a carousel of fixed cards", async ({ page }) => {
       const two = fixtures(Date.now()).slice(0, 2);
       await page.route("**/api/**", (route) =>
         new URL(route.request().url()).pathname === "/api/events"
@@ -379,39 +379,24 @@ for (const width of [640, 768, 1280, 1440]) {
       await page.evaluate(() => document.fonts.ready);
       const list = weekend.getByRole("list");
       await expect(list).toHaveAttribute("data-rail-layout", "pair");
-      const layout = await list.evaluate((ul) => ({ display: getComputedStyle(ul).display, columns: getComputedStyle(ul).gridTemplateColumns }));
+      const layout = await list.evaluate((ul) => ({ display: getComputedStyle(ul).display }));
       const boxes = await cards.evaluateAll((els) =>
         els.map((el) => {
           const r = el.getBoundingClientRect();
-          const media = el.querySelector("[data-card-media]")?.getBoundingClientRect();
           const top = (sel: string) => Math.round(el.querySelector(sel)?.getBoundingClientRect().top ?? -1);
-          return { x: r.x, w: r.width, h: Math.round(r.height), mw: media?.width ?? 0, mh: media?.height ?? 0, price: top("[id$='-price']"), cta: top("[data-card-foot] > :nth-child(2)") };
+          return { x: r.x, w: r.width, h: Math.round(r.height), price: top("[id$='-price']"), cta: top("[data-card-foot] > :nth-child(2)") };
         }),
       );
       const heading = await weekend.getByRole("heading", { level: 2 }).boundingBox();
       if (!heading) throw new Error("not laid out");
-      const inset = width < 640 ? 20 : width >= 1152 ? (width - 1152) / 2 + 32 : 32;
       expect(Math.abs(boxes[0].x - heading.x)).toBeLessThanOrEqual(1);
-      if (width >= 1024) {
-        expect(layout.display).toBe("grid");
-        expect(layout.columns.split(" ")).toHaveLength(2);
-        // The two columns fill the page column, edge to edge, 24px apart.
-        const column = Math.min(width, 1152) - 64;
-        for (const box of boxes) expect(Math.abs(box.w - (column - 24) / 2)).toBeLessThanOrEqual(1);
-        expect(Math.abs(boxes[1].x + boxes[1].w - (width - inset))).toBeLessThanOrEqual(1);
-        // Wide landscape strips (owner, 23 Oct 2026: "the pictures still way too big"): 12:5 and never
-        // taller than 200px (wider than 12:5 where the cap bites), full column width.
-        for (const box of boxes) {
-          expect(box.mh).toBeLessThanOrEqual(200 + 0.5);
-          expect(box.mw / box.mh).toBeGreaterThanOrEqual(12 / 5 - 0.02);
-          expect(Math.abs(box.mw - box.w)).toBeLessThanOrEqual(1);
-        }
-      } else if (width >= 640) {
-        expect(layout.display).toBe("flex");
+      expect(layout.display).toBe("flex");
+      if (width >= 1280) {
         for (const box of boxes) expect(Math.round(box.w)).toBe(256);
+      } else if (width >= 640) {
+        for (const box of boxes) expect(Math.round(box.w)).toBe(224);
       } else {
         // Phones: the carousel, with the second card peeking in at the right edge, scrolling sideways.
-        expect(layout.display).toBe("flex");
         expect(boxes[1].x).toBeLessThan(width);
         expect(boxes[1].x + boxes[1].w).toBeGreaterThan(width);
         expect(await list.evaluate((ul) => ul.scrollWidth > ul.clientWidth)).toBe(true);

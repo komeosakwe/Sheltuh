@@ -11,7 +11,7 @@ import { useRailAutoScroll } from "./useRailAutoScroll";
 
 /**
  * A rail with five or more cards overflows at every width up to about
- * 1500px (256px cards, 24px gaps), so its arrows are in the server markup;
+ * 1500px (224–256px cards, 24px gaps), so its arrows are in the server markup;
  * shorter rails get theirs once measured (if they overflow at all).
  */
 const SURELY_OVERFLOWS = 5;
@@ -31,8 +31,7 @@ const SURELY_OVERFLOWS = 5;
  * looping seamlessly on copies of the cards that only it renders
  * (`useRailAutoScroll`, `HomeRail` `clones`), with a Pause/Play button in the
  * head before the arrows, at every width; never under reduced motion. A pair
- * never does, at any width: from 1024px it's a grid, and below it there's
- * barely anything to scroll.
+ * never does, at any width: there's nothing to scroll.
  */
 export default function HomeRailSection({
   id,
@@ -87,7 +86,6 @@ export default function HomeRailSection({
         {empty}
       </div>
       {!empty && (
-        // Not a pair from 1024px (a grid there): the cue is for a rail that scrolls.
         <div className="relative flow-root">
           <HomeRail ref={railRef} id={railId} labelledBy={id} pair={pair} clones={auto.clones}>
             {children}
@@ -95,7 +93,6 @@ export default function HomeRailSection({
           <ScrollEdges
             canPrev={scroll.canPrev}
             canNext={scroll.canNext}
-            className={pair ? "lg:hidden" : ""}
             arrowClassName="top-18"
           />
         </div>
