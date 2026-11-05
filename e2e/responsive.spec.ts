@@ -293,8 +293,8 @@ for (const width of [320, 375, 390, 430]) {
 }
 
 // Owner (23 Oct 2026): "keep using the horizontal scrolling". From 640px too, the rails scroll sideways:
-// fixed 224px (256px from 1280px) cards from the page column's edge, running off the right edge, with Previous/Next buttons.
-for (const width of [640, 768, 1280, 1440]) {
+// 224px (256px from 1280px; 768 to 1279px follow the screen so the next card peeks) cards from the page column's edge, running off the right edge, with Previous/Next buttons.
+for (const width of [640, 768, 1024, 1280, 1440]) {
   test.describe(`home rails at ${width}px`, () => {
     test.use({ viewport: { width, height: width < 768 ? 844 : 900 } });
 
@@ -333,13 +333,24 @@ for (const width of [640, 768, 1280, 1440]) {
 
       // Fixed-width cards (not stretched), all the same height, so prices and buttons line up.
       const sizes = await cards.evaluateAll((els) => els.map((el) => el.getBoundingClientRect()).map((r) => ({ w: Math.round(r.width), h: Math.round(r.height), x: r.x })));
-      expect(new Set(sizes.map((size) => size.w))).toEqual(new Set([width >= 1280 ? 256 : 224]));
+      // 224px from 640px, 256px from 1280px; between (768 and 1024) the width follows the screen so the next card peeks.
+      const widths = new Set(sizes.map((size) => size.w));
+      expect(widths.size).toBe(1);
+      const [cardWidth = 0] = [...widths];
+      if (width === 640) expect(cardWidth).toBe(224);
+      else if (width >= 1280) expect(cardWidth).toBe(256);
+      else expect(cardWidth).toBeGreaterThanOrEqual(190);
+      expect(cardWidth).toBeLessThanOrEqual(256);
       expect(new Set(sizes.map((size) => size.h)).size).toBe(1);
-      // There's more past the right edge. With the 224px cards a card is usually cut by it (a peek), but the
-      // pitch (224px + 24px gap from 32px) puts the fourth card's left edge at 776px, 8px past a 768px
-      // screen, so there it's whole cards and then nothing showing: the arrows and the scroll still say so.
-      expect(sizes.some((size) => size.x + size.w > width)).toBe(true);
-      if (width !== 768) expect(sizes.some((size) => size.x < width && size.x + size.w > width)).toBe(true);
+      // A card is cut by the right edge: there's more.
+      const cut = sizes.find((size) => size.x < width && size.x + size.w > width);
+      expect(cut).toBeTruthy();
+      // At 768 and 1024 the cut card shows a good part of itself (30 to 60%), not a sliver or nearly all of it.
+      if (cut && (width === 768 || width === 1024)) {
+        const shown = (width - cut.x) / cut.w;
+        expect(shown).toBeGreaterThanOrEqual(0.3);
+        expect(shown).toBeLessThanOrEqual(0.6);
+      }
       const prices = await cards.evaluateAll((els) => els.map((el) => Math.round(el.querySelector("[id$='-price']")?.getBoundingClientRect().top ?? -1)));
       expect(new Set(prices).size).toBe(1);
 

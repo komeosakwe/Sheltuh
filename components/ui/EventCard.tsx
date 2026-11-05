@@ -14,14 +14,22 @@ import type { SheltuhEvent } from "@/lib/types";
 export type EventCardVariant = "rail" | "grid";
 
 /**
- * A rail card is a fixed width at every size, never stretched to fill a row
+ * A rail card is a set width at every size, never stretched to fill a row
  * (the home's rails scroll sideways at every width: owner, 23 Oct 2026):
  * 198 / 232 / 240px at 320 / 375 / 430, then 224px from 640px (owner, 4 Nov
- * 2026: "show more than 2 events": three whole cards at 768, four at 1024)
- * and 256px from 1280px, as wide as a /events card.
+ * 2026: "show more than 2 events"), and 256px from 1280px, as wide as a
+ * /events card. A fixed width can't keep the next card peeking past the edge
+ * across 768 to 1279px (224px cards and 24px gaps from a 32px inset put the
+ * fourth card's start 8px off the screen at 768 and the fifth's exactly on the
+ * edge at 1024), so the md and lg widths follow the screen: three whole cards
+ * and 40% of a fourth from 768px (195px up to 256px), four whole and 40% of
+ * a fifth from 1024px (204px up to 256px). `100vw` stands in for the rail's
+ * width (it runs edge to edge); the 6.5rem and 8rem are the inset and the 24px
+ * gaps: 32 + 3 x 24 and 32 + 4 x 24. A pair (one or two cards: no next card
+ * to peek, `HomeRail` `data-rail-layout="pair"`) keeps 224px.
  */
 const WIDTH: Record<EventCardVariant, string> = {
-  rail: "w-[min(62vw,15rem)] shrink-0 sm:w-56 xl:w-64",
+  rail: "w-[min(62vw,15rem)] shrink-0 sm:w-56 md:w-[min(16rem,calc((100vw_-_6.5rem)/3.4))] lg:w-[min(16rem,calc((100vw_-_8rem)/4.4))] in-data-[rail-layout=pair]:md:w-56 in-data-[rail-layout=pair]:lg:w-56 xl:w-64",
   grid: "w-full",
 };
 /**
@@ -48,7 +56,8 @@ const PRICE_BOX: Record<EventCardVariant, string> = {
  * The media box (Refinement, 22 Oct 2026: shorter cards). A rail card is
  * 4:3 at every width (owner, 23 Oct 2026: "the pictures still way too big";
  * it was square from 640px): 149 / 174 / 180px tall at 320 / 375 / 430, and
- * 168px for the 224px card from 640px (192px for the 256px one from 1280px),
+ * 168px for the 224px card from 640px (192px for the 256px one from 1280px;
+ * 146px to 192px between 768 and 1279px, where the width follows the screen),
  * so a card's image and title fit a phone's first screen under the hero. A
  * rail photo always fills its box (`cover`, the photo's `imageFocus` kept in
  * view; owner, 4 Nov 2026: no letterboxing on the home); a grid card

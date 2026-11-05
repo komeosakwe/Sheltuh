@@ -36,7 +36,8 @@ const SECTION = "mt-6 sm:mt-10 lg:mt-8";
  * the page column and its cards run full width as a horizontal rail at
  * every width (`HomeRailSection`, `HomeRail`), so the caller places this
  * outside the page column. From 640px the cards are 224px wide (256px from
- * 1280px): three whole cards at 768, four at 1024.
+ * 1280px; from 768px they follow the screen, so three whole cards and part of a
+ * fourth show at 768, four and part of a fifth at 1024).
  *
  * Below 640px (Tailwind `sm`) the rails give way to the same sections as
  * two-column grids of `grid` EventCards, as /events has (`HomeGridSection`;

@@ -335,9 +335,13 @@ describe("EventCard variants", () => {
     expect(eager.container.querySelector("img")).toHaveAttribute("loading", "eager");
   });
 
-  it("rail: a fixed width at every size (224px from 640px, 256px from 1280px, never stretched); 18px title, 14px details; the CTA sized to its label; no organiser link", () => {
+  it("rail: a set width at every size (224px from 640px, following the screen from 768px so the next card peeks, 256px from 1280px, never stretched); 18px title, 14px details; the CTA sized to its label; no organiser link", () => {
     const { container } = render(<EventCard event={event} variant="rail" mode="live" />);
     expect(cardRoot(container)).toHaveClass("w-[min(62vw,15rem)]", "shrink-0", "sm:w-56", "xl:w-64");
+    // 768px to 1279px: three whole cards and 40% of a fourth, then four whole and 40% of a fifth (EventCard's WIDTH).
+    expect(cardRoot(container)).toHaveClass("md:w-[min(16rem,calc((100vw_-_6.5rem)/3.4))]", "lg:w-[min(16rem,calc((100vw_-_8rem)/4.4))]");
+    // A rail of one or two cards has no next card to show, so it keeps 224px.
+    expect(cardRoot(container)).toHaveClass("in-data-[rail-layout=pair]:md:w-56", "in-data-[rail-layout=pair]:lg:w-56");
     expect(cardRoot(container)).not.toHaveClass("sm:w-full");
     expect(screen.getByRole("heading", { level: 3 })).toHaveClass("text-lg", "leading-6", "line-clamp-2", "break-words");
     const place = container.querySelector("[data-place-lines]");

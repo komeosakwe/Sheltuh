@@ -52,9 +52,11 @@ export function isPairRail(count: number): boolean {
  * places it full width, outside the page column: it runs to both screen
  * edges, its first card starts on the column's edge (`INSET`) and the cards
  * run off the right edge, so a partly visible card says there's more.
- * Fixed-width cards (EventCard `rail`: 62vw up to 240px on phones, 224px
- * from 640px, 256px from 1280px), never stretched to fill a row; the cells stretch to the
- * tallest card, so every card's price and button sit at the same height.
+ * Set-width cards (EventCard `rail`: 62vw up to 240px on phones, 224px
+ * from 640px, 195 to 256px from 768px and 204 to 256px from 1024px so a
+ * fraction of the next card always peeks, 256px from 1280px), never stretched
+ * to fill a row; the cells stretch to the tallest card, so every card's price
+ * and button sit at the same height.
  *
  * Native scrolling: start-aligned mandatory snap (a swipe, wheel or arrow
  * press settles with a card's left edge on the inset line). A rail that

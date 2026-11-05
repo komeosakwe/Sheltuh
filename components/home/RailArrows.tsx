@@ -74,22 +74,36 @@ export function railPageStep(el: HTMLElement): number {
  * inset (where mandatory snapping settles it), within the scroll range; the
  * current position when no card has a size (no layout yet). A rail at rest
  * is already there; one the auto-scroll is drifting usually isn't.
+ *
+ * `keepInView`: an element (the keyboard-focused one) whose card must stay
+ * wholly in view at the position returned, so settling a rail the keyboard
+ * just scrolled never glides the focused card back out of sight; the nearest
+ * card start that does that (the plain nearest if none can).
  */
-export function nearestCardLeft(el: HTMLElement): number {
+export function nearestCardLeft(el: HTMLElement, keepInView?: Element | null): number {
   const max = Math.max(0, el.scrollWidth - el.clientWidth);
   const inset = parseFloat(getComputedStyle(el).paddingInlineStart) || 0;
   const railLeft = el.getBoundingClientRect().left + el.clientLeft;
+  const cards = Array.from(el.children).filter((card): card is HTMLLIElement => card instanceof HTMLLIElement);
+  const kept = keepInView ? cards.find((card) => card.contains(keepInView)) : undefined;
+  const keptBox = kept?.getBoundingClientRect();
+  // The kept card's span in the rail's scrolling coordinates.
+  const keptStart = keptBox ? el.scrollLeft + keptBox.left - railLeft : 0;
+  const keptEnd = keptBox ? keptStart + keptBox.width : 0;
   let best = el.scrollLeft;
   let bestDistance = Infinity;
-  for (const card of Array.from(el.children)) {
-    if (!(card instanceof HTMLLIElement)) continue;
+  let bestKeeps = false;
+  for (const card of cards) {
     const box = card.getBoundingClientRect();
     if (!(box.width > 0)) continue;
     const left = Math.min(max, Math.max(0, el.scrollLeft + box.left - railLeft - inset));
     const distance = Math.abs(left - el.scrollLeft);
-    if (distance < bestDistance) {
+    const keeps = !keptBox || (keptStart >= left && keptEnd <= left + el.clientWidth);
+    // A position that keeps the kept card in view beats any that doesn't; then the nearest.
+    if ((keeps && !bestKeeps) || (keeps === bestKeeps && distance < bestDistance)) {
       best = left;
       bestDistance = distance;
+      bestKeeps = keeps;
     }
   }
   return best;
