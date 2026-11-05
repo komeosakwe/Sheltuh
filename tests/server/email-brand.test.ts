@@ -7,6 +7,7 @@ import { buildEventReminderEmail } from "@/lib/server/event-reminder-email";
 import { button, EMAIL_COLOURS, emailFooterImageUrl, escapeHtml, INK, SIGNAL, supportFooter, WORDMARK_CID } from "@/lib/server/email-layout";
 import { MODERN_COLOURS, ICON_PATHS } from "@/lib/server/email-modern-layout";
 import { buildFollowerNewEventsEmail } from "@/lib/server/follower-email";
+import { DETAILS_NOTICE } from "@/lib/buyer-details";
 import { buildFreeConfirmationEmail } from "@/lib/server/free-confirmation-email";
 import { buildHolderMessageEmail } from "@/lib/server/holder-message-email";
 import { buildInviteEmail } from "@/lib/server/invite-email";
@@ -337,6 +338,14 @@ describe("every transactional email uses the shared brand layout", () => {
     expect(seated.html).toContain("Stalls · Row A · Seat 2");
     expect(seated.html).toContain("only held once you confirm");
     expect(emails.freeConfirmation().html).toContain("Tickets: 2 × General admission");
+  });
+
+  it("the free-ticket confirmation repeats the sharing notice, in both parts: confirming is when the organiser can see the guest", () => {
+    for (const name of ["freeConfirmation", "freeConfirmationSeated"] as const) {
+      const mail = emails[name]();
+      expect(mail.text, name).toContain(DETAILS_NOTICE);
+      expect(mail.html, name).toContain(DETAILS_NOTICE);
+    }
   });
 });
 

@@ -1,6 +1,9 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { confirmFreeOrder } from "@/lib/server/handlers/free-orders";
 import { createCheckout, getOrderBySession, stripeWebhook } from "@/lib/server/handlers/orders";
+import { hasInvisibleOrControl } from "@/lib/server/profile-input";
 import { issueTickets } from "@/lib/server/ticket-issuance";
 import type { EventRecord } from "@/lib/server/types";
 import { embeddedSession, sessionAmount, stripeWebhookRequest, TestApi } from "./helpers/api";
@@ -245,10 +248,99 @@ describe("the database", () => {
 
   it("keeps the pair: a name can't be set or cleared without its notice stamp", async () => {
     await insertWith("buyer_name", ["Dee"]);
-    await expect(api.db.query(`update public.orders set details_notice_at = null`)).rejects.toThrow(/orders_details_notice_pair/);
-    await expect(api.db.query(`update public.orders set buyer_name = null`)).rejects.toThrow(/orders_details_notice_pair/);
+    await expect(api.db.query(`update public.orders set details_notice_at = null`)).rejects.toThrow(/can only be cleared/);
+    await expect(api.db.query(`update public.orders set buyer_name = null`)).rejects.toThrow(/can only be cleared/);
     // The runbook's withdrawal clears both.
     await api.db.query(`update public.orders set buyer_name = null, details_notice_at = null`);
+  });
+
+  describe("orders_details_immutable: details can only be cleared", () => {
+    const stamp = () =>
+      api.db.query<{ buyer_name: string | null; has_stamp: boolean }>(
+        `select buyer_name, details_notice_at is not null as has_stamp from public.orders order by created_at`,
+      );
+
+    it("refuses changing a name, changing the stamp, and adding a name to an order without one", async () => {
+      await insertWith("buyer_name", ["Dee"]);
+      await insertWith("buyer_email", ["x@example.com"]);
+      await expect(api.db.query(`update public.orders set buyer_name = 'Eve' where buyer_name = 'Dee'`)).rejects.toThrow(/can only be cleared/);
+      await expect(
+        api.db.query(`update public.orders set details_notice_at = now() - interval '2 years' where buyer_name = 'Dee'`),
+      ).rejects.toThrow(/can only be cleared/);
+      await expect(
+        api.db.query(`update public.orders set buyer_name = 'Eve', details_notice_at = now() where buyer_name is null`),
+      ).rejects.toThrow(/can only be cleared/);
+      await expect(api.db.query(`update public.orders set buyer_name = 'Eve' where buyer_name is null`)).rejects.toThrow();
+      expect(await stamp()).toEqual([
+        { buyer_name: "Dee", has_stamp: true },
+        { buyer_name: null, has_stamp: false },
+      ]);
+    });
+
+    it("allows clearing both (the withdrawal runbook), and updates that leave them alone", async () => {
+      await insertWith("buyer_name", ["Dee"]);
+      await insertWith("buyer_name", ["Eve"]);
+      await api.db.query(`update public.orders set status = 'failed' where buyer_name = 'Dee'`);
+      await api.db.query(`update public.orders set buyer_name = buyer_name, details_notice_at = details_notice_at`);
+      await api.db.query(`update public.orders set buyer_name = null, details_notice_at = null where buyer_name = 'Dee'`);
+      expect(await stamp()).toEqual([
+        { buyer_name: null, has_stamp: false },
+        { buyer_name: "Eve", has_stamp: true },
+      ]);
+    });
+  });
+
+  describe("orders_buyer_name_check", () => {
+    // The regex as it is written in the migration (a plain string there: standard_conforming_strings is on).
+    const migration = readFileSync(
+      path.resolve(import.meta.dirname, "../../supabase/migrations/20261122000000_order_buyer_details.sql"),
+      "utf8",
+    );
+    const REGEX = /buyer_name !~ '(\[[^']+\])'/.exec(migration)![1];
+
+    it("is written with escapes only: the migration file is pure ASCII", () => {
+      expect([...migration].filter((c) => c.codePointAt(0)! > 0x7e || (c.codePointAt(0)! < 0x20 && c !== "\n" && c !== "\r" && c !== "\t"))).toEqual([]);
+    });
+
+    it("rejects exactly the control, C1, format (Cf), line and paragraph separator characters and U+034F, except the two joiners", async () => {
+      const [{ cps }] = await api.db.query<{ cps: number[] }>(
+        `select coalesce(array_agg(i order by i), '{}') as cps
+           from generate_series(1, 1114111) i where i not between 55296 and 57343 and chr(i) ~ $1`,
+        [REGEX],
+      );
+      const expected: number[] = [];
+      for (let cp = 1; cp <= 0x10ffff; cp++) {
+        if (cp >= 0xd800 && cp <= 0xdfff) continue;
+        if (cp === 0x200c || cp === 0x200d) continue;
+        if (/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(String.fromCodePoint(cp)) || cp === 0x34f) expected.push(cp);
+      }
+      expect(cps).toEqual(expected);
+    });
+
+    it("never refuses what the API would accept (the API is the stricter)", async () => {
+      const [{ cps }] = await api.db.query<{ cps: number[] }>(
+        `select array_agg(i order by i) as cps from generate_series(1, 1114111) i where i not between 55296 and 57343 and chr(i) ~ $1`,
+        [REGEX],
+      );
+      const lenient = cps.filter((cp) => !hasInvisibleOrControl(String.fromCodePoint(cp)));
+      expect(lenient).toEqual([]);
+    });
+
+    it("the table enforces it, on the bidi isolates, the Arabic letter mark and the Mongolian vowel separator too, and allows the joiners", async () => {
+      const event = await publishedEvent(api, organiser, admin, { ticketTypes: TIERS });
+      const insert = (name: string) =>
+        api.db.query(
+          `insert into public.orders (id, event_id, organiser_id, event_title, line_items, subtotal_cents, buyer_fee_cents,
+             total_cents, application_fee_cents, buyer_name)
+           values ($1, $2, $3, 'T', '[]'::jsonb, 0, 0, 0, 0, $4)`,
+          [`ord_${crypto.randomUUID().replace(/-/g, "")}`, event.eventId, event.organiserId, name],
+        );
+      for (const cp of [0x2066, 0x2067, 0x2068, 0x2069, 0x61c, 0x180e, 0x34f, 0x2028, 0x2029, 0xfeff, 0xe0041]) {
+        await expect(insert(`a${String.fromCodePoint(cp)}b`), cp.toString(16)).rejects.toThrow(/orders_buyer_name_check/);
+      }
+      await insert(`a${String.fromCodePoint(0x200c)}b`);
+      await insert(`a${String.fromCodePoint(0x200d)}b`);
+    });
   });
 
   it("the old argument lists still work (the name defaults to none)", async () => {

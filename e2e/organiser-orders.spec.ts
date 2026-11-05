@@ -42,11 +42,15 @@ function page_(items: unknown[], extra: Record<string, unknown> = {}) {
 
 interface Seen {
   lists: URL[];
+  /** Every request URL (any /api path), to prove a search text is never in one. */
+  urls: string[];
+  /** The JSON bodies POSTed to .../orders/search. */
+  searches: { q?: string; cursor?: string; limit?: number }[];
   csv: { authorization?: string }[];
 }
 
 async function mockOrders(page: Page): Promise<Seen> {
-  const seen: Seen = { lists: [], csv: [] };
+  const seen: Seen = { lists: [], urls: [], searches: [], csv: [] };
   const now = Date.now();
   const session = {
     access_token: "e2e.token.x",
@@ -70,6 +74,7 @@ async function mockOrders(page: Page): Promise<Seen> {
   await page.route("**/supabase-mock/**", (route) => route.fulfill({ status: 200, json: {} }));
   await page.route("**/api/**", (route) => {
     const request = route.request();
+    seen.urls.push(request.url());
     const url = new URL(request.url());
     const path = url.pathname;
     if (path === "/api/organisers/me") {
@@ -90,10 +95,13 @@ async function mockOrders(page: Page): Promise<Seen> {
     }
     if (path === `/api/organisers/me/events/${EVENT}/orders`) {
       seen.lists.push(url);
-      const q = url.searchParams.get("q");
-      if (q) return route.fulfill({ json: page_([order(1)], { total: 1 }) });
       if (url.searchParams.get("cursor")) return route.fulfill({ json: page_([order(4)], { total: 4 }) });
       return route.fulfill({ json: page_(FIRST_PAGE, { nextCursor: "c2", total: 4 }) });
+    }
+    if (path === `/api/organisers/me/events/${EVENT}/orders/search` && request.method() === "POST") {
+      const body = request.postDataJSON() as { q?: string; cursor?: string; limit?: number };
+      seen.searches.push(body);
+      return route.fulfill({ json: page_([order(1)], { total: 1 }) });
     }
     if (path === `/api/organisers/me/events/${EVENT}/orders.csv`) {
       seen.csv.push({ authorization: request.headers()["authorization"] });
@@ -145,8 +153,10 @@ test.describe("Orders at 1280×900", () => {
     const count = page.getByRole("main").getByRole("status");
     await search.pressSequentially("buyer", { delay: 30 });
     await expect(count).toHaveText("1 order matches “buyer”.");
-    const searches = seen.lists.filter((u) => u.searchParams.get("q"));
-    expect(searches.map((u) => u.searchParams.get("q"))).toEqual(["buyer"]);
+    expect(seen.searches.map((b) => b.q)).toEqual(["buyer"]);
+    // The text searched for is in the POST body only: no request URL has it, and no GET carries q.
+    expect(seen.urls.filter((u) => u.includes("buyer") || /[?&]q=/.test(u))).toEqual([]);
+    expect(seen.lists.filter((u) => u.searchParams.has("q"))).toEqual([]);
     await expect(table.getByRole("row")).toHaveCount(2);
     await search.fill("");
     await expect(count).toHaveText("4 orders.");

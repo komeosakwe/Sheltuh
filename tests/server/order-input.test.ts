@@ -131,6 +131,44 @@ describe("parseBuyerName", () => {
     expect(fieldError("😀")).toMatch(/letter or number/);
   });
 
+  describe("zero-width joiners", () => {
+    // Built from code points so no invisible character is typed into this file.
+    const ZWNJ = String.fromCodePoint(0x200c);
+    const ZWJ = String.fromCodePoint(0x200d);
+    const PERSIAN = (joiner: string) => `${String.fromCodePoint(0x645, 0x6cc)}${joiner}${String.fromCodePoint(0x62e, 0x648, 0x627, 0x647, 0x645)}`;
+    const DEVANAGARI = (joiner: string) => `${String.fromCodePoint(0x915, 0x94d)}${joiner}${String.fromCodePoint(0x937)}`;
+
+    it("are kept between two letters (Persian) and after a virama before a letter (Indic)", () => {
+      expect(parseBuyerName(PERSIAN(ZWNJ))).toBe(PERSIAN(ZWNJ));
+      expect(parseBuyerName(DEVANAGARI(ZWJ))).toBe(DEVANAGARI(ZWJ));
+      expect(parseBuyerName(`Ana ${PERSIAN(ZWNJ)}`)).toBe(`Ana ${PERSIAN(ZWNJ)}`);
+      expect(parseBuyerName(`a${ZWJ}b`)).toBe(`a${ZWJ}b`);
+    });
+
+    it("are refused anywhere else: leading, trailing, doubled, by a space, a digit or a symbol", () => {
+      const bad = [
+        `${ZWNJ}Ana`,
+        `Ana${ZWNJ}`,
+        `Ana${ZWJ}`,
+        `a${ZWNJ}${ZWNJ}b`,
+        `a${ZWNJ}${ZWJ}b`,
+        `a ${ZWNJ}b`,
+        `a${ZWNJ} b`,
+        `a${ZWJ}1`,
+        `1${ZWJ}a`,
+        `a${ZWNJ}-b`,
+        `${ZWJ}`,
+      ];
+      for (const value of bad) expect(fieldError(value), JSON.stringify(value)).toMatch(/invisible or control/);
+    });
+
+    it("don't make other invisible characters pass", () => {
+      const ZWSP = String.fromCodePoint(0x200b);
+      expect(fieldError(`a${ZWNJ}${ZWSP}b`)).toMatch(/invisible or control/);
+      expect(fieldError(`a${ZWSP}${ZWNJ}b`)).toMatch(/invisible or control/);
+    });
+  });
+
   it("refuses control, invisible and bidi characters", () => {
     for (const bad of ["A\nB", "A\tB", "A\u0000B", "A​B", "A‮B", "A B", "A﻿B", "A­B", "AㅤB", "A⠀B"]) {
       expect(fieldError(bad), JSON.stringify(bad)).toMatch(/invisible or control/);

@@ -209,6 +209,22 @@ describe("EventOrders", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
+  it("says the day's allowance of buyer details is used up, for the list and for an export", async () => {
+    const daily = () => new ApiError(429, "Too much today.", undefined, { code: "daily_limit" });
+    api.getEventOrders.mockResolvedValueOnce(pageOf([order(1)]));
+    api.downloadEventOrdersCsv.mockRejectedValue(daily());
+    renderOrders();
+    await screen.findByRole("table");
+    fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("You’ve viewed a lot of buyer details for this event today. Try again tomorrow.");
+
+    api.getEventOrders.mockRejectedValue(daily());
+    fireEvent.change(screen.getByLabelText("Search orders"), { target: { value: "anna" } });
+    await waitFor(() =>
+      expect(screen.getAllByRole("alert").map((a) => a.textContent).join(" ")).toContain("Try again tomorrow."),
+    );
+  });
+
   it("says Couldn’t load orders. for any other failure", async () => {
     api.getEventOrders.mockRejectedValue(new ApiError(500, "Boom"));
     renderOrders();

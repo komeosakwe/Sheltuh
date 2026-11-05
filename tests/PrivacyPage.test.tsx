@@ -2,6 +2,7 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import PrivacyPage from "@/app/privacy/page";
+import { DETAILS_VISIBLE_MONTHS } from "@/lib/buyer-details";
 
 afterEach(cleanup);
 
@@ -149,6 +150,7 @@ describe("/privacy — What organisers see", () => {
     expect(section).toHaveAttribute("id", "organiser-orders");
     expect(section).toHaveTextContent("Checkout tells you that your name and email are shared with the organiser");
     expect(section).toHaveTextContent("Your name and email address, the tickets you bought, what you paid and when.");
+    expect(section).toHaveTextContent(`for ${DETAILS_VISIBLE_MONTHS} months after the event ends`);
     expect(section).toHaveTextContent("for 12 months after the event ends");
     expect(section).toHaveTextContent("Files they exported are theirs, and we can’t take them back.");
     expect(section).toHaveTextContent("Organisers may use these details only for that event.");

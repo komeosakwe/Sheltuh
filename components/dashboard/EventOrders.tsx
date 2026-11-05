@@ -41,13 +41,22 @@ interface Loaded {
   nextCursor?: string;
 }
 
+const DAILY_LIMIT_MESSAGE = "You’ve viewed a lot of buyer details for this event today. Try again tomorrow.";
+
+/** A 429 that is today's allowance of buyer details, not the short-term rate limit. */
+function isDailyLimit(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 429 && error.body?.code === "daily_limit";
+}
+
 function readError(error: unknown): string {
+  if (isDailyLimit(error)) return DAILY_LIMIT_MESSAGE;
   if (error instanceof ApiError && error.status === 429) return "Too many searches. Wait a few minutes, then try again.";
   return "Couldn’t load orders.";
 }
 
 function exportError(error: unknown): string {
   if (error instanceof ApiError && error.status === 401) return "Your session has ended. Sign in again to export.";
+  if (isDailyLimit(error)) return DAILY_LIMIT_MESSAGE;
   if (error instanceof ApiError && error.status === 429) return "Too many exports. Try again in an hour.";
   if (error instanceof ApiError && error.status === 409) return error.message;
   return "Couldn’t prepare the file. Try again.";

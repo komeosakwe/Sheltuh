@@ -451,8 +451,8 @@ SQL: an `update tickets set checked_in_at = null` would leave no record.
 ### Organiser orders: export audit and withdrawing someone's details
 
 `20261122000000_order_buyer_details.sql` adds `orders.buyer_name` and
-`details_notice_at`, the audit table `private.order_detail_exports` and the
-functions behind the organiser's Orders view (docs/architecture.md,
+`details_notice_at`, the audit tables `private.order_detail_exports` and
+`private.order_detail_views` and the functions behind the organiser's Orders view (docs/architecture.md,
 "Organiser orders"). It's additive (no existing row changes, nothing is
 backfilled: orders made before it are never shared) and replaces the order
 functions with versions that take a trailing, optional `p_buyer_name`.
@@ -468,6 +468,18 @@ left join public.organisers o on o.id = x.organiser_id
 where x.event_id = '<event id>' order by x.id desc limit 50;
 ```
 
+How much buyer detail an account has been served for an event, by day (page
+reads and exports together; the daily budget is 25,000 rows per account per
+event per UTC day, `EVENT_ORDERS_LIMITS.dailyRows`). No buyer data:
+
+```sql
+select v.day, v.rows_served, v.requests, u.email as read_by, o.display_name as organiser
+from private.order_detail_views v
+left join auth.users u on u.id = v.actor_id
+left join public.organisers o on o.id = v.organiser_id
+where v.event_id = '<event id>' order by v.day desc, v.rows_served desc limit 50;
+```
+
 **Withdrawing someone's details.** A buyer who asks (by email to support)
 for their name and email to stop being shown to the organiser: verify the
 request comes from that address, then clear the name and the notice stamp on
@@ -481,7 +493,8 @@ where lower(buyer_email) = lower('<address>');
 ```
 
 The two columns are set and cleared together (`orders_details_notice_pair`),
-so clearing only one fails. A paid guest's `buyer_email` is the address Stripe's
+so clearing only one fails, and once set they can't be changed or set later,
+only cleared (the `orders_details_immutable` trigger). A paid guest's `buyer_email` is the address Stripe's
 form collected; a name given for an order whose email differs is cleared only
 by the order's own address.
 

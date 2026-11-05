@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import ContentPage, { ContentSection } from "@/components/ContentPage";
+import { DETAILS_VISIBLE_MONTHS } from "@/lib/buyer-details";
 import { SUPPORT_EMAIL } from "@/lib/contact";
 
 export const metadata: Metadata = { title: "Privacy Policy — Sheltüh" };
@@ -197,7 +198,7 @@ export default function PrivacyPage() {
         <ul>
           <li>Your name and email address, the tickets you bought, what you paid and when.</li>
           <li>
-            That, for 12 months after the event ends. Then it&rsquo;s removed from their view.
+            That, for {DETAILS_VISIBLE_MONTHS} months after the event ends. Then it&rsquo;s removed from their view.
             Files they exported are theirs, and we can&rsquo;t take them back.
           </li>
         </ul>

@@ -165,6 +165,7 @@ describe("Data API lock-out", () => {
       { table_name: "holder_messages", rls: true },
       { table_name: "onboarding_emails", rls: true },
       { table_name: "order_detail_exports", rls: true },
+      { table_name: "order_detail_views", rls: true },
       { table_name: "organiser_event_announcements", rls: true },
       { table_name: "organiser_follow_tokens", rls: true },
       { table_name: "organiser_invite_links", rls: true },
@@ -336,7 +337,9 @@ describe("Data API lock-out", () => {
       "request_free_order",
       "request_free_seated_order",
       "record_order_export",
+      "take_order_detail_budget",
       "orders_details_notice",
+      "orders_details_immutable",
     ];
     // request_free_order keeps its 13-argument delegating form for the previous release.
     expect(await privateFunctions(names)).toEqual(locked(names, { request_free_order: 2 }));

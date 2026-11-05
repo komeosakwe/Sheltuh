@@ -1,4 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { DETAILS_VISIBLE_MONTHS } from "@/lib/buyer-details";
 import { adminSuspendOrganiser } from "@/lib/server/handlers/admin";
 import { adminCreateEvent, adminCreateOrganiser } from "@/lib/server/handlers/admin-authoring";
 import {
@@ -6,6 +7,7 @@ import {
   getEventOrders,
   getEventOrdersCsv,
   MAX_EXPORT_ROWS,
+  searchEventOrders,
 } from "@/lib/server/handlers/event-orders";
 import { confirmFreeOrder } from "@/lib/server/handlers/free-orders";
 import { createCheckout, stripeWebhook } from "@/lib/server/handlers/orders";
@@ -52,8 +54,37 @@ afterEach(() => {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const list = (token: string | undefined, query: Record<string, string> = {}, eventId = event.eventId) =>
-  api.call(getEventOrders, { token, params: { eventId }, query });
+/** A plain page (GET), or, when `q` is given, a search (POST with the text in the body: never in a URL). */
+const list = (token: string | undefined, query: Record<string, string> = {}, eventId = event.eventId) => {
+  const { q, cursor, limit } = query;
+  if (q === undefined) return api.call(getEventOrders, { token, params: { eventId }, query });
+  return api.call(searchEventOrders, {
+    token,
+    params: { eventId },
+    body: { q, ...(cursor ? { cursor } : {}), ...(limit ? { limit: Number(limit) } : {}) },
+  });
+};
+
+const search = (token: string | undefined, body: unknown, eventId = event.eventId) =>
+  api.call(searchEventOrders, { token, params: { eventId }, body });
+
+/** Rows served today, by the budget's aggregate. */
+const served = async () =>
+  (
+    await api.db.query<{ rows_served: number; requests: number }>(
+      `select rows_served, requests from private.order_detail_views where actor_id = $1 and event_id = $2 and day = (now() at time zone 'UTC')::date`,
+      [organiser.userId, event.eventId],
+    )
+  )[0];
+
+/** Today's served count for the organiser and event, set directly. */
+const setServed = (rows: number, dayOffset = 0) =>
+  api.db.query(
+    `insert into private.order_detail_views (actor_id, event_id, organiser_id, day, rows_served, requests)
+     values ($1, $2, $3, (now() at time zone 'UTC')::date + $5::int, $4, 1)
+     on conflict (actor_id, event_id, day) do update set rows_served = excluded.rows_served`,
+    [organiser.userId, event.eventId, organiser.organiserId, rows, dayOffset],
+  );
 
 async function csv(token: string | undefined, eventId = event.eventId) {
   const res = await runHandler(
@@ -150,9 +181,11 @@ describe("who can see an event's orders", () => {
     expect(res.body.items).toHaveLength(1);
     expect((await list(undefined)).status).toBe(401);
     expect((await csv(undefined)).status).toBe(401);
+    expect((await search(undefined, { q: "buyer" })).status).toBe(401);
     const stranger = await api.signUp();
     expect((await list(stranger.token)).status).toBe(403);
     expect((await csv(stranger.token)).status).toBe(403);
+    expect((await search(stranger.token, { q: "buyer" })).status).toBe(403);
     const pending = await api.signUp();
     await api.db.query(`insert into public.organisers (owner_user_id, display_name, contact_email, description, categories, status)
       values ($1, 'Pending', 'p@example.com', 'x', '{live-music}', 'pending')`, [pending.userId]);
@@ -170,9 +203,11 @@ describe("who can see an event's orders", () => {
     ] as const) {
       const res = await list(token, {}, eventId);
       expect([res.status, res.body.error]).toEqual([404, "Event not found."]);
+      expect((await search(token, { q: "buyer" }, eventId)).status).toBe(404);
       expect((await csv(token, eventId)).status).toBe(404);
     }
     expect(await api.db.query(`select 1 from private.order_detail_exports`)).toEqual([]);
+    expect(await api.db.query(`select 1 from private.order_detail_views`)).toEqual([]);
   });
 
   it("an admin gets 404 for an organiser's event, and can see a platform-managed organiser's", async () => {
@@ -208,12 +243,14 @@ describe("who can see an event's orders", () => {
     await addOrder();
     expect((await api.call(adminSuspendOrganiser, { token: admin.token, params: { organiserId: organiser.organiserId }, body: { reason: "Impersonating a venue." } })).status).toBe(200);
     expect((await list(organiser.token)).status).toBe(403);
+    expect((await search(organiser.token, { q: "x" })).status).toBe(403);
     expect((await csv(organiser.token)).status).toBe(403);
   });
 
   it("every response is private, no-store", async () => {
     await addOrder();
     expect((await list(organiser.token)).headers.get("cache-control")).toBe("private, no-store");
+    expect((await list(organiser.token, { q: "buyer" })).headers.get("cache-control")).toBe("private, no-store");
     const file = await csv(organiser.token);
     expect(file.headers.get("cache-control")).toBe("private, no-store");
     expect(file.headers.get("content-type")).toBe("text/csv; charset=utf-8");
@@ -355,15 +392,15 @@ describe("which orders are listed, and what they show", () => {
 });
 
 describe("how long the details are shown", () => {
-  it("until 12 months after the event ends; then both are null (the order stays)", async () => {
+  it("until DETAILS_VISIBLE_MONTHS (12) months after the event ends; then both are null (the order stays)", async () => {
     await addOrder({ name: "Dee Lee", email: "dee@example.com" });
     const before = await list(organiser.token);
     expect(before.body.items[0]).toMatchObject({ buyerName: "Dee Lee", buyerEmail: "dee@example.com" });
 
-    await endEventMonthsAgo(11, 25);
+    await endEventMonthsAgo(DETAILS_VISIBLE_MONTHS - 1, 25);
     expect((await list(organiser.token)).body.items[0]).toMatchObject({ buyerName: "Dee Lee", buyerEmail: "dee@example.com" });
 
-    await endEventMonthsAgo(12, 1);
+    await endEventMonthsAgo(DETAILS_VISIBLE_MONTHS, 1);
     const after = await list(organiser.token);
     expect(after.body.items).toMatchObject([{ buyerName: null, buyerEmail: null, status: "paid", paidCents: 3000 }]);
     expect(Date.parse(after.body.detailsVisibleUntil)).toBeLessThan(Date.now());
@@ -372,12 +409,13 @@ describe("how long the details are shown", () => {
     expect(file).not.toContain("dee@example.com");
   });
 
-  it("detailsVisibleUntil follows the event's end (12 months later, exactly)", async () => {
+  it("detailsVisibleUntil follows the event's end (DETAILS_VISIBLE_MONTHS later, exactly), and the shared constant is the owner's 12", async () => {
+    expect(DETAILS_VISIBLE_MONTHS).toBe(12);
     await endEventMonthsAgo(2, 3);
     const res = await list(organiser.token);
     const [{ until }] = await api.db.query<{ until: string }>(
-      `select to_char((ends_at at time zone 'UTC') + interval '12 months', 'YYYY-MM-DD"T"HH24:MI:SS') as until from public.events where id = $1`,
-      [event.eventId],
+      `select to_char((ends_at at time zone 'UTC') + make_interval(months => $2), 'YYYY-MM-DD"T"HH24:MI:SS') as until from public.events where id = $1`,
+      [event.eventId, DETAILS_VISIBLE_MONTHS],
     );
     expect(res.body.detailsVisibleUntil.slice(0, 19)).toBe(until);
     expect(res.body.event.endsAt).not.toBe(event.endsAt);
@@ -385,7 +423,7 @@ describe("how long the details are shown", () => {
 
   it("hidden details can't be found by searching for them; the reference still can", async () => {
     const id = await addOrder({ name: "Zed Hidden", email: "zed@example.com" });
-    await endEventMonthsAgo(13);
+    await endEventMonthsAgo(DETAILS_VISIBLE_MONTHS + 1);
     for (const q of ["Zed", "zed@example.com", "example.com"]) {
       expect((await list(organiser.token, { q })).body).toMatchObject({ items: [], total: 0 });
     }
@@ -478,8 +516,154 @@ describe("search", () => {
   });
 
   it("long text is cut at 100 characters and control characters are ignored", async () => {
-    expect((await list(organiser.token, { q: "x".repeat(5000) })).status).toBe(200);
+    expect((await list(organiser.token, { q: "x".repeat(1500) })).status).toBe(200);
     expect(await names("dee\u0000 lee")).toEqual(["Dee Lee"]);
+  });
+});
+
+describe("the search request", () => {
+  beforeEach(async () => {
+    await addOrder({ name: "Dee Lee", email: "dee@example.com", age: 200 });
+    await addOrder({ name: "Eve Fox", email: "eve@example.com", age: 100 });
+  });
+
+  it("a search text in the URL of the GET is a 400 and serves nothing (it would reach request logs)", async () => {
+    const res = await api.call(getEventOrders, { token: organiser.token, params: { eventId: event.eventId }, query: { q: "dee" } });
+    expect(res.status).toBe(400);
+    expect(res.body.fieldErrors.q).toBeTruthy();
+    expect(JSON.stringify(res.body)).not.toContain("dee@example.com");
+    expect(await served()).toBeUndefined();
+  });
+
+  it("no body, or no q, is the plain list; q, cursor and limit come from the JSON body", async () => {
+    expect((await search(organiser.token, {})).body.total).toBe(2);
+    const first = await search(organiser.token, { q: "example.com", limit: 1 });
+    expect(first.body.items.map((i: { buyerName: string }) => i.buyerName)).toEqual(["Eve Fox"]);
+    expect(first.body.nextCursor).toBeTruthy();
+    const second = await search(organiser.token, { q: "example.com", limit: 1, cursor: first.body.nextCursor });
+    expect(second.body.items.map((i: { buyerName: string }) => i.buyerName)).toEqual(["Dee Lee"]);
+    expect(second.body.nextCursor).toBeUndefined();
+    expect((await search(organiser.token, { q: null })).body.total).toBe(2);
+  });
+
+  it("a malformed body is a 400: q, cursor and limit must be a string, a string and a number", async () => {
+    for (const [body, field] of [
+      [{ q: 5 }, "q"],
+      [{ q: { $ne: "" } }, "q"],
+      [{ limit: "20" }, "limit"],
+    ] as const) {
+      const res = await search(organiser.token, body);
+      expect([res.status, Object.keys(res.body.fieldErrors ?? {})], JSON.stringify(body)).toEqual([400, [field]]);
+    }
+    expect((await search(organiser.token, { cursor: 7 })).status).toBe(400);
+    expect((await search(organiser.token, { cursor: "not-a-cursor" })).status).toBe(400);
+    expect(await served()).toBeUndefined();
+  });
+
+  it("a body over 2 KB is refused", async () => {
+    expect((await search(organiser.token, { q: "x".repeat(5000) })).status).toBe(413);
+  });
+});
+
+describe("the daily budget of buyer details", () => {
+  beforeEach(async () => {
+    await addOrder({ name: "Dee Lee", email: "dee@example.com", age: 200 });
+    await addOrder({ name: "Eve Fox", email: "eve@example.com", age: 100 });
+  });
+
+  it("is 25,000 rows per account per event per day, shared by the list, the search and the export", () => {
+    expect(EVENT_ORDERS_LIMITS.dailyRows).toBe(25_000);
+    // One full export fits with room for paging.
+    expect(EVENT_ORDERS_LIMITS.dailyRows).toBeGreaterThan(MAX_EXPORT_ROWS);
+  });
+
+  it("every page adds the rows it served, and the request, to one aggregate row", async () => {
+    await list(organiser.token);
+    expect(await served()).toEqual({ rows_served: 2, requests: 1 });
+    await list(organiser.token, { q: "dee" });
+    expect(await served()).toEqual({ rows_served: 3, requests: 2 });
+    await list(organiser.token, { limit: "1" });
+    expect(await served()).toEqual({ rows_served: 4, requests: 3 });
+    // An empty page serves nothing and writes nothing.
+    await list(organiser.token, { q: "nobody" });
+    expect(await served()).toEqual({ rows_served: 4, requests: 3 });
+    expect(await api.db.query(`select count(*)::int as n from private.order_detail_views`)).toEqual([{ n: 1 }]);
+  });
+
+  it("holds no buyer data", async () => {
+    await list(organiser.token);
+    const cols = await api.db.query<{ c: string[] }>(
+      `select array_agg(column_name::text order by ordinal_position) as c from information_schema.columns
+        where table_schema = 'private' and table_name = 'order_detail_views'`,
+    );
+    expect(cols[0].c).toEqual(["actor_id", "event_id", "organiser_id", "day", "rows_served", "requests"]);
+    const [row] = await api.db.query(`select row_to_json(v)::text as j from private.order_detail_views v`);
+    expect(JSON.stringify(row)).not.toMatch(/Dee|dee@|Eve|eve@/);
+  });
+
+  it("a page that would pass the day's budget is a 429 daily_limit with no details and nothing counted", async () => {
+    await setServed(EVENT_ORDERS_LIMITS.dailyRows - 1);
+    const res = await list(organiser.token);
+    expect([res.status, res.body.code]).toEqual([429, "daily_limit"]);
+    expect(JSON.stringify(res.body)).not.toMatch(/Dee|dee@|Eve|eve@/);
+    expect(await served()).toMatchObject({ rows_served: EVENT_ORDERS_LIMITS.dailyRows - 1 });
+    // The search is shared, and a page that fits still goes.
+    expect((await list(organiser.token, { q: "dee" })).status).toBe(200);
+    expect(await served()).toMatchObject({ rows_served: EVENT_ORDERS_LIMITS.dailyRows });
+    expect((await list(organiser.token, { q: "eve" })).body.code).toBe("daily_limit");
+  });
+
+  it("the export is counted too, and refused when the day's budget can't take its rows: no file, no audit row", async () => {
+    await setServed(EVENT_ORDERS_LIMITS.dailyRows - 1);
+    const refused = await csv(organiser.token);
+    expect(refused.status).toBe(429);
+    expect(JSON.parse(refused.text).code).toBe("daily_limit");
+    expect(refused.text).not.toMatch(/Dee|dee@|Eve|eve@/);
+    expect(await api.db.query(`select 1 from private.order_detail_exports`)).toEqual([]);
+
+    await setServed(EVENT_ORDERS_LIMITS.dailyRows - 2);
+    expect((await csv(organiser.token)).status).toBe(200);
+    expect(await served()).toMatchObject({ rows_served: EVENT_ORDERS_LIMITS.dailyRows });
+    expect(await api.db.query(`select row_count from private.order_detail_exports`)).toEqual([{ row_count: 2 }]);
+  });
+
+  it("is per day, per event and per account", async () => {
+    await setServed(EVENT_ORDERS_LIMITS.dailyRows, -1); // yesterday's use doesn't count
+    expect((await list(organiser.token)).status).toBe(200);
+    expect(await served()).toEqual({ rows_served: 2, requests: 1 });
+
+    await setServed(EVENT_ORDERS_LIMITS.dailyRows);
+    expect((await list(organiser.token)).status).toBe(429);
+    // Another event of the same organiser.
+    const other = await publishedEvent(api, organiser, admin, { ticketTypes: TIERS, title: "Second Night" });
+    await addOrder({ eventId: other.eventId });
+    expect((await list(organiser.token, {}, other.eventId)).status).toBe(200);
+    // Another account (an admin acting for a platform-managed organiser has its own row).
+    expect(await api.db.query(`select count(*)::int as n from private.order_detail_views where actor_id <> $1`, [organiser.userId])).toEqual([{ n: 0 }]);
+  });
+
+  it("fails closed: if the count can't be recorded, nothing is served", async () => {
+    await api.db.query(`alter table private.order_detail_views rename to order_detail_views_away`);
+    try {
+      const res = await list(organiser.token);
+      expect(res.status).toBe(500);
+      expect(JSON.stringify(res.body)).not.toMatch(/Dee|dee@|Eve|eve@/);
+      const exported = await csv(organiser.token);
+      expect(exported.status).toBe(500);
+      expect(exported.text).not.toMatch(/Dee|dee@|Eve|eve@/);
+      expect(await api.db.query(`select 1 from private.order_detail_exports`)).toEqual([]);
+    } finally {
+      await api.db.query(`alter table private.order_detail_views_away rename to order_detail_views`);
+    }
+  });
+
+  it("concurrent pages can't overshoot the budget", async () => {
+    await setServed(EVENT_ORDERS_LIMITS.dailyRows - 6);
+    const results = await Promise.all(Array.from({ length: 6 }, () => list(organiser.token)));
+    // Each page serves 2 rows: three fit, three don't.
+    expect(results.filter((r) => r.status === 200)).toHaveLength(3);
+    expect(results.filter((r) => r.status === 429)).toHaveLength(3);
+    expect((await served()).rows_served).toBe(EVENT_ORDERS_LIMITS.dailyRows);
   });
 });
 
@@ -563,6 +747,9 @@ describe("rate limits", () => {
     const file = await csv(organiser.token);
     expect(file.status).toBe(409);
     expect(await api.db.query(`select 1 from private.order_detail_exports`)).toEqual([]);
+    // Refused on the count alone: before the export's rate limit was taken, and before any row was read or counted.
+    expect(await api.db.query(`select 1 from private.rate_limits where bucket = 'order_exports'`)).toEqual([]);
+    expect(await api.db.query(`select 1 from private.order_detail_views`)).toEqual([]);
     // The page still works.
     expect((await list(organiser.token)).body.total).toBe(MAX_EXPORT_ROWS + 1);
   });

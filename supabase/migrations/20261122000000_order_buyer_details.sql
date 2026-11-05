@@ -33,10 +33,18 @@
 --     the link was requested.
 --   * private.order_detail_exports: an audit row for every CSV export of an
 --     event's orders (who, which event, how many rows, when). No buyer data.
---     private.record_order_export takes the export's rate limit and writes
---     the row in one step, so an export that is refused leaves no row and an
---     export without a row is never served (the API only sends the file once
---     this has returned 'recorded').
+--     private.order_detail_views: the same for page reads, as one row per
+--     account, event and UTC day with the number of rows served. Both feed one
+--     shared daily budget of detail rows per account per event
+--     (private.take_order_detail_budget; the API passes the limit, 25,000), so
+--     reading names and emails page by page can't get round the export's
+--     limits. private.record_order_export takes the export's rate limit and
+--     the budget and writes the audit row in one step, so an export that is
+--     refused leaves no row and an export without a row is never served (the
+--     API only sends the file once this has returned 'recorded').
+--   * The orders_details_immutable trigger: once an order has a name it can
+--     only be cleared (both columns to null: the withdrawal runbook), never
+--     changed or set later, so the notice stamp can't be forged by an update.
 --
 -- Access model as everywhere else: the table has RLS on and no policies, no
 -- grants to anon or authenticated; every function pins its search_path and
@@ -44,9 +52,11 @@
 -- orders: the list reads one event's orders through orders_event_idx
 -- (event_id), a set bounded by that event's sales.
 --
--- Reversible: drop the trigger orders_details_notice and its function,
--- the two constraints and the two columns of public.orders; drop
--- private.record_order_export and private.order_detail_exports; restore the
+-- Reversible: drop the triggers orders_details_notice and
+-- orders_details_immutable and their functions, the two constraints and the
+-- two columns of public.orders; drop private.record_order_export,
+-- private.take_order_detail_budget, private.order_detail_views and
+-- private.order_detail_exports; restore the
 -- five functions from the files named above (dropping the new signatures
 -- first). Dropping the columns discards the names collected since: not
 -- destructive to any data that existed before this file.
@@ -58,7 +68,12 @@ alter table public.orders
     check (
       char_length(buyer_name) between 1 and 80
       and buyer_name = btrim(buyer_name)
-      and buyer_name !~ '[\x01-\x1f\x7f-\x9f­​-‏ -‮⁠-⁤﻿]'
+      -- Escapes only (\uXXXX and \UXXXXXXXX are fixed-width, unlike \x), so no invisible character is ever typed
+      -- into this file: control and C1 characters, every Unicode format character
+      -- (Cf), the line and paragraph separators and the combining grapheme joiner.
+      -- U+200C and U+200D (joiners that real Persian and Indic names need) are left
+      -- out here; the API allows them only between two letters.
+      and buyer_name !~ '[\u0001-\u001F\u007F-\u009F\u00AD\u034F\u0600-\u0605\u061C\u06DD\u070F\u0890-\u0891\u08E2\u180E\u200B\u200E-\u200F\u2028-\u202E\u2060-\u2064\u2066-\u206F\uFEFF\uFFF9-\uFFFB\U000110BD\U000110CD\U00013430-\U0001343F\U0001BCA0-\U0001BCA3\U0001D173-\U0001D17A\U000E0001\U000E0020-\U000E007F]'
     ),
   add constraint orders_details_notice_pair
     check ((buyer_name is null) = (details_notice_at is null));
@@ -79,6 +94,31 @@ revoke all on function private.orders_details_notice() from public, anon, authen
 
 create trigger orders_details_notice before insert on public.orders
   for each row execute function private.orders_details_notice();
+
+-- Once set, the name and its notice stamp can only be cleared together (the
+-- withdrawal runbook, docs/supabase-setup.md): no change, and no name added to
+-- an order that was made without one. Fires only for updates that list one of
+-- the two columns, so the many other updates of orders are untouched.
+create function private.orders_details_immutable() returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if new.buyer_name is not distinct from old.buyer_name
+     and new.details_notice_at is not distinct from old.details_notice_at then
+    return new;
+  end if;
+  if new.buyer_name is null and new.details_notice_at is null then
+    return new;
+  end if;
+  raise exception 'buyer details can only be cleared' using errcode = '23514';
+end;
+$$;
+
+revoke all on function private.orders_details_immutable() from public, anon, authenticated;
+
+create trigger orders_details_immutable before update of buyer_name, details_notice_at on public.orders
+  for each row execute function private.orders_details_immutable();
 
 -- ---------------------------------------------------------------------------
 -- Seated holds
@@ -417,11 +457,64 @@ create index order_detail_exports_event_idx on private.order_detail_exports (eve
 alter table private.order_detail_exports enable row level security;
 revoke all on private.order_detail_exports from public, anon, authenticated;
 
--- Takes one hit of the account's 'order_exports' limit (p_limit per p_window)
--- and, within it, writes the audit row, in one step. Returns 'recorded', or
--- 'rate_limited' (nothing written beyond the hit, which stays counted).
+-- One row per account, event and UTC day: how many rows of buyer details the
+-- account has been served for the event (page reads and exports together) and
+-- in how many requests. The shared daily budget reads and writes it. actor_id
+-- is a plain uuid (it is part of the key, so no foreign key and no null); it
+-- and the other ids are no buyer data. Read by hand (docs/supabase-setup.md).
+create table private.order_detail_views (
+  actor_id uuid not null,
+  event_id uuid not null,
+  organiser_id uuid not null,
+  day date not null,
+  rows_served integer not null check (rows_served >= 0),
+  requests integer not null check (requests >= 0),
+  primary key (actor_id, event_id, day)
+);
+
+alter table private.order_detail_views enable row level security;
+revoke all on private.order_detail_views from public, anon, authenticated;
+
+-- Adds p_rows to the account's served rows for this event today, unless that
+-- would pass p_daily_limit: then nothing is written and it returns false (the
+-- caller serves nothing). One atomic upsert, so concurrent requests can't
+-- overshoot. Nothing is written for 0 rows.
+create function private.take_order_detail_budget(
+  p_actor uuid, p_event_id uuid, p_organiser_id uuid, p_rows integer, p_daily_limit integer
+) returns boolean
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if p_rows is null or p_rows < 0 then
+    raise exception 'rows must be 0 or more' using errcode = '22023';
+  end if;
+  if p_rows = 0 then
+    return true;
+  end if;
+  if p_rows > p_daily_limit then
+    return false;
+  end if;
+  insert into private.order_detail_views as v (actor_id, event_id, organiser_id, day, rows_served, requests)
+  values (p_actor, p_event_id, p_organiser_id, (now() at time zone 'UTC')::date, p_rows, 1)
+  on conflict (actor_id, event_id, day) do update
+     set rows_served = v.rows_served + excluded.rows_served, requests = v.requests + 1
+   where v.rows_served + excluded.rows_served <= p_daily_limit;
+  return found;
+end;
+$$;
+
+revoke all on function private.take_order_detail_budget(uuid, uuid, uuid, integer, integer)
+  from public, anon, authenticated;
+
+-- Takes one hit of the account's 'order_exports' limit (p_limit per p_window),
+-- then p_rows of the event's daily budget (p_daily_rows), and, within both,
+-- writes the audit row, in one step. Returns 'recorded', 'rate_limited' or
+-- 'budget_exceeded' (nothing written beyond the rate-limit hit, which stays
+-- counted).
 create function private.record_order_export(
-  p_actor uuid, p_event_id uuid, p_organiser_id uuid, p_rows integer, p_limit integer, p_window interval
+  p_actor uuid, p_event_id uuid, p_organiser_id uuid, p_rows integer, p_limit integer, p_window interval,
+  p_daily_rows integer
 ) returns text
 language plpgsql
 set search_path = ''
@@ -430,11 +523,14 @@ begin
   if not private.take_rate_limit(p_actor, 'order_exports', p_limit, p_window) then
     return 'rate_limited';
   end if;
+  if not private.take_order_detail_budget(p_actor, p_event_id, p_organiser_id, p_rows, p_daily_rows) then
+    return 'budget_exceeded';
+  end if;
   insert into private.order_detail_exports (event_id, organiser_id, actor_id, row_count)
   values (p_event_id, p_organiser_id, p_actor, p_rows);
   return 'recorded';
 end;
 $$;
 
-revoke all on function private.record_order_export(uuid, uuid, uuid, integer, integer, interval)
+revoke all on function private.record_order_export(uuid, uuid, uuid, integer, integer, interval, integer)
   from public, anon, authenticated;

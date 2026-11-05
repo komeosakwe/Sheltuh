@@ -16,14 +16,29 @@ function stub(body: BodyInit | null, status = 200, type = "application/json") {
 const getToken = async () => "tok";
 
 describe("getEventOrders", () => {
-  it("asks for the event's orders with the token, and only the query parts given", async () => {
+  it("pages with a GET and only the query parts given", async () => {
     const fetch = stub(JSON.stringify({ items: [], total: 0 }));
-    await getEventOrders("evt 1", getToken, { q: "anna & co", cursor: "c1", limit: 20 });
+    await getEventOrders("evt 1", getToken, { cursor: "c1", limit: 20 });
     const [url, init] = fetch.mock.calls[0];
-    expect(url).toBe("/api/organisers/me/events/evt%201/orders?q=anna+%26+co&cursor=c1&limit=20");
+    expect(url).toBe("/api/organisers/me/events/evt%201/orders?cursor=c1&limit=20");
+    expect(init.method ?? "GET").toBe("GET");
     expect(init.headers.authorization).toBe("Bearer tok");
     await getEventOrders("evt-1", getToken);
     expect(fetch.mock.calls[1][0]).toBe("/api/organisers/me/events/evt-1/orders");
+  });
+
+  it("searches with a POST: the text is in the body and never in the URL", async () => {
+    const fetch = stub(JSON.stringify({ items: [], total: 0 }));
+    await getEventOrders("evt 1", getToken, { q: "anna & co@example.com", cursor: "c1", limit: 20 });
+    const [url, init] = fetch.mock.calls[0];
+    expect(url).toBe("/api/organisers/me/events/evt%201/orders/search");
+    expect(url).not.toContain("anna");
+    expect(url).not.toContain("q=");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({ q: "anna & co@example.com", cursor: "c1", limit: 20 });
+    expect(init.headers.authorization).toBe("Bearer tok");
+    await getEventOrders("evt-1", getToken, { q: "x" });
+    expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ q: "x" });
   });
 
   it("rejects with the API's status", async () => {

@@ -4,6 +4,7 @@ import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import FreeOrderConfirm from "@/components/FreeOrderConfirm";
 import { ApiError } from "@/lib/api/client";
+import { DETAILS_NOTICE } from "@/lib/buyer-details";
 
 const confirmFreeOrder = vi.fn();
 vi.mock("@/lib/api/orders", () => ({
@@ -46,6 +47,13 @@ describe("FreeOrderConfirm", () => {
   beforeEach(() => {
     vi.stubGlobal("location", { ...window.location, assign, hash: `#token=${TOKEN}`, pathname: "/checkout/confirm", search: "" });
     vi.spyOn(window.history, "replaceState").mockImplementation(() => {});
+  });
+
+  it("says the name and email are shared with the organiser, before the button", async () => {
+    render(<FreeOrderConfirm />);
+    const button = await screen.findByRole("button", { name: "Confirm" });
+    const notice = screen.getByText(DETAILS_NOTICE);
+    expect(notice.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("confirms only when the button is pressed, then goes to the tickets", async () => {

@@ -106,6 +106,15 @@ export function refuseSupportOnFreeOrder(supportCents: number, subtotalCents: nu
   }
 }
 
+/**
+ * Zero-width non-joiner and joiner: invisible, so refused in a name, except
+ * where a real name needs them (Persian names and words, Indic conjuncts): a joiner
+ * between two letters, or after a letter's combining mark (a virama) and
+ * before a letter. Stripped before the invisible-character check; the name
+ * keeps them. The database allows them anywhere (the API is the stricter).
+ */
+const JOINER_BETWEEN_LETTERS = /(?<=[\p{L}\p{M}])[\u200C\u200D](?=\p{L})/gu;
+
 /** The longest buyer name (orders_buyer_name_check counts code points too). */
 export const BUYER_NAME_MAX_LENGTH = 80;
 
@@ -117,14 +126,17 @@ export const BUYER_NAME_MAX_LENGTH = 80;
  * optional for one release). Otherwise cleaned (Unicode NFC, spaces
  * collapsed, trimmed) and checked: a string of 1 to BUYER_NAME_MAX_LENGTH
  * characters (code points) with at least one letter or number, no control or
- * invisible characters, no stacked combining marks, and no "@" or links, else
+ * invisible characters (a zero-width joiner is allowed between two letters),
+ * no stacked combining marks, and no "@" or links, else
  * 400 `fieldErrors.buyerName`. A whitespace-only name is a 400 too (it was
  * sent, and isn't a name), not silently dropped.
  */
 export function parseBuyerName(value: unknown): string | null {
   if (value === undefined || value === null || value === "") return null;
   if (typeof value !== "string") fail({ buyerName: "Enter your name." });
-  if (hasInvisibleOrControl(value)) fail({ buyerName: "Names can't contain invisible or control characters." });
+  if (hasInvisibleOrControl(value.replace(JOINER_BETWEEN_LETTERS, ""))) {
+    fail({ buyerName: "Names can't contain invisible or control characters." });
+  }
   const name = value.normalize("NFC").replace(/\p{Zs}+/gu, " ").trim();
   const length = Array.from(name).length;
   if (length === 0) fail({ buyerName: "Enter your name." });

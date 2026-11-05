@@ -6,6 +6,7 @@ import { runEmailOutboxCron } from "@/lib/server/handlers/email-outbox";
 import { acceptInvite, adminCreateInvite } from "@/lib/server/handlers/invites";
 import { joinWithOrganiserLink, adminCreateOrganiserLink } from "@/lib/server/handlers/organiser-links";
 import { applyAsOrganiser, resubmitOrganiser } from "@/lib/server/handlers/organisers";
+import { DETAILS_VISIBLE_MONTHS } from "@/lib/buyer-details";
 import type { EmailMessage } from "@/lib/server/email";
 import {
   buildMemberWelcomeEmail,
@@ -610,5 +611,17 @@ describe("the outbox", () => {
 
     await cron();
     expect(sentTo(member.email)).toEqual(["member_welcome"]);
+  });
+});
+
+describe("the organiser next-steps email's attendee privacy step", () => {
+  it("says what the Orders tab shows accurately: orders after the notice, for the shared number of months after the event", () => {
+    const mail = buildOrganiserNextStepsEmail({ to: "org@example.com", siteUrl: SITE_URL });
+    for (const part of [mail.text, mail.html]) {
+      expect(part).toContain("placed after buyers were shown the sharing notice");
+      expect(part).toContain(`${DETAILS_VISIBLE_MONTHS} months after each event ends`);
+      expect(part).toContain("only email people who have agreed to hear from you (Spam Act)");
+      expect(part).not.toContain("Names and emails for your events are in your Orders tab.");
+    }
   });
 });

@@ -25,7 +25,7 @@ const RESET_SQL = `truncate private.user_reports, private.report_photos, public.
   private.profile_avatars, private.profile_moderation_log, private.organiser_follow_tokens, private.organiser_event_announcements,
   public.organiser_follows, private.organiser_logos, private.event_clip_uploads, private.event_clips,
   private.account_invites, private.organiser_invite_links, private.email_job_recipients, private.onboarding_emails,
-  private.event_reminders, private.holder_message_stop_tokens, private.holder_message_suppressions, private.holder_message_recipients, private.holder_messages, private.email_outbox, private.cron_runs, private.order_detail_exports, private.payment_exceptions,
+  private.event_reminders, private.holder_message_stop_tokens, private.holder_message_suppressions, private.holder_message_recipients, private.holder_messages, private.email_outbox, private.cron_runs, private.order_detail_exports, private.order_detail_views, private.payment_exceptions,
   private.early_charge_refunds, private.refund_status_marks, private.organiser_profile_edits, public.ticket_check_ins, public.tickets, public.event_seats, public.event_seat_maps, public.orders, public.event_moderation_log, public.ticket_types, public.events, public.organisers,
   auth.identities, auth.users cascade;
   update private.analytics_settings set views_tracked_since = (now() at time zone 'Australia/Melbourne')::date`;

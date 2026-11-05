@@ -1,3 +1,4 @@
+import { DETAILS_VISIBLE_MONTHS } from "@/lib/buyer-details";
 import { describeBookingFee } from "@/lib/fees";
 import { WHOS_GOING_SUMMARY } from "@/lib/whos-going-copy";
 import { subjectLine, type EmailMessage } from "./email";
@@ -228,7 +229,7 @@ export function buildOrganiserNextStepsEmail(input: { to: string; firstName?: st
       {
         title: "Attendee privacy",
         description:
-          "Names and emails for your events are in your Orders tab. Use them only for the event, and only email people who have agreed to hear from you (Spam Act). Handle them under the Privacy Act.",
+          `For orders placed after buyers were shown the sharing notice at checkout, names and emails are in your Orders tab for ${DETAILS_VISIBLE_MONTHS} months after each event ends. Use them only for the event, and only email people who have agreed to hear from you (Spam Act). Handle them under the Privacy Act.`,
         link: { label: "Privacy", href: link(siteUrl, "/privacy") },
       },
     ],

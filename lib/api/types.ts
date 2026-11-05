@@ -1942,15 +1942,20 @@ export interface EventOrderRow {
 }
 
 /**
- * GET /api/organisers/me/events/{eventId}/orders?q&cursor&limit (the event's
+ * GET /api/organisers/me/events/{eventId}/orders?cursor&limit, or, to search,
+ * POST .../orders/search with the JSON body {q, cursor, limit} (the text is a
+ * buyer's name or email, so never in a URL: GET ?q= is a 400) (the event's
  * owner, approved; an admin for a platform-managed organiser's event; anyone
  * else 404; a suspended organiser 403). Orders that were paid or free-issued
  * (or refunded after tickets were issued), newest first. `q` (at most 100
  * characters) matches the name, email or short reference, ignoring case and
  * accents; `total` counts the orders matching it. Pages of `limit` (default
- * 20, at most 50). Rate limited (429 `rate_limited`). `private, no-store`.
+ * 20, at most 50). Rate limited (429 `rate_limited`), and 25,000 rows of
+ * details per account per event per day, list and export together (429
+ * `daily_limit`). `private, no-store`.
  * GET .../orders.csv downloads every visible order (at most 20,000, else 409;
- * 10 exports an hour per account, 429 `rate_limited`; each is logged).
+ * 10 exports an hour per account, 429 `rate_limited`; each is logged and
+ * counts to the daily rows).
  */
 export interface EventOrders {
   event: { title: string; slug: string; timeZone: AustralianTimeZone; endsAt: string };
