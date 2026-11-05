@@ -729,3 +729,33 @@ describe("CheckoutConfirmation: Support Sheltüh", () => {
     expect(screen.queryByText(note)).toBeNull();
   });
 });
+
+describe("CheckoutConfirmation: group tickets", () => {
+  const GROUP_ORDER: CustomerOrder = {
+    ...ORDER,
+    subtotalCents: 12000,
+    buyerFeeCents: 770,
+    totalCents: 12770,
+    tickets: [1, 2, 3, 4].map((position) => ({
+      ticketCode: `GRP${position}-AAAA`,
+      ticketTypeName: "Group of 4",
+      checkedInAt: null,
+      group: { position, size: 4 },
+    })),
+  };
+
+  it("lists a ticket for each person, each named by its place in the group, and counts the tickets", async () => {
+    getOrderBySession.mockResolvedValue(GROUP_ORDER);
+    render(<CheckoutConfirmation />);
+    expect(await screen.findByRole("heading", { name: "Your tickets (4)" })).toBeInTheDocument();
+    expect(screen.getByText("Ticket 1 of 4 · Group of 4 (1 of 4)")).toBeInTheDocument();
+    expect(screen.getByText("Ticket 4 of 4 · Group of 4 (4 of 4)")).toBeInTheDocument();
+  });
+
+  it("an order of single tickets keeps its plain heading", async () => {
+    getOrderBySession.mockResolvedValue(WITH_DETAILS);
+    render(<CheckoutConfirmation />);
+    expect(await screen.findByRole("heading", { name: "Your tickets" })).toBeInTheDocument();
+  });
+});
+

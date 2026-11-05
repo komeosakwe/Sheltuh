@@ -1,9 +1,12 @@
 import { formatAud } from "@/lib/format";
+import { admitsOf } from "@/lib/ticket-groups";
+import { MAX_PEOPLE_PER_TYPE } from "@/lib/ticket-limits";
 import { isSupportSheltuhEnabled, SUPPORT_LABEL, SUPPORT_MAX_CENTS, SUPPORT_MIN_CENTS, SUPPORT_PAUSED } from "@/lib/support";
 import { fail } from "./validation";
 import type { OrderLineItem, TicketTypeInput } from "./types";
 
-const MAX_QUANTITY_PER_LINE = 20;
+/** Per ticket type per order, in people: a group ticket counts the people it admits (MAX_PEOPLE_PER_TYPE, 20). */
+const MAX_QUANTITY_PER_LINE = MAX_PEOPLE_PER_TYPE;
 
 interface RawLineItem {
   ticketTypeId?: unknown;
@@ -55,19 +58,25 @@ export function parseCheckoutLineItems(body: RawCheckoutBody, eventTicketTypes: 
       errors[`${prefix}.quantity`] = "Quantity must be a whole number of 1 or more.";
       return;
     }
-    if (quantity > MAX_QUANTITY_PER_LINE) {
-      errors[`${prefix}.quantity`] = `Quantity can't exceed ${MAX_QUANTITY_PER_LINE} per order.`;
-      return;
-    }
-
     const ticketType = byId.get(ticketTypeId);
     if (!ticketType) return; // unreachable — byId.has() already checked above
+    // Group tickets: from the database's ticket type, never the client. The cap counts people.
+    const admits = admitsOf(ticketType);
+    if (quantity * admits > MAX_QUANTITY_PER_LINE) {
+      errors[`${prefix}.quantity`] =
+        admits > 1
+          ? `You can book up to ${Math.floor(MAX_QUANTITY_PER_LINE / admits)} of "${ticketType.name}" per order (${MAX_QUANTITY_PER_LINE} people).`
+          : `Quantity can't exceed ${MAX_QUANTITY_PER_LINE} per order.`;
+      return;
+    }
     result.push({
       ticketTypeId: ticketType.id,
       ticketTypeName: ticketType.name,
       unitPriceCents: ticketType.priceCents,
       feePolicy: ticketType.feePolicy,
       quantity,
+      // The snapshot fulfilment takes people by, only above 1 (an order of single tickets is unchanged).
+      ...(admits > 1 ? { admits } : {}),
     });
   });
 

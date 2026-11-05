@@ -62,6 +62,8 @@ export function adaptPublicEvent(event: PublicEvent): SheltuhEvent {
       ...(typeof ticket.remaining === "number" ? { remaining: ticket.remaining } : {}),
       ...(ticket.seated === true ? { seated: true as const } : {}),
       ...(ticket.opensAfterPrevious === true ? { opensAfterPrevious: true } : {}),
+      // Group tickets: only above 1 (a single ticket's shape is unchanged).
+      ...(typeof ticket.admits === "number" && ticket.admits > 1 ? { admits: ticket.admits } : {}),
       ...(ticket.opensAfter ? { opensAfter: { ticketTypeId: ticket.opensAfter.ticketTypeId, name: ticket.opensAfter.name } } : {}),
     })),
     // An external event's stock isn't known, so it's never sold out here.

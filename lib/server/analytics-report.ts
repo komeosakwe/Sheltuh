@@ -137,7 +137,10 @@ export interface LineGroup {
   ticketTypeName: string;
   unitPriceCents: number;
   feePolicy: FeePolicy;
+  /** Tickets bought (groups, for a group ticket: money is per ticket). */
   quantity: number;
+  /** People each ticket admits (a group ticket); absent or 1 for a single ticket. Counts in `ticketsSold` are people. */
+  admits?: number;
 }
 
 /**
@@ -191,7 +194,7 @@ export function ticketTypeSales(
       faceValueCents: 0,
       ...money(0, 0),
     };
-    row.ticketsSold += c.group.quantity;
+    row.ticketsSold += c.group.quantity * (c.group.admits ?? 1);
     row.faceValueCents += c.face;
     row.grossCents += gross[i];
     row.feesCents += fees[i];

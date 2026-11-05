@@ -722,3 +722,112 @@ describe("TicketSelector: sequential release (a tier waiting for the one above)"
     );
   });
 });
+
+describe("TicketSelector: group tickets", () => {
+  /** Singles at A$35 and a "Group of 4" at A$120, both buyer-pays: the owner's example (A$37.60 x 4 = A$150.40 against A$127.70). */
+  function groupEvent(overrides: Partial<SheltuhEvent["ticketTypes"][number]> = {}): SheltuhEvent {
+    const base = live("neon-static");
+    return {
+      ...base,
+      ticketTypes: [
+        { id: "single", name: "Single", priceCents: 3500, feePolicy: "buyer-pays", quantityAvailable: 50 },
+        { id: "group", name: "Group of 4", priceCents: 12000, feePolicy: "buyer-pays", quantityAvailable: 40, admits: 4, ...overrides },
+      ],
+    };
+  }
+
+  it("says what a group gets and what it saves, against the same number of singles", () => {
+    render(<TicketSelector event={groupEvent()} />);
+    const row = screen.getByText("Group of 4").closest("li") as HTMLElement;
+    expect(row).toHaveTextContent("4 tickets · save A$22.70");
+    // The headline is the group's all-inclusive price.
+    expect(within(row).getByText("A$127.70 for 4 incl. booking fee")).toBeInTheDocument();
+    // A single says neither.
+    const single = screen.getByText("Single").closest("li") as HTMLElement;
+    expect(single).not.toHaveTextContent("tickets");
+    expect(single).not.toHaveTextContent("save");
+  });
+
+  it("shows no saving when the group isn't cheaper, or there is no single to compare with", () => {
+    const { unmount } = render(<TicketSelector event={groupEvent({ priceCents: 15000 })} />);
+    const row = screen.getByText("Group of 4").closest("li") as HTMLElement;
+    expect(row).toHaveTextContent("4 tickets");
+    expect(screen.queryByText(/save/)).toBeNull();
+    unmount();
+
+    const only = groupEvent();
+    render(<TicketSelector event={{ ...only, ticketTypes: [only.ticketTypes[1]] }} />);
+    expect(screen.getByText("4 tickets")).toBeInTheDocument();
+    expect(screen.queryByText(/save/)).toBeNull();
+  });
+
+  it("counts in groups: the stepper is groups, announced with the tickets, and checkout sends groups", () => {
+    createCheckoutSession.mockReturnValue(new Promise(() => {}));
+    render(<TicketSelector event={groupEvent()} />);
+    const more = screen.getByRole("button", { name: "Increase quantity for Group of 4" });
+    fireEvent.click(more);
+    fireEvent.click(more);
+    expect(screen.getByRole("status")).toHaveTextContent("Group of 4: 2 groups, 8 tickets. Total A$255.40");
+    const stepper = screen.getByRole("group", { name: "Quantity for Group of 4" });
+    expect(stepper).toHaveTextContent("2 groups");
+    // The order summary counts tickets as people get them.
+    expect(screen.getByText("Tickets (8)")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    expect(createCheckoutSession).toHaveBeenCalledWith(
+      expect.any(String),
+      [{ ticketTypeId: "group", quantity: 2 }],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    );
+  });
+
+  it("keeps the plain 'Tickets' line while no group is chosen", () => {
+    render(<TicketSelector event={groupEvent()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Single" }));
+    expect(screen.getByText("Tickets")).toBeInTheDocument();
+    expect(screen.queryByText(/Tickets \(/)).toBeNull();
+  });
+
+  it("stops at 5 groups (20 people), and says so in groups", () => {
+    render(<TicketSelector event={groupEvent()} />);
+    const more = screen.getByRole("button", { name: "Increase quantity for Group of 4" });
+    for (let i = 0; i < 7; i++) fireEvent.click(more);
+    expect(screen.getByRole("group", { name: "Quantity for Group of 4" })).toHaveTextContent("5 groups");
+    expect(more).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("status")).toHaveTextContent("Up to 5 per booking.");
+  });
+
+  it("counts what's left in groups: 'remaining' is people", () => {
+    render(<TicketSelector event={groupEvent({ remaining: 8 })} />);
+    const row = screen.getByText("Group of 4").closest("li") as HTMLElement;
+    expect(row).toHaveTextContent("Only 2 groups left.");
+    const more = screen.getByRole("button", { name: "Increase quantity for Group of 4" });
+    fireEvent.click(more);
+    fireEvent.click(more);
+    fireEvent.click(more);
+    expect(screen.getByRole("group", { name: "Quantity for Group of 4" })).toHaveTextContent("2 groups");
+  });
+
+  it("caps at the groups left when 12 people are left (more than the 10 a single shows)", () => {
+    render(<TicketSelector event={groupEvent({ remaining: 12 })} />);
+    const row = screen.getByText("Group of 4").closest("li") as HTMLElement;
+    expect(row).toHaveTextContent("Only 3 groups left.");
+    const more = screen.getByRole("button", { name: "Increase quantity for Group of 4" });
+    for (let i = 0; i < 5; i++) fireEvent.click(more);
+    expect(screen.getByRole("group", { name: "Quantity for Group of 4" })).toHaveTextContent("3 groups");
+    expect(more).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("only compares with a single that has enough left", () => {
+    const event = groupEvent();
+    render(<TicketSelector event={{ ...event, ticketTypes: [{ ...event.ticketTypes[0], remaining: 3 }, event.ticketTypes[1]] }} />);
+    expect(screen.queryByText(/save/)).toBeNull();
+  });
+
+  it("the demo's Paper Moon workshop offers a Group of 4 that saves A$20", () => {
+    render(<TicketSelector event={findEvent("paper-moon-ceramics-lab")} />);
+    expect(screen.getByText("Group of 4").closest("li")).toHaveTextContent("4 tickets · save A$20");
+  });
+});

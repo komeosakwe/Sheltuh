@@ -40,7 +40,16 @@ export function parseSeatMapTemplate(
       }
     }
   }
+  // Group tickets don't mix with a seat map in version 1: an event with one has no seats to put on it.
+  const group = ticketTypes.find((t) => typeof t.admits === "number" && t.admits > 1);
+  if (group) {
+    throw new HttpError(400, "Please fix the seat map.", { template: seatMapWithGroupTicket(group.name) });
+  }
   return { template: checked.template, seatCount: checked.seatCount };
+}
+
+function seatMapWithGroupTicket(name: string): string {
+  return `"${name}" is a group ticket, so this event can't have a seat map. Make it a single ticket first.`;
 }
 
 function seatsOnWaitingTier(name: string): string {

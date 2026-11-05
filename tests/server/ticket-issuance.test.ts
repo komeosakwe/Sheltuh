@@ -23,6 +23,17 @@ describe("issueTickets", () => {
     expect(tickets.filter((t) => t.ticketTypeId === "vip")).toHaveLength(1);
   });
 
+  it("issues one ticket per person for a group ticket: 2 groups of 4 are 8 codes", () => {
+    const lineItems: OrderLineItem[] = [
+      { ticketTypeId: "grp", ticketTypeName: "Group of 4", unitPriceCents: 12000, feePolicy: "buyer-pays", quantity: 2, admits: 4 },
+      { ticketTypeId: "ga", ticketTypeName: "General admission", unitPriceCents: 3000, feePolicy: "buyer-pays", quantity: 1 },
+    ];
+    const tickets = issueTickets(lineItems);
+    expect(tickets).toHaveLength(9);
+    expect(tickets.filter((t) => t.ticketTypeId === "grp")).toHaveLength(8);
+    expect(new Set(tickets.map((t) => t.ticketCode)).size).toBe(9);
+  });
+
   it("gives every ticket a unique code", () => {
     const lineItems: OrderLineItem[] = [
       { ticketTypeId: "ga", ticketTypeName: "General admission", unitPriceCents: 3000, feePolicy: "buyer-pays", quantity: 50 },

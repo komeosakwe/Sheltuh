@@ -3604,6 +3604,85 @@ dependent tier (`opens_after_previous`, never the first, never a seated one:
   can't re-arm it. Pending guest free orders and open paid sessions made
   before a lock was turned on still complete (the toggle is for new orders).
 
+## Group tickets
+
+A ticket type that admits several people: "Group of 4", A$120 for 4 (owner
+request, 4 Nov 2026). One purchase, one price, one ticket (code, QR) per
+person (`supabase/migrations/20261120000000_group_tickets.sql`,
+`lib/ticket-groups.ts`, `lib/group-tickets-flag.ts`).
+
+- **Owner decisions.** Paid tickets only; dark-launched behind
+  `NEXT_PUBLIC_GROUP_TICKETS` (authoring only: the editor hides it and the API
+  refuses `admits` above 1 with a 400, unless an edit sends the value a tier
+  already has, so an event that has a group ticket stays editable); at most 20
+  people per order per ticket type; general admission on an event without a
+  seat map only (seated "N seats together" is version 2); "From" prices skip
+  group tickets while a single is on sale.
+- **The model.** `ticket_types.admits` (1 to 10, default 1). Capacity stays in
+  **people**: `quantity_available` is the people the type admits in total
+  (a multiple of `admits`: `ticket_types_admits_multiple`), and one group sold
+  adds `admits` to `quantity_sold`. So sold-out, the sequential release
+  (`ticket_type_locks`, `sold_out_at`), the waitlist, door counts, `remaining`
+  and `ticketsSold` are unchanged and are in people. Constraints:
+  `ticket_types_admits_range` (1 to 10), `ticket_types_group_paid` (above 1
+  needs a price) and `ticket_types_admits_ga_only` (not seated).
+  `ticket_types_admits_frozen` refuses changing `admits` once the tier has sold
+  tickets or the event has an order that can be paid
+  (`private.event_has_payable_orders`).
+- **Orders.** `OrderLineItem.quantity` counts groups; the line snapshots
+  `admits` (only above 1) from the database's own ticket type in
+  `parseCheckoutLineItems`, never from the client. The cap is
+  `quantity x admits <= 20` (`MAX_PEOPLE_PER_TYPE`; a single ticket still 20).
+  `assertAvailable`, `openOrderState` and the payment page compare people, and
+  say what's left in groups.
+- **Fees.** Unchanged, and once per group: 6% of the group's price plus A$0.50
+  (`lib/fees.ts`, `orderTotals`, Stripe's "Booking fee" line,
+  `application_fee_cents`). Stripe's line says "Admits 4" as its description.
+  "Save A$22.70" in the UI is `4 x` the cheapest single on sale (with at least
+  4 left) at its buyer total, less the group's buyer total
+  (`groupSaving`), shown only when above 0.
+- **Fulfilment.** `private.fulfil_order_detailed` takes `quantity x admits` of
+  `quantity_sold`, only from a ticket type whose `admits` is still the
+  snapshot's (otherwise the SH409 path: `oversold_refund_required`, refunded in
+  full as any order that can't be fulfilled), requires exactly one issued
+  ticket per person (a plain error otherwise: nothing refunded, a bug), and
+  stamps `tickets.group_size`. `record_payment_refund` gives the people back on
+  a full refund. **Refunds are whole-order only**: there is no refunding one
+  person of a group; a partial refund opens the usual `partial_refund`
+  exception (docs/supabase-setup.md).
+- **Tickets.** One ticket per person; each person's code and QR are their own,
+  and the door admits them one at a time (`check_in_ticket` is unchanged).
+  Which person of the group a ticket is, is derived, not stored:
+  `withGroupPositions` numbers the tickets of a type in the existing order
+  (type, code) in groups of `group_size`, so the ticket page, the email and the
+  wallet passes agree. The door doesn't use it: `check_in_ticket` is unchanged,
+  so a scan shows the order's "Ticket n of N" and the ticket type's name, not a
+  place in a group (adding one needs a new migration; not built). It is
+  `CustomerTicket.group` / `IssuedTicket.group` `{position, size}`, and the
+  email and passes say "Group of 4 (2 of 4)" (`ticketNameWithGroup`).
+- **Authoring.** `TicketTypeInput.admits` (absent keeps the stored value, as
+  `opensAfterPrevious`); `replace_ticket_types` and `admin_edit_event` carry it
+  and log it only when above 1. Group tickets and a seat map are refused
+  together in both directions, **enforced in the handlers** (400:
+  `withSeatedCapacity` for the event's ticket types, `parseSeatMapTemplate` for
+  the map). The database's `ticket_types_admits_ga_only` covers seated tiers
+  only (a seated tier can't be a group), so it is not a backstop for an event:
+  a concurrent edit racing a map upload could leave a general admission group
+  ticket next to a seat map. That still works (the tier is sold as a quantity,
+  the seated tiers by seat), so it is accepted, not repaired. Releasing more tickets
+  takes people, so a quantity that isn't a multiple of `admits` is a 400
+  (`ticket_types_admits_multiple`).
+- **Analytics.** Tickets (`ticketsSold`, orders' ticket counts, tracking links)
+  are people; money is per ticket, so a group's gross is its price times the
+  groups sold.
+- **Not built.** Free groups, seated groups, refunding one person, a per-person
+  price or name, a minimum group size to book.
+- **Rollback.** Reversible until a group order exists (the migration's
+  header); after that, roll forward only (an older build refunds group
+  checkouts and fails their webhooks: docs/supabase-setup.md, "Group tickets
+  (incident runbook)"). Switching the flag off only stops new group tickets:
+  to stop a live one selling, unpublish the event or sell out the tier.
+
 ## Event reminders
 
 One email to each ticket holder the day before an event, or the morning of it

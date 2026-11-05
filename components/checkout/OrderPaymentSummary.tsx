@@ -6,6 +6,7 @@ import type { OrderPaymentLine, OrderPaymentSummary as Summary } from "@/lib/api
 import { eventZone, formatAud, formatEventWhen } from "@/lib/format";
 import { placeName } from "@/lib/place";
 import { REFUND_ACL_STATEMENT, refundTermsLine } from "@/lib/refund-policy";
+import { admitsOf, peopleFor } from "@/lib/ticket-groups";
 import { SUPPORT_LABEL, SUPPORT_REFUND_NOTE } from "@/lib/support";
 import { ChevronDownIcon } from "./icons";
 
@@ -31,7 +32,8 @@ export default function OrderPaymentSummary({ summary }: { summary: Summary }) {
     [summary.venueName, summary.suburb ? placeName(summary.suburb, summary.eventState) : ""]
       .filter((part) => !!part?.trim())
       .join(", ") || undefined;
-  const count = summary.lines.reduce((sum, line) => sum + line.quantity, 0);
+  // Tickets as people get them: a line of 2 groups of 4 is 8 tickets.
+  const count = summary.lines.reduce((sum, line) => sum + peopleFor(line, line.quantity), 0);
   // "Seats" only when every line is seats (a seated order can carry general admission tickets too).
   const allSeats = summary.seated && summary.lines.length > 0 && summary.lines.every((line) => (line.seats?.length ?? 0) > 0);
   const refunds = refundTermsLine(summary.refundPolicy, summary.refundDays, summary.eventStartsAt, { timeZone: zone });
@@ -76,6 +78,7 @@ export default function OrderPaymentSummary({ summary }: { summary: Summary }) {
                   <p className="text-sm font-semibold break-words text-foreground">{line.ticketTypeName}</p>
                   <p className="meta text-muted tabular-nums">
                     {line.quantity} &times; {unitLabel(line)}
+                    {admitsOf(line) > 1 && ` · Admits ${admitsOf(line)}`}
                   </p>
                 </div>
                 <p className="shrink-0 text-sm whitespace-nowrap tabular-nums text-foreground">

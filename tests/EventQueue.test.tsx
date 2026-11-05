@@ -410,6 +410,7 @@ describe("EventQueue", () => {
             { id: "ga", name: "General", priceCents: 3000, feePolicy: "buyer-pays", quantityAvailable: 120 },
             { id: "vip", name: "VIP", priceCents: 5000, feePolicy: "organiser-absorbs", quantityAvailable: 10 },
             { id: "free", name: "Door list", priceCents: 0, feePolicy: "buyer-pays", quantityAvailable: 20 },
+            { id: "grp", name: "Group of 4", priceCents: 12000, feePolicy: "organiser-absorbs", quantityAvailable: 20, admits: 4 },
           ],
         }),
         ev({
@@ -426,6 +427,8 @@ describe("EventQueue", () => {
     expect(neon).toHaveTextContent("General: A$32.30 incl. booking fee (A$30 ticket + A$2.30 booking fee) · 120 available");
     expect(neon).toHaveTextContent("VIP: A$50 incl. booking fee (A$50 ticket (booking fee included by organiser))");
     expect(neon).toHaveTextContent("Door list: Free · 20 available");
+    // A group's price is the whole group's.
+    expect(neon).toHaveTextContent("Group of 4: A$120 for 4 incl. booking fee");
     const elsewhere = screen.getByRole("article", { name: "Elsewhere" });
     expect(elsewhere).toHaveTextContent("Sold on Humanitix");
     expect(

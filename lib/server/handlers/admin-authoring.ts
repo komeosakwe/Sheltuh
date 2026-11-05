@@ -8,7 +8,7 @@
 import { requireAdmin } from "../auth";
 import { PG_CHECK_VIOLATION, pgConstraint, pgErrorCode, type Db } from "../db";
 import { sendFollowerEmailsSoon, sendPublishEmailsSoon } from "../email-outbox";
-import { parseEventInput, storedPlaceOf, type EventInput, type ParseEventOptions } from "../event-input";
+import { parseEventInput, storedAdmitsOf, storedPlaceOf, type EventInput, type ParseEventOptions } from "../event-input";
 import { createdPrivate, HttpError, okPrivate, readJson } from "../http";
 import { parseMessageText } from "../message-input";
 import { isUuid } from "../pagination";
@@ -297,7 +297,7 @@ export const adminUpdateEvent: Handler<{ eventId: string }> = async (req, { even
         reason: parseOptionalReason(body.reason, errors),
       };
     },
-    current ? { storedPlace: storedPlaceOf(current) } : {},
+    current ? { storedPlace: storedPlaceOf(current), storedAdmits: storedAdmitsOf(current) } : {},
   );
 
   // No event, nothing to check: the write answers not_found.

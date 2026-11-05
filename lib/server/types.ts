@@ -87,6 +87,7 @@ export type {
   ReportStatus,
   TicketingChanges,
   TicketingMode,
+  TicketGroup,
   TicketTypeInput,
   UnreadCount,
 } from "@/lib/api/types";

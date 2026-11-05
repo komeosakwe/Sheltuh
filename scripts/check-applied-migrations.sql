@@ -224,6 +224,12 @@ select version, file, coalesce(applied, false) as applied
                    and pg_get_constraintdef(oid) like '%transfer_reversal_required%')
       and exists (select 1 from pg_constraint where conname = 'cron_runs_name_check'
                    and pg_get_constraintdef(oid) like '%payouts%')
-      and exists (select 1 from fn where proname = 'raise_payment_exception' and prosrc like '%transfer_failed%'))
+      and exists (select 1 from fn where proname = 'raise_payment_exception' and prosrc like '%transfer_failed%')),
+    ('20261120000000', 'group_tickets',
+      exists (select 1 from col where attrelid = to_regclass('public.ticket_types') and attname = 'admits')
+      and exists (select 1 from col where attrelid = to_regclass('public.tickets') and attname = 'group_size')
+      and exists (select 1 from fn where proname = 'ticket_types_admits_frozen')
+      and exists (select 1 from fn where proname = 'order_group_size')
+      and exists (select 1 from fn where proname = 'fulfil_order_detailed' and prosrc like '%order_group_size%'))
   ) as m(version, file, applied)
  order by version;

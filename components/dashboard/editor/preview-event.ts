@@ -1,3 +1,4 @@
+import { admitsOf } from "@/lib/ticket-groups";
 import { assignPoster } from "@/lib/live/assign-poster";
 import type { RefundPolicy } from "@/lib/refund-policy";
 import { localToUtcIso, type AustralianTimeZone, type StateCode } from "@/lib/time-zones";
@@ -111,6 +112,8 @@ export function draftToPreviewEvent(draft: PreviewDraft): { event: SheltuhEvent;
           priceCents: Number.isInteger(ticket.priceCents) && ticket.priceCents > 0 ? ticket.priceCents : 0,
           feePolicy: ticket.feePolicy,
           quantityAvailable: Number.isInteger(ticket.quantityAvailable) ? Math.max(ticket.quantityAvailable, 0) : 0,
+          // A group ticket (people per ticket above 1), priced and counted as the event page shows one.
+          ...(admitsOf(ticket) > 1 && ticket.seated !== true ? { admits: admitsOf(ticket) } : {}),
           // Waiting for the ticket above (a general admission ticket after the first), as a buyer would see it.
           ...(index > 0 && ticket.seated !== true && ticket.opensAfterPrevious === true
             ? {

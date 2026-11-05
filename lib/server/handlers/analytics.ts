@@ -59,8 +59,8 @@ const paidInRange = (from: string, to: string) => `o.status = 'paid'
   and o.created_at >= (${from}::date::timestamp at time zone '${TZ}')
   and o.created_at < ((${to}::date + 1)::timestamp at time zone '${TZ}')`;
 
-/** SQL: tickets in order `o`. */
-const TICKETS = `(select coalesce(sum((li ->> 'quantity')::int), 0) from jsonb_array_elements(o.line_items) li)`;
+/** SQL: tickets in order `o`, counted in people (a group ticket's line is its quantity x the people it admits; money is per ticket). */
+const TICKETS = `(select coalesce(sum((li ->> 'quantity')::int * coalesce((li ->> 'admits')::int, 1)), 0) from jsonb_array_elements(o.line_items) li)`;
 
 /**
  * SQL: what order `o` brought in for the organiser's event: what the buyer
@@ -176,12 +176,13 @@ async function eventPeriod(db: Db, eventId: string, range: DateRange): Promise<E
 async function ticketLineGroups(db: Db, eventId: string, range: DateRange): Promise<LineGroup[]> {
   const rows = await db.query(
     `select li ->> 'ticketTypeId' as id, max(li ->> 'ticketTypeName') as name, (li ->> 'unitPriceCents')::int as unit,
-            li ->> 'feePolicy' as policy, sum((li ->> 'quantity')::int)::bigint as qty
+            li ->> 'feePolicy' as policy, coalesce((li ->> 'admits')::int, 1) as admits,
+            sum((li ->> 'quantity')::int)::bigint as qty
        from public.orders o
       cross join lateral jsonb_array_elements(o.line_items) li
       where o.event_id = $1 and ${paidInRange("$2", "$3")}
-      group by li ->> 'ticketTypeId', (li ->> 'unitPriceCents')::int, li ->> 'feePolicy'
-      order by 1, 3, 4`,
+      group by li ->> 'ticketTypeId', (li ->> 'unitPriceCents')::int, li ->> 'feePolicy', coalesce((li ->> 'admits')::int, 1)
+      order by 1, 3, 4, 5`,
     [eventId, range.from, range.to],
   );
   return rows.map((r) => ({
@@ -190,6 +191,7 @@ async function ticketLineGroups(db: Db, eventId: string, range: DateRange): Prom
     unitPriceCents: n(r.unit),
     feePolicy: r.policy as FeePolicy,
     quantity: n(r.qty),
+    ...(n(r.admits) > 1 ? { admits: n(r.admits) } : {}),
   }));
 }
 

@@ -57,8 +57,9 @@ export interface TicketType {
    */
   soldOut?: boolean;
   /**
-   * Tickets left, only when the API says so (10 or fewer; 0 when sold out).
-   * Absent when more are left: never inferred from `quantityAvailable`.
+   * Tickets left, only when the API says so (10 or fewer; for a group ticket
+   * 20 or fewer people; 0 when sold out). Absent when more are left: never
+   * inferred from `quantityAvailable`.
    */
   remaining?: number;
   /**
@@ -79,6 +80,12 @@ export interface TicketType {
    * sells out.
    */
   opensAfter?: { ticketTypeId: string; name: string };
+  /**
+   * Group ticket: how many people one ticket admits (2 to 10). Absent for a
+   * single ticket. `quantityAvailable` and `remaining` count people, a booking's
+   * quantity counts groups. See lib/ticket-groups.ts.
+   */
+  admits?: number;
 }
 
 /** An event's seat map (reserved seating): its version, for GET /events/{id}/seat-map?v={version}. */

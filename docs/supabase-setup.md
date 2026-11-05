@@ -575,6 +575,48 @@ $$;
 Then resend the ticket email from `/admin/emails` (it's rebuilt from the
 order, so it shows the new seat), and tell the buyer.
 
+### Group tickets (incident runbook)
+
+Design: docs/architecture.md, "Group tickets"; the migration is
+`20261120000000_group_tickets.sql`.
+
+**The flag only gates authoring.** `NEXT_PUBLIC_GROUP_TICKETS` unset stops new
+group tickets being made (the editor hides them and the API answers 400 to
+`admits` above 1 on a tier that isn't already a group). It does **not** stop a
+group ticket that is already on a published event from selling. To stop one
+selling right now:
+
+1. **Unpublish the event** (the fastest way, and it stops every ticket on it):
+   Admin → Events → Unpublish (with a reason), or
+   `POST /api/admin/events/{event id}/unpublish`. Checkout then answers 404
+   and the event page goes. Paid orders and issued tickets are untouched
+   (refund them from Stripe as usual, as a whole order); an order still
+   being paid when you unpublish is settled by the webhook and refunded.
+2. **Or sell out just that tier** from the admin editor
+   (`/admin/events/{event id}/edit`, or
+   `PATCH /api/admin/events/{event id}` with the event's `expectedUpdatedAt`):
+   set the group ticket's "Groups available" to the groups already sold (its
+   `quantityAvailable` becomes the people sold, so nothing is left). A tier
+   with no sales can be removed instead. A quantity under what's sold, and
+   removing a sold tier, are refused (409). Its size (`admits`) can't be
+   changed once the tier has sales or an order that can still be paid.
+
+**Once any group order exists, roll forward, never back.** Don't roll the app
+back to a build from before group tickets (one that doesn't read
+`ticket_types.admits`), and don't drop the migration. An older build's checkout
+doesn't know a group ticket admits several people: it takes one person of
+capacity per group and issues one ticket, and when the payment arrives the
+database's fulfilment (which does read `admits`) finds the order doesn't match,
+so those orders are **refunded automatically** (the SH409 oversold path). A
+group order placed by a newer build but paid while an older build handles the
+webhook is worse: the older build issues one ticket per group, the database
+refuses a group order without one ticket per person, and the webhook
+**answers 500 and Stripe keeps retrying** until a build that reads `admits`
+is deployed again. If a deploy is
+bad, fix forward, or promote the previous *group-aware* deployment in Vercel.
+Rolling back is only safe while no group order exists (the migration's header
+lists the steps).
+
 ### Redacting personal information from the event moderation log
 
 `edited` and `ticketing_changed` entries in `public.event_moderation_log`
@@ -897,7 +939,12 @@ valid, and opens a `partial_refund` exception for you
 (`20261111000300_refund_no_inference.sql`; the app never guesses a refund's
 purpose from its amount). The same holds when the refund reaches the app
 before the payment does. There's no admin action to void tickets without a
-full refund (below). Support Sheltüh is paused by default
+full refund (below). **A group ticket order is refunded as a whole, like
+any other**: there is no refunding "one person of the group" in the app. A
+full refund gives back every person of the order (`quantity x admits` of the
+tier's `quantity_sold`) and voids all of its tickets; a smaller refund, for
+one person's share say, leaves every ticket valid and opens a `partial_refund`
+exception for you to settle by hand (the same rule as above). Support Sheltüh is paused by default
 (`NEXT_PUBLIC_SUPPORT_SHELTUH`, docs/DEPLOYMENT.md), so new orders have
 `support_cents = 0` and a refund of the tickets is simply a full refund. Every Sheltüh payment is a destination charge with an
 application fee of `application_fee_cents + support_cents` (the booking fee
@@ -1043,7 +1090,7 @@ and wait for the confirmation page to show the ticket codes. Then:
   and the page still shows the tickets.
 - Full: refund the rest (or a fresh order in full). The order becomes
   `refunded`, the page shows no ticket codes, and the ticket type's
-  `quantity_sold` goes down by the order's quantity.
+  `quantity_sold` goes down by the order's quantity (for a group ticket, quantity x `admits`).
 - Tickets only (only with Support Sheltüh switched on in the test
   deployment, `NEXT_PUBLIC_SUPPORT_SHELTUH=1`): buy with Support Sheltüh
   (e.g. A$5), then follow the tickets-only recipe above. Check in Stripe

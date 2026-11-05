@@ -468,7 +468,12 @@ function sessionParams(
             currency: "aud",
             product_data: {
               name: `${line.ticketTypeName} — ${order.event_title}`,
-              ...(lineSeats.length > 0 ? { description: lineSeats.map(formatSeatLine).join("; ") } : {}),
+              ...(lineSeats.length > 0
+                ? { description: lineSeats.map(formatSeatLine).join("; ") }
+                : // A group ticket (the order's snapshot): what one of them admits. Never on a single ticket.
+                  line.admits !== undefined && line.admits > 1
+                  ? { description: `Admits ${line.admits}` }
+                  : {}),
             },
             unit_amount: line.unitPriceCents,
           },

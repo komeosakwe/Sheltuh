@@ -226,3 +226,18 @@ describe("adaptPublicEvent: the photo's focus point", () => {
     expect(adaptPublicEvent(base)).not.toHaveProperty("imageFocus");
   });
 });
+
+describe("adaptPublicEvent: group tickets", () => {
+  const ga = { id: "t1", name: "General admission", priceCents: 3500, feePolicy: "buyer-pays" as const, quantityAvailable: 100 };
+
+  it("carries admits on a group ticket only, and leaves a single ticket's shape unchanged", () => {
+    const adapted = adaptPublicEvent({
+      ...base,
+      ticketTypes: [ga, { ...ga, id: "t2", name: "Group of 4", priceCents: 12000, quantityAvailable: 40, admits: 4 }, { ...ga, id: "t3", admits: 1 }],
+    });
+    expect(adapted.ticketTypes[0]).toEqual(ga);
+    expect(adapted.ticketTypes[1]).toMatchObject({ admits: 4, quantityAvailable: 40 });
+    expect(adapted.ticketTypes[2]).not.toHaveProperty("admits");
+  });
+});
+

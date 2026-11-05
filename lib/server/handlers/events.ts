@@ -9,7 +9,7 @@ import {
 } from "../db";
 import { REFUND_POLICY_TIGHTENED_CODE } from "@/lib/refund-policy";
 import { sendReviewEmailsSoon } from "../email-outbox";
-import { parseEventInput, storedPlaceOf, type EventInput, type LocationInput } from "../event-input";
+import { parseEventInput, storedAdmitsOf, storedPlaceOf, type EventInput, type LocationInput } from "../event-input";
 import { created, HttpError, ok, okPrivate, readJson } from "../http";
 import { decodeCursor, parseLimit, toPage } from "../pagination";
 import {
@@ -24,7 +24,7 @@ import { locationRequired } from "../location-refusal";
 import { EVENT_SELECT, toEvent } from "../records";
 import type { Handler } from "../route";
 import type { EventRecord } from "../types";
-import { fail, slugify } from "../validation";
+import { ADMITS_FREE_MESSAGE, ADMITS_RANGE_MESSAGE, fail, slugify } from "../validation";
 import { requireEvent, requireOwnEvent } from "./event-queries";
 import { requireApprovedOrganiser } from "./organiser-guard";
 import { refuseStaleVenueLocation, verifyVenuePlace } from "./places";
@@ -62,6 +62,14 @@ export function eventFields(input: EventInput): EventFields {
 
 /** A seated tier is sold by seat, not released in turn. */
 export const SEATED_NO_LOCK = "A ticket with seats on the seat map can't wait for another ticket to sell out.";
+/** A group ticket's number of people is part of what buyers (or pending orders) paid for. */
+export const ADMITS_FROZEN = "A ticket that has sales or orders can't change how many people it admits.";
+/** The quantity is counted in people, and only whole groups are sold. */
+export const ADMITS_NOT_MULTIPLE = "The quantity of a group ticket must be a multiple of the number of people it admits.";
+/** Seats are sold one person at a time. */
+export const ADMITS_SEATED = "A ticket with seats on the seat map can't be a group ticket.";
+/** Version 1: no seat map and group tickets on one event. */
+export const ADMITS_WITH_SEAT_MAP = "Group tickets can't be used on an event with a seat map.";
 /** The first ticket has none above it. */
 export const FIRST_NO_LOCK = "The first ticket has nothing above it to wait for.";
 
@@ -87,6 +95,21 @@ export function ticketTypeConflict(err: unknown): never {
   if (pgErrorCode(err) === PG_CHECK_VIOLATION && pgConstraint(err) === "ticket_types_lock_not_first") {
     throw new HttpError(400, FIRST_NO_LOCK, { ticketTypes: FIRST_NO_LOCK });
   }
+  // Group tickets: the handlers and requireTicketTypes check these first; the constraints hold whatever else got through.
+  if (pgErrorCode(err) === PG_CHECK_VIOLATION) {
+    switch (pgConstraint(err)) {
+      case "ticket_types_admits_frozen":
+        throw new HttpError(409, ADMITS_FROZEN, { ticketTypes: ADMITS_FROZEN });
+      case "ticket_types_admits_multiple":
+        throw new HttpError(400, ADMITS_NOT_MULTIPLE, { ticketTypes: ADMITS_NOT_MULTIPLE });
+      case "ticket_types_group_paid":
+        throw new HttpError(400, ADMITS_FREE_MESSAGE, { ticketTypes: ADMITS_FREE_MESSAGE });
+      case "ticket_types_admits_ga_only":
+        throw new HttpError(400, ADMITS_SEATED, { ticketTypes: ADMITS_SEATED });
+      case "ticket_types_admits_range":
+        throw new HttpError(400, ADMITS_RANGE_MESSAGE, { ticketTypes: ADMITS_RANGE_MESSAGE });
+    }
+  }
   throw err;
 }
 
@@ -109,6 +132,12 @@ export {
  * "change".
  */
 export function withSeatedCapacity(input: EventInput, current: EventRecord): EventInput {
+  // Group tickets and a seat map don't mix in version 1 (the seat map's handlers refuse the other way round).
+  if (current.seating) {
+    input.ticketTypes.forEach((t, i) => {
+      if (typeof t.admits === "number" && t.admits > 1) fail({ [`ticketTypes[${i}].admits`]: ADMITS_WITH_SEAT_MAP });
+    });
+  }
   const seated = new Map(current.ticketTypes.filter((t) => t.seated).map((t) => [t.id, t.quantityAvailable]));
   if (seated.size === 0) return input;
   // Sequential release is for general admission tiers only (ticket_types_lock_ga_only): 400, not a database error.
@@ -230,7 +259,7 @@ export const updateEventDraft: Handler<{ eventId: string }> = async (req, { even
   const organiser = await requireApprovedOrganiser(db, caller);
   const current = await requireOwnEvent(db, organiser.organiserId, eventId);
   const body = withStoredTicketing(await readJson(req), current);
-  const input = withSeatedCapacity(parseEventInput(body, { storedPlace: storedPlaceOf(current) }), current);
+  const input = withSeatedCapacity(parseEventInput(body, { storedPlace: storedPlaceOf(current), storedAdmits: storedAdmitsOf(current) }), current);
   // Not for an event the edit can't change (private.edit_event_draft answers not_editable).
   if (current.status === "draft" || current.status === "rejected") {
     refuseStaleVenueLocation(input, current);

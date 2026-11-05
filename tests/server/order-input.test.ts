@@ -86,4 +86,42 @@ describe("parseCheckoutLineItems", () => {
       });
     }
   });
+
+  describe("group tickets", () => {
+    const GROUP: TicketTypeInput = {
+      id: "grp",
+      name: "Group of 4",
+      priceCents: 12000,
+      feePolicy: "buyer-pays",
+      quantityAvailable: 40,
+      admits: 4,
+    };
+    const types = [...TICKET_TYPES, GROUP];
+
+    it("snapshots admits from the event's own ticket type, only above 1", () => {
+      const result = parseCheckoutLineItems({ lineItems: [{ ticketTypeId: "grp", quantity: 2 }, { ticketTypeId: "ga", quantity: 1 }] }, types);
+      expect(result).toEqual([
+        { ticketTypeId: "grp", ticketTypeName: "Group of 4", unitPriceCents: 12000, feePolicy: "buyer-pays", quantity: 2, admits: 4 },
+        { ticketTypeId: "ga", ticketTypeName: "General admission", unitPriceCents: 3000, feePolicy: "buyer-pays", quantity: 1 },
+      ]);
+      expect(result[1]).not.toHaveProperty("admits");
+    });
+
+    it("ignores an admits the client sent", () => {
+      const result = parseCheckoutLineItems({ lineItems: [{ ticketTypeId: "grp", quantity: 1, admits: 1 }, { ticketTypeId: "ga", quantity: 1, admits: 9 }] } as never, types);
+      expect(result.map((l) => l.admits)).toEqual([4, undefined]);
+    });
+
+    it("caps a line at 20 people: 5 groups of 4, not 6", () => {
+      expect(parseCheckoutLineItems({ lineItems: [{ ticketTypeId: "grp", quantity: 5 }] }, types)[0].quantity).toBe(5);
+      try {
+        parseCheckoutLineItems({ lineItems: [{ ticketTypeId: "grp", quantity: 6 }] }, types);
+        throw new Error("expected a validation error");
+      } catch (err) {
+        expect((err as HttpError).fieldErrors).toEqual({
+          "lineItems[0].quantity": 'You can book up to 5 of "Group of 4" per order (20 people).',
+        });
+      }
+    });
+  });
 });

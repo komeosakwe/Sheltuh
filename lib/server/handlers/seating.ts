@@ -164,8 +164,11 @@ function mapWriteRefused(err: unknown): never {
   if (pgErrorCode(err) === PG_CHECK_VIOLATION && pgConstraint(err) === "event_seat_maps_sheltuh_only") {
     throw new HttpError(409, EXTERNAL_NO_MAP);
   }
-  // A seat on a tier that waits for the one above it (private.write_seat_map racing a lock): ga_only.
-  if (pgErrorCode(err) === PG_CHECK_VIOLATION && pgConstraint(err) === "ticket_types_lock_ga_only") {
+  // A seat on a tier that waits for the one above it, or a group ticket (private.write_seat_map racing a lock or an edit): ga_only.
+  if (
+    pgErrorCode(err) === PG_CHECK_VIOLATION &&
+    (pgConstraint(err) === "ticket_types_lock_ga_only" || pgConstraint(err) === "ticket_types_admits_ga_only")
+  ) {
     throw new HttpError(409, "The event's ticket types changed while you were editing. Reload, then save the seat map again.");
   }
   // private.write_seat_map / clear_seat_map: never while the event has orders (defence in depth).

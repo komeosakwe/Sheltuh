@@ -2,6 +2,7 @@ import type { RefundPolicy } from "@/lib/refund-policy";
 import type { TicketingMode } from "@/lib/ticketing";
 import type { AustralianTimeZone, StateCode } from "@/lib/time-zones";
 import type { EventCategory, EventClip } from "@/lib/types";
+import { MAX_PEOPLE_PER_TYPE } from "@/lib/ticket-limits";
 import { apiFetch } from "./client";
 import type { Paginated, TicketTypeInput, VenueLocation } from "./types";
 
@@ -12,6 +13,12 @@ import type { Paginated, TicketTypeInput, VenueLocation } from "./types";
 export const REMAINING_SHOWN_AT_MOST = 10;
 
 /**
+ * How many people left a ticket type's `remaining` is sent for: REMAINING_SHOWN_AT_MOST, or for a group
+ * ticket (admits above 1) up to MAX_PEOPLE_PER_TYPE, so the selector never offers more groups than are left.
+ */
+export const remainingShownAtMost = (admits: number): number => (admits > 1 ? MAX_PEOPLE_PER_TYPE : REMAINING_SHOWN_AT_MOST);
+
+/**
  * A ticket type as the public sees it: the organiser's fields plus what's
  * left. `quantityAvailable` is the capacity, not what's left.
  */
@@ -20,7 +27,8 @@ export interface PublicTicketType extends TicketTypeInput {
   soldOut?: boolean;
   /**
    * Tickets left, only when REMAINING_SHOWN_AT_MOST or fewer (0 when sold
-   * out); absent when more are left. First come, first served: no ticket is
+   * out); absent when more are left. In PEOPLE: for a group ticket it is sent up to
+   * MAX_PEOPLE_PER_TYPE (see remainingShownAtMost). First come, first served: no ticket is
    * held while someone checks out.
    */
   remaining?: number;
