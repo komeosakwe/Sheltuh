@@ -78,7 +78,7 @@ export function buildHolderMessageEmail(input: {
   const organiserLink = organiserPageLink(siteUrl, organiserId);
   const reportLink = holderMessageReportLink(messageId, organiserName);
   const label = `A message from ${organiserName}`;
-  const reason = `Sheltüh sent this for ${organiserName}, who can’t see your address. You’re getting it because you have tickets for ${eventTitle} on Sheltüh.`;
+  const reason = `Sheltüh sent this for ${organiserName}. You’re getting it because you have tickets for ${eventTitle} on Sheltüh.`;
   const { muted, tint, tintBorder } = MODERN_COLOURS;
   const small = textStyle(13, 24, { colour: muted });
   const link = `color:${muted};text-decoration:underline`;

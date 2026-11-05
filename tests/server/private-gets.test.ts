@@ -14,6 +14,7 @@ import {
 import { listBlocks } from "@/lib/server/handlers/blocks";
 import { getCheckInSummary } from "@/lib/server/handlers/check-ins";
 import { adminEmailOutboxHealth, adminListEmailJobs, runEmailOutboxCron } from "@/lib/server/handlers/email-outbox";
+import { getEventOrders, getEventOrdersCsv } from "@/lib/server/handlers/event-orders";
 import { getMyEvent, listMyEvents } from "@/lib/server/handlers/events";
 import { adminListHolderMessages, getHolderMessages } from "@/lib/server/handlers/holder-messages";
 import { listFavouriteIds, listFavourites } from "@/lib/server/handlers/favourites";
@@ -123,6 +124,8 @@ const PRIVATE_GETS: Case[] = [
   { name: "getEventAnalyticsCsv", handler: h(getEventAnalyticsCsv), as: asOrganiser, params: event },
   { name: "listTrackingLinks", handler: h(listTrackingLinks), as: asOrganiser, params: event },
   { name: "getCheckInSummary", handler: h(getCheckInSummary), as: asOrganiser, params: event },
+  { name: "getEventOrders", handler: h(getEventOrders), as: asOrganiser, params: event },
+  { name: "getEventOrdersCsv", handler: h(getEventOrdersCsv), as: asOrganiser, params: event },
   { name: "getHolderMessages", handler: h(getHolderMessages), as: asOrganiser, params: event },
   { name: "adminListHolderMessages", handler: h(adminListHolderMessages), as: asAdmin },
 ];

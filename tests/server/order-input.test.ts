@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { HttpError } from "@/lib/server/http";
-import { parseCheckoutLineItems } from "@/lib/server/order-input";
+import { parseBuyerName, parseCheckoutLineItems } from "@/lib/server/order-input";
 import type { TicketTypeInput } from "@/lib/server/types";
 
 const TICKET_TYPES: TicketTypeInput[] = [
@@ -84,6 +84,66 @@ describe("parseCheckoutLineItems", () => {
       expect((err as HttpError).fieldErrors).toEqual({
         "lineItems[1].ticketTypeId": "Each ticket type can only appear once per order.",
       });
+    }
+  });
+});
+
+describe("parseBuyerName", () => {
+  const fieldError = (value: unknown) => {
+    try {
+      parseBuyerName(value);
+    } catch (err) {
+      expect(err).toBeInstanceOf(HttpError);
+      expect((err as HttpError).statusCode).toBe(400);
+      return (err as HttpError).fieldErrors?.buyerName;
+    }
+    throw new Error(`expected ${JSON.stringify(value)} to be refused`);
+  };
+
+  it("absent, null and empty are no name", () => {
+    expect(parseBuyerName(undefined)).toBeNull();
+    expect(parseBuyerName(null)).toBeNull();
+    expect(parseBuyerName("")).toBeNull();
+  });
+
+  it("cleans: NFC, spaces collapsed (non-breaking ones too), trimmed", () => {
+    expect(parseBuyerName("  Zoë   Smith ")).toBe("Zoë Smith");
+    expect(parseBuyerName("Zoë Smith")).toBe("Zoë Smith");
+    expect(parseBuyerName("Nguyễn Văn An")).toBe("Nguyễn Văn An");
+    expect(parseBuyerName("李小龍")).toBe("李小龍");
+    expect(parseBuyerName("Mr. Me")).toBe("Mr. Me");
+    expect(parseBuyerName("O'Brien-Smith")).toBe("O'Brien-Smith");
+  });
+
+  it("counts code points: 80 pass, 81 don't (an emoji is one)", () => {
+    expect(parseBuyerName("a".repeat(80))).toBe("a".repeat(80));
+    expect(parseBuyerName("😀".repeat(79) + "a")).toHaveLength(79 * 2 + 1);
+    expect(fieldError("a".repeat(81))).toMatch(/80 characters or fewer/);
+    expect(fieldError("😀".repeat(80) + "a")).toMatch(/80 characters or fewer/);
+  });
+
+  it("refuses whitespace only, non-strings, and names with no letter or number", () => {
+    expect(fieldError("   ")).toBe("Enter your name.");
+    expect(fieldError(" 　")).toBe("Enter your name.");
+    expect(fieldError(42)).toBe("Enter your name.");
+    expect(fieldError({ first: "A" })).toBe("Enter your name.");
+    expect(fieldError("---")).toMatch(/letter or number/);
+    expect(fieldError("😀")).toMatch(/letter or number/);
+  });
+
+  it("refuses control, invisible and bidi characters", () => {
+    for (const bad of ["A\nB", "A\tB", "A\u0000B", "A​B", "A‮B", "A B", "A﻿B", "A­B", "AㅤB", "A⠀B"]) {
+      expect(fieldError(bad), JSON.stringify(bad)).toMatch(/invisible or control/);
+    }
+  });
+
+  it("refuses stacked combining marks", () => {
+    expect(fieldError(`Z${"́".repeat(6)}alo`)).toMatch(/stack accents/);
+  });
+
+  it("refuses an @ and links: a name isn't contact details", () => {
+    for (const bad of ["a@b.co", "@handle", "＠handle", "https://x.example", "www.example.com", "Buy at x.com", "cheap tix [dot] com"]) {
+      expect(fieldError(bad), bad).toMatch(/links, email addresses or @handles/);
     }
   });
 });

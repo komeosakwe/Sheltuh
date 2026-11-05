@@ -448,6 +448,43 @@ where c.event_id = '<event id>' order by c.id desc limit 50;
 Mistaken admissions are undone from the app (with a reason, logged), not in
 SQL: an `update tickets set checked_in_at = null` would leave no record.
 
+### Organiser orders: export audit and withdrawing someone's details
+
+`20261122000000_order_buyer_details.sql` adds `orders.buyer_name` and
+`details_notice_at`, the audit table `private.order_detail_exports` and the
+functions behind the organiser's Orders view (docs/architecture.md,
+"Organiser orders"). It's additive (no existing row changes, nothing is
+backfilled: orders made before it are never shared) and replaces the order
+functions with versions that take a trailing, optional `p_buyer_name`.
+Deploy the migration before the app that sends names.
+
+Who exported an event's orders, and when (no buyer data is in this table):
+
+```sql
+select x.id, x.created_at, x.row_count, u.email as exported_by, o.display_name as organiser
+from private.order_detail_exports x
+left join auth.users u on u.id = x.actor_id
+left join public.organisers o on o.id = x.organiser_id
+where x.event_id = '<event id>' order by x.id desc limit 50;
+```
+
+**Withdrawing someone's details.** A buyer who asks (by email to support)
+for their name and email to stop being shown to the organiser: verify the
+request comes from that address, then clear the name and the notice stamp on
+every order for it. The row stays; the Orders view then shows "—", as for an
+order made before the feature. This does **not** recall a CSV the organiser
+already exported (the privacy policy says so); tell the buyer.
+
+```sql
+update public.orders set buyer_name = null, details_notice_at = null
+where lower(buyer_email) = lower('<address>');
+```
+
+The two columns are set and cleared together (`orders_details_notice_pair`),
+so clearing only one fails. A paid guest's `buyer_email` is the address Stripe's
+form collected; a name given for an order whose email differs is cleared only
+by the order's own address.
+
 ### Platform-managed organisers
 
 When you create one (`/admin/events/new` → new organiser, or

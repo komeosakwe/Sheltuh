@@ -1,5 +1,6 @@
 import { formatAud } from "@/lib/format";
 import { isSupportSheltuhEnabled, SUPPORT_LABEL, SUPPORT_MAX_CENTS, SUPPORT_MIN_CENTS, SUPPORT_PAUSED } from "@/lib/support";
+import { containsAtSign, containsLink, hasInvisibleOrControl, hasLetterOrNumber, tooManyMarks } from "./profile-input";
 import { fail } from "./validation";
 import type { OrderLineItem, TicketTypeInput } from "./types";
 
@@ -103,4 +104,33 @@ export function refuseSupportOnFreeOrder(supportCents: number, subtotalCents: nu
   if (supportCents > 0 && subtotalCents <= 0) {
     fail({ supportCents: `${SUPPORT_LABEL} can only be added to an order with paid tickets.` });
   }
+}
+
+/** The longest buyer name (orders_buyer_name_check counts code points too). */
+export const BUYER_NAME_MAX_LENGTH = 80;
+
+/**
+ * A checkout request's optional `buyerName` (CheckoutBuyerDetails): the name
+ * the buyer typed, shown with their email to the event's organiser
+ * (docs/architecture.md, "Organiser orders"). Omitted, null or "" is none
+ * (null: the order is made without details; the API takes the name as
+ * optional for one release). Otherwise cleaned (Unicode NFC, spaces
+ * collapsed, trimmed) and checked: a string of 1 to BUYER_NAME_MAX_LENGTH
+ * characters (code points) with at least one letter or number, no control or
+ * invisible characters, no stacked combining marks, and no "@" or links, else
+ * 400 `fieldErrors.buyerName`. A whitespace-only name is a 400 too (it was
+ * sent, and isn't a name), not silently dropped.
+ */
+export function parseBuyerName(value: unknown): string | null {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value !== "string") fail({ buyerName: "Enter your name." });
+  if (hasInvisibleOrControl(value)) fail({ buyerName: "Names can't contain invisible or control characters." });
+  const name = value.normalize("NFC").replace(/\p{Zs}+/gu, " ").trim();
+  const length = Array.from(name).length;
+  if (length === 0) fail({ buyerName: "Enter your name." });
+  if (length > BUYER_NAME_MAX_LENGTH) fail({ buyerName: `Must be ${BUYER_NAME_MAX_LENGTH} characters or fewer.` });
+  if (!hasLetterOrNumber(name)) fail({ buyerName: "Names need at least one letter or number." });
+  if (tooManyMarks(name)) fail({ buyerName: "Names can't stack accents or other marks on one character." });
+  if (containsAtSign(name) || containsLink(name)) fail({ buyerName: "Names can't include links, email addresses or @handles." });
+  return name;
 }

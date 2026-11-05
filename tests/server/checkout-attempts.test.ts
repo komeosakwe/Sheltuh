@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import Stripe from "stripe";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { clientKey } from "@/lib/server/client-key";
@@ -323,6 +324,44 @@ describe("a key reused for something else", () => {
     expect(checkoutFingerprint({ ...base, kind: "seated", lines: [], seats: { mapVersion: 2, seatIds: ["A1"] } })).not.toBe(
       checkoutFingerprint({ ...base, kind: "seated", lines: [], seats: { mapVersion: 1, seatIds: ["A1"] } }),
     );
+  });
+});
+
+describe("the fingerprint and the buyer's name", () => {
+  const base = { kind: "ga" as const, eventId: "11111111-1111-4111-8111-111111111111", buyerEmail: "Fan@Example.com ", trackingCode: null, lines: [{ ticketTypeId: "ga", quantity: 1 }] };
+  const legacy = (extra: unknown[] = []) =>
+    createHash("sha256")
+      .update(JSON.stringify(["checkout/v1", "ga", base.eventId, [["ga", 1]], null, "fan@example.com", null, ...extra]), "utf8")
+      .digest("hex");
+
+  it("a basket without a name (or with 0 support) hashes exactly as before names existed, so an old attempt still replays", () => {
+    expect(checkoutFingerprint(base)).toBe(legacy());
+    expect(checkoutFingerprint({ ...base, buyerName: null, supportCents: 0 })).toBe(legacy());
+    expect(checkoutFingerprint({ ...base, supportCents: 500 })).toBe(legacy([500]));
+  });
+
+  it("a name changes the hash, a different one changes it again, and it is never in the clear or readable as support", () => {
+    const named = checkoutFingerprint({ ...base, buyerName: "Zoë Smith" });
+    expect(named).not.toBe(checkoutFingerprint(base));
+    expect(named).not.toBe(checkoutFingerprint({ ...base, buyerName: "Zoe Smith" }));
+    expect(named).toBe(checkoutFingerprint({ ...base, buyerName: "Zoë Smith" }));
+    expect(named).not.toContain("Zo");
+    expect(checkoutFingerprint({ ...base, supportCents: 500, buyerName: "A" })).not.toBe(checkoutFingerprint({ ...base, supportCents: 500 }));
+  });
+
+  it("a replay with another name is a 422 idempotency_key_reused; the same name replays the same order", async () => {
+    const send = (buyerName: string | undefined) => checkout({ ...BASKET, ...(buyerName ? { buyerName } : {}) });
+    const first = await send("Zoë Smith");
+    expect(first.status).toBe(201);
+    const again = await send("  Zoë   Smith ");
+    expect(again.status).toBe(200);
+    expect(again.body.orderId).toBe(first.body.orderId);
+    for (const other of ["Zoe Smith", undefined]) {
+      const res = await send(other);
+      expect([res.status, res.body.code]).toEqual([422, "idempotency_key_reused"]);
+    }
+    const rows = await api.db.query(`select buyer_name from public.orders`);
+    expect(rows).toEqual([{ buyer_name: "Zoë Smith" }]);
   });
 });
 

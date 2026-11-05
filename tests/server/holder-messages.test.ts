@@ -247,7 +247,8 @@ describe("POST /api/events/{eventId}/holder-messages", () => {
       expect(mail.subject).toBe(`${event.title}: ${SUBJECT}`);
       expect(mail.text).toContain(BODY);
       expect(mail.text).toContain("Static Collective");
-      expect(mail.text).toContain("can’t see your address");
+      expect(mail.text).toContain("Sheltüh sent this for Static Collective. You’re getting it because you have tickets for");
+      expect(mail.text).not.toContain("can’t see your address");
       expect(mail.text).toContain("Report this message: mailto:");
       expect(mail.html).toContain(BODY);
       const stop = /holder-messages\/stop#token=([A-Za-z0-9_-]{43})/.exec(mail.text)?.[1];

@@ -228,7 +228,7 @@ export function buildOrganiserNextStepsEmail(input: { to: string; firstName?: st
       {
         title: "Attendee privacy",
         description:
-          "We don’t share buyers’ names or emails with organisers. If you collect people’s details yourself, handle them under the Privacy Act and only email people with their consent.",
+          "Names and emails for your events are in your Orders tab. Use them only for the event, and only email people who have agreed to hear from you (Spam Act). Handle them under the Privacy Act.",
         link: { label: "Privacy", href: link(siteUrl, "/privacy") },
       },
     ],

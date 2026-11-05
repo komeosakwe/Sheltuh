@@ -305,7 +305,7 @@ describe("every transactional email uses the shared brand layout", () => {
     const message = emails.holderMessage();
     expect(message.html).toContain("Doors open at 7pm &#38; not 8pm.<br>Bring &#60;ID&#62;.");
     expect(message.html).not.toContain("<ID>");
-    expect(message.text).toContain("Cellar Door <Sound>, who can’t see your address");
+    expect(message.text).toContain("Sheltüh sent this for Cellar Door <Sound>. You’re getting it because you have tickets for");
     expect(message.text).toContain("Report this message: mailto:support@sheltuh.com.au?subject=");
     expect(message.text).toContain("About Cellar Door <Sound>: https://sheltuh.test/organisers/org_1");
     // The reminder is service information about a purchase: no opt-out.
@@ -567,7 +567,7 @@ describe("the organiser announcement", () => {
     expect(html).toContain(">Report this message</a> &middot; ");
     expect(html).toContain(`href="https://sheltuh.test/holder-messages/stop#token=${"t".repeat(43)}"`);
     expect(html).toContain(">Stop messages from Static Collective</a>");
-    expect(html).toContain("Sheltüh sent this for Static Collective, who can’t see your address.");
+    expect(html).toContain("Sheltüh sent this for Static Collective. You’re getting it because you have tickets for");
     expect(html).toContain('href="https://sheltuh.test/privacy"');
   });
 
