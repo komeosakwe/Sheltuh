@@ -1,3 +1,4 @@
+import { pathSocialValueFromInput, type PathSocialField } from "@/lib/api/social-profiles";
 import type { OrganiserSocialLinks, PublicOrganiserProfile } from "@/lib/api/types";
 
 /**
@@ -19,8 +20,12 @@ export type SocialNetwork = keyof OrganiserSocialLinks;
 export const SOCIAL_NETWORKS: readonly { network: SocialNetwork; label: string }[] = [
   { network: "instagram", label: "Instagram" },
   { network: "tiktok", label: "TikTok" },
+  { network: "spotify", label: "Spotify" },
+  { network: "soundcloud", label: "SoundCloud" },
+  { network: "youtube", label: "YouTube" },
   { network: "facebook", label: "Facebook" },
   { network: "x", label: "X" },
+  { network: "linkedin", label: "LinkedIn" },
 ];
 
 /** The organiser profile page's title before (or without) the organiser's name. */
@@ -53,6 +58,24 @@ export const SOCIAL_HANDLE_FIELDS = [
     hint: "Without the @. Letters, numbers, . and _, up to 30.",
   },
   {
+    field: "spotifyPath",
+    label: "Spotify",
+    prefix: "open.spotify.com/",
+    hint: "Paste the link to your artist, podcast or profile page.",
+  },
+  {
+    field: "soundcloudHandle",
+    label: "SoundCloud name",
+    prefix: "soundcloud.com/",
+    hint: "Letters, numbers, - and _, up to 40.",
+  },
+  {
+    field: "youtubeChannel",
+    label: "YouTube channel",
+    prefix: "youtube.com/",
+    hint: "Your @handle, or paste the link to your channel.",
+  },
+  {
     field: "facebookPage",
     label: "Facebook page",
     prefix: "facebook.com/",
@@ -64,18 +87,30 @@ export const SOCIAL_HANDLE_FIELDS = [
     prefix: "@",
     hint: "Without the @. Letters, numbers and _, up to 15.",
   },
+  {
+    field: "linkedinPath",
+    label: "LinkedIn",
+    prefix: "linkedin.com/",
+    hint: "Paste the link to your profile or company page.",
+  },
 ] as const;
 
 export type SocialHandleField = (typeof SOCIAL_HANDLE_FIELDS)[number]["field"];
 export type SocialHandleValues = Record<SocialHandleField, string>;
 
 /** The sites each handle's profile URL can be on ("www.", "m." and the like are dropped first). */
-const PROFILE_HOSTS: Record<SocialHandleField, readonly string[]> = {
+const PROFILE_HOSTS: Record<Exclude<SocialHandleField, PathSocialField>, readonly string[]> = {
   instagramHandle: ["instagram.com"],
   tiktokHandle: ["tiktok.com"],
   facebookPage: ["facebook.com", "fb.com"],
   xHandle: ["x.com", "twitter.com"],
 };
+
+const PATH_FIELDS: readonly SocialHandleField[] = ["spotifyPath", "soundcloudHandle", "youtubeChannel", "linkedinPath"];
+
+function isPathField(field: SocialHandleField): field is PathSocialField {
+  return PATH_FIELDS.includes(field);
+}
 
 /** One-segment paths on those sites that are pages of the site itself, not someone's profile. */
 const NOT_PROFILES = new Set([
@@ -110,6 +145,14 @@ const NOT_PROFILES = new Set([
  */
 export function handleFromProfileUrl(field: SocialHandleField, value: string): string | null {
   const trimmed = value.trim();
+  // Spotify, SoundCloud, YouTube and LinkedIn store a small path, not a username
+  // (lib/api/social-profiles.ts, the same reader the API uses): only a pasted
+  // link or spotify: URI is rewritten here, a typed name is left alone.
+  if (isPathField(field)) {
+    return trimmed.includes("/") || trimmed.toLowerCase().startsWith("spotify:")
+      ? pathSocialValueFromInput(field, trimmed)
+      : null;
+  }
   if (!trimmed.includes("/")) return null;
   let url: URL;
   try {
@@ -136,13 +179,22 @@ export function handleFromProfileUrl(field: SocialHandleField, value: string): s
   return segment;
 }
 
+/** The form's values for an organiser record (or an application being edited): every field, "" when unset. */
+export function socialHandleValuesOf(record: Partial<Record<SocialHandleField, string | undefined>> | undefined): SocialHandleValues {
+  return Object.fromEntries(SOCIAL_HANDLE_FIELDS.map(({ field }) => [field, record?.[field] ?? ""])) as SocialHandleValues;
+}
+
 /** Handles as typed: trimmed, with "" meaning "clear it" (sent as null). */
 export function socialHandlesForRequest(values: SocialHandleValues): Record<SocialHandleField, string | null> {
   return {
     instagramHandle: values.instagramHandle.trim() || null,
     tiktokHandle: values.tiktokHandle.trim() || null,
+    spotifyPath: values.spotifyPath.trim() || null,
+    soundcloudHandle: values.soundcloudHandle.trim() || null,
+    youtubeChannel: values.youtubeChannel.trim() || null,
     facebookPage: values.facebookPage.trim() || null,
     xHandle: values.xHandle.trim() || null,
+    linkedinPath: values.linkedinPath.trim() || null,
   };
 }
 
@@ -228,13 +280,26 @@ export function websiteUrlError(value: string, current?: string): string | null 
 }
 
 /**
- * The handle in a server-built profile URL (instagram.com/name/,
- * tiktok.com/@name, facebook.com/name, x.com/name), without any '@', or null
- * if the URL can't be read.
+ * The handle in a server-built profile URL, without any '@', or null if the URL
+ * can't be read or has nothing readable to show: instagram.com/name/,
+ * tiktok.com/@name, facebook.com/name, x.com/name, soundcloud.com/name,
+ * youtube.com/@name -> "name", linkedin.com/in/slug -> "in/slug" (the kind is
+ * part of how it reads). Spotify's links carry only an opaque id, and a
+ * youtube.com/channel/UC… link no name, so those are null.
  */
 export function socialHandleFromUrl(url: string): string | null {
   try {
-    const segment = new URL(url).pathname.split("/").find(Boolean);
+    const parsed = new URL(url);
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+    if (host === "open.spotify.com") return null;
+    if (host === "youtube.com") {
+      return segments[0]?.startsWith("@") ? decodeURIComponent(segments[0]).slice(1) || null : null;
+    }
+    if (host === "linkedin.com") {
+      return segments.length >= 2 ? `${decodeURIComponent(segments[0])}/${decodeURIComponent(segments[1])}` : null;
+    }
+    const segment = segments[0];
     if (!segment) return null;
     const handle = decodeURIComponent(segment).replace(/^@/, "");
     return handle || null;
@@ -243,7 +308,20 @@ export function socialHandleFromUrl(url: string): string | null {
   }
 }
 
-/** How a handle reads in a link: "@name", except Facebook pages, which aren't @-names: "facebook.com/page". */
+/**
+ * How a handle (from socialHandleFromUrl) reads in a link: "@name", except
+ * Facebook pages, SoundCloud and LinkedIn, which aren't @-names:
+ * "facebook.com/page", "soundcloud.com/name", "linkedin.com/in/slug".
+ */
 export function displayHandle(network: SocialNetwork, handle: string): string {
-  return network === "facebook" ? `facebook.com/${handle}` : `@${handle}`;
+  switch (network) {
+    case "facebook":
+      return `facebook.com/${handle}`;
+    case "soundcloud":
+      return `soundcloud.com/${handle}`;
+    case "linkedin":
+      return `linkedin.com/${handle}`;
+    default:
+      return `@${handle}`;
+  }
 }

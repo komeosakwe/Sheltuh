@@ -211,6 +211,12 @@ select version, file, coalesce(applied, false) as applied
       and exists (select 1 from fn where proname = 'cancel_holder_message')
       and exists (select 1 from fn where proname = 'stop_holder_messages')
       and exists (select 1 from fn where proname = 'purge_operational_data'
-                   and 'holder_messages_deleted' = any(proargnames)))
+                   and 'holder_messages_deleted' = any(proargnames))),
+    ('20261121000000', 'organiser_more_socials',
+      (select count(*) from col
+        where attrelid = to_regclass('public.organisers')
+          and attname in ('spotify_path', 'soundcloud_handle', 'youtube_channel', 'linkedin_path')) = 4
+      and exists (select 1 from fn where proname = 'edit_organiser_profile' and prosrc like '%linkedin_path%')
+      and exists (select 1 from fn where proname = 'accept_account_invite' and prosrc like '%linkedin_path%'))
   ) as m(version, file, applied)
  order by version;

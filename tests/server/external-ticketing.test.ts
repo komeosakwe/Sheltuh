@@ -32,6 +32,7 @@ import {
   insertOrder,
   publishedEvent,
   signUpAdmin,
+  withoutHostCard,
 } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 
@@ -584,7 +585,7 @@ describe("public payloads", () => {
 
     const list = await api.call(listPublicEvents);
     const byTitle = Object.fromEntries(list.body.items.map((e: { title: string }) => [e.title, e]));
-    expect(byTitle.Ext).toEqual(page.body);
+    expect(byTitle.Ext).toEqual(withoutHostCard(page.body));
     expect(byTitle.Here).toMatchObject({ ticketingMode: "sheltuh", externalFree: false, externalProvider: null });
     expect(byTitle.Here).not.toHaveProperty("externalTicketUrl");
   });

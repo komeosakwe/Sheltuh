@@ -161,6 +161,41 @@ describe("adaptPublicEvent: organiser logo", () => {
   });
 });
 
+describe("adaptPublicEvent: the Host card's extras", () => {
+  it("carries the organiser's website, social links and bio excerpt when the API sends them", () => {
+    const adapted = adaptPublicEvent({
+      ...base,
+      organiserWebsiteUrl: "https://static.example",
+      organiserSocialLinks: { instagram: "https://www.instagram.com/static/", spotify: "https://open.spotify.com/user/static" },
+      organiserBio: "Warehouse gigs in Collingwood.",
+    });
+    expect(adapted.organiserWebsiteUrl).toBe("https://static.example");
+    expect(adapted.organiserSocialLinks).toEqual({
+      instagram: "https://www.instagram.com/static/",
+      spotify: "https://open.spotify.com/user/static",
+    });
+    expect(adapted.organiserBio).toBe("Warehouse gigs in Collingwood.");
+  });
+
+  it("copies the links rather than sharing the payload's object", () => {
+    const links = { x: "https://x.com/static" };
+    const adapted = adaptPublicEvent({ ...base, organiserSocialLinks: links });
+    expect(adapted.organiserSocialLinks).toEqual(links);
+    expect(adapted.organiserSocialLinks).not.toBe(links);
+  });
+
+  it("has none of them on a list event, or with empty values", () => {
+    for (const adapted of [
+      adaptPublicEvent(base),
+      adaptPublicEvent({ ...base, organiserWebsiteUrl: "", organiserSocialLinks: {}, organiserBio: "" }),
+    ]) {
+      expect(adapted).not.toHaveProperty("organiserWebsiteUrl");
+      expect(adapted).not.toHaveProperty("organiserSocialLinks");
+      expect(adapted).not.toHaveProperty("organiserBio");
+    }
+  });
+});
+
 describe("adaptPublicEvent: refund policy (docs/architecture.md, Refund policy)", () => {
   it("carries the policy, and the days only for days_before", () => {
     expect(adaptPublicEvent({ ...base, refundPolicy: "days_before", refundDays: 7 })).toMatchObject({

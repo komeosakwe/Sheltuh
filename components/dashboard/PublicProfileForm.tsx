@@ -18,6 +18,7 @@ import { useAccountOwner } from "@/lib/auth/useAccountOwner";
 import {
   MAX_BIO_LENGTH,
   SOCIAL_HANDLE_FIELDS,
+  socialHandleValuesOf,
   socialHandlesForRequest,
   websiteUrlError,
   type SocialHandleField,
@@ -39,12 +40,7 @@ function fieldId(field: ProfileField) {
 }
 
 function handlesOf(record: OrganiserRecord): SocialHandleValues {
-  return {
-    instagramHandle: record.instagramHandle ?? "",
-    tiktokHandle: record.tiktokHandle ?? "",
-    facebookPage: record.facebookPage ?? "",
-    xHandle: record.xHandle ?? "",
-  };
+  return socialHandleValuesOf(record);
 }
 
 const countFormatter = new Intl.NumberFormat("en-AU");

@@ -9,7 +9,7 @@ import {
 } from "@/lib/server/handlers/public-events";
 import { getPublicOrganiserProfile } from "@/lib/server/handlers/public-organisers";
 import { TestApi } from "./helpers/api";
-import { approvedOrganiser, draftEvent, publishedEvent, setUpPayouts, signUpAdmin } from "./helpers/fixtures";
+import { approvedOrganiser, draftEvent, publishedEvent, setUpPayouts, signUpAdmin, withoutHostCard } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 
 let api: TestApi;
@@ -81,11 +81,14 @@ describe("public event visibility", () => {
         "timeZone",
         // Venue location: only when the event has one (the fixture's events do: a manual pin).
         "location",
+        // The Host card (this route only, approved organiser only): the fixture's organiser has a website and a bio, no socials.
+        "organiserWebsiteUrl",
+        "organiserBio",
       ].sort(),
     );
     expect(res.body).toMatchObject({ ticketingMode: "sheltuh", externalFree: false, externalProvider: null, refundPolicy: "no_change_of_mind" });
     const list = await api.call(listPublicEvents);
-    expect(list.body.items[0]).toEqual(res.body);
+    expect(list.body.items[0]).toEqual(withoutHostCard(res.body));
   });
 
   it("a ticket type's payload carries the sequential-release fields only for a waiting tier", async () => {

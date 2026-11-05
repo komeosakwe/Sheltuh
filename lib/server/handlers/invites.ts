@@ -17,6 +17,7 @@ import { sendOnboardingEmailsSoon } from "../email-outbox";
 import { maskEmail, redactForLog } from "../email-address";
 import { createdPrivate, HttpError, okPrivate, readJson } from "../http";
 import { buildInviteEmail, inviteLink } from "../invite-email";
+import { SOCIAL_RULES } from "../organiser-input";
 import { decodeCursor, isUuid, parseLimit, toPage } from "../pagination";
 import { ADMIN_INVITE_SELECT, toAdminInvite } from "../records";
 import type { Handler } from "../route";
@@ -118,10 +119,8 @@ function parseCreateBody(body: Record<string, unknown>): {
           description: input.description,
           categories: input.categories,
           website_url: input.websiteUrl,
-          instagram_handle: input.handles.instagramHandle ?? null,
-          tiktok_handle: input.handles.tiktokHandle ?? null,
-          facebook_page: input.handles.facebookPage ?? null,
-          x_handle: input.handles.xHandle ?? null,
+          // Every social column (instagram_handle, …, linkedin_path), read by private.accept_account_invite.
+          ...Object.fromEntries(SOCIAL_RULES.map((rule) => [rule.column, input.handles[rule.field] ?? null])),
           featured_video_provider: input.featuredVideo?.provider ?? null,
           featured_video_id: input.featuredVideo?.id ?? null,
         };

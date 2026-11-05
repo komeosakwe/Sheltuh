@@ -33,6 +33,12 @@ export function adaptPublicEvent(event: PublicEvent): SheltuhEvent {
     organiserName: event.organiserName,
     // Only while the organiser has a logo (and is approved): absent means initials.
     ...(event.organiserLogoThumbUrl ? { organiserLogoThumbUrl: event.organiserLogoThumbUrl } : {}),
+    // Host card extras, only on the single-event route and only when set.
+    ...(event.organiserWebsiteUrl ? { organiserWebsiteUrl: event.organiserWebsiteUrl } : {}),
+    ...(event.organiserSocialLinks && Object.keys(event.organiserSocialLinks).length > 0
+      ? { organiserSocialLinks: { ...event.organiserSocialLinks } }
+      : {}),
+    ...(event.organiserBio ? { organiserBio: event.organiserBio } : {}),
     poster: assignPoster(event.slug),
     imageUrl: event.imageUrl,
     // Only with a focus point: an event without one adapts exactly as before.

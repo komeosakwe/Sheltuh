@@ -1,4 +1,5 @@
 import { isApiConfigured } from "@/lib/api/client";
+import type { OrganiserSocialLinks } from "@/lib/api/types";
 import { isUpcomingEvent } from "@/lib/data";
 import { toMelbourneDateTimeInputParts } from "@/lib/format";
 import type { OrganiserProfileDetails } from "@/lib/organiser-profile";
@@ -40,6 +41,34 @@ export function sampleOrganiserId(organiserName: string): string {
 const SAMPLE_WEBSITES: Readonly<Record<string, string>> = {
   "small-hours-theatre": "https://smallhourstheatre.example",
   "static-collective": "https://staticcollective.example",
+};
+
+/**
+ * Made-up social links for a few of the organisers (fictional handles, and a
+ * Spotify id that is not a real artist), so the demo's Host card and profile
+ * show the whole set of networks. Same shape the API sends: https URLs.
+ */
+const SAMPLE_SOCIAL_LINKS: Readonly<Record<string, OrganiserSocialLinks>> = {
+  "static-collective": {
+    instagram: "https://www.instagram.com/staticcollective_demo/",
+    tiktok: "https://www.tiktok.com/@staticcollective_demo",
+    spotify: "https://open.spotify.com/artist/demo000000000000000000",
+    soundcloud: "https://soundcloud.com/staticcollective-demo",
+    youtube: "https://www.youtube.com/@staticcollective-demo",
+    facebook: "https://www.facebook.com/staticcollectivedemo",
+    x: "https://x.com/staticcollective",
+    linkedin: "https://www.linkedin.com/company/static-collective-demo",
+  },
+  "low-end-theory-sound": {
+    instagram: "https://www.instagram.com/lowendtheory_demo/",
+    spotify: "https://open.spotify.com/artist/demo111111111111111111",
+    soundcloud: "https://soundcloud.com/lowendtheory-demo",
+    youtube: "https://www.youtube.com/@lowendtheory-demo",
+  },
+  "paper-moon-studio": {
+    instagram: "https://www.instagram.com/papermoonstudio_demo/",
+    linkedin: "https://www.linkedin.com/company/paper-moon-studio-demo",
+  },
 };
 
 function eventsByOrganiser(): Map<string, SheltuhEvent[]> {
@@ -94,7 +123,7 @@ export function getSampleOrganiser(organiserId: string, now: Date = new Date()):
         (suburbs.length > 0 ? ` Find their events in ${suburbs.join(", ")}.` : ""),
       categories,
       websiteUrl: SAMPLE_WEBSITES[organiserId],
-      socialLinks: {},
+      socialLinks: { ...SAMPLE_SOCIAL_LINKS[organiserId] },
       memberSince: firstMonth < thisMonth ? firstMonth : thisMonth,
       featuredVideo: null,
       followerCount: null,

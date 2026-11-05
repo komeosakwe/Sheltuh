@@ -1,3 +1,4 @@
+import type { OrganiserSocialLinks } from "./api/types";
 import type { RefundPolicy } from "./refund-policy";
 import type { TicketingMode } from "./ticketing";
 import type { AustralianTimeZone, StateCode } from "./time-zones";
@@ -178,6 +179,15 @@ export interface SheltuhEvent {
    * demo and otherwise: the event page shows their initials instead.
    */
   organiserLogoThumbUrl?: string;
+  /**
+   * The Host card's extras (live event pages only, from GET /events/slug/{slug};
+   * never on list events): the organiser's website, their social links (https
+   * URLs built by the server) and a short excerpt of their bio. Each is absent
+   * when not set; the demo's come from lib/sample-organisers.ts.
+   */
+  organiserWebsiteUrl?: string;
+  organiserSocialLinks?: OrganiserSocialLinks;
+  organiserBio?: string;
   poster: EventPoster;
   /** Optional event photo/poster (path under /public or absolute URL). Falls back to `poster` art when absent or failing to load. */
   imageUrl?: string;

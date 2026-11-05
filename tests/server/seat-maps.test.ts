@@ -429,6 +429,9 @@ describe("public reads", () => {
       "refundPolicy",
       // The fixture's venue pin (a GA event's payload is otherwise unchanged).
       "location",
+      // The Host card, on this route only (the fixture's organiser has a website and a bio, no socials).
+      "organiserWebsiteUrl",
+      "organiserBio",
     ]);
     expect(plain.body.ticketTypes).toEqual([
       { id: "ga", name: "General admission", priceCents: 3000, feePolicy: "buyer-pays", quantityAvailable: 10, soldOut: false, remaining: 10 },
