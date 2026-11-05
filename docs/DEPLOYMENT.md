@@ -478,9 +478,9 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           `request_free_order` and `request_free_seated_order` dropped and
           recreated with a trailing `p_buyer_name` argument). Apply it before the
           app: the new app passes the argument, the previous app does not and
-          keeps working (the argument defaults to null). Needs files 44 and 49's
-          predecessors in place; it redefines none of the functions files 45 to
-          50 redefine. Not reversible once orders carry names without losing them.
+          keeps working (the argument defaults to null). It redefines none of the
+          functions files 45 to 50 redefine. Not reversible without losing the
+          names once orders carry them.
 
       **Files 33 to 37 can be applied ahead of this deploy, with the
       previous app still live.** "The previous app" here is the build of
