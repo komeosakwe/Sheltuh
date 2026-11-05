@@ -97,3 +97,18 @@ describe("organiserProfileHref", () => {
     expect(organiserProfileHref({ organiserName: "Small Hours Theatre" })).toBeNull();
   });
 });
+
+describe("sample social links", () => {
+  it("gives a few organisers social links in the API's shape (https URLs on the networks they name)", () => {
+    const profile = getSampleOrganiser("static-collective")?.profile;
+    expect(Object.keys(profile?.socialLinks ?? {}).sort()).toEqual(
+      ["facebook", "instagram", "linkedin", "soundcloud", "spotify", "tiktok", "x", "youtube"],
+    );
+    for (const url of Object.values(profile?.socialLinks ?? {})) expect(url).toMatch(/^https:\/\//);
+    expect(getSampleOrganiser("low-end-theory-sound")?.profile.socialLinks.spotify).toMatch(
+      /^https:\/\/open\.spotify\.com\/artist\/[A-Za-z0-9]{22}$/,
+    );
+    // The rest stay without, and the shared map is never handed out to be changed.
+    expect(getSampleOrganiser("small-hours-theatre")?.profile.socialLinks).toEqual({});
+  });
+});

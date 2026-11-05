@@ -3,20 +3,42 @@
  * the public URLs built from them. Only handles are stored (never free-form
  * URLs), so a link can only ever point at the network it names. The patterns
  * match the check constraints in
- * supabase/migrations/20261016000000_organiser_public_profile.sql.
+ * supabase/migrations/20261016000000_organiser_public_profile.sql (and, for
+ * Spotify, SoundCloud, YouTube and LinkedIn, 20261121000000_organiser_more_socials.sql).
  */
+import {
+  isPathSocialValue,
+  PATH_SOCIAL_PATTERNS as PATH_PATTERNS,
+  pathSocialValueFromInput,
+  type PathSocialField,
+} from "@/lib/api/social-profiles";
 import type { OrganiserSocialLinks } from "./types";
 
-export type SocialField = "instagramHandle" | "tiktokHandle" | "facebookPage" | "xHandle";
+export type SocialField = "instagramHandle" | "tiktokHandle" | "facebookPage" | "xHandle" | PathSocialField;
 
 interface SocialRule {
   field: SocialField;
   /** The organisers column it's stored in. */
-  column: "instagram_handle" | "tiktok_handle" | "facebook_page" | "x_handle";
+  column:
+    | "instagram_handle"
+    | "tiktok_handle"
+    | "facebook_page"
+    | "x_handle"
+    | "spotify_path"
+    | "soundcloud_handle"
+    | "youtube_channel"
+    | "linkedin_path";
   pattern: RegExp;
   error: string;
   url: (handle: string) => string;
   link: keyof OrganiserSocialLinks;
+  /**
+   * Set for the networks whose stored value is more than a username (see
+   * lib/api/social-profiles.ts): what was typed or pasted (a stored form, or
+   * a link on the network's own site) is read into the stored value. The
+   * handle networks take just a handle (a leading '@' stripped), as ever.
+   */
+  path?: PathSocialField;
 }
 
 export const SOCIAL_RULES: readonly SocialRule[] = [
@@ -37,6 +59,33 @@ export const SOCIAL_RULES: readonly SocialRule[] = [
     link: "tiktok",
   },
   {
+    field: "spotifyPath",
+    column: "spotify_path",
+    pattern: PATH_PATTERNS.spotifyPath,
+    error: "Paste your Spotify artist, podcast or profile link, like open.spotify.com/artist/… (or artist/…, show/…, user/…).",
+    url: (p) => `https://open.spotify.com/${p}`,
+    link: "spotify",
+    path: "spotifyPath",
+  },
+  {
+    field: "soundcloudHandle",
+    column: "soundcloud_handle",
+    pattern: PATH_PATTERNS.soundcloudHandle,
+    error: "Enter just your SoundCloud name (soundcloud.com/<name>): up to 40 letters, numbers, hyphens or underscores.",
+    url: (h) => `https://soundcloud.com/${h}`,
+    link: "soundcloud",
+    path: "soundcloudHandle",
+  },
+  {
+    field: "youtubeChannel",
+    column: "youtube_channel",
+    pattern: PATH_PATTERNS.youtubeChannel,
+    error: "Enter your YouTube @handle (3 to 30 letters, numbers, full stops, hyphens or underscores), or a youtube.com/channel/UC… link.",
+    url: (c) => `https://www.youtube.com/${c}`,
+    link: "youtube",
+    path: "youtubeChannel",
+  },
+  {
     field: "facebookPage",
     column: "facebook_page",
     pattern: /^[A-Za-z0-9.]{5,50}$/,
@@ -51,6 +100,15 @@ export const SOCIAL_RULES: readonly SocialRule[] = [
     error: "Enter just your X username: up to 15 letters, numbers or underscores.",
     url: (h) => `https://x.com/${h}`,
     link: "x",
+  },
+  {
+    field: "linkedinPath",
+    column: "linkedin_path",
+    pattern: PATH_PATTERNS.linkedinPath,
+    error: "Paste your LinkedIn profile or company page link, like linkedin.com/company/… or linkedin.com/in/… (or company/…, in/…).",
+    url: (p) => `https://www.linkedin.com/${p}`,
+    link: "linkedin",
+    path: "linkedinPath",
   },
 ];
 
@@ -70,6 +128,14 @@ export function parseHandle(value: unknown, rule: SocialRule, errors: Record<str
   }
   const trimmed = value.trim();
   if (!trimmed) return null;
+  if (rule.path) {
+    const stored = pathSocialValueFromInput(rule.path, trimmed);
+    if (stored === null) {
+      errors[rule.field] = rule.error;
+      return undefined;
+    }
+    return stored;
+  }
   const handle = trimmed.startsWith("@") ? trimmed.slice(1) : trimmed;
   if (!rule.pattern.test(handle) || !HAS_ALPHANUMERIC.test(handle)) {
     errors[rule.field] = rule.error;
@@ -98,7 +164,27 @@ export function socialLinks(handles: Partial<Record<SocialField, string | undefi
     const handle = handles[rule.field];
     // Re-checked on the way out too: the database enforces the same pattern,
     // but a link is only ever built from a handle that matches it.
-    if (handle && rule.pattern.test(handle) && HAS_ALPHANUMERIC.test(handle)) links[rule.link] = rule.url(handle);
+    if (!handle) continue;
+    const valid = rule.path
+      ? isPathSocialValue(rule.path, handle)
+      : rule.pattern.test(handle) && HAS_ALPHANUMERIC.test(handle);
+    if (valid) links[rule.link] = rule.url(handle);
   }
   return links;
+}
+
+/**
+ * The social columns of an insert: their names, one placeholder each
+ * (numbered from `firstParam`) and the values to bind, in SOCIAL_RULES order
+ * (unset: null). Column names only ever come from SOCIAL_RULES.
+ */
+export function socialInsertParts(
+  handles: Partial<Record<SocialField, string | null>>,
+  firstParam: number,
+): { columns: string; placeholders: string; params: (string | null)[] } {
+  return {
+    columns: SOCIAL_RULES.map((rule) => rule.column).join(", "),
+    placeholders: SOCIAL_RULES.map((_, i) => `$${firstParam + i}`).join(", "),
+    params: SOCIAL_RULES.map((rule) => handles[rule.field] ?? null),
+  };
 }

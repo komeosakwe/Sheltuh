@@ -4,7 +4,10 @@ import {
   formatMemberSince,
   handleFromProfileUrl,
   isHttpUrl,
+  SOCIAL_HANDLE_FIELDS,
+  SOCIAL_NETWORKS,
   socialHandleFromUrl,
+  socialHandleValuesOf,
   socialHandlesForRequest,
   websiteHostname,
   websiteUrlError,
@@ -55,10 +58,109 @@ describe("socialHandleFromUrl / displayHandle", () => {
     expect(socialHandleFromUrl("nope")).toBeNull();
   });
 
-  it("shows @names, except Facebook pages (facebook.com/page)", () => {
+  it("reads the new networks' server-built URLs", () => {
+    expect(socialHandleFromUrl("https://soundcloud.com/static-collective")).toBe("static-collective");
+    expect(socialHandleFromUrl("https://www.youtube.com/@staticcollective")).toBe("staticcollective");
+    expect(socialHandleFromUrl("https://www.linkedin.com/company/static-collective")).toBe("company/static-collective");
+    expect(socialHandleFromUrl("https://www.linkedin.com/in/kome-osakwe")).toBe("in/kome-osakwe");
+    // Nothing readable to show: Spotify's ids are opaque, and a channel id isn't a name.
+    expect(socialHandleFromUrl("https://open.spotify.com/artist/4Z8W4fKeB5YxbusRsdQVPb")).toBeNull();
+    expect(socialHandleFromUrl("https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv")).toBeNull();
+    expect(socialHandleFromUrl("https://www.linkedin.com/")).toBeNull();
+  });
+
+  it("shows @names, except Facebook pages, SoundCloud and LinkedIn, which read as their address", () => {
     expect(displayHandle("instagram", "a")).toBe("@a");
+    expect(displayHandle("tiktok", "a")).toBe("@a");
+    expect(displayHandle("youtube", "a")).toBe("@a");
     expect(displayHandle("x", "a")).toBe("@a");
     expect(displayHandle("facebook", "a")).toBe("facebook.com/a");
+    expect(displayHandle("soundcloud", "a")).toBe("soundcloud.com/a");
+    expect(displayHandle("linkedin", "company/a")).toBe("linkedin.com/company/a");
+  });
+});
+
+describe("SOCIAL_NETWORKS / SOCIAL_HANDLE_FIELDS", () => {
+  it("list the networks in the same order, with these labels", () => {
+    expect(SOCIAL_NETWORKS.map((n) => n.label)).toEqual([
+      "Instagram",
+      "TikTok",
+      "Spotify",
+      "SoundCloud",
+      "YouTube",
+      "Facebook",
+      "X",
+      "LinkedIn",
+    ]);
+    expect(SOCIAL_NETWORKS.map((n) => n.network)).toEqual([
+      "instagram",
+      "tiktok",
+      "spotify",
+      "soundcloud",
+      "youtube",
+      "facebook",
+      "x",
+      "linkedin",
+    ]);
+    expect(SOCIAL_HANDLE_FIELDS.map((f) => f.field)).toEqual([
+      "instagramHandle",
+      "tiktokHandle",
+      "spotifyPath",
+      "soundcloudHandle",
+      "youtubeChannel",
+      "facebookPage",
+      "xHandle",
+      "linkedinPath",
+    ]);
+  });
+});
+
+describe("socialHandleValuesOf", () => {
+  it("fills every field, with an empty string for what's unset", () => {
+    expect(socialHandleValuesOf(undefined)).toEqual({
+      instagramHandle: "",
+      tiktokHandle: "",
+      spotifyPath: "",
+      soundcloudHandle: "",
+      youtubeChannel: "",
+      facebookPage: "",
+      xHandle: "",
+      linkedinPath: "",
+    });
+    expect(socialHandleValuesOf({ spotifyPath: "artist/x", xHandle: "b" })).toMatchObject({
+      spotifyPath: "artist/x",
+      xHandle: "b",
+      linkedinPath: "",
+    });
+  });
+});
+
+describe("handleFromProfileUrl for Spotify, SoundCloud, YouTube and LinkedIn", () => {
+  const ARTIST = "4Z8W4fKeB5YxbusRsdQVPb";
+
+  it("reduces a pasted link to the stored value", () => {
+    expect(handleFromProfileUrl("spotifyPath", `https://open.spotify.com/artist/${ARTIST}?si=abc`)).toBe(`artist/${ARTIST}`);
+    expect(handleFromProfileUrl("spotifyPath", `https://open.spotify.com/intl-au/show/${ARTIST}`)).toBe(`show/${ARTIST}`);
+    expect(handleFromProfileUrl("spotifyPath", `spotify:artist:${ARTIST}`)).toBe(`artist/${ARTIST}`);
+    expect(handleFromProfileUrl("soundcloudHandle", "https://soundcloud.com/static-collective/")).toBe("static-collective");
+    expect(handleFromProfileUrl("youtubeChannel", "https://www.youtube.com/@staticcollective/videos")).toBe("@staticcollective");
+    expect(handleFromProfileUrl("youtubeChannel", "youtube.com/channel/UCabcdefghijklmnopqrstuv")).toBe(
+      "channel/UCabcdefghijklmnopqrstuv",
+    );
+    expect(handleFromProfileUrl("linkedinPath", "https://www.linkedin.com/company/static-collective/about/")).toBe(
+      "company/static-collective",
+    );
+    expect(handleFromProfileUrl("linkedinPath", "https://au.linkedin.com/in/kome-osakwe?trk=x")).toBe("in/kome-osakwe");
+  });
+
+  it("leaves typed names alone, and anything it can't read for the server to judge", () => {
+    expect(handleFromProfileUrl("soundcloudHandle", "static-collective")).toBeNull();
+    expect(handleFromProfileUrl("youtubeChannel", "@staticcollective")).toBeNull();
+    expect(handleFromProfileUrl("youtubeChannel", "https://www.youtube.com/watch?v=dQw4w9WgXcQ")).toBeNull();
+    expect(handleFromProfileUrl("spotifyPath", `https://open.spotify.com/track/${ARTIST}`)).toBeNull();
+    expect(handleFromProfileUrl("spotifyPath", `https://evil.example/artist/${ARTIST}`)).toBeNull();
+    expect(handleFromProfileUrl("linkedinPath", "https://www.linkedin.com.evil.example/in/someone")).toBeNull();
+    expect(handleFromProfileUrl("soundcloudHandle", "https://www.instagram.com/static")).toBeNull();
   });
 });
 
@@ -95,8 +197,23 @@ describe("handleFromProfileUrl", () => {
 describe("socialHandlesForRequest", () => {
   it("trims, and sends blank as null (clear)", () => {
     expect(
-      socialHandlesForRequest({ instagramHandle: " @a ", tiktokHandle: "", facebookPage: "  ", xHandle: "b" }),
-    ).toEqual({ instagramHandle: "@a", tiktokHandle: null, facebookPage: null, xHandle: "b" });
+      socialHandlesForRequest({
+        ...socialHandleValuesOf(undefined),
+        instagramHandle: " @a ",
+        facebookPage: "  ",
+        xHandle: "b",
+        spotifyPath: " artist/x ",
+      }),
+    ).toEqual({
+      instagramHandle: "@a",
+      tiktokHandle: null,
+      spotifyPath: "artist/x",
+      soundcloudHandle: null,
+      youtubeChannel: null,
+      facebookPage: null,
+      xHandle: "b",
+      linkedinPath: null,
+    });
   });
 });
 

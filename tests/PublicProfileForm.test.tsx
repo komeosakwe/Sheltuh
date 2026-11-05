@@ -187,6 +187,47 @@ describe("PublicProfileForm", () => {
     expect(status).toHaveClass("empty:sr-only");
   });
 
+  it("groups the eight social fields under a 'Social links' heading, each with its short hint", () => {
+    renderForm();
+    const group = screen.getByRole("group", { name: "Social links" });
+    const hints: Record<string, string> = {
+      Spotify: "Paste your Spotify artist, podcast or profile link.",
+      SoundCloud: "Your name after soundcloud.com/, or paste your link.",
+      YouTube: "Your @handle, or paste your channel link.",
+      LinkedIn: "Paste your LinkedIn profile or company page link.",
+    };
+    for (const label of ["Instagram username", "TikTok username", "Facebook page", "X username", ...Object.keys(hints)]) {
+      expect(group).toContainElement(screen.getByLabelText(label));
+    }
+    for (const [label, hint] of Object.entries(hints)) {
+      expect(describedBy(screen.getByLabelText(label))).toContain(hint);
+    }
+  });
+
+  it("sends a pasted Spotify, SoundCloud, YouTube and LinkedIn link as the small value the API stores", async () => {
+    updateOrganiserProfile.mockResolvedValue(RECORD);
+    renderForm();
+    const paste = (label: string, text: string) => {
+      const input = screen.getByLabelText(label) as HTMLInputElement;
+      input.select();
+      fireEvent.paste(input, { clipboardData: { getData: () => text } });
+    };
+    paste("Spotify", "https://open.spotify.com/artist/4Z8W4fKeB5YxbusRsdQVPb?si=abc");
+    paste("SoundCloud", "https://soundcloud.com/northside-noise");
+    paste("YouTube", "https://www.youtube.com/@northsidenoise");
+    paste("LinkedIn", "https://www.linkedin.com/company/northside-noise/");
+    expect(screen.getByLabelText("Spotify")).toHaveValue("artist/4Z8W4fKeB5YxbusRsdQVPb");
+    expect(screen.getByLabelText("LinkedIn")).toHaveValue("company/northside-noise");
+    save();
+    await waitFor(() => expect(updateOrganiserProfile).toHaveBeenCalledTimes(1));
+    expect(updateOrganiserProfile.mock.calls[0][0]).toMatchObject({
+      spotifyPath: "artist/4Z8W4fKeB5YxbusRsdQVPb",
+      soundcloudHandle: "northside-noise",
+      youtubeChannel: "@northsidenoise",
+      linkedinPath: "company/northside-noise",
+    });
+  });
+
   it("marks the bio as required in its label", () => {
     renderForm();
     expect(screen.getByLabelText("Bio (required)")).toBeInTheDocument();

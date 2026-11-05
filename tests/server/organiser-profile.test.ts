@@ -471,9 +471,14 @@ describe("GET /organisers/{organiserId}/profile", () => {
 
     const [event] = res.body.upcomingEvents;
     expect(Object.keys(event).sort()).toEqual(PUBLIC_EVENT_KEYS);
-    // The same shape, field for field, as the public event route.
+    // The same shape, field for field, as the public event route, which adds only the Host card's
+    // extras (organiserWebsiteUrl, organiserSocialLinks, organiserBio: tests/server/organiser-socials.test.ts).
     const bySlug = await api.call(getPublicEventBySlug, { params: { slug: live.slug } });
-    expect(event).toEqual(bySlug.body);
+    const { organiserWebsiteUrl, organiserSocialLinks, organiserBio, ...detail } = bySlug.body;
+    expect(organiserWebsiteUrl).toBe(application.websiteUrl);
+    expect(organiserSocialLinks).toBeUndefined();
+    expect(organiserBio).toBe(application.description);
+    expect(event).toEqual(detail);
   });
 
   it("puts upcoming events first (soonest first), then past ones (most recent first)", async () => {

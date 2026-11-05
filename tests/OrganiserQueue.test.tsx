@@ -178,7 +178,7 @@ describe("Admin organisers: statuses", () => {
 
 describe("Admin organisers: website and social handles", () => {
   it.each<OrganiserStatus>(["pending", "approved", "rejected"])(
-    "shows the full website as text, a safe link to it, and all four handles (%s)",
+    "shows the full website as text, a safe link to it, and all eight social links (%s)",
     async (status) => {
       listing(status, [
         organiser("o1", {
@@ -188,6 +188,10 @@ describe("Admin organisers: website and social handles", () => {
           tiktokHandle: "northside_noise",
           facebookPage: "northsidenoise",
           xHandle: "nsnoise",
+          spotifyPath: "artist/4Z8W4fKeB5YxbusRsdQVPb",
+          soundcloudHandle: "northside-noise",
+          youtubeChannel: "@northsidenoise",
+          linkedinPath: "company/northside-noise",
         }),
       ]);
       if (status === "pending") renderQueue();
@@ -204,6 +208,10 @@ describe("Admin organisers: website and social handles", () => {
       expect(article).toHaveTextContent("TikTok@northside_noise");
       expect(article).toHaveTextContent("Facebookfacebook.com/northsidenoise");
       expect(article).toHaveTextContent("X@nsnoise");
+      expect(article).toHaveTextContent("Spotifyopen.spotify.com/artist/4Z8W4fKeB5YxbusRsdQVPb");
+      expect(article).toHaveTextContent("SoundCloudsoundcloud.com/northside-noise");
+      expect(article).toHaveTextContent("YouTubeyoutube.com/@northsidenoise");
+      expect(article).toHaveTextContent("LinkedInlinkedin.com/company/northside-noise");
     },
   );
 
@@ -221,7 +229,7 @@ describe("Admin organisers: website and social handles", () => {
     expect(within(first).queryByRole("link", { name: /^Open/ })).toBeNull();
     // The contact email is a mailto link.
     expect(within(first).getByRole("link", { name: "o1@example.com" })).toHaveAttribute("href", "mailto:o1@example.com");
-    expect(within(articleOf("Org o2")).getAllByText("Not given")).toHaveLength(5);
+    expect(within(articleOf("Org o2")).getAllByText("Not given")).toHaveLength(9);
   });
 });
 

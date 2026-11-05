@@ -13,6 +13,7 @@ import {
   selfPublishedEvent,
   signUpAdmin,
   suburbPin,
+  withoutHostCard,
 } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 
@@ -210,7 +211,7 @@ describe("publishing and the public payload", () => {
     const page = await api.call(getPublicEventBySlug, { params: { slug: event.slug } });
     expect(page.body).toMatchObject({ ticketingMode: "external", externalPriceFromCents: 8900 });
     const list = await api.call(listPublicEvents);
-    expect(list.body.items.find((e: { slug: string }) => e.slug === event.slug)).toEqual(page.body);
+    expect(list.body.items.find((e: { slug: string }) => e.slug === event.slug)).toEqual(withoutHostCard(page.body));
   });
 
   it("an approved event shows it; one without a price and a Sheltüh one have no field", async () => {

@@ -230,6 +230,12 @@ select version, file, coalesce(applied, false) as applied
       and exists (select 1 from col where attrelid = to_regclass('public.tickets') and attname = 'group_size')
       and exists (select 1 from fn where proname = 'ticket_types_admits_frozen')
       and exists (select 1 from fn where proname = 'order_group_size')
-      and exists (select 1 from fn where proname = 'fulfil_order_detailed' and prosrc like '%order_group_size%'))
+      and exists (select 1 from fn where proname = 'fulfil_order_detailed' and prosrc like '%order_group_size%')),
+    ('20261121000000', 'organiser_more_socials',
+      (select count(*) from col
+        where attrelid = to_regclass('public.organisers')
+          and attname in ('spotify_path', 'soundcloud_handle', 'youtube_channel', 'linkedin_path')) = 4
+      and exists (select 1 from fn where proname = 'edit_organiser_profile' and prosrc like '%linkedin_path%')
+      and exists (select 1 from fn where proname = 'accept_account_invite' and prosrc like '%linkedin_path%'))
   ) as m(version, file, applied)
  order by version;

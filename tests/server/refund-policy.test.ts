@@ -20,6 +20,7 @@ import {
   insertOrder,
   publishedEvent,
   signUpAdmin,
+  withoutHostCard,
 } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 
@@ -155,7 +156,7 @@ describe("choosing a policy", () => {
     const bySlug = await api.call(getPublicEventBySlug, { params: { slug: live.slug } });
     expect(bySlug.body).toMatchObject({ refundPolicy: "days_before", refundDays: 7 });
     const list = await api.call(listPublicEvents);
-    expect(list.body.items[0]).toEqual(bySlug.body);
+    expect(list.body.items[0]).toEqual(withoutHostCard(bySlug.body));
 
     // The ticket page, for a paid order while the event is published.
     const orderId = await insertOrder(api, live, "fan@example.com", "paid");

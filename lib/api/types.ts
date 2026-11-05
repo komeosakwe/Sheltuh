@@ -31,6 +31,16 @@ export interface OrganiserRecord {
   /** The page's username, as in facebook.com/<page>. */
   facebookPage?: string;
   xHandle?: string;
+  /**
+   * More networks, each stored as a small validated value (never a URL; see
+   * lib/api/social-profiles.ts): `artist/<id>`, `show/<id>` or `user/<id>`
+   * (open.spotify.com/…), a SoundCloud name, a YouTube `@handle` or
+   * `channel/UC…`, and LinkedIn `in/<slug>` or `company/<slug>`.
+   */
+  spotifyPath?: string;
+  soundcloudHandle?: string;
+  youtubeChannel?: string;
+  linkedinPath?: string;
   status: OrganiserStatus;
   rejectionReason?: string;
   reviewedBy?: string;
@@ -69,6 +79,10 @@ export type OrganiserEditField =
   | "tiktokHandle"
   | "facebookPage"
   | "xHandle"
+  | "spotifyPath"
+  | "soundcloudHandle"
+  | "youtubeChannel"
+  | "linkedinPath"
   | "status";
 
 /**
@@ -131,8 +145,15 @@ export interface SuspendOrganiserResult {
 export interface OrganiserSocialLinks {
   instagram?: string;
   tiktok?: string;
+  /** open.spotify.com/artist/…, /show/… or /user/…. */
+  spotify?: string;
+  soundcloud?: string;
+  /** youtube.com/@handle or youtube.com/channel/UC…. */
+  youtube?: string;
   facebook?: string;
   x?: string;
+  /** linkedin.com/in/… or linkedin.com/company/…. */
+  linkedin?: string;
 }
 
 /**
@@ -632,6 +653,10 @@ export interface AdminCreateOrganiserInput {
   tiktokHandle?: string | null;
   facebookPage?: string | null;
   xHandle?: string | null;
+  spotifyPath?: string | null;
+  soundcloudHandle?: string | null;
+  youtubeChannel?: string | null;
+  linkedinPath?: string | null;
   /** A YouTube or Vimeo link (see lib/api/featured-video.ts); null or "" for none. */
   featuredVideoUrl?: string | null;
 }

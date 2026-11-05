@@ -27,6 +27,7 @@ import type {
   OrganiserEditEntry,
   OrganiserLogField,
   OrganiserRecord,
+  OrganiserSocialLinks,
   ProfileContentField,
   ProfileRecord,
   PublicEvent,
@@ -35,7 +36,7 @@ import type {
   TicketTypeInput,
   TransferAction,
 } from "./types";
-import { remainingShownAtMost, type PublicTicketType } from "@/lib/api/public-events";
+import { ORGANISER_BIO_EXCERPT_LENGTH, remainingShownAtMost, type PublicTicketType } from "@/lib/api/public-events";
 import {
   SHELTUH_TEAM_ACTOR,
   type AdminHolderMessage,
@@ -96,7 +97,8 @@ function logoUrlOf(row: Row): { logoUrl?: string } {
 
 const ORGANISER_COLUMNS = `o.id, o.owner_user_id, o.display_name, o.contact_email, o.description,
          o.categories::text[] as categories, o.website_url,
-         o.instagram_handle, o.tiktok_handle, o.facebook_page, o.x_handle, o.status::text as status,
+         o.instagram_handle, o.tiktok_handle, o.facebook_page, o.x_handle,
+         o.spotify_path, o.soundcloud_handle, o.youtube_channel, o.linkedin_path, o.status::text as status,
          o.rejection_reason, o.reviewed_by, o.reviewed_at, o.stripe_account_id,
          o.payouts_enabled, o.event_review_required, o.created_at, o.updated_at, o.featured_video_provider,
          o.featured_video_id, ${organiserLogoVersionOf("o.id")} as logo_version`;
@@ -137,6 +139,10 @@ const EDIT_FIELDS: Record<string, OrganiserLogField> = {
   tiktok_handle: "tiktokHandle",
   facebook_page: "facebookPage",
   x_handle: "xHandle",
+  spotify_path: "spotifyPath",
+  soundcloud_handle: "soundcloudHandle",
+  youtube_channel: "youtubeChannel",
+  linkedin_path: "linkedinPath",
   featured_video: "featuredVideo",
   logo: "logo",
   status: "status",
@@ -193,6 +199,10 @@ export function toOrganiser(row: Row): OrganiserRecord {
     tiktokHandle: opt(row.tiktok_handle),
     facebookPage: opt(row.facebook_page),
     xHandle: opt(row.x_handle),
+    spotifyPath: opt(row.spotify_path),
+    soundcloudHandle: opt(row.soundcloud_handle),
+    youtubeChannel: opt(row.youtube_channel),
+    linkedinPath: opt(row.linkedin_path),
     status: row.status as OrganiserRecord["status"],
     rejectionReason: opt(row.rejection_reason),
     reviewedBy: opt(row.reviewed_by),
@@ -223,6 +233,7 @@ export function toOwnOrganiserView(record: OrganiserRecord): OrganiserRecord {
 const PUBLIC_ORGANISER_SELECT = `
   select o.id, o.display_name, o.description, o.categories::text[] as categories, o.website_url,
          o.instagram_handle, o.tiktok_handle, o.facebook_page, o.x_handle,
+         o.spotify_path, o.soundcloud_handle, o.youtube_channel, o.linkedin_path,
          o.featured_video_provider, o.featured_video_id,
          ${organiserLogoVersionOf("o.id")} as logo_version,
          to_char(o.created_at at time zone 'Australia/Melbourne', 'YYYY-MM') as member_since,
@@ -244,6 +255,20 @@ export async function findPublicOrganiserRow(db: Db, organiserId: string): Promi
   return row;
 }
 
+/** The https links for the social columns of an organisers row (as read by PUBLIC_ORGANISER_SELECT or EVENT_DETAIL_HOST_COLUMNS). */
+function socialLinksOf(row: Row): OrganiserSocialLinks {
+  return socialLinks({
+    instagramHandle: opt(row.instagram_handle),
+    tiktokHandle: opt(row.tiktok_handle),
+    spotifyPath: opt(row.spotify_path),
+    soundcloudHandle: opt(row.soundcloud_handle),
+    youtubeChannel: opt(row.youtube_channel),
+    facebookPage: opt(row.facebook_page),
+    xHandle: opt(row.x_handle),
+    linkedinPath: opt(row.linkedin_path),
+  });
+}
+
 export function toPublicOrganiserProfile(
   row: Row,
   upcomingEvents: PublicEvent[],
@@ -255,12 +280,7 @@ export function toPublicOrganiserProfile(
     description: row.description as string,
     categories: row.categories as PublicOrganiserProfile["categories"],
     websiteUrl: opt(row.website_url),
-    socialLinks: socialLinks({
-      instagramHandle: opt(row.instagram_handle),
-      tiktokHandle: opt(row.tiktok_handle),
-      facebookPage: opt(row.facebook_page),
-      xHandle: opt(row.x_handle),
-    }),
+    socialLinks: socialLinksOf(row),
     memberSince: row.member_since as string,
     featuredVideo: featuredVideoOf(row) ?? null,
     followerCount: (row.follower_count as number) >= FOLLOWER_COUNT_THRESHOLD ? (row.follower_count as number) : null,
@@ -440,6 +460,63 @@ export function toEvent(row: Row): EventRecord {
 /** For rows of EVENT_SELECT, in admin routes: log entries keep every actor's account id. */
 export function toEventForAdmin(row: Row): EventRecord {
   return mapEvent(row, "admin");
+}
+
+/**
+ * EVENT_SELECT's extras for the single-event route's "Host" card: the
+ * organiser's website, bio and social handles, each null unless the organiser
+ * is approved (the same rule as findPublicOrganiserRow: a pending, rejected or
+ * suspended organiser shows nothing). Read from the join EVENT_SELECT already
+ * does, so the detail read is still one query; lists don't use this (the card
+ * is only on the event page).
+ */
+const EVENT_HOST_COLUMNS = ["website_url", "description"]
+  .map((column) => `case when o.status = 'approved' then o.${column} end as host_${column}`)
+  .concat(
+    ["instagram_handle", "tiktok_handle", "spotify_path", "soundcloud_handle", "youtube_channel", "facebook_page", "x_handle", "linkedin_path"].map(
+      (column) => `case when o.status = 'approved' then o.${column} end as ${column}`,
+    ),
+  )
+  .join(",\n         ");
+
+/** EVENT_SELECT plus the Host card's columns (toPublicEventDetailFromRow). */
+export const EVENT_DETAIL_SELECT = eventSelectWith(EVENT_HOST_COLUMNS);
+
+const bioSegmenter = new Intl.Segmenter("en", { granularity: "grapheme" });
+
+/**
+ * A short plain-text excerpt of an organiser's bio for the event page: runs of
+ * whitespace (line breaks included) become one space, and a bio longer than
+ * `max` characters (as people see them: whole emoji and accented letters
+ * count once) is cut on a word where there's one near the end, then ends in
+ * "…". Undefined for a blank bio.
+ */
+export function bioExcerpt(bio: string, max = ORGANISER_BIO_EXCERPT_LENGTH): string | undefined {
+  const text = bio.replace(/\s+/g, " ").trim();
+  if (!text) return undefined;
+  const graphemes = Array.from(bioSegmenter.segment(text), (part) => part.segment);
+  if (graphemes.length <= max) return text;
+  const room = graphemes.slice(0, max - 1);
+  const lastSpace = room.lastIndexOf(" ");
+  const kept = lastSpace >= max * 0.6 ? room.slice(0, lastSpace) : room;
+  return `${kept.join("").replace(/[\s,.;:!?-]+$/, "")}…`;
+}
+
+/**
+ * The public shape of a row of EVENT_DETAIL_SELECT: toPublicEventFromRow plus
+ * the Host card's organiserWebsiteUrl / organiserSocialLinks / organiserBio,
+ * each only when the organiser is approved and has set it.
+ */
+export function toPublicEventDetailFromRow(row: Row): PublicEvent {
+  const websiteUrl = opt<string>(row.host_website_url);
+  const links = socialLinksOf(row);
+  const bio = bioExcerpt(opt<string>(row.host_description) ?? "");
+  return {
+    ...toPublicEventFromRow(row),
+    ...(websiteUrl ? { organiserWebsiteUrl: websiteUrl } : {}),
+    ...(Object.keys(links).length > 0 ? { organiserSocialLinks: links } : {}),
+    ...(bio ? { organiserBio: bio } : {}),
+  };
 }
 
 /** The `imageFocus` field for a row of EVENT_SELECT: absent without a focus point. */

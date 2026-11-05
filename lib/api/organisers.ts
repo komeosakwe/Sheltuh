@@ -15,6 +15,17 @@ export interface OrganiserSocialHandlesInput {
   facebookPage?: string | null;
   /** Up to 15 letters, numbers or underscores. */
   xHandle?: string | null;
+  /**
+   * A Spotify artist, podcast or profile: a pasted link (open.spotify.com/artist/…,
+   * /show/…, /user/…, a spotify: URI) or `artist/<id>`, `show/<id>`, `user/<id>`.
+   */
+  spotifyPath?: string | null;
+  /** The SoundCloud name (soundcloud.com/<name>) or a link to the profile. */
+  soundcloudHandle?: string | null;
+  /** A YouTube @handle, or a link to the channel (youtube.com/@handle, youtube.com/channel/UC…). */
+  youtubeChannel?: string | null;
+  /** A LinkedIn profile or company page: a pasted link, or `in/<slug>` / `company/<slug>`. */
+  linkedinPath?: string | null;
 }
 
 export interface OrganiserApplicationInput extends OrganiserSocialHandlesInput {

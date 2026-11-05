@@ -11,6 +11,7 @@ import { sendFollowerEmailsSoon, sendPublishEmailsSoon } from "../email-outbox";
 import { parseEventInput, storedAdmitsOf, storedPlaceOf, type EventInput, type ParseEventOptions } from "../event-input";
 import { createdPrivate, HttpError, okPrivate, readJson } from "../http";
 import { parseMessageText } from "../message-input";
+import { socialInsertParts } from "../organiser-input";
 import { isUuid } from "../pagination";
 import { ADMIN_EVENT_SELECT, ADMIN_ORGANISER_SELECT, toAdminEvent, toAdminOrganiser } from "../records";
 import type { Handler } from "../route";
@@ -77,13 +78,15 @@ export const adminGetEvent: Handler<{ eventId: string }> = async (req, { eventId
 export const adminCreateOrganiser: Handler = async (req, _params, { db, verifyAccessToken }) => {
   const admin = await requireAdmin(req, verifyAccessToken);
   const input = parseApplication(await readJson(req), undefined, { reservedNames: false });
+  const social = socialInsertParts(input.handles, 6);
+  const next = 6 + social.params.length;
   const [row] = await db.query<{ id: string }>(
     `insert into public.organisers (owner_user_id, display_name, contact_email, description, categories, website_url,
-                                    instagram_handle, tiktok_handle, facebook_page, x_handle,
+                                    ${social.columns},
                                     featured_video_provider, featured_video_id,
                                     status, reviewed_by, reviewed_at)
      values (null, $1, $2, $3, array(select jsonb_array_elements_text($4::text::jsonb))::public.event_category[], $5,
-             $6, $7, $8, $9, $11, $12, 'approved', $10, now())
+             ${social.placeholders}, $${next + 1}, $${next + 2}, 'approved', $${next}, now())
      returning id`,
     [
       input.displayName,
@@ -91,10 +94,7 @@ export const adminCreateOrganiser: Handler = async (req, _params, { db, verifyAc
       input.description,
       JSON.stringify(input.categories),
       input.websiteUrl,
-      input.handles.instagramHandle ?? null,
-      input.handles.tiktokHandle ?? null,
-      input.handles.facebookPage ?? null,
-      input.handles.xHandle ?? null,
+      ...social.params,
       admin.userId,
       input.featuredVideo?.provider ?? null,
       input.featuredVideo?.id ?? null,

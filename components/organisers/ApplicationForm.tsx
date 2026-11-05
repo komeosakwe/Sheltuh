@@ -11,6 +11,7 @@ import { SessionExpiredError } from "@/lib/auth/AuthContext";
 import { useAccountOwner } from "@/lib/auth/useAccountOwner";
 import {
   SOCIAL_HANDLE_FIELDS,
+  socialHandleValuesOf,
   socialHandlesForRequest,
   websiteUrlError,
   type SocialHandleField,
@@ -85,12 +86,7 @@ export default function ApplicationForm({ mode, initial, onSuccess }: Props) {
   const [description, setDescription] = useState(initial?.description ?? "");
   const [categories, setCategories] = useState<string[]>(initial?.categories ?? []);
   const [websiteUrl, setWebsiteUrl] = useState(initial?.websiteUrl ?? "");
-  const [handles, setHandles] = useState<SocialHandleValues>({
-    instagramHandle: initial?.instagramHandle ?? "",
-    tiktokHandle: initial?.tiktokHandle ?? "",
-    facebookPage: initial?.facebookPage ?? "",
-    xHandle: initial?.xHandle ?? "",
-  });
+  const [handles, setHandles] = useState<SocialHandleValues>(() => socialHandleValuesOf(initial));
   const [video, setVideo] = useState(() => featuredVideoInitial(initial?.featuredVideo));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -310,7 +306,7 @@ export default function ApplicationForm({ mode, initial, onSuccess }: Props) {
       </div>
 
       <fieldset className="flex flex-col gap-4">
-        <legend className="eyebrow text-muted">Social profiles (optional)</legend>
+        <legend className="eyebrow text-muted">Social links (optional)</legend>
         <SocialHandleFields
           idPrefix={ID_PREFIX}
           values={handles}
