@@ -10,6 +10,13 @@ export default function MapStyles() {
   return (
     <style>{`
       .scene-marker { background: none; border: 0; }
+      /*
+       * Photos inside a marker. leaflet.css gives every img in the marker pane \`width: auto\`, with
+       * more specificity than a utility class, so a pin's or cluster's photo stopped filling its box:
+       * it kept its own proportions, overflowed to the right and was cut at the left edge, and the
+       * organiser's focus point (object-position) had nothing left to move. Fill the box again.
+       */
+      .leaflet-container .leaflet-marker-pane .scene-marker img { width: 100%; }
       .leaflet-control-attribution {
         background: color-mix(in srgb, var(--background) 85%, transparent) !important; color: var(--muted) !important;
       }

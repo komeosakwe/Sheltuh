@@ -2819,6 +2819,15 @@ it in view instead of cropping to the middle.
   (`components/dashboard/EventFocusControl.tsx`) places the marker by
   pointer or keyboard (arrow keys move 5%, Home centres) with live pin and
   card previews; the focus is saved with the photo.
+  **Inside a Leaflet marker** the focus only works because
+  `components/map/MapStyles.tsx` makes the photo fill its box again:
+  `leaflet.css` gives every `img` in the marker pane `width: auto`, which has
+  more specificity than a utility class such as `w-full`, so a 3:2 photo in a
+  pin or cluster kept its own proportions, overflowed to the right and was cut
+  off at the left edge (the style attribute still said `object-position: 15%
+  70%`, but there was no spare room in the box to move). Any new marker content
+  with a photo goes in `.scene-marker`. `e2e/map-image-focus.spec.ts` checks
+  the box the photo actually fills, as well as its `object-position`.
 
 ## Admin authoring
 
