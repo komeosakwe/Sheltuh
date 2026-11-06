@@ -273,7 +273,11 @@ async function invalidOtherThenCheckout(page: Page, phone = false) {
   const below = tickets.getByRole("link", { name: "Purchase Terms" });
   await (phone ? below : button).scrollIntoViewIfNeeded();
   const before = (await (phone ? below : button).boundingBox())!;
-  return { tickets, field, button, before, below };
+  // On a phone: how far the Terms link sits below the Other field. Focus can scroll the page a little to clear
+  // the sticky bar (WCAG 2.4.11), so what mustn't change is the layout between them, not the scroll position.
+  const belowField = async () => (await below.boundingBox())!.y - (await field.boundingBox())!.y;
+  const gap = await belowField();
+  return { tickets, field, button, before, below, belowField, gap };
 }
 
 test.describe("Checkout's first press after an invalid Other amount, at 1280×900 (mouse)", () => {
@@ -302,20 +306,21 @@ test.describe("Checkout's first press after an invalid Other amount, on a 320px 
 
   test("one tap: Checkout doesn't move, and focus goes to the field", async ({ page }) => {
     const seen = await mockApi(page);
-    const { tickets, field, button, below, before } = await invalidOtherThenCheckout(page, true);
+    const { tickets, field, button, belowField, gap } = await invalidOtherThenCheckout(page, true);
     const buttonBefore = (await button.boundingBox())!;
     await page.touchscreen.tap(buttonBefore.x + buttonBefore.width / 2, buttonBefore.y + buttonBefore.height / 2);
     await expect(tickets.getByRole("alert")).toHaveText("The smallest amount is A$1.");
     await expect(field).toBeFocused();
     // The bar is sticky and the panel's Checkout is gone on phones: nothing in the panel moved under the tap.
     expect(await button.boundingBox()).toEqual(buttonBefore);
-    expect(await below.boundingBox()).toEqual(before);
+    // (Within a pixel: a touch scroll can land on a fractional offset.)
+    expect(Math.abs((await belowField()) - gap)).toBeLessThanOrEqual(1);
     expect(seen.checkouts).toEqual([]);
   });
 
   test("the longest Other error fits the slot's two lines, so nothing below it moves", async ({ page }) => {
     await mockApi(page);
-    const { tickets, field, below, before } = await invalidOtherThenCheckout(page, true);
+    const { tickets, field, belowField, gap } = await invalidOtherThenCheckout(page, true);
     const slot = tickets.locator("[data-support-other-message]");
     await expect(slot).toHaveText("In Australian dollars, from A$1 to A$500.");
     const slotBefore = (await slot.boundingBox())!;
@@ -329,7 +334,7 @@ test.describe("Checkout's first press after an invalid Other amount, on a 320px 
       await field.blur();
       await expect(tickets.getByRole("alert")).toHaveText(message);
       expect((await slot.boundingBox())!.height, message).toBe(slotBefore.height);
-      expect(await below.boundingBox(), message).toEqual(before);
+      expect(Math.abs((await belowField()) - gap), message).toBeLessThanOrEqual(1);
     }
   });
 });

@@ -12,6 +12,7 @@ import SaveButton from "@/components/favourites/SaveButton";
 import { CalendarIcon, ExternalIcon, PinIcon } from "@/components/home/icons";
 import SaveOnReturn from "@/components/favourites/SaveOnReturn";
 import { BuyBarProvider, GaBuyBar } from "@/components/checkout/BuyBar";
+import { TicketIcon } from "@/components/checkout/icons";
 import SeatedTicketsPanel from "@/components/seating/SeatedTicketsPanel";
 import ShareButton from "@/components/ShareButton";
 import TicketSelector from "@/components/TicketSelector";
@@ -80,6 +81,34 @@ function Placeholder({ children }: { children: ReactNode }) {
 // Each term column is the organiser avatar's width, so every row's text starts on the same line.
 const factRowClass = "flex gap-3 [&>dt]:flex [&>dt]:w-8 [&>dt]:shrink-0 [&>dt]:justify-center";
 const factIconClass = "mt-0.5 size-5 shrink-0 text-muted";
+
+/**
+ * The tickets section. A general admission event with tickets on sale gets the owner's mockup (6 Nov
+ * 2026): an ivory rounded card with an orange ticket mark and "Select your tickets" over its subheading.
+ * Every other state (seats, an outside ticket link, sold out, ended, none yet) is the plain "Tickets"
+ * panel, as before.
+ */
+function TicketsSection({ selects, children }: { selects: boolean; children: ReactNode }) {
+  if (!selects) {
+    return (
+      <Panel title="Tickets" titleId="tickets-title">
+        {children}
+      </Panel>
+    );
+  }
+  return (
+    <section aria-labelledby="tickets-title" className="-mx-3 rounded-panel border border-surface-border bg-panel p-4 sm:mx-0 sm:p-5">
+      <div className="flex items-center gap-3">
+        <TicketIcon className="size-10 shrink-0 text-signal" />
+        <h2 id="tickets-title" className="font-heading min-w-0 text-2xl leading-8 break-words sm:text-3xl sm:leading-9">
+          Select your tickets
+        </h2>
+      </div>
+      <p className="mt-2 text-base leading-6 text-muted">Choose a release to secure your spot.</p>
+      <div className="mt-5">{children}</div>
+    </section>
+  );
+}
 
 /** A time in a date range ("10:00 am", "midnight"): the capture keeps it in `split`'s output. */
 const TIME_PATTERN = /(\d{1,2}:\d{2} [ap]m|midnight)/;
@@ -172,7 +201,7 @@ export default function EventDetailsView({
 }) {
   const missing = preview?.missing;
   // The one class for every buy bar: sticky to the bottom of the screen (static in the editor's preview).
-  const buyBarClass = `${preview ? "static" : "sticky"} bottom-0 z-20 -mx-5 flex min-h-16 items-center justify-between gap-4 px-5 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:-mx-8 sm:px-8 lg:hidden dark:border-t dark:border-foreground`;
+  const buyBarClass = `${preview ? "static" : "sticky"} bottom-0 z-20 -mx-5 flex min-h-18 items-center justify-between gap-3 rounded-t-sheet px-5 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:-mx-8 sm:px-8 lg:hidden dark:border-t dark:border-foreground`;
   const categoryLabel =
     EVENT_CATEGORIES.find((category) => category.value === event.category)?.label ?? event.category;
 
@@ -399,7 +428,7 @@ export default function EventDetailsView({
                 screen-reader focus to the tickets too, with the global focus-visible
                 ring around the section to show where you've landed. */}
             <div id="tickets" tabIndex={-1} className="rounded-card">
-              <Panel title={selectsTickets ? "Select your tickets" : "Tickets"} titleId="tickets-title">
+              <TicketsSection selects={selectsTickets}>
                 {external ? (
                   <div className="flex flex-col gap-4 rounded-card border border-foreground bg-card p-4 sm:p-5">
                     {event.externalFree && <p className="text-base leading-6 font-semibold">Free entry</p>}
@@ -430,13 +459,12 @@ export default function EventDetailsView({
                       </div>
                     ) : (
                       <div className={ended ? "mt-4" : undefined}>
-                        {selectsTickets && <p className="-mt-2 mb-4 text-sm leading-5 text-muted">Choose a release to secure your spot.</p>}
                         <TicketSelector event={event} />
                       </div>
                     )}
                   </>
                 )}
-              </Panel>
+              </TicketsSection>
             </div>
 
           </aside>

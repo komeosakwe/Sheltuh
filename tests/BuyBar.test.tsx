@@ -7,6 +7,7 @@ import type { SheltuhEvent } from "@/lib/types";
 import { SOFT_KEYBOARD_MIN_PX } from "@/lib/use-soft-keyboard";
 import { FakeAuthProvider, fakeAuthValue } from "./test-utils/fakeAuth";
 import { typeName } from "./test-utils/buyerName";
+import { selectCard } from "./test-utils/ticketCards";
 
 /**
  * The event page's phone buy bar as the one Checkout for a general admission event (owner, 6 Nov 2026):
@@ -138,8 +139,11 @@ describe("the buy bar once tickets are chosen", () => {
     const steps: Array<() => void> = [
       () => fireEvent.click(more("General admission")),
       () => fireEvent.click(more("General admission")),
-      () => fireEvent.click(more("VIP (side-of-stage viewing)")),
-      () => fireEvent.click(less("General admission")),
+      () => selectCard("VIP (side-of-stage viewing)"),
+      () => {
+        selectCard("General admission");
+        fireEvent.click(less("General admission"));
+      },
     ];
     for (const step of steps) {
       step();
@@ -147,6 +151,7 @@ describe("the buy bar once tickets are chosen", () => {
     }
     expect(barAmount()).toBe("A$87.30");
     fireEvent.click(less("General admission"));
+    selectCard("VIP (side-of-stage viewing)");
     fireEvent.click(less("VIP (side-of-stage viewing)"));
     // Nothing chosen again: back to the link and the "From" price.
     expect(within(bar()).getByRole("link", { name: "Buy tickets" })).toBeInTheDocument();
@@ -163,12 +168,12 @@ describe("the buy bar once tickets are chosen", () => {
       ],
     };
     render(<EventDetailsView event={event} demo={false} />);
-    fireEvent.click(more("Group of 4"));
+    selectCard("Group of 4");
     expect(barAmount()).toBe("A$127.70");
     fireEvent.click(more("Group of 4"));
-    fireEvent.click(more("Single"));
+    selectCard("Single");
     expect(barAmount()).toBe(summaryTotal());
-    expect(barAmount()).toBe("A$293");
+    expect(barAmount()).toBe("A$293.00");
   });
 
   it("a free booking: the total is A$0 with no booking fee, and the button reads Free tickets", async () => {
@@ -179,7 +184,7 @@ describe("the buy bar once tickets are chosen", () => {
       </FakeAuthProvider>,
     );
     fireEvent.click(more("Free entry"));
-    expect(barAmount()).toBe("A$0");
+    expect(barAmount()).toBe("A$0.00");
     expect(barAmount()).toBe(summaryTotal());
     expect(within(bar()).getByText("No booking fee")).toBeInTheDocument();
     typeName();
@@ -300,14 +305,59 @@ describe("sold-out and waiting releases, and the steppers' limits", () => {
     expect(within(screen.getByRole("region", { name: "Select your tickets" })).getByRole("status")).toHaveTextContent("Second release: 3. Only 3 left.");
     expect(barAmount()).toBe("A$112.80");
     // 44px targets.
-    expect(plus).toHaveClass("size-11");
-    expect(minus).toHaveClass("size-11");
+    expect(plus).toHaveClass("h-12", "w-14");
+    expect(minus).toHaveClass("h-12", "w-14");
     fireEvent.click(minus);
     fireEvent.click(minus);
     fireEvent.click(minus);
     fireEvent.click(minus);
     expect(minus).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByRole("group", { name: "Quantity for Second release" })).toHaveTextContent("0");
+  });
+});
+
+describe("release cards and the one quantity stepper below them (owner's mockup, 6 Nov 2026)", () => {
+  it("each release is a compact card: uppercase name, bold amount, and a status pill (Available only when it's on sale)", () => {
+    const event = live("cinder-warehouse-sessions");
+    const [first, second, third] = event.ticketTypes;
+    render(
+      <EventDetailsView
+        event={{ ...event, ticketTypes: [{ ...first, soldOut: true, remaining: 0 }, { ...second, opensAfter: undefined, opensAfterPrevious: undefined }, third] }}
+        demo={false}
+      />,
+    );
+    const cards = screen.getAllByRole("listitem").filter((li) => li.hasAttribute("data-ticket-card"));
+    expect(cards).toHaveLength(3);
+    expect(within(cards[0]).getByText("Sold out")).toHaveClass("rounded-full");
+    expect(within(cards[1]).getByText("Available")).toHaveClass("rounded-full", "text-signal-ink");
+    // A tier waiting on the one above shows its words, not Available.
+    expect(within(cards[2]).queryByText("Available")).toBeNull();
+    expect(within(cards[2]).getByText("Opens after Second release")).toBeInTheDocument();
+    expect(within(cards[1]).getByText("Second release")).toHaveClass("uppercase", "font-bold");
+  });
+
+  it("the stepper is below the cards, with a Quantity label, and tapping a card moves it while every release keeps its count", () => {
+    render(<EventDetailsView event={live("neon-static")} demo={false} />);
+    const list = screen.getAllByRole("list").find((ul) => ul.querySelector("[data-ticket-card]"));
+    if (!list) throw new Error("cards not rendered");
+    const group = screen.getByRole("group", { name: "Quantity for General admission" });
+    expect(list.contains(group)).toBe(false);
+    expect(list.compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText("Quantity")).toBeInTheDocument();
+    fireEvent.click(more("General admission"));
+    fireEvent.click(more("General admission"));
+    // Another card: the stepper is now its, the first card says what's chosen of it, the total is both.
+    selectCard("VIP (side-of-stage viewing)");
+    expect(screen.queryByRole("group", { name: "Quantity for General admission" })).toBeNull();
+    expect(screen.getByRole("group", { name: "Quantity for VIP (side-of-stage viewing)" })).toHaveTextContent("1");
+    expect(screen.getByText("2 selected")).toBeInTheDocument();
+    expect(barAmount()).toBe("A$119.60");
+    expect(barAmount()).toBe(summaryTotal());
+    expect(screen.getByText("General admission").closest("li")).toHaveClass("border-signal", "bg-tint");
+    expect(screen.getByText("VIP (side-of-stage viewing)").closest("button")).toHaveAttribute("aria-pressed", "true");
+    selectCard("General admission");
+    expect(screen.getByRole("group", { name: "Quantity for General admission" })).toHaveTextContent("2");
+    expect(screen.getByText("1 selected")).toBeInTheDocument();
   });
 });
 

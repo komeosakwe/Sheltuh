@@ -72,7 +72,11 @@ export function GaBuyBar({
   const amountId = `${id}-amount`;
   const noteId = `${id}-note`;
   const shown = state ?? price;
-  const checking = state?.kind === "checkout";
+  const busy = state?.kind === "checkout" && state.busy;
+  // The mockup's button: 12px radius, big Title Case text (the label's own case is the site's "Buy tickets";
+  // `capitalize` is only how it's drawn). White on orange is 3.4:1, so the text is 20px bold (large text, 3:1);
+  // while busy the button is the grey disabled one and keeps its own colours.
+  const actionClass = `h-12 min-h-12 shrink-0 rounded-card px-5 text-xl leading-6 font-bold tracking-normal capitalize sm:px-7${busy ? "" : " text-paper"}`;
   return (
     <div
       data-buy-bar
@@ -80,12 +84,9 @@ export function GaBuyBar({
       // Hidden, not removed: the page keeps the bar's height at its end.
       className={`${className}${keyboardOpen ? " invisible" : ""}`}
     >
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         {/* Not a live region: the selector's own status announces each change to the total. */}
-        <p
-          id={amountId}
-          className={`tabular-nums ${checking ? "text-lg leading-6 font-bold" : "text-base leading-5 font-semibold"}`}
-        >
+        <p id={amountId} className="text-2xl leading-7 font-bold tabular-nums">
           {shown.amount}
         </p>
         {shown.note && (
@@ -94,6 +95,7 @@ export function GaBuyBar({
           </p>
         )}
       </div>
+      <span aria-hidden="true" className="h-10 w-px shrink-0 bg-surface-border" />
       {state?.kind === "checkout" ? (
         // A button: it acts (the same submit as the Checkout in the ticket section, which is hidden on phones).
         // Busy, not disabled, while it works, so focus stays on it and a second tap does nothing.
@@ -104,13 +106,13 @@ export function GaBuyBar({
           busy={state.busy}
           aria-busy={state.busy || undefined}
           aria-describedby={shown.note ? `${amountId} ${noteId}` : amountId}
-          className="shrink-0 px-5 sm:px-7"
+          className={actionClass}
         >
           {state.busy ? state.busyLabel : state.label}
         </Button>
       ) : (
         // A link: nothing's chosen yet (or it's sold out), so it takes you to the tickets.
-        <a href="#tickets" className={buttonClass("signal", "lg", "shrink-0 px-5 sm:px-7")}>
+        <a href="#tickets" className={buttonClass("signal", "lg", actionClass)}>
           {state?.kind === "status" ? state.label : label}
         </a>
       )}

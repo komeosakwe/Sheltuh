@@ -25,6 +25,12 @@
   --paper: #ffffff; /* (e.g. the SaveButton's ring gap) */
   --danger: #b3261e;
   --danger-foreground: #ffffff;
+  /* The ticket panel on the event page (owner's mockup, 6 Nov 2026): a warm ivory card, a peach tint for the
+     chosen release and the order total, and a darker orange for small text on that tint (--signal itself is
+     for fills, marks and large text; --signal-ink is 5.9:1 on --tint). Only the ticket panel uses them. */
+  --panel: #fbf7f1;
+  --tint: #fdeadf;
+  --signal-ink: #b83200;
   /* Door check-in only (components/check-in/, docs/design/check-in.md; enforced by
      tests/door-tokens.test.ts). Each fill has its text pair. Never used for decoration;
      colour is never the only signal (icon + words + panel shape). */
@@ -56,7 +62,7 @@
   --display-tracking: -0.045em;
   --display-leading: 0.88;
   --header-h: 3.5rem; /* 56px compact header, < lg */
-  --buybar-h: 4rem; /* 64px sticky event-page buy bar, < lg (before the safe area) */
+  --buybar-h: 4.5rem; /* 72px sticky event-page buy bar, < lg (before the safe area) */
   --editbar-h: 4rem; /* 64px sticky save bar on the event editor, before the safe area */
   --seatbar-h: 5.5rem; /* 88px phone summary bar on /events/[slug]/seats (before safe area) */
   /* Continue with Apple (docs/design/social-sign-in.md §2): Apple's own button colours, which
@@ -93,6 +99,9 @@
     --accent-foreground: #000000;
     --danger: #ff6b5e; /* 7.51:1 on black */
     --danger-foreground: #000000;
+    --panel: #1a1816;
+    --tint: #2c1b12;
+    --signal-ink: #ff8a5c; /* 7.3:1 on --tint */
     /* Apple White on the black page. */
     --apple-fill: #ffffff;
     --apple-ink: #000000;
@@ -202,6 +211,9 @@
   --color-signal-foreground: var(--signal-foreground);
   --color-ink: var(--ink);
   --color-paper: var(--paper);
+  --color-panel: var(--panel);
+  --color-tint: var(--tint);
+  --color-signal-ink: var(--signal-ink);
   --color-danger: var(--danger);
   --color-danger-foreground: var(--danger-foreground);
   --color-door-admit: var(--door-admit);
@@ -221,6 +233,8 @@
   --radius-card: 0.75rem; /* 12px: event media, info cards, sheets, ticket stub, map card */
   --radius-control: 0.5rem; /* 8px: buttons, inputs, selects, search, chips, steppers, menus */
   --radius-badge: 0.25rem; /* 4px: category chip, date badge, status badge, unread count */
+  --radius-panel: 1rem; /* 16px: the event page's ticket panel */
+  --radius-sheet: 1.5rem; /* 24px: the top corners of the phone buy bar */
   --radius-dot: 28%; /* avatars, map markers (echo the umlaut) */
 }
 

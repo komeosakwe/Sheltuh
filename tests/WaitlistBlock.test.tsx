@@ -6,6 +6,7 @@ import WaitlistBlock from "@/components/waitlist/WaitlistBlock";
 import { ApiError } from "@/lib/api/client";
 import type { SheltuhEvent } from "@/lib/types";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
+import { priceLine } from "./test-utils/ticketCards";
 
 vi.mock("@/lib/api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/client")>()),
@@ -62,7 +63,7 @@ const soldOutEvent: SheltuhEvent = {
 describe("TicketSelector, every tier sold out (§6.11)", () => {
   it("shows each tier's total, muted, with 'Sold out' instead of a stepper, then the waitlist; no summary or checkout", () => {
     render(<TicketSelector event={soldOutEvent} />);
-    const total = screen.getByText("A$37.60 incl. booking fee");
+    const total = screen.getByText(priceLine("A$37.60 incl. booking fee"));
     expect(total).toHaveClass("text-muted");
     expect(screen.getAllByText("Sold out")).toHaveLength(2);
     expect(screen.queryByRole("group", { name: /Quantity for/ })).toBeNull();

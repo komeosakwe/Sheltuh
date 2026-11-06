@@ -118,8 +118,9 @@ for (const vp of [
       await expect(row).toContainText("4 tickets · save A$20", { timeout: 30_000 });
       await expect(row).toContainText("A$240 for 4 incl. booking fee");
 
-      await row.getByRole("button", { name: "Increase quantity for Group of 4" }).click();
-      await row.getByRole("button", { name: "Increase quantity for Group of 4" }).click();
+      // Pressing the group's card selects it with its first group; the stepper below the cards adds the second.
+      await row.getByRole("button", { name: /Group of 4/ }).click();
+      await tickets.getByRole("button", { name: "Increase quantity for Group of 4" }).click();
       await expect(tickets.getByRole("status")).toContainText("Group of 4: 2 groups, 8 tickets. Total A$480");
       await expect(tickets).toContainText("Tickets (8)");
 

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  formatAudExact,
   formatDayWithYear,
   formatDayTime,
   formatMessageTime,
@@ -303,5 +304,14 @@ describe("formatTimeAgo", () => {
     expect(formatTimeAgo("2026-10-25T11:00:00.000Z", now)).toBe("47 h ago");
     expect(formatTimeAgo("2026-10-24T10:00:00.000Z", now)).toBe("3 days ago");
     expect(formatTimeAgo("not a date", now)).toBe("just now");
+  });
+});
+
+describe("formatAudExact", () => {
+  it("always shows two decimals, unlike formatAud", () => {
+    expect(formatAudExact(0)).toBe("A$0.00");
+    expect(formatAudExact(2400)).toBe("A$24.00");
+    expect(formatAudExact(2594)).toBe("A$25.94");
+    expect(formatAudExact(5)).toBe("A$0.05");
   });
 });
