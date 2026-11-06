@@ -124,7 +124,13 @@ for (const vp of [
       await expect(tickets).toContainText("Tickets (8)");
 
       await tickets.getByLabel("Your name").fill("Alex Doe");
-      await tickets.getByRole("button", { name: "Checkout" }).click();
+      // Below lg the sticky buy bar is the one Checkout (its total is the summary's); desktop's is in the panel.
+      if (vp.width < 1024) {
+        await expect(page.locator("[data-buy-bar]")).toContainText("A$480");
+        await page.locator("[data-buy-bar]").getByRole("button", { name: "Buy tickets" }).click();
+      } else {
+        await tickets.getByRole("button", { name: "Checkout" }).click();
+      }
       await expect(page).toHaveURL(`/checkout/pay?order=${ORDER_ID}`);
       // Quantity is groups: the server multiplies by the people the ticket type admits.
       expect(seen.checkouts).toEqual([{ lineItems: [{ ticketTypeId: group!.id, quantity: 2 }], buyerName: "Alex Doe" }]);

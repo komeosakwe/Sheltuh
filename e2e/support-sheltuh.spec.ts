@@ -253,7 +253,7 @@ test.describe("general admission at 1280×900", () => {
  * or the press (down on Checkout, up somewhere else) misses it. After one press Checkout has run:
  * it refused the amount and put focus back in the field.
  */
-async function invalidOtherThenCheckout(page: Page) {
+async function invalidOtherThenCheckout(page: Page, phone = false) {
   await page.goto(`/events/${neon.slug}`);
   const tickets = page.locator("#tickets");
   await tickets.getByRole("button", { name: "Increase quantity for General admission" }).click({ timeout: 30_000 });
@@ -265,10 +265,15 @@ async function invalidOtherThenCheckout(page: Page) {
   await expect(field).toBeFocused();
   await field.fill("0.5");
   await expect(tickets.getByRole("alert")).toHaveCount(0);
-  const button = tickets.getByRole("button", { name: "Checkout" });
-  await button.scrollIntoViewIfNeeded();
-  const before = (await button.boundingBox())!;
-  return { tickets, field, button, before };
+  // Below lg the sticky buy bar is the one Checkout (the panel's is hidden there): press that.
+  const button = phone
+    ? page.locator("[data-buy-bar]").getByRole("button", { name: "Buy tickets" })
+    : tickets.getByRole("button", { name: "Checkout" });
+  // What sits below the Support Sheltüh slot in the panel: on a phone, this is what mustn't move.
+  const below = tickets.getByRole("link", { name: "Purchase Terms" });
+  await (phone ? below : button).scrollIntoViewIfNeeded();
+  const before = (await (phone ? below : button).boundingBox())!;
+  return { tickets, field, button, before, below };
 }
 
 test.describe("Checkout's first press after an invalid Other amount, at 1280×900 (mouse)", () => {
@@ -297,17 +302,20 @@ test.describe("Checkout's first press after an invalid Other amount, on a 320px 
 
   test("one tap: Checkout doesn't move, and focus goes to the field", async ({ page }) => {
     const seen = await mockApi(page);
-    const { tickets, field, button, before } = await invalidOtherThenCheckout(page);
-    await page.touchscreen.tap(before.x + before.width / 2, before.y + before.height / 2);
+    const { tickets, field, button, below, before } = await invalidOtherThenCheckout(page, true);
+    const buttonBefore = (await button.boundingBox())!;
+    await page.touchscreen.tap(buttonBefore.x + buttonBefore.width / 2, buttonBefore.y + buttonBefore.height / 2);
     await expect(tickets.getByRole("alert")).toHaveText("The smallest amount is A$1.");
     await expect(field).toBeFocused();
-    expect(await button.boundingBox()).toEqual(before);
+    // The bar is sticky and the panel's Checkout is gone on phones: nothing in the panel moved under the tap.
+    expect(await button.boundingBox()).toEqual(buttonBefore);
+    expect(await below.boundingBox()).toEqual(before);
     expect(seen.checkouts).toEqual([]);
   });
 
   test("the longest Other error fits the slot's two lines, so nothing below it moves", async ({ page }) => {
     await mockApi(page);
-    const { tickets, field, button, before } = await invalidOtherThenCheckout(page);
+    const { tickets, field, below, before } = await invalidOtherThenCheckout(page, true);
     const slot = tickets.locator("[data-support-other-message]");
     await expect(slot).toHaveText("In Australian dollars, from A$1 to A$500.");
     const slotBefore = (await slot.boundingBox())!;
@@ -321,7 +329,7 @@ test.describe("Checkout's first press after an invalid Other amount, on a 320px 
       await field.blur();
       await expect(tickets.getByRole("alert")).toHaveText(message);
       expect((await slot.boundingBox())!.height, message).toBe(slotBefore.height);
-      expect(await button.boundingBox(), message).toEqual(before);
+      expect(await below.boundingBox(), message).toEqual(before);
     }
   });
 });
@@ -455,7 +463,8 @@ test.describe("payment page on a phone at 375", () => {
     await tickets.getByRole("button", { name: "Increase quantity for General admission" }).click({ timeout: 30_000 });
     await tickets.getByRole("group", { name: "Support Sheltüh" }).locator("label", { hasText: "A$2" }).click();
     await tickets.getByLabel("Your name").fill("Alex Doe");
-    await tickets.getByRole("button", { name: "Checkout" }).click();
+    // On a phone the sticky buy bar is the one Checkout.
+    await page.locator("[data-buy-bar]").getByRole("button", { name: "Buy tickets" }).click();
     await expect(page).toHaveURL(`/checkout/pay?order=${GA_ORDER}`);
     expect(seen.checkouts.at(-1)?.supportCents).toBe(200);
 

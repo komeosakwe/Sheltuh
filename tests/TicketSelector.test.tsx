@@ -48,6 +48,21 @@ describe("TicketSelector (live)", () => {
     expect(checkout).toBeEnabled();
   });
 
+  it("keeps its Checkout on every screen when there is no phone buy bar around it", () => {
+    render(<TicketSelector event={live("neon-static")} />);
+    expect(screen.getByRole("button", { name: "Checkout" }).className).not.toMatch(/hidden/);
+  });
+
+  it("says what the Tickets line is made of for one tier: quantity × face price", () => {
+    render(<TicketSelector event={live("neon-static")} />);
+    expect(screen.queryByText(/×/)).toBeNull();
+    const more = screen.getByRole("button", { name: "Increase quantity for General admission" });
+    fireEvent.click(more);
+    fireEvent.click(more);
+    expect(screen.getByText("Tickets").closest("dt")).toHaveTextContent("Tickets (2 × A$30)");
+    expect(screen.getByText("Tickets").nextElementSibling).toHaveTextContent("A$60");
+  });
+
   it("shows each ticket's all-inclusive price", () => {
     render(<TicketSelector event={live("neon-static")} />);
     expect(screen.getByText("A$32.30 incl. booking fee")).toBeInTheDocument();
@@ -104,6 +119,18 @@ describe("TicketSelector (live, signed in)", () => {
       undefined,
       "Alex Doe",
     );
+  });
+
+  it("offers a way out of the account for a paid order: Not you? Sign out (this browser only)", () => {
+    const value = fakeAuthValue({ email: "mia@example.com" });
+    render(
+      <FakeAuthProvider value={value}>
+        <TicketSelector event={live("neon-static")} />
+      </FakeAuthProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
+    fireEvent.click(screen.getByRole("button", { name: "Not you? Sign out" }));
+    expect(value.signOut).toHaveBeenCalledWith("local");
   });
 
   it("lets the buyer replace the prefilled email, including clearing it", () => {
@@ -372,7 +399,8 @@ describe("TicketSelector pricing (ACCC all-inclusive, brand-direction-one.md §6
     // Owner (28 Oct 2026, less helper text): the price alone; the fee is explained once, by Checkout.
     expect(screen.queryByText(/ticket \+ A\$/)).toBeNull();
     expect(screen.getByRole("group", { name: "Quantity for General admission" })).toHaveTextContent("0");
-    expect(total).toHaveClass("text-xl", "font-bold", "tabular-nums");
+    // Compact on phones, larger from sm; it has the card's full width, so it never wraps beside the stepper.
+    expect(total).toHaveClass("text-lg", "sm:text-xl", "font-bold", "tabular-nums");
     expect(total.className).not.toMatch(/\blg:/);
   });
 
@@ -399,7 +427,7 @@ describe("TicketSelector pricing (ACCC all-inclusive, brand-direction-one.md §6
     const totalTerm = screen.getByText("Total");
     const totalValue = totalTerm.nextElementSibling;
     expect(totalValue).toHaveTextContent("A$32.30");
-    expect(totalValue).toHaveClass("text-xl", "font-bold");
+    expect(totalValue).toHaveClass("text-2xl", "font-bold");
     expect(totalTerm.parentElement).toHaveClass("border-t", "border-foreground");
     expect(screen.getByText("Tickets").nextElementSibling).toHaveTextContent("A$30");
     expect(screen.getByText("Booking fees").nextElementSibling).toHaveTextContent("A$2.30");
@@ -639,13 +667,16 @@ describe("TicketSelector terms and privacy", () => {
 describe("TicketSelector booking fee note", () => {
   const NOTE = describeBookingFeeNote();
 
-  it("is said once, near Checkout, from lib/fees.ts, and the long rule above the tickets is gone", () => {
+  it("is said once, with the summary's Booking fees line (before Checkout), from lib/fees.ts, and the long rule above the tickets is gone", () => {
     render(<TicketSelector event={live("neon-static")} />);
     expect(screen.getAllByText(NOTE)).toHaveLength(1);
     expect(NOTE).toBe("Prices include a booking fee of 6% of ticket face value + A$0.50 per paid ticket.");
     expect(screen.queryByText(/^Booking fee: /)).toBeNull();
     const checkout = screen.getByRole("button", { name: "Checkout" });
-    expect(checkout.compareDocumentPosition(screen.getByText(NOTE)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const note = screen.getByText(NOTE);
+    expect(note.compareDocumentPosition(checkout) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The fee line it explains points at it.
+    expect(screen.getByText("Booking fees")).toHaveAccessibleDescription(NOTE);
   });
 
   it("isn't shown when the organiser absorbs every fee", () => {

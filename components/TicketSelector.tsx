@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Notice } from "@/components/ui/Section";
+import { useSetBuyBar } from "@/components/checkout/BuyBar";
 import BuyerNameField from "@/components/checkout/BuyerNameField";
 import SupportSheltuh, { SupportSummaryLine } from "@/components/checkout/SupportSheltuh";
 import WaitlistBlock from "@/components/waitlist/WaitlistBlock";
@@ -31,6 +32,7 @@ import { getTrackingRef } from "@/lib/tracking-ref";
 import type { SheltuhEvent, TicketType } from "@/lib/types";
 import { stepperButtonClass } from "@/components/ui/stepper";
 
+const NAME_FIELD_ID = "buyer-name";
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** What a quantity of `ticket` is called to a screen reader: "3", or for a group ticket "2 groups, 8 tickets". */
@@ -87,6 +89,12 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   // The API's refusal of the amount (400 fieldErrors.supportCents), shown by the chips.
   const [supportServerError, setSupportServerError] = useState<string | null>(null);
   const supportInputRef = useRef<HTMLInputElement>(null);
+  // The event page's phone buy bar (null where there's none): once it exists, it is the phone's one Checkout.
+  const setBuyBar = useSetBuyBar();
+  // True from the press until the checkout has an answer: a second tap (the bar's or the panel's) in the
+  // same moment, before the busy state has rendered, must not start another order.
+  const submitting = useRef(false);
+  const errorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (sentTo) {
@@ -101,7 +109,10 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   // the checkout this button started is over here, so it's no longer "Opening checkout…".
   useEffect(() => {
     function onPageShow(event: PageTransitionEvent) {
-      if (event.persisted) setLoading(false);
+      if (event.persisted) {
+        submitting.current = false;
+        setLoading(false);
+      }
     }
     window.addEventListener("pageshow", onPageShow);
     return () => window.removeEventListener("pageshow", onPageShow);
@@ -241,7 +252,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   const freeBooking = hasAnyTickets ? orderTotal.totalCents === 0 : allFree;
 
   async function handleCheckout() {
-    if (!event.organiserId) return;
+    if (!event.organiserId || submitting.current) return;
     setError(null);
     setEmailError(null);
     setNameError(null);
@@ -264,6 +275,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
     }
     // Other chosen but left empty is no support: shown as nothing chosen, and nothing sent.
     if (isEmptyOther(support)) setSupport(NO_SUPPORT);
+    submitting.current = true;
     setLoading(true);
     try {
       const lineItems = lineSummaries
@@ -296,6 +308,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
         return;
       }
       setSentTo(email ?? "");
+      submitting.current = false;
       setLoading(false);
     } catch (err) {
       if (err instanceof ApiError && err.fieldErrors) {
@@ -316,9 +329,59 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
       } else {
         setError(err instanceof Error ? err.message : "Couldn't start checkout. Try again.");
       }
+      submitting.current = false;
       setLoading(false);
     }
   }
+
+  // The one submit, for the panel's Checkout and the phone buy bar alike (the bar calls it through this ref).
+  const handleCheckoutRef = useRef(handleCheckout);
+  useEffect(() => {
+    handleCheckoutRef.current = handleCheckout;
+  });
+  const pressBuyBar = useCallback(() => {
+    void handleCheckoutRef.current();
+  }, []);
+
+  // The phone buy bar mirrors this panel: its total is the Order summary's own figure, and its
+  // button is Checkout. Until something is chosen (or while it can't be bought) it registers
+  // nothing and stays the page's link to the tickets.
+  const barTotalCents = orderTotal.totalCents;
+  const barLabel = freeBooking ? "Free tickets" : "Buy tickets";
+  const barBusyLabel = freeBooking ? "Booking…" : "Opening…";
+  const barNote = barTotalCents === 0 ? "No booking fee" : supportCents > 0 ? "incl. booking fee + Support Sheltüh" : "incl. booking fee";
+  const barAmount = formatAud(barTotalCents);
+  const barActive = canCheckout && !soldOut;
+  useEffect(() => {
+    if (!setBuyBar) return;
+    if (!barActive) {
+      setBuyBar(null);
+    } else if (sentTo !== null) {
+      setBuyBar({ kind: "status", amount: "Check your inbox", note: "Press Confirm in the email", label: "View" });
+    } else if (!hasAnyTickets) {
+      setBuyBar(null);
+    } else {
+      setBuyBar({
+        kind: "checkout",
+        amount: barAmount,
+        note: barNote,
+        label: barLabel,
+        busy: loading,
+        busyLabel: barBusyLabel,
+        onPress: pressBuyBar,
+      });
+    }
+  }, [setBuyBar, barActive, sentTo, hasAnyTickets, barAmount, barNote, barLabel, barBusyLabel, loading, pressBuyBar]);
+  useEffect(() => () => setBuyBar?.(null), [setBuyBar]);
+
+  // A refusal (or a field's error) is said where the buyer is looking: on a phone Checkout is the bar's, so the
+  // panel can be out of sight. Only if it's not already in view; the page's scroll-padding clears the bar.
+  useEffect(() => {
+    if (error) errorRef.current?.scrollIntoView?.({ block: "nearest" });
+  }, [error]);
+  useEffect(() => {
+    if (nameError) document.getElementById(`${NAME_FIELD_ID}-error`)?.scrollIntoView?.({ block: "nearest" });
+  }, [nameError]);
 
   // Support Sheltüh, right above Checkout: paid orders only, while it's offered.
   const supportBlock = offerSupport ? (
@@ -333,12 +396,24 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
     </div>
   ) : null;
 
-  // The booking fee, explained once, small, by the Checkout button; only where a buyer pays it (not for
+  // The booking fee, explained once, small, under the summary; only where a buyer pays it (not for
   // free-only events, or ones whose organiser absorbs every fee).
-  const feeNote = buyerPaysAFee ? <p className="mt-2 text-xs text-muted">{describeBookingFeeNote()}</p> : null;
+  const feeNote = buyerPaysAFee ? (
+    <p id={`${idPrefix}-fee-note`} className="mt-3 text-xs text-muted">
+      {describeBookingFeeNote()}
+    </p>
+  ) : null;
+
+  // One tier selected, as singles: "(2 × A$24.00)" says what the Tickets line is made of.
+  const selectedLines = lineSummaries.filter((line) => line.quantity > 0);
+  const onlyLine = selectedLines.length === 1 ? selectedLines[0] : undefined;
+  const ticketsFormula =
+    onlyLine && !isGroupTicket(onlyLine.ticket) && onlyLine.ticket.priceCents > 0
+      ? `(${onlyLine.quantity} × ${formatAud(onlyLine.ticket.priceCents)})`
+      : null;
 
   return (
-    <div className="flex flex-col gap-5 rounded-card border border-foreground bg-card p-4 sm:p-5">
+    <div className="flex flex-col gap-5">
       {/* Before the tickets, so the limit is known before choosing. Not a live
           region: the panel's status below says when a limit is reached. */}
       {freeTypeCount > 0 && !soldOut && (
@@ -349,7 +424,9 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
         </p>
       )}
 
-      <ul className="flex flex-col">
+      {/* One card per release. Sold out (or not open yet): sunken and muted, with words, no stepper. Chosen:
+          an orange border (and the quantity says so too: never colour alone). */}
+      <ul className="flex flex-col gap-3">
         {lineSummaries.map(({ ticket, quantity }, index) => {
           const { cap } = limitFor(ticket, quantities);
           // The type's own limit, said before it's reached. A free type within
@@ -370,90 +447,99 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
           // A tier that sold out before it was set to wait says "Sold out", not "Opens when…".
           const waitingText = tierSoldOut ? null : opensWhenText(ticket);
           const dimmed = tierSoldOut || waitingText !== null;
+          const cardClass = dimmed
+            ? "border-surface-border bg-surface"
+            : quantity > 0
+              ? "border-signal bg-card ring-1 ring-signal"
+              : "border-surface-border bg-card";
           return (
-            <li
-              key={ticket.id}
-              className="flex flex-col gap-3 border-t border-surface-border py-4 first:border-t-0 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
-            >
-              <div className="min-w-0 flex-1">
-                <p className={`text-base leading-snug font-semibold ${waitingText ? "text-muted" : "text-foreground"}`}>
+            <li key={ticket.id} data-ticket-card="" className={`flex flex-col gap-1 rounded-card border p-4 ${cardClass}`}>
+              <div className="flex items-center justify-between gap-3">
+                <p
+                  className={`min-w-0 flex-1 text-base leading-6 font-semibold break-words ${dimmed ? "text-muted" : "text-foreground"}`}
+                >
                   {ticket.name}
                 </p>
-                {/* The all-inclusive price per ticket comes first and is the loudest
-                    number, at every width (ACCC: brand-direction-one.md §6.8). A sold-out
-                    or not-yet-open tier keeps its total (it's still advertised), muted. */}
-                <p
-                  className={`mt-1 text-xl leading-7 font-bold tabular-nums ${dimmed ? "text-muted" : "text-foreground"}`}
-                >
-                  {formatTicketHeadline(ticket)}
-                </p>
-                {group && (
-                  // What one group gets, and what it saves: words, not colour.
-                  <p id={groupLineId} className="mt-1 text-sm text-foreground">
-                    {groupTicketsLabel(admitsOf(ticket))}
-                    {saving && (
-                      <>
-                        {" · "}
-                        <span className="font-semibold">{saving}</span>
-                      </>
-                    )}
+                {tierSoldOut ? (
+                  // Words, not colour alone: a small badge in place of the stepper.
+                  <p className="eyebrow shrink-0 rounded-badge border border-surface-border bg-card px-2 py-1 text-muted">
+                    Sold out
                   </p>
-                )}
-                {ticket.description && <p className="mt-1 text-sm text-muted">{ticket.description}</p>}
-                {showOwnLimit && !tierSoldOut && !waitingText && (
-                  // "Only N left" is the server's own count (10 or fewer), in black, never orange. The plain per-booking
-                  // limit is for screen readers only: the stepper's + is disabled at it.
-                  <p
-                    id={ownLimitId}
-                    className={isLow(ticket) ? "mt-1 text-xs font-semibold text-foreground" : "sr-only"}
+                ) : waitingText ? null : (
+                  <div
+                    role="group"
+                    aria-label={`Quantity for ${ticket.name}`}
+                    className="flex shrink-0 items-center gap-1"
                   >
-                    {ownLimitHint(ticket)}
-                  </p>
+                    <button
+                      type="button"
+                      onClick={() => setQuantity(ticket, quantity - 1)}
+                      aria-disabled={quantity <= 0}
+                      aria-label={`Decrease quantity for ${ticket.name}`}
+                      className={stepperButtonClass}
+                    >
+                      &minus;
+                    </button>
+                    <span className="w-9 text-center text-lg leading-6 font-semibold tabular-nums text-foreground">
+                      {quantity}
+                      {group && <span className="sr-only">{quantity === 1 ? " group" : " groups"}</span>}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setQuantity(ticket, quantity + 1)}
+                      aria-disabled={quantity >= cap}
+                      aria-label={`Increase quantity for ${ticket.name}`}
+                      aria-describedby={describedBy}
+                      className={stepperButtonClass}
+                    >
+                      +
+                    </button>
+                  </div>
                 )}
               </div>
-              {waitingText ? (
+              {/* The all-inclusive price per ticket comes first and is the loudest
+                  number, at every width (ACCC: brand-direction-one.md §6.8). A sold-out
+                  or not-yet-open tier keeps its total (it's still advertised), muted. It
+                  has the card's full width, so it never wraps awkwardly beside the stepper. */}
+              <p
+                className={`text-lg leading-7 font-bold tabular-nums sm:text-xl ${dimmed ? "text-muted" : "text-foreground"}`}
+              >
+                {formatTicketHeadline(ticket)}
+              </p>
+              {group && (
+                // What one group gets, and what it saves: words, not colour.
+                <p id={groupLineId} className="text-sm text-foreground">
+                  {groupTicketsLabel(admitsOf(ticket))}
+                  {saving && (
+                    <>
+                      {" · "}
+                      <span className="font-semibold">{saving}</span>
+                    </>
+                  )}
+                </p>
+              )}
+              {ticket.description && <p className="text-sm text-muted">{ticket.description}</p>}
+              {waitingText && (
                 // Words in place of the stepper: never a colour alone. Nothing here can be chosen.
-                <p className="shrink-0 text-sm font-semibold text-foreground sm:max-w-48 sm:text-right">{waitingText}</p>
-              ) : tierSoldOut ? (
-                // Words in place of the stepper: never a colour alone.
-                <p className="eyebrow shrink-0 text-foreground">Sold out</p>
-              ) : (
-                <div
-                  role="group"
-                  aria-label={`Quantity for ${ticket.name}`}
-                  className="flex shrink-0 items-center gap-2"
+                <p className="text-sm font-semibold text-foreground">{waitingText}</p>
+              )}
+              {showOwnLimit && !tierSoldOut && !waitingText && (
+                // "Only N left" is the server's own count (10 or fewer), in black, never orange. The plain per-booking
+                // limit is for screen readers only: the stepper's + is disabled at it.
+                <p
+                  id={ownLimitId}
+                  className={isLow(ticket) ? "text-xs font-semibold text-foreground" : "sr-only"}
                 >
-                  <button
-                    type="button"
-                    onClick={() => setQuantity(ticket, quantity - 1)}
-                    aria-disabled={quantity <= 0}
-                    aria-label={`Decrease quantity for ${ticket.name}`}
-                    className={stepperButtonClass}
-                  >
-                    &minus;
-                  </button>
-                  <span className="w-10 text-center text-lg leading-6 font-semibold tabular-nums text-foreground">
-                    {quantity}
-                    {group && <span className="sr-only">{quantity === 1 ? " group" : " groups"}</span>}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setQuantity(ticket, quantity + 1)}
-                    aria-disabled={quantity >= cap}
-                    aria-label={`Increase quantity for ${ticket.name}`}
-                    aria-describedby={describedBy}
-                    className={stepperButtonClass}
-                  >
-                    +
-                  </button>
-                </div>
+                  {ownLimitHint(ticket)}
+                </p>
               )}
             </li>
           );
         })}
       </ul>
 
-      {/* Each change to the selection, with the new total (and, at a limit, why). */}
+      {/* Each change to the selection, with the new total (and, at a limit, why). The phone buy bar's
+          total is the same figure, and is not a live region of its own. */}
       <p role="status" className="sr-only">
         {announcement}
       </p>
@@ -461,26 +547,37 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
       {soldOut ? (
         <WaitlistBlock eventId={event.id} closed={ended} demo={!canCheckout} />
       ) : (
-        <div className="border-t border-foreground pt-4">
-          <h3 className="eyebrow text-muted">Order summary</h3>
+        <div className="border-t border-surface-border pt-5">
+          <h3 className="text-base leading-6 font-bold">Order summary</h3>
           <dl className="mt-3 flex flex-col gap-2 text-sm">
             <div className="flex justify-between gap-4">
-              <dt className="text-muted">{hasGroupSelected ? `Tickets (${ticketCount})` : "Tickets"}</dt>
+              <dt className="text-muted">
+                {hasGroupSelected ? `Tickets (${ticketCount})` : "Tickets"}
+                {ticketsFormula && (
+                  <>
+                    {" "}
+                    <span className="tabular-nums">{ticketsFormula}</span>
+                  </>
+                )}
+              </dt>
               <dd className="tabular-nums text-foreground">{formatAud(orderTotal.subtotalCents)}</dd>
             </div>
             <div className="flex justify-between gap-4">
-              <dt className="text-muted">Booking fees</dt>
+              <dt className="text-muted" aria-describedby={feeNote ? `${idPrefix}-fee-note` : undefined}>
+                Booking fees
+              </dt>
               <dd className="tabular-nums text-foreground">{formatAud(orderTotal.buyerFeeCents)}</dd>
             </div>
             <SupportSummaryLine cents={supportCents} />
             {/* The total is the largest number in the panel. */}
             <div className="mt-1 flex items-baseline justify-between gap-4 border-t border-foreground pt-3">
               <dt className="text-lg leading-6 font-bold text-foreground">Total</dt>
-              <dd className="text-xl leading-7 font-bold tabular-nums text-foreground">
+              <dd className="text-2xl leading-8 font-bold tabular-nums text-foreground">
                 {formatAud(orderTotal.totalCents)}
               </dd>
             </div>
           </dl>
+          {feeNote}
 
           {canCheckout && sentTo !== null ? (
             <div className="mt-4 flex flex-col gap-2">
@@ -507,58 +604,74 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
             </div>
           ) : canCheckout ? (
             <>
-              <div className="mt-4">
-                <BuyerNameField
-                  id="buyer-name"
-                  value={buyerName}
-                  onChange={(value) => {
-                    setBuyerName(value);
-                    setNameError(null);
-                  }}
-                  error={nameError}
-                  inputRef={nameInputRef}
-                />
-              </div>
-              {needsEmail && (
-                <div className="mt-4 flex flex-col gap-1">
-                  <label htmlFor="buyer-email" className="eyebrow text-muted">
-                    Email for your tickets
-                  </label>
-                  <input
-                    ref={emailInputRef}
-                    id="buyer-email"
-                    type="email"
-                    autoComplete="email"
-                    name="email"
-                    inputMode="email"
-                    required
-                    value={buyerEmail}
-                    onChange={(e) => setTypedEmail(e.target.value)}
-                    aria-invalid={emailError ? true : undefined}
-                    aria-describedby={emailError ? "buyer-email-hint buyer-email-error" : "buyer-email-hint"}
-                    // 16px text so iOS doesn't zoom on focus, and a 48px target. Border, fill and the
-                    // invalid state come from the base field styles (globals.css).
-                    className="min-h-12 px-3 py-2 text-base"
+              <div className="mt-5 border-t border-surface-border pt-5">
+                <h3 className="text-base leading-6 font-bold">Your details</h3>
+                <div className="mt-3">
+                  <BuyerNameField
+                    id={NAME_FIELD_ID}
+                    value={buyerName}
+                    onChange={(value) => {
+                      setBuyerName(value);
+                      setNameError(null);
+                    }}
+                    error={nameError}
+                    inputRef={nameInputRef}
                   />
-                  <p id="buyer-email-hint" className="text-xs text-muted">
-                    Tickets are sent here. Use your account email to join Who&rsquo;s Going.
-                  </p>
-                  {emailError && (
-                    <p id="buyer-email-error" role="alert" className="text-sm text-danger">
-                      {emailError}
-                    </p>
-                  )}
                 </div>
-              )}
-              {orderTotal.totalCents > 0 && accountEmail && (
-                <p className="mt-4 text-xs text-muted">
-                  Booking as {accountEmail}.
-                </p>
-              )}
+                {needsEmail && (
+                  <div className="mt-4 flex flex-col gap-1">
+                    <label htmlFor="buyer-email" className="eyebrow text-muted">
+                      Email for your tickets
+                    </label>
+                    <input
+                      ref={emailInputRef}
+                      id="buyer-email"
+                      type="email"
+                      autoComplete="email"
+                      name="email"
+                      inputMode="email"
+                      required
+                      value={buyerEmail}
+                      onChange={(e) => setTypedEmail(e.target.value)}
+                      aria-invalid={emailError ? true : undefined}
+                      aria-describedby={emailError ? "buyer-email-hint buyer-email-error" : "buyer-email-hint"}
+                      // 16px text so iOS doesn't zoom on focus, and a 48px target. Border, fill and the
+                      // invalid state come from the base field styles (globals.css).
+                      className="min-h-12 px-3 py-2 text-base"
+                    />
+                    <p id="buyer-email-hint" className="text-xs text-muted">
+                      Tickets are sent here. Use your account email to join Who&rsquo;s Going.
+                    </p>
+                    {emailError && (
+                      <p id="buyer-email-error" role="alert" className="text-sm text-danger">
+                        {emailError}
+                      </p>
+                    )}
+                  </div>
+                )}
+                {orderTotal.totalCents > 0 && accountEmail && (
+                  <p className="mt-3 flex flex-wrap items-center gap-x-2 text-xs text-muted">
+                    <span className="break-all">Booking as {accountEmail}.</span>
+                    {/* The existing account flow: ends this browser's session only (as "wrong account" does
+                        elsewhere); the selection stays, and the order goes the guest way, with Stripe asking for the email. */}
+                    {auth?.status === "signed-in" && (
+                      <button
+                        type="button"
+                        onClick={() => auth.signOut("local")}
+                        className="inline-flex min-h-11 items-center text-foreground underline underline-offset-4"
+                      >
+                        Not you? Sign out
+                      </button>
+                    )}
+                  </p>
+                )}
+              </div>
               {/* Right above Checkout, for paid orders only (the owner's placement). */}
               {supportBlock}
-              {/* Black, not orange: checkout stays quiet (brand-direction-one.md §6.9).
-                  Busy, not disabled, while it works: focus stays on it. */}
+              {/* Desktop's Checkout. On phones (below lg) the sticky buy bar is the one Checkout
+                  (components/checkout/BuyBar.tsx; it presses the same handler), so this is hidden
+                  there, but only when that bar exists. Busy, not disabled, while it works: focus
+                  stays on it. Disabled only with nothing chosen (the hint says what to do). */}
               <Button
                 variant="solid"
                 size="lg"
@@ -566,7 +679,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                 busy={loading}
                 disabled={!hasAnyTickets}
                 aria-describedby={hasAnyTickets ? undefined : "checkout-hint"}
-                className="mt-4 w-full"
+                className={`mt-4 w-full ${setBuyBar ? "max-lg:hidden" : ""}`}
               >
                 {loading
                   ? freeBooking
@@ -577,14 +690,13 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                     : "Checkout"}
               </Button>
               {error && (
-                <div className="mt-3">
+                <div ref={errorRef} className="mt-3">
                   <Notice tone="danger" role="alert">
                     {error}
                   </Notice>
                 </div>
               )}
-              {feeNote}
-              <p className="mt-2 text-xs text-muted">
+              <p className="mt-3 text-xs text-muted">
                 By booking you agree to the{" "}
                 <Link href="/purchase-terms" className="text-foreground underline underline-offset-2">
                   Purchase Terms
@@ -614,7 +726,6 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
               <button type="button" disabled aria-disabled="true" className="btn btn-lg mt-4 w-full">
                 Checkout unavailable in this demo
               </button>
-              {feeNote}
               <p className="mt-2 text-xs text-muted">
                 Demo only. Nothing is charged or issued.
               </p>

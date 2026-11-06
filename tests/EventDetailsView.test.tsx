@@ -80,7 +80,7 @@ describe("EventDetailsView buy bar (phones and tablets)", () => {
     const tickets = container.querySelector<HTMLElement>("#tickets");
     if (!tickets) throw new Error("#tickets not rendered");
     expect(tickets).toHaveAttribute("tabindex", "-1");
-    expect(within(tickets).getByRole("heading", { name: "Tickets" })).toBeInTheDocument();
+    expect(within(tickets).getByRole("heading", { name: "Select your tickets" })).toBeInTheDocument();
     // Arriving there shows the (global) focus-visible ring: nothing removes it.
     expect(tickets.className).not.toMatch(/outline-none/);
   });
@@ -224,7 +224,7 @@ describe("EventDetailsView key facts under the title (Refinement, 22 Oct 2026)",
   it("puts the tickets before About on phones (reading order: title, facts, tickets, then the description)", () => {
     const event = findEvent("neon-static");
     render(<EventDetailsView event={event} demo />);
-    const tickets = screen.getByRole("region", { name: "Tickets" });
+    const tickets = screen.getByRole("region", { name: "Select your tickets" });
     const about = screen.getByRole("region", { name: "About this event" });
     expect(tickets.compareDocumentPosition(about) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(about).getByText(event.description)).toBeInTheDocument();
@@ -233,7 +233,7 @@ describe("EventDetailsView key facts under the title (Refinement, 22 Oct 2026)",
   it("repeats no page-level demo notice (the layout's banner is the one); the ticket panel still says nothing can be booked", () => {
     render(<EventDetailsView event={findEvent("neon-static")} demo />);
     expect(screen.queryByText(/fictional sample data/)).toBeNull();
-    expect(within(screen.getByRole("region", { name: "Tickets" })).getByText(/Checkout unavailable in this demo/i)).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Select your tickets" })).getByText(/Checkout unavailable in this demo/i)).toBeInTheDocument();
   });
 });
 
@@ -398,7 +398,7 @@ describe("EventDetailsView brand layout (brand-direction-one.md §6.10)", () => 
 
   it("names the Tickets and Good to know sections by their headings (region landmarks)", () => {
     render(<EventDetailsView event={findEvent("neon-static")} demo />);
-    expect(screen.getByRole("region", { name: "Tickets" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Select your tickets" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Good to know" })).toBeInTheDocument();
   });
 

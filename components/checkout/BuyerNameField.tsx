@@ -33,6 +33,12 @@ export default function BuyerNameField({
         required
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        // The keyboard's own key says "Done" and closes the keyboard (there's no form to submit),
+        // which brings the page's sticky buy bar back into view on a phone.
+        enterKeyHint="done"
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+        }}
         aria-invalid={error ? true : undefined}
         aria-describedby={error ? `${id}-hint ${id}-error` : `${id}-hint`}
         // 16px text so iOS doesn't zoom on focus, and a 48px target.
