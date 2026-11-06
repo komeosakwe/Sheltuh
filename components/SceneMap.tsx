@@ -22,6 +22,7 @@ import { formatEventDateShort } from "@/lib/format";
 import { useMapTileStyle } from "@/components/map/useMapTileStyle";
 import { useLocationModule } from "@/components/search/useLocationModule";
 import { findListedSuburb, resolveMapCoordinates, type SuburbLookup } from "@/lib/geo";
+import { formatDistanceKm, sortNearestFirst } from "@/lib/map-near";
 import { readStoredNear } from "@/lib/near-storage";
 import { placeName, placeQuery } from "@/lib/place";
 import { formatFeedPrice } from "@/lib/pricing";
@@ -216,7 +217,9 @@ function SceneMapView({
   const initialSelected = useMemo(() => searchParams.get("sel"), []); // eslint-disable-line react-hooks/exhaustive-deps
   const initialView = useMemo<MobileView>(() => (searchParams.get("view") === "list" ? "list" : "map"), []); // eslint-disable-line react-hooks/exhaustive-deps
   const [urlSteers] = useState(() => carriesViewState(searchParams));
-  const locate = useMapLocate(!urlSteers);
+  const [areaBounds, setAreaBounds] = useState<MapBounds | null>(null);
+  // A located visitor is asking for what's near them: an earlier "Search this area" no longer applies.
+  const locate = useMapLocate(!urlSteers, () => setAreaBounds(null));
 
   // The desktop event card sits above the Mapbox wordmark in the map's lower-left corner (components/map/MapboxLogo.tsx).
   const mapboxLogo = useMapTileStyle().id === "mapbox-streets";
@@ -224,7 +227,6 @@ function SceneMapView({
   const [rawSelectedEventId, setSelectedEventId] = useState<string | null>(initialSelected);
   // Map first (owner request); a shared ?view=list still opens the list.
   const [mobileView, setMobileView] = useState<MobileView>(initialView);
-  const [areaBounds, setAreaBounds] = useState<MapBounds | null>(null);
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
   const hasRestoredScroll = useRef(false);
   const listRef = useRef<HTMLElement>(null);
@@ -264,6 +266,32 @@ function SceneMapView({
       })
       .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
   }, [events, filters, now, areaBounds, findSuburb]);
+
+  // Where the visitor is, for the list to run nearest first and the map to frame the events near
+  // them: their position from this page's Near me (or the ask on open), else the centre of the
+  // suburb they saved, unless the address carries a view of its own. In this page's memory only.
+  const origin = locate.origin ?? (!urlSteers && near ? { ...near, precise: false } : null);
+  const originLat = origin?.lat;
+  const originLng = origin?.lng;
+  const originPrecise = origin?.precise ?? false;
+  const located = useMemo(
+    () => (originLat !== undefined && originLng !== undefined ? { lat: originLat, lng: originLng } : null),
+    [originLat, originLng],
+  );
+  // A visitor's own "Search this area" is theirs to keep: the map stops framing around them while it applies.
+  const frameAround = areaBounds ? null : located;
+  const visitor = originPrecise ? located : null;
+
+  // The list: `filtered` (the filters above apply as always), nearest first from the visitor with
+  // each one's distance, else soonest first. The map keeps `filtered`: soonest first is what
+  // decides which event leads a cluster.
+  const listed = useMemo(() => {
+    if (!located) return filtered.map((event) => ({ event, distance: null as string | null }));
+    return sortNearestFirst(filtered, located, (event) => resolveMapCoordinates(event, findSuburb)).map(({ item, km }) => ({
+      event: item,
+      distance: km === null ? null : formatDistanceKm(km),
+    }));
+  }, [filtered, located, findSuburb]);
 
   // Derived rather than synced via effect: a selection that no longer
   // matches the active filters is simply treated as no selection.
@@ -360,7 +388,7 @@ function SceneMapView({
     areaBounds !== null;
   const countSentence = `${filtered.length} upcoming event${filtered.length === 1 ? "" : "s"}${
     hasActiveFilters ? " matching your filters" : ""
-  }`;
+  }${located ? ", nearest first" : ""}`;
 
   function resetFilters() {
     setFilters(DEFAULT_FILTERS);
@@ -551,7 +579,7 @@ function SceneMapView({
 
       {status === "loaded" && !progress.visible && (
         <>
-          {/* How many are listed, soonest first; the status above is what announces it. */}
+          {/* How many are listed, soonest first (nearest first once the visitor is located); the status above is what announces it. */}
           <p className="meta border-t border-foreground pt-3 text-muted">{countSentence}</p>
 
           {/* Phones only: map or list, map first and by default (owner request). Both show from lg. */}
@@ -581,7 +609,8 @@ function SceneMapView({
                   <SceneMapPanel
                     events={filtered}
                     findSuburb={findSuburb}
-                    near={urlSteers ? null : near}
+                    around={frameAround}
+                    visitor={visitor}
                     focus={locate.focus}
                     onFocused={locate.focused}
                     selectedEventId={selectedEventId}
@@ -617,7 +646,7 @@ function SceneMapView({
                     mobileView === "list" ? "block" : "hidden"
                   } lg:block`}
                 >
-                  {filtered.map((event) => (
+                  {listed.map(({ event, distance }) => (
                     <div
                       key={event.id}
                       ref={(el) => {
@@ -630,6 +659,7 @@ function SceneMapView({
                         selected={event.id === selectedEventId}
                         onLocate={handleLocate}
                         hasLocation={resolveMapCoordinates(event, findSuburb) !== null}
+                        distance={distance}
                         detailsHref={`/events/${event.slug}`}
                       />
                     </div>

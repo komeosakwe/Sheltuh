@@ -174,12 +174,16 @@ afterEach(() => {
   Reflect.deleteProperty(window, "matchMedia");
 });
 
-async function renderMap() {
-  mockEvents = events;
+async function renderMap(list: SheltuhEvent[] = events) {
+  mockEvents = list;
   render(<SceneMap />);
   await waitFor(() => expect(document.querySelector(".leaflet-container")).not.toBeNull());
-  await screen.findAllByRole("link", { name: /^(Fitzroy Gig|Sydney Show)$/ });
+  await waitFor(() => expect(document.querySelector("[data-scene-row]")).not.toBeNull());
 }
+
+/** The listed events' titles, top to bottom. */
+const listedTitles = () =>
+  Array.from(document.querySelectorAll("[data-scene-row]")).map((row) => row.querySelector("a")?.textContent ?? "");
 
 const container = () => document.querySelector<HTMLElement>(".leaflet-container");
 
@@ -193,13 +197,17 @@ function view() {
   };
 }
 
-/** Waits for the map to be at `place`, zoomed in to MAP_NEAR_ZOOM. */
-async function expectCentredOn(place: { lat: number; lng: number }) {
+/**
+ * Waits for the map to be at `place`, zoomed in to MAP_NEAR_ZOOM. The map frames the place with the
+ * events nearest it (lib/map-near.ts), so with one a few km away the centre is part-way between
+ * (within `offset` degrees of the place); events too close to need more room stay at MAP_NEAR_ZOOM.
+ */
+async function expectCentredOn(place: { lat: number; lng: number }, offset = 0.04) {
   await waitFor(() => {
     const now = view();
     expect(now.zoom).toBe(MAP_NEAR_ZOOM);
-    expect(now.lat).toBeCloseTo(place.lat, 2);
-    expect(now.lng).toBeCloseTo(place.lng, 2);
+    expect(Math.abs(now.lat - place.lat)).toBeLessThan(offset);
+    expect(Math.abs(now.lng - place.lng)).toBeLessThan(offset);
   });
 }
 
@@ -487,7 +495,7 @@ describe("a location put in recentres the map", () => {
       writeStoredNear("Footscray", "VIC");
     });
     const footscray = findLocality("Footscray");
-    await expectCentredOn({ lat: footscray?.lat ?? 0, lng: footscray?.lng ?? 0 });
+    await expectCentredOn({ lat: footscray?.lat ?? 0, lng: footscray?.lng ?? 0 }, 0.06);
     expect(getCurrentPosition).not.toHaveBeenCalled();
   });
 
@@ -519,5 +527,138 @@ describe("a location put in recentres the map", () => {
       expect(setView.mock.calls.some(([, zoom, options]) => zoom === MAP_NEAR_ZOOM && options?.animate === false)).toBe(true),
     );
     expect(fly).not.toHaveBeenCalled();
+  });
+});
+
+describe("Near me puts the nearest events first and frames them", () => {
+  // The soonest is in Sydney: for a Melbourne visitor it used to head the list (owner report).
+  const sydneySoonest = { ...sydneyShow, startsAt: "2026-11-18T09:00:00.000Z" };
+  const footscrayGig = makeEvent({
+    id: "footscray-gig",
+    title: "Footscray Gig",
+    suburb: "Footscray",
+    coordinates: { lat: -37.8, lng: 144.9 },
+    startsAt: "2026-11-19T09:00:00.000Z",
+  });
+  const brightonGig = makeEvent({
+    id: "brighton-gig",
+    title: "Brighton Gig",
+    suburb: "Brighton",
+    category: "theatre",
+    coordinates: { lat: -37.9167, lng: 144.9926 },
+    startsAt: "2026-11-22T09:00:00.000Z",
+  });
+  const frankstonGig = makeEvent({
+    id: "frankston-gig",
+    title: "Frankston Gig",
+    suburb: "Frankston",
+    category: "theatre",
+    coordinates: { lat: -38.1448, lng: 145.1227 },
+    startsAt: "2026-11-17T09:00:00.000Z",
+  });
+  const spread = [frankstonGig, sydneySoonest, footscrayGig, fitzroyGig, brightonGig];
+
+  it("lists soonest first until the visitor is located, then nearest first with each distance", async () => {
+    params = new URLSearchParams("cat=live-music");
+    answerAt(MELBOURNE.lat, MELBOURNE.lng);
+    await renderMap([sydneySoonest, fitzroyGig, footscrayGig]);
+    expect(listedTitles()).toEqual(["Sydney Show", "Footscray Gig", "Fitzroy Gig"]);
+    expect(document.body).not.toHaveTextContent(/\d km/);
+
+    fireEvent.click(screen.getByRole("button", { name: "Near me" }));
+    await expectCentredOn(MELBOURNE, 0.06);
+    await waitFor(() => expect(listedTitles()).toEqual(["Fitzroy Gig", "Footscray Gig", "Sydney Show"]));
+    const rows = Array.from(document.querySelectorAll("[data-scene-row]"));
+    // Fitzroy is about 2 km from the CBD, Footscray about 6, Sydney about 700 (approximate, short).
+    expect(rows[0]).toHaveTextContent(/Live music · 2\.\d km away/);
+    expect(rows[1]).toHaveTextContent(/Live music · [4-6]\.\d km away/);
+    expect(rows[2]).toHaveTextContent(/Live music · 7\d\d km away/);
+    expect(screen.getAllByText(/3 upcoming events matching your filters, nearest first/).length).toBeGreaterThan(0);
+    // The position is only in this page's memory.
+    expectNoCoordinatesStored();
+    expect(replace.mock.calls.flat().join(" ")).not.toMatch(/-?\d{2,3}\.\d{3,}/);
+  });
+
+  it("a saved suburb: opens nearest first from its centre, without asking", async () => {
+    localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Melbourne", state: "VIC" }));
+    await renderMap([sydneySoonest, fitzroyGig]);
+    await waitFor(() => expect(listedTitles()).toEqual(["Fitzroy Gig", "Sydney Show"]));
+    expect(getCurrentPosition).not.toHaveBeenCalled();
+    // A suburb's centre isn't the visitor: no dot for it.
+    expect(document.querySelector(".scene-visitor")).toBeNull();
+  });
+
+  it("an address with its own view keeps soonest first until Near me is pressed", async () => {
+    params = new URLSearchParams("cat=live-music");
+    localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Melbourne", state: "VIC" }));
+    await renderMap([sydneySoonest, fitzroyGig]);
+    expect(listedTitles()).toEqual(["Sydney Show", "Fitzroy Gig"]);
+  });
+
+  it("frames the visitor with the nearest few events, and no further out than the local radius", async () => {
+    params = new URLSearchParams("price=all");
+    answerAt(MELBOURNE.lat, MELBOURNE.lng);
+    await renderMap(spread);
+    fireEvent.click(screen.getByRole("button", { name: "Near me" }));
+    // Footscray (6 km west), Fitzroy (2 km), Brighton (12 km south): all in; Frankston (38 km) and Sydney out.
+    await waitFor(() => {
+      const now = view();
+      expect(now.zoom).toBeGreaterThanOrEqual(11);
+      expect(now.zoom).toBeLessThan(MAP_NEAR_ZOOM);
+      expect(Math.abs(now.lat - MELBOURNE.lat)).toBeLessThan(0.08);
+      expect(Math.abs(now.lng - MELBOURNE.lng)).toBeLessThan(0.08);
+    });
+    // The visitor's own dot, and still no "Search this area": framing is the map's own move.
+    expect(document.querySelector(".scene-visitor")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: /Search this area/ })).toBeNull();
+    expect(listedTitles().slice(0, 4)).toEqual(["Fitzroy Gig", "Footscray Gig", "Brighton Gig", "Frankston Gig"]);
+  });
+
+  it("respects the filters: only the matching events are listed and framed", async () => {
+    params = new URLSearchParams("cat=theatre");
+    answerAt(MELBOURNE.lat, MELBOURNE.lng);
+    await renderMap(spread);
+    fireEvent.click(screen.getByRole("button", { name: "Near me" }));
+    await waitFor(() => expect(listedTitles()).toEqual(["Brighton Gig", "Frankston Gig"]));
+    // Brighton (12 km) and Frankston (38 km, past the local radius) are theatre: only Brighton is framed.
+    await waitFor(() => {
+      const now = view();
+      expect(now.zoom).toBeGreaterThanOrEqual(11);
+      expect(now.lat).toBeGreaterThan(-37.95);
+    });
+  });
+
+  it("with nothing within 25 km, frames the single nearest event up to 100 km away", async () => {
+    params = new URLSearchParams("cat=theatre");
+    answerAt(MELBOURNE.lat, MELBOURNE.lng);
+    await renderMap([frankstonGig, sydneySoonest]);
+    fireEvent.click(screen.getByRole("button", { name: "Near me" }));
+    await waitFor(() => {
+      const now = view();
+      expect(now.zoom).toBeGreaterThanOrEqual(9);
+      expect(now.zoom).toBeLessThan(12);
+      expect(now.lat).toBeLessThan(MELBOURNE.lat);
+    });
+  });
+
+  it("with no event within 100 km, centres on the visitor at MAP_NEAR_ZOOM, listing the nearest with its distance", async () => {
+    params = new URLSearchParams("cat=live-music");
+    const PERTH = { lat: -31.9523, lng: 115.8613 };
+    answerAt(PERTH.lat, PERTH.lng);
+    await renderMap([fitzroyGig, sydneySoonest]);
+    fireEvent.click(screen.getByRole("button", { name: "Near me" }));
+    await expectCentredOn(PERTH);
+    await waitFor(() => expect(listedTitles()).toEqual(["Fitzroy Gig", "Sydney Show"]));
+    expect(document.querySelectorAll("[data-scene-row]")[0]).toHaveTextContent(/2,\d{3} km away/);
+  });
+
+  it("an event with no position goes last, with no distance", async () => {
+    params = new URLSearchParams("cat=live-music");
+    answerAt(MELBOURNE.lat, MELBOURNE.lng);
+    const nowhere = makeEvent({ id: "nowhere", title: "Nowhere Gig", suburb: "Atlantis", startsAt: "2026-11-16T09:00:00.000Z" });
+    await renderMap([nowhere, sydneySoonest, fitzroyGig]);
+    fireEvent.click(screen.getByRole("button", { name: "Near me" }));
+    await waitFor(() => expect(listedTitles()).toEqual(["Fitzroy Gig", "Sydney Show", "Nowhere Gig"]));
+    expect(document.querySelectorAll("[data-scene-row]")[2]).not.toHaveTextContent(/km/);
   });
 });

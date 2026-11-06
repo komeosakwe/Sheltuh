@@ -3,7 +3,7 @@
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { MapContainer, TileLayer, useMap } from "react-leaflet";
+import { MapContainer, Marker, TileLayer, useMap } from "react-leaflet";
 import EventMarkerLayer, { type MarkerDatum, type OpenSpot } from "@/components/map/EventMarkerLayer";
 import MapSpotList from "@/components/map/MapSpotList";
 import MapboxLogo from "@/components/map/MapboxLogo";
@@ -14,6 +14,7 @@ import { buttonClass } from "@/components/ui/Button";
 import { ProgressLoader, useLoadingProgress } from "@/components/ui/ProgressLoader";
 import type { MapFocus } from "@/components/map/useMapLocate";
 import { MAP_NEAR_ZOOM } from "@/lib/map-layout";
+import { nearestToFrame } from "@/lib/map-near";
 import {
   AUSTRALIA_BOUNDS,
   AUSTRALIA_MIN_ZOOM,
@@ -61,6 +62,39 @@ function centreOn(
 }
 
 /**
+ * Frames `around` (the visitor, or their saved suburb's centre) with the events nearest it
+ * (lib/map-near.ts nearestToFrame): fits them all, zooming in no further than MAP_NEAR_ZOOM, so a
+ * few events close together still show the neighbourhood. With none near enough, centres on
+ * `around` at MAP_NEAR_ZOOM, unless `onlyIfNear` (a re-fit after a filter change, where the events
+ * themselves matter more than the visitor): then it does nothing and returns false.
+ */
+function frameAround(
+  map: L.Map,
+  around: Coordinates,
+  markers: MarkerDatum[],
+  smooth: boolean,
+  reducedMotion: boolean,
+  programmaticMoveRef: RefObject<boolean>,
+  onlyIfNear: boolean,
+): boolean {
+  const near = nearestToFrame(
+    around,
+    markers.map((marker) => ({ lat: marker.lat, lng: marker.lng })),
+  );
+  if (near.length === 0) {
+    if (onlyIfNear) return false;
+    centreOn(map, around, smooth, reducedMotion, programmaticMoveRef);
+    return true;
+  }
+  const bounds = L.latLngBounds([[around.lat, around.lng], ...near.map((place): L.LatLngTuple => [place.lat, place.lng])]);
+  programmaticMoveRef.current = true;
+  const options = { padding: L.point(48, 48), maxZoom: MAP_NEAR_ZOOM };
+  if (smooth && !reducedMotion) map.flyToBounds(bounds, { ...options, duration: 0.8 });
+  else map.fitBounds(bounds, { ...options, animate: false });
+  return true;
+}
+
+/**
  * Applies a centre request the map hasn't yet (`applied` holds the last one's id), once it has a
  * size (a hidden map waits for its resize). Returns whether it did, so the caller skips fitting
  * the markers over it. `onFocused` lets the owner drop the request (and its coordinates).
@@ -68,6 +102,7 @@ function centreOn(
 function applyFocus(
   map: L.Map,
   focus: MapFocus | null,
+  markers: MarkerDatum[],
   applied: RefObject<number | null>,
   reducedMotion: boolean,
   programmaticMoveRef: RefObject<boolean>,
@@ -76,29 +111,35 @@ function applyFocus(
   if (!focus || focus.id === applied.current || !hasSize(map)) return false;
   applied.current = focus.id;
   stopQuietly(map, programmaticMoveRef);
-  centreOn(map, focus, focus.smooth, reducedMotion, programmaticMoveRef);
+  if (focus.nearby) frameAround(map, focus, markers, focus.smooth, reducedMotion, programmaticMoveRef, false);
+  else centreOn(map, focus, focus.smooth, reducedMotion, programmaticMoveRef);
   onFocused?.(focus.id);
   return true;
 }
 
-/** The first framing: on the saved suburb (`near`) if there is one, else every marker (or Australia). */
+/**
+ * Frames the markers. With a place to frame around (`around`: the visitor, or the saved suburb's
+ * centre), the first framing always goes there (the nearest events with it, or just the place);
+ * a later one (a filter changed the markers) does when some are near it, else fits them all.
+ * Without one: every marker (or Australia).
+ */
 function frameFirst(
   map: L.Map,
   markers: MarkerDatum[],
-  near: Coordinates | null,
+  around: Coordinates | null,
   first: boolean,
   reducedMotion: boolean,
   programmaticMoveRef: RefObject<boolean>,
 ) {
-  if (first && near) centreOn(map, near, false, reducedMotion, programmaticMoveRef);
-  else fitTargets(map, markers, reducedMotion, programmaticMoveRef);
+  if (around && frameAround(map, around, markers, false, reducedMotion, programmaticMoveRef, !first)) return;
+  fitTargets(map, markers, reducedMotion, programmaticMoveRef);
 }
 
 /** Centres on the selected event if there is one, otherwise frames the markers (frameFirst). */
 function frameMarkers(
   map: L.Map,
   markers: MarkerDatum[],
-  near: Coordinates | null,
+  around: Coordinates | null,
   first: boolean,
   selectedEventId: string | null,
   reducedMotion: boolean,
@@ -112,18 +153,21 @@ function frameMarkers(
     else map.flyTo([selected.lat, selected.lng], zoom, { duration: 0.6 });
     return;
   }
-  frameFirst(map, markers, near, first, reducedMotion, programmaticMoveRef);
+  frameFirst(map, markers, around, first, reducedMotion, programmaticMoveRef);
 }
 
 /**
  * Recentres/zooms the map when the selected event changes, and fits the
- * markers whenever they change: the first time, centred on the saved suburb
- * (`near`) if there is one; with none, Australia. A centre request (`focus`:
- * the visitor's location, a suburb they picked) wins over fitting the markers.
+ * markers whenever they change: around the visitor (or their saved suburb)
+ * and the events nearest them if there is one (`around`), else all of them,
+ * or Australia with none. A centre request (`focus`: the visitor's
+ * location, a suburb they picked) wins over fitting the markers. The visitor's
+ * own pan or zoom is never undone: nothing re-frames unless the markers change
+ * or a new request comes in.
  */
 function MapController({
   markers,
-  near,
+  around,
   focus,
   onFocused,
   selectedEventId,
@@ -131,7 +175,7 @@ function MapController({
   reducedMotion,
 }: {
   markers: MarkerDatum[];
-  near: Coordinates | null;
+  around: Coordinates | null;
   focus: MapFocus | null;
   onFocused?: (id: number) => void;
   selectedEventId: string | null;
@@ -140,9 +184,9 @@ function MapController({
 }) {
   const map = useMap();
   // Latest props for the resize listener below, which is registered once.
-  const latest = useRef({ markers, near, focus, onFocused, selectedEventId, reducedMotion });
+  const latest = useRef({ markers, around, focus, onFocused, selectedEventId, reducedMotion });
   useEffect(() => {
-    latest.current = { markers, near, focus, onFocused, selectedEventId, reducedMotion };
+    latest.current = { markers, around, focus, onFocused, selectedEventId, reducedMotion };
   });
   // The markers the map was first framed with: only that framing centres on the saved suburb. Kept
   // as the markers themselves rather than a flag, so framing them again (React re-running effects
@@ -182,8 +226,8 @@ function MapController({
     if (!hasSize(map)) return;
     const current = latest.current;
     // A centre request made with this change (the location filter) wins over fitting.
-    if (!applyFocus(map, current.focus, appliedFocus, reducedMotion, programmaticMoveRef, current.onFocused)) {
-      frameFirst(map, markers, latest.current.near, isFirstFraming(markers), reducedMotion, programmaticMoveRef);
+    if (!applyFocus(map, current.focus, markers, appliedFocus, reducedMotion, programmaticMoveRef, current.onFocused)) {
+      frameFirst(map, markers, current.around, isFirstFraming(markers), reducedMotion, programmaticMoveRef);
     }
     firstFramed.current ??= markers;
     framed.current = { markers, selectedEventId: current.selectedEventId };
@@ -192,7 +236,7 @@ function MapController({
   // A new centre request: the visitor's location, or a suburb picked in the location filter.
   useEffect(() => {
     const current = latest.current;
-    if (applyFocus(map, focus, appliedFocus, current.reducedMotion, programmaticMoveRef, current.onFocused)) {
+    if (applyFocus(map, focus, current.markers, appliedFocus, current.reducedMotion, programmaticMoveRef, current.onFocused)) {
       framed.current = { markers: current.markers, selectedEventId: current.selectedEventId };
     }
   }, [map, focus, programmaticMoveRef]);
@@ -232,7 +276,7 @@ function MapController({
         frame = null;
         const current = latest.current;
         stopQuietly(map, programmaticMoveRef);
-        if (applyFocus(map, current.focus, appliedFocus, current.reducedMotion, programmaticMoveRef, current.onFocused)) {
+        if (applyFocus(map, current.focus, current.markers, appliedFocus, current.reducedMotion, programmaticMoveRef, current.onFocused)) {
           firstFramed.current ??= current.markers;
           framed.current = { markers: current.markers, selectedEventId: current.selectedEventId };
           return;
@@ -241,7 +285,7 @@ function MapController({
         frameMarkers(
           map,
           current.markers,
-          current.near,
+          current.around,
           isFirstFraming(current.markers),
           current.selectedEventId,
           current.reducedMotion,
@@ -282,6 +326,18 @@ function MapViewProbe() {
     };
   }, [map]);
   return null;
+}
+
+const VISITOR_ICON = L.divIcon({
+  html: '<span aria-hidden="true"></span>',
+  className: "scene-visitor",
+  iconSize: [18, 18],
+  iconAnchor: [9, 9],
+});
+
+/** A dot where the visitor is, under the events' markers. Not interactive: nothing to focus or press. */
+function VisitorMarker({ position }: { position: Coordinates }) {
+  return <Marker position={[position.lat, position.lng]} icon={VISITOR_ICON} interactive={false} keyboard={false} zIndexOffset={-1000} />;
 }
 
 /** Shows "Search this area" only after the *user* pans/zooms — not after a programmatic fitBounds/flyTo. */
@@ -379,10 +435,13 @@ interface SceneMapPanelProps {
   /** Where an event without coordinates of its own goes: its suburb's centre (lib/geo.ts). */
   findSuburb?: SuburbLookup;
   /**
-   * The centre of the visitor's saved suburb (browser-only, never sent):
-   * the map opens centred on it, at MAP_NEAR_ZOOM (lib/map-layout.ts).
+   * Where the visitor is, for the map to frame around with the events nearest it (lib/map-near.ts):
+   * their position, or the centre of their saved suburb (browser-only, never sent). It opens
+   * there, and a filter change re-fits there while something is near. Null: every event.
    */
-  near?: Coordinates | null;
+  around?: Coordinates | null;
+  /** The visitor's own position, marked on the map (not a suburb's centre). Browser-only, never sent. */
+  visitor?: Coordinates | null;
   /** Centre here now and zoom in (the visitor's location, a suburb picked); applied once per `id`. */
   focus?: MapFocus | null;
   /** Called with a request's `id` once the map has applied it. */
@@ -404,7 +463,8 @@ export default function SceneMapPanel({
   onSearchArea,
   onShowList,
   findSuburb,
-  near = null,
+  around = null,
+  visitor = null,
   focus = null,
   onFocused,
 }: SceneMapPanelProps) {
@@ -535,6 +595,7 @@ export default function SceneMapPanel({
           reducedMotion={reducedMotion}
           programmaticMoveRef={programmaticMoveRef}
         />
+        {visitor && <VisitorMarker position={visitor} />}
         <SearchThisAreaControl
           programmaticMoveRef={programmaticMoveRef}
           onSearchArea={(bounds) =>
@@ -548,7 +609,7 @@ export default function SceneMapPanel({
         />
         <MapController
           markers={markers}
-          near={near}
+          around={around}
           focus={focus}
           onFocused={onFocused}
           selectedEventId={selectedEventId}

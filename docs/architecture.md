@@ -4921,16 +4921,18 @@ Search can order results by how close they are to a suburb (owner round,
 - **`/map` follows the visitor's location** (owner request, creator call,
   Nov 2026). The map's position is data attributes on its container
   (`data-center-lat`, `data-center-lng`, rounded to about 100 m, and
-  `data-zoom`) for the e2e specs. Everything below zooms to `MAP_NEAR_ZOOM`
-  (13; the old "markers within 50 km" framing, `framingTargets`, is gone, since
-  it opened too far out) and is the map's own move, so "Search this area"
-  doesn't appear for it.
-  - Opening with a saved suburb centres on its table centre, with no ask and
-    no animation. With none saved, no refusal this session and nothing in
+  `data-zoom`) for the e2e specs. Everything below frames the visitor (or the
+  saved suburb's centre) with the nearest events, zooming in no further than
+  `MAP_NEAR_ZOOM` (13; the old "markers within 50 km" framing,
+  `framingTargets`, is gone, since it opened too far out) and is the map's own
+  move, so "Search this area" doesn't appear for it. Details under "Nearest
+  first", below.
+  - Opening with a saved suburb frames its table centre with the nearest
+    events, with no ask and no animation. With none saved, no refusal this session and nothing in
     the address that should win, it calls `navigator.geolocation` **once, on
     open** (`useMapLocate`, `lib/locate-me.ts`; the same coarse, 10 s, 10 min
-    options as the picker, `lib/geolocation.ts`): a position centres the map
-    (it flies there, or jumps with `prefers-reduced-motion`) and its suburb
+    options as the picker, `lib/geolocation.ts`): a position frames the map on it
+    and the nearest events (it flies there, or jumps with `prefers-reduced-motion`) and its suburb
     is matched with `nearestLocality` and saved with `writeStoredNear`, so
     the home and search use it and the next visit doesn't ask. Denied,
     error, timeout, or a position outside Australia: the default view stays,
@@ -4947,9 +4949,40 @@ Search can order results by how close they are to a suburb (owner round,
     changing while on the map (the search bar's "Use my current location",
     another tab: `subscribeStoredNear` in `lib/near-storage.ts`), centres on
     that suburb's table centre.
-  - The position is only in `useMapLocate`'s state until the map has applied
-    it, then dropped: never storage (only the suburb's name and state), a URL,
-    the API or a log. The map's centre is in the DOM as the attributes above.
+  - **Nearest first** (owner report, Nov 2026: a Sydney event headed a
+    Melbourne visitor's list, and zoom 13 could show no event at all). Once the
+    visitor is located (Near me, or the ask on open), or from the start with a
+    saved suburb and an address carrying no view of its own, the origin is the
+    position (a dot on the map) or the saved suburb's centre
+    (`useMapLocate`'s `origin`, `components/SceneMap.tsx`).
+    - **The list** is the filtered events (date, category, price, search,
+      suburb and "Search this area" all apply as before) sorted by
+      `lib/map-near.ts` `sortNearestFirst`: distance from the origin to the
+      event's pin, or its suburb's centre (so approximate), then soonest;
+      events with no position last. Each row says how far ("Live music · 2.3
+      km", read "away"; "< 1 km", "14 km", "2,712 km"). Without an origin the
+      list is soonest first, as before; the map's own order (which event leads
+      a cluster) stays soonest first.
+    - **The frame** (`nearestToFrame`, `SceneMapPanel` `frameAround`): the
+      origin plus the nearest 4 events inside 25 km, fitted with 48px of
+      padding and no closer than `MAP_NEAR_ZOOM` (so a few events next door
+      still show the neighbourhood). With none inside 25 km, the single
+      nearest within 100 km; with none within 100 km, just the origin at
+      `MAP_NEAR_ZOOM`, as before. A re-fit after a filter changes the
+      markers does the same while something is near the origin, else fits
+      them all.
+    - **Not fighting the visitor.** Nothing re-frames on its own: the map
+      moves only on a new request (Near me, the saved suburb changing), on
+      the first framing, or when the filters change the markers. The
+      visitor's own pan or zoom stays, and "Search this area" then appears.
+      While an area search applies, the map frames its results (not the
+      origin), the list keeps its order; Near me clears the area search.
+  - The position's coordinates live in `useMapLocate`'s state for as long as
+    the page is open, to order the list and mark the dot (the request that
+    moves the map drops them once it is applied, but the origin keeps them):
+    never storage (only the suburb's name and state), a URL, the API or a
+    log, and gone with the page. The map's centre is in the DOM as the
+    attributes above.
 - Disclosed at `/privacy#location` (draft) and in the popover.
 - Venue pins now exist for events with a confirmed location (the
   organiser's own pin, never Google's coordinates; see "Venue location"):

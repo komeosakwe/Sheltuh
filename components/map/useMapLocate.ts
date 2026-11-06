@@ -12,11 +12,23 @@ import type { Coordinates } from "@/lib/types";
 /**
  * A request to centre the map and zoom in (lib/map-layout.ts MAP_NEAR_ZOOM). `id` tells a new
  * request from one the map has already applied. `smooth`: fly there (unless the visitor prefers
- * reduced motion) rather than jump. The coordinates live only in component state, until applied.
+ * reduced motion) rather than jump. `nearby`: frame the nearest events with the place too
+ * (lib/map-near.ts), not just centre on it. The coordinates live only in component state.
  */
 export interface MapFocus extends Coordinates {
   id: number;
   smooth: boolean;
+  nearby: boolean;
+}
+
+/**
+ * Where the visitor is for "nearest first": their position from this page's last Near me (or the
+ * ask on open), or the centre of the suburb saved since. Component state only, for as long as the
+ * page is open: never stored, put in an address or sent anywhere. `precise`: a real position
+ * (the map marks it), not a suburb's centre.
+ */
+export interface MapOrigin extends Coordinates {
+  precise: boolean;
 }
 
 const noSubscribe = () => () => {};
@@ -37,15 +49,18 @@ type Status = MapLocateStatus;
  *  - on open, with no suburb saved, no refusal this session and nothing in the address that
  *    should win (`promptOnOpen`), asks the browser once;
  *  - `locate` does the same on demand ("Near me");
- *  - either way a position becomes a centre request and the suburb it's in is saved (name and
- *    state only, as the search bar's "Use my current location" does); the position is dropped
- *    once the map has used it;
- *  - the saved suburb changing while on the map (the search bar, another tab) centres on it too;
+ *  - either way a position becomes a centre request that frames the nearest events with it, and
+ *    the suburb it's in is saved (name and state only, as the search bar's "Use my current
+ *    location" does); the request's coordinates are dropped once the map has used it, while
+ *    `origin` keeps them in this page's memory for "nearest first" (never stored or sent);
+ *  - the saved suburb changing while on the map (the search bar, another tab) does the same for
+ *    that suburb's centre;
  *  - `centreOn` centres on a place already in hand; `centreOnSuburb` finds a suburb by its name
  *    first (the location filter), loading the suburb table if nothing has yet.
  */
-export function useMapLocate(promptOnOpen: boolean) {
+export function useMapLocate(promptOnOpen: boolean, onLocated?: () => void) {
   const [focus, setFocus] = useState<MapFocus | null>(null);
+  const [origin, setOrigin] = useState<MapOrigin | null>(null);
   const [locating, setLocating] = useState(false);
   const [status, setStatus] = useState<Status>(null);
   const canLocate = useSyncExternalStore(noSubscribe, hasGeolocation, serverFalse);
@@ -56,20 +71,32 @@ export function useMapLocate(promptOnOpen: boolean) {
   const saving = useRef<string | null>(null);
   // The latest suburb asked for by name: a slow table load for an earlier pick mustn't win over a later one.
   const suburbAsk = useRef(0);
+  // Latest `onLocated` for the async locate below.
+  const onLocatedRef = useRef(onLocated);
+  useEffect(() => {
+    onLocatedRef.current = onLocated;
+  });
 
-  const centreOn = useCallback((place: Coordinates, smooth = true) => {
+  const centreOn = useCallback((place: Coordinates, smooth = true, nearby = false) => {
     nextId.current += 1;
-    setFocus({ id: nextId.current, lat: place.lat, lng: place.lng, smooth });
+    setFocus({ id: nextId.current, lat: place.lat, lng: place.lng, smooth, nearby });
   }, []);
 
-  /** Centres on the suburb `query` finds (lib/place.ts placeQuery), once the suburb table has loaded. */
+  /**
+   * Centres on the suburb `query` finds (lib/place.ts placeQuery), once the suburb table has loaded.
+   * `asOrigin`: the suburb is where the visitor is now (the saved suburb changed), so the list goes
+   * nearest first from there and the map frames the events near it; a suburb picked in the location
+   * filter just centres.
+   */
   const centreOnSuburb = useCallback(
-    (query: string) => {
+    (query: string, asOrigin = false) => {
       suburbAsk.current += 1;
       const ask = suburbAsk.current;
       const centreIn = (table: LocationModule) => {
         const place = table.findLocality(query);
-        if (place) centreOn(place);
+        if (!place) return;
+        if (asOrigin) setOrigin({ lat: place.lat, lng: place.lng, precise: false });
+        centreOn(place, true, asOrigin);
       };
       // Already loaded: centre in this very update, with the filter change that asked for it.
       const loaded = loadedLocation();
@@ -122,7 +149,9 @@ export function useMapLocate(promptOnOpen: boolean) {
       saving.current = result.suburb;
       writeStoredNear(result.suburb, result.state);
       saving.current = null;
-      centreOn(result.position);
+      onLocatedRef.current?.();
+      setOrigin({ lat: result.position.lat, lng: result.position.lng, precise: true });
+      centreOn(result.position, true, true);
       setStatus({ tone: "info", text: `Map centred on ${placeName(result.suburb, result.state)}.` });
     },
     [centreOn],
@@ -141,7 +170,7 @@ export function useMapLocate(promptOnOpen: boolean) {
       subscribeStoredNear(() => {
         const suburb = readStoredNear();
         if (!suburb || suburb === saving.current) return;
-        centreOnSuburb(suburb);
+        centreOnSuburb(suburb, true);
       }),
     [centreOnSuburb],
   );
@@ -153,5 +182,5 @@ export function useMapLocate(promptOnOpen: boolean) {
     return () => window.clearTimeout(timer);
   }, [status]);
 
-  return { focus, focused, clearFocus, centreOn, centreOnSuburb, canLocate, locating, status, locate: () => locate(false) };
+  return { focus, focused, clearFocus, origin, centreOn, centreOnSuburb, canLocate, locating, status, locate: () => locate(false) };
 }

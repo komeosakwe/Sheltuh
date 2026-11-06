@@ -17,6 +17,13 @@ export default function MapStyles() {
        * organiser's focus point (object-position) had nothing left to move. Fill the box again.
        */
       .leaflet-container .leaflet-marker-pane .scene-marker img { width: 100%; }
+      /* Where the visitor is (components/SceneMapPanel.tsx VisitorMarker): an ink dot in a paper ring with a soft halo. */
+      .scene-visitor { background: none; border: 0; }
+      .scene-visitor span {
+        display: block; width: 18px; height: 18px; box-sizing: border-box; border-radius: 9999px;
+        background: var(--foreground); border: 3px solid var(--background);
+        box-shadow: 0 0 0 1px var(--foreground), 0 0 0 8px color-mix(in srgb, var(--foreground) 14%, transparent);
+      }
       .leaflet-control-attribution {
         background: color-mix(in srgb, var(--background) 85%, transparent) !important; color: var(--muted) !important;
       }
