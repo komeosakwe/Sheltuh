@@ -80,17 +80,17 @@ describe("organiser profile: Add logo for its own organiser", () => {
   });
 });
 
-describe("organiser profile: events hosted", () => {
-  it("is shown from one event hosted", () => {
+describe("organiser profile: events organised", () => {
+  it("is shown from one event organised", () => {
     view(profile({ eventsHosted: 3 }));
-    expect(screen.getByText("Events hosted")).toBeInTheDocument();
+    expect(screen.getByText("Events organised")).toBeInTheDocument();
   });
 
   it("is hidden at 0 (and when not sent)", () => {
     view(profile({ eventsHosted: 0 }));
-    expect(screen.queryByText("Events hosted")).toBeNull();
+    expect(screen.queryByText("Events organised")).toBeNull();
     cleanup();
     view(profile());
-    expect(screen.queryByText("Events hosted")).toBeNull();
+    expect(screen.queryByText("Events organised")).toBeNull();
   });
 });
