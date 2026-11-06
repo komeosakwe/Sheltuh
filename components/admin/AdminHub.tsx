@@ -110,6 +110,7 @@ function selfPublishedStatus(summary: AdminSummary | null): string | null {
 
 function manageCards(summary: AdminSummary | null): HubCard[] {
   const door = summary?.doorEvents;
+  const transfers = summary?.transfersOpen;
   return [
     {
       href: "/admin/events?status=published",
@@ -146,6 +147,14 @@ function manageCards(summary: AdminSummary | null): HubCard[] {
       status: null,
       waiting: false,
       todo: "As an organiser or a member.",
+    },
+    {
+      href: "/admin/payouts",
+      title: "Payouts",
+      status: transfers ? (transfers.count ? countText(transfers.count, "to check", "to check") : "All clear") : null,
+      waiting: Boolean(transfers?.count),
+      todo: "Retry, release or cancel organiser transfers.",
+      counted: true,
     },
     {
       href: "/admin/trending",

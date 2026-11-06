@@ -31,30 +31,19 @@ const SNAP_INSET = "scroll-px-5 sm:scroll-ps-[max(2rem,(100%_-_72rem)/2_+_2rem)]
 const END_GUTTER = "after:block after:w-2 after:shrink-0 after:content-[''] sm:after:w-[max(0.5rem,100%_-_69.5rem)]";
 
 /**
- * A rail of this many cards or fewer is a "pair" (owner, 23 Oct 2026,
- * layout polish: "This weekend" with two cards left most of a desktop row
- * empty). Below 1024px it's the same carousel as any rail; from 1024px it's a
- * two-column grid in the page column, each card filling its column with a
- * wide landscape image, 12:5 and at most 200px tall (EventCard `wide`). One card takes one column: the
- * page never repeats or invents events to fill the other.
+ * A rail of this many cards or fewer is a "pair": it never overflows, so it
+ * never drifts and shows no arrows. It used to become a two-column grid of
+ * wide cards from 1024px (owner, 23 Oct 2026); the owner then asked for more
+ * events on screen (4 Nov 2026: "show more than 2 events"), so it's now the
+ * same rail of the same cards as any other, left-aligned on the column's
+ * edge. The page never repeats or invents events to fill the rest of the row.
  */
 export const PAIR_MAX = 2;
 
-/** Whether a rail of `count` cards is laid out as a pair from 1024px (see `PAIR_MAX`). */
+/** Whether a rail of `count` cards is a pair (see `PAIR_MAX`). */
 export function isPairRail(count: number): boolean {
   return count > 0 && count <= PAIR_MAX;
 }
-
-/**
- * From 1024px a pair is a grid, not a scroller: two equal columns between the
- * page column's edges (the end padding mirrors `INSET`), no snapping and no
- * end spacer (it would be a grid cell). Below 1024px nothing changes.
- * Why 1024 and not 768: at 768 two 256px cards fill three quarters of the
- * column and tablets are touch screens, where a rail like every other reads
- * best; from 1024 the empty half of the row is what the owner saw.
- */
-const PAIR =
-  "lg:grid lg:grid-cols-2 lg:overflow-visible lg:snap-none lg:pe-[max(2rem,(100%_-_72rem)/2_+_2rem)] lg:after:hidden";
 
 /**
  * A section's cards as a horizontal rail at every width (owner, 23 Oct 2026:
@@ -63,9 +52,11 @@ const PAIR =
  * places it full width, outside the page column: it runs to both screen
  * edges, its first card starts on the column's edge (`INSET`) and the cards
  * run off the right edge, so a partly visible card says there's more.
- * Fixed-width cards (EventCard `rail`: 62vw up to 240px on phones, 256px
- * from 640px), never stretched to fill a row; the cells stretch to the
- * tallest card, so every card's price and button sit at the same height.
+ * Set-width cards (EventCard `rail`: 62vw up to 240px on phones, 224px
+ * from 640px, 195 to 256px from 768px and 204 to 256px from 1024px so a
+ * fraction of the next card always peeks, 256px from 1280px), never stretched
+ * to fill a row; the cells stretch to the tallest card, so every card's price
+ * and button sit at the same height.
  *
  * Native scrolling: start-aligned mandatory snap (a swipe, wheel or arrow
  * press settles with a card's left edge on the inset line). A rail that
@@ -79,7 +70,7 @@ const PAIR =
  * `overflow-y-hidden`: a sideways scroller is otherwise a vertical one too,
  * and a pixel of overhang let a diagonal swipe nudge the rail up and down.
  * The vertical padding (cancelled by the negative margin) keeps focus rings
- * unclipped. `pair`: one or two cards, a grid from 1024px (`PAIR`).
+ * unclipped. `pair`: one or two cards (`PAIR_MAX`): marked, never drifting.
  */
 export default function HomeRail({
   children,
@@ -107,7 +98,7 @@ export default function HomeRail({
       id={id}
       aria-labelledby={labelledBy}
       data-rail-layout={pair ? "pair" : "rail"}
-      className={`no-scrollbar -my-4 flex snap-x snap-mandatory gap-3 overflow-x-auto overflow-y-hidden overscroll-x-contain py-4 pe-0 sm:gap-6 ${INSET} ${SNAP_INSET} ${END_GUTTER} ${pair ? PAIR : ""}`.trim()}
+      className={`no-scrollbar -my-4 flex snap-x snap-mandatory gap-3 overflow-x-auto overflow-y-hidden overscroll-x-contain py-4 pe-0 sm:gap-6 ${INSET} ${SNAP_INSET} ${END_GUTTER}`.trim()}
     >
       {children}
       {Array.from({ length: clones }, (_, i) => (

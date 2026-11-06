@@ -95,6 +95,8 @@ interface FreeOrderInput {
   event: EventRecord;
   lineItems: OrderLineItem[];
   buyerEmail: string;
+  /** The buyer's name (parseBuyerName), stored on the order for the organiser's Orders view; null for none. */
+  buyerName: string | null;
   trackingCode: string | null;
   /** A seated order's seats (reserved seating): taken at once for a member, at confirmation for a guest. */
   seats?: { seatIds: string[]; labels: TicketSeat[] };
@@ -110,7 +112,7 @@ const SEATS_GONE_AT_CONFIRM = "Some of your seats were booked by someone else be
  * have been checked.
  */
 export async function createFreeOrder(req: Request, deps: Deps, input: FreeOrderInput): Promise<Response> {
-  const { event, lineItems, buyerEmail, trackingCode, seats } = input;
+  const { event, lineItems, buyerEmail, buyerName, trackingCode, seats } = input;
   const orderId = `ord_${crypto.randomUUID().replace(/-/g, "")}`;
   const caller = await optionalCaller(req, deps);
   const isOwnVerifiedEmail =
@@ -121,8 +123,9 @@ export async function createFreeOrder(req: Request, deps: Deps, input: FreeOrder
       const [row] = await deps.db.query<{ result: string }>(
         seats
           ? `select private.place_free_seated_order($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9::text::jsonb, $10, $11,
-               $12::interval, $13::text[]) as result`
-          : `select private.place_free_order($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9::text::jsonb, $10, $11, $12::interval) as result`,
+               $12::interval, $13::text[], $14) as result`
+          : `select private.place_free_order($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9::text::jsonb, $10, $11, $12::interval,
+               $13) as result`,
         [
           orderId,
           event.eventId,
@@ -137,6 +140,7 @@ export async function createFreeOrder(req: Request, deps: Deps, input: FreeOrder
           FREE_LIMITS.memberDaily.hits,
           FREE_LIMITS.memberDaily.window,
           ...(seats ? [seats.seatIds] : []),
+          buyerName,
         ],
       );
       return row.result;
@@ -165,9 +169,9 @@ export async function createFreeOrder(req: Request, deps: Deps, input: FreeOrder
   const [{ result }] = await deps.db.query<{ result: string }>(
     seats
       ? `select private.request_free_seated_order($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9::interval, $10, $11::interval,
-           $12, $13::interval, $14, $15::interval, $16::text[]) as result`
+           $12, $13::interval, $14, $15::interval, $16::text[], $17) as result`
       : `select private.request_free_order($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9::interval, $10, $11::interval,
-           $12, $13::interval, $14, $15::interval) as result`,
+           $12, $13::interval, $14, $15::interval, $16) as result`,
     [
       orderId,
       event.eventId,
@@ -185,6 +189,7 @@ export async function createFreeOrder(req: Request, deps: Deps, input: FreeOrder
       FREE_LIMITS.platformDaily.hits,
       FREE_LIMITS.platformDaily.window,
       ...(seats ? [seats.seatIds] : []),
+      buyerName,
     ],
   );
   const sent: CheckoutResult = { status: "confirmation_sent", expiresInHours: FREE_LIMITS.confirmHours };

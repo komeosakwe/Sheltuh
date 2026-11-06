@@ -26,6 +26,22 @@ const KEY_SCROLL_WINDOW = 800;
 export const REST_MS = 150;
 /** Handing over: the glide onto a card counts as done after this long if the rail never reports scrolling. */
 export const SETTLE_MS = 1000;
+
+/** Whether the engine reports `scrollend`: a scroll's real end, rather than a pause in its scroll events. */
+function reportsScrollEnd(): boolean {
+  return typeof window !== "undefined" && "onscrollend" in window;
+}
+/**
+ * How long a hand-over waits, with the rail still, before taking it for at rest. A pause in scroll
+ * events is only a guess at rest: a busy main thread or compositor can leave a smooth scroll
+ * (an arrow's page, the keyboard bringing a card into view) silent for longer than `REST_MS`, in
+ * flight or before its first event, and a glide to the nearest card from there replaces it (usually
+ * backwards, to where it was). So where `scrollend` is reported the pause is only a fallback, for a
+ * scroll that never ends; elsewhere it's the only sign there is.
+ */
+function quietWait(): number {
+  return reportsScrollEnd() ? SETTLE_MS : REST_MS;
+}
 /** Sub-pixel layout: a position this close to a seam counts as on it. */
 const SEAM_SLACK = 0.5;
 /** Marks the Pause/Play button: focus on it never pauses (so Play from the keyboard plays). */
@@ -106,20 +122,26 @@ function copiesOutOfView(rail: HTMLElement, loop: RailLoop): boolean {
  * mandatory snapping back on between two cards makes the engine jump to one
  * at once (Chromium does), so snapping stays off while the visitor's scroll
  * (a swipe, a wheel, an arrow's page, the keys) plays out; once the rail is
- * at rest (`scrollend`, or `REST_MS` with no scroll event, never while a
- * finger or a scrollbar press is still down) it glides smoothly onto the
+ * at rest (`scrollend`; in an engine without it `REST_MS` with no scroll
+ * event, and in one with it only `SETTLE_MS` of silence for a scroll that
+ * never ends; never while a finger or a scrollbar press is still down) it glides smoothly onto the
  * nearest card, then snapping comes back on there, where it has nothing left
  * to move. `firstWait` is how long to wait for a scroll that may be about to
- * start; `held`, that a finger or press is already down. `atRest` runs when
+ * start (`quietWait`); `held`, that a finger or press is already down. `atRest` runs when
  * the rail first comes to rest, before the glide (the loop moves it back
  * onto the real cards there); `settled` once it's on a card, just before
- * snapping comes back on. Returns a cancel (leaving snapping as it is).
+ * snapping comes back on. `keepFocused`: the scroll was the keyboard's
+ * (Tab bringing a card into view), so the glide goes to the nearest card
+ * start that keeps the focused card wholly in view: a pause in scroll events
+ * (a busy main thread) can look like rest while that smooth scroll is still
+ * under way, and a glide to the plain nearest card would take it back out of
+ * view. Returns a cancel (leaving snapping as it is).
  */
 export function settleOnCard(
   rail: HTMLElement,
   firstWait = REST_MS,
   held = false,
-  { atRest: onRest, settled }: { atRest?: () => void; settled?: () => void } = {},
+  { atRest: onRest, settled, keepFocused = false }: { atRest?: () => void; settled?: () => void; keepFocused?: boolean } = {},
 ): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let holding = held; // a finger, or a mouse press on the rail itself, is down
@@ -138,7 +160,7 @@ export function settleOnCard(
   function atRest() {
     if (holding) return;
     if (!gliding) onRest?.();
-    const target = nearestCardLeft(rail);
+    const target = nearestCardLeft(rail, keepFocused ? document.activeElement : null);
     if (gliding || Math.abs(target - rail.scrollLeft) < 1) {
       cancel();
       settled?.();
@@ -154,7 +176,7 @@ export function settleOnCard(
   const onScroll = () => {
     if (!moved && Math.abs(rail.scrollLeft - from) <= OWN_SCROLL_SLACK) return;
     moved = true;
-    wait(REST_MS);
+    wait(quietWait());
   };
   const onScrollEnd = () => {
     if (!moved) return;
@@ -340,7 +362,7 @@ export function useRailAutoScroll({
   // Off until Play. While snapping was held off (a marquee, or a settle under way), hand the
   // rail back to its snapping without a jump.
   const handOver = useCallback(
-    (firstWait: number, held = false) => {
+    (firstWait: number, held = false, keepFocused = false) => {
       const wasSettling = settleRef.current !== null;
       cancelSettle();
       setMode("stopped");
@@ -348,6 +370,7 @@ export function useRailAutoScroll({
       if (!rail || !(snapHeldOff || wasSettling)) return;
       let done = false;
       const cancel = settleOnCard(rail, firstWait, held, {
+        keepFocused,
         atRest: () => {
           const loop = railLoop(rail);
           if (loop) backIntoRealCards(rail, loop);
@@ -363,7 +386,7 @@ export function useRailAutoScroll({
     [snapHeldOff, cancelSettle, railRef, tidyCopies],
   );
   // The visitor scrolled the rail (an arrow press, before its page scroll starts).
-  const stop = useCallback(() => handOver(REST_MS), [handOver]);
+  const stop = useCallback(() => handOver(quietWait()), [handOver]);
   // Pause freezes the marquee where it is; Play carries on from wherever the rail is.
   const toggle = useCallback(() => {
     if (mode === "drift") {
@@ -542,12 +565,12 @@ export function useRailAutoScroll({
       if (nowHeld) update();
       else coolDown(POINTER_RESUME_MS);
     };
-    const userScrolled = () => {
+    const userScrolled = (byKey = false) => {
       running = false;
       cancelAnimationFrame(raf);
       clearTimeout(coolTimer);
       lastWriteRef.current = null;
-      handOver(REST_MS, touching || pressing);
+      handOver(quietWait(), touching || pressing, byKey);
     };
 
     // A mouse or pen over the rail. Touch has its own handling (a tap fires pointerenter too).
@@ -594,7 +617,8 @@ export function useRailAutoScroll({
     // where it put them, so they never count.
     const onScroll = () => {
       if (Math.abs(rail.scrollLeft - lastSet) <= OWN_SCROLL_SLACK) return;
-      if (touching || pressing || Date.now() - lastKey < KEY_SCROLL_WINDOW) userScrolled();
+      if (touching || pressing) userScrolled();
+      else if (Date.now() - lastKey < KEY_SCROLL_WINDOW) userScrolled(true);
     };
     // A sideways wheel or trackpad swipe (shift + wheel too); a vertical one just scrolls the page past.
     const onWheel = (event: WheelEvent) => {

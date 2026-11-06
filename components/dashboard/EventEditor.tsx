@@ -56,6 +56,7 @@ import StepNav from "@/components/dashboard/editor/StepNav";
 import TicketTypeFields from "@/components/dashboard/editor/TicketTypeFields";
 import {
   cleanTicketType,
+  groupTicketPreset,
   formKeyedFieldErrors,
   draftErrors,
   EDITOR_STEPS,
@@ -112,6 +113,7 @@ import {
   publishReviewReason,
   removedBefore,
 } from "@/lib/organiser-events";
+import { groupTicketsEnabled } from "@/lib/group-tickets-flag";
 import { formatFeedPriceParts } from "@/lib/pricing";
 import { DEFAULT_REFUND_POLICY, type RefundPolicy } from "@/lib/refund-policy";
 import { sellsPaidTicketsOnSheltuh, type TicketingMode } from "@/lib/ticketing";
@@ -267,7 +269,7 @@ function invalidControlIds(
     ["ticketTypes", "add-ticket-type"],
   ];
   for (let i = 0; i < ticketCount; i++) {
-    for (const field of ["name", "price", "qty", "lock"]) order.push([`ticket-${i}-${field}`, `ticket-${i}-${field}`]);
+    for (const field of ["name", "price", "admits", "qty", "lock"]) order.push([`ticket-${i}-${field}`, `ticket-${i}-${field}`]);
   }
   order.push(["refundDays", "refundDays"]);
   return order.filter(([key]) => errors[key]).map(([, id]) => id);
@@ -358,6 +360,8 @@ export default function EventEditor(props: Props) {
   // Admin mode only.
   const [organiser, setOrganiser] = useState<PickedOrganiser | null>(null);
   const platformManaged = initial ? isPlatformManaged(initial) : organiser?.platformManaged === true;
+  // Group tickets are paid, so a platform-managed organiser (free tickets only) has none to author.
+  const groupsEnabled = groupTicketsEnabled() && !platformManaged;
   const [publish, setPublish] = useState(false);
   const [reason, setReason] = useState("");
   // The version being edited (expectedUpdatedAt): the loaded one, then each save's.
@@ -582,6 +586,15 @@ export default function EventEditor(props: Props) {
   function updateTicket(index: number, patch: Partial<TicketTypeInput>) {
     setTicketTypes((prev) => prev.map((t, i) => (i === index ? { ...t, ...patch } : t)));
     if (patch.opensAfterPrevious !== undefined) clearErrors(`ticket-${index}-lock`);
+    // People per ticket moves the quantity with it (and a free group's price error is about the size).
+    if (patch.admits !== undefined) clearErrors(`ticket-${index}-admits`, `ticket-${index}-qty`, `ticket-${index}-price`);
+  }
+
+  /** "Add a group ticket": a "Group of 4" tier beside the others, on sale with them (it doesn't wait for the one above), price next. */
+  function addGroupTicket() {
+    const next = ticketTypes.length;
+    setTicketTypes((prev) => [...prev, groupTicketPreset(crypto.randomUUID())]);
+    focusControl(`ticket-${next}-price`);
   }
 
   function removeTicket(index: number) {
@@ -1716,17 +1729,25 @@ export default function EventEditor(props: Props) {
             <EditorCard
               title="Ticket types"
               action={
-                <button
-                  id="add-ticket-type"
-                  type="button"
-                  // A ticket added after another waits for the one above to sell out by default
-                  // (owner decision, Nov 2026: releases); one untick sells them side by side.
-                  onClick={() => setTicketTypes((prev) => [...prev, { ...newTicketType(), opensAfterPrevious: prev.length > 0 }])}
-                  aria-describedby={errors.ticketTypes ? errorId("ticketTypes") : undefined}
-                  className="btn btn-outline min-h-11 shrink-0"
-                >
-                  Add ticket type
-                </button>
+                <div className="flex flex-wrap gap-2 sm:justify-end">
+                  <button
+                    id="add-ticket-type"
+                    type="button"
+                    // A ticket added after another waits for the one above to sell out by default
+                    // (owner decision, Nov 2026: releases); one untick sells them side by side.
+                    onClick={() => setTicketTypes((prev) => [...prev, { ...newTicketType(), opensAfterPrevious: prev.length > 0 }])}
+                    aria-describedby={errors.ticketTypes ? errorId("ticketTypes") : undefined}
+                    className="btn btn-outline min-h-11 shrink-0"
+                  >
+                    Add ticket type
+                  </button>
+                  {/* Group tickets (NEXT_PUBLIC_GROUP_TICKETS): beside it, not in a sub-setting. Not with a seat map. */}
+                  {groupsEnabled && !reservedSeating && (
+                    <button id="add-group-ticket" type="button" onClick={addGroupTicket} className="btn btn-outline min-h-11 shrink-0">
+                      Add a group ticket
+                    </button>
+                  )}
+                </div>
               }
             >
               {payoutsNeeded && <PayoutsNeededNotice />}
@@ -1743,6 +1764,11 @@ export default function EventEditor(props: Props) {
                   count={ticketTypes.length}
                   isAdmin={isAdmin}
                   errors={errors}
+                  groups={{
+                    enabled: groupsEnabled,
+                    reservedSeating,
+                    sold: (savedRecord ?? initial)?.ticketsSold?.[ticket.id] ?? 0,
+                  }}
                   onChange={(patch) => updateTicket(index, patch)}
                   onRemove={() => removeTicket(index)}
                 />
@@ -1899,7 +1925,7 @@ export default function EventEditor(props: Props) {
 /** Orders the keys of an error record as the form is laid out: step 1's fields, then tickets, then the note; the rest last. */
 function orderedErrorKeys(keys: string[], ticketCount: number): string[] {
   const order = ["organiserId", "title", "description", "venueName", "venueAddress", "suburb", "state", "timeZone", "location", "start", "end", "image", "externalTicketUrl", "externalPriceFromCents", "ticketTypes"];
-  for (let i = 0; i < ticketCount; i++) order.push(`ticket-${i}-name`, `ticket-${i}-price`, `ticket-${i}-qty`, `ticket-${i}-lock`);
+  for (let i = 0; i < ticketCount; i++) order.push(`ticket-${i}-name`, `ticket-${i}-price`, `ticket-${i}-admits`, `ticket-${i}-qty`, `ticket-${i}-lock`);
   order.push("refundPolicy", "refundDays", "reason");
   const known = order.filter((key) => keys.includes(key));
   return [...known, ...keys.filter((key) => !order.includes(key))];

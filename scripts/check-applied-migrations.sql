@@ -211,6 +211,40 @@ select version, file, coalesce(applied, false) as applied
       and exists (select 1 from fn where proname = 'cancel_holder_message')
       and exists (select 1 from fn where proname = 'stop_holder_messages')
       and exists (select 1 from fn where proname = 'purge_operational_data'
-                   and 'holder_messages_deleted' = any(proargnames)))
+                   and 'holder_messages_deleted' = any(proargnames))),
+    ('20261119000000', 'delayed_payouts',
+      to_regclass('private.order_transfers') is not null
+      and exists (select 1 from col where attrelid = to_regclass('public.orders') and attname = 'payout_method')
+      and exists (select 1 from fn where proname = 'claim_due_transfers')
+      and exists (select 1 from fn where proname = 'finish_order_transfer')
+      and exists (select 1 from fn where proname = 'flag_transfer_after_refund')
+      and exists (select 1 from fn where proname = 'admin_transfer_action')
+      -- The widened checks and the redefined raise_payment_exception.
+      and exists (select 1 from pg_constraint where conname = 'payment_exceptions_kind_check'
+                   and pg_get_constraintdef(oid) like '%transfer_reversal_required%')
+      and exists (select 1 from pg_constraint where conname = 'cron_runs_name_check'
+                   and pg_get_constraintdef(oid) like '%payouts%')
+      and exists (select 1 from fn where proname = 'raise_payment_exception' and prosrc like '%transfer_failed%')),
+    ('20261120000000', 'group_tickets',
+      exists (select 1 from col where attrelid = to_regclass('public.ticket_types') and attname = 'admits')
+      and exists (select 1 from col where attrelid = to_regclass('public.tickets') and attname = 'group_size')
+      and exists (select 1 from fn where proname = 'ticket_types_admits_frozen')
+      and exists (select 1 from fn where proname = 'order_group_size')
+      and exists (select 1 from fn where proname = 'fulfil_order_detailed' and prosrc like '%order_group_size%')),
+    ('20261121000000', 'organiser_more_socials',
+      (select count(*) from col
+        where attrelid = to_regclass('public.organisers')
+          and attname in ('spotify_path', 'soundcloud_handle', 'youtube_channel', 'linkedin_path')) = 4
+      and exists (select 1 from fn where proname = 'edit_organiser_profile' and prosrc like '%linkedin_path%')
+      and exists (select 1 from fn where proname = 'accept_account_invite' and prosrc like '%linkedin_path%')),
+    ('20261122000000', 'order_buyer_details',
+      exists (select 1 from col where attrelid = to_regclass('public.orders') and attname = 'buyer_name')
+      and exists (select 1 from col where attrelid = to_regclass('public.orders') and attname = 'details_notice_at')
+      and to_regclass('private.order_detail_exports') is not null
+      and to_regclass('private.order_detail_views') is not null
+      and exists (select 1 from fn where proname = 'take_order_detail_budget')
+      and exists (select 1 from pg_trigger where tgname = 'orders_details_immutable' and not tgisinternal)
+      and exists (select 1 from fn where proname = 'record_order_export')
+      and exists (select 1 from fn where proname = 'hold_seats' and 'p_buyer_name' = any(proargnames)))
   ) as m(version, file, applied)
  order by version;

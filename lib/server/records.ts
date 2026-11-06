@@ -7,6 +7,7 @@ import type { Db } from "./db";
 import type {
   AdminEmailJob,
   AdminPaymentException,
+  AdminTransfer,
   AdminMemberProfile,
   AdminEventRecord,
   AdminInviteRecord,
@@ -26,14 +27,16 @@ import type {
   OrganiserEditEntry,
   OrganiserLogField,
   OrganiserRecord,
+  OrganiserSocialLinks,
   ProfileContentField,
   ProfileRecord,
   PublicEvent,
   PublicOrganiserProfile,
   TicketSeat,
   TicketTypeInput,
+  TransferAction,
 } from "./types";
-import { REMAINING_SHOWN_AT_MOST, type PublicTicketType } from "@/lib/api/public-events";
+import { ORGANISER_BIO_EXCERPT_LENGTH, remainingShownAtMost, type PublicTicketType } from "@/lib/api/public-events";
 import {
   SHELTUH_TEAM_ACTOR,
   type AdminHolderMessage,
@@ -44,6 +47,7 @@ import {
   type VenueLocation,
 } from "@/lib/api/types";
 import { isFeaturedVideo, type FeaturedVideo } from "@/lib/api/featured-video";
+import { admitsOf, withGroupPositions } from "@/lib/ticket-groups";
 import { ticketProviderName, type TicketingMode } from "@/lib/ticketing";
 import { DEFAULT_REFUND_POLICY, type RefundPolicy } from "@/lib/refund-policy";
 import { PLATFORM_TIME_ZONE, type AustralianTimeZone, type StateCode } from "@/lib/time-zones";
@@ -93,7 +97,8 @@ function logoUrlOf(row: Row): { logoUrl?: string } {
 
 const ORGANISER_COLUMNS = `o.id, o.owner_user_id, o.display_name, o.contact_email, o.description,
          o.categories::text[] as categories, o.website_url,
-         o.instagram_handle, o.tiktok_handle, o.facebook_page, o.x_handle, o.status::text as status,
+         o.instagram_handle, o.tiktok_handle, o.facebook_page, o.x_handle,
+         o.spotify_path, o.soundcloud_handle, o.youtube_channel, o.linkedin_path, o.status::text as status,
          o.rejection_reason, o.reviewed_by, o.reviewed_at, o.stripe_account_id,
          o.payouts_enabled, o.event_review_required, o.created_at, o.updated_at, o.featured_video_provider,
          o.featured_video_id, ${organiserLogoVersionOf("o.id")} as logo_version`;
@@ -134,6 +139,10 @@ const EDIT_FIELDS: Record<string, OrganiserLogField> = {
   tiktok_handle: "tiktokHandle",
   facebook_page: "facebookPage",
   x_handle: "xHandle",
+  spotify_path: "spotifyPath",
+  soundcloud_handle: "soundcloudHandle",
+  youtube_channel: "youtubeChannel",
+  linkedin_path: "linkedinPath",
   featured_video: "featuredVideo",
   logo: "logo",
   status: "status",
@@ -190,6 +199,10 @@ export function toOrganiser(row: Row): OrganiserRecord {
     tiktokHandle: opt(row.tiktok_handle),
     facebookPage: opt(row.facebook_page),
     xHandle: opt(row.x_handle),
+    spotifyPath: opt(row.spotify_path),
+    soundcloudHandle: opt(row.soundcloud_handle),
+    youtubeChannel: opt(row.youtube_channel),
+    linkedinPath: opt(row.linkedin_path),
     status: row.status as OrganiserRecord["status"],
     rejectionReason: opt(row.rejection_reason),
     reviewedBy: opt(row.reviewed_by),
@@ -220,6 +233,7 @@ export function toOwnOrganiserView(record: OrganiserRecord): OrganiserRecord {
 const PUBLIC_ORGANISER_SELECT = `
   select o.id, o.display_name, o.description, o.categories::text[] as categories, o.website_url,
          o.instagram_handle, o.tiktok_handle, o.facebook_page, o.x_handle,
+         o.spotify_path, o.soundcloud_handle, o.youtube_channel, o.linkedin_path,
          o.featured_video_provider, o.featured_video_id,
          ${organiserLogoVersionOf("o.id")} as logo_version,
          to_char(o.created_at at time zone 'Australia/Melbourne', 'YYYY-MM') as member_since,
@@ -241,6 +255,20 @@ export async function findPublicOrganiserRow(db: Db, organiserId: string): Promi
   return row;
 }
 
+/** The https links for the social columns of an organisers row (as read by PUBLIC_ORGANISER_SELECT or EVENT_DETAIL_HOST_COLUMNS). */
+function socialLinksOf(row: Row): OrganiserSocialLinks {
+  return socialLinks({
+    instagramHandle: opt(row.instagram_handle),
+    tiktokHandle: opt(row.tiktok_handle),
+    spotifyPath: opt(row.spotify_path),
+    soundcloudHandle: opt(row.soundcloud_handle),
+    youtubeChannel: opt(row.youtube_channel),
+    facebookPage: opt(row.facebook_page),
+    xHandle: opt(row.x_handle),
+    linkedinPath: opt(row.linkedin_path),
+  });
+}
+
 export function toPublicOrganiserProfile(
   row: Row,
   upcomingEvents: PublicEvent[],
@@ -252,12 +280,7 @@ export function toPublicOrganiserProfile(
     description: row.description as string,
     categories: row.categories as PublicOrganiserProfile["categories"],
     websiteUrl: opt(row.website_url),
-    socialLinks: socialLinks({
-      instagramHandle: opt(row.instagram_handle),
-      tiktokHandle: opt(row.tiktok_handle),
-      facebookPage: opt(row.facebook_page),
-      xHandle: opt(row.x_handle),
-    }),
+    socialLinks: socialLinksOf(row),
     memberSince: row.member_since as string,
     featuredVideo: featuredVideoOf(row) ?? null,
     followerCount: (row.follower_count as number) >= FOLLOWER_COUNT_THRESHOLD ? (row.follower_count as number) : null,
@@ -300,6 +323,8 @@ const EVENT_COLUMNS = `
                     -- Sequential release: the setting (only when on), and, while the tier is waiting, the
                     -- tier it waits for (private.ticket_type_locks, the one definition of "waiting").
                     'opensAfterPrevious', case when t.opens_after_previous then true end,
+                    -- Group tickets: only above 1 (a single ticket's JSON is unchanged).
+                    'admits', case when t.admits > 1 then t.admits end,
                     'opensAfter', case when t.opens_after_previous then (
                       select json_build_object('ticketTypeId', l.blocker_id, 'name', l.blocker_name)
                         from private.ticket_type_locks(e.id) l where l.ticket_type_id = t.id) end)) order by t.position)
@@ -435,6 +460,63 @@ export function toEvent(row: Row): EventRecord {
 /** For rows of EVENT_SELECT, in admin routes: log entries keep every actor's account id. */
 export function toEventForAdmin(row: Row): EventRecord {
   return mapEvent(row, "admin");
+}
+
+/**
+ * EVENT_SELECT's extras for the single-event route's "Host" card: the
+ * organiser's website, bio and social handles, each null unless the organiser
+ * is approved (the same rule as findPublicOrganiserRow: a pending, rejected or
+ * suspended organiser shows nothing). Read from the join EVENT_SELECT already
+ * does, so the detail read is still one query; lists don't use this (the card
+ * is only on the event page).
+ */
+const EVENT_HOST_COLUMNS = ["website_url", "description"]
+  .map((column) => `case when o.status = 'approved' then o.${column} end as host_${column}`)
+  .concat(
+    ["instagram_handle", "tiktok_handle", "spotify_path", "soundcloud_handle", "youtube_channel", "facebook_page", "x_handle", "linkedin_path"].map(
+      (column) => `case when o.status = 'approved' then o.${column} end as ${column}`,
+    ),
+  )
+  .join(",\n         ");
+
+/** EVENT_SELECT plus the Host card's columns (toPublicEventDetailFromRow). */
+export const EVENT_DETAIL_SELECT = eventSelectWith(EVENT_HOST_COLUMNS);
+
+const bioSegmenter = new Intl.Segmenter("en", { granularity: "grapheme" });
+
+/**
+ * A short plain-text excerpt of an organiser's bio for the event page: runs of
+ * whitespace (line breaks included) become one space, and a bio longer than
+ * `max` characters (as people see them: whole emoji and accented letters
+ * count once) is cut on a word where there's one near the end, then ends in
+ * "…". Undefined for a blank bio.
+ */
+export function bioExcerpt(bio: string, max = ORGANISER_BIO_EXCERPT_LENGTH): string | undefined {
+  const text = bio.replace(/\s+/g, " ").trim();
+  if (!text) return undefined;
+  const graphemes = Array.from(bioSegmenter.segment(text), (part) => part.segment);
+  if (graphemes.length <= max) return text;
+  const room = graphemes.slice(0, max - 1);
+  const lastSpace = room.lastIndexOf(" ");
+  const kept = lastSpace >= max * 0.6 ? room.slice(0, lastSpace) : room;
+  return `${kept.join("").replace(/[\s,.;:!?-]+$/, "")}…`;
+}
+
+/**
+ * The public shape of a row of EVENT_DETAIL_SELECT: toPublicEventFromRow plus
+ * the Host card's organiserWebsiteUrl / organiserSocialLinks / organiserBio,
+ * each only when the organiser is approved and has set it.
+ */
+export function toPublicEventDetailFromRow(row: Row): PublicEvent {
+  const websiteUrl = opt<string>(row.host_website_url);
+  const links = socialLinksOf(row);
+  const bio = bioExcerpt(opt<string>(row.host_description) ?? "");
+  return {
+    ...toPublicEventFromRow(row),
+    ...(websiteUrl ? { organiserWebsiteUrl: websiteUrl } : {}),
+    ...(Object.keys(links).length > 0 ? { organiserSocialLinks: links } : {}),
+    ...(bio ? { organiserBio: bio } : {}),
+  };
 }
 
 /** The `imageFocus` field for a row of EVENT_SELECT: absent without a focus point. */
@@ -588,12 +670,14 @@ export function toAdminEvent(row: Row): AdminEventRecord {
 /**
  * A public ticket type: whether it's sold out, and how many are left only
  * when that's REMAINING_SHOWN_AT_MOST or fewer (never an exact large stock).
+ * A group ticket shows it up to MAX_PEOPLE_PER_TYPE people (the most one order
+ * can take), so the selector never offers more groups than are left.
  * A ticket type missing from `remaining` (none read) counts as on sale.
  */
 function toPublicTicketType(ticket: TicketTypeInput, remaining: Record<string, number> | null | undefined): PublicTicketType {
   const left = remaining?.[ticket.id];
   if (left === undefined) return { ...ticket, soldOut: false };
-  return { ...ticket, soldOut: left <= 0, ...(left <= REMAINING_SHOWN_AT_MOST ? { remaining: Math.max(left, 0) } : {}) };
+  return { ...ticket, soldOut: left <= 0, ...(left <= remainingShownAtMost(admitsOf(ticket)) ? { remaining: Math.max(left, 0) } : {}) };
 }
 
 /**
@@ -697,10 +781,25 @@ export const ORDER_SELECT = `
          coalesce((
            select json_agg(json_strip_nulls(json_build_object(
                     'ticketCode', t.code, 'ticketTypeId', t.ticket_type_id,
-                    'ticketTypeName', t.ticket_type_name, 'seat', ${TICKET_SEAT_JSON})) order by t.ticket_type_id, t.code)
+                    'ticketTypeName', t.ticket_type_name, 'seat', ${TICKET_SEAT_JSON},
+                    'groupSize', t.group_size)) order by t.ticket_type_id, t.code)
            from public.tickets t where t.order_id = o.id
          ), '[]'::json) as tickets
   from public.orders o`;
+
+// json_strip_nulls drops a missing seat (general admission) and a missing group size (a single ticket).
+type IssuedTicketRow = IssuedTicket & { groupSize?: number };
+
+/** The tickets of ORDER_SELECT's `tickets`: a group ticket's people numbered in their group (withGroupPositions: the SQL's order). */
+function issuedTicketsOf(rows: IssuedTicketRow[]): IssuedTicket[] {
+  return withGroupPositions(rows).map((ticket) => ({
+    ticketCode: ticket.ticketCode,
+    ticketTypeId: ticket.ticketTypeId,
+    ticketTypeName: ticket.ticketTypeName,
+    ...(ticket.seat ? { seat: ticket.seat } : {}),
+    ...(ticket.group ? { group: ticket.group } : {}),
+  }));
+}
 
 export function toOrder(row: Row): OrderRecord {
   return {
@@ -720,7 +819,7 @@ export function toOrder(row: Row): OrderRecord {
     stripeCheckoutSessionId: opt(row.stripe_checkout_session_id),
     stripePaymentIntentId: opt(row.stripe_payment_intent_id),
     ...(Array.isArray(row.seat_ids) ? { seatIds: row.seat_ids as string[] } : {}),
-    tickets: row.tickets as IssuedTicket[],
+    tickets: issuedTicketsOf(row.tickets as IssuedTicketRow[]),
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
   };
@@ -754,7 +853,9 @@ export const CUSTOMER_ORDER_SELECT = `
          coalesce((
            select json_agg(json_strip_nulls(json_build_object('ticketCode', t.code, 'ticketTypeName', t.ticket_type_name,
                                                               'seat', ${TICKET_SEAT_JSON},
-                                                              'checkedInAt', t.checked_in_at))
+                                                              'checkedInAt', t.checked_in_at,
+                                                              -- Only to number a group's people (withGroupPositions).
+                                                              'ticketTypeId', t.ticket_type_id, 'groupSize', t.group_size))
                            order by t.ticket_type_id, t.code)
            from public.tickets t where t.order_id = o.id and o.status = 'paid'
          ), '[]'::json) as tickets,
@@ -785,7 +886,14 @@ export function eventPlaceOf(row: Row): { eventTimeZone: AustralianTimeZone; eve
 }
 
 // json_strip_nulls drops a missing seat (general admission) and a null check-in time.
-type CustomerTicketRow = { ticketCode: string; ticketTypeName: string; seat?: TicketSeat; checkedInAt?: string | null };
+type CustomerTicketRow = {
+  ticketCode: string;
+  ticketTypeName: string;
+  ticketTypeId: string;
+  groupSize?: number;
+  seat?: TicketSeat;
+  checkedInAt?: string | null;
+};
 
 export function toCustomerOrder(row: Row): CustomerOrder {
   const email = opt<string>(row.buyer_email);
@@ -796,11 +904,12 @@ export function toCustomerOrder(row: Row): CustomerOrder {
   const details = paid && listed;
   // Belt and braces with the SQL: never a code for an order that isn't paid.
   const tickets = paid
-    ? (row.tickets as CustomerTicketRow[]).map((t) => ({
+    ? withGroupPositions(row.tickets as CustomerTicketRow[]).map((t) => ({
         ticketCode: t.ticketCode,
         ticketTypeName: t.ticketTypeName,
         ...(t.seat ? { seat: t.seat } : {}),
         checkedInAt: t.checkedInAt ? iso(t.checkedInAt) : null,
+        ...(t.group ? { group: t.group } : {}),
       }))
     : [];
   return {
@@ -875,17 +984,24 @@ const DETAIL_NUMBERS = [
   "supportCents",
   "amountChargedCents",
   "supportKeptCents",
+  "transferAmountCents",
 ] as const;
 
 /**
  * An exception that can't wait: a refund that didn't complete for an order
  * already voided (the buyer has neither tickets nor their money), or any
  * payment whose amount or currency wasn't its order's (the money went
- * somewhere it shouldn't have: the automatic refund needs checking). Shared
+ * somewhere it shouldn't have: the automatic refund needs checking), or an
+ * order refunded after its organiser's transfer was sent (the money is
+ * with the organiser until the transfer is reversed). Shared
  * by the admin list and the ops alert email.
  */
 export function paymentExceptionUrgent(kind: string, orderStatus: string | null | undefined): boolean {
-  return kind === "amount_mismatch" || (kind === "refund_not_completed" && orderStatus === "refunded");
+  return (
+    kind === "amount_mismatch" ||
+    kind === "transfer_reversal_required" ||
+    (kind === "refund_not_completed" && orderStatus === "refunded")
+  );
 }
 
 /** Only the known amounts and statuses, whatever else the jsonb holds. */
@@ -926,6 +1042,44 @@ export function toAdminPaymentException(row: Row): AdminPaymentException {
     resolution: opt(row.resolution),
     resolvedBy: opt(row.resolved_by),
     resolutionNote: opt(row.resolution_note),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Delayed payouts
+// ---------------------------------------------------------------------------
+
+/** Admin view of an organiser transfer; append `where …`. The order by short reference only: never the buyer or the order id. */
+export const ADMIN_TRANSFER_SELECT = `
+  select t.id, t.order_id, t.status, t.amount_cents, t.attempts, t.next_attempt_at, t.last_error, t.stripe_transfer_id,
+         t.sent_at, t.last_admin_action, t.last_admin_at, t.created_at, t.updated_at,
+         o.status::text as order_status, o.event_title, e.ends_at as event_ends_at, g.display_name as organiser_name
+    from private.order_transfers t
+    join public.orders o on o.id = t.order_id
+    join public.events e on e.id = o.event_id
+    join public.organisers g on g.id = o.organiser_id`;
+
+export function toAdminTransfer(row: Row): AdminTransfer {
+  const status = row.status as AdminTransfer["status"];
+  return {
+    transferId: String(row.id),
+    orderReference: orderReference(row.order_id as string),
+    orderStatus: row.order_status as AdminTransfer["orderStatus"],
+    eventTitle: row.event_title as string,
+    eventEndsAt: iso(row.event_ends_at),
+    organiserName: row.organiser_name as string,
+    amountCents: Number(row.amount_cents),
+    status,
+    attempts: Number(row.attempts),
+    nextAttemptAt: status === "retry" ? iso(row.next_attempt_at) : undefined,
+    lastError: opt(row.last_error),
+    stripeTransferId: opt(row.stripe_transfer_id),
+    sentAt: row.sent_at ? iso(row.sent_at) : undefined,
+    lastAdminAction: row.last_admin_action
+      ? { action: row.last_admin_action as TransferAction, at: iso(row.last_admin_at) }
+      : undefined,
+    createdAt: iso(row.created_at),
+    updatedAt: iso(row.updated_at),
   };
 }
 

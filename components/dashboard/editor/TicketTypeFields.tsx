@@ -2,12 +2,26 @@ import { fieldClass } from "@/components/ui/Field";
 import type { TicketTypeInput } from "@/lib/api/types";
 import { calculateBookingFeeCents, calculateOrderSummary, describeBookingFee } from "@/lib/fees";
 import { formatAud } from "@/lib/format";
-import { MAX_TICKET_DESCRIPTION_LENGTH } from "./draft";
+import { admitsOf, groupsIn, groupOfLabel } from "@/lib/ticket-groups";
+import { admitsPatch, groupDisabledReason, groupSizeOptions, MAX_TICKET_DESCRIPTION_LENGTH } from "./draft";
+
+/** What decides whether a ticket's "People per ticket" shows and can change (group tickets, behind NEXT_PUBLIC_GROUP_TICKETS). */
+export interface GroupContext {
+  /** The flag is on (and the organiser can sell paid tickets). Off: only an existing group ticket shows it, and (without sales) it can only go back to 1. */
+  enabled: boolean;
+  /** The event has (or is getting) a seat map: group tickets and seats exclude each other. */
+  reservedSeating: boolean;
+  /** People sold on this ticket type (`ticketsSold`): its size is frozen once there are any. */
+  sold: number;
+}
 
 /**
- * One ticket type's fields (docs/design/event-editor.md §5.6): name, price, who pays the booking fee,
- * quantity, and the optional description buyers see under the name. A block, not a nested box: the
+ * One ticket type's fields (docs/design/event-editor.md §5.6): name, price, people per ticket (when shown),
+ * quantity, who pays the booking fee, and the optional description buyers see under the name. A block, not a nested box: the
  * second and later ones are ruled off. Prices are the all-inclusive amounts from lib/fees.ts.
+ *
+ * A group ticket (one ticket that admits several people) keeps its capacity in PEOPLE (as the API does):
+ * above 1 person per ticket, the quantity field is groups (people = groups x people per ticket).
  */
 export default function TicketTypeFields({
   ticket,
@@ -15,6 +29,7 @@ export default function TicketTypeFields({
   count,
   isAdmin,
   errors,
+  groups,
   onChange,
   onRemove,
 }: {
@@ -24,11 +39,12 @@ export default function TicketTypeFields({
   count: number;
   isAdmin: boolean;
   errors: Record<string, string>;
+  groups: GroupContext;
   onChange: (patch: Partial<TicketTypeInput>) => void;
   onRemove: () => void;
 }) {
   const summary = calculateOrderSummary(ticket.priceCents, 1, ticket.feePolicy);
-  const field = (name: "name" | "price" | "qty" | "lock") => `ticket-${index}-${name}`;
+  const field = (name: "name" | "price" | "qty" | "lock" | "admits") => `ticket-${index}-${name}`;
   /** A field's error wiring: aria-invalid, and aria-describedby pointing at its error, while it has one. */
   const invalid = (key: string) => ({
     "aria-invalid": errors[key] ? (true as const) : undefined,
@@ -43,6 +59,12 @@ export default function TicketTypeFields({
   const description = ticket.description ?? "";
   // Sequential release: only a general admission ticket after the first can wait for the one above it.
   const canWait = index > 0 && ticket.seated !== true;
+  const admits = admitsOf(ticket);
+  const isGroup = admits > 1;
+  // Off, only a group ticket that already exists shows its size (without sales it can go back to 1); otherwise it's not shown at all.
+  const showPeople = groups.enabled || isGroup;
+  const peopleReason = groupDisabledReason(ticket, groups);
+  const groupCount = groupsIn(ticket, Math.max(ticket.quantityAvailable, 0));
   return (
     <div className={`flex flex-col gap-3 ${index > 0 ? "border-t border-surface-border pt-5" : ""}`.trim()}>
       <div className="flex items-center justify-between gap-3">
@@ -73,7 +95,7 @@ export default function TicketTypeFields({
         </div>
         <div className="flex flex-col gap-1">
           <label htmlFor={field("price")} className="eyebrow text-muted">
-            Price (A$)
+            {isGroup ? "Price per group (A$)" : "Price (A$)"}
           </label>
           <input
             id={field("price")}
@@ -86,6 +108,67 @@ export default function TicketTypeFields({
             className={fieldClass}
           />
           {error(field("price"))}
+        </div>
+        {showPeople && (
+          <div className="flex flex-col gap-1">
+            <label htmlFor={field("admits")} className="eyebrow text-muted">
+              People per ticket
+            </label>
+            <select
+              id={field("admits")}
+              value={admits}
+              disabled={peopleReason !== null}
+              onChange={(e) => onChange(admitsPatch(ticket, Number(e.target.value)))}
+              aria-describedby={
+                [peopleReason ? `${field("admits")}-hint` : null, errors[field("admits")] ? `${field("admits")}-error` : null]
+                  .filter(Boolean)
+                  .join(" ") || undefined
+              }
+              aria-invalid={errors[field("admits")] ? true : undefined}
+              className={fieldClass}
+            >
+              {groupSizeOptions(ticket, groups.enabled).map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+            {peopleReason && (
+              <p id={`${field("admits")}-hint`} className="meta text-muted">
+                {peopleReason}
+              </p>
+            )}
+            {error(field("admits"))}
+          </div>
+        )}
+        <div className="flex flex-col gap-1">
+          <label htmlFor={field("qty")} className="eyebrow text-muted">
+            {isGroup ? "Groups available" : "Quantity available"}
+          </label>
+          <input
+            id={field("qty")}
+            type="number"
+            min={1}
+            value={isGroup ? groupCount : ticket.quantityAvailable}
+            onChange={(e) => {
+              const typed = Number(e.target.value) || 0;
+              // Groups are whole: 2.5 groups of 4 would be 10 people. Truncated as typed.
+              onChange({ quantityAvailable: isGroup ? Math.trunc(typed) * admits : typed });
+            }}
+            aria-invalid={errors[field("qty")] ? true : undefined}
+            aria-describedby={
+              [isGroup ? `${field("qty")}-hint` : null, errors[field("qty")] ? `${field("qty")}-error` : null]
+                .filter(Boolean)
+                .join(" ") || undefined
+            }
+            className={fieldClass}
+          />
+          {isGroup && (
+            <p id={`${field("qty")}-hint`} className="meta text-muted tabular-nums">
+              {groupCount * admits} people in total
+            </p>
+          )}
+          {error(field("qty"))}
         </div>
         <div className="flex flex-col gap-1">
           <label htmlFor={`ticket-${index}-fee-policy`} className="eyebrow text-muted">
@@ -101,21 +184,6 @@ export default function TicketTypeFields({
             <option value="organiser-absorbs">Organiser pays</option>
             <option value="buyer-pays">Buyer pays</option>
           </select>
-        </div>
-        <div className="flex flex-col gap-1">
-          <label htmlFor={field("qty")} className="eyebrow text-muted">
-            Quantity available
-          </label>
-          <input
-            id={field("qty")}
-            type="number"
-            min={1}
-            value={ticket.quantityAvailable}
-            onChange={(e) => onChange({ quantityAvailable: Number(e.target.value) || 0 })}
-            {...invalid(field("qty"))}
-            className={fieldClass}
-          />
-          {error(field("qty"))}
         </div>
         <div className="sm:col-span-2">
           <FeePolicyHelp id={`ticket-${index}-fee-help`} priceCents={ticket.priceCents} isAdmin={isAdmin} />
@@ -163,7 +231,8 @@ export default function TicketTypeFields({
           "Free — no booking fee."
         ) : (
           <>
-            Buyer pays <span className="font-semibold tabular-nums">{formatAud(summary.totalCents)}</span> total (
+            Buyer pays <span className="font-semibold tabular-nums">{formatAud(summary.totalCents)}</span> total
+            {isGroup ? ` per ${groupOfLabel(admits).toLowerCase()}` : ""} (
             {formatAud(ticket.priceCents)} ticket
             {summary.buyerFeeCents > 0
               ? ` + ${formatAud(summary.buyerFeeCents)} booking fee`

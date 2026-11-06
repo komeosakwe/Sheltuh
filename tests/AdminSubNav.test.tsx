@@ -20,6 +20,7 @@ const SUMMARY = adminSummary({
   emailsFailed: { count: 1 },
   emailsRetrying: { count: 5 },
   doorEvents: { count: 4, windowHours: 24 },
+  transfersOpen: { count: 2 },
 });
 
 function renderSubNav() {
@@ -40,6 +41,7 @@ describe("AdminSubNav", () => {
       ["Events", "/admin/events"],
       ["Organisers", "/admin/organisers"],
       ["Emails", "/admin/emails"],
+      ["Payouts", "/admin/payouts"],
       ["Trending", "/admin/trending"],
       ["Invites", "/admin/invites"],
       ["New event", "/admin/events/new"],
@@ -47,6 +49,7 @@ describe("AdminSubNav", () => {
     expect(within(nav).getByRole("link", { name: "Reports, 3 open" })).toBeInTheDocument();
     expect(within(nav).getByRole("link", { name: "Events, 2 waiting" })).toBeInTheDocument();
     expect(within(nav).getByRole("link", { name: "Emails, 1 failed" })).toBeInTheDocument();
+    expect(within(nav).getByRole("link", { name: "Payouts, 2 to check" })).toBeInTheDocument();
     // Nothing waiting: no badge, no count in the name.
     expect(within(nav).getByRole("link", { name: "Organisers" })).toBeInTheDocument();
     // The number is decorative, not a live region.
@@ -71,6 +74,7 @@ describe("AdminSubNav", () => {
     expect(adminSectionFor("/admin/events/new")).toBe("/admin/events/new");
     expect(adminSectionFor("/admin")).toBe("/admin");
     expect(adminSectionFor("/admin/trending")).toBe("/admin/trending");
+    expect(adminSectionFor("/admin/payouts")).toBe("/admin/payouts");
     expect(adminSectionFor("/admin/invites")).toBe("/admin/invites");
     // Messages to ticket holders are reached from Emails.
     expect(adminSectionFor("/admin/event-messages")).toBe("/admin/emails");
@@ -82,6 +86,7 @@ describe("AdminSubNav", () => {
       "/admin/events": await import("@/app/admin/events/page"),
       "/admin/organisers": await import("@/app/admin/organisers/page"),
       "/admin/emails": await import("@/app/admin/emails/page"),
+      "/admin/payouts": await import("@/app/admin/payouts/page"),
       "/admin/trending": await import("@/app/admin/trending/page"),
       "/admin/invites": await import("@/app/admin/invites/page"),
     };
@@ -90,8 +95,18 @@ describe("AdminSubNav", () => {
     }
   });
 
-  it("totals only what needs an admin (not retrying emails or door events)", () => {
-    expect(needsYouTotal(SUMMARY)).toBe(6);
+  it("totals only what needs an admin (not retrying emails or door events): stuck payouts count", () => {
+    expect(needsYouTotal(SUMMARY)).toBe(8);
+    // An older server that doesn't send the count: nothing is added, and the Payouts link has no badge.
+    const older = { ...SUMMARY, transfersOpen: undefined };
+    expect(needsYouTotal(older)).toBe(6);
+    cleanup();
+    render(
+      <FakeAdminSummaryProvider value={{ summary: older }}>
+        <AdminSubNav />
+      </FakeAdminSummaryProvider>,
+    );
+    expect(within(screen.getByRole("navigation", { name: "Admin" })).getByRole("link", { name: "Payouts" })).toBeInTheDocument();
   });
 });
 

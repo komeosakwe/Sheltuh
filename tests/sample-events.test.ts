@@ -125,3 +125,26 @@ describe("demo sample events", () => {
     }
   });
 });
+
+describe("demo sample events: group tickets", () => {
+  it("Paper Moon offers a Group of 4 at A$240 (fee absorbed): 8 groups, so 32 people (capacity counts people)", () => {
+    const paperMoon = sampleEvents.find((e) => e.slug === "paper-moon-ceramics-lab");
+    const group = paperMoon?.ticketTypes.find((t) => t.name === "Group of 4");
+    expect(group).toMatchObject({ priceCents: 24000, feePolicy: "organiser-absorbs", admits: 4, quantityAvailable: 32 });
+    expect((group?.quantityAvailable ?? 0) % (group?.admits ?? 1)).toBe(0);
+  });
+
+  it("is the only demo event with one (Neon Static, which many tests rely on, is untouched)", () => {
+    expect(sampleEvents.filter((e) => e.ticketTypes.some((t) => t.admits)).map((e) => e.slug)).toEqual(["paper-moon-ceramics-lab"]);
+  });
+
+  it("every group ticket is paid, a whole number of groups, and from 2 to 10 people (the API's rules)", () => {
+    for (const ticket of sampleEvents.flatMap((e) => e.ticketTypes).filter((t) => t.admits !== undefined)) {
+      expect(ticket.priceCents).toBeGreaterThan(0);
+      expect(ticket.admits).toBeGreaterThanOrEqual(2);
+      expect(ticket.admits).toBeLessThanOrEqual(10);
+      expect(ticket.quantityAvailable % (ticket.admits ?? 1)).toBe(0);
+      expect(ticket.seated).toBeUndefined();
+    }
+  });
+});

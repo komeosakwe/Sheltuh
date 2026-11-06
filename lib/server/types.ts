@@ -18,6 +18,9 @@ export type {
   InviteView,
   MyInvite,
   AdminPaymentException,
+  AdminTransfer,
+  TransferAction,
+  TransferStatus,
   PaymentExceptionKind,
   PaymentExceptionStatus,
   PaymentExceptionDetails,
@@ -84,6 +87,7 @@ export type {
   ReportStatus,
   TicketingChanges,
   TicketingMode,
+  TicketGroup,
   TicketTypeInput,
   UnreadCount,
 } from "@/lib/api/types";

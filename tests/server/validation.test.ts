@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HttpError } from "@/lib/server/http";
 import {
   fail,
@@ -368,6 +368,66 @@ describe("requireTicketTypes", () => {
         "ticketTypes[1].opensAfterPrevious": "Must be true or false.",
       });
     }
+  });
+});
+
+describe("requireTicketTypes: group tickets (admits)", () => {
+  const tier = (extra: Record<string, unknown> = {}) => ({
+    id: "g",
+    name: "Group of 4",
+    priceCents: 12000,
+    feePolicy: "buyer-pays",
+    quantityAvailable: 12,
+    ...extra,
+  });
+  const run = (value: unknown[], options?: Parameters<typeof requireTicketTypes>[3]) => {
+    const errors: Record<string, string> = {};
+    return { result: requireTicketTypes(value, "ticketTypes", errors, options), errors };
+  };
+
+  beforeEach(() => {
+    vi.stubEnv("NEXT_PUBLIC_GROUP_TICKETS", "1");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("absent stays absent (the stored value is kept), a whole number from 1 to 10 is kept", () => {
+    expect(run([tier()]).result[0]).not.toHaveProperty("admits");
+    expect(run([tier({ admits: 4 })]).result[0].admits).toBe(4);
+    expect(run([tier({ admits: 1 })]).result[0].admits).toBe(1);
+    expect(run([tier({ admits: 10, quantityAvailable: 30 })]).errors).toEqual({});
+  });
+
+  it("refuses anything else", () => {
+    for (const bad of [0, 11, -2, 2.5, "4", null, true, {}]) {
+      expect(run([tier({ admits: bad })]).errors).toEqual({
+        "ticketTypes[0].admits": "People per ticket must be a whole number from 1 to 10.",
+      });
+    }
+  });
+
+  it("a group ticket is paid, and its quantity (in people) a multiple of it", () => {
+    expect(run([tier({ admits: 4, priceCents: 0 })]).errors).toEqual({
+      "ticketTypes[0].admits": "A group ticket can't be free. Set a price, or admit one person.",
+    });
+    expect(run([tier({ admits: 4, quantityAvailable: 10 })]).errors).toEqual({
+      "ticketTypes[0].quantityAvailable": "A ticket for 4 people needs a quantity that's a multiple of 4.",
+    });
+    // A single free ticket of any quantity is untouched.
+    expect(run([tier({ admits: 1, priceCents: 0, quantityAvailable: 7 })]).errors).toEqual({});
+  });
+
+  it("while group tickets are off, only the value a tier already has is accepted", () => {
+    vi.stubEnv("NEXT_PUBLIC_GROUP_TICKETS", "");
+    expect(run([tier({ admits: 4 })]).errors).toEqual({ "ticketTypes[0].admits": "Group tickets aren't available yet." });
+    expect(run([tier({ admits: 4 })], { storedAdmits: new Map([["g", 4]]) }).errors).toEqual({});
+    expect(run([tier({ admits: 2 })], { storedAdmits: new Map([["g", 4]]) }).errors).toEqual({
+      "ticketTypes[0].admits": "Group tickets aren't available yet.",
+    });
+    // Admits 1, and absent, are fine whatever the flag says.
+    expect(run([tier({ admits: 1 })]).errors).toEqual({});
+    expect(run([tier()]).errors).toEqual({});
   });
 });
 

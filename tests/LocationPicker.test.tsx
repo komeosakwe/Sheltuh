@@ -144,6 +144,82 @@ describe("LocationPicker — asking for the browser's position", () => {
     expect(screen.getByRole("button", { name: "Location: Your suburb" })).toBeInTheDocument();
   });
 
+  describe("inside an in-app browser", () => {
+    const INSTAGRAM_IOS =
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 340.0.0.26.108 (iPhone15,2; iOS 18_1; en_AU)";
+    const INSTAGRAM_ANDROID =
+      "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/126.0.0.0 Mobile Safari/537.36 Instagram 340.0.0.30.109 Android";
+    const SAFARI_IOS =
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1";
+
+    function pretend(userAgent: string, url = "https://app.sheltuh.com.au/search?q=jazz#token=secret") {
+      vi.stubGlobal("navigator", Object.create(navigator, { userAgent: { value: userAgent } }));
+      vi.stubGlobal("location", new URL(url));
+    }
+    afterEach(() => vi.unstubAllGlobals());
+
+    it.each([1, 2, 3] as const)("error code %i: names the app, says to type a suburb, and links to Safari", (code) => {
+      pretend(INSTAGRAM_IOS);
+      renderBar();
+      const panel = openPanel();
+      getCurrentPosition.mockImplementation((_success, failure) => failure(positionError(code)));
+      fireEvent.click(within(panel).getByRole("button", { name: "Use my current location", hidden: true }));
+      const message = "Instagram’s browser can’t share your location. Type your suburb, or open Sheltüh in Safari.";
+      const status = within(panel).getByRole("status", { hidden: true });
+      expect(status).toHaveTextContent(message);
+      const link = within(status).getByRole("link", { name: "Open in Safari", hidden: true });
+      expect(link).toHaveAttribute("href", "x-safari-https://app.sheltuh.com.au/search?q=jazz");
+      expect(document.activeElement).toBe(within(panel).getByLabelText("Suburb"));
+      expect(localStorage.getItem(NEAR_STORAGE_KEY)).toBeNull();
+    });
+
+    it("on Android it links to Chrome", () => {
+      pretend(INSTAGRAM_ANDROID);
+      renderBar();
+      const panel = openPanel();
+      getCurrentPosition.mockImplementation((_success, failure) => failure(positionError(1)));
+      fireEvent.click(within(panel).getByRole("button", { name: "Use my current location", hidden: true }));
+      const status = within(panel).getByRole("status", { hidden: true });
+      expect(status).toHaveTextContent("open Sheltüh in Chrome.");
+      expect(within(status).getByRole("link", { name: "Open in Chrome", hidden: true })).toHaveAttribute(
+        "href",
+        "intent://app.sheltuh.com.au/search?q=jazz#Intent;scheme=https;package=com.android.chrome;end",
+      );
+    });
+
+    it("with no https address to hand over, ends after 'Type your suburb.' and has no link", () => {
+      pretend(INSTAGRAM_IOS, "http://localhost:3000/");
+      renderBar();
+      const panel = openPanel();
+      getCurrentPosition.mockImplementation((_success, failure) => failure(positionError(2)));
+      fireEvent.click(within(panel).getByRole("button", { name: "Use my current location", hidden: true }));
+      const status = within(panel).getByRole("status", { hidden: true });
+      expect(status).toHaveTextContent(/^Instagram’s browser can’t share your location\. Type your suburb\.$/);
+      expect(within(status).queryByRole("link", { hidden: true })).toBeNull();
+    });
+
+    it("an ordinary browser keeps the usual message and has no link", () => {
+      pretend(SAFARI_IOS);
+      renderBar();
+      const panel = openPanel();
+      getCurrentPosition.mockImplementation((_success, failure) => failure(positionError(2)));
+      fireEvent.click(within(panel).getByRole("button", { name: "Use my current location", hidden: true }));
+      expectFailure(panel, "Couldn’t find your location. Type your suburb instead.");
+      expect(within(panel).queryByRole("link", { name: /Open in/, hidden: true })).toBeNull();
+    });
+
+    it("a position outside Australia keeps its own message", async () => {
+      pretend(INSTAGRAM_IOS);
+      renderBar();
+      const panel = openPanel();
+      getCurrentPosition.mockImplementation((success) => success(position(-36.8485, 174.7633)));
+      fireEvent.click(within(panel).getByRole("button", { name: "Use my current location", hidden: true }));
+      await waitFor(() =>
+        expectFailure(panel, "We couldn’t match your location to an Australian suburb. Type your suburb instead."),
+      );
+    });
+  });
+
   it("outside Australia (Auckland): says so, moves to the suburb field, and stores nothing", async () => {
     renderBar();
     const panel = openPanel();

@@ -31,6 +31,16 @@ export interface OrganiserRecord {
   /** The page's username, as in facebook.com/<page>. */
   facebookPage?: string;
   xHandle?: string;
+  /**
+   * More networks, each stored as a small validated value (never a URL; see
+   * lib/api/social-profiles.ts): `artist/<id>`, `show/<id>` or `user/<id>`
+   * (open.spotify.com/…), a SoundCloud name, a YouTube `@handle` or
+   * `channel/UC…`, and LinkedIn `in/<slug>` or `company/<slug>`.
+   */
+  spotifyPath?: string;
+  soundcloudHandle?: string;
+  youtubeChannel?: string;
+  linkedinPath?: string;
   status: OrganiserStatus;
   rejectionReason?: string;
   reviewedBy?: string;
@@ -69,6 +79,10 @@ export type OrganiserEditField =
   | "tiktokHandle"
   | "facebookPage"
   | "xHandle"
+  | "spotifyPath"
+  | "soundcloudHandle"
+  | "youtubeChannel"
+  | "linkedinPath"
   | "status";
 
 /**
@@ -131,8 +145,15 @@ export interface SuspendOrganiserResult {
 export interface OrganiserSocialLinks {
   instagram?: string;
   tiktok?: string;
+  /** open.spotify.com/artist/…, /show/… or /user/…. */
+  spotify?: string;
+  soundcloud?: string;
+  /** youtube.com/@handle or youtube.com/channel/UC…. */
+  youtube?: string;
   facebook?: string;
   x?: string;
+  /** linkedin.com/in/… or linkedin.com/company/…. */
+  linkedin?: string;
 }
 
 /**
@@ -201,6 +222,21 @@ export interface TicketTypeInput {
    * sold out (and, for good, from then on), so a buyer can order it.
    */
   opensAfter?: TicketOpensAfter;
+  /**
+   * Group tickets (docs/architecture.md, "Group tickets"): how many people one
+   * ticket of this type admits, a whole number from 2 to 10. In a response:
+   * only when above 1 (a single ticket's payload is unchanged). In a request:
+   * absent keeps the stored value, 1 makes it a single ticket again. A 400
+   * (`fieldErrors["ticketTypes[i].admits"]`) when not a whole number from 1 to
+   * 10, when above 1 on a free ticket, when `quantityAvailable` isn't a
+   * multiple of it, when above 1 on an event with a seat map or on a seated
+   * tier, and while group tickets are switched off (NEXT_PUBLIC_GROUP_TICKETS)
+   * unless it equals the stored value; a 409 when it would change on a tier
+   * that has sales or payable orders. `quantityAvailable` and `remaining` stay counted in PEOPLE: one
+   * group sold is `admits` people taken. A checkout's `quantity` for such a
+   * ticket counts groups.
+   */
+  admits?: number;
 }
 
 /** The tier a waiting ticket type opens after (TicketTypeInput.opensAfter). */
@@ -617,6 +653,10 @@ export interface AdminCreateOrganiserInput {
   tiktokHandle?: string | null;
   facebookPage?: string | null;
   xHandle?: string | null;
+  spotifyPath?: string | null;
+  soundcloudHandle?: string | null;
+  youtubeChannel?: string | null;
+  linkedinPath?: string | null;
   /** A YouTube or Vimeo link (see lib/api/featured-video.ts); null or "" for none. */
   featuredVideoUrl?: string | null;
 }
@@ -638,9 +678,17 @@ export type OrderStatus = "pending" | "paid" | "failed" | "oversold_refund_requi
 export interface OrderLineItem {
   ticketTypeId: string;
   ticketTypeName: string;
+  /** What one ticket costs: for a group ticket (`admits` above 1), the whole group's price. */
   unitPriceCents: number;
   feePolicy: FeePolicy;
+  /** How many tickets: for a group ticket, how many groups (each admits `admits` people). */
   quantity: number;
+  /**
+   * The ticket type's `admits` when the order was made (a snapshot, copied by
+   * the server from the database, never from the client): only above 1. People
+   * in the line = `quantity` x `admits`; one ticket code is issued per person.
+   */
+  admits?: number;
 }
 
 export interface IssuedTicket {
@@ -649,6 +697,8 @@ export interface IssuedTicket {
   ticketTypeName: string;
   /** The ticket's seat, for a seated order (lib/seating/format.ts says it). */
   seat?: TicketSeat;
+  /** Only for a ticket of a group ticket type: which person of the group it is (as CustomerTicket.group). */
+  group?: TicketGroup;
 }
 
 export interface OrderRecord {
@@ -868,6 +918,20 @@ export interface CustomerTicket {
    * from an older API, which didn't send it: treat a missing one as null.
    */
   checkedInAt?: string | null;
+  /**
+   * Only for a ticket of a group ticket type: which person of the group this
+   * ticket is. Every person in a group has their own code and QR; the
+   * numbering follows the tickets' order in the response, group by group.
+   */
+  group?: TicketGroup;
+}
+
+/** One person of a group ticket: "2 of 4" is `{ position: 2, size: 4 }` (CustomerTicket.group). */
+export interface TicketGroup {
+  /** 1-based, within its group. */
+  position: number;
+  /** How many people the group admits (the ticket type's `admits`). */
+  size: number;
 }
 
 export type CustomerOrderLookup = CustomerOrder | { status: "pending" };
@@ -875,7 +939,10 @@ export type CustomerOrderLookup = CustomerOrder | { status: "pending" };
 /** One line of OrderPaymentSummary. Amounts are the buyer's (booking fee included when they pay it; lib/fees.ts). */
 export interface OrderPaymentLine {
   ticketTypeName: string;
+  /** Tickets, or for a group ticket (`admits`), groups. */
   quantity: number;
+  /** Only for a group ticket: how many people each one admits (above 1). */
+  admits?: number;
   /** One ticket, all-inclusive: 0 for a free line. */
   unitTotalCents: number;
   /** `quantity` tickets, all-inclusive. */
@@ -1198,8 +1265,24 @@ export interface EmailOutboxHealth {
  *   issued, the order was marked `failed` and the payment refunded in full
  *   automatically: check the refund and the payment in the Stripe
  *   dashboard. Always `urgent`.
+ * - `transfer_failed`: an organiser's delayed payout (a transfer, sent about
+ *   2 days after the event) couldn't be sent: Stripe kept refusing it, or
+ *   the platform balance couldn't cover it. Retry it from GET
+ *   /api/admin/transfers, or pay the organiser by hand and cancel it.
+ *   Resolved automatically once the transfer is sent.
+ * - `transfer_reversal_required`: an order was refunded after its
+ *   organiser's transfer was sent. Stripe doesn't take a transfer back by
+ *   itself: reverse it in the Stripe dashboard (docs/supabase-setup.md,
+ *   "Reversing a transfer after a late refund"), then resolve the exception.
+ *   Always `urgent`.
  */
-export type PaymentExceptionKind = "refund_not_completed" | "partial_refund" | "manual_refund_required" | "amount_mismatch";
+export type PaymentExceptionKind =
+  | "refund_not_completed"
+  | "partial_refund"
+  | "manual_refund_required"
+  | "amount_mismatch"
+  | "transfer_failed"
+  | "transfer_reversal_required";
 
 export type PaymentExceptionStatus = "open" | "resolved";
 
@@ -1220,7 +1303,8 @@ export interface AdminPaymentException {
   status: PaymentExceptionStatus;
   /**
    * Needs a person first: a `refund_not_completed` whose order was voided (the
-   * buyer has neither tickets nor their money), or any `amount_mismatch`.
+   * buyer has neither tickets nor their money), or any `amount_mismatch` or
+   * `transfer_reversal_required`.
    */
   urgent: boolean;
   /** Unset while the payment isn't matched to an order yet. */
@@ -1258,6 +1342,8 @@ export interface PaymentExceptionDetails {
    * "Refunding a paid order"). Unset on exceptions opened before it was recorded.
    */
   supportCents?: number;
+  /** `transfer_failed` / `transfer_reversal_required`: the organiser's share of the order (the transfer's amount), in cents. */
+  transferAmountCents?: number;
   /** `amount_mismatch`: what Stripe's session says was charged (amount_total), in `currency`'s minor unit. */
   amountChargedCents?: number;
   /** `amount_mismatch`: the session's currency, lower case as Stripe sends it ("aud"). */
@@ -1275,6 +1361,109 @@ export interface PaymentExceptionDetails {
   /** `sheltuh`: our automatic refund; `stripe`: one made in the Stripe dashboard. */
   source?: string;
   reason?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Delayed payouts (organiser and admin)
+// ---------------------------------------------------------------------------
+
+/**
+ * One order's organiser payout, when payouts are delayed (DELAYED_PAYOUTS):
+ * `sending` a worker has it now; `retry` waiting for its next attempt;
+ * `sent` the transfer was made in Stripe; `held` waiting for a person (partly
+ * refunded, disputed, or the organiser's Stripe account refused it); `failed`
+ * out of attempts (a payment exception was opened); `cancelled` refunded in
+ * full, or cancelled by an admin: never sent.
+ */
+export type TransferStatus = "sending" | "retry" | "sent" | "held" | "failed" | "cancelled";
+
+export const TRANSFER_STATUSES: readonly TransferStatus[] = ["failed", "held", "retry", "sending", "sent", "cancelled"];
+
+/**
+ * An admin's action on a transfer (POST /api/admin/transfers/{transferId}/action):
+ * `retry` a failed or waiting one now, `release` a held one, `cancel` a held,
+ * waiting or failed one (the organiser is then paid by hand).
+ */
+export type TransferAction = "retry" | "release" | "cancel";
+
+export const TRANSFER_ACTIONS: readonly TransferAction[] = ["retry", "release", "cancel"];
+
+/**
+ * GET /api/admin/transfers. One transfer. The order is shown by its short
+ * reference only, never its id; no buyer data.
+ */
+export interface AdminTransfer {
+  /** Opaque. POST /api/admin/transfers/{transferId}/action. */
+  transferId: string;
+  orderReference: string;
+  orderStatus: OrderStatus;
+  eventTitle: string;
+  /** When the event ends; the transfer is due 48 hours later. */
+  eventEndsAt: string;
+  organiserName: string;
+  /** What the organiser is sent, in cents: the order's total less Support Sheltüh and the booking fee. */
+  amountCents: number;
+  status: TransferStatus;
+  /** Attempts made (reset by an admin's retry or release). */
+  attempts: number;
+  /** When the next attempt is due (`retry` only). */
+  nextAttemptAt?: string;
+  /** Why it is held, waiting or failed: a short code such as `refunded`, `disputed`, `balance_insufficient`. Never a Stripe message. */
+  lastError?: string;
+  /** The Stripe transfer (`sent` only), to find it in the Stripe dashboard. */
+  stripeTransferId?: string;
+  sentAt?: string;
+  /** The last admin action on it and when. */
+  lastAdminAction?: { action: TransferAction; at: string };
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** GET /api/admin/transfers?status&limit&cursor. `status` is a TransferStatus, or `open` (the default): not yet sent and not cancelled. */
+export interface AdminTransfersPage {
+  /** Rows per status (zeros included). */
+  counts: Record<TransferStatus, number>;
+  /**
+   * Cents the platform holds for organisers: the shares of paid orders made for delayed payouts whose transfer
+   * isn't sent or cancelled yet (not due yet, waiting, held or failed). Includes orders not claimed yet.
+   */
+  owedToOrganisersCents: number;
+  /** The last run of GET /api/cron/payouts that finished. Unset: none recorded yet. */
+  lastRun?: { finishedAt: string; claimed: number; sent: number; retrying: number; failed: number };
+  items: AdminTransfer[];
+  nextCursor?: string;
+}
+
+/** One event's money for the organiser (GET /api/organisers/me/payouts), in cents. */
+export interface OrganiserPayoutEvent {
+  eventId: string;
+  title: string;
+  endsAt: string;
+  /** Paid out with the payment (orders made before delayed payouts): total less Support Sheltüh and the booking fee. */
+  paidOutCents: number;
+  /** Paid for, not sent yet: due 48 hours after the event ends (or held, or waiting for a retry). */
+  pendingCents: number;
+  /** Sent to your Stripe account as a transfer. */
+  sentCents: number;
+  /** When the pending amount becomes due (the event's end plus 48 hours). Unset when nothing is pending. */
+  dueAt?: string;
+}
+
+/**
+ * GET /api/organisers/me/payouts. Per event with paid orders, newest end first.
+ * Amounts are the organiser's share (not what buyers paid). Stripe then pays
+ * the organiser's bank on its own schedule, usually 1 to 3 business days
+ * after a transfer.
+ */
+export interface OrganiserPayouts {
+  /** New paid checkouts pay the organiser after the event (DELAYED_PAYOUTS is on). When false, they are paid with each payment. */
+  delayedPayouts: boolean;
+  /** Hours after an event ends that its shares are sent. */
+  payoutDelayHours: number;
+  /** Over every event, not just this page. */
+  totals: { paidOutCents: number; pendingCents: number; sentCents: number };
+  items: OrganiserPayoutEvent[];
+  nextCursor?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -1319,6 +1508,13 @@ export interface AdminSummary {
    * API; optional so a client tolerates an older server.
    */
   eventsPublishedByOrganisers?: { count: number; windowHours: number };
+  /**
+   * Organiser payouts that need an admin: transfers that failed or are held
+   * (GET /admin/transfers?status=failed or held; the retrying ones fix
+   * themselves). Always sent by the API; optional so a client tolerates an
+   * older server.
+   */
+  transfersOpen?: { count: number };
 }
 
 // ---------------------------------------------------------------------------
@@ -1893,6 +2089,77 @@ export interface EventAnalytics {
    * Always sent by the API; optional so older fixtures stay valid.
    */
   waitlistCount?: number;
+}
+
+/**
+ * The optional `buyerName` of POST /api/events/{eventId}/checkout (general
+ * admission and seated, paid and free alike): what the buyer typed in the
+ * "Your name" field, shown to the event's organiser with the buyer's email
+ * in their Orders view for 12 months after the event (EventOrders). The API
+ * takes it as optional for one release (older clients omit it: the order is
+ * then listed without details); the checkout UI always asks for it. Trimmed
+ * and cleaned by the server: 1 to 80 characters with a letter or digit, no
+ * control or invisible characters, no "@" and no links, else 400
+ * `fieldErrors.buyerName`. It is part of the basket for Idempotency-Key
+ * purposes: a replay with another name is a 422 `idempotency_key_reused`.
+ * Never returned to the buyer or in any CustomerOrder.
+ */
+export interface CheckoutBuyerDetails {
+  buyerName?: string;
+}
+
+/** One line of an order: how many of a ticket type. */
+export interface EventOrderTicket {
+  ticketTypeName: string;
+  quantity: number;
+}
+
+/** EventOrders.items: one order of an event, as its organiser sees it. */
+export interface EventOrderRow {
+  /** The short reference ("#A1B2C3D4") only: never the order's `ord_` id (that is the buyer's credential). */
+  reference: string;
+  /** When the order was made (ISO 8601). */
+  placedAt: string;
+  /** `refunded`: refunded in full (a part refund stays `paid`, with `refundedCents` above 0). */
+  status: "paid" | "refunded";
+  /**
+   * The buyer's name and email, or null: for an order made without a name (every
+   * order before this release), a guest's paid order whose email only Stripe has,
+   * or once EventOrders.detailsVisibleUntil has passed (both are then null).
+   */
+  buyerName: string | null;
+  buyerEmail: string | null;
+  /** One entry per ticket type bought, from the order's priced snapshot. */
+  tickets: EventOrderTicket[];
+  /** What the buyer paid in all (tickets, fees; Support Sheltüh excluded), in cents. 0 for a free order. */
+  paidCents: number;
+  /** Refunded so far, in cents (a refund of the tickets' price; 0 for none). */
+  refundedCents: number;
+}
+
+/**
+ * GET /api/organisers/me/events/{eventId}/orders?cursor&limit, or, to search,
+ * POST .../orders/search with the JSON body {q, cursor, limit} (the text is a
+ * buyer's name or email, so never in a URL: GET ?q= is a 400) (the event's
+ * owner, approved; an admin for a platform-managed organiser's event; anyone
+ * else 404; a suspended organiser 403). Orders that were paid or free-issued
+ * (or refunded after tickets were issued), newest first. `q` (at most 100
+ * characters) matches the name, email or short reference, ignoring case and
+ * accents; `total` counts the orders matching it. Pages of `limit` (default
+ * 20, at most 50). Rate limited (429 `rate_limited`), and 25,000 rows of
+ * details per account per event per day, list and export together (429
+ * `daily_limit`). `private, no-store`.
+ * GET .../orders.csv downloads every visible order (at most 20,000, else 409;
+ * 10 exports an hour per account, 429 `rate_limited`; each is logged and
+ * counts to the daily rows).
+ */
+export interface EventOrders {
+  event: { title: string; slug: string; timeZone: AustralianTimeZone; endsAt: string };
+  /** The event's end plus 12 months (ISO 8601): the buyers' names and emails are removed from view after it. */
+  detailsVisibleUntil: string;
+  items: EventOrderRow[];
+  nextCursor?: string;
+  total: number;
 }
 
 /** EventAnalytics.attendance. */

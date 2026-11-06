@@ -68,7 +68,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261118000100_ticket_holder_messages.sql`. Never
+      newest, currently `20261122000000_order_buyer_details.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -392,7 +392,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           `cancel_holder_message`, and `purge_operational_data` redefined with
           two more result columns, `holder_messages_deleted` and
           `event_reminders_deleted`). RLS on, no grants, search_path pinned,
-          execute revoked from clients. Needs file 46. Additive; apply it
+          execute revoked from clients. Needs file 46 (event reminders). Additive; apply it
           ahead of the deploy (no old release calls it). If you call
           `purge_operational_data` by hand or from `pg_cron`, the daily job
           (`select private.purge_operational_data()`) is unchanged. Needs no
@@ -402,6 +402,85 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           functions, the column and the two tables, and restore
           `purge_operational_data` from
           `20261111000500_organiser_invite_links.sql`.
+      48. `20261119000000_delayed_payouts.sql` (organisers paid 2 days after
+          their event, docs/architecture.md "Delayed payouts":
+          `orders.payout_method` (default `destination`: every existing order
+          stays one and is never transferred) with a trigger that freezes it
+          once the order isn't pending, the table `private.order_transfers`
+          (RLS on, no grants) with its guard trigger, the functions
+          `due_transfer_orders`, `claim_due_transfers`,
+          `begin_transfer_create`, `finish_order_transfer`,
+          `flag_transfer_after_refund` and
+          `admin_transfer_action`, the payment exception kinds
+          `transfer_failed` and `transfer_reversal_required`
+          (`raise_payment_exception` redefined) and `payouts` as a
+          `cron_runs` name). search_path pinned, execute revoked from
+          clients, no data changed. Additive; the previous app never reads
+          the column or the table and makes `destination` orders, so it can
+          be applied ahead of the deploy, and **should be**: the migration
+          goes first. The new app does tolerate the old schema for the
+          few reads that would otherwise break paid checkouts and refunds
+          (`payout_method`, `flag_transfer_after_refund`, the admin
+          summary's transfer count: it treats every order as a `destination`
+          order and logs one warning), but the payouts job and the
+          Payouts admin pages need the migration, and nothing is
+          transferred without it. Needs no new
+          environment variable to apply; the switch is `DELAYED_PAYOUTS`
+          (below, and Stripe step 7). Reversible while no order is
+          `transfer`: deploy the previous app, resolve the two new exception
+          kinds, drop the functions, the triggers and the table, restore the
+          two checks and `raise_payment_exception`
+          (`20261110000150_support_in_exceptions.sql`), then drop the column.
+          After a `transfer` order has been paid the table is the record of
+          what was sent: export it first, and reverse those orders by hand.
+      49. `20261120000000_group_tickets.sql` (group tickets,
+          docs/architecture.md "Group tickets": `ticket_types.admits` with
+          the checks `ticket_types_admits_range`, `ticket_types_admits_multiple`,
+          `ticket_types_group_paid` and `ticket_types_admits_ga_only`,
+          `tickets.group_size`, the trigger `ticket_types_admits_frozen`, the
+          function `order_group_size`, and `fulfil_order_detailed`,
+          `record_payment_refund`, `replace_ticket_types` and
+          `admin_edit_event` redefined). search_path pinned, execute revoked
+          from clients, no new table or grant. Additive and dark: every
+          existing ticket type has `admits` 1, so nothing changes until a
+          group ticket is made, and the previous app never sends or reads it.
+          **Deploy in this order: this migration, then the app, then turn the
+          feature on** with `NEXT_PUBLIC_GROUP_TICKETS=1` (Vercel, redeploy
+          after changing it: it's baked in at build time). The new app on the
+          old schema fails on every event page (it selects `admits`), so apply
+          the file first. Switching the flag off again only hides authoring and
+          refuses new group tickets (400); group tickets that exist keep
+          selling, scanning and refunding. Needs file 45
+          (`ticket_release_lock`, whose two functions it redefines) and
+          `20261111000300_refund_no_inference.sql` (the other two). If
+          `feat/delayed-payouts` (file `20261119000000_delayed_payouts.sql`) is
+          merged too, it redefines none of the four functions; run it before
+          this file. Reversible, not destructive, until a group ticket exists:
+          restore the four functions from `20261111000300_refund_no_inference.sql`
+          (the two payment ones) and `20261117000000_ticket_release_lock.sql`
+          (the other two), drop the trigger, `order_group_size`, the checks and
+          the two columns. After a group order exists, dropping them would turn
+          its tickets into ordinary ones and lose the people count.
+      50. `20261121000000_organiser_more_socials.sql` (Spotify, SoundCloud,
+          YouTube and LinkedIn on an organiser's profile, shown in the Host card
+          on event pages: four nullable `organisers` columns, with
+          `private.edit_organiser_profile` and `private.accept_account_invite`
+          redefined from their latest bodies, `20261024000200_organiser_follows.sql`
+          and `20261108000000_account_invites.sql`). Additive; the previous app
+          never sends or reads the columns. Apply it before the app.
+          Reversible: restore those two functions, then drop the columns.
+      51. `20261122000000_order_buyer_details.sql` (the buyer's name on every
+          order and the organiser Orders view, docs/architecture.md "Organiser
+          orders": `orders.buyer_name` and `details_notice_at`, their checks and
+          triggers, `private.order_detail_exports` and `order_detail_views`,
+          `take_order_detail_budget`, `record_order_export`, and the five order
+          functions `hold_seats`, `place_free_order`, `place_free_seated_order`,
+          `request_free_order` and `request_free_seated_order` dropped and
+          recreated with a trailing `p_buyer_name` argument). Apply it before the
+          app: the new app passes the argument, the previous app does not and
+          keeps working (the argument defaults to null). It redefines none of the
+          functions files 45 to 50 redefine. Not reversible without losing the
+          names once orders carry them.
 
       **Files 33 to 37 can be applied ahead of this deploy, with the
       previous app still live.** "The previous app" here is the build of
@@ -494,18 +573,24 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       all is also unverified: the check above covers every file.
 - [ ] **`CRON_SECRET`** in Vercel (Production): a long random string
       (`openssl rand -hex 32`). Without it `/api/cron/email-outbox` and
-      `/api/cron/trending` refuse every call: failed ticket emails are never
-      retried and Trending stays empty.
+      `/api/cron/payouts` refuse every call: failed ticket emails are never
+      retried, Trending stays empty (the email run refreshes it) and, with
+      `DELAYED_PAYOUTS=1`, organisers are never paid.
 - [ ] **Cron schedules.** See [`schedules.md`](schedules.md) for every
       timed job (Vercel and Supabase), its time in Melbourne, and how to run
-      it more often. `vercel.json` runs both crons once a day (the outbox at
-      21:00 UTC: 8:00 am AEDT, 7:00 am AEST, so the day-before reminders
-      arrive in the morning; Trending at 17:20 UTC: 4:20 am AEDT, 3:20 am
-      AEST), the Hobby plan's limit. Moving to **Vercel Pro** changes nothing by itself: edit
-      `vercel.json` (`*/5 * * * *` for `/api/cron/email-outbox`,
-      `*/15 * * * *` for `/api/cron/trending`) and redeploy. On Hobby,
-      Supabase Cron can run the trending refresh directly or call the outbox
-      route through `pg_net` (`schedules.md`, option 2).
+      it more often. `vercel.json` runs both crons once a day, the Hobby
+      plan's limit: `/api/cron/email-outbox` at 21:00 UTC (8:00 am AEDT,
+      7:00 am AEST, so the day-before reminders arrive in the morning), which
+      also refreshes Trending after its drain, and `/api/cron/payouts` at
+      21:30 UTC (8:30 am AEDT, 7:30 am AEST), which sends the organisers'
+      shares that are due. (`/api/cron/trending` is no longer scheduled: the
+      payouts job took its slot; it still works when called.) Moving to
+      **Vercel Pro** changes nothing by itself: edit `vercel.json`
+      (`*/5 * * * *` for `/api/cron/email-outbox`, which refreshes Trending
+      every run, or add `/api/cron/trending` at `*/15 * * * *` as a third
+      cron) and redeploy. On Hobby, Supabase Cron can run the trending
+      refresh directly or call the outbox route through `pg_net`
+      (`schedules.md`, option 2).
       - **On Hobby:** set up the 5-minute email retry runner in Supabase
         (Supabase Cron + `pg_net`, `CRON_SECRET` and the route's URL in
         Supabase Vault: `supabase-setup.md` §3, "The 5-minute runner on
@@ -813,6 +898,31 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        secret all change together), steps 3–4 included: run
        `npm run payment-domains -- --register sheltuh.com.au` again with
        a **live** restricted key, then delete that key.
+7. [ ] **Delayed payouts** (optional, owner decision: organisers paid 2 days
+       after their event; `architecture.md` "Delayed payouts",
+       `supabase-setup.md` "Delayed payouts"). In order, test mode first:
+       apply `20261119000000_delayed_payouts.sql`; deploy with
+       `DELAYED_PAYOUTS` unset; on the Preview deployment set
+       `DELAYED_PAYOUTS=1`, buy a ticket with test card `4242…`, move the
+       event's end back in the test database (`update public.events set
+       starts_at = now() - interval '4 days', ends_at = now() - interval '3
+       days'` on the **test** project only), call
+       `GET /api/cron/payouts` with the cron secret, and check in the Stripe
+       test dashboard that a transfer was made to the organiser's account with
+       the charge as its source, the right amount (total less booking fee and
+       Support Sheltüh) and the order id as its transfer group; refund
+       one before and one after its transfer and check the exception
+       (`transfer_reversal_required`). **Set the platform account's Stripe
+       payouts to manual** (Stripe → Settings → Business → Payouts) before
+       turning the switch on in Production: otherwise Stripe pays the
+       platform's whole balance, the organisers' money included, to the
+       platform's bank every day, and a transfer would fail with
+       `balance_insufficient`. Then set `DELAYED_PAYOUTS=1` in Production and
+       redeploy. Orders made before the switch stay paid at payment time. To
+       stop: unset it and redeploy (existing delayed orders are still paid
+       out). Unverified until this is done: that Stripe accepts
+       `transfer_group` together with `source_transaction`, and copies the
+       session's `payment_intent_data.metadata` onto the charge.
 
 ## Vercel
 
@@ -828,6 +938,11 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        `pk_test_…`). Redeploy after changing any `NEXT_PUBLIC_*` value.
        Optional: `NEXT_PUBLIC_DISABLE_SERVICE_WORKER=1` turns the offline
        service worker off (needs a fresh build; see `docs/pwa.md`).
+       Optional: `DELAYED_PAYOUTS=1` (server-only, never `NEXT_PUBLIC_`):
+       pay organisers 2 days after their event instead of with each ticket.
+       **Leave it unset** until the migration is applied, it has been tried in
+       Stripe test mode on a Preview deployment, and the platform's Stripe
+       payouts are set to manual (Stripe step 7). Unset = today's behaviour.
        Optional: `OPS_ALERT_EMAIL` (server-only), one address for ops alerts
        about payment exceptions and checkout surges (unset = logged only).
        Optional: `ADMIN_NOTIFY_EMAILS` (server-only, never `NEXT_PUBLIC_`),
@@ -859,6 +974,15 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        have leaked. No Supabase template change is needed, and **don't use
        the dashboard's "Invite user" button** (its link doesn't land in the
        app); invite from `/admin/invites`.
+       Optional: `NEXT_PUBLIC_GROUP_TICKETS=1` lets organisers and admins make
+       group tickets ("Group of 4", one ticket admitting several people).
+       Unset (the default) they can't be made and the API refuses `admits`
+       above 1; existing group tickets keep selling (the flag gates authoring
+       only: to stop a live one, unpublish the event or sell out the tier,
+       see supabase-setup.md "Group tickets (incident runbook)"). Turn it on
+       only after file 49 is applied and the app is deployed. Once a group
+       order exists, roll forward only: never redeploy a build from before
+       group tickets.
        Optional: `NEXT_PUBLIC_EVENT_CLIPS=1` turns clip uploads on (the
        editor's clip field, the admin queue's clip row), once that key is set.
        Without it the server also refuses new uploads (503), whatever a

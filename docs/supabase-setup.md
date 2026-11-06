@@ -448,6 +448,56 @@ where c.event_id = '<event id>' order by c.id desc limit 50;
 Mistaken admissions are undone from the app (with a reason, logged), not in
 SQL: an `update tickets set checked_in_at = null` would leave no record.
 
+### Organiser orders: export audit and withdrawing someone's details
+
+`20261122000000_order_buyer_details.sql` adds `orders.buyer_name` and
+`details_notice_at`, the audit tables `private.order_detail_exports` and
+`private.order_detail_views` and the functions behind the organiser's Orders view (docs/architecture.md,
+"Organiser orders"). It's additive (no existing row changes, nothing is
+backfilled: orders made before it are never shared) and replaces the order
+functions with versions that take a trailing, optional `p_buyer_name`.
+Deploy the migration before the app that sends names.
+
+Who exported an event's orders, and when (no buyer data is in this table):
+
+```sql
+select x.id, x.created_at, x.row_count, u.email as exported_by, o.display_name as organiser
+from private.order_detail_exports x
+left join auth.users u on u.id = x.actor_id
+left join public.organisers o on o.id = x.organiser_id
+where x.event_id = '<event id>' order by x.id desc limit 50;
+```
+
+How much buyer detail an account has been served for an event, by day (page
+reads and exports together; the daily budget is 25,000 rows per account per
+event per UTC day, `EVENT_ORDERS_LIMITS.dailyRows`). No buyer data:
+
+```sql
+select v.day, v.rows_served, v.requests, u.email as read_by, o.display_name as organiser
+from private.order_detail_views v
+left join auth.users u on u.id = v.actor_id
+left join public.organisers o on o.id = v.organiser_id
+where v.event_id = '<event id>' order by v.day desc, v.rows_served desc limit 50;
+```
+
+**Withdrawing someone's details.** A buyer who asks (by email to support)
+for their name and email to stop being shown to the organiser: verify the
+request comes from that address, then clear the name and the notice stamp on
+every order for it. The row stays; the Orders view then shows "—", as for an
+order made before the feature. This does **not** recall a CSV the organiser
+already exported (the privacy policy says so); tell the buyer.
+
+```sql
+update public.orders set buyer_name = null, details_notice_at = null
+where lower(buyer_email) = lower('<address>');
+```
+
+The two columns are set and cleared together (`orders_details_notice_pair`),
+so clearing only one fails, and once set they can't be changed or set later,
+only cleared (the `orders_details_immutable` trigger). A paid guest's `buyer_email` is the address Stripe's
+form collected; a name given for an order whose email differs is cleared only
+by the order's own address.
+
 ### Platform-managed organisers
 
 When you create one (`/admin/events/new` → new organiser, or
@@ -574,6 +624,48 @@ $$;
 
 Then resend the ticket email from `/admin/emails` (it's rebuilt from the
 order, so it shows the new seat), and tell the buyer.
+
+### Group tickets (incident runbook)
+
+Design: docs/architecture.md, "Group tickets"; the migration is
+`20261120000000_group_tickets.sql`.
+
+**The flag only gates authoring.** `NEXT_PUBLIC_GROUP_TICKETS` unset stops new
+group tickets being made (the editor hides them and the API answers 400 to
+`admits` above 1 on a tier that isn't already a group). It does **not** stop a
+group ticket that is already on a published event from selling. To stop one
+selling right now:
+
+1. **Unpublish the event** (the fastest way, and it stops every ticket on it):
+   Admin → Events → Unpublish (with a reason), or
+   `POST /api/admin/events/{event id}/unpublish`. Checkout then answers 404
+   and the event page goes. Paid orders and issued tickets are untouched
+   (refund them from Stripe as usual, as a whole order); an order still
+   being paid when you unpublish is settled by the webhook and refunded.
+2. **Or sell out just that tier** from the admin editor
+   (`/admin/events/{event id}/edit`, or
+   `PATCH /api/admin/events/{event id}` with the event's `expectedUpdatedAt`):
+   set the group ticket's "Groups available" to the groups already sold (its
+   `quantityAvailable` becomes the people sold, so nothing is left). A tier
+   with no sales can be removed instead. A quantity under what's sold, and
+   removing a sold tier, are refused (409). Its size (`admits`) can't be
+   changed once the tier has sales or an order that can still be paid.
+
+**Once any group order exists, roll forward, never back.** Don't roll the app
+back to a build from before group tickets (one that doesn't read
+`ticket_types.admits`), and don't drop the migration. An older build's checkout
+doesn't know a group ticket admits several people: it takes one person of
+capacity per group and issues one ticket, and when the payment arrives the
+database's fulfilment (which does read `admits`) finds the order doesn't match,
+so those orders are **refunded automatically** (the SH409 oversold path). A
+group order placed by a newer build but paid while an older build handles the
+webhook is worse: the older build issues one ticket per group, the database
+refuses a group order without one ticket per person, and the webhook
+**answers 500 and Stripe keeps retrying** until a build that reads `admits`
+is deployed again. If a deploy is
+bad, fix forward, or promote the previous *group-aware* deployment in Vercel.
+Rolling back is only safe while no group order exists (the migration's header
+lists the steps).
 
 ### Redacting personal information from the event moderation log
 
@@ -888,7 +980,7 @@ an exception: refund again in the Stripe dashboard if needed, then close it
 with `POST /api/admin/payment-exceptions/{exceptionId}/resolve {"note": "…"}`.
 A refund that later succeeds closes its exception by itself.
 
-**Refunding a paid order.** Refund it from the Stripe dashboard (Payments →
+**Refunding a paid order.** (Orders paid for delayed payouts are different: no transfer exists until the event has been over for 2 days, so "reverse transfer" and "refund application fee" are not available before that; see "Delayed payouts" below.) Refund it from the Stripe dashboard (Payments →
 the payment → Refund). **Only a full refund voids an order's tickets in the
 app**: Stripe's "refunded" (the whole charge), or at least `total_cents`
 refunded. Any smaller refund, whatever it was for (the tickets only, Support
@@ -897,7 +989,12 @@ valid, and opens a `partial_refund` exception for you
 (`20261111000300_refund_no_inference.sql`; the app never guesses a refund's
 purpose from its amount). The same holds when the refund reaches the app
 before the payment does. There's no admin action to void tickets without a
-full refund (below). Support Sheltüh is paused by default
+full refund (below). **A group ticket order is refunded as a whole, like
+any other**: there is no refunding "one person of the group" in the app. A
+full refund gives back every person of the order (`quantity x admits` of the
+tier's `quantity_sold`) and voids all of its tickets; a smaller refund, for
+one person's share say, leaves every ticket valid and opens a `partial_refund`
+exception for you to settle by hand (the same rule as above). Support Sheltüh is paused by default
 (`NEXT_PUBLIC_SUPPORT_SHELTUH`, docs/DEPLOYMENT.md), so new orders have
 `support_cents = 0` and a refund of the tickets is simply a full refund. Every Sheltüh payment is a destination charge with an
 application fee of `application_fee_cents + support_cents` (the booking fee
@@ -1043,7 +1140,7 @@ and wait for the confirmation page to show the ticket codes. Then:
   and the page still shows the tickets.
 - Full: refund the rest (or a fresh order in full). The order becomes
   `refunded`, the page shows no ticket codes, and the ticket type's
-  `quantity_sold` goes down by the order's quantity.
+  `quantity_sold` goes down by the order's quantity (for a group ticket, quantity x `admits`).
 - Tickets only (only with Support Sheltüh switched on in the test
   deployment, `NEXT_PUBLIC_SUPPORT_SHELTUH=1`): buy with Support Sheltüh
   (e.g. A$5), then follow the tickets-only recipe above. Check in Stripe
@@ -1087,6 +1184,40 @@ any tickets, so nothing else needs undoing:
 update orders set status = 'refunded'
 where id = '<order id>' and status = 'oversold_refund_required';
 ```
+
+### Delayed payouts (organisers paid 2 days after the event)
+
+Optional, switched by `DELAYED_PAYOUTS=1` in Vercel (server-only; docs/DEPLOYMENT.md, Stripe step 7; design in docs/architecture.md, "Delayed payouts"). With it, a new paid checkout is a plain charge on the platform's Stripe account, and the job `GET /api/cron/payouts` (daily, 21:30 UTC) sends each organiser their share as a Stripe **transfer** once their event ended 48 hours ago. Orders made before the switch, or while it is off, are paid out with the payment, as before.
+
+**1. Set the platform's Stripe payouts to manual, before turning the switch on.** The platform's money is Stripe balance until it is transferred. With Stripe's default automatic payouts, Stripe pays the platform's whole available balance, the organisers' unsent shares included, to Sheltüh's bank account every day, and a transfer would then fail with `balance_insufficient` (or worse, succeed from a balance the owner has since spent). So, in **test mode first, then live** (they are separate): Stripe dashboard → Settings → Business → Payouts → **Payout schedule → Manual** (the Dashboard path may be worded differently: it is the platform's own payout schedule, not a connected account's). Then pay out Sheltüh's own money by hand: Balances → Pay out, taking only what Sheltüh has earned.
+
+- **What is the organisers' money?** `GET /api/admin/transfers` → `owedToOrganisersCents`: the shares of paid delayed orders not sent yet. Keep at least that much in the platform's Stripe balance, and pay out only the rest. (Charges on a new account can take a few days to become available; a transfer made with `source_transaction` can be sent before then, which is why the job uses it.)
+- Check it took effect: Settings → Business → Payouts shows "Manual".
+- Don't turn it on for live until the test-mode run in docs/DEPLOYMENT.md has passed.
+
+**2. Watch the queue.** `GET /api/admin/transfers` (counts per status, `owedToOrganisersCents`, the last run) and the ops alert emails: `transfer_failed` (a payout couldn't be sent: top up the balance if it says `balance_insufficient`, or look at the organiser's Stripe account, then retry from the queue) and `transfer_reversal_required` (below). `select * from private.cron_runs where name = 'payouts';` shows when the job last finished. If a run was missed (`CRON_SECRET` unset, the deployment down), the next one catches up: due transfers stay due.
+
+**3. Paying one organiser by hand.** Always in this order, so the organiser is never paid twice:
+
+1. **`cancel` the transfer in the queue first**, so the job can never send it as well. Before it cancels, the app asks Stripe whether a transfer already exists for the order (a request that timed out, or a worker that died, may have been accepted by Stripe): if one does for the organiser's share, it is recorded as **sent** instead and nothing is cancelled (the organiser has been paid: stop here). If Stripe has a transfer that is not the share, or can't be asked, the cancel is refused (409 `transfer_exists_in_stripe`, 503 `transfer_stripe_unavailable`) and you look in Stripe yourself.
+2. **Confirm in Stripe that there is no transfer for the order**: Connect → Transfers, search the transfer group (the order's id, `GET /api/admin/transfers` gives its short reference) and the organiser's account. A transfer that was reversed in full doesn't count.
+3. **Only then pay them by hand** in the Stripe dashboard (Connect → Transfers → New transfer, the amount in `GET /api/admin/transfers`, with the order's id as the transfer group).
+
+Never pay by hand first and cancel afterwards: a transfer the job had already started could still land. If one does reach Stripe after a cancel, the row stays `cancelled` but records the transfer, and a `transfer_reversal_required` exception (details `reason: transfer_after_cancel`, urgent, with an ops alert) asks you to reverse it, or the hand payment, so the organiser keeps one payment.
+
+**3b. A full refund while a payout's outcome was unknown.** If an order is refunded in full while its transfer may already exist in Stripe (the app asked Stripe to make it and lost the answer, or its worker died), the app does **not** cancel the payout: the organiser may hold the money. The row is `held` (`last_error` "Refunded; may already be sent (check Stripe)") and an urgent `transfer_reversal_required` exception (details `reason: refunded_outcome_unknown`) and an ops alert ask you to check Stripe. To close it: **`cancel` the held transfer in the queue** (`/admin/payouts`). The app asks Stripe for a transfer for the order first. If Stripe has it, the transfer is recorded as **sent** and the same exception now says `refunded_after_transfer`: reverse the transfer as in step 4 below, then resolve it. If Stripe has none, the transfer is cancelled and the exception resolves itself (nothing was sent, so nothing is owed either way). If Stripe can't be asked (503) or has a transfer that isn't the share (409), look in Stripe yourself (Connect, Transfers, the order's transfer group) before doing anything else. Don't `release` or `retry` such a row: the order is refunded, so the app refuses.
+
+**4. Reversing a transfer after a late refund.** An order refunded **after** its transfer was sent leaves the organiser holding money the buyer was refunded (the platform's balance paid the refund). Stripe does not take it back by itself: the app opens a `transfer_reversal_required` payment exception (urgent) and emails the ops address. To close it:
+
+1. `GET /api/admin/payment-exceptions` → the exception (order reference, `transferAmountCents`). Find the order's payment in the Stripe dashboard (Payments, by the refund) and its **transfer** (Connect → Transfers; the payment's page lists the related transfer, or search the transfer group = the order id).
+2. Open the transfer → **Reverse transfer**. The amount is the exception's `transferAmountCents` for a full refund. For a **partial** refund, reverse only what you and the organiser agree is theirs to return (no amount is inferred: the exception only says the refund happened). If the organiser's Stripe balance can't cover the reversal, Stripe says so: sort it out with them directly and note it.
+3. Resolve the exception: `POST /api/admin/payment-exceptions/{exceptionId}/resolve {"note": "Reversed tr_… on <date>"}`.
+
+The same applies to a **dispute** lost after the transfer: the platform bears the loss (these accounts' losses are the platform's), so reverse the transfer if you want the organiser to bear it, by the same steps. The transfer's row stays `sent` in the app either way. From the API, a reversal is `stripe.transfers.createReversal(transferId, {amount})`, but there is no button in the app for it: it is a deliberate owner action.
+
+**5. Before the transfer.** A refund of a delayed order that has not been transferred yet (whether made in the dashboard or by the app) simply comes out of the platform's balance; the app cancels the transfer (a full refund) or holds it (a partial one, until you decide: `release` it in the queue if the organiser should still be paid, `cancel` it if not). Don't tick "reverse transfer" or "refund application fee": there is nothing to reverse.
+
+**6. What the organiser's bank sees.** Stripe pays an organiser's bank on their own payout schedule after a transfer lands, usually 1 to 3 business days; the dashboard copy says so.
 
 ## 3. Ticket emails
 
@@ -1274,14 +1405,14 @@ remove it at any time.
 schedules come from `vercel.json`, which stays Hobby-compatible (daily) until
 you edit it and redeploy:
 
-1. Edit `vercel.json` (trending as in "Trending" below):
+1. Edit `vercel.json` (the email run refreshes Trending every time it runs; the payouts job can run hourly so a retry doesn't wait a day):
 
    ```json
    {
      "$schema": "https://openapi.vercel.sh/vercel.json",
      "crons": [
        { "path": "/api/cron/email-outbox", "schedule": "*/5 * * * *" },
-       { "path": "/api/cron/trending", "schedule": "*/15 * * * *" }
+       { "path": "/api/cron/payouts", "schedule": "30 * * * *" }
      ]
    }
    ```
@@ -1310,11 +1441,16 @@ select * from private.email_outbox_health('15 minutes');
 select * from private.cron_runs;
 ```
 
-**Trending.** `vercel.json` also runs `GET /api/cron/trending` once a day
-(17:20 UTC), with the same `CRON_SECRET`: it rebuilds the home page's
-Trending list (`private.refresh_trending()`, docs/architecture.md,
-"Trending"). Daily is a Hobby-plan limit, not a design choice: **on Pro, set
-its schedule to every 15 minutes (`*/15 * * * *`)**. On Hobby you can refresh
+**Trending.** The email outbox's run (`GET /api/cron/email-outbox`, daily at
+21:00 UTC on Hobby: 8:00 am AEDT, 7:00 am AEST) also rebuilds the home page's Trending list after it has
+sent its emails (`private.refresh_trending()`, docs/architecture.md,
+"Trending"), with the same `CRON_SECRET`. (It used to be its own Vercel cron,
+`GET /api/cron/trending`; the payouts job took that slot because Hobby allows
+two crons. The route still works when called, with the secret.) Daily is a
+Hobby-plan limit, not a design choice: on Pro the 5-minute email run
+refreshes it every 5 minutes, or add `/api/cron/trending` as a third cron at
+`*/15 * * * *`. A 5-minute Supabase runner for the email route (above) also
+refreshes it every 5 minutes. You can also refresh
 more often from Supabase Cron instead (the function needs no secret: it only
 reads and rewrites the snapshot):
 

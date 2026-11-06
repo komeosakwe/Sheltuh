@@ -18,12 +18,11 @@ Only use images you have the rights to.
 The owner asked that the home's promo slots stop repeating the photos its event cards use. The six
 photos in `public/events/` are all sample events' images, so only two are free for promo use, once
 each: `gallery-opening.jpg` leads the desktop hero collage and `street-market.jpg` is the For
-organisers card. Since 26 Oct 2026 the other five slots temporarily reuse sample-event photos (owner: "reuse the event photos for now"); replace them as photos arrive (set
+organisers card. Since 26 Oct 2026 the other slots temporarily reuse sample-event photos (owner: "reuse the event photos for now"); replace them as photos arrive (set
 `imageUrl` in `components/home/home-content.ts`; nothing else changes):
 
 | Slot | Count | Subject | Orientation, minimum size |
 | --- | --- | --- | --- |
-| Hero collage tiles (`HOME_HERO_TILES`, desktop only) | 2 | Melbourne creative crowds or venues (not DJs or markets, which the sample events use) | Landscape 3:2, 1200×800 |
 | What else? panel (`HOME_WHAT_ELSE`, desktop only) | 3 | One per promise: a person reviewing listings / curating; a ticket or door scene; a free community event | Portrait 4:5, 1000×1250 |
 
 Ideally also a dedicated hero lead (landscape 5:4, 1600×1280) and an organiser photo (landscape 2:1,

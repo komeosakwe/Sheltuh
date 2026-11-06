@@ -15,6 +15,8 @@ import type {
   AdminReport,
   AdminSetEventTicketingInput,
   AdminSummary,
+  AdminTransfer,
+  AdminTransfersPage,
   EmailJobStatus,
   EventRecord,
   EventStatus,
@@ -26,6 +28,8 @@ import type {
   ResolveReportInput,
   SuspendOrganiserResult,
   TicketingMode,
+  TransferAction,
+  TransferStatus,
 } from "./types";
 
 /** POST /api/admin/events: an organiser's event body plus the organiser and an optional publish. */
@@ -382,6 +386,41 @@ export async function adminListEmailJobs(status: EmailJobStatus, getToken: GetTo
 export async function adminResendEmailJob(jobId: string, getToken: GetToken) {
   const token = await getToken();
   return apiFetch<AdminEmailJob>(`/admin/emails/${encodeURIComponent(jobId)}/resend`, { method: "POST", token });
+}
+
+/**
+ * Organiser payouts that are delayed until after the event: counts per status,
+ * what the platform holds for organisers, the last payouts run and a page of
+ * transfers. `status` is a TransferStatus, or "open" (the default: failed,
+ * held, retry and sending, oldest first).
+ */
+export async function adminListTransfers(
+  getToken: GetToken,
+  query: { status?: TransferStatus | "open"; limit?: number; cursor?: string } = {},
+) {
+  const token = await getToken();
+  const qs = new URLSearchParams({
+    ...(query.status ? { status: query.status } : {}),
+    ...(query.limit ? { limit: String(query.limit) } : {}),
+    ...(query.cursor ? { cursor: query.cursor } : {}),
+  });
+  return apiFetch<AdminTransfersPage>(`/admin/transfers${qs.size > 0 ? `?${qs}` : ""}`, { token });
+}
+
+/**
+ * `retry` a failed or waiting transfer, `release` a held one (both: sent by
+ * the next payouts run, with a fresh set of attempts), or `cancel` a held,
+ * waiting or failed one (never sent: pay the organiser by hand). ApiError 404;
+ * 409 with `body.code` `transfer_in_progress`, `transfer_state_conflict` or
+ * `transfer_not_payable` (refunded since: cancel it).
+ */
+export async function adminTransferAction(transferId: string, action: TransferAction, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<AdminTransfer>(`/admin/transfers/${encodeURIComponent(transferId)}/action`, {
+    method: "POST",
+    body: { action },
+    token,
+  });
 }
 
 /**

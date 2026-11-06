@@ -1,6 +1,6 @@
 import { HttpError, okPrivate, okPublic } from "../http";
 import { decodeCursor, parseLimit, toPage } from "../pagination";
-import { EVENT_SELECT, toPublicEventFromRow } from "../records";
+import { EVENT_DETAIL_SELECT, EVENT_SELECT, toPublicEventDetailFromRow, toPublicEventFromRow } from "../records";
 import type { Handler } from "../route";
 import { EVENT_CATEGORIES, type EventCategory } from "../types";
 import { upcomingPageQuery } from "../upcoming-page";
@@ -147,7 +147,10 @@ export const listPublicEvents: Handler = async (req, _params, { db }) => {
  * shared at the CDN (PUBLIC_EVENT_CACHE_CONTROL).
  */
 export const getPublicEventBySlug: Handler<{ slug: string }> = async (_req, { slug }, { db }) => {
-  const [row] = await db.query(`${EVENT_SELECT} where e.slug = $1 and e.status = 'published'`, [slug]);
+  // The one public read that also carries the Host card's extras (the
+  // organiser's website, social links and a bio excerpt, for an approved
+  // organiser only); lists don't.
+  const [row] = await db.query(`${EVENT_DETAIL_SELECT} where e.slug = $1 and e.status = 'published'`, [slug]);
   if (!row) throw new HttpError(404, "Event not found.");
-  return okPublic(toPublicEventFromRow(row), PUBLIC_EVENT_CACHE_CONTROL);
+  return okPublic(toPublicEventDetailFromRow(row), PUBLIC_EVENT_CACHE_CONTROL);
 };

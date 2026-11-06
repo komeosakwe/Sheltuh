@@ -3,6 +3,7 @@ import { Suspense, type ReactNode } from "react";
 import AddToCalendar from "@/components/AddToCalendar";
 import EventViewBeacon from "@/components/analytics/EventViewBeacon";
 import EventArt from "@/components/EventArt";
+import EventHost from "@/components/events/EventHost";
 import EventLocation from "@/components/events/EventLocation";
 import ClipPlayButton from "@/components/events/ClipPlayButton";
 import ExternalTicketLink from "@/components/ExternalTicketLink";
@@ -141,7 +142,7 @@ function whenLabel(startsAt: string, endsAt: string | undefined, timeZone: strin
  * linked to directions; the organiser, linked to their profile), the going count, and one
  * secondary row with Save and Share (the page's only Save). Then the
  * tickets, then About, Who's Going, Location (the venue, a small map and
- * Google Maps and Apple Maps links), Refunds and Good to know. On phones that's
+ * Google Maps and Apple Maps links), Refunds, Good to know and Host. On phones that's
  * one column; from 1024px the tickets are the right-hand column (sticky),
  * beside the photo, title and facts, and the rest below those. Below
  * 1024px a compact buy bar sticks to the bottom (price and the one ticket
@@ -458,6 +459,9 @@ export default function EventDetailsView({
                 <p className="mt-4 text-sm leading-5 text-muted">As provided by the organiser.</p>
               </Panel>
             )}
+
+            {/* The organiser again, with their links: not in the editor's preview (it has no organiser profile). */}
+            {!preview && <EventHost event={event} demo={demo} />}
 
             {/* Events go live without a check first: anyone can tell Sheltüh about one (by email, for now). */}
             {!preview && (

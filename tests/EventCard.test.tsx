@@ -335,9 +335,13 @@ describe("EventCard variants", () => {
     expect(eager.container.querySelector("img")).toHaveAttribute("loading", "eager");
   });
 
-  it("rail: a fixed width at every size (256px from 640px, never stretched); 18px title, 14px details; the CTA sized to its label; no organiser link", () => {
+  it("rail: a set width at every size (224px from 640px, following the screen from 768px so the next card peeks, 256px from 1280px, never stretched); 18px title, 14px details; the CTA sized to its label; no organiser link", () => {
     const { container } = render(<EventCard event={event} variant="rail" mode="live" />);
-    expect(cardRoot(container)).toHaveClass("w-[min(62vw,15rem)]", "shrink-0", "sm:w-64");
+    expect(cardRoot(container)).toHaveClass("w-[min(62vw,15rem)]", "shrink-0", "sm:w-56", "xl:w-64");
+    // 768px to 1279px: three whole cards and 40% of a fourth, then four whole and 40% of a fifth (EventCard's WIDTH).
+    expect(cardRoot(container)).toHaveClass("md:w-[min(16rem,calc((100vw_-_6.5rem)/3.4))]", "lg:w-[min(16rem,calc((100vw_-_8rem)/4.4))]");
+    // A rail of one or two cards has no next card to show, so it keeps 224px.
+    expect(cardRoot(container)).toHaveClass("in-data-[rail-layout=pair]:md:w-56", "in-data-[rail-layout=pair]:lg:w-56");
     expect(cardRoot(container)).not.toHaveClass("sm:w-full");
     expect(screen.getByRole("heading", { level: 3 })).toHaveClass("text-lg", "leading-6", "line-clamp-2", "break-words");
     const place = container.querySelector("[data-place-lines]");
@@ -347,27 +351,6 @@ describe("EventCard variants", () => {
     const buy = screen.getByRole("link", { name: "Buy tickets for Glasshouse Sessions" });
     expect(buy).toHaveClass("self-start", "px-4", "min-h-11", "sm:min-h-10");
     expect(screen.queryByRole("link", { name: /^By / })).toBeNull();
-  });
-
-  // Owner (23 Oct 2026, layout polish): a home rail of one or two is a two-column grid from 1024px.
-  it("rail, wide: a rail card below 1024px; from 1024px it fills its cell with a 12:5 image at most 200px tall", () => {
-    const { container } = render(<EventCard event={event} variant="rail" wide mode="live" />);
-    const root = cardRoot(container);
-    expect(root).toHaveAttribute("data-wide", "");
-    expect(root).toHaveClass("w-[min(62vw,15rem)]", "shrink-0", "sm:w-64", "lg:w-full");
-    expect(root.querySelector("[data-card-media] > div")).toHaveClass("aspect-[4/3]", "lg:aspect-[12/5]", "lg:max-h-50");
-    // The same foot (price, then the action), so the pair's prices and buttons line up.
-    expect(root.querySelector("[data-card-foot]")).toHaveClass("mt-auto");
-    expect(screen.getByRole("link", { name: "Buy tickets for Glasshouse Sessions" })).toBeInTheDocument();
-    cleanup();
-    // Not wide: no lg: overrides. And `wide` means nothing to a grid card.
-    const plain = cardRoot(render(<EventCard event={event} variant="rail" mode="live" />).container);
-    expect(plain).not.toHaveAttribute("data-wide");
-    expect(plain.className).not.toMatch(/lg:/);
-    cleanup();
-    const grid = cardRoot(render(<EventCard event={event} variant="grid" wide mode="live" />).container);
-    expect(grid).not.toHaveAttribute("data-wide");
-    expect(grid.querySelector("[data-card-media] > div")?.className).not.toMatch(/lg:/);
   });
 
   it("grid: fills its cell; 16px titles on the phone grid, 18px from 640px, 14px details; a full-width CTA on phones whose label wraps rather than overflows", () => {
@@ -422,12 +405,15 @@ describe("EventCard media: organiser artwork on a phone rail card", () => {
     });
   }
 
-  it("rail: a portrait poster in the 4:3 box is shown whole on black, not cropped (fit auto)", () => {
+  // Owner (4 Nov 2026): the home's photos fill their box instead of sitting letterboxed on black.
+  it("rail: a portrait poster fills the 4:3 box (cover), never letterboxed", () => {
     const { container } = render(<EventCard event={{ ...event, imageUrl: "/poster.jpg" }} variant="rail" mode="live" />);
     const img = container.querySelector("img");
     if (!img) throw new Error("no photo");
     loadPortrait(img);
-    expect(img).toHaveClass("object-contain");
+    expect(img).toHaveClass("object-cover");
+    expect(img).not.toHaveClass("object-contain");
+    expect(container.querySelector("[data-art-backdrop]")).toBeNull();
   });
 
   it("grid: a portrait poster is shown whole in the square box too, on a blurred copy of itself", () => {

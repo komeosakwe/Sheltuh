@@ -104,3 +104,35 @@ describe("ReleaseTicketsPanel", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 });
+
+describe("ReleaseTicketsPanel: group tickets", () => {
+  const grouped = () =>
+    event({
+      ticketTypes: [
+        { id: "grp", name: "Group of 4", priceCents: 12000, feePolicy: "buyer-pays", quantityAvailable: 40, admits: 4 },
+      ],
+      ticketsSold: { grp: 12 },
+    });
+
+  it("counts and asks in groups: 40 people sold 12 are 10 groups, 3 sold", () => {
+    render(<ReleaseTicketsPanel event={grouped()} getToken={getToken} />);
+    expect(screen.getByText(/3 sold \/ 10\s*groups/)).toBeInTheDocument();
+    const input = screen.getByLabelText("New total (groups)");
+    expect(input).toHaveAttribute("min", "11");
+    fireEvent.change(input, { target: { value: "10" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter more than 10.");
+    expect(releaseTickets).not.toHaveBeenCalled();
+  });
+
+  it("sends people (groups x 4), always a multiple of the group size, and reads the answer back in groups", async () => {
+    releaseTickets.mockResolvedValue({ eventId: "evt-1", ticketTypeId: "grp", quantityAvailable: 60, quantitySold: 12 });
+    render(<ReleaseTicketsPanel event={grouped()} getToken={getToken} />);
+    fireEvent.change(screen.getByLabelText("New total (groups)"), { target: { value: "15" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Released. Now 15 groups on sale."));
+    expect(releaseTickets).toHaveBeenCalledWith("evt-1", "grp", 60, getToken);
+    expect(screen.getByText(/3 sold \/ 15\s*groups/)).toBeInTheDocument();
+  });
+});
+

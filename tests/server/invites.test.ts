@@ -137,6 +137,10 @@ describe("creating an invite (POST /api/admin/invites)", () => {
       tiktok_handle: null,
       facebook_page: null,
       x_handle: null,
+      spotify_path: null,
+      soundcloud_handle: null,
+      youtube_channel: null,
+      linkedin_path: null,
       featured_video_provider: null,
       featured_video_id: null,
     });

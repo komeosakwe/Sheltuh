@@ -6,6 +6,7 @@ import { HttpError, okPrivate, readJson } from "../http";
 import { parseMessageText } from "../message-input";
 import { decodeCursor, isUuid, parseLimit, toPage } from "../pagination";
 import { ADMIN_PAYOUTS_REQUIRED, payoutsRefused } from "../payouts-refusal";
+import { payoutsSchemaMissing } from "../payout-schema";
 import { ADMIN_EVENT_SELECT, ADMIN_ORGANISER_SELECT, toAdminEvent, toAdminOrganiser } from "../records";
 import type { Handler } from "../route";
 import { MAX_TICKETING_REASON_LENGTH, parseTicketing } from "../ticketing-input";
@@ -48,11 +49,11 @@ export function foldOrganiserSearch(text: string): string {
   return text.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 }
 
-const ORGANISER_SEARCH_FOLD = (column: string) =>
+export const ORGANISER_SEARCH_FOLD = (column: string) =>
   `lower(regexp_replace(normalize(coalesce(${column}, ''), NFKD), '[\\u0300-\\u036f]', '', 'g'))`;
 
 /** A LIKE pattern matching `text` anywhere, its wildcards (and the escape character) matched literally. */
-function containsPattern(text: string): string {
+export function containsPattern(text: string): string {
   return `%${text.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
 }
 
@@ -438,6 +439,9 @@ export const SELF_PUBLISHED_WINDOW_HOURS = 72;
  * - doorEvents: published, Sheltüh-ticketed events of platform-managed
  *   organisers (the ones only admins check in) that haven't ended and start
  *   within DOOR_EVENT_WINDOW_HOURS (events_status_ends_idx).
+ * - transfersOpen: organiser payouts that need an admin: transfers `failed` or
+ *   `held` (order_transfers_status_idx; the retrying ones fix themselves). A
+ *   second small read, 0 while 20261119000000_delayed_payouts.sql isn't applied.
  * - eventsPublishedByOrganisers: events still published whose latest
  *   approval within SELF_PUBLISHED_WINDOW_HOURS was made by the organiser's
  *   own account (POST /api/events/{id}/publish), for admins to check after
@@ -447,6 +451,7 @@ export const SELF_PUBLISHED_WINDOW_HOURS = 72;
  */
 export const adminSummary: Handler = async (req, _params, { db, verifyAccessToken }) => {
   await requireAdmin(req, verifyAccessToken);
+  const transfersOpen = openTransferCount(db);
   const [row] = await db.query<{
     reports_open: number;
     reports_oldest_at: Date | string | null;
@@ -507,9 +512,23 @@ export const adminSummary: Handler = async (req, _params, { db, verifyAccessToke
     emailsRetrying: { count: row.emails_retrying },
     doorEvents: { count: row.door_events, windowHours: DOOR_EVENT_WINDOW_HOURS },
     eventsPublishedByOrganisers: { count: row.self_published, windowHours: SELF_PUBLISHED_WINDOW_HOURS },
+    transfersOpen: { count: await transfersOpen },
   };
   return okPrivate(summary);
 };
+
+/** Organiser transfers that are failed or held (the ones that need an admin). 0 before the delayed payouts migration is applied. */
+async function openTransferCount(db: Db): Promise<number> {
+  try {
+    const [row] = await db.query<{ n: number }>(
+      `select count(*)::int as n from private.order_transfers where status in ('failed', 'held')`,
+    );
+    return row.n;
+  } catch (err) {
+    if (!(await payoutsSchemaMissing(db, err))) throw err;
+    return 0;
+  }
+}
 
 interface Moderation {
   from: EventStatus;

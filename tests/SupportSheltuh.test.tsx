@@ -10,6 +10,7 @@ import { SAMPLE_SEAT_MAPS } from "@/lib/sample-seat-maps";
 import { sampleEvents } from "@/lib/sample-events";
 import { SUPPORT_PAUSED, SUPPORT_RECIPIENT_NOTE } from "@/lib/support";
 import type { SheltuhEvent } from "@/lib/types";
+import { typeName } from "./test-utils/buyerName";
 
 /**
  * Support Sheltüh at checkout (components/checkout/SupportSheltuh.tsx): the
@@ -165,6 +166,7 @@ describe("Support Sheltüh in the ticket selector (general admission)", () => {
     render(<TicketSelector event={liveEvent(NEON)} />);
     addGa();
     fireEvent.click(chip("A$5"));
+    typeName();
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
     await waitFor(() => expect(createCheckoutSession).toHaveBeenCalledTimes(1));
     expect(createCheckoutSession).toHaveBeenCalledWith(
@@ -174,6 +176,7 @@ describe("Support Sheltüh in the ticket selector (general admission)", () => {
       undefined,
       undefined,
       500,
+      "Alex Doe",
     );
   });
 
@@ -183,6 +186,7 @@ describe("Support Sheltüh in the ticket selector (general admission)", () => {
     addGa();
     fireEvent.click(chip("A$5"));
     fireEvent.click(chip("A$5"));
+    typeName();
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
     await waitFor(() => expect(createCheckoutSession).toHaveBeenCalledTimes(1));
     expect(createCheckoutSession.mock.calls[0][5]).toBeUndefined();
@@ -217,6 +221,7 @@ describe("Support Sheltüh in the ticket selector (general admission)", () => {
     expect(slot.children).toHaveLength(1);
 
     // Checkout with it invalid: refused here, focus on the field, nothing sent.
+    typeName();
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
     expect(field).toHaveFocus();
     expect(createCheckoutSession).not.toHaveBeenCalled();
@@ -231,6 +236,8 @@ describe("Support Sheltüh in the ticket selector (general admission)", () => {
     expect(field).toHaveAccessibleDescription("In Australian dollars, from A$1 to A$500.");
     expect(total()).toHaveTextContent("A$39.80");
     expect(screen.getByText("Support Sheltüh", { selector: "dt" }).nextElementSibling).toHaveTextContent("A$7.50");
+
+    typeName();
 
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
     await waitFor(() => expect(createCheckoutSession).toHaveBeenCalledTimes(1));
@@ -256,6 +263,7 @@ describe("Support Sheltüh in the ticket selector (general admission)", () => {
     addGa();
     fireEvent.click(chip("Other"));
     fireEvent.change(screen.getByLabelText("Other amount"), { target: { value: "  " } });
+    typeName();
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
     await waitFor(() => expect(createCheckoutSession).toHaveBeenCalledTimes(1));
     expect(createCheckoutSession.mock.calls[0][5]).toBeUndefined();
@@ -306,6 +314,7 @@ describe("Support Sheltüh in the ticket selector (general admission)", () => {
     render(<TicketSelector event={liveEvent(NEON)} />);
     addGa();
     fireEvent.click(chip("A$5"));
+    typeName();
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Support Sheltüh must be from A$1 to A$500.");
@@ -365,6 +374,7 @@ describe("Support Sheltüh on the seat page", () => {
     expect(within(totals).getByText("Support Sheltüh").nextElementSibling).toHaveTextContent("A$10");
     // Face value and fees unchanged.
     expect(within(totals).getByText("Ticket face value").nextElementSibling).toHaveTextContent("A$35");
+    typeName();
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
     await waitFor(() => expect(createSeatedCheckout).toHaveBeenCalledTimes(1));
     const [, input] = createSeatedCheckout.mock.calls[0];
@@ -381,6 +391,7 @@ describe("Support Sheltüh on the seat page", () => {
     expect(screen.queryByRole("group", { name: GROUP_NAME })).toBeNull();
     chooseSeat();
     expect(chip("A$5")).not.toBeChecked();
+    typeName();
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
     await waitFor(() => expect(createSeatedCheckout).toHaveBeenCalledTimes(1));
     expect(createSeatedCheckout.mock.calls[0][1]).not.toHaveProperty("supportCents");
@@ -392,6 +403,7 @@ describe("Support Sheltüh on the seat page", () => {
     fireEvent.click(chip("Other"));
     const field = screen.getByLabelText("Other amount");
     fireEvent.change(field, { target: { value: "600" } });
+    typeName();
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
     expect(screen.getByRole("alert")).toHaveTextContent("The most you can add is A$500.");
     expect(field).toHaveFocus();
@@ -403,6 +415,7 @@ describe("Support Sheltüh on the seat page", () => {
     render(<SeatPicker event={{ ...seated, organiserId: "org-1" }} map={map} mode="live" initialUnavailable={sample.unavailable} />);
     chooseSeat();
     fireEvent.click(chip("Other"));
+    typeName();
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
     await waitFor(() => expect(createSeatedCheckout).toHaveBeenCalledTimes(1));
     expect(createSeatedCheckout.mock.calls[0][1]).not.toHaveProperty("supportCents");
@@ -431,6 +444,7 @@ describe("Support Sheltüh while paused (NEXT_PUBLIC_SUPPORT_SHELTUH isn't \"1\"
       expect(screen.queryByText(SUPPORT_RECIPIENT_NOTE)).toBeNull();
       // The all-inclusive total is the tickets' alone.
       expect(total()).toHaveTextContent("A$32.30");
+      typeName();
       fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
       expect(createCheckoutSession).toHaveBeenCalledTimes(1);
       expect(createCheckoutSession.mock.calls[0][5]).toBeUndefined();
@@ -442,6 +456,7 @@ describe("Support Sheltüh while paused (NEXT_PUBLIC_SUPPORT_SHELTUH isn't \"1\"
     createCheckoutSession.mockRejectedValue(new ApiError(400, "Check the highlighted fields.", { supportCents: SUPPORT_PAUSED }));
     render(<TicketSelector event={liveEvent(NEON)} />);
     addGa();
+    typeName();
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(SUPPORT_PAUSED);
   });
@@ -465,6 +480,7 @@ describe("Support Sheltüh while paused (NEXT_PUBLIC_SUPPORT_SHELTUH isn't \"1\"
       const totals = screen.getByText("Total").closest("dl") as HTMLElement;
       expect(within(totals).getByText("A$37.60")).toBeInTheDocument();
       expect(within(totals).queryByText("Support Sheltüh")).toBeNull();
+      typeName();
       fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
       await waitFor(() => expect(createSeatedCheckout).toHaveBeenCalledTimes(1));
       expect(createSeatedCheckout.mock.calls[0][1]).not.toHaveProperty("supportCents");
@@ -489,6 +505,7 @@ describe("Support Sheltüh while paused (NEXT_PUBLIC_SUPPORT_SHELTUH isn't \"1\"
       render(<SeatPicker event={{ ...seated, organiserId: "org-1" }} map={map} mode="live" initialUnavailable={sample.unavailable} />);
       fireEvent.click(screen.getByRole("tab", { name: "List" }));
       fireEvent.click(within(screen.getByRole("group", { name: "North, Row A" })).getByRole("checkbox", { name: /^Seat 1, / }));
+      typeName();
       fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
       await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(SUPPORT_PAUSED));
     } finally {

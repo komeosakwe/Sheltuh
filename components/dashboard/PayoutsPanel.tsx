@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { useOrganiser } from "@/lib/auth/useOrganiser";
 import { LoadingState } from "@/components/ui/ProgressLoader";
 import StatusBadge from "@/components/ui/StatusBadge";
+import PayoutsEarnings from "./PayoutsEarnings";
 
 export default function PayoutsPanel() {
   const auth = useAuth();
@@ -69,35 +70,39 @@ export default function PayoutsPanel() {
     }
   }
 
+  // Two sections in the page's column (the page spaces them).
   return (
-    <div className="flex flex-col gap-3 border-t border-foreground pt-5">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="font-heading text-xl text-foreground">Stripe account</h2>
-        <StatusBadge tone={enabled ? "approved" : "pending"}>{enabled ? "Connected" : "Not set up"}</StatusBadge>
-      </div>
+    <>
+      <div className="flex flex-col gap-3 border-t border-foreground pt-5">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="font-heading text-xl text-foreground">Stripe account</h2>
+          <StatusBadge tone={enabled ? "approved" : "pending"}>{enabled ? "Connected" : "Not set up"}</StatusBadge>
+        </div>
 
-      {syncing && <p className="text-sm text-muted">Checking your Stripe status&hellip;</p>}
+        {syncing && <p className="text-sm text-muted">Checking your Stripe status&hellip;</p>}
 
-      <p className="text-sm text-muted">
-        {enabled
-          ? "Payouts are on."
-          : "Needed before you sell paid tickets."}
-      </p>
-
-      {actionError && (
-        <p role="alert" className="text-sm text-danger">
-          {actionError}
+        <p className="text-sm text-muted">
+          {enabled
+            ? "Payouts are on."
+            : "Needed before you sell paid tickets."}
         </p>
-      )}
 
-      <button
-        type="button"
-        onClick={handleConnect}
-        disabled={connecting}
-        className="btn btn-solid w-fit"
-      >
-        {connecting ? "Redirecting to Stripe…" : enabled ? "Update payout details" : "Connect with Stripe"}
-      </button>
-    </div>
+        {actionError && (
+          <p role="alert" className="text-sm text-danger">
+            {actionError}
+          </p>
+        )}
+
+        <button
+          type="button"
+          onClick={handleConnect}
+          disabled={connecting}
+          className="btn btn-solid min-h-11 w-fit"
+        >
+          {connecting ? "Redirecting to Stripe…" : enabled ? "Update payout details" : "Connect with Stripe"}
+        </button>
+      </div>
+      <PayoutsEarnings />
+    </>
   );
 }

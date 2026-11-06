@@ -14,6 +14,7 @@ import {
 import { listBlocks } from "@/lib/server/handlers/blocks";
 import { getCheckInSummary } from "@/lib/server/handlers/check-ins";
 import { adminEmailOutboxHealth, adminListEmailJobs, runEmailOutboxCron } from "@/lib/server/handlers/email-outbox";
+import { getEventOrders, getEventOrdersCsv } from "@/lib/server/handlers/event-orders";
 import { getMyEvent, listMyEvents } from "@/lib/server/handlers/events";
 import { adminListHolderMessages, getHolderMessages } from "@/lib/server/handlers/holder-messages";
 import { listFavouriteIds, listFavourites } from "@/lib/server/handlers/favourites";
@@ -26,6 +27,7 @@ import { getUnreadCount, listConversations } from "@/lib/server/handlers/message
 import { adminListOrganiserLinks } from "@/lib/server/handlers/organiser-links";
 import { getMyOrganiser } from "@/lib/server/handlers/organisers";
 import { adminListPaymentExceptions } from "@/lib/server/handlers/payment-exceptions";
+import { adminListTransfers, getMyPayouts, runPayoutsCron } from "@/lib/server/handlers/payouts";
 import { getMyProfile, putMyProfile } from "@/lib/server/handlers/profiles";
 import { adminListReports } from "@/lib/server/handlers/reports";
 import { listTrackingLinks } from "@/lib/server/handlers/tracking-links";
@@ -94,9 +96,11 @@ const PRIVATE_GETS: Case[] = [
   { name: "adminGetMemberProfile", handler: h(adminGetMemberProfile), as: asAdmin, params: () => ({ profileId }) },
   { name: "adminListReports", handler: h(adminListReports), as: asAdmin },
   { name: "adminSummary", handler: h(adminSummary), as: asAdmin },
+  { name: "adminListTransfers", handler: h(adminListTransfers), as: asAdmin },
   // Cron
   { name: "runEmailOutboxCron", handler: h(runEmailOutboxCron), as: asCron },
   { name: "runTrendingCron", handler: h(runTrendingCron), as: asCron },
+  { name: "runPayoutsCron", handler: h(runPayoutsCron), as: asCron },
   // A member's own things
   { name: "listBlocks", handler: h(listBlocks), as: asMember },
   { name: "listConversations", handler: h(listConversations), as: asMember },
@@ -113,6 +117,7 @@ const PRIVATE_GETS: Case[] = [
   { name: "getWaitlistStatus", handler: h(getWaitlistStatus), as: asMember, params: event },
   // An organiser's own records
   { name: "getMyOrganiser", handler: h(getMyOrganiser), as: asOrganiser },
+  { name: "getMyPayouts", handler: h(getMyPayouts), as: asOrganiser },
   { name: "listMyEvents", handler: h(listMyEvents), as: asOrganiser },
   { name: "getMyEvent", handler: h(getMyEvent), as: asOrganiser, params: event },
   { name: "getAnalyticsOverview", handler: h(getAnalyticsOverview), as: asOrganiser },
@@ -123,6 +128,8 @@ const PRIVATE_GETS: Case[] = [
   { name: "getEventAnalyticsCsv", handler: h(getEventAnalyticsCsv), as: asOrganiser, params: event },
   { name: "listTrackingLinks", handler: h(listTrackingLinks), as: asOrganiser, params: event },
   { name: "getCheckInSummary", handler: h(getCheckInSummary), as: asOrganiser, params: event },
+  { name: "getEventOrders", handler: h(getEventOrders), as: asOrganiser, params: event },
+  { name: "getEventOrdersCsv", handler: h(getEventOrdersCsv), as: asOrganiser, params: event },
   { name: "getHolderMessages", handler: h(getHolderMessages), as: asOrganiser, params: event },
   { name: "adminListHolderMessages", handler: h(adminListHolderMessages), as: asAdmin },
 ];

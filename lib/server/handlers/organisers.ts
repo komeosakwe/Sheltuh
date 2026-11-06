@@ -6,7 +6,7 @@ import { redactForLog } from "../email-address";
 import { created, HttpError, ok, okPrivate, readJson } from "../http";
 import { parseMessageText } from "../message-input";
 import { checkOrganiserDisplayName } from "../profile-input";
-import { parseSocialHandles, SOCIAL_RULES } from "../organiser-input";
+import { parseSocialHandles, SOCIAL_RULES, socialInsertParts } from "../organiser-input";
 import { ORGANISER_SELECT, toOrganiser, toOwnOrganiserView } from "../records";
 import type { Handler } from "../route";
 import { canApplyAsOrganiser, canEditApprovedOrganiser, canResubmitOrganiser } from "../state";
@@ -159,13 +159,14 @@ export const applyAsOrganiser: Handler = async (req, _params, deps) => {
   }
 
   const input = parseApplication(await readJson(req));
+  const social = socialInsertParts(input.handles, 7);
+  const videoParam = 7 + social.params.length;
   try {
     const [row] = await db.query<{ id: string }>(
       `insert into public.organisers (owner_user_id, display_name, contact_email, description, categories, website_url,
-                                      instagram_handle, tiktok_handle, facebook_page, x_handle,
-                                      featured_video_provider, featured_video_id)
+                                      ${social.columns}, featured_video_provider, featured_video_id)
        values ($1, $2, $3, $4, array(select jsonb_array_elements_text($5::text::jsonb))::public.event_category[], $6,
-               $7, $8, $9, $10, $11, $12)
+               ${social.placeholders}, $${videoParam}, $${videoParam + 1})
        returning id`,
       [
         caller.userId,
@@ -174,10 +175,7 @@ export const applyAsOrganiser: Handler = async (req, _params, deps) => {
         input.description,
         JSON.stringify(input.categories),
         input.websiteUrl,
-        input.handles.instagramHandle ?? null,
-        input.handles.tiktokHandle ?? null,
-        input.handles.facebookPage ?? null,
-        input.handles.xHandle ?? null,
+        ...social.params,
         input.featuredVideo?.provider ?? null,
         input.featuredVideo?.id ?? null,
       ],

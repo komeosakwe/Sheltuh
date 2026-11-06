@@ -41,6 +41,17 @@ fee, and paid tickets cost at least A$1.00. The change applies to new
 checkouts only: existing orders keep the fee recorded on them (see
 `docs/architecture.md`, "Changing the booking fee").
 
+## Owner decisions on buyer data
+
+- **Organisers see buyers' names and emails (5 Nov 2026).** Each event's
+  organiser gets an Orders tab with the name and email of the people who
+  bought tickets (an export too), for 12 months after the event ends. Buyers
+  are told at checkout; organisers may use the details only for the event, and
+  need consent for marketing email (Spam Act). Orders from before the feature
+  are never shared. No self-serve withdrawal yet: support clears a buyer's
+  details on request (`docs/supabase-setup.md`). The privacy policy wording is
+  for the owner to approve. See `docs/architecture.md`, "Organiser orders".
+
 ## Legal / registration status
 
 - ABN: obtained

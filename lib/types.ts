@@ -1,3 +1,4 @@
+import type { OrganiserSocialLinks } from "./api/types";
 import type { RefundPolicy } from "./refund-policy";
 import type { TicketingMode } from "./ticketing";
 import type { AustralianTimeZone, StateCode } from "./time-zones";
@@ -57,8 +58,9 @@ export interface TicketType {
    */
   soldOut?: boolean;
   /**
-   * Tickets left, only when the API says so (10 or fewer; 0 when sold out).
-   * Absent when more are left: never inferred from `quantityAvailable`.
+   * Tickets left, only when the API says so (10 or fewer; for a group ticket
+   * 20 or fewer people; 0 when sold out). Absent when more are left: never
+   * inferred from `quantityAvailable`.
    */
   remaining?: number;
   /**
@@ -79,6 +81,12 @@ export interface TicketType {
    * sells out.
    */
   opensAfter?: { ticketTypeId: string; name: string };
+  /**
+   * Group ticket: how many people one ticket admits (2 to 10). Absent for a
+   * single ticket. `quantityAvailable` and `remaining` count people, a booking's
+   * quantity counts groups. See lib/ticket-groups.ts.
+   */
+  admits?: number;
 }
 
 /** An event's seat map (reserved seating): its version, for GET /events/{id}/seat-map?v={version}. */
@@ -178,6 +186,15 @@ export interface SheltuhEvent {
    * demo and otherwise: the event page shows their initials instead.
    */
   organiserLogoThumbUrl?: string;
+  /**
+   * The Host card's extras (live event pages only, from GET /events/slug/{slug};
+   * never on list events): the organiser's website, their social links (https
+   * URLs built by the server) and a short excerpt of their bio. Each is absent
+   * when not set; the demo's come from lib/sample-organisers.ts.
+   */
+  organiserWebsiteUrl?: string;
+  organiserSocialLinks?: OrganiserSocialLinks;
+  organiserBio?: string;
   poster: EventPoster;
   /** Optional event photo/poster (path under /public or absolute URL). Falls back to `poster` art when absent or failing to load. */
   imageUrl?: string;

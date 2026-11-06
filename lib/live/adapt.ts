@@ -33,6 +33,12 @@ export function adaptPublicEvent(event: PublicEvent): SheltuhEvent {
     organiserName: event.organiserName,
     // Only while the organiser has a logo (and is approved): absent means initials.
     ...(event.organiserLogoThumbUrl ? { organiserLogoThumbUrl: event.organiserLogoThumbUrl } : {}),
+    // Host card extras, only on the single-event route and only when set.
+    ...(event.organiserWebsiteUrl ? { organiserWebsiteUrl: event.organiserWebsiteUrl } : {}),
+    ...(event.organiserSocialLinks && Object.keys(event.organiserSocialLinks).length > 0
+      ? { organiserSocialLinks: { ...event.organiserSocialLinks } }
+      : {}),
+    ...(event.organiserBio ? { organiserBio: event.organiserBio } : {}),
     poster: assignPoster(event.slug),
     imageUrl: event.imageUrl,
     // Only with a focus point: an event without one adapts exactly as before.
@@ -62,6 +68,8 @@ export function adaptPublicEvent(event: PublicEvent): SheltuhEvent {
       ...(typeof ticket.remaining === "number" ? { remaining: ticket.remaining } : {}),
       ...(ticket.seated === true ? { seated: true as const } : {}),
       ...(ticket.opensAfterPrevious === true ? { opensAfterPrevious: true } : {}),
+      // Group tickets: only above 1 (a single ticket's shape is unchanged).
+      ...(typeof ticket.admits === "number" && ticket.admits > 1 ? { admits: ticket.admits } : {}),
       ...(ticket.opensAfter ? { opensAfter: { ticketTypeId: ticket.opensAfter.ticketTypeId, name: ticket.opensAfter.name } } : {}),
     })),
     // An external event's stock isn't known, so it's never sold out here.

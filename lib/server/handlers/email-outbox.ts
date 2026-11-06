@@ -7,6 +7,7 @@ import { HttpError, okPrivate } from "../http";
 import { decodeCursor, parseLimit, toPage } from "../pagination";
 import { ADMIN_EMAIL_JOB_SELECT, toAdminEmailJob } from "../records";
 import type { Handler } from "../route";
+import { refreshTrending } from "./trending";
 import {
   EMAIL_JOB_STATUSES,
   EMAIL_OUTBOX_KINDS,
@@ -136,7 +137,8 @@ async function queueEventReminders(deps: Deps): Promise<void> {
 /**
  * GET /api/cron/email-outbox — sends every due job (retries, and anything
  * the after-response attempt didn't finish), then records the run for
- * GET /api/admin/emails/health. Returns counts only. Called by Vercel Cron
+ * GET /api/admin/emails/health, then rebuilds the trending snapshot
+ * (refreshTrendingAfterDrain). Returns the email counts only. Called by Vercel Cron
  * (vercel.json: daily on Hobby, every 5 minutes on Pro) and, on Hobby, by
  * Supabase Cron with pg_net every 5 minutes (docs/supabase-setup.md §3).
  *
@@ -158,8 +160,25 @@ export const runEmailOutboxCron: Handler = async (req, _params, deps) => {
        sent = excluded.sent, retrying = excluded.retrying, failed = excluded.failed`,
     [summary.claimed, summary.sent, summary.retrying, summary.failed],
   );
+  await refreshTrendingAfterDrain(deps);
   return okPrivate(summary);
 };
+
+/**
+ * The trending snapshot's refresh (and the event clips' sweep after the
+ * response) rides on this cron since the payouts job took trending's slot in
+ * vercel.json (the Hobby plan allows two crons). It runs after the drain, so
+ * it can't delay a ticket email, and it never fails the run: whatever goes
+ * wrong is logged as a fixed message with its SQLSTATE only, and the next run
+ * (or GET /api/cron/trending, still callable) tries again.
+ */
+async function refreshTrendingAfterDrain(deps: Deps): Promise<void> {
+  try {
+    await refreshTrending(deps);
+  } catch (err) {
+    console.error(`Email outbox cron: refreshing trending failed (SQLSTATE ${pgErrorCode(err) ?? "unknown"}).`);
+  }
+}
 
 /**
  * A due job that has waited this long hasn't been picked up by any run. With

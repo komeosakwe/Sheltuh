@@ -149,6 +149,11 @@ export function storedPlaceOf(event: { state?: StateCode; timeZone?: AustralianT
   return event.state && event.timeZone ? { state: event.state, timeZone: event.timeZone } : DEFAULT_EVENT_PLACE;
 }
 
+/** An event's ticket types' stored `admits` (group tickets only), as ParseEventOptions.storedAdmits wants them. */
+export function storedAdmitsOf(event: { ticketTypes: { id: string; admits?: number }[] }): ReadonlyMap<string, number> {
+  return new Map(event.ticketTypes.flatMap((t) => (typeof t.admits === "number" ? [[t.id, t.admits] as const] : [])));
+}
+
 /** The state, as `state` is sent: one of STATE_CODES exactly. */
 function isStateCode(value: unknown): value is StateCode {
   return typeof value === "string" && (STATE_CODES as readonly string[]).includes(value);
@@ -319,6 +324,8 @@ export interface ParseEventOptions {
    * entered in. Absent (create): DEFAULT_EVENT_PLACE.
    */
   storedPlace?: EventPlace;
+  /** The event's ticket types' stored `admits`, on edit (requireTicketTypes: group tickets switched off still keep their own). */
+  storedAdmits?: ReadonlyMap<string, number>;
 }
 
 /**
@@ -357,7 +364,7 @@ export function parseEventInput(body: RawEventBody, options: ParseEventOptions =
       errors.ticketTypes = "Events with tickets sold on another site don't have Sheltüh ticket types.";
     }
   } else {
-    ticketTypes = requireTicketTypes(body.ticketTypes, "ticketTypes", errors);
+    ticketTypes = requireTicketTypes(body.ticketTypes, "ticketTypes", errors, { storedAdmits: options.storedAdmits });
   }
 
   if (startsAt && endsAt && Date.parse(endsAt) <= Date.parse(startsAt)) {

@@ -80,6 +80,21 @@ const RESERVED_WORD_SKELETONS = new Set(RESERVED_WORDS.map(skeleton));
 
 const graphemes = new Intl.Segmenter("und", { granularity: "grapheme" });
 
+/** Contains a control character or one that renders as nothing (the checks parseDisplayName and parseBuyerName share). */
+export function hasInvisibleOrControl(value: string): boolean {
+  return INVISIBLE_OR_CONTROL.test(value) || INVISIBLE.test(value);
+}
+
+/** Contains at least one letter or digit in any script. */
+export function hasLetterOrNumber(value: string): boolean {
+  return LETTER_OR_NUMBER.test(value);
+}
+
+/** Contains "@" (or its fullwidth form): an email address or a handle, which a name shouldn't carry. */
+export function containsAtSign(value: string): boolean {
+  return AT_SIGN.test(value);
+}
+
 /** Some user-perceived character carries more than MAX_MARKS_PER_GRAPHEME combining marks. */
 export function tooManyMarks(name: string): boolean {
   for (const { segment } of graphemes.segment(name)) {

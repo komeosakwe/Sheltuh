@@ -9,6 +9,7 @@ import type { Deps } from "./deps";
 import { sendOpsAlertsSoon } from "./email-outbox";
 import { HttpError, PRIVATE_NO_STORE, createdPrivate } from "./http";
 import { orderReference } from "./order-reference";
+import { payoutsSchemaMissing } from "./payout-schema";
 import type { CheckoutResult, EventRecord, OrderLineItem, TicketSeat } from "./types";
 
 /**
@@ -163,16 +164,19 @@ export interface CheckoutBasket {
   trackingCode: string | null;
   /** Support Sheltüh (validated: 0 for none). */
   supportCents?: number;
+  /** The buyer's name as parseBuyerName cleaned it (null or absent for none). */
+  buyerName?: string | null;
 }
 
 /**
  * SHA-256 (hex) over the event, the kind, the canonical basket (lines sorted
  * by ticket type, seats sorted, the map version), the normalised buyer email,
  * the tracking code and, only when there is one, the Support Sheltüh amount
- * (so a basket without it hashes exactly as before it existed, and an attempt
- * begun before a deploy still replays). Stored instead of the basket, so the
- * attempts table holds no email. A replay with another support amount is a
- * mismatch (422), like any other change.
+ * and then the buyer's name (so a basket without them hashes exactly as
+ * before they existed, and an attempt begun before a deploy still replays).
+ * Stored instead of the basket, so the attempts table holds neither email nor
+ * name. A replay with another support amount or name is a mismatch (422),
+ * like any other change.
  */
 export function checkoutFingerprint(basket: CheckoutBasket): string {
   const lines = basket.lines
@@ -188,6 +192,8 @@ export function checkoutFingerprint(basket: CheckoutBasket): string {
     email,
     basket.trackingCode,
     ...(basket.supportCents && basket.supportCents > 0 ? [basket.supportCents] : []),
+    // Tagged, so a name can never be read as a support amount.
+    ...(basket.buyerName ? [{ buyerName: basket.buyerName }] : []),
   ]);
   return createHash("sha256").update(canonical, "utf8").digest("hex");
 }
@@ -389,10 +395,26 @@ interface SessionOrder {
   created_epoch: number;
   seats: (TicketSeat & { ticketTypeId: string })[] | null;
   hold_expires_at: string | Date | null;
+  /**
+   * How the organiser's share is paid, as stored when the order was made: 'destination' (a destination
+   * charge, the organiser paid with the payment) or 'transfer' (charged on the platform, transferred about
+   * 2 days after the event: lib/server/order-transfers.ts). The session follows the order, never the switch.
+   */
+  payout_method: "destination" | "transfer";
 }
 
 /** Everything the session is made from, read back from the order, so a retry for the same order sends Stripe the same parameters. */
 async function loadSessionOrder(db: Db, orderId: string): Promise<SessionOrder | undefined> {
+  try {
+    return await loadSessionOrderWith(db, orderId, "o.payout_method");
+  } catch (err) {
+    // The app deployed before 20261119000000_delayed_payouts.sql: the column isn't there, and every order is a destination order.
+    if (!(await payoutsSchemaMissing(db, err))) throw err;
+    return loadSessionOrderWith(db, orderId, "'destination'::text as payout_method");
+  }
+}
+
+async function loadSessionOrderWith(db: Db, orderId: string, payoutMethod: string): Promise<SessionOrder | undefined> {
   const [row] = await db.query<SessionOrder>(
     `select o.line_items, o.application_fee_cents, o.total_cents, o.support_cents, o.buyer_email, o.event_title,
             floor(extract(epoch from o.created_at))::float8 as created_epoch,
@@ -402,7 +424,8 @@ async function loadSessionOrder(db: Db, orderId: string): Promise<SessionOrder |
                  from public.event_seats s where s.event_id = o.event_id and s.id = any(o.seat_ids))
             end as seats,
             (select min(s.hold_expires_at) from public.event_seats s
-              where s.event_id = o.event_id and s.hold_order_id = o.id) as hold_expires_at
+              where s.event_id = o.event_id and s.hold_order_id = o.id) as hold_expires_at,
+            ${payoutMethod}
        from public.orders o where o.id = $1`,
     [orderId],
   );
@@ -450,7 +473,12 @@ function sessionParams(
             currency: "aud",
             product_data: {
               name: `${line.ticketTypeName} — ${order.event_title}`,
-              ...(lineSeats.length > 0 ? { description: lineSeats.map(formatSeatLine).join("; ") } : {}),
+              ...(lineSeats.length > 0
+                ? { description: lineSeats.map(formatSeatLine).join("; ") }
+                : // A group ticket (the order's snapshot): what one of them admits. Never on a single ticket.
+                  line.admits !== undefined && line.admits > 1
+                  ? { description: `Admits ${line.admits}` }
+                  : {}),
             },
             unit_amount: line.unitPriceCents,
           },
@@ -481,10 +509,18 @@ function sessionParams(
     // A destination charge: the organiser's transfer is part of the payment (charge.refunded's
     // transfer_data.destination is how an early refund is matched to one of our organisers: orders.ts).
     // The application fee is the booking fee plus any Support Sheltüh, so the transfer never includes support.
-    payment_intent_data: {
-      application_fee_amount: order.application_fee_cents + order.support_cents,
-      transfer_data: { destination: checkout.stripeAccountId },
-    },
+    // An order made with DELAYED_PAYOUTS on ('transfer') is a plain charge on the platform instead: no
+    // transfer_data and no application_fee_amount (Stripe allows neither without a destination). The
+    // payment intent carries the order id (in its metadata, which its charge inherits, and as its transfer
+    // group), so a refund of the charge is matched to the order and the organiser's share is sent later as
+    // a transfer in that group (lib/server/order-transfers.ts).
+    payment_intent_data:
+      order.payout_method === "transfer"
+        ? { transfer_group: orderId, metadata: { orderId, eventId: event.eventId } }
+        : {
+            application_fee_amount: order.application_fee_cents + order.support_cents,
+            transfer_data: { destination: checkout.stripeAccountId },
+          },
     // Stripe's form on our own page (/checkout/pay); no cancel_url in this mode (Back is ours: for seats,
     // SeatPicker → POST /orders/by-session/{id}/cancel releases them at once).
     ui_mode: "embedded_page",
@@ -615,6 +651,20 @@ export async function runPaidCheckout(deps: Deps, checkout: PaidCheckout): Promi
     // The order exists before Stripe does, so no payment can ever arrive without an order to attach it to.
     try {
       await checkout.createOrder(orderId);
+      // Decided once, here, while the order is still pending (the database refuses a change afterwards), and
+      // before any session exists: with the switch off nothing is written, and the order is a destination
+      // order exactly as before. A reused order (a retry after a failed try) keeps what it was made with.
+      if (deps.delayedPayouts()) {
+        try {
+          await db.query(
+            `update public.orders set payout_method = 'transfer' where id = $1 and status = 'pending' and payout_method = 'destination'`,
+            [orderId],
+          );
+        } catch (err) {
+          // The migration isn't applied yet: today's destination order (loadSessionOrder reads it the same way).
+          if (!(await payoutsSchemaMissing(db, err))) throw err;
+        }
+      }
     } catch (err) {
       await failAttempt(db, checkout, lease, false);
       throw err;

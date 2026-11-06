@@ -1,9 +1,13 @@
 import { formatAud } from "@/lib/format";
+import { admitsOf } from "@/lib/ticket-groups";
+import { MAX_PEOPLE_PER_TYPE } from "@/lib/ticket-limits";
 import { isSupportSheltuhEnabled, SUPPORT_LABEL, SUPPORT_MAX_CENTS, SUPPORT_MIN_CENTS, SUPPORT_PAUSED } from "@/lib/support";
+import { containsAtSign, containsLink, hasInvisibleOrControl, hasLetterOrNumber, tooManyMarks } from "./profile-input";
 import { fail } from "./validation";
 import type { OrderLineItem, TicketTypeInput } from "./types";
 
-const MAX_QUANTITY_PER_LINE = 20;
+/** Per ticket type per order, in people: a group ticket counts the people it admits (MAX_PEOPLE_PER_TYPE, 20). */
+const MAX_QUANTITY_PER_LINE = MAX_PEOPLE_PER_TYPE;
 
 interface RawLineItem {
   ticketTypeId?: unknown;
@@ -55,19 +59,25 @@ export function parseCheckoutLineItems(body: RawCheckoutBody, eventTicketTypes: 
       errors[`${prefix}.quantity`] = "Quantity must be a whole number of 1 or more.";
       return;
     }
-    if (quantity > MAX_QUANTITY_PER_LINE) {
-      errors[`${prefix}.quantity`] = `Quantity can't exceed ${MAX_QUANTITY_PER_LINE} per order.`;
-      return;
-    }
-
     const ticketType = byId.get(ticketTypeId);
     if (!ticketType) return; // unreachable — byId.has() already checked above
+    // Group tickets: from the database's ticket type, never the client. The cap counts people.
+    const admits = admitsOf(ticketType);
+    if (quantity * admits > MAX_QUANTITY_PER_LINE) {
+      errors[`${prefix}.quantity`] =
+        admits > 1
+          ? `You can book up to ${Math.floor(MAX_QUANTITY_PER_LINE / admits)} of "${ticketType.name}" per order (${MAX_QUANTITY_PER_LINE} people).`
+          : `Quantity can't exceed ${MAX_QUANTITY_PER_LINE} per order.`;
+      return;
+    }
     result.push({
       ticketTypeId: ticketType.id,
       ticketTypeName: ticketType.name,
       unitPriceCents: ticketType.priceCents,
       feePolicy: ticketType.feePolicy,
       quantity,
+      // The snapshot fulfilment takes people by, only above 1 (an order of single tickets is unchanged).
+      ...(admits > 1 ? { admits } : {}),
     });
   });
 
@@ -103,4 +113,45 @@ export function refuseSupportOnFreeOrder(supportCents: number, subtotalCents: nu
   if (supportCents > 0 && subtotalCents <= 0) {
     fail({ supportCents: `${SUPPORT_LABEL} can only be added to an order with paid tickets.` });
   }
+}
+
+/**
+ * Zero-width non-joiner and joiner: invisible, so refused in a name, except
+ * where a real name needs them (Persian names and words, Indic conjuncts): a joiner
+ * between two letters, or after a letter's combining mark (a virama) and
+ * before a letter. Stripped before the invisible-character check; the name
+ * keeps them. The database allows them anywhere (the API is the stricter).
+ */
+const JOINER_BETWEEN_LETTERS = /(?<=[\p{L}\p{M}])[\u200C\u200D](?=\p{L})/gu;
+
+/** The longest buyer name (orders_buyer_name_check counts code points too). */
+export const BUYER_NAME_MAX_LENGTH = 80;
+
+/**
+ * A checkout request's optional `buyerName` (CheckoutBuyerDetails): the name
+ * the buyer typed, shown with their email to the event's organiser
+ * (docs/architecture.md, "Organiser orders"). Omitted, null or "" is none
+ * (null: the order is made without details; the API takes the name as
+ * optional for one release). Otherwise cleaned (Unicode NFC, spaces
+ * collapsed, trimmed) and checked: a string of 1 to BUYER_NAME_MAX_LENGTH
+ * characters (code points) with at least one letter or number, no control or
+ * invisible characters (a zero-width joiner is allowed between two letters),
+ * no stacked combining marks, and no "@" or links, else
+ * 400 `fieldErrors.buyerName`. A whitespace-only name is a 400 too (it was
+ * sent, and isn't a name), not silently dropped.
+ */
+export function parseBuyerName(value: unknown): string | null {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value !== "string") fail({ buyerName: "Enter your name." });
+  if (hasInvisibleOrControl(value.replace(JOINER_BETWEEN_LETTERS, ""))) {
+    fail({ buyerName: "Names can't contain invisible or control characters." });
+  }
+  const name = value.normalize("NFC").replace(/\p{Zs}+/gu, " ").trim();
+  const length = Array.from(name).length;
+  if (length === 0) fail({ buyerName: "Enter your name." });
+  if (length > BUYER_NAME_MAX_LENGTH) fail({ buyerName: `Must be ${BUYER_NAME_MAX_LENGTH} characters or fewer.` });
+  if (!hasLetterOrNumber(name)) fail({ buyerName: "Names need at least one letter or number." });
+  if (tooManyMarks(name)) fail({ buyerName: "Names can't stack accents or other marks on one character." });
+  if (containsAtSign(name) || containsLink(name)) fail({ buyerName: "Names can't include links, email addresses or @handles." });
+  return name;
 }

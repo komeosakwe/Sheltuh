@@ -2,14 +2,24 @@ import type { RefundPolicy } from "@/lib/refund-policy";
 import type { TicketingMode } from "@/lib/ticketing";
 import type { AustralianTimeZone, StateCode } from "@/lib/time-zones";
 import type { EventCategory, EventClip } from "@/lib/types";
+import { MAX_PEOPLE_PER_TYPE } from "@/lib/ticket-limits";
 import { apiFetch } from "./client";
-import type { Paginated, TicketTypeInput, VenueLocation } from "./types";
+import type { OrganiserSocialLinks, Paginated, TicketTypeInput, VenueLocation } from "./types";
 
 /**
  * `remaining` is only sent when this many tickets or fewer are left, so the
  * API never reveals an exact large stock (or, through it, sales).
  */
 export const REMAINING_SHOWN_AT_MOST = 10;
+
+/** The longest `organiserBio` excerpt on an event (characters, "…" included). */
+export const ORGANISER_BIO_EXCERPT_LENGTH = 280;
+
+/**
+ * How many people left a ticket type's `remaining` is sent for: REMAINING_SHOWN_AT_MOST, or for a group
+ * ticket (admits above 1) up to MAX_PEOPLE_PER_TYPE, so the selector never offers more groups than are left.
+ */
+export const remainingShownAtMost = (admits: number): number => (admits > 1 ? MAX_PEOPLE_PER_TYPE : REMAINING_SHOWN_AT_MOST);
 
 /**
  * A ticket type as the public sees it: the organiser's fields plus what's
@@ -20,7 +30,8 @@ export interface PublicTicketType extends TicketTypeInput {
   soldOut?: boolean;
   /**
    * Tickets left, only when REMAINING_SHOWN_AT_MOST or fewer (0 when sold
-   * out); absent when more are left. First come, first served: no ticket is
+   * out); absent when more are left. In PEOPLE: for a group ticket it is sent up to
+   * MAX_PEOPLE_PER_TYPE (see remainingShownAtMost). First come, first served: no ticket is
    * held while someone checks out.
    */
   remaining?: number;
@@ -60,6 +71,22 @@ export interface PublicEvent {
    * a logo; absent otherwise (show initials).
    */
   organiserLogoThumbUrl?: string;
+  /**
+   * The "Host" card's extras, only on the single-event route (GET
+   * /events/slug/{slug}), never in the feed or other lists, and only while the
+   * organiser is approved (the visibility of their public profile). Each is
+   * absent when the organiser hasn't set it.
+   * `organiserWebsiteUrl`: their website, as on the profile (organiser-supplied: link
+   * it nofollow ugc).
+   */
+  organiserWebsiteUrl?: string;
+  /** Their social profiles as https URLs the server built (OrganiserSocialLinks); only when they've set at least one. */
+  organiserSocialLinks?: OrganiserSocialLinks;
+  /**
+   * An excerpt of their bio: whitespace collapsed to single spaces, at most
+   * ORGANISER_BIO_EXCERPT_LENGTH characters, ending in "…" when cut. The whole bio is on their profile.
+   */
+  organiserBio?: string;
   /** Always empty for an external event. */
   ticketTypes: PublicTicketType[];
   /**

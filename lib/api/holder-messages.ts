@@ -12,8 +12,9 @@ import type {
 /**
  * Messages to ticket holders (docs/architecture.md, "Messages to ticket
  * holders"): an approved organiser sends one short plain-text email about
- * their event to everyone holding a ticket for it. Sheltüh sends it; the
- * organiser never sees an address. Live mode only.
+ * their event to everyone holding a ticket for it. Sheltüh sends it, and
+ * the organiser's Orders view (a different feature) is where they see buyers'
+ * names and emails. Live mode only.
  */
 
 /**

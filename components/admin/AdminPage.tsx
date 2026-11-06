@@ -60,8 +60,8 @@ export default function AdminPage({
   /** The trail above the current page; "Admin" first. The current page is added from `title`. */
   crumbs: Crumb[];
   title: string;
-  /** One or two sentences: what this page is for and what its actions do. */
-  intro: ReactNode;
+  /** One or two sentences: what this page is for and what its actions do. Left out where the page says it itself. */
+  intro?: ReactNode;
   width?: keyof typeof WIDTH_CLASS;
   children: ReactNode;
 }) {

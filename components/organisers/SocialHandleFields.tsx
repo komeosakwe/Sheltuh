@@ -6,8 +6,9 @@ import {
 } from "@/lib/organiser-profile";
 
 /**
- * The four optional social-handle inputs (Instagram, TikTok, Facebook page,
- * X), each with a visual prefix ("@", "facebook.com/"), a hint, and its error
+ * The eight optional social inputs (Instagram, TikTok, Spotify, SoundCloud,
+ * YouTube, Facebook page, X, LinkedIn), each with a visual prefix ("@",
+ * "facebook.com/"), a hint, and its error
  * wired up with aria-invalid / aria-describedby. Used by the organiser
  * application form and the dashboard's public profile form. The caller
  * supplies the surrounding <fieldset> and legend.

@@ -67,7 +67,7 @@ async function listLinks(db: Db, deps: Deps, event: EventRecord): Promise<Tracki
         group by v.link_code
      ), sales as (
        select o.tracking_code as code, count(*)::int as orders, sum(${ORGANISER_GROSS}) as gross,
-              sum((select coalesce(sum((li ->> 'quantity')::int), 0) from jsonb_array_elements(o.line_items) li)) as tickets
+              sum((select coalesce(sum((li ->> 'quantity')::int * coalesce((li ->> 'admits')::int, 1)), 0) from jsonb_array_elements(o.line_items) li)) as tickets
          from public.orders o
         where o.event_id = $1 and o.status = 'paid' and o.tracking_code is not null
         group by o.tracking_code

@@ -5,7 +5,7 @@ import { PG_CHECK_VIOLATION, pgConstraint, pgErrorCode, type Db } from "../db";
 import type { Deps } from "../deps";
 import { sendOpsAlertsSoon, sendTicketEmailSoon, sendWaitlistEmailsSoon } from "../email-outbox";
 import { MAX_SEATS_PER_ORDER } from "@/lib/seating/template";
-import { REMAINING_SHOWN_AT_MOST } from "@/lib/api/public-events";
+import { remainingShownAtMost } from "@/lib/api/public-events";
 import { SEAT_HOLD } from "@/lib/api/types";
 import {
   CHECKOUT_LIMITS,
@@ -19,9 +19,10 @@ import {
 } from "../checkout-attempts";
 import { clientIp, clientKey, orderKey } from "../client-key";
 import { HttpError, ok, okPrivate, readJson } from "../http";
-import { parseCheckoutLineItems, parseSupportCents, refuseSupportOnFreeOrder } from "../order-input";
+import { parseBuyerName, parseCheckoutLineItems, parseSupportCents, refuseSupportOnFreeOrder } from "../order-input";
 import { parseCheckoutSeats } from "../seat-map-input";
 import { ORDER_ID_PATTERN, orderReference } from "../order-reference";
+import { payoutsSchemaMissing } from "../payout-schema";
 import { CUSTOMER_ORDER_SELECT, eventPlaceOf, ORDER_SELECT, toCustomerOrder, toOrder } from "../records";
 import type { Handler } from "../route";
 import { parseTrackingCode } from "../tracking-codes";
@@ -102,16 +103,19 @@ async function assertAvailable(db: Db, eventId: string, lineItems: OrderLineItem
   );
   const left = new Map(rows.map((r) => [r.id, r.remaining]));
   for (const line of lineItems) {
+    // Stock is in people; a group ticket's line takes quantity x admits of it (and says what's left in groups).
+    const admits = line.admits ?? 1;
     const remaining = left.get(line.ticketTypeId) ?? 0;
-    if (line.quantity > remaining) {
-      // An exact count only when public payloads show one too (REMAINING_SHOWN_AT_MOST): a large stock, and
-      // through it sales, is never given away by asking for more than there is.
+    if (line.quantity * admits > remaining) {
+      // An exact count only when public payloads show one too (remainingShownAtMost, in people): a large
+      // stock, and through it sales, is never given away by asking for more than there is.
+      const groups = Math.floor(remaining / admits);
       throw new HttpError(
         409,
-        remaining <= 0
+        groups <= 0
           ? `"${line.ticketTypeName}" is sold out.`
-          : remaining <= REMAINING_SHOWN_AT_MOST
-            ? `Only ${remaining} of "${line.ticketTypeName}" left.`
+          : remaining <= remainingShownAtMost(admits)
+            ? `Only ${groups} of "${line.ticketTypeName}" left.`
             : `There aren't that many "${line.ticketTypeName}" tickets left. Choose fewer.`,
       );
     }
@@ -360,6 +364,27 @@ async function failMismatchedOrder(
 }
 
 /**
+ * The flags an automatic refund sends for a destination charge: the organiser's transfer is reversed and the
+ * application fee refunded, so the refund costs the platform nothing. An order paid by separate charge and
+ * transfer ('transfer', DELAYED_PAYOUTS) has no transfer yet at this point (it is only sent after the
+ * event) and no application fee on the charge, and Stripe refuses these flags on a charge that has neither:
+ * the platform's own balance pays the refund, and the transfer job never sends it (the order isn't paid).
+ * Read from the order, never from the environment, so every retry of a refund sends Stripe the same
+ * parameters. An unknown order is a destination order, as today.
+ */
+async function refundReversalFlags(db: Db, orderId: string): Promise<{ reverse_transfer?: true; refund_application_fee?: true }> {
+  let payoutMethod: string | undefined;
+  try {
+    const [row] = await db.query<{ payout_method: string }>(`select payout_method from public.orders where id = $1`, [orderId]);
+    payoutMethod = row?.payout_method;
+  } catch (err) {
+    // Before 20261119000000_delayed_payouts.sql is applied every order is a destination order, as it always was.
+    if (!(await payoutsSchemaMissing(db, err))) throw err;
+  }
+  return payoutMethod === "transfer" ? {} : { reverse_transfer: true, refund_application_fee: true };
+}
+
+/**
  * Refunds a paid order that couldn't be fulfilled (sold out, or the event
  * was unpublished, before payment confirmed) — including Sheltüh's fee and
  * the organiser's transfer. Stripe's idempotency key makes a retry (e.g.
@@ -383,8 +408,7 @@ async function refundOversoldOrder(deps: Deps, orderId: string, paymentIntentId:
     refund = await deps.stripe().refunds.create(
       {
         payment_intent: paymentIntentId,
-        reverse_transfer: true,
-        refund_application_fee: true,
+        ...(await refundReversalFlags(deps.db, orderId)),
         metadata: { orderId, reason: "could_not_fulfil_after_payment" },
       },
       { idempotencyKey: `oversold-refund-${orderId}` },
@@ -463,8 +487,7 @@ async function refundPaymentForFailedOrder(
     refund = await deps.stripe().refunds.create(
       {
         payment_intent: paymentIntentId,
-        reverse_transfer: true,
-        refund_application_fee: true,
+        ...(await refundReversalFlags(deps.db, orderId)),
         metadata: { orderId, reason },
       },
       { idempotencyKey: `failed-order-refund-${orderId}` },
@@ -481,7 +504,53 @@ async function refundPaymentForFailedOrder(
   await recordRefundStatus(deps, refund, { orderId, paymentIntentId });
 }
 
+/** Stripe answered that the object doesn't exist (HTTP 404, code resource_missing): the only failure that proves a payment isn't ours. */
+function isStripeNotFound(err: unknown): boolean {
+  const { statusCode, code } = (typeof err === "object" && err !== null ? err : {}) as { statusCode?: unknown; code?: unknown };
+  return statusCode === 404 || code === "resource_missing";
+}
+
 type PaymentRefundResult = "refunded" | "partial" | "unchanged" | "deferred" | "not_found";
+
+/**
+ * The connected account an early refund (one that arrives before its payment is recorded) of a separate charge
+ * and transfer belongs to: the organiser of the 'transfer' order that the charge's metadata names (the
+ * payment intent's, which the charge inherits; the payment intent is asked for when the charge lacks it).
+ * Undefined when the payment is already recorded (the destination is then not needed), the charge isn't one
+ * of those, or Stripe says it has no such payment intent (logged by error type and code; the refund is then
+ * dropped as not ours). Any other Stripe failure is thrown, so the webhook is answered 500 and retried.
+ */
+async function organiserAccountOfCharge(deps: Deps, charge: Stripe.Charge, paymentIntentId: string): Promise<string | undefined> {
+  const [recorded] = await deps.db.query(`select 1 from public.orders where stripe_payment_intent_id = $1 limit 1`, [paymentIntentId]);
+  if (recorded) return undefined;
+  let orderId = charge.metadata?.orderId;
+  if (!orderId || !ORDER_ID_PATTERN.test(orderId)) {
+    try {
+      const paymentIntent = await deps.stripe().paymentIntents.retrieve(paymentIntentId);
+      orderId = paymentIntent.metadata?.orderId;
+    } catch (err) {
+      // Only Stripe saying there is no such payment means it isn't ours. Anything else (a timeout, a 5xx, rate
+      // limiting, our key failing) is unknown: rethrown, so the webhook answers 500 and Stripe sends it again,
+      // instead of dropping the refund of one of our payments for good.
+      if (!isStripeNotFound(err)) throw err;
+      console.warn(`A refund's payment intent is unknown to Stripe (${stripeErrorLabel(err)}); treated as not ours.`);
+      return undefined;
+    }
+  }
+  if (!orderId || !ORDER_ID_PATTERN.test(orderId)) return undefined;
+  try {
+    const [row] = await deps.db.query<{ stripe_account_id: string | null }>(
+      `select g.stripe_account_id from public.orders o join public.organisers g on g.id = o.organiser_id
+        where o.id = $1 and o.payout_method = 'transfer'`,
+      [orderId],
+    );
+    return row?.stripe_account_id ?? undefined;
+  } catch (err) {
+    // Before 20261119000000_delayed_payouts.sql there are no transfer orders, so no charge of that kind.
+    if (!(await payoutsSchemaMissing(deps.db, err))) throw err;
+    return undefined;
+  }
+}
 
 /**
  * charge.refunded: a refund of one of our payments, whoever made it (usually
@@ -496,8 +565,10 @@ type PaymentRefundResult = "refunded" | "partial" | "unchanged" | "deferred" | "
  * One that arrives before its order's payment is recorded, for a payment to
  * one of our organisers' accounts, is held for fulfilment (`deferred`) and
  * judged by the same rule then: in full, nothing is issued; in part, the
- * tickets are issued and flagged. Never throws for a payment that isn't ours:
- * Stripe would retry it for days. Returns the result (undefined when the
+ * tickets are issued and flagged. Never throws for a payment that isn't ours
+ * (Stripe would retry it for days), but does for a failure to find that out
+ * (Stripe unreachable: organiserAccountOfCharge), so the webhook answers 500
+ * and the refund is delivered again. Returns the result (undefined when the
  * charge was unusable).
  */
 async function recordPaymentRefund(deps: Deps, eventId: string, charge: Stripe.Charge): Promise<PaymentRefundResult | undefined> {
@@ -513,16 +584,41 @@ async function recordPaymentRefund(deps: Deps, eventId: string, charge: Stripe.C
     console.warn(`Stripe ${eventId}: charge.refunded without a usable payment intent or amount; ignored.`);
     return undefined;
   }
-  // Only a charge paying out to one of our organisers can be held as an early refund. Today's checkouts are
-  // destination charges (payment_intent_data.transfer_data.destination, lib/server/checkout-attempts.ts), so
-  // the charge itself names the organiser's account. If checkout moves to separate charges and transfers
-  // (planned), the charge has no transfer_data: this match must then change (e.g. to the charge's
-  // transfer_group or metadata.orderId), or every early refund would be dropped as not ours.
-  const destination = expandableId(charge.transfer_data?.destination);
+  // Only a charge paying out to one of our organisers can be held as an early refund. A destination charge
+  // (payment_intent_data.transfer_data.destination, lib/server/checkout-attempts.ts) names the organiser's
+  // account itself. A charge made for separate charges and transfers (DELAYED_PAYOUTS) has no transfer_data:
+  // its organiser is the one of the order its metadata names (organiserAccountOfCharge).
+  const destination =
+    expandableId(charge.transfer_data?.destination) ?? (await organiserAccountOfCharge(deps, charge, paymentIntentId));
   const [row] = await deps.db.query<{ result: PaymentRefundResult; order_id: string | null }>(
     `select result, order_id from private.record_payment_refund($1, $2, $3, $4, $5, $6)`,
     [paymentIntentId, amount, charge.refunded, stripeId(charge.id) ?? null, destination ?? null, stripeId(eventId) ?? null],
   );
+  // A transfer order's organiser share, not sent yet, is cancelled (refunded in full, and Stripe never asked to
+  // create it) or held (in part, or in full when Stripe may have made it: outcome unknown); one already sent, or
+  // possibly sent, can only be settled by a person: a payment exception and an ops alert. Run for every
+  // delivery of the event (idempotent), whatever record_payment_refund made of it.
+  let flag: { result: string; alert_queued: boolean } | undefined;
+  try {
+    [flag] = await deps.db.query<{ result: string; alert_queued: boolean }>(
+      `select result, alert_queued from private.flag_transfer_after_refund($1, $2)`,
+      [paymentIntentId, stripeId(eventId) ?? null],
+    );
+  } catch (err) {
+    // Before 20261119000000_delayed_payouts.sql there are no transfers to cancel, hold or flag.
+    if (!(await payoutsSchemaMissing(deps.db, err))) throw err;
+  }
+  if (flag?.alert_queued) sendOpsAlertsSoon(deps);
+  if (flag?.result === "flagged") {
+    console.error(
+      `Order ${row.order_id ? orderReference(row.order_id) : "(unmatched)"} was refunded after its organiser's transfer was sent: reverse the transfer (a payment exception was opened).`,
+    );
+  }
+  if (flag?.result === "unknown") {
+    console.error(
+      `Order ${row.order_id ? orderReference(row.order_id) : "(unmatched)"} was refunded in full while its organiser's transfer may already exist in Stripe: the transfer is held and a payment exception was opened (check Stripe, then cancel it in the transfer queue).`,
+    );
+  }
   // Logs name the order by its short reference only: never its id (the confirmation page's credential) or the buyer.
   const reference = row.order_id ? orderReference(row.order_id) : undefined;
   if (row.result === "refunded") {
@@ -726,6 +822,13 @@ export async function takeClientLimit(req: Request, deps: Deps, secret: string |
  * its total and of the attempt's fingerprint (a replay with another amount is
  * a 422), a line of its own in Stripe's session, and all of it goes to
  * Sheltüh (application_fee_amount): ../checkout-attempts.ts.
+ *
+ * Optional `buyerName` (CheckoutBuyerDetails in lib/api/types.ts; paid, free,
+ * general admission and seated alike): cleaned by parseBuyerName (400
+ * `fieldErrors.buyerName`), stored on the order (the database stamps
+ * `details_notice_at`) and part of the attempt's fingerprint (a replay with
+ * another name is a 422). It reaches the event's organiser's Orders view
+ * (./event-orders.ts), and nothing else: never a CustomerOrder, an email or a log.
  */
 export const createCheckout: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
   const { db } = deps;
@@ -747,6 +850,8 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
   // Support Sheltüh: validated here, and only on an order with a paid ticket (400 otherwise).
   const supportCents = parseSupportCents(body.supportCents);
   refuseSupportOnFreeOrder(supportCents, totals.subtotalCents);
+  // Shown to the organiser with the email; optional for one release (null: no details). Part of the attempt's fingerprint.
+  const buyerName = parseBuyerName(body.buyerName);
   const isFree = totals.totalCents === 0;
   // Free: tickets straight away for a member's own verified email, an emailed confirmation link for anyone else.
   if (isFree) {
@@ -754,7 +859,13 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
     await assertFreeTicketsPerOrder(deps, lineItems);
     await assertAvailable(db, eventId, lineItems);
     return refuseIfClosed(() =>
-      createFreeOrder(req, deps, { event, lineItems, buyerEmail, trackingCode: parseTrackingCode(body.trackingCode) }),
+      createFreeOrder(req, deps, {
+        event,
+        lineItems,
+        buyerEmail,
+        buyerName,
+        trackingCode: parseTrackingCode(body.trackingCode),
+      }),
     );
   }
 
@@ -769,6 +880,7 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
     buyerEmail: body.buyerEmail,
     trackingCode,
     supportCents,
+    buyerName,
   });
   // The attempt is bound to this client: a replay or retry from another client key is refused.
   const client = requestClientKey(req, deps);
@@ -784,9 +896,9 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
   const insertOrder = (orderId: string) =>
     db.query(
       `insert into public.orders (id, event_id, organiser_id, event_title, line_items, subtotal_cents,
-         buyer_fee_cents, total_cents, application_fee_cents, buyer_email, tracking_code, support_cents)
+         buyer_fee_cents, total_cents, application_fee_cents, buyer_email, tracking_code, support_cents, buyer_name)
        values ($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9, $10,
-         (select l.code from public.event_tracking_links l where l.event_id = $2 and l.code = $11), $12)`,
+         (select l.code from public.event_tracking_links l where l.event_id = $2 and l.code = $11), $12, $13)`,
       [
         orderId,
         eventId,
@@ -801,6 +913,7 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
         buyerEmail,
         trackingCode,
         supportCents,
+        buyerName,
       ],
     );
 
@@ -1105,6 +1218,7 @@ async function createSeatedCheckout(
   const trackingCode = parseTrackingCode(body.trackingCode);
   // Support Sheltüh: its form here; whether the order may carry it once it's priced (below).
   const supportCents = parseSupportCents(body.supportCents);
+  const buyerName = parseBuyerName(body.buyerName);
   // The same key and basket again: the same order and holds, before the seat check (which would see them held).
   const fingerprint = checkoutFingerprint({
     kind: "seated",
@@ -1114,6 +1228,7 @@ async function createSeatedCheckout(
     buyerEmail: body.buyerEmail,
     trackingCode,
     supportCents,
+    buyerName,
   });
   const client = requestClientKey(req, deps);
   const peeked = await peekCheckoutAttempt(db, key, fingerprint, client.key);
@@ -1152,7 +1267,7 @@ async function createSeatedCheckout(
     await assertFreeTicketsPerOrder(deps, lineItems);
     await assertAvailable(db, event.eventId, lineItems);
     return refuseIfClosed(() =>
-      createFreeOrder(req, deps, { event, lineItems, buyerEmail, trackingCode, seats: { seatIds, labels } }),
+      createFreeOrder(req, deps, { event, lineItems, buyerEmail, buyerName, trackingCode, seats: { seatIds, labels } }),
     );
   }
 
@@ -1171,7 +1286,7 @@ async function createSeatedCheckout(
       db.query<{ result: string; unavailable_seat_ids: string[] | null }>(
         `select result, unavailable_seat_ids
            from private.hold_seats($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9, $10, $11, $12, $13::text[],
-                                   $14::interval, $15, $16::interval, $17, $18, $19)`,
+                                   $14::interval, $15, $16::interval, $17, $18, $19, $20)`,
         [
           orderId,
           event.eventId,
@@ -1192,6 +1307,7 @@ async function createSeatedCheckout(
           SEAT_HOLD_LIMITS.capMin,
           SEAT_HOLD_LIMITS.capShare,
           supportCents,
+          buyerName,
         ],
       ),
     );
@@ -1332,7 +1448,8 @@ async function openOrderState(db: Db, orderId: string, eventId: string, lineItem
   );
   const remaining = row.remaining ?? {};
   const soldOut =
-    lineItems.some((line) => line.quantity > (remaining[line.ticketTypeId] ?? 0)) || (seatIds !== null && row.seats_unavailable);
+    lineItems.some((line) => line.quantity * (line.admits ?? 1) > (remaining[line.ticketTypeId] ?? 0)) ||
+    (seatIds !== null && row.seats_unavailable);
   return { soldOut, seats: row.seats ?? [] };
 }
 
@@ -1346,6 +1463,7 @@ function paymentLines(lineItems: OrderLineItem[], seats: (TicketSeat & { ticketT
     return {
       ticketTypeName: line.ticketTypeName,
       quantity: line.quantity,
+      ...(line.admits !== undefined && line.admits > 1 ? { admits: line.admits } : {}),
       unitTotalCents: unit.totalCents,
       lineTotalCents: calculateOrderSummary(line.unitPriceCents, line.quantity, line.feePolicy).totalCents,
       // This line's own fee policy: a paid buyer-pays ticket (an organiser-absorbed or free one has none).

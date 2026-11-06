@@ -117,6 +117,49 @@ describe("journey harness: fake Stripe through the real SDK", () => {
     ).rejects.toMatchObject({ statusCode: 400 });
   });
 
+  it("delayed payouts: a platform charge (no destination), the payment read back with its charge, and one transfer per idempotency key", async () => {
+    const stripe = createFakeStripeClient(key, fake.port);
+    const account = await stripe.accounts.create({ country: "AU" });
+    fake.activateAccount(account.id);
+    const line = { price_data: { currency: "aud", product_data: { name: "GA" }, unit_amount: 3000 }, quantity: 1 };
+    // Stripe refuses an application fee without a destination to take it from.
+    await expect(
+      stripe.checkout.sessions.create({ mode: "payment", line_items: [line], payment_intent_data: { application_fee_amount: 230 } }),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    const session = await stripe.checkout.sessions.create({
+      mode: "payment",
+      client_reference_id: "ord_platform",
+      line_items: [line],
+      payment_intent_data: { transfer_group: "ord_platform", metadata: { orderId: "ord_platform" } },
+    });
+    const { charge } = fake.pay(session.id, "buyer@example.com");
+    expect(charge).toMatchObject({ transfer_data: null, application_fee_amount: null, metadata: { orderId: "ord_platform" }, transfer_group: "ord_platform" });
+    const paymentIntent = await stripe.paymentIntents.retrieve(charge.payment_intent, { expand: ["latest_charge"] });
+    expect(paymentIntent).toMatchObject({ status: "succeeded", metadata: { orderId: "ord_platform" }, latest_charge: { id: charge.id, paid: true, disputed: false } });
+    await expect(stripe.paymentIntents.retrieve("pi_nope")).rejects.toMatchObject({ statusCode: 404 });
+
+    const params = { amount: 2500, currency: "aud", destination: account.id, source_transaction: charge.id, transfer_group: "ord_platform", metadata: { orderId: "ord_platform" } };
+    const transfer = await stripe.transfers.create(params, { idempotencyKey: "order-transfer-ord_platform-1" });
+    const again = await stripe.transfers.create(params, { idempotencyKey: "order-transfer-ord_platform-1" });
+    expect(again.id).toBe(transfer.id);
+    expect(fake.transfersTo(account.id)).toHaveLength(1);
+    // Not more than the charge has: a second, differently keyed transfer for the rest is refused.
+    await expect(stripe.transfers.create({ ...params, amount: 1000 }, { idempotencyKey: "order-transfer-ord_platform-2" })).rejects.toMatchObject({
+      type: "StripeInvalidRequestError",
+      code: "amount_too_large",
+    });
+    const listed = await stripe.transfers.list({ transfer_group: "ord_platform", destination: account.id, limit: 10 });
+    expect(listed.data.map((t) => t.id)).toEqual([transfer.id]);
+    expect((await stripe.transfers.list({ transfer_group: "other" })).data).toEqual([]);
+
+    await stripe.transfers.createReversal(transfer.id, {});
+    expect((await stripe.transfers.list({ transfer_group: "ord_platform" })).data[0]).toMatchObject({ reversed: true, amount_reversed: 2500 });
+    fake.failNextTransfer = { code: "balance_insufficient" };
+    await expect(stripe.transfers.create({ ...params, amount: 100 }, { idempotencyKey: "k-balance" })).rejects.toMatchObject({ code: "balance_insufficient" });
+    const inactive = await stripe.accounts.create({ country: "AU" });
+    await expect(stripe.transfers.create({ ...params, destination: inactive.id }, { idempotencyKey: "k-inactive" })).rejects.toMatchObject({ code: "account_invalid" });
+  });
+
   it("signs webhook events the SDK verifies with the secret, and only with it", () => {
     const { payload, signature } = fake.sign(fake.event("charge.refunded", { id: "ch_1" }));
     expect(createFakeStripeClient(key, fake.port).webhooks.constructEvent(payload, signature, "whsec_self_test").type).toBe("charge.refunded");

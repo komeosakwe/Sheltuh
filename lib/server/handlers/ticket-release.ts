@@ -6,11 +6,12 @@
  */
 import type { ReleaseTicketsResult } from "@/lib/api/types";
 import { requireCaller } from "../auth";
+import { PG_CHECK_VIOLATION, pgConstraint, pgErrorCode } from "../db";
 import { sendWaitlistEmailsSoon } from "../email-outbox";
 import { HttpError, okPrivate, readJson } from "../http";
 import { isUuid } from "../pagination";
 import type { Handler } from "../route";
-import { fail } from "../validation";
+import { fail, ticketAdmitsMultipleMessage } from "../validation";
 import { requireApprovedOrganiser } from "./organiser-guard";
 
 /** Creating a ticket type has no upper bound beyond a whole number of 1 or more; a release has this one. */
@@ -44,21 +45,34 @@ export const releaseTickets: Handler<{ eventId: string; ticketTypeId: string }> 
     throw new HttpError(404, NOT_FOUND);
   }
 
-  const [row] = await deps.db.query<{ result: string; total: number | null; sold: number | null }>(
-    `select result, total, sold from private.release_tickets($1, $2, $3, $4, $5, $6, $7, $8::interval, $9, $10::interval)`,
-    [
-      eventId,
-      organiser.organiserId,
-      caller.userId,
-      ticketTypeId,
-      quantity,
-      MAX_TICKETS_PER_TYPE,
-      RELEASE_LIMIT.limit,
-      RELEASE_LIMIT.window,
-      EVENT_RELEASE_LIMIT.limit,
-      EVENT_RELEASE_LIMIT.window,
-    ],
-  );
+  let row: { result: string; total: number | null; sold: number | null };
+  try {
+    [row] = await deps.db.query<{ result: string; total: number | null; sold: number | null }>(
+      `select result, total, sold from private.release_tickets($1, $2, $3, $4, $5, $6, $7, $8::interval, $9, $10::interval)`,
+      [
+        eventId,
+        organiser.organiserId,
+        caller.userId,
+        ticketTypeId,
+        quantity,
+        MAX_TICKETS_PER_TYPE,
+        RELEASE_LIMIT.limit,
+        RELEASE_LIMIT.window,
+        EVENT_RELEASE_LIMIT.limit,
+        EVENT_RELEASE_LIMIT.window,
+      ],
+    );
+  } catch (err) {
+    // A group ticket's quantity is people, in whole groups (ticket_types_admits_multiple): the whole call rolled back.
+    if (pgErrorCode(err) === PG_CHECK_VIOLATION && pgConstraint(err) === "ticket_types_admits_multiple") {
+      const [type] = await deps.db.query<{ admits: number }>(
+        `select admits from public.ticket_types where event_id = $1 and id = $2`,
+        [eventId, ticketTypeId],
+      );
+      fail({ quantityAvailable: ticketAdmitsMultipleMessage(type?.admits ?? 1) });
+    }
+    throw err;
+  }
 
   switch (row.result) {
     case "released":

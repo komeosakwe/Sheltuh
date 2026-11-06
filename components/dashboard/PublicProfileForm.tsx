@@ -18,6 +18,7 @@ import { useAccountOwner } from "@/lib/auth/useAccountOwner";
 import {
   MAX_BIO_LENGTH,
   SOCIAL_HANDLE_FIELDS,
+  socialHandleValuesOf,
   socialHandlesForRequest,
   websiteUrlError,
   type SocialHandleField,
@@ -39,12 +40,7 @@ function fieldId(field: ProfileField) {
 }
 
 function handlesOf(record: OrganiserRecord): SocialHandleValues {
-  return {
-    instagramHandle: record.instagramHandle ?? "",
-    tiktokHandle: record.tiktokHandle ?? "",
-    facebookPage: record.facebookPage ?? "",
-    xHandle: record.xHandle ?? "",
-  };
+  return socialHandleValuesOf(record);
 }
 
 const countFormatter = new Intl.NumberFormat("en-AU");
@@ -270,10 +266,10 @@ export default function PublicProfileForm({ organiser, onSaved }: Props) {
         )}
       </div>
 
-      <fieldset className="flex flex-col gap-4" aria-describedby={`${ID_PREFIX}-social-note`}>
-        <legend className="text-sm font-medium text-foreground">Social profiles (optional)</legend>
+      <fieldset id="social-links" className="flex flex-col gap-4 border-t border-foreground pt-5" aria-describedby={`${ID_PREFIX}-social-note`}>
+        <legend className="font-heading text-xl leading-6">Social links</legend>
         <p id={`${ID_PREFIX}-social-note`} className="text-sm text-muted">
-          Shown on your public profile.
+          All optional. Shown on your profile and your event pages.
         </p>
         <SocialHandleFields
           idPrefix={ID_PREFIX}

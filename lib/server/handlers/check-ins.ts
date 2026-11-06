@@ -13,16 +13,14 @@ import {
 } from "@/lib/api/types";
 import { parseTicketCode } from "@/lib/ticket-code";
 import { PLATFORM_TIME_ZONE } from "@/lib/time-zones";
-import { requireCaller, type Caller } from "../auth";
 import { PG_CHECK_VIOLATION, pgConstraint, pgErrorCode, type Db } from "../db";
-import type { Deps } from "../deps";
 import { HttpError, okPrivate, readJson } from "../http";
 import { parseMessageText } from "../message-input";
 import { isUuid } from "../pagination";
 import type { Handler } from "../route";
 import { fail } from "../validation";
 import { requireOwnEvent } from "./event-queries";
-import { requireApprovedOrganiser } from "./organiser-guard";
+import { requireEventOperator } from "./organiser-guard";
 
 /**
  * Ticket check-in at the door (docs/architecture.md, "Check-in";
@@ -77,40 +75,6 @@ async function refuseExternalEvent(db: Db, organiserId: string, eventId: string)
     [eventId, organiserId],
   );
   if (row?.ticketing_mode === "external") throw new HttpError(409, EXTERNAL_CHECK_IN_REFUSED);
-}
-
-/**
- * Who's at the door, and the organiser whose event it must be (passed to
- * private.check_in_ticket / undo_check_in, which check it again, and
- * ticket_check_ins_guard, which refuses an admin on an organiser's event and
- * anyone else on a platform-managed one).
- *
- * Not an admin: their own approved organiser (403 otherwise); whether the
- * event is theirs is left to the caller (404). An admin: the event is read
- * first; a platform-managed organiser's event is checked in as that
- * organiser, an event of their own organiser (an admin who's also an
- * organiser) as usual, and anything else is a 404.
- */
-async function doorCaller(req: Request, deps: Deps, eventId: string): Promise<{ caller: Caller; organiserId: string }> {
-  const caller = await requireCaller(req, deps.verifyAccessToken);
-  if (!caller.isAdmin) {
-    const organiser = await requireApprovedOrganiser(deps.db, caller);
-    return { caller, organiserId: organiser.organiserId };
-  }
-  const [event] = isUuid(eventId)
-    ? await deps.db.query<{ organiser_id: string; owner_user_id: string | null }>(
-        `select e.organiser_id, o.owner_user_id
-           from public.events e join public.organisers o on o.id = e.organiser_id
-          where e.id = $1`,
-        [eventId],
-      )
-    : [];
-  if (event?.owner_user_id === null) return { caller, organiserId: event.organiser_id };
-  if (event && event.owner_user_id === caller.userId) {
-    const organiser = await requireApprovedOrganiser(deps.db, caller);
-    return { caller, organiserId: organiser.organiserId };
-  }
-  throw new HttpError(404, EVENT_NOT_FOUND);
 }
 
 /**
@@ -188,7 +152,7 @@ function toCheckInResult(row: CheckInRow): CheckInResult {
  * code is a 409 (a retry always resends its own code).
  */
 export const checkInTicket: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
-  const { caller, organiserId } = await doorCaller(req, deps, eventId);
+  const { caller, organiserId } = await requireEventOperator(req, deps, eventId);
   if (!isUuid(eventId)) throw new HttpError(404, EVENT_NOT_FOUND);
   const body = await readJson(req, MAX_CHECK_IN_BODY_BYTES);
 
@@ -242,7 +206,7 @@ export const undoCheckIn: Handler<{ eventId: string; checkInId: string }> = asyn
   { eventId, checkInId },
   deps,
 ) => {
-  const { caller, organiserId } = await doorCaller(req, deps, eventId);
+  const { caller, organiserId } = await requireEventOperator(req, deps, eventId);
   if (!isUuid(eventId)) throw new HttpError(404, EVENT_NOT_FOUND);
   const body = await readJson(req, MAX_UNDO_BODY_BYTES);
 
@@ -311,7 +275,7 @@ async function ticketTypeCounts(db: Db, eventId: string) {
  * (and, for a seated ticket of this event, its seat).
  */
 export const getCheckInSummary: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
-  const { organiserId } = await doorCaller(req, deps, eventId);
+  const { organiserId } = await requireEventOperator(req, deps, eventId);
   const event = await requireOwnEvent(deps.db, organiserId, eventId);
   if (event.ticketingMode === "external") throw new HttpError(409, EXTERNAL_CHECK_IN_REFUSED);
 

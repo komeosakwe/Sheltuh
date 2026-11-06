@@ -185,6 +185,24 @@ function glideTo(left: number) {
 /** About one 60Hz frame's worth of drift (0.96px), as every frame should move. */
 const oneFrame = (d: number) => d > 0.9 && d < 1;
 
+/**
+ * Whether the engine reports `scrollend` (jsdom does, but most of these tests are about an engine that
+ * doesn't: the rest of a scroll is then a pause in scroll events, `REST_MS`). Switches the `onscrollend`
+ * handler property, the feature test, off or on for this test; undone after each test.
+ */
+let restoreScrollEnd: (() => void) | undefined;
+function reportScrollEnd(supported: boolean) {
+  restoreScrollEnd?.();
+  restoreScrollEnd = undefined;
+  let owner: object | null = window;
+  while (owner && !Object.prototype.hasOwnProperty.call(owner, "onscrollend")) owner = Object.getPrototypeOf(owner);
+  if (!owner) throw new Error("jsdom no longer has onscrollend");
+  const descriptor = Object.getOwnPropertyDescriptor(owner, "onscrollend");
+  if (!descriptor) throw new Error("no descriptor");
+  if (!supported) Reflect.deleteProperty(owner, "onscrollend");
+  restoreScrollEnd = () => void Object.defineProperty(owner, "onscrollend", descriptor);
+}
+
 let scrollBy: ReturnType<typeof vi.fn>;
 let scrollTo: ReturnType<typeof vi.fn>;
 
@@ -205,9 +223,12 @@ beforeEach(() => {
     return { left, right: left + CARD, width: CARD, top: 0, bottom: 300, height: 300, x: left, y: 0 } as DOMRect;
   });
   stubMotion(true);
+  reportScrollEnd(false);
 });
 afterEach(() => {
   cleanup();
+  restoreScrollEnd?.();
+  restoreScrollEnd = undefined;
   observers.length = 0;
   frames.clear();
   Reflect.deleteProperty(document, "visibilityState");
@@ -578,6 +599,27 @@ describe("home rail auto-scroll: the visitor takes over", () => {
     expectNear(rail().scrollLeft, left + 60);
   });
 
+  it("a card Tab brought into view stays in view when the rail settles, even if the smooth scroll looks at rest part-way", () => {
+    renderOverflowing();
+    keyboardFocusMode();
+    // Card 3 (808px to 1064px) is cut by the 1000px rail's edge, so Tab onto it scrolls the rail.
+    const link = screen.getByRole("link", { name: "Event 3" });
+    act(() => link.focus());
+    fireEvent.keyDown(link, { key: "Tab" });
+    // The smooth scroll has only just begun when a busy main thread leaves a pause in scroll events.
+    act(() => {
+      rail().scrollLeft = 3;
+      fireEvent.scroll(rail());
+    });
+    expect(play()).toBeInTheDocument();
+    run(REST_MS + 16);
+    // The nearest card start (0) would leave card 3 cut off; card 1's start is the nearest that doesn't.
+    expect(scrollTo).toHaveBeenLastCalledWith({ left: CARD, behavior: "smooth" });
+    glideTo(CARD);
+    expect(snap()).toBe("");
+    expect(rail().scrollLeft).toBe(CARD);
+  });
+
   it("with copies in view, keeps them (out of the tab order) rather than jump; a view wholly in them moves back one set, and then they go", () => {
     // Straddling the seam: the last real cards on the left, the first copies on the right.
     renderOverflowing(SEAM - 300);
@@ -666,6 +708,45 @@ describe("home rail auto-scroll: the visitor takes over", () => {
     glideTo(3 * CARD);
     expect(scrollTo).not.toHaveBeenCalled();
     expect(snap()).toBe("");
+  });
+
+  it("where the engine reports scrollend, a smooth page that's silent for a while (a busy main thread) isn't taken for at rest: nothing glides back to the nearest card", () => {
+    reportScrollEnd(true);
+    renderOverflowing();
+    run(1008);
+    const left = rail().scrollLeft;
+    fireEvent.click(screen.getByRole("button", { name: "Next events: Popular right now" }));
+    expect(scrollBy).toHaveBeenCalledWith({ left: 3 * CARD - left, behavior: "smooth" });
+    // No scroll event yet, long after REST_MS: the page scroll hasn't started to report, not finished.
+    run(REST_MS * 4);
+    expect(scrollTo).not.toHaveBeenCalled();
+    // Part-way, then silent again for longer than REST_MS.
+    act(() => {
+      rail().scrollLeft = 300;
+      fireEvent.scroll(rail());
+    });
+    run(REST_MS * 4);
+    expect(scrollTo).not.toHaveBeenCalled();
+    expect(snap()).toBe("none");
+    // It lands on card 3 and reports scrollend: on a card, so snapping just comes back.
+    glideTo(3 * CARD);
+    expect(scrollTo).not.toHaveBeenCalled();
+    expect(snap()).toBe("");
+  });
+
+  it("where the engine reports scrollend, a scroll that never ends still settles, after SETTLE_MS", () => {
+    reportScrollEnd(true);
+    renderOverflowing();
+    run(1008);
+    fireEvent.wheel(rail(), { deltaX: 40, deltaY: 0 });
+    act(() => {
+      rail().scrollLeft += 100;
+      fireEvent.scroll(rail());
+    });
+    run(SETTLE_MS - 16);
+    expect(scrollTo).not.toHaveBeenCalled();
+    run(32);
+    expect(scrollTo).toHaveBeenCalledTimes(1);
   });
 
   it("an arrow pressed during a hand-over's settle still leaves snapping on at the end", () => {

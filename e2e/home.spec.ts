@@ -293,17 +293,19 @@ test.describe("keyboard", () => {
     expect(await items.count()).toBeGreaterThan(2);
     // Start on the first card's link, then Tab through the next two cards (link, Save, Buy tickets each).
     await items.first().getByRole("link").first().focus();
+    const inView = async (item: Locator) => {
+      const b = await item.boundingBox();
+      if (!b) return "not rendered";
+      return b.x >= 0 && b.x + b.width <= 640 && b.y >= 0 && b.y + b.height <= 844 ? "in view" : `${b.x},${b.y} ${b.width}×${b.height}`;
+    };
     for (let i = 0; i < 6; i++) {
       await page.keyboard.press("Tab");
-      const item = page.locator("li:has(:focus)").last();
-      await expect
-        .poll(async () => {
-          const b = await item.boundingBox();
-          if (!b) return "not rendered";
-          return b.x >= 0 && b.x + b.width <= 640 && b.y >= 0 && b.y + b.height <= 844 ? "in view" : `${b.x},${b.y} ${b.width}×${b.height}`;
-        })
-        .toBe("in view");
+      await expect.poll(() => inView(page.locator("li:has(:focus)").last())).toBe("in view");
     }
+    // And it stays there: the rail's auto-scroll hands over to snapping once the visitor's scroll is at rest
+    // (a glide onto the nearest card, which must not take the focused card back out of view).
+    await expect.poll(() => section.getByRole("list").evaluate((ul) => ul.style.scrollSnapType)).toBe("");
+    expect(await inView(page.locator("li:has(:focus)").last())).toBe("in view");
     // It got past the cards that were on screen to begin with.
     await expect(items.nth(2).locator(":focus")).toHaveCount(1);
   });
@@ -549,17 +551,13 @@ test.describe("/events", () => {
 test.describe("hero collage at 1280px", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
-  test("shows its lead photo, two photo tiles and the badge, which turns slowly and can be paused", async ({ page }) => {
+  test("shows its one photo and the badge, which turns slowly and can be paused", async ({ page }) => {
     await openHome(page);
     const collage = page.locator("[data-hero-collage]");
     await expect(collage).toBeVisible();
-    // Owner (26 Oct 2026): "reuse the event photos for now": the lead and both tiles are photos.
-    await expect(collage.locator("img")).toHaveCount(3);
-    expect(await collage.locator("img").evaluateAll((imgs) => imgs.map((img) => img.getAttribute("src")))).toEqual([
-      "/events/gallery-opening.jpg",
-      "/events/record-shop-dj.jpg",
-      "/events/jazz-drummer.webp",
-    ]);
+    // Owner (4 Nov 2026): the hero is compact, so the collage is the lead photo alone.
+    await expect(collage.locator("img")).toHaveCount(1);
+    expect(await collage.locator("img").evaluateAll((imgs) => imgs.map((img) => img.getAttribute("src")))).toEqual(["/events/gallery-opening.jpg"]);
     const badge = page.getByRole("button", { name: "Pause the badge animation" });
     await expect(badge).toBeVisible();
     // Its name changes with its state, so find the drawing by its own marker (the collage's: the

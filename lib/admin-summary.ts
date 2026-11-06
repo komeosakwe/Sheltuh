@@ -6,13 +6,14 @@ import type { AdminSummary } from "./api/types";
  * three always agree.
  */
 
-/** Everything waiting for an admin to act: open reports, events and organisers to review, failed emails. */
+/** Everything waiting for an admin to act: open reports, events and organisers to review, failed emails, stuck payouts. */
 export function needsYouTotal(summary: AdminSummary): number {
   return (
     summary.reportsOpen.count +
     summary.eventsPending.count +
     summary.organisersPending.count +
-    summary.emailsFailed.count
+    summary.emailsFailed.count +
+    (summary.transfersOpen?.count ?? 0)
   );
 }
 
@@ -28,7 +29,7 @@ export function hoursText(hours: number): string {
 }
 
 /** The admin areas that have a count, and what that count is called ("3 open", "2 waiting"). */
-export type AdminArea = "reports" | "events" | "organisers" | "emails";
+export type AdminArea = "reports" | "events" | "organisers" | "emails" | "payouts";
 
 export function areaCount(summary: AdminSummary, area: AdminArea): number {
   switch (area) {
@@ -40,6 +41,8 @@ export function areaCount(summary: AdminSummary, area: AdminArea): number {
       return summary.organisersPending.count;
     case "emails":
       return summary.emailsFailed.count;
+    case "payouts":
+      return summary.transfersOpen?.count ?? 0;
   }
 }
 
@@ -49,4 +52,5 @@ export const AREA_COUNT_WORD: Record<AdminArea, string> = {
   events: "waiting",
   organisers: "waiting",
   emails: "failed",
+  payouts: "to check",
 };

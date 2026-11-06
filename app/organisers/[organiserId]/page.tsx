@@ -1,29 +1,25 @@
-import type { Metadata, ResolvingMetadata } from "next";
+import type { Metadata } from "next";
 import LiveOrganiserProfile from "@/components/organisers/LiveOrganiserProfile";
 import OrganiserProfileView from "@/components/organisers/OrganiserProfileView";
 import OrganiserUnavailable from "@/components/organisers/OrganiserUnavailable";
 import { isApiConfigured } from "@/lib/api/client";
 import { getSampleOrganiser } from "@/lib/sample-organisers";
 import { liveOrganiserMetadata } from "@/lib/server/share-metadata";
-import { inheritedShareImages, ORGANISER_NOT_FOUND_METADATA, organiserMetadata, siteOrigin } from "@/lib/share-metadata";
+import { ORGANISER_NOT_FOUND_METADATA, organiserMetadata, siteOrigin } from "@/lib/share-metadata";
 
 // Live: the profile itself is fetched client-side from this app's own API (as
 // on the event page), but the metadata is read server-side
 // (lib/server/share-metadata.ts, an approved organiser only), so a shared link
 // has the organiser's name, bio and canonical URL. Anything else is the same
 // noindex "not available"; a database error the plain "Organiser" title.
-// Demo: the sample organiser's, the same way.
-export async function generateMetadata(
-  { params }: PageProps<"/organisers/[organiserId]">,
-  parent: ResolvingMetadata,
-): Promise<Metadata> {
+// Demo: the sample organiser's, the same way. The preview image is the
+// segment's own opengraph-image / twitter-image (the organiser's card), so no
+// `images` here (Next ignores the file when there are some).
+export async function generateMetadata({ params }: PageProps<"/organisers/[organiserId]">): Promise<Metadata> {
   const { organiserId } = await params;
-  const fallback = await inheritedShareImages(parent);
-  if (isApiConfigured) return liveOrganiserMetadata(organiserId, fallback);
+  if (isApiConfigured) return liveOrganiserMetadata(organiserId);
   const sample = getSampleOrganiser(organiserId);
-  return sample
-    ? organiserMetadata({ ...sample.profile, organiserId }, siteOrigin(), fallback)
-    : ORGANISER_NOT_FOUND_METADATA;
+  return sample ? organiserMetadata({ ...sample.profile, organiserId }, siteOrigin()) : ORGANISER_NOT_FOUND_METADATA;
 }
 
 export default async function OrganiserProfilePage({ params }: PageProps<"/organisers/[organiserId]">) {

@@ -164,6 +164,9 @@ describe("Data API lock-out", () => {
       { table_name: "holder_message_suppressions", rls: true },
       { table_name: "holder_messages", rls: true },
       { table_name: "onboarding_emails", rls: true },
+      { table_name: "order_detail_exports", rls: true },
+      { table_name: "order_detail_views", rls: true },
+      { table_name: "order_transfers", rls: true },
       { table_name: "organiser_event_announcements", rls: true },
       { table_name: "organiser_follow_tokens", rls: true },
       { table_name: "organiser_invite_links", rls: true },
@@ -224,6 +227,31 @@ describe("Data API lock-out", () => {
   it("the onboarding email functions and trigger exist, pin search_path and aren't client-executable", async () => {
     const names = ["lease_outbox_jobs", "organisers_onboarding_email", "queue_member_welcomes", "queue_onboarding_email"];
     expect(await privateFunctions(names)).toEqual(locked(names));
+  });
+
+  it("the delayed payouts functions and triggers exist, pin search_path, aren't security definer and aren't client-executable", async () => {
+    const names = [
+      "admin_transfer_action",
+      "begin_transfer_create",
+      "claim_due_transfers",
+      "due_transfer_orders",
+      "finish_order_transfer",
+      "flag_transfer_after_refund",
+      "order_transfers_guard",
+      "orders_payout_method_frozen",
+    ];
+    expect(await privateFunctions(names)).toEqual(locked(names));
+    const definers = await db.query(
+      `select p.proname from pg_proc p where p.pronamespace = to_regnamespace('private') and p.proname = any($1::text[]) and p.prosecdef`,
+      [names],
+    );
+    expect(definers).toEqual([]);
+    // The transfer table has RLS on, no policies and nothing granted (the generic checks above also list it).
+    const [table] = await db.query<{ rls: boolean; policies: number }>(
+      `select c.relrowsecurity as rls, (select count(*)::int from pg_policy p where p.polrelid = c.oid) as policies
+         from pg_class c where c.oid = to_regclass('private.order_transfers')`,
+    );
+    expect(table).toEqual({ rls: true, policies: 0 });
   });
 
   it("release_tickets exists, pins search_path, isn't security definer and isn't client-executable", async () => {
@@ -321,8 +349,47 @@ describe("Data API lock-out", () => {
          from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'private' and p.proname = 'hold_seats'`,
     );
-    expect(hold.defaults).toBe(1);
+    // p_support_cents and p_buyer_name (20261122000000_order_buyer_details.sql).
+    expect(hold.defaults).toBe(2);
     expect(hold.names).toContain("p_support_cents");
+    expect(hold.names).toContain("p_buyer_name");
+  });
+
+  it("buyer details: the order-creating functions take a trailing p_buyer_name, and the audit helpers are locked down", async () => {
+    const names = [
+      "hold_seats",
+      "place_free_order",
+      "place_free_seated_order",
+      "request_free_order",
+      "request_free_seated_order",
+      "record_order_export",
+      "take_order_detail_budget",
+      "orders_details_notice",
+      "orders_details_immutable",
+    ];
+    // request_free_order keeps its 13-argument delegating form for the previous release.
+    expect(await privateFunctions(names)).toEqual(locked(names, { request_free_order: 2 }));
+    // Every overload that takes a name (all but request_free_order's 13-argument form) has it as a defaulted argument.
+    const rows = await db.query<{ fn: string; args: number; named: boolean }>(
+      `select p.proname as fn, p.pronargs::int as args, 'p_buyer_name' = any(p.proargnames) as named
+         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'private' and p.proname = any($1::text[]) and p.pronargdefaults > 0
+          and 'p_buyer_name' = any(p.proargnames) order by 1`,
+      [["hold_seats", "place_free_order", "place_free_seated_order", "request_free_order", "request_free_seated_order"]],
+    );
+    expect(rows.map((r) => r.fn)).toEqual([
+      "hold_seats",
+      "place_free_order",
+      "place_free_seated_order",
+      "request_free_order",
+      "request_free_seated_order",
+    ]);
+    const [audit] = await db.query<{ columns: string[] }>(
+      `select array_agg(column_name::text order by ordinal_position) as columns
+         from information_schema.columns where table_schema = 'private' and table_name = 'order_detail_exports'`,
+    );
+    // No buyer data in the audit log.
+    expect(audit.columns).toEqual(["id", "event_id", "organiser_id", "actor_id", "row_count", "created_at"]);
   });
 
   it("the member profile and organiser follow functions and triggers exist, pin search_path and aren't client-executable", async () => {
@@ -555,6 +622,41 @@ describe("Data API lock-out", () => {
       `select count(*)::int as n from pg_policy p where p.polrelid = 'private.external_event_going'::regclass`,
     );
     expect(policies.n).toBe(0);
+  });
+
+  it("the group ticket functions and triggers exist, pin search_path, aren't security definer or client-executable; the constraints and columns exist", async () => {
+    const names = ["fulfil_order_detailed", "order_group_size", "record_payment_refund", "ticket_types_admits_frozen"];
+    // record_payment_refund has two forms: the 6-argument one, and the previous app version's 3-argument wrapper of it.
+    expect(await privateFunctions(names)).toEqual(locked(names, { record_payment_refund: 2 }));
+    const definers = await db.query<{ fn: string; definer: boolean }>(
+      `select p.proname as fn, p.prosecdef as definer from pg_proc p
+        where p.pronamespace = to_regnamespace('private') and p.proname = any($1::text[]) order by 1`,
+      [names],
+    );
+    expect(definers.every((r) => !r.definer)).toBe(true);
+    const triggers = await db.query<{ tgname: string }>(
+      `select t.tgname from pg_trigger t where not t.tgisinternal and t.tgname = 'ticket_types_admits_frozen'`,
+    );
+    expect(triggers).toEqual([{ tgname: "ticket_types_admits_frozen" }]);
+    const constraints = await db.query<{ conname: string }>(
+      `select conname from pg_constraint
+        where conrelid in ('public.ticket_types'::regclass, 'public.tickets'::regclass)
+          and conname in ('ticket_types_admits_range', 'ticket_types_admits_multiple', 'ticket_types_group_paid',
+                          'ticket_types_admits_ga_only', 'tickets_group_size_range') order by 1`,
+    );
+    expect(constraints.map((c) => c.conname)).toEqual([
+      "ticket_types_admits_ga_only",
+      "ticket_types_admits_multiple",
+      "ticket_types_admits_range",
+      "ticket_types_group_paid",
+      "tickets_group_size_range",
+    ]);
+    // Existing rows are single tickets.
+    const [columns] = await db.query<{ admits: string; group_size: string }>(
+      `select (select column_default from information_schema.columns where table_schema = 'public' and table_name = 'ticket_types' and column_name = 'admits') as admits,
+              (select is_nullable from information_schema.columns where table_schema = 'public' and table_name = 'tickets' and column_name = 'group_size') as group_size`,
+    );
+    expect(columns).toEqual({ admits: "1", group_size: "YES" });
   });
 
   it("the sequential release functions and triggers exist, pin search_path, aren't security definer or client-executable; the constraints exist", async () => {

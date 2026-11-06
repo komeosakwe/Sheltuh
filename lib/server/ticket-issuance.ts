@@ -16,10 +16,14 @@ function generateTicketCode(): string {
   return code;
 }
 
-/** One ticket per unit purchased, not per line item — a quantity-3 line becomes 3 individually-coded tickets. */
+/**
+ * One ticket per person, not per line item — a quantity-3 line becomes 3
+ * individually-coded tickets. A group ticket (`admits`) issues one per person
+ * it admits: 2 groups of 4 are 8 tickets, each its own code and QR.
+ */
 export function issueTickets(lineItems: OrderLineItem[]): IssuedTicket[] {
   return lineItems.flatMap((line) =>
-    Array.from({ length: line.quantity }, () => ({
+    Array.from({ length: line.quantity * (line.admits ?? 1) }, () => ({
       ticketCode: generateTicketCode(),
       ticketTypeId: line.ticketTypeId,
       ticketTypeName: line.ticketTypeName,
