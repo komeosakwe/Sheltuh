@@ -282,6 +282,35 @@ test("a card's Buy tickets lands on the event page with focus on the tickets", a
   await expect(page.locator("#tickets")).toBeFocused({ timeout: 30_000 });
 });
 
+test.describe("the logo on the home", () => {
+  for (const vp of [
+    { name: "desktop 1280×800", width: 1280, height: 800 },
+    { name: "phone 390×844", width: 390, height: 844 },
+  ]) {
+    test(`scrolls back to the top at ${vp.name}`, async ({ page }) => {
+      await page.setViewportSize({ width: vp.width, height: vp.height });
+      await openHome(page);
+      await page.evaluate(() => window.scrollTo({ top: 1500, behavior: "instant" }));
+      await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(500);
+      await page.locator("header").getByRole("link", { name: "Sheltüh home" }).click();
+      await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+      await expect(page).toHaveURL(/\/$/);
+    });
+  }
+
+  test("goes to the clean / when the home has a query string, and scrolls to the top", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await mockApi(page);
+    await page.goto("/?utm_source=newsletter");
+    await expect(page.locator("[data-home-section]").first()).toBeVisible();
+    await page.evaluate(() => window.scrollTo({ top: 1500, behavior: "instant" }));
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(500);
+    await page.locator("header").getByRole("link", { name: "Sheltüh home" }).click();
+    await expect(page).toHaveURL(/\/$/);
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+  });
+});
+
 test.describe("keyboard", () => {
   // The narrowest rail (from 640px; phones have the inline event screens).
   test.use({ viewport: { width: 640, height: 844 } });

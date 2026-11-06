@@ -168,6 +168,21 @@ describe("Nav — phone menu", () => {
     expect(hidePopover).toHaveBeenCalled();
   });
 
+  it("closes the menu and scrolls to the top when the logo is clicked on the home", () => {
+    const { menu } = renderNav(fakeAuthValue());
+    const hidePopover = vi.fn();
+    menu.hidePopover = hidePopover;
+    const scrollTo = vi.fn();
+    window.scrollTo = scrollTo as unknown as typeof window.scrollTo;
+    for (const logo of screen.getAllByRole("link", { name: "Sheltüh home", hidden: true })) {
+      hidePopover.mockClear();
+      scrollTo.mockClear();
+      fireEvent.click(logo);
+      expect(hidePopover).toHaveBeenCalled();
+      expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 0 }));
+    }
+  });
+
   it("holds the Theme switch after For organisers, and stays open when it's used (the sheet re-skins around you)", () => {
     const { menu } = renderNav(fakeAuthValue({ status: "signed-out", configured: true }));
     const hidePopover = vi.fn();
