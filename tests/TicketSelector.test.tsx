@@ -61,7 +61,7 @@ describe("TicketSelector (live)", () => {
     expect(email).toHaveClass("min-h-12", "text-base");
     fireEvent.change(email, { target: { value: "not-an-email" } });
     typeName();
-    fireEvent.click(screen.getByRole("button", { name: "Get free tickets" }));
+    fireEvent.click(screen.getByRole("button", { name: "Free tickets" }));
     expect(screen.getByRole("alert")).toHaveTextContent("Enter the email address to send your tickets to.");
     expect(email).toHaveAttribute("aria-invalid", "true");
     // Both the hint and the error describe the field.
@@ -91,7 +91,7 @@ describe("TicketSelector (live, signed in)", () => {
       "Tickets are sent here. Use your account email to join Who’s Going.",
     );
     typeName();
-    fireEvent.click(screen.getByRole("button", { name: "Get free tickets" }));
+    fireEvent.click(screen.getByRole("button", { name: "Free tickets" }));
     // Signed in: a free order carries the account's token, so booking with
     // the account's own email issues the tickets straight away.
     expect(createCheckoutSession).toHaveBeenCalledWith(
@@ -113,7 +113,7 @@ describe("TicketSelector (live, signed in)", () => {
     fireEvent.change(email, { target: { value: "" } });
     expect(email).toHaveValue("");
     typeName();
-    fireEvent.click(screen.getByRole("button", { name: "Get free tickets" }));
+    fireEvent.click(screen.getByRole("button", { name: "Free tickets" }));
     expect(screen.getByRole("alert")).toHaveTextContent("Enter the email address to send your tickets to.");
     expect(createCheckoutSession).not.toHaveBeenCalled();
   });
@@ -224,7 +224,7 @@ describe("TicketSelector (free tickets)", () => {
     // A refusal on screen survives a press on the capped "+" (nothing changed).
     fireEvent.change(screen.getByLabelText("Email for your tickets"), { target: { value: "fan@example.com" } });
     typeName();
-    fireEvent.click(screen.getByRole("button", { name: "Get free tickets" }));
+    fireEvent.click(screen.getByRole("button", { name: "Free tickets" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Those tickets just ran out.");
     fireEvent.click(more);
     expect(group).toHaveTextContent("4");
@@ -301,7 +301,7 @@ describe("TicketSelector (free tickets)", () => {
     const email = screen.getByLabelText("Email for your tickets");
     fireEvent.change(email, { target: { value: "fan@example.com" } });
     typeName();
-    fireEvent.click(screen.getByRole("button", { name: "Get free tickets" }));
+    fireEvent.click(screen.getByRole("button", { name: "Free tickets" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("That email can't receive tickets.");
     expect(screen.getAllByRole("alert")).toHaveLength(1);
     expect(email).toHaveAttribute("aria-invalid", "true");
@@ -313,17 +313,17 @@ describe("TicketSelector (free tickets)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Free entry" }));
     fireEvent.change(screen.getByLabelText("Email for your tickets"), { target: { value: "fan@example.com" } });
     typeName();
-    fireEvent.click(screen.getByRole("button", { name: "Get free tickets" }));
+    fireEvent.click(screen.getByRole("button", { name: "Free tickets" }));
 
     const heading = await screen.findByRole("heading", { name: "Check your inbox" });
     await waitFor(() => expect(heading).toHaveFocus());
     expect(
       screen.getAllByRole("status").find((s) => s.textContent?.startsWith("Link sent to fan@example.com.")),
     ).toBeDefined();
-    expect(screen.queryByRole("button", { name: "Get free tickets" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Free tickets" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Use a different email" }));
-    expect(screen.getByRole("button", { name: "Get free tickets" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Free tickets" })).toBeEnabled();
     expect(screen.queryByRole("heading", { name: "Check your inbox" })).toBeNull();
     // The button is gone: focus goes to the email field, ready to change it.
     const email = screen.getByLabelText("Email for your tickets");
@@ -337,7 +337,7 @@ describe("TicketSelector (free tickets)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Free entry" }));
     fireEvent.change(screen.getByLabelText("Email for your tickets"), { target: { value: "fan@example.com" } });
     typeName();
-    fireEvent.click(screen.getByRole("button", { name: "Get free tickets" }));
+    fireEvent.click(screen.getByRole("button", { name: "Free tickets" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("This email address already has them.");
   });
 });
@@ -470,7 +470,7 @@ describe("TicketSelector checkout focus and errors (WCAG 2.2)", () => {
     render(<TicketSelector event={live("brunswick-zine-fair")} />);
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Free entry" }));
     const email = screen.getByLabelText("Email for your tickets");
-    const book = screen.getByRole("button", { name: "Get free tickets" });
+    const book = screen.getByRole("button", { name: "Free tickets" });
     typeName();
     book.focus();
     fireEvent.click(book);
@@ -490,7 +490,7 @@ describe("TicketSelector checkout focus and errors (WCAG 2.2)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Free entry" }));
     const email = screen.getByLabelText("Email for your tickets");
     fireEvent.change(email, { target: { value: "fan@example.con" } });
-    const book = screen.getByRole("button", { name: "Get free tickets" });
+    const book = screen.getByRole("button", { name: "Free tickets" });
     typeName();
     book.focus();
     fireEvent.click(book);
@@ -562,10 +562,10 @@ describe("TicketSelector announcements (one status for the panel)", () => {
 });
 
 describe("TicketSelector before anything is chosen", () => {
-  it("a paid event says Checkout and to choose tickets, never 'Get free tickets' or 'No payment step'", () => {
+  it("a paid event says Checkout and to choose tickets, never 'Free tickets' or 'No payment step'", () => {
     render(<TicketSelector event={live("neon-static")} />);
     expect(screen.getByRole("button", { name: "Checkout" })).toBeDisabled();
-    expect(screen.queryByRole("button", { name: "Get free tickets" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Free tickets" })).toBeNull();
     // Not visible copy: the disabled button's accessible description says it.
     expect(screen.getByRole("button", { name: "Checkout" })).toHaveAccessibleDescription("Choose tickets to continue.");
     expect(screen.getByText("Choose tickets to continue.")).toHaveClass("sr-only");
@@ -579,9 +579,9 @@ describe("TicketSelector before anything is chosen", () => {
     expect(screen.queryByText("Choose tickets to continue.")).toBeNull();
   });
 
-  it("an all-free event says Get free tickets", () => {
+  it("an all-free event says Free tickets", () => {
     render(<TicketSelector event={live("brunswick-zine-fair")} />);
-    const button = screen.getByRole("button", { name: "Get free tickets" });
+    const button = screen.getByRole("button", { name: "Free tickets" });
     expect(button).toBeDisabled();
     expect(button).toHaveAccessibleDescription("Choose tickets to continue.");
   });
@@ -598,7 +598,7 @@ describe("TicketSelector before anything is chosen", () => {
     render(<TicketSelector event={event} />);
     expect(screen.getByRole("button", { name: "Checkout" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Listener" }));
-    expect(screen.getByRole("button", { name: "Get free tickets" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Free tickets" })).toBeEnabled();
     expect(screen.getByText(/We’ll email a link to confirm your tickets/)).toBeInTheDocument();
   });
 });
@@ -892,7 +892,7 @@ describe("TicketSelector (buyer name)", () => {
     expect(name.compareDocumentPosition(email) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.change(email, { target: { value: "fan@example.com" } });
     fireEvent.change(name, { target: { value: "  Alex Doe  " } });
-    fireEvent.click(screen.getByRole("button", { name: "Get free tickets" }));
+    fireEvent.click(screen.getByRole("button", { name: "Free tickets" }));
     expect(createCheckoutSession.mock.calls[0][2]).toBe("fan@example.com");
     expect(createCheckoutSession.mock.calls[0][6]).toBe("Alex Doe");
   });

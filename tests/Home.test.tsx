@@ -102,7 +102,7 @@ describe("Home (demo data, Wed 21 Oct 2026)", () => {
     expect(new Set(hrefs).size).toBe(hrefs.length);
   });
 
-  it("labels every demo count a sample, repeats no page-level demo notice, and every quick-buy link says 'Buy tickets' (or 'Get free tickets' when entry is free), as live", async () => {
+  it("labels every demo count a sample, repeats no page-level demo notice, and every quick-buy link says 'Buy tickets' (or 'Free tickets' when entry is free), as live", async () => {
     const { container } = render(<Home />);
     await settle();
     // The page's one sample-data disclosure is the layout's DemoBanner (not rendered here): no other notice.
@@ -119,7 +119,7 @@ describe("Home (demo data, Wed 21 Oct 2026)", () => {
     for (const link of quick) {
       expect(link.getAttribute("href")).toMatch(/^\/events\/[^/]+#tickets$/);
       // An external event's card says "Buy tickets" too (owner, 6 Nov 2026).
-      expect(link).toHaveAccessibleName(/^(?:Buy tickets|Get free tickets) for /);
+      expect(link).toHaveAccessibleName(/^(?:Buy tickets|Free tickets) for /);
     }
   });
 

@@ -502,7 +502,7 @@ export default function EventDetailsView({
                 </Link>
               ) : (
                 <a href="#tickets" className={buttonClass("signal", "lg", "shrink-0 px-5 sm:px-7")}>
-                  {/* "Buy tickets", or "Get free tickets" when every tier is free, in demo
+                  {/* "Buy tickets", or "Free tickets" when every tier is free, in demo
                       mode too (owner, 21 Oct 2026); "Join waitlist" when sold out. */}
                   {buyBarLabel}
                 </a>

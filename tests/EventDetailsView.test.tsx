@@ -50,12 +50,12 @@ describe("EventDetailsView buy bar (phones and tablets)", () => {
     expect(within(bar).getByRole("link", { name: "Buy tickets" })).toHaveAttribute("href", "#tickets");
   });
 
-  it("says 'Get free tickets' when every ticket is free, live or demo", () => {
+  it("says 'Free tickets' when every ticket is free, live or demo", () => {
     for (const demo of [true, false]) {
       const { container, unmount } = render(<EventDetailsView event={findEvent("brunswick-zine-fair")} demo={demo} />);
       const bar = buyBar(container);
       if (!bar) throw new Error("buy bar not rendered");
-      expect(within(bar).getByRole("link", { name: "Get free tickets" })).toHaveAttribute("href", "#tickets");
+      expect(within(bar).getByRole("link", { name: "Free tickets" })).toHaveAttribute("href", "#tickets");
       unmount();
     }
   });

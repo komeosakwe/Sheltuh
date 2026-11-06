@@ -77,7 +77,7 @@ for (const vp of VIEWPORTS) {
       expect(columns).toBe(vp.phone ? 2 : 4);
 
       // An external event's card says "Buy tickets" too (owner, 6 Nov 2026).
-      const quickBuys = grid.getByRole("link", { name: /^(?:Buy tickets|Get free tickets) for / });
+      const quickBuys = grid.getByRole("link", { name: /^(?:Buy tickets|Free tickets) for / });
       expect(await quickBuys.count()).toBeGreaterThanOrEqual(sampleEvents.length - 2);
       const first = quickBuys.first();
       await expect(first).toBeVisible();
@@ -115,7 +115,7 @@ for (const vp of VIEWPORTS) {
         await expect(group).toBeHidden();
       }
 
-      const rowBuy = page.getByRole("link", { name: /^(?:Buy tickets|Get free tickets) for / }).first();
+      const rowBuy = page.getByRole("link", { name: /^(?:Buy tickets|Free tickets) for / }).first();
       await expect(rowBuy).toBeVisible();
       await expect(rowBuy).toHaveAttribute("href", /#tickets$/);
       await noSidewaysScroll(page);

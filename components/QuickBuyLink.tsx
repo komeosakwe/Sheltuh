@@ -9,7 +9,7 @@ import type { SheltuhEvent } from "@/lib/types";
  * §6.2.3): a sibling of the card's main link, to the event page's ticket
  * section (a seated event's seat page). The label, target and tone come
  * from `cardCta` (lib/event-card.ts), from real data only: "Buy tickets",
- * "Get free tickets", "Buy tickets" for an external event (the page holds
+ * "Free tickets", "Buy tickets" for an external event (the page holds
  * the link out), "Choose seats", and "Join waitlist" when sold out.
  *
  * Signal Orange with a black label (6.18:1, never white) for a purchase;

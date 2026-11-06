@@ -117,13 +117,13 @@ describe("cardCta (§6.2.3: the first matching row wins)", () => {
   it.each<[string, SheltuhEvent, ReturnType<typeof cardCta>]>([
     ["1 ended", event({ endsAt: "2026-10-19T00:00:00.000Z", startsAt: "2026-10-18T00:00:00.000Z" }), null],
     ["1 ended, sold out", soldOut({ endsAt: "2026-10-19T00:00:00.000Z", startsAt: "2026-10-18T00:00:00.000Z" }), null],
-    ["2 external, free", external(true), { label: "Get free tickets", href: "/events/e#tickets", tone: "signal" }],
+    ["2 external, free", external(true), { label: "Free tickets", href: "/events/e#tickets", tone: "signal" }],
     ["3 external, paid", external(false), { label: "Buy tickets", href: "/events/e#tickets", tone: "signal" }],
     ["4 no tiers yet", event({ ticketTypes: [] }), null],
     ["5 sold out", soldOut(), { label: "Join waitlist", href: "/events/e#tickets", tone: "outline" }],
     ["5 sold out, seated", seated({ soldOut: true, ticketTypes: [ticket(3000, { seated: true, soldOut: true })] }), { label: "Join waitlist", href: "/events/e#tickets", tone: "outline" }],
     ["6 seated, on sale", seated(), { label: "Choose seats", href: "/events/e/seats", tone: "signal" }],
-    ["7 every on-sale tier free", event({ ticketTypes: [ticket(0), ticket(1500, { soldOut: true })] }), { label: "Get free tickets", href: "/events/e#tickets", tone: "signal" }],
+    ["7 every on-sale tier free", event({ ticketTypes: [ticket(0), ticket(1500, { soldOut: true })] }), { label: "Free tickets", href: "/events/e#tickets", tone: "signal" }],
     ["8 paid", event({ ticketTypes: [ticket(0), ticket(1500)] }), { label: "Buy tickets", href: "/events/e#tickets", tone: "signal" }],
   ])("%s", (_label, e, expected) => {
     expect(cardCta(e, BEFORE)).toEqual(expected);

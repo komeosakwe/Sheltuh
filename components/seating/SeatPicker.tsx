@@ -689,11 +689,11 @@ export default function SeatPicker({
 
   const holdCopy = freeBooking
     ? auth?.status === "signed-in"
-      ? "Get free tickets books these seats now."
+      ? "Pressing Free tickets books these seats now."
       : "We’ll email a link to confirm. Seats are held once you confirm."
     : `Checkout holds your seats for ${SEAT_HOLD.stripeMinutes} minutes while you pay.`;
 
-  const checkoutLabel = busy ? (freeBooking ? "Booking…" : "Holding your seats…") : freeBooking ? "Get free tickets" : "Checkout";
+  const checkoutLabel = busy ? (freeBooking ? "Booking…" : "Holding your seats…") : freeBooking ? "Free tickets" : "Checkout";
 
   /** `bar`: the phone seat bar, where a disabled Checkout keeps the short label (§5.10) and the reason is in its name and the sheet's note. */
   function checkoutButton(className: string, bar = false) {

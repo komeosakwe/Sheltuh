@@ -271,7 +271,7 @@ test("a card's Buy tickets lands on the event page with focus on the tickets", a
   });
   await page.goto("/");
   const section = page.locator("[data-home-section]").first();
-  const quickBuy = section.getByRole("link", { name: /^(?:Buy tickets|Get free tickets) for / }).first();
+  const quickBuy = section.getByRole("link", { name: /^(?:Buy tickets|Free tickets) for / }).first();
   const href = await quickBuy.getAttribute("href");
   expect(href).toMatch(/^\/events\/[^/]+#tickets$/);
   // A rail that auto-scrolls never stops moving by itself; the pointer over it holds it, as for a person.
