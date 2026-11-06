@@ -218,13 +218,17 @@ function SceneMapView({
   const initialView = useMemo<MobileView>(() => (searchParams.get("view") === "list" ? "list" : "map"), []); // eslint-disable-line react-hooks/exhaustive-deps
   const [urlSteers] = useState(() => carriesViewState(searchParams));
   const [areaBounds, setAreaBounds] = useState<MapBounds | null>(null);
-  // A located visitor is asking for what's near them: an earlier "Search this area" no longer applies.
-  const locate = useMapLocate(!urlSteers, () => setAreaBounds(null));
+  const [rawSelectedEventId, setSelectedEventId] = useState<string | null>(initialSelected);
+  // A located visitor is asking for what's near them: an earlier "Search this area" no longer applies,
+  // and neither does a selected event, whose own recentring would otherwise fly the map back to it.
+  const locate = useMapLocate(!urlSteers, () => {
+    setAreaBounds(null);
+    setSelectedEventId(null);
+  });
 
   // The desktop event card sits above the Mapbox wordmark in the map's lower-left corner (components/map/MapboxLogo.tsx).
   const mapboxLogo = useMapTileStyle().id === "mapbox-streets";
   const [filters, setFilters] = useState<FilterState>(initial);
-  const [rawSelectedEventId, setSelectedEventId] = useState<string | null>(initialSelected);
   // Map first (owner request); a shared ?view=list still opens the list.
   const [mobileView, setMobileView] = useState<MobileView>(initialView);
   const rowRefs = useRef(new Map<string, HTMLDivElement>());

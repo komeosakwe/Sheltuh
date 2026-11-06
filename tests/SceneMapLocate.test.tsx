@@ -588,6 +588,19 @@ describe("Near me puts the nearest events first and frames them", () => {
     expect(document.querySelector(".scene-visitor")).toBeNull();
   });
 
+  it("Near me drops a selected event, so the map goes to the visitor rather than back to the selection", async () => {
+    // Codex, PR #34: a retained selection's effect flew the map back to the selected event.
+    params = new URLSearchParams("sel=sydney-show");
+    answerAt(MELBOURNE.lat, MELBOURNE.lng);
+    await renderMap([sydneySoonest, fitzroyGig, footscrayGig]);
+    await waitFor(() => expect(view().lat).toBeCloseTo(sydneySoonest.coordinates?.lat ?? 0, 2));
+
+    fireEvent.click(screen.getByRole("button", { name: "Near me" }));
+    await expectCentredOn(MELBOURNE, 0.06);
+    await waitFor(() => expect(replace.mock.calls.at(-1)?.[0] ?? "").not.toMatch(/sel=/));
+    await waitFor(() => expect(listedTitles()[0]).toBe("Fitzroy Gig"));
+  });
+
   it("an address with its own view keeps soonest first until Near me is pressed", async () => {
     params = new URLSearchParams("cat=live-music");
     localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Melbourne", state: "VIC" }));
