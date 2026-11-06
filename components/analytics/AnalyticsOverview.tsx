@@ -172,7 +172,7 @@ function OverviewBody({ data, busy }: { data: Overview; busy: boolean }) {
           range={data.range}
           days={days}
           previousLabel={data.previous ? previousLabelFor(data.range) : undefined}
-          intro="Clicks on “Get tickets on …” links. Those sales happen on other sites, so they aren’t in the sales numbers above."
+          intro="Clicks on “Buy tickets” links. Those sales happen on other sites, so they aren’t in the sales numbers above."
         />
       )}
       <Panel title="By event" titleId="by-event">

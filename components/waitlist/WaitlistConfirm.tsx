@@ -36,7 +36,7 @@ export default function WaitlistConfirm() {
         links: [
           {
             href: `/events/${encodeURIComponent(result.eventSlug)}#tickets`,
-            label: result.ticketsAvailable ? "Get tickets" : "Back to the event",
+            label: result.ticketsAvailable ? "Buy tickets" : "Back to the event",
           },
         ],
       })}

@@ -263,7 +263,7 @@ export interface TicketHost {
 }
 
 /**
- * The ticketing site's name for "Get tickets on {provider}": a known site's
+ * The ticketing site's name for "Tickets on {provider}": a known site's
  * name (Humanitix, Eventbrite, ...), else null, which the UI shows as "the
  * organiser's site" rather than the bare host (owner decision 4,
  * docs/design/home.md). An international (punycode) host is always null.

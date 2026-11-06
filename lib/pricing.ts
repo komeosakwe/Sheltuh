@@ -88,7 +88,7 @@ export function externalPriceFromLabel(
 }
 
 /** A paid external event's card price when its organiser gave none (never the ticket site's name). */
-export const EXTERNAL_NO_PRICE_LABEL = "Get tickets";
+export const EXTERNAL_NO_PRICE_LABEL = "Buy tickets";
 
 /** An external event's ticketing site for "Tickets on {provider}": a known site's name, else "the organiser's site". */
 export function externalProviderLabel(event: SheltuhEvent): string {
@@ -109,7 +109,7 @@ export function externalProviderLabel(event: SheltuhEvent): string {
  */
 export function formatFeedPrice(event: SheltuhEvent): string {
   if (isExternal(event)) {
-    // Never the ticket site's name (owner, 31 Oct 2026): buyers go through our "Get tickets" link.
+    // Never the ticket site's name (owner, 31 Oct 2026): buyers go through our "Buy tickets" link.
     const from = externalPriceFromLabel(event);
     return event.externalFree ? "Free" : from ?? EXTERNAL_NO_PRICE_LABEL;
   }

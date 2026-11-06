@@ -118,7 +118,7 @@ describe("cardCta (§6.2.3: the first matching row wins)", () => {
     ["1 ended", event({ endsAt: "2026-10-19T00:00:00.000Z", startsAt: "2026-10-18T00:00:00.000Z" }), null],
     ["1 ended, sold out", soldOut({ endsAt: "2026-10-19T00:00:00.000Z", startsAt: "2026-10-18T00:00:00.000Z" }), null],
     ["2 external, free", external(true), { label: "Get free tickets", href: "/events/e#tickets", tone: "signal" }],
-    ["3 external, paid", external(false), { label: "Get tickets", href: "/events/e#tickets", tone: "signal" }],
+    ["3 external, paid", external(false), { label: "Buy tickets", href: "/events/e#tickets", tone: "signal" }],
     ["4 no tiers yet", event({ ticketTypes: [] }), null],
     ["5 sold out", soldOut(), { label: "Join waitlist", href: "/events/e#tickets", tone: "outline" }],
     ["5 sold out, seated", seated({ soldOut: true, ticketTypes: [ticket(3000, { seated: true, soldOut: true })] }), { label: "Join waitlist", href: "/events/e#tickets", tone: "outline" }],

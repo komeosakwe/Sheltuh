@@ -1762,7 +1762,7 @@ UI states in `docs/design/brand-direction-one.md` §6.11).
   100, 30 seconds; `maxDuration = 60` on those routes); the cron route sends
   the rest and retries failures like ticket emails.
 - **The email** ("Tickets are available again", `buildWaitlistAvailableEmail`):
-  the event, when and where, a "Get tickets" link to
+  the event, when and where, a "Buy tickets" link to
   `/events/{slug}#tickets`, that it's first come, first served and nothing is
   held, why they're getting it, and the leave link. Brand Direction One
   colours (black on white, Signal Orange only as the button, with
@@ -2137,7 +2137,7 @@ them). Sources: `direct`, `search`, `instagram`, `facebook`, `x`, `tiktok`,
 one of the event's codes).
 
 **Ticket-link clicks** (external events, `POST /api/events/{id}/outbound`,
-public): the "Get tickets on …" link's click beacon, counted exactly like a
+public): the "Buy tickets" link's click beacon, counted exactly like a
 view (same bot, prefetch, `Content-Type` and `Sec-Fetch-Site` rules; 204
 whether counted or not, 404 only for an event that isn't a published external
 one) into `event_outbound_clicks`, with its own cap of 300 a minute per event
@@ -2762,8 +2762,8 @@ signal. Not for Sheltüh-ticketed events, which keep the real Who's Going.
   organisers often sell on their own site. Phishing is mitigated by admin
   review (always before such an event goes live: see "Publishing events"),
   punycode display and the freeze, not prevented. The UI should open
-  the link with `rel="noopener"` (and say where it goes: "Get tickets on
-  {provider}" / "the organiser's site").
+  the link with `rel="noopener"` (and say where it goes: "Buy tickets (opens
+  in a new tab)").
 - **`externalFree` is the organiser's word.** It isn't verified, and it puts
   the event under `pricing=free`. Checked at review, or after the fact for
   an organiser's own publish; editable afterwards on a draft, which is

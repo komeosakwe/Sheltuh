@@ -69,9 +69,9 @@ describe("external event: the tickets section", () => {
   it("links out in a new tab, safely, and says so in the link's name (never naming the site)", () => {
     const { container } = render(<EventDetailsView event={HUMANITIX} demo />);
     const link = within(parts(container).tickets).getByRole("link", {
-      name: "Get tickets (opens in a new tab)",
+      name: "Buy tickets (opens in a new tab)",
     });
-    expect(link).toHaveTextContent(/^Get tickets$/);
+    expect(link).toHaveTextContent(/^Buy tickets$/);
     expect(link).toHaveAttribute("href", "https://events.humanitix.com/thornbury-dub-session-demo");
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
@@ -87,8 +87,8 @@ describe("external event: the tickets section", () => {
         expect(region).not.toHaveTextContent(/Humanitix|Eventbrite|organiser.s site|Tickets on|Sold by|tickets on /i);
       }
       for (const link of container.querySelectorAll('a[href*="humanitix"], a[href*="example.com"]')) {
-        expect(link.getAttribute("aria-label")).toBe("Get tickets (opens in a new tab)");
-        expect(link.textContent).toBe("Get tickets");
+        expect(link.getAttribute("aria-label")).toBe("Buy tickets (opens in a new tab)");
+        expect(link.textContent).toBe("Buy tickets");
       }
       unmount();
     }
@@ -123,7 +123,7 @@ describe("external event: the tickets section", () => {
 
   it("counts the click with the beacon, without stopping the link", () => {
     const { container } = render(<EventDetailsView event={HUMANITIX} demo={false} />);
-    const link = within(parts(container).tickets).getByRole("link", { name: /^Get tickets/ });
+    const link = within(parts(container).tickets).getByRole("link", { name: /^Buy tickets/ });
     const click = new MouseEvent("click", { bubbles: true, cancelable: true });
     link.dispatchEvent(click);
     expect(recordOutboundClick).toHaveBeenCalledTimes(1);
@@ -135,11 +135,11 @@ describe("external event: the tickets section", () => {
     expect(recordOutboundClick).toHaveBeenCalledTimes(2);
   });
 
-  it("an unknown provider reads the same ('Get tickets'), and says entry is free when listed so", () => {
+  it("an unknown provider reads the same ('Buy tickets'), and says entry is free when listed so", () => {
     const { container } = render(<EventDetailsView event={OWN_SITE} demo />);
     const { tickets } = parts(container);
     expect(
-      within(tickets).getByRole("link", { name: "Get tickets (opens in a new tab)" }),
+      within(tickets).getByRole("link", { name: "Buy tickets (opens in a new tab)" }),
     ).toHaveAttribute("href", "https://www.example.com/footscray-open-studios/rsvp");
     expect(within(tickets).getByText("Free entry")).toBeInTheDocument();
   });
@@ -152,7 +152,7 @@ describe("external event: the tickets section", () => {
   ])("renders no link (and no buy bar) for a %s ticket link", (_label, url) => {
     const { container } = render(<EventDetailsView event={{ ...HUMANITIX, externalTicketUrl: url }} demo={false} />);
     const { tickets, bar } = parts(container);
-    expect(screen.queryByRole("link", { name: /^Get tickets/ })).toBeNull();
+    expect(screen.queryByRole("link", { name: /^Buy tickets/ })).toBeNull();
     expect(bar).toBeNull();
     expect(within(tickets).getByText("The ticket link isn’t available right now.")).toBeInTheDocument();
     expect(within(tickets).queryByText("Tickets coming soon.")).toBeNull();
@@ -171,8 +171,8 @@ describe("external event: the phone buy bar", () => {
     expect(bar.querySelectorAll("p")).toHaveLength(0);
     // Not a jump to #tickets: the bar's button is the outbound link.
     expect(bar.querySelector('a[href="#tickets"]')).toBeNull();
-    const cta = within(bar).getByRole("link", { name: "Get tickets (opens in a new tab)" });
-    expect(cta).toHaveTextContent(/^Get tickets$/);
+    const cta = within(bar).getByRole("link", { name: "Buy tickets (opens in a new tab)" });
+    expect(cta).toHaveTextContent(/^Buy tickets$/);
     expect(cta).toHaveAttribute("href", HUMANITIX.externalTicketUrl);
     expect(cta).toHaveAttribute("target", "_blank");
     expect(cta).toHaveAttribute("rel", "noopener noreferrer");
@@ -188,7 +188,7 @@ describe("external event: the phone buy bar", () => {
     expect(within(bar).getByText("Free")).toBeInTheDocument();
     expect(bar).not.toHaveTextContent(/organiser.s site|Tickets on/);
     for (const p of bar.querySelectorAll("p")) expect(p.textContent?.trim()).not.toBe("");
-    expect(within(bar).getByRole("link", { name: "Get tickets (opens in a new tab)" })).toHaveAttribute(
+    expect(within(bar).getByRole("link", { name: "Buy tickets (opens in a new tab)" })).toHaveAttribute(
       "href",
       OWN_SITE.externalTicketUrl,
     );

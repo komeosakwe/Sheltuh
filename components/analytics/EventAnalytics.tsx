@@ -287,7 +287,7 @@ function ReportBody({
           range={data.range}
           days={days}
           previousLabel={previousLabel}
-          intro="Clicks on this event’s “Get tickets on …” link. Its sales happen on that site and aren’t counted here."
+          intro="Clicks on this event’s “Buy tickets” link. Its sales happen on that site and aren’t counted here."
         />
       )}
 

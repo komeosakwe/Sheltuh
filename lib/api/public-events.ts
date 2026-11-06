@@ -115,7 +115,7 @@ export interface PublicEvent {
   externalPriceFromCents?: number;
   /**
    * External events only: a known ticketing site's name ("Humanitix",
-   * "Eventbrite", ...) for "Get tickets on {provider}", or null: then say
+   * "Eventbrite", ...) for "Tickets on {provider}", or null: then say
    * "the organiser's site", never the bare host. Always sent; null for
    * Sheltüh-ticketed events.
    */

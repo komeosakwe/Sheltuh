@@ -214,7 +214,7 @@ describe("EventDetailsView preview", () => {
 
   it("an external ticket link counts no click", () => {
     previewOf({ ...DRAFT, ticketingMode: "external", externalTicketUrl: "https://events.humanitix.com/neon-static" });
-    const link = screen.getAllByRole("link", { name: /Get tickets/ })[0];
+    const link = screen.getAllByRole("link", { name: /Buy tickets/ })[0];
     fireEvent.click(link);
     fireEvent.mouseUp(link, { button: 1 });
     expect(recordOutboundClick).not.toHaveBeenCalled();

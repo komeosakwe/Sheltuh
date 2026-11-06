@@ -148,7 +148,7 @@ function whenLabel(startsAt: string, endsAt: string | undefined, timeZone: strin
  * 1024px a compact buy bar sticks to the bottom (price and the one ticket
  * action, no Save) until it settles under the content at the page's end.
  *
- * An external event (tickets sold on another site) has a "Get tickets"
+ * An external event (tickets sold on another site) has a "Buy tickets"
  * link (never naming the site) instead of the ticket selector, and no price or Who's
  * Going (docs/architecture.md, "External ticketing"). In the demo, the
  * page's sample-data disclosure is the banner at the top (DemoBanner); the

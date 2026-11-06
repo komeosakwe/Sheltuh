@@ -107,7 +107,7 @@ export const MAX_OUTBOUND_BODY_BYTES = 1024;
 
 /**
  * POST /api/events/[eventId]/outbound — counts one click on an external
- * event's "Get tickets on …" link (public, no account, no cookie). Same
+ * event's "Buy tickets" link (public, no account, no cookie). Same
  * rules as a view: nothing about the visitor is read or stored (the user
  * agent is only checked for bots); only the app's own same-origin JSON
  * fetch counts; a per-event cap per minute (the day is then flagged in
