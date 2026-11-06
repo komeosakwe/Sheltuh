@@ -178,13 +178,13 @@ export async function insertOrder(
 }
 
 /**
- * The Host card's extras, which only GET /events/slug/{slug} carries
+ * The Organiser card's extras, which only GET /events/slug/{slug} carries
  * (tests/server/organiser-socials.test.ts): an approved organiser's website,
  * social links and bio excerpt.
  */
 export const HOST_CARD_KEYS = ["organiserWebsiteUrl", "organiserSocialLinks", "organiserBio"] as const;
 
-/** A single-event payload without the Host card's extras: a list item's shape, to compare with the feed. */
+/** A single-event payload without the Organiser card's extras: a list item's shape, to compare with the feed. */
 export function withoutHostCard(event: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(event).filter(([key]) => !(HOST_CARD_KEYS as readonly string[]).includes(key)));
 }

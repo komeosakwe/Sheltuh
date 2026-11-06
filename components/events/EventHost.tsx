@@ -13,7 +13,7 @@ interface HostDetails {
 }
 
 /**
- * What the Host card shows besides the name. A live event carries it
+ * What the Organiser card shows besides the name. A live event carries it
  * (organiserWebsiteUrl, organiserSocialLinks and organiserBio, only for an
  * approved organiser). A demo event has no organiserId and none of those, so
  * its sample organiser's profile stands in (lib/sample-organisers.ts).
@@ -34,7 +34,7 @@ function hostDetails(event: SheltuhEvent, demo: boolean): HostDetails {
 }
 
 /**
- * The event page's Host card: the organiser's logo (or initials), name and
+ * The event page's Organiser card: the organiser's logo (or initials), name and
  * "View profile", then their website and social links, then a bio excerpt.
  * Only what exists is shown; with no links or bio it's just the name and the
  * profile link.
@@ -44,7 +44,7 @@ export default function EventHost({ event, demo }: { event: SheltuhEvent; demo: 
   const profileHref = organiserProfileHref(event);
 
   return (
-    <Panel title="Host" titleId="host-title">
+    <Panel title="Organiser" titleId="host-title">
       <div data-event-host="" className="flex flex-col gap-5">
         <div className="flex items-center gap-4 sm:gap-5">
           <OrganiserLogo name={event.organiserName} url={event.organiserLogoThumbUrl} size="lg" fallback="initials" />

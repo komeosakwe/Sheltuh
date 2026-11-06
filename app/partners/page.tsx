@@ -4,7 +4,7 @@ import { ButtonLink } from "@/components/ui/Button";
 import { describeBookingFee } from "@/lib/fees";
 import { inheritedShareImages, pageShareMetadata, siteOrigin } from "@/lib/share-metadata";
 
-/** Title, canonical URL and link preview: this page is the one shared with venues and promoters. */
+/** Title, canonical URL and link preview: this page is the one shared with venues and organisers. */
 export async function generateMetadata(_props: PageProps<"/partners">, parent: ResolvingMetadata): Promise<Metadata> {
   return pageShareMetadata(
     {
@@ -22,7 +22,7 @@ export default function PartnersPage() {
   return (
     <ContentPage
       eyebrow="Partners"
-      title="A network of rooms and promoters"
+      title="A network of rooms and organisers"
     >
       <ContentSection title="What you get">
         <ul>

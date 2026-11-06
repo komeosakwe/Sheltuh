@@ -72,7 +72,7 @@ export interface PublicEvent {
    */
   organiserLogoThumbUrl?: string;
   /**
-   * The "Host" card's extras, only on the single-event route (GET
+   * The Organiser card's extras, only on the single-event route (GET
    * /events/slug/{slug}), never in the feed or other lists, and only while the
    * organiser is approved (the visibility of their public profile). Each is
    * absent when the organiser hasn't set it.

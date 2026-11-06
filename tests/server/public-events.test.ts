@@ -81,7 +81,7 @@ describe("public event visibility", () => {
         "timeZone",
         // Venue location: only when the event has one (the fixture's events do: a manual pin).
         "location",
-        // The Host card (this route only, approved organiser only): the fixture's organiser has a website and a bio, no socials.
+        // The Organiser card (this route only, approved organiser only): the fixture's organiser has a website and a bio, no socials.
         "organiserWebsiteUrl",
         "organiserBio",
       ].sort(),

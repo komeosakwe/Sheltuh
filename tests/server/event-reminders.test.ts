@@ -439,7 +439,7 @@ describe("the reminder email", () => {
     expect(message.subject).toMatch(/^(Today|Tomorrow): Neon Static$/);
     expect(message.text).toContain(event.venueName);
     expect(message.text).toContain("View your tickets: ");
-    expect(message.text).toContain("Hosted by Static Collective");
+    expect(message.text).toContain("Organised by Static Collective");
     expect(message.headers).toEqual({ "Auto-Submitted": "auto-generated" });
     expect(message.html).not.toContain("List-Unsubscribe");
     expect(message.text).not.toMatch(/unsubscribe/i);

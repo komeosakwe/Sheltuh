@@ -426,7 +426,7 @@ describe("the event reminder", () => {
       ">Neon &#38; &#60;Static&#62;</td>", // the details card's title (the alt text has it too)
       "View your tickets",
       "Get directions",
-      "Hosted by",
+      "Organised by",
       "Tell a friend:",
       "Need help?",
     ].map((part) => html.indexOf(part));
@@ -516,7 +516,7 @@ describe("the event reminder", () => {
 
   it("says who hosts it with a link to the organiser, then Tell a friend (small), then the compact footer", () => {
     const { html, text } = reminderOf();
-    expect(html).toContain('Hosted by <a href="https://sheltuh.test/organisers/org_1" style="color:#171411;text-decoration:underline">Static Collective</a>');
+    expect(html).toContain('Organised by <a href="https://sheltuh.test/organisers/org_1" style="color:#171411;text-decoration:underline">Static Collective</a>');
     for (const label of ["WhatsApp", "Messages", "Email"]) expect(html).toContain(`>${label}</a>`);
     expect(html).toContain("font-size:13px;line-height:20px;font-weight:400;color:#6A6256\">Tell a friend: ");
     expect(text).toContain("TELL A FRIEND");
@@ -539,7 +539,7 @@ describe("the event reminder", () => {
     expect(email.text).toContain("Venue: The Cellar Door");
     expect(email.text).toContain("Address: 12 Hosier Lane, Melbourne VIC 3000");
     expect(email.text).toContain("View your tickets: https://sheltuh.test/checkout/success?session_id=ord_abc");
-    expect(email.text).toContain("Hosted by Static Collective: https://sheltuh.test/organisers/org_1");
+    expect(email.text).toContain("Organised by Static Collective: https://sheltuh.test/organisers/org_1");
   });
 
   it("escapes organiser text", () => {

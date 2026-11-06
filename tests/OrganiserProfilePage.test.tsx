@@ -400,7 +400,7 @@ describe("/organisers/[organiserId] (demo)", () => {
     );
     expect(screen.queryByRole("heading", { level: 2, name: "Past events" })).not.toBeInTheDocument();
     // No past events yet: the zero isn't shown.
-    expect(screen.queryByText("Events hosted")).not.toBeInTheDocument();
+    expect(screen.queryByText("Events organised")).not.toBeInTheDocument();
     // The demo has no logos: the header is just the strap and name.
     expect(document.querySelector("[data-organiser-logo]")).toBeNull();
     expect(document.querySelector("header img")).toBeNull();
@@ -416,7 +416,7 @@ describe("/organisers/[organiserId] (demo)", () => {
     const past = screen.getByRole("heading", { level: 2, name: "Past events" }).closest("section");
     if (!past) throw new Error("past section not rendered");
     expect(within(past).getByRole("link", { name: /Neon Static/ })).toHaveAttribute("href", "/events/neon-static");
-    expect(screen.getByText("Events hosted").nextElementSibling).toHaveTextContent("1");
+    expect(screen.getByText("Events organised").nextElementSibling).toHaveTextContent("1");
   });
 
   it("offers Follow only as unavailable, with a note, and makes no follow request", async () => {

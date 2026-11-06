@@ -22,7 +22,7 @@ interface LinkItem {
  * aria-label also says in words. The website is organiser-supplied, so it's
  * nofollow ugc; social URLs are built by the server from validated handles.
  * Renders nothing when there are no links. `layout="grid"` (the event page's
- * Host card) sets them two to a row from 640px, one per row below.
+ * Organiser card) sets them two to a row from 640px, one per row below.
  */
 export default function OrganiserLinks({
   websiteUrl,

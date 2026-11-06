@@ -15,14 +15,14 @@ function sampleEvent(organiserName: string): SheltuhEvent {
   return event;
 }
 
-/** A live event: has an organiserId, and whatever the API sent for the Host card. */
+/** A live event: has an organiserId, and whatever the API sent for the Organiser card. */
 function liveEvent(extra: Partial<SheltuhEvent> = {}): SheltuhEvent {
   return { ...sampleEvent("Static Collective"), organiserId: "org-live", organiserName: "Northside Noise", ...extra };
 }
 
 function renderHost(event: SheltuhEvent, demo: boolean) {
   render(<EventHost event={event} demo={demo} />);
-  return screen.getByRole("region", { name: "Host" });
+  return screen.getByRole("region", { name: "Organiser" });
 }
 
 describe("EventHost, in the demo", () => {
