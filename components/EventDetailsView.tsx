@@ -536,7 +536,7 @@ export default function EventDetailsView({
               </Link>
             </div>
           )}
-          {/* General admission: the bar is the phone's one Checkout once tickets are chosen (the
+          {/* General admission: the bar checks out once tickets are chosen, as the panel's Checkout does (the
               selector drives it: components/checkout/BuyBar.tsx), and the way to the tickets until
               then ("Buy tickets", or "Free tickets" when every tier is free, in demo mode too (owner,
               21 Oct 2026); "Join waitlist" when sold out). */}

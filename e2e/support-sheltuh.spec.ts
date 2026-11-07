@@ -265,7 +265,7 @@ async function invalidOtherThenCheckout(page: Page, phone = false) {
   await expect(field).toBeFocused();
   await field.fill("0.5");
   await expect(tickets.getByRole("alert")).toHaveCount(0);
-  // Below lg the sticky buy bar is the one Checkout (the panel's is hidden there): press that.
+  // On a phone press the sticky buy bar (the panel's Checkout is there too and presses the same handler).
   const button = phone
     ? page.locator("[data-buy-bar]").getByRole("button", { name: "Buy tickets" })
     : tickets.getByRole("button", { name: "Checkout" });
@@ -275,7 +275,12 @@ async function invalidOtherThenCheckout(page: Page, phone = false) {
   const before = (await (phone ? below : button).boundingBox())!;
   // On a phone: how far the Terms link sits below the Other field. Focus can scroll the page a little to clear
   // the sticky bar (WCAG 2.4.11), so what mustn't change is the layout between them, not the scroll position.
-  const belowField = async () => (await below.boundingBox())!.y - (await field.boundingBox())!.y;
+  // Both read in one frame: two separate boundingBox() calls can straddle a scroll still settling (focus clearing
+  // the sticky bar), which would read as a layout shift that isn't one.
+  const belowField = async () => {
+    const link = await below.elementHandle();
+    return field.evaluate((input, a) => (a as Element).getBoundingClientRect().top - input.getBoundingClientRect().top, link);
+  };
   const gap = await belowField();
   return { tickets, field, button, before, below, belowField, gap };
 }
@@ -311,7 +316,7 @@ test.describe("Checkout's first press after an invalid Other amount, on a 320px 
     await page.touchscreen.tap(buttonBefore.x + buttonBefore.width / 2, buttonBefore.y + buttonBefore.height / 2);
     await expect(tickets.getByRole("alert")).toHaveText("The smallest amount is A$1.");
     await expect(field).toBeFocused();
-    // The bar is sticky and the panel's Checkout is gone on phones: nothing in the panel moved under the tap.
+    // The bar is sticky: nothing moved under the tap.
     expect(await button.boundingBox()).toEqual(buttonBefore);
     // (Within a pixel: a touch scroll can land on a fractional offset.)
     expect(Math.abs((await belowField()) - gap)).toBeLessThanOrEqual(1);

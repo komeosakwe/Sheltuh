@@ -8,8 +8,8 @@ import type { FeedPriceParts } from "@/lib/pricing";
 /**
  * What the ticket selector tells the event page's phone buy bar (below lg).
  * `checkout`: something is chosen, so the bar shows the order's total and is
- * the one Checkout action (`onPress` is the selector's own submit, so there's a
- * single checkout path). `status`: a free booking waiting on its emailed link,
+ * a Checkout action beside the panel's own (`onPress` is the selector's own
+ * submit, so there's a single checkout path). `status`: a free booking waiting on its emailed link,
  * so the bar says so rather than offering to buy again. Nothing registered
  * (nothing chosen yet, sold out, the demo): the bar keeps the event's "From"
  * price and a link to the tickets.
@@ -97,7 +97,7 @@ export function GaBuyBar({
       </div>
       <span aria-hidden="true" className="h-10 w-px shrink-0 bg-surface-border" />
       {state?.kind === "checkout" ? (
-        // A button: it acts (the same submit as the Checkout in the ticket section, which is hidden on phones).
+        // A button: it acts (the same submit as the Checkout in the ticket section).
         // Busy, not disabled, while it works, so focus stays on it and a second tap does nothing.
         <Button
           variant="signal"

@@ -79,10 +79,10 @@ describe("the buy bar before anything is chosen", () => {
     expect(within(bar()).queryByRole("button")).toBeNull();
   });
 
-  it("is the page's only Buy tickets / Checkout action below lg: the panel's Checkout is hidden there but stays for desktop", () => {
+  it("keeps the panel's Checkout at every width, phones included (owner request)", () => {
     render(<EventDetailsView event={live("neon-static")} demo={false} />);
     const checkout = screen.getByRole("button", { name: "Checkout" });
-    expect(checkout).toHaveClass("max-lg:hidden");
+    expect(checkout).not.toHaveClass("max-lg:hidden");
     expect(checkout).toBeDisabled();
   });
 });

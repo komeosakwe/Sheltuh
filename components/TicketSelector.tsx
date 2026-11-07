@@ -770,9 +770,9 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
               </div>
               {/* Right above Checkout, for paid orders only (the owner's placement). */}
               {supportBlock}
-              {/* Desktop's Checkout, orange with a lock. On phones (below lg) the sticky buy bar is the one
-                  Checkout (components/checkout/BuyBar.tsx; it presses the same handler), so this is hidden
-                  there, but only when that bar exists. Busy, not disabled, while it works: focus
+              {/* The panel's Checkout, orange with a lock, at every width (owner: show it on phones too, as in the
+                  mockup). On phones the sticky buy bar (components/checkout/BuyBar.tsx) presses this same
+                  handler, so both start one checkout. Busy, not disabled, while it works: focus
                   stays on it. Disabled only with nothing chosen (the hint says what to do). White on orange is
                   3.4:1, so the label is 20px bold (large text). */}
               <Button
@@ -782,7 +782,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                 busy={loading}
                 disabled={!hasAnyTickets}
                 aria-describedby={hasAnyTickets ? undefined : "checkout-hint"}
-                className={`mt-5 h-14 w-full gap-3 rounded-card text-xl leading-6 font-bold tracking-normal normal-case ${loading || !hasAnyTickets ? "" : "text-paper"} ${setBuyBar ? "max-lg:hidden" : ""}`}
+                className={`mt-5 h-14 w-full gap-3 rounded-card text-xl leading-6 font-bold tracking-normal normal-case ${loading || !hasAnyTickets ? "" : "text-paper"}`}
               >
                 {!loading && <LockIcon className="size-6 shrink-0" />}
                 {loading

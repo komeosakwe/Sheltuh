@@ -4,8 +4,9 @@ import { sampleEvents } from "@/lib/sample-events";
 import { stubStripeJs } from "./stripe-stub";
 
 /**
- * The phone's sticky buy bar as the one Checkout (owner, 6 Nov 2026), in a real browser on `next dev` with /api
- * intercepted: at 390×844 the page has one visible primary action; pressing it with no name focuses the field
+ * The phone's sticky buy bar (owner, 6 Nov 2026), in a real browser on `next dev` with /api intercepted: at
+ * 390×844 the bar and the panel's Checkout (shown on phones too, owner request 7 Nov) press one handler; pressing
+ * the bar with no name focuses the field
  * (and says so); the bar never covers the name field when it has focus; and a press posts the checkout with
  * the buyer's name. The event is Cinder Warehouse Sessions with its first release sold out and its second on
  * sale (the third waiting on the second), so the cards' states can be seen too.
@@ -86,7 +87,7 @@ async function mockApi(page: Page) {
 test.describe("the sticky buy bar at 390×844", () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
 
-  test("one visible primary action; the panel's Checkout is hidden; the bar's total follows the summary", async ({ page }) => {
+  test("the panel's Checkout shows on phones beside the bar; the bar's total follows the summary", async ({ page }) => {
     await stubStripeJs(page);
     await mockApi(page);
     await page.goto(`/events/${sample!.slug}`);
@@ -107,9 +108,10 @@ test.describe("the sticky buy bar at 390×844", () => {
     await expect(bar).toContainText("incl. booking fee");
     await expect(tickets.getByText("Total").locator("xpath=following-sibling::dd")).toHaveText("A$37.60");
 
-    // One visible primary action: the bar's. The panel's Checkout isn't rendered on a phone.
+    // Both the bar's Buy tickets and the panel's Checkout are there on a phone (owner request); they press one handler.
     await expect(bar.getByRole("button", { name: "Buy tickets" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Checkout" })).toBeHidden();
+    await tickets.getByRole("button", { name: "Checkout" }).scrollIntoViewIfNeeded();
+    await expect(tickets.getByRole("button", { name: "Checkout" })).toBeVisible();
     // 48px thumb target, 44px steppers.
     expect((await bar.getByRole("button", { name: "Buy tickets" }).boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(48);
     expect((await tickets.getByRole("button", { name: "Increase quantity for Second release" }).boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
