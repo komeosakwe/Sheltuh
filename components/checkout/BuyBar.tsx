@@ -90,7 +90,7 @@ export function GaBuyBar({
           {shown.amount}
         </p>
         {shown.note && (
-          <p id={noteId} className="text-sm leading-5 text-muted">
+          <p id={noteId} className="text-base leading-6 text-muted">
             {shown.note}
           </p>
         )}

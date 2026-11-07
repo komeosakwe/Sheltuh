@@ -527,7 +527,7 @@ export default function EventDetailsView({
             <div data-buy-bar data-surface="ink" className={buyBarClass}>
               <div className="min-w-0">
                 <p className="text-base leading-5 font-semibold tabular-nums">{price.amount}</p>
-                {price.note && <p className="text-sm leading-5 text-muted">{price.note}</p>}
+                {price.note && <p className="text-base leading-6 text-muted">{price.note}</p>}
               </div>
               {/* A seated event's buy bar goes straight to its seat page (manager decision 2,
                   docs/design/seating.md). */}
