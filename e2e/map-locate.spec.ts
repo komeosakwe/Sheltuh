@@ -147,6 +147,82 @@ test.describe("/map centres on the visitor at 1280×800", () => {
   });
 });
 
+test.describe("/map puts the events nearest the visitor first", () => {
+  test.use({ viewport: { width: 1280, height: 800 }, permissions: ["geolocation"], geolocation: MELBOURNE });
+
+  /** The sample events, with the soonest moved to Sydney (it used to head a Melbourne visitor's list). */
+  async function openWithSydneySoonest(page: Page) {
+    await mockMapNetwork(page);
+    await page.route("**/api/events?*", (route) =>
+      route.fulfill({
+        json: {
+          items: fixtures(Date.now()).map((event, i) => ({
+            ...event,
+            ...(i === 0 ? { title: "Sydney Soonest", suburb: "Surry Hills", state: "NSW", timeZone: "Australia/Sydney" } : {}),
+          })),
+          nextCursor: undefined,
+        },
+      }),
+    );
+    await page.goto("/map");
+    await expect(page.locator(".leaflet-tile-loaded").first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole("button", { name: /^Locate .+ on the map$/ }).first()).toBeVisible({ timeout: 20_000 });
+  }
+
+  const rows = (page: Page) => page.locator("[data-scene-row]");
+
+  test("the list runs nearest first with distances, the map frames the nearest few, and a later pan stays", async ({ page }) => {
+    await openWithSydneySoonest(page);
+    // Soonest first until located; the ask on open then orders it.
+    await expect(rows(page).first()).toContainText(/\d+(\.\d)? km away|< 1 km away/, { timeout: 20_000 });
+    await expect(rows(page).first()).not.toContainText("Sydney Soonest");
+    await expect(rows(page).filter({ hasText: "Sydney Soonest" })).toContainText(/7\d\d km away/);
+    const distances = await rows(page).evaluateAll((els) =>
+      els.map((el) => {
+        const match = /([\d,.]+|< 1) km away/.exec(el.textContent ?? "");
+        return match ? Number(match[1].replace(/[^\d.]/g, "") || 0) : Number.POSITIVE_INFINITY;
+      }),
+    );
+    expect(distances).toEqual([...distances].sort((a, b) => a - b));
+    const order = await rows(page).evaluateAll((els) => els.map((el) => el.querySelector("a")?.textContent ?? ""));
+
+    // The visitor and the nearest events are in view, and it stays local (not all of Australia).
+    await expect
+      .poll(async () => {
+        const view = await readView(mapContainer(page));
+        return view.zoom >= 10 && view.zoom <= NEAR_ZOOM && Math.abs(view.lat - MELBOURNE.latitude) < 0.1 && Math.abs(view.lng - MELBOURNE.longitude) < 0.1;
+      })
+      .toBe(true);
+    await expect(page.locator(".scene-visitor")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Search this area" })).toHaveCount(0);
+
+    // The visitor pans: the map stays where they put it, "Search this area" is offered, the order stays.
+    const before = await readView(mapContainer(page));
+    const box = (await mapContainer(page).boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + 160, box.y + box.height / 2 + 60, { steps: 8 });
+    await page.mouse.up();
+    await expect(page.getByRole("button", { name: "Search this area" })).toBeVisible();
+    await page.waitForTimeout(1500);
+    const after = await readView(mapContainer(page));
+    expect(after.lng).toBeLessThan(before.lng);
+    expect(after.zoom).toBe(before.zoom);
+    expect(await rows(page).evaluateAll((els) => els.map((el) => el.querySelector("a")?.textContent ?? ""))).toEqual(order);
+  });
+
+  test("no coordinate reaches storage, the address or a request", async ({ page }) => {
+    const sent: string[] = [];
+    page.on("request", (request) => sent.push(`${request.url()} ${request.postData() ?? ""}`));
+    await openWithSydneySoonest(page);
+    await expect(rows(page).first()).toContainText(/km away/, { timeout: 20_000 });
+    expect(page.url()).not.toMatch(/37\.8|144\.9/);
+    const stored = await page.evaluate(() => [localStorage, sessionStorage].map((store) => JSON.stringify(Object.entries(store))).join(""));
+    expect(stored).not.toMatch(/-?\d{2,3}\.\d{3,}/);
+    expect(sent.filter((entry) => /-37\.8|144\.96/.test(entry))).toEqual([]);
+  });
+});
+
 test.describe("/map when every event has a venue pin", () => {
   test.use({ viewport: { width: 1280, height: 800 }, permissions: [] });
 

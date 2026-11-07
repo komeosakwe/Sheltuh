@@ -26,7 +26,7 @@ export function RailCloneSet({ children }: { children: ReactNode }) {
 /**
  * Brings a keyboard-focused item fully into view: in a sideways rail the
  * browser only scrolls the focused link itself into view, which can leave
- * the rest of its card (Save, Get tickets) cut off at the edge. Keyboard
+ * the rest of its card (Save, Buy tickets) cut off at the edge. Keyboard
  * focus only (`:focus-visible`), so a tap or click never moves the card out
  * from under the pointer. Instant under reduced motion.
  */

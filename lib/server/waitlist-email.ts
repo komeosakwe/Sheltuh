@@ -108,7 +108,7 @@ export function buildWaitlistAvailableEmail(
     when(event),
     where(event),
     "",
-    `Get tickets: ${eventLink}`,
+    `Buy tickets: ${eventLink}`,
     "",
     "Some tickets have just been released. They're first come, first served: being on the waitlist doesn't hold one for you, and they may be gone by the time you look.",
     "",
@@ -124,7 +124,7 @@ export function buildWaitlistAvailableEmail(
     body:
       heading(headline) +
       eventDetails(event) +
-      button("Get tickets", eventLink) +
+      button("Buy tickets", eventLink) +
       `<p style="margin:0 0 24px 0;font-size:15px;line-height:22px">Some tickets have just been released. They&rsquo;re first come, first served: being on the waitlist doesn&rsquo;t hold one for you, and they may be gone by the time you look.</p>` +
       `<p style="margin:0;font-size:13px;line-height:20px;color:${MUTED}">You&rsquo;re getting this because you joined the waitlist for ${escapeHtml(event.title)} on Sheltüh. <a href="${escapeHtml(leaveLink)}" style="color:${INK}">Leave the waitlist</a> to stop emails about this event.</p>`,
   });

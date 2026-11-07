@@ -239,6 +239,6 @@ describe("organiser-supplied names in the reminder and the holder message", () =
   it("the reminder's title line and host line carry the cleaned title and name", () => {
     const { text } = messages.reminder();
     expect(text).toContain(`\n${CLEAN_TITLE}\n`);
-    expect(text).toContain(`Hosted by ${CLEAN_NAME}: `);
+    expect(text).toContain(`Organised by ${CLEAN_NAME}: `);
   });
 });

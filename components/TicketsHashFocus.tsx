@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 
 /**
- * Arriving at an event page's `#tickets` (a card's "Get tickets" link, or
+ * Arriving at an event page's `#tickets` (a card's "Buy tickets" link, or
  * the buy bar) moves keyboard and screen-reader focus to the ticket section,
  * not just the scroll position (docs/design/brand-direction-one.md §6.6).
  * Mounted with the event's view, so in live mode it runs once the event has

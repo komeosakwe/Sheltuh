@@ -19,7 +19,7 @@ export function clicksReliabilityNote(stats: OutboundClickStats): string | null 
 }
 
 /**
- * Clicks on external events' "Get tickets on …" links (docs/architecture.md,
+ * Clicks on external events' "Buy tickets" links (docs/architecture.md,
  * "Organiser analytics"): the total with its change, a chart per day (the
  * previous period dashed, when comparing), and the numbers as a table. Days
  * where the click cap was reached are named, since their count is a lower

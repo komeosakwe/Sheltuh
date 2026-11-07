@@ -177,10 +177,10 @@ describe("an event ticketed on another site (external)", () => {
     externalProvider: "Humanitix",
   };
 
-  it("paid with no organiser price: 'Get tickets', never a price, the site's name or 'Tickets coming soon'", () => {
-    expect(formatFeedPrice(base)).toBe("Get tickets");
+  it("paid with no organiser price: 'Buy tickets', never a price, the site's name or 'Tickets coming soon'", () => {
+    expect(formatFeedPrice(base)).toBe("Buy tickets");
     expect(formatFeedPrice(base)).toBe(EXTERNAL_NO_PRICE_LABEL);
-    expect(formatFeedPriceParts(base)).toEqual({ amount: "Get tickets", note: "" });
+    expect(formatFeedPriceParts(base)).toEqual({ amount: "Buy tickets", note: "" });
   });
 
   it("free entry: just 'Free'", () => {
@@ -191,7 +191,7 @@ describe("an event ticketed on another site (external)", () => {
 
   it("an unknown site reads the same as a known one", () => {
     const unknown = { ...base, externalTicketUrl: "https://www.example.com.au/rsvp", externalProvider: null };
-    expect(formatFeedPrice(unknown)).toBe("Get tickets");
+    expect(formatFeedPrice(unknown)).toBe("Buy tickets");
     expect(formatFeedPrice({ ...unknown, externalFree: true })).toBe("Free");
   });
 

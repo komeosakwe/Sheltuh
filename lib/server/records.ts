@@ -463,7 +463,7 @@ export function toEventForAdmin(row: Row): EventRecord {
 }
 
 /**
- * EVENT_SELECT's extras for the single-event route's "Host" card: the
+ * EVENT_SELECT's extras for the single-event route's Organiser card: the
  * organiser's website, bio and social handles, each null unless the organiser
  * is approved (the same rule as findPublicOrganiserRow: a pending, rejected or
  * suspended organiser shows nothing). Read from the join EVENT_SELECT already
@@ -479,7 +479,7 @@ const EVENT_HOST_COLUMNS = ["website_url", "description"]
   )
   .join(",\n         ");
 
-/** EVENT_SELECT plus the Host card's columns (toPublicEventDetailFromRow). */
+/** EVENT_SELECT plus the Organiser card's columns (toPublicEventDetailFromRow). */
 export const EVENT_DETAIL_SELECT = eventSelectWith(EVENT_HOST_COLUMNS);
 
 const bioSegmenter = new Intl.Segmenter("en", { granularity: "grapheme" });
@@ -504,7 +504,7 @@ export function bioExcerpt(bio: string, max = ORGANISER_BIO_EXCERPT_LENGTH): str
 
 /**
  * The public shape of a row of EVENT_DETAIL_SELECT: toPublicEventFromRow plus
- * the Host card's organiserWebsiteUrl / organiserSocialLinks / organiserBio,
+ * the Organiser card's organiserWebsiteUrl / organiserSocialLinks / organiserBio,
  * each only when the organiser is approved and has set it.
  */
 export function toPublicEventDetailFromRow(row: Row): PublicEvent {

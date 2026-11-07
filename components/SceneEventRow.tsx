@@ -12,6 +12,8 @@ interface SceneEventRowProps {
   /** `opener`: the Locate button, for focus to come back to when the selection is dismissed. */
   onLocate: (eventId: string, opener: HTMLElement) => void;
   hasLocation: boolean;
+  /** How far from the visitor ("2.3 km"), once they're located (/map's nearest-first list); approximate. */
+  distance?: string | null;
   detailsHref: string;
 }
 
@@ -25,7 +27,7 @@ interface SceneEventRowProps {
  * (selects + pans). Independent, non-nested controls: nothing is inside the link but the title. Selected: a sunken fill, a black edge and
  * the word "Selected", never colour alone.
  */
-export default function SceneEventRow({ event, selected, onLocate, hasLocation, detailsHref }: SceneEventRowProps) {
+export default function SceneEventRow({ event, selected, onLocate, hasLocation, distance, detailsHref }: SceneEventRowProps) {
   const start = startLabel(event);
   return (
     <div
@@ -69,6 +71,12 @@ export default function SceneEventRow({ event, selected, onLocate, hasLocation, 
         <PlaceLines event={event} className="text-sm leading-5 text-muted" />
         <p className="text-sm leading-5 text-muted">
           {categoryLabel(event)}
+          {distance && (
+            <>
+              {" "}&middot; {distance}
+              <span className="sr-only"> away</span>
+            </>
+          )}
           {!hasLocation && <> &middot; not shown on map</>}
         </p>
         <CardPrice event={event} className="text-sm leading-5" />

@@ -96,12 +96,12 @@ test.describe("external event (Humanitix) at 1440×900", () => {
     const { outbound, going } = await mockApi(page);
     await page.goto("/events/thornbury-dub-session");
     const tickets = page.locator("#tickets");
-    const link = tickets.getByRole("link", { name: "Get tickets (opens in a new tab)" });
+    const link = tickets.getByRole("link", { name: "Buy tickets (opens in a new tab)" });
     await expect(link).toBeVisible({ timeout: 30_000 });
     await expect(link).toHaveAttribute("href", "https://events.humanitix.com/thornbury-dub-session-demo");
     await expect(link).toHaveAttribute("target", "_blank");
     await expect(link).toHaveAttribute("rel", "noopener noreferrer");
-    await expect(link).toHaveText("Get tickets");
+    await expect(link).toHaveText("Buy tickets");
     // The ticketing site is never named (owner, 31 Oct 2026): buyers go through our link.
     await expect(tickets).not.toContainText(/Humanitix|Sold by|Tickets on|organiser.s site/i);
     await expect(tickets).not.toContainText("Tickets coming soon");
@@ -156,8 +156,8 @@ test.describe("external event (free, organiser's site) at 390×844", () => {
     await expect(bar).toBeVisible({ timeout: 30_000 });
     await expect(bar).toContainText("Free");
     await expect(bar).not.toContainText(/Tickets on|organiser.s site|Humanitix/i);
-    const cta = bar.getByRole("link", { name: "Get tickets (opens in a new tab)" });
-    await expect(cta).toHaveText("Get tickets");
+    const cta = bar.getByRole("link", { name: "Buy tickets (opens in a new tab)" });
+    await expect(cta).toHaveText("Buy tickets");
     await expect(cta).toHaveAttribute("href", "https://www.example.com/footscray-open-studios/rsvp");
     await expect(page.locator("#tickets")).not.toContainText("Tickets coming soon");
     const [popup] = await Promise.all([page.waitForEvent("popup"), cta.click()]);

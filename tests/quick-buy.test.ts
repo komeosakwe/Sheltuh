@@ -33,21 +33,21 @@ const external = (externalFree: boolean) =>
 describe("quickBuyLabel (brand-direction-one.md §6.6; owner wording, 21 Oct 2026)", () => {
   it.each([
     ["paid", event(), "Buy tickets"],
-    ["all free", event({ ticketTypes: [ticket(0), ticket(0)] }), "Get free tickets"],
+    ["all free", event({ ticketTypes: [ticket(0), ticket(0)] }), "Free tickets"],
     ["free and paid tiers", event({ ticketTypes: [ticket(0), ticket(1500)] }), "Buy tickets"],
     // A9 (manager, 22 Oct 2026): nothing is bought on Sheltüh for an external event, so not "Buy".
-    ["external, paid", external(false), "Get tickets"],
+    ["external, paid", external(false), "Buy tickets"],
     // mobile-redesign.md §6.2.3 row 2 (manager decision, 22 Oct 2026): the organiser says entry is free.
-    ["external, free", external(true), "Get free tickets"],
+    ["external, free", external(true), "Free tickets"],
   ])("%s: %s", (_label, e, expected) => {
     expect(quickBuyLabel(e)).toBe(expected);
   });
 
-  it("never says 'See tickets'; 'Get tickets' only for a paid external event (demo mode included: the same words)", () => {
+  it("never says 'See tickets' or 'Get tickets'; a paid external event reads 'Buy tickets' like any other (demo mode included: the same words)", () => {
     for (const e of [event(), event({ ticketTypes: [ticket(0)] }), external(true)]) {
       expect(quickBuyLabel(e)).not.toMatch(/^(See|Get) tickets$/);
     }
-    expect(quickBuyLabel(external(false))).toBe("Get tickets");
+    expect(quickBuyLabel(external(false))).toBe("Buy tickets");
   });
 
   it("no link when there are no ticket types yet (the card says 'Tickets coming soon')", () => {
@@ -73,13 +73,13 @@ describe("quickBuyLabel when sold out (§6.5 sold-out variant, §6.11)", () => {
     expect(quickBuyLabel(soldOut(), new Date("2026-11-02T00:00:00Z"))).toBeNull();
   });
 
-  it("a sold-out paid tier beside a free one on sale: Get free tickets", () => {
+  it("a sold-out paid tier beside a free one on sale: Free tickets", () => {
     const e = event({ ticketTypes: [ticket(0), { ...ticket(3000), soldOut: true }] });
-    expect(quickBuyLabel(e)).toBe("Get free tickets");
+    expect(quickBuyLabel(e)).toBe("Free tickets");
   });
 
   it("an external event is never sold out", () => {
-    expect(quickBuyLabel({ ...external(false), soldOut: true })).toBe("Get tickets");
+    expect(quickBuyLabel({ ...external(false), soldOut: true })).toBe("Buy tickets");
   });
 });
 

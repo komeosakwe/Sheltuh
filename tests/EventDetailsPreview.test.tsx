@@ -175,7 +175,7 @@ describe("EventDetailsView preview", () => {
     expect(screen.queryByRole("link", { name: /Back to all events/ })).toBeNull();
     expect(screen.queryByText(/Report this event/)).toBeNull();
     expect(screen.queryByText(/Who.s Going/i)).toBeNull();
-    expect(screen.queryByRole("region", { name: "Host" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Organiser" })).toBeNull();
     expect(container.querySelector("[data-event-location]")).not.toBeNull();
     expect(container.querySelector("[data-event-map]")).toBeNull();
     const bar = container.querySelector("[data-buy-bar]");
@@ -188,7 +188,7 @@ describe("EventDetailsView preview", () => {
     const { container } = render(<EventDetailsView event={sampleEvents[0] as SheltuhEvent} demo />);
     expect(screen.getByRole("link", { name: /Back to all events/ })).toBeInTheDocument();
     expect(screen.getByText(/Report this event/)).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Host" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Organiser" })).toBeInTheDocument();
     expect(container.querySelector("[data-buy-bar]")).toHaveClass("sticky");
     expect(container.querySelector("[data-event-map]")).not.toBeNull();
   });
@@ -214,7 +214,7 @@ describe("EventDetailsView preview", () => {
 
   it("an external ticket link counts no click", () => {
     previewOf({ ...DRAFT, ticketingMode: "external", externalTicketUrl: "https://events.humanitix.com/neon-static" });
-    const link = screen.getAllByRole("link", { name: /Get tickets/ })[0];
+    const link = screen.getAllByRole("link", { name: /Buy tickets/ })[0];
     fireEvent.click(link);
     fireEvent.mouseUp(link, { button: 1 });
     expect(recordOutboundClick).not.toHaveBeenCalled();

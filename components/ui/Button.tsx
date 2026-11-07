@@ -3,7 +3,7 @@ import type { ButtonHTMLAttributes, ComponentProps, MouseEvent, Ref } from "reac
 
 /**
  * `signal` (Signal Orange) is the one primary conversion action per viewport:
- * the home hero, the event page's Get tickets, Join waitlist. Never in
+ * the home hero, the event page's Buy tickets, Join waitlist. Never in
  * checkout, forms, dashboards or admin, and never inside an orange section.
  * `solid` (black) is every other primary action. On black, put the button
  * inside `data-surface="ink"` and use `outline`, which the scope inverts

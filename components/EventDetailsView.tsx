@@ -142,13 +142,13 @@ function whenLabel(startsAt: string, endsAt: string | undefined, timeZone: strin
  * linked to directions; the organiser, linked to their profile), the going count, and one
  * secondary row with Save and Share (the page's only Save). Then the
  * tickets, then About, Who's Going, Location (the venue, a small map and
- * Google Maps and Apple Maps links), Refunds, Good to know and Host. On phones that's
+ * Google Maps and Apple Maps links), Refunds, Good to know and Organiser. On phones that's
  * one column; from 1024px the tickets are the right-hand column (sticky),
  * beside the photo, title and facts, and the rest below those. Below
  * 1024px a compact buy bar sticks to the bottom (price and the one ticket
  * action, no Save) until it settles under the content at the page's end.
  *
- * An external event (tickets sold on another site) has a "Get tickets"
+ * An external event (tickets sold on another site) has a "Buy tickets"
  * link (never naming the site) instead of the ticket selector, and no price or Who's
  * Going (docs/architecture.md, "External ticketing"). In the demo, the
  * page's sample-data disclosure is the banner at the top (DemoBanner); the
@@ -502,7 +502,7 @@ export default function EventDetailsView({
                 </Link>
               ) : (
                 <a href="#tickets" className={buttonClass("signal", "lg", "shrink-0 px-5 sm:px-7")}>
-                  {/* "Buy tickets", or "Get free tickets" when every tier is free, in demo
+                  {/* "Buy tickets", or "Free tickets" when every tier is free, in demo
                       mode too (owner, 21 Oct 2026); "Join waitlist" when sold out. */}
                   {buyBarLabel}
                 </a>

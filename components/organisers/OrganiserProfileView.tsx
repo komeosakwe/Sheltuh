@@ -83,7 +83,7 @@ export default function OrganiserProfileView({
             )}
             {typeof profile.eventsHosted === "number" && profile.eventsHosted > 0 && (
               <div className="flex flex-col">
-                <dt className="eyebrow text-muted">Events hosted</dt>
+                <dt className="eyebrow text-muted">Events organised</dt>
                 <dd className="font-heading text-[2rem] leading-9 tracking-[-0.03em] tabular-nums lg:text-[2.5rem] lg:leading-11">
                   {countFormatter.format(profile.eventsHosted)}
                 </dd>

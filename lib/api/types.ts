@@ -492,7 +492,7 @@ export interface EventRecord {
    */
   externalPriceFromCents?: number;
   /**
-   * External events only: the ticketing site's name for "Get tickets on
+   * External events only: the ticketing site's name for "Tickets on
    * {provider}" (lib/ticketing.ts, ticketProviderName), or null for a site
    * that isn't on the known list, which the UI calls "the organiser's site".
    * Always sent; null for Sheltüh-ticketed events.
@@ -2038,7 +2038,7 @@ export interface OutboundClickDay {
 }
 
 /**
- * Clicks on external events' "Get tickets on …" links (POST
+ * Clicks on external events' "Buy tickets" links (POST
  * /api/events/{id}/outbound): aggregate daily counts only, no visitor data.
  * Counted from 22 Oct 2026, when external ticketing was added, so every day
  * an external event could have had a click is covered (no "not counted"

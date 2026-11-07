@@ -147,7 +147,7 @@ export const listPublicEvents: Handler = async (req, _params, { db }) => {
  * shared at the CDN (PUBLIC_EVENT_CACHE_CONTROL).
  */
 export const getPublicEventBySlug: Handler<{ slug: string }> = async (_req, { slug }, { db }) => {
-  // The one public read that also carries the Host card's extras (the
+  // The one public read that also carries the Organiser card's extras (the
   // organiser's website, social links and a bio excerpt, for an approved
   // organiser only); lists don't.
   const [row] = await db.query(`${EVENT_DETAIL_SELECT} where e.slug = $1 and e.status = 'published'`, [slug]);

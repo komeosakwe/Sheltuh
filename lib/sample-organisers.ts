@@ -45,7 +45,7 @@ const SAMPLE_WEBSITES: Readonly<Record<string, string>> = {
 
 /**
  * Made-up social links for a few of the organisers (fictional handles, and a
- * Spotify id that is not a real artist), so the demo's Host card and profile
+ * Spotify id that is not a real artist), so the demo's Organiser card and profile
  * show the whole set of networks. Same shape the API sends: https URLs.
  */
 const SAMPLE_SOCIAL_LINKS: Readonly<Record<string, OrganiserSocialLinks>> = {

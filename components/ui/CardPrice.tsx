@@ -5,7 +5,7 @@ import type { SheltuhEvent } from "@/lib/types";
 /**
  * A card's price line (docs/design/mobile-redesign.md §6.2.4): the
  * all-inclusive amount first and bold, then what it includes, quieter, on
- * the same line. An external event never names its ticket site: "Get tickets"
+ * the same line. An external event never names its ticket site: "Buy tickets"
  * (in the price's weight), "From A$89" when the organiser gave a price, or
  * "Free". Every tier sold out: "Sold out", in the price's
  * weight and black (words, never a colour or badge alone). With `now`, an
@@ -43,7 +43,7 @@ export default function CardPrice({
     );
   }
   if (!parts.note) {
-    // An amount with no note (an external event's "Free", "From A$89" or "Get tickets"), in the price's weight.
+    // An amount with no note (an external event's "Free", "From A$89" or "Buy tickets"), in the price's weight.
     return (
       <p className={`font-semibold ${className}`.trim()}>
         {parts.amount}

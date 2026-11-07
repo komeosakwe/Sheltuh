@@ -598,7 +598,7 @@ describe("notifications when tickets free up", () => {
 
     const message = sentTo("a@example.com")[0];
     expect(message.subject).toBe("Tickets are available again: Neon Static");
-    expect(message.text).toContain(`Get tickets: ${SITE_URL}/events/${event.slug}#tickets`);
+    expect(message.text).toContain(`Buy tickets: ${SITE_URL}/events/${event.slug}#tickets`);
     expect(message.text).toContain("first come, first served");
     expect(message.text).toMatch(new RegExp(`Leave the waitlist .*: ${SITE_URL}/waitlist/leave#token=[A-Za-z0-9_-]{43}`));
     expect(message.headers?.["List-Unsubscribe"]).toMatch(/^<https:\/\/sheltuh\.test\/waitlist\/leave#token=[A-Za-z0-9_-]{43}>$/);

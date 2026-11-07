@@ -95,7 +95,7 @@ describe("LiveEventDetails", () => {
       organiserBio: "We host things.",
     });
     render(<LiveEventDetails slug="neon-static" />);
-    const host = await screen.findByRole("region", { name: "Host" });
+    const host = await screen.findByRole("region", { name: "Organiser" });
     expect(within(host).getByRole("link", { name: /^Website: host\.example/ })).toBeInTheDocument();
     expect(within(host).getByRole("link", { name: /^YouTube/ })).toHaveAttribute("href", "https://www.youtube.com/@host");
     expect(within(host).getByRole("link", { name: /^LinkedIn/ })).toBeInTheDocument();

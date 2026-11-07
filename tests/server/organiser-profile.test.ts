@@ -471,7 +471,7 @@ describe("GET /organisers/{organiserId}/profile", () => {
 
     const [event] = res.body.upcomingEvents;
     expect(Object.keys(event).sort()).toEqual(PUBLIC_EVENT_KEYS);
-    // The same shape, field for field, as the public event route, which adds only the Host card's
+    // The same shape, field for field, as the public event route, which adds only the Organiser card's
     // extras (organiserWebsiteUrl, organiserSocialLinks, organiserBio: tests/server/organiser-socials.test.ts).
     const bySlug = await api.call(getPublicEventBySlug, { params: { slug: live.slug } });
     const { organiserWebsiteUrl, organiserSocialLinks, organiserBio, ...detail } = bySlug.body;

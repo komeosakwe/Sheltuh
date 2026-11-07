@@ -443,15 +443,15 @@ describe("EventCard media: organiser artwork on a phone rail card", () => {
 describe("EventCard ticket states, from real data only (§6.2.3)", () => {
   it.each<[string, SheltuhEvent, string, string | null, string | null, "btn-signal" | "btn-outline" | null]>([
     ["paid, on sale", event, "From A$37.60 incl. booking fee", "Buy tickets", "/events/glass-sessions#tickets", "btn-signal"],
-    ["every on-sale tier free", allFree, "Free No booking fee", "Get free tickets", "/events/glass-sessions#tickets", "btn-signal"],
-    ["free on sale beside a sold-out paid tier", freeAndPaidSoldOut, "Free No booking fee", "Get free tickets", "/events/glass-sessions#tickets", "btn-signal"],
+    ["every on-sale tier free", allFree, "Free No booking fee", "Free tickets", "/events/glass-sessions#tickets", "btn-signal"],
+    ["free on sale beside a sold-out paid tier", freeAndPaidSoldOut, "Free No booking fee", "Free tickets", "/events/glass-sessions#tickets", "btn-signal"],
     ["seated, on sale", seated, "From A$37.60 incl. booking fee", "Choose seats", "/events/glass-sessions/seats", "btn-signal"],
     ["sold out, waitlist open", soldOut, "Sold out", "Join waitlist", "/events/glass-sessions#tickets", "btn-outline"],
     ["seated and sold out", { ...seated, soldOut: true, ticketTypes: soldOut.ticketTypes.map((t) => ({ ...t, seated: true })) }, "Sold out", "Join waitlist", "/events/glass-sessions#tickets", "btn-outline"],
-    // A9: an external event's tickets aren't bought on Sheltüh, so "Get tickets"; the price line never names the ticket site (owner, 31 Oct 2026).
-    ["external, paid", external, "Get tickets", "Get tickets", "/events/dub-session#tickets", "btn-signal"],
-    ["external, paid, with the organiser's price", { ...external, externalPriceFromCents: 8900 }, "From A$89", "Get tickets", "/events/dub-session#tickets", "btn-signal"],
-    ["external, free", externalFree, "Free", "Get free tickets", "/events/open-studios#tickets", "btn-signal"],
+    // An external event's card says "Buy tickets" like any other (owner, 6 Nov 2026); the price line never names the ticket site (owner, 31 Oct 2026).
+    ["external, paid", external, "Buy tickets", "Buy tickets", "/events/dub-session#tickets", "btn-signal"],
+    ["external, paid, with the organiser's price", { ...external, externalPriceFromCents: 8900 }, "From A$89", "Buy tickets", "/events/dub-session#tickets", "btn-signal"],
+    ["external, free", externalFree, "Free", "Free tickets", "/events/open-studios#tickets", "btn-signal"],
     ["no ticket types yet", { ...event, ticketTypes: [] }, "Tickets coming soon", null, null, null],
   ])("%s", (_label, e, price, label, href, tone) => {
     const { container } = render(<EventCard event={e} variant="grid" mode="live" />);
@@ -544,7 +544,7 @@ describe("EventCard attendance and category qualifiers (§6.2.2, §6.2.5; Refine
 
 describe("an external event's card never names the ticket site", () => {
   it.each<[string, SheltuhEvent, string]>([
-    ["paid, no price", external, "Get tickets"],
+    ["paid, no price", external, "Buy tickets"],
     ["paid, organiser's price", { ...external, externalPriceFromCents: 8900 }, "From A$89"],
     ["free", externalFree, "Free"],
   ])("%s: the price line is only %j", (_label, e, price) => {
@@ -561,9 +561,9 @@ describe("an external event's card never names the ticket site", () => {
 describe("EventCard states are distinct (Refinement, 22 Oct 2026)", () => {
   it.each<[string, SheltuhEvent, string, string, string | null]>([
     ["paid", event, "paid", "From A$37.60 incl. booking fee", "Buy tickets"],
-    ["free", allFree, "free", "Free No booking fee", "Get free tickets"],
+    ["free", allFree, "free", "Free No booking fee", "Free tickets"],
     ["sold out (waitlist)", soldOut, "sold-out", "Sold out", "Join waitlist"],
-    ["external", external, "external", "Get tickets", "Get tickets"],
+    ["external", external, "external", "Buy tickets", "Buy tickets"],
     ["seated", seated, "seated", "From A$37.60 incl. booking fee", "Choose seats"],
   ])("%s: its own state, price line and action", (_label, e, state, price, action) => {
     const { container } = render(<EventCard event={e} variant="rail" mode="live" />);

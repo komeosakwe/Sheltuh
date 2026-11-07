@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import AuthNavLinks, { navLinkClass } from "@/components/AuthNavLinks";
 import Wordmark from "@/components/brand/Wordmark";
+import HomeLogoLink from "@/components/HomeLogoLink";
 import SearchBar from "@/components/SearchBar";
 import SavedNavLink from "@/components/favourites/SavedNavLink";
 import { useUnread } from "@/components/messages/UnreadProvider";
@@ -109,6 +110,10 @@ export default function Nav() {
     menuRef.current?.hidePopover?.();
   }, [pathname]);
 
+  function closeMenu() {
+    menuRef.current?.hidePopover?.();
+  }
+
   // Links and actions close the menu; the theme switch doesn't: the sheet re-skinning around you is the feedback.
   function closeMenuOnAction(event: MouseEvent<HTMLElement>) {
     if (event.target instanceof Element && event.target.closest("a, button") && !event.target.closest("[data-theme-switch]")) {
@@ -127,9 +132,9 @@ export default function Nav() {
       {/* Compact bar (phones and tablets). */}
       <div className="flex h-14 items-center justify-between border-b border-foreground px-5 sm:px-8 lg:hidden">
         {/* The official wordmark, 20px tall (88px wide); the link carries the name. */}
-        <Link href="/" aria-label="Sheltüh home" className="flex h-11 items-center">
+        <HomeLogoLink className="flex h-11 items-center" onActivate={closeMenu}>
           <Wordmark className="h-5 w-auto" />
-        </Link>
+        </HomeLogoLink>
         <div className="flex items-center">
           {/* Not on the home: its hero holds the page's one search (as the desktop row leaves its field out there). */}
           {pathname !== "/" && (
@@ -182,9 +187,9 @@ export default function Nav() {
 
       {/* Desktop row. */}
       <div className="mx-auto hidden max-w-6xl min-h-17 flex-wrap items-center gap-x-6 gap-y-3 px-5 py-3 sm:px-8 lg:flex">
-        <Link href="/" aria-label="Sheltüh home" className="flex items-center py-1">
+        <HomeLogoLink className="flex items-center py-1" onActivate={closeMenu}>
           <Wordmark className="h-6 w-auto" />
-        </Link>
+        </HomeLogoLink>
         {/* The home's hero and /search have the page's search; a second field (and a second
             location) beside it would only compete (owner, 24 Oct 2026, D7). Black submit here.
             The bar takes the room the nav leaves (up to 384px), so the row never wraps: signed in,

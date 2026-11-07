@@ -106,7 +106,7 @@ export function buildEventReminderEmail(input: {
     detailRows +
     `</table>`;
   const hostedBy = modernParagraph(
-    `Hosted by <a href="${escapeHtml(organiserLink)}" style="color:${ink};text-decoration:underline">${escapeHtml(organiserName)}</a>`,
+    `Organised by <a href="${escapeHtml(organiserLink)}" style="color:${ink};text-decoration:underline">${escapeHtml(organiserName)}</a>`,
     textStyle(14, 22, { colour: muted }),
   );
 
@@ -141,7 +141,7 @@ export function buildEventReminderEmail(input: {
     "",
     `View your tickets: ${ticketsLink}`,
     "",
-    `Hosted by ${organiserName}: ${organiserLink}`,
+    `Organised by ${organiserName}: ${organiserLink}`,
     "",
     ...(eventLink ? [...tellAFriendText(title, when.date, eventLink), ""] : []),
     emailFooterText({ reason, siteUrl }),

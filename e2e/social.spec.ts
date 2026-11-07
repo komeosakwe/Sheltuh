@@ -262,7 +262,7 @@ test.describe("organiser page at 390×844", () => {
 
     await page.goto(`/organisers/${ORG}`);
     await expect(page.getByRole("heading", { level: 1, name: "Northside Noise" })).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText("Events hosted")).toBeVisible();
+    await expect(page.getByText("Events organised")).toBeVisible();
     await expect(page.locator("iframe")).toHaveCount(0);
     expect(videoRequests.filter((u) => !u.includes("i.ytimg.com"))).toEqual([]);
     await shot(page, "organiser-390");

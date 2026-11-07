@@ -165,12 +165,12 @@ const PROFILE: PublicOrganiserProfile = {
 };
 
 describe("organiser page: follow, numbers, video", () => {
-  it("shows the follower count (when sent), events hosted, Follow, and the video facade", async () => {
+  it("shows the follower count (when sent), events organised, Follow, and the video facade", async () => {
     getFollowStatus.mockResolvedValue({ following: false, notifyNewEvents: false });
     const { container } = withAuth(<OrganiserProfileView profile={PROFILE} upcoming={[]} past={[]} />);
     const followers = screen.getByText("Followers");
     expect(followers.nextElementSibling).toHaveTextContent("1,234");
-    expect(screen.getByText("Events hosted").nextElementSibling).toHaveTextContent("7");
+    expect(screen.getByText("Events organised").nextElementSibling).toHaveTextContent("7");
     expect(await screen.findByRole("button", { name: "Follow Northside Noise" })).toBeInTheDocument();
     const video = screen.getByRole("region", { name: "Featured video" });
     expect(within(video).getByRole("button", { name: /Play video/ })).toBeInTheDocument();
@@ -180,7 +180,7 @@ describe("organiser page: follow, numbers, video", () => {
   it("hides the follower count below 10 (null) and has no video section without one", () => {
     withAuth(<OrganiserProfileView profile={{ ...PROFILE, followerCount: null, featuredVideo: null }} upcoming={[]} past={[]} />, fakeAuthValue({ status: "signed-out" }));
     expect(screen.queryByText("Followers")).toBeNull();
-    expect(screen.getByText("Events hosted")).toBeInTheDocument();
+    expect(screen.getByText("Events organised")).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Featured video" })).toBeNull();
   });
 });

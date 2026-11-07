@@ -573,7 +573,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                     ? "Booking…"
                     : "Opening checkout…"
                   : freeBooking
-                    ? "Get free tickets"
+                    ? "Free tickets"
                     : "Checkout"}
               </Button>
               {error && (

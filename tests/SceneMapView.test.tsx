@@ -124,12 +124,12 @@ describe("/map around the map", () => {
     expect(screen.queryByRole("button", { name: /^Show the list/ })).toBeNull();
   });
 
-  it("gives every list row its orange quick buy: Buy tickets, or Get free tickets", async () => {
+  it("gives every list row its orange quick buy: Buy tickets, or Free tickets", async () => {
     await renderMap();
     const paid = screen.getByRole("link", { name: "Buy tickets for Paid Night" });
     expect(paid).toHaveAttribute("href", "/events/paid-night#tickets");
     expect(paid).toHaveClass("btn-signal");
-    expect(screen.getByRole("link", { name: "Get free tickets for Free Day" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Free tickets for Free Day" })).toHaveAttribute(
       "href",
       "/events/free-day#tickets",
     );

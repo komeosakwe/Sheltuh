@@ -77,12 +77,12 @@ describe("/waitlist/confirm", () => {
     expect(screen.getByRole("link", { name: "Back to the event" })).toHaveAttribute("href", "/events/off-kilter#tickets");
   });
 
-  it("says when tickets are on sale again, with Get tickets", async () => {
+  it("says when tickets are on sale again, with Buy tickets", async () => {
     at(`/waitlist/confirm#token=${TOKEN}`);
     confirmWaitlist.mockResolvedValue({ status: "joined", eventTitle: "X", eventSlug: "x", ticketsAvailable: true });
     render(<WaitlistConfirm />);
     fireEvent.click(await screen.findByRole("button", { name: "Confirm" }));
-    expect(await screen.findByRole("link", { name: "Get tickets" })).toHaveAttribute("href", "/events/x#tickets");
+    expect(await screen.findByRole("link", { name: "Buy tickets" })).toHaveAttribute("href", "/events/x#tickets");
   });
 
   it("an incomplete link says so (focused), with no button", async () => {

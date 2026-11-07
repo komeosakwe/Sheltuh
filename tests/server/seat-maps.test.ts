@@ -429,7 +429,7 @@ describe("public reads", () => {
       "refundPolicy",
       // The fixture's venue pin (a GA event's payload is otherwise unchanged).
       "location",
-      // The Host card, on this route only (the fixture's organiser has a website and a bio, no socials).
+      // The Organiser card, on this route only (the fixture's organiser has a website and a bio, no socials).
       "organiserWebsiteUrl",
       "organiserBio",
     ]);

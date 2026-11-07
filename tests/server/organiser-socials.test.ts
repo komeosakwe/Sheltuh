@@ -14,7 +14,7 @@ import { application, approvedOrganiser, publishedEvent, signUpAdmin } from "./h
 import { createTestDb } from "./helpers/test-db";
 
 // Spotify, SoundCloud, YouTube and LinkedIn links on an organiser, and the
-// Host card's extras on the single-event route:
+// Organiser card's extras on the single-event route:
 // supabase/migrations/20261121000000_organiser_more_socials.sql,
 // lib/api/social-profiles.ts, lib/server/organiser-input.ts.
 
@@ -477,7 +477,7 @@ describe("other ways an organiser is created", () => {
   });
 });
 
-describe("the Host card on GET /events/slug/{slug}", () => {
+describe("the Organiser card on GET /events/slug/{slug}", () => {
   const profileFields = { websiteUrl: "https://static.example/about", instagramHandle: "static.collective", ...stored };
 
   it("carries the organiser's website, social links and a bio excerpt, and the logo it already had", async () => {
@@ -541,7 +541,7 @@ describe("the Host card on GET /events/slug/{slug}", () => {
     const [listed] = (await profile(organiser.organiserId)).body.upcomingEvents;
     for (const key of HOST_KEYS) expect(listed[key], key).toBeUndefined();
 
-    // Apart from the Host card, it's the list's event, field for field.
+    // Apart from the Organiser card, it's the list's event, field for field.
     const rest = Object.fromEntries(Object.entries(detail.body).filter(([key]) => !HOST_KEYS.includes(key)));
     expect(rest).toEqual(feed.body.items[0]);
   });

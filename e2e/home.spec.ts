@@ -271,7 +271,7 @@ test("a card's Buy tickets lands on the event page with focus on the tickets", a
   });
   await page.goto("/");
   const section = page.locator("[data-home-section]").first();
-  const quickBuy = section.getByRole("link", { name: /^(?:Buy tickets|Get free tickets) for / }).first();
+  const quickBuy = section.getByRole("link", { name: /^(?:Buy tickets|Free tickets) for / }).first();
   const href = await quickBuy.getAttribute("href");
   expect(href).toMatch(/^\/events\/[^/]+#tickets$/);
   // A rail that auto-scrolls never stops moving by itself; the pointer over it holds it, as for a person.
@@ -280,6 +280,35 @@ test("a card's Buy tickets lands on the event page with focus on the tickets", a
   // The dev server compiles the event route on first visit, which can take a while under load.
   await expect(page).toHaveURL(/#tickets$/, { timeout: 30_000 });
   await expect(page.locator("#tickets")).toBeFocused({ timeout: 30_000 });
+});
+
+test.describe("the logo on the home", () => {
+  for (const vp of [
+    { name: "desktop 1280×800", width: 1280, height: 800 },
+    { name: "phone 390×844", width: 390, height: 844 },
+  ]) {
+    test(`scrolls back to the top at ${vp.name}`, async ({ page }) => {
+      await page.setViewportSize({ width: vp.width, height: vp.height });
+      await openHome(page);
+      await page.evaluate(() => window.scrollTo({ top: 1500, behavior: "instant" }));
+      await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(500);
+      await page.locator("header").getByRole("link", { name: "Sheltüh home" }).click();
+      await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+      await expect(page).toHaveURL(/\/$/);
+    });
+  }
+
+  test("goes to the clean / when the home has a query string, and scrolls to the top", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await mockApi(page);
+    await page.goto("/?utm_source=newsletter");
+    await expect(page.locator("[data-home-section]").first()).toBeVisible();
+    await page.evaluate(() => window.scrollTo({ top: 1500, behavior: "instant" }));
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(500);
+    await page.locator("header").getByRole("link", { name: "Sheltüh home" }).click();
+    await expect(page).toHaveURL(/\/$/);
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+  });
 });
 
 test.describe("keyboard", () => {
