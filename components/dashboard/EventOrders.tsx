@@ -13,6 +13,7 @@ import { ApiError, type GetToken } from "@/lib/api/client";
 import { downloadEventOrdersCsv, getEventOrders } from "@/lib/api/event-orders";
 import type { EventOrderRow, EventOrders as EventOrdersData } from "@/lib/api/types";
 import { DETAILS_VISIBLE_MONTHS, ORGANISER_USE_NOTE } from "@/lib/buyer-details";
+import { useAuth } from "@/lib/auth/AuthContext";
 import { orderPaidText, orderPlacedText, orderStatusText, orderTicketsText } from "@/lib/event-orders-format";
 
 const PAGE_SIZE = 20;
@@ -20,8 +21,15 @@ const SEARCH_DEBOUNCE_MS = 300;
 const SEARCH_MAX = 100;
 const NONE = "—";
 
-/** /dashboard/events/[id]/orders: who bought tickets to one of your events (names and emails for 12 months after it ends). */
-export default function EventOrders({ eventId }: { eventId: string }) {
+export type OrdersScope = "organiser" | "admin";
+
+/**
+ * /dashboard/events/[id]/orders: who bought tickets to one of your events (names and emails for 12 months after it ends).
+ * With `scope="admin"` (/admin/events/[id]/orders): the same view for an admin, whom the API lets read only a
+ * platform-managed organiser's events (anything else is a 404). The admin layout does the gating.
+ */
+export default function EventOrders({ eventId, scope = "organiser" }: { eventId: string; scope?: OrdersScope }) {
+  if (scope === "admin") return <AdminOrders eventId={eventId} />;
   return (
     <AnalyticsGate
       title="Orders"
@@ -29,9 +37,14 @@ export default function EventOrders({ eventId }: { eventId: string }) {
       signInTitle="Sign in to see your orders"
       need="see orders"
     >
-      {(getToken) => <Orders eventId={eventId} getToken={getToken} />}
+      {(getToken) => <Orders eventId={eventId} getToken={getToken} scope="organiser" />}
     </AnalyticsGate>
   );
+}
+
+function AdminOrders({ eventId }: { eventId: string }) {
+  const { getAccessToken } = useAuth();
+  return <Orders eventId={eventId} getToken={getAccessToken} scope="admin" />;
 }
 
 interface Loaded {
@@ -62,7 +75,7 @@ function exportError(error: unknown): string {
   return "Couldn’t prepare the file. Try again.";
 }
 
-function Orders({ eventId, getToken }: { eventId: string; getToken: GetToken }) {
+function Orders({ eventId, getToken, scope }: { eventId: string; getToken: GetToken; scope: OrdersScope }) {
   const searchId = useId();
   const [typed, setTyped] = useState("");
   const [q, setQ] = useState("");
@@ -125,9 +138,13 @@ function Orders({ eventId, getToken }: { eventId: string; getToken: GetToken }) 
     }
   }
 
+  const admin = scope === "admin";
   const back = (
     <nav aria-label="Event" className="mb-6 flex flex-wrap gap-x-6">
-      <Link href={`/dashboard/${encodeURIComponent(eventId)}`} className={backLinkClass}>
+      <Link
+        href={admin ? `/admin/events/${encodeURIComponent(eventId)}/edit` : `/dashboard/${encodeURIComponent(eventId)}`}
+        className={backLinkClass}
+      >
         &larr; Edit event
       </Link>
     </nav>
@@ -139,14 +156,16 @@ function Orders({ eventId, getToken }: { eventId: string; getToken: GetToken }) 
         {back}
         <EmptyState
           headingLevel={1}
-          title="Event not found"
+          title={admin ? "Orders not available" : "Event not found"}
           action={
-            <ButtonLink size="lg" variant="outline" href="/dashboard">
+            <ButtonLink size="lg" variant="outline" href={admin ? "/admin/events" : "/dashboard"}>
               Back to events
             </ButtonLink>
           }
         >
-          It may have been deleted, or it belongs to another organiser account.
+          {admin
+            ? "Only the event’s organiser can see its buyers."
+            : "It may have been deleted, or it belongs to another organiser account."}
         </EmptyState>
       </>
     );
