@@ -171,6 +171,90 @@ test.describe("the sticky buy bar at 390×844", () => {
   });
 });
 
+test.describe("the bar's height and layout (WCAG 1.4.4, 1.4.10, 2.4.11)", () => {
+  /** Nothing inside the ticket panel or the bar reaches past the screen's right edge. */
+  async function nothingOverflows(page: Page) {
+    const overflowing = await page.evaluate(() => {
+      const width = window.innerWidth;
+      return [...document.querySelectorAll("#tickets *, [data-buy-bar], [data-buy-bar] *")]
+        .filter((el) => {
+          const box = el.getBoundingClientRect();
+          return box.width > 0 && box.right > width + 1;
+        })
+        .map((el) => `${el.tagName}.${String((el as HTMLElement).className).slice(0, 60)}`);
+    });
+    expect(overflowing).toEqual([]);
+  }
+
+  test.describe("320px, Support Sheltüh chosen", () => {
+    test.use({ viewport: { width: 320, height: 568 }, hasTouch: true });
+
+    test("the note keeps its words, the button stacks under the amount, and the measured height is what the page clears", async ({ page }) => {
+      await mockApi(page);
+      await page.goto(`/events/${sample!.slug}`);
+      const tickets = page.locator("#tickets");
+      await tickets.getByRole("button", { name: "Increase quantity for Second release" }).click({ timeout: 30_000 });
+      await tickets.getByRole("group", { name: "Support Sheltüh" }).locator("label", { hasText: "A$2" }).click();
+      const bar = page.locator("[data-buy-bar]");
+      await expect(bar).toContainText("A$39.60");
+      await expect(bar).toContainText("incl. booking fee + Support Sheltüh");
+      // The full note is the button's description, whatever is clipped on screen.
+      await expect(bar.getByRole("button", { name: "Buy tickets" })).toHaveAccessibleDescription(/incl\. booking fee \+ Support Sheltüh/);
+      const box = (await bar.boundingBox())!;
+      expect(box.height).toBeLessThanOrEqual(568 / 3 + 1);
+      // Stacked: the button is full width under the amount, with no divider between.
+      const button = (await bar.getByRole("button", { name: "Buy tickets" }).boundingBox())!;
+      expect(button.width).toBeGreaterThan(220);
+      await nothingOverflows(page);
+      // scroll-padding clears the bar as it really is (px, measured), not a fixed 64px.
+      const padding = await page.evaluate(() => ({
+        measured: parseFloat(document.documentElement.style.getPropertyValue("--buybar-measured")),
+        barHeight: document.querySelector("[data-buy-bar]")!.getBoundingClientRect().height,
+        scrollPaddingBottom: parseFloat(getComputedStyle(document.documentElement).scrollPaddingBottom),
+      }));
+      expect(Math.abs(padding.measured - padding.barHeight)).toBeLessThanOrEqual(1);
+      expect(padding.scrollPaddingBottom).toBeGreaterThanOrEqual(padding.barHeight);
+    });
+  });
+
+  test.describe("390px at 200% text", () => {
+    test.use({ viewport: { width: 390, height: 844 } });
+
+    test("nothing in the panel or the bar overflows (the stepper wraps), and the bar stays within a third of the screen", async ({ page }) => {
+      await mockApi(page);
+      await page.goto(`/events/${sample!.slug}`);
+      const tickets = page.locator("#tickets");
+      await tickets.getByRole("button", { name: "Increase quantity for Second release" }).click({ timeout: 30_000 });
+      await page.addStyleTag({ content: "html { font-size: 200% !important; }" });
+      await expect(page.locator("[data-buy-bar]").getByRole("button", { name: "Buy tickets" })).toBeVisible();
+      await nothingOverflows(page);
+      const box = (await page.locator("[data-buy-bar]").boundingBox())!;
+      expect(box.height).toBeLessThanOrEqual(844 / 3 + 1);
+    });
+  });
+});
+
+test.describe("the bar before anything is chosen, at 390×844", () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+
+  test("its link focuses the first ticket's + (and focus lands clear of the bar)", async ({ page }) => {
+    await mockApi(page);
+    await page.goto(`/events/${sample!.slug}`);
+    const tickets = page.locator("#tickets");
+    await expect(tickets.getByRole("heading", { name: "Select your tickets" })).toBeVisible({ timeout: 30_000 });
+    await page.locator("[data-buy-bar]").getByRole("link", { name: "Buy tickets" }).click();
+    await expect(tickets.getByRole("button", { name: "Increase quantity for Second release" })).toBeFocused();
+    // Focus did not land under the bar.
+    const bar = (await page.locator("[data-buy-bar]").boundingBox())!;
+    await expect
+      .poll(async () => {
+        const plus = (await tickets.getByRole("button", { name: "Increase quantity for Second release" }).boundingBox())!;
+        return bar.y - (plus.y + plus.height);
+      })
+      .toBeGreaterThanOrEqual(0);
+  });
+});
+
 test.describe("desktop keeps the panel's Checkout and has no buy bar", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 

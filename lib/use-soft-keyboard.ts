@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
 
 /** The visual viewport must be at least this much shorter than the layout viewport to count as a keyboard. */
 export const SOFT_KEYBOARD_MIN_PX = 120;
@@ -56,4 +56,16 @@ export function useSoftKeyboardOpen(): boolean {
   }, []);
 
   return open;
+}
+
+/**
+ * `onKeyDown` for a one-line field that isn't in a form: Enter closes the on-screen keyboard (the keyboard's
+ * own key reads "Done"), which brings the page's sticky buy bar back. Only on a touch device (a coarse
+ * pointer: on a desktop Enter leaves focus where it is), and never while an IME is composing (Enter then
+ * confirms the candidate, e.g. Japanese or Chinese input, and must not blur the field).
+ */
+export function dismissKeyboardOnEnter(event: KeyboardEvent<HTMLInputElement>): void {
+  if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+  if (typeof window.matchMedia !== "function" || !window.matchMedia("(pointer: coarse)").matches) return;
+  event.currentTarget.blur();
 }

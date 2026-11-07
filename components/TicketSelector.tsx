@@ -5,7 +5,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/Button";
 import { Notice } from "@/components/ui/Section";
 import { useSetBuyBar } from "@/components/checkout/BuyBar";
-import { InfoIcon, LockIcon } from "@/components/checkout/icons";
+import { ChevronDownIcon, InfoIcon, LockIcon } from "@/components/checkout/icons";
 import BuyerNameField from "@/components/checkout/BuyerNameField";
 import SupportSheltuh, { SupportSummaryLine } from "@/components/checkout/SupportSheltuh";
 import WaitlistBlock from "@/components/waitlist/WaitlistBlock";
@@ -30,6 +30,7 @@ import {
 } from "@/lib/support-choice";
 import { isSupportSheltuhEnabled } from "@/lib/support";
 import { getTrackingRef } from "@/lib/tracking-ref";
+import { dismissKeyboardOnEnter } from "@/lib/use-soft-keyboard";
 import type { SheltuhEvent, TicketType } from "@/lib/types";
 
 const NAME_FIELD_ID = "buyer-name";
@@ -103,6 +104,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   // same moment, before the busy state has rendered, must not start another order.
   const submitting = useRef(false);
   const errorRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (sentTo) {
@@ -170,7 +172,18 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
     setAnnouncement((prev) => (prev === text ? `${text}\u00a0` : text));
   }
 
-  function setQuantity(ticket: TicketType, value: number) {
+  /** "Second release × 1, Third release × 1": what the order holds, for the status message. */
+  function describeOrder(selection: Quantities): string {
+    return ticketTypes
+      .filter((t) => (selection[t.id] ?? 0) > 0)
+      .map((t) => {
+        const units = selection[t.id] ?? 0;
+        return `${t.name} × ${units}${isGroupTicket(t) ? (units === 1 ? " group" : " groups") : ""}`;
+      })
+      .join(", ");
+  }
+
+  function setQuantity(ticket: TicketType, value: number, extra = "") {
     const current = quantities[ticket.id] ?? 0;
     const { cap, reason } = limitFor(ticket, quantities);
     const clamped = Math.max(0, Math.min(value, cap));
@@ -192,18 +205,26 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
     if (!nextHasPaid) clearSupport();
     const totalCents = orderTotalCents(ticketTypes, next) + nextSupportCents;
     const reachedLimit = clamped > current && clamped >= limitFor(ticket, next).cap;
-    announce(
-      `${ticket.name}: ${quantityWords(ticket, clamped)}. Total ${formatAud(totalCents)}${totalCents > 0 ? ` incl. ${totalIncludesWords(nextSupportCents)}` : ""}.` +
-        (reachedLimit ? ` ${limitFor(ticket, next).reason}` : ""),
-    );
+    const total = `Total ${formatAud(totalCents)}${totalCents > 0 ? ` incl. ${totalIncludesWords(nextSupportCents)}` : ""}.`;
+    // With more than one release in the order, say what changed and what the order now holds (the stepper
+    // is for one release at a time, so "Third release: 1" alone wouldn't say what the order is).
+    const chosenReleases = ticketTypes.filter((t) => (next[t.id] ?? 0) > 0).length;
+    const what =
+      chosenReleases > 1
+        ? `${clamped > current ? "Added" : "Removed"} ${Math.abs(clamped - current)} ${ticket.name}. Your order: ${describeOrder(next)}. ${total}`
+        : `${ticket.name}: ${quantityWords(ticket, clamped)}. ${total}`;
+    announce(what + (reachedLimit ? ` ${limitFor(ticket, next).reason}` : "") + extra);
   }
 
   /** Tapping an available release's card: the stepper moves to it, and a release with none chosen gets its first ticket. */
   function selectTicket(ticket: TicketType) {
+    // With several releases on sale the stepper moves, and the message says so.
+    const moved = buyable.length > 1 && activeTicket?.id !== ticket.id;
+    const extra = moved ? ` Quantity is now for ${ticket.name}.` : "";
     setActiveId(ticket.id);
     const current = quantities[ticket.id] ?? 0;
-    if (current === 0) setQuantity(ticket, 1);
-    else announce(`${ticket.name}: ${quantityWords(ticket, current)}.`);
+    if (current === 0) setQuantity(ticket, 1, extra);
+    else announce(`${ticket.name}: ${quantityWords(ticket, current)} selected.${extra}`);
   }
 
   function clearSupport() {
@@ -363,13 +384,43 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
     void handleCheckoutRef.current();
   }, []);
 
+  // The bar's link when nothing is chosen: focus goes to the stepper's "+" (or the first card), and if that is
+  // already on screen, where a jump would show nothing, it says what to do.
+  function chooseATicket() {
+    const root = rootRef.current;
+    if (!root) return;
+    const target =
+      root.querySelector<HTMLElement>("[data-quantity-increase]") ?? root.querySelector<HTMLElement>("[data-ticket-card-button]");
+    if (!target) return;
+    const box = target.getBoundingClientRect();
+    if (box.top >= 0 && box.bottom <= window.innerHeight) announce("Choose a ticket first.");
+    target.focus();
+  }
+  const chooseRef = useRef(chooseATicket);
+  useEffect(() => {
+    chooseRef.current = chooseATicket;
+  });
+  const pressChoose = useCallback(() => {
+    chooseRef.current();
+  }, []);
+
   // The phone buy bar mirrors this panel: its total is the Order summary's own figure, and its
-  // button is Checkout. Until something is chosen (or while it can't be bought) it registers
-  // nothing and stays the page's link to the tickets.
+  // button is Checkout. Until something is chosen it is the link that takes you to the first ticket
+  // ("choose"); while it can't be bought at all (sold out, the demo) nothing is registered and it stays
+  // the plain link to the tickets.
   const barTotalCents = orderTotal.totalCents;
   const barLabel = freeBooking ? "Free tickets" : "Buy tickets";
   const barBusyLabel = freeBooking ? "Booking…" : "Opening…";
-  const barNote = barTotalCents === 0 ? "No booking fee" : supportCents > 0 ? "incl. booking fee + Support Sheltüh" : "incl. booking fee";
+  // What the total includes, from the summary's own figures: a booking fee only where there is one (an organiser who
+  // absorbs it, or a free order, has none), and Support Sheltüh where it's added.
+  const barNote =
+    orderTotal.buyerFeeCents > 0
+      ? supportCents > 0
+        ? "incl. booking fee + Support Sheltüh"
+        : "incl. booking fee"
+      : supportCents > 0
+        ? "incl. Support Sheltüh"
+        : "No booking fee";
   const barAmount = formatAudExact(barTotalCents);
   const barActive = canCheckout && !soldOut;
   useEffect(() => {
@@ -379,7 +430,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
     } else if (sentTo !== null) {
       setBuyBar({ kind: "status", amount: "Check your inbox", note: "Press Confirm in the email", label: "View" });
     } else if (!hasAnyTickets) {
-      setBuyBar(null);
+      setBuyBar({ kind: "choose", onPress: pressChoose });
     } else {
       setBuyBar({
         kind: "checkout",
@@ -391,7 +442,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
         onPress: pressBuyBar,
       });
     }
-  }, [setBuyBar, barActive, sentTo, hasAnyTickets, barAmount, barNote, barLabel, barBusyLabel, loading, pressBuyBar]);
+  }, [setBuyBar, barActive, sentTo, hasAnyTickets, barAmount, barNote, barLabel, barBusyLabel, loading, pressBuyBar, pressChoose]);
   useEffect(() => () => setBuyBar?.(null), [setBuyBar]);
 
   // A refusal (or a field's error) is said where the buyer is looking: on a phone Checkout is the bar's, so the
@@ -425,6 +476,14 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
     </p>
   ) : null;
 
+  // "Not you?": ends this browser's session only (as "wrong account" does elsewhere). The selection stays and the
+  // order goes the guest way, with Stripe asking for the email: said, and focus goes to the name field.
+  function signOutHere() {
+    auth?.signOut("local");
+    announce("Signed out. Stripe will ask for your email.");
+    nameInputRef.current?.focus();
+  }
+
   // One tier selected, as singles: "(2 × A$24.00)" says what the Tickets line is made of.
   const selectedLines = lineSummaries.filter((line) => line.quantity > 0);
   const onlyLine = selectedLines.length === 1 ? selectedLines[0] : undefined;
@@ -435,10 +494,12 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   // With several releases on sale, the stepper says whose it is.
   const showStepperTarget = buyable.length > 1;
   const feeInfoId = `${idPrefix}-fee-info`;
+  const totalLabelId = `${idPrefix}-total-label`;
+  const totalId = `${idPrefix}-total`;
   const feeText = `Booking fee: ${describeBookingFee()}.`;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div ref={rootRef} className="flex flex-col gap-4">
       {/* Before the tickets, so the limit is known before choosing. Not a live
           region: the panel's status below says when a limit is reached. */}
       {freeTypeCount > 0 && !soldOut && (
@@ -506,8 +567,27 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
               Available
             </span>
           );
+          const descId = `${idPrefix}-desc-${index}`;
+          const chosenId = `${idPrefix}-chosen-${index}`;
+          // Everything the card says beyond its name and price, as its description.
+          const cardDescribedBy =
+            [
+              group ? groupLineId : null,
+              ticket.description ? descId : null,
+              showOwnLimit && !dimmed ? ownLimitId : null,
+              chosen ? chosenId : null,
+            ]
+              .filter(Boolean)
+              .join(" ") || undefined;
+          // The stepper's release, said on the card when there is a choice of them.
+          const showActiveMarker = active && buyable.length > 1 && !dimmed;
           return (
-            <li key={ticket.id} data-ticket-card="" className={`rounded-card border ${cardClass}`}>
+            <li
+              key={ticket.id}
+              data-ticket-card=""
+              // The ring goes round the whole card, sub-text included (globals.css drops the button's own).
+              className={`rounded-card border has-[[data-ticket-card-button]:focus-visible]:outline-2 has-[[data-ticket-card-button]:focus-visible]:outline-offset-3 has-[[data-ticket-card-button]:focus-visible]:outline-foreground ${cardClass}`}
+            >
               {dimmed ? (
                 <div className="flex items-center justify-between gap-3 px-4 py-3">
                   {title}
@@ -516,8 +596,11 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
               ) : (
                 <button
                   type="button"
+                  data-ticket-card-button=""
                   onClick={() => selectTicket(ticket)}
-                  aria-pressed={active}
+                  // The release the quantity stepper is for (a toggle it isn't: pressing another card moves it).
+                  aria-current={active ? "true" : undefined}
+                  aria-describedby={cardDescribedBy}
                   className="flex w-full items-center justify-between gap-3 rounded-card px-4 py-3 text-left"
                 >
                   {title}
@@ -530,7 +613,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                   {ownLimitHint(ticket)}
                 </p>
               )}
-              {(group || ticket.description || waitingText || (isLow(ticket) && !dimmed) || (chosen && !active)) && (
+              {(group || ticket.description || waitingText || (isLow(ticket) && !dimmed) || chosen || showActiveMarker) && (
                 <div className="-mt-1 flex flex-col gap-1 px-4 pb-3">
                   {group && (
                     // What one group gets, and what it saves: words, not colour.
@@ -544,7 +627,11 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                       )}
                     </p>
                   )}
-                  {ticket.description && <p className="text-sm text-muted">{ticket.description}</p>}
+                  {ticket.description && (
+                    <p id={descId} className="text-sm text-muted">
+                      {ticket.description}
+                    </p>
+                  )}
                   {waitingText && (
                     // Words in place of the pill: never a colour alone. Nothing here can be chosen.
                     <p className="text-sm font-semibold text-foreground">{waitingText}</p>
@@ -555,10 +642,17 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                       {ownLimitHint(ticket)}
                     </p>
                   )}
-                  {/* Another release than the stepper's: its count stays visible (tap the card to change it). */}
-                  {chosen && !active && (
-                    <p className="text-sm font-semibold text-foreground">
-                      {quantityWords(ticket, quantity)} selected
+                  {/* What's in the order of this release (every chosen card says so, the stepper's too), and, apart
+                      from that, which release the quantity below is for. */}
+                  {(chosen || showActiveMarker) && (
+                    <p className="flex flex-wrap items-center gap-x-3 text-sm font-semibold text-foreground">
+                      {chosen && <span id={chosenId}>{quantityWords(ticket, quantity)} selected</span>}
+                      {showActiveMarker && (
+                        <span className="inline-flex items-center gap-1">
+                          <ChevronDownIcon className="size-4 shrink-0" />
+                          Quantity below
+                        </span>
+                      )}
                     </p>
                   )}
                 </div>
@@ -588,7 +682,8 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                 .filter(Boolean)
                 .join(" ") || undefined;
             return (
-              <div role="group" aria-label={`Quantity for ${ticket.name}`} className="mt-3 flex items-center gap-3">
+              // Wraps rather than overflows when large text makes the buttons wider than the panel.
+              <div role="group" aria-label={`Quantity for ${ticket.name}`} className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
                 <button
                   type="button"
                   onClick={() => setQuantity(ticket, quantity - 1)}
@@ -607,6 +702,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                   onClick={() => setQuantity(ticket, quantity + 1)}
                   aria-disabled={quantity >= cap}
                   aria-label={`Increase quantity for ${ticket.name}`}
+                  data-quantity-increase=""
                   aria-describedby={describedBy}
                   className={quantityButtonClass}
                 >
@@ -630,18 +726,33 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
         <div className="border-t border-surface-border pt-5">
           <h3 className="text-lg leading-6 font-bold">Order summary</h3>
           <dl className="mt-3 flex flex-col gap-2 text-base">
-            <div className="flex justify-between gap-4">
-              <dt className="text-foreground">
-                {hasGroupSelected ? `Tickets (${ticketCount})` : "Tickets"}
-                {ticketsFormula && (
-                  <>
-                    {" "}
-                    <span className="tabular-nums">{ticketsFormula}</span>
-                  </>
-                )}
-              </dt>
-              <dd className="tabular-nums text-foreground">{formatAudExact(orderTotal.subtotalCents)}</dd>
-            </div>
+            {selectedLines.length > 1 ? (
+              // Several releases in one order: one row each, so the order reads as what was chosen.
+              selectedLines.map((line) => (
+                <div key={line.ticket.id} className="flex justify-between gap-4">
+                  <dt className="min-w-0 break-words text-foreground">
+                    {line.ticket.name} <span className="tabular-nums">× {line.quantity}</span>
+                    {isGroupTicket(line.ticket) && (
+                      <span className="text-muted"> ({groupTicketsLabel(peopleFor(line.ticket, line.quantity))})</span>
+                    )}
+                  </dt>
+                  <dd className="tabular-nums text-foreground">{formatAudExact(line.summary.subtotalCents)}</dd>
+                </div>
+              ))
+            ) : (
+              <div className="flex justify-between gap-4">
+                <dt className="text-foreground">
+                  {hasGroupSelected ? `Tickets (${ticketCount})` : "Tickets"}
+                  {ticketsFormula && (
+                    <>
+                      {" "}
+                      <span className="tabular-nums">{ticketsFormula}</span>
+                    </>
+                  )}
+                </dt>
+                <dd className="tabular-nums text-foreground">{formatAudExact(orderTotal.subtotalCents)}</dd>
+              </div>
+            )}
             <div className="flex flex-wrap justify-between gap-x-4">
               <dt className="flex items-center text-foreground">
                 Booking fees
@@ -654,6 +765,11 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                     if (!feeOpen) announce(feeText);
                     setFeeOpen(!feeOpen);
                   }}
+                  // Closes with Escape, or when focus leaves it.
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") setFeeOpen(false);
+                  }}
+                  onBlur={() => setFeeOpen(false)}
                   aria-expanded={feeOpen}
                   aria-controls={feeOpen ? feeInfoId : undefined}
                   aria-label="About the booking fee"
@@ -671,9 +787,11 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
             </div>
             <SupportSummaryLine cents={supportCents} />
             {/* The total is the largest number in the panel, in a peach box. */}
-            <div className="mt-1 flex items-baseline justify-between gap-4 rounded-card bg-tint px-4 py-3">
-              <dt className="text-lg leading-6 font-bold text-foreground">Total</dt>
-              <dd className="text-2xl leading-8 font-bold tabular-nums text-foreground">
+            <div className="mt-1 flex flex-wrap items-baseline justify-between gap-x-4 rounded-card bg-tint px-4 py-3">
+              <dt id={totalLabelId} className="text-lg leading-6 font-bold text-foreground">
+                Total
+              </dt>
+              <dd id={totalId} className="min-w-0 text-2xl leading-8 font-bold tabular-nums text-foreground">
                 {formatAudExact(orderTotal.totalCents)}
               </dd>
             </div>
@@ -734,6 +852,8 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                       required
                       value={buyerEmail}
                       onChange={(e) => setTypedEmail(e.target.value)}
+                      enterKeyHint="done"
+                      onKeyDown={dismissKeyboardOnEnter}
                       aria-invalid={emailError ? true : undefined}
                       aria-describedby={emailError ? "buyer-email-hint buyer-email-error" : "buyer-email-hint"}
                       // 16px text so iOS doesn't zoom on focus, and a 48px target; the same look as the name field.
@@ -754,15 +874,13 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                     <span className="break-all">
                       Booking as <span className="text-foreground underline underline-offset-4">{accountEmail}</span>
                     </span>
-                    {/* The existing account flow: ends this browser's session only (as "wrong account" does
-                        elsewhere); the selection stays, and the order goes the guest way, with Stripe asking for the email. */}
                     {auth?.status === "signed-in" && (
                       <button
                         type="button"
-                        onClick={() => auth.signOut("local")}
-                        className="inline-flex min-h-11 items-center text-xs text-muted underline underline-offset-4"
+                        onClick={signOutHere}
+                        className="inline-flex min-h-11 items-center text-sm text-muted underline underline-offset-4"
                       >
-                        Not you? Sign out
+                        Not you? Sign out and book as a guest
                       </button>
                     )}
                   </p>
@@ -781,7 +899,8 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                 onClick={handleCheckout}
                 busy={loading}
                 disabled={!hasAnyTickets}
-                aria-describedby={hasAnyTickets ? undefined : "checkout-hint"}
+                // The total is part of what the button does (the bar's button says it too): "Total A$25.94".
+                aria-describedby={hasAnyTickets ? `${totalLabelId} ${totalId}` : "checkout-hint"}
                 className={`mt-5 h-14 w-full gap-3 rounded-card text-xl leading-6 font-bold tracking-normal normal-case ${loading || !hasAnyTickets ? "" : "text-paper"}`}
               >
                 {!loading && <LockIcon className="size-6 shrink-0" />}

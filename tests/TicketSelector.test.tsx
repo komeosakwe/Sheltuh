@@ -54,6 +54,13 @@ describe("TicketSelector (live)", () => {
     expect(screen.getByRole("button", { name: "Checkout" }).className).not.toMatch(/hidden/);
   });
 
+  it("Checkout is described by the total, as the bar's button is, and says Total when nothing's chosen only via its hint", () => {
+    render(<TicketSelector event={live("neon-static")} />);
+    expect(screen.getByRole("button", { name: "Checkout" })).toHaveAccessibleDescription("Choose tickets to continue.");
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
+    expect(screen.getByRole("button", { name: "Checkout" })).toHaveAccessibleDescription("Total A$32.30");
+  });
+
   it("says what the Tickets line is made of for one tier: quantity × face price", () => {
     render(<TicketSelector event={live("neon-static")} />);
     expect(screen.queryByText(/×/)).toBeNull();
@@ -122,7 +129,7 @@ describe("TicketSelector (live, signed in)", () => {
     );
   });
 
-  it("offers a way out of the account for a paid order: Not you? Sign out (this browser only)", () => {
+  it("offers a way out of the account for a paid order: Not you? Sign out (this browser only), said and with focus on the name", () => {
     const value = fakeAuthValue({ email: "mia@example.com" });
     render(
       <FakeAuthProvider value={value}>
@@ -130,8 +137,14 @@ describe("TicketSelector (live, signed in)", () => {
       </FakeAuthProvider>,
     );
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
-    fireEvent.click(screen.getByRole("button", { name: "Not you? Sign out" }));
+    const out = screen.getByRole("button", { name: "Not you? Sign out and book as a guest" });
+    expect(out).toHaveClass("min-h-11");
+    fireEvent.click(out);
     expect(value.signOut).toHaveBeenCalledWith("local");
+    // The panel's one status says what happens next, and focus lands on the name field (not lost with the button).
+    const status = screen.getAllByRole("status").find((el) => el.classList.contains("sr-only"));
+    expect(status).toHaveTextContent("Signed out. Stripe will ask for your email.");
+    expect(screen.getByLabelText("Your name")).toHaveFocus();
   });
 
   it("lets the buyer replace the prefilled email, including clearing it", () => {
@@ -480,6 +493,37 @@ describe("TicketSelector checkout focus and errors (WCAG 2.2)", () => {
     expect(checkout).toBeEnabled();
   });
 
+  it("a second press in the same tick (before the busy state has rendered) starts no second order", () => {
+    createCheckoutSession.mockReturnValue(new Promise(() => {}));
+    render(<TicketSelector event={live("neon-static")} />);
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
+    typeName();
+    const checkout = screen.getByRole("button", { name: "Checkout" });
+    // Two native clicks inside one act: React hasn't re-rendered between them, so the button isn't busy yet.
+    act(() => {
+      checkout.click();
+      checkout.click();
+    });
+    expect(createCheckoutSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("back from the payment page (bfcache), the guard is reset too: Checkout starts a new order again", () => {
+    createCheckoutSession.mockReturnValue(new Promise(() => {}));
+    render(<TicketSelector event={live("neon-static")} />);
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
+    typeName();
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    expect(createCheckoutSession).toHaveBeenCalledTimes(1);
+    // Still the same checkout: nothing more starts.
+    fireEvent.click(screen.getByRole("button", { name: /Opening checkout/ }));
+    expect(createCheckoutSession).toHaveBeenCalledTimes(1);
+    act(() => {
+      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    expect(createCheckoutSession).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps focus on Checkout while it works and after a failed checkout (busy, not disabled)", async () => {
     let reject: (err: unknown) => void = () => {};
     createCheckoutSession.mockReturnValue(new Promise((_, r) => (reject = r)));
@@ -686,6 +730,20 @@ describe("TicketSelector booking fee note", () => {
     const note = screen.getByText(NOTE);
     expect(checkout.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(note.closest("p")?.querySelector("svg")).not.toBeNull();
+  });
+
+  it("the Booking fees (i) closes with Escape and when focus leaves it", () => {
+    render(<TicketSelector event={live("neon-static")} />);
+    const info = screen.getByRole("button", { name: "About the booking fee" });
+    info.focus();
+    fireEvent.click(info);
+    expect(info).toHaveAttribute("aria-expanded", "true");
+    fireEvent.keyDown(info, { key: "Escape" });
+    expect(info).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(info);
+    expect(info).toHaveAttribute("aria-expanded", "true");
+    act(() => info.blur());
+    expect(info).toHaveAttribute("aria-expanded", "false");
   });
 
   it("the Booking fees (i) is a keyboard toggletip: it says what the fee is, under the row and in the panel's status", () => {

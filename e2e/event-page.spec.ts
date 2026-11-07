@@ -170,17 +170,18 @@ test.describe("external event (free, organiser's site) at 390×844", () => {
 test.describe("Sheltüh-ticketed event at 390×844", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test("buy bar Buy tickets focuses the tickets, whose totals include the fee and come first", async ({ page }) => {
+  test("buy bar Buy tickets focuses the first ticket, whose totals include the fee and come first", async ({ page }) => {
     await mockApi(page);
     await page.goto("/events/neon-static");
     const bar = page.locator("[data-buy-bar]");
     await expect(bar).toContainText("From A$32.30", { timeout: 30_000 });
     // The tab is titled with the event once it's loaded (live pages render client-side).
     await expect(page).toHaveTitle("Neon Static — Sheltüh");
+    // With nothing chosen the bar's link takes focus to the first ticket's "+" (and, if that is already on
+    // screen, says what to do: tests/BuyBar.test.tsx), rather than jumping to the section.
     await bar.getByRole("link", { name: "Buy tickets" }).click();
-    await expect(page).toHaveURL(/#tickets$/);
-    await expect(page.locator("#tickets")).toBeFocused();
     const tickets = page.locator("#tickets");
+    await expect(tickets.getByRole("button", { name: "Increase quantity for General admission" })).toBeFocused();
     await expect(tickets.getByText("A$32.30 incl. booking fee")).toBeVisible();
     // No per-ticket breakdown: the fee is said once, by Checkout.
     await expect(tickets.getByText("A$30 ticket + A$2.30 booking fee")).toHaveCount(0);

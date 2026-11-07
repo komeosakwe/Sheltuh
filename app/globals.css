@@ -27,10 +27,11 @@
   --danger-foreground: #ffffff;
   /* The ticket panel on the event page (owner's mockup, 6 Nov 2026): a warm ivory card, a peach tint for the
      chosen release and the order total, and a darker orange for small text on that tint (--signal itself is
-     for fills, marks and large text; --signal-ink is 5.9:1 on --tint). Only the ticket panel uses them. */
+     for fills, marks and large text; --signal-ink is at least 5.3:1 on the Available pill, which is orange at 15% over
+     the panel, a white card or the tint). Only the ticket panel uses them. */
   --panel: #fbf7f1;
   --tint: #fdeadf;
-  --signal-ink: #b83200;
+  --signal-ink: #a02a00;
   /* Door check-in only (components/check-in/, docs/design/check-in.md; enforced by
      tests/door-tokens.test.ts). Each fill has its text pair. Never used for decoration;
      colour is never the only signal (icon + words + panel shape). */
@@ -101,7 +102,7 @@
     --danger-foreground: #000000;
     --panel: #1a1816;
     --tint: #2c1b12;
-    --signal-ink: #ff8a5c; /* 7.3:1 on --tint */
+    --signal-ink: #ff8a5c; /* at least 5.8:1 on the pill over the dark panel, card or tint */
     /* Apple White on the black page. */
     --apple-fill: #ffffff;
     --apple-ink: #000000;
@@ -249,9 +250,12 @@ html {
   scroll-padding-top: calc(var(--header-h) + env(safe-area-inset-top) + 0.5rem);
 }
 
+/* --buybar-measured is the general admission bar's real height in px (components/checkout/BuyBar.tsx
+   measures it, safe area included: it wraps, stacks and grows with large text); the others keep the
+   fixed one. */
 @media (max-width: 63.999rem) {
   html:has([data-buy-bar]) {
-    scroll-padding-bottom: calc(var(--buybar-h) + env(safe-area-inset-bottom) + 0.5rem);
+    scroll-padding-bottom: calc(var(--buybar-measured, var(--buybar-h) + env(safe-area-inset-bottom)) + 0.5rem);
   }
 }
 
@@ -316,6 +320,12 @@ h4 {
   font-family: var(--face-sans);
   font-weight: 700;
   letter-spacing: -0.025em;
+}
+
+/* The phone buy bar never takes more than a third of the screen (large text, a long note): it scrolls inside. */
+@utility max-h-bar {
+  max-height: 33svh;
+  overflow-y: auto;
 }
 
 /* A page's main headline (page headers): the one heavy uppercase style, in the plain face (the
@@ -561,11 +571,13 @@ h4 {
   outline-offset: 3px;
 }
 
-/* An event card's stretched link (components/ui/EventCard.tsx): the card itself draws the ring
+/* An event card's stretched link (components/ui/EventCard.tsx), and a ticket card's button (components/TicketSelector.tsx,
+   whose card includes its sub-text): the card itself draws the ring
    (has-[[data-card-link]:focus-visible]), so the link's own is dropped. Only where :has() works,
    so a browser without it still rings the link. */
 @supports selector(:has(a)) {
-  [data-card-link]:focus-visible {
+  [data-card-link]:focus-visible,
+  [data-ticket-card-button]:focus-visible {
     outline: none;
   }
 }

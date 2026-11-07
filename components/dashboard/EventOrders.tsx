@@ -21,6 +21,16 @@ const SEARCH_DEBOUNCE_MS = 300;
 const SEARCH_MAX = 100;
 const NONE = "—";
 
+/** An empty name or email: the dash for the eye, and words ("No name", "No email") for a screen reader, which would otherwise say nothing or "em dash". */
+function Missing({ what }: { what: string }) {
+  return (
+    <>
+      <span aria-hidden="true">{NONE}</span>
+      <span className="sr-only">{what}</span>
+    </>
+  );
+}
+
 export type OrdersScope = "organiser" | "admin";
 
 /**
@@ -294,9 +304,9 @@ function OrdersTable({ items, timeZone, caption }: { items: EventOrderRow[]; tim
           {items.map((order) => (
             <tr key={order.reference} className="border-t border-surface-border">
               <th scope="row" className={`${cellClass} text-left font-semibold break-words`}>
-                {order.buyerName ?? NONE}
+                {order.buyerName ?? <Missing what="No name" />}
               </th>
-              <td className={`${cellClass} break-all`}>{order.buyerEmail ?? NONE}</td>
+              <td className={`${cellClass} break-all`}>{order.buyerEmail ?? <Missing what="No email" />}</td>
               <td className={cellClass}>{orderTicketsText(order)}</td>
               <td className={`${cellClass} whitespace-nowrap tabular-nums`}>{orderPaidText(order)}</td>
               <td className={cellClass}>{orderPlacedText(order.placedAt, timeZone)}</td>
@@ -314,8 +324,8 @@ function OrderCards({ items, timeZone, caption }: { items: EventOrderRow[]; time
     <ul aria-label={caption} className="lg:hidden">
       {items.map((order) => (
         <li key={order.reference} className="border-t border-surface-border py-4">
-          <p className="text-base font-semibold break-words">{order.buyerName ?? NONE}</p>
-          <p className="text-sm break-all text-muted">{order.buyerEmail ?? NONE}</p>
+          <p className="text-base font-semibold break-words">{order.buyerName ?? <Missing what="No name" />}</p>
+          <p className="text-sm break-all text-muted">{order.buyerEmail ?? <Missing what="No email" />}</p>
           <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm">
             <dt className="text-muted">Tickets</dt>
             <dd className="text-right">{orderTicketsText(order)}</dd>

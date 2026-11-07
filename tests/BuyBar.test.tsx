@@ -2,6 +2,8 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventDetailsView from "@/components/EventDetailsView";
+import TicketSelector from "@/components/TicketSelector";
+import { BuyBarProvider, GaBuyBar } from "@/components/checkout/BuyBar";
 import { sampleEvents } from "@/lib/sample-events";
 import type { SheltuhEvent } from "@/lib/types";
 import { SOFT_KEYBOARD_MIN_PX } from "@/lib/use-soft-keyboard";
@@ -217,12 +219,19 @@ describe("pressing the bar with the name missing", () => {
     expect(within(bar()).getByRole("button", { name: "Buy tickets" })).not.toHaveAttribute("aria-disabled", "true");
   });
 
-  it("Enter in the name field closes the keyboard (blurs it), so the bar can return", () => {
+  it("Enter in the name field closes the keyboard on a phone (blurs it), so the bar can return", () => {
     render(<EventDetailsView event={live("neon-static")} demo={false} />);
     const field = screen.getByLabelText("Your name");
     field.focus();
     expect(field).toHaveFocus();
     expect(field).toHaveAttribute("enterkeyhint", "done");
+    // On a desktop (a fine pointer) Enter leaves focus where it is.
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(field).toHaveFocus();
+    // On a phone it closes the keyboard, but not while an IME is composing (Enter then confirms the candidate).
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query === "(pointer: coarse)" }));
+    fireEvent.keyDown(field, { key: "Enter", isComposing: true });
+    expect(field).toHaveFocus();
     fireEvent.keyDown(field, { key: "Enter" });
     expect(field).not.toHaveFocus();
   });
@@ -350,14 +359,52 @@ describe("release cards and the one quantity stepper below them (owner's mockup,
     selectCard("VIP (side-of-stage viewing)");
     expect(screen.queryByRole("group", { name: "Quantity for General admission" })).toBeNull();
     expect(screen.getByRole("group", { name: "Quantity for VIP (side-of-stage viewing)" })).toHaveTextContent("1");
+    // Every chosen card says how many (the stepper's too).
     expect(screen.getByText("2 selected")).toBeInTheDocument();
+    expect(screen.getByText("1 selected")).toBeInTheDocument();
     expect(barAmount()).toBe("A$119.60");
     expect(barAmount()).toBe(summaryTotal());
-    expect(screen.getByText("General admission").closest("li")).toHaveClass("border-signal", "bg-tint");
-    expect(screen.getByText("VIP (side-of-stage viewing)").closest("button")).toHaveAttribute("aria-pressed", "true");
+    const cardOf = (name: string) =>
+      [...document.querySelectorAll<HTMLElement>("[data-ticket-card]")].find((li) => within(li).queryByText(name)) as HTMLElement;
+    expect(cardOf("General admission")).toHaveClass("border-signal", "bg-tint");
+    // The stepper's card is marked apart from the chosen ones: aria-current for assistive tech, words for everyone.
+    const vip = cardOf("VIP (side-of-stage viewing)");
+    expect(vip.querySelector("button")).toHaveAttribute("aria-current", "true");
+    expect(vip.querySelector("button")).not.toHaveAttribute("aria-pressed");
+    expect(within(vip).getByText("Quantity below")).toBeInTheDocument();
+    expect(cardOf("General admission").querySelector("button")).not.toHaveAttribute("aria-current");
+    expect(within(cardOf("General admission")).queryByText("Quantity below")).toBeNull();
+    // The card is described by what it says beyond its name (how many are chosen here, and the limit).
+    expect(vip.querySelector("button")).toHaveAccessibleDescription(/1 selected/);
     selectCard("General admission");
     expect(screen.getByRole("group", { name: "Quantity for General admission" })).toHaveTextContent("2");
-    expect(screen.getByText("1 selected")).toBeInTheDocument();
+    expect(within(cardOf("General admission")).getByText("Quantity below")).toBeInTheDocument();
+    expect(within(vip).queryByText("Quantity below")).toBeNull();
+  });
+
+  it("with two releases chosen, the order summary has one row each and the status says what changed and whose the stepper is", () => {
+    render(<EventDetailsView event={live("neon-static")} demo={false} />);
+    const panel = within(screen.getByRole("region", { name: "Select your tickets" }));
+    const status = () => panel.getAllByRole("status").find((el) => el.classList.contains("sr-only"))?.textContent ?? "";
+    // One release: the single formula line.
+    fireEvent.click(more("General admission"));
+    expect(panel.getByText("Tickets").closest("dt")).toHaveTextContent("Tickets (1 × A$30.00)");
+    selectCard("VIP (side-of-stage viewing)");
+    expect(status()).toBe(
+      "Added 1 VIP (side-of-stage viewing). Your order: General admission × 1, VIP (side-of-stage viewing) × 1. Total A$87.30 incl. booking fees. Quantity is now for VIP (side-of-stage viewing).",
+    );
+    const rows = [...document.querySelectorAll("dl > div")].map((row) => row.textContent);
+    expect(rows).toContain("General admission × 1A$30.00");
+    expect(rows).toContain("VIP (side-of-stage viewing) × 1A$55.00");
+    expect(panel.queryByText("Tickets")).toBeNull();
+    fireEvent.click(less("VIP (side-of-stage viewing)"));
+    expect(status()).toBe("VIP (side-of-stage viewing): 0. Total A$32.30 incl. booking fees.");
+    // Back to one release chosen: the single line again.
+    expect(panel.getByText("Tickets").closest("dt")).toHaveTextContent("Tickets (1 × A$30.00)");
+    // Pressing a card that is already chosen only moves the stepper, and says so.
+    fireEvent.click(more("VIP (side-of-stage viewing)"));
+    selectCard("General admission");
+    expect(status()).toBe("General admission: 1 selected. Quantity is now for General admission.");
   });
 });
 
@@ -424,5 +471,127 @@ describe("the on-screen keyboard", () => {
     act(() => screen.getByLabelText("Your name").focus());
     viewport.resize(window.innerHeight / 2);
     expect(bar()).not.toHaveClass("invisible");
+  });
+});
+
+describe("the bar with nothing chosen: a link that takes you to the first ticket", () => {
+  it("moves focus to the stepper's + and says what to do when it's already on screen, instead of a no-op jump", () => {
+    render(<EventDetailsView event={live("neon-static")} demo={false} />);
+    const link = within(bar()).getByRole("link", { name: "Buy tickets" });
+    // jsdom has no layout: put the + on screen.
+    const plus = more("General admission");
+    vi.spyOn(plus, "getBoundingClientRect").mockReturnValue({ top: 100, bottom: 148 } as DOMRect);
+    expect(fireEvent.click(link)).toBe(false); // the default (a jump to #tickets) is prevented
+    expect(plus).toHaveFocus();
+    const panel = within(screen.getByRole("region", { name: "Select your tickets" }));
+    expect(panel.getAllByRole("status").find((el) => el.classList.contains("sr-only"))).toHaveTextContent("Choose a ticket first.");
+  });
+
+  it("just moves focus (the move itself is announced) when the stepper is off screen", () => {
+    render(<EventDetailsView event={live("neon-static")} demo={false} />);
+    const plus = more("General admission");
+    vi.spyOn(plus, "getBoundingClientRect").mockReturnValue({ top: 5000, bottom: 5048 } as DOMRect);
+    fireEvent.click(within(bar()).getByRole("link", { name: "Buy tickets" }));
+    expect(plus).toHaveFocus();
+    const panel = within(screen.getByRole("region", { name: "Select your tickets" }));
+    expect(panel.getAllByRole("status").find((el) => el.classList.contains("sr-only"))).toBeEmptyDOMElement();
+  });
+});
+
+describe("the bar's registration and what its note says", () => {
+  it("goes back to the plain link when the selector is gone (it unregisters on unmount)", () => {
+    const event = live("neon-static");
+    const { rerender } = render(
+      <BuyBarProvider>
+        <TicketSelector event={event} />
+        <GaBuyBar price={{ amount: "From A$32.30", note: "incl. booking fee" }} label="Buy tickets" className="flex" />
+      </BuyBarProvider>,
+    );
+    fireEvent.click(more("General admission"));
+    expect(within(bar()).getByRole("button", { name: "Buy tickets" })).toBeInTheDocument();
+    rerender(
+      <BuyBarProvider>
+        <GaBuyBar price={{ amount: "From A$32.30", note: "incl. booking fee" }} label="Buy tickets" className="flex" />
+      </BuyBarProvider>,
+    );
+    expect(within(bar()).queryByRole("button")).toBeNull();
+    expect(within(bar()).getByRole("link", { name: "Buy tickets" })).toHaveAttribute("href", "#tickets");
+    expect(barAmount()).toBe("From A$32.30");
+  });
+
+  it("says 'incl. booking fee' only where there is a fee: an organiser who absorbs it has none", () => {
+    const base = live("neon-static");
+    render(
+      <EventDetailsView
+        event={{ ...base, ticketTypes: base.ticketTypes.map((t) => ({ ...t, feePolicy: "organiser-absorbs" as const })) }}
+        demo={false}
+      />,
+    );
+    fireEvent.click(more("General admission"));
+    expect(barAmount()).toBe("A$30.00");
+    expect(barAmount()).toBe(summaryTotal());
+    expect(within(bar()).getByText("No booking fee")).toBeInTheDocument();
+    expect(within(bar()).queryByText(/incl\. booking fee/)).toBeNull();
+  });
+
+  it("measures its own height into --buybar-measured (so scroll-padding clears it) and lets go on unmount", () => {
+    let observed: Element | null = null;
+    let callback: () => void = () => {};
+    class FakeObserver {
+      constructor(cb: () => void) {
+        callback = cb;
+      }
+      observe(el: Element) {
+        observed = el;
+      }
+      disconnect() {
+        observed = null;
+      }
+    }
+    vi.stubGlobal("ResizeObserver", FakeObserver);
+    const { unmount } = render(<EventDetailsView event={live("neon-static")} demo={false} />);
+    expect(observed).toBe(bar());
+    const root = document.documentElement;
+    vi.spyOn(bar(), "getBoundingClientRect").mockReturnValue({ height: 131.4 } as DOMRect);
+    act(() => callback());
+    expect(root.style.getPropertyValue("--buybar-measured")).toBe("132px");
+    unmount();
+    expect(root.style.getPropertyValue("--buybar-measured")).toBe("");
+    expect(observed).toBeNull();
+  });
+
+  it("is capped at a third of the screen and stacks the button under the amount in a narrow container", () => {
+    render(<EventDetailsView event={live("neon-static")} demo={false} />);
+    expect(bar()).toHaveClass("max-h-bar");
+    const link = within(bar()).getByRole("link", { name: "Buy tickets" });
+    expect(link).toHaveClass("@max-xs:w-full");
+    expect(bar().querySelector(".\\@container")?.firstElementChild).toHaveClass("@max-xs:flex-col");
+  });
+});
+
+describe("focus is never left under the bar (WCAG 2.4.11)", () => {
+  function setup(barBox: { top: number; bottom: number; height: number }, fieldBox: { top: number; bottom: number }) {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
+    render(<EventDetailsView event={live("neon-static")} demo={false} />);
+    const field = screen.getByLabelText("Your name");
+    vi.spyOn(bar(), "getBoundingClientRect").mockReturnValue(barBox as DOMRect);
+    vi.spyOn(field, "getBoundingClientRect").mockReturnValue(fieldBox as DOMRect);
+    act(() => field.focus());
+    return scrollIntoView;
+  }
+  afterEach(() => {
+    Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+  });
+
+  it("scrolls a field the bar covers clear of it (the browser doesn't, for something already 'in view')", () => {
+    const scrollIntoView = setup({ top: 770, bottom: 844, height: 74 }, { top: 720, bottom: 780 });
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
+  });
+
+  it("leaves a field that's already clear of it alone, and does nothing where the bar isn't in the layout (desktop)", () => {
+    expect(setup({ top: 770, bottom: 844, height: 74 }, { top: 600, bottom: 660 })).not.toHaveBeenCalled();
+    cleanup();
+    expect(setup({ top: 0, bottom: 0, height: 0 }, { top: 720, bottom: 780 })).not.toHaveBeenCalled();
   });
 });

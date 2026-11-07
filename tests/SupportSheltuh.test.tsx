@@ -398,6 +398,23 @@ describe("Support Sheltüh on the seat page", () => {
     expect(createSeatedCheckout.mock.calls[0][1]).not.toHaveProperty("supportCents");
   });
 
+  it("the Other amount field's Done key closes the phone's keyboard (not on a desktop, not while composing)", () => {
+    render(<TicketSelector event={liveEvent(NEON)} />);
+    addGa();
+    fireEvent.click(chip("Other"));
+    const field = screen.getByLabelText("Other amount");
+    expect(field).toHaveAttribute("enterkeyhint", "done");
+    field.focus();
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(field).toHaveFocus();
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query === "(pointer: coarse)" }));
+    fireEvent.keyDown(field, { key: "Enter", isComposing: true });
+    expect(field).toHaveFocus();
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(field).not.toHaveFocus();
+    vi.unstubAllGlobals();
+  });
+
   it("an invalid Other amount stops Checkout with an inline error on the field", () => {
     render(<SeatPicker event={{ ...seated, organiserId: "org-1" }} map={map} mode="live" initialUnavailable={sample.unavailable} />);
     chooseSeat();

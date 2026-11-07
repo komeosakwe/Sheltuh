@@ -1,6 +1,7 @@
 import type { Ref } from "react";
 import { UsersIcon } from "@/components/checkout/icons";
 import { DETAILS_NOTICE } from "@/lib/buyer-details";
+import { dismissKeyboardOnEnter } from "@/lib/use-soft-keyboard";
 
 /**
  * The buyer's name at checkout (every order, paid or free), with the notice
@@ -40,12 +41,10 @@ export default function BuyerNameField({
         required
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        // The keyboard's own key says "Done" and closes the keyboard (there's no form to submit),
-        // which brings the page's sticky buy bar back into view on a phone.
+        // The keyboard's own key says "Done" and closes the keyboard on a phone (there's no form to submit),
+        // which brings the page's sticky buy bar back into view.
         enterKeyHint="done"
-        onKeyDown={(e) => {
-          if (e.key === "Enter") e.currentTarget.blur();
-        }}
+        onKeyDown={dismissKeyboardOnEnter}
         placeholder={placeholderLabel ? "Your name" : undefined}
         aria-invalid={error ? true : undefined}
         aria-describedby={error ? `${id}-hint ${id}-error` : `${id}-hint`}
