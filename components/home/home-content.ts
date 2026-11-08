@@ -120,7 +120,7 @@ export const HOME_CREATORS: HomeArt = {
 
 /**
  * The portraits in Find your people's "A look inside" card
- * (components/home/CommunitySection.tsx): the owner's five illustrative photos
+ * (components/home/CommunitySection.tsx): five illustrative Unsplash photos of people seen from behind
  * (public/home/people/, see public/home/README.md), shown in demo and live
  * alike as overlapping circles. They're illustration, never attendees: the
  * card shows no photo caption (owner, 31 Oct 2026).
