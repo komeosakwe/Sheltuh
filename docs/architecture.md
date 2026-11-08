@@ -4853,10 +4853,13 @@ Search can order results by how close they are to a suburb (owner round,
   is one of those apps (`lib/in-app-browser.ts` `inAppBrowserName`; the
   sign-in notice's `lib/auth/in-app-browser.ts` answers a different question),
   the message becomes "{App}’s browser can’t share your location. Type your
-  suburb, or open Sheltüh in Safari." with an "Open in Safari" link
-  (`x-safari-https://…`; Chrome and an `intent:` URL on Android). The link
-  is built from the https address without its fragment, and is left out
-  (the message ends "Type your suburb.") on http or an unknown platform.
+  suburb, or open Sheltüh in Chrome." with an "Open in Chrome" link (an
+  `intent:` URL) on Android. On iOS, http or an unknown platform there's no
+  link and it ends "…Type your suburb, or open Sheltüh in your browser from
+  the ••• menu.": Instagram's iOS browser ignores `x-safari-https://`
+  (tested by the owner), so the app's own menu is the reliable way out. The
+  message then stays 20 seconds, like one with a link. The link is built
+  from the https address without its fragment.
   A position that read fine but is outside Australia keeps its own message.
 - Only the suburb's name (and its state) leaves that function: localStorage
   `sheltuh:near:v1` = `{"suburb": …, "state": …}` (`lib/near-storage.ts`;

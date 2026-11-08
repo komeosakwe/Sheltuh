@@ -37,11 +37,16 @@ const serverFalse = () => false;
 export const LOCATE_FAILED = "Couldn’t find your location.";
 const CENTRE_FAILED = "Couldn’t centre the map on that suburb.";
 const STATUS_MS = 6000;
-// A message with a link in it stays longer (WCAG 2.2.1): long enough to read it and press the link.
+// A message with a link or steps in it stays longer (WCAG 2.2.1): long enough to read it and act on it.
 const STATUS_LINK_MS = 20_000;
 
-/** `link`: a way out to the device's own browser (lib/in-app-browser.ts). */
-export type MapLocateStatus = { tone: "info" | "danger"; text: string; link?: { label: string; href: string } } | null;
+/** `link`: a way out to the device's own browser (lib/in-app-browser.ts). `long`: steps to follow, so it stays longer. */
+export type MapLocateStatus = {
+  tone: "info" | "danger";
+  text: string;
+  link?: { label: string; href: string };
+  long?: boolean;
+} | null;
 type Status = MapLocateStatus;
 
 /**
@@ -140,7 +145,7 @@ export function useMapLocate(promptOnOpen: boolean, onLocated?: () => void) {
           const inApp = currentInAppLocationHelp();
           setStatus(
             inApp
-              ? { tone: "danger", text: inApp.text, link: inApp.link ?? undefined }
+              ? { tone: "danger", text: inApp.text, link: inApp.link ?? undefined, long: true }
               : { tone: "danger", text: LOCATE_FAILED },
           );
         }
@@ -178,7 +183,7 @@ export function useMapLocate(promptOnOpen: boolean, onLocated?: () => void) {
   // A message is brief: it goes after a few seconds.
   useEffect(() => {
     if (!status) return;
-    const timer = window.setTimeout(() => setStatus(null), status.link ? STATUS_LINK_MS : STATUS_MS);
+    const timer = window.setTimeout(() => setStatus(null), status.link || status.long ? STATUS_LINK_MS : STATUS_MS);
     return () => window.clearTimeout(timer);
   }, [status]);
 
