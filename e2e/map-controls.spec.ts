@@ -53,14 +53,16 @@ test.describe("/map's controls at 390×844", () => {
     expect(await search.evaluate((el) => getComputedStyle(el).fontSize)).toBe("16px");
     expect(await page.getByRole("combobox", { name: "Location" }).evaluate((el) => getComputedStyle(el).fontSize)).toBe("16px");
 
-    // In Instrument Sans (loaded, not its fallback), the four end at least 8px short of the screen's edge:
-    // room for another machine's text rendering.
-    await page.evaluate(async () => {
+    // All four chips fit the screen whatever font drew them. When Instrument Sans really loaded (it
+    // can't on a runner without the font's host, which then draws a wider fallback such as DejaVu
+    // Sans), they also end at least 8px short of the edge: room for another machine's text rendering.
+    const webFontLoaded = await page.evaluate(async () => {
       await document.fonts.load('500 10.5px "Instrument Sans"');
       await document.fonts.load('700 10.5px "Instrument Sans"');
       await document.fonts.ready;
+      return document.fonts.check('500 10.5px "Instrument Sans"');
     });
-    await expectChipsInView(page, 390 - 8);
+    await expectChipsInView(page, webFontLoaded ? 390 - 8 : 390);
   });
 
   test("Tonight is off by default; pressing it chooses it (peach, in the address) and again clears it", async ({ page }) => {
