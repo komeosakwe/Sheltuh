@@ -1584,7 +1584,7 @@ people behind one address) and without a CAPTCHA
   `/api/orders/confirm {token}`, so a mail scanner opening the link can't
   confirm it. Confirmation issues the tickets (`confirm_free_order`) and
   returns the success page's URL; confirming again within the 24 hours
-  returns the same URL. Expired after 24 hours (410), confirmed or not.
+  returns the same URL with `alreadyConfirmed: true` (the browser uses it so usage analytics counts a new order once). Expired after 24 hours (410), confirmed or not.
   Confirmation re-checks that every ticket type is still free (price 0) and
   still exists; if not, nothing is issued, the order is marked failed and
   the answer is 409. A link confirmed after the event ended issues nothing
@@ -5640,6 +5640,245 @@ node:crypto, never forge).
   look of both. `docs/wallet-setup.md` has the checks to run.
 - **Text buttons** until the official badges are added
   (`docs/wallet-setup.md`, "Official badges").
+
+## Usage analytics (PostHog)
+
+Owner decision: measure website usage and retention (active users, retention
+cohorts, funnels) with PostHog, plus cookieless page views and Core Web Vitals
+with Vercel Web Analytics and Speed Insights. All of it is **off unless
+switched on**, and none of it runs in demo mode, in tests or on `/admin`.
+
+- **Switch.** `NEXT_PUBLIC_POSTHOG_KEY` (a project API key, `phc_…`) and
+  `NEXT_PUBLIC_POSTHOG_HOST` (`https://eu.i.posthog.com` by default, the EU
+  cloud the Privacy Policy names, or `https://us.i.posthog.com`). Unset key = no PostHog code is downloaded, no
+  request is made, and `/ingest` answers 404. A key of any other shape (a
+  personal `phx_…` key above all), or with a key set a host that is not an
+  https address, fails the build (`next.config.ts`, `assertPostHogKey` and
+  `assertPostHogHost`), naming the variable, never the value. Settings are read
+  in one place, `lib/analytics-config.ts`, shared by `next.config.ts`,
+  `proxy.ts`, the browser and the tests. Live mode only (`isSupabaseConfigured`):
+  a deploy with the key but no Supabase env (a demo preview) stays off. In
+  Vercel set the key for **Production only**: previews share the production
+  Supabase project, so their visits would otherwise count.
+- **Start-up.** `instrumentation-client.ts` calls `initAnalytics()`
+  (`lib/analytics.ts`) before hydration. `posthog-js` is a dynamic import, so
+  it is in no bundle that runs without the key. Events queue on the load
+  promise, so they go out in order. A failed load (ad blocker) leaves
+  analytics off and never breaks the page.
+- **First-party proxy** (`proxy.ts`, `/ingest`). `api_host` is `/ingest`. The
+  proxy relays **only** `POST /ingest/e/`, `/ingest/i/v0/e/` and
+  `/ingest/batch/` (the endpoints the browser needs to deliver events with
+  external loading and flags off: `ingestTarget`) to the configured PostHog
+  host, with the query as the SDK sent it. Everything else under `/ingest`
+  (static files, `array/<key>/config`, flags, the rest of PostHog's API) is a
+  404, any other method a 405: it is not an open relay to PostHog. The request
+  is relayed **without `Cookie`, `Referer`, `Origin` or `Authorization`** (the
+  Referer would carry the raw address of the page, which the browser has
+  already cleaned in the event), and the response gets
+  `X-Content-Type-Options: nosniff` and `Content-Security-Policy: sandbox;
+  default-src 'none'; frame-ancestors 'none'` (also set for `/ingest/:path*` in
+  `next.config.ts`). `ui_host` is the PostHog app. PostHog's endpoints are
+  slash-terminated (`/ingest/e/`) and Next's trailing-slash redirect would strip
+  the slash before the proxy sees the request, so **while analytics is on**
+  `skipTrailingSlashRedirect` is true and `redirects()` puts the redirect back
+  for every other path (`/about/` -> `/about`, 308; `/ingest/...` excluded).
+  Both are absent when analytics is off, so nothing changes then. No CSP
+  change: the site's only CSP is `frame-ancestors 'none'` plus the Report-Only
+  policy on `/checkout/pay`, whose `connect-src 'self'` already covers
+  `/ingest`, and PostHog loads no scripts at run time
+  (`disable_external_dependency_loading`; remote config is not fetched). The
+  service worker never intercepts it (it only handles same-origin GETs for
+  build output and images).
+- **Page views.** `capture_pageview` is off. `components/analytics/
+  AnalyticsPageviews.tsx` (root layout) captures `$pageview` when the pathname
+  changes, with the path only. Admin pages are not skipped there but dropped by
+  `before_send` (below), so there is one rule, in one place.
+- **Identity.** `person_profiles: 'identified_only'`. `components/analytics/
+  AnalyticsIdentity.tsx` (inside `AuthProvider`) calls `identifyUser(userId)`
+  with the Supabase user id and **nothing else** (it refuses anything that is
+  not a uuid, so an email can never become an identity). If a different account
+  was identified here before, it is forgotten first (`reset(true)`). On sign-out
+  `resetIdentity()` calls `reset(true)` (new anonymous id **and** device id; only
+  if someone was identified; it waits out the "loading" state so a page load is
+  not mistaken for a sign-out). No `$set` person properties are sent by us.
+- **What is never captured.** Autocapture, rageclick, dead clicks, heatmaps,
+  exception capture, performance capture, session recording, surveys and
+  feature-flag calls are all off; `mask_all_text` and
+  `mask_all_element_attributes` are on in case any is ever enabled in the
+  PostHog UI (the local config wins over remote settings). Persistence is
+  `localStorage` (no cookie). Click ids and mailing ids (`gclid`, `fbclid`,
+  `ttclid`, `msclkid`, `mc_cid`, `mc_eid`, `_kx`, …, `$fbc`, `$fbp`,
+  `ph_keyword`: `DENIED_PROPERTIES`) are on PostHog's property denylist.
+  `mask_personal_data_properties` is on with `custom_personal_data_properties`
+  (`PERSONAL_QUERY_PARAMS`: `token`, `code`, `session_id`, `order`,
+  `payment_intent*`, `email`, `q`, `near`, `suburb`, `next`, `sel`, `ticket`, …),
+  so the addresses PostHog stores itself (`$initial_person_info` in the
+  browser's storage, `$session_entry_*`, `$initial_*`) never carry their values.
+  Search words, ticket codes, order ids (`ord_…`), confirmation and invite
+  tokens, emails and names are not properties of any event.
+- **The sanitiser** (`lib/analytics-privacy.ts`, one module for PostHog's
+  `before_send` and for Vercel's `beforeSend`): `/admin` and everything beneath
+  it is dropped entirely, and so is what PostHog remembers of an /admin page as
+  the previous one (`$prev_pageview_*`, set even when that view was dropped);
+  the fragment is always removed (also `disable_capture_url_hashes`); the query
+  string is cut to `utm_*` parameters (values in our own links' shape only,
+  see "Marketing analytics") on **every** route (so
+  `/checkout/success?session_id=…`, `/auth/callback?code=…`,
+  `/search?near=Fitzroy` and the emailed-link pages' fragments lose everything
+  else); a referrer keeps only origin and path; ticket codes in a path become
+  `[code]`, `/members/<id>` and `/messages/<id>` become placeholders; `ord_…` is
+  removed from every string of the event (and of `$set` / `$set_once`); the page
+  `title` (a member's name can be in it) is dropped; click ids and PostHog's
+  copies of them are dropped, in properties, `$set` and `$set_once`. Address
+  properties are found **by name** (`…url`, `…referrer`, `…pathname`, so
+  `$prev_pageview_pathname`, `$session_entry_*` and any the SDK adds later are
+  covered), not from a fixed list. The input event is never mutated.
+  Organiser dashboard pages **are** tracked (organiser retention matters), with
+  the same rules. `tests/analyticsRealPostHog.test.ts` runs the **real**
+  posthog-js through page views and a capture and checks what it hands to the
+  network, because tests with hand-built events cannot show a property the SDK
+  adds on its own.
+- **Do Not Track and Global Privacy Control.** `browserOptsOut()` (navigator
+  `doNotTrack` "1"/"yes", `msDoNotTrack`, `window.doNotTrack`,
+  `navigator.globalPrivacyControl`) is checked before anything starts: when it
+  is on, PostHog is never loaded, and `VercelAnalytics` renders neither
+  component (and its `beforeSend` re-checks, in case the setting changes).
+  `respect_dnt: true` is also set as a second guard.
+- **Vercel Web Analytics and Speed Insights.** `components/analytics/
+  VercelAnalytics.tsx` (a client wrapper, because `beforeSend` is a function)
+  renders `<Analytics>` and `<SpeedInsights>` from `@vercel/analytics/next` and
+  `@vercel/speed-insights/next`, rendered by `app/layout.tsx` only when
+  `isVercelAnalyticsEnabled` (`lib/vercel-analytics.ts`): live mode (not the
+  demo), `VERCEL=1` (set by Vercel on every build, so local runs, CI and the e2e
+  servers never load them) and not `NEXT_PUBLIC_VERCEL_ANALYTICS=0` (the off
+  switch). Their `beforeSend` is `sanitizeVercelEvent`. The owner also has to
+  switch both on in the Vercel project's Analytics tab (`docs/DEPLOYMENT.md`).
+- **IP address and location.** Every request carries the visitor's IP address
+  and user agent; PostHog and Vercel see them like any host. Vercel estimates
+  country from the IP. For PostHog, **"Discard client IP data" must be ON in the
+  project settings (a required owner step)**, so the address is not stored on
+  events; PostHog's GeoIP enrichment may still estimate a country or city from
+  it before discarding (the owner should check the project's settings and a
+  sample event for `$geoip_*` properties, and turn GeoIP off if no location is
+  wanted: this was not verified against a live project). The Privacy Policy
+  says what the settings make true; keep the two in step.
+- **Deleting a person.** A deletion request for an account also covers PostHog:
+  the owner deletes the person (identified by the Supabase user id, the
+  `distinct_id`) in PostHog, People, Delete (with "delete events" if asked)
+  (`docs/DEPLOYMENT.md`). Anonymous visits cannot be tied to an account.
+- **Privacy Policy.** `/privacy#analytics` ("Usage analytics") describes both
+  tools, the IP address and user agent, and names the PostHog region (the EU
+  cloud, the owner's choice). If the project ever moves region, update that
+  sentence (comment in `app/privacy/page.tsx`).
+
+### Events
+
+All captured through `track()` in `lib/analytics.ts`, typed by
+`AnalyticsEvents`, so a property can only be added by listing it there. Ids are
+public event slugs or internal uuids; never an order id.
+
+| Event | Where | Properties |
+| --- | --- | --- |
+| `$pageview` | `AnalyticsPageviews` (route change) | `$current_url` (origin + path), `$pathname`; session property `tracking_ref` if the visit had a valid organiser `?ref=` |
+| `sign_up_completed` | `VerifyForm` (email code confirmed), `InviteCreateAccount`, `OAuthCallback` (first Google / Apple sign-in: created and signed in within a minute, `isNewAccount`) | `signup_method`: `email`, `invite` or `oauth` |
+| `signed_in` | `LoginForm`, `OAuthCallback` (a returning member) | `signin_method`: `password` or `oauth` |
+| `event_viewed` | `EventViewedTracker` (event page) | `event_slug`, `category`, `ticketing_mode` |
+| `checkout_started` | `TicketSelector`, `SeatPicker` (the checkout request succeeded) | `event_slug`, `ticket_count`, `has_support`, `free` |
+| `order_completed` | `CheckoutConfirmation` (paid order shown, **for the visit that checked out**) | `event_slug`, `value_aud` (dollars, all-inclusive, 0 if free), `ticket_count`, `has_support`, `free` |
+| `favourite_added` | `FavouritesProvider` (save confirmed) | `event_slug` |
+| `organiser_followed` | `FollowButton` | `organiser_id` |
+| `whos_going_opted_in` | `WhosGoing` | `event_slug` |
+| `map_near_me_used` | `useMapLocate` (the visitor's own press that found them) | none |
+| `search_performed` | `SearchPerformedTracker` (`/search` with words or a place) | `has_query`, `has_location` |
+| `organiser_event_created` | `EventEditor` (first save of a draft) | none |
+| `organiser_event_published` | `EventEditor` (the organiser's own publish; **an event published by an admin's approval after review is not counted**) | `event_slug` |
+
+Every event of a visit from an Instagram, TikTok, Facebook, etc. in-app browser
+also carries the super property `in_app_browser` (`inAppBrowserName`,
+`lib/in-app-browser.ts`).
+
+**`order_completed` counts the visit that checked out, once.** The success page
+(`/checkout/success?session_id=…`) is also the ticket page the buyer opens again
+from their email, on other devices, days later, so it cannot count every view.
+When `checkout_started` succeeds (`TicketSelector`, `SeatPicker`), or a guest
+presses the emailed free-booking link (`FreeOrderConfirm`),
+`rememberCheckoutStarted` puts a short FNV fingerprint of the order id in
+**sessionStorage** (`sheltuh:analytics-checkout:v1`, the last 20; never the id).
+`trackOrderCompleted` sends the event only if that note is there, and clears it
+in the same step it hands the event to PostHog (a failed load keeps it, so it can
+be tried again). Opening the page from an email elsewhere, or after the tab is
+closed, is not counted: a purchase finished in a different tab than it started
+(the card-payment redirect stays in one tab) is the one gap.
+
+Tests: `tests/analyticsPrivacy.test.ts` (sanitiser, DNT/GPC),
+`tests/analyticsRealPostHog.test.ts` (the real posthog-js),
+`tests/analytics.test.ts` (no-op without the key, demo off, init config,
+identify and reset, `order_completed` once per checkout),
+`tests/analyticsConfig.test.ts`, `tests/next-config.test.ts` (headers,
+redirects), `tests/proxy.test.ts` (the `/ingest` relay),
+`tests/VercelAnalytics.test.tsx`, `tests/CheckoutOrderAnalytics.test.tsx`, the
+call-site tests (`TicketSelector`, `SeatPicker`, `AuthForms`, `OAuthCallback`,
+`useMapLocateAnalytics`, `FreeOrderConfirm`), `e2e/analytics-off.spec.ts` and
+`e2e/demo.spec.ts` (no request to `/ingest`, PostHog or Vercel without a key).
+
+**Limits.** Not run against a real PostHog project (no key): the first live
+check is the owner's, in PostHog's Live events. `skipTrailingSlashRedirect` is a
+site-wide side effect while analytics is on, put back by `redirects()`.
+
+## Marketing analytics
+
+Owner request: measure where signups and sales come from. No new vendor and no
+ad pixels: it is PostHog (above) with campaign tags on links.
+
+- **Campaign attribution.** PostHog's automatic campaign capture is on: each
+  event carries `utm_source`, `utm_medium`, `utm_campaign`, `utm_content`,
+  `utm_term`, and for the first visit the person/event properties
+  `$initial_utm_*` and `$initial_referring_domain`. The sanitiser keeps exactly
+  those five `utm_*` parameters on every route (so they survive on
+  `/checkout/*` and `/auth/*` too) and nothing else from the query string;
+  a value is kept only in the shape the Campaign links page makes
+  (`campaignParamValue`: lower case letters, digits, `-` and `_`, at most 50
+  characters; upper case is lowered; not an `ord_…`, uuid or long hex id), in
+  URLs and in PostHog's `utm_*`, `$initial_utm_*` and `$session_entry_utm_*`
+  properties (also in `$set` and `$set_once`): a crafted link with an email
+  address or a token in `utm_campaign` has that parameter dropped whole.
+  PostHog's `mask_personal_data_properties` does **not** cover `utm_*` (its list
+  is click ids plus our `PERSONAL_QUERY_PARAMS`), so this rule is the defence;
+  the visitor's own browser storage (`$initial_person_info`) can still hold the
+  raw address they opened, which is never sent as it is. Click ids (`gclid`,
+  `fbclid`, …) are denied. In-app browsers become `in_app_browser`; an
+  organiser's tracking link (`?ref=`, see "Organiser analytics") becomes
+  `tracking_ref` for the visit (only a well-formed code, `parseTrackingRef`).
+- **Revenue on conversions.** `order_completed.value_aud` (what the buyer paid,
+  in dollars, booking fee and Support Sheltüh included, 0 for free) and
+  `sign_up_completed.signup_method`. Sum `value_aud` by source in PostHog; it
+  is the buyer's total, not Sheltüh's fee income. No order id.
+- **Admin "Campaign links"** (`/admin/campaign-links`,
+  `components/admin/CampaignLinks.tsx`, `lib/campaign-links.ts`, linked from the
+  admin hub's Manage list; not in the sub-nav, whose links already fill three
+  rows at 320px). Pick Home, Map, an event (search by title or slug over
+  the admin events list) or an organiser's page (search approved organisers);
+  enter source, medium, campaign name and optionally content; it shows the full
+  link, a Copy button and a QR code (`components/admin/CampaignQr.tsx`, using
+  the existing encoder in `lib/qr/qrcodegen.ts`: no new dependency). Values are
+  normalised the way analytics keeps them (lower case, hyphens, a–z 0–9 `_ -`,
+  50 characters), with the saved form shown under the field. Purely
+  client-side; nothing is stored. The origin is `NEXT_PUBLIC_SITE_URL`, else the
+  page's own.
+- **Paid-ad pixels: not added.** Meta Pixel / Conversions API, the Google Ads
+  tag and the TikTok pixel send identifiers to the ad networks for ad targeting
+  and are not "analytics" under our policy ("no ads"). Before the owner decides
+  to add any, it needs: (1) a consent banner with opt-in before the tag loads
+  (not just DNT/GPC) and a way to withdraw, which this site does not have today;
+  (2) a Privacy Policy update naming each network, what it receives (page views,
+  purchase value, hashed email if Conversions API is used), and that it is used
+  for advertising; (3) a Content Security Policy and `connect-src` review (the
+  checkout page's Report-Only policy would need their hosts); (4) a server-side
+  Conversions API option so hashed buyer details never need to reach the browser;
+  (5) organiser sign-off, since buyer data is organisers' data; (6) keeping the
+  tags off `/checkout/*`, `/auth/*` and the emailed-link pages; (7) a legal check
+  against the Privacy Act / APPs and the Spam Act for any email matching. Until
+  then, UTM links plus PostHog answer "which campaign brought signups and sales".
 
 ## Not built yet
 

@@ -127,3 +127,79 @@ describe("proxy.ts: the payment page's policy", () => {
     expect(directives(run().policy).get("connect-src")).toContain("https://wxyz.supabase.co");
   });
 });
+
+describe("proxy.ts: the usage analytics proxy (/ingest)", () => {
+  const INGEST = "https://sheltuh.com.au/ingest/e/?ip=0&ver=1.447.3";
+  const keyed = () => {
+    vi.stubEnv("NEXT_PUBLIC_POSTHOG_KEY", "phc_abc123");
+    vi.stubEnv("NEXT_PUBLIC_POSTHOG_HOST", "https://eu.i.posthog.com");
+  };
+  const post = (url: string, headers: Record<string, string> = {}) =>
+    proxy(new NextRequest(url, { method: "POST", headers, body: "{}" }));
+
+  it("runs on /ingest and everything beneath it", () => {
+    for (const url of ["/ingest/e/", "/ingest/batch/", "/ingest/static/array.js", "/ingest"]) {
+      expect(unstable_doesMiddlewareMatch({ config, url })).toBe(true);
+    }
+    expect(unstable_doesMiddlewareMatch({ config, url: "/ingestion" })).toBe(false);
+  });
+
+  it("has nothing to relay to without NEXT_PUBLIC_POSTHOG_KEY: 404", () => {
+    const response = post(INGEST);
+    expect(response.status).toBe(404);
+    expect(response.headers.get("x-middleware-rewrite")).toBeNull();
+  });
+
+  it("relays an event to the PostHog host with its query, and removes cookies, Referer and Origin on the way", () => {
+    keyed();
+    const response = post(INGEST, {
+      cookie: "sb-access-token=secret",
+      referer: "https://sheltuh.com.au/members/6f1c2b9e-1111-4222-8333-944455556666",
+      origin: "https://sheltuh.com.au",
+      authorization: "Bearer secret",
+      "content-type": "text/plain",
+      "user-agent": "Mozilla/5.0 Chrome/120",
+    });
+    expect(response.headers.get("x-middleware-rewrite")).toBe("https://eu.i.posthog.com/e/?ip=0&ver=1.447.3");
+    const overridden = (response.headers.get("x-middleware-override-headers") ?? "").split(",");
+    for (const name of ["cookie", "referer", "origin", "authorization"]) {
+      expect(overridden).not.toContain(name);
+    }
+    expect(overridden).toContain("user-agent");
+    expect(overridden).toContain("content-type");
+    expect(response.headers.get("x-middleware-request-cookie")).toBeNull();
+    expect(response.headers.get("x-middleware-request-referer")).toBeNull();
+  });
+
+  it("answers with nosniff and a sandbox policy", () => {
+    keyed();
+    const response = post(INGEST);
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("content-security-policy")).toBe("sandbox; default-src 'none'; frame-ancestors 'none'");
+  });
+
+  it("adds the trailing slash PostHog's endpoints end in", () => {
+    keyed();
+    expect(post("https://sheltuh.com.au/ingest/e").headers.get("x-middleware-rewrite")).toBe("https://eu.i.posthog.com/e/");
+    expect(post("https://sheltuh.com.au/ingest/batch/").headers.get("x-middleware-rewrite")).toBe("https://eu.i.posthog.com/batch/");
+  });
+
+  it.each(["/ingest/static/array.js", "/ingest/array/phc_abc123/config.js", "/ingest/flags/", "/ingest/api/projects/", "/ingest/s/", "/ingest"])(
+    "refuses %s: not an endpoint the browser needs",
+    (path) => {
+      keyed();
+      const response = post(`https://sheltuh.com.au${path}`);
+      expect(response.status).toBe(404);
+      expect(response.headers.get("x-middleware-rewrite")).toBeNull();
+    },
+  );
+
+  it("refuses anything but POST", () => {
+    keyed();
+    for (const method of ["GET", "PUT", "DELETE"]) {
+      const response = proxy(new NextRequest(INGEST, { method }));
+      expect(response.status).toBe(405);
+      expect(response.headers.get("x-middleware-rewrite")).toBeNull();
+    }
+  });
+});

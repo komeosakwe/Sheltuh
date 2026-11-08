@@ -231,3 +231,16 @@ for (const vp of [
     });
   });
 }
+
+test("the demo sends nothing to usage analytics (no /ingest, PostHog or Vercel analytics request)", async ({ page }) => {
+  const sent: string[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname.startsWith("/ingest") || /posthog/i.test(url.hostname) || url.pathname.startsWith("/_vercel/")) sent.push(request.url());
+  });
+  await page.goto("/events/dead-letter-office");
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible({ timeout: 60_000 });
+  await page.goto("/");
+  await page.waitForLoadState("networkidle");
+  expect(sent).toEqual([]);
+});

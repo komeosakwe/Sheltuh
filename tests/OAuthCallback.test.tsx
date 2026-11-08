@@ -7,6 +7,9 @@ import OAuthCallback from "@/components/auth/OAuthCallback";
 import type { AuthContextValue } from "@/lib/auth/AuthContext";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 
+const track = vi.fn();
+vi.mock("@/lib/analytics", () => ({ track: (...args: unknown[]) => track(...args) }));
+
 const replace = vi.fn();
 const router = { replace };
 vi.mock("next/navigation", () => ({
@@ -16,6 +19,7 @@ vi.mock("next/navigation", () => ({
 afterEach(() => {
   cleanup();
   replace.mockReset();
+  track.mockReset();
   window.history.replaceState(null, "", "/");
 });
 
@@ -61,7 +65,9 @@ describe("OAuthCallback: a code", () => {
 
   it("says it's signing in (a polite status) while the exchange runs", async () => {
     let finish: () => void = () => {};
-    const auth = signedOut({ completeOAuthSignIn: vi.fn(() => new Promise<void>((resolve) => (finish = resolve))) });
+    const auth = signedOut({
+      completeOAuthSignIn: vi.fn(() => new Promise<{ newAccount: boolean }>((resolve) => (finish = () => resolve({ newAccount: false })))),
+    });
     open("/auth/callback?code=abc", auth);
     expect(screen.getByRole("status")).toHaveTextContent("Signing you in…");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Signing in");
@@ -85,13 +91,38 @@ describe("OAuthCallback: a code", () => {
 
   it("doesn't navigate if the page has gone before the exchange finishes", async () => {
     let finish: () => void = () => {};
-    const auth = signedOut({ completeOAuthSignIn: vi.fn(() => new Promise<void>((resolve) => (finish = resolve))) });
+    const auth = signedOut({
+      completeOAuthSignIn: vi.fn(() => new Promise<{ newAccount: boolean }>((resolve) => (finish = () => resolve({ newAccount: false })))),
+    });
     const { unmount } = open("/auth/callback?code=abc", auth);
     await waitFor(() => expect(auth.completeOAuthSignIn).toHaveBeenCalledTimes(1));
     unmount();
     finish();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(replace).not.toHaveBeenCalled();
+  });
+});
+
+describe("OAuthCallback: usage analytics", () => {
+  it("a first Google / Apple sign-in is a sign-up, sent once", async () => {
+    open("/auth/callback?code=abc", signedOut({ completeOAuthSignIn: vi.fn().mockResolvedValue({ newAccount: true }) }));
+    await waitFor(() => expect(replace).toHaveBeenCalled());
+    expect(track).toHaveBeenCalledTimes(1);
+    expect(track).toHaveBeenCalledWith("sign_up_completed", { signup_method: "oauth" });
+  });
+
+  it("a returning member is a sign-in, sent once", async () => {
+    open("/auth/callback?code=abc", signedOut({ completeOAuthSignIn: vi.fn().mockResolvedValue({ newAccount: false }) }));
+    await waitFor(() => expect(replace).toHaveBeenCalled());
+    expect(track).toHaveBeenCalledTimes(1);
+    expect(track).toHaveBeenCalledWith("signed_in", { signin_method: "oauth" });
+  });
+
+  it("nothing is sent when the exchange fails", async () => {
+    open("/auth/callback?code=abc", signedOut({ completeOAuthSignIn: vi.fn().mockRejectedValue(new Error("nope")) }));
+    await screen.findByRole("heading", { level: 1 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(track).not.toHaveBeenCalled();
   });
 });
 
@@ -188,14 +219,16 @@ describe("OAuthCallback: what an error says to assistive tech", () => {
     open("/auth/callback?error=access_denied&error_code=user_banned", signedOut());
     const heading = await screen.findByRole("heading", { level: 1, name: "This account can’t sign in" });
     expect(heading).toHaveAccessibleDescription("If you think this is a mistake, email support@sheltuh.com.au.");
-    expect(document.title).toBe("This account can’t sign in — Sheltüh");
+    // The title is set in an effect after the heading renders; wait for it.
+    await waitFor(() => expect(document.title).toBe("This account can’t sign in — Sheltüh"));
   });
 
   it("demo mode too", async () => {
     open("/auth/callback?code=abc", signedOut({ configured: false }));
     const heading = await screen.findByRole("heading", { level: 1, name: "Accounts aren’t configured" });
     expect(heading).toHaveAccessibleDescription(/Accounts aren’t configured in this environment yet/);
-    expect(document.title).toBe("Accounts aren’t configured — Sheltüh");
+    // The title is set in an effect after the heading renders; wait for it.
+    await waitFor(() => expect(document.title).toBe("Accounts aren’t configured — Sheltüh"));
   });
 });
 

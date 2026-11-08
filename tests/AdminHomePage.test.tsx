@@ -84,6 +84,7 @@ describe("Admin hub", () => {
       "/admin/invites",
       "/admin/payouts",
       "/admin/trending",
+      "/admin/campaign-links",
       "/admin/events?status=published&view=door",
     ]);
     expect(within(manage).getByRole("link", { name: /^Door check-in/ })).toHaveTextContent("2 events in the next 24 hours");

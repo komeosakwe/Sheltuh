@@ -765,9 +765,14 @@ export type CheckoutResult =
     }
   | { status: "confirmation_sent"; expiresInHours: number };
 
-/** POST /api/orders/confirm `{token}` (from the emailed link's fragment): 200 with the confirmation page's URL. */
+/**
+ * POST /api/orders/confirm `{token}` (from the emailed link's fragment): 200 with the confirmation page's URL.
+ * `alreadyConfirmed`: true only when the order had been confirmed before this request (the link pressed
+ * again, here or on another device): the same URL, nothing issued. Absent for the confirmation itself.
+ */
 export interface ConfirmFreeOrderResult {
   url: string;
+  alreadyConfirmed?: true;
 }
 
 // ---------------------------------------------------------------------------

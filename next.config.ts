@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import type { NextConfig } from "next";
 import { PHASE_PRODUCTION_BUILD } from "next/constants";
+import { assertPostHogHost, assertPostHogKey, resolveAnalyticsConfig } from "./lib/analytics-config";
 import { missingOAuthLogos } from "./lib/auth/oauth-providers";
 
 /**
@@ -27,6 +28,16 @@ export function assertStripePublishableKey(value: string | undefined): void {
 }
 
 assertStripePublishableKey(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY);
+
+/**
+ * Usage analytics (PostHog; lib/analytics.ts) is on only with
+ * NEXT_PUBLIC_POSTHOG_KEY, a project key (phc_…) that is shipped in the browser
+ * bundle: anything else (a personal phx_… key above all) fails the build. Unset
+ * is fine, and then there is no /ingest route at all.
+ */
+assertPostHogKey(process.env.NEXT_PUBLIC_POSTHOG_KEY);
+assertPostHogHost(process.env.NEXT_PUBLIC_POSTHOG_KEY, process.env.NEXT_PUBLIC_POSTHOG_HOST);
+const analytics = resolveAnalyticsConfig(process.env.NEXT_PUBLIC_POSTHOG_KEY, process.env.NEXT_PUBLIC_POSTHOG_HOST);
 
 /**
  * "Continue with Apple" and "Continue with Google" show the vendors' own
@@ -68,6 +79,17 @@ export const nextConfig: NextConfig = {
   // <head>. Block on metadata for every agent: our generateMetadata is one
   // indexed read.
   htmlLimitedBots: /.*/,
+
+  // Usage analytics' first-party proxy: /ingest goes to PostHog (proxy.ts: only the endpoints the
+  // browser needs, with cookies and Referer removed), so ad blockers don't skew the numbers. Only
+  // with a key. PostHog's endpoints are slash-terminated (/ingest/e/) and Next's trailing-slash
+  // redirect would strip the slash before the proxy sees the request, so with analytics on that
+  // redirect is off and redirects() below puts it back for every other path.
+  ...(analytics ? { skipTrailingSlashRedirect: true } : {}),
+  async redirects() {
+    if (!analytics) return [];
+    return [{ source: "/:path((?!ingest(?:/|$)).+)/", destination: "/:path", permanent: true }];
+  },
 
   async headers() {
     return [
@@ -172,6 +194,19 @@ export const nextConfig: NextConfig = {
         source: "/search",
         headers: [{ key: "Referrer-Policy", value: "strict-origin" }],
       },
+      // The usage analytics proxy relays PostHog's answers from our own origin: never sniffed as
+      // anything else, and sandboxed with nothing allowed if one is ever opened as a page.
+      ...(analytics
+        ? [
+            {
+              source: "/ingest/:path*",
+              headers: [
+                { key: "X-Content-Type-Options", value: "nosniff" },
+                { key: "Content-Security-Policy", value: "sandbox; default-src 'none'; frame-ancestors 'none'" },
+              ],
+            },
+          ]
+        : []),
       // The door scanner's self-hosted QR decoder (public/vendor/zxing-wasm/<version>/,
       // lib/check-in/detector.ts). The version is in the path and a new version gets a
       // new folder, so a file never changes at its URL: cache it for a year.
