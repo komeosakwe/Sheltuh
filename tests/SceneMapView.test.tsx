@@ -262,8 +262,32 @@ describe("/map results and controls", () => {
     await renderMap();
     const status = screen.getAllByRole("status").find((el) => el.textContent === "2 upcoming events");
     expect(status).toBeDefined();
-    const visible = screen.getByText("2 upcoming events", { selector: "p:not([role='status'])" });
+    // Shown as the owner's mockup (8 Nov 2026): the number (orange) and the words.
+    const visible = document.querySelector("[data-map-count]");
+    expect(visible).toHaveTextContent(/^2 upcoming events$/);
     expect(visible).not.toHaveAttribute("aria-live");
+    expect(visible).not.toHaveAttribute("role");
+    expect(visible?.querySelector("span")).toHaveTextContent(/^2$/);
+    expect(visible?.querySelector("span")).toHaveClass("text-signal-text");
+  });
+
+  it("the visible count stays short with filters on; the announced one says they're applied", async () => {
+    params = new URLSearchParams("price=free");
+    mockEvents = [event("paid-night", "Paid Night", 2000), event("free-day", "Free Day", 0)];
+    render(<SceneMap />);
+    await screen.findByRole("link", { name: "Free Day" }, { timeout: 30_000 });
+    expect(document.querySelector("[data-map-count]")).toHaveTextContent(/^1 upcoming event$/);
+    expect(screen.getAllByRole("status").some((el) => el.textContent === "1 upcoming event matching your filters")).toBe(true);
+  });
+
+  it("the Map | List switch sits beside the count, the chosen half black with its icon", async () => {
+    await renderMap();
+    const group = screen.getByRole("group", { name: "Show events as" });
+    expect(group.parentElement).toContainElement(document.querySelector("[data-map-count]") as HTMLElement);
+    const map = within(group).getByRole("button", { name: "Map" });
+    expect(map).toHaveClass("bg-foreground", "text-background");
+    expect(map.querySelector("svg")).not.toBeNull();
+    expect(within(group).getByRole("button", { name: "List" })).not.toHaveClass("bg-foreground");
   });
 
   it("has no single-option Sort control (it's always soonest first)", async () => {
@@ -272,13 +296,27 @@ describe("/map results and controls", () => {
     expect(screen.queryByRole("combobox", { name: /Sort/ })).toBeNull();
   });
 
-  it("labels the search field visibly on phones, with a short placeholder", async () => {
+  // The owner's mockup (8 Nov 2026): no label above the field; the placeholder says it, and the label is for assistive tech.
+  it("labels the search field, with the mockup's placeholder", async () => {
     await renderMap();
     const search = screen.getByRole("searchbox", { name: "Search events, venues or suburbs" });
-    expect(search).toHaveAttribute("placeholder", "Search events");
-    const label = document.querySelector('label[for="scene-search"]');
-    expect(label).toHaveClass("sm:sr-only");
-    expect(label).not.toHaveClass("sr-only");
+    expect(search).toHaveAttribute("placeholder", "Search events, venues or suburbs");
+    expect(document.querySelector('label[for="scene-search"]')).toHaveClass("sr-only");
+  });
+
+  it("the time and scene chips show their own choice, so only other filters get a removable chip", async () => {
+    params = new URLSearchParams("time=tonight&cat=art&q=night");
+    mockEvents = [event("paid-night", "Paid Night", 2000), event("free-day", "Free Day", 0)];
+    render(<SceneMap />);
+    await screen.findByRole("button", { name: "Clear all" }, { timeout: 30_000 });
+    expect(screen.getByRole("button", { name: "Tonight" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("button", { name: /^Tonight.*Remove filter/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Art.*Remove filter/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /"night".*Remove filter/ })).toBeInTheDocument();
+    // Clear all still resets every filter, the chips' included.
+    fireEvent.click(screen.getByRole("button", { name: "Clear all" }));
+    expect(screen.getByRole("button", { name: "Tonight" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("combobox", { name: "Category" })).toHaveValue("all");
   });
 
   // Refinement (22 Oct 2026): the page's one sample-data disclosure is the layout's DemoBanner, so the map

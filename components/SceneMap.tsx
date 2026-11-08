@@ -9,8 +9,8 @@ import SceneMapFilterBar from "@/components/SceneMapFilterBar";
 import NearMeButton from "@/components/map/NearMeButton";
 import { useMapLocate } from "@/components/map/useMapLocate";
 import SceneMapEventCard from "@/components/map/SceneMapEventCard";
+import { ListIcon, PinFilledIcon } from "@/components/map/MapControlIcons";
 import { Button } from "@/components/ui/Button";
-import { SelectedDots } from "@/components/ui/FilterChip";
 import { LoadingIndicator, ProgressLoader, useLoadingProgress } from "@/components/ui/ProgressLoader";
 import { EmptyState, Notice, PageHeader } from "@/components/ui/Section";
 import { isApiConfigured } from "@/lib/api/client";
@@ -18,7 +18,6 @@ import { listPublicEvents } from "@/lib/api/public-events";
 import { adaptPublicEvent } from "@/lib/live/adapt";
 import { getEventCategories, getUpcomingEvents } from "@/lib/data";
 import { startDateTimeLine } from "@/lib/event-card";
-import { formatEventDateShort } from "@/lib/format";
 import { useMapTileStyle } from "@/components/map/useMapTileStyle";
 import { useLocationModule } from "@/components/search/useLocationModule";
 import { findListedSuburb, resolveMapCoordinates, type SuburbLookup } from "@/lib/geo";
@@ -418,9 +417,11 @@ function SceneMapView({
     filters.time !== "all" ||
     filters.search !== "" ||
     areaBounds !== null;
-  const countSentence = `${filtered.length} upcoming event${filtered.length === 1 ? "" : "s"}${
-    hasActiveFilters ? " matching your filters" : ""
-  }${located ? ", nearest first" : ""}`;
+  const countWords = `upcoming event${filtered.length === 1 ? "" : "s"}`;
+  // Announced in full; shown short, as the owner's mockup (the chips show the filters, the rows the distances).
+  const countSentence = `${filtered.length} ${countWords}${hasActiveFilters ? " matching your filters" : ""}${
+    located ? ", nearest first" : ""
+  }`;
 
   function resetFilters() {
     setFilters(DEFAULT_FILTERS);
@@ -476,16 +477,6 @@ function SceneMapView({
     onLoadMore?.();
   }
 
-  function timeLabel(): string {
-    if (filters.time === "tonight") return "Tonight";
-    if (filters.time === "weekend") return "This weekend";
-    if (filters.time === "date" && filters.specificDate) {
-      // A calendar date, not an instant: noon UTC read in UTC is that date wherever the browser is.
-      return formatEventDateShort(`${filters.specificDate}T12:00:00.000Z`, "UTC");
-    }
-    return "";
-  }
-
   const chips: { key: string; label: string; onRemove: () => void }[] = [];
   if (filters.search) chips.push({ key: "q", label: `"${filters.search}"`, onRemove: () => setFilters((f) => ({ ...f, search: "" })) });
   if (filters.suburb !== "all") {
@@ -496,16 +487,8 @@ function SceneMapView({
       onRemove: () => setFilters((f) => ({ ...f, suburb: "all" })),
     });
   }
-  if (filters.time !== "all")
-    chips.push({
-      key: "time",
-      label: timeLabel(),
-      onRemove: () => setFilters((f) => ({ ...f, time: "all", specificDate: "" })),
-    });
-  if (filters.category !== "all") {
-    const label = categories.find((c) => c.value === filters.category)?.label ?? filters.category;
-    chips.push({ key: "cat", label, onRemove: () => setFilters((f) => ({ ...f, category: "all" })) });
-  }
+  // The time and scene chips show their own choice in the filter row (owner's mockup), so only the
+  // filters that aren't on show there get a chip here: Clear all still resets every one.
   if (filters.pricing !== "all")
     chips.push({
       key: "price",
@@ -514,16 +497,17 @@ function SceneMapView({
     });
   if (areaBounds) chips.push({ key: "area", label: "This area", onRemove: () => setAreaBounds(null) });
 
+  // The owner's mockup (8 Nov 2026): a 31px segmented switch, the chosen half black.
   const viewButton = (view: MobileView, label: string) => (
     <button
       type="button"
       aria-pressed={mobileView === view}
       onClick={() => setMobileView(view)}
-      className={`flex min-h-11 items-center gap-2 rounded-badge px-5 text-sm leading-5 font-semibold ${
+      className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg text-2xs font-semibold ${
         mobileView === view ? "bg-foreground text-background" : "text-foreground hover:bg-surface"
       }`}
     >
-      {mobileView === view && <SelectedDots />}
+      {view === "map" ? <PinFilledIcon className="size-3.5" /> : <ListIcon className="size-4" />}
       {label}
     </button>
   );
@@ -538,22 +522,24 @@ function SceneMapView({
         title={<DottedLine line="Sheltüh near yo^u." />}
       />
 
-      <SceneMapFilterBar
-        search={filters.search}
-        onSearchChange={(search) => setFilters((f) => ({ ...f, search }))}
-        categories={categories}
-        category={filters.category}
-        onCategoryChange={(category) => setFilters((f) => ({ ...f, category }))}
-        time={filters.time}
-        onTimeChange={(time) => setFilters((f) => ({ ...f, time, specificDate: time === "date" ? f.specificDate : "" }))}
-        specificDate={filters.specificDate}
-        onSpecificDateChange={(specificDate) => setFilters((f) => ({ ...f, specificDate }))}
-        suburbGroups={suburbGroups}
-        suburb={filters.suburb}
-        onSuburbChange={handleSuburbChange}
-        pricing={filters.pricing}
-        onPricingChange={(pricing) => setFilters((f) => ({ ...f, pricing }))}
-      />
+      <div className="mt-2">
+        <SceneMapFilterBar
+          search={filters.search}
+          onSearchChange={(search) => setFilters((f) => ({ ...f, search }))}
+          categories={categories}
+          category={filters.category}
+          onCategoryChange={(category) => setFilters((f) => ({ ...f, category }))}
+          time={filters.time}
+          onTimeChange={(time) => setFilters((f) => ({ ...f, time, specificDate: time === "date" ? f.specificDate : "" }))}
+          specificDate={filters.specificDate}
+          onSpecificDateChange={(specificDate) => setFilters((f) => ({ ...f, specificDate }))}
+          suburbGroups={suburbGroups}
+          suburb={filters.suburb}
+          onSuburbChange={handleSuburbChange}
+          pricing={filters.pricing}
+          onPricingChange={(pricing) => setFilters((f) => ({ ...f, pricing }))}
+        />
+      </div>
 
       {chips.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">
@@ -614,17 +600,21 @@ function SceneMapView({
 
       {status === "loaded" && !progress.visible && (
         <>
-          {/* How many are listed, soonest first (nearest first once the visitor is located); the status above is what announces it. */}
-          <p className="meta border-t border-foreground pt-3 text-muted">{countSentence}</p>
-
-          {/* Phones only: map or list, map first and by default (owner request). Both show from lg. */}
-          <div
-            role="group"
-            aria-label="Show events as"
-            className="flex gap-1 self-start rounded-control border border-foreground bg-card p-1 lg:hidden"
-          >
-            {viewButton("map", "Map")}
-            {viewButton("list", "List")}
+          {/* How many are listed, soonest first (nearest first once the visitor is located); the status
+              above is what announces it. Beside it on phones, map or list: map first and by default
+              (owner request). Both show from lg. */}
+          <div className="-mb-0.5 flex items-center justify-between gap-3 border-t border-surface-border pt-3.25">
+            <p data-map-count="" className="-mt-2.5 min-w-0 font-mono text-2xs text-foreground/75 lg:mt-0 lg:text-xs">
+              <span className="font-semibold text-signal-text">{filtered.length}</span> {countWords}
+            </p>
+            <div
+              role="group"
+              aria-label="Show events as"
+              className="flex h-7.75 w-39 shrink-0 rounded-lg border border-soft-line bg-panel lg:hidden"
+            >
+              {viewButton("map", "Map")}
+              {viewButton("list", "List")}
+            </div>
           </div>
 
           {filtered.length === 0 ? (
@@ -639,6 +629,7 @@ function SceneMapView({
                 {/* At most 60% of a phone's height, so there's always page to scroll by outside the map. */}
                 <div
                   ref={mapPaneRef}
+                  data-map-pane=""
                   className={`relative h-[min(26.25rem,60svh)] lg:h-[37.5rem] ${mobileView === "map" ? "block" : "hidden"} lg:block`}
                 >
                   <SceneMapPanel
@@ -654,8 +645,18 @@ function SceneMapView({
                     onSearchArea={setAreaBounds}
                     onShowList={showList}
                   />
+                  {/* Phones: the map's lower-left corner (above the Mapbox wordmark, where it's shown); from lg,
+                      under the zoom buttons, clear of the selected event's card. */}
                   {locate.canLocate && (
-                    <NearMeButton onLocate={locate.locate} locating={locate.locating} status={locate.status} />
+                    <NearMeButton
+                      onLocate={locate.locate}
+                      locating={locate.locating}
+                      status={locate.status}
+                      onDismiss={locate.dismissStatus}
+                      onHold={locate.holdStatus}
+                      onExtend={locate.extendStatus}
+                      className={`${mapboxLogo ? "bottom-8" : "bottom-px"} lg:top-27 lg:bottom-auto`}
+                    />
                   )}
                   {/* Desktop: the selected event over the map's lower-left corner (phones get the bottom card below). */}
                   {selectedEvent && (

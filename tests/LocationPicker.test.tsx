@@ -158,17 +158,16 @@ describe("LocationPicker — asking for the browser's position", () => {
     }
     afterEach(() => vi.unstubAllGlobals());
 
-    it.each([1, 2, 3] as const)("error code %i: names the app, says to type a suburb, and links to Safari", (code) => {
+    it.each([1, 2, 3] as const)("error code %i on iOS: names the app, says to type a suburb or use the ••• menu, no link", (code) => {
       pretend(INSTAGRAM_IOS);
       renderBar();
       const panel = openPanel();
       getCurrentPosition.mockImplementation((_success, failure) => failure(positionError(code)));
       fireEvent.click(within(panel).getByRole("button", { name: "Use my current location", hidden: true }));
-      const message = "Instagram’s browser can’t share your location. Type your suburb, or open Sheltüh in Safari.";
+      const message = "Instagram’s browser can’t share your location. Type your suburb, or open Sheltüh in your browser from the ••• menu.";
       const status = within(panel).getByRole("status", { hidden: true });
       expect(status).toHaveTextContent(message);
-      const link = within(status).getByRole("link", { name: "Open in Safari", hidden: true });
-      expect(link).toHaveAttribute("href", "x-safari-https://app.sheltuh.com.au/search?q=jazz");
+      expect(within(status).queryByRole("link", { hidden: true })).toBeNull();
       expect(document.activeElement).toBe(within(panel).getByLabelText("Suburb"));
       expect(localStorage.getItem(NEAR_STORAGE_KEY)).toBeNull();
     });
@@ -187,14 +186,16 @@ describe("LocationPicker — asking for the browser's position", () => {
       );
     });
 
-    it("with no https address to hand over, ends after 'Type your suburb.' and has no link", () => {
-      pretend(INSTAGRAM_IOS, "http://localhost:3000/");
+    it("with no https address to hand over (even on Android), points to the ••• menu and has no link", () => {
+      pretend(INSTAGRAM_ANDROID, "http://localhost:3000/");
       renderBar();
       const panel = openPanel();
       getCurrentPosition.mockImplementation((_success, failure) => failure(positionError(2)));
       fireEvent.click(within(panel).getByRole("button", { name: "Use my current location", hidden: true }));
       const status = within(panel).getByRole("status", { hidden: true });
-      expect(status).toHaveTextContent(/^Instagram’s browser can’t share your location\. Type your suburb\.$/);
+      expect(status).toHaveTextContent(
+        /^Instagram’s browser can’t share your location\. Type your suburb, or open Sheltüh in your browser from the ••• menu\.$/,
+      );
       expect(within(status).queryByRole("link", { hidden: true })).toBeNull();
     });
 

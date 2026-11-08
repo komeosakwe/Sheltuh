@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { hasGeolocation } from "@/lib/geolocation";
-import { currentInAppLocationHelp } from "@/lib/in-app-browser";
+import { currentLocationPrompt, type LocationPrompt } from "@/lib/in-app-browser";
 import { locateMe, rememberLocateRefused, wasLocateRefused } from "@/lib/locate-me";
 import { loadLocation, loadedLocation, type LocationModule } from "@/lib/location-loader";
 import { readStoredNear, subscribeStoredNear, writeStoredNear } from "@/lib/near-storage";
@@ -42,13 +42,25 @@ const noSubscribe = () => () => {};
 const serverFalse = () => false;
 
 export const LOCATE_FAILED = "Couldn’t find your location.";
+export const LOCATION_PROMPT_TITLE = "Share your location?";
+
+/** The location card's sentence: where to allow location access. */
+export function locationPromptText(prompt: LocationPrompt): string {
+  const where = prompt.kind === "settings" ? "your browser settings" : prompt.browser;
+  return `To see events near you, allow location access in ${where}.`;
+}
 const CENTRE_FAILED = "Couldn’t centre the map on that suburb.";
 const STATUS_MS = 6000;
-// A message with a link in it stays longer (WCAG 2.2.1): long enough to read it and press the link.
-const STATUS_LINK_MS = 20_000;
+// The location card stays longer (WCAG 2.2.1): long enough to read it and act on it. It also stays
+// while focus is in it (`hold`), and its ✕ closes it.
+const STATUS_PROMPT_MS = 20_000;
 
-/** `link`: a way out to the device's own browser (lib/in-app-browser.ts). */
-export type MapLocateStatus = { tone: "info" | "danger"; text: string; link?: { label: string; href: string } } | null;
+/**
+ * `prompt`: Near me couldn't get a position, and this is what the location card offers
+ * (lib/in-app-browser.ts locationPrompt, components/map/LocationCard.tsx); `text` is then the card's
+ * sentence. `id` tells one message from the next (a new one starts the card afresh).
+ */
+export type MapLocateStatus = { id: number; tone: "info" | "danger"; text: string; prompt?: LocationPrompt } | null;
 type Status = MapLocateStatus;
 
 /**
@@ -70,7 +82,15 @@ export function useMapLocate(promptOnOpen: boolean, onLocated?: LocatedHandler) 
   const [focus, setFocus] = useState<MapFocus | null>(null);
   const [origin, setOrigin] = useState<MapOrigin | null>(null);
   const [locating, setLocating] = useState(false);
-  const [status, setStatus] = useState<Status>(null);
+  const [status, setRawStatus] = useState<Status>(null);
+  // Focus is in the location card: it doesn't go by itself meanwhile.
+  const [held, setHeld] = useState(false);
+  const statusId = useRef(0);
+  const setStatus = useCallback((next: Omit<NonNullable<Status>, "id"> | null) => {
+    statusId.current += 1;
+    setRawStatus(next ? { ...next, id: statusId.current } : null);
+    if (!next) setHeld(false);
+  }, []);
   const canLocate = useSyncExternalStore(noSubscribe, hasGeolocation, serverFalse);
   const nextId = useRef(0);
   const busy = useRef(false);
@@ -120,7 +140,7 @@ export function useMapLocate(promptOnOpen: boolean, onLocated?: LocatedHandler) 
           if (ask === suburbAsk.current) setStatus({ tone: "danger", text: CENTRE_FAILED });
         });
     },
-    [centreOn],
+    [centreOn, setStatus],
   );
 
   /** The map has applied request `id`: drop its coordinates. */
@@ -144,13 +164,10 @@ export function useMapLocate(promptOnOpen: boolean, onLocated?: LocatedHandler) 
         if (onOpen) rememberLocateRefused();
         else if (result.kind === "outside") setStatus({ tone: "danger", text: LOCATE_FAILED });
         else {
-          // In an in-app browser (Instagram, Facebook…) location usually can't work: say so, offer the real browser.
-          const inApp = currentInAppLocationHelp();
-          setStatus(
-            inApp
-              ? { tone: "danger", text: inApp.text, link: inApp.link ?? undefined }
-              : { tone: "danger", text: LOCATE_FAILED },
-          );
+          // Refused or failed: the location card asks for it, with the way to allow it here (in an
+          // in-app browser, Instagram's say, the device's own browser).
+          const prompt = currentLocationPrompt();
+          setStatus({ tone: "danger", text: locationPromptText(prompt), prompt });
         }
         return;
       }
@@ -162,7 +179,7 @@ export function useMapLocate(promptOnOpen: boolean, onLocated?: LocatedHandler) 
       centreOn(result.position, true, true);
       setStatus({ tone: "info", text: announcement ?? `Map centred on ${placeName(result.suburb, result.state)}.` });
     },
-    [centreOn],
+    [centreOn, setStatus],
   );
 
   useEffect(() => {
@@ -183,12 +200,32 @@ export function useMapLocate(promptOnOpen: boolean, onLocated?: LocatedHandler) 
     [centreOnSuburb],
   );
 
-  // A message is brief: it goes after a few seconds.
+  // A message is brief: it goes after a few seconds (the location card after longer), counted
+  // afresh when focus leaves the card or the card asks for more time (`extendStatus`).
   useEffect(() => {
-    if (!status) return;
-    const timer = window.setTimeout(() => setStatus(null), status.link ? STATUS_LINK_MS : STATUS_MS);
+    if (!status || held) return;
+    const timer = window.setTimeout(() => setStatus(null), status.prompt ? STATUS_PROMPT_MS : STATUS_MS);
     return () => window.clearTimeout(timer);
-  }, [status]);
+  }, [status, held, setStatus]);
 
-  return { focus, focused, clearFocus, origin, centreOn, centreOnSuburb, canLocate, locating, status, locate: () => locate(false) };
+  const dismissStatus = useCallback(() => setStatus(null), [setStatus]);
+  const holdStatus = useCallback((hold: boolean) => setHeld(hold), []);
+  /** The card changed what it says (the copied link's steps): the same message, its time counted afresh. */
+  const extendStatus = useCallback(() => setRawStatus((current) => (current ? { ...current } : current)), []);
+
+  return {
+    focus,
+    focused,
+    clearFocus,
+    origin,
+    centreOn,
+    centreOnSuburb,
+    canLocate,
+    locating,
+    status,
+    dismissStatus,
+    holdStatus,
+    extendStatus,
+    locate: () => locate(false),
+  };
 }
