@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import posthog from "posthog-js";
 import { useEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import { SupportSummaryLine } from "@/components/checkout/SupportSheltuh";
 import TicketStub from "@/components/tickets/TicketStub";
@@ -191,6 +192,11 @@ export default function CheckoutConfirmation() {
 
         const order = result;
         if (order.status === "paid") {
+          posthog.capture("paid_order_confirmed", {
+            ticket_count: order.tickets.length,
+            total_cents: order.totalCents,
+            includes_support: (order.supportCents ?? 0) > 0,
+          });
           setState({ status: "ready", order });
         } else if (order.status === "oversold_refund_required" || order.status === "refunded") {
           setState({ status: "oversold", order });

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import posthog from "posthog-js";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { EmptyState, Notice } from "@/components/ui/Section";
@@ -375,6 +376,7 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
         messages: merge(d.messages, [message], "after").messages,
       }));
       setNewIds(new Set([message.messageId]));
+      posthog.capture("message_sent");
       pendingScroll.current = "new";
       setAnnouncement(accepting ? `Message sent. You’re now chatting with ${endSentence(other)}` : "Message sent.");
       return { ok: true };

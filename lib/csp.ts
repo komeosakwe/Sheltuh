@@ -24,6 +24,8 @@ export interface CspOptions {
   themeScriptHash: string;
   /** NEXT_PUBLIC_SUPABASE_URL: auth calls go to its origin. Unset (demo) or invalid: left out. */
   supabaseUrl?: string;
+  /** NEXT_PUBLIC_POSTHOG_HOST: browser analytics and lazy-loaded assets. Unset or invalid: left out. */
+  posthogHost?: string;
   /** `next dev`: React's dev tools need eval, and HMR a websocket. */
   isDev: boolean;
 }
@@ -38,8 +40,12 @@ function originOf(url: string | undefined): string | undefined {
   }
 }
 
-export function checkoutPayCsp({ nonce, themeScriptHash, supabaseUrl, isDev }: CspOptions): string {
+export function checkoutPayCsp({ nonce, themeScriptHash, supabaseUrl, posthogHost, isDev }: CspOptions): string {
   const stripeScripts = "https://js.stripe.com https://*.js.stripe.com";
+  const posthogOrigin = originOf(posthogHost);
+  const posthogAssetSource = posthogOrigin
+    ? `https://*.${new URL(posthogOrigin).hostname.split(".").slice(-2).join(".")}`
+    : undefined;
   const directives: string[][] = [
     ["default-src", "'self'"],
     [
@@ -49,6 +55,7 @@ export function checkoutPayCsp({ nonce, themeScriptHash, supabaseUrl, isDev }: C
       "'strict-dynamic'",
       themeScriptHash,
       stripeScripts,
+      ...[posthogAssetSource].filter((source): source is string => !!source),
       ...(isDev ? ["'unsafe-eval'"] : []),
     ],
     ["style-src", "'self'", "'unsafe-inline'"],
@@ -57,13 +64,13 @@ export function checkoutPayCsp({ nonce, themeScriptHash, supabaseUrl, isDev }: C
     [
       "connect-src",
       "'self'",
-      ...[originOf(supabaseUrl)].filter((origin): origin is string => !!origin),
+      ...[originOf(supabaseUrl), posthogAssetSource].filter((origin): origin is string => !!origin),
       "https://api.stripe.com",
       "https://checkout.stripe.com",
       ...(isDev ? ["ws:"] : []),
     ],
     ["frame-src", stripeScripts, "https://hooks.stripe.com", "https://checkout.stripe.com"],
-    ["worker-src", "'self'"],
+    ["worker-src", "'self'", "blob:"],
     ["manifest-src", "'self'"],
     ["object-src", "'none'"],
     ["base-uri", "'none'"],

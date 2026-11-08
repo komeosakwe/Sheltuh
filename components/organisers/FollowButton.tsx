@@ -1,5 +1,6 @@
 "use client";
 
+import posthog from "posthog-js";
 import { useEffect, useId, useState } from "react";
 import DemoNotice from "@/components/DemoNotice";
 import { Button, ButtonLink } from "@/components/ui/Button";
@@ -106,10 +107,12 @@ export default function FollowButton({ organiserId, organiserName }: { organiser
     try {
       if (following) {
         await unfollowOrganiser(organiserId, getToken);
+        posthog.capture("organiser_unfollowed");
         settle({ following: false, notifyNewEvents: false });
         setAnnouncement(`You’ve unfollowed ${organiserName}.`);
       } else {
         const follow = await followOrganiser(organiserId, { notifyNewEvents: notify }, getToken);
+        posthog.capture("organiser_followed", { email_notifications_enabled: follow.notifyNewEvents });
         settle(follow);
         setAnnouncement(
           follow.notifyNewEvents

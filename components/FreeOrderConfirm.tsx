@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import posthog from "posthog-js";
 import { useEffect, useRef, useState } from "react";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { ApiError } from "@/lib/api/client";
@@ -95,6 +96,7 @@ export default function FreeOrderConfirm() {
     setAction({ status: "confirming" });
     try {
       const { url } = await confirmFreeOrder(token);
+      posthog.capture("free_order_confirmed");
       window.location.assign(url);
     } catch (err) {
       setAction(errorAction(err));

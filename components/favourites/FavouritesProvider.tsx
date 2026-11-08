@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
+import posthog from "posthog-js";
 import {
   createContext,
   useCallback,
@@ -137,6 +138,8 @@ export function FavouritesProvider({ children }: { children: ReactNode }) {
   // The latest handler, told by the store when a request settles.
   useEffect(() => {
     store?.setOnSettled((settled) => {
+      if (settled.kind === "saved") posthog.capture("event_saved");
+      if (settled.kind === "removed") posthog.capture("event_removed_from_saved");
       const pending = pendingRemovals.current.get(settled.event.id);
       if (pending) {
         pendingRemovals.current.delete(settled.event.id);

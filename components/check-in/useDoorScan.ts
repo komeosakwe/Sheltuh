@@ -1,5 +1,6 @@
 "use client";
 
+import posthog from "posthog-js";
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { checkInTicket } from "@/lib/api/check-ins";
 import type { GetToken } from "@/lib/api/client";
@@ -188,7 +189,10 @@ export function useDoorScan({ eventId, getToken, onResultShown, onServerResult, 
           result.outcome === "already_checked_in" && ownAt !== undefined && now - ownAt < DOOR_TIMING.ownScanWindowMs
             ? now - ownAt
             : null;
-        if (result.outcome === "admitted") ownAdmissions.current.set(scan.code, now);
+        if (result.outcome === "admitted") {
+          ownAdmissions.current.set(scan.code, now);
+          posthog.capture("ticket_checked_in", { event_id: eventId });
+        }
         if (isKnownOutcome(result)) unresolved.resolve(scan.code);
         else unresolved.remember(scan, now);
         setInFlight(false);

@@ -57,3 +57,4 @@ supabase/.temp/
 
 # Local ticket-email previews (scripts/preview-ticket-email.ts)
 /email-previews/
+.env.local

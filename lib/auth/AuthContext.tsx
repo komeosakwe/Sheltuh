@@ -1,6 +1,7 @@
 "use client";
 
 import type { Session } from "@supabase/supabase-js";
+import posthog from "posthog-js";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
@@ -185,6 +186,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const seen = useRef<{ key: string; userId: string; since: number } | null>(null);
   // This tab's own Sign out is under way (in case storage is unavailable).
   const signingOut = useRef(false);
+  // The browser SDK persists identity; this prevents token-refresh events from
+  // repeatedly identifying the same person while still identifying on page load.
+  const identifiedUserId = useRef<string | null>(null);
 
   /** The state for `session`: for none, whether the one seen last ended by its owner's own Sign out. */
   const toState = useCallback((session: Session | null): AuthState => {
@@ -205,6 +209,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const client = getSupabaseBrowserClient();
     if (!client) return;
     const { data } = client.auth.onAuthStateChange((_event, session) => {
+      if (session) {
+        if (identifiedUserId.current && identifiedUserId.current !== session.user.id) posthog.reset();
+        if (identifiedUserId.current !== session.user.id) {
+          posthog.identify(session.user.id, session.user.email ? { email: session.user.email } : undefined);
+          identifiedUserId.current = session.user.id;
+        }
+      } else if (identifiedUserId.current) {
+        posthog.reset();
+        identifiedUserId.current = null;
+      }
       setState(toState(session));
     });
     return () => data.subscription.unsubscribe();
@@ -317,6 +331,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Before Supabase's sign-out reaches the other tabs, so they can tell it was deliberate.
       signingOut.current = true;
       if (seen.current) announceUserSignOut(seen.current.userId);
+    }
+    if (identifiedUserId.current) {
+      posthog.reset();
+      identifiedUserId.current = null;
     }
     void getSupabaseBrowserClient()?.auth.signOut({ scope });
     setState(sessionToState(null, byUser ? "user" : "session"));

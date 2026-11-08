@@ -1,3 +1,6 @@
+import { SeverityNumber } from "@opentelemetry/api-logs";
+import { after } from "next/server";
+import { emitPostHogLog, flushPostHogLogs } from "@/instrumentation";
 import { getDeps, type Deps } from "./deps";
 import { redactForLog } from "./email-address";
 import { errorJson, HttpError } from "./http";
@@ -39,6 +42,13 @@ export async function runHandler<P extends Params>(
   }
 }
 
+/** Schedules a best-effort delivery after the Route Handler response is sent. */
+function flushPostHogLogsAfterResponse(): void {
+  after(async () => {
+    await flushPostHogLogs();
+  });
+}
+
 /** Adapts a handler to a Next.js route export: `export const POST = route(applyAsOrganiser);` */
 export function route<P extends Params>(handler: Handler<P>) {
   return async (req: Request, ctx: { params: Promise<P> }) => {
@@ -46,9 +56,19 @@ export function route<P extends Params>(handler: Handler<P>) {
     try {
       deps = getDeps();
     } catch (err) {
+      // This dedicated line is exported; the existing console error remains local.
+      emitPostHogLog("api_dependencies_unavailable", SeverityNumber.ERROR, { method: req.method });
+      flushPostHogLogsAfterResponse();
       console.error("API misconfigured:", errorMessageForLog(err));
       return errorJson(500, { error: "Something went wrong." });
     }
-    return runHandler(handler, req, await ctx.params, deps);
+
+    const response = await runHandler(handler, req, await ctx.params, deps);
+    emitPostHogLog(response.status >= 500 ? "api_request_failed" : "api_request_completed", response.status >= 500 ? SeverityNumber.ERROR : SeverityNumber.INFO, {
+      method: req.method,
+      status_code: response.status,
+    });
+    flushPostHogLogsAfterResponse();
+    return response;
   };
 }

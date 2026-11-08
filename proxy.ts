@@ -20,6 +20,7 @@ export function proxy(request: NextRequest) {
     nonce,
     themeScriptHash: THEME_SCRIPT_HASH,
     supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    posthogHost: process.env.NEXT_PUBLIC_POSTHOG_HOST,
     isDev: process.env.NODE_ENV === "development",
   });
 

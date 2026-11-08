@@ -16,6 +16,10 @@
     "apple-client-secret": "node --import tsx scripts/generate-apple-client-secret.ts"
   },
   "dependencies": {
+    "@opentelemetry/api-logs": "^0.223.0",
+    "@opentelemetry/exporter-logs-otlp-http": "^0.301.0",
+    "@opentelemetry/resources": "^3.1.0",
+    "@opentelemetry/sdk-logs": "^3.1.0",
     "@stripe/react-stripe-js": "^7.0.0",
     "@stripe/stripe-js": "^10.1.0",
     "@supabase/supabase-js": "^2.117.2",
@@ -25,6 +29,7 @@
     "node-forge": "1.4.0",
     "nodemailer": "^10.0.10",
     "postgres": "^3.4.9",
+    "posthog-js": "^1.447.3",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-leaflet": "^5.0.0",

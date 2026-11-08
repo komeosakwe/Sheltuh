@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import posthog from "posthog-js";
 import { useRef, useState, type FormEvent } from "react";
 import AuthField, { fieldsForAuthError, useFocusAfterRender, type AuthErrorField } from "@/components/auth/AuthField";
 import PasswordField from "@/components/auth/PasswordField";
@@ -71,6 +72,7 @@ export default function LoginForm({ next }: { next?: string } = {}) {
     setLoading(true);
     try {
       await auth.signIn(email.trim(), password);
+      posthog.capture("account_signed_in");
       router.push(safeNextPath(next) ?? DEFAULT_AFTER_SIGN_IN);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Couldn't sign in.";

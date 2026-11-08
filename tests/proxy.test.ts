@@ -99,7 +99,7 @@ describe("proxy.ts: the payment page's policy", () => {
         "font-src 'self'",
         "connect-src 'self' https://abcd.supabase.co https://api.stripe.com https://checkout.stripe.com",
         "frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com https://checkout.stripe.com",
-        "worker-src 'self'",
+        "worker-src 'self' blob:",
         "manifest-src 'self'",
         "object-src 'none'",
         "base-uri 'none'",
