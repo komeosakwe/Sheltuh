@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useMapLocate } from "@/components/map/useMapLocate";
 
@@ -19,6 +19,8 @@ beforeEach(() => {
   localStorage.clear();
 });
 afterEach(() => {
+  // Unmount before the environment goes: React's scheduled work must not outlive it.
+  cleanup();
   vi.restoreAllMocks();
 });
 
@@ -44,8 +46,7 @@ describe("map_near_me_used", () => {
     locateMe.mockResolvedValue(FOUND);
     renderHook(() => useMapLocate(true));
     await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(locateMe).toHaveBeenCalledTimes(1);
     expect(track).not.toHaveBeenCalled();

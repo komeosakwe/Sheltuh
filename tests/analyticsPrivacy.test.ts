@@ -179,6 +179,39 @@ describe("sanitizePostHogEvent", () => {
     expect(cleaned?.properties).toEqual({ $pathname: "/", $referrer: "$direct" });
   });
 
+  it("leaves out every address property of a visit that began on /admin: entry page, first page and referrer", () => {
+    const admin = `${ORIGIN}/admin/events/9f3c/edit?x=1`;
+    const props = {
+      $pathname: "/events/night-market",
+      $current_url: `${ORIGIN}/events/night-market`,
+      $session_entry_url: admin,
+      $session_entry_pathname: "/admin/events/9f3c/edit",
+      $initial_current_url: admin,
+      $initial_pathname: "/admin/events/9f3c/edit",
+      $initial_referrer: `${ORIGIN}/admin/reports`,
+      $referrer: `${ORIGIN}/admin/reports`,
+      $session_entry_referrer: `${ORIGIN}/admin`,
+      $referring_domain: "sheltuh.com.au",
+      $initial_person_info: { r: `${ORIGIN}/admin/reports`, u: admin },
+      urls: [admin, `${ORIGIN}/events/x`],
+    };
+    const cleaned = sanitizePostHogEvent({ event: "$identify", properties: props, $set: { ...props }, $set_once: { ...props } });
+    expect(JSON.stringify(cleaned)).not.toMatch(/admin/i);
+    expect(cleaned?.properties).toMatchObject({
+      $pathname: "/events/night-market",
+      $current_url: `${ORIGIN}/events/night-market`,
+      // No referrer, as PostHog says when it has none.
+      $referrer: "$direct",
+      $initial_referrer: "$direct",
+      $session_entry_referrer: "$direct",
+      $referring_domain: "sheltuh.com.au",
+    });
+    expect(cleaned?.properties).not.toHaveProperty("$session_entry_url");
+    expect(cleaned?.properties).not.toHaveProperty("$initial_pathname");
+    expect(cleaned?.properties?.$initial_person_info).toEqual({});
+    expect(cleaned?.properties?.urls).toEqual([`${ORIGIN}/events/x`]);
+  });
+
   it("keeps the previous page's duration when it was an ordinary page", () => {
     const cleaned = sanitizePostHogEvent({
       event: "$pageview",

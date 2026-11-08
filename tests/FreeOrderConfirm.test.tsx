@@ -76,6 +76,14 @@ describe("FreeOrderConfirm", () => {
     expect(rememberCheckoutStarted).toHaveBeenCalledWith({ url: "https://sheltuh.test/checkout/success?session_id=ord_1" });
   });
 
+  it("pressing the link again (the order was already confirmed) doesn't count it as a new order", async () => {
+    confirmFreeOrder.mockResolvedValue({ url: "https://sheltuh.test/checkout/success?session_id=ord_1", alreadyConfirmed: true });
+    render(<FreeOrderConfirm />);
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm" }));
+    await waitFor(() => expect(assign).toHaveBeenCalledWith("https://sheltuh.test/checkout/success?session_id=ord_1"));
+    expect(rememberCheckoutStarted).not.toHaveBeenCalled();
+  });
+
   it("a seated booking whose seats went first: names them and offers choosing again (docs/design/seating.md §5.11)", async () => {
     confirmFreeOrder.mockRejectedValue(
       new ApiError(409, "Those seats have gone.", undefined, {

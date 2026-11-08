@@ -95,9 +95,10 @@ export default function FreeOrderConfirm() {
   async function confirm(token: string) {
     setAction({ status: "confirming" });
     try {
-      const { url } = await confirmFreeOrder(token);
-      // The person pressing the emailed link is the one finishing this order (usage analytics).
-      rememberCheckoutStarted({ url });
+      const { url, alreadyConfirmed } = await confirmFreeOrder(token);
+      // The person pressing the emailed link is the one finishing this order (usage analytics), unless it
+      // was confirmed before: pressing the link again doesn't make it a new order.
+      if (!alreadyConfirmed) rememberCheckoutStarted({ url });
       window.location.assign(url);
     } catch (err) {
       setAction(errorAction(err));

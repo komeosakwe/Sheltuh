@@ -1584,7 +1584,7 @@ people behind one address) and without a CAPTCHA
   `/api/orders/confirm {token}`, so a mail scanner opening the link can't
   confirm it. Confirmation issues the tickets (`confirm_free_order`) and
   returns the success page's URL; confirming again within the 24 hours
-  returns the same URL. Expired after 24 hours (410), confirmed or not.
+  returns the same URL with `alreadyConfirmed: true` (the browser uses it so usage analytics counts a new order once). Expired after 24 hours (410), confirmed or not.
   Confirmation re-checks that every ticket type is still free (price 0) and
   still exists; if not, nothing is issued, the order is marked failed and
   the answer is 409. A link confirmed after the event ended issues nothing

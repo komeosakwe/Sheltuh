@@ -212,12 +212,29 @@ function isBag(value: unknown): value is Bag {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** Every string in `value` scrubbed of order references, to a few levels deep. */
+/** A string that is an address on /admin: "https://site/admin/…" or "/admin/…". */
+const ADMIN_ADDRESS = /^(?:https?:\/\/[^/?#]+)?\/admin(?:[/?#]|$)/i;
+
+function isAdminAddress(value: unknown): boolean {
+  return typeof value === "string" && ADMIN_ADDRESS.test(value.trim());
+}
+
+/**
+ * Every string in `value` scrubbed of order references, to a few levels deep, and every address on /admin
+ * left out (an entry of an object, an item of a list): PostHog keeps copies of addresses in nested
+ * properties too (`$initial_person_info`).
+ */
 function scrubDeep(value: unknown, depth = 0): unknown {
   if (typeof value === "string") return scrubText(value);
   if (depth >= 4) return value;
-  if (Array.isArray(value)) return value.map((item) => scrubDeep(item, depth + 1));
-  if (isBag(value)) return Object.fromEntries(Object.entries(value).map(([name, item]) => [name, scrubDeep(item, depth + 1)]));
+  if (Array.isArray(value)) return value.filter((item) => !isAdminAddress(item)).map((item) => scrubDeep(item, depth + 1));
+  if (isBag(value)) {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, item]) => !isAdminAddress(item))
+        .map(([name, item]) => [name, scrubDeep(item, depth + 1)]),
+    );
+  }
   return value;
 }
 
@@ -238,12 +255,18 @@ function cleanBag(bag: Bag, dropPrevious: boolean): Bag {
     if (dropPrevious && name.startsWith("$prev_pageview_")) continue;
     const kind = typeof value === "string" ? addressKind(name) : null;
     if (typeof value !== "string" || kind === null) {
-      out[name] = scrubDeep(value);
+      // Any other address on /admin (in any property) is left out too.
+      if (!isAdminAddress(value)) out[name] = scrubDeep(value);
+    } else if (kind === "referrer") {
+      // PostHog's own marker for no referrer ("$direct") is not an address; an /admin page as the
+      // referrer is reported as no referrer, as PostHog does when it has none.
+      if (value.startsWith("$")) out[name] = value;
+      else out[name] = isExcludedUrl(value) ? "$direct" : sanitizeUrl(value, { campaign: false });
+    } else if (isExcludedUrl(value)) {
+      // The visit's entry page, first page or any other address property was an /admin page: gone.
+      continue;
     } else if (kind === "url") {
       out[name] = sanitizeUrl(value);
-    } else if (kind === "referrer") {
-      // PostHog's own marker for no referrer ("$direct") is not an address.
-      out[name] = value.startsWith("$") ? value : sanitizeUrl(value, { campaign: false });
     } else {
       out[name] = sanitizePathname(value);
     }

@@ -162,7 +162,9 @@ describe("guest: book, then confirm by email", () => {
     const first = await confirm(token);
     const again = await confirm(token);
     expect(again.status).toBe(200);
-    expect(again.body).toEqual(first.body);
+    expect(again.body).toEqual({ ...first.body, alreadyConfirmed: true });
+    // Only a press that finds it confirmed says so: the first one doesn't.
+    expect(first.body).not.toHaveProperty("alreadyConfirmed");
     expect(await sold()).toEqual({ kids: 0, rsvp: 2 });
     await api.runDeferred();
     expect(api.sendEmail).toHaveBeenCalledTimes(2); // the link, then the tickets
@@ -174,6 +176,8 @@ describe("guest: book, then confirm by email", () => {
     const results = await Promise.all([1, 2, 3].map(() => confirm(token)));
     expect(results.map((r) => r.status)).toEqual([200, 200, 200]);
     expect(new Set(results.map((r) => r.body.url)).size).toBe(1);
+    // Exactly one of them was the confirmation.
+    expect(results.filter((r) => !r.body.alreadyConfirmed)).toHaveLength(1);
     expect(await sold()).toEqual({ kids: 0, rsvp: 2 });
     expect((await orders())[0].tickets).toBe(2);
   });

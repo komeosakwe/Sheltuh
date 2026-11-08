@@ -293,6 +293,37 @@ describe("order_completed is for the visit that checked out", () => {
     expect(posthog.capture).not.toHaveBeenCalled();
   });
 
+  it("is never sent twice for an order from this browser, even if the note is armed again (a confirm link pressed again)", async () => {
+    const a = await load();
+    a.initAnalytics();
+    a.rememberCheckoutStarted({ url: "/checkout/success?session_id=ord_again", orderId: "ord_again" });
+    a.trackOrderCompleted("ord_again", ORDER_PROPERTIES);
+    await settle();
+    expect(posthog.capture).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem("sheltuh:analytics-completed:v1")).not.toContain("ord_again");
+    // Armed again (the same order, a second press): nothing is remembered and nothing is sent.
+    a.rememberCheckoutStarted({ url: "/checkout/success?session_id=ord_again" });
+    expect(JSON.parse(sessionStorage.getItem(STARTED) ?? "[]")).toEqual([]);
+    a.trackOrderCompleted("ord_again", ORDER_PROPERTIES);
+    await settle();
+    expect(posthog.capture).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not send for an order already reported, even when its note is in place (another tab armed it)", async () => {
+    const a = await load();
+    a.initAnalytics();
+    a.rememberCheckoutStarted({ url: "/x", orderId: "ord_two_tabs" });
+    // Another tab reported it meanwhile.
+    const note = sessionStorage.getItem(STARTED);
+    a.trackOrderCompleted("ord_two_tabs", ORDER_PROPERTIES);
+    await settle();
+    sessionStorage.setItem(STARTED, note ?? "[]");
+    a.trackOrderCompleted("ord_two_tabs", ORDER_PROPERTIES);
+    await settle();
+    expect(posthog.capture).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(sessionStorage.getItem(STARTED) ?? "[]")).toEqual([]);
+  });
+
   it("is not sent after a reload of the success page", async () => {
     let a = await load();
     a.initAnalytics();

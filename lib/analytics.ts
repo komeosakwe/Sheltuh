@@ -42,7 +42,7 @@ export interface AnalyticsEvents {
   /** Checkout began for an event (the order was created, or the confirmation link sent). */
   checkout_started: { event_slug: string; ticket_count: number; has_support: boolean; free: boolean };
   /**
-   * The success page showed an order to the visit that checked out, once. `value_aud` is what the buyer paid in dollars
+   * The success page showed an order to the visit that checked out, once (never again from this browser). `value_aud` is what the buyer paid in dollars
    * (all-inclusive: 0 for a free order), so PostHog can sum revenue by campaign. No order id.
    */
   order_completed: { event_slug?: string; value_aud: number; ticket_count: number; has_support: boolean; free: boolean };
@@ -189,6 +189,13 @@ export function trackPageview(pathname: string): void {
 const STARTED_KEY = "sheltuh:analytics-checkout:v1";
 const STARTED_LIMIT = 20;
 const startedThisPage = new Set<string>();
+/**
+ * localStorage: fingerprints of the orders already reported, so an order is never reported twice from this
+ * browser, whatever re-arms the note above (a confirm link pressed again, a second checkout attempt).
+ */
+const COMPLETED_KEY = "sheltuh:analytics-completed:v1";
+const COMPLETED_LIMIT = 50;
+const completedThisPage = new Set<string>();
 
 /** A short fingerprint of `orderId`, so the order id itself isn't kept anywhere. */
 function fingerprint(orderId: string): string {
@@ -219,6 +226,26 @@ function writeStarted(ids: string[]): void {
   }
 }
 
+function readCompleted(): string[] {
+  try {
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(COMPLETED_KEY) ?? "[]");
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [...completedThisPage];
+  }
+}
+
+function markCompleted(id: string): void {
+  const ids = [...readCompleted().filter((item) => item !== id), id].slice(-COMPLETED_LIMIT);
+  completedThisPage.clear();
+  for (const item of ids) completedThisPage.add(item);
+  try {
+    window.localStorage.setItem(COMPLETED_KEY, JSON.stringify(ids));
+  } catch {
+    // Storage unavailable: this page load only.
+  }
+}
+
 /** The order id in a checkout address (`/checkout/pay?order=…`, `/checkout/success?session_id=…`), or null. */
 function orderIdInUrl(url: string): string | null {
   try {
@@ -238,6 +265,8 @@ export function rememberCheckoutStarted(checkout: { url: string; orderId?: strin
   const orderId = checkout.orderId ?? orderIdInUrl(checkout.url);
   if (!orderId) return;
   const id = fingerprint(orderId);
+  // Already reported from this browser: nothing to arm.
+  if (readCompleted().includes(id)) return;
   const ids = readStarted();
   if (!ids.includes(id)) writeStarted([...ids, id].slice(-STARTED_LIMIT));
 }
@@ -253,7 +282,13 @@ export function trackOrderCompleted(orderId: string, properties: AnalyticsEvents
   withClient((posthog) => {
     const ids = readStarted();
     if (!ids.includes(id)) return;
+    // Reported before (the note was armed again): never twice.
+    if (readCompleted().includes(id)) {
+      writeStarted(ids.filter((item) => item !== id));
+      return;
+    }
     posthog.capture("order_completed", properties);
+    markCompleted(id);
     writeStarted(ids.filter((item) => item !== id));
   });
 }

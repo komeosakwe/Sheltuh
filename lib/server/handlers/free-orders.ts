@@ -241,7 +241,8 @@ async function sendFreeConfirmation(deps: Deps, orderId: string, message: EmailM
 /**
  * POST /api/orders/confirm {token} — public. The token from a guest's
  * emailed link (its URL fragment). Issues the tickets and returns the
- * confirmation page's URL; a second confirmation returns the same URL.
+ * confirmation page's URL; a second confirmation returns the same URL, with
+ * `alreadyConfirmed: true`.
  * 400 malformed token; 404 unknown; 410 expired (confirmed or not); 409 sold
  * out, the address already has its free tickets for the event, a ticket
  * type is no longer free, or the event has ended (nothing issued: a link
@@ -293,7 +294,13 @@ export const confirmFreeOrder: Handler = async (req, _params, deps) => {
     default:
       throw new Error(`Unexpected confirm_free_order result: ${row.result}`);
   }
-  return Response.json({ url: successUrl(deps, row.confirmed_order_id as string) }, { status: 200, headers: PRIVATE_NO_STORE });
+  // `alreadyConfirmed` only when this press found the order confirmed already (a link pressed again): the
+  // browser uses it to count a new order once (usage analytics), and ignores it otherwise.
+  const answer = {
+    url: successUrl(deps, row.confirmed_order_id as string),
+    ...(row.result === "already_confirmed" ? { alreadyConfirmed: true } : {}),
+  };
+  return Response.json(answer, { status: 200, headers: PRIVATE_NO_STORE });
 };
 
 /** SeatErrorDetails for a guest's free seated order whose seats went before it was confirmed. */

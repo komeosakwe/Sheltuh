@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { gunzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -31,7 +32,11 @@ async function record(url: string, body: unknown, headers: Record<string, string
   let text = "";
   if (typeof body === "string") text = body;
   else if (body instanceof Blob) text = await body.text();
-  else if (body instanceof Uint8Array) text = new TextDecoder().decode(body);
+  else if (ArrayBuffer.isView(body) || body instanceof ArrayBuffer) {
+    // The SDK gzips larger bodies: read them as the server would.
+    const bytes = Buffer.from(ArrayBuffer.isView(body) ? new Uint8Array(body.buffer, body.byteOffset, body.byteLength) : new Uint8Array(body));
+    text = (bytes[0] === 0x1f && bytes[1] === 0x8b ? gunzipSync(bytes) : bytes).toString("utf8");
+  }
   const decoded = decodeURIComponent(text.replace(/^data=/, ""));
   try {
     const parsed: unknown = JSON.parse(decoded);
@@ -164,6 +169,40 @@ describe("the real posthog-js through page views and a capture", () => {
     expect(pageviews[2].properties.$prev_pageview_pathname).toBe("/messages/[conversationId]");
     // The person is still anonymous: no profile, no identity.
     expect(sent.some((e) => e.event === "$identify")).toBe(false);
+  });
+
+  it("a visit that begins on /admin and moves to a public page sends no trace of /admin, even once identified", async () => {
+    document.title = "Reports — Sheltüh admin";
+    setUrl("/admin/reports?x=1", `${ORIGIN}/admin/events/9f3c/edit`);
+    vi.resetModules();
+    const analytics = await import("@/lib/analytics");
+    analytics.initAnalytics();
+    const { default: posthog } = await import("posthog-js");
+    await vi.waitFor(() => expect(posthog.__loaded).toBe(true));
+    document.dispatchEvent(new Event("DOMContentLoaded"));
+    window.dispatchEvent(new Event("load"));
+
+    analytics.trackPageview("/admin/reports");
+    await settle();
+    setUrl("/events/night-market?utm_source=instagram");
+    analytics.trackPageview("/events/night-market");
+    await settle();
+    // Identifying sends the visit's first-touch properties ($initial_*) as person properties.
+    analytics.identifyUser("7f1c2d9e-3b4a-4c5d-8e6f-0a1b2c3d4e5f");
+    await settle();
+    setUrl("/");
+    analytics.trackPageview("/");
+    await settle();
+    await new Promise((resolve) => setTimeout(resolve, 3600));
+
+    const pageviews = sent.filter((e) => e.event === "$pageview");
+    expect(pageviews.map((e) => e.properties.$pathname)).toEqual(["/events/night-market", "/"]);
+    expect(sent.some((e) => e.event === "$identify")).toBe(true);
+    const payload = JSON.stringify(sent);
+    expect(payload).not.toMatch(/admin/i);
+    expect(payload).not.toContain("9f3c");
+    // The campaign tag of the public page is still there.
+    expect(pageviews[0].properties.utm_source).toBe("instagram");
   });
 
   it("keeps click ids out of what PostHog keeps in the browser's storage as well", async () => {
