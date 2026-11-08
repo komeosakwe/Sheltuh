@@ -55,7 +55,7 @@ function setUrl(path: string, referrer = "") {
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 100));
 
-beforeEach(() => {
+beforeEach(async () => {
   sent.length = 0;
   requests.length = 0;
   localStorage.clear();
@@ -104,6 +104,13 @@ beforeEach(() => {
     },
     configurable: true,
   });
+  // posthog-js is one instance for the whole file (vi.resetModules doesn't reload dependencies): start each test
+  // from a new visitor, with no identity, device id or session left by the one before.
+  const { default: sdk } = await import("posthog-js");
+  if (sdk.__loaded) {
+    sdk.reset(true);
+    sdk.sessionManager?.resetSessionId();
+  }
 });
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -203,6 +210,42 @@ describe("the real posthog-js through page views and a capture", () => {
     expect(payload).not.toContain("9f3c");
     // The campaign tag of the public page is still there.
     expect(pageviews[0].properties.utm_source).toBe("instagram");
+  });
+
+  it("a crafted campaign value (an email address in utm_campaign) never reaches the payload, the genuine one does", async () => {
+    setUrl("/?utm_source=instagram&utm_campaign=someone%40example.com&utm_medium=bio");
+    vi.resetModules();
+    const analytics = await import("@/lib/analytics");
+    analytics.initAnalytics();
+    const { default: posthog } = await import("posthog-js");
+    await vi.waitFor(() => expect(posthog.__loaded).toBe(true));
+    document.dispatchEvent(new Event("DOMContentLoaded"));
+    window.dispatchEvent(new Event("load"));
+
+    analytics.trackPageview("/");
+    await settle();
+    // A user id of its own: posthog-js is one instance for the whole file, and the test before this identified another.
+    analytics.identifyUser("22222222-3333-4444-8555-666666666666");
+    await settle();
+    setUrl("/events/night-market");
+    analytics.trackPageview("/events/night-market");
+    await new Promise((resolve) => setTimeout(resolve, 3600));
+
+    const payload = JSON.stringify(sent);
+    expect(sent.map((e) => e.event).sort()).toEqual(["$identify", "$pageview", "$pageview"]);
+    expect(payload).not.toContain("example.com");
+    expect(payload).not.toContain("@");
+    expect(payload).not.toContain("someone");
+    // The genuine parameters are on the page views and on PostHog's first-touch copies of them.
+    const first = sent.find((e) => e.event === "$pageview");
+    expect(first?.properties.utm_source).toBe("instagram");
+    expect(first?.properties.utm_medium).toBe("bio");
+    expect(first?.properties).not.toHaveProperty("utm_campaign");
+    expect(first?.properties.$session_entry_utm_source).toBe("instagram");
+    expect(first?.properties).not.toHaveProperty("$session_entry_utm_campaign");
+    const identify = sent.find((e) => e.event === "$identify");
+    expect(identify?.$set_once?.$initial_utm_source).toBe("instagram");
+    expect(identify?.$set_once).not.toHaveProperty("$initial_utm_campaign");
   });
 
   it("keeps click ids out of what PostHog keeps in the browser's storage as well", async () => {

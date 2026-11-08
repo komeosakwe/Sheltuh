@@ -5686,7 +5686,8 @@ switched on**, and none of it runs in demo mode, in tests or on `/admin`.
   it is dropped entirely, and so is what PostHog remembers of an /admin page as
   the previous one (`$prev_pageview_*`, set even when that view was dropped);
   the fragment is always removed (also `disable_capture_url_hashes`); the query
-  string is cut to `utm_*` parameters on **every** route (so
+  string is cut to `utm_*` parameters (values in our own links' shape only,
+  see "Marketing analytics") on **every** route (so
   `/checkout/success?session_id=…`, `/auth/callback?code=…`,
   `/search?near=Fitzroy` and the emailed-link pages' fragments lose everything
   else); a referrer keeps only origin and path; ticket codes in a path become
@@ -5800,7 +5801,16 @@ ad pixels: it is PostHog (above) with campaign tags on links.
   `$initial_utm_*` and `$initial_referring_domain`. The sanitiser keeps exactly
   those five `utm_*` parameters on every route (so they survive on
   `/checkout/*` and `/auth/*` too) and nothing else from the query string;
-  values are length-capped and scrubbed of `ord_…`. Click ids (`gclid`,
+  a value is kept only in the shape the Campaign links page makes
+  (`campaignParamValue`: lower case letters, digits, `-` and `_`, at most 50
+  characters; upper case is lowered; not an `ord_…`, uuid or long hex id), in
+  URLs and in PostHog's `utm_*`, `$initial_utm_*` and `$session_entry_utm_*`
+  properties (also in `$set` and `$set_once`): a crafted link with an email
+  address or a token in `utm_campaign` has that parameter dropped whole.
+  PostHog's `mask_personal_data_properties` does **not** cover `utm_*` (its list
+  is click ids plus our `PERSONAL_QUERY_PARAMS`), so this rule is the defence;
+  the visitor's own browser storage (`$initial_person_info`) can still hold the
+  raw address they opened, which is never sent as it is. Click ids (`gclid`,
   `fbclid`, …) are denied. In-app browsers become `in_app_browser`; an
   organiser's tracking link (`?ref=`, see "Organiser analytics") becomes
   `tracking_ref` for the visit (only a well-formed code, `parseTrackingRef`).

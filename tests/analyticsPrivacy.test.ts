@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { buildCampaignLink } from "@/lib/campaign-links";
 import {
   browserOptsOut,
+  campaignParamValue,
   isExcludedPath,
   isExcludedUrl,
   sanitizePathname,
@@ -37,6 +39,49 @@ describe("sanitizeUrl", () => {
     expect(sanitizeUrl(`${ORIGIN}/?utm_source=email&utm_medium=newsletter&utm_campaign=launch`)).toBe(
       `${ORIGIN}/?utm_source=email&utm_medium=newsletter&utm_campaign=launch`,
     );
+  });
+
+  it("keeps the values the Campaign links page makes, whole", () => {
+    const link = buildCampaignLink({
+      origin: ORIGIN,
+      path: "/events/night-market",
+      source: "Instagram",
+      medium: "bio",
+      campaign: "Spring Launch",
+      content: "reel 1",
+    });
+    expect(link).toBe(`${ORIGIN}/events/night-market?utm_source=instagram&utm_medium=bio&utm_campaign=spring-launch&utm_content=reel-1`);
+    expect(sanitizeUrl(link ?? "")).toBe(link);
+    for (const value of ["instagram", "tiktok", "ig_story", "spring-launch", "reel-1", "q4_2026", "z".repeat(50)]) {
+      expect(campaignParamValue(value)).toBe(value);
+    }
+    // Upper case is lowered, as the page would have.
+    expect(campaignParamValue("Instagram")).toBe("instagram");
+    expect(sanitizeUrl(`${ORIGIN}/?utm_source=TikTok`)).toBe(`${ORIGIN}/?utm_source=tiktok`);
+  });
+
+  it("drops a campaign parameter whose value is not that shape (a crafted link), and only that parameter", () => {
+    const crafted = [
+      "someone@example.com",
+      "someone%40example.com",
+      "Alice Nguyen",
+      "alice%20nguyen",
+      "a".repeat(51),
+      "x".repeat(200),
+      "3f9a8c4b1d2e4f6a8b0c1d2e3f4a5b6c",
+      "6f1c2b9e-1111-4222-8333-944455556666",
+      "ord_0123456789abcdef",
+      "sk_live_abc.def",
+      "a/b",
+      "-leading",
+      "<script>",
+      "",
+    ];
+    for (const value of crafted) {
+      expect(campaignParamValue(value), `value ${JSON.stringify(value)}`).toBeNull();
+      const url = sanitizeUrl(`${ORIGIN}/events/x?utm_source=instagram&utm_campaign=${value}`);
+      expect(url).toBe(`${ORIGIN}/events/x?utm_source=instagram`);
+    }
   });
 
   it("never lets an order reference through, in the path or a campaign value", () => {
@@ -246,6 +291,25 @@ describe("sanitizePostHogEvent", () => {
     expect(cleaned?.properties).toEqual({ $pathname: "/", utm_source: "instagram", $initial_utm_source: "instagram" });
     expect(cleaned?.$set).toEqual({});
     expect(cleaned?.$set_once).toEqual({ $initial_utm_campaign: "spring" });
+  });
+
+  it("drops a crafted campaign value from PostHog's copies of it too, in properties, $set and $set_once", () => {
+    const props = {
+      $pathname: "/",
+      utm_source: "instagram",
+      utm_campaign: "someone@example.com",
+      utm_content: null,
+      $initial_utm_campaign: "someone@example.com",
+      $initial_utm_source: "TikTok",
+      $session_entry_utm_medium: "6f1c2b9e-1111-4222-8333-944455556666",
+      $session_entry_utm_term: "alice nguyen",
+    };
+    const cleaned = sanitizePostHogEvent({ event: "$identify", properties: props, $set: { ...props }, $set_once: { ...props } });
+    const expected = { $pathname: "/", utm_source: "instagram", utm_content: null, $initial_utm_source: "tiktok" };
+    expect(cleaned?.properties).toEqual(expected);
+    expect(cleaned?.$set).toEqual(expected);
+    expect(cleaned?.$set_once).toEqual(expected);
+    expect(JSON.stringify(cleaned)).not.toMatch(/example\.com|@|alice|6f1c/i);
   });
 
   it("still reports organiser dashboard pages", () => {

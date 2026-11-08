@@ -12,11 +12,16 @@
  *    carry a credential: an order reference (/checkout/success?session_id=…),
  *    a one-time sign-in code (/auth/callback?code=…), and the tokens in the
  *    fragments of /waitlist/*, /following/*, /holder-messages/stop, /invite and
- *    /organisers/join. A suburb in /search?near= goes too.
+ *    /organisers/join. A suburb in /search?near= goes too. A campaign value
+ *    is kept only in the shape our own links have (campaignParamValue): an
+ *    email address or a token put in utm_* by a crafted link is dropped. A campaign value
+ *    is kept only in the shape our own links have (campaignParamValue): an
+ *    email address or a token put in utm_* by a crafted link is dropped.
  *  - Ids of people (a member profile, a conversation) and ticket codes in an
  *    address are replaced by a placeholder, and an order reference (`ord_…`) is
  *    removed from anything that is sent.
  */
+import { CAMPAIGN_VALUE_MAX, campaignValue } from "@/lib/campaign-links";
 
 /** Pages never reported at all (their path and every one beneath). */
 const EXCLUDED_PREFIXES = ["/admin"] as const;
@@ -24,7 +29,11 @@ const EXCLUDED_PREFIXES = ["/admin"] as const;
 /** Campaign parameters, the only query parameters kept, on every page (marketing attribution). */
 const CAMPAIGN_PARAMS = ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content"] as const;
 
-/** An order reference, wherever it turns up. */
+/** A uuid, or a long run of hex: an id or a token, not a campaign name. */
+const ID_LIKE = /^(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|[0-9a-f]{24,})$/;
+
+/** An order reference, wherever it turns up. Not global: it is also used to test a value. */
+const ORDER_REFERENCE_TEST = /ord_/;
 const ORDER_REFERENCE = /ord_[A-Za-z0-9_-]*/g;
 /** A ticket code (`7KQM-2HXD`) as a whole path segment. */
 const TICKET_CODE_SEGMENT = /^[A-Z0-9]{4}-[A-Z0-9]{4}$/;
@@ -53,6 +62,22 @@ export function isExcludedPath(pathname: string): boolean {
 /** Whether an address (absolute or a path) is a page that must never be reported. */
 export function isExcludedUrl(raw: string): boolean {
   return isExcludedPath(pathOf(raw));
+}
+
+/**
+ * A campaign parameter's value as analytics may keep it, or null to drop the parameter. Only the shape
+ * the Campaign links page makes (lib/campaign-links.ts campaignValue): lower case letters, digits, "-"
+ * and "_", at most CAMPAIGN_VALUE_MAX characters. Anything else (an email address, a token, words with
+ * spaces or percent-encoding, an order reference, an id) is a crafted link and is dropped whole. Upper
+ * case is lowered, as the page would have. The value is the visitor's to type in a link, so nothing else
+ * is trusted.
+ */
+export function campaignParamValue(raw: string): string | null {
+  const value = raw.toLowerCase();
+  if (value.length === 0 || value.length > CAMPAIGN_VALUE_MAX) return null;
+  if (value !== campaignValue(value)) return null;
+  if (ORDER_REFERENCE_TEST.test(value) || ID_LIKE.test(value)) return null;
+  return value;
 }
 
 /** Removes order references from any text. */
@@ -93,8 +118,8 @@ export function sanitizeUrl(raw: string, options: { campaign?: boolean } = {}): 
   if (campaign) {
     const kept = new URLSearchParams();
     for (const name of CAMPAIGN_PARAMS) {
-      const value = url.searchParams.get(name);
-      if (value) kept.set(name, scrubText(value).slice(0, 100));
+      const value = campaignParamValue(url.searchParams.get(name) ?? "");
+      if (value) kept.set(name, value);
     }
     const text = kept.toString();
     query = text ? `?${text}` : "";
@@ -197,6 +222,9 @@ function isDeniedProperty(name: string): boolean {
   return DENIED_NAMES.has(name.replace(PROPERTY_PREFIX, ""));
 }
 
+/** `utm_source`, `$initial_utm_campaign`, `$session_entry_utm_medium`…: PostHog's own copies of the campaign parameters. */
+const CAMPAIGN_PROPERTY = /^\$?(?:initial_|session_entry_)?utm_(?:source|medium|campaign|term|content)$/;
+
 /** The kinds of address a property can hold, by its name (`$current_url`, `$initial_referrer`, `$prev_pageview_pathname`…). */
 function addressKind(name: string): "url" | "referrer" | "path" | null {
   const key = name.toLowerCase();
@@ -252,6 +280,12 @@ function cleanBag(bag: Bag, dropPrevious: boolean): Bag {
   const out: Bag = {};
   for (const [name, value] of Object.entries(bag)) {
     if (DROPPED_PROPERTIES.has(name) || isDeniedProperty(name)) continue;
+    if (CAMPAIGN_PROPERTY.test(name) && typeof value === "string") {
+      // A campaign value that isn't the shape our own links have is a crafted link: not kept (campaignParamValue).
+      const kept = campaignParamValue(value);
+      if (kept !== null) out[name] = kept;
+      continue;
+    }
     if (dropPrevious && name.startsWith("$prev_pageview_")) continue;
     const kind = typeof value === "string" ? addressKind(name) : null;
     if (typeof value !== "string" || kind === null) {
