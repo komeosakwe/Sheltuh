@@ -201,7 +201,7 @@ describe("/privacy — Usage analytics", () => {
     expect(section).toHaveTextContent("PostHog is set to discard the IP address after that, so it doesn’t keep it");
     expect(section).toHaveTextContent("links with a private code or token in them are never recorded");
     // The region is the owner's to set before go-live (app/privacy/page.tsx comment, docs/DEPLOYMENT.md).
-    expect(section).toHaveTextContent("The data is kept by PostHog in the United States or the European Union, as set by Sheltüh.");
+    expect(section).toHaveTextContent("The data is kept by PostHog in the European Union.");
     expect(section).toHaveTextContent("We don’t use this for advertising, we don’t sell it, and it isn’t shared with ad networks.");
     expect(section).toHaveTextContent("Pages for Sheltüh’s own administrators aren’t measured.");
     expect(section).toHaveTextContent("utm_source=instagram");

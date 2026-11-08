@@ -236,11 +236,10 @@ export default function PrivacyPage() {
         </p>
       </ContentSection>
       <ContentSection title="Usage analytics" id="analytics">
-        {/* OWNER, before go-live: say which PostHog region you chose (the project's cloud, US or EU).
-            The wording below names both until you do. This section also says PostHog is set not to keep
-            IP addresses: that needs the "Discard client IP data" setting on in the PostHog project
-            (docs/DEPLOYMENT.md, "Usage and marketing analytics", step 1: required), and the GeoIP
-            check there. Keep the wording true to how the project is set up. */}
+        {/* The PostHog project is in PostHog's EU cloud (owner's choice, Nov 2026). This section also says
+            PostHog is set not to keep IP addresses: that needs the "Discard client IP data" setting on in
+            the PostHog project (docs/DEPLOYMENT.md, "Usage and marketing analytics", step 1: required), and
+            the GeoIP check there. Keep the wording true to how the project is set up. */}
         <p>
           We measure how Sheltüh is used (which pages are visited, how people find us and whether
           they come back) so we can make it better. We use two tools for that.
@@ -257,7 +256,7 @@ export default function PrivacyPage() {
             browser&rsquo;s storage. Web addresses are cut down before they&rsquo;re sent, so links
             with a private code or token in them are never recorded. It reaches PostHog through our
             own address, and your cookies and the page you came from aren&rsquo;t passed on. The data
-            is kept by PostHog in the United States or the European Union, as set by Sheltüh.
+            is kept by PostHog in the European Union.
           </li>
           <li>
             <strong>Vercel Web Analytics and Speed Insights</strong> (our host) count page views and

@@ -5731,10 +5731,9 @@ switched on**, and none of it runs in demo mode, in tests or on `/admin`.
   `distinct_id`) in PostHog, People, Delete (with "delete events" if asked)
   (`docs/DEPLOYMENT.md`). Anonymous visits cannot be tied to an account.
 - **Privacy Policy.** `/privacy#analytics` ("Usage analytics") describes both
-  tools, the IP address and user agent. The PostHog region is written as "the
-  United States or the European Union, as set by Sheltüh": **the owner replaces
-  it with the chosen region** (comment in `app/privacy/page.tsx`) when switching
-  analytics on.
+  tools, the IP address and user agent, and names the PostHog region (the EU
+  cloud, the owner's choice). If the project ever moves region, update that
+  sentence (comment in `app/privacy/page.tsx`).
 
 ### Events
 

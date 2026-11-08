@@ -1060,9 +1060,9 @@ Owner steps:
        `phc_…`; never the personal API key) and set `NEXT_PUBLIC_POSTHOG_KEY`
        and `NEXT_PUBLIC_POSTHOG_HOST` (matching the region) in Vercel,
        Production. Redeploy.
-3. [ ] **Edit the Privacy Policy** (`app/privacy/page.tsx`, "Usage analytics"):
-       replace "the United States or the European Union, as set by Sheltüh"
-       with the region you chose, and delete the OWNER comment above it.
+3. [x] **Privacy Policy** (`app/privacy/page.tsx`, "Usage analytics") names
+       the region: the EU cloud (chosen Nov 2026). If the project ever moves
+       region, change that sentence.
 4. [ ] **Check it**: visit the site, open PostHog, Activity, Live events: you
        should see `$pageview` with a clean `$current_url` (no `?` other than
        `utm_*`, never `#`). Visit `/admin` and confirm nothing appears. Open
