@@ -235,10 +235,12 @@ for (const vp of [
 
 // Owner request (26 Oct 2026): on a phone, Save and Share are on the first screen too, above the
 // buy bar, with a two-line title and a two-line address. 390×664 is a 390×844 phone less its
-// browser chrome; 375×667 is the small iPhone.
+// browser chrome; 375×667 is the small iPhone; 370×667 is the same phone where a slightly wider font (CI's) wraps
+// one more line above the row, which once left it a pixel under the bar.
 for (const vp of [
   { width: 390, height: 664 },
   { width: 375, height: 667 },
+  { width: 370, height: 667 },
 ]) {
   test.describe(`Save and Share on the first screen at ${vp.width}×${vp.height}`, () => {
     test.use({ viewport: vp });
@@ -265,7 +267,8 @@ for (const vp of [
         const box = await control.boundingBox();
         if (!box) throw new Error("not laid out");
         expect(box.height).toBeGreaterThanOrEqual(44);
-        expect(box.y + box.height).toBeLessThanOrEqual(bar.y);
+        // With room to spare (4px), not touching the bar.
+        expect(box.y + box.height).toBeLessThanOrEqual(bar.y - 4);
       }
       // Add to calendar keeps its 44px target, and doesn't overlap the address link below it.
       const calendar = await page.getByRole("button", { name: "Add to calendar" }).boundingBox();

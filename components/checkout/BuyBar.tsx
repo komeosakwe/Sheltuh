@@ -130,7 +130,7 @@ export function GaBuyBar({
             </p>
             {shown.note && (
               // Two lines at most; the whole text is also the button's description, so nothing is lost to a screen reader.
-              <p id={noteId} className="line-clamp-2 text-base leading-6 text-muted">
+              <p id={noteId} className="line-clamp-2 text-base leading-5 text-muted">
                 {shown.note}
               </p>
             )}

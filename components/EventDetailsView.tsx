@@ -201,7 +201,7 @@ export default function EventDetailsView({
 }) {
   const missing = preview?.missing;
   // The one class for every buy bar: sticky to the bottom of the screen (static in the editor's preview).
-  const buyBarClass = `${preview ? "static" : "sticky"} bottom-0 z-20 -mx-5 flex min-h-18 items-center justify-between gap-3 rounded-t-sheet px-5 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:-mx-8 sm:px-8 lg:hidden dark:border-t dark:border-foreground`;
+  const buyBarClass = `${preview ? "static" : "sticky"} bottom-0 z-20 -mx-5 flex min-h-16 items-center justify-between gap-3 rounded-t-sheet px-5 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:-mx-8 sm:px-8 lg:hidden dark:border-t dark:border-foreground`;
   const categoryLabel =
     EVENT_CATEGORIES.find((category) => category.value === event.category)?.label ?? event.category;
 
