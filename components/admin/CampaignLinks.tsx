@@ -277,7 +277,7 @@ export default function CampaignLinks() {
             <label htmlFor={linkId} className="sr-only">
               Campaign link
             </label>
-            <textarea id={linkId} readOnly rows={3} value={link} onFocus={(e) => e.currentTarget.select()} className={`${inputClass} break-all font-mono text-sm`} />
+            <textarea id={linkId} readOnly rows={3} value={link} onFocus={(e) => e.currentTarget.select()} className={`${inputClass} field-sizing-content break-all font-mono text-sm`} />
             <div className="flex flex-wrap items-center gap-3">
               <Button onClick={copy}>Copy link</Button>
               <p role="status" className="text-sm text-muted">
