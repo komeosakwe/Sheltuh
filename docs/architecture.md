@@ -5614,8 +5614,8 @@ with Vercel Web Analytics and Speed Insights. All of it is **off unless
 switched on**, and none of it runs in demo mode, in tests or on `/admin`.
 
 - **Switch.** `NEXT_PUBLIC_POSTHOG_KEY` (a project API key, `phc_…`) and
-  `NEXT_PUBLIC_POSTHOG_HOST` (`https://us.i.posthog.com` by default, or
-  `https://eu.i.posthog.com`). Unset key = no PostHog code is downloaded, no
+  `NEXT_PUBLIC_POSTHOG_HOST` (`https://eu.i.posthog.com` by default, the EU
+  cloud the Privacy Policy names, or `https://us.i.posthog.com`). Unset key = no PostHog code is downloaded, no
   request is made, and `/ingest` answers 404. A key of any other shape (a
   personal `phx_…` key above all), or with a key set a host that is not an
   https address, fails the build (`next.config.ts`, `assertPostHogKey` and

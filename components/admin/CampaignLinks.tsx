@@ -61,8 +61,9 @@ function DestinationSearch({
 }: {
   kind: "event" | "organiser";
   getToken: GetToken;
-  value: string;
-  onChange: (path: string) => void;
+  /** The choice made so far: it stays an option (and keeps driving the link) when a new search doesn't find it. */
+  value: Choice | null;
+  onChange: (choice: Choice) => void;
 }) {
   const id = useId();
   const [needle, setNeedle] = useState("");
@@ -98,6 +99,9 @@ function DestinationSearch({
 
   const noun = kind === "event" ? "event" : "organiser";
   const choices = state.status === "ready" ? state.choices : [];
+  // The picked choice stays selectable while it isn't among the found ones (a new search, or one still loading);
+  // the count below is of what was found only.
+  const options = value && !choices.some((choice) => choice.path === value.path) ? [value, ...choices] : choices;
   let status = "";
   if (state.status === "loading") status = `Searching ${noun}s…`;
   else if (state.status === "ready") status = choices.length === 0 ? `No ${noun}s match.` : `${choices.length} ${choices.length === 1 ? noun : `${noun}s`} found.`;
@@ -131,13 +135,18 @@ function DestinationSearch({
         </label>
         <select
           id={`${id}-choice`}
-          value={choices.some((choice) => choice.path === value) ? value : ""}
-          onChange={(e) => onChange(e.target.value)}
-          disabled={choices.length === 0}
+          value={value?.path ?? ""}
+          onChange={(e) => {
+            const chosen = options.find((choice) => choice.path === e.target.value);
+            if (chosen) onChange(chosen);
+          }}
+          disabled={options.length === 0}
           className={inputClass}
         >
-          <option value="">{choices.length === 0 ? `No ${noun} to choose` : `Choose an ${noun}`}</option>
-          {choices.map((choice) => (
+          <option value="" disabled={value !== null}>
+            {options.length === 0 ? `No ${noun} to choose` : `Choose an ${noun}`}
+          </option>
+          {options.map((choice) => (
             <option key={choice.path} value={choice.path}>
               {choice.label}
             </option>
@@ -208,12 +217,13 @@ export default function CampaignLinks() {
   const auth = useAuth();
   const getToken = auth.getAccessToken;
   const [kind, setKind] = useState<DestinationKind>("home");
-  const [picked, setPicked] = useState("");
+  const [picked, setPicked] = useState<Choice | null>(null);
   const [source, setSource] = useState("");
   const [medium, setMedium] = useState("");
   const [campaign, setCampaign] = useState("");
   const [content, setContent] = useState("");
-  const [copied, setCopied] = useState<"copied" | "failed" | null>(null);
+  // The copy's result is for the link that was copied: it isn't shown once the link has changed.
+  const [copyResult, setCopyResult] = useState<{ link: string; state: "copied" | "failed" } | null>(null);
   const kindId = useId();
   const linkId = useId();
 
@@ -225,23 +235,24 @@ export default function CampaignLinks() {
     queueMicrotask(() => setOrigin(siteOrigin() ?? own));
   }, []);
 
-  const path = kind === "home" ? "/" : kind === "map" ? "/map" : picked;
+  const path = kind === "home" ? "/" : kind === "map" ? "/map" : (picked?.path ?? "");
   const link = origin ? buildCampaignLink({ origin, path, source, medium, campaign, content }) : null;
+  const copied = copyResult && copyResult.link === link ? copyResult.state : null;
 
   async function copy() {
     if (!link) return;
     try {
       await navigator.clipboard.writeText(link);
-      setCopied("copied");
+      setCopyResult({ link, state: "copied" });
     } catch {
-      setCopied("failed");
+      setCopyResult({ link, state: "failed" });
     }
   }
 
   function changeKind(next: DestinationKind) {
     setKind(next);
-    setPicked("");
-    setCopied(null);
+    setPicked(null);
+    setCopyResult(null);
   }
 
   return (
@@ -260,7 +271,7 @@ export default function CampaignLinks() {
       </div>
 
       {(kind === "event" || kind === "organiser") && (
-        <DestinationSearch kind={kind} getToken={getToken} value={picked} onChange={setPicked} />
+        <DestinationSearch key={kind} kind={kind} getToken={getToken} value={picked} onChange={setPicked} />
       )}
 
       <Field label="Source" required hint="Where the link is posted: instagram, tiktok, email, partner…" value={source} onChange={setSource} suggestions={SOURCE_SUGGESTIONS} />

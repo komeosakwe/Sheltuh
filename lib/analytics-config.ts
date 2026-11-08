@@ -11,13 +11,17 @@
 /** The first-party path the browser sends to; next.config.ts rewrites it to PostHog (ad blockers don't skew the numbers). */
 export const INGEST_PATH = "/ingest";
 
-/** PostHog's US cloud, used when NEXT_PUBLIC_POSTHOG_HOST isn't set. */
-export const DEFAULT_POSTHOG_HOST = "https://us.i.posthog.com";
+/**
+ * PostHog's EU cloud, used when NEXT_PUBLIC_POSTHOG_HOST isn't set: the Privacy Policy says the data is
+ * kept in the European Union, so a missing variable can't send it to the US cloud. (A project in another
+ * region sets the variable, and the policy changes with it.)
+ */
+export const DEFAULT_POSTHOG_HOST = "https://eu.i.posthog.com";
 
 export interface AnalyticsConfig {
   /** The project API key (`phc_…`): public by design, it can only add events. */
   key: string;
-  /** Where /ingest is proxied to (proxy.ts): the region's ingestion host, e.g. https://us.i.posthog.com. */
+  /** Where /ingest is proxied to (proxy.ts): the region's ingestion host, e.g. https://eu.i.posthog.com. */
   apiHost: string;
   /** The PostHog app's address, for links back to it from the toolbar. */
   uiHost: string;
@@ -67,15 +71,15 @@ function hostsFor(host: string): Pick<AnalyticsConfig, "apiHost" | "uiHost"> | n
 
 /**
  * With a key set, NEXT_PUBLIC_POSTHOG_HOST must be an https address (unset is
- * the US cloud): a typo would otherwise switch analytics off without a word. The
+ * the EU cloud): a typo would otherwise switch analytics off without a word. The
  * message names the variable, never its value.
  */
 export function assertPostHogHost(keyValue: string | undefined, hostValue: string | undefined): void {
   if (!keyValue?.trim() || !hostValue?.trim()) return;
   if (!hostsFor(hostValue.trim())) {
     throw new Error(
-      "NEXT_PUBLIC_POSTHOG_HOST must be the https address of a PostHog host, e.g. https://us.i.posthog.com or https://eu.i.posthog.com, " +
-        "or unset (the US cloud). Analytics won't start with it as it is.",
+      "NEXT_PUBLIC_POSTHOG_HOST must be the https address of a PostHog host, e.g. https://eu.i.posthog.com or https://us.i.posthog.com, " +
+        "or unset (the EU cloud). Analytics won't start with it as it is.",
     );
   }
 }

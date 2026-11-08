@@ -10,10 +10,20 @@ describe("resolveAnalyticsConfig", () => {
     expect(resolveAnalyticsConfig("phx_personal", undefined)).toBeNull();
   });
 
-  it("defaults to the US cloud", () => {
-    expect(resolveAnalyticsConfig("phc_abc123", undefined)).toEqual({
-      key: "phc_abc123",
-      apiHost: DEFAULT_POSTHOG_HOST,
+  it("defaults to the EU cloud, so a missing host can't send data to the US", () => {
+    expect(DEFAULT_POSTHOG_HOST).toBe("https://eu.i.posthog.com");
+    for (const host of [undefined, "", "  "]) {
+      expect(resolveAnalyticsConfig("phc_abc123", host)).toEqual({
+        key: "phc_abc123",
+        apiHost: "https://eu.i.posthog.com",
+        uiHost: "https://eu.posthog.com",
+      });
+    }
+  });
+
+  it("still takes the US cloud when it is asked for", () => {
+    expect(resolveAnalyticsConfig("phc_abc123", "https://us.i.posthog.com")).toMatchObject({
+      apiHost: "https://us.i.posthog.com",
       uiHost: "https://us.posthog.com",
     });
   });

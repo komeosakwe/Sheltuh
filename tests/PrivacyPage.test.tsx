@@ -198,7 +198,7 @@ describe("/privacy — Usage analytics", () => {
     // IP address and user agent: what they are used for, and that PostHog doesn't keep the address.
     expect(section).toHaveTextContent("both tools receive your IP address and your browser’s user agent");
     expect(section).toHaveTextContent("estimate where you are, at country or city level");
-    expect(section).toHaveTextContent("PostHog is set to discard the IP address after that, so it doesn’t keep it");
+    expect(section).toHaveTextContent("PostHog is set not to keep your IP address");
     expect(section).toHaveTextContent("links with a private code or token in them are never recorded");
     // The region is the owner's to set before go-live (app/privacy/page.tsx comment, docs/DEPLOYMENT.md).
     expect(section).toHaveTextContent("The data is kept by PostHog in the European Union.");

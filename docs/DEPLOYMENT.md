@@ -1039,14 +1039,15 @@ Environment variables (Vercel; `.env.example` has placeholders):
 | Variable | Value | Notes |
 | --- | --- | --- |
 | `NEXT_PUBLIC_POSTHOG_KEY` | PostHog project API key, `phc_…` | Unset = PostHog off. A different shape (a `phx_…` personal key) fails the build. **Production only** (previews share the production Supabase project). Redeploy: baked in at build time. |
-| `NEXT_PUBLIC_POSTHOG_HOST` | `https://us.i.posthog.com` (default) or `https://eu.i.posthog.com` | The region you created the project in. The site sends to its own `/ingest`, which is proxied here. |
+| `NEXT_PUBLIC_POSTHOG_HOST` | `https://eu.i.posthog.com` (default: the EU cloud, which the Privacy Policy names) or `https://us.i.posthog.com` | The region you created the project in; a project in the US needs the policy changed too (`app/privacy/page.tsx`). The site sends to its own `/ingest`, which is proxied here. |
 | `NEXT_PUBLIC_VERCEL_ANALYTICS` | `0` to turn Vercel Web Analytics and Speed Insights off | Otherwise they run on Vercel builds only. |
 
 Owner steps:
 
-1. [ ] **Create the PostHog project** at posthog.com: choose the **US or EU
-       cloud** (this is a privacy decision: EU keeps the data in the European
-       Union; either is disclosed in the policy). Project settings, **required**:
+1. [ ] **Create the PostHog project** at posthog.com in the **EU cloud**
+       (the Privacy Policy says the data is kept in the European Union; the
+       site's default host is the EU one, so a missing
+       `NEXT_PUBLIC_POSTHOG_HOST` can't send data to the US). Project settings, **required**:
        turn **Discard client IP data ON**. The Privacy Policy says PostHog does
        not keep IP addresses, which is only true with this on. Leave session
        replay, autocapture and surveys off (the code never uses them).
@@ -1058,8 +1059,8 @@ Owner steps:
        project: look at a sample event in Live events (step 4).
 2. [ ] Copy the **Project API key** (Project settings, "Project API key",
        `phc_…`; never the personal API key) and set `NEXT_PUBLIC_POSTHOG_KEY`
-       and `NEXT_PUBLIC_POSTHOG_HOST` (matching the region) in Vercel,
-       Production. Redeploy.
+       and `NEXT_PUBLIC_POSTHOG_HOST` (`https://eu.i.posthog.com`, the
+       default if left unset) in Vercel, Production. Redeploy.
 3. [x] **Privacy Policy** (`app/privacy/page.tsx`, "Usage analytics") names
        the region: the EU cloud (chosen Nov 2026). If the project ever moves
        region, change that sentence.

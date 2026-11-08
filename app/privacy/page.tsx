@@ -268,7 +268,7 @@ export default function PrivacyPage() {
           Like any website, both tools receive your IP address and your browser&rsquo;s user agent (its
           name, version and your device type) with each request. They use the IP address to estimate
           where you are, at country or city level, and the user agent to tell devices and browsers
-          apart. PostHog is set to discard the IP address after that, so it doesn&rsquo;t keep it;
+          apart. PostHog is set not to keep your IP address;
           Vercel handles the address as described in its own privacy policy.
         </p>
         <p>
