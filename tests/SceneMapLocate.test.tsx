@@ -354,13 +354,24 @@ describe("Near me", () => {
     expect(getCurrentPosition).toHaveBeenCalledTimes(2);
   });
 
-  it("on failure: a short polite status, the view stays, and it can be tried again", async () => {
+  it("on failure: the location card asks for it in a polite status, the view stays, and it can be tried again", async () => {
     params = new URLSearchParams("cat=live-music");
     answerWithError(1);
     await renderMap();
-    fireEvent.click(screen.getByRole("button", { name: "Near me" }));
-    const status = await screen.findByText("Couldn’t find your location.");
-    expect(status.closest("[role=status]")).not.toBeNull();
+    const nearMe = screen.getByRole("button", { name: "Near me" });
+    nearMe.focus();
+    fireEvent.click(nearMe);
+    const status = await screen.findByRole("status", {
+      name: (_name, element) => element.textContent?.includes("Share your location?") ?? false,
+    });
+    expect(status).toHaveTextContent("Share your location?To see events near you, allow location access in your browser settings.");
+    const card = status.closest("[data-location-card]") as HTMLElement;
+    expect(card).not.toBeNull();
+    // No way out to offer in an ordinary browser: just the ✕.
+    expect(within(card).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual(["Dismiss location message"]);
+    expect(within(card).queryByRole("link")).toBeNull();
+    // It doesn't take focus.
+    expect(screen.getByRole("button", { name: "Near me" })).toHaveFocus();
     expect(onDefaultView()).toBe(true);
     expect(screen.getByRole("button", { name: "Near me" })).not.toHaveAttribute("aria-disabled");
     expect(localStorage.getItem(NEAR_STORAGE_KEY)).toBeNull();
@@ -382,20 +393,63 @@ describe("Near me", () => {
       vi.stubGlobal("location", realLocation);
     });
 
-    it("on failure on iOS: names the app and points to its ••• menu (x-safari-https doesn't work there)", async () => {
-      pretend(INSTAGRAM_IOS, "https://app.sheltuh.com.au/map?cat=live-music#token=secret");
+    const INSTAGRAM_ANDROID =
+      "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/126.0.0.0 Mobile Safari/537.36 Instagram 340.0.0.30.109 Android";
+
+    async function failInside(userAgent: string, url: string, clipboard?: { writeText: (text: string) => Promise<void> }) {
+      vi.stubGlobal(
+        "navigator",
+        Object.create(navigator, { userAgent: { value: userAgent }, clipboard: { value: clipboard } }),
+      );
+      vi.stubGlobal("location", new URL(url));
       answerWithError(1);
       await renderMap();
       fireEvent.click(screen.getByRole("button", { name: "Near me" }));
       const status = await screen.findByRole("status", {
-        name: (_name, element) => element.textContent?.includes("Instagram’s browser") ?? false,
+        name: (_name, element) => element.textContent?.includes("Share your location?") ?? false,
       });
-      expect(status).toHaveTextContent(
-        "Instagram’s browser can’t share your location. Type your suburb, or open Sheltüh in your browser from the ••• menu.",
-      );
-      expect(within(status).queryByRole("link")).toBeNull();
-      expect(screen.queryByText("Couldn’t find your location.")).toBeNull();
+      return { status, card: status.closest("[data-location-card]") as HTMLElement };
+    }
+
+    it("iOS: asks for it in Safari; Open in Safari copies the page's https address (no fragment) and gives the steps", async () => {
+      const writeText = vi.fn<(text: string) => Promise<void>>(async () => {});
+      const { status, card } = await failInside(INSTAGRAM_IOS, "https://app.sheltuh.com.au/map?cat=live-music#token=secret", { writeText });
+      expect(status).toHaveTextContent("To see events near you, allow location access in Safari.");
+      // Never the x-safari-https link Instagram ignores.
+      expect(document.querySelector('a[href^="x-safari"]')).toBeNull();
+      const open = within(card).getByRole("button", { name: "Open in Safari" });
+      fireEvent.click(open);
+      await waitFor(() => expect(status).toHaveTextContent("Link copied. Tap ••• at the top, then Open in external browser."));
+      expect(writeText).toHaveBeenCalledWith("https://app.sheltuh.com.au/map?cat=live-music");
+      expect(status).not.toHaveTextContent("allow location access in Safari");
       expect(localStorage.getItem(NEAR_STORAGE_KEY)).toBeNull();
+    });
+
+    it("iOS: when the clipboard refuses, only the steps", async () => {
+      const writeText = vi.fn<(text: string) => Promise<void>>(async () => {
+        throw new Error("NotAllowedError");
+      });
+      const { status, card } = await failInside(INSTAGRAM_IOS, "https://app.sheltuh.com.au/map", { writeText });
+      fireEvent.click(within(card).getByRole("button", { name: "Open in Safari" }));
+      await waitFor(() => expect(status).toHaveTextContent(/^Share your location\?Tap ••• at the top, then Open in external browser\.$/));
+      expect(writeText).toHaveBeenCalledTimes(1);
+    });
+
+    it("iOS: with no https address (or no clipboard), nothing is copied: only the steps", async () => {
+      const writeText = vi.fn<(text: string) => Promise<void>>(async () => {});
+      const { status, card } = await failInside(INSTAGRAM_IOS, "http://localhost:3000/map", { writeText });
+      fireEvent.click(within(card).getByRole("button", { name: "Open in Safari" }));
+      await waitFor(() => expect(status).toHaveTextContent(/^Share your location\?Tap ••• at the top, then Open in external browser\.$/));
+      expect(writeText).not.toHaveBeenCalled();
+    });
+
+    it("Android: asks for it in Chrome, with Open in Chrome (an intent link, no fragment)", async () => {
+      const { status, card } = await failInside(INSTAGRAM_ANDROID, "https://app.sheltuh.com.au/map?cat=live-music#token=secret");
+      expect(status).toHaveTextContent("To see events near you, allow location access in Chrome.");
+      expect(within(card).getByRole("link", { name: "Open in Chrome" })).toHaveAttribute(
+        "href",
+        "intent://app.sheltuh.com.au/map?cat=live-music#Intent;scheme=https;package=com.android.chrome;end",
+      );
     });
 
     it("on open the refusal stays silent, as in any browser", async () => {
@@ -403,7 +457,8 @@ describe("Near me", () => {
       answerWithError(1);
       await renderMap();
       await waitFor(() => expect(sessionStorage.getItem(LOCATE_REFUSED_KEY)).toBe("1"));
-      expect(screen.queryByText(/Instagram’s browser/)).toBeNull();
+      expect(document.querySelector("[data-location-card]")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Open in Safari" })).toBeNull();
     });
   });
 });

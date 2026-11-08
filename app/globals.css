@@ -32,6 +32,13 @@
   --panel: #fbf7f1;
   --tint: #fdeadf;
   --signal-ink: #a02a00;
+  /* /map's controls and location card (owner's mockup, 8 Nov 2026): fields and chips on the ivory --panel with a
+     soft warm hairline and shadow, the chosen chip in peach (with the --signal icon and bold words), and the
+     results count's number in an orange dark enough for small text (4.8:1 on white; --signal is 3.4:1). Only
+     the map's controls use them. */
+  --soft-line: #cdc6c0;
+  --peach: #fcd4bb;
+  --signal-text: #d03e00;
   /* Door check-in only (components/check-in/, docs/design/check-in.md; enforced by
      tests/door-tokens.test.ts). Each fill has its text pair. Never used for decoration;
      colour is never the only signal (icon + words + panel shape). */
@@ -103,6 +110,9 @@
     --panel: #1a1816;
     --tint: #2c1b12;
     --signal-ink: #ff8a5c; /* at least 5.8:1 on the pill over the dark panel, card or tint */
+    --soft-line: #4a4540;
+    --peach: #4a2a18;
+    --signal-text: #ff6a33; /* 7.1:1 on black */
     /* Apple White on the black page. */
     --apple-fill: #ffffff;
     --apple-ink: #000000;
@@ -215,6 +225,9 @@
   --color-panel: var(--panel);
   --color-tint: var(--tint);
   --color-signal-ink: var(--signal-ink);
+  --color-soft-line: var(--soft-line);
+  --color-peach: var(--peach);
+  --color-signal-text: var(--signal-text);
   --color-danger: var(--danger);
   --color-danger-foreground: var(--danger-foreground);
   --color-door-admit: var(--door-admit);
@@ -237,6 +250,18 @@
   --radius-panel: 1rem; /* 16px: the event page's ticket panel */
   --radius-sheet: 1.5rem; /* 24px: the top corners of the phone buy bar */
   --radius-dot: 28%; /* avatars, map markers (echo the umlaut) */
+  /* The one exception to flat elevation, at the owner's request (mockup, 8 Nov 2026): /map's search and
+     location fields and its chips sit on a soft shadow, and the location card floats over the map. */
+  --shadow-soft: 0 3px 8px rgb(74 52 30 / 0.12);
+  --shadow-float: 0 6px 20px rgb(0 0 0 / 0.22);
+  /* /map's controls, measured from the mockup at 390px. The search field's own text stays 16px on phones
+     (iOS zooms the page into a smaller field); its placeholder is --text-field. */
+  --text-field: 0.8125rem;
+  --text-field--line-height: 1.25rem;
+  --text-2xs: 0.65625rem;
+  --text-2xs--line-height: 1rem;
+  --text-3xs: 0.59375rem;
+  --text-3xs--line-height: 0.75rem;
 }
 
 * {

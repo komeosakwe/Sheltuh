@@ -37,6 +37,11 @@ export default function MapStyles() {
       .mapbox-logo { display: block; width: 5.5rem; height: 1.5rem; background: url("/mapbox-logo.svg") center / contain no-repeat; }
       .leaflet-control.mapbox-logo-control { margin-bottom: 0.25rem; }
       .leaflet-container:has(.mapbox-logo) .leaflet-bottom.leaflet-right { max-width: calc(100% - 7rem); }
+      /* /map on phones: Near me sits in the lower-left corner (components/map/NearMeButton.tsx), so the
+         attribution stops short of it and wraps, as it does for the wordmark. */
+      @media (width < 64rem) {
+        [data-map-pane]:has(> [data-near-me]) .leaflet-bottom.leaflet-right { max-width: calc(100% - 7.5rem); }
+      }
       /* Zoom: two separate 44px rounded-square controls with a black edge (§6.1), not Leaflet's grey bar. */
       .leaflet-control-zoom.leaflet-bar { border: 0 !important; box-shadow: none !important; display: flex; flex-direction: column; gap: 0.5rem; }
       .leaflet-control-zoom a {
