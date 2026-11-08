@@ -11,6 +11,7 @@ import { sampleEvents } from "@/lib/sample-events";
 import { SUPPORT_PAUSED, SUPPORT_RECIPIENT_NOTE } from "@/lib/support";
 import type { SheltuhEvent } from "@/lib/types";
 import { typeName } from "./test-utils/buyerName";
+import { selectCard } from "./test-utils/ticketCards";
 
 /**
  * Support Sheltüh at checkout (components/checkout/SupportSheltuh.tsx): the
@@ -295,9 +296,9 @@ describe("Support Sheltüh in the ticket selector (general admission)", () => {
       ],
     };
     render(<TicketSelector event={event} />);
-    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Listener" }));
+    selectCard("Listener");
     expect(screen.queryByRole("group", { name: GROUP_NAME })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Paid" }));
+    selectCard("Paid");
     expect(group()).toBeInTheDocument();
   });
 
@@ -395,6 +396,23 @@ describe("Support Sheltüh on the seat page", () => {
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
     await waitFor(() => expect(createSeatedCheckout).toHaveBeenCalledTimes(1));
     expect(createSeatedCheckout.mock.calls[0][1]).not.toHaveProperty("supportCents");
+  });
+
+  it("the Other amount field's Done key closes the phone's keyboard (not on a desktop, not while composing)", () => {
+    render(<TicketSelector event={liveEvent(NEON)} />);
+    addGa();
+    fireEvent.click(chip("Other"));
+    const field = screen.getByLabelText("Other amount");
+    expect(field).toHaveAttribute("enterkeyhint", "done");
+    field.focus();
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(field).toHaveFocus();
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query === "(pointer: coarse)" }));
+    fireEvent.keyDown(field, { key: "Enter", isComposing: true });
+    expect(field).toHaveFocus();
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(field).not.toHaveFocus();
+    vi.unstubAllGlobals();
   });
 
   it("an invalid Other amount stops Checkout with an inline error on the field", () => {

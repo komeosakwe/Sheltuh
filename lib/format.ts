@@ -17,6 +17,11 @@ export function formatAud(cents: number): string {
   return `A$${formatted}`;
 }
 
+/** Always two decimals ("A$24.00", "A$0.00"): for the order summary and the buy bar's total, where figures line up. */
+export function formatAudExact(cents: number): string {
+  return `A$${(cents / 100).toFixed(2)}`;
+}
+
 /**
  * Every date/time formatter takes an optional IANA `timeZone`, defaulting to
  * the platform's (Australia/Melbourne, lib/time-zones.ts): the output never

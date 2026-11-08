@@ -108,6 +108,39 @@ describe("AdminEditEvent", () => {
     expect(await screen.findByRole("link", { name: "Analytics" })).toHaveAttribute("href", "/admin/events/evt-1/analytics");
   });
 
+  it("links a published, Sheltüh-ticketed event of a platform-managed organiser to its orders", async () => {
+    adminGetEvent.mockResolvedValue(EVENT);
+    renderPage();
+    expect(await screen.findByRole("link", { name: "Orders" })).toHaveAttribute("href", "/admin/events/evt-1/orders");
+  });
+
+  it("offers no orders for an organiser's own event (only its organiser sees the buyers)", async () => {
+    adminGetEvent.mockResolvedValue({ ...EVENT, organiserPlatformManaged: false });
+    renderPage();
+    await screen.findByTestId("event-editor");
+    expect(screen.queryByRole("link", { name: "Orders" })).toBeNull();
+  });
+
+  it("offers no orders until the event is published", async () => {
+    adminGetEvent.mockResolvedValue({ ...EVENT, status: "pending_review" });
+    renderPage();
+    await screen.findByTestId("event-editor");
+    expect(screen.queryByRole("link", { name: "Orders" })).toBeNull();
+  });
+
+  it("offers no orders for an external event (no Sheltüh orders)", async () => {
+    adminGetEvent.mockResolvedValue({
+      ...EVENT,
+      ticketTypes: [],
+      ticketingMode: "external",
+      externalTicketUrl: "https://events.humanitix.com/laneway",
+      externalProvider: "Humanitix",
+    });
+    renderPage();
+    await screen.findByTestId("event-editor");
+    expect(screen.queryByRole("link", { name: "Orders" })).toBeNull();
+  });
+
   it("offers no check-in for an organiser's own event (they run their door)", async () => {
     adminGetEvent.mockResolvedValue({ ...EVENT, organiserPlatformManaged: false });
     renderPage();

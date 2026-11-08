@@ -25,7 +25,8 @@ const STATUS_LABEL: Record<EventStatus, string> = {
  * it in admin mode. After a save conflict, "Reload latest version" fetches it
  * again and remounts the editor on the new version. A platform-managed
  * organiser's Sheltüh-ticketed event links to its door check-in, which admins
- * run (docs/architecture.md, "Check-in"). Below the editor, its Trending
+ * run (docs/architecture.md, "Check-in"), and once published to its Orders
+ * (buyers are visible to admins only for those: "Organiser orders"). Below the editor, its Trending
  * curation (TrendingPanel), linked from the top of the page. After an
  * expired session the sign-in form is shown once, by whichever of the two
  * needed it last (InlineReauth's fields have fixed ids); the other says to
@@ -77,6 +78,7 @@ export default function AdminEditEvent() {
   if (!event) return <p className="text-sm text-muted">Loading event…</p>;
 
   const adminCheckIn = event.organiserPlatformManaged && event.ticketingMode === "sheltuh";
+  const adminOrders = adminCheckIn && event.status === "published";
 
   return (
     <>
@@ -102,6 +104,17 @@ export default function AdminEditEvent() {
           Analytics
         </Link>
       </p>
+      {adminOrders && (
+        <p className="text-sm text-muted">
+          <Link
+            href={`/admin/events/${encodeURIComponent(event.eventId)}/orders`}
+            className="inline-flex min-h-11 items-center font-medium text-foreground underline underline-offset-4"
+          >
+            Orders
+          </Link>{" "}
+          — who bought, for Sheltüh-run events.
+        </p>
+      )}
       {adminCheckIn && (
         <p className="text-sm text-muted">
           <Link

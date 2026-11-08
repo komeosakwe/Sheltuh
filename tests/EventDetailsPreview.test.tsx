@@ -153,7 +153,7 @@ describe("EventDetailsView preview", () => {
     expect(screen.getByRole("button", { name: "Increase quantity for First release" })).toBeInTheDocument();
     // The cheaper second ticket isn't on sale yet: one price on sale, so no "From", and not A$20.
     expect(screen.queryByText(/From A\$/)).toBeNull();
-    expect(screen.queryByText(/^A\$21\.\d\d$/)).toBeNull();
+    expect(document.querySelector("[data-buy-bar]")).not.toHaveTextContent("A$21");
     expect(screen.getAllByText(/A\$32\.30/).length).toBeGreaterThan(0);
   });
 

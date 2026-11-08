@@ -25,6 +25,13 @@
   --paper: #ffffff; /* (e.g. the SaveButton's ring gap) */
   --danger: #b3261e;
   --danger-foreground: #ffffff;
+  /* The ticket panel on the event page (owner's mockup, 6 Nov 2026): a warm ivory card, a peach tint for the
+     chosen release and the order total, and a darker orange for small text on that tint (--signal itself is
+     for fills, marks and large text; --signal-ink is at least 5.3:1 on the Available pill, which is orange at 15% over
+     the panel, a white card or the tint). Only the ticket panel uses them. */
+  --panel: #fbf7f1;
+  --tint: #fdeadf;
+  --signal-ink: #a02a00;
   /* Door check-in only (components/check-in/, docs/design/check-in.md; enforced by
      tests/door-tokens.test.ts). Each fill has its text pair. Never used for decoration;
      colour is never the only signal (icon + words + panel shape). */
@@ -56,7 +63,7 @@
   --display-tracking: -0.045em;
   --display-leading: 0.88;
   --header-h: 3.5rem; /* 56px compact header, < lg */
-  --buybar-h: 4rem; /* 64px sticky event-page buy bar, < lg (before the safe area) */
+  --buybar-h: 4.5rem; /* 72px sticky event-page buy bar, < lg (before the safe area) */
   --editbar-h: 4rem; /* 64px sticky save bar on the event editor, before the safe area */
   --seatbar-h: 5.5rem; /* 88px phone summary bar on /events/[slug]/seats (before safe area) */
   /* Continue with Apple (docs/design/social-sign-in.md §2): Apple's own button colours, which
@@ -93,6 +100,9 @@
     --accent-foreground: #000000;
     --danger: #ff6b5e; /* 7.51:1 on black */
     --danger-foreground: #000000;
+    --panel: #1a1816;
+    --tint: #2c1b12;
+    --signal-ink: #ff8a5c; /* at least 5.8:1 on the pill over the dark panel, card or tint */
     /* Apple White on the black page. */
     --apple-fill: #ffffff;
     --apple-ink: #000000;
@@ -202,6 +212,9 @@
   --color-signal-foreground: var(--signal-foreground);
   --color-ink: var(--ink);
   --color-paper: var(--paper);
+  --color-panel: var(--panel);
+  --color-tint: var(--tint);
+  --color-signal-ink: var(--signal-ink);
   --color-danger: var(--danger);
   --color-danger-foreground: var(--danger-foreground);
   --color-door-admit: var(--door-admit);
@@ -221,6 +234,8 @@
   --radius-card: 0.75rem; /* 12px: event media, info cards, sheets, ticket stub, map card */
   --radius-control: 0.5rem; /* 8px: buttons, inputs, selects, search, chips, steppers, menus */
   --radius-badge: 0.25rem; /* 4px: category chip, date badge, status badge, unread count */
+  --radius-panel: 1rem; /* 16px: the event page's ticket panel */
+  --radius-sheet: 1.5rem; /* 24px: the top corners of the phone buy bar */
   --radius-dot: 28%; /* avatars, map markers (echo the umlaut) */
 }
 
@@ -235,9 +250,12 @@ html {
   scroll-padding-top: calc(var(--header-h) + env(safe-area-inset-top) + 0.5rem);
 }
 
+/* --buybar-measured is the general admission bar's real height in px (components/checkout/BuyBar.tsx
+   measures it, safe area included: it wraps, stacks and grows with large text); the others keep the
+   fixed one. */
 @media (max-width: 63.999rem) {
   html:has([data-buy-bar]) {
-    scroll-padding-bottom: calc(var(--buybar-h) + env(safe-area-inset-bottom) + 0.5rem);
+    scroll-padding-bottom: calc(var(--buybar-measured, var(--buybar-h) + env(safe-area-inset-bottom)) + 0.5rem);
   }
 }
 
@@ -302,6 +320,12 @@ h4 {
   font-family: var(--face-sans);
   font-weight: 700;
   letter-spacing: -0.025em;
+}
+
+/* The phone buy bar never takes more than a third of the screen (large text, a long note): it scrolls inside. */
+@utility max-h-bar {
+  max-height: 33svh;
+  overflow-y: auto;
 }
 
 /* A page's main headline (page headers): the one heavy uppercase style, in the plain face (the
@@ -547,11 +571,13 @@ h4 {
   outline-offset: 3px;
 }
 
-/* An event card's stretched link (components/ui/EventCard.tsx): the card itself draws the ring
+/* An event card's stretched link (components/ui/EventCard.tsx), and a ticket card's button (components/TicketSelector.tsx,
+   whose card includes its sub-text): the card itself draws the ring
    (has-[[data-card-link]:focus-visible]), so the link's own is dropped. Only where :has() works,
    so a browser without it still rings the link. */
 @supports selector(:has(a)) {
-  [data-card-link]:focus-visible {
+  [data-card-link]:focus-visible,
+  [data-ticket-card-button]:focus-visible {
     outline: none;
   }
 }

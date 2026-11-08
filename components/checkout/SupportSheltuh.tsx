@@ -11,6 +11,7 @@ import {
   SUPPORT_PRESETS_CENTS,
   SUPPORT_RECIPIENT_NOTE,
 } from "@/lib/support";
+import { dismissKeyboardOnEnter } from "@/lib/use-soft-keyboard";
 import { CheckIcon } from "./icons";
 
 interface SupportSheltuhProps {
@@ -202,6 +203,9 @@ export default function SupportSheltuh({ choice, onChange, revealError = false, 
                 value={choice.text}
                 onChange={(event) => onChange({ option: "other", text: event.target.value })}
                 onBlur={() => setOtherLeft(true)}
+                // "Done" closes the on-screen keyboard (the phone's buy bar comes back).
+                enterKeyHint="done"
+                onKeyDown={dismissKeyboardOnEnter}
                 aria-invalid={shownOtherError ? true : undefined}
                 // Whichever of the hint and the error is showing (never both).
                 aria-describedby={shownOtherError ? otherErrorId : otherHintId}

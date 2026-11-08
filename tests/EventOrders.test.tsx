@@ -86,6 +86,9 @@ describe("EventOrders", () => {
     expect(within(rows[0]).getByText("Wed 4 Nov, 8:05 pm")).toBeInTheDocument();
     expect(within(rows[0]).getByText("Paid")).toBeInTheDocument();
     expect(within(rows[1]).getAllByText("—")).toHaveLength(2);
+    // The dashes are for the eye; a screen reader is told what's missing.
+    expect(within(rows[1]).getByText("No name")).toHaveClass("sr-only");
+    expect(within(rows[1]).getByText("No email")).toHaveClass("sr-only");
     expect(within(rows[1]).getByText("Free")).toBeInTheDocument();
     expect(within(rows[2]).getByText("Refunded")).toBeInTheDocument();
     expect(within(rows[3]).getByText("Part refunded A$15")).toBeInTheDocument();

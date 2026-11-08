@@ -2248,7 +2248,11 @@ owner). `supabase/migrations/20261122000000_order_buyer_details.sql`,
 - **Who sees it.** `GET /organisers/me/events/{eventId}/orders`,
   `POST …/orders/search` and `…/orders.csv`, through `requireEventOperator` (`handlers/organiser-guard.ts`,
   shared with check-in): the event's approved owner organiser, or an admin
-  for a platform-managed organiser's event (no admin screen in v1); anyone
+  for a platform-managed organiser's event (the admin screen is
+  `/admin/events/{eventId}/orders`, the organiser's view with `scope="admin"`,
+  linked from the admin edit page for a published, Sheltüh-ticketed,
+  platform-managed event; for any other event it says only the organiser can
+  see the buyers); anyone
   else's event, a missing one or a malformed id is 404, a user with no
   approved organiser (a suspended one included) 403, signed out 401. Every
   response is `private, no-store`. Nothing about a buyer is logged.
