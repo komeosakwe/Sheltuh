@@ -122,9 +122,9 @@ describe("Who's Going preview: collapsed by default", () => {
     const region = await panel();
     const sample = getSampleGoing(DEMO_EVENT.id);
 
-    // The preview: five faces (decorative), the count, no list yet.
+    // The preview: five faces (the demo's samples have no visible profiles, so all decorative), the count, no list yet.
     const preview = faces(region);
-    expect(preview).toHaveAttribute("aria-hidden", "true");
+    for (const face of Array.from(preview?.children ?? [])) expect(face).toHaveAttribute("aria-hidden", "true");
     expect(preview?.children).toHaveLength(5);
     expect(within(region).getByText(String(sample.count))).toHaveClass("text-2xl");
     expect(list(region)).toBeNull();
@@ -294,6 +294,23 @@ describe("Who's Going preview: only real, permitted data (§6.4.3)", () => {
     expect(within(preview).getByText("CR")).toBeInTheDocument();
     expect(api.fetchAvatar).toHaveBeenCalledTimes(1);
     expect(api.fetchAvatar).toHaveBeenCalledWith("/api/profiles/prof-a/avatar?size=96", expect.any(Function), expect.any(AbortSignal));
+  });
+
+  it("a face with a visible profile links to it; the others stay decorative", async () => {
+    member({
+      count: 3,
+      attendees: [
+        { attendeeId: "a", displayName: "Ana P.", isYou: false, profileId: "prof-a", hasAvatar: true, avatarThumbUrl: "/api/profiles/prof-a/avatar?size=96" },
+        { attendeeId: "b", displayName: "Ben Q.", isYou: false, hasAvatar: false },
+      ],
+    });
+    renderEvent(LIVE_EVENT);
+    const region = await panel();
+    const preview = faces(region) as HTMLElement;
+    const link = within(preview).getByRole("link", { name: "Ana P.’s profile" });
+    expect(link).toHaveAttribute("href", "/members/prof-a");
+    expect(within(preview).getAllByRole("link")).toHaveLength(1);
+    expect(within(preview).getByText("BQ").closest("[aria-hidden='true']")).not.toBeNull();
   });
 
   it("no 'interested', friends or mutuals: the data doesn't exist, so nothing claims it", async () => {

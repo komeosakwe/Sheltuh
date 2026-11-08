@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import MemberAvatar from "@/components/members/MemberAvatar";
+import { memberHref } from "./NameList";
 import InitialsAvatar from "@/components/ui/InitialsAvatar";
 import type { GetToken } from "@/lib/api/client";
 import type { GoingAttendee } from "@/lib/api/types";
@@ -15,7 +17,9 @@ export const FACES_MAX = 5;
  * viewer (or the demo's samples), never invented. A photo shows only for a
  * member with a visible profile who has one (`profileId` and `hasAvatar`),
  * fetched with the bearer token by MemberAvatar; everyone else is initials.
- * Decorative (aria-hidden): the count and the list carry the meaning (and,
+ * A face whose member made their profile visible (`profileId`) links to that
+ * profile (owner request), named "{name}'s profile"; every other face is
+ * decorative (aria-hidden): the count and the list carry the meaning (and,
  * when there's no count, the panel's screen-reader line: `facesSummary`).
  * They overlap by 4px, so two-letter initials stay readable.
  */
@@ -33,26 +37,38 @@ export default function GoingFaces({
   const others = attendees.slice(0, youName !== undefined ? FACES_MAX - 1 : FACES_MAX);
   if (others.length === 0 && youName === undefined) return null;
   return (
-    <span aria-hidden="true" data-going-faces="" className="flex shrink-0">
+    <span data-going-faces="" className="flex shrink-0">
       {youName !== undefined && (
-        <span className="flex rounded-dot ring-2 ring-background">
+        <span aria-hidden="true" className="flex rounded-dot ring-2 ring-background">
           <InitialsAvatar name={youName} you />
         </span>
       )}
-      {others.map((attendee, index) => (
-        <span
-          key={attendee.attendeeId}
-          data-going-face=""
-          className={`flex rounded-dot ring-2 ring-background ${index > 0 || youName !== undefined ? "-ml-1" : ""}`.trim()}
-        >
+      {others.map((attendee, index) => {
+        const className = `relative flex rounded-dot ring-2 ring-background ${index > 0 || youName !== undefined ? "-ml-1" : ""}`.trim();
+        const avatar = (
           <MemberAvatar
             name={attendee.displayName}
             index={index}
             url={attendee.profileId && attendee.hasAvatar ? attendee.avatarThumbUrl : undefined}
             getToken={getToken}
           />
-        </span>
-      ))}
+        );
+        return attendee.profileId ? (
+          <Link
+            key={attendee.attendeeId}
+            href={memberHref(attendee.profileId)}
+            data-going-face=""
+            aria-label={`${attendee.displayName}’s profile`}
+            className={`${className} hover:z-10 focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground`}
+          >
+            {avatar}
+          </Link>
+        ) : (
+          <span key={attendee.attendeeId} data-going-face="" aria-hidden="true" className={className}>
+            {avatar}
+          </span>
+        );
+      })}
     </span>
   );
 }
