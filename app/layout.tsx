@@ -1,5 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Suspense } from "react";
+import AnalyticsIdentity from "@/components/analytics/AnalyticsIdentity";
+import AnalyticsPageviews from "@/components/analytics/AnalyticsPageviews";
+import VercelAnalytics from "@/components/analytics/VercelAnalytics";
 import { AdminSummaryProvider } from "@/components/admin/AdminSummaryProvider";
 import { ClipViewerProvider } from "@/components/events/ClipViewer";
 import Footer from "@/components/Footer";
@@ -14,6 +17,7 @@ import { isApiConfigured } from "@/lib/api/client";
 import { AuthProvider } from "@/lib/auth/AuthContext";
 import { APP_THEME_COLOR } from "@/lib/pwa/theme";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
+import { isVercelAnalyticsEnabled } from "@/lib/vercel-analytics";
 import { instrument, instrumentDots, plexMono } from "./fonts";
 import "./globals.css";
 
@@ -82,6 +86,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           Skip to main content
         </a>
         <AuthProvider>
+          <AnalyticsIdentity />
           <UnreadProvider>
             {/* Admin counts for the nav's Admin badge and the admin pages; fetched for admins only. */}
             <AdminSummaryProvider>
@@ -104,6 +109,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             </AdminSummaryProvider>
           </UnreadProvider>
         </AuthProvider>
+        {/* Usage analytics: each does nothing unless switched on (lib/analytics.ts, lib/vercel-analytics.ts). */}
+        <AnalyticsPageviews />
+        {isVercelAnalyticsEnabled({ VERCEL: process.env.VERCEL, NEXT_PUBLIC_VERCEL_ANALYTICS: process.env.NEXT_PUBLIC_VERCEL_ANALYTICS }) && <VercelAnalytics />}
         <ServiceWorkerRegistration />
         <ThemeSync />
       </body>

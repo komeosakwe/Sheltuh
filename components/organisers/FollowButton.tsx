@@ -7,6 +7,7 @@ import ActionErrorNotice from "@/components/whos-going/ActionErrorNotice";
 import { SESSION_EXPIRED_MESSAGE } from "@/components/whos-going/shared";
 import { ApiError, isApiConfigured } from "@/lib/api/client";
 import { followOrganiser, getFollowStatus, unfollowOrganiser } from "@/lib/api/follows";
+import { track } from "@/lib/analytics";
 import type { FollowStatus } from "@/lib/api/types";
 import { SessionExpiredError } from "@/lib/auth/AuthContext";
 import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
@@ -110,6 +111,7 @@ export default function FollowButton({ organiserId, organiserName }: { organiser
         setAnnouncement(`You’ve unfollowed ${organiserName}.`);
       } else {
         const follow = await followOrganiser(organiserId, { notifyNewEvents: notify }, getToken);
+        track("organiser_followed", { organiser_id: organiserId });
         settle(follow);
         setAnnouncement(
           follow.notifyNewEvents

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode, type Ref } from "react";
 import { useRouter } from "next/navigation";
 import InlineReauth, { signedInAgainMessage } from "@/components/auth/InlineReauth";
+import { track } from "@/lib/analytics";
 import { ApiError, type GetToken } from "@/lib/api/client";
 import AdminOrganiserPicker, { type PickedOrganiser } from "@/components/admin/AdminOrganiserPicker";
 import EventClipField, { clipStatusText } from "@/components/dashboard/EventClipField";
@@ -816,7 +817,10 @@ export default function EventEditor(props: Props) {
         let record = existingId
           ? await updateEventDraft(existingId, input, saveToken)
           : await createEventDraft(input, saveToken);
-        if (!existingId) setCreatedId(record.eventId);
+        if (!existingId) {
+          setCreatedId(record.eventId);
+          track("organiser_event_created", {});
+        }
         record = await syncImage(record, uploadEventImage, deleteEventImage, (id, focus, token) => setEventImageFocus(id, focus, token));
         const onSaved = props.onSaved;
         record = await syncClip(record, ORGANISER_CLIP_ROUTES, (kept) => {
@@ -953,7 +957,10 @@ export default function EventEditor(props: Props) {
       setSavedRecord(await syncClip(withImage, ORGANISER_CLIP_ROUTES, props.onSaved));
       const record: PublishedEvent = await publishEvent(initial.eventId, saveToken);
       setPublishConfirm(false);
-      if (record.status === "published") setOutcome({ kind: "published", slug: record.slug });
+      if (record.status === "published") {
+        track("organiser_event_published", { event_slug: record.slug });
+        setOutcome({ kind: "published", slug: record.slug });
+      }
       else if (record.status === "pending_review") {
         // The API's reason when it gives one (only it knows some), else what this page can tell.
         const reason = apiReviewReason(record.reviewReason, record) ?? publishReviewReason(record, eventReviewRequired);

@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import type { NextConfig } from "next";
 import { PHASE_PRODUCTION_BUILD } from "next/constants";
+import { assertPostHogKey, ingestRewrites, resolveAnalyticsConfig } from "./lib/analytics-config";
 import { missingOAuthLogos } from "./lib/auth/oauth-providers";
 
 /**
@@ -27,6 +28,15 @@ export function assertStripePublishableKey(value: string | undefined): void {
 }
 
 assertStripePublishableKey(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY);
+
+/**
+ * Usage analytics (PostHog; lib/analytics.ts) is on only with
+ * NEXT_PUBLIC_POSTHOG_KEY, a project key (phc_…) that is shipped in the browser
+ * bundle: anything else (a personal phx_… key above all) fails the build. Unset
+ * is fine, and then there is no /ingest route at all.
+ */
+assertPostHogKey(process.env.NEXT_PUBLIC_POSTHOG_KEY);
+const analytics = resolveAnalyticsConfig(process.env.NEXT_PUBLIC_POSTHOG_KEY, process.env.NEXT_PUBLIC_POSTHOG_HOST);
 
 /**
  * "Continue with Apple" and "Continue with Google" show the vendors' own
@@ -68,6 +78,15 @@ export const nextConfig: NextConfig = {
   // <head>. Block on metadata for every agent: our generateMetadata is one
   // indexed read.
   htmlLimitedBots: /.*/,
+
+  // Usage analytics' first-party proxy: /ingest/* goes to PostHog (lib/analytics-config.ts), so
+  // ad blockers don't skew the numbers. Only with a key. PostHog's endpoints end in a slash
+  // (/ingest/e/), which Next would redirect away (a redirect a POST doesn't survive), so with
+  // analytics on the trailing-slash redirect is off for the site: /about/ then serves /about.
+  async rewrites() {
+    return ingestRewrites(analytics);
+  },
+  ...(analytics ? { skipTrailingSlashRedirect: true } : {}),
 
   async headers() {
     return [

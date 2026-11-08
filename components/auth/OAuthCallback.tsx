@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { DotsLoader } from "@/components/brand/DotsMark";
 import { ButtonLink } from "@/components/ui/Button";
 import { PageHeader } from "@/components/ui/Section";
+import { track } from "@/lib/analytics";
 import { useAuth } from "@/lib/auth/AuthContext";
 import {
   EMAIL_SIGN_IN_ID,
@@ -89,6 +90,7 @@ export default function OAuthCallback() {
     const { code, flowId, next } = callback;
     completeOAuthSignIn(code, flowId ?? undefined).then(
       () => {
+        track("signed_in", { signin_method: "oauth" });
         if (mounted.current) router.replace(next ?? OAUTH_DEFAULT_NEXT);
       },
       (err: unknown) => {

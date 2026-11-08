@@ -231,10 +231,49 @@ export default function PrivacyPage() {
           help prevent fraud. Stripe&rsquo;s privacy policy covers that too.
         </p>
       </ContentSection>
+      <ContentSection title="Usage analytics" id="analytics">
+        {/* OWNER, before go-live: say which PostHog region you chose (the project's cloud, US or EU).
+            The wording below names both until you do; docs/DEPLOYMENT.md, "Usage analytics". */}
+        <p>
+          We measure how Sheltüh is used (which pages are visited, how people find us and whether
+          they come back) so we can make it better. We use two tools for that.
+        </p>
+        <ul>
+          <li>
+            <strong>PostHog</strong> records page views and a few actions: opening an event, starting
+            and finishing a checkout (the number of tickets and the amount, never an order number or
+            ticket code), saving an event, following an organiser, joining Who&rsquo;s Going, using
+            “Near me”, searching (only whether you used words or a place, never which) and signing
+            in or up. If you&rsquo;re signed in, these are linked to a random account ID, not your
+            name, email address or phone number. It doesn&rsquo;t record your screen, what you type
+            or the words you search for, and it sets no cookies: a random ID is kept in your
+            browser&rsquo;s storage. Web addresses are cut down before they&rsquo;re sent, so links
+            with a private code or token in them are never recorded. It reaches PostHog through our
+            own address. The data is kept by PostHog in the United States or the European Union, as
+            set by Sheltüh.
+          </li>
+          <li>
+            <strong>Vercel Web Analytics and Speed Insights</strong> (our host) count page views and
+            visitors without cookies or a profile of you, note where visits came from, your country,
+            and your device and browser type, and measure how fast pages load.
+          </li>
+        </ul>
+        <p>
+          We don&rsquo;t use this for advertising, we don&rsquo;t sell it, and it isn&rsquo;t shared
+          with ad networks. Pages for Sheltüh&rsquo;s own administrators aren&rsquo;t measured. A link
+          we share may carry a campaign tag (such as <code>utm_source=instagram</code>) so we can see
+          which of our posts brought you here.
+        </p>
+        <p>
+          To opt out, turn on Do Not Track or Global Privacy Control in your browser: both tools then
+          switch themselves off for you. You can also ask us to delete what we hold about your
+          account by emailing <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>.
+        </p>
+      </ContentSection>
       <ContentSection title="Who we share it with">
         <p>
           We use service providers to run Sheltüh — for hosting, sign-in, our database (located in Sydney),
-          payments and sending email. They only handle data on our behalf. Organisers see
+          payments, usage analytics and sending email. They only handle data on our behalf. Organisers see
           who bought tickets to their own events (see{" "}
           <a href="#organiser-orders">What organisers see</a>). We don’t sell your personal information.
         </p>

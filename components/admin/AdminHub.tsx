@@ -164,6 +164,13 @@ function manageCards(summary: AdminSummary | null): HubCard[] {
       todo: "Boost an event or keep it out.",
     },
     {
+      href: "/admin/campaign-links",
+      title: "Campaign links",
+      status: null,
+      waiting: false,
+      todo: "Make a tracked link or QR code for a post, bio or poster.",
+    },
+    {
       href: DOOR_EVENTS_HREF,
       title: "Door check-in",
       status: door

@@ -178,3 +178,33 @@ describe("/privacy — What organisers see", () => {
     );
   });
 });
+
+// Owner decision: usage analytics (PostHog, plus Vercel Web Analytics and Speed Insights).
+describe("/privacy — Usage analytics", () => {
+  it("is linkable as #analytics and says what is measured, what isn't, where it is kept and how to opt out", () => {
+    render(<PrivacyPage />);
+    const section = screen.getByRole("heading", { name: "Usage analytics" }).closest("section");
+    if (!section) throw new Error("Usage analytics section not rendered");
+    expect(section).toHaveAttribute("id", "analytics");
+    expect(section).toHaveTextContent("PostHog");
+    expect(section).toHaveTextContent("Vercel Web Analytics and Speed Insights");
+    expect(section).toHaveTextContent("linked to a random account ID, not your name, email address or phone number");
+    expect(section).toHaveTextContent("It doesn’t record your screen, what you type or the words you search for, and it sets no cookies");
+    expect(section).toHaveTextContent("never an order number or ticket code");
+    expect(section).toHaveTextContent("links with a private code or token in them are never recorded");
+    // The region is the owner's to set before go-live (app/privacy/page.tsx comment, docs/DEPLOYMENT.md).
+    expect(section).toHaveTextContent("The data is kept by PostHog in the United States or the European Union, as set by Sheltüh.");
+    expect(section).toHaveTextContent("We don’t use this for advertising, we don’t sell it, and it isn’t shared with ad networks.");
+    expect(section).toHaveTextContent("Pages for Sheltüh’s own administrators aren’t measured.");
+    expect(section).toHaveTextContent("utm_source=instagram");
+    expect(section).toHaveTextContent("turn on Do Not Track or Global Privacy Control in your browser");
+    expect(within(section).getByRole("link", { name: "support@sheltuh.com.au" })).toHaveAttribute("href", "mailto:support@sheltuh.com.au");
+  });
+
+  it("is listed among the service providers", () => {
+    render(<PrivacyPage />);
+    expect(screen.getByRole("heading", { name: "Who we share it with" }).closest("section")).toHaveTextContent(
+      "payments, usage analytics and sending email",
+    );
+  });
+});

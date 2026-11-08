@@ -244,3 +244,38 @@ describe("public/auth: Google's G is committed (docs/auth-logos.md)", () => {
     }
   });
 });
+
+describe("usage analytics' first-party proxy (/ingest)", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it("is absent without NEXT_PUBLIC_POSTHOG_KEY: no rewrite and the trailing-slash redirect left alone", async () => {
+    vi.stubEnv("NEXT_PUBLIC_POSTHOG_KEY", "");
+    vi.resetModules();
+    const { nextConfig: off } = await import("../next.config");
+    expect(await off.rewrites?.()).toEqual([]);
+    expect(off.skipTrailingSlashRedirect).toBeUndefined();
+  });
+
+  it("with a key, sends /ingest to PostHog's region and keeps PostHog's trailing slashes", async () => {
+    vi.stubEnv("NEXT_PUBLIC_POSTHOG_KEY", "phc_abc123");
+    vi.stubEnv("NEXT_PUBLIC_POSTHOG_HOST", "https://eu.i.posthog.com");
+    vi.resetModules();
+    const { nextConfig: on } = await import("../next.config");
+    expect(await on.rewrites?.()).toEqual([
+      { source: "/ingest/static/:path*", destination: "https://eu-assets.i.posthog.com/static/:path*" },
+      { source: "/ingest/array/:path*", destination: "https://eu-assets.i.posthog.com/array/:path*" },
+      { source: "/ingest/:path*", destination: "https://eu.i.posthog.com/:path*" },
+    ]);
+    expect(on.skipTrailingSlashRedirect).toBe(true);
+  });
+
+  it("fails the build for a key that isn't a project key, without printing it", async () => {
+    vi.stubEnv("NEXT_PUBLIC_POSTHOG_KEY", "phx_personal_secret_value");
+    vi.resetModules();
+    await expect(import("../next.config")).rejects.toThrow(/NEXT_PUBLIC_POSTHOG_KEY must be a PostHog project API key/);
+    await import("../next.config").catch((err: unknown) => expect(String(err)).not.toContain("personal_secret_value"));
+  });
+});

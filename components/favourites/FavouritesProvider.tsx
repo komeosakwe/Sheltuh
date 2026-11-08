@@ -14,6 +14,7 @@ import {
 } from "react";
 import { ApiError, type GetToken } from "@/lib/api/client";
 import { addFavourite, listFavouriteIds, removeFavourite } from "@/lib/api/favourites";
+import { track } from "@/lib/analytics";
 import { SessionExpiredError } from "@/lib/auth/AuthContext";
 import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
 import { parseSavedIds, readSavedIds, SAVED_STORAGE_KEY, writeSavedIds } from "@/lib/saved-storage";
@@ -137,6 +138,7 @@ export function FavouritesProvider({ children }: { children: ReactNode }) {
   // The latest handler, told by the store when a request settles.
   useEffect(() => {
     store?.setOnSettled((settled) => {
+      if (settled.kind === "saved") track("favourite_added", { event_slug: settled.event.slug });
       const pending = pendingRemovals.current.get(settled.event.id);
       if (pending) {
         pendingRemovals.current.delete(settled.event.id);

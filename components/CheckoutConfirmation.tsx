@@ -9,6 +9,7 @@ import WalletButtons from "@/components/tickets/WalletButtons";
 import { ButtonLink, buttonClass } from "@/components/ui/Button";
 import { LoadingState } from "@/components/ui/ProgressLoader";
 import Strap from "@/components/ui/Strap";
+import { orderCompletedProperties, trackOnce } from "@/lib/analytics";
 import { ApiError } from "@/lib/api/client";
 import { getOrderBySession, getOrderPayment } from "@/lib/api/orders";
 import {
@@ -113,6 +114,13 @@ export default function CheckoutConfirmation() {
   useEffect(() => {
     if (settled && sessionId) forgetPendingCheckout(sessionId);
   }, [settled, sessionId]);
+
+  // Usage analytics: one order_completed per paid order, however often this page is reloaded. The
+  // order reference is only the dedupe key (kept as a short fingerprint); it is never sent.
+  const paidOrder = state.status === "ready" ? state.order : null;
+  useEffect(() => {
+    if (paidOrder && sessionId) trackOnce(sessionId, "order_completed", orderCompletedProperties(paidOrder));
+  }, [paidOrder, sessionId]);
 
   useEffect(() => {
     let cancelled = false;
