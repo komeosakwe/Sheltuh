@@ -32,4 +32,4 @@ why these were picked without identifiable faces or legible logos.
 
 All six: licence Unsplash License (<https://unsplash.com/license>), each photo page reads "Free to
 use under the Unsplash License" (not Unsplash+); downloaded 8 Nov 2026; attribution not required.
-If we ever credit them, use "Photo by <photographer> on Unsplash".
+If we ever credit them, use `Photo by <photographer> on Unsplash`.
