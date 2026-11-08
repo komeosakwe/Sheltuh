@@ -255,7 +255,7 @@ test.describe("home at 375px, without scrolling", () => {
   });
 });
 
-// Owner (3 Nov 2026): below 640px the rails give way to two-column grids of cards: on every phone width
+// Owner (3 Nov 2026): below 640px the rails (but This weekend's, since 8 Nov) give way to two-column grids of cards: on every phone width
 // the columns sit on the page's 20px gutters with 12px between, and the page stays still.
 // (Owner feedback of 22 Oct 2026, rails as carousels, now holds from 640px: the tests below.)
 for (const width of [320, 375, 390, 430]) {
@@ -265,10 +265,13 @@ for (const width of [320, 375, 390, 430]) {
     test("replace the rails: two equal columns on the gutters, cards inside them, and the page stays still", async ({ page }) => {
       await mockApi(page);
       await page.goto("/");
-      const section = page.locator("[data-home-section]").first();
+      // This weekend is a sideways rail on phones too (owner's mockup, 8 Nov 2026: e2e/weekend-whos-going.spec.ts);
+      // every other section is the grid.
+      const section = page.locator("[data-home-grid]").first();
       await expect(section).toBeVisible({ timeout: 30_000 });
       await page.evaluate(() => document.fonts.ready);
-      await expect(page.locator("[data-rail-layout]")).toHaveCount(0);
+      await expect(page.locator("[data-rail-layout]")).toHaveCount(1);
+      await expect(page.getByRole("region", { name: "This weekend" }).locator("[data-rail-layout]")).toHaveCount(1);
 
       // The hero's headline starts on the same 20px gutter.
       const heading = await page.getByRole("heading", { level: 1 }).boundingBox();
@@ -405,10 +408,9 @@ for (const width of [640, 768, 1024, 1280, 1440]) {
       if (!heading) throw new Error("not laid out");
       expect(Math.abs(boxes[0].x - heading.x)).toBeLessThanOrEqual(1);
       expect(layout.display).toBe("flex");
-      if (width >= 1280) {
+      if (width >= 640) {
+        // This weekend's cards (owner's mockup, 8 Nov 2026) are 256px at every width from 640px.
         for (const box of boxes) expect(Math.round(box.w)).toBe(256);
-      } else if (width >= 640) {
-        for (const box of boxes) expect(Math.round(box.w)).toBe(224);
       } else {
         // Phones: the carousel, with the second card peeking in at the right edge, scrolling sideways.
         expect(boxes[1].x).toBeLessThan(width);

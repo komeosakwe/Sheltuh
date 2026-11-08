@@ -10,3 +10,7 @@ the site: the "horn band" image was removed for that reason. Photos received fro
 owner without provenance: gallery-opening, vintage-market-stall, street-market,
 record-shop-dj, dj-crate-digging (credit "phrank.net" visible), jazz-drummer. Confirm rights
 for each, or replace with licensed photos (Unsplash/Pexels/own shots).
+
+`dj-crate-digging.jpg` is also the decorative crowd behind the event page's "Who's going?" card
+(`components/whos-going/WhosGoingCard.tsx`, owner's mockup of 8 Nov 2026), dimmed under a gradient.
+Its rights need confirming before launch like the rest; swap `CARD_PHOTO` for a licensed crowd photo.

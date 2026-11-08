@@ -41,6 +41,9 @@ export default function HomeRailSection({
   count,
   empty,
   className,
+  headVariant = "default",
+  autoScroll = true,
+  phoneEdges = true,
   children,
 }: {
   /** The h2's id; the rail is `${id}-rail`. */
@@ -52,6 +55,12 @@ export default function HomeRailSection({
   count: number;
   empty?: ReactNode;
   className?: string;
+  /** SectionHead's look (`feature`: This weekend's). */
+  headVariant?: "default" | "feature";
+  /** Off: the rail never drifts by itself (This weekend on phones, where the next card's peek says there's more). */
+  autoScroll?: boolean;
+  /** Off: no edge fades or arrow below 640px (This weekend's peeking card is the cue there). */
+  phoneEdges?: boolean;
   children?: ReactNode;
 }) {
   const rootRef = useRef<HTMLElement>(null);
@@ -62,7 +71,7 @@ export default function HomeRailSection({
   const pair = isPairRail(count);
   // Every rail holds still while the page's clip viewer is open (docs/design/event-clips.md §5.2).
   const clipViewer = useClipViewer();
-  const auto = useRailAutoScroll({ rootRef, railRef, enabled: overflows && !pair, held: clipViewer?.isOpen ?? false });
+  const auto = useRailAutoScroll({ rootRef, railRef, enabled: autoScroll && overflows && !pair, held: clipViewer?.isOpen ?? false });
 
   return (
     <section ref={rootRef} aria-labelledby={id} data-home-section className={className}>
@@ -72,6 +81,7 @@ export default function HomeRailSection({
           title={title}
           note={note}
           link={link}
+          variant={headVariant}
           actions={
             overflows ? (
               <>
@@ -93,7 +103,8 @@ export default function HomeRailSection({
           <ScrollEdges
             canPrev={scroll.canPrev}
             canNext={scroll.canNext}
-            arrowClassName="top-18"
+            className={phoneEdges ? "" : "max-sm:hidden"}
+            arrowClassName={phoneEdges ? "top-18" : "hidden"}
           />
         </div>
       )}

@@ -59,6 +59,12 @@ export interface HomeSections {
     /** `cards`: show them. `hidden`: render nothing (Coming up shows what's next). */
     status: "cards" | "hidden";
     items: SheltuhEvent[];
+    /**
+     * The server's thresholded going counts for the weekend's events that are also trending with
+     * one (TrendingSignal "going"), by event id, for the cards' going strip. Live only has counts for
+     * those; the rest have none (the demo's cards use their sample counts).
+     */
+    going: Record<string, number>;
   };
   /**
    * "From organisers you follow" (signed-in members who follow someone):
@@ -240,6 +246,11 @@ export function selectHomeSections(
   // Nothing on: hide (Coming up shows what's next).
   const weekendStatus = weekendItems.length > 0 ? "cards" : "hidden";
   claim(weekendItems);
+  const weekendIds = new Set(weekendItems.map((event) => event.id));
+  const weekendGoing: Record<string, number> = {};
+  for (const { event, signal } of trending) {
+    if (signal.kind === "going" && weekendIds.has(event.id)) weekendGoing[event.id] = signal.count;
+  }
 
   // 1b. From organisers you follow: soonest first, shown with even one event (the member asked for them).
   const followingItems = preferState(
@@ -286,7 +297,7 @@ export function selectHomeSections(
 
   return {
     anyUpcoming: upcoming.length > 0,
-    weekend: { window, status: weekendStatus, items: weekendItems },
+    weekend: { window, status: weekendStatus, items: weekendItems, going: weekendGoing },
     following: followingItems,
     popular,
     recent: recentItems,

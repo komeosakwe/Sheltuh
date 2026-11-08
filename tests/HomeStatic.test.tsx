@@ -202,7 +202,10 @@ describe("CategoryRow: browse by category (Refinement, 22 Oct 2026)", () => {
     expect(list.parentElement).toHaveClass("relative", "-mx-5", "sm:mx-0");
     expect(list.className).not.toMatch(/\bgrid\b/);
     for (const item of within(list).getAllByRole("listitem")) expect(item).toHaveClass("shrink-0");
-    expect(screen.getByRole("link", { name: "Theatre" })).toHaveClass("h-11", "sm:h-10", "rounded-control");
+    // Pills (owner's mockup, 8 Nov 2026): All events solid, the categories outlined; links, never pressed or current.
+    expect(screen.getByRole("link", { name: "Theatre" })).toHaveClass("h-11", "sm:h-10", "rounded-full", "border-foreground/50");
+    expect(screen.getByRole("link", { name: "All events" })).toHaveClass("h-11", "sm:h-10", "rounded-full", "bg-foreground", "text-background");
+    expect(list.querySelector("[aria-current], [aria-pressed]")).toBeNull();
   });
 });
 
@@ -234,6 +237,22 @@ describe("SectionHead", () => {
     expect(root.querySelector(".eyebrow")).toBeNull();
     // The link sits on the h2's baseline.
     expect(root).toHaveClass("items-baseline");
+  });
+
+  it("feature: This weekend's big head, with the link's words underlined in orange beside the arrow", () => {
+    render(
+      <SectionHead id="w" title="This weekend" note="Fri 13 – Sun 15 Nov" link={{ href: "/events", label: "All events" }} variant="feature" />,
+    );
+    const h2 = screen.getByRole("heading", { level: 2, name: "This weekend" });
+    expect(h2).toHaveClass("text-3xl", "sm:text-4xl", "font-bold");
+    expect(h2.nextElementSibling).toHaveTextContent("Fri 13 – Sun 15 Nov");
+    const link = screen.getByRole("link", { name: "All events" });
+    expect(link).toHaveAttribute("href", "/events");
+    expect(link).toHaveClass("min-h-11");
+    // The underline is the words' (orange, 3px), not the arrow's; the arrow is decorative.
+    const words = within(link).getByText("All events");
+    expect(words).toHaveClass("underline", "decoration-signal", "decoration-3");
+    expect(link.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
   });
 
   it("puts the note (real context, e.g. the weekend's dates) after the h2 in reading order", () => {

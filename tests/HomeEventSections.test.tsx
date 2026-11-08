@@ -73,10 +73,9 @@ function renderHome() {
   );
 }
 
-/** Every card's main link (not See all, Save or quick-buy links). */
+/** Every card's main link (not See all, Save, quick-buy or a This weekend card's "Open" arrow). */
 const cardHrefs = () =>
-  screen
-    .queryAllByRole("link")
+  Array.from(document.querySelectorAll("[data-card-link]"))
     .map((a) => a.getAttribute("href") ?? "")
     .filter((href) => /^\/events\/[^?#]+$/.test(href));
 
@@ -106,10 +105,13 @@ describe("the home's event sections", () => {
     expect(screen.queryByRole("region", { name: "Up next" })).not.toBeInTheDocument();
     // The soonest event is a card like any other (in Coming up), with its ticket action.
     expect(screen.getByRole("link", { name: "Buy tickets for Event next" })).toHaveAttribute("href", "/events/next#tickets");
-    // Every card is the rail EventCard.
+    // This weekend's are its own cards (owner's mockup, 8 Nov 2026); every other card is the rail EventCard.
     const cards = container.querySelectorAll("[data-event-card]");
     expect(cards.length).toBe(6);
-    for (const card of cards) expect(card).toHaveAttribute("data-variant", "rail");
+    for (const card of cards) {
+      expect(card).toHaveAttribute("data-variant", card.closest("#home-weekend-rail") ? "weekend" : "rail");
+    }
+    expect(container.querySelectorAll("#home-weekend-rail [data-event-card]")).toHaveLength(2);
 
     const weekend = screen.getByRole("region", { name: "This weekend" });
     expect(weekend).toHaveTextContent("Fri 23 – Sun 25 Oct");

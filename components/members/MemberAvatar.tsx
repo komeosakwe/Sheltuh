@@ -5,7 +5,7 @@ import InitialsAvatar from "@/components/ui/InitialsAvatar";
 import type { GetToken } from "@/lib/api/client";
 import { useAvatarObjectUrl } from "./useAvatarObjectUrl";
 
-const SIZE_CLASS = { md: "size-8", lg: "size-24 sm:size-32" } as const;
+const SIZE_CLASS = { md: "size-8", face: "size-9", lg: "size-24 sm:size-32" } as const;
 
 /**
  * A member's photo in the avatar's rounded square (brand-direction-one.md
@@ -13,7 +13,8 @@ const SIZE_CLASS = { md: "size-8", lg: "size-24 sm:size-32" } as const;
  * loaded yet. Decorative (`alt=""`): the name beside it is what's read.
  *
  * `lazy`: fetched only once it scrolls near the viewport (a long Who's Going
- * list fetches only the rows people see).
+ * list fetches only the rows people see). `round`: a circle (the Who's going
+ * card's faces, InitialsAvatar `round`).
  */
 export default function MemberAvatar({
   name,
@@ -22,6 +23,7 @@ export default function MemberAvatar({
   size = "md",
   index = 0,
   lazy = false,
+  round = false,
 }: {
   name: string;
   /** `avatarUrl` / `avatarThumbUrl` from the API; unset: initials. */
@@ -31,6 +33,7 @@ export default function MemberAvatar({
   /** The row's place in its list, for the initials' fill. */
   index?: number;
   lazy?: boolean;
+  round?: boolean;
 }) {
   const ref = useRef<HTMLSpanElement>(null);
   const [visible, setVisible] = useState(!lazy);
@@ -62,9 +65,9 @@ export default function MemberAvatar({
     <span ref={ref} aria-hidden="true" className={`flex shrink-0 ${SIZE_CLASS[size]}`}>
       {src ? (
         // eslint-disable-next-line @next/next/no-img-element -- a local object URL (the photo needs the bearer token)
-        <img src={src} alt="" data-member-photo="" className="size-full rounded-dot object-cover" />
+        <img src={src} alt="" data-member-photo="" className={`size-full object-cover ${round ? "rounded-full" : "rounded-dot"}`} />
       ) : (
-        <InitialsAvatar name={name} index={index} size={size} />
+        <InitialsAvatar name={name} index={index} size={size} round={round} />
       )}
     </span>
   );

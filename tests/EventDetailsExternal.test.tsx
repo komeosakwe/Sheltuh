@@ -245,6 +245,8 @@ describe("external event: Who's Going is closed (only the count-only signal rema
 
   it("a Sheltüh-ticketed demo event still shows its sample Who's Going (control)", () => {
     render(<EventDetailsView event={sample("neon-static")} demo />);
-    expect(screen.getByRole("heading", { name: /who.s going/i })).toBeInTheDocument();
+    // The panel, and the Who's going? card under Save and Share (owner's mockup, 8 Nov 2026).
+    expect(screen.getByRole("heading", { name: /^who.s going$/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Who’s going?" })).toBeInTheDocument();
   });
 });

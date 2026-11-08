@@ -154,6 +154,52 @@ describe("selectHomeSections", () => {
     ]);
   });
 
+  it("This weekend's edges: a Friday-morning start isn't in it, a Sunday 11:30 pm one is, Monday's isn't", () => {
+    const events = [
+      // Fri 23 Oct 09:00–11:00 AEDT: over before the weekend opens at 17:00.
+      event("fri-morning", "2026-10-22T22:00:00.000Z", { endsAt: "2026-10-23T00:00:00.000Z" }),
+      // Fri 23 Oct 17:00 AEDT exactly.
+      event("fri-1700", "2026-10-23T06:00:00.000Z"),
+      // Sun 25 Oct 23:30 AEDT: the last half hour of the window.
+      event("sun-late", "2026-10-25T12:30:00.000Z"),
+      // Mon 26 Oct 00:00 AEDT: next week.
+      event("mon-midnight", "2026-10-25T13:00:00.000Z"),
+    ];
+    expect(selectHomeSections(events, [], NOW).weekend.items.map((e) => e.id)).toEqual(["fri-1700", "sun-late"]);
+
+    // On the Friday morning itself, the weekend hasn't started: the same window, not yet during.
+    const friMorning = at("2026-10-22T21:30:00.000Z"); // Fri 23 Oct 08:30 AEDT
+    const early = selectHomeSections(events, [], friMorning);
+    expect(early.weekend.window.during).toBe(false);
+    expect(formatWeekendRange(early.weekend.window)).toBe("Fri 23 – Sun 25 Oct");
+    expect(early.weekend.items.map((e) => e.id)).toEqual(["fri-1700", "sun-late"]);
+
+    // Late on the Sunday night it's still this weekend, until midnight.
+    const sunNight = at("2026-10-25T12:45:00.000Z"); // Sun 25 Oct 23:45 AEDT
+    const late = selectHomeSections(events, [], sunNight);
+    expect(late.weekend.window.during).toBe(true);
+    expect(formatWeekendRange(late.weekend.window)).toBe("Until Sun 25 Oct");
+    // The 11:30 pm start is under way (it runs to 2:30 am), so it's still on.
+    expect(late.weekend.items.map((e) => e.id)).toEqual(["sun-late"]);
+
+    // From Monday 00:00 it's next weekend's window, and Sunday's events have gone from it.
+    const monday = selectHomeSections(events, [], at("2026-10-25T13:00:00.000Z"));
+    expect(formatWeekendRange(monday.weekend.window)).toBe("Fri 30 Oct – Sun 1 Nov");
+    expect(monday.weekend.items).toEqual([]);
+  });
+
+  it("This weekend carries the server's going counts for its trending events, and only those", () => {
+    const sat = event("sat", day(24));
+    const sun = event("sun", day(25, 2));
+    const later = event("later", day(28));
+    const popular: TrendingItem = { event: sun, signal: { kind: "popular" } };
+    const sections = selectHomeSections([sat, sun, later], [trend(sat, 42), popular, trend(later, 18)], NOW);
+    expect(sections.weekend.items.map((e) => e.id)).toEqual(["sat", "sun"]);
+    // Sun is trending without a count; "later" isn't this weekend's.
+    expect(sections.weekend.going).toEqual({ sat: 42 });
+    expect(selectHomeSections([sat, sun], [], NOW).weekend.going).toEqual({});
+  });
+
   it("This weekend: ties on start are broken by id", () => {
     const sections = selectHomeSections(
       [event("next", day(22)), event("sat-b", day(24)), event("sat-a", day(24))],

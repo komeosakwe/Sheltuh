@@ -125,11 +125,12 @@ for (const vp of VIEWPORTS) {
 
       // Each event at most once across every section. The auto-scroll's copies of a rail's cards
       // (aria-hidden and out of the tab order, `li[data-rail-clone]`) aren't the page listing an event again.
+      // A This weekend card's "Open {title}" arrow goes to the same page as its title: the card's one link counts.
       const hrefs = await page
         .locator("main a[href^='/events/']")
         .evaluateAll((links) =>
           links
-            .filter((a) => !a.closest("[data-rail-clone]"))
+            .filter((a) => !a.closest("[data-rail-clone]") && !a.matches("[aria-label^='Open ']"))
             .map((a) => a.getAttribute("href") ?? "")
             .filter((href) => /^\/events\/[^?#/]+$/.test(href)),
         );
@@ -178,11 +179,13 @@ test.describe("home at phone 390×844", () => {
 
     const first = page.locator("[data-home-section]").first();
     await expect(first.getByRole("heading", { level: 2 })).toHaveText("This weekend");
-    const grid = first.getByRole("list");
+    // This weekend is its own cards in a sideways rail (owner's mockup, 8 Nov 2026); the next section is a grid.
+    await expect(first.getByRole("list")).toHaveCSS("display", "flex");
+    await expect(first.locator("[data-event-card][data-variant='weekend']").first()).toBeVisible();
+    const grid = page.locator("[data-home-grid]").first().getByRole("list");
     await expect(grid).toHaveCSS("display", "grid");
     expect((await grid.evaluate((el) => getComputedStyle(el).gridTemplateColumns)).split(" ")).toHaveLength(2);
-    await expect(first.locator("[data-event-card]").first()).toBeVisible();
-    await expect(page.locator("[data-rail-layout]")).toHaveCount(0);
+    await expect(page.locator("[data-rail-layout]")).toHaveCount(1);
     await expect(page.locator("[data-event-card][data-variant='rail']")).toHaveCount(0);
     await expect(page.locator("[data-home-feed]")).toHaveCount(0);
     await expect(page.getByText("Swipe through events")).toHaveCount(0);
@@ -270,7 +273,8 @@ test("a card's Buy tickets lands on the event page with focus on the tickets", a
     return event ? route.fulfill({ json: event }) : route.fulfill({ status: 404, json: { error: "not found" } });
   });
   await page.goto("/");
-  const section = page.locator("[data-home-section]").first();
+  // This weekend's cards open the event (an orange arrow, owner's mockup of 8 Nov 2026): the quick buy is the next rail's.
+  const section = page.locator("[data-home-section]").nth(1);
   const quickBuy = section.getByRole("link", { name: /^(?:Buy tickets|Free tickets) for / }).first();
   const href = await quickBuy.getAttribute("href");
   expect(href).toMatch(/^\/events\/[^/]+#tickets$/);
@@ -540,11 +544,12 @@ test.describe("the home's grids on a phone (375×667)", () => {
 
   test("two columns on the page's 20px gutters with 12px between, the first heading under the category row", async ({ page }) => {
     await openHome(page);
-    const section = page.locator("[data-home-section]").first();
+    // The first grid (This weekend is a rail on phones too since the owner's mockup of 8 Nov 2026), and the first heading.
+    const section = page.locator("[data-home-grid]").first();
     const cards = section.locator("[data-event-card]");
     const [a, b] = [await cards.nth(0).boundingBox(), await cards.nth(1).boundingBox()];
     const chips = await page.getByRole("navigation", { name: "Browse by category" }).boundingBox();
-    const heading = await section.getByRole("heading", { level: 2 }).boundingBox();
+    const heading = await page.locator("[data-home-section]").first().getByRole("heading", { level: 2 }).boundingBox();
     if (!a || !b || !chips || !heading) throw new Error("home not laid out");
     expect(a.x).toBe(20);
     expect(b.x + b.width).toBe(375 - 20);

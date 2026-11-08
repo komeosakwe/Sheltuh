@@ -14,22 +14,25 @@ import type { SheltuhEvent } from "@/lib/types";
 export default function CardPrice({
   event,
   className = "",
+  amountClassName = "font-semibold",
   now,
 }: {
   event: SheltuhEvent;
   className?: string;
+  /** The amount's weight and size (the This weekend card's is bold and a step larger than its note). */
+  amountClassName?: string;
   now?: Date;
 }) {
   if (now && hasEnded(event, now)) {
     return (
-      <p className={`font-semibold text-muted ${className}`.trim()}>
+      <p className={`${amountClassName} text-muted ${className}`.trim()}>
         Ended
       </p>
     );
   }
   if (isSoldOut(event)) {
     return (
-      <p className={`font-semibold text-foreground ${className}`.trim()}>
+      <p className={`${amountClassName} text-foreground ${className}`.trim()}>
         {SOLD_OUT_LABEL}
       </p>
     );
@@ -37,7 +40,7 @@ export default function CardPrice({
   const parts = formatFeedPriceParts(event);
   if (!parts) {
     return (
-      <p className={`font-semibold ${className}`.trim()}>
+      <p className={`${amountClassName} ${className}`.trim()}>
         {NO_TICKETS_LABEL}
       </p>
     );
@@ -45,14 +48,14 @@ export default function CardPrice({
   if (!parts.note) {
     // An amount with no note (an external event's "Free", "From A$89" or "Buy tickets"), in the price's weight.
     return (
-      <p className={`font-semibold ${className}`.trim()}>
+      <p className={`${amountClassName} ${className}`.trim()}>
         {parts.amount}
       </p>
     );
   }
   return (
     <p className={className}>
-      <span className="font-semibold tabular-nums">{parts.amount}</span>{" "}
+      <span className={`${amountClassName} tabular-nums`}>{parts.amount}</span>{" "}
       <span className="text-muted">
         <LastWordsTogether text={parts.note} />
       </span>

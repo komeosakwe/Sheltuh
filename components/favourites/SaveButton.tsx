@@ -8,7 +8,7 @@ import type { SaveTarget } from "./favourites-store";
 import { useFavourites } from "./FavouritesProvider";
 import HeartIcon from "./HeartIcon";
 
-export type SaveButtonVariant = "overlay" | "plain" | "action";
+export type SaveButtonVariant = "overlay" | "glass" | "plain" | "action";
 
 const discBase = "flex size-9 items-center justify-center rounded-control border motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-active/save:scale-90";
 
@@ -38,6 +38,17 @@ function classes(variant: SaveButtonVariant, saved: boolean) {
           saved
             ? "bg-foreground text-background group-hover/save:bg-accent-strong"
             : "bg-background text-foreground group-hover/save:ring-1 group-hover/save:ring-foreground"
+        }`,
+        icon: "size-4.5",
+      };
+    // The This weekend card's photo corner (owner's mockup, 8 Nov 2026): a 32px rounded square of
+    // dimmed glass with a white edge and heart, in the same 44px target, with the overlay's focus ring.
+    case "glass":
+      return {
+        target: "group/save flex size-11 items-center justify-center rounded-control focus-visible:outline-none!",
+        mark: `flex size-8 items-center justify-center rounded-control border border-paper/90 text-paper backdrop-blur-sm motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-active/save:scale-90 group-focus-visible/save:ring-2 group-focus-visible/save:ring-ink group-focus-visible/save:ring-offset-2 group-focus-visible/save:ring-offset-paper ${
+          // At least 45% ink, so the white heart and edge keep 3.3:1 even over a white poster (WCAG 1.4.11).
+          saved ? "bg-ink/65" : "bg-ink/45 group-hover/save:bg-ink/60"
         }`,
         icon: "size-4.5",
       };

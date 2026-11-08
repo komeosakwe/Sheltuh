@@ -93,8 +93,8 @@ describe("Home (demo data, Wed 21 Oct 2026)", () => {
   it("shows each event at most once", async () => {
     render(<Home />);
     await settle();
-    const hrefs = screen
-      .getAllByRole("link")
+    // Each card's main link (a This weekend card's "Open" arrow goes to the same page as its title).
+    const hrefs = Array.from(document.querySelectorAll("[data-card-link]"))
       .map((a) => a.getAttribute("href") ?? "")
       .filter((href) => /^\/events\/[^?#]+$/.test(href));
     // This weekend's cards plus Popular right now's six.
@@ -137,8 +137,13 @@ describe("Home (demo data, Wed 21 Oct 2026)", () => {
     // The seated demo event's quick buy is "Choose seats" (orange). The sold-out one's "Join waitlist" is the
     // outline button: a waitlist isn't a purchase (mobile-redesign.md §6.2.3).
     const quickBuy = screen.getAllByRole("link", { name: /(?:tickets|Choose seats) for/ });
-    const waitlist = screen.getAllByRole("link", { name: /Join waitlist for/ });
+    // On 21 Oct the sold-out demo event is This weekend's, whose cards have no quick buy (an orange arrow
+    // to the event instead, owner's mockup, 8 Nov 2026): its price line says Sold out.
+    const waitlist = screen.queryAllByRole("link", { name: /Join waitlist for/ });
     for (const link of waitlist) expect(link).toHaveClass("btn-outline");
+    const weekend = container.querySelector("#home-weekend-rail");
+    expect(weekend?.querySelector("[data-card-state='sold-out'] [data-card-foot]")).toHaveTextContent("Sold out");
+    expect(weekend?.querySelector(".btn-signal")).toBeNull();
     const orange = Array.from(container.querySelectorAll(".btn-signal"));
     // Every other card quick-buy is orange (black label), and the hero's search submit: the hero's main
     // action is the search (owner feedback, 22 Oct 2026), whose submit is orange since the owner round of
