@@ -1046,9 +1046,16 @@ Owner steps:
 
 1. [ ] **Create the PostHog project** at posthog.com: choose the **US or EU
        cloud** (this is a privacy decision: EU keeps the data in the European
-       Union; either is disclosed in the policy). Project settings: turn on
-       **Discard client IP data**; leave session replay, autocapture and
-       surveys off (the code never uses them).
+       Union; either is disclosed in the policy). Project settings, **required**:
+       turn **Discard client IP data ON**. The Privacy Policy says PostHog does
+       not keep IP addresses, which is only true with this on. Leave session
+       replay, autocapture and surveys off (the code never uses them).
+       **Check GeoIP** too: PostHog may still estimate a country or city from
+       the IP before discarding it (property names starting `$geoip_`). The
+       policy says tools may estimate a country or city. If you want no
+       location at all, switch GeoIP enrichment off in the project settings,
+       and change the policy to match. This was not verified against a live
+       project: look at a sample event in Live events (step 4).
 2. [ ] Copy the **Project API key** (Project settings, "Project API key",
        `phc_…`; never the personal API key) and set `NEXT_PUBLIC_POSTHOG_KEY`
        and `NEXT_PUBLIC_POSTHOG_HOST` (matching the region) in Vercel,
@@ -1060,8 +1067,9 @@ Owner steps:
        should see `$pageview` with a clean `$current_url` (no `?` other than
        `utm_*`, never `#`). Visit `/admin` and confirm nothing appears. Open
        the site with Do Not Track on and confirm nothing is sent. Buy a free
-       ticket and confirm one `order_completed` (reload the success page: still
-       one).
+       ticket (signed in, so no email link is needed) and confirm one
+       `order_completed` (reload the success page, or open it in another
+       browser: still one).
 5. [ ] **Create the insights** in PostHog (project, Product analytics):
        - **Retention**: returning event `$pageview`, cohort event `$pageview`
          (weekly), and a second one for `organiser_event_published` or
@@ -1090,10 +1098,21 @@ Owner steps:
        anyway: see the Pro plan item above); beyond the cap, collection pauses.
        Check Vercel's pricing page for the current numbers. Switch either off
        with `NEXT_PUBLIC_VERCEL_ANALYTICS=0`.
-8. [ ] Rollback: unset `NEXT_PUBLIC_POSTHOG_KEY` and redeploy (no `/ingest`,
-       nothing sent); set `NEXT_PUBLIC_VERCEL_ANALYTICS=0` for the Vercel pair.
-       Because `skipTrailingSlashRedirect` is on only while PostHog is on, URLs
-       with a trailing slash redirect again after that.
+8. [ ] **Deleting someone's data**: when a person asks for their account and
+       data to be deleted, also delete them in PostHog: People, search for their
+       Supabase user id (the `distinct_id`; Admin, Organisers/Members or
+       Supabase Auth shows it), open the person and **Delete person** (choose
+       "delete all events" as well). Visits that were never signed in carry no
+       account link, so cannot be found from an account.
+9. [ ] Rollback: unset `NEXT_PUBLIC_POSTHOG_KEY` and redeploy (`/ingest` answers
+       404, nothing sent); set `NEXT_PUBLIC_VERCEL_ANALYTICS=0` for the Vercel
+       pair. The site-wide `skipTrailingSlashRedirect` (and the redirect rule
+       that replaces it) are on only while PostHog is.
+
+Notes: `organiser_event_published` counts only an organiser's own publish; an
+event an admin approves after review is not counted. `order_completed` counts
+the visit that checked out (the same tab), not later opens of the ticket page
+from an email.
 
 ## Smoke test on the deployed site (test mode)
 

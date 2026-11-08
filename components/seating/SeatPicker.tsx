@@ -19,7 +19,7 @@ import { Notice } from "@/components/ui/Section";
 import { useIsDesktop } from "@/components/ui/useIsDesktop";
 import { DotsLoader } from "@/components/brand/DotsMark";
 import { ApiError, type GetToken } from "@/lib/api/client";
-import { track } from "@/lib/analytics";
+import { rememberCheckoutStarted, track } from "@/lib/analytics";
 import { createCheckoutSession } from "@/lib/api/orders";
 import { createSeatedCheckout, getSeatAvailability, seatErrorDetails } from "@/lib/api/seating";
 import { MAX_FREE_TICKETS_PER_ORDER, SEAT_HOLD } from "@/lib/api/types";
@@ -647,6 +647,7 @@ export default function SeatPicker({
         // No setBusy(false): the page is navigating away, and re-enabling Checkout would invite a double press.
         // Coming Back from the payment page resets it and releases the hold (releasePending).
         if (result.orderId) rememberPendingCheckout(result.orderId, event.slug);
+        rememberCheckoutStarted(result);
         window.location.assign(result.url);
         return;
       }

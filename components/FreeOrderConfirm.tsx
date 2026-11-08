@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Button, ButtonLink } from "@/components/ui/Button";
+import { rememberCheckoutStarted } from "@/lib/analytics";
 import { ApiError } from "@/lib/api/client";
 import { confirmFreeOrder } from "@/lib/api/orders";
 import { seatErrorDetails } from "@/lib/api/seating";
@@ -95,6 +96,8 @@ export default function FreeOrderConfirm() {
     setAction({ status: "confirming" });
     try {
       const { url } = await confirmFreeOrder(token);
+      // The person pressing the emailed link is the one finishing this order (usage analytics).
+      rememberCheckoutStarted({ url });
       window.location.assign(url);
     } catch (err) {
       setAction(errorAction(err));

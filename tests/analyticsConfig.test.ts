@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertPostHogKey, DEFAULT_POSTHOG_HOST, ingestRewrites, resolveAnalyticsConfig } from "@/lib/analytics-config";
+import { assertPostHogHost, assertPostHogKey, DEFAULT_POSTHOG_HOST, ingestTarget, resolveAnalyticsConfig } from "@/lib/analytics-config";
 import { isVercelAnalyticsEnabled } from "@/lib/vercel-analytics";
 
 describe("resolveAnalyticsConfig", () => {
@@ -14,7 +14,6 @@ describe("resolveAnalyticsConfig", () => {
     expect(resolveAnalyticsConfig("phc_abc123", undefined)).toEqual({
       key: "phc_abc123",
       apiHost: DEFAULT_POSTHOG_HOST,
-      assetsHost: "https://us-assets.i.posthog.com",
       uiHost: "https://us.posthog.com",
     });
   });
@@ -23,7 +22,6 @@ describe("resolveAnalyticsConfig", () => {
     expect(resolveAnalyticsConfig("phc_abc123", " https://eu.i.posthog.com/ ")).toEqual({
       key: "phc_abc123",
       apiHost: "https://eu.i.posthog.com",
-      assetsHost: "https://eu-assets.i.posthog.com",
       uiHost: "https://eu.posthog.com",
     });
   });
@@ -31,7 +29,6 @@ describe("resolveAnalyticsConfig", () => {
   it("serves a self-hosted instance's three roles from the one host, and refuses a host that isn't http(s)", () => {
     expect(resolveAnalyticsConfig("phc_abc123", "https://ph.example.org")).toMatchObject({
       apiHost: "https://ph.example.org",
-      assetsHost: "https://ph.example.org",
       uiHost: "https://ph.example.org",
     });
     expect(resolveAnalyticsConfig("phc_abc123", "javascript:alert(1)")).toBeNull();
@@ -56,31 +53,68 @@ describe("assertPostHogKey", () => {
   });
 });
 
-describe("ingestRewrites", () => {
-  it("has no route at all while analytics is off", () => {
-    expect(ingestRewrites(null)).toEqual([]);
+describe("assertPostHogHost", () => {
+  it("accepts an unset host, a usable host, and any host while analytics is off", () => {
+    expect(() => assertPostHogHost("phc_abc123", undefined)).not.toThrow();
+    expect(() => assertPostHogHost("phc_abc123", "")).not.toThrow();
+    expect(() => assertPostHogHost("phc_abc123", "https://eu.i.posthog.com")).not.toThrow();
+    expect(() => assertPostHogHost(undefined, "garbage")).not.toThrow();
   });
 
-  it("proxies /ingest to PostHog, static files and remote config to its assets host first", () => {
-    const config = resolveAnalyticsConfig("phc_abc123", "https://us.i.posthog.com");
-    expect(ingestRewrites(config)).toEqual([
-      { source: "/ingest/static/:path*", destination: "https://us-assets.i.posthog.com/static/:path*" },
-      { source: "/ingest/array/:path*", destination: "https://us-assets.i.posthog.com/array/:path*" },
-      { source: "/ingest/:path*", destination: "https://us.i.posthog.com/:path*" },
-    ]);
+  it("refuses a malformed or non-https host once a key is set, naming the variable and not the value", () => {
+    for (const host of ["us.i.posthog.com", "http://us.i.posthog.com", "javascript:alert(1)", "https://"]) {
+      expect(() => assertPostHogHost("phc_abc123", host)).toThrow(/NEXT_PUBLIC_POSTHOG_HOST/);
+    }
+    try {
+      assertPostHogHost("phc_abc123", "http://secret-host.example");
+    } catch (err) {
+      expect(String(err)).not.toContain("secret-host");
+    }
+  });
+});
+
+describe("ingestTarget", () => {
+  it("allows only the endpoints PostHog needs to receive events, adding the trailing slash", () => {
+    expect(ingestTarget("/ingest/e/")).toBe("/e/");
+    expect(ingestTarget("/ingest/e")).toBe("/e/");
+    expect(ingestTarget("/ingest/i/v0/e/")).toBe("/i/v0/e/");
+    expect(ingestTarget("/ingest/batch/")).toBe("/batch/");
+  });
+
+  it("refuses everything else, including the rest of PostHog's API and path tricks", () => {
+    for (const path of [
+      "/ingest",
+      "/ingest/",
+      "/ingest/static/array.js",
+      "/ingest/array/phc_abc123/config.js",
+      "/ingest/flags/",
+      "/ingest/decide/",
+      "/ingest/s/",
+      "/ingest/api/projects/",
+      "/ingest/e/../api/",
+      "/ingest/e/x/",
+      "/ingestx/e/",
+      "/other/e/",
+    ]) {
+      expect(ingestTarget(path)).toBeNull();
+    }
   });
 });
 
 describe("isVercelAnalyticsEnabled", () => {
-  it("is on only for a Vercel build", () => {
-    expect(isVercelAnalyticsEnabled({ VERCEL: "1" })).toBe(true);
-    expect(isVercelAnalyticsEnabled({})).toBe(false);
-    expect(isVercelAnalyticsEnabled({ VERCEL: "" })).toBe(false);
+  it("is on only for a live-mode Vercel build", () => {
+    expect(isVercelAnalyticsEnabled({ VERCEL: "1" }, true)).toBe(true);
+    expect(isVercelAnalyticsEnabled({}, true)).toBe(false);
+    expect(isVercelAnalyticsEnabled({ VERCEL: "" }, true)).toBe(false);
+  });
+
+  it("is off in demo mode, even on Vercel", () => {
+    expect(isVercelAnalyticsEnabled({ VERCEL: "1" }, false)).toBe(false);
   });
 
   it("has an off switch, NEXT_PUBLIC_VERCEL_ANALYTICS=0", () => {
-    expect(isVercelAnalyticsEnabled({ VERCEL: "1", NEXT_PUBLIC_VERCEL_ANALYTICS: "0" })).toBe(false);
-    expect(isVercelAnalyticsEnabled({ VERCEL: "1", NEXT_PUBLIC_VERCEL_ANALYTICS: "1" })).toBe(true);
-    expect(isVercelAnalyticsEnabled({ VERCEL: "1", NEXT_PUBLIC_VERCEL_ANALYTICS: "" })).toBe(true);
+    expect(isVercelAnalyticsEnabled({ VERCEL: "1", NEXT_PUBLIC_VERCEL_ANALYTICS: "0" }, true)).toBe(false);
+    expect(isVercelAnalyticsEnabled({ VERCEL: "1", NEXT_PUBLIC_VERCEL_ANALYTICS: "1" }, true)).toBe(true);
+    expect(isVercelAnalyticsEnabled({ VERCEL: "1", NEXT_PUBLIC_VERCEL_ANALYTICS: "" }, true)).toBe(true);
   });
 });

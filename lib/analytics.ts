@@ -1,7 +1,14 @@
 import type { PostHog } from "posthog-js";
 import { INGEST_PATH, resolveAnalyticsConfig, type AnalyticsConfig } from "@/lib/analytics-config";
 import { inAppBrowserName } from "@/lib/in-app-browser";
-import { browserOptsOut, DENIED_PROPERTIES, sanitizePathname, sanitizePostHogEvent, type PrivacySignals } from "@/lib/analytics-privacy";
+import {
+  browserOptsOut,
+  DENIED_PROPERTIES,
+  PERSONAL_QUERY_PARAMS,
+  sanitizePathname,
+  sanitizePostHogEvent,
+  type PrivacySignals,
+} from "@/lib/analytics-privacy";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { parseTrackingRef } from "@/lib/tracking-ref";
 import type { CustomerOrder } from "@/lib/api/types";
@@ -27,15 +34,15 @@ import type { TicketingMode } from "@/lib/ticketing";
 
 /** Every custom event and exactly the properties it carries. */
 export interface AnalyticsEvents {
-  /** A new account confirmed (email code) or created from an invite link. */
-  sign_up_completed: { signup_method: "email" | "invite" };
+  /** A new account confirmed (email code), created from an invite link, or a first Google / Apple sign-in. */
+  sign_up_completed: { signup_method: "email" | "invite" | "oauth" };
   signed_in: { signin_method: "password" | "oauth" };
   /** A live event page opened. `event_slug` is the public address of the event. */
   event_viewed: { event_slug: string; category: EventCategory; ticketing_mode: TicketingMode };
   /** Checkout began for an event (the order was created, or the confirmation link sent). */
   checkout_started: { event_slug: string; ticket_count: number; has_support: boolean; free: boolean };
   /**
-   * The success page showed an order, once per order. `value_aud` is what the buyer paid in dollars
+   * The success page showed an order to the visit that checked out, once. `value_aud` is what the buyer paid in dollars
    * (all-inclusive: 0 for a free order), so PostHog can sum revenue by campaign. No order id.
    */
   order_completed: { event_slug?: string; value_aud: number; ticket_count: number; has_support: boolean; free: boolean };
@@ -123,6 +130,11 @@ export function initAnalytics(): void {
       persistence: "localStorage",
       disable_capture_url_hashes: true,
       respect_dnt: true,
+      // Click ids and the like are never properties, and the values of query parameters that can
+      // identify someone are masked in any address PostHog keeps itself ($initial_*, $session_entry_*,
+      // and its copy in the browser's storage): the sanitiser below covers what is sent.
+      mask_personal_data_properties: true,
+      custom_personal_data_properties: [...PERSONAL_QUERY_PARAMS],
       property_denylist: [...DENIED_PROPERTIES],
       // The last stop before sending: /admin dropped, addresses cleaned (lib/analytics-privacy.ts).
       before_send: (event) => sanitizePostHogEvent(event),
@@ -166,47 +178,84 @@ export function trackPageview(pathname: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// Once per thing
+// An order this visit started
 // ---------------------------------------------------------------------------
 
-const ONCE_KEY = "sheltuh:analytics-once:v1";
-const ONCE_LIMIT = 50;
-const reportedThisPage = new Set<string>();
+/**
+ * sessionStorage: short fingerprints of the orders this tab started (checkout_started). The success
+ * page (/checkout/success?session_id=…) is also the ticket page emailed to the buyer and opened again
+ * later, from other browsers: order_completed counts only the visit that checked out, once.
+ */
+const STARTED_KEY = "sheltuh:analytics-checkout:v1";
+const STARTED_LIMIT = 20;
+const startedThisPage = new Set<string>();
 
-/** A short fingerprint of `key`, so what's remembered in the browser isn't an order reference itself. */
-function fingerprint(key: string): string {
+/** A short fingerprint of `orderId`, so the order id itself isn't kept anywhere. */
+function fingerprint(orderId: string): string {
   let hash = 0x811c9dc5;
-  for (let i = 0; i < key.length; i += 1) {
-    hash ^= key.charCodeAt(i);
+  for (let i = 0; i < orderId.length; i += 1) {
+    hash ^= orderId.charCodeAt(i);
     hash = Math.imul(hash, 0x01000193) >>> 0;
   }
   return hash.toString(16);
 }
 
-/** Whether `key` was already claimed in this browser (and claims it). Falls back to this page load without storage. */
-function claimOnce(key: string): boolean {
-  const id = fingerprint(key);
+function readStarted(): string[] {
   try {
-    const parsed: unknown = JSON.parse(window.localStorage.getItem(ONCE_KEY) ?? "[]");
-    const seen = Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
-    if (seen.includes(id)) return false;
-    window.localStorage.setItem(ONCE_KEY, JSON.stringify([...seen, id].slice(-ONCE_LIMIT)));
-    return true;
+    const parsed: unknown = JSON.parse(window.sessionStorage.getItem(STARTED_KEY) ?? "[]");
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
   } catch {
-    if (reportedThisPage.has(id)) return false;
-    reportedThisPage.add(id);
-    return true;
+    return [...startedThisPage];
+  }
+}
+
+function writeStarted(ids: string[]): void {
+  startedThisPage.clear();
+  for (const id of ids) startedThisPage.add(id);
+  try {
+    window.sessionStorage.setItem(STARTED_KEY, JSON.stringify(ids));
+  } catch {
+    // Storage unavailable: this page load only.
+  }
+}
+
+/** The order id in a checkout address (`/checkout/pay?order=…`, `/checkout/success?session_id=…`), or null. */
+function orderIdInUrl(url: string): string | null {
+  try {
+    const params = new URL(url, "https://analytics.invalid").searchParams;
+    return params.get("session_id") ?? params.get("order");
+  } catch {
+    return null;
   }
 }
 
 /**
- * `track`, but only the first time for `key` (an order, say) in this
- * browser: a reload or a return to the page doesn't count it again. Nothing is
- * claimed while analytics is off, so it can still be counted if it's turned on.
+ * Notes that this tab started checkout for an order, so its success page can report it: from the
+ * checkout's `orderId`, or else the id in the address it leads to. Does nothing while analytics is off.
  */
-export function trackOnce<K extends AnalyticsEventName>(key: string, name: K, properties: AnalyticsEvents[K]): void {
+export function rememberCheckoutStarted(checkout: { url: string; orderId?: string }): void {
   if (!client) return;
-  if (claimOnce(`${name}:${key}`)) track(name, properties);
+  const orderId = checkout.orderId ?? orderIdInUrl(checkout.url);
+  if (!orderId) return;
+  const id = fingerprint(orderId);
+  const ids = readStarted();
+  if (!ids.includes(id)) writeStarted([...ids, id].slice(-STARTED_LIMIT));
+}
+
+/**
+ * order_completed for `orderId`, only if this tab started that order's checkout, and then once: the
+ * note is cleared when the event is handed to PostHog (not before, so an event that couldn't be sent
+ * can be tried again). Someone opening the order's page from an email, on another device or days
+ * later, isn't counted.
+ */
+export function trackOrderCompleted(orderId: string, properties: AnalyticsEvents["order_completed"]): void {
+  const id = fingerprint(orderId);
+  withClient((posthog) => {
+    const ids = readStarted();
+    if (!ids.includes(id)) return;
+    posthog.capture("order_completed", properties);
+    writeStarted(ids.filter((item) => item !== id));
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -220,19 +269,17 @@ const USER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export function identifyUser(userId: string): void {
   if (!USER_ID.test(userId)) return;
   withClient((posthog) => {
-    if (posthog.get_distinct_id() !== userId) posthog.identify(userId);
+    if (posthog.get_distinct_id() === userId) return;
+    // Someone else was signed in here before: forget them (and this browser's device id) first.
+    if (posthog._isIdentified()) posthog.reset(true);
+    posthog.identify(userId);
   });
 }
 
 /** Signing out: the next person on this browser starts fresh. Does nothing if nobody was identified. */
 export function resetIdentity(): void {
   withClient((posthog) => {
-    if (posthog._isIdentified()) posthog.reset();
+    if (posthog._isIdentified()) posthog.reset(true);
   });
 }
 
-/** For tests: forgets the started client and what was reported this page. */
-export function resetAnalyticsForTests(): void {
-  client = null;
-  reportedThisPage.clear();
-}

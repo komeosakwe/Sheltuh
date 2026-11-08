@@ -15,6 +15,12 @@ vi.mock("@/lib/api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/client")>()),
   isApiConfigured: true,
 }));
+const track = vi.fn();
+const rememberCheckoutStarted = vi.fn();
+vi.mock("@/lib/analytics", () => ({
+  track: (...args: unknown[]) => track(...args),
+  rememberCheckoutStarted: (...args: unknown[]) => rememberCheckoutStarted(...args),
+}));
 const createCheckoutSession = vi.fn();
 vi.mock("@/lib/api/orders", () => ({
   createCheckoutSession: (...args: unknown[]) => createCheckoutSession(...args),
@@ -22,6 +28,8 @@ vi.mock("@/lib/api/orders", () => ({
 
 afterEach(() => {
   cleanup();
+  track.mockReset();
+  rememberCheckoutStarted.mockReset();
   createCheckoutSession.mockReset();
   window.sessionStorage.clear();
 });
@@ -69,6 +77,56 @@ describe("TicketSelector (live)", () => {
       "Tickets are sent here. Use your account email to join Who’s Going. Enter the email address to send your tickets to.",
     );
     expect(createCheckoutSession).not.toHaveBeenCalled();
+  });
+});
+
+describe("TicketSelector: usage analytics", () => {
+  it("checkout_started is sent once, with counts and flags only, when a free booking is accepted", async () => {
+    createCheckoutSession.mockResolvedValue({ status: "confirmation_sent", expiresInHours: 24 });
+    render(<TicketSelector event={live("brunswick-zine-fair")} />);
+    const more = screen.getByRole("button", { name: "Increase quantity for Free entry" });
+    fireEvent.click(more);
+    fireEvent.click(more);
+    fireEvent.change(screen.getByLabelText("Email for your tickets"), { target: { value: "fan@example.com" } });
+    typeName();
+    fireEvent.click(screen.getByRole("button", { name: "Free tickets" }));
+    await screen.findByRole("heading", { name: "Check your inbox" });
+    expect(track).toHaveBeenCalledTimes(1);
+    expect(track).toHaveBeenCalledWith("checkout_started", {
+      event_slug: "brunswick-zine-fair",
+      ticket_count: 2,
+      has_support: false,
+      free: true,
+    });
+    expect(JSON.stringify(track.mock.calls)).not.toContain("fan@example.com");
+    // No payment page was opened: nothing to remember for the success page.
+    expect(rememberCheckoutStarted).not.toHaveBeenCalled();
+  });
+
+  it("a paid checkout is noted for the success page, with the order it leads to", async () => {
+    const result = { url: "https://checkout.sheltuh.test/checkout/pay?order=ord_1", orderId: "ord_1" };
+    createCheckoutSession.mockResolvedValue(result);
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(<TicketSelector event={live("neon-static")} />);
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
+    typeName();
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    await waitFor(() => expect(track).toHaveBeenCalledTimes(1));
+    expect(track).toHaveBeenCalledWith("checkout_started", expect.objectContaining({ event_slug: "neon-static", ticket_count: 1, free: false }));
+    expect(rememberCheckoutStarted).toHaveBeenCalledWith(result);
+    quiet.mockRestore();
+  });
+
+  it("nothing is sent when checkout is refused", async () => {
+    createCheckoutSession.mockRejectedValue(new ApiError(409, "Those tickets just ran out."));
+    render(<TicketSelector event={live("brunswick-zine-fair")} />);
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Free entry" }));
+    fireEvent.change(screen.getByLabelText("Email for your tickets"), { target: { value: "fan@example.com" } });
+    typeName();
+    fireEvent.click(screen.getByRole("button", { name: "Free tickets" }));
+    await screen.findByRole("alert");
+    expect(track).not.toHaveBeenCalled();
+    expect(rememberCheckoutStarted).not.toHaveBeenCalled();
   });
 });
 

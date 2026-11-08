@@ -17,10 +17,8 @@ export const DEFAULT_POSTHOG_HOST = "https://us.i.posthog.com";
 export interface AnalyticsConfig {
   /** The project API key (`phc_…`): public by design, it can only add events. */
   key: string;
-  /** Where /ingest/* is proxied to: the region's ingestion host, e.g. https://us.i.posthog.com. */
+  /** Where /ingest is proxied to (proxy.ts): the region's ingestion host, e.g. https://us.i.posthog.com. */
   apiHost: string;
-  /** Where PostHog serves its static files from (the region's assets host). */
-  assetsHost: string;
   /** The PostHog app's address, for links back to it from the toolbar. */
   uiHost: string;
 }
@@ -44,25 +42,42 @@ export function assertPostHogKey(value: string | undefined): void {
   }
 }
 
-/** The hosts for a PostHog ingestion host, or null if it isn't an http(s) address. */
-function hostsFor(host: string): Pick<AnalyticsConfig, "apiHost" | "assetsHost" | "uiHost"> | null {
+/** `https`, or `http` for this machine only (a local stand-in for PostHog). */
+function usableHost(url: URL): boolean {
+  if (url.protocol === "https:") return true;
+  return url.protocol === "http:" && (url.hostname === "127.0.0.1" || url.hostname === "localhost");
+}
+
+/** The hosts for a PostHog ingestion host, or null if it isn't an https address. */
+function hostsFor(host: string): Pick<AnalyticsConfig, "apiHost" | "uiHost"> | null {
   let url: URL;
   try {
     url = new URL(host);
   } catch {
     return null;
   }
-  if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+  if (!usableHost(url)) return null;
   const apiHost = url.origin;
-  // PostHog Cloud: us.i.posthog.com / eu.i.posthog.com, with assets on <region>-assets.i.posthog.com and
-  // the app on <region>.posthog.com. Anything else (a self-hosted instance) serves all three itself.
+  // PostHog Cloud: us.i.posthog.com / eu.i.posthog.com, with the app on <region>.posthog.com.
+  // Anything else (a self-hosted instance) serves both itself.
   const cloud = /^(us|eu)\.i\.posthog\.com$/.exec(url.hostname);
-  if (!cloud) return { apiHost, assetsHost: apiHost, uiHost: apiHost };
-  return {
-    apiHost,
-    assetsHost: `https://${cloud[1]}-assets.i.posthog.com`,
-    uiHost: `https://${cloud[1]}.posthog.com`,
-  };
+  if (!cloud) return { apiHost, uiHost: apiHost };
+  return { apiHost, uiHost: `https://${cloud[1]}.posthog.com` };
+}
+
+/**
+ * With a key set, NEXT_PUBLIC_POSTHOG_HOST must be an https address (unset is
+ * the US cloud): a typo would otherwise switch analytics off without a word. The
+ * message names the variable, never its value.
+ */
+export function assertPostHogHost(keyValue: string | undefined, hostValue: string | undefined): void {
+  if (!keyValue?.trim() || !hostValue?.trim()) return;
+  if (!hostsFor(hostValue.trim())) {
+    throw new Error(
+      "NEXT_PUBLIC_POSTHOG_HOST must be the https address of a PostHog host, e.g. https://us.i.posthog.com or https://eu.i.posthog.com, " +
+        "or unset (the US cloud). Analytics won't start with it as it is.",
+    );
+  }
 }
 
 /** The settings for the two environment variables, or null: no key (or an unusable key or host) means analytics is off. */
@@ -74,15 +89,21 @@ export function resolveAnalyticsConfig(keyValue: string | undefined, hostValue: 
 }
 
 /**
- * next.config.ts's rewrites: /ingest/* to PostHog. Its static files and
- * remote config have their own host, and must come first (the catch-all
- * would take them).
+ * The only PostHog endpoints the browser needs with our settings (events are
+ * sent to /e/; nothing is loaded from PostHog at run time and no feature flags
+ * are asked for). Everything else under /ingest is refused (proxy.ts), so the
+ * proxy can't be used as an open relay to the rest of PostHog's API.
  */
-export function ingestRewrites(config: AnalyticsConfig | null): { source: string; destination: string }[] {
-  if (!config) return [];
-  return [
-    { source: `${INGEST_PATH}/static/:path*`, destination: `${config.assetsHost}/static/:path*` },
-    { source: `${INGEST_PATH}/array/:path*`, destination: `${config.assetsHost}/array/:path*` },
-    { source: `${INGEST_PATH}/:path*`, destination: `${config.apiHost}/:path*` },
-  ];
+const INGEST_ALLOWED: ReadonlySet<string> = new Set(["/e/", "/i/v0/e/", "/batch/"]);
+
+/**
+ * Where a request for `pathname` (starting `/ingest`) goes on PostHog's ingestion
+ * host, or null if it isn't one of the endpoints above. A missing trailing slash
+ * is added.
+ */
+export function ingestTarget(pathname: string): string | null {
+  if (!pathname.startsWith(`${INGEST_PATH}/`)) return null;
+  const rest = pathname.slice(INGEST_PATH.length);
+  const path = rest.endsWith("/") ? rest : `${rest}/`;
+  return INGEST_ALLOWED.has(path) ? path : null;
 }

@@ -8,7 +8,7 @@ import BuyerNameField from "@/components/checkout/BuyerNameField";
 import SupportSheltuh, { SupportSummaryLine } from "@/components/checkout/SupportSheltuh";
 import WaitlistBlock from "@/components/waitlist/WaitlistBlock";
 import { ApiError, isApiConfigured } from "@/lib/api/client";
-import { track } from "@/lib/analytics";
+import { rememberCheckoutStarted, track } from "@/lib/analytics";
 import { createCheckoutSession } from "@/lib/api/orders";
 import { MAX_FREE_TICKETS_PER_ORDER } from "@/lib/api/types";
 import { buyerNameError } from "@/lib/buyer-details";
@@ -296,6 +296,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
         free: freeBooking,
       });
       if ("url" in result) {
+        rememberCheckoutStarted(result);
         window.location.href = result.url;
         // Deliberately no setLoading(false) here — the page is navigating
         // away, and re-enabling the button would just invite a double-click.

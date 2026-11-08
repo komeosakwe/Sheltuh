@@ -46,6 +46,14 @@ describe("buildCampaignLink", () => {
     expect(buildCampaignLink({ ...base, origin: "nonsense" })).toBeNull();
   });
 
+  it("stays on the site's own origin whatever tricks the path plays (backslash, tab, extra slash)", () => {
+    for (const path of ["/\\evil.example/", "/\\\\evil.example", "/\tevil.example", "/%2F%2Fevil.example", "///evil.example"]) {
+      const link = buildCampaignLink({ ...base, path });
+      if (link !== null) expect(new URL(link).origin).toBe(ORIGIN);
+    }
+    expect(buildCampaignLink({ ...base, path: "/\\evil.example/" })).toBeNull();
+  });
+
   it("makes links whose parameters analytics keeps whole", () => {
     const link = buildCampaignLink({ ...base, path: "/events/night-market", content: "reel-1" });
     expect(link).not.toBeNull();

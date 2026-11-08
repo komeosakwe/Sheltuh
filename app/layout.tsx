@@ -111,7 +111,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         </AuthProvider>
         {/* Usage analytics: each does nothing unless switched on (lib/analytics.ts, lib/vercel-analytics.ts). */}
         <AnalyticsPageviews />
-        {isVercelAnalyticsEnabled({ VERCEL: process.env.VERCEL, NEXT_PUBLIC_VERCEL_ANALYTICS: process.env.NEXT_PUBLIC_VERCEL_ANALYTICS }) && <VercelAnalytics />}
+        {isVercelAnalyticsEnabled(
+            { VERCEL: process.env.VERCEL, NEXT_PUBLIC_VERCEL_ANALYTICS: process.env.NEXT_PUBLIC_VERCEL_ANALYTICS },
+            isApiConfigured,
+          ) && <VercelAnalytics />}
         <ServiceWorkerRegistration />
         <ThemeSync />
       </body>

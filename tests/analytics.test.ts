@@ -22,6 +22,8 @@ vi.mock("@/lib/supabase/config", () => ({
 
 const KEY = "phc_testprojectkey123";
 const USER_ID = "7f1c2d9e-3b4a-4c5d-8e6f-0a1b2c3d4e5f";
+const OTHER_USER_ID = "11111111-2222-4333-8444-555555555555";
+const ORDER_PROPERTIES = { event_slug: "night-market", value_aud: 32.3, ticket_count: 2, has_support: false, free: false };
 
 type Analytics = typeof import("@/lib/analytics");
 async function load(): Promise<Analytics> {
@@ -41,6 +43,7 @@ beforeEach(() => {
   posthog._isIdentified.mockReturnValue(true);
   posthog.get_distinct_id.mockReturnValue("anon-id");
   localStorage.clear();
+  sessionStorage.clear();
   window.history.replaceState(null, "", "/");
   vi.stubEnv("NEXT_PUBLIC_POSTHOG_KEY", KEY);
   vi.stubEnv("NEXT_PUBLIC_POSTHOG_HOST", "https://eu.i.posthog.com");
@@ -59,12 +62,14 @@ describe("analytics is off", () => {
     a.trackPageview("/events");
     a.identifyUser(USER_ID);
     a.resetIdentity();
-    a.trackOnce("k", "map_near_me_used", {});
+    a.rememberCheckoutStarted({ url: "/checkout/pay?order=ord_1" });
+    a.trackOrderCompleted("ord_1", ORDER_PROPERTIES);
     await settle();
     expect(posthog.init).not.toHaveBeenCalled();
     expect(posthog.capture).not.toHaveBeenCalled();
     expect(posthog.identify).not.toHaveBeenCalled();
     expect(posthog.reset).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem("sheltuh:analytics-checkout:v1")).toBeNull();
   });
 
   it("is off in demo mode even with a key", async () => {
@@ -211,6 +216,33 @@ describe("who is identified", () => {
     expect(posthog.identify).not.toHaveBeenCalled();
   });
 
+  it("forgets a different account that was identified here before identifying the new one", async () => {
+    posthog.get_distinct_id.mockReturnValue(OTHER_USER_ID);
+    posthog._isIdentified.mockReturnValue(true);
+    const order: string[] = [];
+    posthog.reset.mockImplementation(() => void order.push("reset"));
+    posthog.identify.mockImplementation(() => void order.push("identify"));
+    const a = await load();
+    a.initAnalytics();
+    a.identifyUser(USER_ID);
+    await settle();
+    expect(order).toEqual(["reset", "identify"]);
+    expect(posthog.reset).toHaveBeenCalledWith(true);
+    expect(posthog.identify).toHaveBeenCalledWith(USER_ID);
+    posthog.reset.mockReset();
+    posthog.identify.mockReset();
+  });
+
+  it("does not reset when the browser was only anonymous before", async () => {
+    posthog._isIdentified.mockReturnValue(false);
+    const a = await load();
+    a.initAnalytics();
+    a.identifyUser(USER_ID);
+    await settle();
+    expect(posthog.reset).not.toHaveBeenCalled();
+    expect(posthog.identify).toHaveBeenCalledWith(USER_ID);
+  });
+
   it("does not identify again when already identified as that user", async () => {
     posthog.get_distinct_id.mockReturnValue(USER_ID);
     const a = await load();
@@ -225,7 +257,9 @@ describe("who is identified", () => {
     a.initAnalytics();
     a.resetIdentity();
     await settle();
+    // true: the device id goes too, so the next person on this browser isn't linked to this one.
     expect(posthog.reset).toHaveBeenCalledTimes(1);
+    expect(posthog.reset).toHaveBeenCalledWith(true);
     posthog.reset.mockClear();
     posthog._isIdentified.mockReturnValue(false);
     a.resetIdentity();
@@ -234,22 +268,75 @@ describe("who is identified", () => {
   });
 });
 
-describe("trackOnce", () => {
-  it("counts a key once, even across page loads, and remembers only a fingerprint", async () => {
-    let a = await load();
+describe("order_completed is for the visit that checked out", () => {
+  const STARTED = "sheltuh:analytics-checkout:v1";
+
+  it("is sent once, only after this tab started that order's checkout, and the note is cleared", async () => {
+    const a = await load();
     a.initAnalytics();
-    a.trackOnce("cs_test_secret_order_ref", "map_near_me_used", {});
-    a.trackOnce("cs_test_secret_order_ref", "map_near_me_used", {});
+    a.rememberCheckoutStarted({ url: "/checkout/pay?order=ord_abc", orderId: "ord_abc" });
+    expect(sessionStorage.getItem(STARTED)).not.toContain("ord_abc");
+    a.trackOrderCompleted("ord_abc", ORDER_PROPERTIES);
+    a.trackOrderCompleted("ord_abc", ORDER_PROPERTIES);
     await settle();
     expect(posthog.capture).toHaveBeenCalledTimes(1);
-    expect(localStorage.getItem("sheltuh:analytics-once:v1")).not.toContain("cs_test_secret_order_ref");
-    // A reload: a fresh module, the same storage.
+    expect(posthog.capture).toHaveBeenCalledWith("order_completed", ORDER_PROPERTIES);
+    expect(JSON.parse(sessionStorage.getItem(STARTED) ?? "[]")).toEqual([]);
+  });
+
+  it("is not sent for an order this tab didn't start (the ticket page opened from an email, on another device or days later)", async () => {
+    const a = await load();
+    a.initAnalytics();
+    a.rememberCheckoutStarted({ url: "/checkout/pay?order=ord_one", orderId: "ord_one" });
+    a.trackOrderCompleted("ord_two", ORDER_PROPERTIES);
+    await settle();
+    expect(posthog.capture).not.toHaveBeenCalled();
+  });
+
+  it("is not sent after a reload of the success page", async () => {
+    let a = await load();
+    a.initAnalytics();
+    a.rememberCheckoutStarted({ url: "/checkout/pay?order=ord_abc", orderId: "ord_abc" });
+    a.trackOrderCompleted("ord_abc", ORDER_PROPERTIES);
+    await settle();
     a = await load();
     a.initAnalytics();
-    a.trackOnce("cs_test_secret_order_ref", "map_near_me_used", {});
-    a.trackOnce("another-order", "map_near_me_used", {});
+    a.trackOrderCompleted("ord_abc", ORDER_PROPERTIES);
+    await settle();
+    expect(posthog.capture).toHaveBeenCalledTimes(1);
+  });
+
+  it("finds the order in the address a free or paid checkout leads to when it has no orderId", async () => {
+    const a = await load();
+    a.initAnalytics();
+    a.rememberCheckoutStarted({ url: "https://sheltuh.com.au/checkout/success?session_id=ord_free1" });
+    a.trackOrderCompleted("ord_free1", ORDER_PROPERTIES);
+    await settle();
+    expect(posthog.capture).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the note until the event has been handed to PostHog (a failed load can be tried again)", async () => {
+    const a = await load();
+    a.initAnalytics();
+    a.rememberCheckoutStarted({ url: "/x", orderId: "ord_abc" });
+    posthog.capture.mockImplementationOnce(() => {
+      throw new Error("capture failed");
+    });
+    a.trackOrderCompleted("ord_abc", ORDER_PROPERTIES);
+    await settle();
+    expect(JSON.parse(sessionStorage.getItem(STARTED) ?? "[]")).toHaveLength(1);
+    a.trackOrderCompleted("ord_abc", ORDER_PROPERTIES);
     await settle();
     expect(posthog.capture).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(sessionStorage.getItem(STARTED) ?? "[]")).toEqual([]);
+  });
+
+  it("does nothing, and remembers nothing, while analytics is off", async () => {
+    vi.stubEnv("NEXT_PUBLIC_POSTHOG_KEY", "");
+    const a = await load();
+    a.initAnalytics();
+    a.rememberCheckoutStarted({ url: "/x", orderId: "ord_abc" });
+    expect(sessionStorage.getItem(STARTED)).toBeNull();
   });
 });
 

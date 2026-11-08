@@ -94,6 +94,20 @@ describe("AuthProvider: completeOAuthSignIn", () => {
     expect(exchangeCodeForSession).toHaveBeenCalledWith("abc");
   });
 
+  it("says whether this sign-in created the account (created and signed in within a minute)", async () => {
+    const created = "2026-11-08T01:00:00.000Z";
+    exchangeCodeForSession.mockResolvedValue({
+      data: { session: { user: { created_at: created, last_sign_in_at: "2026-11-08T01:00:01.000Z" } } },
+      error: null,
+    });
+    await expect(current().completeOAuthSignIn("abc")).resolves.toEqual({ newAccount: true });
+    exchangeCodeForSession.mockResolvedValue({
+      data: { session: { user: { created_at: "2026-01-02T00:00:00.000Z", last_sign_in_at: "2026-11-08T01:00:01.000Z" } } },
+      error: null,
+    });
+    await expect(current().completeOAuthSignIn("abc")).resolves.toEqual({ newAccount: false });
+  });
+
   it("names the flow when the callback had one (sb_flow_id)", async () => {
     exchangeCodeForSession.mockResolvedValue({ data: { session: {}, user: {} }, error: null });
     await current().completeOAuthSignIn("abc", "0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d");

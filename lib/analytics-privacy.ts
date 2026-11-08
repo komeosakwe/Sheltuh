@@ -68,7 +68,6 @@ export function sanitizePathname(pathname: string): string {
   const second = segments[2];
   if (first === "members" && second) segments.splice(2, segments.length - 2, "[profileId]");
   else if (first === "messages" && second && second !== "blocked") segments.splice(2, segments.length - 2, "[conversationId]");
-  else if (first === "tickets" && second) segments.splice(2, segments.length - 2, "[code]");
   const cleaned = segments.map((segment) => (TICKET_CODE_SEGMENT.test(segment) ? "[code]" : segment));
   return scrubText(cleaned.join("/"));
 }
@@ -129,19 +128,11 @@ export function sanitizeVercelEvent<T extends VercelEventLike>(event: T, optedOu
 // PostHog
 // ---------------------------------------------------------------------------
 
-/** Properties PostHog adds that hold a full address. */
-const URL_PROPERTIES = [
-  "$current_url",
-  "$initial_current_url",
-  "$session_entry_url",
-  "$external_click_url",
-] as const;
-/** Properties that hold the address a visitor came from (another site's, or one of ours). */
-const REFERRER_PROPERTIES = ["$referrer", "$initial_referrer", "$session_entry_referrer"] as const;
-/** Properties that hold only a path. */
-const PATH_PROPERTIES = ["$pathname", "$initial_pathname", "$session_entry_pathname"] as const;
-
-/** Advertising and mailing click ids PostHog would otherwise attach from the address; passed to its property_denylist. */
+/**
+ * Click ids and mailing ids PostHog would attach from the address (and its own
+ * copies of them: `$initial_…`, `$session_entry_…`, `$fbc`, `$fbp`). Passed to
+ * its property_denylist, and dropped again by the sanitiser.
+ */
 export const DENIED_PROPERTIES = [
   "gclid",
   "gclsrc",
@@ -162,7 +153,58 @@ export const DENIED_PROPERTIES = [
   "mc_cid",
   "mc_eid",
   "_kx",
+  "fbc",
+  "fbp",
+  "ph_keyword",
 ] as const;
+
+/**
+ * Query parameters this site's addresses can carry that are not campaign tags:
+ * a token, a code, an order or payment reference, an email address, a search or
+ * a suburb. PostHog masks their values in any address it stores itself
+ * (`mask_personal_data_properties`: `$initial_person_info` in the browser's
+ * storage, `$session_entry_*`, `$initial_*`), on top of the sanitiser.
+ */
+export const PERSONAL_QUERY_PARAMS = [
+  "token",
+  "code",
+  "session_id",
+  "order",
+  "payment_intent",
+  "payment_intent_client_secret",
+  "setup_intent",
+  "setup_intent_client_secret",
+  "client_secret",
+  "redirect_status",
+  "email",
+  "q",
+  "near",
+  "suburb",
+  "next",
+  "sel",
+  "ticket",
+  "state",
+  "sb_flow_id",
+  "error",
+  "error_description",
+] as const;
+
+const DENIED_NAMES: ReadonlySet<string> = new Set(DENIED_PROPERTIES);
+/** `$initial_gclid`, `$session_entry_fbclid`, `gclid`, `$fbc`: the name without PostHog's prefixes. */
+const PROPERTY_PREFIX = /^\$?(?:initial_|session_entry_)?/;
+
+function isDeniedProperty(name: string): boolean {
+  return DENIED_NAMES.has(name.replace(PROPERTY_PREFIX, ""));
+}
+
+/** The kinds of address a property can hold, by its name (`$current_url`, `$initial_referrer`, `$prev_pageview_pathname`…). */
+function addressKind(name: string): "url" | "referrer" | "path" | null {
+  const key = name.toLowerCase();
+  if (/(?:^|[_$])url$/.test(key)) return "url";
+  if (/referrer$/.test(key)) return "referrer";
+  if (/(?:^|[_$])pathname$/.test(key)) return "path";
+  return null;
+}
 
 type Bag = Record<string, unknown>;
 
@@ -179,18 +221,42 @@ function scrubDeep(value: unknown, depth = 0): unknown {
   return value;
 }
 
-/** The address properties of one property bag, cleaned. */
-function cleanBag(bag: Bag): Bag {
+/** Properties that describe what the visitor looked at: the page's title can hold a member's name ("Alice — Messages"). */
+const DROPPED_PROPERTIES: ReadonlySet<string> = new Set(["title", "$title"]);
+
+/**
+ * One property bag, cleaned: every address property (by its name, so the ones
+ * PostHog adds later are covered too) is cut down, click ids and the page title
+ * are dropped, and order references are removed from everything else.
+ * `dropPrevious`: the page before this one was not to be reported, so what is
+ * known of it (`$prev_pageview_*`) goes too.
+ */
+function cleanBag(bag: Bag, dropPrevious: boolean): Bag {
   const out: Bag = {};
   for (const [name, value] of Object.entries(bag)) {
-    if (typeof value === "string" && (URL_PROPERTIES as readonly string[]).includes(name)) out[name] = sanitizeUrl(value);
-    else if (typeof value === "string" && (REFERRER_PROPERTIES as readonly string[]).includes(name)) {
+    if (DROPPED_PROPERTIES.has(name) || isDeniedProperty(name)) continue;
+    if (dropPrevious && name.startsWith("$prev_pageview_")) continue;
+    const kind = typeof value === "string" ? addressKind(name) : null;
+    if (typeof value !== "string" || kind === null) {
+      out[name] = scrubDeep(value);
+    } else if (kind === "url") {
+      out[name] = sanitizeUrl(value);
+    } else if (kind === "referrer") {
       // PostHog's own marker for no referrer ("$direct") is not an address.
       out[name] = value.startsWith("$") ? value : sanitizeUrl(value, { campaign: false });
-    } else if (typeof value === "string" && (PATH_PROPERTIES as readonly string[]).includes(name)) out[name] = sanitizePathname(value);
-    else out[name] = scrubDeep(value);
+    } else {
+      out[name] = sanitizePathname(value);
+    }
   }
   return out;
+}
+
+/** The previous page of the visit was /admin: PostHog remembers it in `$prev_pageview_pathname` even when that view was dropped. */
+function previousWasExcluded(bags: (Bag | undefined)[]): boolean {
+  return bags.some((bag) => {
+    const previous = bag?.["$prev_pageview_pathname"];
+    return typeof previous === "string" && isExcludedPath(pathOf(previous));
+  });
 }
 
 /** The page an event happened on, from the properties PostHog adds. */
@@ -219,10 +285,11 @@ export function sanitizePostHogEvent<T extends CaptureLike>(event: T | null): T 
   if (!event) return null;
   const properties = event.properties ?? {};
   if (isExcludedPath(pageOf(properties))) return null;
+  const dropPrevious = previousWasExcluded([event.properties, event.$set, event.$set_once]);
   const cleaned: T = { ...event };
-  if (event.properties) cleaned.properties = cleanBag(event.properties);
-  if (event.$set) cleaned.$set = cleanBag(event.$set);
-  if (event.$set_once) cleaned.$set_once = cleanBag(event.$set_once);
+  if (event.properties) cleaned.properties = cleanBag(event.properties, dropPrevious);
+  if (event.$set) cleaned.$set = cleanBag(event.$set, dropPrevious);
+  if (event.$set_once) cleaned.$set_once = cleanBag(event.$set_once, dropPrevious);
   return cleaned;
 }
 

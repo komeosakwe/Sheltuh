@@ -47,7 +47,7 @@ describe("sanitizeUrl", () => {
 
   it("replaces ticket codes and people's ids in the path", () => {
     expect(sanitizeUrl(`${ORIGIN}/tickets/7KQM-2HXD`)).toBe(`${ORIGIN}/tickets/[code]`);
-    expect(sanitizePathname("/tickets/7KQM-2HXD/print")).toBe("/tickets/[code]");
+    expect(sanitizePathname("/anything/7KQM-2HXD/print")).toBe("/anything/[code]/print");
     expect(sanitizePathname("/members/9f3c")).toBe("/members/[profileId]");
     expect(sanitizePathname("/messages/c0ffee")).toBe("/messages/[conversationId]");
     expect(sanitizePathname("/messages/blocked")).toBe("/messages/blocked");
@@ -86,7 +86,7 @@ describe("sanitizePostHogEvent", () => {
       $referrer: "https://l.instagram.com/?u=https%3A%2F%2Fsheltuh.com.au%2Fwaitlist%2Fconfirm%23token%3Dsecret",
       $initial_referrer: `${ORIGIN}/invite#token=abc`,
       $initial_current_url: `${ORIGIN}/auth/callback?code=abc`,
-      $title: "Order ord_999 confirmed",
+      title: "Order ord_999 confirmed",
       utm_source: "instagram",
     },
     $set: { $current_url: `${ORIGIN}/following/unsubscribe#token=t` },
@@ -127,6 +127,92 @@ describe("sanitizePostHogEvent", () => {
     expect(sanitizePostHogEvent({ event: "x", properties: { $pathname: "/admin/payouts" } })).toBeNull();
     expect(sanitizePostHogEvent({ event: "x", properties: { $current_url: `${ORIGIN}/admin` } })).toBeNull();
     expect(sanitizePostHogEvent(null)).toBeNull();
+  });
+
+  it("removes the page title (a member's name can be in it), whatever it is called", () => {
+    const cleaned = sanitizePostHogEvent({
+      event: "$pageview",
+      properties: { title: "Alice Nguyen — Messages — Sheltüh", $title: "Alice", $pathname: "/messages/6f1c2b9e-1111-4222-8333-944455556666" },
+    });
+    expect(cleaned?.properties).toEqual({ $pathname: "/messages/[conversationId]" });
+  });
+
+  it("cleans every address property PostHog adds, by name, including the previous page's", () => {
+    const member = "6f1c2b9e-1111-4222-8333-944455556666";
+    const cleaned = sanitizePostHogEvent({
+      event: "$pageview",
+      properties: {
+        $pathname: "/",
+        $prev_pageview_pathname: `/members/${member}`,
+        $prev_pageview_last_pathname: `/messages/${member}`,
+        $prev_pageview_url: `${ORIGIN}/members/${member}?x=1#y`,
+        $session_entry_pathname: `/members/${member}`,
+        $session_entry_url: `${ORIGIN}/members/${member}?near=Fitzroy`,
+        $initial_pathname: `/messages/${member}`,
+        $some_future_referrer: `${ORIGIN}/members/${member}?x=1`,
+        $some_future_url: `${ORIGIN}/checkout/success?session_id=ord_1#t`,
+      },
+    });
+    const text = JSON.stringify(cleaned);
+    expect(text).not.toContain(member);
+    expect(text).not.toMatch(/ord_|Fitzroy|[?#]x/);
+    expect(cleaned?.properties).toMatchObject({
+      $prev_pageview_pathname: "/members/[profileId]",
+      $prev_pageview_last_pathname: "/messages/[conversationId]",
+      $session_entry_pathname: "/members/[profileId]",
+      $some_future_url: `${ORIGIN}/checkout/success`,
+    });
+  });
+
+  it("drops what is known of an /admin page that came before (PostHog remembers it even when the view was dropped)", () => {
+    const cleaned = sanitizePostHogEvent({
+      event: "$pageview",
+      properties: {
+        $pathname: "/",
+        $prev_pageview_pathname: "/admin/events/9f3c/edit",
+        $prev_pageview_duration: 42,
+        $prev_pageview_last_scroll: 100,
+        $prev_pageview_id: "abc",
+        $referrer: "$direct",
+      },
+    });
+    expect(cleaned?.properties).toEqual({ $pathname: "/", $referrer: "$direct" });
+  });
+
+  it("keeps the previous page's duration when it was an ordinary page", () => {
+    const cleaned = sanitizePostHogEvent({
+      event: "$pageview",
+      properties: { $pathname: "/", $prev_pageview_pathname: "/events/night-market", $prev_pageview_duration: 42 },
+    });
+    expect(cleaned?.properties).toMatchObject({ $prev_pageview_pathname: "/events/night-market", $prev_pageview_duration: 42 });
+  });
+
+  it("drops click ids and PostHog's copies of them, in properties, $set and $set_once", () => {
+    const cleaned = sanitizePostHogEvent({
+      event: "$pageview",
+      properties: {
+        $pathname: "/",
+        gclid: "a",
+        fbclid: "b",
+        ttclid: "c",
+        msclkid: "d",
+        mc_cid: "e",
+        _kx: "f",
+        $session_entry_fbclid: "g",
+        $session_entry__kx: "h",
+        $initial_gclid: "i",
+        $fbc: "fb.1.1.x",
+        $fbp: "fb.1.2.y",
+        ph_keyword: "alice nguyen tickets",
+        utm_source: "instagram",
+        $initial_utm_source: "instagram",
+      },
+      $set: { $fbc: "fb.1.1.x", $initial_fbclid: "j" },
+      $set_once: { $initial_gclid: "k", $initial_utm_campaign: "spring", $initial_msclkid: "l" },
+    });
+    expect(cleaned?.properties).toEqual({ $pathname: "/", utm_source: "instagram", $initial_utm_source: "instagram" });
+    expect(cleaned?.$set).toEqual({});
+    expect(cleaned?.$set_once).toEqual({ $initial_utm_campaign: "spring" });
   });
 
   it("still reports organiser dashboard pages", () => {

@@ -55,6 +55,14 @@ export function buildCampaignLink(input: CampaignLinkInput): string | null {
     return null;
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+  // The path must stay on the site's own origin (a backslash or a tab can make "/\\evil.example" another host).
+  let site: URL;
+  try {
+    site = new URL(input.origin);
+  } catch {
+    return null;
+  }
+  if (url.origin !== site.origin) return null;
   url.searchParams.set("utm_source", source);
   url.searchParams.set("utm_medium", medium);
   url.searchParams.set("utm_campaign", campaign);

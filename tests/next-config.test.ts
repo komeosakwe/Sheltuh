@@ -251,25 +251,33 @@ describe("usage analytics' first-party proxy (/ingest)", () => {
     vi.resetModules();
   });
 
-  it("is absent without NEXT_PUBLIC_POSTHOG_KEY: no rewrite and the trailing-slash redirect left alone", async () => {
-    vi.stubEnv("NEXT_PUBLIC_POSTHOG_KEY", "");
+  async function loadWith(key: string, host?: string) {
+    vi.stubEnv("NEXT_PUBLIC_POSTHOG_KEY", key);
+    vi.stubEnv("NEXT_PUBLIC_POSTHOG_HOST", host ?? "");
     vi.resetModules();
-    const { nextConfig: off } = await import("../next.config");
-    expect(await off.rewrites?.()).toEqual([]);
+    return (await import("../next.config")).nextConfig;
+  }
+
+  it("is absent without NEXT_PUBLIC_POSTHOG_KEY: no redirect rule, no headers, the trailing-slash redirect left alone", async () => {
+    const off = await loadWith("");
     expect(off.skipTrailingSlashRedirect).toBeUndefined();
+    expect(await off.redirects?.()).toEqual([]);
+    expect((await off.headers?.())?.some((rule) => rule.source.startsWith("/ingest"))).toBe(false);
   });
 
-  it("with a key, sends /ingest to PostHog's region and keeps PostHog's trailing slashes", async () => {
-    vi.stubEnv("NEXT_PUBLIC_POSTHOG_KEY", "phc_abc123");
-    vi.stubEnv("NEXT_PUBLIC_POSTHOG_HOST", "https://eu.i.posthog.com");
-    vi.resetModules();
-    const { nextConfig: on } = await import("../next.config");
-    expect(await on.rewrites?.()).toEqual([
-      { source: "/ingest/static/:path*", destination: "https://eu-assets.i.posthog.com/static/:path*" },
-      { source: "/ingest/array/:path*", destination: "https://eu-assets.i.posthog.com/array/:path*" },
-      { source: "/ingest/:path*", destination: "https://eu.i.posthog.com/:path*" },
-    ]);
+  it("with a key, keeps PostHog's slash-terminated endpoints and puts the trailing-slash redirect back for every other path", async () => {
+    const on = await loadWith("phc_abc123", "https://eu.i.posthog.com");
     expect(on.skipTrailingSlashRedirect).toBe(true);
+    const rules = (await on.redirects?.()) ?? [];
+    expect(rules).toEqual([{ source: "/:path((?!ingest(?:/|$)).+)/", destination: "/:path", permanent: true }]);
+  });
+
+  it("with a key, hardens the responses it relays", async () => {
+    const on = await loadWith("phc_abc123");
+    const rule = (await on.headers?.())?.find((r) => r.source === "/ingest/:path*");
+    const byKey = Object.fromEntries((rule?.headers ?? []).map((h) => [h.key.toLowerCase(), h.value]));
+    expect(byKey["x-content-type-options"]).toBe("nosniff");
+    expect(byKey["content-security-policy"]).toBe("sandbox; default-src 'none'; frame-ancestors 'none'");
   });
 
   it("fails the build for a key that isn't a project key, without printing it", async () => {
@@ -277,5 +285,13 @@ describe("usage analytics' first-party proxy (/ingest)", () => {
     vi.resetModules();
     await expect(import("../next.config")).rejects.toThrow(/NEXT_PUBLIC_POSTHOG_KEY must be a PostHog project API key/);
     await import("../next.config").catch((err: unknown) => expect(String(err)).not.toContain("personal_secret_value"));
+  });
+
+  it("fails the build for a malformed host once a key is set, without printing it", async () => {
+    vi.stubEnv("NEXT_PUBLIC_POSTHOG_KEY", "phc_abc123");
+    vi.stubEnv("NEXT_PUBLIC_POSTHOG_HOST", "us.i.posthog.com/typo-secret");
+    vi.resetModules();
+    await expect(import("../next.config")).rejects.toThrow(/NEXT_PUBLIC_POSTHOG_HOST/);
+    await import("../next.config").catch((err: unknown) => expect(String(err)).not.toContain("typo-secret"));
   });
 });

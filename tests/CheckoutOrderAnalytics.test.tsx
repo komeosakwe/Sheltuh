@@ -13,10 +13,10 @@ vi.mock("@/lib/api/orders", async (importOriginal) => ({
   getOrderBySession: (...args: unknown[]) => getOrderBySession(...args),
   getOrderPayment: vi.fn(),
 }));
-const trackOnce = vi.fn();
+const trackOrderCompleted = vi.fn();
 vi.mock("@/lib/analytics", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/analytics")>()),
-  trackOnce: (...args: unknown[]) => trackOnce(...args),
+  trackOrderCompleted: (...args: unknown[]) => trackOrderCompleted(...args),
 }));
 
 const PAID: CustomerOrder = {
@@ -35,7 +35,7 @@ const PAID: CustomerOrder = {
 };
 
 beforeEach(() => {
-  trackOnce.mockReset();
+  trackOrderCompleted.mockReset();
   getOrderBySession.mockReset();
 });
 afterEach(cleanup);
@@ -45,11 +45,10 @@ describe("the success page's order_completed", () => {
     getOrderBySession.mockResolvedValue(PAID);
     render(<CheckoutConfirmation />);
     await screen.findByText("Order reference #7C1F2E0A");
-    await waitFor(() => expect(trackOnce).toHaveBeenCalledTimes(1));
-    const [key, name, properties] = trackOnce.mock.calls[0];
-    // The key only dedupes in this browser (lib/analytics.ts keeps a fingerprint); it is not a property.
-    expect(key).toBe("ord_secret123");
-    expect(name).toBe("order_completed");
+    await waitFor(() => expect(trackOrderCompleted).toHaveBeenCalledTimes(1));
+    const [orderId, properties] = trackOrderCompleted.mock.calls[0];
+    // The order id is only the lookup for "this tab started this order" (lib/analytics.ts); it is not a property.
+    expect(orderId).toBe("ord_secret123");
     expect(properties).toEqual({ event_slug: "neon-static", value_aud: 33.3, ticket_count: 2, has_support: true, free: false });
     expect(JSON.stringify(properties)).not.toMatch(/ord_|7KQM|#7C1F/);
   });
@@ -58,14 +57,14 @@ describe("the success page's order_completed", () => {
     getOrderBySession.mockResolvedValue({ ...PAID, subtotalCents: 0, buyerFeeCents: 0, supportCents: undefined, totalCents: 0 });
     render(<CheckoutConfirmation />);
     await screen.findByText("Order reference #7C1F2E0A");
-    await waitFor(() => expect(trackOnce).toHaveBeenCalledTimes(1));
-    expect(trackOnce.mock.calls[0][2]).toMatchObject({ value_aud: 0, free: true, has_support: false });
+    await waitFor(() => expect(trackOrderCompleted).toHaveBeenCalledTimes(1));
+    expect(trackOrderCompleted.mock.calls[0][1]).toMatchObject({ value_aud: 0, free: true, has_support: false });
   });
 
   it("reports nothing for an order that was refunded or isn't found", async () => {
     getOrderBySession.mockResolvedValue({ ...PAID, status: "refunded", refundReason: "refunded", tickets: [] });
     render(<CheckoutConfirmation />);
     await screen.findByText("This order has been refunded");
-    expect(trackOnce).not.toHaveBeenCalled();
+    expect(trackOrderCompleted).not.toHaveBeenCalled();
   });
 });

@@ -74,7 +74,10 @@ describe("/privacy — Your location", () => {
     expect(section).toHaveTextContent("/search?near=Fitzroy");
     expect(section).toHaveTextContent("hosting provider’s request logs");
     expect(section).toHaveTextContent("isn’t saved in our database, isn’t linked to your account, and isn’t sent with our event searches");
-    expect(section).toHaveTextContent("We don’t work out where you are from your IP address.");
+    expect(section).toHaveTextContent(
+      "Sheltüh doesn’t use your IP address to work out where you are for search, the map or results. Our usage analytics tools may estimate a country or city from it",
+    );
+    expect(within(section).getByRole("link", { name: "Usage analytics" })).toHaveAttribute("href", "#analytics");
     expect(section).toHaveTextContent("“Anywhere in Australia”");
     expect(section).toHaveTextContent("or search with the location left empty");
     // The address with the suburb in it also lives on in the browser's history.
@@ -191,6 +194,11 @@ describe("/privacy — Usage analytics", () => {
     expect(section).toHaveTextContent("linked to a random account ID, not your name, email address or phone number");
     expect(section).toHaveTextContent("It doesn’t record your screen, what you type or the words you search for, and it sets no cookies");
     expect(section).toHaveTextContent("never an order number or ticket code");
+    expect(section).toHaveTextContent("your cookies and the page you came from aren’t passed on");
+    // IP address and user agent: what they are used for, and that PostHog doesn't keep the address.
+    expect(section).toHaveTextContent("both tools receive your IP address and your browser’s user agent");
+    expect(section).toHaveTextContent("estimate where you are, at country or city level");
+    expect(section).toHaveTextContent("PostHog is set to discard the IP address after that, so it doesn’t keep it");
     expect(section).toHaveTextContent("links with a private code or token in them are never recorded");
     // The region is the owner's to set before go-live (app/privacy/page.tsx comment, docs/DEPLOYMENT.md).
     expect(section).toHaveTextContent("The data is kept by PostHog in the United States or the European Union, as set by Sheltüh.");

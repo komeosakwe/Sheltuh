@@ -180,7 +180,11 @@ export default function PrivacyPage() {
             linked to your account, and isn&rsquo;t sent with our event searches: results are put in
             order in your browser.
           </li>
-          <li>We don&rsquo;t work out where you are from your IP address.</li>
+          <li>
+            Sheltüh doesn&rsquo;t use your IP address to work out where you are for search, the map or
+            results. Our usage analytics tools may estimate a country or city from it (see{" "}
+            <a href="#analytics">Usage analytics</a>).
+          </li>
         </ul>
         <p>
           To forget the suburb, choose &ldquo;Anywhere in Australia&rdquo; under the search
@@ -233,7 +237,10 @@ export default function PrivacyPage() {
       </ContentSection>
       <ContentSection title="Usage analytics" id="analytics">
         {/* OWNER, before go-live: say which PostHog region you chose (the project's cloud, US or EU).
-            The wording below names both until you do; docs/DEPLOYMENT.md, "Usage analytics". */}
+            The wording below names both until you do. This section also says PostHog is set not to keep
+            IP addresses: that needs the "Discard client IP data" setting on in the PostHog project
+            (docs/DEPLOYMENT.md, "Usage and marketing analytics", step 1: required), and the GeoIP
+            check there. Keep the wording true to how the project is set up. */}
         <p>
           We measure how Sheltüh is used (which pages are visited, how people find us and whether
           they come back) so we can make it better. We use two tools for that.
@@ -249,8 +256,8 @@ export default function PrivacyPage() {
             or the words you search for, and it sets no cookies: a random ID is kept in your
             browser&rsquo;s storage. Web addresses are cut down before they&rsquo;re sent, so links
             with a private code or token in them are never recorded. It reaches PostHog through our
-            own address. The data is kept by PostHog in the United States or the European Union, as
-            set by Sheltüh.
+            own address, and your cookies and the page you came from aren&rsquo;t passed on. The data
+            is kept by PostHog in the United States or the European Union, as set by Sheltüh.
           </li>
           <li>
             <strong>Vercel Web Analytics and Speed Insights</strong> (our host) count page views and
@@ -258,6 +265,13 @@ export default function PrivacyPage() {
             and your device and browser type, and measure how fast pages load.
           </li>
         </ul>
+        <p>
+          Like any website, both tools receive your IP address and your browser&rsquo;s user agent (its
+          name, version and your device type) with each request. They use the IP address to estimate
+          where you are, at country or city level, and the user agent to tell devices and browsers
+          apart. PostHog is set to discard the IP address after that, so it doesn&rsquo;t keep it;
+          Vercel handles the address as described in its own privacy policy.
+        </p>
         <p>
           We don&rsquo;t use this for advertising, we don&rsquo;t sell it, and it isn&rsquo;t shared
           with ad networks. Pages for Sheltüh&rsquo;s own administrators aren&rsquo;t measured. A link
