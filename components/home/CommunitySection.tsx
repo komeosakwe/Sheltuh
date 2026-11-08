@@ -47,7 +47,7 @@ function pickExample(mode: "demo" | "live", candidates: { event: SheltuhEvent; s
 /**
  * The card's overlapping round portraits, with a white ring between them (an
  * explicit owner exception, 23 Oct 2026: avatars are rounded squares
- * everywhere else): the owner's illustrative photos in `COMMUNITY_SAMPLE_FACES`
+ * everywhere else): the illustrative stock photos in `COMMUNITY_SAMPLE_FACES`
  * (home-content.ts), the same in demo and live. Decorative and never anyone's
  * attendance: hidden from assistive tech, and every footnote says so.
  * 56px on phones, 80px from 640px, 72px from 1024px (the narrow card column)

@@ -9,10 +9,10 @@ import { COUNT_THRESHOLD, useWhosGoing, type GoingData } from "./WhosGoingProvid
 
 
 /**
- * The crowd behind the card: one of the sample events' own photos (public/events/README.md), the
- * warmest of them, as the mockup's concert crowd. Decorative.
+ * The backdrop behind the card: one of the licensed sample-event photos (public/events/README.md),
+ * a red-lit DJ deck, the warmest of them, standing in for the mockup's concert crowd. Decorative.
  */
-export const CARD_PHOTO = "/events/dj-crate-digging.jpg";
+export const CARD_PHOTO = "/events/record-shop-dj.jpg";
 
 /** Three people, the one in front whole (decorative: the heading beside it says what it is). */
 function PeopleIcon({ className }: { className?: string }) {
