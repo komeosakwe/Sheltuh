@@ -102,14 +102,14 @@ test.describe("/map centres on the visitor at 1280×800", () => {
   test.describe("with location refused", () => {
     test.use({ permissions: [] });
 
-    test("keeps the default view, doesn't ask again this session, and Near me says it couldn't", async ({ page }) => {
+    test("keeps the default view, doesn't ask again this session, and Near me asks to share it", async ({ page }) => {
       await countAsks(page);
       await openMap(page);
       await expect.poll(() => page.evaluate(() => sessionStorage.getItem("sheltuh:map-locate-refused:v1"))).toBe("1");
       const view = await readView(mapContainer(page));
       expect(view.zoom).toBeLessThan(NEAR_ZOOM);
       expect(await page.evaluate(() => localStorage.getItem("sheltuh:near:v1"))).toBeNull();
-      await expect(page.getByText("Couldn’t find your location.")).toHaveCount(0);
+      await expect(page.locator("[data-location-card]")).toHaveCount(0);
 
       expect(await asks(page)).toBe(1);
       await page.goto("/map");
@@ -117,7 +117,11 @@ test.describe("/map centres on the visitor at 1280×800", () => {
       expect(await asks(page)).toBe(1);
 
       await page.getByRole("button", { name: "Near me" }).click();
-      await expect(page.getByText("Couldn’t find your location.")).toBeVisible();
+      const card = page.locator("[data-location-card]");
+      await expect(card).toBeVisible();
+      await expect(card.getByRole("status")).toHaveText(
+        "Share your location?To see events near you, allow location access in your browser settings.",
+      );
       expect((await readView(mapContainer(page))).zoom).toBeLessThan(NEAR_ZOOM);
     });
 
@@ -343,5 +347,59 @@ test.describe("/map on a 375px phone", () => {
     expect(await readView(mapContainer(page))).toEqual(before);
     await expectCentredOn(page, SYDNEY);
     await expect(page.getByRole("button", { name: "Search this area" })).toHaveCount(0);
+  });
+});
+
+/*
+ * The location card on a phone (owner's mockup, 8 Nov 2026): over the map's lower-left corner, above
+ * Near me, when the browser won't share the position. In Instagram's iOS browser "Open in Safari"
+ * can't open Safari (it ignores x-safari-https:, owner tested), so it copies the page's https address
+ * and says where the app's own "Open in external browser" is. (This server is http, so there's no
+ * address to copy here; copying the https one is covered in tests/SceneMapLocate.test.tsx and
+ * tests/MapLocationCard.test.tsx.)
+ */
+test.describe("/map's location card at 390×844", () => {
+  const INSTAGRAM_IOS =
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 340.0.0.26.108 (iPhone15,2; iOS 18_1; en_AU)";
+  test.use({ viewport: { width: 390, height: 844 }, permissions: [], userAgent: INSTAGRAM_IOS, isMobile: true, hasTouch: true });
+
+  /** The phone's map view (its list, and so the rows' Locate buttons, are hidden): tiles and a marker drawn. */
+  async function openPhoneMap(page: Page) {
+    await mockMapNetwork(page);
+    await page.goto("/map?view=map");
+    await expect(page.locator(".leaflet-tile-loaded").first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator(".leaflet-marker-pane [data-event-id], .leaflet-marker-pane [data-event-ids]").first()).toBeVisible({
+      timeout: 20_000,
+    });
+  }
+
+  test("sits over the map's lower-left corner above Near me, asks in Safari, and its ✕ closes it", async ({ page }) => {
+    await openPhoneMap(page);
+    const nearMe = page.getByRole("button", { name: "Near me" });
+    await nearMe.click();
+    const card = page.locator("[data-location-card]");
+    await expect(card.getByRole("status")).toHaveText("Share your location?To see events near you, allow location access in Safari.");
+    await expect(page.locator('a[href^="x-safari"]')).toHaveCount(0);
+
+    const [cardBox, nearBox, mapBox] = await Promise.all([card.boundingBox(), nearMe.boundingBox(), mapContainer(page).boundingBox()]);
+    if (!cardBox || !nearBox || !mapBox) throw new Error("not laid out");
+    expect(cardBox.width).toBe(200);
+    expect(cardBox.x).toBeCloseTo(nearBox.x, 0);
+    expect(cardBox.y + cardBox.height).toBeLessThanOrEqual(nearBox.y);
+    expect(nearBox.y + nearBox.height).toBeLessThanOrEqual(mapBox.y + mapBox.height + 1);
+    expect(nearBox.y).toBeGreaterThan(mapBox.y + mapBox.height / 2);
+    expect(nearBox.x - mapBox.x).toBeLessThanOrEqual(12);
+
+    await card.getByRole("button", { name: "Dismiss location message" }).click();
+    await expect(card).toHaveCount(0);
+    await expect(nearMe).toBeFocused();
+  });
+
+  test("on http there's no https address to copy: Open in Safari gives the steps only", async ({ page }) => {
+    await openPhoneMap(page);
+    await page.getByRole("button", { name: "Near me" }).click();
+    const card = page.locator("[data-location-card]");
+    await card.getByRole("button", { name: "Open in Safari" }).click();
+    await expect(card.getByRole("status")).toHaveText("Share your location?Tap ••• at the top, then Open in external browser.");
   });
 });

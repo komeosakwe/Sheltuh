@@ -1,9 +1,14 @@
 "use client";
 
-import { fieldClass } from "@/components/ui/Field";
-import ScrollHint from "@/components/ui/ScrollHint";
-import FilterChip, { filterChipClass, SelectedDots } from "@/components/ui/FilterChip";
 import type { ReactNode } from "react";
+import {
+  CalendarIcon,
+  ChevronDownIcon,
+  LayersIcon,
+  PinOutlineIcon,
+  SearchIcon,
+  TagIcon,
+} from "@/components/map/MapControlIcons";
 import type { EventCategory } from "@/lib/types";
 import type { ScenePricingFilter, SuburbGroup, TimeFilter } from "@/lib/scene-map-filters";
 
@@ -25,7 +30,14 @@ interface Props {
   onPricingChange: (value: ScenePricingFilter) => void;
 }
 
-/** Search + location, then time/category/price controls, for the Scene Map (fields §6.2, toggles §6.3). */
+const PRICE_LABELS: Record<ScenePricingFilter, string> = { all: "Any price", free: "Free", under25: "Under $25" };
+
+/**
+ * /map's search, location and filter chips, as the owner's mockup (8 Nov 2026): two rounded ivory
+ * fields with a soft shadow, then a row of pill chips (Tonight, This weekend, Date, All scenes,
+ * Any price). A chosen chip is peach with an orange icon and bold words; a toggle chip also says
+ * so with `aria-pressed`, and a select or date chip shows what's chosen.
+ */
 export default function SceneMapFilterBar({
   search,
   onSearchChange,
@@ -42,36 +54,47 @@ export default function SceneMapFilterBar({
   pricing,
   onPricingChange,
 }: Props) {
+  const suburbLabel =
+    suburb === "all"
+      ? "All of Australia"
+      : (suburbGroups.flatMap((group) => group.suburbs).find((option) => option.value === suburb)?.label ?? suburb);
+  const categoryLabel = category === "all" ? "All scenes" : (categories.find((c) => c.value === category)?.label ?? category);
+
   return (
-    <div className="flex flex-col gap-3 border-t border-foreground pt-5">
+    <div className="flex flex-col gap-3.5">
       <div className="flex flex-col gap-3 sm:flex-row">
-        {/* The label shows on phones, where the short placeholder alone would have to say it all. */}
-        <div className="flex flex-1 flex-col gap-2">
-          <label htmlFor="scene-search" className="eyebrow text-muted sm:sr-only">
+        <div className="relative sm:flex-1">
+          <label htmlFor="scene-search" className="sr-only">
             Search events, venues or suburbs
           </label>
-          <div className="relative">
-            <SearchIcon />
-            <input
-              id="scene-search"
-              type="search"
-              value={search}
-              onChange={(event) => onSearchChange(event.target.value)}
-              placeholder="Search events"
-              className={`${fieldClass} !pl-10`}
-            />
-          </div>
+          <SearchIcon className="pointer-events-none absolute top-1/2 left-4 size-5 -translate-y-1/2 text-foreground" />
+          {/* 16px typed text on phones (iOS zooms the page into a smaller field); the placeholder is the mockup's size. */}
+          <input
+            id="scene-search"
+            type="search"
+            value={search}
+            onChange={(event) => onSearchChange(event.target.value)}
+            placeholder="Search events, venues or suburbs"
+            className={`${FIELD} pr-4 pl-10.5 text-base text-foreground placeholder:text-field placeholder:text-foreground/75 sm:text-field lg:text-sm lg:placeholder:text-sm`}
+          />
         </div>
 
-        <label className="relative sm:w-60">
-          <span className="sr-only">Location</span>
-          <PinIcon />
-          {/* appearance-none: iOS Safari's native select ignored the left padding, so the pin sat
-              on the text; our own chevron replaces the native arrow. */}
+        {/* The look is drawn underneath; the native select fills it, invisible, so a tap opens the
+            device's own picker (16px, so iOS doesn't zoom). */}
+        <div data-location-field="" className={`relative h-10 rounded-2xl sm:w-60 lg:h-11 ${FOCUS_WITHIN}`}>
+          <label htmlFor="scene-location" className="sr-only">
+            Location
+          </label>
+          <span aria-hidden="true" className={`${FIELD} pointer-events-none absolute inset-0 flex items-center gap-2 pr-3.5 pl-4.25`}>
+            <PinOutlineIcon className="size-4.25 text-foreground" />
+            <span className="min-w-0 flex-1 truncate text-field font-medium text-foreground lg:text-sm">{suburbLabel}</span>
+            <ChevronDownIcon className="size-4 text-foreground" />
+          </span>
           <select
+            id="scene-location"
             value={suburb}
             onChange={(event) => onSuburbChange(event.target.value)}
-            className={`${fieldClass} appearance-none !pl-10 !pr-9`}
+            className={NATIVE_OVERLAY}
           >
             <option value="all">All of Australia</option>
             {suburbGroups.map((group) => (
@@ -84,24 +107,24 @@ export default function SceneMapFilterBar({
               </optgroup>
             ))}
           </select>
-          <ChevronIcon />
-        </label>
+        </div>
       </div>
 
-      {/* Phones: one row that scrolls sideways (bleeding to the screen's edges), so the map starts
-          near the top; it wraps from 640px. The vertical padding keeps focus rings inside the scroller. */}
-      <ScrollHint className="-mx-5 sm:mx-0" fadeClassName="sm:hidden">
+      {/* Phones: one row that scrolls sideways (bleeding to the screen's edges, starting a little left of
+          the fields, as in the mockup); it wraps from 640px. The vertical padding keeps the chips' shadow
+          and focus rings inside the scroller. */}
+      <div className="-mx-5 -my-1 sm:mx-0 sm:my-0">
         <form
           aria-label="Filter events"
-          className="no-scrollbar flex flex-nowrap items-center gap-2 overflow-x-auto px-5 py-1 sm:flex-wrap sm:overflow-visible sm:px-0 sm:py-0"
+          className="no-scrollbar flex flex-nowrap items-center gap-1.25 overflow-x-auto px-4 py-2 sm:flex-wrap sm:gap-1.5 sm:overflow-visible sm:px-0 sm:py-0"
           onSubmit={(event) => event.preventDefault()}
         >
-          <FilterChip pressed={time === "tonight"} onClick={() => onTimeChange(time === "tonight" ? "all" : "tonight")}>
+          <ToggleChip pressed={time === "tonight"} onClick={() => onTimeChange(time === "tonight" ? "all" : "tonight")}>
             Tonight
-          </FilterChip>
-          <FilterChip pressed={time === "weekend"} onClick={() => onTimeChange(time === "weekend" ? "all" : "weekend")}>
+          </ToggleChip>
+          <ToggleChip pressed={time === "weekend"} onClick={() => onTimeChange(time === "weekend" ? "all" : "weekend")}>
             This weekend
-          </FilterChip>
+          </ToggleChip>
           <DateChip
             value={specificDate}
             selected={time === "date"}
@@ -111,43 +134,97 @@ export default function SceneMapFilterBar({
             }}
           />
 
-          <label className="sr-only" htmlFor="scene-category-filter">
-            Category
-          </label>
-          <ChipControl selected={category !== "all"}>
-          <select
-            id="scene-category-filter"
-            value={category}
-            onChange={(event) => onCategoryChange(event.target.value as EventCategory | "all")}
-            className={filterChipClass(category !== "all", `focus-visible:outline-offset-0 ${category !== "all" ? "pl-8" : ""}`)}
-          >
-            <option value="all">All scenes</option>
-            {categories.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.label}
-              </option>
-            ))}
-          </select>
-          </ChipControl>
+          <SelectChip label="Category" htmlFor="scene-category-filter" icon={LayersIcon} shown={categoryLabel} selected={category !== "all"}>
+            <select
+              id="scene-category-filter"
+              value={category}
+              onChange={(event) => onCategoryChange(event.target.value as EventCategory | "all")}
+              className={NATIVE_OVERLAY}
+            >
+              <option value="all">All scenes</option>
+              {categories.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </SelectChip>
 
-          <label className="sr-only" htmlFor="scene-pricing-filter">
-            Price
-          </label>
-          <ChipControl selected={pricing !== "all"}>
+          <SelectChip label="Price" htmlFor="scene-pricing-filter" icon={TagIcon} shown={PRICE_LABELS[pricing]} selected={pricing !== "all"}>
             <select
               id="scene-pricing-filter"
               value={pricing}
               onChange={(event) => onPricingChange(event.target.value as ScenePricingFilter)}
-              className={filterChipClass(pricing !== "all", `focus-visible:outline-offset-0 ${pricing !== "all" ? "pl-8" : ""}`)}
+              className={NATIVE_OVERLAY}
             >
               <option value="all">Any price</option>
               <option value="free">Free</option>
               <option value="under25">Under $25</option>
             </select>
-          </ChipControl>
+          </SelectChip>
         </form>
-      </ScrollHint>
+      </div>
     </div>
+  );
+}
+
+/** The two fields' look: 40px (44px from lg), 16px corners, a soft hairline and shadow on ivory. */
+const FIELD = "h-10 lg:h-11 w-full rounded-2xl border border-soft-line bg-panel shadow-soft";
+
+/** A focus ring around a control whose native field is invisible inside it (the page's own ring, globals.css). */
+const FOCUS_WITHIN =
+  "has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-foreground has-[:focus-visible]:outline-solid";
+
+/** A native select or date field filling its chip or field, invisible, at 16px so iOS doesn't zoom. */
+const NATIVE_OVERLAY = "absolute inset-0 h-full w-full cursor-pointer appearance-none text-base opacity-0";
+
+/** A chip's classes: a 32px pill (36px from lg, where the words are 12px); chosen, peach with bold words. `endPadding`: less beside a trailing chevron. */
+export function mapChipClass(selected: boolean, className = "", endPadding = "pr-2.25 lg:pr-2.5") {
+  return `inline-flex h-8 shrink-0 items-center gap-1 rounded-full border pl-2.25 text-2xs text-foreground shadow-soft lg:h-9 lg:gap-1.5 lg:pl-2.5 lg:text-xs ${endPadding} ${
+    selected ? "border-signal/10 bg-peach font-bold" : "border-soft-line bg-panel font-medium hover:bg-surface"
+  } ${className}`
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const chipIconClass = (selected: boolean) => `size-3.5 lg:size-4 ${selected ? "text-signal" : "text-foreground"}`;
+
+function ToggleChip({ pressed, onClick, children }: { pressed: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <button type="button" aria-pressed={pressed} onClick={onClick} className={mapChipClass(pressed)}>
+      <CalendarIcon className={chipIconClass(pressed)} />
+      {children}
+    </button>
+  );
+}
+
+/** A chip over an invisible native select (Category, Price): it shows the choice, and a tap opens the device's picker. */
+function SelectChip({
+  label,
+  htmlFor,
+  icon: Icon,
+  shown,
+  selected,
+  children,
+}: {
+  label: string;
+  /** The select's id, for its label. */
+  htmlFor: string;
+  icon: (props: { className?: string }) => ReactNode;
+  shown: string;
+  selected: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <span data-select-chip="" className={mapChipClass(selected, `relative cursor-pointer ${FOCUS_WITHIN}`, "pr-2 lg:pr-2.25")}>
+      <label htmlFor={htmlFor} className="sr-only">
+        {label}
+      </label>
+      <Icon className={chipIconClass(selected)} />
+      <span aria-hidden="true">{shown}</span>
+      <ChevronDownIcon className="size-3.25 text-foreground" />
+      {children}
+    </span>
   );
 }
 
@@ -163,10 +240,10 @@ function shortDate(value: string): string {
 }
 
 /**
- * The date chip: a chip that shows its own words ("Date", or the day chosen, with the two
- * dots when set) under an invisible native date field that fills it, so a tap anywhere opens
- * the browser's own picker. iOS Safari ignores a date field's padding (the dots sat on the
- * date) and shows an empty field with no placeholder, so the field can't be the chip itself.
+ * The date chip: a chip that shows its own words ("Date", or the day chosen) under an invisible
+ * native date field that fills it, so a tap anywhere opens the browser's own picker. iOS Safari
+ * ignores a date field's padding and shows an empty field with no placeholder, so the field
+ * can't be the chip itself.
  */
 function DateChip({
   value,
@@ -178,14 +255,8 @@ function DateChip({
   onChange: (value: string) => void;
 }) {
   return (
-    <label
-      data-date-chip=""
-      className={filterChipClass(
-        selected,
-        "relative cursor-pointer has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-[3px] has-[input:focus-visible]:outline-foreground has-[input:focus-visible]:outline-solid",
-      )}
-    >
-      {selected && <SelectedDots />}
+    <label data-date-chip="" className={mapChipClass(selected, `relative cursor-pointer ${FOCUS_WITHIN}`)}>
+      <CalendarIcon className={chipIconClass(selected)} />
       <span aria-hidden="true">{value ? shortDate(value) : "Date"}</span>
       <input
         type="date"
@@ -200,53 +271,8 @@ function DateChip({
             // Not allowed here (e.g. inside a cross-origin frame): the field still takes typing.
           }
         }}
-        className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+        className={NATIVE_OVERLAY}
       />
     </label>
-  );
-}
-
-/**
- * A native control styled as a chip (a date field, a select): when it's set, it's black like a
- * pressed chip and carries the same two dots, drawn over its left padding (a field can't hold them).
- */
-function ChipControl({ selected, children }: { selected: boolean; children: ReactNode }) {
-  return (
-    <span className="relative inline-flex shrink-0">
-      {children}
-      {selected && (
-        <span className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2">
-          <SelectedDots />
-        </span>
-      )}
-    </span>
-  );
-}
-
-const iconClass = "pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted";
-
-function SearchIcon() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" className={iconClass}>
-      <circle cx="11" cy="11" r="7" />
-      <path d="m20 20-3.5-3.5" />
-    </svg>
-  );
-}
-
-function ChevronIcon() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="pointer-events-none absolute top-1/2 right-3 h-4 w-4 -translate-y-1/2 text-muted">
-      <path d="m6 9 6 6 6-6" />
-    </svg>
-  );
-}
-
-function PinIcon() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className={iconClass}>
-      <path d="M12 21s-6.5-5.6-6.5-11A6.5 6.5 0 0 1 12 3.5 6.5 6.5 0 0 1 18.5 10c0 5.4-6.5 11-6.5 11Z" />
-      <circle cx="12" cy="10" r="2.25" />
-    </svg>
   );
 }

@@ -4856,14 +4856,14 @@ Search can order results by how close they are to a suburb (owner round,
   unavailable, timed out, or the suburb table won't load) and the user agent
   is one of those apps (`lib/in-app-browser.ts` `inAppBrowserName`; the
   sign-in notice's `lib/auth/in-app-browser.ts` answers a different question),
-  the message becomes "{App}’s browser can’t share your location. Type your
-  suburb, or open Sheltüh in Chrome." with an "Open in Chrome" link (an
-  `intent:` URL) on Android. On iOS, http or an unknown platform there's no
-  link and it ends "…Type your suburb, or open Sheltüh in your browser from
-  the ••• menu.": Instagram's iOS browser ignores `x-safari-https://`
-  (tested by the owner), so the app's own menu is the reliable way out. The
-  message then stays 20 seconds, like one with a link. The link is built
-  from the https address without its fragment.
+  the search bar's message becomes "{App}’s browser can’t share your
+  location. Type your suburb, or open Sheltüh in Chrome." with an "Open in
+  Chrome" link (an `intent:` URL) on Android. On iOS, http or an unknown
+  platform there's no link and it ends "…Type your suburb, or open Sheltüh in
+  your browser from the ••• menu.": Instagram's iOS browser ignores
+  `x-safari-https://` (tested by the owner), so nothing uses it. The link is
+  built from the https address without its fragment.
+  The map's "Near me" shows the location card instead (below).
   A position that read fine but is outside Australia keeps its own message.
 - Only the suburb's name (and its state) leaves that function: localStorage
   `sheltuh:near:v1` = `{"suburb": …, "state": …}` (`lib/near-storage.ts`;
@@ -4948,10 +4948,24 @@ Search can order results by how close they are to a suburb (owner round,
   - An address with `q`, `cat`, `time`, `date`, `suburb`, `price`, `sel` or
     `view` wins: no ask, no centring on a saved suburb (a selected event or
     filtered results frame themselves, as before).
-  - "Near me" (44px, under the zoom buttons; only where the browser has
-    geolocation) runs the same flow on demand, ignoring the refusal. It's busy
-    ("Locating…") while it looks; a failure says "Couldn’t find your
-    location." in a polite status, and a success is announced.
+  - "Near me" (44px; on phones in the map's lower-left corner, from 1024px
+    under the zoom buttons; only where the browser has geolocation) runs the
+    same flow on demand, ignoring the refusal. It's busy ("Locating…") while
+    it looks, and a success is announced. A refusal or failure shows the
+    **location card** above it (owner's mockup, 8 Nov 2026;
+    `components/map/LocationCard.tsx`, `lib/in-app-browser.ts`
+    `locationPrompt`): "Share your location?" and "To see events near you,
+    allow location access in {Safari | Chrome | your browser settings}."
+    In an Android in-app browser it has "Open in Chrome" (the `intent:` link).
+    In an iOS in-app browser "Open in Safari" copies the page's https address
+    (no fragment or user info; `shareablePageAddress`) and the sentence
+    becomes "Link copied. Tap ••• at the top, then Open in external
+    browser." (just the steps when there's no https address or the clipboard
+    refuses). A position outside Australia keeps "Couldn’t find your
+    location.", in the same card. The card's words are the always-mounted
+    polite status; it never takes focus, stays 20 seconds (and while focus is
+    in it, counted afresh after the steps appear), and its ✕ closes it and
+    returns focus to Near me.
   - Picking a suburb in the map's location filter, or the saved suburb
     changing while on the map (the search bar's "Use my current location",
     another tab: `subscribeStoredNear` in `lib/near-storage.ts`), centres on

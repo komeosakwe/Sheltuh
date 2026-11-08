@@ -68,14 +68,15 @@ async function mockApi(page: Page) {
   await page.route("https://server.arcgisonline.com/**", (route) => route.abort());
 }
 
-// Owner (23 Oct 2026): "Make the selected category clearly identifiable: white background and black text.
-// Unselected categories retain dark backgrounds and subtle borders." The chips with a selected state are
-// the map's filters (the home's category row is navigation: none of its chips is ever "selected").
+// Owner (23 Oct 2026): "Make the selected category clearly identifiable" — then the owner's /map mockup
+// (8 Nov 2026): the chosen chip is peach with an orange icon and bold words; unselected chips are ivory
+// pills with a soft hairline. The chips with a selected state are the map's filters (the home's category
+// row is navigation: none of its chips is ever "selected").
 for (const theme of ["light", "dark"] as const) {
   test.describe(`filter chips in ${theme === "light" ? "Light" : "Dark"} at 390px`, () => {
     test.use({ viewport: { width: 390, height: 844 } });
 
-    test("the selected chip says so (aria-pressed) and is solid; unselected chips keep the card colour and a subtle edge", async ({ page }) => {
+    test("the selected chip says so (aria-pressed) and is peach and bold; unselected chips are ivory with a soft edge", async ({ page }) => {
       if (theme === "dark") await page.addInitScript(() => localStorage.setItem("sheltuh:theme", "dark"));
       await mockApi(page);
       await page.goto("/map");
@@ -92,18 +93,18 @@ for (const theme of ["light", "dark"] as const) {
       const look = (chip: typeof tonight) =>
         chip.evaluate((el) => {
           const s = getComputedStyle(el);
-          return { bg: s.backgroundColor, fg: s.color, border: s.borderTopColor };
+          const icon = el.querySelector("svg");
+          return { bg: s.backgroundColor, fg: s.color, border: s.borderTopColor, weight: s.fontWeight, icon: icon ? getComputedStyle(icon).color : "" };
         });
-      const [ink, paper, card] =
-        theme === "dark" ? ["rgb(255, 255, 255)", "rgb(0, 0, 0)", "rgb(20, 20, 20)"] : ["rgb(0, 0, 0)", "rgb(255, 255, 255)", "rgb(255, 255, 255)"];
-      // Selected: Dark, white with black text (the owner's ask); Light, its inverse, black with white text.
-      expect(await look(tonight)).toEqual({ bg: ink, fg: paper, border: ink });
-      await expect(tonight.locator("[data-selected-dots]")).toHaveCount(1);
-      // Unselected: the card colour with the page's text colour, and a half-strength edge.
-      const other = await look(weekend);
-      expect(other.bg).toBe(card);
-      expect(other.fg).toBe(ink);
-      expect(other.border).toMatch(/\/ 0\.5\)$/);
+      // --peach, --panel and --soft-line (app/globals.css) in each theme; the text is the page's.
+      const [ink, peach, panel, line] =
+        theme === "dark"
+          ? ["rgb(255, 255, 255)", "rgb(74, 42, 24)", "rgb(26, 24, 22)", "rgb(74, 69, 64)"]
+          : ["rgb(0, 0, 0)", "rgb(252, 212, 187)", "rgb(251, 247, 241)", "rgb(205, 198, 192)"];
+      // Selected: peach, bold words in the page's text colour, the orange (--signal) icon.
+      expect(await look(tonight)).toMatchObject({ bg: peach, fg: ink, weight: "700", icon: "rgb(255, 72, 0)" });
+      // Unselected: ivory with the page's text colour and icon, and the soft edge.
+      expect(await look(weekend)).toEqual({ bg: panel, fg: ink, border: line, weight: "500", icon: ink });
 
       // The keyboard focus ring still shows on a chip.
       await weekend.focus();

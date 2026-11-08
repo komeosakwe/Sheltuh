@@ -86,3 +86,48 @@ export function currentInAppLocationHelp(): InAppLocationHelp | null {
   if (typeof window === "undefined" || typeof navigator === "undefined") return null;
   return inAppLocationHelp(window.location.href, navigator.userAgent);
 }
+
+// iPadOS asks for desktop sites, so its agent says Macintosh; the "Mobile" token still gives it away.
+const IOS = /iPhone|iPad|iPod|Macintosh.*Mobile/;
+
+/**
+ * The page's address to hand to another browser: https only, with no fragment (it can carry
+ * tokens) and no user info. Null for anything else (http in development, other schemes).
+ */
+export function shareablePageAddress(currentUrl: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(currentUrl);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:") return null;
+  return `https://${url.host}${url.pathname}${url.search}`;
+}
+
+/**
+ * What /map's location card offers when Near me couldn't get a position (components/map/LocationCard.tsx,
+ * owner's mockup of 8 Nov 2026):
+ *  - `copy-link`: an in-app browser on iOS. "Open in Safari" can't open Safari from there (Instagram
+ *    ignores `x-safari-https:`, tested by the owner), so it copies the page's address and says where
+ *    the app's own "Open in external browser" is;
+ *  - `open-link`: an in-app browser on Android: "Open in Chrome", an `intent:` link (openInBrowserHref);
+ *  - `settings`: any other browser (or an in-app one with no way out): allow location in its settings.
+ */
+export type LocationPrompt =
+  | { kind: "copy-link"; browser: "Safari" }
+  | { kind: "open-link"; browser: string; label: string; href: string }
+  | { kind: "settings" };
+
+export function locationPrompt(currentUrl: string, userAgent: string): LocationPrompt {
+  if (!inAppBrowserName(userAgent)) return { kind: "settings" };
+  if (IOS.test(userAgent)) return { kind: "copy-link", browser: "Safari" };
+  const open = openInBrowserHref(currentUrl, userAgent);
+  return open ? { kind: "open-link", browser: open.browser, label: open.label, href: open.href } : { kind: "settings" };
+}
+
+/** `locationPrompt` for this page and browser; `settings` on the server. */
+export function currentLocationPrompt(): LocationPrompt {
+  if (typeof window === "undefined" || typeof navigator === "undefined") return { kind: "settings" };
+  return locationPrompt(window.location.href, navigator.userAgent);
+}
