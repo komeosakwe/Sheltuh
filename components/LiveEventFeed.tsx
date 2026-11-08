@@ -81,8 +81,9 @@ export default function LiveEventFeed({
   const progress = useLoadingProgress(status === "loading");
   const listRef = useRef<HTMLUListElement>(null);
   const loadMoreRef = useRef<HTMLButtonElement>(null);
-  // How many results were showing when "Load more" was pressed, to find the first new one.
-  const countBeforeMore = useRef<number | null>(null);
+  // How many results were showing when "Load more" was pressed, to find the first new one, and
+  // whether the focus effect has yet seen that press's load in flight (see the effect).
+  const pendingMoreFocus = useRef<{ before: number; seenLoading: boolean } | null>(null);
   // This is how many results have loaded so far, not the total number of
   // events in the database — later pages may add more.
   const summary = `Showing ${events.length} event${events.length === 1 ? "" : "s"}${
@@ -219,16 +220,28 @@ export default function LiveEventFeed({
 
   function handleLoadMore() {
     requestIdRef.current += 1;
-    countBeforeMore.current = events.length;
+    pendingMoreFocus.current = { before: events.length, seenLoading: false };
     load(nextCursor, false);
   }
 
   // "Load more" keeps focus while it loads (busy, not disabled). When the last page takes the
   // button away with focus on it, focus goes to the first new event rather than the page.
+  //
+  // The press is acted on only after this effect has seen its load in flight. A press can land
+  // after a render is on screen but before React has run that render's effects (they wait for
+  // paint, so a fast press on a busy device gets in first); those effects then run straight
+  // after the press with the state from before it (not loading, the button still there), and
+  // would otherwise use up the press and leave focus on the page once the button goes.
   useEffect(() => {
-    if (countBeforeMore.current === null || loadingMore) return;
-    const before = countBeforeMore.current;
-    countBeforeMore.current = null;
+    const pending = pendingMoreFocus.current;
+    if (pending === null) return;
+    if (loadingMore) {
+      pending.seenLoading = true;
+      return;
+    }
+    if (!pending.seenLoading) return;
+    const { before } = pending;
+    pendingMoreFocus.current = null;
     if (loadMoreRef.current || (document.activeElement && document.activeElement !== document.body)) return;
     const firstNew = listRef.current?.children[before]?.querySelector("a");
     firstNew?.focus();

@@ -173,6 +173,34 @@ describe("LiveEventFeed — announcing results and keeping focus (WCAG 4.1.3, 2.
     await waitFor(() => expect(document.activeElement).toHaveAttribute("href", "/events/c"), { timeout: 3000 });
   });
 
+  it("still moves focus when Load more is pressed before the first page's effects have run", async () => {
+    // A press can land after the first page is on screen but before React has run that render's
+    // effects (they wait for the browser to paint; on a busy device a fast press gets in first).
+    // Those effects then run straight after the press, with the state from before it, and must
+    // not use up the press's focus move. The observer presses in exactly that gap: mutation
+    // callbacks run right after the DOM changes, before React's deferred effects.
+    listPublicEvents
+      .mockResolvedValueOnce({ items: [makeEvent("a"), makeEvent("b")], nextCursor: "cursor-1" })
+      .mockResolvedValueOnce({ items: [makeEvent("c"), makeEvent("d")], nextCursor: undefined });
+    let pressed = false;
+    const observer = new MutationObserver(() => {
+      const more = screen.queryByRole("button", { name: "Load more" });
+      if (pressed || !more) return;
+      pressed = true;
+      more.focus();
+      fireEvent.click(more);
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    try {
+      render(<LiveEventFeed categories={EVENT_CATEGORIES} />);
+      await waitFor(() => expect(pressed).toBe(true));
+      await waitFor(() => expect(screen.getByText("Event c")).toBeInTheDocument());
+      await waitFor(() => expect(document.activeElement).toHaveAttribute("href", "/events/c"));
+    } finally {
+      observer.disconnect();
+    }
+  });
+
   it("puts a visually hidden h2 above the results, so the tiles' h3 titles sit under it", async () => {
     listPublicEvents.mockResolvedValueOnce({ items: [makeEvent("a")], nextCursor: undefined });
     render(<LiveEventFeed categories={EVENT_CATEGORIES} />);
