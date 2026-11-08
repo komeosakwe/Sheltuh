@@ -588,7 +588,7 @@ describe("Near me puts the nearest events first and frames them", () => {
     expect(document.querySelector(".scene-visitor")).toBeNull();
   });
 
-  it("Near me drops a selected event, so the map goes to the visitor rather than back to the selection", async () => {
+  it("Near me replaces a selected event with the nearest, and the map goes to the visitor rather than back to the old selection", async () => {
     // Codex, PR #34: a retained selection's effect flew the map back to the selected event.
     params = new URLSearchParams("sel=sydney-show");
     answerAt(MELBOURNE.lat, MELBOURNE.lng);
@@ -597,8 +597,108 @@ describe("Near me puts the nearest events first and frames them", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Near me" }));
     await expectCentredOn(MELBOURNE, 0.06);
-    await waitFor(() => expect(replace.mock.calls.at(-1)?.[0] ?? "").not.toMatch(/sel=/));
+    await waitFor(() => expect(replace.mock.calls.at(-1)?.[0] ?? "").toMatch(/sel=fitzroy-gig/));
+    expect(replace.mock.calls.at(-1)?.[0] ?? "").not.toMatch(/sydney-show/);
     await waitFor(() => expect(listedTitles()[0]).toBe("Fitzroy Gig"));
+    expect(screen.getAllByRole("region", { name: "Selected event" })[0]).toHaveTextContent("Fitzroy Gig");
+  });
+
+  describe("opens the nearest event", () => {
+    const selectedCard = () => screen.getAllByRole("region", { name: "Selected event" })[0];
+
+    it("selects the nearest event the filters leave, announces it, and keeps the map framed on the visitor", async () => {
+      // Theatre only: Fitzroy (live music, 2 km) is filtered out, so Brighton (12 km) is the nearest.
+      params = new URLSearchParams("cat=theatre");
+      answerAt(MELBOURNE.lat, MELBOURNE.lng);
+      await renderMap(spread);
+      expect(screen.queryByRole("region", { name: "Selected event" })).toBeNull();
+
+      fireEvent.click(screen.getByRole("button", { name: "Near me" }));
+      await waitFor(() => expect(screen.getAllByRole("region", { name: "Selected event" }).length).toBeGreaterThan(0));
+      expect(selectedCard()).toHaveTextContent("Brighton Gig");
+      expect(selectedCard()).not.toHaveTextContent("Fitzroy Gig");
+
+      // Announced in the status that already speaks for Near me.
+      const status = screen.getByText(/^Nearest: Brighton Gig, 1\d km\. Showing events nearest you\.$/);
+      expect(status.closest("[role=status]")).not.toBeNull();
+
+      // Framed as before: the visitor with the nearest (Brighton, 12 km), not flown in on the one event.
+      await waitFor(() => {
+        const now = view();
+        expect(now.zoom).toBeGreaterThanOrEqual(11);
+        expect(now.zoom).toBeLessThan(14);
+        expect(now.lat).toBeLessThan(MELBOURNE.lat);
+        expect(now.lat).toBeGreaterThan(-37.95);
+      });
+      await new Promise<void>((done) => setTimeout(done, 700));
+      expect(view().zoom).toBeLessThan(14);
+      expect(document.querySelector(".scene-visitor")).not.toBeNull();
+      expect(screen.queryByRole("button", { name: /Search this area/ })).toBeNull();
+    });
+
+    it("puts only the event's id in the address: no coordinate", async () => {
+      params = new URLSearchParams("cat=theatre");
+      answerAt(MELBOURNE.lat, MELBOURNE.lng);
+      await renderMap(spread);
+      fireEvent.click(screen.getByRole("button", { name: "Near me" }));
+      await waitFor(() => expect(replace.mock.calls.at(-1)?.[0] ?? "").toMatch(/sel=brighton-gig/));
+      expect(replace.mock.calls.at(-1)?.[0]).toBe("/map?cat=theatre&sel=brighton-gig");
+      expect(replace.mock.calls.flat().join(" ")).not.toMatch(/-?\d{2,3}\.\d{3,}/);
+      expectNoCoordinatesStored();
+    });
+
+    it("opens nothing when no event is within 100 km, and keeps the view and list as before", async () => {
+      params = new URLSearchParams("cat=live-music");
+      const PERTH = { lat: -31.9523, lng: 115.8613 };
+      answerAt(PERTH.lat, PERTH.lng);
+      await renderMap([fitzroyGig, sydneySoonest]);
+      fireEvent.click(screen.getByRole("button", { name: "Near me" }));
+      await expectCentredOn(PERTH);
+      await waitFor(() => expect(listedTitles()).toEqual(["Fitzroy Gig", "Sydney Show"]));
+      expect(screen.queryByRole("region", { name: "Selected event" })).toBeNull();
+      expect(screen.queryByText(/^Nearest:/)).toBeNull();
+      expect(screen.getByText("Map centred on Perth, WA.")).toBeInTheDocument();
+      expect(replace.mock.calls.flat().join(" ")).not.toMatch(/sel=/);
+    });
+
+    it("the ask on open orders the list but opens nothing", async () => {
+      answerAt(MELBOURNE.lat, MELBOURNE.lng);
+      await renderMap([sydneySoonest, fitzroyGig, footscrayGig]);
+      await expectCentredOn(MELBOURNE, 0.06);
+      await waitFor(() => expect(listedTitles()[0]).toBe("Fitzroy Gig"));
+      expect(screen.queryByRole("region", { name: "Selected event" })).toBeNull();
+      expect(screen.queryByText(/^Nearest:/)).toBeNull();
+      expect(replace.mock.calls.flat().join(" ")).not.toMatch(/sel=/);
+    });
+
+    it("focus stays on Near me, and Dismiss gives it back there", async () => {
+      params = new URLSearchParams("cat=live-music");
+      answerAt(MELBOURNE.lat, MELBOURNE.lng);
+      await renderMap([sydneySoonest, fitzroyGig, footscrayGig]);
+      const button = screen.getByRole("button", { name: "Near me" });
+      button.focus();
+      fireEvent.click(button);
+      await waitFor(() => expect(screen.getAllByRole("region", { name: "Selected event" }).length).toBeGreaterThan(0));
+      expect(selectedCard()).toHaveTextContent("Fitzroy Gig");
+      expect(screen.getByRole("button", { name: "Near me" })).toHaveFocus();
+
+      screen.getAllByRole("button", { name: "Dismiss selected event" })[0].click();
+      await waitFor(() => expect(screen.queryByRole("region", { name: "Selected event" })).toBeNull());
+      expect(screen.getByRole("button", { name: "Near me" })).toHaveFocus();
+    });
+
+    it("a later pin tap or row is selected the usual way, flying to it", async () => {
+      params = new URLSearchParams("cat=live-music");
+      answerAt(MELBOURNE.lat, MELBOURNE.lng);
+      await renderMap([sydneySoonest, fitzroyGig, footscrayGig]);
+      fireEvent.click(screen.getByRole("button", { name: "Near me" }));
+      await waitFor(() => expect(screen.getAllByRole("region", { name: "Selected event" }).length).toBeGreaterThan(0));
+      await expectCentredOn(MELBOURNE, 0.06);
+
+      fireEvent.click(screen.getByRole("button", { name: "Locate Sydney Show on the map" }));
+      await waitFor(() => expect(view().lat).toBeCloseTo(sydneySoonest.coordinates?.lat ?? 0, 2));
+      expect(selectedCard()).toHaveTextContent("Sydney Show");
+    });
   });
 
   it("an address with its own view keeps soonest first until Near me is pressed", async () => {

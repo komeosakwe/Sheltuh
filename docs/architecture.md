@@ -4971,6 +4971,20 @@ Search can order results by how close they are to a suburb (owner round,
       `MAP_NEAR_ZOOM`, as before. A re-fit after a filter changes the
       markers does the same while something is near the origin, else fits
       them all.
+    - **Near me opens the nearest event** (`nearestWithin`, owner request): a
+      successful press of Near me (not the silent ask on open, which would put
+      a card or a phone's sheet over the map and take focus before the visitor
+      asked for anything) selects the nearest of the events the filters leave,
+      within 100 km (the framing's reach; none within it: nothing opens, as
+      before), as a pin tap does: the desktop card on the map, the phone's
+      bottom sheet. It replaces any earlier selection and clears "Search this
+      area". The map does *not* fly in on it (`recentreOnSelect` false for that
+      one selection): it keeps the framing above, which contains that event.
+      Announced in the Near me status ("Nearest: {title}, 2.1 km. Showing events
+      nearest you."), with the usual "Selected …" line after it. Focus stays on
+      Near me (the pin-tap rule: opening a card doesn't move focus), and Dismiss
+      returns it there. `?sel=` carries the event's id as for any selection,
+      never the position.
     - **Not fighting the visitor.** Nothing re-frames on its own: the map
       moves only on a new request (Near me, the saved suburb changing), on
       the first framing, or when the filters change the markers. The

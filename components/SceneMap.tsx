@@ -22,7 +22,7 @@ import { formatEventDateShort } from "@/lib/format";
 import { useMapTileStyle } from "@/components/map/useMapTileStyle";
 import { useLocationModule } from "@/components/search/useLocationModule";
 import { findListedSuburb, resolveMapCoordinates, type SuburbLookup } from "@/lib/geo";
-import { formatDistanceKm, sortNearestFirst } from "@/lib/map-near";
+import { formatDistanceKm, nearestWithin, sortNearestFirst } from "@/lib/map-near";
 import { readStoredNear } from "@/lib/near-storage";
 import { placeName, placeQuery } from "@/lib/place";
 import { formatFeedPrice } from "@/lib/pricing";
@@ -34,7 +34,7 @@ import {
   type ScenePricingFilter,
   type TimeFilter,
 } from "@/lib/scene-map-filters";
-import type { EventCategory, SheltuhEvent } from "@/lib/types";
+import type { Coordinates, EventCategory, SheltuhEvent } from "@/lib/types";
 
 const SceneMapPanel = dynamic(() => import("@/components/SceneMapPanel"), {
   ssr: false,
@@ -219,12 +219,9 @@ function SceneMapView({
   const [urlSteers] = useState(() => carriesViewState(searchParams));
   const [areaBounds, setAreaBounds] = useState<MapBounds | null>(null);
   const [rawSelectedEventId, setSelectedEventId] = useState<string | null>(initialSelected);
-  // A located visitor is asking for what's near them: an earlier "Search this area" no longer applies,
-  // and neither does a selected event, whose own recentring would otherwise fly the map back to it.
-  const locate = useMapLocate(!urlSteers, () => {
-    setAreaBounds(null);
-    setSelectedEventId(null);
-  });
+  // The event Near me opened: selecting it doesn't recentre the map, which stays framed on the
+  // visitor and the nearest few (SceneMapPanel's `recentreOnSelect`). Any other selection does.
+  const [nearestOpenedId, setNearestOpenedId] = useState<string | null>(null);
 
   // The desktop event card sits above the Mapbox wordmark in the map's lower-left corner (components/map/MapboxLogo.tsx).
   const mapboxLogo = useMapTileStyle().id === "mapbox-streets";
@@ -242,6 +239,8 @@ function SceneMapView({
   // Focus to move once the next render has shown its target: the list after "Show the list",
   // the phone's sheet after Locate.
   const pendingFocus = useRef<"list" | "sheet" | null>(null);
+  // Near me reordered the list nearest first: scroll it back to its top once rendered.
+  const listToTop = useRef(false);
   // Dismiss: the event whose card closed, for focus to go back to once the map has re-rendered.
   const dismissedFrom = useRef<{ eventId: string; opener: HTMLElement | null } | null>(null);
   // The events listed before "Load more", to find the first new one if the button then goes.
@@ -250,26 +249,51 @@ function SceneMapView({
   const now = useMemo(() => new Date(), []);
   const suburbGroups = useMemo(() => suburbsByState(events), [events]);
 
-  const filtered = useMemo(() => {
+  // The events the filters leave (before "Search this area"), soonest first.
+  const matching = useMemo(() => {
     return events
       .filter((event) => filters.category === "all" || event.category === filters.category)
       .filter((event) => matchesPricing(event, filters.pricing))
       .filter((event) => filters.suburb === "all" || event.suburb === filters.suburb)
       .filter((event) => matchesTimeFilter(event, filters.time, now, filters.specificDate))
       .filter((event) => matchesSearch(event, filters.search))
-      .filter((event) => {
-        if (!areaBounds) return true;
-        const coords = resolveMapCoordinates(event, findSuburb);
-        if (!coords) return false;
-        return (
-          coords.lat <= areaBounds.north &&
-          coords.lat >= areaBounds.south &&
-          coords.lng <= areaBounds.east &&
-          coords.lng >= areaBounds.west
-        );
-      })
       .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
-  }, [events, filters, now, areaBounds, findSuburb]);
+  }, [events, filters, now]);
+
+  const filtered = useMemo(() => {
+    if (!areaBounds) return matching;
+    return matching.filter((event) => {
+      const coords = resolveMapCoordinates(event, findSuburb);
+      if (!coords) return false;
+      return (
+        coords.lat <= areaBounds.north &&
+        coords.lat >= areaBounds.south &&
+        coords.lng <= areaBounds.east &&
+        coords.lng >= areaBounds.west
+      );
+    });
+  }, [matching, areaBounds, findSuburb]);
+
+  // A located visitor is asking for what's near them: an earlier "Search this area" no longer
+  // applies, and neither does an earlier selection. When they pressed Near me (not the ask on
+  // open), the nearest event of those the filters leave opens, as if its pin were tapped, and the
+  // map keeps its framing of the visitor and the nearest few rather than flying to it.
+  const locate = useMapLocate(!urlSteers, (position: Coordinates, byRequest: boolean) => {
+    setAreaBounds(null);
+    setSelectedEventId(null);
+    setNearestOpenedId(null);
+    if (!byRequest) return null;
+    const nearest = nearestWithin(matching, position, (event) => resolveMapCoordinates(event, findSuburb));
+    if (!nearest) return null;
+    const id = nearest.item.id;
+    // Dismiss gives focus back to Near me, which has kept it.
+    openerRef.current = mapPaneRef.current?.querySelector<HTMLElement>("[data-near-me] button") ?? null;
+    setSelectedEventId(id);
+    setNearestOpenedId(id);
+    // The list reorders nearest first: bring its top, where the opened event now is, into view.
+    listToTop.current = true;
+    return `Nearest: ${nearest.item.title}, ${formatDistanceKm(nearest.km ?? 0)}. Showing events nearest you.`;
+  });
 
   // Where the visitor is, for the list to run nearest first and the map to frame the events near
   // them: their position from this page's Near me (or the ask on open), else the centre of the
@@ -329,6 +353,10 @@ function SceneMapView({
 
   // After each render: move focus the user asked for once its target is showing.
   useEffect(() => {
+    if (listToTop.current) {
+      listToTop.current = false;
+      if (listRef.current) listRef.current.scrollTop = 0;
+    }
     if (pendingFocus.current === "list" && mobileView === "list" && listRef.current) {
       pendingFocus.current = null;
       listRef.current.focus();
@@ -415,6 +443,7 @@ function SceneMapView({
   function handleLocate(eventId: string, opener: HTMLElement) {
     openerRef.current = opener;
     setSelectedEventId(eventId);
+    setNearestOpenedId(null);
     setMobileView("map");
     if (!isDesktop()) pendingFocus.current = "sheet";
   }
@@ -423,6 +452,7 @@ function SceneMapView({
     // A marker, or a spot list's row (which closes): Dismiss falls back to the marker if that's gone.
     openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setSelectedEventId(eventId);
+    setNearestOpenedId(null);
     rowRefs.current.get(eventId)?.scrollIntoView({ block: "nearest" });
   }
 
@@ -433,6 +463,7 @@ function SceneMapView({
     if (selectedEventId) dismissedFrom.current = { eventId: selectedEventId, opener: openerRef.current };
     openerRef.current = null;
     setSelectedEventId(null);
+    setNearestOpenedId(null);
   }
 
   function showList() {
@@ -618,6 +649,7 @@ function SceneMapView({
                     focus={locate.focus}
                     onFocused={locate.focused}
                     selectedEventId={selectedEventId}
+                    recentreOnSelect={selectedEventId !== nearestOpenedId}
                     onSelect={handleMapSelect}
                     onSearchArea={setAreaBounds}
                     onShowList={showList}
