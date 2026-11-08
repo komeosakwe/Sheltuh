@@ -166,7 +166,7 @@ for (const vp of [
 
       // Published: its public page is the main action (no View into a locked editor); Contact Sheltüh is a link.
       const live = main.locator('[data-event-row="evt-live"]');
-      await expect(live.getByRole("list").getByRole("link")).toHaveText(["View public page", "Analytics", "Check-in", "Seat map"]);
+      await expect(live.getByRole("list").getByRole("link")).toHaveText(["View public page", "Orders", "Analytics", "Check-in", "Seat map"]);
       await expect(live.getByRole("link", { name: "Contact Sheltüh" })).toHaveAttribute("href", "mailto:support@sheltuh.com.au");
       await expect(main.getByRole("link", { name: "Edit dad" })).toHaveAttribute("href", "/dashboard/evt-dad");
       await expect(main.getByRole("link", { name: "View submission for Late Bloom Markets" })).toHaveAttribute(
