@@ -170,17 +170,18 @@ test.describe("external event (free, organiser's site) at 390×844", () => {
 test.describe("Sheltüh-ticketed event at 390×844", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test("buy bar Buy tickets focuses the tickets, whose totals include the fee and come first", async ({ page }) => {
+  test("buy bar Buy tickets focuses the first ticket, whose totals include the fee and come first", async ({ page }) => {
     await mockApi(page);
     await page.goto("/events/neon-static");
     const bar = page.locator("[data-buy-bar]");
     await expect(bar).toContainText("From A$32.30", { timeout: 30_000 });
     // The tab is titled with the event once it's loaded (live pages render client-side).
     await expect(page).toHaveTitle("Neon Static — Sheltüh");
+    // With nothing chosen the bar's link takes focus to the first ticket's "+" (and, if that is already on
+    // screen, says what to do: tests/BuyBar.test.tsx), rather than jumping to the section.
     await bar.getByRole("link", { name: "Buy tickets" }).click();
-    await expect(page).toHaveURL(/#tickets$/);
-    await expect(page.locator("#tickets")).toBeFocused();
     const tickets = page.locator("#tickets");
+    await expect(tickets.getByRole("button", { name: "Increase quantity for General admission" })).toBeFocused();
     await expect(tickets.getByText("A$32.30 incl. booking fee")).toBeVisible();
     // No per-ticket breakdown: the fee is said once, by Checkout.
     await expect(tickets.getByText("A$30 ticket + A$2.30 booking fee")).toHaveCount(0);
@@ -234,10 +235,12 @@ for (const vp of [
 
 // Owner request (26 Oct 2026): on a phone, Save and Share are on the first screen too, above the
 // buy bar, with a two-line title and a two-line address. 390×664 is a 390×844 phone less its
-// browser chrome; 375×667 is the small iPhone.
+// browser chrome; 375×667 is the small iPhone; 370×667 is the same phone where a slightly wider font (CI's) wraps
+// one more line above the row, which once left it a pixel under the bar.
 for (const vp of [
   { width: 390, height: 664 },
   { width: 375, height: 667 },
+  { width: 370, height: 667 },
 ]) {
   test.describe(`Save and Share on the first screen at ${vp.width}×${vp.height}`, () => {
     test.use({ viewport: vp });
@@ -264,7 +267,8 @@ for (const vp of [
         const box = await control.boundingBox();
         if (!box) throw new Error("not laid out");
         expect(box.height).toBeGreaterThanOrEqual(44);
-        expect(box.y + box.height).toBeLessThanOrEqual(bar.y);
+        // With room to spare (4px), not touching the bar.
+        expect(box.y + box.height).toBeLessThanOrEqual(bar.y - 4);
       }
       // Add to calendar keeps its 44px target, and doesn't overlap the address link below it.
       const calendar = await page.getByRole("button", { name: "Add to calendar" }).boundingBox();

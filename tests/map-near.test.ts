@@ -5,6 +5,7 @@ import {
   NEAR_FRAME_RADIUS_KM,
   formatDistanceKm,
   nearestToFrame,
+  nearestWithin,
   sortNearestFirst,
 } from "@/lib/map-near";
 
@@ -70,5 +71,28 @@ describe("nearestToFrame", () => {
   it("with nothing within the fallback, or no events at all, frames nothing", () => {
     expect(nearestToFrame(CBD, [north(180), north(700)])).toEqual([]);
     expect(nearestToFrame(CBD, [])).toEqual([]);
+  });
+});
+
+describe("nearestWithin", () => {
+  const at = (id: string, km: number | null, startsAt = "2026-11-01T00:00:00Z") => ({ id, km, startsAt });
+  const positionOf = (item: { km: number | null }) => (item.km === null ? null : north(item.km));
+
+  it("is the nearest event, with its distance, ignoring unplaced ones", () => {
+    const nearest = nearestWithin([at("far", 40), at("nowhere", null), at("near", 3)], CBD, positionOf);
+    expect(nearest?.item.id).toBe("near");
+    expect(nearest?.km).toBeCloseTo(3, 1);
+  });
+
+  it("is null when the nearest is beyond the fallback reach, or nothing can be placed", () => {
+    expect(nearestWithin([at("sydney", 700)], CBD, positionOf)).toBeNull();
+    expect(nearestWithin([at("nowhere", null)], CBD, positionOf)).toBeNull();
+    expect(nearestWithin([], CBD, positionOf)).toBeNull();
+    expect(nearestWithin([at("edge", NEAR_FRAME_FALLBACK_KM + 1)], CBD, positionOf)).toBeNull();
+  });
+
+  it("breaks ties by the soonest", () => {
+    const nearest = nearestWithin([at("late", 5, "2026-11-09T00:00:00Z"), at("soon", 5, "2026-11-02T00:00:00Z")], CBD, positionOf);
+    expect(nearest?.item.id).toBe("soon");
   });
 });

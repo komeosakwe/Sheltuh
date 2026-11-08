@@ -11,6 +11,8 @@ import OrganiserLogo from "@/components/organisers/OrganiserLogo";
 import SaveButton from "@/components/favourites/SaveButton";
 import { CalendarIcon, ExternalIcon, PinIcon } from "@/components/home/icons";
 import SaveOnReturn from "@/components/favourites/SaveOnReturn";
+import { BuyBarProvider, GaBuyBar } from "@/components/checkout/BuyBar";
+import { TicketIcon } from "@/components/checkout/icons";
 import SeatedTicketsPanel from "@/components/seating/SeatedTicketsPanel";
 import ShareButton from "@/components/ShareButton";
 import TicketSelector from "@/components/TicketSelector";
@@ -45,23 +47,28 @@ export interface EventPreview {
   missing: PreviewMissing;
 }
 
-/** Who's Going's one shared load, around the page; none in a preview (it has no Who's Going at all). */
+/**
+ * Who's Going's one shared load, around the page, and the buy bar's link to the ticket selector;
+ * neither in a preview (it has no Who's Going at all, and nothing in it can be pressed).
+ */
 function GoingScope({ event, preview, children }: { event: SheltuhEvent; preview: boolean; children: ReactNode }) {
   if (preview) return <>{children}</>;
   return (
-    <WhosGoingProvider
-      event={{
-        id: event.id,
-        slug: event.slug,
-        title: event.title,
-        organiserId: event.organiserId,
-        ticketingMode: event.ticketingMode,
-        startsAt: event.startsAt,
-        endsAt: event.endsAt,
-      }}
-    >
-      {children}
-    </WhosGoingProvider>
+    <BuyBarProvider>
+      <WhosGoingProvider
+        event={{
+          id: event.id,
+          slug: event.slug,
+          title: event.title,
+          organiserId: event.organiserId,
+          ticketingMode: event.ticketingMode,
+          startsAt: event.startsAt,
+          endsAt: event.endsAt,
+        }}
+      >
+        {children}
+      </WhosGoingProvider>
+    </BuyBarProvider>
   );
 }
 
@@ -74,6 +81,34 @@ function Placeholder({ children }: { children: ReactNode }) {
 // Each term column is the organiser avatar's width, so every row's text starts on the same line.
 const factRowClass = "flex gap-3 [&>dt]:flex [&>dt]:w-8 [&>dt]:shrink-0 [&>dt]:justify-center";
 const factIconClass = "mt-0.5 size-5 shrink-0 text-muted";
+
+/**
+ * The tickets section. A general admission event with tickets on sale gets the owner's mockup (6 Nov
+ * 2026): an ivory rounded card with an orange ticket mark and "Select your tickets" over its subheading.
+ * Every other state (seats, an outside ticket link, sold out, ended, none yet) is the plain "Tickets"
+ * panel, as before.
+ */
+function TicketsSection({ selects, children }: { selects: boolean; children: ReactNode }) {
+  if (!selects) {
+    return (
+      <Panel title="Tickets" titleId="tickets-title">
+        {children}
+      </Panel>
+    );
+  }
+  return (
+    <section aria-labelledby="tickets-title" className="-mx-3 rounded-panel border border-surface-border bg-panel p-4 sm:mx-0 sm:p-5">
+      <div className="flex items-center gap-3">
+        <TicketIcon className="size-10 shrink-0 text-signal" />
+        <h2 id="tickets-title" className="font-heading min-w-0 text-2xl leading-8 break-words sm:text-3xl sm:leading-9">
+          Select your tickets
+        </h2>
+      </div>
+      <p className="mt-2 text-base leading-6 text-muted">Choose a release to secure your spot.</p>
+      <div className="mt-5">{children}</div>
+    </section>
+  );
+}
 
 /** A time in a date range ("10:00 am", "midnight"): the capture keeps it in `split`'s output. */
 const TIME_PATTERN = /(\d{1,2}:\d{2} [ap]m|midnight)/;
@@ -165,7 +200,8 @@ export default function EventDetailsView({
   preview?: EventPreview;
 }) {
   const missing = preview?.missing;
-  const buyBarPosition = preview ? "static" : "sticky";
+  // The one class for every buy bar: sticky to the bottom of the screen (static in the editor's preview).
+  const buyBarClass = `${preview ? "static" : "sticky"} bottom-0 z-20 -mx-5 flex min-h-16 items-center justify-between gap-3 rounded-t-sheet px-5 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:-mx-8 sm:px-8 lg:hidden dark:border-t dark:border-foreground`;
   const categoryLabel =
     EVENT_CATEGORIES.find((category) => category.value === event.category)?.label ?? event.category;
 
@@ -194,6 +230,9 @@ export default function EventDetailsView({
   const hasBuyBar = (Boolean(price) || Boolean(ticketUrl)) && !ended;
   const buyBarLabel = quickBuyLabel(event) ?? "Buy tickets";
   const seatPage = goesToSeatPage(event) && !ended;
+  // A general admission event with tickets on sale: its panel is "Select your tickets" (owner, 6 Nov 2026);
+  // otherwise (seats, sold out, none yet) it stays "Tickets".
+  const selectsTickets = !external && !event.seating && !ended && !soldOut && event.ticketTypes.length > 0;
   // Refunds only matter where someone can pay: a paid tier, not ended (external has no Booking info at all).
   const paidPurchasePossible = !ended && event.ticketTypes.some((ticket) => ticket.priceCents > 0);
   const shareText = `${event.title} · ${formatEventDateShort(event.startsAt, zone)}, ${formatEventTime(event.startsAt, zone)}${zoneSuffix(event.timeZone, event.state)} · ${event.venueName}`;
@@ -389,7 +428,7 @@ export default function EventDetailsView({
                 screen-reader focus to the tickets too, with the global focus-visible
                 ring around the section to show where you've landed. */}
             <div id="tickets" tabIndex={-1} className="rounded-card">
-              <Panel title="Tickets" titleId="tickets-title">
+              <TicketsSection selects={selectsTickets}>
                 {external ? (
                   <div className="flex flex-col gap-4 rounded-card border border-foreground bg-card p-4 sm:p-5">
                     {event.externalFree && <p className="text-base leading-6 font-semibold">Free entry</p>}
@@ -425,7 +464,7 @@ export default function EventDetailsView({
                     )}
                   </>
                 )}
-              </Panel>
+              </TicketsSection>
             </div>
 
           </aside>
@@ -484,39 +523,28 @@ export default function EventDetailsView({
               wrapper's padding is what -mx bleeds it across. Once the event has ended there's no
               bar at all: nothing's for sale, and the Tickets panel says so. In Dark it gains a
               1px white top rule, so the black bar doesn't merge with the black page. */}
-          {price && !ended && (
-            <div
-              data-buy-bar
-              data-surface="ink"
-              className={`${buyBarPosition} bottom-0 z-20 -mx-5 flex min-h-16 items-center justify-between gap-4 px-5 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:-mx-8 sm:px-8 lg:hidden dark:border-t dark:border-foreground`}
-            >
+          {price && !ended && seatPage && (
+            <div data-buy-bar data-surface="ink" className={buyBarClass}>
               <div className="min-w-0">
                 <p className="text-base leading-5 font-semibold tabular-nums">{price.amount}</p>
-                {price.note && <p className="text-sm leading-5 text-muted">{price.note}</p>}
+                {price.note && <p className="text-base leading-6 text-muted">{price.note}</p>}
               </div>
-              {seatPage ? (
-                // A seated event's buy bar goes straight to its seat page (manager decision 2,
-                // docs/design/seating.md).
-                <Link href={`/events/${event.slug}/seats`} className={buttonClass("signal", "lg", "shrink-0 px-5 sm:px-7")}>
-                  {buyBarLabel}
-                </Link>
-              ) : (
-                <a href="#tickets" className={buttonClass("signal", "lg", "shrink-0 px-5 sm:px-7")}>
-                  {/* "Buy tickets", or "Free tickets" when every tier is free, in demo
-                      mode too (owner, 21 Oct 2026); "Join waitlist" when sold out. */}
-                  {buyBarLabel}
-                </a>
-              )}
+              {/* A seated event's buy bar goes straight to its seat page (manager decision 2,
+                  docs/design/seating.md). */}
+              <Link href={`/events/${event.slug}/seats`} className={buttonClass("signal", "lg", "shrink-0 px-5 sm:px-7")}>
+                {buyBarLabel}
+              </Link>
             </div>
           )}
+          {/* General admission: the bar checks out once tickets are chosen, as the panel's Checkout does (the
+              selector drives it: components/checkout/BuyBar.tsx), and the way to the tickets until
+              then ("Buy tickets", or "Free tickets" when every tier is free, in demo mode too (owner,
+              21 Oct 2026); "Join waitlist" when sold out). */}
+          {price && !ended && !seatPage && <GaBuyBar price={price} label={buyBarLabel} className={buyBarClass} />}
           {/* An external event's buy bar: the organiser's price if given (never the site's name), and
               the outbound link itself, not a jump to #tickets. None once it has ended. */}
           {ticketUrl && !ended && (
-            <div
-              data-buy-bar
-              data-surface="ink"
-              className={`${buyBarPosition} bottom-0 z-20 -mx-5 flex min-h-16 items-center justify-between gap-4 px-5 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:-mx-8 sm:px-8 lg:hidden dark:border-t dark:border-foreground`}
-            >
+            <div data-buy-bar data-surface="ink" className={buyBarClass}>
               <div className="min-w-0">
                 {/* Never the ticket site's name (owner, 31 Oct 2026): buyers go through our link. */}
                 {event.externalFree ? (

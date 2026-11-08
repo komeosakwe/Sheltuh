@@ -13,6 +13,7 @@ import { ApiError, type GetToken } from "@/lib/api/client";
 import { downloadEventOrdersCsv, getEventOrders } from "@/lib/api/event-orders";
 import type { EventOrderRow, EventOrders as EventOrdersData } from "@/lib/api/types";
 import { DETAILS_VISIBLE_MONTHS, ORGANISER_USE_NOTE } from "@/lib/buyer-details";
+import { useAuth } from "@/lib/auth/AuthContext";
 import { orderPaidText, orderPlacedText, orderStatusText, orderTicketsText } from "@/lib/event-orders-format";
 
 const PAGE_SIZE = 20;
@@ -20,8 +21,25 @@ const SEARCH_DEBOUNCE_MS = 300;
 const SEARCH_MAX = 100;
 const NONE = "—";
 
-/** /dashboard/events/[id]/orders: who bought tickets to one of your events (names and emails for 12 months after it ends). */
-export default function EventOrders({ eventId }: { eventId: string }) {
+/** An empty name or email: the dash for the eye, and words ("No name", "No email") for a screen reader, which would otherwise say nothing or "em dash". */
+function Missing({ what }: { what: string }) {
+  return (
+    <>
+      <span aria-hidden="true">{NONE}</span>
+      <span className="sr-only">{what}</span>
+    </>
+  );
+}
+
+export type OrdersScope = "organiser" | "admin";
+
+/**
+ * /dashboard/events/[id]/orders: who bought tickets to one of your events (names and emails for 12 months after it ends).
+ * With `scope="admin"` (/admin/events/[id]/orders): the same view for an admin, whom the API lets read only a
+ * platform-managed organiser's events (anything else is a 404). The admin layout does the gating.
+ */
+export default function EventOrders({ eventId, scope = "organiser" }: { eventId: string; scope?: OrdersScope }) {
+  if (scope === "admin") return <AdminOrders eventId={eventId} />;
   return (
     <AnalyticsGate
       title="Orders"
@@ -29,9 +47,14 @@ export default function EventOrders({ eventId }: { eventId: string }) {
       signInTitle="Sign in to see your orders"
       need="see orders"
     >
-      {(getToken) => <Orders eventId={eventId} getToken={getToken} />}
+      {(getToken) => <Orders eventId={eventId} getToken={getToken} scope="organiser" />}
     </AnalyticsGate>
   );
+}
+
+function AdminOrders({ eventId }: { eventId: string }) {
+  const { getAccessToken } = useAuth();
+  return <Orders eventId={eventId} getToken={getAccessToken} scope="admin" />;
 }
 
 interface Loaded {
@@ -62,7 +85,7 @@ function exportError(error: unknown): string {
   return "Couldn’t prepare the file. Try again.";
 }
 
-function Orders({ eventId, getToken }: { eventId: string; getToken: GetToken }) {
+function Orders({ eventId, getToken, scope }: { eventId: string; getToken: GetToken; scope: OrdersScope }) {
   const searchId = useId();
   const [typed, setTyped] = useState("");
   const [q, setQ] = useState("");
@@ -125,9 +148,13 @@ function Orders({ eventId, getToken }: { eventId: string; getToken: GetToken }) 
     }
   }
 
+  const admin = scope === "admin";
   const back = (
     <nav aria-label="Event" className="mb-6 flex flex-wrap gap-x-6">
-      <Link href={`/dashboard/${encodeURIComponent(eventId)}`} className={backLinkClass}>
+      <Link
+        href={admin ? `/admin/events/${encodeURIComponent(eventId)}/edit` : `/dashboard/${encodeURIComponent(eventId)}`}
+        className={backLinkClass}
+      >
         &larr; Edit event
       </Link>
     </nav>
@@ -139,14 +166,16 @@ function Orders({ eventId, getToken }: { eventId: string; getToken: GetToken }) 
         {back}
         <EmptyState
           headingLevel={1}
-          title="Event not found"
+          title={admin ? "Orders not available" : "Event not found"}
           action={
-            <ButtonLink size="lg" variant="outline" href="/dashboard">
+            <ButtonLink size="lg" variant="outline" href={admin ? "/admin/events" : "/dashboard"}>
               Back to events
             </ButtonLink>
           }
         >
-          It may have been deleted, or it belongs to another organiser account.
+          {admin
+            ? "Only the event’s organiser can see its buyers."
+            : "It may have been deleted, or it belongs to another organiser account."}
         </EmptyState>
       </>
     );
@@ -275,9 +304,9 @@ function OrdersTable({ items, timeZone, caption }: { items: EventOrderRow[]; tim
           {items.map((order) => (
             <tr key={order.reference} className="border-t border-surface-border">
               <th scope="row" className={`${cellClass} text-left font-semibold break-words`}>
-                {order.buyerName ?? NONE}
+                {order.buyerName ?? <Missing what="No name" />}
               </th>
-              <td className={`${cellClass} break-all`}>{order.buyerEmail ?? NONE}</td>
+              <td className={`${cellClass} break-all`}>{order.buyerEmail ?? <Missing what="No email" />}</td>
               <td className={cellClass}>{orderTicketsText(order)}</td>
               <td className={`${cellClass} whitespace-nowrap tabular-nums`}>{orderPaidText(order)}</td>
               <td className={cellClass}>{orderPlacedText(order.placedAt, timeZone)}</td>
@@ -295,8 +324,8 @@ function OrderCards({ items, timeZone, caption }: { items: EventOrderRow[]; time
     <ul aria-label={caption} className="lg:hidden">
       {items.map((order) => (
         <li key={order.reference} className="border-t border-surface-border py-4">
-          <p className="text-base font-semibold break-words">{order.buyerName ?? NONE}</p>
-          <p className="text-sm break-all text-muted">{order.buyerEmail ?? NONE}</p>
+          <p className="text-base font-semibold break-words">{order.buyerName ?? <Missing what="No name" />}</p>
+          <p className="text-sm break-all text-muted">{order.buyerEmail ?? <Missing what="No email" />}</p>
           <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm">
             <dt className="text-muted">Tickets</dt>
             <dd className="text-right">{orderTicketsText(order)}</dd>

@@ -223,6 +223,69 @@ test.describe("/map puts the events nearest the visitor first", () => {
   });
 });
 
+test.describe("Near me opens the nearest event", () => {
+  const rows = (page: Page) => page.locator("[data-scene-row]");
+  const firstRowTitle = async (page: Page) => (await rows(page).first().locator("a").first().textContent())?.trim() ?? "";
+  const selectedCard = (page: Page) => page.getByRole("region", { name: "Selected event" });
+
+  test.describe("at 1280×800", () => {
+    test.use({ viewport: { width: 1280, height: 800 }, permissions: ["geolocation"], geolocation: MELBOURNE });
+
+    test("the ask on open opens nothing; pressing Near me shows the nearest event's card, still framed on the visitor", async ({ page }) => {
+      await openMap(page);
+      await expect(rows(page).first()).toContainText(/km away/, { timeout: 20_000 });
+      // The silent ask on open orders the list but doesn't open an event.
+      await expect(selectedCard(page)).toHaveCount(0);
+
+      await page.getByRole("button", { name: "Near me" }).click();
+      const nearest = await firstRowTitle(page);
+      await expect(selectedCard(page)).toBeVisible();
+      await expect(selectedCard(page)).toContainText(nearest);
+      await expect(page.getByRole("button", { name: "Dismiss selected event" })).toBeVisible();
+      // Announced for screen readers, without a coordinate.
+      await expect(page.getByRole("status").filter({ hasText: "Showing events nearest you." })).toContainText(`Nearest: ${nearest},`);
+      // The address names the event only.
+      await expect.poll(() => new URL(page.url()).searchParams.get("sel")).not.toBeNull();
+      expect(page.url()).not.toMatch(/-?\d{2,3}\.\d{3,}|37\.8|144\.9/);
+      // Not flown in on the one event: the visitor is still in view at a local zoom.
+      await page.waitForTimeout(1500);
+      const view = await readView(mapContainer(page));
+      expect(view.zoom).toBeGreaterThanOrEqual(10);
+      expect(view.zoom).toBeLessThanOrEqual(NEAR_ZOOM);
+      expect(Math.abs(view.lat - MELBOURNE.latitude)).toBeLessThan(0.1);
+      await expect(page.locator(".scene-visitor")).toBeVisible();
+      await expect(page.getByRole("button", { name: "Near me" })).toBeFocused();
+    });
+  });
+
+  test.describe("on a 390px phone", () => {
+    test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, permissions: [] });
+
+    test("opens the same bottom sheet a pin tap does, and Dismiss returns to Near me", async ({ page, context }) => {
+      await mockMapNetwork(page);
+      await page.goto(`/map?cat=${fixtures(Date.now())[0].category}`);
+      await expect(page.locator(".leaflet-tile-loaded").first()).toBeVisible({ timeout: 20_000 });
+      await context.grantPermissions(["geolocation"]);
+      await context.setGeolocation(MELBOURNE);
+      await expect(selectedCard(page)).toHaveCount(0);
+
+      await page.getByRole("button", { name: "Near me" }).click();
+      await expect(selectedCard(page)).toBeVisible({ timeout: 20_000 });
+      const nearest = (await rows(page).first().locator("a").first().textContent())?.trim() ?? "";
+      await expect(selectedCard(page)).toContainText(nearest);
+      await expect(page.locator(".leaflet-container")).toBeVisible();
+      await expect(page.locator(".scene-visitor")).toBeVisible();
+      await expect(page.getByRole("button", { name: "Near me" })).toBeFocused();
+      const view = await readView(mapContainer(page));
+      expect(view.zoom).toBeLessThanOrEqual(NEAR_ZOOM);
+
+      await page.getByRole("button", { name: "Dismiss selected event" }).click();
+      await expect(selectedCard(page)).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Near me" })).toBeFocused();
+    });
+  });
+});
+
 test.describe("/map when every event has a venue pin", () => {
   test.use({ viewport: { width: 1280, height: 800 }, permissions: [] });
 

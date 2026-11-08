@@ -31,6 +31,13 @@ export interface MapOrigin extends Coordinates {
   precise: boolean;
 }
 
+/**
+ * Called when a position is found, before the map moves to it. `byRequest`: the visitor pressed Near
+ * me (rather than the browser being asked on open). It may return what to announce instead of
+ * "Map centred on …" (the event it opened, say).
+ */
+export type LocatedHandler = (position: Coordinates, byRequest: boolean) => string | null;
+
 const noSubscribe = () => () => {};
 const serverFalse = () => false;
 
@@ -48,7 +55,8 @@ type Status = MapLocateStatus;
  * /map following the visitor's location (docs/architecture.md, "Location (near you)"):
  *  - on open, with no suburb saved, no refusal this session and nothing in the address that
  *    should win (`promptOnOpen`), asks the browser once;
- *  - `locate` does the same on demand ("Near me");
+ *  - `locate` does the same on demand ("Near me"), and tells `onLocated` it was asked for, so the
+ *    page can open the nearest event (only for a press, not for the ask on open);
  *  - either way a position becomes a centre request that frames the nearest events with it, and
  *    the suburb it's in is saved (name and state only, as the search bar's "Use my current
  *    location" does); the request's coordinates are dropped once the map has used it, while
@@ -58,7 +66,7 @@ type Status = MapLocateStatus;
  *  - `centreOn` centres on a place already in hand; `centreOnSuburb` finds a suburb by its name
  *    first (the location filter), loading the suburb table if nothing has yet.
  */
-export function useMapLocate(promptOnOpen: boolean, onLocated?: () => void) {
+export function useMapLocate(promptOnOpen: boolean, onLocated?: LocatedHandler) {
   const [focus, setFocus] = useState<MapFocus | null>(null);
   const [origin, setOrigin] = useState<MapOrigin | null>(null);
   const [locating, setLocating] = useState(false);
@@ -149,10 +157,10 @@ export function useMapLocate(promptOnOpen: boolean, onLocated?: () => void) {
       saving.current = result.suburb;
       writeStoredNear(result.suburb, result.state);
       saving.current = null;
-      onLocatedRef.current?.();
+      const announcement = onLocatedRef.current?.(result.position, !onOpen) ?? null;
       setOrigin({ lat: result.position.lat, lng: result.position.lng, precise: true });
       centreOn(result.position, true, true);
-      setStatus({ tone: "info", text: `Map centred on ${placeName(result.suburb, result.state)}.` });
+      setStatus({ tone: "info", text: announcement ?? `Map centred on ${placeName(result.suburb, result.state)}.` });
     },
     [centreOn],
   );

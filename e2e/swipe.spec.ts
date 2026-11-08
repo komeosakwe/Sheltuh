@@ -222,8 +222,10 @@ test.describe("on a phone (375×667)", () => {
     await expect(end.getByText("That’s everything")).toBeInViewport({ ratio: 1 });
     await expect(end.getByRole("link", { name: "All events" })).toHaveAttribute("href", "/events");
     await end.getByRole("button", { name: "Back to top" }).tap();
+    // The feed scrolls smoothly (motion-safe:scroll-smooth), so the first screen is "in view" (past the middle line, under 334px)
+    // a while before the scroll arrives; wait for it to land, or this reads scrollTop part-way down on a slower machine.
+    await expect.poll(() => page.getByRole("main").evaluate((el) => el.scrollTop)).toBe(0);
     await expect.poll(() => visibleTitle(page)).toBe(first);
-    expect(await page.getByRole("main").evaluate((el) => el.scrollTop)).toBe(0);
   });
 
   test("Back from an event lands on the screen you left", async ({ page }) => {
