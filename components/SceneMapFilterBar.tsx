@@ -179,8 +179,8 @@ const FOCUS_WITHIN =
 const NATIVE_OVERLAY = "absolute inset-0 h-full w-full cursor-pointer appearance-none text-base opacity-0";
 
 /** A chip's classes: a 32px pill (36px from lg, where the words are 12px); chosen, peach with bold words. `endPadding`: less beside a trailing chevron. */
-export function mapChipClass(selected: boolean, className = "", endPadding = "pr-2.5") {
-  return `inline-flex h-8 shrink-0 items-center gap-1 rounded-full border pl-2.5 text-2xs text-foreground shadow-soft lg:h-9 lg:gap-1.5 lg:text-xs ${endPadding} ${
+export function mapChipClass(selected: boolean, className = "", endPadding = "pr-2.25 lg:pr-2.5") {
+  return `inline-flex h-8 shrink-0 items-center gap-1 rounded-full border pl-2.25 text-2xs text-foreground shadow-soft lg:h-9 lg:gap-1.5 lg:pl-2.5 lg:text-xs ${endPadding} ${
     selected ? "border-signal/10 bg-peach font-bold" : "border-soft-line bg-panel font-medium hover:bg-surface"
   } ${className}`
     .replace(/\s+/g, " ")
@@ -216,7 +216,7 @@ function SelectChip({
   children: ReactNode;
 }) {
   return (
-    <span data-select-chip="" className={mapChipClass(selected, `relative cursor-pointer ${FOCUS_WITHIN}`, "pr-2.25")}>
+    <span data-select-chip="" className={mapChipClass(selected, `relative cursor-pointer ${FOCUS_WITHIN}`, "pr-2 lg:pr-2.25")}>
       <label htmlFor={htmlFor} className="sr-only">
         {label}
       </label>

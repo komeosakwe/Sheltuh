@@ -1,5 +1,28 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { mockMapNetwork } from "./map-network";
+
+/** The four chips the mockup shows at 390px, in order. */
+const MOCKUP_CHIPS = (page: Page) => [
+  page.getByRole("button", { name: "Tonight" }),
+  page.getByRole("button", { name: "This weekend" }),
+  page.locator("[data-date-chip]"),
+  page.getByRole("combobox", { name: "Category" }).locator(".."),
+];
+
+/** Each chip is 32px, after the one before it, and the last ends at or before `right`. */
+async function expectChipsInView(page: Page, right: number) {
+  let previousRight = 0;
+  for (const chip of MOCKUP_CHIPS(page)) {
+    const box = await chip.boundingBox();
+    if (!box) throw new Error("chip not laid out");
+    expect(box.height).toBe(32);
+    expect(box.x).toBeGreaterThan(previousRight);
+    previousRight = box.x + box.width;
+  }
+  expect(previousRight).toBeLessThanOrEqual(right);
+  await expect(MOCKUP_CHIPS(page)[3]).toContainText("All scenes");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+}
 
 /*
  * /map's controls on a 390px phone, as the owner's mockup (8 Nov 2026): two 40px rounded fields, a
@@ -30,23 +53,14 @@ test.describe("/map's controls at 390×844", () => {
     expect(await search.evaluate((el) => getComputedStyle(el).fontSize)).toBe("16px");
     expect(await page.getByRole("combobox", { name: "Location" }).evaluate((el) => getComputedStyle(el).fontSize)).toBe("16px");
 
-    const chips = [
-      page.getByRole("button", { name: "Tonight" }),
-      page.getByRole("button", { name: "This weekend" }),
-      page.locator("[data-date-chip]"),
-      page.getByRole("combobox", { name: "Category" }).locator(".."),
-    ];
-    let previousRight = 0;
-    for (const chip of chips) {
-      const box = await chip.boundingBox();
-      if (!box) throw new Error("chip not laid out");
-      expect(box.height).toBe(32);
-      expect(box.x).toBeGreaterThan(previousRight);
-      expect(box.x + box.width).toBeLessThanOrEqual(390);
-      previousRight = box.x + box.width;
-    }
-    await expect(chips[3]).toContainText("All scenes");
-    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+    // In Instrument Sans (loaded, not its fallback), the four end at least 8px short of the screen's edge:
+    // room for another machine's text rendering.
+    await page.evaluate(async () => {
+      await document.fonts.load('500 10.5px "Instrument Sans"');
+      await document.fonts.load('700 10.5px "Instrument Sans"');
+      await document.fonts.ready;
+    });
+    await expectChipsInView(page, 390 - 8);
   });
 
   test("Tonight is off by default; pressing it chooses it (peach, in the address) and again clears it", async ({ page }) => {
@@ -82,5 +96,22 @@ test.describe("/map's controls at 390×844", () => {
     await map.click();
     await expect(page.locator(".leaflet-container")).toBeVisible();
     await expect(page).not.toHaveURL(/view=/);
+  });
+});
+
+// Before the web font arrives (a cold dev server in CI), the chips are set in the fallback: on a Linux runner
+// without Arial that's a wider face (DejaVu Sans). All four must still be in view.
+test.describe("/map's chips at 390×844 in the fallback font", () => {
+  test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, permissions: [] });
+
+  test("all four of the mockup's chips are still in view", async ({ page }) => {
+    await page.route(/\.woff2?(?:$|\?)/, (route) => route.abort());
+    await mockMapNetwork(page);
+    await page.goto("/map?view=map");
+    await expect(page.locator("[data-map-count]")).toBeVisible({ timeout: 20_000 });
+    expect(await page.getByRole("button", { name: "Tonight" }).evaluate(() => document.fonts.check('500 10.5px "Instrument Sans"'))).toBe(
+      false,
+    );
+    await expectChipsInView(page, 390);
   });
 });
