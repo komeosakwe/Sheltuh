@@ -48,6 +48,21 @@ export function sortNearestFirst<T extends { startsAt: string }>(
 }
 
 /**
+ * The one event Near me opens: the nearest to the origin, with its distance, or null when none can
+ * be placed within `maxKm` (NEAR_FRAME_FALLBACK_KM by default: the same reach as the map's framing,
+ * so an event too far to frame is not opened either). Ties go to the soonest, as in the list.
+ */
+export function nearestWithin<T extends { startsAt: string }>(
+  items: readonly T[],
+  origin: Coordinates,
+  positionOf: (item: T) => Coordinates | null,
+  maxKm: number = NEAR_FRAME_FALLBACK_KM,
+): DistanceEntry<T> | null {
+  const [first] = sortNearestFirst(items, origin, positionOf);
+  return first && first.km !== null && first.km <= maxKm ? first : null;
+}
+
+/**
  * A short, approximate distance: "< 1 km", "2.3 km", "14 km", "2,700 km". (Suburb-centre pins and
  * a coarse browser position make anything finer a false precision.)
  */

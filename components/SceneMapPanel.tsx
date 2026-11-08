@@ -171,6 +171,7 @@ function MapController({
   focus,
   onFocused,
   selectedEventId,
+  recentreOnSelect,
   programmaticMoveRef,
   reducedMotion,
 }: {
@@ -179,14 +180,15 @@ function MapController({
   focus: MapFocus | null;
   onFocused?: (id: number) => void;
   selectedEventId: string | null;
+  recentreOnSelect: boolean;
   programmaticMoveRef: RefObject<boolean>;
   reducedMotion: boolean;
 }) {
   const map = useMap();
   // Latest props for the resize listener below, which is registered once.
-  const latest = useRef({ markers, around, focus, onFocused, selectedEventId, reducedMotion });
+  const latest = useRef({ markers, around, focus, onFocused, selectedEventId, recentreOnSelect, reducedMotion });
   useEffect(() => {
-    latest.current = { markers, around, focus, onFocused, selectedEventId, reducedMotion };
+    latest.current = { markers, around, focus, onFocused, selectedEventId, recentreOnSelect, reducedMotion };
   });
   // The markers the map was first framed with: only that framing centres on the saved suburb. Kept
   // as the markers themselves rather than a flag, so framing them again (React re-running effects
@@ -252,6 +254,15 @@ function MapController({
     if (!selectedEventId) return;
     const marker = markers.find((m) => m.event.id === selectedEventId);
     if (!marker) return;
+    if (!latest.current.recentreOnSelect) {
+      // Opened by Near me: the map is (or is about to be) framed on the visitor and the nearest few,
+      // which include this event. Don't cancel that move or fly to the one event.
+      if (hasSize(map)) {
+        firstFramed.current ??= markers;
+        framed.current = { markers, selectedEventId };
+      }
+      return;
+    }
     stopQuietly(map, programmaticMoveRef);
     runQuietly(programmaticMoveRef, () => map.invalidateSize());
     if (!hasSize(map)) return;
@@ -429,6 +440,11 @@ interface SceneMapPanelProps {
   events: SheltuhEvent[];
   selectedEventId: string | null;
   onSelect: (eventId: string) => void;
+  /**
+   * Selecting an event flies the map to it (default). False for the event Near me opened, which
+   * stays framed with the visitor and the nearest few instead.
+   */
+  recentreOnSelect?: boolean;
   onSearchArea: (bounds: { north: number; south: number; east: number; west: number }) => void;
   /** Phones: switch to the list (offered when the map's tiles fail to load). */
   onShowList?: () => void;
@@ -459,6 +475,7 @@ const TILE_LOAD_TIMEOUT_MS = 9000;
 export default function SceneMapPanel({
   events,
   selectedEventId,
+  recentreOnSelect = true,
   onSelect,
   onSearchArea,
   onShowList,
@@ -613,6 +630,7 @@ export default function SceneMapPanel({
           focus={focus}
           onFocused={onFocused}
           selectedEventId={selectedEventId}
+          recentreOnSelect={recentreOnSelect}
           programmaticMoveRef={programmaticMoveRef}
           reducedMotion={reducedMotion}
         />
