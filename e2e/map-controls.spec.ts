@@ -56,11 +56,13 @@ test.describe("/map's controls at 390×844", () => {
     // All four chips fit the screen whatever font drew them. When Instrument Sans really loaded (it
     // can't on a runner without the font's host, which then draws a wider fallback such as DejaVu
     // Sans), they also end at least 8px short of the edge: room for another machine's text rendering.
+    // fonts.load resolves to the faces it loaded: none when the font isn't available (fonts.check would
+    // say true then, since nothing needs loading), so the strict bound keys off the loaded faces.
     const webFontLoaded = await page.evaluate(async () => {
-      await document.fonts.load('500 10.5px "Instrument Sans"');
-      await document.fonts.load('700 10.5px "Instrument Sans"');
+      const medium = await document.fonts.load('500 10.5px "Instrument Sans"');
+      const bold = await document.fonts.load('700 10.5px "Instrument Sans"');
       await document.fonts.ready;
-      return document.fonts.check('500 10.5px "Instrument Sans"');
+      return [...medium, ...bold].length > 0 && [...medium, ...bold].every((face) => face.status === "loaded");
     });
     await expectChipsInView(page, webFontLoaded ? 390 - 8 : 390);
   });
