@@ -21,7 +21,7 @@ export function fakeAuthValue(overrides: Partial<AuthContextValue> = {}): AuthCo
     forgotPassword: vi.fn().mockResolvedValue(undefined),
     confirmForgotPassword: vi.fn().mockResolvedValue(undefined),
     signInWithProvider: vi.fn().mockResolvedValue(undefined),
-    completeOAuthSignIn: vi.fn().mockResolvedValue(undefined),
+    completeOAuthSignIn: vi.fn().mockResolvedValue({ newAccount: false }),
     verifyInvite: vi.fn().mockResolvedValue(undefined),
     setNewPassword: vi.fn().mockResolvedValue(undefined),
     signOut: vi.fn(),

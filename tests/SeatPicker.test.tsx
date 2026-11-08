@@ -22,6 +22,13 @@ vi.mock("@/lib/api/seating", async (importOriginal) => ({
   cancelPendingOrder,
 }));
 
+const track = vi.fn();
+const rememberCheckoutStarted = vi.fn();
+vi.mock("@/lib/analytics", () => ({
+  track: (...args: unknown[]) => track(...args),
+  rememberCheckoutStarted: (...args: unknown[]) => rememberCheckoutStarted(...args),
+}));
+
 const event = sampleEvents.find((e) => e.id === "evt-off-kilter") as SheltuhEvent;
 const sample = SAMPLE_SEAT_MAPS["evt-off-kilter"];
 const map = { version: sample.version, seatCount: sample.seatCount, template: sample.template };
@@ -46,6 +53,8 @@ beforeEach(() => {
   HTMLDialogElement.prototype.close = function close(this: HTMLDialogElement) {
     this.removeAttribute("open");
   };
+  track.mockReset();
+  rememberCheckoutStarted.mockReset();
   createSeatedCheckout.mockReset();
   getSeatAvailability.mockReset();
   getSeatAvailability.mockImplementation(() => new Promise(() => {}));
@@ -512,6 +521,39 @@ describe("seat page on phones: the seat bar (§5.10)", () => {
     expect(within(bar).getByText(/^Found 2 seats together: North, Row A, Seats 1 and 2\./)).toBeInTheDocument();
     fireEvent.click(within(bar).getByRole("button", { name: "Undo" }));
     expect(within(bar).getByRole("button", { name: /10 seats · Details/ })).toBeInTheDocument();
+  });
+});
+
+describe("seat page: usage analytics", () => {
+  const live: SheltuhEvent = { ...event, organiserId: "org-1" };
+
+  async function checkoutOneSeat() {
+    renderPicker({ event: live, mode: "live" });
+    showList();
+    fireEvent.click(within(row("North, Row A")).getByRole("checkbox", { name: /^Seat 1, / }));
+    await act(async () => {
+      typeName();
+      fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    });
+  }
+
+  it("checkout_started is sent once when the seats are held, and the order is noted for the success page", async () => {
+    const result = { url: "https://checkout.stripe.test/c/1", orderId: `ord_${"b".repeat(32)}` };
+    createSeatedCheckout.mockResolvedValue(result);
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    await checkoutOneSeat();
+    expect(track).toHaveBeenCalledTimes(1);
+    expect(track).toHaveBeenCalledWith("checkout_started", { event_slug: event.slug, ticket_count: 1, has_support: false, free: false });
+    expect(rememberCheckoutStarted).toHaveBeenCalledWith(result);
+    expect(JSON.stringify(track.mock.calls)).not.toContain("ord_");
+    quiet.mockRestore();
+  });
+
+  it("nothing is sent when the seats can't be held", async () => {
+    createSeatedCheckout.mockRejectedValue(new ApiError(409, "Taken.", { seats: "Taken." }, { code: "seats_unavailable", seatIds: ["N-A1"] }));
+    await checkoutOneSeat();
+    expect(track).not.toHaveBeenCalled();
+    expect(rememberCheckoutStarted).not.toHaveBeenCalled();
   });
 });
 

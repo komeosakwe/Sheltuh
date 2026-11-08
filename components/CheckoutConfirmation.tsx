@@ -9,6 +9,7 @@ import WalletButtons from "@/components/tickets/WalletButtons";
 import { ButtonLink, buttonClass } from "@/components/ui/Button";
 import { LoadingState } from "@/components/ui/ProgressLoader";
 import Strap from "@/components/ui/Strap";
+import { orderCompletedProperties, trackOrderCompleted } from "@/lib/analytics";
 import { ApiError } from "@/lib/api/client";
 import { getOrderBySession, getOrderPayment } from "@/lib/api/orders";
 import {
@@ -113,6 +114,15 @@ export default function CheckoutConfirmation() {
   useEffect(() => {
     if (settled && sessionId) forgetPendingCheckout(sessionId);
   }, [settled, sessionId]);
+
+  // Usage analytics: order_completed once, for the visit that checked out. This page is also the
+  // ticket page the buyer opens again from their email, so it only counts when this tab started the
+  // order's checkout (lib/analytics.ts rememberCheckoutStarted). The order id is only the lookup
+  // key (a short fingerprint is kept for it); it is never sent.
+  const paidOrder = state.status === "ready" ? state.order : null;
+  useEffect(() => {
+    if (paidOrder && sessionId) trackOrderCompleted(sessionId, orderCompletedProperties(paidOrder));
+  }, [paidOrder, sessionId]);
 
   useEffect(() => {
     let cancelled = false;

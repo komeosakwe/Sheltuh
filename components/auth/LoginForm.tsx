@@ -6,6 +6,7 @@ import { useRef, useState, type FormEvent } from "react";
 import AuthField, { fieldsForAuthError, useFocusAfterRender, type AuthErrorField } from "@/components/auth/AuthField";
 import PasswordField from "@/components/auth/PasswordField";
 import { Button } from "@/components/ui/Button";
+import { track } from "@/lib/analytics";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { oauthProviderNames, offeredOAuthProviders } from "@/lib/auth/oauth";
 import { DEFAULT_AFTER_SIGN_IN, safeNextPath, withNext } from "@/lib/safe-next-path";
@@ -71,6 +72,7 @@ export default function LoginForm({ next }: { next?: string } = {}) {
     setLoading(true);
     try {
       await auth.signIn(email.trim(), password);
+      track("signed_in", { signin_method: "password" });
       router.push(safeNextPath(next) ?? DEFAULT_AFTER_SIGN_IN);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Couldn't sign in.";

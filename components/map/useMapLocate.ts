@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { track } from "@/lib/analytics";
 import { hasGeolocation } from "@/lib/geolocation";
 import { currentInAppLocationHelp } from "@/lib/in-app-browser";
 import { locateMe, rememberLocateRefused, wasLocateRefused } from "@/lib/locate-me";
@@ -159,6 +160,8 @@ export function useMapLocate(promptOnOpen: boolean, onLocated?: LocatedHandler) 
         }
         return;
       }
+      // Only the visitor's own press of Near me, not the map asking on open.
+      if (!onOpen) track("map_near_me_used", {});
       saving.current = result.suburb;
       writeStoredNear(result.suburb, result.state);
       saving.current = null;

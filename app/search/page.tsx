@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import SearchPerformedTracker from "@/components/analytics/SearchPerformedTracker";
 import EventFeed from "@/components/EventFeed";
 import SearchBar from "@/components/SearchBar";
 import { Notice, Page, PageHeader } from "@/components/ui/Section";
@@ -55,6 +56,8 @@ export default async function SearchPage({
 
   return (
     <Page>
+      {/* Usage analytics: whether there were words and a place, never which (nothing unless analytics is on). */}
+      {(query || near) && <SearchPerformedTracker key={`${query}\n${near}`} hasQuery={Boolean(query)} hasLocation={Boolean(near)} />}
       <PageHeader
         eyebrow="Search"
         title={title}

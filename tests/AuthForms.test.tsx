@@ -19,6 +19,9 @@ import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
  * are 44px tap targets.
  */
 
+const track = vi.fn();
+vi.mock("@/lib/analytics", () => ({ track: (...args: unknown[]) => track(...args) }));
+
 const push = vi.fn();
 let searchParams = new URLSearchParams();
 vi.mock("next/navigation", () => ({
@@ -29,6 +32,7 @@ vi.mock("next/navigation", () => ({
 afterEach(() => {
   cleanup();
   push.mockReset();
+  track.mockReset();
   searchParams = new URLSearchParams();
 });
 
@@ -48,6 +52,45 @@ function describedBy(input: HTMLElement): string {
 }
 
 const pending = () => new Promise<undefined>(() => {});
+
+describe("usage analytics events from the forms", () => {
+  function signInWith(overrides: Partial<AuthContextValue>) {
+    renderWith(<LoginForm />, overrides);
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "mia@example.com" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "correct horse" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+  }
+
+  it("signed_in is sent once when the password sign-in works, with the method and nothing about the person", async () => {
+    signInWith({ signIn: vi.fn().mockResolvedValue(undefined) });
+    await waitFor(() => expect(push).toHaveBeenCalled());
+    expect(track).toHaveBeenCalledTimes(1);
+    expect(track).toHaveBeenCalledWith("signed_in", { signin_method: "password" });
+    expect(JSON.stringify(track.mock.calls)).not.toContain("mia@example.com");
+  });
+
+  it("signed_in is not sent when the sign-in fails", async () => {
+    signInWith({ signIn: vi.fn().mockRejectedValue(new Error("Invalid login credentials")) });
+    await screen.findByRole("alert");
+    expect(track).not.toHaveBeenCalled();
+  });
+
+  it("sign_up_completed is sent once the emailed code is confirmed, not when it is refused", async () => {
+    searchParams = new URLSearchParams({ email: "mia@example.com" });
+    renderWith(<VerifyForm />, { confirmSignUp: vi.fn().mockRejectedValue(new Error("Token has expired or is invalid")) });
+    fireEvent.change(screen.getByLabelText(/code/i), { target: { value: "123456" } });
+    fireEvent.click(screen.getByRole("button", { name: /verify|confirm/i }));
+    await screen.findByRole("alert");
+    expect(track).not.toHaveBeenCalled();
+    cleanup();
+    renderWith(<VerifyForm />, { confirmSignUp: vi.fn().mockResolvedValue(undefined) });
+    fireEvent.change(screen.getByLabelText(/code/i), { target: { value: "123456" } });
+    fireEvent.click(screen.getByRole("button", { name: /verify|confirm/i }));
+    await waitFor(() => expect(push).toHaveBeenCalled());
+    expect(track).toHaveBeenCalledTimes(1);
+    expect(track).toHaveBeenCalledWith("sign_up_completed", { signup_method: "email" });
+  });
+});
 
 describe("LoginForm", () => {
   it("checks for an empty email and password before calling Supabase, and focuses the first", async () => {

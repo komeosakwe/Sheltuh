@@ -936,6 +936,8 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        are a pair from one account and mode: Production live
        (`sk_live_…` + `pk_live_…`), Preview test (`sk_test_…` +
        `pk_test_…`). Redeploy after changing any `NEXT_PUBLIC_*` value.
+       Optional: usage analytics (`NEXT_PUBLIC_POSTHOG_KEY`,
+       `NEXT_PUBLIC_POSTHOG_HOST`): see "Usage and marketing analytics" below.
        Optional: `NEXT_PUBLIC_DISABLE_SERVICE_WORKER=1` turns the offline
        service worker off (needs a fresh build; see `docs/pwa.md`).
        Optional: `DELAYED_PAYOUTS=1` (server-only, never `NEXT_PUBLIC_`):
@@ -1024,6 +1026,94 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        Cloudflare proxy in front would be a second, unmanaged cache over
        the CDN windows below, and would break client-IP rate limiting. The landing page currently lives on a Cloudflare Worker; decide
        when the app replaces it.
+
+## Usage and marketing analytics (PostHog, Vercel)
+
+Everything here is optional and **off until you do these steps**; nothing is
+needed to launch. Design and privacy rules: `architecture.md`, "Usage analytics
+(PostHog)" and "Marketing analytics". Publish the updated Privacy Policy
+(`/privacy#analytics`, already in the code) before or with switching it on.
+
+Environment variables (Vercel; `.env.example` has placeholders):
+
+| Variable | Value | Notes |
+| --- | --- | --- |
+| `NEXT_PUBLIC_POSTHOG_KEY` | PostHog project API key, `phc_…` | Unset = PostHog off. A different shape (a `phx_…` personal key) fails the build. **Production only** (previews share the production Supabase project). Redeploy: baked in at build time. |
+| `NEXT_PUBLIC_POSTHOG_HOST` | `https://eu.i.posthog.com` (default: the EU cloud, which the Privacy Policy names) or `https://us.i.posthog.com` | The region you created the project in; a project in the US needs the policy changed too (`app/privacy/page.tsx`). The site sends to its own `/ingest`, which is proxied here. |
+| `NEXT_PUBLIC_VERCEL_ANALYTICS` | `0` to turn Vercel Web Analytics and Speed Insights off | Otherwise they run on Vercel builds only. |
+
+Owner steps:
+
+1. [ ] **Create the PostHog project** at posthog.com in the **EU cloud**
+       (the Privacy Policy says the data is kept in the European Union; the
+       site's default host is the EU one, so a missing
+       `NEXT_PUBLIC_POSTHOG_HOST` can't send data to the US). Project settings, **required**:
+       turn **Discard client IP data ON**. The Privacy Policy says PostHog does
+       not keep IP addresses, which is only true with this on. Leave session
+       replay, autocapture and surveys off (the code never uses them).
+       **Check GeoIP** too: PostHog may still estimate a country or city from
+       the IP before discarding it (property names starting `$geoip_`). The
+       policy says tools may estimate a country or city. If you want no
+       location at all, switch GeoIP enrichment off in the project settings,
+       and change the policy to match. This was not verified against a live
+       project: look at a sample event in Live events (step 4).
+2. [ ] Copy the **Project API key** (Project settings, "Project API key",
+       `phc_…`; never the personal API key) and set `NEXT_PUBLIC_POSTHOG_KEY`
+       and `NEXT_PUBLIC_POSTHOG_HOST` (`https://eu.i.posthog.com`, the
+       default if left unset) in Vercel, Production. Redeploy.
+3. [x] **Privacy Policy** (`app/privacy/page.tsx`, "Usage analytics") names
+       the region: the EU cloud (chosen Nov 2026). If the project ever moves
+       region, change that sentence.
+4. [ ] **Check it**: visit the site, open PostHog, Activity, Live events: you
+       should see `$pageview` with a clean `$current_url` (no `?` other than
+       `utm_*`, never `#`). Visit `/admin` and confirm nothing appears. Open
+       the site with Do Not Track on and confirm nothing is sent. Buy a free
+       ticket (signed in, so no email link is needed) and confirm one
+       `order_completed` (reload the success page, or open it in another
+       browser: still one).
+5. [ ] **Create the insights** in PostHog (project, Product analytics):
+       - **Retention**: returning event `$pageview`, cohort event `$pageview`
+         (weekly), and a second one for `organiser_event_published` or
+         dashboard `$pageview`s if you want organiser retention.
+       - **Funnel**: `$pageview` -> `event_viewed` -> `checkout_started` ->
+         `order_completed` (conversion window 1 day; break down by
+         `utm_source` for the marketing view).
+       - Active users: Trends of unique users on `$pageview`, daily/weekly/
+         monthly.
+6. [ ] **Marketing dashboard** (a "Marketing" dashboard): Trends of
+       `sign_up_completed` and of `order_completed`, each broken down by
+       `$initial_utm_source` and by `utm_campaign`; a Trends of `order_completed`
+       with **sum of property `value_aud`** broken down by `utm_source`; the
+       funnel above broken down by `utm_source`; and a table of
+       `$initial_referring_domain` for unlabelled traffic. Make links with
+       **Admin, Campaign links** so the sources are named consistently (people
+       arriving through Instagram's in-app browser also have `in_app_browser`).
+7. [ ] **Vercel Web Analytics and Speed Insights**: in the Vercel project, open
+       the **Analytics** tab and click **Enable** for Web Analytics, and the
+       **Speed Insights** tab and **Enable** (needed once per project; the code
+       is already in place and only runs on Vercel builds). Web Analytics'
+       **Referrers** and **UTM Parameters** views show the same campaign tags
+       with no cookies. **Hobby plan limits**: both are capped monthly (at the
+       time of writing, roughly 50,000 Web Analytics events and 10,000 Speed
+       Insights data points, with short history, and Hobby is non-commercial
+       anyway: see the Pro plan item above); beyond the cap, collection pauses.
+       Check Vercel's pricing page for the current numbers. Switch either off
+       with `NEXT_PUBLIC_VERCEL_ANALYTICS=0`.
+8. [ ] **Deleting someone's data**: when a person asks for their account and
+       data to be deleted, also delete them in PostHog: People, search for their
+       Supabase user id (the `distinct_id`; Admin, Organisers/Members or
+       Supabase Auth shows it), open the person and **Delete person** (choose
+       "delete all events" as well). Visits that were never signed in carry no
+       account link, so cannot be found from an account.
+9. [ ] Rollback: unset `NEXT_PUBLIC_POSTHOG_KEY` and redeploy (`/ingest` answers
+       404, nothing sent); set `NEXT_PUBLIC_VERCEL_ANALYTICS=0` for the Vercel
+       pair. The site-wide `skipTrailingSlashRedirect` (and the redirect rule
+       that replaces it) are on only while PostHog is.
+
+Notes: `organiser_event_published` counts only an organiser's own publish; an
+event an admin approves after review is not counted. `order_completed` counts
+the visit that checked out (the same tab), not later opens of the ticket page
+from an email.
 
 ## Smoke test on the deployed site (test mode)
 

@@ -9,6 +9,7 @@ import { Button, ButtonLink } from "@/components/ui/Button";
 import { Notice, Panel } from "@/components/ui/Section";
 import { ApiError } from "@/lib/api/client";
 import { listGoingAttendees, setGoing, unsetGoing } from "@/lib/api/going";
+import { track } from "@/lib/analytics";
 import { saveMyProfile } from "@/lib/api/profiles";
 import type { MyGoingStatus } from "@/lib/api/types";
 import { SUPPORT_EMAIL } from "@/lib/contact";
@@ -133,6 +134,7 @@ export default function WhosGoing() {
   const expanded = listOpen || formOpen || composeFor !== null;
 
   function joined(displayName: string) {
+    track("whos_going_opted_in", { event_slug: event.slug });
     setYouIsNew(true);
     // Their own row confirms it (and takes focus), so the list opens.
     setListOpen(true);

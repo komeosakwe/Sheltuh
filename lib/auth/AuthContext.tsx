@@ -5,6 +5,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
 import type { AccountRef } from "./account";
+import { isNewAccount } from "./new-account";
 import { oauthCallbackUrl, oauthQueryParams, type OAuthProvider } from "./oauth";
 import { accessTokenFor, createSessionResolver, SessionExpiredError } from "./session-token";
 import { announceUserSignOut, endsSession, lastUserSignOut, onUserSignOut } from "./sign-out-signal";
@@ -23,6 +24,11 @@ export class OtherSessionsSignOutError extends Error {
     super("The password was saved, but the other sessions couldn't be signed out.", { cause });
     this.name = "OtherSessionsSignOutError";
   }
+}
+
+/** `newAccount`: this sign-in created the account (lib/auth/new-account.ts), for usage analytics. */
+export interface OAuthSignInResult {
+  newAccount: boolean;
 }
 
 type AuthStatus = "loading" | "signed-out" | "signed-in";
@@ -90,7 +96,7 @@ export interface AuthContextValue extends AuthState {
    * with its experimental `appendPkceFlowIdToRedirects` option, which we
    * don't turn on, so normally it's absent.
    */
-  completeOAuthSignIn: (code: string, flowId?: string) => Promise<void>;
+  completeOAuthSignIn: (code: string, flowId?: string) => Promise<OAuthSignInResult>;
   /**
    * An account invite's "Create account" (components/invites): verifies the
    * sign-up token hash POST /api/invites/account-link returned
@@ -291,10 +297,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Not throwIfError: that would drop the AuthError's `code`.
-  const completeOAuthSignIn = useCallback(async (code: string, flowId?: string) => {
+  const completeOAuthSignIn = useCallback(async (code: string, flowId?: string): Promise<OAuthSignInResult> => {
     const client = requireClient();
-    const { error } = await (flowId ? client.auth.exchangeCodeForSession(code, { flowId }) : client.auth.exchangeCodeForSession(code));
+    const { data, error } = await (flowId ? client.auth.exchangeCodeForSession(code, { flowId }) : client.auth.exchangeCodeForSession(code));
     if (error) throw error;
+    return { newAccount: isNewAccount(data.session?.user) };
   }, []);
 
   // Not throwIfError: that would drop the AuthError's `code`.

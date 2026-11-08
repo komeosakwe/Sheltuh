@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Suspense, type ReactNode } from "react";
 import AddToCalendar from "@/components/AddToCalendar";
 import EventViewBeacon from "@/components/analytics/EventViewBeacon";
+import EventViewedTracker from "@/components/analytics/EventViewedTracker";
 import EventArt from "@/components/EventArt";
 import EventHost from "@/components/events/EventHost";
 import EventLocation from "@/components/events/EventLocation";
@@ -259,6 +260,10 @@ export default function EventDetailsView({
       {/* Live only: one cookie-free view count per session, and finishing a save
           started before signing in. Neither renders anything. */}
       {!demo && !preview && <EventViewBeacon eventId={event.id} />}
+      {/* Usage analytics' event_viewed (lib/analytics.ts): nothing unless analytics is on. */}
+      {!preview && (
+        <EventViewedTracker slug={event.slug} category={event.category} ticketingMode={event.ticketingMode ?? "sheltuh"} />
+      )}
       {!preview && (
         <Suspense fallback={null}>
           <SaveOnReturn event={saveTarget} />

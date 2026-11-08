@@ -6,6 +6,8 @@ import FreeOrderConfirm from "@/components/FreeOrderConfirm";
 import { ApiError } from "@/lib/api/client";
 import { DETAILS_NOTICE } from "@/lib/buyer-details";
 
+const rememberCheckoutStarted = vi.fn();
+vi.mock("@/lib/analytics", () => ({ rememberCheckoutStarted: (...args: unknown[]) => rememberCheckoutStarted(...args) }));
 const confirmFreeOrder = vi.fn();
 vi.mock("@/lib/api/orders", () => ({
   confirmFreeOrder: (...args: unknown[]) => confirmFreeOrder(...args),
@@ -16,6 +18,7 @@ const assign = vi.fn();
 
 beforeEach(() => {
   confirmFreeOrder.mockReset();
+  rememberCheckoutStarted.mockReset();
   assign.mockReset();
 });
 afterEach(() => {
@@ -69,6 +72,16 @@ describe("FreeOrderConfirm", () => {
     fireEvent.click(button);
     expect(confirmFreeOrder).toHaveBeenCalledWith(TOKEN);
     await waitFor(() => expect(assign).toHaveBeenCalledWith("https://sheltuh.test/checkout/success?session_id=ord_1"));
+    // Usage analytics: the person pressing the emailed link finishes this order, so its page counts it.
+    expect(rememberCheckoutStarted).toHaveBeenCalledWith({ url: "https://sheltuh.test/checkout/success?session_id=ord_1" });
+  });
+
+  it("pressing the link again (the order was already confirmed) doesn't count it as a new order", async () => {
+    confirmFreeOrder.mockResolvedValue({ url: "https://sheltuh.test/checkout/success?session_id=ord_1", alreadyConfirmed: true });
+    render(<FreeOrderConfirm />);
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm" }));
+    await waitFor(() => expect(assign).toHaveBeenCalledWith("https://sheltuh.test/checkout/success?session_id=ord_1"));
+    expect(rememberCheckoutStarted).not.toHaveBeenCalled();
   });
 
   it("a seated booking whose seats went first: names them and offers choosing again (docs/design/seating.md §5.11)", async () => {

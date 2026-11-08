@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRef, useState, type FormEvent } from "react";
 import { fieldsForAuthError, useFocusAfterRender } from "@/components/auth/AuthField";
 import LegalNote from "@/components/auth/LegalNote";
+import { track } from "@/lib/analytics";
 import PasswordField from "@/components/auth/PasswordField";
 import { Button } from "@/components/ui/Button";
 import { ApiError } from "@/lib/api/client";
@@ -136,6 +137,7 @@ export default function InviteCreateAccount({
           return;
         }
         signedIn = true;
+        track("sign_up_completed", { signup_method: "invite" });
         setVerified(true);
       }
 

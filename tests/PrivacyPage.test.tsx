@@ -74,7 +74,10 @@ describe("/privacy — Your location", () => {
     expect(section).toHaveTextContent("/search?near=Fitzroy");
     expect(section).toHaveTextContent("hosting provider’s request logs");
     expect(section).toHaveTextContent("isn’t saved in our database, isn’t linked to your account, and isn’t sent with our event searches");
-    expect(section).toHaveTextContent("We don’t work out where you are from your IP address.");
+    expect(section).toHaveTextContent(
+      "Sheltüh doesn’t use your IP address to work out where you are for search, the map or results. Our usage analytics tools may estimate a country or city from it",
+    );
+    expect(within(section).getByRole("link", { name: "Usage analytics" })).toHaveAttribute("href", "#analytics");
     expect(section).toHaveTextContent("“Anywhere in Australia”");
     expect(section).toHaveTextContent("or search with the location left empty");
     // The address with the suburb in it also lives on in the browser's history.
@@ -175,6 +178,41 @@ describe("/privacy — What organisers see", () => {
     }
     expect(screen.getByRole("heading", { name: "What we collect" }).closest("section")).toHaveTextContent(
       "The name and email address you enter at checkout",
+    );
+  });
+});
+
+// Owner decision: usage analytics (PostHog, plus Vercel Web Analytics and Speed Insights).
+describe("/privacy — Usage analytics", () => {
+  it("is linkable as #analytics and says what is measured, what isn't, where it is kept and how to opt out", () => {
+    render(<PrivacyPage />);
+    const section = screen.getByRole("heading", { name: "Usage analytics" }).closest("section");
+    if (!section) throw new Error("Usage analytics section not rendered");
+    expect(section).toHaveAttribute("id", "analytics");
+    expect(section).toHaveTextContent("PostHog");
+    expect(section).toHaveTextContent("Vercel Web Analytics and Speed Insights");
+    expect(section).toHaveTextContent("linked to a random account ID, not your name, email address or phone number");
+    expect(section).toHaveTextContent("It doesn’t record your screen, what you type or the words you search for, and it sets no cookies");
+    expect(section).toHaveTextContent("never an order number or ticket code");
+    expect(section).toHaveTextContent("your cookies and the page you came from aren’t passed on");
+    // IP address and user agent: what they are used for, and that PostHog doesn't keep the address.
+    expect(section).toHaveTextContent("both tools receive your IP address and your browser’s user agent");
+    expect(section).toHaveTextContent("estimate where you are, at country or city level");
+    expect(section).toHaveTextContent("PostHog is set not to keep your IP address");
+    expect(section).toHaveTextContent("links with a private code or token in them are never recorded");
+    // The region is the owner's to set before go-live (app/privacy/page.tsx comment, docs/DEPLOYMENT.md).
+    expect(section).toHaveTextContent("The data is kept by PostHog in the European Union.");
+    expect(section).toHaveTextContent("We don’t use this for advertising, we don’t sell it, and it isn’t shared with ad networks.");
+    expect(section).toHaveTextContent("Pages for Sheltüh’s own administrators aren’t measured.");
+    expect(section).toHaveTextContent("utm_source=instagram");
+    expect(section).toHaveTextContent("turn on Do Not Track or Global Privacy Control in your browser");
+    expect(within(section).getByRole("link", { name: "support@sheltuh.com.au" })).toHaveAttribute("href", "mailto:support@sheltuh.com.au");
+  });
+
+  it("is listed among the service providers", () => {
+    render(<PrivacyPage />);
+    expect(screen.getByRole("heading", { name: "Who we share it with" }).closest("section")).toHaveTextContent(
+      "payments, usage analytics and sending email",
     );
   });
 });

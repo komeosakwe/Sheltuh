@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useRef, useState, type FormEvent } from "react";
 import AuthField, { fieldsForAuthError, useFocusAfterRender, type AuthErrorField } from "@/components/auth/AuthField";
 import { Button } from "@/components/ui/Button";
+import { track } from "@/lib/analytics";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { DEFAULT_AFTER_SIGN_IN, safeNextPath, withNext } from "@/lib/safe-next-path";
 
@@ -69,6 +70,7 @@ export default function VerifyForm() {
     try {
       // Confirming also signs the new account in.
       await auth.confirmSignUp(email.trim(), code.trim());
+      track("sign_up_completed", { signup_method: "email" });
       router.push(safeNextPath(next) ?? DEFAULT_AFTER_SIGN_IN);
     } catch (err) {
       showServerError(err instanceof Error ? err.message : "Couldn't verify that code.", ["code"]);

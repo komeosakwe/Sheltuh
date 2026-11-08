@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Button, ButtonLink } from "@/components/ui/Button";
+import { rememberCheckoutStarted } from "@/lib/analytics";
 import { ApiError } from "@/lib/api/client";
 import { confirmFreeOrder } from "@/lib/api/orders";
 import { seatErrorDetails } from "@/lib/api/seating";
@@ -94,7 +95,10 @@ export default function FreeOrderConfirm() {
   async function confirm(token: string) {
     setAction({ status: "confirming" });
     try {
-      const { url } = await confirmFreeOrder(token);
+      const { url, alreadyConfirmed } = await confirmFreeOrder(token);
+      // The person pressing the emailed link is the one finishing this order (usage analytics), unless it
+      // was confirmed before: pressing the link again doesn't make it a new order.
+      if (!alreadyConfirmed) rememberCheckoutStarted({ url });
       window.location.assign(url);
     } catch (err) {
       setAction(errorAction(err));
