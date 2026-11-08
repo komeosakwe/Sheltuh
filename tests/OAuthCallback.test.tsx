@@ -219,14 +219,16 @@ describe("OAuthCallback: what an error says to assistive tech", () => {
     open("/auth/callback?error=access_denied&error_code=user_banned", signedOut());
     const heading = await screen.findByRole("heading", { level: 1, name: "This account can’t sign in" });
     expect(heading).toHaveAccessibleDescription("If you think this is a mistake, email support@sheltuh.com.au.");
-    expect(document.title).toBe("This account can’t sign in — Sheltüh");
+    // The title is set in an effect after the heading renders; wait for it.
+    await waitFor(() => expect(document.title).toBe("This account can’t sign in — Sheltüh"));
   });
 
   it("demo mode too", async () => {
     open("/auth/callback?code=abc", signedOut({ configured: false }));
     const heading = await screen.findByRole("heading", { level: 1, name: "Accounts aren’t configured" });
     expect(heading).toHaveAccessibleDescription(/Accounts aren’t configured in this environment yet/);
-    expect(document.title).toBe("Accounts aren’t configured — Sheltüh");
+    // The title is set in an effect after the heading renders; wait for it.
+    await waitFor(() => expect(document.title).toBe("Accounts aren’t configured — Sheltüh"));
   });
 });
 
