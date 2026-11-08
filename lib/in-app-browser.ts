@@ -26,21 +26,22 @@ export function inAppBrowserName(userAgent: string): string | null {
 }
 
 export interface OpenInBrowser {
-  /** "Open in Safari" or "Open in Chrome". */
+  /** "Open in Chrome". */
   label: string;
   href: string;
-  /** The browser's name: "Safari" or "Chrome". */
+  /** The browser's name: "Chrome". */
   browser: string;
 }
 
-// iPadOS asks for desktop sites, so its agent says Macintosh; the "Mobile" token still gives it away.
-const IOS = /iPhone|iPad|iPod|Macintosh.*Mobile/;
 const ANDROID = /Android/;
 
 /**
- * A link that hands `currentUrl` to the device's own browser: Safari on iOS (`x-safari-https:`),
- * Chrome on Android (an `intent:` URL), nothing elsewhere. Only for https addresses, and the
- * fragment is left off (it can carry tokens), as is any user info.
+ * A link that hands `currentUrl` to the device's own browser: Chrome on Android (an `intent:` URL),
+ * nothing elsewhere. Only for https addresses, and the fragment is left off (it can carry tokens),
+ * as is any user info.
+ *
+ * No link on iOS: Instagram's and the other apps' browsers ignore `x-safari-https:` (an owner tested
+ * it in Instagram: nothing happens), so iOS gets the app's own menu instead (inAppLocationHelp).
  */
 export function openInBrowserHref(currentUrl: string, userAgent: string): OpenInBrowser | null {
   let url: URL;
@@ -51,9 +52,6 @@ export function openInBrowserHref(currentUrl: string, userAgent: string): OpenIn
   }
   if (url.protocol !== "https:") return null;
   const target = `${url.host}${url.pathname}${url.search}`;
-  if (IOS.test(userAgent)) {
-    return { label: "Open in Safari", browser: "Safari", href: `x-safari-https://${target}` };
-  }
   if (ANDROID.test(userAgent)) {
     return {
       label: "Open in Chrome",
@@ -78,7 +76,8 @@ export function inAppLocationHelp(currentUrl: string, userAgent: string): InAppL
   if (!app) return null;
   const open = openInBrowserHref(currentUrl, userAgent);
   const lead = `${app}’s browser can’t share your location. Type your suburb`;
-  if (!open) return { text: `${lead}.`, link: null };
+  // No link that works (iOS, or not https): the app's ••• menu has "Open in browser".
+  if (!open) return { text: `${lead}, or open Sheltüh in your browser from the ••• menu.`, link: null };
   return { text: `${lead}, or open Sheltüh in ${open.browser}.`, link: { label: open.label, href: open.href } };
 }
 

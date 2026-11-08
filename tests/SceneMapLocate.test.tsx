@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import L from "leaflet";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { findLocality } from "@/lib/location";
@@ -382,7 +382,7 @@ describe("Near me", () => {
       vi.stubGlobal("location", realLocation);
     });
 
-    it("on failure: names the app, says to type a suburb, and links to Safari", async () => {
+    it("on failure on iOS: names the app and points to its ••• menu (x-safari-https doesn't work there)", async () => {
       pretend(INSTAGRAM_IOS, "https://app.sheltuh.com.au/map?cat=live-music#token=secret");
       answerWithError(1);
       await renderMap();
@@ -390,11 +390,10 @@ describe("Near me", () => {
       const status = await screen.findByRole("status", {
         name: (_name, element) => element.textContent?.includes("Instagram’s browser") ?? false,
       });
-      expect(status).toHaveTextContent("Instagram’s browser can’t share your location. Type your suburb, or open Sheltüh in Safari.");
-      expect(screen.getByRole("link", { name: "Open in Safari" })).toHaveAttribute(
-        "href",
-        "x-safari-https://app.sheltuh.com.au/map?cat=live-music",
+      expect(status).toHaveTextContent(
+        "Instagram’s browser can’t share your location. Type your suburb, or open Sheltüh in your browser from the ••• menu.",
       );
+      expect(within(status).queryByRole("link")).toBeNull();
       expect(screen.queryByText("Couldn’t find your location.")).toBeNull();
       expect(localStorage.getItem(NEAR_STORAGE_KEY)).toBeNull();
     });
@@ -404,7 +403,7 @@ describe("Near me", () => {
       answerWithError(1);
       await renderMap();
       await waitFor(() => expect(sessionStorage.getItem(LOCATE_REFUSED_KEY)).toBe("1"));
-      expect(screen.queryByRole("link", { name: "Open in Safari" })).toBeNull();
+      expect(screen.queryByText(/Instagram’s browser/)).toBeNull();
     });
   });
 });

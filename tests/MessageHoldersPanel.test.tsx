@@ -409,7 +409,8 @@ describe("MessageHoldersPanel: after sending", () => {
     );
     confirm();
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Sent to 12."));
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    // The <dialog> closes in an effect after the render that shows the message; wait for it.
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(screen.getByLabelText("Subject")).toHaveValue("");
     expect(screen.getByLabelText("Message")).toHaveValue("");
     expect(await screen.findByText("Sent 0 of 12", { exact: false })).toBeInTheDocument();
@@ -506,7 +507,8 @@ describe("MessageHoldersPanel: after sending", () => {
     confirm();
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("This event has sent its messages for today. Try again tomorrow.");
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    // The <dialog> closes in an effect after the render that shows the message; wait for it.
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(screen.queryByRole("button", { name: "Send…" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Message ticket holders" })).toHaveFocus();
   });
@@ -523,7 +525,8 @@ describe("MessageHoldersPanel: after sending", () => {
     getHolderMessages.mockResolvedValue(state({ canSend: false, blockedReason: "outside_window" }));
     confirm();
     expect(await screen.findByRole("alert")).toHaveTextContent("Messages close 2 days after the event.");
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    // The <dialog> closes in an effect after the render that shows the message; wait for it.
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
   it("shows the API's field errors on the fields and closes the dialog", async () => {
@@ -537,7 +540,8 @@ describe("MessageHoldersPanel: after sending", () => {
     tick();
     confirm();
     expect(await screen.findByText("The message can't include links or web addresses.")).toBeInTheDocument();
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    // The <dialog> closes in an effect after the render that shows the message; wait for it.
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(screen.getByLabelText("Message")).toHaveFocus();
     expect(screen.getByLabelText("Message")).toHaveAttribute("aria-invalid", "true");
   });

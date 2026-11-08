@@ -65,18 +65,10 @@ describe("inAppBrowserName", () => {
 describe("openInBrowserHref", () => {
   const PAGE = "https://app.sheltuh.com.au/search?q=jazz&near=Northcote%20VIC";
 
-  it("iOS: Safari via x-safari-https, scheme stripped", () => {
-    expect(openInBrowserHref(PAGE, AGENTS.instagramIos)).toEqual({
-      label: "Open in Safari",
-      browser: "Safari",
-      href: "x-safari-https://app.sheltuh.com.au/search?q=jazz&near=Northcote%20VIC",
-    });
-  });
-
-  it("iPadOS asking for the desktop site (Macintosh + Mobile) counts as iOS; a desktop Mac doesn't", () => {
+  it("iOS (iPhone, and iPadOS asking for the desktop site): no link, the in-app browsers ignore x-safari-https", () => {
     const ipad = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 340.0.0.26.108";
-    expect(openInBrowserHref(PAGE, ipad)?.label).toBe("Open in Safari");
-    expect(openInBrowserHref(PAGE, ORDINARY.safariMac)).toBeNull();
+    expect(openInBrowserHref(PAGE, AGENTS.instagramIos)).toBeNull();
+    expect(openInBrowserHref(PAGE, ipad)).toBeNull();
   });
 
   it("Android: Chrome via an intent URL", () => {
@@ -88,8 +80,8 @@ describe("openInBrowserHref", () => {
   });
 
   it("leaves the fragment and any user info off", () => {
-    expect(openInBrowserHref("https://user:pw@app.sheltuh.com.au/a#access_token=secret", AGENTS.instagramIos)?.href).toBe(
-      "x-safari-https://app.sheltuh.com.au/a",
+    expect(openInBrowserHref("https://user:pw@app.sheltuh.com.au/a#access_token=secret", AGENTS.tiktokAndroid)?.href).toBe(
+      "intent://app.sheltuh.com.au/a#Intent;scheme=https;package=com.android.chrome;end",
     );
     expect(openInBrowserHref("https://app.sheltuh.com.au/a#access_token=secret", AGENTS.tiktokAndroid)?.href).toBe(
       "intent://app.sheltuh.com.au/a#Intent;scheme=https;package=com.android.chrome;end",
@@ -97,13 +89,15 @@ describe("openInBrowserHref", () => {
   });
 
   it("keeps a port", () => {
-    expect(openInBrowserHref("https://example.test:8443/x", AGENTS.instagramIos)?.href).toBe("x-safari-https://example.test:8443/x");
+    expect(openInBrowserHref("https://example.test:8443/x", AGENTS.instagramAndroid)?.href).toBe(
+      "intent://example.test:8443/x#Intent;scheme=https;package=com.android.chrome;end",
+    );
   });
 
   it("is null for http, other schemes, unparseable addresses and other platforms", () => {
-    expect(openInBrowserHref("http://app.sheltuh.com.au/", AGENTS.instagramIos)).toBeNull();
-    expect(openInBrowserHref("javascript:alert(1)", AGENTS.instagramIos)).toBeNull();
-    expect(openInBrowserHref("not a url", AGENTS.instagramIos)).toBeNull();
+    expect(openInBrowserHref("http://app.sheltuh.com.au/", AGENTS.instagramAndroid)).toBeNull();
+    expect(openInBrowserHref("javascript:alert(1)", AGENTS.instagramAndroid)).toBeNull();
+    expect(openInBrowserHref("not a url", AGENTS.instagramAndroid)).toBeNull();
     expect(openInBrowserHref(PAGE, ORDINARY.edgeWindows)).toBeNull();
   });
 });
@@ -111,10 +105,10 @@ describe("openInBrowserHref", () => {
 describe("inAppLocationHelp", () => {
   const PAGE = "https://app.sheltuh.com.au/";
 
-  it("names the app and offers Safari on iOS", () => {
+  it("names the app and points to its ••• menu on iOS, with no link", () => {
     expect(inAppLocationHelp(PAGE, AGENTS.instagramIos)).toEqual({
-      text: "Instagram’s browser can’t share your location. Type your suburb, or open Sheltüh in Safari.",
-      link: { label: "Open in Safari", href: "x-safari-https://app.sheltuh.com.au/" },
+      text: "Instagram’s browser can’t share your location. Type your suburb, or open Sheltüh in your browser from the ••• menu.",
+      link: null,
     });
   });
 
@@ -124,9 +118,9 @@ describe("inAppLocationHelp", () => {
     );
   });
 
-  it("ends after the suburb advice when there's no link to offer", () => {
-    expect(inAppLocationHelp("http://localhost:3000/", AGENTS.instagramIos)).toEqual({
-      text: "Instagram’s browser can’t share your location. Type your suburb.",
+  it("points to the ••• menu when there's no link to offer", () => {
+    expect(inAppLocationHelp("http://localhost:3000/", AGENTS.instagramAndroid)).toEqual({
+      text: "Instagram’s browser can’t share your location. Type your suburb, or open Sheltüh in your browser from the ••• menu.",
       link: null,
     });
   });
