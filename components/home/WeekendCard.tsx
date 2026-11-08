@@ -163,7 +163,11 @@ export default function WeekendCard({
       {/* Bottom-aligned: a price that wraps to two lines keeps the arrow on the same line as its
           neighbours'; the price's last line sits centred on the arrow (its 6px of bottom padding). */}
       <div data-card-foot="" className="mt-auto flex items-end justify-between gap-2 px-4 pt-2 pb-3">
-        <CardPrice event={event} now={now} amountClassName="text-base leading-5 font-bold" className="min-w-0 pb-1.5 text-sm leading-5" />
+        {/* The note's size sits on a wrapper, not on CardPrice's <p>: "Free", "Sold out" and "Ended" put
+            amountClassName on that same <p>, where two text sizes would clash. */}
+        <div className="min-w-0 pb-1.5 text-sm leading-5">
+          <CardPrice event={event} now={now} amountClassName="text-base leading-5 font-bold" />
+        </div>
         <Link
           href={href}
           aria-label={`Open ${event.title}`}

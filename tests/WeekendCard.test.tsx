@@ -114,6 +114,11 @@ describe("WeekendCard", () => {
     const third = renderCard(<WeekendCard event={soldOut} mode="live" now={NOW} />);
     expect(third.container.querySelector("[data-card-foot]")).toHaveTextContent("Sold out");
     expect(third.container.querySelector("[data-event-card]")).toHaveAttribute("data-card-state", "sold-out");
+    // "Sold out" (like "Free" and "Ended") is the amount on its own: in the amount's size only, never also
+    // the note's, which sits on the wrapper (two text sizes on one element would clash).
+    const soldOutText = within(third.container.querySelector("[data-card-foot]") as HTMLElement).getByText("Sold out");
+    expect(soldOutText).toHaveClass("text-base", "font-bold");
+    expect(soldOutText).not.toHaveClass("text-sm");
   });
 
   it("live without a going count: no strip at all", () => {
