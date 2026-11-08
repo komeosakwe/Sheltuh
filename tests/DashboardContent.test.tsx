@@ -248,11 +248,12 @@ describe("DashboardContent — each event's status, date and actions", () => {
     // Published: no View (the editor is locked); its public page is the main action.
     expect(actionsOf("Live")).toEqual([
       ["View public page", "View public page for Live", "/events/live-night"],
+      ["Orders", "Orders for Live", "/dashboard/events/l/orders"],
       ["Analytics", "Analytics for Live", "/dashboard/events/l/analytics"],
       ["Check-in", "Check-in for Live", "/dashboard/l/check-in"],
       ["Seat map", "Seat map for Live", "/dashboard/l/seat-map"],
     ]);
-    // Ticketed on another site: no door check-in here.
+    // Ticketed on another site: no Orders or door check-in here.
     expect(actionsOf("Elsewhere")).toEqual([
       ["View public page", "View public page for Elsewhere", "/events/elsewhere"],
       ["Analytics", "Analytics for Elsewhere", "/dashboard/events/x/analytics"],
@@ -267,7 +268,7 @@ describe("DashboardContent — each event's status, date and actions", () => {
     expect(screen.getByRole("link", { name: "View public page for Live" })).toHaveClass("btn-outline");
     expect(screen.getByRole("link", { name: "Edit dad" })).toHaveClass("btn-outline");
     expect(screen.getByRole("link", { name: "View submission for Waiting" })).toHaveClass("btn-outline");
-    for (const name of ["Analytics for Live", "Check-in for Live", "Seat map for Live"]) {
+    for (const name of ["Orders for Live", "Analytics for Live", "Check-in for Live", "Seat map for Live"]) {
       const link = screen.getByRole("link", { name });
       expect(link).not.toHaveClass("btn");
       expect(link).toHaveClass("underline", "text-sm", "font-semibold");

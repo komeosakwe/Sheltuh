@@ -68,7 +68,7 @@ export function canEditEvent(event: Pick<EventRecord, "status">): boolean {
   return event.status === "draft" || event.status === "rejected";
 }
 
-export type OrganiserEventActionKind = "edit" | "view" | "analytics" | "check-in" | "seat-map" | "public-page";
+export type OrganiserEventActionKind = "edit" | "view" | "orders" | "analytics" | "check-in" | "seat-map" | "public-page";
 
 export interface OrganiserEventAction {
   kind: OrganiserEventActionKind;
@@ -111,6 +111,10 @@ export function organiserEventActions(
     actions.push({ kind: "view", label: "View submission", name: `View submission for ${title}`, href: `/dashboard/${id}` });
   } else {
     actions.push({ kind: "view", label: "View", name: `View ${title}`, href: `/dashboard/${id}` });
+  }
+  // Who bought: a published event's editor is locked, so this row is the organiser's way in.
+  if (published && !external) {
+    actions.push({ kind: "orders", label: "Orders", name: `Orders for ${title}`, href: `/dashboard/events/${id}/orders` });
   }
   actions.push({ kind: "analytics", label: "Analytics", name: `Analytics for ${title}`, href: `/dashboard/events/${id}/analytics` });
   if (published && !external) {
