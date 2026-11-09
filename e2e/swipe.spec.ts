@@ -76,7 +76,7 @@ async function visibleTitle(page: Page): Promise<string | null> {
 test.describe("on a phone (375×667)", () => {
   test.use({ viewport: { width: 375, height: 667 }, hasTouch: true });
 
-  test("the home shows its sections as grids of cards, with no event screens, no rails and no link to /swipe", async ({ page }) => {
+  test("the home shows its sections as grids of cards (This weekend's rail aside), with no event screens and no link to /swipe", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
     await expect(page.locator("[data-home-section]").first()).toBeVisible();
@@ -85,7 +85,9 @@ test.describe("on a phone (375×667)", () => {
     await expect(page.getByRole("main")).toHaveCount(1);
     await expect(page.getByText("Swipe through events")).toHaveCount(0);
     await expect(page.getByRole("article")).toHaveCount(0);
-    await expect(page.locator("[data-rail-layout]")).toHaveCount(0);
+    // The one rail is This weekend's (owner's mockup, 8 Nov 2026: a sideways row on phones too).
+    await expect(page.locator("[data-rail-layout]")).toHaveCount(1);
+    await expect(page.getByRole("region", { name: "This weekend" }).locator("[data-rail-layout]")).toHaveCount(1);
     await expect(page.locator("a[href='/swipe']")).toHaveCount(0);
     // No snapping: the page scrolls freely.
     expect(await page.evaluate(() => getComputedStyle(document.documentElement).scrollSnapType)).toBe("none");

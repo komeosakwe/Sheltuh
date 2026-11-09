@@ -25,7 +25,7 @@ import ExternalGoing from "@/components/ExternalGoing";
 import WhosGoing from "@/components/WhosGoing";
 import { WhosGoingProvider } from "@/components/whos-going/WhosGoingProvider";
 import type { PreviewMissing } from "@/components/dashboard/editor/preview-event";
-import WhosGoingSummaryLink from "@/components/whos-going/WhosGoingSummaryLink";
+import WhosGoingCard from "@/components/whos-going/WhosGoingCard";
 import { SUPPORT_EMAIL } from "@/lib/contact";
 import { isSafeTicketUrl, reportEventHref } from "@/lib/event-url";
 import { eventZone, formatEventDateShort, formatEventDateTimeRange, formatEventTime, formatTimeZoneLabel, zoneSuffix } from "@/lib/format";
@@ -175,8 +175,9 @@ function whenLabel(startsAt: string, endsAt: string | undefined, timeZone: strin
  * docs/design/mobile-redesign.md, Refinement 22 Oct 2026). In reading order:
  * the photo, then the title (sentence case, title-lg), then one block of
  * facts (when, with the time zone and Add to calendar; where, the address
- * linked to directions; the organiser, linked to their profile), the going count, and one
- * secondary row with Save and Share (the page's only Save). Then the
+ * linked to directions; the organiser, linked to their profile), one
+ * secondary row with Save and Share (the page's only Save), and the Who's
+ * going? card (the count, a few faces, View attendees). Then the
  * tickets, then About, Who's Going, Location (the venue, a small map and
  * Google Maps and Apple Maps links), Refunds, Good to know and Organiser. On phones that's
  * one column; from 1024px the tickets are the right-hand column (sticky),
@@ -408,18 +409,15 @@ export default function EventDetailsView({
                   </dd>
                 </div>
               </dl>
-              {/* Below lg Who's Going comes after the tickets, so its count is linked here too
-                  (the panel is beside this from lg). No gap left behind while there is none. */}
-              {!preview && (
-                <div className="empty:hidden lg:hidden">
-                  <WhosGoingSummaryLink />
-                </div>
-              )}
               {/* The one secondary row: Save (the page's only Save) and Share. */}
               <div data-event-actions="" className="-mt-1 flex flex-wrap items-center gap-2 sm:mt-0">
                 <SaveButton event={saveTarget} variant="action" />
                 <ShareButton slug={event.slug} title={event.title} text={shareText} />
               </div>
+              {/* Who's going? (owner's mockup, 8 Nov 2026): the count, a few faces and View attendees,
+                  which jumps to the panel further down. Nothing while there's no count to show. Below
+                  lg it sits 16px from the actions and the tickets alike (the grid's gap, less 16px). */}
+              {!preview && <WhosGoingCard className="mt-1 -mx-1 max-lg:-mb-4 sm:mx-0" />}
             </div>
           </div>
 

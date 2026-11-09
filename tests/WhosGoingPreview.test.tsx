@@ -292,8 +292,14 @@ describe("Who's Going preview: only real, permitted data (§6.4.3)", () => {
     expect(preview.querySelector("img")).toHaveAttribute("alt", "");
     expect(within(preview).getByText("BQ")).toBeInTheDocument();
     expect(within(preview).getByText("CR")).toBeInTheDocument();
-    expect(api.fetchAvatar).toHaveBeenCalledTimes(1);
-    expect(api.fetchAvatar).toHaveBeenCalledWith("/api/profiles/prof-a/avatar?size=96", expect.any(Function), expect.any(AbortSignal));
+    // Only that member's photo is ever fetched: once for this panel and once for the Who's going? card
+    // under Save and Share (owner's mockup, 8 Nov 2026), which draws the same first faces.
+    expect(api.fetchAvatar).toHaveBeenCalledTimes(2);
+    for (const call of api.fetchAvatar.mock.calls) {
+      expect(call).toEqual(["/api/profiles/prof-a/avatar?size=96", expect.any(Function), expect.any(AbortSignal)]);
+    }
+    const card = screen.getByRole("region", { name: "Who’s going?" });
+    await waitFor(() => expect(card.querySelectorAll("img[data-member-photo]")).toHaveLength(1));
   });
 
   it("a face with a visible profile links to it; the others stay decorative", async () => {

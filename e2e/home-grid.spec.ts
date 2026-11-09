@@ -76,7 +76,7 @@ for (const vp of [
   test.describe(`the home's grids at ${vp.width}×${vp.height}`, () => {
     test.use({ viewport: vp, hasTouch: true });
 
-    test("the hero, then a section heading, then two cards side by side, each about half the width", async ({ page }) => {
+    test("the hero, This weekend's rail of cards with the next one peeking in, then the other sections' two-column grids", async ({ page }) => {
       await mockApi(page);
       await page.goto("/");
       const section = page.locator("[data-home-section]").first();
@@ -88,24 +88,33 @@ for (const vp of [
       await expect(h1).toHaveCount(1);
       await expect(heading).toHaveText("This weekend");
       const cards = section.locator("[data-event-card]");
-      // This weekend holds a few events whichever day the suite runs: the first two make the first row.
+      // This weekend holds a few events whichever day the suite runs.
       expect(await cards.count()).toBeGreaterThanOrEqual(2);
       const [hero, head, a, b] = [await h1.boundingBox(), await heading.boundingBox(), await cards.nth(0).boundingBox(), await cards.nth(1).boundingBox()];
       if (!hero || !head || !a || !b) throw new Error("home not laid out");
       // In order down the page.
       expect(hero.y).toBeLessThan(head.y);
       expect(head.y + head.height).toBeLessThanOrEqual(a.y);
-      // Two columns: side by side on one row, each about half the 16-20px-gutter column, 12px apart.
+      // Owner's mockup (8 Nov 2026): a sideways rail on phones too, about 1.15 cards across: the first
+      // starts on the 20px gutter at 80% of the screen, the next 12px on and cut by the screen's edge.
       expect(a.y).toBe(b.y);
-      expect(b.x).toBeGreaterThan(a.x + a.width);
+      expect(Math.round(a.x)).toBe(20);
+      expect(Math.abs(a.width - vp.width * 0.8)).toBeLessThanOrEqual(1);
       expect(Math.round(b.x - (a.x + a.width))).toBe(12);
+      expect(b.x).toBeLessThan(vp.width);
+      expect(b.x + b.width).toBeGreaterThan(vp.width);
+      await expect(section.locator("[data-rail-layout]")).toHaveCount(1);
+      // The rest are the two-column grids, as before.
+      const next = page.locator("[data-home-section]").nth(1);
+      const [c, d] = [await next.locator("[data-event-card]").nth(0).boundingBox(), await next.locator("[data-event-card]").nth(1).boundingBox()];
+      if (!c || !d) throw new Error("grid not laid out");
+      expect(c.y).toBe(d.y);
+      expect(Math.round(d.x - (c.x + c.width))).toBe(12);
       const column = vp.width - 40;
-      for (const card of [a, b]) {
+      for (const card of [c, d]) {
         expect(card.width).toBeGreaterThan(column * 0.45);
         expect(card.width).toBeLessThan(column * 0.55);
       }
-      expect(Math.abs(a.width - b.width)).toBeLessThanOrEqual(1);
-      await expect(page.locator("[data-rail-layout]")).toHaveCount(0);
       expect(await overflow(page)).toBeLessThanOrEqual(0);
     });
 
@@ -115,10 +124,13 @@ for (const vp of [
       await expect(page.locator("[data-home-section]").first()).toBeVisible();
       const titles = await page.locator("[data-home-section]").getByRole("heading", { level: 2 }).allTextContents();
       expect(titles).toEqual(["This weekend", "Coming up"]);
-      const columns = await page
+      // This weekend is a sideways rail (owner's mockup, 8 Nov 2026); the others are two-column grids.
+      const layouts = await page
         .locator("[data-home-section] ul")
-        .evaluateAll((lists) => lists.map((ul) => getComputedStyle(ul).gridTemplateColumns.split(" ").length));
-      expect(columns).toEqual([2, 2]);
+        .evaluateAll((lists) =>
+          lists.map((ul) => (getComputedStyle(ul).display === "grid" ? getComputedStyle(ul).gridTemplateColumns.split(" ").length : getComputedStyle(ul).overflowX)),
+        );
+      expect(layouts).toEqual(["auto", 2]);
       const loading = await page.locator("[data-home-section] [data-event-card]").evaluateAll((cards) =>
         cards.map((card) => card.querySelector("img")?.getAttribute("loading") ?? "none"),
       );

@@ -39,6 +39,12 @@
   --soft-line: #cdc6c0;
   --peach: #fcd4bb;
   --signal-text: #d03e00;
+  /* The home's This weekend cards and the event page's Who's going card (owner's mockup, 8 Nov 2026): a lilac
+     category pill and a sand strip for the going row on the ivory --panel card (black text on both, 15.4:1 and
+     17.5:1), and the warm near-black of the Who's going card (white on it is 18.0:1). Only those two use them. */
+  --lilac: #e6d8ee;
+  --sand: #f4e8e0;
+  --night: #1d150f;
   /* Door check-in only (components/check-in/, docs/design/check-in.md; enforced by
      tests/door-tokens.test.ts). Each fill has its text pair. Never used for decoration;
      colour is never the only signal (icon + words + panel shape). */
@@ -113,6 +119,8 @@
     --soft-line: #4a4540;
     --peach: #4a2a18;
     --signal-text: #ff6a33; /* 7.1:1 on black */
+    --lilac: #3a2e44; /* white on it 12.7:1 */
+    --sand: #2a2420; /* white on it 15.3:1 */
     /* Apple White on the black page. */
     --apple-fill: #ffffff;
     --apple-ink: #000000;
@@ -228,6 +236,9 @@
   --color-soft-line: var(--soft-line);
   --color-peach: var(--peach);
   --color-signal-text: var(--signal-text);
+  --color-lilac: var(--lilac);
+  --color-sand: var(--sand);
+  --color-night: var(--night);
   --color-danger: var(--danger);
   --color-danger-foreground: var(--danger-foreground);
   --color-door-admit: var(--door-admit);
@@ -250,8 +261,9 @@
   --radius-panel: 1rem; /* 16px: the event page's ticket panel */
   --radius-sheet: 1.5rem; /* 24px: the top corners of the phone buy bar */
   --radius-dot: 28%; /* avatars, map markers (echo the umlaut) */
-  /* The one exception to flat elevation, at the owner's request (mockup, 8 Nov 2026): /map's search and
-     location fields and its chips sit on a soft shadow, and the location card floats over the map. */
+  /* The exception to flat elevation, at the owner's request (mockups, 8 Nov 2026): /map's search and
+     location fields and its chips, and the home's This weekend cards, sit on a soft shadow; the map's location
+     card floats over the map. */
   --shadow-soft: 0 3px 8px rgb(74 52 30 / 0.12);
   --shadow-float: 0 6px 20px rgb(0 0 0 / 0.22);
   /* /map's controls, measured from the mockup at 390px. The search field's own text stays 16px on phones

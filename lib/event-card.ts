@@ -148,9 +148,9 @@ export interface CardGoing {
 
 /**
  * The attendance on a card (§6.2.5 and its Refinement, 22 Oct 2026): a
- * count only, or null for none (no reserved space). Never faces: list
+ * count only, or null for none (no reserved space). No live faces: list
  * payloads carry no names or profile photos, so a card has nothing real to
- * draw them from. An external event has no Who's Going. Demo cards show the
+ * draw them from (the demo's samples have names: cardGoingFaces). An external event has no Who's Going. Demo cards show the
  * fictional sample's count, flagged `sample`. Live cards show only the
  * server's thresholded trending count. Below GOING_COUNT_MIN, nothing.
  */
@@ -163,6 +163,22 @@ export function cardGoing(event: SheltuhEvent, mode: "demo" | "live", signal?: T
         ? { count: signal.count, sample: false }
         : null;
   return going && going.count >= GOING_COUNT_MIN ? going : null;
+}
+
+/** The This weekend card's going strip and the event page's Who's going? card show at most this many faces. */
+export const CARD_FACES_MAX = 3;
+
+/**
+ * The faces beside a card's going count (the This weekend card's strip, owner's mockup, 8 Nov 2026):
+ * the first few names of the demo's fictional sample list (the same people its event page shows, as
+ * initials), or none live, where list payloads carry no names or photos. Only ever beside a count
+ * (`going`, from cardGoing): never on their own.
+ */
+export function cardGoingFaces(event: SheltuhEvent, going: CardGoing | null): string[] {
+  if (!going?.sample) return [];
+  return getSampleGoing(event.id)
+    .attendees.slice(0, CARD_FACES_MAX)
+    .map((attendee) => attendee.displayName);
 }
 
 /**

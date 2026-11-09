@@ -13,12 +13,15 @@ import { useHomeEvents } from "./HomeEventsProvider";
 import { HOME_CONTAINER, HomeRailItem, RAIL_SKELETON } from "./HomeRail";
 import HomeGridSection, { HomeGridItem } from "./HomeGridSection";
 import HomeRailSection from "./HomeRailSection";
+import WeekendCard from "./WeekendCard";
 
 /** The page's one load error (docs/design/mobile-redesign.md §6.3.4). */
 export const HOME_LOAD_ERROR = "Couldn’t load events. Check your connection and try again.";
 
 /** Every home section's spacing, the first after the category row included (Refinement, 22 Oct 2026: tighter). */
 const SECTION = "mt-6 sm:mt-10 lg:mt-8";
+/** This weekend's: a little more room under the category row for its bigger head (owner's mockup, 8 Nov 2026). */
+const WEEKEND_SECTION = "mt-8 sm:mt-10 lg:mt-8";
 
 /**
  * The home's event sections below the hero (docs/design/mobile-redesign.md
@@ -39,7 +42,12 @@ const SECTION = "mt-6 sm:mt-10 lg:mt-8";
  * 1280px; from 768px they follow the screen, so three whole cards and part of a
  * fourth show at 768, four and part of a fifth at 1024).
  *
- * Below 640px (Tailwind `sm`) the rails give way to the same sections as
+ * This weekend is the exception (owner's mockup, 8 Nov 2026): its own `WeekendCard`s, under the
+ * feature head (SectionHead `feature`), in a rail at every width, phones included (about 1.15
+ * cards across a phone, never drifting there), and a weekend event that's also trending with a
+ * going count carries it for the card's going strip.
+ *
+ * Below 640px (Tailwind `sm`) the other rails give way to the same sections as
  * two-column grids of `grid` EventCards, as /events has (`HomeGridSection`;
  * 12px between columns; the first row's photos load at once, the rest
  * lazily). That is chosen in the browser (`useIsPhone`; the server and the
@@ -139,6 +147,32 @@ export default function HomeEventSections() {
       {sections && !sections.anyUpcoming && sections.recent.length === 0 && <HomeEmpty />}
 
       {specs.map((spec, s) => {
+        if (spec.weekend) {
+          // This weekend (owner's mockup, 8 Nov 2026): its own cards in a rail at every width, phones
+          // included (about 1.15 cards across, the next one peeking in), with the feature head.
+          return (
+            <HomeRailSection
+              key={spec.id}
+              id={spec.id}
+              title={spec.title}
+              note={spec.note}
+              link={spec.link}
+              count={spec.cards.length}
+              headVariant="feature"
+              autoScroll={!phone}
+              phoneEdges={false}
+              className={WEEKEND_SECTION}
+            >
+              {spec.cards.map(({ event, signal }, i) => (
+                <HomeRailItem key={event.id}>
+                  {/* On a phone the first two load at once (the first screen's), as the grids' first row did;
+                      the rest, and every one from 640px (as the rails'), lazily. */}
+                  <WeekendCard event={event} mode={mode} signal={signal} now={now} priority={phone && s === 0 && i < 2} />
+                </HomeRailItem>
+              ))}
+            </HomeRailSection>
+          );
+        }
         const cards = spec.cards.map(({ event, signal }, i) =>
           phone ? (
             <HomeGridItem key={event.id}>
@@ -167,6 +201,8 @@ export default function HomeEventSections() {
 
 interface SectionSpec {
   id: string;
+  /** This weekend: WeekendCards in a rail at every width. */
+  weekend?: boolean;
   title: string;
   note?: string;
   link: { href: string; label?: string; srLabel?: string };
@@ -181,11 +217,16 @@ function sectionSpecs(sections: HomeSections): SectionSpec[] {
   if (weekend.status === "cards") {
     specs.push({
       id: "home-weekend",
+      weekend: true,
       title: "This weekend",
       note: formatWeekendRange(weekend.window),
       // /events isn't filtered to the weekend, so the link says where it goes.
       link: { href: "/events", label: "All events" },
-      cards: plain(weekend.items),
+      // A weekend event that's also trending with a going count carries it, for the card's going strip.
+      cards: weekend.items.map((event) => {
+        const count = weekend.going[event.id];
+        return count === undefined ? { event } : { event, signal: { kind: "going", count } };
+      }),
     });
   }
   if (following.length > 0) {

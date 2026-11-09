@@ -101,14 +101,19 @@ describe("the home on a phone", () => {
     // The weekend's dates, and the same links as the rails.
     expect(within(sections[0]).getByText("Fri 23 – Sun 25 Oct")).toBeInTheDocument();
     for (const section of sections) expect(within(section).getByRole("link", { name: "All events" })).toHaveAttribute("href", "/events");
-    // Each card is a grid EventCard in a two-column list named by its heading.
-    const list = within(sections[0]).getByRole("list");
-    expect(list).toHaveAccessibleName("This weekend");
-    expect(list).toHaveClass("grid", "grid-cols-2", "gap-x-3");
+    // This weekend is its own cards in a sideways rail on phones too (owner's mockup, 8 Nov 2026), named by its heading.
+    const weekend = within(sections[0]).getByRole("list");
+    expect(weekend).toHaveAccessibleName("This weekend");
+    expect(weekend).toHaveClass("flex", "snap-x", "overflow-x-auto");
     expect(within(sections[0]).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["Event sat", "Event sun"]);
+    // Every other section: grid EventCards in a two-column list named by its heading.
+    const list = within(sections[1]).getByRole("list");
+    expect(list).toHaveAccessibleName("Coming up");
+    expect(list).toHaveClass("grid", "grid-cols-2", "gap-x-3");
     expect(within(sections[1]).getAllByRole("heading", { level: 3 })).toHaveLength(4);
     // Each event once, ended ones aside; recently on says Ended.
-    expect(container.querySelectorAll("[data-event-card][data-variant='grid']")).toHaveLength(7);
+    expect(container.querySelectorAll("[data-event-card][data-variant='weekend']")).toHaveLength(2);
+    expect(container.querySelectorAll("[data-event-card][data-variant='grid']")).toHaveLength(5);
     expect(container.querySelectorAll("[data-event-card][data-variant='rail']")).toHaveLength(0);
     expect(within(sections[2]).getByText("Ended")).toBeInTheDocument();
     expect(within(sections[0]).getByRole("link", { name: "Event sat" })).toHaveAttribute("href", "/events/sat");
@@ -125,12 +130,17 @@ describe("the home on a phone", () => {
     expect(document.documentElement.style.scrollSnapType).toBe("");
   });
 
-  it("has no horizontal rail: no scroller, no clones", async () => {
+  it("has one horizontal rail, This weekend's, which never drifts on a phone: no clones, no Pause, no edge cue", async () => {
     stubViewport(true);
+    loadHomeEvents.mockResolvedValue([ENDED, SAT, SUN, ...COMING]);
     const { container } = renderSections();
     await flush();
-    expect(container.querySelector("[data-rail-layout]")).toBeNull();
-    expect(container.querySelector(".snap-x")).toBeNull();
+    expect(container.querySelectorAll("[data-rail-layout]")).toHaveLength(1);
+    expect(container.querySelectorAll(".snap-x")).toHaveLength(1);
+    expect(container.querySelector("#home-weekend-rail")).not.toBeNull();
+    expect(container.querySelector("[data-rail-clone]")).toBeNull();
+    expect(screen.queryByRole("button", { name: /^(?:Pause|Play)/ })).toBeNull();
+    expect(container.querySelector("[data-scroll-arrow]")).toBeNull();
   });
 
   it("loads the first row's photos at once and the rest lazily", async () => {
@@ -195,7 +205,9 @@ describe("the home on a phone", () => {
     const resize = stubViewport(true);
     const { container } = renderSections();
     await flush();
-    expect(container.querySelectorAll("[data-home-grid]")).toHaveLength(2);
+    // This weekend is a rail at both widths; Coming up swaps from its grid.
+    expect(container.querySelectorAll("[data-home-grid]")).toHaveLength(1);
+    expect(container.querySelectorAll("[data-rail-layout]")).toHaveLength(1);
     resize(false);
     expect(container.querySelectorAll("[data-home-grid]")).toHaveLength(0);
     expect(container.querySelectorAll("[data-rail-layout]")).toHaveLength(2);
@@ -212,6 +224,7 @@ describe("the home from 640px up", () => {
     expect(container.querySelectorAll("[data-rail-layout]")).toHaveLength(3);
     expect(container.querySelectorAll("[data-home-grid]")).toHaveLength(0);
     expect(container.querySelectorAll("[data-event-card][data-variant='rail']").length).toBeGreaterThan(0);
+    expect(container.querySelectorAll("#home-weekend-rail [data-event-card][data-variant='weekend']")).toHaveLength(2);
     expect(container.querySelectorAll("[data-event-card][data-variant='grid']")).toHaveLength(0);
     expect(screen.getByRole("status")).toHaveTextContent("");
     const loading = Array.from(container.querySelectorAll("[data-event-card] img")).map((img) => img.getAttribute("loading"));

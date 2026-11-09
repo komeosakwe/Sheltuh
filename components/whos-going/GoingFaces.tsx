@@ -27,30 +27,45 @@ export default function GoingFaces({
   attendees,
   youName,
   getToken,
+  max = FACES_MAX,
+  look = "panel",
 }: {
   attendees: GoingAttendee[];
   /** The viewer's display name when they're going. */
   youName?: string;
   /** Live, signed-in only: fetches profile photos. Without it, initials. */
   getToken?: GetToken;
+  /** At most this many faces, the viewer's own included (facesShown). */
+  max?: number;
+  /**
+   * `panel`: the panel's 32px rounded squares on the page. `card`: the Who's going card's 36px circles
+   * with white rings on its dark ground (owner's mockup, 8 Nov 2026), overlapping by 2px.
+   */
+  look?: "panel" | "card";
 }) {
-  const others = attendees.slice(0, youName !== undefined ? FACES_MAX - 1 : FACES_MAX);
+  const others = attendees.slice(0, Math.max(0, youName !== undefined ? max - 1 : max));
   if (others.length === 0 && youName === undefined) return null;
+  const card = look === "card";
+  const ring = card ? "rounded-full ring-1 ring-paper" : "rounded-dot ring-2 ring-background";
+  const focusRing = card ? "focus-visible:outline-paper" : "focus-visible:outline-foreground";
   return (
     <span data-going-faces="" className="flex shrink-0">
       {youName !== undefined && (
-        <span aria-hidden="true" className="flex rounded-dot ring-2 ring-background">
-          <InitialsAvatar name={youName} you />
+        <span aria-hidden="true" className={`flex ${ring}`}>
+          <InitialsAvatar name={youName} you size={card ? "face" : "md"} round={card} />
         </span>
       )}
       {others.map((attendee, index) => {
-        const className = `relative flex rounded-dot ring-2 ring-background ${index > 0 || youName !== undefined ? "-ml-1" : ""}`.trim();
+        const overlap = index > 0 || youName !== undefined ? (card ? "-ml-0.5" : "-ml-1") : "";
+        const className = `relative flex ${ring} ${overlap}`.trim();
         const avatar = (
           <MemberAvatar
             name={attendee.displayName}
             index={index}
             url={attendee.profileId && attendee.hasAvatar ? attendee.avatarThumbUrl : undefined}
             getToken={getToken}
+            size={card ? "face" : "md"}
+            round={card}
           />
         );
         return attendee.profileId ? (
@@ -59,7 +74,7 @@ export default function GoingFaces({
             href={memberHref(attendee.profileId)}
             data-going-face=""
             aria-label={`${attendee.displayName}’s profile`}
-            className={`${className} hover:z-10 focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground`}
+            className={`${className} hover:z-10 focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-2 ${focusRing}`}
           >
             {avatar}
           </Link>
@@ -71,6 +86,12 @@ export default function GoingFaces({
       })}
     </span>
   );
+}
+
+/** How many faces GoingFaces draws for these people (the viewer's own included), at most `max`. */
+export function facesShown(attendees: GoingAttendee[], youName: string | undefined, max = FACES_MAX): number {
+  const you = youName !== undefined ? 1 : 0;
+  return Math.min(max, you + attendees.length);
 }
 
 /**

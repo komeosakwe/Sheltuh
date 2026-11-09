@@ -131,9 +131,12 @@ function liveRegion(region: HTMLElement) {
   return within(region).getByRole("status");
 }
 
-/** The phone summary link: "14 going", or in the demo "20 going (sample)". */
-function summaryLink() {
-  return screen.queryByRole("link", { name: /^\d+ going( \(sample\))?$/ });
+/**
+ * The Who's going? card under Save and Share (owner's mockup, 8 Nov 2026; it replaced the "14 going"
+ * link there): "14 people are going", or in the demo "20 people are going (sample)".
+ */
+function summaryCard() {
+  return screen.queryByRole("region", { name: "Who’s going?" });
 }
 
 /**
@@ -199,10 +202,15 @@ describe("Who's Going — demo", () => {
     // The shared button and its disabled style (brand-direction-one.md §6.1), not a one-off.
     expect(add).toHaveClass("btn", "btn-lg");
     expect(within(region).getByRole("note")).toHaveTextContent("Sample names.");
-    expect(summaryLink()).toHaveAttribute("href", "#whos-going");
-    expect(summaryLink()?.closest("div")).toHaveClass("lg:hidden");
+    const card = summaryCard();
+    if (!card) throw new Error("no Who's going? card");
+    // View attendees jumps to this panel, as the summary link did.
+    expect(within(card).getByRole("link", { name: `View attendees for ${DEMO_EVENT.title}` })).toHaveAttribute("href", "#whos-going");
     // A demo count is labelled as a sample (docs/design/mobile-redesign.md, Refinement 22 Oct 2026).
-    expect(summaryLink()).toHaveTextContent(`${sampleData.count} going (sample)`);
+    expect(card).toHaveTextContent(`${sampleData.count} people are going (sample)`);
+    // The first three sample names' faces, then everyone else as "+N".
+    expect(card.querySelectorAll("[data-going-face]")).toHaveLength(3);
+    expect(card.querySelector("[data-going-rest]")).toHaveTextContent(`+${sampleData.count - 3}`);
 
     // "Show more" works locally.
     fireEvent.click(within(region).getByRole("button", { name: "Show more" }));
@@ -216,11 +224,11 @@ describe("Who's Going — demo", () => {
 
   // V4 (visual QA, 22 Oct 2026): the demo kept showing an ended event's sample list. The live API
   // closes a list once the event has ended (endsAt, or startsAt with no end); the demo now does too.
-  it("closes once the event has ended, as live does: no panel, no summary link, still no API call", () => {
+  it("closes once the event has ended, as live does: no panel, no card, still no API call", () => {
     vi.setSystemTime(new Date("2026-12-01T00:00:00.000Z"));
     renderEvent(DEMO_EVENT, signedOut());
     expect(screen.queryByRole("region", { name: "Who's going" })).toBeNull();
-    expect(summaryLink()).toBeNull();
+    expect(summaryCard()).toBeNull();
     for (const fn of Object.values(api)) expect(fn).not.toHaveBeenCalled();
   });
 
@@ -242,7 +250,7 @@ describe("Who's Going — loading and errors", () => {
     const wrapper = document.getElementById("whos-going");
     expect(wrapper).toHaveAttribute("aria-busy", "true");
     expect(screen.getByText("Loading who’s going…")).toBeInTheDocument();
-    expect(summaryLink()).toBeNull();
+    expect(summaryCard()).toBeNull();
     expect(api.getGoingSummary).not.toHaveBeenCalled();
   });
 
@@ -252,7 +260,7 @@ describe("Who's Going — loading and errors", () => {
     const region = await panel();
     await within(region).findByText("Couldn't load who's going.", { selector: "div" });
     expect(liveRegion(region)).toHaveTextContent("Couldn't load who's going.");
-    expect(summaryLink()).toBeNull();
+    expect(summaryCard()).toBeNull();
 
     api.getGoingSummary.mockResolvedValueOnce(summary(4));
     fireEvent.click(within(region).getByRole("button", { name: "Try again" }));
@@ -266,7 +274,7 @@ describe("Who's Going — loading and errors", () => {
     renderEvent(LIVE_EVENT, signedOut());
     await waitFor(() => expect(api.getGoingSummary).toHaveBeenCalled());
     await waitFor(() => expect(document.getElementById("whos-going")).toBeNull());
-    expect(summaryLink()).toBeNull();
+    expect(summaryCard()).toBeNull();
     // Tickets are unaffected.
     expect(screen.getByRole("heading", { name: "Select your tickets" })).toBeInTheDocument();
   });
@@ -285,7 +293,10 @@ describe("Who's Going — signed out", () => {
       "href",
       `/login?next=${encodeURIComponent(`/events/${LIVE_EVENT.slug}`)}`,
     );
-    expect(summaryLink()).toHaveTextContent("14 going");
+    // Signed out the API sends no names: the count, no faces and no "+N".
+    expect(summaryCard()).toHaveTextContent("14 people are going");
+    expect(summaryCard()?.querySelector("[data-going-faces]")).toBeNull();
+    expect(summaryCard()?.querySelector("[data-going-rest]")).toBeNull();
     expect(api.getGoingSummary).toHaveBeenCalledWith(LIVE_EVENT.id);
     expect(api.listGoingAttendees).not.toHaveBeenCalled();
     expect(api.getMyGoingStatus).not.toHaveBeenCalled();
@@ -296,7 +307,7 @@ describe("Who's Going — signed out", () => {
     renderEvent(LIVE_EVENT, signedOut());
     const region = await panel();
     expect(region).not.toHaveTextContent(/\d/);
-    expect(summaryLink()).toBeNull();
+    expect(summaryCard()).toBeNull();
     expect(within(region).queryByText("Be one of the first to add yourself.")).toBeNull();
     expect(within(region).getByRole("link", { name: "Sign in to see who’s going" })).toBeInTheDocument();
   });
@@ -333,7 +344,7 @@ describe("Who's Going — signed in", () => {
     openList(region);
     expect(names(region)).toHaveLength(2);
     expect(within(region).queryByText("2")).toBeNull();
-    expect(summaryLink()).toBeNull();
+    expect(summaryCard()).toBeNull();
     cleanup();
 
     member({ count: 0, attendees: [] });

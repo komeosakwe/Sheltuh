@@ -493,7 +493,8 @@ describe("EventDetailsView booking info beside the tickets", () => {
     if (!info) throw new Error("no booking info");
     expect(container.querySelector("#tickets")?.contains(info)).toBe(false);
     const about = screen.getByRole("heading", { name: "About this event" });
-    const going = screen.getByRole("heading", { name: /Who.s going/i });
+    // The panel (the "Who’s going?" card is up under Save and Share).
+    const going = screen.getByRole("heading", { name: /^Who.s going$/i });
     const location = screen.getByRole("heading", { name: "Location" });
     const follows = (a: Node, b: Node) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
     expect(follows(about, going)).toBe(true);
