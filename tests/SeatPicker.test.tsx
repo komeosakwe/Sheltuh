@@ -418,10 +418,10 @@ describe("seat page: availability polling (§5.2)", () => {
     expect(within(row("North, Row A")).getByRole("checkbox", { name: /^Seat 1, / })).toBeChecked();
   });
 
-  it("every seat held but not sold out: no waitlist, held seats come back within 15 minutes, and polling carries on", async () => {
+  it("every seat held but not sold out: no waitlist, held seats come back within the 20-minute hold, and polling carries on", async () => {
     getSeatAvailability.mockResolvedValue(availability(everySeat));
     renderPicker({ event: live, mode: "live", poll: {}, initialUnavailable: everySeat });
-    expect(screen.getByText(/Every seat is held by people checking out\. Unbought seats return within 15 minutes/)).toBeInTheDocument();
+    expect(screen.getByText(/Every seat is held by people checking out\. Unbought seats return within 20 minutes\./)).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Join the waitlist" })).toBeNull();
     await act(() => vi.advanceTimersByTimeAsync(10_000));
     expect(getSeatAvailability).toHaveBeenCalledTimes(1);

@@ -65,7 +65,9 @@ function openPayment(seatCount: number) {
   return {
     status: "open",
     clientSecret: SECRET,
-    expiresAt: new Date(Date.now() + 31 * 60_000).toISOString(),
+    // As the API: the 15-minute pay deadline, and its own clock.
+    expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+    serverTime: new Date().toISOString(),
     eventTitle: event!.title,
     eventSlug: event!.slug,
     seated: true,

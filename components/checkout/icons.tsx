@@ -71,3 +71,13 @@ export function UsersIcon({ className = "size-5 shrink-0" }: { className?: strin
     </svg>
   );
 }
+
+/** A clock face (the payment page's countdown, in its last two minutes). */
+export function ClockIcon({ className = "size-4 shrink-0" }: { className?: string }) {
+  return (
+    <svg {...common} className={className}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </svg>
+  );
+}

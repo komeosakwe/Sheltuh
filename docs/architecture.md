@@ -1434,9 +1434,10 @@ admission and seated card checkouts alike
   `open` carries `expiresAt`, the deadline (or Stripe's expiry if that were
   ever sooner; the same instant on every read of one order), and
   `serverTime`, the database's clock when it answered, so a countdown can
-  allow for a client clock that's off. The payment page already re-reads
-  at `expiresAt` (+1 second, at least 5 seconds after the last read), so it
-  switches to `closed` by itself. `closed` carries `reason`: `time_up` (the
+  allow for a client clock that's off. The payment page shows a countdown
+  to that deadline (docs/design/checkout-pay.md §5.2), replaces Stripe's
+  form with "Time's up" at zero, and re-reads 1 second after the deadline
+  (at least 5 seconds after the last read). `closed` carries `reason`: `time_up` (the
   window is over: closed for good, nothing charged, seats released),
   `unavailable` (the event can't be booked right now) or `ended` (cancelled
   or failed before the window was over). A failed order read after its
