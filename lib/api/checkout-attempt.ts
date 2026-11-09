@@ -7,7 +7,8 @@
  *
  * - One attempt per event (the scope). A different basket (lines, seats,
  *   name, email, tracking code) is a new attempt with a new key; so is the same
- *   basket after the old key is 30 minutes old.
+ *   basket once the old key is older than the checkout's pay window
+ *   (CHECKOUT_PAY_MINUTES, 15 minutes: its checkout has closed by then).
  * - A request already in flight for the attempt is shared: a double click
  *   gets the same promise, and only one request is sent.
  * - Retries with the same key: a network failure or 503 once; a 409
@@ -24,10 +25,13 @@
  * Browser memory only: a reload starts a new attempt, as before keys existed.
  */
 import { ApiError } from "./client";
-import type { CheckoutErrorCode } from "./types";
+import { CHECKOUT_PAY_MINUTES, type CheckoutErrorCode } from "./types";
 
-/** A key older than this isn't reused, even for the same basket. */
-export const CHECKOUT_KEY_TTL_MS = 30 * 60_000;
+/**
+ * A key older than this isn't reused, even for the same basket: its checkout's pay window has passed, so the server
+ * would only answer 409 checkout_expired.
+ */
+export const CHECKOUT_KEY_TTL_MS = CHECKOUT_PAY_MINUTES * 60_000;
 /** In-progress retries: bounded in number and in total waiting (see the top of this file). */
 export const IN_PROGRESS_RETRY = { maxRetries: 20, maxWaitMs: 5_000, budgetMs: 35_000 } as const;
 

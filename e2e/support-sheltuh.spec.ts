@@ -62,7 +62,9 @@ function gaPayment(supportCents: number) {
   return {
     status: "open",
     clientSecret: "cs_test_e2e_secret_support",
-    expiresAt: new Date(Date.now() + 24 * 3600_000).toISOString(),
+    // As the API: the 15-minute pay deadline, and its own clock.
+    expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+    serverTime: new Date().toISOString(),
     eventTitle: neon.title,
     eventSlug: neon.slug,
     seated: false,

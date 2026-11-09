@@ -751,7 +751,8 @@ export type CheckoutResult =
       url: string;
       /**
        * A seated paid checkout only: when the seats' hold ends (ISO 8601).
-       * Stripe's form closes a few minutes before (SEAT_HOLD.stripeMinutes).
+       * The checkout's pay deadline is a few minutes before
+       * (CHECKOUT_PAY_MINUTES after it started; the payment page's `expiresAt`).
        */
       holdExpiresAt?: string;
       /**
@@ -1008,29 +1009,65 @@ export interface OrderPaymentSummary {
 }
 
 /**
+ * Why a checkout is `closed` (OrderPaymentLookup):
+ * - `time_up`: its pay window (CHECKOUT_PAY_MINUTES from when the checkout
+ *   started) is over and it wasn't paid. The server has closed it for good:
+ *   Stripe's session is expired (or is being), the order failed, and a
+ *   seated order's seats are released. Also said for an order that ended
+ *   another way earlier (Back, a checkout error) once its window has passed.
+ * - `unavailable`: the event can't be booked right now (unpublished, its
+ *   organiser suspended, or it has ended), while the window was still open.
+ * - `ended`: the checkout ended before its window was over (cancelled by
+ *   going Back, a checkout error, an async payment that failed, or Stripe
+ *   closed the session early).
+ * - `unconfirmed`: the window is over, but Stripe couldn't be asked whether
+ *   the buyer paid in its last seconds (unreachable, or the session still
+ *   had a payment under way). Not "you haven't been charged": tell the buyer
+ *   to check their email for tickets before trying again. Nothing was
+ *   released; a later read (or the sweeper) settles it, and a payment Stripe
+ *   took still reaches the order (tickets, or a refund).
+ */
+export type CheckoutClosedReason = "time_up" | "unavailable" | "ended" | "unconfirmed";
+
+/**
  * GET /api/orders/by-session/{orderId}/payment: the payment page's view of a
- * card checkout (the order id is the only credential; `private, no-store`;
- * reading it changes nothing).
+ * card checkout (the order id is the only credential; `private, no-store`).
+ * Before the pay deadline reading it changes nothing; once the deadline has
+ * passed, the read that finds the checkout still pending closes it for good
+ * (as the sweeper, GET /api/cron/checkout-expiry, does within 2 minutes
+ * anyway).
  * - `open`: Stripe's form can be mounted with `clientSecret` (Stripe.js
- *   embedded checkout) until `expiresAt` (ISO; for a seated order, before
- *   its seats' hold ends). Re-fetch once it passes. The secret is for
- *   Stripe.js only: never log or store it.
+ *   embedded checkout) until `expiresAt` (ISO): the pay deadline, the
+ *   checkout's start plus CHECKOUT_PAY_MINUTES (15), or Stripe's own expiry
+ *   if that were sooner. The same instant on every read of one order.
+ *   Re-fetch once it passes: the answer is then `closed` with reason
+ *   `time_up` (or `processing`, if Stripe took the payment in time; or
+ *   `unconfirmed`, if Stripe couldn't be asked).
+ *   `serverTime` (ISO) is the server's clock when it answered, so a
+ *   countdown can allow for a client clock that's off (always sent by this
+ *   API; optional for older responses). The secret is for Stripe.js only:
+ *   never log or store it.
  * - `processing`: Stripe has the payment; go to /checkout/success. `delayed`:
  *   a payment method that takes time to clear (the tickets follow by email).
  * - `done`: settled (paid, or refunded); go to /checkout/success.
- * - `closed`: the checkout expired or was cancelled, or the event can no
- *   longer be booked (unpublished, or ended); nothing was charged.
+ * - `closed`: the checkout's time ran out, it was cancelled or failed, or the
+ *   event can no longer be booked (unpublished, or ended); nothing was
+ *   charged, except with reason `unconfirmed` (we couldn't confirm either
+ *   way). `reason` says which (CheckoutClosedReason; always sent by this
+ *   API, optional for older responses).
  * - `sold_out`: the tickets (or some of the seats) went to someone else
  *   while it was open; nothing was charged.
  * ApiError 404 unknown, malformed, or not a card checkout; 409 still being
- * set up (try again in a moment); 429 asked too often in the last minute
- * (by this connection, or for this order: try again in a minute).
+ * set up (try again in a moment; never once the deadline has passed: that's
+ * `closed`); 429 asked too often in the last minute (by this connection, or
+ * for this order: try again in a minute).
  */
 export type OrderPaymentLookup =
-  | ({ status: "open"; clientSecret: string; expiresAt: string } & OrderPaymentSummary)
+  | ({ status: "open"; clientSecret: string; expiresAt: string; serverTime?: string } & OrderPaymentSummary)
   | { status: "processing"; delayed: boolean }
   | { status: "done" }
-  | { status: "closed" | "sold_out"; eventTitle: string; eventSlug?: string; seated: boolean };
+  | { status: "closed"; reason?: CheckoutClosedReason; eventTitle: string; eventSlug?: string; seated: boolean }
+  | { status: "sold_out"; eventTitle: string; eventSlug?: string; seated: boolean };
 
 // ---------------------------------------------------------------------------
 // Ticket email outbox (admin)
@@ -2423,11 +2460,27 @@ export interface UnsubscribeFollowResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Seat holds (docs/SEATING_PLAN.md). The buyer is told `stripeMinutes`
- * (Stripe's page closes then); the seats stay held `holdMinutes`, a buffer for
- * the payment to be confirmed.
+ * How long a card checkout (general admission or seated) can be paid for,
+ * from when it starts (its order is made): 15 minutes (owner decision). Then
+ * it closes for good: the payment page's `expiresAt` is this deadline
+ * (OrderPaymentLookup), the server expires Stripe's session and fails the
+ * order (seats released) on the first read after it, and the sweeper (GET
+ * /api/cron/checkout-expiry, every 2 minutes) closes any nobody read.
+ * Stripe's own session lasts a little over 30 minutes (its minimum) as an
+ * outer bound only. docs/architecture.md, "Checkout pay deadline".
  */
-export const SEAT_HOLD = { holdMinutes: 35, stripeMinutes: 30 } as const;
+export const CHECKOUT_PAY_MINUTES = 15;
+
+/**
+ * Seat holds (docs/SEATING_PLAN.md). The buyer is told `stripeMinutes`: the
+ * time to pay, CHECKOUT_PAY_MINUTES (the name is older than the pay
+ * deadline: Stripe's own session now outlasts it). The seats stay held
+ * `holdMinutes`, a buffer after the deadline for a payment made at the last
+ * moment to be confirmed; the server releases them at the deadline anyway
+ * (seconds after it on the payment page, within the sweeper's 2 minutes
+ * otherwise), so they only lapse by themselves if both of those failed.
+ */
+export const SEAT_HOLD = { holdMinutes: CHECKOUT_PAY_MINUTES + 5, stripeMinutes: CHECKOUT_PAY_MINUTES } as const;
 
 /**
  * GET /api/events/{eventId}/seat-map[?v=version]. Public once the event is

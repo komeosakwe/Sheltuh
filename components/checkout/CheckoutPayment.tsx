@@ -9,20 +9,28 @@ import { Notice } from "@/components/ui/Section";
 import { ApiError, isApiConfigured } from "@/lib/api/client";
 import { getOrderPayment } from "@/lib/api/orders";
 import { DETAILS_NOTICE } from "@/lib/buyer-details";
-import type { OrderPaymentLookup } from "@/lib/api/types";
+import type { CheckoutClosedReason, OrderPaymentLookup } from "@/lib/api/types";
+import { clockOffsetMs, localDeadline } from "@/lib/checkout-countdown";
 import {
   CHECKOUT_CLOSED_LABEL,
+  CHECKOUT_TIME_UP_TITLE,
+  CHECKOUT_UNAVAILABLE_BODY,
+  CHECKOUT_UNCONFIRMED_BODY,
+  CHECKOUT_UNCONFIRMED_TITLE,
   checkoutBackTarget,
   checkoutClosedBody,
   checkoutEndedAction,
   checkoutSoldOutBody,
   checkoutSoldOutLabel,
+  checkoutStartAgainTarget,
+  checkoutTimeUpBody,
   formatHoldDeadline,
   type CheckoutLinkTarget,
   type CheckoutOrderContext,
 } from "@/lib/checkout-pay";
 import { preloadStripe } from "@/lib/stripe/browser";
 import { isStripeConfigured } from "@/lib/stripe/config";
+import CheckoutCountdown from "./CheckoutCountdown";
 import EmbeddedPaymentForm from "./EmbeddedPaymentForm";
 import OrderPaymentSummary from "./OrderPaymentSummary";
 import { ArrowLeftIcon } from "./icons";
@@ -31,9 +39,18 @@ type OpenPayment = Extract<OrderPaymentLookup, { status: "open" }>;
 
 type State =
   | { kind: "loading" }
-  // `checkedAt` counts the open answers, so the expiry timer re-arms after each one.
-  | { kind: "open"; payment: OpenPayment; checkedAt: number }
-  | { kind: "closed"; context: CheckoutOrderContext }
+  // `deadline`: the pay deadline on this device's clock (expiresAt allowing for the server's clock).
+  | { kind: "open"; payment: OpenPayment; deadline: number }
+  // The checkout's time ran out: the server said so (reason time_up), or this page's countdown reached
+  // zero first. Then `recheckAt` (this device's clock) is when to ask the server again, to learn whether
+  // Stripe took the payment in time (processing: go to the order); null once it has answered.
+  | { kind: "time-up"; context: CheckoutOrderContext; recheckAt: number | null }
+  // Time's up, but the server couldn't ask Stripe whether the buyer paid at the last moment (reason
+  // `unconfirmed`): never "you haven't been charged". Asked again at `recheckAt` (a few times), in case
+  // Stripe took the payment (processing: go to the order) or the checkout is now closed for good.
+  | { kind: "unconfirmed"; context: CheckoutOrderContext; recheckAt: number | null }
+  // Closed for another reason: `unavailable` has its own words; `ended` (or none) the general ones.
+  | { kind: "closed"; context: CheckoutOrderContext; reason?: Exclude<CheckoutClosedReason, "time_up" | "unconfirmed"> }
   | { kind: "sold-out"; context: CheckoutOrderContext }
   | { kind: "redirecting" }
   | { kind: "not-found" }
@@ -45,10 +62,13 @@ type State =
 
 const PAY_TITLE = "Pay for your tickets";
 const SUPPORT_EMAIL = "support@sheltuh.com.au";
-/** setTimeout's longest delay (about 24.8 days); a later expiry is re-checked then. */
-const MAX_TIMER_MS = 2_147_483_647;
-/** Never asks again sooner than this: an answer that's still open past its expiry is re-checked at this pace. */
+/** After the countdown reaches zero, the server is asked again this long after the deadline. */
+const RECHECK_AFTER_DEADLINE_MS = 1_000;
+/** Never asks again sooner than this: an answer that's still open past its deadline is re-checked at this pace. */
 const RECHECK_FLOOR_MS = 5_000;
+/** An unconfirmed answer is asked again this often, at most UNCONFIRMED_RECHECKS times. */
+const UNCONFIRMED_RECHECK_MS = 10_000;
+const UNCONFIRMED_RECHECKS = 3;
 
 const linkClass = "text-foreground underline underline-offset-4";
 // Focused by script to say the state changed (tabIndex -1); it's not a control, so no focus ring.
@@ -84,12 +104,23 @@ function PaymentFlow({ orderId }: { orderId: string }) {
     routerRef.current = router;
   }, [router]);
   const [state, setState] = useState<State>({ kind: "loading" });
+  // The state as last rendered, for a failed read to tell a pending time's up from a confirmed one.
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
   // The last order context seen, so a later error still knows where "back" is.
   const [context, setContext] = useState<CheckoutOrderContext | undefined>(undefined);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const request = useRef(0);
-  const openAnswers = useRef(0);
   const settledOnce = useRef(false);
+  // Set once this page's countdown has reached zero (or an open answer came already past its deadline):
+  // from then on Stripe's form is never mounted again, whatever a late answer says.
+  const timedOut = useRef(false);
+  // How many times an unconfirmed answer has been asked again.
+  const unconfirmedRechecks = useRef(0);
+  // The polite live region's words: only the countdown's 5:00, 1:00 and time's up (never the ticking text).
+  const [announcement, setAnnouncement] = useState("");
   // Bumped by the payment form's "Try again", so a fresh form (and Stripe instance) is mounted.
   const [formKey, setFormKey] = useState(0);
 
@@ -107,17 +138,63 @@ function PaymentFlow({ orderId }: { orderId: string }) {
         }
         const next: CheckoutOrderContext = { eventSlug: result.eventSlug, seated: result.seated };
         setContext(next);
+        if (result.status === "closed" && result.reason === "unconfirmed") {
+          // Whatever was shown before (the form, or time's up): we can't say the buyer wasn't charged.
+          timedOut.current = true;
+          setAnnouncement("");
+          const again = unconfirmedRechecks.current < UNCONFIRMED_RECHECKS;
+          if (again) unconfirmedRechecks.current += 1;
+          setState({ kind: "unconfirmed", context: next, recheckAt: again ? Date.now() + UNCONFIRMED_RECHECK_MS : null });
+          return;
+        }
+        if (timedOut.current) {
+          // Time's up already shown: it stays. Still open by the server's clock (a slow answer): ask again
+          // once that's passed too, never sooner than RECHECK_FLOOR_MS. Otherwise nothing more to ask.
+          const recheckAt =
+            result.status === "open"
+              ? Date.now() + Math.max(msLeft(result) + RECHECK_AFTER_DEADLINE_MS || 0, RECHECK_FLOOR_MS)
+              : null;
+          setState({ kind: "time-up", context: next, recheckAt });
+          return;
+        }
         if (result.status === "open") {
-          setState(
-            isStripeConfigured
-              ? { kind: "open", payment: result, checkedAt: ++openAnswers.current }
-              : { kind: "not-configured", context: next },
-          );
+          if (!isStripeConfigured) {
+            setState({ kind: "not-configured", context: next });
+            return;
+          }
+          const deadline = localDeadline(result.expiresAt, clockOffsetMs(result.serverTime, Date.now()));
+          if (deadline > Date.now()) {
+            setState({ kind: "open", payment: result, deadline });
+          } else {
+            // Open, but already past its deadline (an answer that took a while), or with none that can be
+            // read: no form, and ask again.
+            timedOut.current = true;
+            setState({ kind: "time-up", context: next, recheckAt: Date.now() + RECHECK_FLOOR_MS });
+          }
+        } else if (result.status === "sold_out") {
+          setState({ kind: "sold-out", context: next });
+        } else if (result.reason === "time_up") {
+          timedOut.current = true;
+          setState({ kind: "time-up", context: next, recheckAt: null });
         } else {
-          setState({ kind: result.status === "closed" ? "closed" : "sold-out", context: next });
+          // `unconfirmed` was answered above.
+          setState({ kind: "closed", context: next, reason: result.reason === "unconfirmed" ? undefined : result.reason });
         }
       } catch (err) {
         if (id !== request.current) return;
+        // Past time's up, a failed read means we don't know whether a last-second payment went through:
+        // never keep saying "you haven't been charged". Unconfirmed, asked again a few times like it.
+        // A time's up the server has confirmed (no recheck pending) stays: the outcome is known.
+        if (timedOut.current) {
+          const current = stateRef.current;
+          const waiting = current.kind === "unconfirmed" || (current.kind === "time-up" && current.recheckAt !== null);
+          if (!waiting) return;
+          setAnnouncement("");
+          const again = unconfirmedRechecks.current < UNCONFIRMED_RECHECKS;
+          if (again) unconfirmedRechecks.current += 1;
+          setState({ kind: "unconfirmed", context: current.context, recheckAt: again ? Date.now() + UNCONFIRMED_RECHECK_MS : null });
+          return;
+        }
         if (err instanceof ApiError && err.status === 404) setState({ kind: "not-found" });
         else if (err instanceof ApiError && err.status === 409) setState({ kind: "not-ready" });
         else if (err instanceof ApiError && err.status === 429) setState({ kind: "rate-limited" });
@@ -151,27 +228,38 @@ function PaymentFlow({ orderId }: { orderId: string }) {
     };
   }, [load]);
 
-  // Once the checkout's time is up, ask again: the answer should be that it has closed. Re-armed after
-  // every open answer, so one that's still open (a clock ahead of the server's) is asked again, never
-  // sooner than RECHECK_FLOOR_MS. No countdown on screen (WCAG 2.2.1).
-  const expiresAt = state.kind === "open" ? state.payment.expiresAt : null;
-  const checkedAt = state.kind === "open" ? state.checkedAt : 0;
-  useEffect(() => {
-    if (!expiresAt) return;
-    const untilExpiry = Date.parse(expiresAt) - Date.now() + 1000;
-    const delay = Number.isFinite(untilExpiry)
-      ? Math.min(Math.max(untilExpiry, RECHECK_FLOOR_MS), MAX_TIMER_MS)
-      : RECHECK_FLOOR_MS;
-    const timer = window.setTimeout(() => void load(false), delay);
-    return () => window.clearTimeout(timer);
-  }, [expiresAt, checkedAt, load]);
+  // The countdown reached zero (it reads the clock afresh each tick and when the page is shown again):
+  // the time's-up panel replaces the form at once, and the server is asked again just after the deadline
+  // (it closes the checkout for good then; or Stripe took the payment in time, and it's the order).
+  const timeUp = useCallback(() => {
+    timedOut.current = true;
+    setState((current) =>
+      current.kind === "open"
+        ? {
+            kind: "time-up",
+            context: { eventSlug: current.payment.eventSlug, seated: current.payment.seated },
+            recheckAt: current.deadline + RECHECK_AFTER_DEADLINE_MS,
+          }
+        : current,
+    );
+  }, []);
 
-  // Focus follows a change of state, but not the first answer: on arrival, Next's route announcer has it (§6).
+  const recheckAt = state.kind === "time-up" || state.kind === "unconfirmed" ? state.recheckAt : null;
+  useEffect(() => {
+    if (recheckAt === null) return;
+    const timer = window.setTimeout(() => void load(false), Math.max(recheckAt - Date.now(), 0));
+    return () => window.clearTimeout(timer);
+  }, [recheckAt, load]);
+
+  // Focus follows a change of state, but not the first answer: on arrival, Next's route announcer has it
+  // (§6). Except time's up and unavailable, which end the page whenever they come: their h1 is focused.
+  const endsPage =
+    state.kind === "time-up" || state.kind === "unconfirmed" || (state.kind === "closed" && state.reason === "unavailable");
   useEffect(() => {
     if (state.kind === "loading" || state.kind === "redirecting") return;
-    if (settledOnce.current) headingRef.current?.focus();
+    if (settledOnce.current || endsPage) headingRef.current?.focus();
     settledOnce.current = true;
-  }, [state.kind]);
+  }, [state.kind, endsPage]);
 
   const focusHeading = useCallback(() => headingRef.current?.focus(), []);
   const back = checkoutBackTarget(state.kind === "open" ? state.payment : context);
@@ -181,99 +269,137 @@ function PaymentFlow({ orderId }: { orderId: string }) {
     void load(true);
   }, [load]);
 
-  switch (state.kind) {
-    case "loading":
-      return <CheckoutPaymentLoading />;
-    case "redirecting":
-      return (
-        <div className="pt-6 pb-16 sm:pt-8 lg:pt-12">
-          <DotsLoader announce label="Taking you to your order" />
-        </div>
-      );
-    case "not-found":
-      return <NotFound headingRef={headingRef} />;
-    case "not-configured": {
-      const target = checkoutBackTarget(state.context);
-      return (
-        <Terminal headingRef={headingRef} title="Card payments aren’t available right now" action={target}>
-          You haven&rsquo;t been charged. Try again later, or email{" "}
-          <a href={`mailto:${SUPPORT_EMAIL}`} className={linkClass}>
-            {SUPPORT_EMAIL}
-          </a>
-          .
-        </Terminal>
-      );
-    }
-    case "closed": {
-      // The event's page either way (its time ran out, or the event can't be booked right now): it says which.
-      const target = checkoutEndedAction({ ...state.context, seated: false }, CHECKOUT_CLOSED_LABEL);
-      return (
-        <Terminal headingRef={headingRef} title="This checkout has closed" action={target}>
-          {checkoutClosedBody(state.context.seated)}
-        </Terminal>
-      );
-    }
-    case "sold-out": {
-      const { seated } = state.context;
-      return (
-        <Terminal
-          headingRef={headingRef}
-          title="These tickets have just sold out"
-          action={checkoutEndedAction(state.context, checkoutSoldOutLabel(seated))}
-        >
-          {checkoutSoldOutBody(seated)}
-        </Terminal>
-      );
-    }
-    case "not-ready":
-    case "rate-limited":
-    case "error":
-      return (
-        <div className="pt-6 pb-16 sm:pt-8 lg:pt-12">
-          <PayHeader back={back} headingRef={headingRef} />
-          <div className="mt-6 flex max-w-2xl flex-col items-start gap-4">
-            <Notice tone="danger" role="alert">
-              {state.kind === "not-ready"
-                ? "This checkout is still being set up."
-                : state.kind === "rate-limited"
-                  ? "Too many tries — wait a minute, then try again. You haven’t been charged."
-                  : "Couldn’t load checkout right now. You haven’t been charged."}
-            </Notice>
-            <Button variant="outline" className="min-h-11" onClick={retry}>
-              Try again
-            </Button>
+  const announce = useCallback((message: string) => setAnnouncement(message), []);
+
+  const view: ReactNode = (() => {
+    switch (state.kind) {
+      case "loading":
+        return <CheckoutPaymentLoading />;
+      case "redirecting":
+        return (
+          <div className="pt-6 pb-16 sm:pt-8 lg:pt-12">
+            <DotsLoader announce label="Taking you to your order" />
           </div>
-        </div>
-      );
-    case "open": {
-      const { payment } = state;
-      return (
-        <PayLayout
-          header={<PayHeader back={back} headingRef={headingRef} />}
-          summary={<OrderPaymentSummary summary={payment} />}
-          hold={
-            payment.seated ? (
-              <p className="text-xs text-muted">
-                Your seats are held until {formatHoldDeadline(payment.expiresAt, payment.eventTimeZone, payment.eventState)}. Going back releases them.
-              </p>
-            ) : null
-          }
-          form={
-            <>
-              <p className="mb-4 text-xs text-muted lg:max-w-xl">{DETAILS_NOTICE}</p>
-              <EmbeddedPaymentForm
-                key={formKey}
-                clientSecret={payment.clientSecret}
-                onSettled={focusHeading}
-                onRetry={retryForm}
-              />
-              <LegalLine />
-            </>
-          }
-        />
-      );
+        );
+      case "not-found":
+        return <NotFound headingRef={headingRef} />;
+      case "not-configured": {
+        const target = checkoutBackTarget(state.context);
+        return (
+          <Terminal headingRef={headingRef} title="Card payments aren’t available right now" action={target}>
+            You haven&rsquo;t been charged. Try again later, or email{" "}
+            <a href={`mailto:${SUPPORT_EMAIL}`} className={linkClass}>
+              {SUPPORT_EMAIL}
+            </a>
+            .
+          </Terminal>
+        );
+      }
+      case "time-up":
+        // Back to the event's tickets to start again. Stripe's form went with the open state.
+        return (
+          <Terminal headingRef={headingRef} title={CHECKOUT_TIME_UP_TITLE} action={checkoutStartAgainTarget(state.context)}>
+            {checkoutTimeUpBody(state.context.seated)}
+          </Terminal>
+        );
+      case "unconfirmed": {
+        // Not "you haven't been charged": the payment may have gone through. The event's page, seated or not.
+        const target = checkoutEndedAction({ ...state.context, seated: false }, CHECKOUT_CLOSED_LABEL);
+        return (
+          <Terminal headingRef={headingRef} title={CHECKOUT_UNCONFIRMED_TITLE} action={target}>
+            {CHECKOUT_UNCONFIRMED_BODY}
+          </Terminal>
+        );
+      }
+      case "closed": {
+        // The event's page either way (seated or not): it says whether it can be booked.
+        const target = checkoutEndedAction({ ...state.context, seated: false }, CHECKOUT_CLOSED_LABEL);
+        return (
+          <Terminal headingRef={headingRef} title="This checkout has closed" action={target}>
+            {state.reason === "unavailable" ? CHECKOUT_UNAVAILABLE_BODY : checkoutClosedBody(state.context.seated)}
+          </Terminal>
+        );
+      }
+      case "sold-out": {
+        const { seated } = state.context;
+        return (
+          <Terminal
+            headingRef={headingRef}
+            title="These tickets have just sold out"
+            action={checkoutEndedAction(state.context, checkoutSoldOutLabel(seated))}
+          >
+            {checkoutSoldOutBody(seated)}
+          </Terminal>
+        );
+      }
+      case "not-ready":
+      case "rate-limited":
+      case "error":
+        return (
+          <div className="pt-6 pb-16 sm:pt-8 lg:pt-12">
+            <PayHeader back={back} headingRef={headingRef} />
+            <div className="mt-6 flex max-w-2xl flex-col items-start gap-4">
+              <Notice tone="danger" role="alert">
+                {state.kind === "not-ready"
+                  ? "This checkout is still being set up."
+                  : state.kind === "rate-limited"
+                    ? "Too many tries — wait a minute, then try again. You haven’t been charged."
+                    : "Couldn’t load checkout right now. You haven’t been charged."}
+              </Notice>
+              <Button variant="outline" className="min-h-11" onClick={retry}>
+                Try again
+              </Button>
+            </div>
+          </div>
+        );
+      case "open": {
+        const { payment } = state;
+        return (
+          <PayLayout
+            header={<PayHeader back={back} headingRef={headingRef} />}
+            summary={<OrderPaymentSummary summary={payment} />}
+            hold={
+              payment.seated ? (
+                <p className="text-xs text-muted">
+                  Your seats are held until {formatHoldDeadline(payment.expiresAt, payment.eventTimeZone, payment.eventState)}. Going back releases them.
+                </p>
+              ) : null
+            }
+            form={
+              <>
+                <CheckoutCountdown deadline={state.deadline} onTimeUp={timeUp} onAnnounce={announce} />
+                <p className="mb-4 text-xs text-muted lg:max-w-xl">{DETAILS_NOTICE}</p>
+                <EmbeddedPaymentForm
+                  key={formKey}
+                  clientSecret={payment.clientSecret}
+                  onSettled={focusHeading}
+                  onRetry={retryForm}
+                />
+                <LegalLine />
+              </>
+            }
+          />
+        );
+      }
     }
-  }
+  })();
+
+  return (
+    <>
+      {view}
+      {/* Polite, and only the countdown's 5:00, 1:00 and time's up: outside every state, so it's still
+          there when the time's-up panel replaces the form. Not role="status" (the loaders have that). */}
+      <p aria-live="polite" aria-atomic="true" className="sr-only" data-countdown-announcer>
+        {announcement}
+      </p>
+    </>
+  );
+}
+
+/** Time left by the server's clock in an open answer, read as it arrives (ms; NaN for an unreadable expiresAt). */
+function msLeft(payment: OpenPayment): number {
+  const now = Date.now();
+  return localDeadline(payment.expiresAt, clockOffsetMs(payment.serverTime, now)) - now;
 }
 
 /** The page's grid (§3): header full width; below lg one column, from lg summary 5 / form 7. */

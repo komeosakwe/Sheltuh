@@ -250,12 +250,12 @@ describe("seat page: summary (§5.10; ACCC all-inclusive prices)", () => {
 describe("seat page: checkout (§5.11)", () => {
   const live: SheltuhEvent = { ...event, organiserId: "org-1" };
 
-  it("holds the chosen seats on the map version, and states the 30-minute hold first", async () => {
+  it("holds the chosen seats on the map version, and states the 15-minute pay window first", async () => {
     createSeatedCheckout.mockReturnValue(new Promise(() => {}));
     renderPicker({ event: live, mode: "live" });
     expect(
       screen.getByText(
-        "Checkout holds your seats for 30 minutes while you pay.",
+        "Checkout holds your seats for 15 minutes while you pay.",
       ),
     ).toBeInTheDocument();
     expect(screen.queryByText(/on Stripe/)).toBeNull();
@@ -418,10 +418,10 @@ describe("seat page: availability polling (§5.2)", () => {
     expect(within(row("North, Row A")).getByRole("checkbox", { name: /^Seat 1, / })).toBeChecked();
   });
 
-  it("every seat held but not sold out: no waitlist, held seats come back within 30 minutes, and polling carries on", async () => {
+  it("every seat held but not sold out: no waitlist, held seats come back within the 20-minute hold, and polling carries on", async () => {
     getSeatAvailability.mockResolvedValue(availability(everySeat));
     renderPicker({ event: live, mode: "live", poll: {}, initialUnavailable: everySeat });
-    expect(screen.getByText(/Every seat is held by people checking out\. Unbought seats return within 30 minutes/)).toBeInTheDocument();
+    expect(screen.getByText(/Every seat is held by people checking out\. Unbought seats return within 20 minutes\./)).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Join the waitlist" })).toBeNull();
     await act(() => vi.advanceTimersByTimeAsync(10_000));
     expect(getSeatAvailability).toHaveBeenCalledTimes(1);
@@ -616,7 +616,7 @@ describe("seat page: back from Stripe releases the hold (§5.11)", () => {
       .mockResolvedValueOnce({ status: "released", eventTitle: event.title, eventSlug: event.slug });
     renderPicker({ event: live, mode: "live" });
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Couldn’t release the seats from your last checkout. We’ll retry at Checkout, and they’re released within 35 minutes anyway. You weren’t charged.",
+      "Couldn’t release the seats from your last checkout. We’ll retry at Checkout, and they’re released within 20 minutes anyway. You weren’t charged.",
     );
     expect(cancelPendingOrder).toHaveBeenCalledTimes(1);
     // Kept, with its original time, so the hold-expiry check still applies.

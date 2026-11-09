@@ -338,12 +338,14 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
      return page needs), and no `success_url` or `cancel_url` (that mode
      has neither; Back is our own link). Line items, fees, transfer,
      metadata, `customer_email` and `client_reference_id` are what the hosted
-     session had. General admission sessions expire after an hour
-     (`expires_at`, `GA_CHECKOUT_SESSION_MINUTES`; Stripe's default is 24
-     hours and its minimum 30 minutes), which bounds how long the client
-     secret is any use and how long a form already on screen stays payable
-     after the page says `closed`; seated sessions after 31 minutes (see
-     "Reserved seating").
+     session had. The checkout itself can be paid for 15 minutes from when it
+     started (`CHECKOUT_PAY_MINUTES`; see "Checkout pay deadline"); Stripe's
+     own session is only an outer bound: general admission sessions expire
+     after 33 minutes (`expires_at`, `GA_CHECKOUT_SESSION_MINUTES`; Stripe's
+     default is 24 hours and its minimum 30 minutes), which bounds how long
+     the client secret is any use and how long a form already on screen could
+     still be paid if expiring the session at the deadline failed; seated
+     sessions after 31 minutes (see "Reserved seating").
    - Both sessions (general admission and seated) carry the same payment
      options (`SESSION_PAYMENT_OPTIONS`, `lib/server/checkout-attempts.ts`,
      which builds both sessions from the stored order):
@@ -391,8 +393,19 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
      - unknown, or a guest's free booking (not a card checkout): 404;
      - `done`: the order is `paid`, `refunded` or `oversold_refund_required`
        (Stripe isn't asked);
-     - `closed`: the order is `failed`;
-     - 409 while the order has no Stripe session yet (as the cancel route);
+     - `closed`: the order is `failed` (`reason: "time_up"` once its pay
+       deadline has passed, else `"ended"`);
+     - `closed`, `reason: "time_up"`: the pay deadline (the order's creation
+       plus 15 minutes, by the database's clock) has passed and the order is
+       still pending. This read closes it for good, as Back from the payment
+       page does: one hit on the order's allowance (below), Stripe's session
+       expired, the order failed and its seats released ("Checkout pay
+       deadline"). Stripe already having the payment is `processing`
+       instead, and nothing changes; if Stripe can't be asked, it's
+       `closed` (`unconfirmed`: never "not charged") and the sweeper
+       finishes the job;
+     - 409 while the order has no Stripe session yet (as the cancel route),
+       never once the deadline has passed (then `closed`, `time_up`);
      - otherwise one hit on the order's allowance (`paymentPerOrder`: 20 a
        minute per order however many clients ask, bucket
        `order_payment:order`, keyed on an HMAC of the order id; 429 over it,
@@ -401,14 +414,17 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
        `processing`
        (`delayed: true` while the payment hasn't cleared, for a payment
        method that takes time). `expired`, or past its `expires_at` →
-       `closed`. `open` → `closed` if the event can no longer be booked: not
+       `closed` (`ended`). `open` → `closed` (`unavailable`) if the event can no longer be booked: not
        published (unpublished by its organiser or an admin, or its organiser
        suspended, which unpublishes every event: what `fulfil_order`
        refuses), or ended (`ends_at <= now()`, as for new orders); else
        `sold_out` if a line's tickets aren't all left or (seated) one of its
        seats is sold, blocked, gone or held by another order (a non-binding
        read, `openOrderState`; `fulfil_order` decides); else `open`, with
-       the session's `clientSecret`, its `expiresAt`, and a summary priced on
+       the session's `clientSecret`, `expiresAt` (the pay deadline, or
+       Stripe's own expiry if that were ever sooner), `serverTime` (the
+       database's clock, moved on by the time the answer took, for a
+       countdown on a client whose clock is off), and a summary priced on
        the server: event title and slug, date, venue name and suburb, each
        line's all-inclusive unit and line totals (`calculateOrderSummary`,
        `lib/fees.ts`), whether that line includes a fee the buyer pays
@@ -417,7 +433,10 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
        and its seats, and the order's subtotal, buyer fee and total. Never the order, event or organiser ids, the fee split, the
        buyer's email or any other Stripe id.
      - `closed` and `sold_out` carry `eventTitle`, `eventSlug` (when the
-       event still has one) and `seated`, for the way back.
+       event still has one) and `seated`, for the way back; `closed` also
+       carries `reason` (`CheckoutClosedReason`: `time_up`, `unavailable`,
+       `ended`, or `unconfirmed` when Stripe couldn't be asked past the
+       deadline: never say "not charged" then).
    - The limits are `CHECKOUT_RATE_LIMITS` (`lib/server/handlers/orders.ts`):
      fixed windows on `take_client_rate_limit`, no migration (new bucket
      names). The page reads this on load, on Back-Forward and at expiry, and
@@ -426,15 +445,18 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
      number of addresses. The per-client limit fails open (logged, no
      request detail) without a client IP; both fail open without
      `STRIPE_WEBHOOK_SECRET`. A 429 is `{error}`, `private, no-store`.
-   - It writes nothing but those counters, and logs nothing about the order
-     or the secret. An
+   - Before the pay deadline it writes nothing but those counters; it never
+     logs anything about the order or the secret. An
      `open` session without a client secret (a hosted session from before
      embedded checkout) is a 500, logged without the order or session id.
-   - `closed` and `sold_out` only change what the page shows. Stripe's
-     session stays open until it expires or is cancelled, and a form that
-     was already mounted can still be paid; the webhook then settles that
-     payment as any other (step 3: refunded if the event is unpublished or
-     the tickets are gone, fulfilled if it has only ended).
+   - `closed` for an unbookable event (`unavailable`), and `sold_out`, only
+     change what the page shows. Stripe's session stays open until it
+     expires or is cancelled, and a form that was already mounted can still
+     be paid; the webhook then settles that payment as any other (step 3:
+     refunded if the event is unpublished or the tickets are gone, fulfilled
+     if it has only ended). `closed` for `time_up` is binding: the session
+     is expired first, and a payment Stripe takes anyway (a form mid-payment
+     at that instant) is refunded in full ("Checkout pay deadline").
    - Stripe sends the buyer to the `return_url` when the form completes, and
      also back from a redirect-based payment method, whether or not it was
      paid; the return page tells those apart (step 5).
@@ -676,7 +698,8 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
   never a `Referer` (`no-referrer`), never cached (`no-store`). With the
   secret, someone can mount the form and pay for that order; they can't
   change its amount. They can read what the form shows, until the session
-  expires (an hour for general admission, 31 minutes seated): the order's
+  is expired at the pay deadline (15 minutes; Stripe's own expiry, 33
+  minutes for general admission and 31 seated, if that fails): the order's
   line items and total (what our summary shows anyway) and, when the buyer
   typed one at checkout, the prefilled email address (`customer_email`).
   That is personal information, so the id stays a credential: never logged
@@ -696,8 +719,8 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
   meet a 429; the page then says to wait a minute. Raise
   `CHECKOUT_RATE_LIMITS` if it bites.
 - **`closed` for an event that can't be booked isn't binding.** The
-  session stays payable until Stripe expires it (an hour for general
-  admission, 31 minutes seated) for a form already on screen. Such a
+  session stays payable until the pay deadline expires it (15 minutes;
+  Stripe's own 33 or 31 minutes if that fails) for a form already on screen. Such a
   payment is refunded automatically if the event is unpublished, and
   fulfilled if the event has only ended (`fulfil_order` is unchanged).
 - **`no-referrer` on `/checkout/pay`.** Whether Apple Pay, Google Pay and
@@ -1272,9 +1295,12 @@ Session, so a double click or a retry after a lost response made two of each
   The session is the embedded one described in "Payment flow" (`ui_mode`
   `embedded_page`, `return_url`, Adaptive Pricing off, nothing saved),
   built from the order as stored (lines, fee, email, title; seated: the
-  seats), with `expires_at` fixed by the order: its creation + 60 minutes
+  seats), with `expires_at` fixed by the order: its creation + 33 minutes
   (general admission, `GA_CHECKOUT_SESSION_MINUTES`) or + 31 (seated), so a
-  call repeated for the same order sends the same parameters. Failures:
+  call repeated for the same order sends the same parameters. (The
+  checkout's own pay deadline, 15 minutes, comes first: "Checkout pay
+  deadline". An attempt replays only until then; after it, the same key is
+  409 `checkout_expired`.) Failures:
   - **No answer** (connection error or timeout, Stripe's 429, or a 409
     because the same key is still running there): the outcome is unknown;
     the attempt is marked failed: **503** `payment_provider_unavailable`.
@@ -1282,19 +1308,22 @@ Session, so a double click or a retry after a lost response made two of each
     same key reuses it and repeats the call with the same Stripe key, so if
     the first call did make a session, Stripe returns that one. A seated
     order is released at once, seats freed: the client never got its id, so
-    nothing else could release its holds before they lapse (35 minutes); a
+    nothing else could release its holds before they lapse (20 minutes); a
     retry with the same key holds the seats again under a new order. (If
     Stripe did make a session for the released order, nobody is shown it,
     and a payment for a failed order is refunded in full.) Reuse needs the
-    order still pending, with no session recorded, and younger than 10
-    minutes (general admission: its `expires_at` is then still at least 50
-    minutes ahead, and it bounds reusing an old price snapshot) or 15
+    order still pending, with no session recorded, and younger than 2
+    minutes (general admission: its `expires_at`, creation + 33, then still
+    reaches Stripe over 30 minutes ahead even through the retry's own
+    worst-case call of about 33 seconds; 2 minutes covers the first
+    request's 503 and the client's retry, keeps most of the 15-minute pay
+    window, and bounds reusing an old price snapshot) or 15
     seconds (seated, which only keeps an order when the request that made
     it died: Stripe refuses an `expires_at` less than 30 minutes ahead,
     it's fixed at creation + 31, and a retry starting within 15 seconds
     reaches Stripe in time even through its own call's 15-second timeout
     and one network retry; 15 seconds was chosen over 32-minute sessions,
-    which would change the hold timings buyers are told). Otherwise the old
+    which once changed the timings buyers were told). Otherwise the old
     order is released (seats freed) and a new one made, with a new Stripe
     key.
   - **Anything else** (an API error, which Stripe replays for the same key,
@@ -1303,7 +1332,7 @@ Session, so a double click or a retry after a lost response made two of each
     makes a new order.
   A session Stripe made for an order we then released is an orphan whose
   client secret nobody gets (the payment page reads only the session
-  recorded on a pending order); it expires on its own (60 minutes, seated
+  recorded on a pending order); it expires on its own (33 minutes, seated
   31). A duplicate session isn't a duplicate charge in itself: a buyer pays
   only in the form our payment page mounts for the order's recorded
   session, and a payment for a failed order is refunded automatically
@@ -1335,7 +1364,7 @@ Session, so a double click or a retry after a lost response made two of each
   twice.
 - **Client** (`lib/api/checkout-attempt.ts`, used by `createCheckoutSession`
   and `createSeatedCheckout`; components unchanged): one key per event and
-  basket (`crypto.randomUUID()`), at most 30 minutes old; a request in
+  basket (`crypto.randomUUID()`), at most 15 minutes old (the pay window); a request in
   flight is shared, so a double click sends one request; a network failure
   or 503 is retried once, and an in-progress 409 after its Retry-After (each
   wait at most 5 seconds) up to 20 times and 35 seconds of waiting in all,
@@ -1365,8 +1394,9 @@ Session, so a double click or a retry after a lost response made two of each
   alert-only circuit breaker, so many addresses (each within its 20 per
   event) can make many pending orders and unpaid Checkout Sessions. They
   hold no general admission tickets (inventory is only taken at payment)
-  and expire on their own (60 minutes; the daily purge fails the orders,
-  and Stripe's `checkout.session.expired` fails them sooner); the cost is
+  and are closed at their 15-minute pay deadline (the sweeper, every 2
+  minutes: "Checkout pay deadline"; Stripe's `checkout.session.expired` at
+  33 minutes is the backstop); the cost is
   Stripe API calls and rows, and the ops alert says it
   is happening. Blocking it is a firewall or bot-check job (Turnstile, "Not
   built yet"). Shared addresses share the per-client 20 (as for seat holds),
@@ -1378,10 +1408,152 @@ Session, so a double click or a retry after a lost response made two of each
 - **A kept order can sit pending.** After a 503, if the buyer never retries,
   a general admission order stays `pending` (holding nothing, with no
   session, so it doesn't block a refund-policy edit: "Refund policy") until
-  the daily purge fails it after 2 days. A seated one is released at once.
+  the sweeper fails it at its pay deadline (or the payment page does, if
+  it's read). A seated one is released at once.
 - **A reload loses the key.** Keys live in page memory, so a reload starts a
   new attempt; a seated buyer may then see their own earlier hold as
   "taken" until it's released (Back from the payment page) or lapses.
+
+## Checkout pay deadline
+
+Owner request ("Checkout screen needs to timeout"), 15 minutes, for general
+admission and seated card checkouts alike
+(`supabase/migrations/20261123000000_checkout_pay_deadline.sql`,
+`lib/server/handlers/checkout-expiry.ts`, `getOrderPayment` and
+`closePendingCheckout` in `lib/server/handlers/orders.ts`,
+`CHECKOUT_PAY_MINUTES` and `SEAT_HOLD` in `lib/api/types.ts`).
+
+- **The deadline** is the order's `created_at` plus `CHECKOUT_PAY_MINUTES`
+  (15), judged by the database's clock. No column: it's derived. The order
+  is made when the buyer presses Checkout, so the 15 minutes include
+  loading the payment page. A same-key retry that reuses a kept general
+  admission order (at most 2 minutes old) keeps its deadline.
+- **Stripe's session is an outer bound.** Stripe refuses an `expires_at`
+  less than 30 minutes ahead, so sessions keep 33 minutes (general
+  admission, `GA_CHECKOUT_SESSION_MINUTES`, which leaves room for a
+  same-key retry's call) and 31 (seated). The deadline is enforced by
+  expiring the session ourselves.
+- **The client contract** (`OrderPaymentLookup`, `lib/api/types.ts`):
+  `open` carries `expiresAt`, the deadline (or Stripe's expiry if that were
+  ever sooner; the same instant on every read of one order), and
+  `serverTime`, the database's clock when it answered, so a countdown can
+  allow for a client clock that's off. The payment page shows a countdown
+  to that deadline (docs/design/checkout-pay.md §5.2), replaces Stripe's
+  form with "Time's up" at zero, and re-reads 1 second after the deadline
+  (at least 5 seconds after the last read). `closed` carries `reason`: `time_up` (the
+  window is over: closed for good, nothing charged, seats released),
+  `unavailable` (the event can't be booked right now), `ended` (cancelled
+  or failed before the window was over) or `unconfirmed` (the window is
+  over but Stripe couldn't be asked whether the buyer paid at the last
+  moment: the pages say "We couldn't confirm your payment. Check your email
+  for tickets before trying again.", never "you haven't been charged"; the
+  payment page asks again every 10 seconds, 3 times, and the return page
+  keeps polling the order, so a payment Stripe took still shows). A failed order read after its
+  window says `time_up` whatever ended it. `SEAT_HOLD.stripeMinutes` (what
+  the seat page tells buyers: "holds your seats for 15 minutes") is the
+  same 15, and `SEAT_HOLD.holdMinutes` is 20. The client's checkout key
+  (`lib/api/checkout-attempt.ts`) is dropped after 15 minutes, and the
+  server's attempt replays only until the deadline (`finish_checkout_attempt`
+  records it as the attempt's `session_expires_at`), so a press after it is
+  a new checkout, never the closed one.
+- **Closing on read.** `GET …/payment` past the deadline, for a pending
+  order: one hit on the order's allowance (Stripe is asked), then
+  `closePendingCheckout`, the path Back from the payment page uses
+  (`cancelPendingOrder`): Stripe's session expired first (a refusal is read
+  back: already `expired` is fine, `complete` means Stripe has the payment:
+  `processing`, nothing released), then `private.release_seat_holds` (the
+  order `failed`, a seated order's holds cleared; nothing changes unless
+  it's still pending). Answer `closed`, `time_up`. If Stripe can't be asked
+  (unreachable, the session still open with a payment under way, or not
+  found), the answer is `closed`, `unconfirmed`: nothing is released, a
+  warning is logged without the order or session, and the sweeper tries
+  again. Every Stripe call of the buyer's requests (this route and the
+  cancel route, deadline or not) is bounded: 10 seconds and one network
+  retry (`BUYER_STRIPE_REQUEST`), inside the routes' 60-second
+  `maxDuration`. A kept order with no session past its deadline is
+  released without asking Stripe (it used to be a 409 until the 2-day purge).
+- **The sweeper**, `GET /api/cron/checkout-expiry` (bearer `CRON_SECRET`,
+  `lib/server/cron-auth.ts`; Vercel Cron every 2 minutes, `vercel.json`,
+  which needs Vercel Pro), for checkouts nobody reads again (a tab closed
+  or left in the background). Workers (4) lease one overdue order at a
+  time (`private.claim_overdue_checkouts`: pending, no guest confirmation
+  token, a total above 0, created at least 15 minutes ago, oldest first;
+  order rows locked `for no key update … skip locked`, a 90-second lease in
+  `private.checkout_expiry_checks`), expire its Stripe session (10-second
+  timeout, no automatic retry) and record the outcome
+  (`private.finish_checkout_expiry`, one transaction): `expired` (now,
+  already, or no session) releases the order through
+  `private.release_checkout_order` and deletes the row, whoever holds the
+  lease (Stripe has closed the session, so releasing is right and
+  idempotent); `complete` is never looked at again (the webhook settles
+  it); an error is retried after 2, 4, 8, 16, 32 minutes, then hourly, and
+  nothing is released meanwhile. A session Stripe says doesn't exist (404
+  `resource_missing`: say, the wrong Stripe account or mode) is never
+  released for it: it's retried the same way and given up after 24 tries
+  (`CHECKOUT_EXPIRY_MAX_MISSING`, about 20 hours), with a `gave_up=N`
+  warning (`20261124000000_checkout_expiry_missing.sql`). Each run also
+  warns `stale_complete=N` (counts only) while any session it found
+  complete still has a pending order an hour after the checkout started: a
+  webhook may have been lost. At most 50 orders per run and none started
+  after 25 seconds, so a run ends inside the route's 60-second
+  `maxDuration`. Two runs at once never take the same order. It logs counts
+  only, and answers its counts (`claimed`, `released`, `complete`,
+  `settled`, `failed`, `leaseLost`), `private, no-store`, plus `gaveUp` and `staleComplete`. The claim also
+  deletes up to 100 bookkeeping rows whose order has left `pending`.
+  Indexed: `orders_pending_card_created_idx` (`created_at` where pending and
+  no confirmation token), a small partial index the claim walks from the
+  oldest overdue order.
+- **Never touched:** paid, refunded or being-refunded orders (only `pending`
+  is claimed or released), a session Stripe reports complete (`processing`,
+  including a delayed payment method that hasn't cleared), and guests' free
+  bookings (no payment page; the free-order confirm flow is unchanged and
+  out of scope). Free orders made at once (a member's own verified email)
+  are never pending.
+- **A payment that completes anyway.** A form mid-payment as the session is
+  expired, or a payment Stripe takes for any order we've failed, reaches
+  the webhook's existing "paid for an order that already failed" path
+  ("Payment flow" step 3): refunded in full (`failed-order-refund-<order>`,
+  `reverse_transfer`, `refund_application_fee`), no tickets, no inventory,
+  no seat (the released seats may already be someone else's). Stripe
+  answering a payment for a seated order as complete after its deadline but
+  before it was closed is fulfilled as usual (its seats are still held, or
+  free, or it's the oversold refund).
+- **Lock order:** the claim locks order rows (never waiting for one) before
+  bookkeeping rows; the finish takes `release_checkout_order`'s locks (the
+  seat lock and the order, or the order) before its bookkeeping row. No cycle
+  with `fulfil_order`, `release_seat_holds` or the checkout attempts.
+- **Tests:** `tests/server/checkout-expiry.test.ts` (the timings, the
+  deadline in the payment state and at its boundary, closing on read for
+  general admission and seats, Stripe complete, delayed, unreachable or
+  already expired, the kept order with no session, the per-order limit,
+  same-key replay ending at the deadline, Back still releasing; the
+  sweeper's auth, what it picks and leaves alone, idempotency, back-off,
+  leases, its bound and its logs; a late `checkout.session.completed`
+  refunded with no tickets or double-sold seat; and, with
+  `TEST_DATABASE_URL`, three sweeps at once and sweeps racing the payment
+  page and paying webhooks).
+
+### Accepted limits (checkout pay deadline)
+
+- **The last seconds.** A buyer who submits payment just as the deadline
+  passes may have it refused by Stripe (the session expired) or, if the
+  payment was already under way, taken and then refunded automatically.
+  The countdown (frontend) is what makes this rare. What Stripe does when a
+  session with a 3DS challenge open is expired is unverified: the
+  test-mode check in `docs/DEPLOYMENT.md` covers it before go-live.
+- **The countdown's own "Time's up".** At zero the payment page says the
+  buyer wasn't charged before the server has answered (it asks again 1
+  second later and changes to the order, or to "couldn't confirm", on that
+  answer). If that re-read itself fails (the buyer's connection), the panel
+  stays as it is.
+- **Up to about 2 minutes late.** Without a read of the payment page, an
+  overdue checkout's seats are released by the next sweep (every 2
+  minutes, 50 orders a run); a backlog beyond that waits for later runs,
+  and the holds lapse at 20 minutes regardless.
+- **Needs Vercel Pro and `CRON_SECRET`.** Hobby refuses a deploy with a
+  2-minute cron. Without `CRON_SECRET` the sweeper refuses every call; then
+  only the payment page's reads, Stripe's own expiry (31/33 minutes) and the
+  hold's 20 minutes close abandoned checkouts.
 
 ## Refunds made in Stripe
 
@@ -4147,9 +4319,14 @@ unchanged.
   the owner's and admins' only (404 otherwise). `PublicEvent.seating` is
   `{version}` for a seated event and absent otherwise.
 - **Holds.** Made when the buyer presses Checkout, in the same transaction as
-  the pending order (`hold_seats`), all or nothing, for 35 minutes; Stripe's
-  page expires after 31 (its minimum is 30, and buyers are told 30). They
-  expire lazily (no cron: an expired hold is simply free) and are released at
+  the pending order (`hold_seats`), all or nothing, for 20 minutes
+  (`SEAT_HOLD.holdMinutes`): the checkout's 15-minute pay deadline, which is
+  what buyers are told (`SEAT_HOLD.stripeMinutes`), plus 5 minutes for a
+  payment made at the last moment to be confirmed. Stripe's page expires
+  after 31 (its minimum is 30), an outer bound only. They are released at
+  the pay deadline (the payment page's read after it, or the sweeper within
+  2 minutes: "Checkout pay deadline"), otherwise expire lazily (an expired
+  hold is simply free), and are released at
   once on a Stripe error at checkout (or no client secret from Stripe), the
   buyer going Back from the payment page (see "Back from the payment page"
   below; `POST /orders/by-session/{id}/cancel` expires the session first, so
@@ -4203,8 +4380,10 @@ unchanged.
   `POST /orders/by-session/{orderId}/cancel` when the buyer comes back
   without paying, by the payment page's Back link or the browser's Back
   button (on mount and on `pageshow`). A buyer who closes the tab instead
-  is covered by Stripe's `expires_at` (31 minutes: `checkout.session.expired`
-  releases the seats), and the hold lapses at 35 minutes anyway. That adds
+  is covered by the pay deadline (the sweeper releases the seats within 2
+  minutes of the 15), Stripe's `expires_at` (31 minutes:
+  `checkout.session.expired` releases them), and the hold lapsing at 20
+  minutes anyway. That adds
   no exposure: the id goes only to the client that made the order, which
   already has it in the payment page's URL and Stripe's `return_url`, and
   the cancel route's model is unchanged: the id (`ord_` + 32 hex, a UUIDv4: 122 random bits) is the credential
@@ -4261,7 +4440,8 @@ unchanged.
   decision; raise `SEAT_HOLD_LIMITS` if it bites. Refused attempts no longer
   count, so the window is only used up by real holds (each one also bounded
   by the held-seat cap); a hoarder holding up to the cap can still keep
-  others to the seats left, for 35 minutes at a time.
+  others to the seats left, for 15 minutes at a time (each checkout is
+  closed at its pay deadline).
 - **Refused hold attempts aren't rate-limited per event.** A flood of
   attempts that will be refused (at the cap, or for taken seats) writes
   nothing to the event, but each briefly takes the event's seat lock (the
@@ -4285,8 +4465,10 @@ unchanged.
 - **Availability can be 5 seconds old**, plus the 10-second poll: a seat can
   look free and be refused at Checkout (409, the page removes it).
 - **Late async payments.** A delayed payment method completing after its
-  35-minute hold has lapsed gets its seats only if nobody took them;
-  otherwise it's refunded automatically.
+  20-minute hold has lapsed gets its seats only if nobody took them;
+  otherwise it's refunded automatically. (A session Stripe reports
+  complete is never closed by the pay deadline: Stripe already has that
+  payment.)
 
 ## API
 
@@ -4530,6 +4712,13 @@ What that means:
   `app/checkout/pay/page.tsx` with its client components and the Stripe.js
   loader (`components/checkout/*`, `lib/stripe/*`); tests
   `tests/server/order-payment.test.ts` and `tests/server/stripe-keys.test.ts`.
+- Checkout pay deadline: `CHECKOUT_PAY_MINUTES` and `SEAT_HOLD` in
+  `lib/api/types.ts`; `getOrderPayment`, `closePendingCheckout` and
+  `closeStripeSession` in `lib/server/handlers/orders.ts`; the sweeper
+  `lib/server/handlers/checkout-expiry.ts`, route
+  `app/api/cron/checkout-expiry/route.ts`, scheduled in `vercel.json`;
+  `supabase/migrations/20261123000000_checkout_pay_deadline.sql`; tests
+  `tests/server/checkout-expiry.test.ts`.
 - Account invites: `lib/server/handlers/invites.ts`; `lib/server/auth-admin.ts`
   (the only reader of `SUPABASE_ADMIN_INVITE_KEY`), wired as `Deps.authAdmin`;
   `lib/server/invite-email.ts`; `lib/api/invites.ts` and the invite functions

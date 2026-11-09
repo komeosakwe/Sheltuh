@@ -45,12 +45,14 @@ function asPublic(): PublicEvent {
   };
 }
 
-function openPayment() {
+/** The open answer, with `msLeft` to pay (as the API: the 15-minute deadline, and the server's clock). */
+function openPayment(msLeft = 15 * 60_000) {
   const start = Date.now() + 7 * DAY;
   return {
     status: "open",
     clientSecret: SECRET,
-    expiresAt: new Date(Date.now() + 24 * 3600_000).toISOString(),
+    expiresAt: new Date(Date.now() + msLeft).toISOString(),
+    serverTime: new Date().toISOString(),
     eventTitle: sample!.title,
     eventSlug: sample!.slug,
     eventStartsAt: new Date(start).toISOString(),
@@ -75,9 +77,12 @@ interface MockOptions {
   orderPending?: boolean;
   /** The payment GET is answered only once this settles (it's seen at once). */
   paymentGate?: Promise<void>;
+  /** The payment GET's answer for its nth call (from 1); the default is open with 15 minutes to pay. */
+  payment?: (call: number) => object;
 }
 
-async function mockApi(page: Page, { orderPending = false, paymentGate }: MockOptions = {}): Promise<Seen> {
+async function mockApi(page: Page, { orderPending = false, paymentGate, payment }: MockOptions = {}): Promise<Seen> {
+  let paymentCalls = 0;
   const seen: Seen = { checkouts: [], calls: [] };
   const pub = asPublic();
   await page.route("**/api/**", async (route) => {
@@ -92,7 +97,8 @@ async function mockApi(page: Page, { orderPending = false, paymentGate }: MockOp
     }
     if (url.pathname === `/api/orders/by-session/${ORDER_ID}/payment` && request.method() === "GET") {
       if (paymentGate) await paymentGate;
-      return route.fulfill({ json: openPayment(), headers: { "cache-control": "private, no-store" } });
+      paymentCalls += 1;
+      return route.fulfill({ json: payment ? payment(paymentCalls) : openPayment(), headers: { "cache-control": "private, no-store" } });
     }
     if (url.pathname === `/api/orders/by-session/${ORDER_ID}` && request.method() === "GET" && orderPending) {
       return route.fulfill({ json: { status: "pending" } });
@@ -341,4 +347,119 @@ test.describe("return page", () => {
     // Both pages only read.
     expect(seen.calls.filter((call) => !call.startsWith("GET "))).toEqual([]);
   });
+});
+
+test.describe("15 minutes to pay, on a 375px phone", () => {
+  test.use({ viewport: { width: 375, height: 812 } });
+
+  const STUB_FRAME = 'iframe[title="Secure payment form (e2e stub)"]';
+  const PAYMENT_GET = `GET /api/orders/by-session/${ORDER_ID}/payment`;
+  const timeUp = (seated: boolean) => ({
+    status: "closed",
+    reason: "time_up",
+    eventTitle: sample!.title,
+    eventSlug: sample!.slug,
+    seated,
+  });
+
+  test("the countdown stays in view while scrolling through Stripe's form", async ({ page }) => {
+    await stubStripeJs(page);
+    await mockApi(page);
+    await page.goto(`/checkout/pay?order=${ORDER_ID}`);
+    await expect(page.locator(STUB_FRAME)).toBeVisible({ timeout: 30_000 });
+    const clock = page.locator("[data-countdown]");
+    await expect(clock).toHaveText(/^Complete your order in 1[45]:\d\d$/);
+    // Scrolled well into Stripe's form: the countdown has stuck just under the header (not hidden by
+    // it), with the form scrolling on beneath it.
+    await page.mouse.move(180, 400);
+    await page.mouse.wheel(0, 600);
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThanOrEqual(500);
+    await expect
+      .poll(async () => {
+        const [box, headerBottom] = await Promise.all([
+          clock.boundingBox(),
+          page.locator("header").first().evaluate((header) => header.getBoundingClientRect().bottom),
+        ]);
+        return box ? Math.round(box.y - headerBottom) : null;
+      })
+      .toBe(8);
+    const [box, frame, viewport] = await Promise.all([
+      clock.boundingBox(),
+      page.locator(STUB_FRAME).boundingBox(),
+      page.evaluate(() => window.innerHeight),
+    ]);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(viewport);
+    expect(box!.height).toBeGreaterThanOrEqual(44);
+    expect(frame!.y).toBeLessThan(box!.y);
+    await noSidewaysScroll(page);
+  });
+
+  test("time runs out on the page: Stripe's form goes, Time's up with Start again, focus on the h1", async ({ page }) => {
+    const stripe = await stubStripeJs(page);
+    const seen = await mockApi(page, { payment: (call) => (call === 1 ? openPayment(3_000) : timeUp(false)) });
+    await page.goto(`/checkout/pay?order=${ORDER_ID}`);
+    await expect(page.locator(STUB_FRAME)).toBeVisible({ timeout: 30_000 });
+    // The last two minutes: the orange emphasis, with its icon.
+    const clock = page.locator("[data-countdown]");
+    await expect(clock).toHaveAttribute("data-urgent", "true");
+    await expect(clock.locator("svg")).toHaveCount(1);
+
+    const h1 = page.getByRole("heading", { level: 1, name: "Time’s up" });
+    await expect(h1).toBeVisible({ timeout: 10_000 });
+    await expect(h1).toBeFocused();
+    await expect(page.getByText("Your order wasn’t placed and you haven’t been charged.")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Start again" })).toHaveAttribute("href", `/events/${sample!.slug}#tickets`);
+    await expect(page.locator(STUB_FRAME)).toHaveCount(0);
+    await expect(page.locator("[data-countdown]")).toHaveCount(0);
+    await expect(page.locator("[data-countdown-announcer]")).toHaveText("Time’s up. You haven’t been charged.");
+    expect((await stripe.seen()).destroyed).toBe(1);
+    // The page asked the server again just after the deadline, by GET only.
+    await expect.poll(() => seen.calls.filter((call) => call === PAYMENT_GET).length).toBe(2);
+    expect(seen.calls.filter((call) => !call.startsWith("GET "))).toEqual([]);
+    await noSidewaysScroll(page);
+
+    // Start again: the event page's tickets.
+    await page.getByRole("link", { name: "Start again" }).click();
+    await expect(page).toHaveURL(new RegExp(`/events/${sample!.slug}#tickets$`));
+  });
+
+  test("time runs out but the server couldn't ask Stripe: we couldn't confirm your payment, never 'not charged'", async ({ page }) => {
+    await stubStripeJs(page);
+    await mockApi(page, {
+      payment: (call) => (call === 1 ? openPayment(3_000) : { ...timeUp(true), reason: "unconfirmed" }),
+    });
+    await page.goto(`/checkout/pay?order=${ORDER_ID}`);
+    await expect(page.locator(STUB_FRAME)).toBeVisible({ timeout: 30_000 });
+    const h1 = page.getByRole("heading", { level: 1, name: "We couldn’t confirm your payment" });
+    await expect(h1).toBeVisible({ timeout: 10_000 });
+    await expect(h1).toBeFocused();
+    await expect(page.getByText("Check your email for tickets before trying again.", { exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Back to the event" })).toHaveAttribute("href", `/events/${sample!.slug}`);
+    await expect(page.getByText(/haven’t been charged/)).toHaveCount(0);
+    await expect(page.locator(STUB_FRAME)).toHaveCount(0);
+    await noSidewaysScroll(page);
+  });
+
+  for (const seated of [false, true]) {
+    test(`closed with time's up on arrival (${seated ? "seated" : "general admission"}): the panel, and Stripe's form never made`, async ({ page }) => {
+      const stripe = await stubStripeJs(page);
+      await mockApi(page, { payment: () => timeUp(seated) });
+      await page.goto(`/checkout/pay?order=${ORDER_ID}`);
+      const h1 = page.getByRole("heading", { level: 1, name: "Time’s up" });
+      await expect(h1).toBeVisible({ timeout: 30_000 });
+      await expect(h1).toBeFocused();
+      await expect(
+        page.getByText(
+          seated
+            ? "Your order wasn’t placed and you haven’t been charged. Your seats have been released."
+            : "Your order wasn’t placed and you haven’t been charged.",
+          { exact: true },
+        ),
+      ).toBeVisible();
+      await expect(page.getByRole("link", { name: "Start again" })).toHaveAttribute("href", `/events/${sample!.slug}#tickets`);
+      await expect(page.locator(STUB_FRAME)).toHaveCount(0);
+      expect((await stripe.seen()).secrets).toEqual([]);
+      await noSidewaysScroll(page);
+    });
+  }
 });

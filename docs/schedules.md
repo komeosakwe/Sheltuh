@@ -18,6 +18,7 @@ winter than in its summer. The conversions below were checked with
 | --- | --- | --- | --- | --- |
 | `GET /api/cron/email-outbox` | `0 21 * * *` (daily 21:00) | 8:00 am | 7:00 am | Sends due outbox emails: retries of failed ticket emails, waitlist emails and follower emails that weren't sent straight after the request that queued them, follower emails held back by the one-a-day limit, and organisers' messages to ticket holders that weren't sent straight away. First it **queues the day-before event reminders** (`private.queue_event_reminders`): each run queues a reminder for every ticket holder of an event that starts today (3 hours or more away) or tomorrow in its own time zone, once per person per event. |
 | `GET /api/cron/payouts` | `30 21 * * *` (daily 21:30) | 8:30 am | 7:30 am | Sends the organisers' shares that are due, for orders made with `DELAYED_PAYOUTS=1`: 2 days after the event ended (`lib/server/order-transfers.ts`, docs/architecture.md "Delayed payouts"). With nothing due, or the switch off, it does nothing. |
+| `GET /api/cron/checkout-expiry` | `*/2 * * * *` (every 2 minutes) | every 2 min | every 2 min | Closes card checkouts whose 15-minute pay deadline has passed: expires each one's Stripe session, then fails the order and releases its seats (docs/architecture.md, "Checkout pay deadline"). At most 50 a run; with nothing overdue it's one indexed claim. **Needs Vercel Pro** (Hobby refuses a deploy with a cron more often than daily). |
 
 The email outbox's run also rebuilds the home page's Trending snapshot
 (`private.refresh_trending()`) and sweeps stale event-clip objects, after it
@@ -27,7 +28,7 @@ the email run (reminders queued, outbox drained, then Trending refreshed),
 `GET /api/cron/trending` at `20 17 * * *`; the payouts job took the slot (Hobby allows two crons). The
 trending route still works when called with the secret, but nothing schedules it.
 
-Both routes (and `/api/cron/trending`, when called) need `CRON_SECRET` in Vercel; Vercel sends it as
+All three routes (and `/api/cron/trending`, when called) need `CRON_SECRET` in Vercel; Vercel sends it as
 `Authorization: Bearer …`, and without it the routes refuse every call
 (`lib/server/cron-auth.ts`). Each run's result shows under Vercel → Project →
 Settings → Cron Jobs.
@@ -89,8 +90,12 @@ the schedules live in `vercel.json`, so edit it and redeploy, for example:
 
 ```json
 { "path": "/api/cron/email-outbox", "schedule": "*/5 * * * *" },
-{ "path": "/api/cron/payouts", "schedule": "30 * * * *" }
+{ "path": "/api/cron/payouts", "schedule": "30 * * * *" },
+{ "path": "/api/cron/checkout-expiry", "schedule": "*/2 * * * *" }
 ```
+
+(Keep the checkout-expiry line: `vercel.json` already has it, and it needs
+Pro.)
 
 Then check the new schedules under Settings → Cron Jobs after the deploy.
 (Don't deploy these schedules on Hobby: the repo's notes record that Hobby

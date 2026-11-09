@@ -6,7 +6,7 @@ Builds on Brand Direction One §2.4/§2.5 (radii, borders, spacing), §6.8 (all-
 
 1. **Two voices, one page.** Ours (summary, copy, states) and Stripe's (the white form). Ours stays in the brand tokens, Stripe's stays white. We never try to restyle the iframe, and nothing of ours overlaps it.
 2. **The total is the loudest number on the page.** It's all-inclusive (ACL), the largest figure in the summary, and visible without opening anything at every width. Partials come after it, smaller and muted.
-3. **Quiet.** No orange, no `font-display`, no `display-lg`, no photography, no push-in, no badges. The only motion is `DotsLoader`. Black solid buttons only.
+3. **Quiet.** No orange, no `font-display`, no `display-lg`, no photography, no push-in, no badges. The only motion is `DotsLoader`. Black solid buttons only. One exception (owner, Nov 2026): the countdown's last two minutes (§5.2, Countdown).
 4. **The summary comes first.** Phones read: what am I buying → how much → pay. Desktop puts the same order left to right.
 5. **Every state can be left safely.** Each one says whether money moved ("You haven't been charged") and has a way back.
 
@@ -84,7 +84,13 @@ Step 2 is current. The current step's `li` gets `aria-current="step"`.
 
 **h1:** `Pay for your tickets` in loading, open and Stripe-failed. Each terminal state has its own h1 (table below).
 
-**Seated hold line** (`open` and seated only), between the summary and the form: `Your seats are held until {h:mm am/pm} Melbourne time. Going back releases them.` Melbourne time like the event's own times, and said so for a device in another zone. It's static, not a ticking countdown (WCAG 2.2.1). When `expiresAt` passes, re-fetch; the answer should be the closed state. The timer re-arms after every `open` answer, never sooner than 5 s, so a clock that runs ahead still converges.
+**Seated hold line** (`open` and seated only), between the summary and the form: `Your seats are held until {h:mm am/pm} Melbourne time. Going back releases them.` Melbourne time like the event's own times, and said so for a device in another zone.
+
+**Countdown** (`components/checkout/CheckoutCountdown.tsx`, `lib/checkout-countdown.ts`; owner, Nov 2026: a checkout is payable for `CHECKOUT_PAY_MINUTES`, 15, general admission and seated). At the top of the form column, above the details notice: `Complete your order in {mm:ss}`, the time in `font-semibold tabular-nums`, in a `min-h-11 rounded-control border border-foreground bg-card px-4 text-sm` box. It's `sticky` just under the site header (`top: calc(var(--header-h) + safe area)`, on a `bg-background` strip), so it stays in view while scrolling through Stripe's form; nothing is put inside or over the iframe's own content.
+- **Time left** is worked out from the deadline every time, never by counting ticks: `expiresAt` moved by the clock offset (`serverTime` less this device's clock when the answer arrived; 0 without `serverTime`), so a phone with a wrong clock counts to the server's moment. It's recomputed each second and whenever the page is shown again (`visibilitychange`, `pageshow`, `focus`: a tab brought back, a phone woken). It never shows more than 15:00.
+- **Last 2 minutes:** `border-signal-ink bg-tint text-signal-ink font-semibold` (6.4:1 Light, 7.1:1 Dark) with a 16px clock icon (`aria-hidden`), so colour isn't the only change. No animation (nothing to stop for `prefers-reduced-motion`).
+- **Screen readers:** the ticking text is not a live region. A separate `sr-only` `aria-live="polite"` region (outside every state, so it outlives the form) says only "5 minutes left to complete your order.", "1 minute left to complete your order." and, at zero, "Time's up. You haven't been charged." (cleared if the unconfirmed panel follows). A device that slept past several says only the latest. Nothing is said for a panel that arrives on load.
+- **At zero:** the time's-up panel replaces the page at once (Stripe's form is unmounted and its instance destroyed), focus goes to its h1, and the checkout is read again 1 s after the deadline: `processing`/`done` goes to the order (Stripe took it in time); anything else leaves the panel; a failed read (before the server has confirmed time's up) can't say whether a last-second payment went through, so it shows the unconfirmed panel instead (never "not charged"), read again every 10 s, at most 3 times. An `open` answer at or past its deadline never mounts the form again: it's read again no sooner than 5 s later.
 
 **Legal line** under the form slot (`mt-4 text-xs text-muted`):
 
@@ -99,7 +105,10 @@ Step 2 is current. The current step's `li` gets `aria-current="step"`.
 | Payment form failed | `getStripe()` rejects or resolves null; `createEmbeddedCheckoutPage` rejects; or the form isn't drawn within 20 s | Pay for your tickets | Summary stays. In the slot (`p-5`, no minimum height): `Notice tone="danger" role="alert"` "The payment form didn't load. Check your connection. If you use a content blocker, allow js.stripe.com, then try again. You haven't been charged." Then a `btn-outline` (md, `min-h-11`) "Try again", which re-fetches the checkout and mounts a fresh form (any earlier Stripe instance is destroyed first) | Back link |
 | Not configured | Live mode, no publishable key | Card payments aren't available right now | "You haven't been charged. Try again later, or email support@sheltuh.com.au." (mailto link) | Back link target. Never loads Stripe |
 | Demo | `!isApiConfigured` | Checkout isn't available in this demo | "This is a local prototype. No payment information is collected and no tickets are issued." | "Browse events" → `/`. Never loads Stripe |
-| Closed | `status:"closed"` | This checkout has closed | GA: "You haven't been charged. Start again from the event page to book." Seated: "You haven't been charged, and the seats held for you have been released. Choose seats to book again." | GA "Back to the event", seated "Choose seats again" |
+| Time's up | `status:"closed"`, `reason:"time_up"`, or the countdown reached zero | Time's up | "Your order wasn't placed and you haven't been charged." Seated adds: "Your seats have been released." | "Start again" → `/events/{eventSlug}#tickets` (GA and seated; "Back to Sheltüh" → `/` without a slug). Focus to the h1, on arrival too |
+| Unconfirmed | `status:"closed"`, `reason:"unconfirmed"`, or a failed read after the countdown's own time's up (not after one the server confirmed) | We couldn't confirm your payment | "Check your email for tickets before trying again." Never "not charged". Read again every 10 s, at most 3 times | "Back to the event". Focus to the h1, on arrival too |
+| Unavailable | `status:"closed"`, `reason:"unavailable"` | This checkout has closed | "This event isn't taking bookings right now. You haven't been charged." | "Back to the event". Focus to the h1, on arrival too |
+| Closed | `status:"closed"`, `reason:"ended"` or none | This checkout has closed | GA: "You haven't been charged. Start again from the event page to book." Seated: "You haven't been charged, and the seats held for you have been released. Choose seats to book again." | GA "Back to the event", seated "Choose seats again" |
 | Sold out | `status:"sold_out"` | These tickets have just sold out | GA: "Someone else booked the last ones while this checkout was open. You haven't been charged." Seated: "Some of your seats were booked by someone else while this checkout was open. You haven't been charged. Choose other seats to continue." | GA "Back to the event", seated "Choose other seats" |
 | Processing / done | `status:"processing"` or `"done"` | – | `DotsLoader announce label="Taking you to your order"`, then `router.replace("/checkout/success?session_id={order}")` | – |
 | Not found | No `order` param, or a 404 | We couldn't find that checkout | "The link may be incomplete. If you were charged, your tickets are on their way to your email." | "Back to Sheltüh" link → `/` |
@@ -189,7 +198,6 @@ Tests to update (test-engineer): `tests/TicketSelector.test.tsx:404,423,539`. Sp
   - The Privacy Policy line about Stripe's form loading on our checkout page (plan D6).
 - **Out of scope:**
   - Restyling inside Stripe's iframe.
-  - A live countdown timer.
   - Event imagery on checkout.
   - Changes to `/checkout/cancelled` (kept for legacy sessions).
   - The `TicketSelector` `pageshow` fix (behaviour, per the plan).

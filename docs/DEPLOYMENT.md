@@ -572,20 +572,66 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       The 21 files before these are on `main`. Whether production has them
       all is also unverified: the check above covers every file.
 - [ ] **`CRON_SECRET`** in Vercel (Production): a long random string
-      (`openssl rand -hex 32`). Without it `/api/cron/email-outbox` and
-      `/api/cron/payouts` refuse every call: failed ticket emails are never
-      retried, Trending stays empty (the email run refreshes it) and, with
-      `DELAYED_PAYOUTS=1`, organisers are never paid.
+      (`openssl rand -hex 32`). Without it `/api/cron/email-outbox`,
+      `/api/cron/payouts` and `/api/cron/checkout-expiry` refuse every call:
+      failed ticket emails are never retried, Trending stays empty (the email
+      run refreshes it), with `DELAYED_PAYOUTS=1` organisers are never paid,
+      and abandoned checkouts' seats stay held until their hold lapses (20
+      minutes) instead of being released at the 15-minute pay deadline.
+- [ ] **Checkout pay deadline** (`20261123000000_checkout_pay_deadline.sql`,
+      docs/architecture.md "Checkout pay deadline"). A card checkout can be
+      paid for 15 minutes from when it starts; then the payment page closes
+      it and `/api/cron/checkout-expiry` (every 2 minutes, in `vercel.json`)
+      sweeps up the rest. **Needs Vercel Pro**: Hobby refuses a deploy with a
+      cron more often than daily, so don't deploy this commit to a Hobby
+      project. Apply the migration **before** the code deploys: until it's
+      there the sweeper's every run fails (500, nothing changed; the payment
+      page still closes checkouts on read, and Stripe's own 31/33-minute
+      expiry and the 20-minute seat hold still apply). It's additive (a new
+      private table, two functions, one partial index on `orders`). Then
+      check Vercel → Settings → Cron Jobs lists the new job, and its runs
+      answer 200 with counts (`claimed`, `released`, …). Test mode first:
+      start a checkout, leave the payment page open, and at 15 minutes it
+      should say the checkout has closed; Stripe's dashboard should show the
+      session expired. Apply `20261124000000_checkout_expiry_missing.sql`
+      with it (also additive: the sweeper's cap on sessions Stripe says don't
+      exist).
+- [ ] **Before go-live: Stripe test-mode check of the pay deadline**
+      (unverified so far: what Stripe does when we expire a session whose
+      payment is under way). In test mode, on the embedded checkout:
+      1. Pay with the 3DS card **4000 0027 6000 3184** and leave its
+         authentication challenge open past the 15-minute deadline (or, to
+         save time, expire the session yourself while the challenge is open:
+         `stripe checkout sessions expire cs_test_…`, or the API).
+      2. Then complete the challenge.
+      3. Confirm one of these, and nothing else: Stripe refused the expire
+         (the payment page then says "We couldn't confirm your payment", and
+         the order is paid by the webhook with tickets emailed); or the
+         session expired and its PaymentIntent was cancelled (the challenge
+         fails, nothing is charged, the order is `failed`, seats freed); or
+         the payment still succeeded, `checkout.session.completed` arrived,
+         and the order was refunded in full automatically (Stripe dashboard:
+         a refund with metadata reason `paid_after_order_failed`; no tickets).
+         A charge with neither tickets nor a refund is a blocker.
+      4. Repeat for every delayed payment method switched on in the
+         Dashboard (if any): its session completes unpaid, so the sweeper
+         must leave it (`complete` in the cron's counts) and the order is
+         settled by `async_payment_succeeded` or `async_payment_failed`.
+      Also check the cron's `staleComplete` stays 0 and the logs have no
+      `gave_up=` warning (a session Stripe says doesn't exist: usually the
+      wrong Stripe key or mode on the deploy).
 - [ ] **Cron schedules.** See [`schedules.md`](schedules.md) for every
       timed job (Vercel and Supabase), its time in Melbourne, and how to run
-      it more often. `vercel.json` runs both crons once a day, the Hobby
-      plan's limit: `/api/cron/email-outbox` at 21:00 UTC (8:00 am AEDT,
+      it more often. `vercel.json` runs `/api/cron/checkout-expiry` every 2
+      minutes (Vercel Pro only: see "Checkout pay deadline" above), and the
+      other two once a day, the Hobby plan's old limit:
+      `/api/cron/email-outbox` at 21:00 UTC (8:00 am AEDT,
       7:00 am AEST, so the day-before reminders arrive in the morning), which
       also refreshes Trending after its drain, and `/api/cron/payouts` at
       21:30 UTC (8:30 am AEDT, 7:30 am AEST), which sends the organisers'
       shares that are due. (`/api/cron/trending` is no longer scheduled: the
       payouts job took its slot; it still works when called.) Moving to
-      **Vercel Pro** changes nothing by itself: edit `vercel.json`
+      **Vercel Pro** changes nothing else by itself: edit `vercel.json`
       (`*/5 * * * *` for `/api/cron/email-outbox`, which refreshes Trending
       every run, or add `/api/cron/trending` at `*/15 * * * *` as a third
       cron) and redeploy. On Hobby, Supabase Cron can run the trending
@@ -1018,8 +1064,10 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        serves many requests at once and shares its database pool (5
        connections) between them; without it, every concurrent request is
        its own instance with its own connections to the pooler.
-4. [ ] Pro plan once you sell tickets (Hobby is non-commercial). The plan
-       change alone doesn't touch the cron schedules: edit `vercel.json` and
+4. [ ] Pro plan once you sell tickets (Hobby is non-commercial), and now
+       required anyway: `vercel.json` schedules `/api/cron/checkout-expiry`
+       every 2 minutes, which Hobby refuses to deploy. The plan change alone
+       doesn't touch the other cron schedules: edit `vercel.json` and
        redeploy as in "Cron schedules" above.
 5. [ ] Domain: attach `sheltuh.com.au` (see PROJECT_CONTEXT for the Cloudflare
        notes). Keep its Cloudflare record **DNS only** (grey cloud): a

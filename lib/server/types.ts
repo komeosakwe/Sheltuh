@@ -53,6 +53,7 @@ export type {
   CustomerOrderLookup,
   WalletAvailability,
   OrderPaymentLine,
+  CheckoutClosedReason,
   OrderPaymentLookup,
   OrderPaymentSummary,
   CancelOrderResult,

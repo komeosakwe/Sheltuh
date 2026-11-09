@@ -28,12 +28,12 @@ describe("the checkout this tab sent to Stripe (lib/seating/pending-checkout.ts)
     expect(peekPendingCheckout(2_000)).toEqual({ orderId: ORDER, slug: "off-kilter", at: 1_000 });
   });
 
-  it("is dropped once the hold would have lapsed by itself (35 minutes)", async () => {
+  it("is dropped once the hold would have lapsed by itself (20 minutes)", async () => {
     rememberPendingCheckout(ORDER, "off-kilter", 0);
-    expect(peekPendingCheckout(35 * 60_000 + 1)).toBeNull();
+    expect(peekPendingCheckout(20 * 60_000 + 1)).toBeNull();
     expect(window.sessionStorage.getItem(KEY)).toBeNull();
     rememberPendingCheckout(ORDER, "off-kilter", 0);
-    await expect(releasePendingCheckout(35 * 60_000 + 1)).resolves.toEqual({ kind: "none" });
+    await expect(releasePendingCheckout(20 * 60_000 + 1)).resolves.toEqual({ kind: "none" });
     expect(cancelPendingOrder).not.toHaveBeenCalled();
     expect(window.sessionStorage.getItem(KEY)).toBeNull();
   });
@@ -97,7 +97,7 @@ describe("releasePendingCheckout", () => {
     rememberPendingCheckout(ORDER, "off-kilter", 0);
     cancelPendingOrder.mockRejectedValueOnce(new ApiError(500, "Server error."));
     await expect(releasePendingCheckout(1_000)).resolves.toEqual({ kind: "failed" });
-    await expect(releasePendingCheckout(35 * 60_000 + 1)).resolves.toEqual({ kind: "none" });
+    await expect(releasePendingCheckout(20 * 60_000 + 1)).resolves.toEqual({ kind: "none" });
     expect(cancelPendingOrder).toHaveBeenCalledTimes(1);
     expect(window.sessionStorage.getItem(KEY)).toBeNull();
   });

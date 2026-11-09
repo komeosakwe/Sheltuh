@@ -2,6 +2,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { createHash } from "node:crypto";
 import { clientKey, orderKey } from "@/lib/server/client-key";
 import {
+  BUYER_STRIPE_REQUEST,
   CHECKOUT_RATE_LIMITS,
   createCheckout,
   GA_CHECKOUT_SESSION_MINUTES,
@@ -132,7 +133,7 @@ const orderLimitKey = (orderId: string) => orderKey(orderId, WEBHOOK_SECRET);
 // ---------------------------------------------------------------------------
 
 describe("the embedded Checkout Session", () => {
-  it("general admission: the hosted session's parameters, with ui_mode and return_url instead of success/cancel URLs, expiring in an hour", async () => {
+  it("general admission: the hosted session's parameters, with ui_mode and return_url instead of success/cancel URLs, expiring in 33 minutes", async () => {
     const event = await paidEvent();
     const before = Date.now();
     const res = await checkout(event.eventId, {
@@ -147,8 +148,8 @@ describe("the embedded Checkout Session", () => {
       mode: "payment",
       client_reference_id: orderId,
       customer_email: "fan@example.com",
-      // Deliberately an hour, not Stripe's default 24 (GA_CHECKOUT_SESSION_MINUTES): the window the client
-      // secret is any use, and a form already on screen stays payable after the page said `closed`.
+      // Deliberately 33 minutes, not Stripe's default 24 hours (GA_CHECKOUT_SESSION_MINUTES): Stripe's minimum (30)
+      // plus room for a same-key retry; an outer bound only, the checkout's own pay deadline is 15 minutes.
       expires_at: expect.any(Number),
       line_items: [
         { price_data: { currency: "aud", product_data: { name: "GA — Neon Static" }, unit_amount: 3000 }, quantity: 2 },
@@ -162,10 +163,10 @@ describe("the embedded Checkout Session", () => {
       // Pinned off: buyers pay exactly the A$ total shown, never a converted amount.
       adaptive_pricing: { enabled: false },
     });
-    expect(GA_CHECKOUT_SESSION_MINUTES).toBe(60);
+    expect(GA_CHECKOUT_SESSION_MINUTES).toBe(33);
     const after = Date.now();
-    expect(params.expires_at).toBeGreaterThanOrEqual(Math.floor(before / 1000) + 60 * 60);
-    expect(params.expires_at).toBeLessThanOrEqual(Math.floor(after / 1000) + 60 * 60);
+    expect(params.expires_at).toBeGreaterThanOrEqual(Math.floor(before / 1000) + 33 * 60 - 1);
+    expect(params.expires_at).toBeLessThanOrEqual(Math.floor(after / 1000) + 33 * 60);
     // POST /checkout keeps its shape; only url's meaning changed (our page). No client secret in it.
     expect(res.body).toStrictEqual({ url: `/checkout/pay?order=${orderId}`, orderId });
     expect(JSON.stringify(res.body)).not.toContain("secret");
@@ -306,14 +307,22 @@ describe("GET /orders/by-session/{id}/payment", () => {
     const { event, orderId } = await gaOrder();
     const expiresAt = Math.floor(Date.now() / 1000) + 1800;
     api.stripe.checkout.sessions.retrieve.mockResolvedValueOnce(openSession("cs_test_1", { expires_at: expiresAt }));
+    const before = Date.now();
     const res = await payment(orderId);
     expect(res.status).toBe(200);
     expect(res.headers.get("cache-control")).toBe("private, no-store");
-    expect(api.stripe.checkout.sessions.retrieve).toHaveBeenCalledWith("cs_test_1");
+    // Bounded: 10 seconds and one network retry (BUYER_STRIPE_REQUEST), so a slow Stripe can't hang the page.
+    expect(api.stripe.checkout.sessions.retrieve).toHaveBeenCalledWith("cs_test_1", {}, BUYER_STRIPE_REQUEST);
+    // expiresAt is the pay deadline (the order's creation + CHECKOUT_PAY_MINUTES), not Stripe's later expiry.
+    const [made] = await api.db.query<{ deadline: Date | string }>(
+      `select created_at + interval '15 minutes' as deadline from public.orders where id = $1`,
+      [orderId],
+    );
     expect(res.body).toStrictEqual({
       status: "open",
       clientSecret: "cs_test_1_secret_test",
-      expiresAt: new Date(expiresAt * 1000).toISOString(),
+      expiresAt: new Date(made.deadline).toISOString(),
+      serverTime: expect.any(String),
       eventTitle: "Neon Static",
       eventSlug: event.slug,
       eventStartsAt: new Date(event.startsAt).toISOString(),
@@ -333,6 +342,8 @@ describe("GET /orders/by-session/{id}/payment", () => {
       buyerFeeCents: 460,
       totalCents: 14460,
     });
+    expect(Date.parse(res.body.expiresAt)).toBeLessThan(expiresAt * 1000);
+    expect(Math.abs(Date.parse(res.body.serverTime) - before)).toBeLessThan(5_000);
     // No ids, fee split, email or other Stripe ids.
     const text = JSON.stringify(res.body);
     for (const leak of [orderId, event.eventId, organiser.organiserId, "acct_test_1", "fan@example.com", "cs_test_1\""]) {
@@ -401,7 +412,7 @@ describe("GET /orders/by-session/{id}/payment", () => {
 
     it("unpublished (back to draft), or its organiser suspended (every event unpublished)", async () => {
       const { event, orderId } = await gaOrder();
-      const closed = { status: "closed", eventTitle: "Neon Static", eventSlug: event.slug, seated: false };
+      const closed = { status: "closed", reason: "unavailable", eventTitle: "Neon Static", eventSlug: event.slug, seated: false };
       await api.db.query(`update public.events set status = 'draft' where id = $1`, [event.eventId]);
       api.stripe.checkout.sessions.retrieve.mockResolvedValueOnce(openSession());
       expect((await payment(orderId)).body).toStrictEqual(closed);
@@ -431,14 +442,20 @@ describe("GET /orders/by-session/{id}/payment", () => {
 
       await api.db.query(END_SQL, [event.eventId]);
       api.stripe.checkout.sessions.retrieve.mockResolvedValueOnce(openSession());
-      expect((await payment(orderId)).body).toStrictEqual({ status: "closed", eventTitle: "Neon Static", eventSlug: event.slug, seated: false });
+      expect((await payment(orderId)).body).toStrictEqual({
+        status: "closed",
+        reason: "unavailable",
+        eventTitle: "Neon Static",
+        eventSlug: event.slug,
+        seated: false,
+      });
     });
 
     it("seated, ended or unpublished: closed (seated: true), and closed wins over sold_out and a missing secret", async () => {
       const { event, map } = await seatedEvent(api, organiser, admin);
       const orderId = (await checkout(event.eventId, { seats: { mapVersion: map.version, seatIds: ["A1"] } })).body.orderId as string;
       const other = (await checkout(event.eventId, { seats: { mapVersion: map.version, seatIds: ["A2"] } })).body.orderId as string;
-      const closed = { status: "closed", eventTitle: "Neon Static", eventSlug: event.slug, seated: true };
+      const closed = { status: "closed", reason: "unavailable", eventTitle: "Neon Static", eventSlug: event.slug, seated: true };
       await api.db.query(`update public.events set status = 'draft' where id = $1`, [event.eventId]);
       // Its seat sold to someone else too: the event being gone is what the buyer is told.
       await api.db.query(
@@ -491,9 +508,9 @@ describe("GET /orders/by-session/{id}/payment", () => {
     expect((await payment(orderId)).body).toStrictEqual({ status: "processing", delayed: true });
   });
 
-  it("closed: Stripe expired it, it's past its expiry, or the order failed", async () => {
+  it("closed (ended) before the pay deadline: Stripe expired it, it's past Stripe's expiry, or the order failed", async () => {
     const { event, orderId } = await gaOrder();
-    const closed = { status: "closed", eventTitle: "Neon Static", eventSlug: event.slug, seated: false };
+    const closed = { status: "closed", reason: "ended", eventTitle: "Neon Static", eventSlug: event.slug, seated: false };
     api.stripe.checkout.sessions.retrieve.mockResolvedValueOnce(embeddedSession("cs_test_1", { status: "expired", client_secret: null }));
     expect((await payment(orderId)).body).toStrictEqual(closed);
     api.stripe.checkout.sessions.retrieve.mockResolvedValueOnce(openSession("cs_test_1", { expires_at: Math.floor(Date.now() / 1000) - 5 }));
@@ -503,6 +520,11 @@ describe("GET /orders/by-session/{id}/payment", () => {
     api.stripe.checkout.sessions.retrieve.mockClear();
     expect((await payment(orderId)).body).toStrictEqual(closed);
     expect(api.stripe.checkout.sessions.retrieve).not.toHaveBeenCalled();
+    // The same failed order once its pay window has passed: time_up (still no Stripe call).
+    await api.db.query(`update public.orders set created_at = now() - interval '16 minutes' where id = $1`, [orderId]);
+    expect((await payment(orderId)).body).toStrictEqual({ ...closed, reason: "time_up" });
+    expect(api.stripe.checkout.sessions.retrieve).not.toHaveBeenCalled();
+    expect(api.stripe.checkout.sessions.expire).not.toHaveBeenCalled();
   });
 
   it("sold_out (general admission): the tickets went to someone else while it was open", async () => {
@@ -584,7 +606,7 @@ describe("GET /orders/by-session/{id}/payment", () => {
     expect(JSON.stringify(error.mock.calls)).not.toContain("cs_test_1");
   });
 
-  it("writes nothing and logs nothing, whatever it answers (only the webhook settles an order)", async () => {
+  it("before the pay deadline it writes nothing and logs nothing, whatever it answers (only the webhook settles an order)", async () => {
     const { event, map } = await seatedEvent(api, organiser, admin);
     const seated = (await checkout(event.eventId, { seats: { mapVersion: map.version, seatIds: ["A1"] } })).body.orderId as string;
     const ga = (await gaOrder()).orderId;
