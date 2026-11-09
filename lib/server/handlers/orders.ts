@@ -1629,6 +1629,9 @@ export const getOrderPayment: Handler<{ sessionId: string }> = async (req, { ses
       where o.id = $1`,
     [sessionId, CHECKOUT_PAY_MINUTES],
   );
+  // When `server_now` was read, by this process's clock: the answer's serverTime is moved on by the time
+  // spent since (a slow Stripe call), so the countdown never shows time that's already gone.
+  const sampledAt = Date.now();
   // A guest's free booking isn't a card checkout: nothing to pay here.
   if (!row || row.free_link) throw new HttpError(404, ORDER_NOT_FOUND);
   const answer = (lookup: OrderPaymentLookup) => okPrivate(lookup);
@@ -1693,7 +1696,7 @@ export const getOrderPayment: Handler<{ sessionId: string }> = async (req, { ses
     clientSecret: session.client_secret,
     expiresAt: new Date(expiresAtMs).toISOString(),
     // The database's clock, which judges the deadline: a countdown can allow for a client clock that's off.
-    serverTime: new Date(row.server_now).toISOString(),
+    serverTime: new Date(new Date(row.server_now).getTime() + (Date.now() - sampledAt)).toISOString(),
     eventTitle: row.event_title,
     ...(row.event_slug ? { eventSlug: row.event_slug } : {}),
     ...(row.event_starts_at ? { eventStartsAt: new Date(row.event_starts_at).toISOString() } : {}),

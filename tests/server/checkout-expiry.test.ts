@@ -195,6 +195,22 @@ describe("the payment page's deadline (GET /orders/by-session/{id}/payment)", ()
     expect(api.stripe.checkout.sessions.expire).not.toHaveBeenCalled();
   });
 
+  it("a slow Stripe read: serverTime is moved on by the time it took, so the countdown never shows time that's gone", async () => {
+    const { orderId } = await gaOrder();
+    const session = await sessionOf(orderId);
+    const DELAY_MS = 1_200;
+    let readAt = 0;
+    api.stripe.checkout.sessions.retrieve.mockImplementationOnce(async () => {
+      readAt = Date.now();
+      await new Promise((resolve) => setTimeout(resolve, DELAY_MS));
+      return embeddedSession(session, { status: "open", payment_status: "unpaid", expires_at: Math.floor(Date.now() / 1000) + 30 * 60 });
+    });
+    const res = await payment(orderId);
+    expect(res.body.status).toBe("open");
+    // At least as late as the end of Stripe's (slow) answer, not when the order was read before it.
+    expect(Date.parse(res.body.serverTime)).toBeGreaterThanOrEqual(readAt + DELAY_MS - 50);
+  });
+
   it("seated: the same deadline, before the seats' hold ends", async () => {
     const { event } = await seatedEvent(api, organiser, admin);
     const orderId = await seatedOrder(event, ["A1"]);
