@@ -1204,6 +1204,20 @@ describe("CheckoutPayment: the countdown (15 minutes to pay)", () => {
     expect(stripeFrame()).toBeNull();
   });
 
+  it("a time's up the server confirmed stays when a later read fails (a back/forward restore)", async () => {
+    getOrderPayment
+      .mockResolvedValueOnce({ status: "closed", reason: "time_up", eventTitle: "Neon Static", eventSlug: "neon-static", seated: false })
+      .mockRejectedValue(new TypeError("Failed to fetch"));
+    render(<CheckoutPayment />);
+    await screen.findByRole("heading", { level: 1, name: "Time’s up" });
+    await act(async () => {
+      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+    });
+    await waitFor(() => expect(getOrderPayment).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("heading", { level: 1, name: "Time’s up" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 1, name: "We couldn’t confirm your payment" })).toBeNull();
+  });
+
   it("after zero, reads that keep failing stop after 3 more tries, on the unconfirmed panel", async () => {
     vi.useFakeTimers();
     getOrderPayment.mockResolvedValueOnce(openFor(5_000)).mockRejectedValue(new TypeError("Failed to fetch"));

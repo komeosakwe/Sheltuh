@@ -104,6 +104,11 @@ function PaymentFlow({ orderId }: { orderId: string }) {
     routerRef.current = router;
   }, [router]);
   const [state, setState] = useState<State>({ kind: "loading" });
+  // The state as last rendered, for a failed read to tell a pending time's up from a confirmed one.
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
   // The last order context seen, so a later error still knows where "back" is.
   const [context, setContext] = useState<CheckoutOrderContext | undefined>(undefined);
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -179,16 +184,15 @@ function PaymentFlow({ orderId }: { orderId: string }) {
         if (id !== request.current) return;
         // Past time's up, a failed read means we don't know whether a last-second payment went through:
         // never keep saying "you haven't been charged". Unconfirmed, asked again a few times like it.
+        // A time's up the server has confirmed (no recheck pending) stays: the outcome is known.
         if (timedOut.current) {
+          const current = stateRef.current;
+          const waiting = current.kind === "unconfirmed" || (current.kind === "time-up" && current.recheckAt !== null);
+          if (!waiting) return;
           setAnnouncement("");
           const again = unconfirmedRechecks.current < UNCONFIRMED_RECHECKS;
           if (again) unconfirmedRechecks.current += 1;
-          const recheckAt = again ? Date.now() + UNCONFIRMED_RECHECK_MS : null;
-          setState((current) =>
-            current.kind === "time-up" || current.kind === "unconfirmed"
-              ? { kind: "unconfirmed", context: current.context, recheckAt }
-              : current,
-          );
+          setState({ kind: "unconfirmed", context: current.context, recheckAt: again ? Date.now() + UNCONFIRMED_RECHECK_MS : null });
           return;
         }
         if (err instanceof ApiError && err.status === 404) setState({ kind: "not-found" });
