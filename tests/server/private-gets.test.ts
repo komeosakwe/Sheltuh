@@ -27,6 +27,7 @@ import { getUnreadCount, listConversations } from "@/lib/server/handlers/message
 import { adminListOrganiserLinks } from "@/lib/server/handlers/organiser-links";
 import { getMyOrganiser } from "@/lib/server/handlers/organisers";
 import { adminListPaymentExceptions } from "@/lib/server/handlers/payment-exceptions";
+import { runCheckoutExpiryCron } from "@/lib/server/handlers/checkout-expiry";
 import { adminListTransfers, getMyPayouts, runPayoutsCron } from "@/lib/server/handlers/payouts";
 import { getMyProfile, putMyProfile } from "@/lib/server/handlers/profiles";
 import { adminListReports } from "@/lib/server/handlers/reports";
@@ -101,6 +102,7 @@ const PRIVATE_GETS: Case[] = [
   { name: "runEmailOutboxCron", handler: h(runEmailOutboxCron), as: asCron },
   { name: "runTrendingCron", handler: h(runTrendingCron), as: asCron },
   { name: "runPayoutsCron", handler: h(runPayoutsCron), as: asCron },
+  { name: "runCheckoutExpiryCron", handler: h(runCheckoutExpiryCron), as: asCron },
   // A member's own things
   { name: "listBlocks", handler: h(listBlocks), as: asMember },
   { name: "listConversations", handler: h(listConversations), as: asMember },

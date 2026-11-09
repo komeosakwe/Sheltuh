@@ -6,7 +6,7 @@ import type { Deps } from "../deps";
 import { sendOpsAlertsSoon, sendTicketEmailSoon, sendWaitlistEmailsSoon } from "../email-outbox";
 import { MAX_SEATS_PER_ORDER } from "@/lib/seating/template";
 import { remainingShownAtMost } from "@/lib/api/public-events";
-import { SEAT_HOLD } from "@/lib/api/types";
+import { CHECKOUT_PAY_MINUTES, SEAT_HOLD } from "@/lib/api/types";
 import {
   CHECKOUT_LIMITS,
   checkoutFingerprint,
@@ -28,6 +28,7 @@ import type { Handler } from "../route";
 import { parseTrackingCode } from "../tracking-codes";
 import type {
   CancelOrderResult,
+  CheckoutClosedReason,
   CustomerOrder,
   CustomerOrderLookup,
   EventRecord,
@@ -693,13 +694,27 @@ function refuseWithoutCardPayments(deps: Deps) {
 }
 
 /**
- * How long a general admission Checkout Session can be paid for: an hour
- * (Stripe's default is 24 hours; its minimum is 30 minutes). That bounds how
- * long the client secret is any use to whoever holds the order id, and how
- * long a form already on screen stays payable after the payment page has
- * said `closed`. Seated sessions have their own (SEAT_HOLD_LIMITS).
+ * Stripe's shortest Checkout Session: it refuses an `expires_at` less than
+ * 30 minutes after the session is created. Our own pay deadline
+ * (CHECKOUT_PAY_MINUTES, 15) is shorter, so Stripe's expiry is only an outer
+ * bound: the deadline is enforced by expiring the session ourselves
+ * (getOrderPayment, and the sweeper: ./checkout-expiry.ts).
  */
-export const GA_CHECKOUT_SESSION_MINUTES = 60;
+export const STRIPE_MIN_SESSION_MINUTES = 30;
+
+/**
+ * Stripe's own expiry for a general admission Checkout Session (`expires_at`,
+ * fixed at the order's creation plus this): 33 minutes, as short as Stripe
+ * allows for a call repeated for the same order. A retry with the same
+ * Idempotency-Key reuses a kept order up to CHECKOUT_ATTEMPT.gaReuseWithin
+ * (2 minutes) old and its Stripe call can take about 33 seconds, so that
+ * call still reaches Stripe with the session's expiry over 30 minutes ahead.
+ * It bounds how long the client secret is any use to whoever holds the order
+ * id, and how long a form already on screen could still be paid if expiring
+ * the session at the pay deadline failed. Seated sessions have their own
+ * (SEAT_HOLD_LIMITS).
+ */
+export const GA_CHECKOUT_SESSION_MINUTES = STRIPE_MIN_SESSION_MINUTES + 3;
 
 /**
  * Anonymous rate limits on the card checkout routes: fixed windows on
@@ -786,7 +801,9 @@ export async function takeClientLimit(req: Request, deps: Deps, secret: string |
  * (/checkout/pay?order={orderId}, which reads the session's client secret
  * from GET /orders/by-session/{orderId}/payment). The order id also lets the
  * page cancel it (POST /orders/by-session/{orderId}/cancel) if the buyer goes
- * Back. The session can be paid for an hour (GA_CHECKOUT_SESSION_MINUTES).
+ * Back. The checkout can be paid for CHECKOUT_PAY_MINUTES (15) from now, then
+ * closes for good; Stripe's own session expires a little later
+ * (GA_CHECKOUT_SESSION_MINUTES) as an outer bound.
  *
  * A paid checkout is idempotent per `Idempotency-Key` header (optional for
  * now; ../checkout-attempts.ts): the same key and basket again is a 200 with
@@ -1114,8 +1131,11 @@ export const stripeWebhook: Handler = async (req, _params, deps) => {
 // ---------------------------------------------------------------------------
 
 /**
- * Seat holds (docs/SEATING_PLAN.md decisions 1 and 5): 35 minutes, Stripe's
- * page closing at 31 (its minimum is 30, and the buyer is told 30); per event,
+ * Seat holds (docs/SEATING_PLAN.md decisions 1 and 5): SEAT_HOLD.holdMinutes
+ * (20), five minutes past the checkout's pay deadline (CHECKOUT_PAY_MINUTES,
+ * 15, which is what the buyer is told), when the seats are released anyway;
+ * Stripe's own session expires at 31 minutes (its minimum is 30), an outer
+ * bound only; per event,
  * 120 holds per 10 minutes (refused attempts don't count), and at most the
  * larger of 20 seats or 30% of its unblocked seats held at once.
  *
@@ -1130,7 +1150,7 @@ export const stripeWebhook: Handler = async (req, _params, deps) => {
  */
 export const SEAT_HOLD_LIMITS = {
   hold: `${SEAT_HOLD.holdMinutes} minutes`,
-  stripeSessionMinutes: SEAT_HOLD.stripeMinutes + 1,
+  stripeSessionMinutes: STRIPE_MIN_SESSION_MINUTES + 1,
   attempts: { limit: 120, window: "10 minutes" },
   perClient: { event: 20, allEvents: 60, window: "10 minutes" },
   capMin: 20,
@@ -1178,7 +1198,7 @@ function seatLines(event: EventRecord, seats: ChosenSeat[]): OrderLineItem[] {
  *   holds and payment page back, never a second hold), then one attempt
  *   against the client's own hold allowance (SEAT_HOLD_LIMITS.perClient,
  *   take_seat_hold_attempt, in begin_checkout_attempt), the pending order
- *   and its 35-minute holds in one step (private.hold_seats), then Stripe (an
+ *   and its 20-minute holds in one step (private.hold_seats), then Stripe (an
  *   embedded session expiring 31 minutes after the order was made; a Stripe
  *   error, or no client secret, releases the holds; no answer from Stripe
  *   keeps them for a retry with the same key). 201 `{url, holdExpiresAt,
@@ -1354,17 +1374,63 @@ async function createSeatedCheckout(
   });
 }
 
-/** Stripe's answer to expiring a session that can't be expired (already complete or expired). */
-async function expireCheckoutSession(deps: Deps, sessionId: string): Promise<"expired" | "complete"> {
+/** What Stripe said when asked to close a Checkout Session (closeStripeSession). */
+export type StripeSessionClose = { state: "expired" } | { state: "complete"; paid: boolean };
+
+/**
+ * Asks Stripe to expire Checkout Session `sessionId`, so it can't be paid any
+ * more: `expired` (now, or it already was) or `complete` (Stripe already has
+ * the payment; `paid` once it has cleared). Stripe refuses to expire a
+ * session that isn't open, so on a refusal the session's status is read to
+ * tell which. Throws when Stripe can't be asked, or the session is somehow
+ * still open (e.g. its payment is under way): nothing may be released then.
+ * `options` (the sweeper's bounded timeout) is passed to both calls; the
+ * buyer's own requests send none.
+ */
+export async function closeStripeSession(
+  deps: Deps,
+  sessionId: string,
+  options?: Stripe.RequestOptions,
+): Promise<StripeSessionClose> {
+  const sessions = deps.stripe().checkout.sessions;
   try {
-    await deps.stripe().checkout.sessions.expire(sessionId);
-    return "expired";
+    if (options) await sessions.expire(sessionId, {}, options);
+    else await sessions.expire(sessionId);
+    return { state: "expired" };
   } catch (err) {
-    const session = await deps.stripe().checkout.sessions.retrieve(sessionId);
-    if (session.status === "expired") return "expired";
-    if (session.status === "complete") return "complete";
+    const session = options ? await sessions.retrieve(sessionId, {}, options) : await sessions.retrieve(sessionId);
+    if (session.status === "expired") return { state: "expired" };
+    if (session.status === "complete") return { state: "complete", paid: session.payment_status === "paid" };
     throw err;
   }
+}
+
+/** What closing a pending card checkout came to (closePendingCheckout). */
+type CheckoutClose =
+  | { kind: "complete"; paid: boolean }
+  | { kind: "released" }
+  /** The order wasn't pending any more (paid, refunded, being refunded; or gone): nothing changed. */
+  | { kind: "settled"; status: string };
+
+/**
+ * Closes a pending card checkout for good: Stripe's session (if it has one)
+ * is expired first, so nothing can be paid for seats that are no longer
+ * held, then the order is failed and a seated order's holds released
+ * (private.release_seat_holds, which changes nothing unless the order is
+ * still pending). A session Stripe reports complete is left alone: Stripe has
+ * the payment and the webhook settles it. Shared by Back from the payment
+ * page (cancelPendingOrder) and the pay deadline (getOrderPayment). Throws
+ * when Stripe can't be asked (closeStripeSession): nothing is released then.
+ */
+async function closePendingCheckout(deps: Deps, orderId: string, sessionId: string | null): Promise<CheckoutClose> {
+  if (sessionId) {
+    const closed = await closeStripeSession(deps, sessionId);
+    if (closed.state === "complete") return { kind: "complete", paid: closed.paid };
+  }
+  const [released] = await deps.db.query<{ result: string }>(`select private.release_seat_holds($1) as result`, [orderId]);
+  return released.result === "released" || released.result === "failed"
+    ? { kind: "released" }
+    : { kind: "settled", status: released.result };
 }
 
 /**
@@ -1380,7 +1446,7 @@ async function expireCheckoutSession(deps: Deps, sessionId: string): Promise<"ex
  * that made the order: the checkout's response, the payment page's URL and
  * Stripe's return URL. A paid order is never changed here, and the session
  * is expired before anything is released, so nothing can be paid for seats
- * that are no longer held.
+ * that are no longer held (closePendingCheckout).
  */
 export const cancelPendingOrder: Handler<{ sessionId: string }> = async (_req, { sessionId }, deps) => {
   if (!ORDER_ID_PATTERN.test(sessionId)) throw new HttpError(404, ORDER_NOT_FOUND);
@@ -1407,17 +1473,10 @@ export const cancelPendingOrder: Handler<{ sessionId: string }> = async (_req, {
   if (!row.stripe_checkout_session_id) {
     throw new HttpError(409, "This checkout is still being set up. Try again in a moment.");
   }
-  if ((await expireCheckoutSession(deps, row.stripe_checkout_session_id)) === "complete") return answer("processing");
-  const [released] = await deps.db.query<{ result: string }>(`select private.release_seat_holds($1) as result`, [sessionId]);
-  switch (released.result) {
-    case "released":
-    case "failed":
-      return answer("released");
-    case "paid":
-      return answer("paid");
-    default:
-      return answer("processing");
-  }
+  const closed = await closePendingCheckout(deps, sessionId, row.stripe_checkout_session_id);
+  if (closed.kind === "released") return answer("released");
+  if (closed.kind === "settled" && closed.status === "paid") return answer("paid");
+  return answer("processing");
 };
 
 /**
@@ -1453,6 +1512,9 @@ async function openOrderState(db: Db, orderId: string, eventId: string, lineItem
   return { soldOut, seats: row.seats ?? [] };
 }
 
+/** An order the payment page answers `done` for: paid, refunded, or being refunded (Stripe isn't asked). */
+const SETTLED_ORDER_STATUSES: ReadonlySet<string> = new Set(["paid", "refunded", "oversold_refund_required"]);
+
 /** The payment page's lines: all-inclusive amounts from lib/fees.ts, whether each includes a fee, and each seated tier's seats. */
 function paymentLines(lineItems: OrderLineItem[], seats: (TicketSeat & { ticketTypeId: string })[]): OrderPaymentLine[] {
   return lineItems.map((line) => {
@@ -1481,20 +1543,33 @@ function paymentLines(lineItems: OrderLineItem[], seats: (TicketSeat & { ticketT
  * - malformed id: 404, no query. Then one hit on the client's allowance
  *   (CHECKOUT_RATE_LIMITS.paymentPerClient; 429 over it). Unknown, or a
  *   guest's free booking (not a card checkout): 404.
- * - `paid`, `refunded`, `oversold_refund_required`: `done`. `failed`: `closed`.
+ * - `paid`, `refunded`, `oversold_refund_required`: `done`. `failed`:
+ *   `closed` (reason `time_up` once its pay deadline has passed, else
+ *   `ended`).
+ * - The pay deadline (the order's creation plus CHECKOUT_PAY_MINUTES, by the
+ *   database's clock) has passed and the order is still pending: it's closed
+ *   for good here, as Back from the payment page does (closePendingCheckout):
+ *   Stripe's session is expired (one hit on the order's allowance first,
+ *   429 over it), then the order is failed and its seats released: `closed`,
+ *   reason `time_up`. Stripe already holding the payment (the session is
+ *   complete) is `processing` and changes nothing. If Stripe can't be asked,
+ *   the answer is still `closed` (`time_up`), nothing is released, and the
+ *   sweeper (./checkout-expiry.ts) tries again.
  * - pending without its Stripe session yet: 409 (as the cancel route).
  * - otherwise one hit on the order's allowance (paymentPerOrder; 429 over
  *   it), then Stripe's session: `complete` → `processing` (`delayed` while
- *   the payment hasn't cleared); `expired`, or past its expiry → `closed`;
- *   `open` → `open` with the client secret and the summary, unless the
- *   event is no longer bookable (`closed`: not published, so unpublished by
- *   its organiser or an admin, or its organiser suspended, which is what
- *   private.fulfil_order refuses; or ended, `ends_at <= now()` as for new
- *   orders), or the tickets or seats have gone to someone else since
- *   (`sold_out`, not binding: openOrderState).
- * Writes nothing but its rate-limit counters (the webhook alone settles
- * orders) and logs nothing about the order or the secret. `private,
- * no-store`: the client secret is in it.
+ *   the payment hasn't cleared); `expired`, or past its own expiry → `closed`
+ *   (`ended`); `open` → `open` with the client secret, `expiresAt` (the pay
+ *   deadline, or Stripe's expiry if that were sooner), `serverTime` and the
+ *   summary, unless the event is no longer bookable (`closed`,
+ *   `unavailable`: not published, so unpublished by its organiser or an
+ *   admin, or its organiser suspended, which is what private.fulfil_order
+ *   refuses; or ended, `ends_at <= now()` as for new orders), or the tickets
+ *   or seats have gone to someone else since (`sold_out`, not binding:
+ *   openOrderState).
+ * Before the deadline it writes nothing but its rate-limit counters (the
+ * webhook alone settles orders); it never logs anything about the order or
+ * the secret. `private, no-store`: the client secret is in it.
  */
 export const getOrderPayment: Handler<{ sessionId: string }> = async (req, { sessionId }, deps) => {
   if (!ORDER_ID_PATTERN.test(sessionId)) throw new HttpError(404, ORDER_NOT_FOUND);
@@ -1525,29 +1600,57 @@ export const getOrderPayment: Handler<{ sessionId: string }> = async (req, { ses
     event_time_zone: string | null;
     event_refund_policy: RefundPolicy | null;
     event_refund_days: number | null;
+    pay_deadline: string | Date;
+    pay_time_up: boolean;
+    server_now: string | Date;
   }>(
     `select o.status::text as status, o.stripe_checkout_session_id, o.confirmation_token_hash is not null as free_link,
             o.event_id, o.event_title, o.line_items, o.seat_ids, o.subtotal_cents, o.buyer_fee_cents, o.total_cents,
             o.support_cents, e.slug as event_slug, e.status::text as event_status, e.ends_at <= now() as event_ended, e.starts_at as event_starts_at,
             e.ends_at as event_ends_at, e.venue_name as event_venue_name, e.suburb as event_suburb,
             e.state as event_state, e.time_zone as event_time_zone,
-            e.refund_policy as event_refund_policy, e.refund_days as event_refund_days
+            e.refund_policy as event_refund_policy, e.refund_days as event_refund_days,
+            o.created_at + make_interval(mins => $2::integer) as pay_deadline,
+            o.created_at + make_interval(mins => $2::integer) <= now() as pay_time_up,
+            now() as server_now
        from public.orders o
        left join public.events e on e.id = o.event_id
       where o.id = $1`,
-    [sessionId],
+    [sessionId, CHECKOUT_PAY_MINUTES],
   );
   // A guest's free booking isn't a card checkout: nothing to pay here.
   if (!row || row.free_link) throw new HttpError(404, ORDER_NOT_FOUND);
   const answer = (lookup: OrderPaymentLookup) => okPrivate(lookup);
   const seated = row.seat_ids !== null;
-  const ended = (status: "closed" | "sold_out") =>
-    answer({ status, eventTitle: row.event_title, ...(row.event_slug ? { eventSlug: row.event_slug } : {}), seated });
+  const context = { eventTitle: row.event_title, ...(row.event_slug ? { eventSlug: row.event_slug } : {}), seated };
+  const closed = (reason: CheckoutClosedReason) => answer({ status: "closed", reason, ...context });
 
-  if (row.status === "paid" || row.status === "refunded" || row.status === "oversold_refund_required") {
-    return answer({ status: "done" });
+  if (SETTLED_ORDER_STATUSES.has(row.status)) return answer({ status: "done" });
+  if (row.status === "failed") return closed(row.pay_time_up ? "time_up" : "ended");
+  // Time's up (by the database's clock, as the sweeper judges it): closed for good, whatever Stripe's own expiry says.
+  if (row.pay_time_up) {
+    // Stripe is asked (to expire the session) only when there is one: at most so many a minute per order.
+    if (
+      row.stripe_checkout_session_id &&
+      secret &&
+      !(await takeKeyedLimit(deps.db, orderKey(sessionId, secret), CHECKOUT_RATE_LIMITS.paymentPerOrder))
+    ) {
+      throw new HttpError(429, PAYMENT_BUSY);
+    }
+    let result: CheckoutClose;
+    try {
+      // No session (a checkout that failed to make one and was kept for a retry): nothing to expire, just released.
+      result = await closePendingCheckout(deps, sessionId, row.stripe_checkout_session_id);
+    } catch (err) {
+      // Still closed to the buyer; nothing was released, and the sweeper tries again. No order or session id logged.
+      console.warn(`Payment page: couldn't close a checkout past its pay deadline (${stripeErrorLabel(err)}); the sweeper will retry.`);
+      return closed("time_up");
+    }
+    if (result.kind === "complete") return answer({ status: "processing", delayed: !result.paid });
+    // Settled meanwhile (the webhook won the race): paid, refunded or being refunded.
+    if (result.kind === "settled" && SETTLED_ORDER_STATUSES.has(result.status)) return answer({ status: "done" });
+    return closed("time_up");
   }
-  if (row.status === "failed") return ended("closed");
   if (!row.stripe_checkout_session_id) {
     throw new HttpError(409, "This checkout is still being set up. Try again in a moment.");
   }
@@ -1559,21 +1662,25 @@ export const getOrderPayment: Handler<{ sessionId: string }> = async (req, { ses
   const session = await deps.stripe().checkout.sessions.retrieve(row.stripe_checkout_session_id);
   if (session.status === "complete") return answer({ status: "processing", delayed: session.payment_status !== "paid" });
   // Past its expiry, it can't be paid even if Stripe hasn't closed it yet.
-  if (session.status !== "open" || session.expires_at * 1000 <= Date.now()) return ended("closed");
+  if (session.status !== "open" || session.expires_at * 1000 <= Date.now()) return closed("ended");
   // No form for an event that's gone or over. Not binding (a payment already
   // under way is still settled by the webhook: refunded if unpublished,
   // honoured if ended, as private.fulfil_order decides), only so nobody is
   // offered tickets they can't use.
-  if (row.event_status !== "published" || row.event_ended !== false) return ended("closed");
+  if (row.event_status !== "published" || row.event_ended !== false) return closed("unavailable");
   if (!session.client_secret) throw new Error("Stripe returned an open Checkout Session without a client secret.");
 
   const state = await openOrderState(deps.db, sessionId, row.event_id, row.line_items, row.seat_ids);
-  if (state.soldOut) return ended("sold_out");
+  if (state.soldOut) return answer({ status: "sold_out", ...context });
+  // The pay deadline, or Stripe's own expiry if that were ever sooner: the form can't be paid past either.
+  const expiresAtMs = Math.min(new Date(row.pay_deadline).getTime(), session.expires_at * 1000);
   // The event is published (checked above), so its date and venue are public.
   return answer({
     status: "open",
     clientSecret: session.client_secret,
-    expiresAt: new Date(session.expires_at * 1000).toISOString(),
+    expiresAt: new Date(expiresAtMs).toISOString(),
+    // The database's clock, which judges the deadline: a countdown can allow for a client clock that's off.
+    serverTime: new Date(row.server_now).toISOString(),
     eventTitle: row.event_title,
     ...(row.event_slug ? { eventSlug: row.event_slug } : {}),
     ...(row.event_starts_at ? { eventStartsAt: new Date(row.event_starts_at).toISOString() } : {}),

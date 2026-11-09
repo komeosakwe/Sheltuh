@@ -193,7 +193,7 @@ describe("/checkout/cancelled (§5.12)", () => {
     cancelPendingOrder.mockResolvedValueOnce({ status: "released", eventTitle: "Off-Kilter" });
     render(<CheckoutCancelled />);
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Couldn’t release your seats. They’re released within 35 minutes. You weren’t charged.",
+      "Couldn’t release your seats. They’re released within 20 minutes. You weren’t charged.",
     );
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByText("You weren’t charged. Your seats were released.")).toBeInTheDocument();

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type Stripe from "stripe";
+import { CHECKOUT_PAY_MINUTES } from "@/lib/api/types";
 import { calculateBookingFeeCents } from "@/lib/fees";
 import { formatSeatLine } from "@/lib/seating/format";
 import { SUPPORT_LABEL } from "@/lib/support";
@@ -50,12 +51,17 @@ export const CHECKOUT_ATTEMPT = {
    * A retry with the same key reuses the pending order a failed try left
    * (Stripe didn't answer) when it's younger than this: the Stripe call is
    * repeated with the same idempotency key and parameters. General
-   * admission's expires_at is fixed at the order's creation plus 60 minutes
-   * (GA_CHECKOUT_SESSION_MINUTES, orders.ts), so a retry within 10 minutes
-   * still sends Stripe one at least 50 minutes ahead (its minimum is 30); 10
-   * minutes is also a bound on reusing an old price snapshot.
+   * admission's expires_at is fixed at the order's creation plus 33 minutes
+   * (GA_CHECKOUT_SESSION_MINUTES, orders.ts), so a retry starting within 2
+   * minutes reaches Stripe, even through its own call's worst case (about 33
+   * seconds, as below), with it still over 30 minutes ahead (Stripe's
+   * minimum). 2 minutes covers the first request's own worst case (it's
+   * answered 503 after up to about 33 seconds) and the client's retry. It
+   * also keeps most of the order's pay window (CHECKOUT_PAY_MINUTES, 15,
+   * from the order's creation) for the buyer, and bounds reusing an old
+   * price snapshot.
    */
-  gaReuseWithin: "10 minutes",
+  gaReuseWithin: "2 minutes",
   /**
    * Seated: the session's expires_at is fixed at the order's creation plus
    * 31 minutes and Stripe refuses one less than 30 minutes ahead, so a
@@ -64,8 +70,8 @@ export const CHECKOUT_ATTEMPT = {
    * in the worst case of its own call (a 15-second timeout, the SDK's backoff
    * of up to 2 seconds, then its one network retry: about 33 seconds in all).
    * Later, the old order and its holds are released and a new order made.
-   * (Shortening this window was chosen over 32-minute seated sessions, which
-   * would change the hold timings buyers are shown: SEAT_HOLD.) A seated order
+   * (Shortening this window was chosen over longer seated sessions, which
+   * were once the time buyers were shown.) A seated order
    * is only kept pending for reuse when the request that made it died (its
    * lease lapsed); after an unknown Stripe outcome it's released at once
    * (runPaidCheckout).
@@ -362,8 +368,10 @@ export interface PaidCheckout {
   stripeAccountId: string;
   /**
    * Stripe's session closes this many seconds after the order was made
-   * (general admission 60 minutes, seated 31): fixed by the order, so a
-   * retry for the same order sends Stripe the very same expires_at.
+   * (general admission 33 minutes, seated 31: Stripe's minimum and a little
+   * more): fixed by the order, so a retry for the same order sends Stripe the
+   * very same expires_at. The checkout's own pay deadline
+   * (CHECKOUT_PAY_MINUTES) comes well before; this is the outer bound.
    */
   sessionSeconds: number;
   /** Makes pending order `orderId` (and, seated, its holds): throws on a refusal, having written nothing. */
@@ -698,7 +706,7 @@ export async function runPaidCheckout(deps: Deps, checkout: PaidCheckout): Promi
       // General admission: keep the order (it holds nothing) for a retry with the same key: the same Stripe
       // idempotency key then returns the session if this call made one. Seated: release the order and its
       // holds now. The client never got the order id, so nothing else could release them before they lapse
-      // (35 minutes), and a retry with the same key holds the seats again under a new order. A session
+      // (SEAT_HOLD.holdMinutes), and a retry with the same key holds the seats again under a new order. A session
       // Stripe may have made for the released order is never shown to anyone (the payment page needs a
       // session recorded on a pending order), and a payment for a failed order is refunded in full by the
       // webhook (refundPaymentForFailedOrder, orders.ts).
@@ -730,10 +738,13 @@ export async function runPaidCheckout(deps: Deps, checkout: PaidCheckout): Promi
   // it with GET …/payment, so it survives a reload and is never stored).
   const url = paymentPageUrl(orderId);
 
-  const expiresAt =
+  const stripeExpiresAt =
     typeof session.expires_at === "number"
       ? session.expires_at
       : (params.expires_at ?? Math.floor(Date.now() / 1000) + 24 * 60 * 60); // Stripe's default: 24 hours
+  // The attempt replays only until the checkout's pay deadline (or Stripe's expiry, if that were sooner): after it,
+  // the same key is 409 checkout_expired ("start a new checkout"), never a payment page that has closed.
+  const expiresAt = Math.min(stripeExpiresAt, order.created_epoch + CHECKOUT_PAY_MINUTES * 60);
   const [finished] = await db.query<{ result: string }>(
     `select private.finish_checkout_attempt($1, $2::uuid, $3::uuid, $4, $5, to_timestamp($6::float8), $7::timestamptz) as result`,
     [checkout.event.eventId, checkout.key, lease, session.id, url, expiresAt, order.hold_expires_at],

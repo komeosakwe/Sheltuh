@@ -109,7 +109,7 @@ async function mockApi(page: Page, { takenAtCheckout }: { takenAtCheckout?: stri
         status: 201,
         json: {
           url: `/checkout/pay?order=${ORDER_ID}`,
-          holdExpiresAt: new Date(Date.now() + 35 * 60_000).toISOString(),
+          holdExpiresAt: new Date(Date.now() + 20 * 60_000).toISOString(),
           orderId: ORDER_ID,
         },
       });
@@ -192,7 +192,7 @@ for (const vp of [
       await seatBar.getByRole("button", { name: /2 seats/ }).click();
       await expect(page.getByRole("heading", { name: "Your seats" })).toBeFocused();
       await expect(seatBar).toContainText("North · Row A · Seat 1");
-      await expect(seatBar).toContainText("Checkout holds your seats for 30 minutes while you pay.");
+      await expect(seatBar).toContainText("Checkout holds your seats for 15 minutes while you pay.");
 
       const checkout = seatBar.getByRole("button", { name: "Checkout" });
       await expect(checkout).toBeVisible();

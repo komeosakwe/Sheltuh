@@ -3,6 +3,7 @@
   "regions": ["syd1"],
   "crons": [
     { "path": "/api/cron/email-outbox", "schedule": "0 21 * * *" },
-    { "path": "/api/cron/payouts", "schedule": "30 21 * * *" }
+    { "path": "/api/cron/payouts", "schedule": "30 21 * * *" },
+    { "path": "/api/cron/checkout-expiry", "schedule": "*/2 * * * *" }
   ]
 }

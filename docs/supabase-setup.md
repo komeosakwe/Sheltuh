@@ -1410,12 +1410,17 @@ you edit it and redeploy:
    ```json
    {
      "$schema": "https://openapi.vercel.sh/vercel.json",
+     "regions": ["syd1"],
      "crons": [
        { "path": "/api/cron/email-outbox", "schedule": "*/5 * * * *" },
-       { "path": "/api/cron/payouts", "schedule": "30 * * * *" }
+       { "path": "/api/cron/payouts", "schedule": "30 * * * *" },
+       { "path": "/api/cron/checkout-expiry", "schedule": "*/2 * * * *" }
      ]
    }
    ```
+
+   (`vercel.json` already schedules `/api/cron/checkout-expiry` every 2
+   minutes, which is what needs Pro: keep it, and `regions`, when you edit.)
 
 2. Commit, deploy, and check Vercel → Project → Settings → Cron Jobs shows
    every 5 minutes.

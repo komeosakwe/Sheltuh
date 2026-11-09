@@ -102,8 +102,9 @@ describe("holding seats at checkout (paid)", () => {
     expect(res.headers.get("cache-control")).toBe("private, no-store");
     expect(Object.keys(res.body).sort()).toEqual(["holdExpiresAt", "orderId", "url"]);
     const holdMs = Date.parse(res.body.holdExpiresAt) - before;
-    expect(holdMs).toBeGreaterThan(34 * 60_000);
-    expect(holdMs).toBeLessThan(36 * 60_000);
+    // 20 minutes: five past the 15-minute pay deadline (SEAT_HOLD), when the seats are released anyway.
+    expect(holdMs).toBeGreaterThan(19 * 60_000);
+    expect(holdMs).toBeLessThan(21 * 60_000);
 
     const params = api.stripe.checkout.sessions.create.mock.calls[0][0];
     const orderId = params.client_reference_id;
@@ -614,7 +615,7 @@ describe("general admission is unchanged", () => {
     expect(res.headers.get("cache-control")).toBe("private, no-store");
     const params = api.stripe.checkout.sessions.create.mock.lastCall![0];
     expect(res.body.orderId).toBe(params.client_reference_id);
-    // An hour (GA_CHECKOUT_SESSION_MINUTES), not the seats' 31 minutes: nothing is held for it.
+    // 33 minutes (GA_CHECKOUT_SESSION_MINUTES), not the seats' 31: general admission's own Stripe expiry.
     expect(params.expires_at * 1000 - before).toBeGreaterThan((GA_CHECKOUT_SESSION_MINUTES - 1) * 60_000);
     expect(params.expires_at * 1000 - before).toBeLessThanOrEqual(GA_CHECKOUT_SESSION_MINUTES * 60_000 + 1000);
     expect(params).not.toHaveProperty("cancel_url");
