@@ -1588,6 +1588,10 @@ export const getOrderPayment: Handler<{ sessionId: string }> = async (req, { ses
   if (!(await takeClientLimit(req, deps, secret, CHECKOUT_RATE_LIMITS.paymentPerClient, "Payment page read"))) {
     throw new HttpError(429, PAYMENT_BUSY);
   }
+  // Taken just before `server_now` is read (by this process's clock): the answer's serverTime is moved on
+  // by everything since, the query included (a slow Stripe call, a slow read), so the countdown never shows
+  // time that's already gone. If anything it shows a little less.
+  const sampledAt = Date.now();
   const [row] = await deps.db.query<{
     status: OrderStatus;
     stripe_checkout_session_id: string | null;
@@ -1629,9 +1633,6 @@ export const getOrderPayment: Handler<{ sessionId: string }> = async (req, { ses
       where o.id = $1`,
     [sessionId, CHECKOUT_PAY_MINUTES],
   );
-  // When `server_now` was read, by this process's clock: the answer's serverTime is moved on by the time
-  // spent since (a slow Stripe call), so the countdown never shows time that's already gone.
-  const sampledAt = Date.now();
   // A guest's free booking isn't a card checkout: nothing to pay here.
   if (!row || row.free_link) throw new HttpError(404, ORDER_NOT_FOUND);
   const answer = (lookup: OrderPaymentLookup) => okPrivate(lookup);
