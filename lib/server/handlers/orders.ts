@@ -506,7 +506,7 @@ async function refundPaymentForFailedOrder(
 }
 
 /** Stripe answered that the object doesn't exist (HTTP 404, code resource_missing): the only failure that proves a payment isn't ours. */
-function isStripeNotFound(err: unknown): boolean {
+export function isStripeNotFound(err: unknown): boolean {
   const { statusCode, code } = (typeof err === "object" && err !== null ? err : {}) as { statusCode?: unknown; code?: unknown };
   return statusCode === 404 || code === "resource_missing";
 }
@@ -1378,27 +1378,35 @@ async function createSeatedCheckout(
 export type StripeSessionClose = { state: "expired" } | { state: "complete"; paid: boolean };
 
 /**
+ * Every Stripe call the buyer's own checkout requests make (the payment
+ * page's GET …/payment, and the cancel route): at most 10 seconds each and
+ * one network retry, so a slow Stripe can't hold a buyer's request open
+ * (the routes' maxDuration is 60 seconds; closing a session is at most two
+ * calls). The sweeper has its own, with no retry (./checkout-expiry.ts).
+ */
+export const BUYER_STRIPE_REQUEST = { timeout: 10_000, maxNetworkRetries: 1 } as const;
+
+/**
  * Asks Stripe to expire Checkout Session `sessionId`, so it can't be paid any
  * more: `expired` (now, or it already was) or `complete` (Stripe already has
  * the payment; `paid` once it has cleared). Stripe refuses to expire a
  * session that isn't open, so on a refusal the session's status is read to
- * tell which. Throws when Stripe can't be asked, or the session is somehow
- * still open (e.g. its payment is under way): nothing may be released then.
- * `options` (the sweeper's bounded timeout) is passed to both calls; the
- * buyer's own requests send none.
+ * tell which. Throws when Stripe can't be asked, says the session doesn't
+ * exist (isStripeNotFound), or the session is somehow still open (e.g. its
+ * payment is under way): nothing may be released then. `options` bound both
+ * calls (BUYER_STRIPE_REQUEST, or the sweeper's).
  */
 export async function closeStripeSession(
   deps: Deps,
   sessionId: string,
-  options?: Stripe.RequestOptions,
+  options: Stripe.RequestOptions,
 ): Promise<StripeSessionClose> {
   const sessions = deps.stripe().checkout.sessions;
   try {
-    if (options) await sessions.expire(sessionId, {}, options);
-    else await sessions.expire(sessionId);
+    await sessions.expire(sessionId, {}, options);
     return { state: "expired" };
   } catch (err) {
-    const session = options ? await sessions.retrieve(sessionId, {}, options) : await sessions.retrieve(sessionId);
+    const session = await sessions.retrieve(sessionId, {}, options);
     if (session.status === "expired") return { state: "expired" };
     if (session.status === "complete") return { state: "complete", paid: session.payment_status === "paid" };
     throw err;
@@ -1424,7 +1432,7 @@ type CheckoutClose =
  */
 async function closePendingCheckout(deps: Deps, orderId: string, sessionId: string | null): Promise<CheckoutClose> {
   if (sessionId) {
-    const closed = await closeStripeSession(deps, sessionId);
+    const closed = await closeStripeSession(deps, sessionId, BUYER_STRIPE_REQUEST);
     if (closed.state === "complete") return { kind: "complete", paid: closed.paid };
   }
   const [released] = await deps.db.query<{ result: string }>(`select private.release_seat_holds($1) as result`, [orderId]);
@@ -1552,9 +1560,12 @@ function paymentLines(lineItems: OrderLineItem[], seats: (TicketSeat & { ticketT
  *   Stripe's session is expired (one hit on the order's allowance first,
  *   429 over it), then the order is failed and its seats released: `closed`,
  *   reason `time_up`. Stripe already holding the payment (the session is
- *   complete) is `processing` and changes nothing. If Stripe can't be asked,
- *   the answer is still `closed` (`time_up`), nothing is released, and the
- *   sweeper (./checkout-expiry.ts) tries again.
+ *   complete) is `processing` and changes nothing. If Stripe can't be asked
+ *   (or the session won't expire, or isn't found), it's `closed` with reason
+ *   `unconfirmed`: the buyer may have paid in the last seconds, so the page
+ *   never says they weren't charged; nothing is released, and the sweeper
+ *   (./checkout-expiry.ts) tries again. Stripe calls here are bounded
+ *   (BUYER_STRIPE_REQUEST).
  * - pending without its Stripe session yet: 409 (as the cancel route).
  * - otherwise one hit on the order's allowance (paymentPerOrder; 429 over
  *   it), then Stripe's session: `complete` → `processing` (`delayed` while
@@ -1642,9 +1653,11 @@ export const getOrderPayment: Handler<{ sessionId: string }> = async (req, { ses
       // No session (a checkout that failed to make one and was kept for a retry): nothing to expire, just released.
       result = await closePendingCheckout(deps, sessionId, row.stripe_checkout_session_id);
     } catch (err) {
-      // Still closed to the buyer; nothing was released, and the sweeper tries again. No order or session id logged.
+      // We couldn't learn from Stripe whether the buyer paid in the last seconds (Stripe unreachable, the session
+      // still open with a payment under way, or not found): never "you haven't been charged". Nothing was
+      // released; the sweeper tries again, and the webhook settles a payment. No order or session id logged.
       console.warn(`Payment page: couldn't close a checkout past its pay deadline (${stripeErrorLabel(err)}); the sweeper will retry.`);
-      return closed("time_up");
+      return closed("unconfirmed");
     }
     if (result.kind === "complete") return answer({ status: "processing", delayed: !result.paid });
     // Settled meanwhile (the webhook won the race): paid, refunded or being refunded.
@@ -1659,7 +1672,7 @@ export const getOrderPayment: Handler<{ sessionId: string }> = async (req, { ses
   if (secret && !(await takeKeyedLimit(deps.db, orderKey(sessionId, secret), CHECKOUT_RATE_LIMITS.paymentPerOrder))) {
     throw new HttpError(429, PAYMENT_BUSY);
   }
-  const session = await deps.stripe().checkout.sessions.retrieve(row.stripe_checkout_session_id);
+  const session = await deps.stripe().checkout.sessions.retrieve(row.stripe_checkout_session_id, {}, BUYER_STRIPE_REQUEST);
   if (session.status === "complete") return answer({ status: "processing", delayed: session.payment_status !== "paid" });
   // Past its expiry, it can't be paid even if Stripe hasn't closed it yet.
   if (session.status !== "open" || session.expires_at * 1000 <= Date.now()) return closed("ended");

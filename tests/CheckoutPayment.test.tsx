@@ -798,6 +798,13 @@ describe("CheckoutPayment: other answers", () => {
       ["Back to Sheltüh", "/"],
     ],
     [
+      "unconfirmed (the server couldn't ask Stripe), seated",
+      { status: "closed", reason: "unconfirmed", eventTitle: "Off-Kilter", eventSlug: "off-kilter", seated: true },
+      "We couldn’t confirm your payment",
+      "Check your email for tickets before trying again.",
+      ["Back to the event", "/events/off-kilter"],
+    ],
+    [
       "unavailable (the event can't be booked right now), seated",
       { status: "closed", reason: "unavailable", eventTitle: "Off-Kilter", eventSlug: "off-kilter", seated: true },
       "This checkout has closed",
@@ -1166,6 +1173,55 @@ describe("CheckoutPayment: the countdown (15 minutes to pay)", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Time’s up" })).toBeInTheDocument();
     expect(screen.queryByRole("alert")).toBeNull();
     expect(STRIPE.createEmbeddedCheckoutPage).toHaveBeenCalledTimes(1);
+  });
+
+  it("unconfirmed after zero: replaces time's up (never 'not charged'), asks again every 10 s, and goes to the order once Stripe has it", async () => {
+    vi.useFakeTimers();
+    const unconfirmed = { status: "closed", reason: "unconfirmed", eventTitle: "Neon Static", eventSlug: "neon-static", seated: false } as const;
+    getOrderPayment
+      .mockResolvedValueOnce(openFor(5_000))
+      .mockResolvedValueOnce(unconfirmed)
+      .mockResolvedValueOnce(unconfirmed)
+      .mockResolvedValue({ status: "processing", delayed: false });
+    render(<CheckoutPayment />);
+    await advance(0);
+    await advance(5_000);
+    expect(screen.getByRole("heading", { level: 1, name: "Time’s up" })).toBeInTheDocument();
+    await advance(1_000);
+    const h1 = screen.getByRole("heading", { level: 1, name: "We couldn’t confirm your payment" });
+    expect(h1).toHaveFocus();
+    expect(screen.getByText("Check your email for tickets before trying again.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Back to the event" })).toHaveAttribute("href", "/events/neon-static");
+    // Nothing on the page, or left in the live region, says the buyer wasn't charged.
+    expect(document.body.textContent).not.toMatch(/haven’t been charged/);
+    expect(announcer()).toBeEmptyDOMElement();
+    expect(stripeFrame()).toBeNull();
+    expect(getOrderPayment).toHaveBeenCalledTimes(2);
+    await advance(10_000);
+    expect(getOrderPayment).toHaveBeenCalledTimes(3);
+    expect(screen.getByRole("heading", { level: 1, name: "We couldn’t confirm your payment" })).toBeInTheDocument();
+    await advance(10_000);
+    expect(replace).toHaveBeenCalledWith(`/checkout/success?session_id=${ORDER_ID}`);
+  });
+
+  it("unconfirmed: asked again at most 3 times, then left; a later time's up answer says time's up", async () => {
+    vi.useFakeTimers();
+    const unconfirmed = { status: "closed", reason: "unconfirmed", eventTitle: "Neon Static", eventSlug: "neon-static", seated: false } as const;
+    getOrderPayment.mockResolvedValue(unconfirmed);
+    render(<CheckoutPayment />);
+    await advance(0);
+    expect(screen.getByRole("heading", { level: 1, name: "We couldn’t confirm your payment" })).toBeInTheDocument();
+    for (let i = 0; i < 5; i++) await advance(10_000);
+    expect(getOrderPayment).toHaveBeenCalledTimes(4);
+    expect(STRIPE.createEmbeddedCheckoutPage).not.toHaveBeenCalled();
+
+    // Once the server has closed it for good (Stripe answered), a re-read (back/forward) says time's up.
+    getOrderPayment.mockResolvedValue({ ...unconfirmed, reason: "time_up" });
+    await act(async () => {
+      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+    });
+    await advance(0);
+    expect(screen.getByRole("heading", { level: 1, name: "Time’s up" })).toBeInTheDocument();
   });
 
   it("a device that slept past the deadline: on waking, time's up straight away and the server is asked again", async () => {

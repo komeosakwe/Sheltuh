@@ -6,6 +6,7 @@ import {
   createCheckout,
   GA_CHECKOUT_SESSION_MINUTES,
   getOrderBySession,
+  BUYER_STRIPE_REQUEST,
   SEAT_HOLD_LIMITS,
   stripeWebhook,
 } from "@/lib/server/handlers/orders";
@@ -435,7 +436,7 @@ describe("cancelling a seated checkout (the buyer left Stripe's page)", () => {
     expect(await seatStates(api, event.eventId)).toMatchObject({ A1: `held:${res.body.orderId}`, A2: `held:${res.body.orderId}` });
     const cancelled = await cancel(res.body.orderId);
     expect(cancelled.body).toEqual({ status: "released", eventTitle: "Neon Static", eventSlug: event.slug });
-    expect(api.stripe.checkout.sessions.expire).toHaveBeenCalledWith("cs_test_1");
+    expect(api.stripe.checkout.sessions.expire).toHaveBeenCalledWith("cs_test_1", {}, BUYER_STRIPE_REQUEST);
     expect(await seatStates(api, event.eventId)).toMatchObject({ A1: "free", A2: "free" });
     // Someone else can have them straight away.
     expect((await checkout(seats(["A1"]))).status).toBe(201);
@@ -457,7 +458,7 @@ describe("cancelling a seated checkout (the buyer left Stripe's page)", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("cache-control")).toBe("private, no-store");
     expect(res.body).toEqual({ status: "released", eventTitle: "Neon Static", eventSlug: event.slug });
-    expect(api.stripe.checkout.sessions.expire).toHaveBeenCalledWith("cs_test_1");
+    expect(api.stripe.checkout.sessions.expire).toHaveBeenCalledWith("cs_test_1", {}, BUYER_STRIPE_REQUEST);
     expect(await seatStates(api, event.eventId)).toMatchObject({ A1: "free", A2: "free" });
     expect((await orders())[0].status).toBe("failed");
     expect((await cancel(order.id)).body.status).toBe("released");

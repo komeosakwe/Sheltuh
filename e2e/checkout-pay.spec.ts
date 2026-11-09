@@ -423,6 +423,23 @@ test.describe("15 minutes to pay, on a 375px phone", () => {
     await expect(page).toHaveURL(new RegExp(`/events/${sample!.slug}#tickets$`));
   });
 
+  test("time runs out but the server couldn't ask Stripe: we couldn't confirm your payment, never 'not charged'", async ({ page }) => {
+    await stubStripeJs(page);
+    await mockApi(page, {
+      payment: (call) => (call === 1 ? openPayment(3_000) : { ...timeUp(true), reason: "unconfirmed" }),
+    });
+    await page.goto(`/checkout/pay?order=${ORDER_ID}`);
+    await expect(page.locator(STUB_FRAME)).toBeVisible({ timeout: 30_000 });
+    const h1 = page.getByRole("heading", { level: 1, name: "We couldn’t confirm your payment" });
+    await expect(h1).toBeVisible({ timeout: 10_000 });
+    await expect(h1).toBeFocused();
+    await expect(page.getByText("Check your email for tickets before trying again.", { exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Back to the event" })).toHaveAttribute("href", `/events/${sample!.slug}`);
+    await expect(page.getByText(/haven’t been charged/)).toHaveCount(0);
+    await expect(page.locator(STUB_FRAME)).toHaveCount(0);
+    await noSidewaysScroll(page);
+  });
+
   for (const seated of [false, true]) {
     test(`closed with time's up on arrival (${seated ? "seated" : "general admission"}): the panel, and Stripe's form never made`, async ({ page }) => {
       const stripe = await stubStripeJs(page);

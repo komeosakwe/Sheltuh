@@ -4,12 +4,15 @@ import { CHECKOUT_PAY_MINUTES, SEAT_HOLD } from "@/lib/api/types";
 import { CHECKOUT_ATTEMPT } from "@/lib/server/checkout-attempts";
 import {
   CHECKOUT_EXPIRY_LEASE,
+  CHECKOUT_EXPIRY_MAX_MISSING,
   CHECKOUT_EXPIRY_RUN,
+  CHECKOUT_EXPIRY_STALE_COMPLETE,
   CHECKOUT_EXPIRY_STRIPE_REQUEST,
   runCheckoutExpiry,
   runCheckoutExpiryCron,
 } from "@/lib/server/handlers/checkout-expiry";
 import {
+  BUYER_STRIPE_REQUEST,
   cancelPendingOrder,
   createCheckout,
   GA_CHECKOUT_SESSION_MINUTES,
@@ -136,6 +139,13 @@ async function completed(orderId: string, paymentIntent = "pi_late_1") {
 }
 
 const stripeDown = () => new Stripe.errors.StripeConnectionError({ message: "connection refused" });
+const notFound = () =>
+  new Stripe.errors.StripeInvalidRequestError({
+    message: "No such checkout.session",
+    type: "invalid_request_error",
+    code: "resource_missing",
+    statusCode: 404,
+  });
 const notExpirable = () =>
   new Stripe.errors.StripeInvalidRequestError({ message: "Only Checkout Sessions with a status of open can be expired.", type: "invalid_request_error" });
 
@@ -154,6 +164,10 @@ describe("the timings", () => {
     expect(CHECKOUT_ATTEMPT.gaReuseWithin).toBe("2 minutes");
     expect(CHECKOUT_EXPIRY_RUN).toEqual({ maxOrders: 50, concurrency: 4, budgetMs: 25_000 });
     expect(CHECKOUT_EXPIRY_LEASE).toBe("90 seconds");
+    expect(CHECKOUT_EXPIRY_MAX_MISSING).toBe(24);
+    expect(CHECKOUT_EXPIRY_STALE_COMPLETE).toBe("60 minutes");
+    // The buyer's own requests: bounded too, with one network retry (the routes allow 60 seconds).
+    expect(BUYER_STRIPE_REQUEST).toEqual({ timeout: 10_000, maxNetworkRetries: 1 });
   });
 });
 
@@ -272,7 +286,7 @@ describe("the payment page's deadline (GET /orders/by-session/{id}/payment)", ()
     expect((await order(orderId)).status).toBe("pending");
   });
 
-  it("Stripe can't be asked: still closed (time_up) to the buyer, nothing released, logged without the order or session", async () => {
+  it("Stripe can't be asked: closed as unconfirmed (never \"not charged\"), nothing released, logged without the order or session", async () => {
     const { event } = await seatedEvent(api, organiser, admin);
     const orderId = await seatedOrder(event, ["A1"]);
     const session = await sessionOf(orderId);
@@ -280,7 +294,13 @@ describe("the payment page's deadline (GET /orders/by-session/{id}/payment)", ()
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     api.stripe.checkout.sessions.expire.mockRejectedValueOnce(stripeDown());
     api.stripe.checkout.sessions.retrieve.mockRejectedValueOnce(stripeDown());
-    expect((await payment(orderId)).body).toMatchObject({ status: "closed", reason: "time_up" });
+    expect((await payment(orderId)).body).toStrictEqual({
+      status: "closed",
+      reason: "unconfirmed",
+      eventTitle: "Neon Static",
+      eventSlug: event.slug,
+      seated: true,
+    });
     expect((await order(orderId)).status).toBe("pending");
     expect(await seatStates(api, event.eventId)).toMatchObject({ A1: `held:${orderId}` });
     const logged = JSON.stringify(warn.mock.calls);
@@ -303,6 +323,36 @@ describe("the payment page's deadline (GET /orders/by-session/{id}/payment)", ()
     );
     expect((await payment(orderId)).body).toMatchObject({ status: "closed", reason: "time_up" });
     expect((await order(orderId)).status).toBe("failed");
+  });
+
+  it("a session still open at Stripe (its payment under way, so expire is refused): unconfirmed, nothing released; once paid, it's processing", async () => {
+    const { event } = await seatedEvent(api, organiser, admin);
+    const orderId = await seatedOrder(event, ["A1"]);
+    const session = await sessionOf(orderId);
+    await age(orderId, 16);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    api.stripe.checkout.sessions.expire.mockRejectedValueOnce(notExpirable());
+    api.stripe.checkout.sessions.retrieve.mockResolvedValueOnce(embeddedSession(session, { status: "open", payment_status: "unpaid" }));
+    expect((await payment(orderId)).body).toMatchObject({ status: "closed", reason: "unconfirmed" });
+    expect((await order(orderId)).status).toBe("pending");
+    expect(await seatStates(api, event.eventId)).toMatchObject({ A1: `held:${orderId}` });
+    // Both Stripe calls bounded, like every Stripe call of the buyer's requests.
+    expect(api.stripe.checkout.sessions.expire).toHaveBeenCalledWith(session, {}, BUYER_STRIPE_REQUEST);
+    expect(api.stripe.checkout.sessions.retrieve).toHaveBeenCalledWith(session, {}, BUYER_STRIPE_REQUEST);
+    // The payment went through: the next read finds the session complete.
+    api.stripe.checkout.sessions.expire.mockRejectedValueOnce(notExpirable());
+    api.stripe.checkout.sessions.retrieve.mockResolvedValueOnce(embeddedSession(session, { status: "complete", payment_status: "paid" }));
+    expect((await payment(orderId)).body).toStrictEqual({ status: "processing", delayed: false });
+  });
+
+  it("Stripe says the session doesn't exist: unconfirmed, never released", async () => {
+    const { orderId } = await gaOrder();
+    await age(orderId, 16);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    api.stripe.checkout.sessions.expire.mockRejectedValueOnce(notFound());
+    api.stripe.checkout.sessions.retrieve.mockRejectedValueOnce(notFound());
+    expect((await payment(orderId)).body).toMatchObject({ status: "closed", reason: "unconfirmed" });
+    expect((await order(orderId)).status).toBe("pending");
   });
 
   it("a kept order with no session (Stripe didn't answer, nobody retried): closed past the deadline, not 409, and no Stripe call", async () => {
@@ -419,7 +469,16 @@ describe("the sweeper (GET /api/cron/checkout-expiry)", () => {
     const res = await cron();
     expect(res.status).toBe(200);
     expect(res.headers.get("cache-control")).toBe("private, no-store");
-    expect(res.body).toStrictEqual({ claimed: 3, released: 3, complete: 0, settled: 0, failed: 0, leaseLost: 0 });
+    expect(res.body).toStrictEqual({
+      claimed: 3,
+      released: 3,
+      complete: 0,
+      settled: 0,
+      failed: 0,
+      leaseLost: 0,
+      gaveUp: 0,
+      staleComplete: 0,
+    });
     expect(expireCalls().sort()).toEqual([sessions.ga, sessions.seated].sort());
     // Bounded: each Stripe call has the sweeper's timeout and no automatic retry.
     for (const call of api.stripe.checkout.sessions.expire.mock.calls) {
@@ -451,7 +510,16 @@ describe("the sweeper (GET /api/cron/checkout-expiry)", () => {
     expect((await runCheckoutExpiry(api.deps)).released).toBe(1);
     api.stripe.checkout.sessions.expire.mockClear();
     api.stripe.checkout.sessions.retrieve.mockClear();
-    expect(await runCheckoutExpiry(api.deps)).toEqual({ claimed: 0, released: 0, complete: 0, settled: 0, failed: 0, leaseLost: 0 });
+    expect(await runCheckoutExpiry(api.deps)).toEqual({
+      claimed: 0,
+      released: 0,
+      complete: 0,
+      settled: 0,
+      failed: 0,
+      leaseLost: 0,
+      gaveUp: 0,
+      staleComplete: 0,
+    });
     expect(api.stripe.checkout.sessions.expire).not.toHaveBeenCalled();
     expect(api.stripe.checkout.sessions.retrieve).not.toHaveBeenCalled();
   });
@@ -529,6 +597,77 @@ describe("the sweeper (GET /api/cron/checkout-expiry)", () => {
     expect(waits).toEqual([2, 4, 8, 16, 32, 60, 60]);
   });
 
+  it("a session Stripe says doesn't exist: never released, retried with the back-off, given up after 24 tries with a warning (counts only)", async () => {
+    const { event } = await seatedEvent(api, organiser, admin);
+    const orderId = await seatedOrder(event, ["A1"]);
+    const session = await sessionOf(orderId);
+    await age(orderId, 16);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    api.stripe.checkout.sessions.expire.mockRejectedValue(notFound());
+    api.stripe.checkout.sessions.retrieve.mockRejectedValue(notFound());
+    for (let i = 1; i < CHECKOUT_EXPIRY_MAX_MISSING; i++) {
+      await api.db.query(`update private.checkout_expiry_checks set next_check_at = now() - interval '1 second'`);
+      expect(await runCheckoutExpiry(api.deps)).toMatchObject({ claimed: 1, failed: 1, gaveUp: 0, released: 0 });
+    }
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("gave_up=");
+    await api.db.query(`update private.checkout_expiry_checks set next_check_at = now() - interval '1 second'`);
+    expect(await runCheckoutExpiry(api.deps)).toMatchObject({ claimed: 1, failed: 1, gaveUp: 1, released: 0 });
+    const [check] = await api.db.query<{ attempts: number; next_check_at: unknown; last_outcome: string }>(
+      `select attempts, next_check_at, last_outcome from private.checkout_expiry_checks where order_id = $1`,
+      [orderId],
+    );
+    expect(check).toEqual({ attempts: 24, next_check_at: null, last_outcome: "missing" });
+    // Never released, and never asked about again.
+    expect((await order(orderId)).status).toBe("pending");
+    expect(await seatStates(api, event.eventId)).toMatchObject({ A1: `held:${orderId}` });
+    api.stripe.checkout.sessions.expire.mockClear();
+    expect((await runCheckoutExpiry(api.deps)).claimed).toBe(0);
+    expect(api.stripe.checkout.sessions.expire).not.toHaveBeenCalled();
+    const logged = JSON.stringify(warn.mock.calls);
+    expect(logged).toContain("gave_up=1");
+    expect(logged).not.toContain(orderId);
+    expect(logged).not.toContain(session);
+  });
+
+  it("other Stripe errors are retried without a cap", async () => {
+    const { orderId } = await gaOrder();
+    await age(orderId, 16);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    await api.db.query(
+      `insert into private.checkout_expiry_checks (order_id, attempts, next_check_at, last_outcome) values ($1, 40, now(), 'error')`,
+      [orderId],
+    );
+    api.stripe.checkout.sessions.expire.mockRejectedValueOnce(stripeDown());
+    api.stripe.checkout.sessions.retrieve.mockRejectedValueOnce(stripeDown());
+    expect(await runCheckoutExpiry(api.deps)).toMatchObject({ failed: 1, gaveUp: 0 });
+    const [check] = await api.db.query<{ scheduled: boolean }>(`select next_check_at is not null as scheduled from private.checkout_expiry_checks`);
+    expect(check.scheduled).toBe(true);
+  });
+
+  it("warns (counts only) about complete sessions whose order is still pending an hour on: a lost webhook", async () => {
+    const event = await paidEvent();
+    const stale = (await gaOrder(event)).orderId;
+    const recent = (await gaOrder(event)).orderId;
+    await age(stale, 61);
+    await age(recent, 16);
+    api.stripe.checkout.sessions.expire.mockRejectedValue(notExpirable());
+    api.stripe.checkout.sessions.retrieve.mockImplementation(async (id: string) =>
+      embeddedSession(id, { status: "complete", payment_status: "unpaid" }),
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(await runCheckoutExpiry(api.deps)).toMatchObject({ claimed: 2, complete: 2, staleComplete: 1 });
+    // Every run says so while it lasts (the sessions themselves aren't asked about again).
+    api.stripe.checkout.sessions.expire.mockClear();
+    expect(await runCheckoutExpiry(api.deps)).toMatchObject({ claimed: 0, staleComplete: 1 });
+    expect(api.stripe.checkout.sessions.expire).not.toHaveBeenCalled();
+    const logged = JSON.stringify(warn.mock.calls);
+    expect(logged).toContain("stale_complete=1");
+    for (const id of [stale, recent]) expect(logged).not.toContain(id);
+    // Once the webhook lands, it's gone.
+    await api.send(stripeWebhook, completed(stale));
+    expect((await runCheckoutExpiry(api.deps)).staleComplete).toBe(0);
+  });
+
   it("an order another run has leased is skipped", async () => {
     const { orderId } = await gaOrder();
     await age(orderId, 16);
@@ -557,6 +696,9 @@ describe("the sweeper (GET /api/cron/checkout-expiry)", () => {
     expect((await finish(crypto.randomUUID(), "expired"))[0].r).toBe("released");
     expect((await finish(claim.claimed_lease_token, "expired"))[0].r).toBe("failed");
     await expect(finish(claim.claimed_lease_token, "paid")).rejects.toThrow(/invalid arguments/);
+    await expect(
+      api.db.query(`select private.finish_checkout_expiry($1, $2::uuid, 'missing', 0)`, [orderId, claim.claimed_lease_token]),
+    ).rejects.toThrow(/invalid arguments/);
     await expect(
       api.db.query(`select * from private.claim_overdue_checkouts(interval '0', 10, interval '90 seconds')`),
     ).rejects.toThrow(/invalid arguments/);

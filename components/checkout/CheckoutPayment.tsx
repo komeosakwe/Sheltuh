@@ -15,6 +15,8 @@ import {
   CHECKOUT_CLOSED_LABEL,
   CHECKOUT_TIME_UP_TITLE,
   CHECKOUT_UNAVAILABLE_BODY,
+  CHECKOUT_UNCONFIRMED_BODY,
+  CHECKOUT_UNCONFIRMED_TITLE,
   checkoutBackTarget,
   checkoutClosedBody,
   checkoutEndedAction,
@@ -43,8 +45,12 @@ type State =
   // zero first. Then `recheckAt` (this device's clock) is when to ask the server again, to learn whether
   // Stripe took the payment in time (processing: go to the order); null once it has answered.
   | { kind: "time-up"; context: CheckoutOrderContext; recheckAt: number | null }
+  // Time's up, but the server couldn't ask Stripe whether the buyer paid at the last moment (reason
+  // `unconfirmed`): never "you haven't been charged". Asked again at `recheckAt` (a few times), in case
+  // Stripe took the payment (processing: go to the order) or the checkout is now closed for good.
+  | { kind: "unconfirmed"; context: CheckoutOrderContext; recheckAt: number | null }
   // Closed for another reason: `unavailable` has its own words; `ended` (or none) the general ones.
-  | { kind: "closed"; context: CheckoutOrderContext; reason?: Exclude<CheckoutClosedReason, "time_up"> }
+  | { kind: "closed"; context: CheckoutOrderContext; reason?: Exclude<CheckoutClosedReason, "time_up" | "unconfirmed"> }
   | { kind: "sold-out"; context: CheckoutOrderContext }
   | { kind: "redirecting" }
   | { kind: "not-found" }
@@ -60,6 +66,9 @@ const SUPPORT_EMAIL = "support@sheltuh.com.au";
 const RECHECK_AFTER_DEADLINE_MS = 1_000;
 /** Never asks again sooner than this: an answer that's still open past its deadline is re-checked at this pace. */
 const RECHECK_FLOOR_MS = 5_000;
+/** An unconfirmed answer is asked again this often, at most UNCONFIRMED_RECHECKS times. */
+const UNCONFIRMED_RECHECK_MS = 10_000;
+const UNCONFIRMED_RECHECKS = 3;
 
 const linkClass = "text-foreground underline underline-offset-4";
 // Focused by script to say the state changed (tabIndex -1); it's not a control, so no focus ring.
@@ -103,6 +112,8 @@ function PaymentFlow({ orderId }: { orderId: string }) {
   // Set once this page's countdown has reached zero (or an open answer came already past its deadline):
   // from then on Stripe's form is never mounted again, whatever a late answer says.
   const timedOut = useRef(false);
+  // How many times an unconfirmed answer has been asked again.
+  const unconfirmedRechecks = useRef(0);
   // The polite live region's words: only the countdown's 5:00, 1:00 and time's up (never the ticking text).
   const [announcement, setAnnouncement] = useState("");
   // Bumped by the payment form's "Try again", so a fresh form (and Stripe instance) is mounted.
@@ -122,6 +133,15 @@ function PaymentFlow({ orderId }: { orderId: string }) {
         }
         const next: CheckoutOrderContext = { eventSlug: result.eventSlug, seated: result.seated };
         setContext(next);
+        if (result.status === "closed" && result.reason === "unconfirmed") {
+          // Whatever was shown before (the form, or time's up): we can't say the buyer wasn't charged.
+          timedOut.current = true;
+          setAnnouncement("");
+          const again = unconfirmedRechecks.current < UNCONFIRMED_RECHECKS;
+          if (again) unconfirmedRechecks.current += 1;
+          setState({ kind: "unconfirmed", context: next, recheckAt: again ? Date.now() + UNCONFIRMED_RECHECK_MS : null });
+          return;
+        }
         if (timedOut.current) {
           // Time's up already shown: it stays. Still open by the server's clock (a slow answer): ask again
           // once that's passed too, never sooner than RECHECK_FLOOR_MS. Otherwise nothing more to ask.
@@ -152,7 +172,8 @@ function PaymentFlow({ orderId }: { orderId: string }) {
           timedOut.current = true;
           setState({ kind: "time-up", context: next, recheckAt: null });
         } else {
-          setState({ kind: "closed", context: next, reason: result.reason });
+          // `unconfirmed` was answered above.
+          setState({ kind: "closed", context: next, reason: result.reason === "unconfirmed" ? undefined : result.reason });
         }
       } catch (err) {
         if (id !== request.current) return;
@@ -208,7 +229,7 @@ function PaymentFlow({ orderId }: { orderId: string }) {
     );
   }, []);
 
-  const recheckAt = state.kind === "time-up" ? state.recheckAt : null;
+  const recheckAt = state.kind === "time-up" || state.kind === "unconfirmed" ? state.recheckAt : null;
   useEffect(() => {
     if (recheckAt === null) return;
     const timer = window.setTimeout(() => void load(false), Math.max(recheckAt - Date.now(), 0));
@@ -217,7 +238,8 @@ function PaymentFlow({ orderId }: { orderId: string }) {
 
   // Focus follows a change of state, but not the first answer: on arrival, Next's route announcer has it
   // (§6). Except time's up and unavailable, which end the page whenever they come: their h1 is focused.
-  const endsPage = state.kind === "time-up" || (state.kind === "closed" && state.reason === "unavailable");
+  const endsPage =
+    state.kind === "time-up" || state.kind === "unconfirmed" || (state.kind === "closed" && state.reason === "unavailable");
   useEffect(() => {
     if (state.kind === "loading" || state.kind === "redirecting") return;
     if (settledOnce.current || endsPage) headingRef.current?.focus();
@@ -265,6 +287,15 @@ function PaymentFlow({ orderId }: { orderId: string }) {
             {checkoutTimeUpBody(state.context.seated)}
           </Terminal>
         );
+      case "unconfirmed": {
+        // Not "you haven't been charged": the payment may have gone through. The event's page, seated or not.
+        const target = checkoutEndedAction({ ...state.context, seated: false }, CHECKOUT_CLOSED_LABEL);
+        return (
+          <Terminal headingRef={headingRef} title={CHECKOUT_UNCONFIRMED_TITLE} action={target}>
+            {CHECKOUT_UNCONFIRMED_BODY}
+          </Terminal>
+        );
+      }
       case "closed": {
         // The event's page either way (seated or not): it says whether it can be booked.
         const target = checkoutEndedAction({ ...state.context, seated: false }, CHECKOUT_CLOSED_LABEL);

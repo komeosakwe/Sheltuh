@@ -250,6 +250,10 @@ select version, file, coalesce(applied, false) as applied
       to_regclass('private.checkout_expiry_checks') is not null
       and to_regclass('public.orders_pending_card_created_idx') is not null
       and exists (select 1 from fn where proname = 'claim_overdue_checkouts')
-      and exists (select 1 from fn where proname = 'finish_checkout_expiry'))
+      and exists (select 1 from fn where proname = 'finish_checkout_expiry')),
+    ('20261124000000', 'checkout_expiry_missing',
+      exists (select 1 from fn where proname = 'finish_checkout_expiry' and 'p_max_missing' = any(proargnames))
+      and exists (select 1 from pg_constraint where conname = 'checkout_expiry_checks_last_outcome_check'
+                   and pg_get_constraintdef(oid) like '%missing%'))
   ) as m(version, file, applied)
  order by version;

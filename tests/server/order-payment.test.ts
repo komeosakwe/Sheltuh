@@ -2,6 +2,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { createHash } from "node:crypto";
 import { clientKey, orderKey } from "@/lib/server/client-key";
 import {
+  BUYER_STRIPE_REQUEST,
   CHECKOUT_RATE_LIMITS,
   createCheckout,
   GA_CHECKOUT_SESSION_MINUTES,
@@ -310,7 +311,8 @@ describe("GET /orders/by-session/{id}/payment", () => {
     const res = await payment(orderId);
     expect(res.status).toBe(200);
     expect(res.headers.get("cache-control")).toBe("private, no-store");
-    expect(api.stripe.checkout.sessions.retrieve).toHaveBeenCalledWith("cs_test_1");
+    // Bounded: 10 seconds and one network retry (BUYER_STRIPE_REQUEST), so a slow Stripe can't hang the page.
+    expect(api.stripe.checkout.sessions.retrieve).toHaveBeenCalledWith("cs_test_1", {}, BUYER_STRIPE_REQUEST);
     // expiresAt is the pay deadline (the order's creation + CHECKOUT_PAY_MINUTES), not Stripe's later expiry.
     const [made] = await api.db.query<{ deadline: Date | string }>(
       `select created_at + interval '15 minutes' as deadline from public.orders where id = $1`,

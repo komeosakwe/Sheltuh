@@ -4,7 +4,7 @@ import { requireCronSecret } from "../cron-auth";
 import type { Deps } from "../deps";
 import { okPrivate } from "../http";
 import type { Handler } from "../route";
-import { closeStripeSession, type StripeSessionClose } from "./orders";
+import { closeStripeSession, isStripeNotFound, type StripeSessionClose } from "./orders";
 
 /**
  * The checkout pay deadline's sweeper (docs/architecture.md, "Checkout pay
@@ -20,7 +20,13 @@ import { closeStripeSession, type StripeSessionClose } from "./orders";
  *   and Stripe is asked first: a session Stripe reports complete (it has the
  *   payment) is left to the webhook and never looked at again; one Stripe
  *   can't be asked about, or won't expire, is retried later (backing off
- *   from 2 minutes to an hour) and nothing is released meanwhile.
+ *   from 2 minutes to an hour) and nothing is released meanwhile. One Stripe
+ *   says doesn't exist (404 resource_missing: say, the wrong Stripe account
+ *   or mode on this deploy) is never released for it either, and is given
+ *   up after CHECKOUT_EXPIRY_MAX_MISSING tries, with a warning.
+ * - Each run also warns (counts only) about sessions Stripe reported
+ *   complete whose order is still pending an hour after it was made: their
+ *   webhook may have been lost (see Stripe's dashboard, Webhooks).
  * - Safe to run concurrently: each order is leased to one run
  *   (claim_overdue_checkouts, `skip locked`), and releasing is idempotent.
  * - Bounded: at most `maxOrders` per run, `concurrency` at once, no new one
@@ -36,6 +42,10 @@ export const CHECKOUT_EXPIRY_RUN = { maxOrders: 50, concurrency: 4, budgetMs: 25
 export const CHECKOUT_EXPIRY_LEASE = "90 seconds";
 /** Each Stripe call: capped, and no automatic retry (the next run is the retry). */
 export const CHECKOUT_EXPIRY_STRIPE_REQUEST = { timeout: 10_000, maxNetworkRetries: 0 } as const;
+/** A session Stripe says doesn't exist is tried this many times (about 20 hours with the back-off), then left. */
+export const CHECKOUT_EXPIRY_MAX_MISSING = 24;
+/** A session Stripe reported complete whose order is still pending this long after it was made: warned about. */
+export const CHECKOUT_EXPIRY_STALE_COMPLETE = "60 minutes";
 
 /** What one run did, counts only. */
 export interface CheckoutExpirySummary {
@@ -51,6 +61,10 @@ export interface CheckoutExpirySummary {
   failed: number;
   /** Another run had taken the order's lease by the time the outcome was recorded. */
   leaseLost: number;
+  /** Of `failed`: Stripe says the session doesn't exist, and this was its last try (never released). */
+  gaveUp: number;
+  /** Sessions Stripe reported complete whose order is still pending after CHECKOUT_EXPIRY_STALE_COMPLETE (all runs). */
+  staleComplete: number;
 }
 
 interface ClaimedCheckout {
@@ -59,18 +73,18 @@ interface ClaimedCheckout {
   claimed_lease_token: string;
 }
 
-type Outcome = "expired" | "complete" | "error";
+type Outcome = "expired" | "complete" | "error" | "missing";
 
 async function finish(deps: Deps, job: ClaimedCheckout, outcome: Outcome): Promise<string> {
   const [row] = await deps.db.query<{ result: string }>(
-    `select private.finish_checkout_expiry($1, $2::uuid, $3) as result`,
-    [job.claimed_order_id, job.claimed_lease_token, outcome],
+    `select private.finish_checkout_expiry($1, $2::uuid, $3, $4) as result`,
+    [job.claimed_order_id, job.claimed_lease_token, outcome, CHECKOUT_EXPIRY_MAX_MISSING],
   );
   return row.result;
 }
 
-/** What happened to one claimed order: the summary count it adds to. */
-type Counted = "released" | "complete" | "settled" | "failed" | "leaseLost";
+/** What happened to one claimed order: the summary count it adds to (`gaveUp` also counts as failed). */
+type Counted = "released" | "complete" | "settled" | "failed" | "leaseLost" | "gaveUp";
 
 async function closeOne(deps: Deps, job: ClaimedCheckout): Promise<Counted> {
   let closed: StripeSessionClose = { state: "expired" };
@@ -78,8 +92,11 @@ async function closeOne(deps: Deps, job: ClaimedCheckout): Promise<Counted> {
     try {
       closed = await closeStripeSession(deps, job.claimed_session_id, CHECKOUT_EXPIRY_STRIPE_REQUEST);
     } catch (err) {
+      // Not found isn't proof nobody paid: never released for it, and given up after CHECKOUT_EXPIRY_MAX_MISSING tries.
+      const missing = isStripeNotFound(err);
       console.warn(`Checkout expiry: Stripe couldn't expire an overdue session (${stripeErrorLabel(err)}); retried later.`);
-      return (await finish(deps, job, "error")) === "lost" ? "leaseLost" : "failed";
+      const result = await finish(deps, job, missing ? "missing" : "error");
+      return result === "lost" ? "leaseLost" : result === "gave_up" ? "gaveUp" : "failed";
     }
   }
   if (closed.state === "complete") {
@@ -87,6 +104,24 @@ async function closeOne(deps: Deps, job: ClaimedCheckout): Promise<Counted> {
   }
   // Stripe has closed the session (or there was none): release it, whoever holds the lease now.
   return (await finish(deps, job, "expired")) === "released" ? "released" : "settled";
+}
+
+/**
+ * Sessions the sweeper found complete (Stripe has the payment) whose order is
+ * still pending CHECKOUT_EXPIRY_STALE_COMPLETE after it was made. A count of
+ * a table that only holds overdue pending orders' bookkeeping, joined to
+ * orders by primary key.
+ */
+async function countStaleComplete(deps: Deps): Promise<number> {
+  const [row] = await deps.db.query<{ n: number }>(
+    `select count(*)::int as n
+       from private.checkout_expiry_checks c
+       join public.orders o on o.id = c.order_id
+      where c.last_outcome = 'complete' and c.next_check_at is null and o.status = 'pending'
+        and o.created_at <= now() - $1::interval`,
+    [CHECKOUT_EXPIRY_STALE_COMPLETE],
+  );
+  return row.n;
 }
 
 /**
@@ -104,7 +139,16 @@ export async function runCheckoutExpiry(
     concurrency = CHECKOUT_EXPIRY_RUN.concurrency,
     budgetMs = CHECKOUT_EXPIRY_RUN.budgetMs,
   } = options;
-  const summary: CheckoutExpirySummary = { claimed: 0, released: 0, complete: 0, settled: 0, failed: 0, leaseLost: 0 };
+  const summary: CheckoutExpirySummary = {
+    claimed: 0,
+    released: 0,
+    complete: 0,
+    settled: 0,
+    failed: 0,
+    leaseLost: 0,
+    gaveUp: 0,
+    staleComplete: 0,
+  };
   const deadline = Date.now() + budgetMs;
   let reserved = 0;
   let drained = false;
@@ -124,7 +168,9 @@ export async function runCheckoutExpiry(
       }
       summary.claimed += 1;
       try {
-        summary[await closeOne(deps, job)] += 1;
+        const counted = await closeOne(deps, job);
+        summary[counted] += 1;
+        if (counted === "gaveUp") summary.failed += 1;
       } catch (err) {
         // Not recorded (the database failed): the lease lapses and a later run takes it.
         summary.failed += 1;
@@ -136,10 +182,23 @@ export async function runCheckoutExpiry(
   }
 
   await Promise.all(Array.from({ length: Math.max(1, concurrency) }, () => worker()));
+  if (summary.gaveUp > 0) {
+    console.warn(
+      `Checkout expiry: gave_up=${summary.gaveUp} overdue checkout(s) whose Stripe session doesn't exist after ` +
+        `${CHECKOUT_EXPIRY_MAX_MISSING} tries; not released (check STRIPE_SECRET_KEY's account and mode, and the orders in Stripe).`,
+    );
+  }
+  summary.staleComplete = await countStaleComplete(deps);
+  if (summary.staleComplete > 0) {
+    console.warn(
+      `Checkout expiry: stale_complete=${summary.staleComplete} session(s) Stripe reported complete are still pending ` +
+        `${CHECKOUT_EXPIRY_STALE_COMPLETE} after their checkout started: a webhook may have been lost (Stripe dashboard, Webhooks).`,
+    );
+  }
   if (summary.claimed > 0) {
     console.info(
       `Checkout expiry: ${summary.claimed} overdue, ${summary.released} released, ${summary.complete} complete, ` +
-        `${summary.settled} settled, ${summary.failed} failed, ${summary.leaseLost} lease lost.`,
+        `${summary.settled} settled, ${summary.failed} failed (${summary.gaveUp} given up), ${summary.leaseLost} lease lost.`,
     );
   }
   return summary;

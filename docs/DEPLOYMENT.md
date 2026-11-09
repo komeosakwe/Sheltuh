@@ -593,7 +593,33 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       answer 200 with counts (`claimed`, `released`, …). Test mode first:
       start a checkout, leave the payment page open, and at 15 minutes it
       should say the checkout has closed; Stripe's dashboard should show the
-      session expired.
+      session expired. Apply `20261124000000_checkout_expiry_missing.sql`
+      with it (also additive: the sweeper's cap on sessions Stripe says don't
+      exist).
+- [ ] **Before go-live: Stripe test-mode check of the pay deadline**
+      (unverified so far: what Stripe does when we expire a session whose
+      payment is under way). In test mode, on the embedded checkout:
+      1. Pay with the 3DS card **4000 0027 6000 3184** and leave its
+         authentication challenge open past the 15-minute deadline (or, to
+         save time, expire the session yourself while the challenge is open:
+         `stripe checkout sessions expire cs_test_…`, or the API).
+      2. Then complete the challenge.
+      3. Confirm one of these, and nothing else: Stripe refused the expire
+         (the payment page then says "We couldn't confirm your payment", and
+         the order is paid by the webhook with tickets emailed); or the
+         session expired and its PaymentIntent was cancelled (the challenge
+         fails, nothing is charged, the order is `failed`, seats freed); or
+         the payment still succeeded, `checkout.session.completed` arrived,
+         and the order was refunded in full automatically (Stripe dashboard:
+         a refund with metadata reason `paid_after_order_failed`; no tickets).
+         A charge with neither tickets nor a refund is a blocker.
+      4. Repeat for every delayed payment method switched on in the
+         Dashboard (if any): its session completes unpaid, so the sweeper
+         must leave it (`complete` in the cron's counts) and the order is
+         settled by `async_payment_succeeded` or `async_payment_failed`.
+      Also check the cron's `staleComplete` stays 0 and the logs have no
+      `gave_up=` warning (a session Stripe says doesn't exist: usually the
+      wrong Stripe key or mode on the deploy).
 - [ ] **Cron schedules.** See [`schedules.md`](schedules.md) for every
       timed job (Vercel and Supabase), its time in Melbourne, and how to run
       it more often. `vercel.json` runs `/api/cron/checkout-expiry` every 2

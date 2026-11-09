@@ -1439,8 +1439,13 @@ admission and seated card checkouts alike
   form with "Time's up" at zero, and re-reads 1 second after the deadline
   (at least 5 seconds after the last read). `closed` carries `reason`: `time_up` (the
   window is over: closed for good, nothing charged, seats released),
-  `unavailable` (the event can't be booked right now) or `ended` (cancelled
-  or failed before the window was over). A failed order read after its
+  `unavailable` (the event can't be booked right now), `ended` (cancelled
+  or failed before the window was over) or `unconfirmed` (the window is
+  over but Stripe couldn't be asked whether the buyer paid at the last
+  moment: the pages say "We couldn't confirm your payment. Check your email
+  for tickets before trying again.", never "you haven't been charged"; the
+  payment page asks again every 10 seconds, 3 times, and the return page
+  keeps polling the order, so a payment Stripe took still shows). A failed order read after its
   window says `time_up` whatever ended it. `SEAT_HOLD.stripeMinutes` (what
   the seat page tells buyers: "holds your seats for 15 minutes") is the
   same 15, and `SEAT_HOLD.holdMinutes` is 20. The client's checkout key
@@ -1455,10 +1460,14 @@ admission and seated card checkouts alike
   back: already `expired` is fine, `complete` means Stripe has the payment:
   `processing`, nothing released), then `private.release_seat_holds` (the
   order `failed`, a seated order's holds cleared; nothing changes unless
-  it's still pending). Answer `closed`, `time_up`. If Stripe can't be asked,
-  the answer is still `closed` (the buyer's time is up), nothing is
-  released, a warning is logged without the order or session, and the
-  sweeper tries again. A kept order with no session past its deadline is
+  it's still pending). Answer `closed`, `time_up`. If Stripe can't be asked
+  (unreachable, the session still open with a payment under way, or not
+  found), the answer is `closed`, `unconfirmed`: nothing is released, a
+  warning is logged without the order or session, and the sweeper tries
+  again. Every Stripe call of the buyer's requests (this route and the
+  cancel route, deadline or not) is bounded: 10 seconds and one network
+  retry (`BUYER_STRIPE_REQUEST`), inside the routes' 60-second
+  `maxDuration`. A kept order with no session past its deadline is
   released without asking Stripe (it used to be a 409 until the 2-day purge).
 - **The sweeper**, `GET /api/cron/checkout-expiry` (bearer `CRON_SECRET`,
   `lib/server/cron-auth.ts`; Vercel Cron every 2 minutes, `vercel.json`,
@@ -1475,11 +1484,18 @@ admission and seated card checkouts alike
   lease (Stripe has closed the session, so releasing is right and
   idempotent); `complete` is never looked at again (the webhook settles
   it); an error is retried after 2, 4, 8, 16, 32 minutes, then hourly, and
-  nothing is released meanwhile. At most 50 orders per run and none started
+  nothing is released meanwhile. A session Stripe says doesn't exist (404
+  `resource_missing`: say, the wrong Stripe account or mode) is never
+  released for it: it's retried the same way and given up after 24 tries
+  (`CHECKOUT_EXPIRY_MAX_MISSING`, about 20 hours), with a `gave_up=N`
+  warning (`20261124000000_checkout_expiry_missing.sql`). Each run also
+  warns `stale_complete=N` (counts only) while any session it found
+  complete still has a pending order an hour after the checkout started: a
+  webhook may have been lost. At most 50 orders per run and none started
   after 25 seconds, so a run ends inside the route's 60-second
   `maxDuration`. Two runs at once never take the same order. It logs counts
   only, and answers its counts (`claimed`, `released`, `complete`,
-  `settled`, `failed`, `leaseLost`), `private, no-store`. The claim also
+  `settled`, `failed`, `leaseLost`), `private, no-store`, plus `gaveUp` and `staleComplete`. The claim also
   deletes up to 100 bookkeeping rows whose order has left `pending`.
   Indexed: `orders_pending_card_created_idx` (`created_at` where pending and
   no confirmation token), a small partial index the claim walks from the
@@ -1519,7 +1535,14 @@ admission and seated card checkouts alike
 - **The last seconds.** A buyer who submits payment just as the deadline
   passes may have it refused by Stripe (the session expired) or, if the
   payment was already under way, taken and then refunded automatically.
-  The countdown (frontend) is what makes this rare.
+  The countdown (frontend) is what makes this rare. What Stripe does when a
+  session with a 3DS challenge open is expired is unverified: the
+  test-mode check in `docs/DEPLOYMENT.md` covers it before go-live.
+- **The countdown's own "Time's up".** At zero the payment page says the
+  buyer wasn't charged before the server has answered (it asks again 1
+  second later and changes to the order, or to "couldn't confirm", on that
+  answer). If that re-read itself fails (the buyer's connection), the panel
+  stays as it is.
 - **Up to about 2 minutes late.** Without a read of the payment page, an
   overdue checkout's seats are released by the next sweep (every 2
   minutes, 50 orders a run); a backlog beyond that waits for later runs,

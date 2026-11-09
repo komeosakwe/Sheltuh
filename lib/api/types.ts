@@ -1020,8 +1020,14 @@ export interface OrderPaymentSummary {
  * - `ended`: the checkout ended before its window was over (cancelled by
  *   going Back, a checkout error, an async payment that failed, or Stripe
  *   closed the session early).
+ * - `unconfirmed`: the window is over, but Stripe couldn't be asked whether
+ *   the buyer paid in its last seconds (unreachable, or the session still
+ *   had a payment under way). Not "you haven't been charged": tell the buyer
+ *   to check their email for tickets before trying again. Nothing was
+ *   released; a later read (or the sweeper) settles it, and a payment Stripe
+ *   took still reaches the order (tickets, or a refund).
  */
-export type CheckoutClosedReason = "time_up" | "unavailable" | "ended";
+export type CheckoutClosedReason = "time_up" | "unavailable" | "ended" | "unconfirmed";
 
 /**
  * GET /api/orders/by-session/{orderId}/payment: the payment page's view of a
@@ -1035,7 +1041,8 @@ export type CheckoutClosedReason = "time_up" | "unavailable" | "ended";
  *   checkout's start plus CHECKOUT_PAY_MINUTES (15), or Stripe's own expiry
  *   if that were sooner. The same instant on every read of one order.
  *   Re-fetch once it passes: the answer is then `closed` with reason
- *   `time_up` (or `processing`, if Stripe took the payment in time).
+ *   `time_up` (or `processing`, if Stripe took the payment in time; or
+ *   `unconfirmed`, if Stripe couldn't be asked).
  *   `serverTime` (ISO) is the server's clock when it answered, so a
  *   countdown can allow for a client clock that's off (always sent by this
  *   API; optional for older responses). The secret is for Stripe.js only:
@@ -1045,7 +1052,8 @@ export type CheckoutClosedReason = "time_up" | "unavailable" | "ended";
  * - `done`: settled (paid, or refunded); go to /checkout/success.
  * - `closed`: the checkout's time ran out, it was cancelled or failed, or the
  *   event can no longer be booked (unpublished, or ended); nothing was
- *   charged. `reason` says which (CheckoutClosedReason; always sent by this
+ *   charged, except with reason `unconfirmed` (we couldn't confirm either
+ *   way). `reason` says which (CheckoutClosedReason; always sent by this
  *   API, optional for older responses).
  * - `sold_out`: the tickets (or some of the seats) went to someone else
  *   while it was open; nothing was charged.

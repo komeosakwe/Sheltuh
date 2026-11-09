@@ -94,3 +94,10 @@ export function checkoutStartAgainTarget(context: CheckoutOrderContext): Checkou
 
 /** Closed reason `unavailable`: the event can't be booked right now (unpublished, its organiser suspended, or ended). */
 export const CHECKOUT_UNAVAILABLE_BODY = "This event isn’t taking bookings right now. You haven’t been charged.";
+
+/**
+ * Closed reason `unconfirmed`: the pay window is over but the server couldn't ask Stripe whether the buyer paid in
+ * its last seconds. Never "you haven't been charged": the tickets may be on their way by email.
+ */
+export const CHECKOUT_UNCONFIRMED_TITLE = "We couldn’t confirm your payment";
+export const CHECKOUT_UNCONFIRMED_BODY = "Check your email for tickets before trying again.";
