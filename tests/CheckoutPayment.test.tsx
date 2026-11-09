@@ -1150,7 +1150,7 @@ describe("CheckoutPayment: the countdown (15 minutes to pay)", () => {
     expect(replace).toHaveBeenCalledWith(`/checkout/success?session_id=${ORDER_ID}`);
   });
 
-  it("after zero, a late open answer never brings the form back, and a failed re-read keeps the panel", async () => {
+  it("after zero, a late open answer never brings the form back", async () => {
     vi.useFakeTimers();
     getOrderPayment
       .mockResolvedValueOnce(openFor(5_000))
@@ -1170,9 +1170,53 @@ describe("CheckoutPayment: the countdown (15 minutes to pay)", () => {
     expect(getOrderPayment).toHaveBeenCalledTimes(2);
     await advance(1);
     expect(getOrderPayment).toHaveBeenCalledTimes(3);
-    expect(screen.getByRole("heading", { level: 1, name: "Time’s up" })).toBeInTheDocument();
     expect(screen.queryByRole("alert")).toBeNull();
+    expect(stripeFrame()).toBeNull();
     expect(STRIPE.createEmbeddedCheckoutPage).toHaveBeenCalledTimes(1);
+  });
+
+  it("after zero, a failed re-read never keeps saying 'not charged': unconfirmed, asked again every 10 s at most 3 times; a later time_up brings time's up back", async () => {
+    vi.useFakeTimers();
+    const timeUp = { status: "closed", reason: "time_up", eventTitle: "Neon Static", eventSlug: "neon-static", seated: false } as const;
+    getOrderPayment
+      .mockResolvedValueOnce(openFor(5_000))
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce(timeUp);
+    render(<CheckoutPayment />);
+    await advance(0);
+    await advance(5_000);
+    expect(screen.getByRole("heading", { level: 1, name: "Time’s up" })).toBeInTheDocument();
+    // The re-read 1 s after the deadline fails: we can't say whether Stripe took a last-second payment.
+    await advance(1_000);
+    expect(getOrderPayment).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("heading", { level: 1, name: "We couldn’t confirm your payment" })).toBeInTheDocument();
+    expect(screen.queryByText(/haven’t been charged/)).toBeNull();
+    await advance(9_999);
+    expect(getOrderPayment).toHaveBeenCalledTimes(2);
+    await advance(1);
+    expect(getOrderPayment).toHaveBeenCalledTimes(3);
+    expect(screen.getByRole("heading", { level: 1, name: "We couldn’t confirm your payment" })).toBeInTheDocument();
+    // Then the server answers: closed, time's up (nothing was paid).
+    await advance(10_000);
+    expect(getOrderPayment).toHaveBeenCalledTimes(4);
+    expect(screen.getByRole("heading", { level: 1, name: "Time’s up" })).toBeInTheDocument();
+    expect(stripeFrame()).toBeNull();
+  });
+
+  it("after zero, reads that keep failing stop after 3 more tries, on the unconfirmed panel", async () => {
+    vi.useFakeTimers();
+    getOrderPayment.mockResolvedValueOnce(openFor(5_000)).mockRejectedValue(new TypeError("Failed to fetch"));
+    render(<CheckoutPayment />);
+    await advance(0);
+    await advance(5_000);
+    await advance(1_000);
+    expect(getOrderPayment).toHaveBeenCalledTimes(2);
+    for (let i = 0; i < 3; i += 1) await advance(10_000);
+    expect(getOrderPayment).toHaveBeenCalledTimes(5);
+    await advance(60_000);
+    expect(getOrderPayment).toHaveBeenCalledTimes(5);
+    expect(screen.getByRole("heading", { level: 1, name: "We couldn’t confirm your payment" })).toBeInTheDocument();
   });
 
   it("unconfirmed after zero: replaces time's up (never 'not charged'), asks again every 10 s, and goes to the order once Stripe has it", async () => {

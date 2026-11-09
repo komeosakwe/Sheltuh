@@ -401,8 +401,9 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
        page does: one hit on the order's allowance (below), Stripe's session
        expired, the order failed and its seats released ("Checkout pay
        deadline"). Stripe already having the payment is `processing`
-       instead, and nothing changes; if Stripe can't be asked, it's still
-       `closed` and the sweeper finishes the job;
+       instead, and nothing changes; if Stripe can't be asked, it's
+       `closed` (`unconfirmed`: never "not charged") and the sweeper
+       finishes the job;
      - 409 while the order has no Stripe session yet (as the cancel route),
        never once the deadline has passed (then `closed`, `time_up`);
      - otherwise one hit on the order's allowance (`paymentPerOrder`: 20 a
@@ -422,7 +423,8 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
        read, `openOrderState`; `fulfil_order` decides); else `open`, with
        the session's `clientSecret`, `expiresAt` (the pay deadline, or
        Stripe's own expiry if that were ever sooner), `serverTime` (the
-       database's clock, for a countdown on a client whose clock is off), and a summary priced on
+       database's clock, moved on by the time the answer took, for a
+       countdown on a client whose clock is off), and a summary priced on
        the server: event title and slug, date, venue name and suburb, each
        line's all-inclusive unit and line totals (`calculateOrderSummary`,
        `lib/fees.ts`), whether that line includes a fee the buyer pays
@@ -433,7 +435,8 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
      - `closed` and `sold_out` carry `eventTitle`, `eventSlug` (when the
        event still has one) and `seated`, for the way back; `closed` also
        carries `reason` (`CheckoutClosedReason`: `time_up`, `unavailable`,
-       `ended`).
+       `ended`, or `unconfirmed` when Stripe couldn't be asked past the
+       deadline: never say "not charged" then).
    - The limits are `CHECKOUT_RATE_LIMITS` (`lib/server/handlers/orders.ts`):
      fixed windows on `take_client_rate_limit`, no migration (new bucket
      names). The page reads this on load, on Back-Forward and at expiry, and
