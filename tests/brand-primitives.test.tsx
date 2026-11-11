@@ -39,9 +39,9 @@ describe("PageHeader", () => {
     expect(screen.getByText("Every night.").closest(".rise")).not.toBeNull();
   });
 
-  it("brand sets the h1 in the display face; md is the quieter tool header", () => {
+  it("brand sets the h1 in the display face (display-l); md is the quieter tool header", () => {
     render(<PageHeader brand title="What’s on." />);
-    expect(screen.getByRole("heading", { level: 1 })).toHaveClass("display-lg", "font-display");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveClass("display-l");
     cleanup();
     render(<PageHeader size="md" title="Admin" />);
     expect(screen.getByRole("heading", { level: 1 })).toHaveClass("display-md");
@@ -88,8 +88,8 @@ describe("FilterChip", () => {
     );
     const chip = screen.getByRole("button", { name: "Tonight" });
     expect(chip).toHaveAttribute("aria-pressed", "false");
-    // Owner (23 Oct 2026): unselected chips keep the card colour with a subtle boundary.
-    expect(chip).toHaveClass("rounded-control", "border-foreground/50", "bg-card", "text-foreground");
+    // The rules' chip: the page colour with the 1.5px foreground stroke, radius 8, cream on hover.
+    expect(chip).toHaveClass("rounded-control", "border-control", "border-foreground", "bg-background", "text-foreground", "hover:bg-hover");
     expect(chip).not.toHaveClass("bg-foreground");
     expect(container.querySelector("[data-selected-dots]")).toBeNull();
     fireEvent.click(chip);
@@ -103,15 +103,19 @@ describe("FilterChip", () => {
     expect(chip).toHaveAttribute("aria-pressed", "true");
     // Selected: solid foreground with background-coloured text (white on black in Light, black on white in Dark).
     expect(chip).toHaveClass("border-foreground", "bg-foreground", "text-background");
-    expect(chip).not.toHaveClass("border-foreground/50", "bg-card");
+    expect(chip).not.toHaveClass("bg-background", "hover:bg-hover");
     // The two orange squares on the black chip (6.18:1), hidden from screen readers.
     const dots = container.querySelector("[data-selected-dots]");
     expect(dots).toHaveAttribute("aria-hidden", "true");
     expect(dots?.querySelectorAll(".bg-signal")).toHaveLength(2);
   });
 
-  it("is 44px tall on phones, 40px from 640px", () => {
-    expect(filterChipClass(false)).toMatch(/\bh-11\b.*\bsm:h-10\b/);
+  it("is 48px tall at every width, in Label/Button (the rules' 'Chips tap')", () => {
+    for (const selected of [false, true]) {
+      expect(filterChipClass(selected)).toMatch(/\bh-12\b/);
+      expect(filterChipClass(selected)).toMatch(/\blabel-button\b/);
+      expect(filterChipClass(selected)).not.toMatch(/\bsm:h-/);
+    }
   });
 });
 

@@ -97,7 +97,9 @@ describe("/map around the map", () => {
     await renderMap();
     const h1 = screen.getByRole("heading", { level: 1 });
     expect(h1).toHaveAccessibleName("Sheltüh near you.");
-    expect(h1).toHaveClass("display-lg", "font-display");
+    // The brand line is a display headline (display-l: Bootzy in capitals), shown as SHELTÜH NEAR YOÜ.
+    expect(h1).toHaveClass("display-l");
+    expect(h1.querySelector('[aria-hidden="true"]')).toHaveTextContent("SHELTÜH NEAR YOÜ.");
   }, 40_000);
 
   it("shows the map first and by default on phones, then the list", async () => {

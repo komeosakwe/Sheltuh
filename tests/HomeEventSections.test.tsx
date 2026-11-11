@@ -103,8 +103,10 @@ describe("the home's event sections", () => {
 
     expect(screen.getByRole("status")).toHaveTextContent("");
     expect(screen.queryByRole("region", { name: "Up next" })).not.toBeInTheDocument();
-    // The soonest event is a card like any other (in Coming up), with its ticket action.
-    expect(screen.getByRole("link", { name: "Buy tickets for Event next" })).toHaveAttribute("href", "/events/next#tickets");
+    // The soonest event is a card like any other (in Coming up): one link to its page, its price a label.
+    const next = screen.getByRole("link", { name: "Event next" });
+    expect(next).toHaveAttribute("href", "/events/next");
+    expect(next.closest("[data-event-card]")?.querySelector("[data-price-tag='signal']")).not.toBeNull();
     // This weekend's are its own cards (owner's mockup, 8 Nov 2026); every other card is the rail EventCard.
     const cards = container.querySelectorAll("[data-event-card]");
     expect(cards.length).toBe(6);

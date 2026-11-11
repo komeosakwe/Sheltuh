@@ -42,6 +42,13 @@ describe("brand colour tokens", () => {
     expect(rootBlock).toContain("--signal-foreground: #000000;");
     // Accent stays black: orange text links would fail contrast on white (3.40:1).
     expect(rootBlock).toContain("--accent: #000000;");
+    // The redesign's neutrals (the rules' Colour board, "Light and dark"): surface/muted,
+    // border/subtle, text/secondary, surface/card-hover (cream) and text/disabled.
+    expect(rootBlock).toContain("--surface: #f2f1ee;");
+    expect(rootBlock).toContain("--surface-border: #e5e3de;");
+    expect(rootBlock).toContain("--muted: #5c5c5c;");
+    expect(rootBlock).toContain("--hover: #fffae7;");
+    expect(rootBlock).toContain("--disabled: #a3a3a3;");
     for (const hex of css.match(/#[0-9a-fA-F]{6}\b/g) ?? []) expect(hex).toBe(hex.toLowerCase());
   });
 
@@ -64,7 +71,10 @@ describe("brand colour tokens", () => {
     expect(ink).toContain("--foreground: #ffffff;");
     expect(ink).toContain("--accent: #ffffff;");
     expect(ink).toContain("--accent-strong: #e0e0e0;"); // visible hover on the white solid button
-    expect(ink).toContain("--muted: #a39e93;"); // 7.87:1 on black
+    expect(ink).toContain("--muted: #a3a3a3;"); // 8.33:1 on black
+    // Ink takes Dark's values, cream hover included.
+    expect(ink).toContain("--surface: #1f1f1f;");
+    expect(ink).toContain("--hover: #1a1a1a;");
     const signal = block('[data-surface="signal"]');
     expect(signal).toContain("--background: #ff4800;");
     expect(signal).toContain("--foreground: #000000;");
@@ -76,7 +86,7 @@ describe("brand colour tokens", () => {
   });
 
   it("exposes the new colours to Tailwind", () => {
-    for (const name of ["signal", "signal-foreground", "ink", "paper", "card"]) {
+    for (const name of ["signal", "signal-foreground", "ink", "paper", "card", "hover", "disabled"]) {
       expect(css).toContain(`--color-${name}: var(--${name});`);
     }
   });
@@ -90,10 +100,18 @@ describe("brand colour tokens", () => {
     expect(css).toMatch(/:focus-visible\s*\{\s*outline: 2px solid var\(--foreground\);/);
   });
 
-  it("makes shapes rounded squares and shadows flat", () => {
+  // The rules' Shape board: two radii, 8 for what you tap (and tags), 16 for what you look at.
+  it("makes shapes rounded squares on two radii, and shadows flat", () => {
     expect(css).toContain("--radius-control: 0.5rem;");
-    expect(css).toContain("--radius-card: 0.75rem;");
-    expect(css).toContain("--radius-badge: 0.25rem;");
+    expect(css).toContain("--radius-card: 1rem;");
+    expect(css).toContain("--radius-badge: 0.5rem;");
+    expect(css).toContain("--radius-sheet: 1rem;");
+    expect(css).toContain("--radius-dot: 0.5rem;");
+    // No 4, 12, 18 or 24px radius among the tokens.
+    expect(css).not.toMatch(/--radius-[\w-]+: (?:0\.25rem|0\.75rem|1\.125rem|1\.5rem);/);
+    // The 1.5px control stroke, on fields and buttons.
+    expect(css).toContain("--stroke-control: 1.5px;");
+    expect(css).toMatch(/@utility border-control \{\s*border-style: solid;\s*border-width: var\(--stroke-control\);/);
     // No shadows anywhere: the transitional flat shadow-card token is gone too.
     expect(css).not.toMatch(/--shadow-card|box-shadow:/);
     expect(css).not.toMatch(/border-radius:\s*9999px/);
@@ -108,6 +126,8 @@ const COLOUR_TOKENS = [
   "--surface-border",
   "--foreground",
   "--muted",
+  "--hover",
+  "--disabled",
   "--accent",
   "--accent-strong",
   "--accent-foreground",
@@ -130,10 +150,12 @@ describe("the Dark theme and the paper scope (docs/design/theme-white-dark.md §
     expect(Object.fromEntries(values)).toMatchObject({
       "--background": "#000000",
       "--card": "#141414",
-      "--surface": "#262626",
+      "--surface": "#1f1f1f",
       "--surface-border": "#333333",
       "--foreground": "#ffffff",
-      "--muted": "#a39e93",
+      "--muted": "#a3a3a3",
+      "--hover": "#1a1a1a",
+      "--disabled": "#5c5c5c",
       "--accent": "#ffffff",
       "--accent-strong": "#e0e0e0",
       "--accent-foreground": "#000000",
@@ -266,10 +288,13 @@ describe("brand faces", () => {
     }
   });
 
-  it("maps the faces to tokens, with the display token falling back to Instrument Sans until Bootzy is licensed", () => {
+  it("maps the faces to tokens: Bootzy for display, falling back to Instrument Sans, at weight 400", () => {
     expect(css).toMatch(/--face-sans: var\(--font-instrument\),/);
     expect(css).toMatch(/--face-mono: var\(--font-plex-mono\),/);
-    expect(css).toContain("--face-display: var(--face-dots);");
+    expect(css).toContain("--face-display: var(--font-bootzy), var(--face-sans);");
+    expect(css).toContain("--display-weight: 400;");
+    // The dotted face is retired everywhere.
+    expect(css).not.toMatch(/--face-dots|--font-instrument-dots|font-dots|display-plain/);
     expect(css).toContain("--font-sans: var(--face-sans);");
     expect(css).toContain("--font-mono: var(--face-mono);");
     // The old theme keys pointed at next/font variables of the same name.
@@ -278,6 +303,12 @@ describe("brand faces", () => {
 });
 
 describe("current page in the nav", () => {
+  // The rules' Navigation board: orange dots under the pointer as well as on the current page.
+  it("turns the dots orange on hover, not black", () => {
+    const umlaut = css.slice(css.indexOf("@utility umlaut {"), css.indexOf("@utility umlaut-lg"));
+    expect(umlaut).toMatch(/@media \(hover: hover\) \{\s*&:hover,\s*\[role="tab"\]:hover > & \{\s*--umlaut: var\(--signal\);/);
+  });
+
   it("marks it with a 2px underline as well as the orange dots (not colour and small marks alone)", () => {
     const umlaut = css.slice(css.indexOf("@utility umlaut {"), css.indexOf("@utility umlaut-lg"));
     // The page, and the section you're in (aria-current="true": Discover on an event's page).
@@ -288,10 +319,81 @@ describe("current page in the nav", () => {
   });
 });
 
-describe("type scale clean-up (docs/design/mobile-redesign.md P2)", () => {
-  it("has no display-xl any more: nothing used it once the hero moved to display-lg", () => {
-    expect(css).not.toMatch(/@utility display-xl\b/);
-    for (const { file, text } of sources) expect(text, file).not.toMatch(/\bdisplay-xl\b/);
+describe("the type scale (the rules' Type board)", () => {
+  /** A utility's whole block, up to the next top-level @utility. */
+  const utility = (name: string) => {
+    const start = css.indexOf(`@utility ${name} {`);
+    const next = css.indexOf("\n@utility ", start + 1);
+    return start < 0 ? "" : css.slice(start, next < 0 ? undefined : next);
+  };
+
+  it("defines the fifteen styles", () => {
+    const styles = [
+      "display-xl", "display-l", "display-m",
+      "heading-h1", "heading-h2", "heading-h3", "heading-h4",
+      "body-l", "body-m", "body-s",
+      "label-nav", "label-button", "label-tag",
+      "mono-m", "mono-s",
+    ];
+    for (const name of styles) expect(utility(name), name).not.toBe("");
+  });
+
+  it.each([
+    ["display-xl", "3.5rem", "4rem", "6rem", "6rem"],
+    ["display-l", "3rem", "3.5rem", "4.5rem", "5rem"],
+    ["display-m", "2.5rem", "3rem", "3.5rem", "4rem"],
+    ["heading-h1", "2rem", "2.5rem", "2.5rem", "3rem"],
+    ["heading-h2", "1.75rem", "2.25rem", "2rem", "2.5rem"],
+    ["heading-h3", "1.25rem", "1.75rem", "1.5rem", "2rem"],
+    ["heading-h4", "1.125rem", "1.5rem", "1.25rem", "1.75rem"],
+    ["body-l", "1rem", "1.5rem", "1.125rem", "1.75rem"],
+  ])("%s: %s/%s below 768px, %s/%s from 768px", (name, size, leading, desktopSize, desktopLeading) => {
+    expect(utility(name)).toMatch(
+      new RegExp(
+        `font-size: ${size};\\s*line-height: ${leading};\\s*@media \\(width >= 48rem\\) \\{\\s*font-size: ${desktopSize};\\s*line-height: ${desktopLeading};`,
+      ),
+    );
+  });
+
+  it("sets the display styles (and title-lg, an event's title) in Bootzy capitals at 400 with no synthesised bold", () => {
+    for (const name of ["display-xl", "display-l", "display-m", "title-lg", "font-display"]) {
+      const body = utility(name);
+      expect(body, name).toContain("font-family: var(--face-display);");
+      expect(body, name).toContain("font-weight: var(--display-weight);");
+      expect(body, name).toContain("font-synthesis-weight: none;");
+      if (name !== "font-display") expect(body, name).toContain("text-transform: uppercase;");
+    }
+  });
+
+  it("keeps headings, body, labels and mono in sentence case (capitals are display's and the eyebrow's only)", () => {
+    const sentenceCase = [
+      "heading-h1", "heading-h2", "heading-h3", "heading-h4",
+      "body-l", "body-m", "body-s", "label-nav", "label-tag", "mono-m", "mono-s",
+      "display-lg", "display-md", "meta",
+    ];
+    for (const name of sentenceCase) expect(utility(name), name).not.toContain("uppercase");
+    // A button's label is sentence case ("Buy tickets", never "BUY TICKETS").
+    expect(utility("label-button")).toContain("text-transform: none;");
+    const headings = css.slice(css.indexOf("h1,\nh2,\nh3,\nh4 {"), css.indexOf("}", css.indexOf("h1,\nh2,\nh3,\nh4 {")));
+    expect(headings).toContain("font-weight: 700;");
+    expect(headings).not.toContain("uppercase");
+    expect(utility("eyebrow")).toContain("text-transform: uppercase;");
+    expect(utility("eyebrow")).toContain("letter-spacing: 0.02em;");
+  });
+
+  it("points the old names at the new styles: display-lg is heading-h1, display-md heading-h3, title-lg display-m", () => {
+    const body = (name: string) =>
+      utility(name)
+        .replace(/@utility [\w-]+ \{/, "")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .trim();
+    expect(body("display-lg")).toBe(body("heading-h1"));
+    expect(body("display-md")).toBe(body("heading-h3"));
+    expect(body("title-lg")).toBe(body("display-m"));
+  });
+
+  it("reaches the display face only through the display styles and font-display", () => {
+    for (const { file, text } of sources) expect(text, file).not.toMatch(/var\(--font-bootzy\)/);
   });
 
   // Refinement (22 Oct 2026): the bordered badge was one of the repeated bulky notices. A small "Demo"
@@ -305,14 +407,4 @@ describe("type scale clean-up (docs/design/mobile-redesign.md P2)", () => {
     for (const file of [notice, banner]) expect(file?.text).not.toMatch(/bg-signal|text-signal/);
   });
 
-  it("keeps heavy uppercase for a page's main headline: section heads, headings and metadata aren't uppercased", () => {
-    const utility = (name: string) => css.slice(css.indexOf(`@utility ${name} {`), css.indexOf("}", css.indexOf(`@utility ${name} {`) + 20));
-    expect(css.slice(css.indexOf("@utility display-lg {"), css.indexOf("@utility display-md {"))).toContain("text-transform: uppercase;");
-    for (const name of ["display-md", "title-lg", "meta"]) expect(utility(name)).not.toContain("uppercase");
-    const headings = css.slice(css.indexOf("h1,\nh2,\nh3,\nh4 {"), css.indexOf("}", css.indexOf("h1,\nh2,\nh3,\nh4 {")));
-    expect(headings).toContain("font-weight: 700;");
-    expect(headings).not.toContain("uppercase");
-    // Less tracking on labels than before (0.04em).
-    expect(utility("eyebrow")).toContain("letter-spacing: 0.02em;");
-  });
 });

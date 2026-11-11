@@ -72,6 +72,22 @@ export function formatEventTime(isoLike: string, timeZone: string = PLATFORM_TIM
 }
 
 /**
+ * The card's compact time, as the redesign's cards draw it ("5PM", "7:30PM" once set in
+ * capitals): "5pm", "7:30pm", "12am", in the zone (Melbourne by default). Whole hours drop
+ * ":00", and there's no space before am/pm.
+ */
+export function formatEventTimeCompact(isoLike: string, timeZone: string = PLATFORM_TIME_ZONE): string {
+  return formatEventTime(isoLike, timeZone)
+    .replace(/[\s\u202f]+/g, "")
+    .replace(/:00(?=[ap]m$)/, "");
+}
+
+/** e.g. "Fri" — the short weekday in the zone (Melbourne by default), as in formatEventDateShort. */
+export function formatEventWeekday(isoLike: string, timeZone: string = PLATFORM_TIME_ZONE): string {
+  return formattersFor(timeZone).weekday.format(new Date(isoLike));
+}
+
+/**
  * A day, in the zone (Melbourne by default): "Sat 26 Sep", with the year
  * when it isn't `now`'s year there ("Fri 25 Sep 2025").
  */

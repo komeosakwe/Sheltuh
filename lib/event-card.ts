@@ -1,4 +1,13 @@
-import { eventZone, formatEventDateKey, formatEventDateShort, formatEventTime, zoneSuffix } from "./format";
+import {
+  eventZone,
+  formatDateBadge,
+  formatEventDateKey,
+  formatEventDateShort,
+  formatEventTime,
+  formatEventTimeCompact,
+  formatEventWeekday,
+  zoneSuffix,
+} from "./format";
 import type { TrendingSignal } from "./home-sections";
 import { isSoldOut, pricedTicketTypes } from "./pricing";
 import { quickBuyHref, quickBuyLabel, type QuickBuyLabel } from "./quick-buy";
@@ -101,6 +110,30 @@ export function cardDateLabel(event: SheltuhEvent, now: Date): CardDateLabel {
     };
   }
   return startLabel(event);
+}
+
+/**
+ * The card's one mono line (the redesign's event card), as parts joined by " · ": the start's
+ * date, its compact time with any zone but Melbourne's ("5pm", "4pm Perth time"), then "Suburb,
+ * STATE" (owner decision D4), or the venue when there's no suburb. An event under way has "Now on
+ * · until …" in place of the date and time. The card sets it in capitals with CSS, so it shows
+ * "SAT 14 NOV · 5PM · COBURG, VIC" and reads as written. Parts that don't exist are left out.
+ */
+export function cardMetaParts(event: SheltuhEvent, now: Date): string[] {
+  const date = cardDateLabel(event, now);
+  const when =
+    "running" in date
+      ? [date.running]
+      : [date.date, [formatEventTimeCompact(event.startsAt, eventZone(event.timeZone)), date.zone].filter(Boolean).join(" ")];
+  const place = eventPlaceName(event) || event.venueName.trim();
+  return [...when, place].filter(Boolean);
+}
+
+/** The card's date chip: `{ weekday: "Sat", day: "14", month: "NOV" }`, the start in the event's own zone. */
+export function cardDateChip(event: EventStartFields): { weekday: string; day: string; month: string } {
+  const zone = eventZone(event.timeZone);
+  const { range, month } = formatDateBadge(event.startsAt, undefined, zone);
+  return { weekday: formatEventWeekday(event.startsAt, zone), day: range, month };
 }
 
 /** Whether `event` has ended by `now` (an event with no end time ends when it starts). */

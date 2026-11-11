@@ -15,7 +15,8 @@ export default function FeedLoading({ percent, done }: { percent: number; done: 
       <div aria-hidden="true" className={RESULTS_GRID}>
         <EventCardPlaceholder variant="grid" />
         <EventCardPlaceholder variant="grid" />
-        <div className="hidden sm:block">
+        {/* A whole first row: two columns, four from 1024px. */}
+        <div className="hidden lg:block">
           <EventCardPlaceholder variant="grid" />
         </div>
         <div className="hidden lg:block">

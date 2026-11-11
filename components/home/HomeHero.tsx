@@ -1,21 +1,8 @@
-import DottedLine from "@/components/brand/DottedLine";
+import BrandU from "@/components/brand/BrandU";
 import SearchBar from "@/components/SearchBar";
 import HeroCollage from "./HeroCollage";
 import HeroThumb from "./HeroThumb";
-import { HOME_TITLE_LINES } from "./home-content";
-
-/**
- * One line of the h1: plain text, with its marked letters (`HOME_TITLE_LINES`)
- * in the dotted face. No whitespace between the runs, so the line's text is
- * exactly the plain words.
- */
-function TitleLine({ line }: { line: string }) {
-  return (
-    <span className="block">
-      <DottedLine line={line} />
-    </span>
-  );
-}
+import { HOME_TITLE, HOME_TITLE_LINES } from "./home-content";
 
 /**
  * The home's hero (docs/design/mobile-redesign.md §6.1 and its Refinement,
@@ -27,9 +14,9 @@ function TitleLine({ line }: { line: string }) {
  * the page's only search on the home (the header leaves its own out here).
  * The category row under it is the way to browse. Nothing animates in.
  *
- * The h1 is in the plain face but for two letters in the dotted one,
- * FIND YOÜR NEXT THÏNG. (owner, 24 Oct 2026: "only two letters with dots";
- * the letters are chosen in `HOME_TITLE_LINES`).
+ * The h1 is a display headline in Bootzy, FIND YOÜR NEXT THING., shown
+ * through BrandU (`HOME_TITLE_LINES`) and read as "Find your next thing."
+ * (`HOME_TITLE`).
  *
  * From 1024px the hero is compact (owner, 4 Nov 2026: "hero and search bar
  * take too much of the screen"): a smaller h1, the search right under it, and
@@ -49,9 +36,10 @@ export default function HomeHero() {
         {/* The tile takes a fixed column at the right, so the h1's two lines keep their own width. */}
         <div className="flex items-start gap-3 sm:gap-4">
           <div className="min-w-0 flex-1">
-            <h1 id="home-title" className="display-lg font-display display-plain lg:text-5xl">
-              {/* The literal space keeps the accessible name "Find your next thing.". */}
-              <TitleLine line={first} /> <TitleLine line={second} />
+            <h1 id="home-title" className="display-m">
+              <BrandU spoken={HOME_TITLE}>
+                <span className="block">{first}</span> <span className="block">{second}</span>
+              </BrandU>
             </h1>
           </div>
           <HeroThumb className="lg:hidden" />

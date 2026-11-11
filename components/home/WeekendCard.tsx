@@ -137,7 +137,7 @@ export default function WeekendCard({
               <span aria-hidden="true" data-card-faces="" className="flex shrink-0">
                 {faces.map((name, i) => (
                   <span key={`${name}-${i}`} className={`flex rounded-full ring-1 ring-paper ${i > 0 ? "-ml-0.5" : ""}`.trim()}>
-                    <InitialsAvatar name={name} index={i} size="strip" round />
+                    <InitialsAvatar name={name} index={i} size="strip" />
                   </span>
                 ))}
               </span>

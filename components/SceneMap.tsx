@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import DottedLine from "@/components/brand/DottedLine";
+import BrandU from "@/components/brand/BrandU";
 import SceneEventRow from "@/components/SceneEventRow";
 import SceneMapFilterBar from "@/components/SceneMapFilterBar";
 import NearMeButton from "@/components/map/NearMeButton";
@@ -514,12 +514,12 @@ function SceneMapView({
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Owner (26 Oct 2026): fewer special characters, so "near you" is spelt out and the eyebrow is just "Map". */}
+      {/* The proposal's headline: the brand's Ü shown through BrandU, read as "Sheltüh near you."; the eyebrow is just "Map". */}
       <PageHeader
         brand
         flush
         eyebrow="Map"
-        title={<DottedLine line="Sheltüh near yo^u." />}
+        title={<BrandU spoken="Sheltüh near you.">SHELTÜH NEAR YOÜ.</BrandU>}
       />
 
       <div className="mt-2">

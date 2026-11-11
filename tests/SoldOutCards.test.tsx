@@ -41,11 +41,18 @@ function expectSoldOutCard() {
   return join;
 }
 
-describe("sold-out cards (brand-direction-one.md §6.5)", () => {
-  it.each(["grid", "rail"] as const)("EventCard %s", (variant) => {
-    render(<EventCard event={soldOut} variant={variant} showSave={false} />);
-    expectSoldOutCard();
-    // The card link is named by the title alone; "Sold out" is the foot's text beside it.
+describe("sold-out cards (brand-direction-one.md §6.5; the rules' Cards board)", () => {
+  // The redesign's card (the rules: Sold out = the "Sold out" tag and the image at 60%) has no ticket
+  // button, so no "Join waitlist" on it: the event page's waitlist is one tap away.
+  it.each(["grid", "rail"] as const)("EventCard %s: the 'Sold out' tag in words, the image at 60%%, no price label", (variant) => {
+    const { container } = render(<EventCard event={soldOut} variant={variant} showSave={false} />);
+    const tag = screen.getByText("Sold out").closest("[data-tag]");
+    expect(tag).toHaveAttribute("data-tag", "neutral");
+    expect(container.querySelector("[data-card-media] > *")).toHaveClass("opacity-60");
+    expect(container.querySelector("[data-price-tag]")).toBeNull();
+    expect(screen.queryByText(/incl\. booking fee/)).toBeNull();
+    expect(screen.queryByRole("link", { name: /Join waitlist/ })).toBeNull();
+    // The card link is named by the title alone; "Sold out" is the text beside it.
     expect(screen.getByRole("link", { name: "Dead Letter Office" })).toBeInTheDocument();
   });
 
@@ -61,12 +68,13 @@ describe("sold-out cards (brand-direction-one.md §6.5)", () => {
     expectSoldOutCard();
   });
 
-  it("no badge on the media (no colour-only signal): only the art is there; the category is in the small line below", () => {
+  it("no badge on the media (no colour-only signal): the art and the decorative date chip; the category and Sold out are tags below", () => {
     const { container } = render(<EventCard event={soldOut} variant="grid" showSave={false} />);
-    const media = container.querySelector(".rounded-card");
-    expect(media?.children).toHaveLength(1);
-    expect(media?.firstElementChild).toHaveAttribute("aria-hidden", "true");
-    expect(container.querySelector("[data-card-secondary]")).toHaveTextContent(/^Theatre/);
+    const media = container.querySelector("[data-card-media]");
+    expect(media?.children).toHaveLength(2);
+    for (const child of media?.children ?? []) expect(child).toHaveAttribute("aria-hidden", "true");
+    expect(media).not.toHaveTextContent(/Sold out/);
+    expect(container.querySelector("[data-card-tags]")).toHaveTextContent(/^TheatreSold out$/);
   });
 
   it("an ended sold-out event has no Join waitlist: its price line says Ended (§6.2.3 row 1)", () => {
@@ -87,8 +95,9 @@ describe("sold-out cards (brand-direction-one.md §6.5)", () => {
     };
     render(<EventCard event={external} variant="grid" showSave={false} />);
     expect(screen.queryByText("Sold out")).toBeNull();
-    // The price line and the button both read "Buy tickets"; neither names the site.
-    expect(screen.getAllByText("Buy tickets")).toHaveLength(2);
+    // The price label reads "Buy tickets" (the card has no button of its own); it never names the site.
+    expect(screen.getAllByText("Buy tickets")).toHaveLength(1);
+    expect(screen.getByText("Buy tickets")).toHaveAttribute("data-price-tag", "signal");
     expect(screen.queryByText(/Humanitix/)).toBeNull();
   });
 });

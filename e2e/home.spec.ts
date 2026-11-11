@@ -263,7 +263,9 @@ async function pointAt(page: Page, target: Locator) {
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
 }
 
-test("a card's Buy tickets lands on the event page with focus on the tickets", async ({ page }) => {
+// The redesign's card (the rules' Cards board) has no ticket button: its price is an orange label inside
+// the card's one link, so a tap on the price opens the event like anywhere else on the card.
+test("a tap on a card's price label opens its event page", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   const events = fixtures(Date.now());
   await mockApi(page);
@@ -273,17 +275,22 @@ test("a card's Buy tickets lands on the event page with focus on the tickets", a
     return event ? route.fulfill({ json: event }) : route.fulfill({ status: 404, json: { error: "not found" } });
   });
   await page.goto("/");
-  // This weekend's cards open the event (an orange arrow, owner's mockup of 8 Nov 2026): the quick buy is the next rail's.
+  // This weekend's cards are their own (owner's mockup of 8 Nov 2026): the EventCards are the next rail's.
   const section = page.locator("[data-home-section]").nth(1);
-  const quickBuy = section.getByRole("link", { name: /^(?:Buy tickets|Free tickets) for / }).first();
-  const href = await quickBuy.getAttribute("href");
-  expect(href).toMatch(/^\/events\/[^/]+#tickets$/);
+  const card = section.locator("[data-event-card]").filter({ has: page.locator("[data-price-tag='signal']") }).first();
+  const href = await card.locator("[data-card-link]").getAttribute("href");
+  expect(href).toMatch(/^\/events\/[^/#]+$/);
+  await expect(section.getByRole("link", { name: /^(?:Buy tickets|Free tickets) for / })).toHaveCount(0);
+  const price = card.locator("[data-price-tag]");
   // A rail that auto-scrolls never stops moving by itself; the pointer over it holds it, as for a person.
-  await pointAt(page, quickBuy);
-  await quickBuy.click();
+  await pointAt(page, price);
+  // A real click where the label is drawn: the card's stretched link is what's under the pointer there.
+  const box = await price.boundingBox();
+  if (!box) throw new Error("price not laid out");
+  expect(await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest("a")?.getAttribute("href"), [box.x + box.width / 2, box.y + box.height / 2])).toBe(href);
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   // The dev server compiles the event route on first visit, which can take a while under load.
-  await expect(page).toHaveURL(/#tickets$/, { timeout: 30_000 });
-  await expect(page.locator("#tickets")).toBeFocused({ timeout: 30_000 });
+  await expect(page).toHaveURL(new RegExp(`${href}$`), { timeout: 30_000 });
 });
 
 test.describe("the logo on the home", () => {
@@ -324,14 +331,14 @@ test.describe("keyboard", () => {
     const section = page.locator("[data-home-section]").filter({ has: page.getByRole("heading", { name: "Coming up", exact: true }) });
     const items = section.getByRole("listitem");
     expect(await items.count()).toBeGreaterThan(2);
-    // Start on the first card's link, then Tab through the next two cards (link, Save, Buy tickets each).
+    // Start on the first card's link, then Tab through the next two cards (link and Save each: the card has no ticket button).
     await items.first().getByRole("link").first().focus();
     const inView = async (item: Locator) => {
       const b = await item.boundingBox();
       if (!b) return "not rendered";
       return b.x >= 0 && b.x + b.width <= 640 && b.y >= 0 && b.y + b.height <= 844 ? "in view" : `${b.x},${b.y} ${b.width}×${b.height}`;
     };
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 4; i++) {
       await page.keyboard.press("Tab");
       await expect.poll(() => inView(page.locator("li:has(:focus)").last())).toBe("in view");
     }
@@ -542,7 +549,7 @@ for (const width of [320, 1024, 1440]) {
 test.describe("the home's grids on a phone (375×667)", () => {
   test.use({ viewport: { width: 375, height: 667 } });
 
-  test("two columns on the page's 20px gutters with 12px between, the first heading under the category row", async ({ page }) => {
+  test("two columns on the page's 20px gutters with 16px between (the rules' mobile gutter), the first heading under the category row", async ({ page }) => {
     await openHome(page);
     // The first grid (This weekend is a rail on phones too since the owner's mockup of 8 Nov 2026), and the first heading.
     const section = page.locator("[data-home-grid]").first();
@@ -553,7 +560,7 @@ test.describe("the home's grids on a phone (375×667)", () => {
     if (!a || !b || !chips || !heading) throw new Error("home not laid out");
     expect(a.x).toBe(20);
     expect(b.x + b.width).toBe(375 - 20);
-    expect(b.x - (a.x + a.width)).toBe(12);
+    expect(b.x - (a.x + a.width)).toBe(16);
     expect(a.y).toBe(b.y);
     expect(heading.y).toBeGreaterThanOrEqual(chips.y + chips.height);
     expect(heading.y).toBeLessThan(667);
@@ -641,9 +648,9 @@ for (const vp of [
       const items = section.getByRole("listitem");
       await expect(items).toHaveCount(3);
       await expect(items.nth(0)).toHaveAttribute("data-active", "true");
-      // Inactive items: the muted token (5.65:1 on white), fully opaque.
+      // Inactive items: the muted token, text/secondary #5c5c5c (6.69:1 on white), fully opaque.
       const inactive = await items.nth(1).evaluate((li) => ({ color: getComputedStyle(li).color, opacity: getComputedStyle(li).opacity }));
-      expect(inactive).toEqual({ color: "rgb(107, 103, 94)", opacity: "1" });
+      expect(inactive).toEqual({ color: "rgb(92, 92, 92)", opacity: "1" });
       await items.nth(2).evaluate((li) => {
         const box = li.getBoundingClientRect();
         window.scrollBy({ top: box.top + box.height / 2 - window.innerHeight / 2, behavior: "instant" });

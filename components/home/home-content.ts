@@ -12,42 +12,16 @@ export interface HomeArt {
 }
 
 /**
- * The home h1, one entry per line (two lines at every width): "Find your
- * next thing." (owner, 24 Oct 2026). The h1 is in the plain face and only
- * the letter after each `^` is drawn in the dotted face (Instrument Sans
- * Dots), so it reads FIND YOÜR NEXT THÏNG. (owner, 24 Oct 2026: "only two
- * letters with dots"; the Ü echoes SHELTÜH) while its text and accessible
- * name stay plainly "Find your next thing.". To dot other letters, move the
- * `^`s: this line is the only place the choice is made.
+ * The home h1, as the proposal draws it: FIND YOÜR / NEXT THING. (two
+ * lines at every width; the display style sets the capitals). The Ü is the
+ * brand's, for display headlines only (the rules' "Ü in headlines only"), so
+ * the h1 shows these lines through BrandU, hidden from screen readers, and
+ * reads `HOME_TITLE` instead.
  */
-export const HOME_TITLE_LINES: readonly [string, string] = ["Find yo^ur", "next th^ing."];
-
-/** Marks the next letter of a `HOME_TITLE_LINES` line as drawn with the dots. */
-const DOT_MARK = "^";
-
-/** A run of a title line: plain text, or one letter drawn in the dotted face. */
-export interface TitlePart {
-  text: string;
-  dotted: boolean;
-}
-
-/** Splits a `HOME_TITLE_LINES` line into plain runs and its dotted letters, in order. */
-export function titleParts(line: string): TitlePart[] {
-  const [head, ...marked] = line.split(DOT_MARK);
-  const parts: TitlePart[] = head ? [{ text: head, dotted: false }] : [];
-  for (const run of marked) {
-    if (!run) continue;
-    parts.push({ text: run.charAt(0), dotted: true });
-    if (run.length > 1) parts.push({ text: run.slice(1), dotted: false });
-  }
-  return parts;
-}
-
-/** A title line as plain text, without its dot marks. */
-export const titleText = (line: string) => line.split(DOT_MARK).join("");
+export const HOME_TITLE_LINES: readonly [string, string] = ["Find yoür", "next thing."];
 
 /** The h1's text and accessible name: "Find your next thing.". */
-export const HOME_TITLE = HOME_TITLE_LINES.map(titleText).join(" ");
+export const HOME_TITLE = "Find your next thing.";
 
 /*
  * Promotional photos (owner, 23 Oct 2026: "avoid reusing the same DJ and

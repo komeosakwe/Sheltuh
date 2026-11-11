@@ -64,7 +64,9 @@ for (const vp of VIEWPORTS) {
   test.describe(`discovery at ${vp.name}`, () => {
     test.use({ viewport: { width: vp.width, height: vp.height } });
 
-    test("/events: the brand h1, a grid of image-first cards, each with an orange Buy tickets", async ({ page }) => {
+    // The redesign's card (the rules' Cards board): one link to the event, its all-inclusive price an
+    // orange label inside it (never its own control). Ticket buttons stay on the event page and /map.
+    test("/events: the brand h1, a grid of image-first cards, each one link with an orange price label", async ({ page }) => {
       await mockApi(page);
       await page.goto("/events");
       await expect(page.getByRole("heading", { level: 1 })).toHaveText("What’s on.");
@@ -76,20 +78,22 @@ for (const vp of VIEWPORTS) {
       const columns = await grid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length);
       expect(columns).toBe(vp.phone ? 2 : 4);
 
-      // An external event's card says "Buy tickets" too (owner, 6 Nov 2026).
-      const quickBuys = grid.getByRole("link", { name: /^(?:Buy tickets|Free tickets) for / });
-      expect(await quickBuys.count()).toBeGreaterThanOrEqual(sampleEvents.length - 2);
-      const first = quickBuys.first();
-      await expect(first).toBeVisible();
-      await expect(first).toHaveAttribute("href", /^\/events\/[^/]+#tickets$/);
-      // Signal Orange with a black label, at least 44px tall on phones.
-      const style = await first.evaluate((el) => {
+      // One link per card, to its event, beside Save (signed out: "Sign in to save …"); no ticket buttons.
+      await expect(grid.getByRole("link", { name: /^(?:Buy tickets|Free tickets|Choose seats|Join waitlist) for / })).toHaveCount(0);
+      const first = grid.locator("[data-event-card]").first();
+      const title = (await first.locator("h3").textContent())?.trim() ?? "";
+      await expect(first.getByRole("link")).toHaveCount(2);
+      await expect(first.getByRole("link").nth(0)).toHaveAccessibleName(title);
+      await expect(first.getByRole("link").nth(0)).toHaveAttribute("href", /^\/events\/[^/#]+$/);
+      await expect(first.getByRole("link").nth(1)).toHaveAccessibleName(`Sign in to save ${title}`);
+      const prices = grid.locator("[data-price-tag='signal']");
+      expect(await prices.count()).toBeGreaterThanOrEqual(sampleEvents.length - 2);
+      // Signal Orange with a black label, radius 8, and not a tab stop.
+      const style = await prices.first().evaluate((el) => {
         const s = getComputedStyle(el);
-        return { bg: s.backgroundColor, color: s.color, height: el.getBoundingClientRect().height };
+        return { bg: s.backgroundColor, color: s.color, radius: s.borderTopLeftRadius, tab: (el as HTMLElement).tabIndex };
       });
-      expect(style.bg).toBe("rgb(255, 72, 0)");
-      expect(style.color).toBe("rgb(0, 0, 0)");
-      expect(style.height).toBeGreaterThanOrEqual(vp.phone ? 44 : 40);
+      expect(style).toEqual({ bg: "rgb(255, 72, 0)", color: "rgb(0, 0, 0)", radius: "8px", tab: -1 });
 
       await noSidewaysScroll(page);
     });

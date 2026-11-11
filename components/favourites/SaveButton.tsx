@@ -10,36 +10,35 @@ import HeartIcon from "./HeartIcon";
 
 export type SaveButtonVariant = "overlay" | "glass" | "plain" | "action";
 
-const discBase = "flex size-9 items-center justify-center rounded-control border motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-active/save:scale-90";
-
-/** The 44px hit area and the visible mark, per variant and state. */
+/**
+ * The 44px+ hit area and the visible mark, per variant and state. Saved, the heart fills Signal
+ * Orange (the rules' card anatomy: "outline → filled orange"; a non-text mark, 3.4:1 on white).
+ */
 function classes(variant: SaveButtonVariant, saved: boolean) {
+  const heart = saved ? "text-signal" : "";
   switch (variant) {
     // The event page's secondary action row, beside Share: the page's one Save.
     case "action":
       return {
         target: `group/save ${secondaryActionClass}`,
         mark: null,
-        icon: "size-4 motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-active/save:scale-90",
+        icon: `size-4 motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-active/save:scale-90 ${heart}`.trim(),
       };
     case "plain":
       return {
         target: "group/save flex size-11 items-center justify-center text-foreground",
         mark: null,
-        icon: "size-5 motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-active/save:scale-90",
+        icon: `size-5 motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-active/save:scale-90 ${heart}`.trim(),
       };
-    // On a photo, which can be dark: the page's black outline could vanish into it, so
-    // keyboard focus rings the 36px mark instead, black on a white gap that shows on any
-    // photo (never orange). Explicit ink/paper: it's the same on every surface and theme.
+    // An event card's photo corner (the rules' card anatomy and icon button): a 32px white
+    // rounded square with a black heart, in a 48px target on phones and a 40px one from 768px.
+    // White and black in both themes (it sits on a photo, which can be dark or light). Keyboard
+    // focus rings the mark, black on a white gap that shows on any photo (never orange).
     case "overlay":
       return {
-        target: "group/save flex size-11 items-center justify-center rounded-control focus-visible:outline-none!",
-        mark: `${discBase} border-foreground group-focus-visible/save:ring-2 group-focus-visible/save:ring-ink group-focus-visible/save:ring-offset-2 group-focus-visible/save:ring-offset-paper ${
-          saved
-            ? "bg-foreground text-background group-hover/save:bg-accent-strong"
-            : "bg-background text-foreground group-hover/save:ring-1 group-hover/save:ring-foreground"
-        }`,
-        icon: "size-4.5",
+        target: "group/save flex size-12 items-center justify-center rounded-control focus-visible:outline-none! md:size-10",
+        mark: "flex size-8 items-center justify-center rounded-control bg-paper text-ink motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-active/save:scale-90 group-hover/save:bg-hover group-focus-visible/save:ring-2 group-focus-visible/save:ring-ink group-focus-visible/save:ring-offset-2 group-focus-visible/save:ring-offset-paper",
+        icon: `size-5 ${heart}`.trim(),
       };
     // The This weekend card's photo corner (owner's mockup, 8 Nov 2026): a 32px rounded square of
     // dimmed glass with a white edge and heart, in the same 44px target, with the overlay's focus ring.

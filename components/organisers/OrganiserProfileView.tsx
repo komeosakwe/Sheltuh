@@ -135,7 +135,7 @@ export default function OrganiserProfileView({
           <ul className={RESULTS_GRID}>
             {upcoming.map((event) => (
               <li key={event.id} className="flex min-w-0">
-                <EventCard event={event} variant="grid" showOrganiser={false} />
+                <EventCard event={event} variant="grid" />
               </li>
             ))}
           </ul>

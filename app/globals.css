@@ -1,21 +1,23 @@
 @import "tailwindcss";
 
 /*
- * Sheltüh design tokens: Brand Direction One, "Structured Expression"
- * (docs/design/brand-direction-one.md), on a white foundation with a Light / Dark
- * switch (docs/design/theme-white-dark.md). Black and white structure, Signal Orange
- * as a field or a mark (never small text on light). Every component reads these
- * semantic tokens, so the whole app re-skins here.
+ * Sheltüh design tokens: the redesign's rules (docs/design-system.md, "Sheltüh · Rules"), on a
+ * white foundation with a Light / Dark switch (docs/design/theme-white-dark.md). Black and white
+ * structure, Signal Orange for the main action and the dot motif only (never small text on light,
+ * never a border or a focus ring), cream for hover. Every component reads these semantic tokens,
+ * so the whole app re-skins here.
  * Hex is lowercase and :root comes first: tests/pwa-manifest.test.ts reads the
  * first --background, and tests/brand-tokens.test.ts pins the brand values.
  */
 :root {
   --background: #ffffff; /* White: the site foundation */
   --card: #ffffff; /* White: cards, fields, sheets, dialogs (the 1px foreground border carries them) */
-  --surface: #f3f2ee; /* sunken paper grey: skeletons, placeholders, hover. Never behind orange marks (3.03:1) */
-  --surface-border: #dedcd5; /* soft hairline, decorative dividers only (never a control boundary) */
-  --foreground: #000000; /* Black: text, structure rules, nav */
-  --muted: #6b675e; /* 5.65:1 on white, 5.04:1 on surface */
+  --surface: #f2f1ee; /* surface/muted: skeletons, placeholders, list hover. Never behind orange marks */
+  --surface-border: #e5e3de; /* border/subtle: 1px dividers only (never a control boundary) */
+  --foreground: #000000; /* Black: text, 1.5px control outlines, nav */
+  --muted: #5c5c5c; /* text/secondary: 6.69:1 on white, 6.03:1 on surface, 6.48:1 on hover */
+  --hover: #fffae7; /* surface/card-hover: cream, the hover fill of cards and filters only */
+  --disabled: #a3a3a3; /* text/disabled: disabled labels (exempt from contrast, never meaning on its own) */
   --accent: #000000; /* default solid buttons and text links: stays black (orange text fails on white) */
   --accent-strong: #262626;
   --accent-foreground: #ffffff;
@@ -54,27 +56,21 @@
   --door-refuse-foreground: #f3f0e8;
   --door-hold: #ffb020; /* "Not verified": frame, hazard stripes, icon, headline; offline banner fill */
   --door-hold-foreground: #0b0b0b;
-  /* Faces (app/fonts.ts). --face-sans is plain Instrument Sans for all running text, buttons,
-     prices and nav. --face-dots is Instrument Sans Dots (every vowel drawn with the brand's two
-     dots, in the font only, so the text stays plainly spelled), first in the line. Its one rule
-     (29 Oct 2026): the dotted face is for the SHELTÜH wordmark and the few major creative hero
-     headlines only (--face-display, i.e. `font-display`: the home h1's two letters via
-     `font-dots`, "What's on." and "Sheltüh near ü."). Every functional heading (section and
-     page titles, account / dashboard / admin / auth / checkout / help, nav, errors) is plain
-     Instrument Sans. Anything the dotted face lacks falls through to the plain face. Form
-     fields use --face-sans-plain. Mono stays plain. */
+  /* Faces (app/fonts.ts): three typefaces, one job each (the rules' Type board).
+     --face-sans is plain Instrument Sans for UI, headings, body, buttons and nav (form fields too,
+     via --face-sans-plain). --face-mono is IBM Plex Mono for facts: dates, times, places, eyebrows.
+     --face-display is Bootzy, for display headlines only (the display-* styles), at weight 400 with
+     no synthesised bold: it's Regular only. No size-adjusted fallback of its own
+     (adjustFontFallback: false), so any glyph Bootzy lacks (· … * ~ → × and the no-break space),
+     and the whole line until it loads, falls to Instrument Sans. */
   --face-sans: var(--font-instrument), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-  --face-dots: var(--font-instrument-dots), var(--face-sans);
   --face-sans-plain: var(--face-sans);
   --face-mono: var(--font-plex-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  /* THE display token. Bootzy isn't licensed into the repo yet: the fallback is Instrument Sans 700,
-     set tight, which is how the brand book sets its own headlines. Flip this block when Bootzy
-     lands (brand-direction-one.md §3.4): --face-display: var(--font-bootzy), var(--face-sans);
-     --display-weight: 400; --display-tracking: -0.01em; --display-leading: 0.9. */
-  --face-display: var(--face-dots);
-  --display-weight: 700;
-  --display-tracking: -0.045em;
-  --display-leading: 0.88;
+  --face-display: var(--font-bootzy), var(--face-sans);
+  --display-weight: 400;
+  --display-tracking: 0;
+  /* The control stroke (the rules' Shape board): chips, filters, inputs and secondary buttons. */
+  --stroke-control: 1.5px;
   --header-h: 3.5rem; /* 56px compact header, < lg */
   --buybar-h: 4rem; /* 64px sticky event-page buy bar, < lg (before the safe area) */
   --editbar-h: 4rem; /* 64px sticky save bar on the event editor, before the safe area */
@@ -104,10 +100,12 @@
     color-scheme: dark;
     --background: #000000;
     --card: #141414;
-    --surface: #262626;
+    --surface: #1f1f1f;
     --surface-border: #333333;
     --foreground: #ffffff;
-    --muted: #a39e93; /* 7.87:1 on black, 6.90:1 on card, 5.67:1 on surface */
+    --muted: #a3a3a3; /* 8.33:1 on black, 7.33:1 on card, 6.94:1 on surface */
+    --hover: #1a1a1a;
+    --disabled: #5c5c5c;
     --accent: #ffffff;
     --accent-strong: #e0e0e0;
     --accent-foreground: #000000;
@@ -148,10 +146,12 @@
 [data-surface="ink"] {
   --background: #000000;
   --card: #141414;
-  --surface: #1a1a1a;
+  --surface: #1f1f1f;
   --surface-border: #333333;
   --foreground: #ffffff;
-  --muted: #a39e93; /* 7.87:1 on black */
+  --muted: #a3a3a3; /* 8.33:1 on black */
+  --hover: #1a1a1a;
+  --disabled: #5c5c5c;
   --accent: #ffffff;
   --accent-strong: #e0e0e0;
   --accent-foreground: #000000;
@@ -170,9 +170,10 @@
   --accent: #000000;
   --accent-strong: #262626;
   --accent-foreground: #ffffff;
-  /* White card and sunken surface in both themes, so nothing inside picks up Dark's colours. */
+  /* White card, sunken surface and cream hover in both themes, so nothing inside picks up Dark's colours. */
   --card: #ffffff;
-  --surface: #f3f2ee;
+  --surface: #f2f1ee;
+  --hover: #fffae7;
   background: var(--background);
   color: var(--foreground);
 }
@@ -183,10 +184,12 @@
   color-scheme: light;
   --background: #ffffff;
   --card: #ffffff;
-  --surface: #f3f2ee;
-  --surface-border: #dedcd5;
+  --surface: #f2f1ee;
+  --surface-border: #e5e3de;
   --foreground: #000000;
-  --muted: #6b675e;
+  --muted: #5c5c5c;
+  --hover: #fffae7;
+  --disabled: #a3a3a3;
   --accent: #000000;
   --accent-strong: #262626;
   --accent-foreground: #ffffff;
@@ -216,6 +219,60 @@
   color: var(--foreground);
 }
 
+/* Category tags (components/ui/CategoryTag.tsx; the rules' Colour board, "Category tints"): soft,
+   one per category, on tags only, never as a section or button fill. Each pair is the tint and its
+   text, at least 4.5:1 either way round (tests/tag-contrast.test.ts); Dark and ink swap them, and
+   paper pins them to Light. "fashion" has no category yet, so nothing uses it. */
+[data-tag] {
+  --tag-tint: #eeece7;
+  --tag-ink: #3a3936;
+  background-color: var(--tag-tint);
+  color: var(--tag-ink);
+}
+[data-tag="live-music"] {
+  --tag-tint: #ece6fa;
+  --tag-ink: #4b3b8c;
+}
+[data-tag="art"] {
+  --tag-tint: #e3effa;
+  --tag-ink: #1f4e79;
+}
+[data-tag="workshop"] {
+  --tag-tint: #fcebd6;
+  --tag-ink: #8a4b0f;
+}
+[data-tag="pop-up"] {
+  --tag-tint: #e2f2e5;
+  --tag-ink: #2e6b3a;
+}
+[data-tag="theatre"] {
+  --tag-tint: #f8e2e7;
+  --tag-ink: #8c2f45;
+}
+[data-tag="fashion"] {
+  --tag-tint: #fff0c7;
+  --tag-ink: #7a5a00;
+}
+[data-tag="free"],
+[data-tag="neutral"] {
+  --tag-tint: #eeece7;
+  --tag-ink: #3a3936;
+}
+[data-surface="ink"] [data-tag] {
+  background-color: var(--tag-ink);
+  color: var(--tag-tint);
+}
+@media screen {
+  [data-theme="dark"] [data-tag] {
+    background-color: var(--tag-ink);
+    color: var(--tag-tint);
+  }
+  [data-theme="dark"] [data-surface="paper"] [data-tag] {
+    background-color: var(--tag-tint);
+    color: var(--tag-ink);
+  }
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-card: var(--card);
@@ -223,6 +280,8 @@
   --color-surface-border: var(--surface-border);
   --color-foreground: var(--foreground);
   --color-muted: var(--muted);
+  --color-hover: var(--hover);
+  --color-disabled: var(--disabled);
   --color-accent: var(--accent);
   --color-accent-strong: var(--accent-strong);
   --color-accent-foreground: var(--accent-foreground);
@@ -251,16 +310,17 @@
   --font-mono: var(--face-mono);
 }
 
-/* The brand's rounded squares (the umlaut dots, the logomark, the palette swatches). No pills,
-   no circles (rounded-full survives only on native radios and checkboxes), no shadows:
-   elevation is a 1px foreground border. */
+/* Two radii (the rules' Shape board): 8 for things you tap (buttons, chips, inputs, menus, tags),
+   16 for things you look at (cards, card images, sheets, modals, the map). No pills, and no 4, 12
+   or 18. People's avatars and the going faces are round (rounded-full); native radios and
+   checkboxes keep their own shape. No shadows: menus and sheets separate with the 1.5px stroke. */
 @theme {
-  --radius-card: 0.75rem; /* 12px: event media, info cards, sheets, ticket stub, map card */
-  --radius-control: 0.5rem; /* 8px: buttons, inputs, selects, search, chips, steppers, menus */
-  --radius-badge: 0.25rem; /* 4px: category chip, date badge, status badge, unread count */
+  --radius-card: 1rem; /* 16px: event cards and their images, info cards, the ticket stub, map card */
+  --radius-control: 0.5rem; /* 8px: buttons, inputs, selects, search, chips, filters, steppers, menus */
+  --radius-badge: 0.5rem; /* 8px: category tags, the date chip, status badges, unread counts */
   --radius-panel: 1rem; /* 16px: the event page's ticket panel */
-  --radius-sheet: 1.5rem; /* 24px: the top corners of the phone buy bar */
-  --radius-dot: 28%; /* avatars, map markers (echo the umlaut) */
+  --radius-sheet: 1rem; /* 16px: sheets, and the top corners of the phone buy bar */
+  --radius-dot: 0.5rem; /* 8px: organiser logos and map markers (echo the umlaut) */
   /* The exception to flat elevation, at the owner's request (mockups, 8 Nov 2026): /map's search and
      location fields and its chips, and the home's This weekend cards, sit on a soft shadow; the map's location
      card floats over the map. */
@@ -331,8 +391,8 @@ body {
   }
 }
 
-/* Headings: Instrument Sans 700 in sentence case (docs/design/mobile-redesign.md, Refinement
-   22 Oct). Heavy uppercase is kept for a page's main headline only (display-lg). */
+/* Headings: Instrument Sans 700 in sentence case. The type styles below set each one's size,
+   line height and weight; a bare heading gets this. */
 @layer base {
 h1,
 h2,
@@ -345,11 +405,12 @@ h4 {
 }
 }
 
-/* The display token (Bootzy when licensed): at most once per view, never on event titles. */
+/* The display face (Bootzy, Regular only): never synthesised bold, whatever the element's weight. */
 @utility font-display {
   font-family: var(--face-display);
   font-weight: var(--display-weight);
   letter-spacing: var(--display-tracking);
+  font-synthesis-weight: none;
 }
 
 /* Instrument Sans with its weight: the variable font would otherwise default to 400. */
@@ -365,96 +426,202 @@ h4 {
   overflow-y: auto;
 }
 
-/* A page's main headline (page headers): the one heavy uppercase style, in the plain face (the
-   dotted face is `font-display`'s, for hero headlines only). Instrument Sans 700, 32–40px on
-   phones, 56–72px from lg. Event titles use title-lg. */
-@utility display-lg {
-  font-family: var(--face-sans);
-  font-weight: 700;
-  font-size: clamp(2rem, 8.5vw, 2.5rem);
-  /* 1.08, not 0.95: room for the dots over the second line's capitals. */
-  line-height: 1.08;
-  letter-spacing: -0.035em;
+/*
+ * The fifteen type styles (the rules' Type board), on a 4px line-height rhythm. Below 768px
+ * Display and Heading step down (the rules' 390 column); body, label and mono sizes stay.
+ * Display: Bootzy, uppercase as in the mocks, the Ü only in these (BrandU). Heading, body and
+ * label: Instrument Sans in sentence case. Mono: IBM Plex Mono, for facts.
+ */
+@utility display-xl {
+  font-family: var(--face-display);
+  font-weight: var(--display-weight);
+  letter-spacing: var(--display-tracking);
+  font-synthesis-weight: none;
   text-transform: uppercase;
-  @media (width >= 40rem) {
-    font-size: clamp(2.5rem, 5.5vw, 3.5rem);
-  }
-  @media (width >= 64rem) {
-    font-size: clamp(3.5rem, 5vw, 4.5rem);
-  }
-}
-
-/* Section h2 and empty-state titles (docs/design/mobile-redesign.md, Refinement 22 Oct): calm,
-   sentence case, 20/24, 22/28 from sm, 24/30 from lg. Only a page's main headline is uppercase. */
-@utility display-md {
-  font-family: var(--face-sans);
-  font-weight: 700;
-  font-size: 1.25rem;
-  line-height: 1.5rem;
-  letter-spacing: -0.02em;
-  @media (width >= 40rem) {
-    font-size: 1.375rem;
-    line-height: 1.75rem;
-  }
-  @media (width >= 64rem) {
-    font-size: 1.5rem;
-    line-height: 1.875rem;
+  font-size: 3.5rem;
+  line-height: 4rem;
+  @media (width >= 48rem) {
+    font-size: 6rem;
+    line-height: 6rem;
   }
 }
-
-/* An event page's title: bold and large, but sentence case and calmer than the home's
-   uppercase display headline. 28/32, 36/40 from sm, 44/48 from lg. */
-@utility title-lg {
+@utility display-l {
+  font-family: var(--face-display);
+  font-weight: var(--display-weight);
+  letter-spacing: var(--display-tracking);
+  font-synthesis-weight: none;
+  text-transform: uppercase;
+  font-size: 3rem;
+  line-height: 3.5rem;
+  @media (width >= 48rem) {
+    font-size: 4.5rem;
+    line-height: 5rem;
+  }
+}
+@utility display-m {
+  font-family: var(--face-display);
+  font-weight: var(--display-weight);
+  letter-spacing: var(--display-tracking);
+  font-synthesis-weight: none;
+  text-transform: uppercase;
+  font-size: 2.5rem;
+  line-height: 3rem;
+  @media (width >= 48rem) {
+    font-size: 3.5rem;
+    line-height: 4rem;
+  }
+}
+@utility heading-h1 {
   font-family: var(--face-sans);
   font-weight: 700;
-  font-size: 1.75rem;
-  line-height: 2rem;
-  letter-spacing: -0.025em;
-  @media (width >= 40rem) {
-    font-size: 2.25rem;
-    line-height: 2.5rem;
-  }
-  @media (width >= 64rem) {
-    font-size: 2.75rem;
+  letter-spacing: -0.015em;
+  font-size: 2rem;
+  line-height: 2.5rem;
+  @media (width >= 48rem) {
+    font-size: 2.5rem;
     line-height: 3rem;
   }
 }
-
-/* A brand question h1 ("What's on."): display-lg sizes in the display token. Two classes, so it
-   wins over either utility on its own whatever their order in the stylesheet. */
-@layer utilities {
-  .display-lg.font-display {
-    font-family: var(--face-display);
-    font-weight: var(--display-weight);
-    letter-spacing: var(--display-tracking);
-    line-height: 1.05; /* room for the dots over the second line's capitals */
+@utility heading-h2 {
+  font-family: var(--face-sans);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  font-size: 1.75rem;
+  line-height: 2.25rem;
+  @media (width >= 48rem) {
+    font-size: 2rem;
+    line-height: 2.5rem;
   }
-  /* The home h1 (owner, 24 Oct 2026: "only two letters with dots"): the display headline in the
-     plain face, with only its `font-dots` letters dotted (HOME_TITLE_LINES in
-     components/home/home-content.ts). Three classes, so it wins over the rule above. */
-  .display-lg.font-display.display-plain {
-    font-family: var(--face-sans);
+}
+@utility heading-h3 {
+  font-family: var(--face-sans);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-size: 1.25rem;
+  line-height: 1.75rem;
+  @media (width >= 48rem) {
+    font-size: 1.5rem;
+    line-height: 2rem;
+  }
+}
+@utility heading-h4 {
+  font-family: var(--face-sans);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-size: 1.125rem;
+  line-height: 1.5rem;
+  @media (width >= 48rem) {
+    font-size: 1.25rem;
+    line-height: 1.75rem;
+  }
+}
+@utility body-l {
+  font-family: var(--face-sans);
+  font-weight: 400;
+  font-size: 1rem;
+  line-height: 1.5rem;
+  @media (width >= 48rem) {
+    font-size: 1.125rem;
+    line-height: 1.75rem;
+  }
+}
+@utility body-m {
+  font-family: var(--face-sans);
+  font-weight: 400;
+  font-size: 1rem;
+  line-height: 1.5rem;
+}
+@utility body-s {
+  font-family: var(--face-sans);
+  font-weight: 400;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+@utility label-nav {
+  font-family: var(--face-sans);
+  font-weight: 500;
+  font-size: 1.125rem;
+  line-height: 1.5rem;
+}
+@utility label-button {
+  font-family: var(--face-sans);
+  font-weight: 600;
+  font-size: 1rem;
+  line-height: 1.5rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+@utility label-tag {
+  font-family: var(--face-sans);
+  font-weight: 500;
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+@utility mono-m {
+  font-family: var(--face-mono);
+  font-weight: 500;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+@utility mono-s {
+  font-family: var(--face-mono);
+  font-weight: 400;
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
+/*
+ * The old names, re-pointed at the styles above so every screen re-skins with no edits:
+ * display-lg is heading-h1 (sentence case now), display-md heading-h3, title-lg display-m (an
+ * event's title), eyebrow mono-s in capitals, meta mono-s as written.
+ */
+@utility display-lg {
+  font-family: var(--face-sans);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  font-size: 2rem;
+  line-height: 2.5rem;
+  @media (width >= 48rem) {
+    font-size: 2.5rem;
+    line-height: 3rem;
+  }
+}
+@utility display-md {
+  font-family: var(--face-sans);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-size: 1.25rem;
+  line-height: 1.75rem;
+  @media (width >= 48rem) {
+    font-size: 1.5rem;
+    line-height: 2rem;
+  }
+}
+@utility title-lg {
+  font-family: var(--face-display);
+  font-weight: var(--display-weight);
+  letter-spacing: var(--display-tracking);
+  font-synthesis-weight: none;
+  text-transform: uppercase;
+  font-size: 2.5rem;
+  line-height: 3rem;
+  @media (width >= 48rem) {
+    font-size: 3.5rem;
+    line-height: 4rem;
   }
 }
 
-/* One letter in the dotted face (Instrument Sans Dots) inside a plain headline: the text stays
-   plainly spelled, only its drawing gets the brand's two dots. */
-@utility font-dots {
-  font-family: var(--face-dots);
-}
-
-/* Labels, straps, field labels: IBM Plex Mono 500, 12/16, light tracking. */
+/* Eyebrows, straps, field labels: mono-s in capitals, lightly tracked. */
 @utility eyebrow {
   font-family: var(--face-mono);
   font-size: 0.75rem;
   line-height: 1rem;
-  font-weight: 500;
+  font-weight: 400;
   letter-spacing: 0.02em;
   text-transform: uppercase;
 }
 
-/* Timestamps, notes, references: IBM Plex Mono 400, 12/16, as written (sentence case, no
-   tracking) so dates read as dates. Card and event-page dates are Instrument (text-sm). */
+/* Timestamps, notes, references: mono-s as written, so dates read as dates. */
 @utility meta {
   font-family: var(--face-mono);
   font-size: 0.75rem;
@@ -462,8 +629,31 @@ h4 {
   font-weight: 400;
 }
 
-/* The active-nav "umlaut" (brand-direction-one.md §5 #2): two rounded squares over the label,
-   orange on the current page (plus a 2px underline), black under the pointer. `umlaut-lg` is the phone menu's
+/* The 1.5px control stroke: chips, filters, inputs, secondary buttons (dividers stay 1px). */
+@utility border-control {
+  border-style: solid;
+  border-width: var(--stroke-control);
+}
+
+/* The page's content column (the rules' Layout board): 1312px of content, with margins of 16px
+   on phones, 32px from 768px and 64px from 1440px. */
+@utility page-container {
+  width: 100%;
+  max-width: calc(82rem + 2 * var(--page-margin));
+  margin-inline: auto;
+  padding-inline: var(--page-margin);
+  --page-margin: 1rem;
+  @media (width >= 48rem) {
+    --page-margin: 2rem;
+  }
+  @media (width >= 90rem) {
+    --page-margin: 4rem;
+  }
+}
+
+/* The active-nav "umlaut" (brand-direction-one.md §5 #2; the rules' Navigation board): two rounded
+   squares over the label, orange under the pointer and on the current page (which also gets a 2px
+   underline). `umlaut-lg` is the phone menu's
    8px pair, aligned over the first letter. */
 @utility umlaut {
   position: relative;
@@ -509,6 +699,10 @@ h4 {
     opacity: 1;
   }
   @media (hover: hover) {
+    &:hover,
+    [role="tab"]:hover > & {
+      --umlaut: var(--signal);
+    }
     &:hover::before,
     [role="tab"]:hover > &::before {
       opacity: 1;
@@ -566,7 +760,7 @@ h4 {
   }
 }
 
-/* Form controls: white fields with a 1px black boundary and the control radius. */
+/* Form controls: white fields with the 1.5px black control stroke and the control radius. */
 @layer base {
   a {
     color: inherit;
@@ -576,7 +770,7 @@ h4 {
   textarea {
     border-radius: var(--radius-control);
     background-color: var(--card);
-    border: 1px solid var(--foreground);
+    border: var(--stroke-control) solid var(--foreground);
     color: var(--foreground);
   }
   input:not([type="checkbox"]):not([type="radio"]):disabled,
@@ -763,38 +957,41 @@ h4 {
   }
 }
 
-/* Buttons: rounded squares (brand-direction-one.md §6.1). Single source of truth, used by
-   ui/Button and legacy call sites. */
+/* Buttons (the rules' Buttons board): radius 8, Label/Button in sentence case, three sizes (S 40,
+   M 48, L 56) and every state on each. Primary (`.btn-signal`): orange with a black label, black
+   with an orange label on hover. Secondary (`.btn-outline`): the 1.5px stroke, black with a white
+   label on hover. Disabled: grey. The global focus ring (2px foreground, 3px off) sits outside
+   each, so it shows on orange, on black and inside ink. Single source of truth, used by ui/Button
+   and legacy call sites. */
 @layer components {
   .btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
-    min-height: 2.5rem; /* md: 40px */
+    min-height: 3rem; /* M: 48px */
     border-radius: var(--radius-control);
-    border: 1px solid var(--foreground);
-    padding: 0.5rem 1.25rem;
+    border: var(--stroke-control) solid var(--foreground);
+    padding: 0.5rem 1.5rem;
     font-family: var(--face-sans);
-    font-size: 0.8125rem;
-    line-height: 1rem;
+    font-size: 1rem;
+    line-height: 1.5rem;
     font-weight: 600;
-    letter-spacing: 0.02em;
-    text-transform: uppercase;
-    transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+    letter-spacing: 0;
+    text-transform: none;
+    transition: background-color 0.2s ease-out, color 0.2s ease-out, border-color 0.2s ease-out;
   }
+  /* S: 40px, inline and in the header. */
   .btn-sm {
-    min-height: 2rem; /* 32px */
-    padding: 0.25rem 0.75rem;
-    font-size: 0.75rem;
-    line-height: 1rem;
-  }
-  /* Primary thumb actions: 48px tall. */
-  .btn-lg {
-    min-height: 3rem;
-    padding: 0.75rem 1.5rem;
+    min-height: 2.5rem;
+    padding: 0.5rem 1rem;
     font-size: 0.875rem;
     line-height: 1.25rem;
+  }
+  /* L: 56px, the hero and the sticky bar. */
+  .btn-lg {
+    min-height: 3.5rem;
+    padding: 0.5rem 2rem;
   }
   .btn-solid {
     background: var(--accent);
@@ -806,8 +1003,8 @@ h4 {
     border-color: var(--foreground);
     color: var(--foreground);
   }
-  /* The one primary conversion action per viewport. Never in checkout, forms, dashboards or
-     admin, and never inside [data-surface="signal"]. */
+  /* The one primary action per view. Never in checkout, forms, dashboards or admin, and never
+     inside [data-surface="signal"]. Black label: 6.18:1 (white on orange fails). */
   .btn-signal {
     background: var(--signal);
     border-color: var(--signal);
@@ -830,7 +1027,7 @@ h4 {
     /* 6.18:1 orange on black, on white pages and inside ink alike. */
     .btn-signal:hover:not(:disabled, [aria-disabled="true"]) {
       background: var(--ink);
-      border-color: var(--signal);
+      border-color: var(--ink);
       color: var(--signal);
     }
     .btn-danger:hover:not(:disabled, [aria-disabled="true"]) {
@@ -838,19 +1035,20 @@ h4 {
       color: var(--danger-foreground);
     }
   }
-  @media (prefers-reduced-motion: no-preference) {
-    .btn:active:not(:disabled, [aria-disabled="true"]) {
-      transform: translateY(1px);
-    }
+  /* Pressed looks like hover (no dark-orange state, no movement). */
+  .btn-signal:active:not(:disabled, [aria-disabled="true"]) {
+    background: var(--ink);
+    border-color: var(--ink);
+    color: var(--signal);
   }
-  /* Disabled and busy (aria-disabled: ui/Button `busy`, which keeps focus). A flat fill rather
-     than opacity, which would turn orange pink. */
+  /* Disabled and busy (aria-disabled: ui/Button `busy`, which keeps focus). A flat grey fill
+     rather than opacity, which would turn orange pink. */
   .btn:disabled,
   .btn[aria-disabled="true"] {
     cursor: not-allowed;
     background: var(--surface);
-    border-color: var(--surface-border);
-    color: var(--muted);
+    border-color: var(--surface);
+    color: var(--disabled);
   }
 
   /* Continue with Apple / Sign in with Google (docs/design/social-sign-in.md §2 and §4,

@@ -109,7 +109,7 @@ describe("the home on a phone", () => {
     // Every other section: grid EventCards in a two-column list named by its heading.
     const list = within(sections[1]).getByRole("list");
     expect(list).toHaveAccessibleName("Coming up");
-    expect(list).toHaveClass("grid", "grid-cols-2", "gap-x-3");
+    expect(list).toHaveClass("grid", "grid-cols-2", "gap-x-4");
     expect(within(sections[1]).getAllByRole("heading", { level: 3 })).toHaveLength(4);
     // Each event once, ended ones aside; recently on says Ended.
     expect(container.querySelectorAll("[data-event-card][data-variant='weekend']")).toHaveLength(2);
@@ -162,7 +162,8 @@ describe("the home on a phone", () => {
     expect(skeleton).toHaveAttribute("aria-hidden", "true");
     expect(skeleton).toHaveClass("sm:hidden");
     expect(skeleton?.querySelector(".grid-cols-2")).not.toBeNull();
-    expect(skeleton?.querySelectorAll(".aspect-square")).toHaveLength(4);
+    // The card's 4:3 image box (the rules' card anatomy), four placeholders.
+    expect(skeleton?.querySelectorAll(".aspect-\\[4\\/3\\]")).toHaveLength(4);
   });
 
   it("keeps the error with Try again, and focuses the first section's heading once it loads", async () => {

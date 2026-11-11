@@ -119,7 +119,7 @@ for (const vp of [
       expect(await banner.evaluate((el) => el.parentElement?.id)).toBe("main");
       await expect(page.locator("main [role='note']")).toHaveCount(1);
       // Demo counts on cards stay labelled, in the rails and the phone grids alike.
-      await expect(page.locator("[data-event-card] [data-card-secondary]").filter({ hasText: /going/ }).first()).toContainText("(sample)");
+      await expect(page.locator("[data-event-card] [data-card-going]").first()).toContainText("(sample)");
 
       const now = Date.now();
       const event = sampleEvents.find(

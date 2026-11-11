@@ -201,10 +201,11 @@ for (const [width, size] of Object.entries(THUMB_SIZES).map(([w, s]) => [Number(
       expect(t.y + t.height).toBeLessThanOrEqual(h.y + h.height + 28);
       const badgeRight = await thumb.locator("[data-hero-badge]").evaluate((el) => el.getBoundingClientRect().right);
       expect(badgeRight).toBeLessThanOrEqual(width);
-      // The h1 keeps its two lines, each clear of the tile.
+      // The h1 keeps its two lines, each clear of the tile. The lines are BrandU's shown ones (FIND YOÜR /
+      // NEXT THING.); the plain sentence read instead is visually hidden.
       const layout = await h1.evaluate((el) => {
         const lineHeight = parseFloat(getComputedStyle(el).lineHeight);
-        const rights = [...el.querySelectorAll(":scope > span")].map((line) => {
+        const rights = [...el.querySelectorAll(':scope > [aria-hidden="true"] > span')].map((line) => {
           const range = document.createRange();
           range.selectNodeContents(line);
           return Math.max(...[...range.getClientRects()].map((r) => r.right));
@@ -281,10 +282,11 @@ for (const width of [320, 375, 390, 430]) {
       expect(Math.round(a.x)).toBe(20);
       expect(Math.abs(a.x - heading.x)).toBeLessThanOrEqual(1);
       expect(Math.round(b.x + b.width)).toBe(width - 20);
-      expect(Math.round(b.x - (a.x + a.width))).toBe(12);
+      // 16px between the columns (the rules' mobile gutter).
+      expect(Math.round(b.x - (a.x + a.width))).toBe(16);
       expect(Math.abs(a.width - b.width)).toBeLessThanOrEqual(1);
       expect(a.y).toBe(b.y);
-      // The photo fills the card's width, and Save is a 44px target.
+      // The photo fills the card's width, and Save is a 44px target (48px on phones).
       const image = await cards.first().locator("[data-card-media]").boundingBox();
       expect(Math.round(image?.width ?? 0)).toBe(Math.round(a.width));
       const save = await cards.first().getByRole("link", { name: /^Sign in to save / }).or(cards.first().getByRole("button", { name: /^Save / })).first().boundingBox();

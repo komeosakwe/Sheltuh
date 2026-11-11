@@ -2,9 +2,12 @@ import type { Ref } from "react";
 import EventCard from "@/components/ui/EventCard";
 import type { SheltuhEvent } from "@/lib/types";
 
-/** The results grid's columns (docs/design/brand-direction-one.md §7): two on phones, then three, then four. */
-export const RESULTS_GRID =
-  "grid grid-cols-2 gap-x-3 gap-y-8 sm:grid-cols-3 sm:gap-x-6 lg:grid-cols-4 lg:gap-x-8";
+/**
+ * The results grid (the rules' Layout board): two columns on phones and tablets, four from 1024px,
+ * with the rules' gutters (16px, 24px from 768px, 32px from 1024px). Rows are 32px apart, so a
+ * card's 8px hover panel never meets its neighbour's.
+ */
+export const RESULTS_GRID = "grid grid-cols-2 gap-x-4 gap-y-8 md:gap-x-6 lg:grid-cols-4 lg:gap-x-8";
 
 /**
  * A list of events as a grid of image-first cards (/events, /search,

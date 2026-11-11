@@ -2,13 +2,13 @@ import Link from "next/link";
 import EventArt from "@/components/EventArt";
 import ClipPlayButton from "@/components/events/ClipPlayButton";
 import SaveButton from "@/components/favourites/SaveButton";
-import QuickBuyLink from "@/components/QuickBuyLink";
 import CardPrice from "@/components/ui/CardPrice";
-import PlaceLines from "@/components/ui/PlaceLines";
+import CategoryTag from "@/components/ui/CategoryTag";
+import DateChip from "@/components/ui/DateChip";
+import GoingRow from "@/components/ui/GoingRow";
 import { isApiConfigured } from "@/lib/api/client";
-import { cardCta, cardDateLabel, cardGoing, cardState, categoryLabel, signalLabel } from "@/lib/event-card";
+import { cardGoing, cardGoingFaces, cardMetaParts, cardState, categoryLabel, signalLabel } from "@/lib/event-card";
 import type { TrendingSignal } from "@/lib/home-sections";
-import { organiserProfileHref } from "@/lib/sample-organisers";
 import type { SheltuhEvent } from "@/lib/types";
 
 export type EventCardVariant = "rail" | "grid";
@@ -26,86 +26,76 @@ export type EventCardVariant = "rail" | "grid";
  * a fifth from 1024px (204px up to 256px). `100vw` stands in for the rail's
  * width (it runs edge to edge); the 6.5rem and 8rem are the inset and the 24px
  * gaps: 32 + 3 x 24 and 32 + 4 x 24. A pair (one or two cards: no next card
- * to peek, `HomeRail` `data-rail-layout="pair"`) keeps 224px.
+ * to peek, `HomeRail` `data-rail-layout="pair"`) keeps 224px. A grid card
+ * fills its column.
  */
 const WIDTH: Record<EventCardVariant, string> = {
   rail: "w-[min(62vw,15rem)] shrink-0 sm:w-56 md:w-[min(16rem,calc((100vw_-_6.5rem)/3.4))] lg:w-[min(16rem,calc((100vw_-_8rem)/4.4))] in-data-[rail-layout=pair]:md:w-56 in-data-[rail-layout=pair]:lg:w-56 xl:w-64",
   grid: "w-full",
 };
+
+/** The image box: 4:3 at every width, radius 16 (the rules' card anatomy). */
+const MEDIA = "aspect-[4/3]";
+
 /**
- * 18/24 titles. The two-column phone grid (cards 134–189px wide) is 16/22 until
- * 640px: at 18px a 134px card fits about eleven characters a line, so most
- * titles would be cut at two lines.
+ * The card's mono line, from cardMetaParts: each part kept whole but the last (a long suburb may
+ * wrap), and each separator goes down with the part after it (a no-break space joins them), so no
+ * line ends on "·".
  */
-const TITLE: Record<EventCardVariant, string> = {
-  rail: "text-lg leading-6",
-  grid: "text-base leading-[1.375rem] sm:text-lg sm:leading-6",
-};
-/** Date, place and price: 14/20 on every card, at every width. */
-const SMALL = "text-sm leading-5";
+function MetaLine({ parts }: { parts: string[] }) {
+  return (
+    <p data-card-meta="" className="mono-m break-words text-muted uppercase">
+      {parts.map((part, i) => (
+        <span key={i} className={i > 0 && i === parts.length - 1 ? undefined : "whitespace-nowrap"}>
+          {i > 0 && " ·\u00a0"}
+          {part}
+        </span>
+      ))}
+    </p>
+  );
+}
+
 /**
- * The price line's box. The phone grid's price nearly always wraps to two
- * lines ("From A$37.60 incl. / booking fee" at 134px), so there it keeps two
- * lines' room whatever it says, and "Sold out" lines up with its neighbours.
- */
-const PRICE_BOX: Record<EventCardVariant, string> = {
-  rail: "",
-  grid: "min-h-10 sm:min-h-0",
-};
-/**
- * The media box (Refinement, 22 Oct 2026: shorter cards). A rail card is
- * 4:3 at every width (owner, 23 Oct 2026: "the pictures still way too big";
- * it was square from 640px): 149 / 174 / 180px tall at 320 / 375 / 430, and
- * 168px for the 224px card from 640px (192px for the 256px one from 1280px;
- * 146px to 192px between 768 and 1279px, where the width follows the screen),
- * so a card's image and title fit a phone's first screen under the hero. A
- * rail photo always fills its box (`cover`, the photo's `imageFocus` kept in
- * view; owner, 4 Nov 2026: no letterboxing on the home); a grid card
- * (/events, profiles) stays square and shows a portrait poster whole.
- */
-const MEDIA: Record<EventCardVariant, string> = {
-  rail: "aspect-[4/3]",
-  grid: "aspect-square",
-};
-/**
- * The one event card (docs/design/mobile-redesign.md §6.2 and its
- * Refinement, 22 Oct 2026), image first with no container, in the order a
- * visitor decides: the photo or poster (only the Save heart on it), the
- * title, the date and time, the venue · suburb, then one small secondary
- * line (category, any trending qualifier, reserved seating and the
- * attendance count); then, pinned to the card's foot, the all-inclusive
- * price and the ticket action. Each ticket state reads differently
- * (`data-card-state`): paid and seated ("Choose seats") are priced and
- * orange; free says "Free"; sold out says so with an outline "Join
- * waitlist"; external names where tickets are sold; ended says "Ended", has
- * no action and a greyed image. `rail` is the home's sideways rails (a fixed
- * width at every size); `grid` is the results grids
- * (/events, /search, /saved, profiles).
+ * The one event card (the redesign rules' Cards board), on every listing:
+ * the home, /events, /search, /saved and profiles.
  *
- * Attendance is a count only, never faces: list payloads carry no names or
- * photos. A demo count is labelled "(sample)"; below three, nothing.
+ * Anatomy, in reading order: the 4:3 photo or poster (radius 16) with the
+ * date chip on its top-left (decorative: the mono line says the date) and
+ * the Save heart on its top-right; the tags (the category in its tint, then
+ * "Free", and any state: "Sold out", "Ended", "Reserved seating", or a
+ * trending qualifier); the title (Heading/H4, at most two lines); one mono
+ * line "SAT 14 NOV · 5PM · COBURG, VIC" (cardMetaParts, set in capitals by
+ * CSS so it reads as written); then the foot, with who's going on the left
+ * and the orange price label on the right. No ticket button and no "By
+ * {organiser}": the card opens the event, where both are.
  *
  * The whole card opens the event: the title's link stretches over the card
- * (`::after`), and Save, the ticket action and the organiser link sit above
+ * and its hover margin (`::after`), and only Save and a clip's Play sit above
  * it (z-10) as siblings, so nothing interactive is nested in a link. The
- * link is named by the title alone (owner brief, 29 Oct 2026); the date, place,
- * price and going count are read as the text after it. Hover underlines the
- * title and eases the image in; a press scales the card (dims it under
- * reduced motion). An event with
- * a clip also has a Play button at the image's bottom-left
- * (docs/design/event-clips.md §5.1). Tab order: the card's link, Play (with
- * a clip), Save, the ticket action, then "By {organiser}". Keyboard
- * focus rings the whole card (the link's own ring is suppressed in
- * globals.css, only where `:has()` works).
+ * price label is plain text under the link's stretch: a tap on it opens the
+ * event, and it's never a tab stop. The link is named by the title alone;
+ * the tags, date, place, going and price are read as the text around it.
+ * Tab order: the card's link, Play (with a clip), then Save.
  *
- * Sibling cards line up: a rail's or grid's cells stretch to the row's
- * height, the card is a flex column, and its foot (price, ticket action, "By
- * {organiser}") is pushed to the bottom with `mt-auto`, so the prices and
- * buttons share a line whatever the titles' lengths. Rows that only some
- * cards have keep their room in the foot (no ticket action: an empty
- * button-high row; a grid organiser without a profile: the name as text).
+ * Hover (and keyboard focus) fills a cream panel just outside the card (dark:
+ * #1a1a1a) and underlines the title, over 200ms; no lift and no scale. The
+ * panel is absolutely placed, so it never moves the layout. Keyboard focus
+ * also rings that panel (the link's own ring is dropped in globals.css, only
+ * where `:has()` works). Sold out: the "Sold out" tag and the image at 60%.
+ * Ended: the "Ended" tag and a greyed image.
  *
- * `signal` (Popular right now) adds one qualifier to the secondary line. `mode` decides the going count (default: the app's mode).
+ * Attendance is a count, with faces only in the demo (its sample names as
+ * initials; list payloads carry no names live). A demo count is labelled
+ * "(sample)"; below three, nothing. `mode` decides it (default: the app's
+ * mode). `signal` (Popular right now) adds one qualifier tag, or the going
+ * count it carries.
+ *
+ * Sibling cards line up: the card is a flex column and its foot is pushed to
+ * the bottom with `mt-auto`, keeping a price label's height even when there's
+ * no label, so the feet share a line whatever the titles' lengths. `rail` is
+ * the home's sideways rails (a fixed width at every size); `grid` fills its
+ * column. A grid photo that's a portrait poster is shown whole on a blurred
+ * copy of itself; a rail photo always fills its box.
  */
 export default function EventCard({
   event,
@@ -113,7 +103,6 @@ export default function EventCard({
   mode = isApiConfigured ? "live" : "demo",
   signal,
   showSave = true,
-  showOrganiser = true,
   priority = false,
   now = new Date(),
   className = "",
@@ -123,8 +112,6 @@ export default function EventCard({
   mode?: "demo" | "live";
   signal?: TrendingSignal;
   showSave?: boolean;
-  /** `grid` only: "By {organiser}", where the organiser has a profile (off on their own profile). */
-  showOrganiser?: boolean;
   /** The image loads eagerly (a card in the page's first row); by default it is lazy. */
   priority?: boolean;
   now?: Date;
@@ -134,20 +121,26 @@ export default function EventCard({
   const external = event.ticketingMode === "external";
   const state = cardState(event, now);
   const qualifier = signal ? signalLabel(signal, external) : null;
-  const date = cardDateLabel(event, now);
   const going = cardGoing(event, mode, signal);
-  const secondary = [categoryLabel(event), qualifier, state === "seated" ? "Reserved seating" : null].filter(Boolean).join(" · ");
-  const showOrganiserRow = variant === "grid" && showOrganiser;
-  const organiserHref = showOrganiserRow ? organiserProfileHref(event) : null;
-  const hasCta = cardCta(event, now) !== null;
+  const faces = cardGoingFaces(event, going);
+  const free = state === "free" || (state === "external" && event.externalFree === true);
+  const stateTag =
+    state === "ended" ? "Ended" : state === "sold-out" ? "Sold out" : state === "seated" ? "Reserved seating" : null;
+  const tags = [free ? "Free" : null, stateTag, qualifier].filter((tag): tag is string => tag !== null);
 
   return (
     <div
       data-event-card=""
       data-variant={variant}
       data-card-state={state}
-      className={`group/card relative flex min-w-0 flex-col has-[[data-card-link]:focus-visible]:rounded-card has-[[data-card-link]:focus-visible]:outline-2 has-[[data-card-link]:focus-visible]:outline-offset-4 has-[[data-card-link]:focus-visible]:outline-foreground motion-safe:transition-transform motion-safe:duration-150 motion-safe:[@media(hover:hover)]:hover:-translate-y-0.5 motion-safe:has-[[data-card-link]:active]:scale-[0.98] motion-reduce:has-[[data-card-link]:active]:opacity-80 ${WIDTH[variant]} ${className}`.replace(/\s+/g, " ").trim()}
+      className={`group/card relative isolate flex min-w-0 flex-col ${WIDTH[variant]} ${className}`.trim()}
     >
+      {/* The hover and focus panel: cream just outside the card, behind everything in it. */}
+      <span
+        aria-hidden="true"
+        data-card-hover=""
+        className="pointer-events-none absolute -inset-2 -z-10 rounded-card bg-hover opacity-0 outline-foreground group-hover/card:opacity-100 group-has-[[data-card-link]:focus-visible]/card:opacity-100 group-has-[[data-card-link]:focus-visible]/card:outline-2 motion-safe:transition-opacity motion-safe:duration-200 motion-safe:ease-out"
+      />
       <div data-card-media="" className="relative overflow-hidden rounded-card">
         <EventArt
           poster={event.poster}
@@ -156,63 +149,38 @@ export default function EventCard({
           title={event.title}
           fit={variant === "rail" ? "cover" : "auto"}
           priority={priority}
-          // An ended event's image is greyed: it's still there to look at, but nothing's on.
-          className={`${MEDIA[variant]} w-full motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-out motion-safe:group-hover/card:scale-[1.03] ${state === "ended" ? "grayscale" : ""}`.replace(/\s+/g, " ").trim()}
+          // Sold out: the image at 60%. Ended: greyed; it's still there to look at, but nothing's on.
+          className={`${MEDIA} w-full ${state === "ended" ? "grayscale" : state === "sold-out" ? "opacity-60" : ""}`.trim()}
         />
+        <DateChip event={event} className="absolute top-2 left-2" />
       </div>
-      <div className="flex min-w-0 flex-col pt-3">
-        {/* The card's one link, named by the title alone (the date, place and price are read as the
-            text that follows it, never repeated in the name). */}
-        <h3 className={`line-clamp-2 font-semibold tracking-[-0.01em] break-words ${TITLE[variant]}`}>
+      <div className="flex min-w-0 flex-col gap-2 pt-4">
+        <p data-card-tags="" className="flex min-w-0 flex-wrap gap-2">
+          <CategoryTag tone={event.category}>{categoryLabel(event)}</CategoryTag>
+          {tags.map((tag) => (
+            <CategoryTag key={tag} tone={tag === "Free" ? "free" : "neutral"}>
+              {tag}
+            </CategoryTag>
+          ))}
+        </p>
+        {/* The card's one link, named by the title alone (the rest is read as the text around it). */}
+        <h3 className="heading-h4 line-clamp-2 break-words">
           <Link
             href={href}
             data-card-link=""
-            className="underline-offset-4 group-hover/card:underline after:absolute after:inset-0 after:z-0 after:content-['']"
+            className="underline decoration-transparent underline-offset-4 group-hover/card:decoration-current after:absolute after:-inset-2 after:z-0 after:content-[''] motion-safe:transition-colors motion-safe:duration-200 motion-safe:ease-out"
           >
             {event.title}
           </Link>
         </h3>
-        <p data-card-date="" className={`mt-1 font-medium ${SMALL}`}>
-          {"running" in date ? (
-            date.running
-          ) : (
-            // Each part stays whole: a narrow card wraps between them, never inside "7:00 pm",
-            // and the separator goes down with the time, so no line ends on "·". The zone ("Perth
-            // time") is a part of its own, so it wraps under the time rather than out of the card.
-            <>
-              <span className="whitespace-nowrap">{date.date}</span>{" "}
-              <span className="whitespace-nowrap">· {date.time}</span>
-              {date.zone && (
-                <>
-                  {" "}
-                  <span className="whitespace-nowrap">{date.zone}</span>
-                </>
-              )}
-            </>
-          )}
-        </p>
-        {/* The venue, then "Suburb, STATE", a line each: a narrow card cuts each short, never the state off. */}
-        <PlaceLines event={event} className={`text-muted ${SMALL}`} />
-        {/* Secondary and small: what kind of event, and how many are going (a count only). */}
-        <p data-card-secondary="" className="mt-1 line-clamp-2 text-xs leading-4 text-muted">
-          {secondary}
-          {going && (
-            <>
-              {" · "}
-              {going.count} going{going.sample ? " (sample)" : ""}
-            </>
-          )}
-        </p>
+        <MetaLine parts={cardMetaParts(event, now)} />
       </div>
       {event.clip && (
         // The clip's Play (docs/design/event-clips.md §5.1): after the card's link and before Save in
-        // the DOM (tab order: link, Play, Save, ticket action), at the image's bottom-left on screen.
-        // The frame repeats the image's own box (its aspect classes), so nothing is measured; only the
-        // button in it takes pointer events, so a tap anywhere else on the image still opens the event.
-        <div
-          data-clip-frame=""
-          className={`pointer-events-none absolute inset-x-0 top-0 z-10 ${MEDIA[variant]}`.trim()}
-        >
+        // the DOM (tab order: link, Play, Save), at the image's bottom-left on screen. The frame repeats
+        // the image's own box (its aspect class), so nothing is measured; only the button in it takes
+        // pointer events, so a tap anywhere else on the image still opens the event.
+        <div data-clip-frame="" className={`pointer-events-none absolute inset-x-0 top-0 z-10 ${MEDIA}`}>
           <ClipPlayButton event={event} className="pointer-events-auto absolute bottom-1 left-2" />
         </div>
       )}
@@ -221,54 +189,31 @@ export default function EventCard({
         <SaveButton
           event={{ id: event.id, title: event.title, slug: event.slug }}
           variant="overlay"
-          className="absolute top-1 right-1 z-10"
+          className="absolute top-0 right-0 z-10 md:top-1 md:right-1"
         />
       )}
-      {/* The foot: mt-auto pins it to the bottom of an equal-height card, so the price and the
-          button line up across a rail or grid row. Not z-10 itself: a tap on the price still
-          opens the event; only the button and the organiser link sit above the card's link. */}
-      <div data-card-foot="" className="mt-auto flex flex-col pt-3">
-        <CardPrice event={event} now={now} className={`${SMALL} ${PRICE_BOX[variant]}`.trim()} />
-        {hasCta ? (
-          <QuickBuyLink event={event} now={now} narrow={variant === "grid"} className="relative z-10 pt-2" />
-        ) : (
-          // No ticket action (none on sale yet, or ended): the button's room stays, so this
-          // card's price sits level with its neighbours'.
-          <div aria-hidden="true" data-cta-placeholder="" className="pt-2">
-            <div className="min-h-11 sm:min-h-10" />
-          </div>
-        )}
-        {organiserHref ? (
-          <Link
-            href={organiserHref}
-            className="relative z-10 inline-flex min-h-11 max-w-full items-center self-start text-sm text-muted underline underline-offset-4 hover:text-foreground"
-          >
-            {/* A long name wraps to a second line, then is cut short. */}
-            <span className="line-clamp-2 min-w-0 break-words">By {event.organiserName}</span>
-          </Link>
-        ) : (
-          showOrganiserRow &&
-          event.organiserName && (
-            // No profile to link to: the name as plain text, in the same row, so the cards' feet match.
-            <p className="flex min-h-11 max-w-full items-center text-sm text-muted">
-              <span className="line-clamp-2 min-w-0 break-words">By {event.organiserName}</span>
-            </p>
-          )
-        )}
+      {/* The foot: mt-auto pins it to the bottom of an equal-height card. Not z-10: the price label
+          is text under the card's link, so a tap on it opens the event. min-h-12 keeps a label's
+          room when there's none (sold out, ended), so the feet still line up. */}
+      <div data-card-foot="" className="mt-auto flex min-h-12 flex-wrap items-center justify-between gap-2 pt-4">
+        {/* At least 96px for who's going (its words wrap under the faces before the row does), so on a
+            card too narrow for both (the phone grid) the price drops to a line of its own, on the right. */}
+        {going && <GoingRow going={going} faces={faces} className="min-w-0 grow basis-24" />}
+        <CardPrice event={event} now={now} variant="tag" className="ml-auto shrink-0" />
       </div>
     </div>
   );
 }
 
-/** A card's shape while events load: the variant's media box and three text bars. No shimmer. */
+/** A card's shape while events load (the rules: image + 3 bars, surface/muted). No shimmer. */
 export function EventCardPlaceholder({ variant, className = "" }: { variant: EventCardVariant; className?: string }) {
   return (
     <div aria-hidden="true" className={`flex flex-col ${WIDTH[variant]} ${className}`.trim()}>
-      <div className={`${MEDIA[variant]} rounded-card bg-surface`} />
-      <div className="flex flex-col gap-2 pt-3">
-        <div className="h-4 w-full bg-surface" />
-        <div className="h-3 w-24 max-w-full bg-surface" />
-        <div className="h-3 w-32 max-w-full bg-surface" />
+      <div className={`${MEDIA} rounded-card bg-surface`} />
+      <div className="flex flex-col gap-2 pt-4">
+        <div className="h-6 w-20 max-w-full rounded-badge bg-surface" />
+        <div className="h-4 w-full rounded-badge bg-surface" />
+        <div className="h-4 w-32 max-w-full rounded-badge bg-surface" />
       </div>
     </div>
   );

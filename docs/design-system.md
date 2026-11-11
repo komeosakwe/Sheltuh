@@ -1,67 +1,51 @@
 # Sheltüh design system
 
-> **Source of truth: [`docs/design/brand-direction-one.md`](design/brand-direction-one.md)** (Brand Direction One, "Structured Expression", adopted 21 Oct 2026). It defines the colours, type, logo use, the two-dot motif, radii, components, page direction, motion and the implementation order. Where this file or any older spec disagrees on visuals, that spec wins. This file is the short index and the record of what's built.
+> **Source of truth: the redesign** ("Sheltüh · Rules", the design rules boards, with the site redesign proposal and the website audit; Batch 1, Nov 2026). It supersedes [`design/brand-direction-one.md`](design/brand-direction-one.md), `design/mobile-redesign.md` and `design/home.md` wherever they disagree on visuals. This file is the short index and the record of what's built.
 
 ## Status
 
-The brand rollout is in progress, following the increments in `brand-direction-one.md` §9. Until an increment lands, the code still uses the earlier tokens described under "Legacy" below. Update this file as each increment ships.
+Batch 1, PR 1 (foundations) has landed: the tokens, the fonts, the type styles, buttons, chips, tags and the one event card. The header, footer, search, home, event page, Nearby and organiser pages are re-skinned in the PRs after it; until then they pick up the shared tokens and components only. Tokens still used by screens that haven't been redone (`--panel`, `--tint`, `--signal-ink`, `--night`, `--lilac`, `--sand`, `--peach`, `--soft-line`, `--signal-text`, `--shadow-soft`, `--shadow-float`) are retired with their last user.
 
 ## The system in one screen
 
-- **Colour:** White `#ffffff` background, cards and fields (cards are set apart by their 1px black border; see [`design/theme-white-dark.md`](design/theme-white-dark.md)), Black `#000000` text and structure, and **Signal Orange `#ff4800`** for signature fills, the primary conversion CTA (one per view) and large display text only.
-  - Orange is **never small text on light backgrounds** (3.25:1). Black on orange is 6.18:1.
-  - Light by default, with a **Light / Dark switch** in the footer and the phone menu (`data-theme="dark"` on `<html>`, stored per browser; [`design/theme-white-dark.md`](design/theme-white-dark.md)). Ink sections use `data-surface="ink"`; the one orange band per page uses `data-surface="signal"`; the map canvas is pinned Light with `data-surface="paper"`.
-  - The door check-in keeps its own functional palette (`[data-door]`, `--door-*`, `docs/design/check-in.md`).
-- **Type:**
-  - **Bootzy** (display token `--face-display`). Not yet licensed into the repo; Instrument Sans 700 set tight stands in, and it swaps with one token block (§3.4).
-  - **Instrument Sans** for UI, headings and body.
-  - **IBM Plex Mono** for metadata, labels and dates (`eyebrow`, `meta`).
-- **Logo:** the official vectors in `public/brand/` (wordmark, lowercase wordmark, secondary ü, two-dot mark), inlined via `components/brand/*`. Never typeset the wordmark.
-- **Shape:** rounded squares, from the umlaut. `rounded-card` 12px, `rounded-control` 8px, `rounded-badge` 4px, `rounded-dot` 28% for avatars and markers. No pills, no circles, no shadows. Structure comes from 1px black rules and the mono "strap".
-  - **Owner-approved exceptions** (`rounded-full`): the round portraits (`CommunitySection`), the hero badge (`HeroBadge`), and, from 24 Oct 2026, the **search bar**: a pill with a round submit and a round location segment, as in the owner's Eventbrite reference ("our search bar similar and a close location", decision D1). Nothing else is round.
-- **Motif:** the two dots appear only in the places listed in `brand-direction-one.md` §5 (strap marker, active-nav umlaut, selected chip, loader, connection states, empty states).
-- **Pricing:** the all-inclusive total is always first and most prominent; partial prices are secondary (§6.8). Checkout is quiet: black, no orange (§6.9).
-- **Motion:** the photo push-in runs one cycle of 5 seconds or less and holds. Nothing loops except the loader while loading. Everything respects `prefers-reduced-motion`.
+- **Colour** (`app/globals.css`; Light / Dark, and the ink scope takes the Dark values):
+  - surface/page `--background` #fff / #000; text/primary and border/strong `--foreground` #000 / #fff;
+  - surface/muted `--surface` #f2f1ee / #1f1f1f; border/subtle `--surface-border` #e5e3de / #333 (1px dividers only);
+  - text/secondary `--muted` #5c5c5c / #a3a3a3; text/disabled `--disabled` #a3a3a3 / #5c5c5c;
+  - surface/card-hover `--hover` (`bg-hover`) cream #fffae7 / #1a1a1a: the hover fill of cards and filters, never a default fill.
+  - **Signal Orange #ff4800** (`--signal`) is for the main action and the two-dot motif only, always with black text (6.18:1). Never small orange text on white, never an orange border or focus ring.
+  - Category tints (`CategoryTag`, `[data-tag]`): live music, art, workshop, pop-up, theatre, fashion (defined, no category yet), free; each pair is at least 4.5:1 and swaps in Dark (`tests/tag-contrast.test.ts`). Tags only, never section or button fills.
+- **Type** (`app/fonts.ts`): **Bootzy** (`--face-display`) for display headlines only, Regular with no synthesised bold and no size-adjusted fallback (missing glyphs fall to Instrument Sans); **Instrument Sans** for UI, headings, body, buttons and nav; **IBM Plex Mono** for facts (dates, times, places, eyebrows). The fifteen styles are utilities: `display-xl` / `display-l` / `display-m` (Bootzy, capitals), `heading-h1` … `heading-h4`, `body-l` / `body-m` / `body-s`, `label-nav`, `label-button`, `label-tag`, `mono-m`, `mono-s`. Display and Heading step down below 768px. The old names point at them: `display-lg` = heading-h1 (sentence case), `display-md` = heading-h3, `title-lg` = display-m, `eyebrow` = mono-s in capitals, `meta` = mono-s.
+- **Ü**: only in display headlines, through `BrandU` (shown "FIND YOÜR NEXT THING.", read "Find your next thing."). The dotted body face and `DottedLine` are gone.
+- **Shape**: radius 8 (`rounded-control`, `rounded-badge`) for things you tap and for tags, 16 (`rounded-card`, `rounded-sheet`, `rounded-panel`) for things you look at. People's avatars are round. No pills (the Google button keeps its own, per Google's rules) and no shadows. Chips, filters, inputs and secondary buttons have the 1.5px foreground stroke (`border-control`, `--stroke-control`).
+- **Focus**: the global `:focus-visible` ring, 2px `--foreground` at a 3px offset: black on white, white in Dark and inside ink, so it shows around black and orange buttons.
+- **Layout**: an 8px scale; `page-container` is the 1312px content column with 16 / 32 / 64px margins at 390 / 768 / 1440.
+- **Motion**: hover changes colour over 200ms ease-out; no lift and no scale. Everything respects `prefers-reduced-motion`.
 
 ## Components (`components/ui/`, `components/brand/`)
 
-| Component | Use | Brand spec |
-| --- | --- | --- |
-| `Button`, `ButtonLink`, `buttonClass` | `signal` (new, orange, max one per view, never in checkout), `solid` (black), `outline`, `danger`; sizes `sm` 32 / `md` 40 / `lg` 48px. CSS in `.btn*`. | §6.1 |
-| `Field`, `fieldClass` | White, 1px black, `rounded-control`, mono labels | §6.2 |
-| `SearchBar` + `search/LocationPicker` | One bar in the hero, the desktop header and `/search` (24 Oct 2026): a `rounded-full` pill, 1px black, `bg-card`; the words (`q`, named by its placeholder) \| divider \| location segment ("Your suburb" / the suburb; opens the "Find events near you" popover: "Use my current location" only on click, or a typed suburb `near`) \| round submit. `tone="signal"` orange submit, black icon (hero, `/search`); `tone="plain"` black, orange on hover (header). `size="lg"` 52px, 16px text; `size="sm"` 44px (header). The header leaves it out on `/` and `/search`. | §6.2, amended 24 Oct 2026 |
-| `Page`, `PageHeader`, `Strap` | Page container; page header (mono strap + display h1) | §6.4 |
-| `SectionHead` | The one section head, site-wide (home, profiles, Saved): black rule, dots + `display-md` h2 (balanced), optional note, optional link on the h2's baseline ("See all …", or "All events" where the target isn't the section's own list). No strap repeating the title. Replaced `SectionHeader` in P2. | `mobile-redesign.md` §6.3.3 |
-| `BackLink`, `backLinkClass` | The one back link: Instrument 14/20 semibold, underlined, 44px tall, decorative arrow | `mobile-redesign.md` §3.2 |
-| `Panel`, `EmptyState`, `Notice` | Ruled sections, empty states with `DotsMark`, inline errors/info | §6.4, §6.14 |
-| `EventCard` (`rail`, `grid`), `EventCardPlaceholder`, `CardPrice` | The one event card: image first, then the title, date · time, venue · suburb (two lines at most), a small secondary line (category, qualifier, reserved seating, the going count: a count only, "(sample)" in the demo, none below 3), then the all-inclusive price and the ticket action ("Buy tickets", "Get free tickets", "Get tickets" for external, "Choose seats", outline "Join waitlist"; none once ended). `data-card-state` names the state. The whole card opens the event; its link is named title, date, place, price, going. Labels from `lib/event-card.ts`. Replaced `EventTile`, the home cards and `Carousel` (P0); `GoingStack` removed in the Refinement (22 Oct 2026). | `mobile-redesign.md` §6.2, Refinement |
-| `Wordmark`, `UMark`, `DotsMark`, `DotsLoader` (new, `components/brand/`) | Official logo vectors; the two-dot motif and loader | §4, §5 |
-| `ShareButton`, `AddToCalendar` (new) | Web Share with a copy-link fallback; Apple Calendar (`/events/{slug}/calendar.ics`), Google Calendar and Outlook | §6.7 |
-| `Sticker` (`RoundBadge`, `Burst`, `Marquee`, `Scribble`) | **Retiring.** Not part of the brand; delete with their last users. | §8.4 |
+| Component | Use |
+| --- | --- |
+| `Button`, `ButtonLink`, `buttonClass` | `signal` (Primary: orange, black label; black with an orange label on hover; one per view, never in checkout, forms, dashboards or admin), `outline` (Secondary: 1.5px stroke; black with a white label on hover), `solid` (black), `danger`. Sizes `sm` 40, `md` 48 (default), `lg` 56. Label/Button, sentence case. Disabled is grey. CSS in `.btn*`. `secondaryActionClass` is the Secondary look for an icon + label action. |
+| `FilterChip`, `filterChipClass` | A toggle chip (`aria-pressed`): 48px, 1.5px stroke, radius 8; cream on hover; foreground-filled when selected, with the two orange dots. |
+| `FilterDropdown` | A native `<select>` dressed as a filter: 48px, 1.5px stroke; cream on hover; foreground-filled when `active`. Named by `label`. |
+| `CategoryTag` | A non-interactive tag in its category's tint (`tone`: a category, `free` or `neutral`): radius 8, 24px, Label/Tag. |
+| `DateChip` | The card's date block (weekday, day, month in the event's zone), white with black text in both themes. Decorative. |
+| `PriceTag` | The card's price label: orange with a black label, or `neutral`. Never a link, button or tab stop. |
+| `GoingRow` | A card's going line: round faces (demo initials only) and "N going", "(sample)" in the demo. |
+| `EventCard` (`rail`, `grid`), `EventCardPlaceholder`, `CardPrice` | The one event card: a 4:3 image (radius 16) with `DateChip` and Save; the tags (category, "Free", "Sold out", "Ended", "Reserved seating", a trending qualifier); the title (heading-h4, two lines); one mono line "SAT 14 NOV · 5PM · COBURG, VIC"; then `GoingRow` and the all-inclusive `CardPrice variant="tag"`. The title's link is the card's only link, stretched over it; Save (and a clip's Play) sit above it as siblings. Hover: a cream panel and a title underline. Sold out: the image at 60%. No ticket button and no "By organiser" (both are on the event page). Labels from `lib/event-card.ts`. |
+| `InitialsAvatar` | Initials in a circle; `you` is orange with black initials. |
+| `Page`, `PageHeader`, `Strap` | Page container; page header (mono strap + h1: `display-lg`, or `display-l` for a `brand` line) |
+| `SectionHead` | The one section head (home, profiles, Saved): `display-md` h2, optional note and link. |
+| `BackLink`, `Panel`, `EmptyState`, `Notice` | As before. |
+| `BrandU`, `Wordmark`, `UMark`, `DotsMark`, `DotsLoader` (`components/brand/`) | The brand's Ü line, logo vectors, the two-dot motif and loader. |
 
-Home (`components/home/`, spec `docs/design/mobile-redesign.md`, which supersedes `home.md` and `mobile-home.md` for the hero, section order and cards): `HomeHero`, `HomeEventSections`, `HomeRail` (a rail on phones; 2 / 3 / 4 columns from 640 / 768 / 1024px), `CategoryRow`, `CommunitySection`, `CreatorsCard`. Shared loaders: `lib/home-events.ts`, `lib/home-sections.ts`.
-
-`components/EventResults.tsx` lays out feed results (the first 24 in a carousel, later pages in a grid; `layout="grid"` puts everything in the grid, as on `/saved`). The map uses Esri light-gray tiles. Markers are `rounded-dot` with a black ring, orange when selected; category colours are retired (§2.7, §6.15).
-
-Favourites (`components/favourites/`, spec `docs/design/favourites-analytics.md`):
-- `SaveButton` has variants `overlay` over art, `plain` on compact cards, `onDark` in the buy bar, and `pill` by the event title. It's a toggle with a fixed name and `aria-pressed`, and a sign-in link when signed out.
-- Also `HeartIcon`, `SavedNavLink`, and the `FavouritesNotice` band (an ink bar, never a toast).
-- The heart is black (white on ink), never orange.
-
-Analytics (`components/analytics/`):
-- `StatGrid`: Instrument Sans tabular numerals on a hairline, change in words.
-- `DataTable`: a table from `sm`, definition lists on phones; optional row groups.
-- `TimeSeriesChart`: inline SVG black bars, dashed previous period, HTML axis text, always followed by a table.
-- `ValueOrNoData`: "—" shown, "No data" read.
-- Formatting lives in `lib/analytics-format.ts`: money always with cents, counts never abbreviated.
-- Dashboards and admin are dense and black-structured, with no orange except the "On sale" badge (§6.16).
+Favourites (`components/favourites/`): `SaveButton` is a toggle with a fixed name and `aria-pressed` (a sign-in link when signed out). On a card (`overlay`) it's a 32px white square in a 48px target (40px from 768px); saved, the heart fills orange.
 
 ## Review gates (tests)
 
-- `tests/door-tokens.test.ts`: the door palette stays scoped to the scanner. Unchanged by the brand rollout.
-- `tests/pwa-manifest.test.ts`: `APP_THEME_COLOR` equals the first `--background` in `globals.css` (White since 23 Oct 2026, `theme-white-dark.md`).
-- `tests/brand-tokens.test.ts` (added in increment 1, extended in increments 5 and 11): brand hex values defined; no `pop`, `highlight` or `shadow-card` in components; `text-signal` never combined with small-text classes. It replaces `tests/phone-home-tokens.test.ts`.
-
-## Legacy (until the increments land)
-
-These were the tokens before 21 Oct 2026; they're kept here only so reviewers can recognise them. Paper `#f3f0e8` / ink `#0b0b0b`; Bricolage Grotesque 800 + Inter; pill buttons; square elsewhere; the phone-home exception (`rounded-card` 16px + `shadow-card`, `bg-card`, `pop` pink `#ff4fb0`, yellow `highlight` `#e8ff3a`); map category hues `--cat-*`. All of these are superseded by `brand-direction-one.md` §2.
+- `tests/brand-tokens.test.ts`: the token values, radii, faces, type styles and buttons above.
+- `tests/tag-contrast.test.ts`: every category tag pair is at least 4.5:1 in Light and Dark.
+- `tests/bootzy-font.test.ts`: the Bootzy file and README are present, loaded with `adjustFontFallback: false`, and the display stack ends in Instrument Sans.
+- `tests/door-tokens.test.ts`: the door palette stays scoped to the scanner.
+- `tests/pwa-manifest.test.ts`: `APP_THEME_COLOR` equals the first `--background` in `globals.css`.

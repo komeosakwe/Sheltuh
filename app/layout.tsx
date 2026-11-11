@@ -18,7 +18,7 @@ import { AuthProvider } from "@/lib/auth/AuthContext";
 import { APP_THEME_COLOR } from "@/lib/pwa/theme";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import { isVercelAnalyticsEnabled } from "@/lib/vercel-analytics";
-import { instrument, instrumentDots, plexMono } from "./fonts";
+import { bootzy, instrument, plexMono } from "./fonts";
 import "./globals.css";
 
 /**
@@ -69,7 +69,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang="en"
       data-scroll-behavior="smooth"
-      className={`${instrumentDots.variable} ${instrument.variable} ${plexMono.variable} h-full`}
+      className={`${bootzy.variable} ${instrument.variable} ${plexMono.variable} h-full`}
       suppressHydrationWarning
     >
       <head>

@@ -79,7 +79,7 @@ async function noSidewaysScroll(page: Page) {
 test.describe("sold out: Join waitlist at 390×844", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test("cards and the buy bar say Sold out / Join waitlist; the tickets section has the waitlist, and a guest is asked to confirm by email", async ({
+  test("cards say Sold out, the buy bar Sold out / Join waitlist; the tickets section has the waitlist, and a guest is asked to confirm by email", async ({
     page,
   }) => {
     const joins: unknown[] = [];
@@ -101,11 +101,15 @@ test.describe("sold out: Join waitlist at 390×844", () => {
       return route.fulfill({ status: 404, json: { error: "not mocked in e2e" } });
     });
 
-    // The cards on a phone are /events' (the home's phone layout is grids of the same cards).
+    // The cards on a phone are /events' (the home's phone layout is grids of the same cards). The
+    // redesign's card has no ticket button: a sold-out card says so in a tag, and opens the event,
+    // whose buy bar and tickets section have the waitlist.
     await page.goto("/events");
-    const join = page.getByRole("link", { name: `Join waitlist for ${soldOut.title}` }).first();
-    await expect(join).toBeVisible({ timeout: 30_000 });
-    await expect(join).toHaveAttribute("href", `/events/${soldOut.slug}#tickets`);
+    const card = page.locator("[data-event-card][data-card-state='sold-out']").first();
+    await expect(card).toBeVisible({ timeout: 30_000 });
+    await expect(card.locator("[data-card-tags]")).toContainText("Sold out");
+    await expect(card.getByRole("link", { name: soldOut.title, exact: true })).toHaveAttribute("href", `/events/${soldOut.slug}`);
+    await expect(page.getByRole("link", { name: `Join waitlist for ${soldOut.title}` })).toHaveCount(0);
     await shot(page, "events-sold-out-390");
 
     await page.goto(`/events/${soldOut.slug}`);

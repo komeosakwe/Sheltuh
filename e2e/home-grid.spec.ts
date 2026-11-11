@@ -104,12 +104,12 @@ for (const vp of [
       expect(b.x).toBeLessThan(vp.width);
       expect(b.x + b.width).toBeGreaterThan(vp.width);
       await expect(section.locator("[data-rail-layout]")).toHaveCount(1);
-      // The rest are the two-column grids, as before.
+      // The rest are the two-column grids, 16px apart (the rules' mobile gutter).
       const next = page.locator("[data-home-section]").nth(1);
       const [c, d] = [await next.locator("[data-event-card]").nth(0).boundingBox(), await next.locator("[data-event-card]").nth(1).boundingBox()];
       if (!c || !d) throw new Error("grid not laid out");
       expect(c.y).toBe(d.y);
-      expect(Math.round(d.x - (c.x + c.width))).toBe(12);
+      expect(Math.round(d.x - (c.x + c.width))).toBe(16);
       const column = vp.width - 40;
       for (const card of [c, d]) {
         expect(card.width).toBeGreaterThan(column * 0.45);
@@ -185,7 +185,9 @@ for (const vp of [
       const skeleton = page.locator("[data-home-grid-loading]");
       await expect(skeleton).toBeVisible();
       await expect(page.getByText("Loading events…")).toHaveCount(1);
-      const [a, b] = [await skeleton.locator(".aspect-square").nth(0).boundingBox(), await skeleton.locator(".aspect-square").nth(1).boundingBox()];
+      // The placeholders' 4:3 image boxes (the card's own).
+      const media = skeleton.locator(".aspect-\\[4\\/3\\]");
+      const [a, b] = [await media.nth(0).boundingBox(), await media.nth(1).boundingBox()];
       expect(a?.y).toBe(b?.y);
       expect(b?.x).toBeGreaterThan((a?.x ?? 0) + (a?.width ?? 0));
       expect(await overflow(page)).toBeLessThanOrEqual(0);

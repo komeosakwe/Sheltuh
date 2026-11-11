@@ -102,24 +102,26 @@ describe("Home (demo data, Wed 21 Oct 2026)", () => {
     expect(new Set(hrefs).size).toBe(hrefs.length);
   });
 
-  it("labels every demo count a sample, repeats no page-level demo notice, and every quick-buy link says 'Buy tickets' (or 'Free tickets' when entry is free), as live", async () => {
+  // The redesign's card (the rules' Cards board) has no ticket button: the card opens the event, and
+  // its all-inclusive price is an orange label inside the card's link, never a control.
+  it("labels every demo count a sample, repeats no page-level demo notice, and gives every card a price label instead of a ticket button", async () => {
     const { container } = render(<Home />);
     await settle();
     // The page's one sample-data disclosure is the layout's DemoBanner (not rendered here): no other notice.
     expect(screen.queryByRole("note")).toBeNull();
-    const counts = Array.from(container.querySelectorAll("[data-event-card] [data-card-secondary]")).filter((el) => /going/.test(el.textContent ?? ""));
+    const counts = Array.from(container.querySelectorAll("[data-event-card] [data-card-going]"));
     expect(counts.length).toBeGreaterThan(3);
-    for (const count of counts) expect(count).toHaveTextContent(/ · \d+ going \(sample\)$/);
+    for (const count of counts) expect(count).toHaveTextContent(/\d+ going \(sample\)$/);
     // The band's example is a real sample count from a card on the page, labelled too.
     const example = container.querySelector("[data-community-example]");
     expect(example?.querySelector("[data-community-count]")).toHaveTextContent(/^\d+ people going$/);
     expect(example?.querySelector("[data-community-note]")).toHaveTextContent(/^Example event · Sample count$/);
-    const quick = screen.getAllByRole("link", { name: /tickets for/ });
-    expect(quick.length).toBeGreaterThan(5);
-    for (const link of quick) {
-      expect(link.getAttribute("href")).toMatch(/^\/events\/[^/]+#tickets$/);
-      // An external event's card says "Buy tickets" too (owner, 6 Nov 2026).
-      expect(link).toHaveAccessibleName(/^(?:Buy tickets|Free tickets) for /);
+    expect(screen.queryAllByRole("link", { name: /(?:tickets|Choose seats|Join waitlist) for/ })).toEqual([]);
+    const prices = Array.from(container.querySelectorAll("[data-event-card] [data-price-tag='signal']"));
+    expect(prices.length).toBeGreaterThan(5);
+    for (const price of prices) {
+      expect(price).toHaveTextContent(/^(?:From )?A\$[\d.]+(?: for \d+)?$|^Free$|^Buy tickets$/);
+      expect(price.closest("a, button")).toBeNull();
     }
   });
 
@@ -129,29 +131,22 @@ describe("Home (demo data, Wed 21 Oct 2026)", () => {
     expect(container.querySelector("[data-reveal], [data-reveal-stagger], .reveal-pending")).toBeNull();
   });
 
-  it("puts the orange community band outside the page container; the only orange buttons are the cards' quick buy", async () => {
+  it("puts the orange community band outside the page container; the only orange button is the hero's search", async () => {
     const { container } = render(<Home />);
     await settle();
     const band = container.querySelector("[data-surface='signal']");
     expect(band?.closest(".max-w-6xl")).toBeNull();
-    // The seated demo event's quick buy is "Choose seats" (orange). The sold-out one's "Join waitlist" is the
-    // outline button: a waitlist isn't a purchase (mobile-redesign.md §6.2.3).
-    const quickBuy = screen.getAllByRole("link", { name: /(?:tickets|Choose seats) for/ });
-    // On 21 Oct the sold-out demo event is This weekend's, whose cards have no quick buy (an orange arrow
-    // to the event instead, owner's mockup, 8 Nov 2026): its price line says Sold out.
-    const waitlist = screen.queryAllByRole("link", { name: /Join waitlist for/ });
-    for (const link of waitlist) expect(link).toHaveClass("btn-outline");
+    // On 21 Oct the sold-out demo event is This weekend's: its price line says Sold out, and no card
+    // anywhere has a ticket button (the redesign's card is one link; its price is a label).
     const weekend = container.querySelector("#home-weekend-rail");
     expect(weekend?.querySelector("[data-card-state='sold-out'] [data-card-foot]")).toHaveTextContent("Sold out");
     expect(weekend?.querySelector(".btn-signal")).toBeNull();
     const orange = Array.from(container.querySelectorAll(".btn-signal"));
-    // Every other card quick-buy is orange (black label), and the hero's search submit: the hero's main
-    // action is the search (owner feedback, 22 Oct 2026), whose submit is orange since the owner round of
-    // 24 Oct 2026 (the Eventbrite-style bar). "Explore all events" is a text link.
+    // The hero's search submit: the hero's main action is the search (owner feedback, 22 Oct 2026), whose
+    // submit is orange since the owner round of 24 Oct 2026 (the Eventbrite-style bar). "Explore all
+    // events" is a text link.
     const searchSubmit = screen.getByRole("search", { name: "Search events" }).querySelector("button[type='submit']");
-    expect(orange).toHaveLength(quickBuy.length + 1);
-    expect(orange).toContain(searchSubmit);
-    expect(orange.filter((el) => el !== searchSubmit && !quickBuy.includes(el as HTMLElement))).toEqual([]);
+    expect(orange).toEqual([searchSubmit]);
     // Never an orange button on the orange band.
     expect(band?.querySelector(".btn-signal")).toBeNull();
   });

@@ -5,7 +5,7 @@ import CategoryRow from "@/components/home/CategoryRow";
 import CreatorsCard from "@/components/home/CreatorsCard";
 import GuideCard from "@/components/home/GuideCard";
 import HomeHero from "@/components/home/HomeHero";
-import { HOME_HERO, HOME_TITLE, HOME_TITLE_LINES, titleParts, titleText } from "@/components/home/home-content";
+import { HOME_HERO, HOME_TITLE, HOME_TITLE_LINES } from "@/components/home/home-content";
 import HomeRail, { HOME_CONTAINER, HomeRailItem, isPairRail, PAIR_MAX } from "@/components/home/HomeRail";
 import SectionHead from "@/components/ui/SectionHead";
 
@@ -28,59 +28,26 @@ function tabTo(el: HTMLElement) {
 }
 
 describe("HomeHero (mobile-redesign.md §6.1)", () => {
-  it("has one h1, 'Find your next thing.', on two lines that may wrap (never nowrap), in the display face", () => {
+  // The proposal's hero headline: FIND YOÜR / NEXT THING. in Bootzy capitals, the brand's Ü shown
+  // through BrandU (hidden from screen readers) and the plain sentence read instead.
+  it("has one h1, read 'Find your next thing.', shown as FIND YOÜR / NEXT THING. on two lines that may wrap, in the display face", () => {
     render(<HomeHero />);
     const h1 = screen.getByRole("heading", { level: 1 });
     expect(h1).toHaveAccessibleName("Find your next thing.");
-    expect(h1.textContent).toBe("Find your next thing.");
-    expect(Array.from(h1.children).map((line) => line.textContent)).toEqual(["Find your", "next thing."]);
-    for (const line of h1.children) expect(line).toHaveClass("block");
+    // display-m until the hero is redone (Batch 1, PR 3): the compact hero keeps its size and two lines.
+    expect(h1).toHaveClass("display-m");
+    const shown = h1.querySelector('[aria-hidden="true"]') as HTMLElement;
+    expect(Array.from(shown.children).map((line) => line.textContent)).toEqual(["Find yoür", "next thing."]);
+    for (const line of shown.children) expect(line).toHaveClass("block");
+    expect(h1.querySelector(".sr-only")).toHaveTextContent(/^Find your next thing\.$/);
     expect(h1.innerHTML).not.toMatch(/nowrap/);
-    expect(h1).toHaveClass("display-lg", "font-display");
+    // No dotted face any more: the Ü is a real letter in the display face.
+    expect(h1.querySelector(".font-dots, [data-dotted-letter]")).toBeNull();
   });
 
-  // Owner (24 Oct 2026): "only two letters with dots". The h1 is plain; YOÜR and THÏNG are drawn by the
-  // dotted face on two letters, while the text itself stays plainly spelled.
-  it("draws only two letters in the dotted face, the u of 'your' and the i of 'thing', in a plain h1", () => {
-    render(<HomeHero />);
-    const h1 = screen.getByRole("heading", { level: 1 });
-    expect(h1).toHaveClass("display-plain");
-    expect(h1).not.toHaveClass("font-dots");
-    const dotted = Array.from(h1.querySelectorAll(".font-dots"));
-    expect(dotted.map((el) => el.textContent)).toEqual(["u", "i"]);
-    for (const el of dotted) {
-      expect(el.tagName).toBe("SPAN");
-      expect(el).toHaveAttribute("data-dotted-letter");
-      expect(el.children).toHaveLength(0);
-    }
-    const [first, second] = Array.from(h1.children);
-    expect(first.contains(dotted[0])).toBe(true);
-    expect(second.contains(dotted[1])).toBe(true);
-    // Nothing else in the h1 is a dotted run, and no real diacritics are in the text.
-    expect(h1.querySelectorAll("[data-dotted-letter]")).toHaveLength(2);
-    expect(h1.textContent).not.toMatch(/[À-ɏ]/);
-  });
-
-  it("chooses the dotted letters in one place: HOME_TITLE_LINES, read by titleParts", () => {
-    expect(HOME_TITLE_LINES).toEqual(["Find yo^ur", "next th^ing."]);
+  it("keeps the shown lines and the spoken title in one place, home-content", () => {
+    expect(HOME_TITLE_LINES).toEqual(["Find yoür", "next thing."]);
     expect(HOME_TITLE).toBe("Find your next thing.");
-    expect(HOME_TITLE_LINES.map(titleText)).toEqual(["Find your", "next thing."]);
-    expect(titleParts("Find yo^ur")).toEqual([
-      { text: "Find yo", dotted: false },
-      { text: "u", dotted: true },
-      { text: "r", dotted: false },
-    ]);
-    // A mark at the start or the end of a line, two in a row, or none at all.
-    expect(titleParts("^ab^c")).toEqual([
-      { text: "a", dotted: true },
-      { text: "b", dotted: false },
-      { text: "c", dotted: true },
-    ]);
-    expect(titleParts("^a^b")).toEqual([
-      { text: "a", dotted: true },
-      { text: "b", dotted: true },
-    ]);
-    expect(titleParts("plain")).toEqual([{ text: "plain", dotted: false }]);
   });
 
   // Owner (24 Oct 2026): "little image should be there", in the empty space beside the phone headline.

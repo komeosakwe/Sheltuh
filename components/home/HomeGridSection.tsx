@@ -6,7 +6,7 @@ import { HOME_CONTAINER } from "./HomeRail";
 /**
  * One home event section on a phone (below 640px): the same head as the
  * rails' (`SectionHead`: title, optional note, link), then its cards as the
- * results grid's two columns (`RESULTS_GRID`, 12px between columns), inside
+ * results grid's two columns (`RESULTS_GRID`, 16px between columns), inside
  * the page column's gutters. Each card is an `li` of a list named by the
  * h2. `data-home-section` marks it, as for `HomeRailSection`.
  */

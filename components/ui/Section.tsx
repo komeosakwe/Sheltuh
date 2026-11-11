@@ -47,9 +47,10 @@ export function Page({
  *
  * `size="md"` is the quieter tool header (account, dashboard, admin). `brand`
  * is for the brand lines only ("What's on.", "Sheltüh near you."): at most one
- * per page, plain Instrument Sans with a letter or two in the dotted face
- * (pass the title through `DottedLine`; owner, 30 Oct 2026: never whole sentences). The h1 never animates in (it's
- * the LCP element); the strap, intro and action rise in on load.
+ * per page, a display headline (display-l, Bootzy in capitals). A line with
+ * the brand's Ü passes it through `BrandU`, so it's read plainly. The h1
+ * never animates in (it's the LCP element); the strap, intro and action rise
+ * in on load.
  * `flush` drops the bottom margin, for a parent that spaces its own children.
  */
 export function PageHeader({
@@ -81,7 +82,7 @@ export function PageHeader({
   /** The h1's aria-describedby: the id(s) of what explains it, read when focus moves to it. */
   titleDescribedBy?: string;
 }) {
-  const titleClass = size === "md" ? "display-md" : brand ? "display-lg font-display display-plain" : "display-lg";
+  const titleClass = size === "md" ? "display-md" : brand ? "display-l" : "display-lg";
   return (
     <header
       className={`flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between ${flush ? "" : "mb-10 sm:mb-14"}`.trim()}

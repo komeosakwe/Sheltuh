@@ -11,7 +11,8 @@ import { EVENT_CATEGORIES } from "@/lib/types";
 afterEach(cleanup);
 
 describe("InitialsAvatar", () => {
-  it("is a rounded square; yours is orange with black initials, the rest take turns", () => {
+  // The rules' Shape board: avatars stay round.
+  it("is a circle; yours is orange with black initials, the rest take turns", () => {
     const { container } = render(
       <>
         <InitialsAvatar name="Mia T." you />
@@ -21,7 +22,10 @@ describe("InitialsAvatar", () => {
       </>,
     );
     const [you, a, b, c] = Array.from(container.querySelectorAll("span[aria-hidden='true']"));
-    for (const avatar of [you, a, b, c]) expect(avatar).toHaveClass("rounded-dot", "text-xs");
+    for (const avatar of [you, a, b, c]) {
+      expect(avatar).toHaveClass("rounded-full", "text-xs");
+      expect(avatar).not.toHaveClass("rounded-dot");
+    }
     expect(you).toHaveClass("bg-signal", "text-signal-foreground");
     expect(a).toHaveClass("bg-foreground");
     expect(b).toHaveClass("bg-card", "border-foreground");

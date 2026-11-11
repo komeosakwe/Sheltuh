@@ -8,6 +8,8 @@ const FILLS = [
 ] as const;
 
 const SIZES = {
+  /** The event card's going faces (components/ui/GoingRow.tsx). */
+  xs: "size-6 text-xs leading-4",
   md: "size-8 text-xs leading-4",
   /** The Who's going card's faces and the This weekend cards' (owner's mockups, 8 Nov 2026). */
   face: "size-9 text-xs leading-4",
@@ -17,35 +19,31 @@ const SIZES = {
 } as const;
 
 /**
- * A member's initials in a 32px rounded square (the umlaut's shape,
- * brand-direction-one.md §2.4; never a circle: it isn't a control).
- * Decorative: the name beside it is the accessible name. `you` is Signal
+ * A member's initials in a 32px circle (the rules' Shape board: avatars stay
+ * round). Decorative: the name beside it is the accessible name. `you` is Signal
  * Orange with black initials (6.18:1); the rest take turns by `index`, so a
  * list doesn't read as one grey block. Initials are 12px, never under 11px.
  * `size="lg"`: a member profile's header (96px, 128px from 640px).
  * `size="field"`: the photo beside its controls on /account (72px).
- * `round`: a circle, for the owner's mockups' overlapping faces (the Who's going card, 36px, and the
- * This weekend cards' going strip, 30px), where they read as a crowd rather than as controls.
+ * `size="xs"`: the event card's overlapping going faces (24px).
  */
 export default function InitialsAvatar({
   name,
   you = false,
   index = 0,
   size = "md",
-  round = false,
 }: {
   name: string;
   you?: boolean;
   /** The row's place in its list, to vary the fill. */
   index?: number;
   size?: keyof typeof SIZES;
-  round?: boolean;
 }) {
   const fill = you ? "bg-signal text-signal-foreground" : FILLS[Math.abs(index) % FILLS.length];
   return (
     <span
       aria-hidden="true"
-      className={`flex shrink-0 items-center justify-center overflow-hidden ${round ? "rounded-full" : "rounded-dot"} font-semibold tracking-wide ${SIZES[size]} ${fill}`}
+      className={`flex shrink-0 items-center justify-center overflow-hidden rounded-full font-semibold tracking-wide ${SIZES[size]} ${fill}`}
     >
       {initialsFor(name)}
     </span>
