@@ -8,8 +8,6 @@ const FILLS = [
 ] as const;
 
 const SIZES = {
-  /** The event card's going faces (components/ui/GoingRow.tsx). */
-  xs: "size-6 text-xs leading-4",
   md: "size-8 text-xs leading-4",
   /** The Who's going card's faces and the This weekend cards' (owner's mockups, 8 Nov 2026). */
   face: "size-9 text-xs leading-4",
@@ -25,25 +23,29 @@ const SIZES = {
  * list doesn't read as one grey block. Initials are 12px, never under 11px.
  * `size="lg"`: a member profile's header (96px, 128px from 640px).
  * `size="field"`: the photo beside its controls on /account (72px).
- * `size="xs"`: the event card's overlapping going faces (24px).
+ * `shape="logo"`: an organiser's initials in place of their logo, in the
+ * logo's own rounded square (OrganiserLogo), so the two swap without a change
+ * of shape.
  */
 export default function InitialsAvatar({
   name,
   you = false,
   index = 0,
   size = "md",
+  shape = "circle",
 }: {
   name: string;
   you?: boolean;
   /** The row's place in its list, to vary the fill. */
   index?: number;
   size?: keyof typeof SIZES;
+  shape?: "circle" | "logo";
 }) {
   const fill = you ? "bg-signal text-signal-foreground" : FILLS[Math.abs(index) % FILLS.length];
   return (
     <span
       aria-hidden="true"
-      className={`flex shrink-0 items-center justify-center overflow-hidden rounded-full font-semibold tracking-wide ${SIZES[size]} ${fill}`}
+      className={`flex shrink-0 items-center justify-center overflow-hidden ${shape === "logo" ? "rounded-dot" : "rounded-full"} font-semibold tracking-wide ${SIZES[size]} ${fill}`}
     >
       {initialsFor(name)}
     </span>

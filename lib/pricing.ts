@@ -156,6 +156,22 @@ export function formatFeedPriceParts(event: SheltuhEvent): FeedPriceParts | null
   return { amount: `${prefix}${formatAud(minTotalCents)}${groupSuffix(event)}`, note: "incl. booking fee" };
 }
 
+/** The card's label when the cheapest ticket on sale is free and a paid one is on sale too. */
+export const FREE_AND_PAID_LABEL = "Free + paid";
+
+/**
+ * An event card's price label (components/ui/PriceTag.tsx): formatFeedPriceParts' all-inclusive
+ * amount on its own ("From A$37.60", "Free", an external event's "From A$89" or "Buy tickets"),
+ * except that "Free" never hides a paid ticket on sale: then it's FREE_AND_PAID_LABEL. `null`
+ * when there are no ticket types yet.
+ */
+export function formatCardPriceLabel(event: SheltuhEvent): string | null {
+  const parts = formatFeedPriceParts(event);
+  if (!parts) return null;
+  const paidOnSale = !isExternal(event) && pricedTicketTypes(event).some((ticket) => ticket.priceCents > 0);
+  return parts.amount === "Free" && paidOnSale ? FREE_AND_PAID_LABEL : parts.amount;
+}
+
 /**
  * Per-ticket headline price shown on the event details page and in the admin queue. A group ticket's is the
  * whole group's, said like the feed's: "A$240 for 4 incl. booking fee" (never read as a price per person).

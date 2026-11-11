@@ -2,7 +2,8 @@ import type { ReactNode } from "react";
 
 /**
  * An event card's price label (the rules' Cards board): Signal Orange with a
- * black label (6.18:1), radius 8, 32px tall. It's a label, never a control:
+ * black label (6.18:1), radius 8, 40px tall, Label/Button (a longer label,
+ * "Tickets coming soon", may wrap rather than overflow a narrow card). It's a label, never a control:
  * no link, no button, no tab stop, no hover of its own. On a card it sits
  * inside the card's stretched link, so a tap on it opens the event like
  * anywhere else on the card. `neutral`: a quiet label for a price that
@@ -21,7 +22,7 @@ export default function PriceTag({
   return (
     <span
       data-price-tag={tone}
-      className={`inline-flex min-h-8 max-w-full items-center rounded-control px-2 text-sm leading-5 font-semibold tabular-nums ${look} ${className}`.trim()}
+      className={`label-button inline-flex min-h-10 max-w-full items-center rounded-control px-2 py-2 tabular-nums ${look} ${className}`.trim()}
     >
       {children}
     </span>

@@ -220,52 +220,69 @@
 }
 
 /* Category tags (components/ui/CategoryTag.tsx; the rules' Colour board, "Category tints"): soft,
-   one per category, on tags only, never as a section or button fill. Each pair is the tint and its
-   text, at least 4.5:1 either way round (tests/tag-contrast.test.ts); Dark and ink swap them, and
-   paper pins them to Light. "fashion" has no category yet, so nothing uses it. */
+   one per category, on tags only, never as a section or button fill. Each tone has a Light pair
+   (--tag-tint behind --tag-ink) and a Dark pair (--tag-tint-dark behind --tag-ink-dark), each at
+   least 4.5:1 (tests/tag-contrast.test.ts). Dark and ink use the Dark pair; paper pins Light.
+   "fashion" has no category yet, so nothing uses it. */
 [data-tag] {
   --tag-tint: #eeece7;
   --tag-ink: #3a3936;
+  --tag-tint-dark: #171715;
+  --tag-ink-dark: #d6d3cc;
   background-color: var(--tag-tint);
   color: var(--tag-ink);
 }
 [data-tag="live-music"] {
   --tag-tint: #ece6fa;
   --tag-ink: #4b3b8c;
+  --tag-tint-dark: #2a2340;
+  --tag-ink-dark: #c9b8ff;
 }
 [data-tag="art"] {
   --tag-tint: #e3effa;
   --tag-ink: #1f4e79;
+  --tag-tint-dark: #1b2a3a;
+  --tag-ink-dark: #a8cdf2;
 }
 [data-tag="workshop"] {
   --tag-tint: #fcebd6;
   --tag-ink: #8a4b0f;
+  --tag-tint-dark: #3a2a1a;
+  --tag-ink-dark: #f3c48e;
 }
 [data-tag="pop-up"] {
   --tag-tint: #e2f2e5;
   --tag-ink: #2e6b3a;
+  --tag-tint-dark: #1b3022;
+  --tag-ink-dark: #a3d9ae;
 }
 [data-tag="theatre"] {
   --tag-tint: #f8e2e7;
   --tag-ink: #8c2f45;
+  --tag-tint-dark: #3a1e25;
+  --tag-ink-dark: #f0afbf;
 }
 [data-tag="fashion"] {
   --tag-tint: #fff0c7;
   --tag-ink: #7a5a00;
+  --tag-tint-dark: #3a3014;
+  --tag-ink-dark: #f0d27a;
 }
 [data-tag="free"],
 [data-tag="neutral"] {
   --tag-tint: #eeece7;
   --tag-ink: #3a3936;
+  --tag-tint-dark: #171715;
+  --tag-ink-dark: #d6d3cc;
 }
 [data-surface="ink"] [data-tag] {
-  background-color: var(--tag-ink);
-  color: var(--tag-tint);
+  background-color: var(--tag-tint-dark);
+  color: var(--tag-ink-dark);
 }
 @media screen {
   [data-theme="dark"] [data-tag] {
-    background-color: var(--tag-ink);
-    color: var(--tag-tint);
+    background-color: var(--tag-tint-dark);
+    color: var(--tag-ink-dark);
   }
   [data-theme="dark"] [data-surface="paper"] [data-tag] {
     background-color: var(--tag-tint);
@@ -981,12 +998,10 @@ h4 {
     text-transform: none;
     transition: background-color 0.2s ease-out, color 0.2s ease-out, border-color 0.2s ease-out;
   }
-  /* S: 40px, inline and in the header. */
+  /* S: 40px, inline and in the header. The same Label/Button 16/24 as every size. */
   .btn-sm {
     min-height: 2.5rem;
-    padding: 0.5rem 1rem;
-    font-size: 0.875rem;
-    line-height: 1.25rem;
+    padding: 0.25rem 1rem;
   }
   /* L: 56px, the hero and the sticky bar. */
   .btn-lg {
@@ -1025,9 +1040,10 @@ h4 {
       color: var(--background);
     }
     /* 6.18:1 orange on black, on white pages and inside ink alike. */
+    /* The orange edge stays, so the button keeps its outline on a black header too. */
     .btn-signal:hover:not(:disabled, [aria-disabled="true"]) {
       background: var(--ink);
-      border-color: var(--ink);
+      border-color: var(--signal);
       color: var(--signal);
     }
     .btn-danger:hover:not(:disabled, [aria-disabled="true"]) {
@@ -1038,16 +1054,20 @@ h4 {
   /* Pressed looks like hover (no dark-orange state, no movement). */
   .btn-signal:active:not(:disabled, [aria-disabled="true"]) {
     background: var(--ink);
-    border-color: var(--ink);
+    border-color: var(--signal);
     color: var(--signal);
   }
   /* Disabled and busy (aria-disabled: ui/Button `busy`, which keeps focus). A flat grey fill
-     rather than opacity, which would turn orange pink. */
+     rather than opacity, which would turn orange pink. Disabled takes text/disabled; busy keeps
+     the readable --muted ("Saving…" is still read and seen). */
   .btn:disabled,
   .btn[aria-disabled="true"] {
     cursor: not-allowed;
     background: var(--surface);
     border-color: var(--surface);
+    color: var(--muted);
+  }
+  .btn:disabled {
     color: var(--disabled);
   }
 

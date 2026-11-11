@@ -38,19 +38,14 @@ const WIDTH: Record<EventCardVariant, string> = {
 const MEDIA = "aspect-[4/3]";
 
 /**
- * The card's mono line, from cardMetaParts: each part kept whole but the last (a long suburb may
- * wrap), and each separator goes down with the part after it (a no-break space joins them), so no
- * line ends on "·".
+ * The card's mono line, from cardMetaParts, on one line: cut short with an ellipsis when it
+ * doesn't fit (the whole line is still the text read), Mono/S on a narrow card and Mono/M from
+ * an 18rem card, so a two-column phone grid never scrolls sideways.
  */
 function MetaLine({ parts }: { parts: string[] }) {
   return (
-    <p data-card-meta="" className="mono-m break-words text-muted uppercase">
-      {parts.map((part, i) => (
-        <span key={i} className={i > 0 && i === parts.length - 1 ? undefined : "whitespace-nowrap"}>
-          {i > 0 && " ·\u00a0"}
-          {part}
-        </span>
-      ))}
+    <p data-card-meta="" className="mono-s truncate text-muted uppercase @2xs:mono-m">
+      {parts.join(" · ")}
     </p>
   );
 }
@@ -62,11 +57,12 @@ function MetaLine({ parts }: { parts: string[] }) {
  * Anatomy, in reading order: the 4:3 photo or poster (radius 16) with the
  * date chip on its top-left (decorative: the mono line says the date) and
  * the Save heart on its top-right; the tags (the category in its tint, then
- * "Free", and any state: "Sold out", "Ended", "Reserved seating", or a
- * trending qualifier); the title (Heading/H4, at most two lines); one mono
- * line "SAT 14 NOV · 5PM · COBURG, VIC" (cardMetaParts, set in capitals by
- * CSS so it reads as written); then the foot, with who's going on the left
- * and the orange price label on the right. No ticket button and no "By
+ * any state: "Sold out", "Ended", "Reserved seating", or a trending
+ * qualifier; no "Free" tag, since the price label says it); the title
+ * (Heading/H4, at most two lines); one mono line "SAT 14 NOV · 5PM · COBURG,
+ * VIC" (cardMetaParts, set in capitals by CSS so it reads as written, cut
+ * short if it doesn't fit); then the foot, with who's going on the left and
+ * the orange price label on the right. No ticket button and no "By
  * {organiser}": the card opens the event, where both are.
  *
  * The whole card opens the event: the title's link stretches over the card
@@ -78,15 +74,16 @@ function MetaLine({ parts }: { parts: string[] }) {
  * Tab order: the card's link, Play (with a clip), then Save.
  *
  * Hover (and keyboard focus) fills a cream panel just outside the card (dark:
- * #1a1a1a) and underlines the title, over 200ms; no lift and no scale. The
+ * #1a1a1a; 6px out on phones, where rails' cards are 12px apart, and 16px
+ * from 768px) and underlines the title, over 200ms; no lift and no scale. The
  * panel is absolutely placed, so it never moves the layout. Keyboard focus
  * also rings that panel (the link's own ring is dropped in globals.css, only
  * where `:has()` works). Sold out: the "Sold out" tag and the image at 60%.
  * Ended: the "Ended" tag and a greyed image.
  *
- * Attendance is a count, with faces only in the demo (its sample names as
- * initials; list payloads carry no names live). A demo count is labelled
- * "(sample)"; below three, nothing. `mode` decides it (default: the app's
+ * Attendance is a count, with colour-dot faces only in the demo (list
+ * payloads carry no names live); the demo banner says it's sample data, so
+ * the card doesn't repeat it. Below three, nothing. `mode` decides it (default: the app's
  * mode). `signal` (Popular right now) adds one qualifier tag, or the going
  * count it carries.
  *
@@ -122,24 +119,24 @@ export default function EventCard({
   const state = cardState(event, now);
   const qualifier = signal ? signalLabel(signal, external) : null;
   const going = cardGoing(event, mode, signal);
-  const faces = cardGoingFaces(event, going);
-  const free = state === "free" || (state === "external" && event.externalFree === true);
+  const faces = cardGoingFaces(event, going).map((name) => ({ name }));
+  // No "Free" tag: the price label says "Free" already.
   const stateTag =
     state === "ended" ? "Ended" : state === "sold-out" ? "Sold out" : state === "seated" ? "Reserved seating" : null;
-  const tags = [free ? "Free" : null, stateTag, qualifier].filter((tag): tag is string => tag !== null);
+  const tags = [stateTag, qualifier].filter((tag): tag is string => tag !== null);
 
   return (
     <div
       data-event-card=""
       data-variant={variant}
       data-card-state={state}
-      className={`group/card relative isolate flex min-w-0 flex-col ${WIDTH[variant]} ${className}`.trim()}
+      className={`group/card @container relative isolate flex min-w-0 flex-col ${WIDTH[variant]} ${className}`.trim()}
     >
       {/* The hover and focus panel: cream just outside the card, behind everything in it. */}
       <span
         aria-hidden="true"
         data-card-hover=""
-        className="pointer-events-none absolute -inset-2 -z-10 rounded-card bg-hover opacity-0 outline-foreground group-hover/card:opacity-100 group-has-[[data-card-link]:focus-visible]/card:opacity-100 group-has-[[data-card-link]:focus-visible]/card:outline-2 motion-safe:transition-opacity motion-safe:duration-200 motion-safe:ease-out"
+        className="pointer-events-none absolute -inset-1.5 -z-10 md:-inset-4 rounded-card bg-hover opacity-0 outline-foreground group-hover/card:opacity-100 group-has-[[data-card-link]:focus-visible]/card:opacity-100 group-has-[[data-card-link]:focus-visible]/card:outline-2 motion-safe:transition-opacity motion-safe:duration-200 motion-safe:ease-out"
       />
       <div data-card-media="" className="relative overflow-hidden rounded-card">
         <EventArt
@@ -158,7 +155,7 @@ export default function EventCard({
         <p data-card-tags="" className="flex min-w-0 flex-wrap gap-2">
           <CategoryTag tone={event.category}>{categoryLabel(event)}</CategoryTag>
           {tags.map((tag) => (
-            <CategoryTag key={tag} tone={tag === "Free" ? "free" : "neutral"}>
+            <CategoryTag key={tag} tone="neutral">
               {tag}
             </CategoryTag>
           ))}
@@ -168,7 +165,7 @@ export default function EventCard({
           <Link
             href={href}
             data-card-link=""
-            className="underline decoration-transparent underline-offset-4 group-hover/card:decoration-current after:absolute after:-inset-2 after:z-0 after:content-[''] motion-safe:transition-colors motion-safe:duration-200 motion-safe:ease-out"
+            className="underline decoration-transparent underline-offset-4 group-hover/card:decoration-current after:absolute after:-inset-1.5 after:z-0 md:after:-inset-4 after:content-[''] motion-safe:transition-colors motion-safe:duration-200 motion-safe:ease-out"
           >
             {event.title}
           </Link>
@@ -177,11 +174,11 @@ export default function EventCard({
       </div>
       {event.clip && (
         // The clip's Play (docs/design/event-clips.md §5.1): after the card's link and before Save in
-        // the DOM (tab order: link, Play, Save), at the image's bottom-left on screen. The frame repeats
+        // the DOM (tab order: link, Play, Save), at the image's bottom-right on screen. The frame repeats
         // the image's own box (its aspect class), so nothing is measured; only the button in it takes
         // pointer events, so a tap anywhere else on the image still opens the event.
         <div data-clip-frame="" className={`pointer-events-none absolute inset-x-0 top-0 z-10 ${MEDIA}`}>
-          <ClipPlayButton event={event} className="pointer-events-auto absolute bottom-1 left-2" />
+          <ClipPlayButton event={event} className="pointer-events-auto absolute right-2 bottom-2" />
         </div>
       )}
       {showSave && (
@@ -193,13 +190,16 @@ export default function EventCard({
         />
       )}
       {/* The foot: mt-auto pins it to the bottom of an equal-height card. Not z-10: the price label
-          is text under the card's link, so a tap on it opens the event. min-h-12 keeps a label's
-          room when there's none (sold out, ended), so the feet still line up. */}
-      <div data-card-foot="" className="mt-auto flex min-h-12 flex-wrap items-center justify-between gap-2 pt-4">
-        {/* At least 96px for who's going (its words wrap under the faces before the row does), so on a
-            card too narrow for both (the phone grid) the price drops to a line of its own, on the right. */}
-        {going && <GoingRow going={going} faces={faces} className="min-w-0 grow basis-24" />}
-        <CardPrice event={event} now={now} variant="tag" className="ml-auto shrink-0" />
+          is text under the card's link, so a tap on it opens the event. min-h-14 keeps a label's
+          room when there's none (sold out, ended), so the feet still line up. One line from a 16rem
+          card (who's going on the left, the price on the right); on a narrower one (the phone grid)
+          the price sits under who's going, on the right, the same on every card in the row. */}
+      <div
+        data-card-foot=""
+        className="mt-auto flex min-h-14 flex-col justify-end gap-2 pt-4 @3xs:flex-row @3xs:items-center @3xs:justify-between"
+      >
+        {going && <GoingRow going={going} faces={faces} />}
+        <CardPrice event={event} now={now} variant="tag" className="shrink-0 self-end @3xs:ml-auto @3xs:self-auto" />
       </div>
     </div>
   );

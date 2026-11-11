@@ -3,9 +3,11 @@
 `Bootzy-Regular.woff2` is the display face (`--face-display`, the `display-*`
 type styles). It is the owner-supplied **Bootzy TM, Regular** (name table:
 "Version 1.000;;BootzyTM;2024;FL800"), converted from the supplied OTF to WOFF2
-with fontTools. Same 407 glyphs, character map, outlines, metrics and names
-as the OTF; only its digital-signature table (DSIG) is dropped, as WOFF2
-conversion does. It is not subset.
+with fontTools. Same character map (202 characters), outlines, metrics and
+names as the OTF; only its digital-signature table (DSIG) is dropped, as
+WOFF2 conversion does. It is not subset: the file is 130 KB, and
+`app/fonts.ts` preloads it on every route (every page has a display
+headline). Subsetting it is a follow-up if that weight matters.
 
 ## Licence
 
@@ -16,7 +18,7 @@ the file outside this site.
 
 ## Coverage
 
-202 glyphs: Basic Latin (no `*` or `~`), Latin-1 letters including `ü` and
+202 characters: Basic Latin (no `*` or `~`), Latin-1 letters including `ü` and
 `Ü`, and a few Latin Extended-A letters. It has no `·`, `…`, `→`, `×`,
 macrons or no-break space. `app/fonts.ts` loads it with
 `adjustFontFallback: false`, so any character it lacks falls through

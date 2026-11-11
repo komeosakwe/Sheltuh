@@ -148,12 +148,12 @@ describe("the Play button (§5.1)", () => {
     expect(focusables[0]).toBe(link);
     expect(at("Play clip")).toBe(1);
     expect(at("Save Glasshouse Sessions")).toBe(2);
-    // The frame repeats the image's box, at its bottom-left, and passes taps through elsewhere.
+    // The frame repeats the image's box, at its bottom-right, and passes taps through elsewhere.
     const frame = container.querySelector("[data-clip-frame]") as HTMLElement;
     // Both variants' images are 4:3 now (the rules' card anatomy).
     expect(frame).toHaveClass("pointer-events-none", "absolute", "aspect-[4/3]");
-    // The 36px chip 8px in from the image's bottom-left (its 44px target 4px from the bottom).
-    expect(button).toHaveClass("pointer-events-auto", "absolute", "bottom-1", "left-2", "min-h-11", "min-w-11");
+    // At the image's bottom-right, 8px in (visual QA, PR 1), clear of the date chip and Save.
+    expect(button).toHaveClass("pointer-events-auto", "absolute", "bottom-2", "right-2", "min-h-11", "min-w-11");
     // One ring only: the page's own focus outline is dropped (!important beats the unlayered rule).
     expect(button).toHaveClass("focus-visible:outline-none!");
   });

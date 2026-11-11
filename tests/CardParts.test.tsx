@@ -7,6 +7,7 @@ import GoingRow from "@/components/ui/GoingRow";
 import PriceTag from "@/components/ui/PriceTag";
 import { cardDateChip, cardMetaParts } from "@/lib/event-card";
 import { formatEventTimeCompact, formatEventWeekday } from "@/lib/format";
+import { FREE_AND_PAID_LABEL, formatCardPriceLabel } from "@/lib/pricing";
 import type { SheltuhEvent } from "@/lib/types";
 
 /*
@@ -106,7 +107,8 @@ describe("PriceTag", () => {
       </>,
     );
     const [signal, neutral] = Array.from(container.querySelectorAll("[data-price-tag]"));
-    expect(signal).toHaveClass("bg-signal", "text-signal-foreground", "rounded-control", "min-h-8");
+    // The board's price label: 40px, Label/Button 16/24, 8px each side.
+    expect(signal).toHaveClass("bg-signal", "text-signal-foreground", "rounded-control", "min-h-10", "label-button", "px-2");
     expect(neutral).toHaveClass("bg-surface", "text-foreground");
     expect(neutral).not.toHaveClass("bg-signal");
     for (const tag of [signal, neutral]) {
@@ -117,18 +119,53 @@ describe("PriceTag", () => {
 });
 
 describe("GoingRow", () => {
-  it("demo: round faces (decorative) and the count labelled a sample", () => {
-    const { container } = render(<GoingRow going={{ count: 12, sample: true }} faces={["Mia T.", "Leo V.", "Aisha L."]} />);
-    // The faces are decorative initials; the words read are the count.
-    expect(container.firstElementChild?.lastElementChild).toHaveTextContent(/^12 going \(sample\)$/);
+  it("demo: small overlapping colour dots (no initials, decorative) and the count on one line, with no '(sample)'", () => {
+    const { container } = render(
+      <GoingRow going={{ count: 12, sample: true }} faces={[{ name: "Mia T." }, { name: "Leo V." }, { name: "Aisha L." }]} />,
+    );
+    // The demo banner says it's sample data, so the card doesn't repeat it.
+    expect(container.firstElementChild).toHaveTextContent(/^12 going$/);
+    const count = container.firstElementChild?.lastElementChild as HTMLElement;
+    expect(count).toHaveClass("truncate");
     const faces = container.querySelector("[data-card-faces]") as HTMLElement;
     expect(faces).toHaveAttribute("aria-hidden", "true");
-    expect(faces.children).toHaveLength(3);
+    const dots = Array.from(faces.children);
+    expect(dots).toHaveLength(3);
+    for (const [i, dot] of dots.entries()) {
+      expect(dot).toHaveClass("size-5", "rounded-full");
+      expect(dot.textContent).toBe("");
+      if (i > 0) expect(dot).toHaveClass("-ml-1.5");
+    }
+    // Colour dots in turn, never the same fill twice in a row.
+    expect(dots[0].className).not.toBe(dots[1].className.replace(" -ml-1.5", ""));
+  });
+
+  it("shows a member's photo where there is one (decorative), else a dot", () => {
+    const { container } = render(
+      <GoingRow going={{ count: 5, sample: false }} faces={[{ name: "Mia T.", photoUrl: "/a.webp" }, { name: "Leo V." }]} />,
+    );
+    const [photo, dot] = Array.from(container.querySelectorAll("[data-card-face]"));
+    expect(photo.querySelector("img")).toHaveAttribute("src", "/a.webp");
+    expect(photo.querySelector("img")).toHaveAttribute("alt", "");
+    expect(dot.querySelector("img")).toBeNull();
   });
 
   it("live: the count alone, no faces", () => {
     const { container } = render(<GoingRow going={{ count: 14, sample: false }} faces={[]} />);
     expect(container.firstElementChild).toHaveTextContent(/^14 going$/);
     expect(container.querySelector("[data-card-faces]")).toBeNull();
+  });
+});
+
+describe("the card's price label text", () => {
+  const ticket = { id: "t", name: "GA", priceCents: 0, feePolicy: "buyer-pays" as const, quantityAvailable: 10 };
+  const base = { ticketingMode: "sheltuh" } as unknown as SheltuhEvent;
+  it("says 'Free + paid' when a paid ticket is on sale beside a free one, and 'Free' only when every one on sale is free", () => {
+    expect(formatCardPriceLabel({ ...base, ticketTypes: [ticket, { ...ticket, id: "p", priceCents: 3000 }] })).toBe(FREE_AND_PAID_LABEL);
+    expect(FREE_AND_PAID_LABEL).toBe("Free + paid");
+    expect(formatCardPriceLabel({ ...base, ticketTypes: [ticket] })).toBe("Free");
+    // A sold-out paid tier isn't on sale: the free event is "Free".
+    expect(formatCardPriceLabel({ ...base, ticketTypes: [ticket, { ...ticket, id: "p", priceCents: 3000, soldOut: true }] })).toBe("Free");
+    expect(formatCardPriceLabel({ ...base, ticketTypes: [] })).toBeNull();
   });
 });

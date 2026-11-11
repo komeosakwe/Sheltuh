@@ -118,8 +118,10 @@ for (const vp of [
       // Directly under the header, inside main, and the page's only demo note.
       expect(await banner.evaluate((el) => el.parentElement?.id)).toBe("main");
       await expect(page.locator("main [role='note']")).toHaveCount(1);
-      // Demo counts on cards stay labelled, in the rails and the phone grids alike.
-      await expect(page.locator("[data-event-card] [data-card-going]").first()).toContainText("(sample)");
+      // The banner says it's sample data, so the one event card's counts are bare ("12 going"), in the
+      // rails and the phone grids alike (visual QA, PR 1).
+      const count = page.locator("[data-event-card]:not([data-variant='weekend']) [data-card-going]").first();
+      await expect(count).toHaveText(/^\d+ going$/);
 
       const now = Date.now();
       const event = sampleEvents.find(

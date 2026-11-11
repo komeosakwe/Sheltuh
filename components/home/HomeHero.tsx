@@ -36,7 +36,8 @@ export default function HomeHero() {
         {/* The tile takes a fixed column at the right, so the h1's two lines keep their own width. */}
         <div className="flex items-start gap-3 sm:gap-4">
           <div className="min-w-0 flex-1">
-            <h1 id="home-title" className="display-m">
+            {/* The owner's compact hero (4 Nov 2026): 48px from 1024px until the hero is redone. */}
+            <h1 id="home-title" className="display-m lg:text-5xl">
               <BrandU spoken={HOME_TITLE}>
                 <span className="block">{first}</span> <span className="block">{second}</span>
               </BrandU>

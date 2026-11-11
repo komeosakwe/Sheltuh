@@ -1,6 +1,6 @@
 import PriceTag from "@/components/ui/PriceTag";
 import { hasEnded } from "@/lib/event-card";
-import { formatFeedPriceParts, isSoldOut, NO_TICKETS_LABEL, SOLD_OUT_LABEL } from "@/lib/pricing";
+import { formatCardPriceLabel, formatFeedPriceParts, isSoldOut, NO_TICKETS_LABEL, SOLD_OUT_LABEL } from "@/lib/pricing";
 import type { SheltuhEvent } from "@/lib/types";
 
 /**
@@ -13,8 +13,9 @@ import type { SheltuhEvent } from "@/lib/types";
  * event that has ended by then is "Ended" and nothing else.
  *
  * `variant="tag"`: the event card's orange price label (PriceTag), the
- * amount alone: the same all-inclusive minimum ("From A$37.60", "Free",
- * an external event's "From A$89" or "Buy tickets"), without the note. A
+ * amount alone (formatCardPriceLabel): the same all-inclusive minimum ("From
+ * A$37.60", "Free", "Free + paid" when a paid ticket is on sale beside a free
+ * one, an external event's "From A$89" or "Buy tickets"), without the note. A
  * card says "Sold out" and "Ended" in its tags instead, so the tag renders
  * nothing for those; "Tickets coming soon" is a quiet neutral label.
  */
@@ -34,7 +35,7 @@ export default function CardPrice({
 }) {
   if (variant === "tag") {
     if ((now && hasEnded(event, now)) || isSoldOut(event)) return null;
-    const amount = formatFeedPriceParts(event)?.amount;
+    const amount = formatCardPriceLabel(event);
     return amount ? (
       <PriceTag className={className}>{amount}</PriceTag>
     ) : (

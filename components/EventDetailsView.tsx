@@ -173,7 +173,7 @@ function whenLabel(startsAt: string, endsAt: string | undefined, timeZone: strin
 /**
  * The event page (docs/design/brand-direction-one.md §6.10; order from
  * docs/design/mobile-redesign.md, Refinement 22 Oct 2026). In reading order:
- * the photo, then the title (sentence case, title-lg), then one block of
+ * the photo, then the title (title-lg: Display/M, Bootzy in capitals), then one block of
  * facts (when, with the time zone and Add to calendar; where, the address
  * linked to directions; the organiser, linked to their profile), one
  * secondary row with Save and Share (the page's only Save), and the Who's

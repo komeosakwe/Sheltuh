@@ -302,6 +302,35 @@ describe("brand faces", () => {
   });
 });
 
+describe("buttons (the rules' Buttons board)", () => {
+  const rule = (selector: string) => {
+    const at = css.indexOf(`${selector} {`);
+    return at < 0 ? "" : css.slice(at, css.indexOf("}", at));
+  };
+
+  it("is Label/Button 16/24 in sentence case at every size: S 40, M 48, L 56", () => {
+    const btn = rule("  .btn");
+    expect(btn).toContain("min-height: 3rem;");
+    expect(btn).toContain("font-size: 1rem;");
+    expect(btn).toContain("line-height: 1.5rem;");
+    expect(btn).toContain("text-transform: none;");
+    expect(rule("  .btn-sm")).toContain("min-height: 2.5rem;");
+    expect(rule("  .btn-sm")).not.toMatch(/font-size|line-height/);
+    expect(rule("  .btn-lg")).toContain("min-height: 3.5rem;");
+    expect(rule("  .btn-lg")).not.toMatch(/font-size|line-height/);
+  });
+
+  it("keeps the primary's orange edge on hover and press (black fill, orange label)", () => {
+    expect(css).toMatch(/\.btn-signal:hover:not\(:disabled, \[aria-disabled="true"\]\) \{\s*background: var\(--ink\);\s*border-color: var\(--signal\);\s*color: var\(--signal\);/);
+    expect(css).toMatch(/\.btn-signal:active:not\(:disabled, \[aria-disabled="true"\]\) \{\s*background: var\(--ink\);\s*border-color: var\(--signal\);\s*color: var\(--signal\);/);
+  });
+
+  it("greys a disabled button's label (text/disabled) but keeps a busy one's readable (--muted)", () => {
+    expect(css).toMatch(/\.btn:disabled,\s*\.btn\[aria-disabled="true"\] \{[^}]*color: var\(--muted\);/);
+    expect(css).toMatch(/\.btn:disabled \{\s*color: var\(--disabled\);\s*\}/);
+  });
+});
+
 describe("current page in the nav", () => {
   // The rules' Navigation board: orange dots under the pointer as well as on the current page.
   it("turns the dots orange on hover, not black", () => {

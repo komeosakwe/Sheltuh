@@ -5,9 +5,9 @@ import { EVENT_CATEGORIES } from "@/lib/types";
 
 /**
  * The category tags' tints (app/globals.css `[data-tag]`, the rules' Colour
- * board "Category tints"): every pair is readable both ways round, since
- * Light sets the text on the tint and Dark (and ink) swaps them. WCAG 1.4.3:
- * at least 4.5:1 for the tags' 12px text.
+ * board "Category tints"): each tone has a Light pair and a Dark pair (used
+ * in Dark and inside ink), each readable. WCAG 1.4.3: at least 4.5:1 for the
+ * tags' 12px text.
  */
 const css = readFileSync(path.resolve(import.meta.dirname, "../app/globals.css"), "utf8");
 
@@ -24,44 +24,52 @@ function contrast(a: string, b: string) {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-/** The tint and ink a `[data-tag="…"]` rule declares (the last rule that names it). */
-function pair(tone: string): { tint: string; ink: string } {
+/** The Light and Dark pairs a `[data-tag="…"]` rule declares (the last rule that names it). */
+function pair(tone: string): { tint: string; ink: string; tintDark: string; inkDark: string } {
   const rules = [...css.matchAll(/((?:\[data-tag="[\w-]+"\],?\s*)+)\{([^}]*)\}/g)].filter(([, selectors]) =>
     selectors.includes(`[data-tag="${tone}"]`),
   );
   const body = rules.at(-1)?.[2] ?? "";
-  const tint = body.match(/--tag-tint:\s*(#[0-9a-f]{6});/)?.[1];
-  const ink = body.match(/--tag-ink:\s*(#[0-9a-f]{6});/)?.[1];
-  if (!tint || !ink) throw new Error(`no tag pair for ${tone}`);
-  return { tint, ink };
+  const value = (name: string) => body.match(new RegExp(`${name}:\\s*(#[0-9a-f]{6});`))?.[1];
+  const [tint, ink, tintDark, inkDark] = ["--tag-tint", "--tag-ink", "--tag-tint-dark", "--tag-ink-dark"].map(value);
+  if (!tint || !ink || !tintDark || !inkDark) throw new Error(`no tag pairs for ${tone}`);
+  return { tint, ink, tintDark, inkDark };
 }
 
 const TONES = [...EVENT_CATEGORIES.map((category) => category.value), "fashion", "free", "neutral"];
 
 describe("category tag tints", () => {
-  it.each(TONES)("%s: the tint and its text are at least 4.5:1, in Light and swapped in Dark", (tone) => {
-    const { tint, ink } = pair(tone);
+  it.each(TONES)("%s: the tint and its text are at least 4.5:1, in Light and in Dark", (tone) => {
+    const { tint, ink, tintDark, inkDark } = pair(tone);
     expect(contrast(tint, ink)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(tintDark, inkDark)).toBeGreaterThanOrEqual(4.5);
+    // The Dark tint is a dark fill (it sits on the black page), its text light.
+    expect(luminance(tintDark)).toBeLessThan(luminance(inkDark));
   });
 
   it("uses the rules' values for every category the site has", () => {
-    expect(pair("live-music")).toEqual({ tint: "#ece6fa", ink: "#4b3b8c" });
-    expect(pair("art")).toEqual({ tint: "#e3effa", ink: "#1f4e79" });
-    expect(pair("workshop")).toEqual({ tint: "#fcebd6", ink: "#8a4b0f" });
-    expect(pair("pop-up")).toEqual({ tint: "#e2f2e5", ink: "#2e6b3a" });
-    expect(pair("theatre")).toEqual({ tint: "#f8e2e7", ink: "#8c2f45" });
-    expect(pair("free")).toEqual({ tint: "#eeece7", ink: "#3a3936" });
+    expect(pair("live-music")).toMatchObject({ tint: "#ece6fa", ink: "#4b3b8c" });
+    expect(pair("art")).toMatchObject({ tint: "#e3effa", ink: "#1f4e79" });
+    expect(pair("workshop")).toMatchObject({ tint: "#fcebd6", ink: "#8a4b0f" });
+    expect(pair("pop-up")).toMatchObject({ tint: "#e2f2e5", ink: "#2e6b3a" });
+    expect(pair("theatre")).toMatchObject({ tint: "#f8e2e7", ink: "#8c2f45" });
+    expect(pair("free")).toMatchObject({ tint: "#eeece7", ink: "#3a3936" });
+    // The Dark pairs from the visual QA's samples.
+    expect(pair("live-music")).toMatchObject({ tintDark: "#2a2340", inkDark: "#c9b8ff" });
+    expect(pair("theatre")).toMatchObject({ tintDark: "#3a1e25", inkDark: "#f0afbf" });
+    expect(pair("workshop")).toMatchObject({ tintDark: "#3a2a1a", inkDark: "#f3c48e" });
+    expect(pair("free")).toMatchObject({ tintDark: "#171715", inkDark: "#d6d3cc" });
   });
 
   it("has a tint for every category in lib/types, so no category falls back unnoticed", () => {
     for (const { value } of EVENT_CATEGORIES) expect(css).toContain(`[data-tag="${value}"]`);
   });
 
-  it("sets the text on the tint in Light, and swaps them in Dark and inside ink (screen only for Dark), with paper pinned to Light", () => {
+  it("uses the Light pair by default, the Dark pair in Dark and inside ink (screen only for Dark), with paper pinned to Light", () => {
     expect(css).toMatch(/\[data-tag\] \{[^}]*background-color: var\(--tag-tint\);\s*color: var\(--tag-ink\);/);
-    expect(css).toMatch(/\[data-surface="ink"\] \[data-tag\] \{\s*background-color: var\(--tag-ink\);\s*color: var\(--tag-tint\);/);
+    expect(css).toMatch(/\[data-surface="ink"\] \[data-tag\] \{\s*background-color: var\(--tag-tint-dark\);\s*color: var\(--tag-ink-dark\);/);
     expect(css).toMatch(
-      /@media screen \{\s*\[data-theme="dark"\] \[data-tag\] \{\s*background-color: var\(--tag-ink\);\s*color: var\(--tag-tint\);\s*\}\s*\[data-theme="dark"\] \[data-surface="paper"\] \[data-tag\] \{\s*background-color: var\(--tag-tint\);\s*color: var\(--tag-ink\);/,
+      /@media screen \{\s*\[data-theme="dark"\] \[data-tag\] \{\s*background-color: var\(--tag-tint-dark\);\s*color: var\(--tag-ink-dark\);\s*\}\s*\[data-theme="dark"\] \[data-surface="paper"\] \[data-tag\] \{\s*background-color: var\(--tag-tint\);\s*color: var\(--tag-ink\);/,
     );
   });
 });

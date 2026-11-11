@@ -146,14 +146,14 @@ describe("EventCard anatomy (the rules' Cards board)", () => {
       expect(text.children[1].tagName).toBe("H3");
       // The title is Heading/H4, at most two lines; the mono line is Mono/M, secondary, in capitals by CSS.
       expect(text.children[1]).toHaveClass("heading-h4", "line-clamp-2", "break-words");
-      expect(meta(container)).toHaveClass("mono-m", "text-muted", "uppercase");
+      // One line, cut short if it doesn't fit: Mono/S on a narrow card, Mono/M from an 18rem one.
+      expect(meta(container)).toHaveClass("mono-s", "@2xs:mono-m", "truncate", "text-muted", "uppercase");
       // The foot: who's going (decorative faces, then the count), then the all-inclusive price label (the amount alone).
       const [going, price] = Array.from(foot(container).children);
       expect(going).toHaveAttribute("data-card-going");
-      // At least 96px for it, so on a card too narrow for both the price drops to its own line (on the right).
-      expect(going).toHaveClass("min-w-0", "grow", "basis-24");
-      expect(price).toHaveClass("ml-auto", "shrink-0");
-      expect(going.lastElementChild).toHaveTextContent(`${getSampleGoing(event.id).count} going (sample)`);
+      expect(price).toHaveClass("shrink-0", "@3xs:ml-auto");
+      // No "(sample)" on the card: the demo banner says it's sample data.
+      expect(going.lastElementChild?.textContent).toBe(`${getSampleGoing(event.id).count} going`);
       expect(price).toHaveAttribute("data-price-tag");
       expect(price.textContent).toBe("From A$37.60");
       // No description, no ticket button, no "By organiser".
@@ -173,7 +173,7 @@ describe("EventCard anatomy (the rules' Cards board)", () => {
     expect(screen.getByRole("heading", { level: 3 })).toHaveAccessibleName("Glasshouse Sessions");
     expect(cardRoot(container)).toHaveTextContent("Sun 18 Oct · 7pm · Carlton, VIC");
     expect(cardRoot(container)).toHaveTextContent("From A$37.60");
-    expect(cardRoot(container)).toHaveTextContent(`${getSampleGoing(event.id).count} going (sample)`);
+    expect(cardRoot(container)).toHaveTextContent(`${getSampleGoing(event.id).count} going`);
   });
 
   it("leaves an empty place off the mono line, with no dangling separator", () => {
@@ -192,15 +192,12 @@ describe("EventCard anatomy (the rules' Cards board)", () => {
     expect(metaText(again.container)).toBe("Sun 18 Oct · 7pm · Fortitude Valley, QLD");
   });
 
-  it("keeps each part of the mono line whole, the separator with the part after it, so no line ends on '·' (V8)", () => {
+  // Visual QA (PR 1): one line that never wraps, so a narrow card never scrolls the page sideways.
+  it("keeps the mono line to one plain line of text, never wrapped (it's cut short instead)", () => {
     const { container } = render(<EventCard event={event} variant="grid" mode="live" />);
-    const parts = Array.from(meta(container).children);
-    // A no-break space after each "·", so the separator never ends a line apart from its part.
-    expect(parts.map((el) => el.textContent)).toEqual(["Sun 18 Oct", " ·\u00a07pm", " ·\u00a0Carlton, VIC"]);
-    // The date and time never break inside; a long place may wrap.
-    expect(parts[0]).toHaveClass("whitespace-nowrap");
-    expect(parts[1]).toHaveClass("whitespace-nowrap");
-    expect(parts[2]).not.toHaveClass("whitespace-nowrap");
+    expect(meta(container).children).toHaveLength(0);
+    expect(meta(container).textContent).toBe("Sun 18 Oct · 7pm · Carlton, VIC");
+    expect(meta(container)).toHaveClass("truncate");
   });
 
   it("names a zone outside Melbourne's with the time (visual QA)", () => {
@@ -237,7 +234,7 @@ describe("EventCard: one link, with Save beside it and the price label inside it
     const root = cardRoot(container);
     const link = cardLink(event);
     expect(link).toHaveAttribute("data-card-link");
-    expect(link).toHaveClass("after:absolute", "after:-inset-2");
+    expect(link).toHaveClass("after:absolute", "after:-inset-1.5", "md:after:-inset-4");
     expect(root).toHaveClass("relative", "isolate");
     const save = screen.getByRole("button", { name: "Save Glasshouse Sessions" });
     expect(link.contains(save)).toBe(false);
@@ -277,7 +274,9 @@ describe("EventCard: one link, with Save beside it and the price label inside it
     const hover = root.querySelector("[data-card-hover]") as HTMLElement;
     expect(hover).toHaveClass(
       "absolute",
-      "-inset-2",
+      // 6px out on phones (rails' cards are 12px apart, so it never meets a neighbour), 16px from 768px.
+      "-inset-1.5",
+      "md:-inset-4",
       "-z-10",
       "pointer-events-none",
       "rounded-card",
@@ -311,17 +310,18 @@ describe("EventCard: the feet line up across sibling cards (owner feedback, 22 O
   it.each(["rail", "grid"] as const)("%s: a flex column whose foot is pushed to the bottom with mt-auto", (variant) => {
     const { container } = render(<EventCard event={event} variant={variant} mode="live" />);
     const root = cardRoot(container);
-    expect(root).toHaveClass("flex", "flex-col");
-    expect(foot(container)).toHaveClass("mt-auto", "flex", "items-center", "justify-between", "pt-4");
+    expect(root).toHaveClass("flex", "flex-col", "@container");
+    // One line from a 16rem card (going left, price right); stacked on a narrower one, the price on the
+    // right under who's going, the same on every card of the row.
+    expect(foot(container)).toHaveClass("mt-auto", "flex", "flex-col", "justify-end", "pt-4", "@3xs:flex-row", "@3xs:items-center", "@3xs:justify-between");
     expect(root.lastElementChild).toBe(foot(container));
-    // The price label stays on the right, alone or beside the going line.
-    expect(priceTag(container)).toHaveClass("ml-auto");
+    expect(priceTag(container)).toHaveClass("self-end", "@3xs:ml-auto", "@3xs:self-auto");
   });
 
   it("keeps a price label's room when there's none (sold out), so this card's foot sits level with its neighbours'", () => {
     const { container } = render(<EventCard event={soldOut} variant="grid" mode="live" />);
     expect(priceTag(container)).toBeNull();
-    expect(foot(container)).toHaveClass("min-h-12");
+    expect(foot(container)).toHaveClass("min-h-14");
   });
 });
 
@@ -412,22 +412,25 @@ describe("EventCard media: organiser artwork", () => {
 describe("EventCard ticket states, from real data only", () => {
   it.each<[string, SheltuhEvent, string[], string | null]>([
     ["paid, on sale", event, ["Live music"], "From A$37.60"],
-    ["every on-sale tier free", allFree, ["Live music", "Free"], "Free"],
+    // No "Free" tag: the price label says it (review L4).
+    ["every on-sale tier free", allFree, ["Live music"], "Free"],
+    // A free tier beside a paid one on sale: never just "Free" (review M1).
+    ["free and paid tiers on sale", { ...event, ticketTypes: [{ ...event.ticketTypes[0], priceCents: 0 }, event.ticketTypes[1]] }, ["Live music"], "Free + paid"],
     // Every tier still on sale is free (the paid one is sold out), so it's a free event.
-    ["free on sale beside a sold-out paid tier", freeAndPaidSoldOut, ["Live music", "Free"], "Free"],
+    ["free on sale beside a sold-out paid tier", freeAndPaidSoldOut, ["Live music"], "Free"],
     ["seated, on sale", seated, ["Live music", "Reserved seating"], "From A$37.60"],
     ["sold out", soldOut, ["Live music", "Sold out"], null],
     ["seated and sold out", { ...seated, soldOut: true, ticketTypes: soldOut.ticketTypes.map((t) => ({ ...t, seated: true })) }, ["Live music", "Sold out"], null],
     // An external event's card never names the ticket site (owner, 31 Oct 2026).
     ["external, paid", external, ["Live music"], "Buy tickets"],
     ["external, paid, with the organiser's price", { ...external, externalPriceFromCents: 8900 }, ["Live music"], "From A$89"],
-    ["external, free", externalFree, ["Live music", "Free"], "Free"],
+    ["external, free", externalFree, ["Live music"], "Free"],
   ])("%s: its tags and its price label", (_label, e, expectedTags, price) => {
     const { container } = render(<EventCard event={e} variant="grid" mode="live" />);
     expect(cardLink(e)).toHaveAccessibleName(e.title);
     expect(tags(container)).toEqual(expectedTags);
     if (price) {
-      expect(priceTag(container)).toHaveTextContent(new RegExp(`^${price.replace(/[$.]/g, "\\$&")}$`));
+      expect(priceTag(container)).toHaveTextContent(new RegExp(`^${price.replace(/[$.+]/g, "\\$&")}$`));
       expect(priceTag(container)).toHaveAttribute("data-price-tag", "signal");
     } else expect(priceTag(container)).toBeNull();
     // No ticket button on the card: the event page has it.
@@ -476,14 +479,17 @@ describe("EventCard ticket states, from real data only", () => {
 });
 
 describe("EventCard attendance and qualifiers", () => {
-  it("demo: the sample's count, labelled a sample, beside the first three sample names as round initials", () => {
+  it("demo: the sample's count beside three small colour dots (no initials); the demo banner, not the card, says it's a sample", () => {
     const { container } = render(<EventCard event={event} variant="rail" mode="demo" />);
     const going = container.querySelector("[data-card-going]") as HTMLElement;
-    expect(going).toHaveTextContent(`${getSampleGoing(event.id).count} going (sample)`);
+    expect(going).toHaveTextContent(new RegExp(`^${getSampleGoing(event.id).count} going$`));
     const faces = going.querySelector("[data-card-faces]") as HTMLElement;
     expect(faces).toHaveAttribute("aria-hidden", "true");
     expect(faces.children).toHaveLength(3);
-    for (const face of faces.querySelectorAll("span > span")) expect(face).toHaveClass("rounded-full");
+    for (const face of faces.children) {
+      expect(face).toHaveClass("size-5", "rounded-full");
+      expect(face.textContent).toBe("");
+    }
     // Never a real profile photo on a card.
     expect(container.querySelector("img[alt]:not([alt=''])")).toBeNull();
   });
@@ -522,10 +528,10 @@ describe("EventCard attendance and qualifiers", () => {
     expect(cardLink(event)).toHaveAccessibleName("Glasshouse Sessions");
   });
 
-  it("tints the category tag by its category, and the rest neutral (Free in its own tint)", () => {
-    const { container } = render(<EventCard event={{ ...allFree, category: "theatre" }} variant="grid" mode="live" />);
+  it("tints the category tag by its category, and the rest neutral", () => {
+    const { container } = render(<EventCard event={{ ...seated, category: "theatre" }} variant="grid" mode="live" />);
     const tones = Array.from(container.querySelectorAll("[data-card-tags] [data-tag]")).map((tag) => tag.getAttribute("data-tag"));
-    expect(tones).toEqual(["theatre", "free"]);
+    expect(tones).toEqual(["theatre", "neutral"]);
   });
 });
 

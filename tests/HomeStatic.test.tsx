@@ -34,8 +34,8 @@ describe("HomeHero (mobile-redesign.md §6.1)", () => {
     render(<HomeHero />);
     const h1 = screen.getByRole("heading", { level: 1 });
     expect(h1).toHaveAccessibleName("Find your next thing.");
-    // display-m until the hero is redone (Batch 1, PR 3): the compact hero keeps its size and two lines.
-    expect(h1).toHaveClass("display-m");
+    // display-m, and 48px from 1024px (the owner's compact hero, 4 Nov 2026), until the hero is redone in PR 3.
+    expect(h1).toHaveClass("display-m", "lg:text-5xl");
     const shown = h1.querySelector('[aria-hidden="true"]') as HTMLElement;
     expect(Array.from(shown.children).map((line) => line.textContent)).toEqual(["Find yoür", "next thing."]);
     for (const line of shown.children) expect(line).toHaveClass("block");

@@ -31,6 +31,14 @@ describe("InitialsAvatar", () => {
     expect(b).toHaveClass("bg-card", "border-foreground");
     expect(c).toHaveClass("bg-surface");
   });
+
+  // Review L6: an organiser's initials stand in for its logo in the logo's own shape.
+  it("shape='logo': the logo's rounded square, not a circle", () => {
+    const { container } = render(<InitialsAvatar name="Northside Noise" shape="logo" />);
+    const avatar = container.querySelector("span[aria-hidden='true']");
+    expect(avatar).toHaveClass("rounded-dot");
+    expect(avatar).not.toHaveClass("rounded-full");
+  });
 });
 
 describe("ProgressLoader", () => {

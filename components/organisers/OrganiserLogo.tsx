@@ -36,7 +36,7 @@ export default function OrganiserLogo({
   const { box, px } = SIZES[size];
 
   if (!url || failedUrl === url) {
-    return fallback === "initials" ? <InitialsAvatar name={name} size={size} /> : null;
+    return fallback === "initials" ? <InitialsAvatar name={name} size={size} shape="logo" /> : null;
   }
 
   return (

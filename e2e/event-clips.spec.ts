@@ -183,7 +183,7 @@ test.describe("at 375×667", () => {
   test.use({ viewport: { width: 375, height: 667 } });
 
   // /events' grid: the card on a phone (the home's phone layout is grids of the same cards).
-  test("/events: the Play chip sits in the image's bottom-left, a 44px target, with no sideways scroll", async ({ page }) => {
+  test("/events: the Play chip sits in the image's bottom-right, a 44px target, with no sideways scroll", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await mockPublicApi(page);
     await page.goto("/events");
@@ -196,12 +196,13 @@ test.describe("at 375×667", () => {
     if (!media || !play || !chip) return;
     expect(play.width).toBeGreaterThanOrEqual(44);
     expect(play.height).toBeGreaterThanOrEqual(44);
-    expect(play.x).toBeGreaterThanOrEqual(media.x);
+    expect(play.x + play.width).toBeLessThanOrEqual(media.x + media.width);
     expect(media.y + media.height - (play.y + play.height)).toBeGreaterThanOrEqual(0);
-    // The 36px chip sits 8px in from the left and bottom edges, as Save does from the top-right.
+    // Visual QA (PR 1): bottom-right, its 44px target 8px in from the right and bottom edges (the date
+    // chip is top-left, Save top-right); the 36px chip is centred in the target's height.
     expect(chip.height).toBe(36);
-    expect(Math.abs(chip.x - media.x - 8)).toBeLessThanOrEqual(1);
-    expect(Math.abs(media.y + media.height - (chip.y + chip.height) - 8)).toBeLessThanOrEqual(1);
+    expect(Math.abs(media.x + media.width - (chip.x + chip.width) - 8)).toBeLessThanOrEqual(1);
+    expect(Math.abs(media.y + media.height - (play.y + play.height) - 8)).toBeLessThanOrEqual(1);
     expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
   });
 
