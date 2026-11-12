@@ -6,6 +6,8 @@ import InitialsAvatar from "@/components/ui/InitialsAvatar";
 /** The same boxes as InitialsAvatar's sizes, so a logo and initials swap without a shift. */
 const SIZES = {
   md: { box: "size-8", px: 32 },
+  /** The event page's Organiser card (the owner's event mock). */
+  card: { box: "size-12", px: 48 },
   lg: { box: "size-24 sm:size-32", px: 128 },
 } as const;
 

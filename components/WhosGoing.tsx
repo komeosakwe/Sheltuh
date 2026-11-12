@@ -302,6 +302,7 @@ export default function WhosGoing() {
           </span>
         }
         titleId="whos-going-title"
+        variant="plain"
       >
         {state.status === "loading" && <p className="min-h-30 text-sm text-muted">Loading who&rsquo;s going…</p>}
 

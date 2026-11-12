@@ -1,7 +1,10 @@
-import Link from "next/link";
+"use client";
+
+import { useEventOrganiser } from "@/components/events/EventOrganiserProvider";
+import FollowButton from "@/components/organisers/FollowButton";
 import OrganiserLinks from "@/components/organisers/OrganiserLinks";
 import OrganiserLogo from "@/components/organisers/OrganiserLogo";
-import { Panel } from "@/components/ui/Section";
+import { ButtonLink } from "@/components/ui/Button";
 import type { OrganiserSocialLinks } from "@/lib/api/types";
 import { getSampleOrganiser, organiserProfileHref, sampleOrganiserId } from "@/lib/sample-organisers";
 import type { SheltuhEvent } from "@/lib/types";
@@ -33,37 +36,63 @@ function hostDetails(event: SheltuhEvent, demo: boolean): HostDetails {
   };
 }
 
+/** "1.2K" (the owner's mock): followers in short form. */
+const compactCount = new Intl.NumberFormat("en-AU", { notation: "compact", maximumFractionDigits: 1 });
+
+/** Whose profile Follow is for: a live organiser's id, or in the demo the sample organiser's (Follow is unavailable there). */
+function followId(event: SheltuhEvent): string | null {
+  if (!organiserProfileHref(event)) return null;
+  return event.organiserId ?? sampleOrganiserId(event.organiserName);
+}
+
 /**
- * The event page's Organiser card: the organiser's logo (or initials), name and
- * "View profile", then their website and social links, then a bio excerpt.
- * Only what exists is shown; with no links or bio it's just the name and the
- * profile link.
+ * The event page's Organiser card (the owner's event mock): a cream card with an "Organiser" eyebrow, their
+ * logo (or initials) and name, a mono line with their followers (only once the API sends a count: 10 or
+ * more) and "✓ Checked" (every organiser with a public profile was approved by a person; live only, from
+ * the page's one profile read, EventOrganiserProvider), their bio, their website and social links, then
+ * Follow (the existing organiser follows, with its unticked email choice) and View profile. Only what
+ * exists is shown; with no profile to link to, it's the name, bio and links.
  */
 export default function EventHost({ event, demo }: { event: SheltuhEvent; demo: boolean }) {
   const { websiteUrl, socialLinks, bio } = hostDetails(event, demo);
+  const { load } = useEventOrganiser();
   const profileHref = organiserProfileHref(event);
+  const organiserId = followId(event);
+  const facts = [
+    load.status === "ready" && load.followerCount !== null ? `${compactCount.format(load.followerCount)} followers` : null,
+    load.status === "ready" && load.checked ? "✓ Checked" : null,
+  ].filter((fact): fact is string => fact !== null);
+  const viewProfile = profileHref && (
+    <ButtonLink href={profileHref} variant="outline" size="md" aria-label={`View profile of ${event.organiserName}`}>
+      View profile
+    </ButtonLink>
+  );
 
   return (
-    <Panel title="Organiser" titleId="host-title">
-      <div data-event-host="" className="flex flex-col gap-5">
-        <div className="flex items-center gap-4 sm:gap-5">
-          <OrganiserLogo name={event.organiserName} url={event.organiserLogoThumbUrl} size="lg" fallback="initials" />
-          <div className="flex min-w-0 flex-col gap-1">
-            <p className="font-heading text-xl leading-6 break-words">{event.organiserName}</p>
-            {profileHref && (
-              <Link
-                href={profileHref}
-                aria-label={`View profile of ${event.organiserName}`}
-                className="inline-flex min-h-11 items-center self-start text-sm underline underline-offset-4 hover:decoration-2"
-              >
-                View profile
-              </Link>
-            )}
-          </div>
+    <section aria-labelledby="host-title" data-event-host="" className="flex flex-col gap-4 rounded-card bg-hover p-6">
+      <h2 id="host-title" className="eyebrow text-muted">
+        Organiser
+      </h2>
+      <div className="flex items-center gap-4">
+        <OrganiserLogo name={event.organiserName} url={event.organiserLogoThumbUrl} size="card" fallback="initials" />
+        <div className="flex min-w-0 flex-col">
+          <p className="heading-h4 break-words">{event.organiserName}</p>
+          {facts.length > 0 && <p className="mono-s text-muted uppercase">{facts.join(" · ")}</p>}
         </div>
-        <OrganiserLinks websiteUrl={websiteUrl} socialLinks={socialLinks} layout="grid" />
-        {bio && <p className="max-w-2xl text-sm leading-6 break-words whitespace-pre-line">{bio}</p>}
       </div>
-    </Panel>
+      {bio && <p className="body-s max-w-2xl break-words whitespace-pre-line">{bio}</p>}
+      <OrganiserLinks websiteUrl={websiteUrl} socialLinks={socialLinks} layout="grid" />
+      {organiserId ? (
+        <FollowButton
+          organiserId={organiserId}
+          organiserName={event.organiserName}
+          returnTo={`/events/${event.slug}`}
+          size="md"
+          beside={viewProfile}
+        />
+      ) : (
+        viewProfile
+      )}
+    </section>
   );
 }

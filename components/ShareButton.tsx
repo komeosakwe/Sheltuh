@@ -44,9 +44,15 @@ export default function ShareButton({
   title,
   text,
   className = "",
+  fill = false,
 }: {
   slug: string;
   title: string;
+  /**
+   * The button fills the box it's given (the event page's ticket panel, in a row with Save and Add to
+   * calendar), and "Link copied" shows just under it rather than beside it, so the row never reflows.
+   */
+  fill?: boolean;
   /** The share sheet's message, e.g. "{title} · {Sat 24 Oct, 7:00 pm} · {venue}". */
   text?: string;
   className?: string;
@@ -192,14 +198,14 @@ export default function ShareButton({
         aria-label={`Share ${title}`}
         aria-expanded={open ? true : undefined}
         aria-controls={open ? popoverId : undefined}
-        className={secondaryActionClass}
+        className={fill ? `${secondaryActionClass} w-full justify-center` : secondaryActionClass}
       >
         <ShareIcon />
         {/* The name "Share {title}" starts with what's shown. */}
         <span>Share</span>
       </button>
       {/* Beside the button, and always in the page so the change is announced. */}
-      <p role="status" className="text-sm whitespace-nowrap">
+      <p role="status" className={fill ? "absolute top-full left-0 mt-1 text-xs whitespace-nowrap" : "text-sm whitespace-nowrap"}>
         {status}
       </p>
       {manualUrl !== null && (

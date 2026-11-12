@@ -519,7 +519,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
       )}
 
       {/* One compact card per release. Sold out (or not open yet): sunken and muted, with words, nothing to press.
-          On sale: a button that selects it; chosen (some of it in the order): peach with an orange border (and the
+          On sale: a button that selects it; chosen (some of it in the order): cream with an orange border (and the
           quantity says so too: never colour alone). The quantity stepper is below the cards, for the selected one. */}
       <ul className="flex flex-col gap-2">
         {lineSummaries.map(({ ticket, quantity }, index) => {
@@ -540,7 +540,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
           const cardClass = dimmed
             ? "border-surface-border bg-surface"
             : chosen
-              ? "border-signal bg-tint ring-1 ring-signal"
+              ? "border-signal bg-hover ring-1 ring-signal"
               : "border-surface-border bg-card";
           // The all-inclusive price per ticket is the loudest number on the card, at every width (ACCC:
           // brand-direction-one.md §6.8): the amount bold, the rest ("incl. booking fee") lighter. A sold-out
@@ -567,11 +567,11 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
           );
           const pill = tierSoldOut ? (
             // Words, not colour alone.
-            <span className="shrink-0 rounded-full bg-surface-border px-3 py-1 text-xs leading-4 font-semibold tracking-wide text-foreground uppercase">
+            <span className="label-tag shrink-0 rounded-badge bg-surface-border px-2 py-1 text-foreground">
               Sold out
             </span>
           ) : waitingText ? null : (
-            <span className="shrink-0 rounded-full bg-signal/15 px-3 py-1 text-xs leading-4 font-semibold tracking-wide text-signal-ink uppercase">
+            <span className="label-tag shrink-0 rounded-badge bg-surface px-2 py-1 text-foreground">
               Available
             </span>
           );
@@ -794,8 +794,8 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
               )}
             </div>
             <SupportSummaryLine cents={supportCents} />
-            {/* The total is the largest number in the panel, in a peach box. */}
-            <div className="mt-1 flex flex-wrap items-baseline justify-between gap-x-4 rounded-card bg-tint px-4 py-3">
+            {/* The total is the largest number in the panel, in a grey box. */}
+            <div className="mt-1 flex flex-wrap items-baseline justify-between gap-x-4 rounded-card bg-surface px-4 py-3">
               <dt id={totalLabelId} className="text-lg leading-6 font-bold text-foreground">
                 Total
               </dt>
@@ -899,8 +899,8 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
               {/* The panel's Checkout, orange with a lock, at every width (owner: show it on phones too, as in the
                   mockup). On phones the sticky buy bar (components/checkout/BuyBar.tsx) presses this same
                   handler, so both start one checkout. Busy, not disabled, while it works: focus
-                  stays on it. Disabled only with nothing chosen (the hint says what to do). White on orange is
-                  3.4:1, so the label is 20px bold (large text). */}
+                  stays on it. Disabled only with nothing chosen (the hint says what to do). The rules' Primary at
+                  size L: a black label on orange (6.18:1), radius 8. */}
               <Button
                 variant="signal"
                 size="lg"
@@ -909,7 +909,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                 disabled={!hasAnyTickets}
                 // The total is part of what the button does (the bar's button says it too): "Total A$25.94".
                 aria-describedby={hasAnyTickets ? `${totalLabelId} ${totalId}` : "checkout-hint"}
-                className={`mt-5 h-14 w-full gap-3 rounded-card text-xl leading-6 font-bold tracking-normal normal-case ${loading || !hasAnyTickets ? "" : "text-paper"}`}
+                className="mt-5 w-full gap-3"
               >
                 {!loading && <LockIcon className="size-6 shrink-0" />}
                 {loading

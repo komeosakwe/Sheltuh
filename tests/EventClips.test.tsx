@@ -346,12 +346,12 @@ describe("the event page's photo (§5.3)", () => {
     const button = playButton();
     expect(button).toHaveTextContent("Play clip0:12");
     expect(button).toHaveClass("focus-visible:outline-none!");
-    expect(button).toHaveClass("absolute", "bottom-3", "left-5", "sm:left-3", "h-11");
+    expect(button).toHaveClass("absolute", "bottom-2", "left-2", "sm:bottom-4", "sm:left-4", "h-11");
     const wrapper = button.parentElement as HTMLElement;
-    expect(wrapper).toHaveClass("relative", "-mx-5", "sm:mx-0");
+    expect(wrapper).toHaveClass("relative");
     const art = wrapper.firstElementChild as HTMLElement;
     expect(art).toHaveAttribute("aria-hidden", "true");
-    expect(art).toHaveClass("aspect-[4/3]", "max-h-[24svh]", "w-full", "sm:aspect-[3/2]", "sm:rounded-card");
+    expect(art).toHaveClass("aspect-[4/3]", "max-h-[24svh]", "w-full", "rounded-card", "lg:aspect-[3/2]");
     expect(container.querySelector("video")).toBeNull();
     fireEvent.click(button);
     expect(video()?.getAttribute("src")).toBe(CLIP.url);
@@ -360,7 +360,7 @@ describe("the event page's photo (§5.3)", () => {
   it("an event without a clip keeps the same box and has no Play", () => {
     const { container } = withProviders(<EventDetailsView event={{ ...event, clip: undefined }} demo />);
     expect(screen.queryByRole("button", { name: /^Play clip/ })).toBeNull();
-    const art = container.querySelector(".-mx-5 > [aria-hidden='true']");
+    const art = container.querySelector("[data-date-chip]")?.parentElement?.firstElementChild;
     expect(art).toHaveClass("aspect-[4/3]", "w-full");
   });
 });

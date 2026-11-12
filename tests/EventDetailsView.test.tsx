@@ -178,11 +178,13 @@ describe("EventDetailsView key facts under the title (Refinement, 22 Oct 2026)",
     expect(screen.queryByText(`${event.venueName} · ${event.suburb}`)).toBeNull();
     const address = `${event.venueName}, ${event.venueAddress}`;
     expect(container.textContent?.split(address)).toHaveLength(2);
-    // The time zone, Add to calendar, directions and the organiser all stay.
+    // The time zone, directions and the organiser all stay (Add to calendar is in the ticket panel's row).
     expect(within(facts).getByText(/^Melbourne time/)).toBeInTheDocument();
-    expect(within(facts).getByRole("button", { name: "Add to calendar" })).toBeInTheDocument();
     expect(within(facts).getByRole("link", { name: /^Get directions to / })).toBeInTheDocument();
-    expect(within(facts).getByText(/^Organised by/)).toBeInTheDocument();
+    expect(within(facts).getByText(/^by/)).toBeInTheDocument();
+    // In mono capitals (CSS sets the case, so the text reads as written).
+    expect(within(facts).getByText(/^Melbourne time/)).toHaveClass("mono-s", "uppercase");
+    expect(within(facts).getByRole("link", { name: /^Get directions to / })).toHaveClass("mono-m", "uppercase");
   });
 
   it("keeps each time whole ('8:00 pm', 'midnight'), so a narrow screen never splits one, but lets the rest wrap", () => {
@@ -243,7 +245,7 @@ describe("EventDetailsView organiser", () => {
     render(<EventDetailsView event={event} demo={false} />);
     const link = screen.getByRole("link", { name: "Northside Noise" });
     expect(link).toHaveAttribute("href", "/organisers/org%201");
-    expect(link.closest("dd")).toHaveTextContent("Organised by Northside Noise");
+    expect(link.closest("dd")).toHaveTextContent("by Northside Noise");
   });
 
   it("in the demo, links a sample event's organiser to the sample organiser's profile", () => {
@@ -252,7 +254,7 @@ describe("EventDetailsView organiser", () => {
     render(<EventDetailsView event={event} demo />);
     const link = screen.getByRole("link", { name: "Small Hours Theatre" });
     expect(link).toHaveAttribute("href", "/organisers/small-hours-theatre");
-    expect(link.closest("dd")).toHaveTextContent("Organised by Small Hours Theatre");
+    expect(link.closest("dd")).toHaveTextContent("by Small Hours Theatre");
   });
 
   it("shows the organiser's avatar beside their name, linked to the profile but out of the tab order", () => {
@@ -323,7 +325,7 @@ describe("EventDetailsView organiser", () => {
   it("keeps the organiser as plain text when there's no profile to link to", () => {
     const event = { ...findEvent("neon-static"), organiserName: "Nobody In The Samples" };
     render(<EventDetailsView event={event} demo />);
-    expect(screen.getByText("Organised by Nobody In The Samples").closest("dd")).not.toBeNull();
+    expect(screen.getByText("Nobody In The Samples", { selector: "dd span" }).closest("dd")).toHaveTextContent("by Nobody In The Samples");
     expect(screen.queryByRole("link", { name: "Nobody In The Samples" })).not.toBeInTheDocument();
   });
 });
@@ -368,8 +370,8 @@ describe("EventDetailsView brand layout (brand-direction-one.md §6.10)", () => 
     expect(tickets.querySelector(".btn-signal")).toBeNull();
   });
 
-  // Refinement (22 Oct 2026): image, title, facts, then Save and Share in one quiet secondary row.
-  it("puts the photo first, then the category and the title (sentence case, calmer than the home's headline), then Save and Share in one row", () => {
+  // The owner's event mock: image, tags, the title in display type, the facts, then Save, Share and Add to calendar in one row.
+  it("puts the photo first, then the category tag and the display title, then Save, Share and Add to calendar in one row", () => {
     const event = findEvent("neon-static");
     // Demo favourites (accounts not configured), so the Save button renders.
     const { container } = render(
@@ -380,19 +382,22 @@ describe("EventDetailsView brand layout (brand-direction-one.md §6.10)", () => 
       </FakeAuthProvider>,
     );
     const heading = screen.getByRole("heading", { level: 1, name: event.title });
-    expect(heading).toHaveClass("title-lg");
+    expect(heading).toHaveClass("font-display", "uppercase");
     expect(heading).not.toHaveClass("display-lg");
     const photo = container.querySelector("img, [aria-hidden='true'] svg");
     if (!photo) throw new Error("no photo");
     expect(photo.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByText("Live music")).toBeInTheDocument();
+    expect(container.querySelector("[data-event-tags] [data-tag='live-music']")).toHaveTextContent("Live music");
     const row = container.querySelector<HTMLElement>("[data-event-actions]");
     if (!row) throw new Error("no action row");
     const share = within(row).getByRole("button", { name: `Share ${event.title}` });
-    expect(within(row).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual([
+    expect(within(row).getAllByRole("button").map((b) => b.getAttribute("aria-label") ?? b.textContent)).toEqual([
       `Save ${event.title}`,
       `Share ${event.title}`,
+      "Add to calendar",
     ]);
+    // The rules' Secondary buttons, filling the row.
+    expect(within(row).getByRole("button", { name: "Add to calendar" })).toHaveClass("border-control", "w-full");
     expect(heading.compareDocumentPosition(share) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
@@ -409,16 +414,17 @@ describe("EventDetailsView brand layout (brand-direction-one.md §6.10)", () => 
     if (!when) throw new Error("When row not rendered");
     // (Node's ICU writes September as "Sep" or "Sept".)
     expect(within(when).getAllByRole("definition")[0]).toHaveTextContent(
-      /^Fri 25 Sept?, 8:00 pm – Sat 26 Sept?, midnightMelbourne time \(AEST\)Add to calendar$/,
+      /^Fri 25 Sept?, 8:00 pm – Sat 26 Sept?, midnightMelbourne time \(AEST\)$/,
     );
     expect(document.body).not.toHaveTextContent("12:00 am");
   });
 
-  it("offers Add to calendar under When", () => {
-    render(<EventDetailsView event={findEvent("neon-static")} demo />);
-    const when = screen.getByText("When").closest("div");
-    if (!when) throw new Error("When row not rendered");
-    expect(within(when).getByRole("button", { name: "Add to calendar" })).toHaveAttribute("aria-expanded", "false");
+  it("offers Add to calendar once, in the ticket panel's row", () => {
+    const { container } = render(<EventDetailsView event={findEvent("neon-static")} demo />);
+    expect(screen.getAllByRole("button", { name: "Add to calendar" })).toHaveLength(1);
+    const row = container.querySelector<HTMLElement>("[data-ticket-panel] [data-event-actions]");
+    if (!row) throw new Error("no action row in the panel");
+    expect(within(row).getByRole("button", { name: "Add to calendar" })).toHaveAttribute("aria-expanded", "false");
   });
 });
 

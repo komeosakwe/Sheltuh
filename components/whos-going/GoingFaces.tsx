@@ -39,14 +39,15 @@ export default function GoingFaces({
   max?: number;
   /**
    * `panel`: the panel's 32px circles on the page. `card`: the Who's going card's 36px circles
-   * with white rings on its dark ground (owner's mockup, 8 Nov 2026), overlapping by 2px.
+   * with white rings on its dark ground (owner's mockup, 8 Nov 2026), overlapping by 2px. `row`: the event page's
+   * Who's going row (the owner's event mock), the panel's 32px circles ringed in the row's cream.
    */
-  look?: "panel" | "card";
+  look?: "panel" | "card" | "row";
 }) {
   const others = attendees.slice(0, Math.max(0, youName !== undefined ? max - 1 : max));
   if (others.length === 0 && youName === undefined) return null;
   const card = look === "card";
-  const ring = card ? "rounded-full ring-1 ring-paper" : "rounded-full ring-2 ring-background";
+  const ring = card ? "rounded-full ring-1 ring-paper" : look === "row" ? "rounded-full ring-2 ring-hover" : "rounded-full ring-2 ring-background";
   const focusRing = card ? "focus-visible:outline-paper" : "focus-visible:outline-foreground";
   return (
     <span data-going-faces="" className="flex shrink-0">

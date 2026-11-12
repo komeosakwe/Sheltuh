@@ -1,20 +1,20 @@
 import EventLocationMap from "@/components/events/EventLocationMap";
 import { ExternalIcon } from "@/components/home/icons";
-import { Panel } from "@/components/ui/Section";
 import { appleMapsHref, directionsHref, venuePin } from "@/lib/maps";
 import { placeName } from "@/lib/place";
 import type { SheltuhEvent } from "@/lib/types";
 
+// Mono like the address beside them, in the words' own case (the owner's event mock), each a 44px target.
 const LINK_CLASS =
-  "inline-flex min-h-11 items-center gap-1 text-base leading-6 font-medium underline underline-offset-4 hover:decoration-2";
+  "mono-m inline-flex min-h-11 items-center gap-1 underline underline-offset-4 hover:decoration-2";
 
 /**
  * The event page's Location section, in the main column after About (owner
- * request, 26 Oct 2026): the venue's name and address, a small map with the
- * venue pinned (EventLocationMap: loaded as it nears the screen, and left out
- * when the event can't be placed), and two links out, "Google Maps" (the
- * same directions link as the address under the title) and "Apple Maps"
- * (lib/maps.ts). Both are always shown, with no user-agent sniffing, so the
+ * request, 26 Oct 2026; the owner's event mock): a small map with the venue
+ * pinned (EventLocationMap: a placeholder until it nears the screen, and left
+ * out when the event can't be placed), then one mono line, the venue's name
+ * and address and two links out, "Google Maps" (the same directions link as
+ * the address under the title) and "Apple Maps" (lib/maps.ts). Both are always shown, with no user-agent sniffing, so the
  * server and browser render the same (owner decision A-D4, 27 Oct 2026).
  * Nothing at all when there's nowhere to route to (no venue, address or
  * suburb).
@@ -31,14 +31,21 @@ export default function EventLocation({ event, map = true }: { event: SheltuhEve
   const appleAction = venuePin(event) ? destination : `directions to ${destination}`;
 
   return (
-    <Panel title="Location" titleId="location-title">
-      <div data-event-location="" className="flex flex-col gap-4">
-        <address className="flex flex-col text-base leading-6 not-italic">
-          {venue && <span className="font-semibold">{venue}</span>}
-          {where && <span className="break-words">{where}</span>}
-        </address>
+    <section aria-labelledby="location-title" className="flex flex-col gap-4">
+      <h2 id="location-title" className="heading-h2">
+        Location
+      </h2>
+      <div data-event-location="" className="flex flex-col gap-2">
         {map && <EventLocationMap event={event} directions={directions} />}
-        <div className="flex flex-wrap gap-x-6">
+        <div className="flex flex-wrap items-center gap-x-2">
+          <address className="mono-m flex flex-wrap gap-x-2 not-italic uppercase">
+            {venue && <span className="font-semibold">{venue}</span>}
+            {venue && where && <span aria-hidden="true">·</span>}
+            {where && <span className="break-words">{where}</span>}
+          </address>
+          <span aria-hidden="true" className="mono-m">
+            ·
+          </span>
           <a
             href={directions}
             target="_blank"
@@ -52,20 +59,25 @@ export default function EventLocation({ event, map = true }: { event: SheltuhEve
             <ExternalIcon className="size-4" />
           </a>
           {apple && (
-            <a
-              href={apple}
-              target="_blank"
-              rel="noopener noreferrer"
-              data-apple-maps=""
-              aria-label={`Apple Maps: ${appleAction} (opens in a new tab)`}
-              className={LINK_CLASS}
-            >
-              Apple Maps
-              <ExternalIcon className="size-4" />
-            </a>
+            <>
+              <span aria-hidden="true" className="mono-m">
+                ·
+              </span>
+              <a
+                href={apple}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-apple-maps=""
+                aria-label={`Apple Maps: ${appleAction} (opens in a new tab)`}
+                className={LINK_CLASS}
+              >
+                Apple Maps
+                <ExternalIcon className="size-4" />
+              </a>
+            </>
           )}
         </div>
       </div>
-    </Panel>
+    </section>
   );
 }

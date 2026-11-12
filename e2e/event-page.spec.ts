@@ -234,7 +234,8 @@ for (const vp of [
 }
 
 // Owner request (26 Oct 2026): on a phone, Save and Share are on the first screen too, above the
-// buy bar, with a two-line title and a two-line address. 390×664 is a 390×844 phone less its
+// buy bar, with a two-line title and a two-line address (the redesign's title is 32px on phones, so
+// the longest sample title still takes two lines). 390×664 is a 390×844 phone less its
 // browser chrome; 375×667 is the small iPhone; 370×667 is the same phone where a slightly wider font (CI's) wraps
 // one more line above the row, which once left it a pixel under the bar.
 for (const vp of [
@@ -270,12 +271,13 @@ for (const vp of [
         // With room to spare (4px), not touching the bar.
         expect(box.y + box.height).toBeLessThanOrEqual(bar.y - 4);
       }
-      // Add to calendar keeps its 44px target, and doesn't overlap the address link below it.
-      const calendar = await page.getByRole("button", { name: "Add to calendar" }).boundingBox();
+      // Add to calendar (in the same row since the redesign, the owner's event mock) keeps its 44px target, and
+      // doesn't overlap the address link above it.
+      const calendar = await actions.getByRole("button", { name: "Add to calendar" }).boundingBox();
       const addressBox = await address.boundingBox();
       if (!calendar || !addressBox) throw new Error("not laid out");
       expect(calendar.height).toBeGreaterThanOrEqual(44);
-      expect(calendar.y + calendar.height).toBeLessThanOrEqual(addressBox.y);
+      expect(calendar.y).toBeGreaterThanOrEqual(addressBox.y + addressBox.height);
       await noSidewaysScroll(page);
     });
   });

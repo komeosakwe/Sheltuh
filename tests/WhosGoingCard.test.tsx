@@ -11,8 +11,8 @@ import type { SheltuhEvent } from "@/lib/types";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 
 /**
- * The event page's "Who's going?" card (owner's mockup, 8 Nov 2026): the count, up to three faces
- * and "+N", and View attendees, all from WhosGoingProvider's one load (nothing invented).
+ * The event page's Who's going row (the owner's event mock): the count, up to five faces, "Ticket
+ * holders opt in", and I'm going or View attendees, all from WhosGoingProvider's one load (nothing invented).
  */
 
 vi.mock("@/lib/api/client", async (importOriginal) => ({
@@ -102,37 +102,40 @@ async function card() {
 }
 
 describe("Who's going? card", () => {
-  it("is a labelled section between Save/Share and the tickets, with a real h2 and View attendees to the panel", async () => {
+  it("is a labelled section between the organiser and the ticket panel's actions, with View attendees to the panel", async () => {
     member({ count: 42, attendees: people(5) });
     renderEvent(LIVE_EVENT);
     const region = await card();
-    expect(within(region).getByRole("heading", { level: 2, name: "Who’s going?" })).toBeInTheDocument();
-    expect(region).toHaveTextContent("42 people are going");
+    // The section's name for screen readers; the row itself leads with the count (the owner's event mock).
+    expect(within(region).getByRole("heading", { level: 2, name: "Who’s going?" })).toHaveClass("sr-only");
+    expect(region).toHaveTextContent("42 going");
+    expect(region).toHaveTextContent("Ticket holders opt in");
     // Live: no "(sample)".
     expect(region).not.toHaveTextContent("sample");
     const view = within(region).getByRole("link", { name: `View attendees for ${LIVE_EVENT.title}` });
     expect(view).toHaveAttribute("href", "#whos-going");
-    // A 44px target around the slimmer pill.
-    expect(view).toHaveClass("min-h-11");
-    // The crowd photo is decorative.
-    for (const img of region.querySelectorAll("img")) expect(img).toHaveAttribute("alt", "");
+    // The rules' Secondary button, 48px tall on phones.
+    expect(view).toHaveClass("btn-outline", "max-md:min-h-12");
+    // A cream panel, no photo.
+    expect(region).toHaveClass("bg-hover");
+    expect(region.querySelector("img")).toBeNull();
 
-    // Reading order: Save and Share, then this card, then the tickets.
+    // Reading order: the organiser, then this row, then Save and Share, then the tickets.
+    const organiser = document.querySelector("[data-organiser-avatar]");
     const actions = document.querySelector("[data-event-actions]");
     const tickets = screen.getByRole("heading", { name: "Select your tickets" });
-    if (!actions) throw new Error("no actions row");
-    expect(actions.compareDocumentPosition(region) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(region.compareDocumentPosition(tickets) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    if (!actions || !organiser) throw new Error("no actions row or organiser");
+    expect(organiser.compareDocumentPosition(region) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(region.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(actions.compareDocumentPosition(tickets) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("shows three faces from the names already sent, then +N for the rest of the count", async () => {
-    member({ count: 42, attendees: people(5) });
+  it("shows up to five faces from the names already sent, and no +N", async () => {
+    member({ count: 42, attendees: people(7) });
     renderEvent(LIVE_EVENT);
     const region = await card();
-    await waitFor(() => expect(region.querySelectorAll("[data-going-face]")).toHaveLength(3));
-    // Everyone going less the three faces drawn.
-    expect(region.querySelector("[data-going-rest]")).toHaveTextContent("+39");
-    expect(region.querySelector("[data-going-rest]")).toHaveAttribute("aria-hidden", "true");
+    await waitFor(() => expect(region.querySelectorAll("[data-going-face]")).toHaveLength(5));
+    expect(region.querySelector("[data-going-rest]")).toBeNull();
   });
 
   it("puts the viewer first when they're going, and counts them among the faces", async () => {
@@ -141,10 +144,38 @@ describe("Who's going? card", () => {
     const region = await card();
     await waitFor(() => expect(region.querySelector("[data-going-faces]")).not.toBeNull());
     const faces = region.querySelector("[data-going-faces]");
-    // "You" (initials, orange) plus two others: three in all, so +2.
-    expect(faces?.children).toHaveLength(3);
+    // "You" (initials, orange) plus the four others: five in all.
+    expect(faces?.children).toHaveLength(5);
     expect(faces?.children[0]).toHaveTextContent("MT");
-    expect(region.querySelector("[data-going-rest]")).toHaveTextContent("+2");
+    // Already going: View attendees, not I'm going.
+    expect(within(region).queryByRole("link", { name: "I’m going" })).toBeNull();
+    expect(within(region).getByRole("link", { name: `View attendees for ${LIVE_EVENT.title}` })).toBeInTheDocument();
+  });
+
+  it("says I'm going to a ticket holder who can add themselves and hasn't, even under three going", async () => {
+    member({ count: 2, attendees: people(1), me: { going: false, eligible: true, hasProfile: true } });
+    renderEvent(LIVE_EVENT);
+    const region = await card();
+    const going = await within(region).findByRole("link", { name: "I’m going" });
+    // To the panel, where the existing opt-in is.
+    expect(going).toHaveAttribute("href", "#whos-going");
+    // No number under three.
+    expect(region.querySelector("[data-going-count]")).toBeNull();
+    expect(region).toHaveTextContent("Ticket holders opt in");
+  });
+
+  it("isn't I'm going for someone without a ticket (View attendees), or for a suspended member", async () => {
+    member({ count: 9, attendees: people(3), me: { going: false, eligible: false, hasProfile: true } });
+    renderEvent(LIVE_EVENT);
+    let region = await card();
+    await waitFor(() => expect(within(region).getByRole("link", { name: `View attendees for ${LIVE_EVENT.title}` })).toBeInTheDocument());
+    expect(within(region).queryByRole("link", { name: "I’m going" })).toBeNull();
+    cleanup();
+
+    member({ count: 9, attendees: people(3), me: { going: false, eligible: true, hasProfile: true }, profile: { ...PROFILE, suspended: true } });
+    renderEvent(LIVE_EVENT);
+    region = await card();
+    expect(within(region).queryByRole("link", { name: "I’m going" })).toBeNull();
   });
 
   it("links a face to the member's profile only when they made it visible", async () => {
@@ -160,15 +191,13 @@ describe("Who's going? card", () => {
     expect(profile).toHaveAttribute("href", "/members/prof-ana");
     // The others are decorative.
     expect(within(region).getAllByRole("link")).toHaveLength(2);
-    // Three going, three faces: no "+0".
-    expect(region.querySelector("[data-going-rest]")).toBeNull();
   });
 
   it("signed out: the count only, no faces and no +N (the API sends no names)", async () => {
     api.getGoingSummary.mockResolvedValue({ count: 14, countHidden: false, closed: false });
     renderEvent(LIVE_EVENT, signedOut());
     const region = await card();
-    expect(region).toHaveTextContent("14 people are going");
+    expect(region).toHaveTextContent("14 going");
     expect(region.querySelector("[data-going-faces]")).toBeNull();
     expect(region.querySelector("[data-going-rest]")).toBeNull();
     expect(within(region).getByRole("link", { name: `View attendees for ${LIVE_EVENT.title}` })).toBeInTheDocument();
@@ -203,9 +232,8 @@ describe("Who's going? card", () => {
     renderEvent(DEMO_EVENT, signedOut());
     const sample = getSampleGoing(DEMO_EVENT.id);
     const region = await card();
-    expect(region).toHaveTextContent(`${sample.count} people are going (sample)`);
-    expect(region.querySelectorAll("[data-going-face]")).toHaveLength(3);
-    expect(region.querySelector("[data-going-rest]")).toHaveTextContent(`+${sample.count - 3}`);
+    expect(region).toHaveTextContent(`${sample.count} going (sample)`);
+    expect(region.querySelectorAll("[data-going-face]")).toHaveLength(5);
     for (const fn of Object.values(api)) expect(fn).not.toHaveBeenCalled();
   });
 

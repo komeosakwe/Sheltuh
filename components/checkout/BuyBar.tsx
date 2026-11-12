@@ -80,7 +80,6 @@ export function GaBuyBar({
   const amountId = `${id}-amount`;
   const noteId = `${id}-note`;
   const shown = state && state.kind !== "choose" ? state : price;
-  const busy = state?.kind === "checkout" && state.busy;
 
   useEffect(() => {
     const bar = barRef.current;
@@ -109,10 +108,9 @@ export function GaBuyBar({
     };
   }, []);
 
-  // The mockup's button: 12px radius, big Title Case text (the label's own case is the site's "Buy tickets";
-  // `capitalize` is only how it's drawn). White on orange is 3.4:1, so the text is 20px bold (large text, 3:1);
-  // while busy the button is the grey disabled one and keeps its own colours.
-  const actionClass = `h-12 min-h-12 shrink-0 rounded-card px-5 text-xl leading-6 font-bold tracking-normal capitalize sm:px-7 @max-xs:w-full${busy ? "" : " text-paper"}`;
+  // The rules' sticky-bar button: Primary at size L (56px), radius 8, Label/Button in sentence case ("Buy tickets"),
+  // a black label on orange (6.18:1). While busy it's the grey disabled one.
+  const actionClass = "shrink-0 px-5 sm:px-7 @max-xs:w-full";
   return (
     <div
       ref={barRef}
@@ -136,40 +134,106 @@ export function GaBuyBar({
             )}
           </div>
           <span aria-hidden="true" className="h-10 w-px shrink-0 bg-surface-border @max-xs:hidden" />
-          {state?.kind === "checkout" ? (
-            // A button: it acts (the same submit as the Checkout in the ticket section).
-            // Busy, not disabled, while it works, so focus stays on it and a second tap does nothing.
-            <Button
-              variant="signal"
-              size="lg"
-              onClick={state.onPress}
-              busy={state.busy}
-              aria-busy={state.busy || undefined}
-              aria-describedby={shown.note ? `${amountId} ${noteId}` : amountId}
-              className={actionClass}
-            >
-              {state.busy ? state.busyLabel : state.label}
-            </Button>
-          ) : (
-            // A link: nothing's chosen yet (or it's sold out). With the selector there it moves focus to
-            // the first ticket's "+" and says what to do; without, it just goes to the tickets.
-            <a
-              href="#tickets"
-              onClick={
-                state?.kind === "choose"
-                  ? (event) => {
-                      event.preventDefault();
-                      state.onPress();
-                    }
-                  : undefined
-              }
-              className={buttonClass("signal", "lg", actionClass)}
-            >
-              {state?.kind === "status" ? state.label : label}
-            </a>
-          )}
+          <BuyAction state={state} label={label} describedBy={shown.note ? `${amountId} ${noteId}` : amountId} className={actionClass} />
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * The bar's (and the desktop ticket panel's) one action, from the selector's state. `checkout`: a button, the same
+ * submit as the Checkout in the ticket section, busy (not disabled) while it works, so focus stays on it and a second
+ * tap does nothing. Otherwise a link: nothing's chosen yet (or it's sold out); with the selector there it moves focus
+ * to the first ticket's "+" and says what to do, and without, it just goes to the tickets.
+ */
+function BuyAction({
+  state,
+  label,
+  describedBy,
+  className,
+}: {
+  state: BuyBarState | null;
+  label: string;
+  describedBy: string;
+  className: string;
+}) {
+  if (state?.kind === "checkout") {
+    return (
+      <Button
+        variant="signal"
+        size="lg"
+        onClick={state.onPress}
+        busy={state.busy}
+        aria-busy={state.busy || undefined}
+        aria-describedby={describedBy}
+        className={className}
+      >
+        {state.busy ? state.busyLabel : state.label}
+      </Button>
+    );
+  }
+  return (
+    <a
+      href="#tickets"
+      onClick={
+        state?.kind === "choose"
+          ? (event) => {
+              event.preventDefault();
+              state.onPress();
+            }
+          : undefined
+      }
+      className={buttonClass("signal", "lg", className)}
+    >
+      {state?.kind === "status" ? state.label : label}
+    </a>
+  );
+}
+
+/**
+ * The ticket panel's price and action from lg (the rules' "image + sticky buy panel"), the desktop twin of
+ * GaBuyBar: the same state from the selector, so it shows the event's all-inclusive "From" price until tickets
+ * are chosen, then the order's total, and its button is the bar's (BuyAction). Below lg the bar does this job,
+ * so the page hides this (one orange action per view).
+ */
+export function GaBuyPanel({ price, label }: { price: FeedPriceParts; label: string }) {
+  const state = useContext(StateContext);
+  const id = useId();
+  const amountId = `${id}-amount`;
+  const noteId = `${id}-note`;
+  const shown = state && state.kind !== "choose" ? state : price;
+  return (
+    <div data-buy-panel="" className="flex flex-col gap-4">
+      <PanelPrice amount={shown.amount} note={shown.note} amountId={amountId} noteId={noteId} />
+      <BuyAction state={state} label={label} describedBy={shown.note ? `${amountId} ${noteId}` : amountId} className="w-full" />
+    </div>
+  );
+}
+
+/** The panel's price line: the amount large and bold, then what it includes ("incl. booking fee"), muted, beside it. */
+export function PanelPrice({
+  amount,
+  note,
+  amountId,
+  noteId,
+}: {
+  amount: string;
+  note?: string;
+  amountId?: string;
+  noteId?: string;
+}) {
+  return (
+    <p className="flex flex-wrap items-baseline gap-x-2">
+      {/* Not a live region: the selector's own status announces each change to the total. */}
+      <span id={amountId} className="heading-h2 tabular-nums">
+        {amount}
+      </span>
+      {note && (
+        <span id={noteId} className="body-s text-muted">
+          {note}
+        </span>
+      )}
+    </p>
   );
 }
