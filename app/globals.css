@@ -71,7 +71,7 @@
   --display-tracking: 0;
   /* The control stroke (the rules' Shape board): chips, filters, inputs and secondary buttons. */
   --stroke-control: 1.5px;
-  --header-h: 3.5rem; /* 56px compact header, < lg */
+  --header-h: 4rem; /* 64px: the site header at every width (the rules' Navigation board) */
   --buybar-h: 4rem; /* 64px sticky event-page buy bar, < lg (before the safe area) */
   --editbar-h: 4rem; /* 64px sticky save bar on the event editor, before the safe area */
   --seatbar-h: 5.5rem; /* 88px phone summary bar on /events/[slug]/seats (before safe area) */
@@ -84,12 +84,6 @@
   --google-fill: #ffffff;
   --google-stroke: #747775;
   --google-text: #1f1f1f;
-}
-
-@media (min-width: 64rem) {
-  :root {
-    --header-h: 4.375rem; /* 70px: the one-row desktop header, as measured at 1280 */
-  }
 }
 
 /* Dark (docs/design/theme-white-dark.md §2.2): set on <html> by the no-flash script
@@ -677,7 +671,7 @@ h4 {
   &::before {
     content: "";
     position: absolute;
-    top: 2px;
+    top: var(--umlaut-top, 2px);
     left: var(--umlaut-left, 50%);
     width: var(--umlaut-w, 10px);
     height: var(--umlaut-h, 4px);
@@ -696,7 +690,7 @@ h4 {
   &[aria-current="page"],
   &[aria-current="true"] {
     --umlaut: var(--signal);
-    text-decoration-line: underline;
+    text-decoration-line: var(--umlaut-line, underline);
     text-decoration-thickness: 2px;
     text-underline-offset: 4px;
   }
@@ -729,6 +723,36 @@ h4 {
     &::before {
       transition: opacity 150ms ease-out;
     }
+  }
+}
+
+/* The header's nav button (the rules' Navigation board: "For organisers", "Messages"), with
+   `umlaut`: 40px, the 1.5px stroke, radius 8, Label 16/24 medium. Its dots sit above the button,
+   not on the label; hover adds the --hover fill, and the current page fills it in the text colour
+   (no underline: the fill carries the state). In the black header in both themes. */
+@utility nav-button {
+  --umlaut-top: -0.625rem;
+  --umlaut-line: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.5rem;
+  padding-inline: 1rem;
+  border: var(--stroke-control) solid var(--foreground);
+  border-radius: var(--radius-control);
+  font-family: var(--face-sans);
+  font-weight: 500;
+  font-size: 1rem;
+  line-height: 1.5rem;
+  color: var(--foreground);
+  @media (hover: hover) {
+    &:hover:not([aria-current="page"]) {
+      background: var(--hover);
+    }
+  }
+  &[aria-current="page"] {
+    background: var(--foreground);
+    color: var(--background);
   }
 }
 

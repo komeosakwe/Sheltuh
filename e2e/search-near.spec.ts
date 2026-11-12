@@ -9,7 +9,7 @@ import { sampleEvents } from "@/lib/sample-events";
  * "Near you" search (owner round of 24 Oct 2026: "our search bar similar [to
  * Eventbrite] and a close location, ask them"), in a real browser, live mode
  * with every /api/* request answered here. The browser's position is asked
- * for only on "Use my current location", turned into a suburb and dropped:
+ * for only on "Use my location", turned into a suburb and dropped:
  * only the suburb reaches the address and storage, and the API never sees
  * either.
  */
@@ -98,12 +98,12 @@ const geoCalls = (page: Page) => page.evaluate(() => (window as unknown as { __g
 /** Opens the hero's location panel, pressing until the page has hydrated. */
 async function openPanel(page: Page) {
   const search = page.getByRole("search", { name: "Search events" });
-  const location = search.getByRole("button", { name: /^Location: / });
+  const location = search.getByRole("button", { name: /^Where: / });
   const panel = page.getByRole("dialog", { name: "Find events near you" });
   await expect(async () => {
     if (!(await panel.isVisible())) await location.click();
     await expect(panel).toBeVisible({ timeout: 1_000 });
-    await expect(panel.getByRole("button", { name: "Use my current location" })).toBeFocused({ timeout: 1_000 });
+    await expect(panel.getByRole("button", { name: "Use my location" })).toBeFocused({ timeout: 1_000 });
   }).toPass({ timeout: 30_000 });
   return { search, location, panel };
 }
@@ -116,7 +116,7 @@ for (const theme of ["light", "dark"] as const) {
     test.describe(`search bar at ${viewport.width}px in ${theme === "light" ? "Light" : "Dark"}`, () => {
       test.use({ viewport });
 
-      test("an orange round submit with a black icon, a pill bar 52px tall, and the global focus ring inset", async ({ page }) => {
+      test("an orange Search with a black icon, a bar with radius 8 and the stroke, 48px targets, and the global focus ring inset", async ({ page }) => {
         if (theme === "dark") await page.addInitScript(() => localStorage.setItem("sheltuh:theme", "dark"));
         await mockApi(page);
         await page.goto("/");
@@ -128,18 +128,28 @@ for (const theme of ["light", "dark"] as const) {
           const icon = el.querySelector("svg");
           return {
             bg: s.backgroundColor,
+            text: s.color,
             icon: icon ? getComputedStyle(icon).color : "",
-            round: parseFloat(s.borderTopLeftRadius) >= el.getBoundingClientRect().height / 2,
-            size: Math.round(el.getBoundingClientRect().width),
+            radius: s.borderTopLeftRadius,
+            height: Math.round(el.getBoundingClientRect().height),
           };
         });
-        // Never a white icon on orange.
-        expect(look).toEqual({ bg: "rgb(255, 72, 0)", icon: "rgb(0, 0, 0)", round: true, size: 44 });
+        // Never a white icon or label on orange; radius 8, no circle.
+        expect(look).toEqual({ bg: "rgb(255, 72, 0)", text: "rgb(0, 0, 0)", icon: "rgb(0, 0, 0)", radius: "8px", height: 48 });
+        // The word "Search" shows from 640px; on a phone the button is its icon, still 48px wide.
+        const width = Math.round((await submit.boundingBox())?.width ?? 0);
+        if (viewport.width >= 640) expect(width).toBeGreaterThan(48);
+        else expect(width).toBe(48);
         const bar = search.locator("[data-search-bar]");
-        expect(Math.round((await bar.boundingBox())?.height ?? 0)).toBe(52);
-        expect(await bar.evaluate((el) => parseFloat(getComputedStyle(el).borderTopLeftRadius) >= 26)).toBe(true);
-        // 44px targets: the location segment and the submit.
-        expect((await search.getByRole("button", { name: /^Location: / }).boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+        // The 1.5px control stroke (Chromium draws it in whole device pixels: 1px at 1x, 1.5px at 2x).
+        await expect(bar).toHaveClass(/\bborder-control\b/);
+        const barLook = await bar.evaluate((el) => ({ radius: getComputedStyle(el).borderTopLeftRadius, border: parseFloat(getComputedStyle(el).borderTopWidth) }));
+        expect(barLook.radius).toBe("8px");
+        expect(barLook.border).toBeGreaterThanOrEqual(1);
+        // 48px targets: the field, Where and the submit; the bar is 48 + 2 × 4 padding + the stroke.
+        expect(Math.round((await bar.boundingBox())?.height ?? 0)).toBe(Math.round(48 + 8 + 2 * barLook.border));
+        expect((await search.getByRole("button", { name: /^Where: / }).boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(48);
+        expect((await search.getByRole("searchbox").boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(48);
         // The query field's ring is the global one (never orange), drawn inside the bar.
         const field = search.getByRole("searchbox", { name: "Search events" });
         await field.focus();
@@ -167,10 +177,10 @@ test.describe("near you, from the home at 390px", () => {
     const { search, location, panel } = await openPanel(page);
     expect(await geoCalls(page)).toBe(0);
     await expect(panel.getByRole("link", { name: "How we use your location" })).toHaveAttribute("href", "/privacy#location");
-    await panel.getByRole("button", { name: "Use my current location" }).click();
+    await panel.getByRole("button", { name: "Use my location" }).click();
 
     // The nearest suburb, shown on the segment; the panel closes and focus comes back to it.
-    await expect(search.getByRole("button", { name: "Location: Fitzroy" })).toBeVisible({ timeout: 10_000 });
+    await expect(search.getByRole("button", { name: "Where: Fitzroy" })).toBeVisible({ timeout: 10_000 });
     await expect(panel).toBeHidden();
     await expect(location).toBeFocused();
     expect(await geoCalls(page)).toBe(1);
@@ -228,7 +238,7 @@ test.describe("near you, from the home at 390px", () => {
     await expect(page.getByRole("search")).toHaveCount(1);
   });
 
-  test("remembers the suburb after a reload, and Anywhere in Australia forgets it", async ({ page }) => {
+  test("remembers the suburb after a reload, and All of Australia forgets it", async ({ page }) => {
     await page.addInitScript(
       ([key]) => {
         if (!sessionStorage.getItem("seeded")) {
@@ -241,16 +251,16 @@ test.describe("near you, from the home at 390px", () => {
     await mockApi(page);
     await page.goto("/");
     const search = page.getByRole("search", { name: "Search events" });
-    await expect(search.getByRole("button", { name: "Location: Carlton" })).toBeVisible({ timeout: 30_000 });
+    await expect(search.getByRole("button", { name: "Where: Carlton" })).toBeVisible({ timeout: 30_000 });
     await page.reload();
-    await expect(search.getByRole("button", { name: "Location: Carlton" })).toBeVisible({ timeout: 30_000 });
+    await expect(search.getByRole("button", { name: "Where: Carlton" })).toBeVisible({ timeout: 30_000 });
 
     const { panel, location } = await openPanel(page);
-    await panel.getByRole("button", { name: "Anywhere in Australia" }).click();
+    await panel.getByRole("button", { name: "All of Australia" }).click();
     await expect(panel).toBeHidden();
     await expect(location).toBeFocused();
     // The explicit choice shows, rather than the "Your suburb" prompt.
-    await expect(search.getByRole("button", { name: "Location: Anywhere" })).toBeVisible();
+    await expect(search.getByRole("button", { name: "Where: All of Australia" })).toBeVisible();
     expect(await page.evaluate((key) => localStorage.getItem(key), NEAR_STORAGE_KEY)).toBeNull();
     // An empty location stays out of the address.
     await search.getByRole("searchbox", { name: "Search events" }).fill("jazz");
@@ -269,7 +279,7 @@ test.describe("near you, from the home at 390px", () => {
     await field.press("Enter");
     await expect(page).toHaveURL(/\/search\?q=&near=St\+Kilda$/, { timeout: 30_000 });
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Events near St Kilda");
-    await expect(page.getByRole("search", { name: "Search events" }).getByRole("button", { name: "Location: St Kilda" })).toBeVisible();
+    await expect(page.getByRole("search", { name: "Search events" }).getByRole("button", { name: "Where: St Kilda" })).toBeVisible();
   });
 
   test("permission denied: says so and asks for the suburb, storing nothing", async ({ page }) => {
@@ -281,7 +291,7 @@ test.describe("near you, from the home at 390px", () => {
     await mockApi(page);
     await page.goto("/");
     const { panel } = await openPanel(page);
-    const use = panel.getByRole("button", { name: "Use my current location" });
+    const use = panel.getByRole("button", { name: "Use my location" });
     await use.click();
     const status = panel.getByRole("status");
     await expect(status).toHaveText("Location is off for this site. Type your suburb instead.");
@@ -305,18 +315,18 @@ test.describe("near you, from the home at 390px", () => {
     await page.goto("/");
     const search = page.getByRole("search", { name: "Search events" });
     const field = search.getByRole("searchbox", { name: "Search events" });
-    const location = search.getByRole("button", { name: /^Location: / });
+    const location = search.getByRole("button", { name: /^Where: / });
     const panel = page.getByRole("dialog", { name: "Find events near you" });
     await expect(async () => {
       await field.focus();
       await page.keyboard.press("Tab");
       await expect(location).toBeFocused({ timeout: 1_000 });
       await page.keyboard.press("Enter");
-      await expect(panel.getByRole("button", { name: "Use my current location" })).toBeFocused({ timeout: 1_000 });
+      await expect(panel.getByRole("button", { name: "Use my location" })).toBeFocused({ timeout: 1_000 });
     }).toPass({ timeout: 30_000 });
     // Tab moves on inside the panel.
     await page.keyboard.press("Tab");
-    await expect(panel.getByLabel("Suburb", { exact: true })).toBeFocused();
+    await expect(panel.getByRole("button", { name: "All of Australia" })).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(panel).toBeHidden();
     await expect(location).toBeFocused();
@@ -330,8 +340,8 @@ test.describe("near you, from the home at 390px", () => {
     await page.goto("/");
     const { search, panel } = await openPanel(page);
     const privacy = panel.getByRole("link", { name: "How we use your location" });
-    // Use my current location → Suburb → Anywhere in Australia → How we use your location → out.
-    for (let i = 0; i < 3; i++) await page.keyboard.press("Tab");
+    // Use my location → All of Australia → Suburb → Melbourne, Sydney, Brisbane, Perth → How we use your location → out.
+    for (let i = 0; i < 7; i++) await page.keyboard.press("Tab");
     await expect(privacy).toBeFocused();
     await expect(panel).toBeVisible();
     await page.keyboard.press("Tab");
@@ -340,7 +350,7 @@ test.describe("near you, from the home at 390px", () => {
   });
 
   test("a short screen: opening the panel scrolls the page so all of it shows", async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 500 });
+    await page.setViewportSize({ width: 390, height: 667 });
     await mockApi(page);
     await page.goto("/");
     expect(await page.evaluate(() => window.scrollY)).toBe(0);
@@ -351,12 +361,30 @@ test.describe("near you, from the home at 390px", () => {
     const box = await panel.boundingBox();
     if (!bar || !box) throw new Error("not laid out");
     expect(box.y).toBeGreaterThan(bar.y + bar.height);
-    expect(box.y + box.height).toBeLessThanOrEqual(500);
+    expect(box.y + box.height).toBeLessThanOrEqual(667);
     // The whole panel, not a scrolling slice of it.
     expect(await panel.evaluate((el) => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(0);
     // The bar is still in view, below the site header.
     const header = await page.locator("body header").first().boundingBox();
     expect(bar.y).toBeGreaterThanOrEqual((header?.y ?? 0) + (header?.height ?? 0));
+  });
+
+  test("a very short screen: the panel stays on screen, under the bar, and scrolls inside", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 500 });
+    await mockApi(page);
+    await page.goto("/");
+    const { search, panel } = await openPanel(page);
+    const bar = await search.locator("[data-search-bar]").boundingBox();
+    const box = await panel.boundingBox();
+    if (!bar || !box) throw new Error("not laid out");
+    expect(box.y).toBeGreaterThan(bar.y + bar.height);
+    expect(box.y + box.height).toBeLessThanOrEqual(500);
+    const header = await page.locator("body header").first().boundingBox();
+    expect(bar.y).toBeGreaterThanOrEqual((header?.y ?? 0) + (header?.height ?? 0));
+    // Its last part is reachable by scrolling the panel itself.
+    const privacy = panel.getByRole("link", { name: "How we use your location" });
+    await privacy.scrollIntoViewIfNeeded();
+    await expect(privacy).toBeInViewport();
   });
 });
 
@@ -367,8 +395,8 @@ test.describe("near you, from Perth at 390px", () => {
     await mockApi(page);
     await page.goto("/");
     const { search, panel } = await openPanel(page);
-    await panel.getByRole("button", { name: "Use my current location" }).click();
-    await expect(search.getByRole("button", { name: "Location: Perth" })).toBeVisible({ timeout: 10_000 });
+    await panel.getByRole("button", { name: "Use my location" }).click();
+    await expect(search.getByRole("button", { name: "Where: Perth" })).toBeVisible({ timeout: 10_000 });
     expect(JSON.parse((await page.evaluate((key) => localStorage.getItem(key), NEAR_STORAGE_KEY)) ?? "null")).toEqual({ suburb: "Perth", state: "WA" });
     await search.getByRole("button", { name: "Search" }).click();
     await expect(page).toHaveURL(/\/search\?q=&near=Perth$/, { timeout: 30_000 });
@@ -418,7 +446,7 @@ test.describe("/search without near, at 390px", () => {
     await mockApi(page);
     await page.goto("/search?q=a");
     const search = page.getByRole("search", { name: "Search events" });
-    await expect(search.getByRole("button", { name: "Location: Carlton" })).toBeVisible({ timeout: 30_000 });
+    await expect(search.getByRole("button", { name: "Where: Carlton" })).toBeVisible({ timeout: 30_000 });
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("“a”");
     await expect(search.locator("[data-near-hint]")).toHaveText("Press Search to update results.");
     await expect(page.locator("[data-near-band]")).toHaveCount(0);
@@ -451,38 +479,29 @@ test.describe("near you at 320px", () => {
   });
 });
 
-test.describe("the header's bar at 1440px", () => {
+test.describe("the hero's bar at 1440px", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test("on /events: a black submit, orange on hover; the panel opens below the header, within the bar's edges", async ({ page }) => {
+  test("no bar in the header on /events; on the home the menu is 360px, under Where, within the bar's edges", async ({ page }) => {
     await mockApi(page);
     await page.goto("/events");
-    const search = page.getByRole("search", { name: "Search the site" });
-    const submit = search.getByRole("button", { name: "Search" });
-    await expect(submit).toBeVisible({ timeout: 30_000 });
-    expect(await submit.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(0, 0, 0)");
-    await submit.hover();
-    await expect.poll(() => submit.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(255, 72, 0)");
-    expect(Math.round((await search.locator("[data-search-bar]").boundingBox())?.height ?? 0)).toBe(44);
+    await expect(page.locator("header").getByRole("link", { name: "Sign in" }).first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole("search")).toHaveCount(0);
 
-    const location = search.getByRole("button", { name: /^Location: / });
-    const panel = page.getByRole("dialog", { name: "Find events near you" });
-    await expect(async () => {
-      if (!(await panel.isVisible())) await location.click();
-      await expect(panel).toBeVisible({ timeout: 1_000 });
-    }).toPass({ timeout: 30_000 });
+    await page.goto("/");
+    const { search, location, panel } = await openPanel(page);
     const segment = await location.boundingBox();
     const bar = await search.locator("[data-search-bar]").boundingBox();
-    const header = await page.locator("header").first().boundingBox();
     const box = await panel.boundingBox();
-    if (!segment || !bar || !header || !box) throw new Error("not laid out");
-    expect(Math.round(box.width)).toBe(320);
-    // Below the header's bottom rule, not over it.
-    expect(box.y).toBeGreaterThanOrEqual(header.y + header.height + 7);
-    // Under the segment where it can be, never past the bar's right edge.
+    if (!segment || !bar || !box) throw new Error("not laid out");
+    expect(Math.round(box.width)).toBe(360);
+    expect(box.y).toBeGreaterThanOrEqual(bar.y + bar.height + 7);
     expect(box.x).toBeGreaterThanOrEqual(bar.x - 1);
     expect(box.x + box.width).toBeLessThanOrEqual(bar.x + bar.width + 1);
-    expect(Math.round(box.x)).toBe(Math.round(Math.max(bar.x, Math.min(segment.x, bar.x + bar.width - 320))));
+    expect(Math.round(box.x)).toBe(Math.round(Math.max(bar.x, Math.min(segment.x, bar.x + bar.width - 360))));
+    // Open: Where is cream with the black stroke (the rules' Search board), no orange ring.
+    const open = await location.evaluate((el) => ({ bg: getComputedStyle(el).backgroundColor, border: getComputedStyle(el).borderTopColor }));
+    expect(open).toEqual({ bg: "rgb(255, 250, 231)", border: "rgb(0, 0, 0)" });
   });
 });
 
@@ -500,7 +519,7 @@ test.describe("the hero's bar at 1024px", () => {
     expect(box.y).toBeGreaterThanOrEqual(bar.y + bar.height + 7);
     expect(box.x).toBeGreaterThanOrEqual(bar.x - 1);
     expect(box.x + box.width).toBeLessThanOrEqual(bar.x + bar.width + 1);
-    expect(Math.round(box.x)).toBe(Math.round(Math.max(bar.x, Math.min(segment.x, bar.x + bar.width - 320))));
+    expect(Math.round(box.x)).toBe(Math.round(Math.max(bar.x, Math.min(segment.x, bar.x + bar.width - 360))));
   });
 });
 
@@ -513,31 +532,31 @@ test.describe("near you on an iPhone-sized touch screen, as WebKit moves focus",
     const search = page.getByRole("search", { name: "Search events" });
     const panel = page.getByRole("dialog", { name: "Find events near you" });
     await expect(async () => {
-      if (!(await panel.isVisible())) await search.getByRole("button", { name: /^Location: / }).tap();
-      await expect(panel.getByRole("button", { name: "Use my current location" })).toBeFocused({ timeout: 1_000 });
+      if (!(await panel.isVisible())) await search.getByRole("button", { name: /^Where: / }).tap();
+      await expect(panel.getByRole("button", { name: "Use my location" })).toBeFocused({ timeout: 1_000 });
     }).toPass({ timeout: 30_000 });
     return { search, panel };
   }
 
-  test("tapping Use my current location sets the suburb (it used to close the panel and do nothing)", async ({ page }) => {
+  test("tapping Use my location sets the suburb (it used to close the panel and do nothing)", async ({ page }) => {
     await pressFocusLikeWebKit(page);
     await mockApi(page);
     await page.goto("/");
     const { search, panel } = await tapOpen(page);
     // A tap on the panel's own words leaves it open.
-    await panel.getByText("Find events near you").tap();
+    await panel.getByText("Suggested", { exact: true }).tap();
     await expect(panel).toBeVisible();
     await expect(page.locator("main")).toBeFocused();
-    await panel.getByRole("button", { name: "Use my current location" }).tap();
-    await expect(search.getByRole("button", { name: "Location: Fitzroy" })).toBeVisible({ timeout: 10_000 });
+    await panel.getByRole("button", { name: "Use my location" }).tap();
+    await expect(search.getByRole("button", { name: "Where: Fitzroy" })).toBeVisible({ timeout: 10_000 });
     await expect(panel).toBeHidden();
     const stored = await page.evaluate((key) => localStorage.getItem(key), NEAR_STORAGE_KEY);
     expect(JSON.parse(stored ?? "null")).toEqual({ suburb: "Fitzroy", state: "VIC" });
 
-    // Anywhere in Australia, tapped, clears it.
+    // All of Australia, tapped, clears it.
     await tapOpen(page);
-    await panel.getByRole("button", { name: "Anywhere in Australia" }).tap();
-    await expect(search.getByRole("button", { name: "Location: Anywhere" })).toBeVisible();
+    await panel.getByRole("button", { name: "All of Australia" }).tap();
+    await expect(search.getByRole("button", { name: "Where: All of Australia" })).toBeVisible();
     expect(await page.evaluate((key) => localStorage.getItem(key), NEAR_STORAGE_KEY)).toBeNull();
   });
 
@@ -551,7 +570,7 @@ test.describe("near you on an iPhone-sized touch screen, as WebKit moves focus",
     await mockApi(page);
     await page.goto("/");
     const { panel } = await tapOpen(page);
-    await panel.getByRole("button", { name: "Use my current location" }).tap();
+    await panel.getByRole("button", { name: "Use my location" }).tap();
     await expect(panel.getByRole("status")).toHaveText("Location is off for this site. Type your suburb instead.");
     await expect(panel).toBeVisible();
   });

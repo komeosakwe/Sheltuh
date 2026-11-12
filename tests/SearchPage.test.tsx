@@ -42,7 +42,7 @@ describe("/search?near= (owner round of 24 Oct 2026)", () => {
     expect(Object.keys((feed?.props as { near: object }).near).sort()).toEqual(["lat", "lng", "name", "state"]);
     expect(feed?.key).toBe("jazz|St Kilda");
     // The bar mirrors the address as typed, not the remembered suburb.
-    expect(findElement(tree, SearchBar)?.props).toMatchObject({ near: "st kilda", defaultValue: "jazz", tone: "signal", size: "lg" });
+    expect(findElement(tree, SearchBar)?.props).toMatchObject({ near: "st kilda", defaultValue: "jazz" });
   });
 
   it("cuts `near` at 60 characters and passes no suburb when there's none", async () => {
@@ -56,7 +56,7 @@ describe("/search?near= (owner round of 24 Oct 2026)", () => {
   it("without `near`: prefills the remembered suburb in the bar, keeps the results as they are, and says to press Search", async () => {
     localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Brunswick" }));
     render(await page({ q: "jazz" }));
-    expect(screen.getByRole("button", { name: "Location: Brunswick" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Where: Brunswick" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("“jazz”");
     expect(document.querySelector("[data-near-hint]")).toHaveTextContent("Press Search to update results.");
     expect(screen.queryByText(/Closest to/)).toBeNull();
@@ -65,7 +65,7 @@ describe("/search?near= (owner round of 24 Oct 2026)", () => {
   it("with `near`: the bar mirrors it (not the remembered suburb), with no hint until the location changes", async () => {
     localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Brunswick" }));
     render(await page({ near: "fitzroy" }));
-    expect(screen.getByRole("button", { name: "Location: fitzroy" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Where: fitzroy" })).toBeInTheDocument();
     const hint = document.querySelector("[data-near-hint]");
     expect(hint).toHaveAttribute("aria-live", "polite");
     expect(hint).toHaveTextContent(/^$/);
@@ -98,7 +98,7 @@ describe("/search?near= (owner round of 24 Oct 2026)", () => {
     const field = screen.getByRole("searchbox", { name: "Search events" });
     expect(field).toHaveAttribute("placeholder", "Search events");
     expect(field).toHaveClass("text-ellipsis");
-    expect(screen.getByRole("button", { name: "Location: Your suburb" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Where: Your suburb" })).toBeInTheDocument();
   });
 
   it("an unknown suburb: a notice, a suggestion when one is close, and the usual results", async () => {

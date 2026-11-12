@@ -159,7 +159,7 @@ export default function PrivacyPage() {
         </p>
         <ul>
           <li>
-            If you choose &ldquo;Use my current location&rdquo;, your browser asks you first. If you
+            If you choose &ldquo;Use my location&rdquo;, your browser asks you first. If you
             allow it, your device&rsquo;s position is used only in your browser, to find the nearest
             suburb we know, and is then thrown away. It isn&rsquo;t sent to us, stored, or put in a
             web address.
@@ -187,7 +187,7 @@ export default function PrivacyPage() {
           </li>
         </ul>
         <p>
-          To forget the suburb, choose &ldquo;Anywhere in Australia&rdquo; under the search
+          To forget the suburb, choose &ldquo;All of Australia&rdquo; under the search
           bar&rsquo;s location (or search with the location left empty), or clear this
           site&rsquo;s data in your browser. Search results pages you&rsquo;ve visited, suburb and
           all, stay in your browser&rsquo;s history until you clear it there. You can turn

@@ -207,7 +207,7 @@ for (const vp of [
 
       await main.getByRole("link", { name: "Sign in" }).click();
       await expect(page).toHaveURL(/\/login\?next=%2Forganisers%2Fjoin$/, { timeout: 30_000 });
-      await page.getByLabel("Email").fill("mia@example.com");
+      await page.getByRole("main").getByLabel("Email").fill("mia@example.com");
       await page.getByLabel("Password", { exact: true }).fill("Secret123");
       await page.getByRole("main").getByRole("button", { name: "Sign in", exact: true }).click();
 

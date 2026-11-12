@@ -80,23 +80,25 @@ describe("HomeHero (mobile-redesign.md §6.1)", () => {
     const { container } = render(<HomeHero />);
     // Owner (31 Oct 2026): the "Less scrolling. More going." eyebrow and its dots are gone.
     expect(screen.queryByText("Less scrolling. More going.")).toBeNull();
-    expect(container.querySelector("p.eyebrow")).toBeNull();
+    // (The location menu's own section labels, Recent and Suggested, are in its closed popover.)
+    expect(Array.from(container.querySelectorAll("p.eyebrow")).filter((el) => !el.closest("[popover]"))).toEqual([]);
     // Owner (28 Oct 2026, less helper text): the "Music, art and pop-ups" line is gone; the h1 is followed by the search.
     expect(screen.queryByText(/Music, art and pop-ups/)).toBeNull();
   });
 
-  // Owner round of 24 Oct 2026 (the Eventbrite-style bar with a location): the submit is orange now, and
-  // the bar has two icons, the location pin and the submit's magnifier.
-  it("makes search the main action: an orange submit (the hero's one orange button), a pin and one magnifier", () => {
+  // The rules' Search board (redesign PR 2): the field's magnifier, Where with its pin and chevron, and
+  // the orange Search with its own magnifier.
+  it("makes search the main action: an orange submit (the hero's one orange button), with the rules' four icons", () => {
     const { container } = render(<HomeHero />);
     const search = screen.getByRole("search", { name: "Search events" });
     // A3 (WCAG 2.5.3): the field's name is the words it shows, so "Search events" works by voice too.
     expect(within(search).getByRole("searchbox", { name: "Search events" })).toHaveAttribute("placeholder", "Search events");
     const submit = within(search).getByRole("button", { name: "Search" });
     expect(submit).toHaveAttribute("type", "submit");
-    expect(within(search).getByRole("button", { name: "Location: Your suburb" })).toBeInTheDocument();
-    // No second magnifier at the field's start: the pin and the submit button's magnifier.
-    expect(search.querySelectorAll("svg")).toHaveLength(2);
+    expect(within(search).getByRole("button", { name: "Where: Your suburb" })).toBeInTheDocument();
+    // Outside the closed location menu: the field's magnifier, the pin, the chevron and the submit's magnifier.
+    expect(Array.from(search.querySelectorAll("svg")).filter((svg) => !svg.closest("[popover]"))).toHaveLength(4);
+    expect(submit.querySelectorAll("svg")).toHaveLength(1);
     expect(Array.from(container.querySelectorAll(".btn-signal"))).toEqual([submit]);
     // Browsing is the category row under the hero; the hero itself has no links. (Where the browser
     // has geolocation, the location popover's Privacy link is in the closed popover, display: none.)

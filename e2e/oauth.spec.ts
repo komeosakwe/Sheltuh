@@ -227,7 +227,7 @@ test.describe("at 375×667", () => {
         );
       }, google);
       expect(hits).toEqual([true, true, false, false]);
-      // The divider (the header's search panel has an "or" of its own).
+      // The divider (scoped to the page, away from the header and the search bar).
       await expect(page.locator("#main").getByText("or", { exact: true })).toBeVisible();
       await noSidewaysScroll(page);
     });

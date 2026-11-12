@@ -78,7 +78,7 @@ describe("/privacy — Your location", () => {
       "Sheltüh doesn’t use your IP address to work out where you are for search, the map or results. Our usage analytics tools may estimate a country or city from it",
     );
     expect(within(section).getByRole("link", { name: "Usage analytics" })).toHaveAttribute("href", "#analytics");
-    expect(section).toHaveTextContent("“Anywhere in Australia”");
+    expect(section).toHaveTextContent("“All of Australia”");
     expect(section).toHaveTextContent("or search with the location left empty");
     // The address with the suburb in it also lives on in the browser's history.
     expect(section).toHaveTextContent("Search results pages you’ve visited, suburb and all, stay in your browser’s history until you clear it there.");

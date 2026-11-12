@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import Link from "next/link";
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import DotsMark, { DotsLoader } from "@/components/brand/DotsMark";
 import UMark from "@/components/brand/UMark";
@@ -123,14 +123,14 @@ describe("Footer", () => {
     expect(screen.getByRole("navigation", { name: "Legal" })).toBeInTheDocument();
   });
 
-  it("keeps every support, explore, company and legal link, support first, with a way to reach a person (mobile-redesign.md §6.6)", () => {
+  it("keeps the proposal's columns, Fan support first, then Explore, Our company and Contact Sheltüh, and the legal links", () => {
     render(<Footer />);
     const groups = screen.getAllByRole("navigation").map((nav) => nav.getAttribute("aria-label"));
-    expect(groups).toEqual(["Fan support", "Explore", "Our company", "Legal"]);
+    expect(groups).toEqual(["Fan support", "Explore", "Our company", "Contact Sheltüh", "Legal"]);
     const links = (name: string) =>
       within(screen.getByRole("navigation", { name }))
         .getAllByRole("link")
-        .map((a) => [a.textContent, a.getAttribute("href")]);
+        .map((a) => [a.getAttribute("aria-label") ?? a.textContent, a.getAttribute("href")]);
     expect(links("Fan support")).toEqual([
       ["Help & FAQs", "/help"],
       ["Request a refund", "/refunds"],
@@ -138,14 +138,15 @@ describe("Footer", () => {
     ]);
     expect(links("Explore")).toEqual([
       ["All events", "/events"],
-      ["Map", "/map"],
-      ["Search", "/search"],
+      ["Nearby", "/map"],
       ["For organisers", "/organisers/apply"],
     ]);
     expect(links("Our company")).toEqual([
       ["About Sheltüh", "/about"],
       ["Become a partner", "/partners"],
     ]);
+    // An icon only for a channel that exists: email (no LinkedIn or Instagram address yet).
+    expect(links("Contact Sheltüh")).toEqual([[`Email ${SUPPORT_EMAIL}`, `mailto:${SUPPORT_EMAIL}`]]);
     expect(links("Legal")).toEqual([
       ["Privacy Policy", "/privacy"],
       ["Terms of Use", "/terms"],
@@ -153,10 +154,10 @@ describe("Footer", () => {
     ]);
   });
 
-  it("sets the legal links in readable sentence-case Instrument (not mono), 44px tall on phones", () => {
+  it("sets the legal links in readable sentence-case Instrument (not mono), 48px tall on phones", () => {
     render(<Footer />);
     for (const link of within(screen.getByRole("navigation", { name: "Legal" })).getAllByRole("link")) {
-      expect(link).toHaveClass("text-sm", "leading-5", "min-h-11", "underline");
+      expect(link).toHaveClass("text-sm", "leading-5", "min-h-12", "underline");
       expect(link.closest(".eyebrow")).toBeNull();
     }
   });
@@ -171,51 +172,28 @@ describe("Footer", () => {
     expect(wordmark.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("keeps support and legal links visible without expanding anything", () => {
+  it("holds the Theme switch under the campaign line, before the columns", () => {
     render(<Footer />);
+    const theme = screen.getByRole("group", { name: "Theme" });
+    const line = screen.getByText("Where is your Sheltüh?");
+    expect(line.compareDocumentPosition(theme) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const support = screen.getByRole("navigation", { name: "Fan support" });
-    // Not a disclosure: no toggle, and its list is never hidden.
-    expect(within(support).queryByRole("button")).toBeNull();
-    expect(within(support).getByRole("list").className).not.toMatch(/(?:^|\s)hidden(?:\s|$)/);
-    const legal = screen.getByRole("navigation", { name: "Legal" });
-    expect(within(legal).queryByRole("button")).toBeNull();
-    expect(within(legal).getAllByRole("link")).toHaveLength(3);
+    expect(theme.compareDocumentPosition(support) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("groups Explore and Our company in disclosures on phones: a button with aria-expanded, closed at first, its list hidden until opened", () => {
-    render(<Footer />);
-    for (const name of ["Explore", "Our company"]) {
+  it("shows every link without expanding anything: no disclosures, 48px rows on phones, two columns then four", () => {
+    const { container } = render(<Footer />);
+    // The only buttons are the theme switch's two.
+    expect(within(container).queryAllByRole("button").filter((b) => !b.closest("[data-theme-switch]"))).toEqual([]);
+    for (const name of ["Fan support", "Explore", "Our company"]) {
       const nav = screen.getByRole("navigation", { name });
-      const toggle = within(nav).getByRole("button", { name });
-      expect(toggle).toHaveAttribute("type", "button");
-      expect(toggle).toHaveAttribute("aria-expanded", "false");
-      expect(toggle).toHaveClass("min-h-11", "sm:hidden");
-      const list = document.getElementById(toggle.getAttribute("aria-controls") ?? "");
-      expect(list).toBe(within(nav).getByRole("list"));
-      // Hidden on phones while closed; always shown from 640px, where the heading is a plain label.
-      expect(list).toHaveClass("hidden", "sm:flex");
+      expect(within(nav).getByRole("list").className).not.toMatch(/(?:^|\s)hidden(?:\s|$)/);
+      for (const link of within(nav).getAllByRole("link")) expect(link).toHaveClass("min-h-12", "lg:min-h-8");
     }
-  });
-
-  it("opens and closes a group from the keyboard: the native button keeps focus and says its state", () => {
-    render(<Footer />);
-    const nav = screen.getByRole("navigation", { name: "Explore" });
-    const toggle = within(nav).getByRole("button", { name: "Explore" });
-    toggle.focus();
-    expect(toggle).toHaveFocus();
-    // Enter and Space on a native button fire click (jsdom doesn't synthesise that step).
-    fireEvent.click(toggle);
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
-    expect(toggle).toHaveFocus();
-    const list = within(nav).getByRole("list");
-    expect(list).toHaveClass("flex");
-    expect(list).not.toHaveClass("hidden");
-    expect(within(list).getByRole("link", { name: "All events" })).toHaveAttribute("href", "/events");
-    fireEvent.click(toggle);
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(list).toHaveClass("hidden");
-    // The chevron is decorative.
-    expect(toggle.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    const email = within(screen.getByRole("navigation", { name: "Contact Sheltüh" })).getByRole("link");
+    expect(email).toHaveClass("size-12", "lg:size-10");
+    expect(email.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    expect(screen.getByRole("navigation", { name: "Fan support" }).parentElement).toHaveClass("grid-cols-2", "lg:grid-cols-4");
   });
 
   describe("the install action", () => {

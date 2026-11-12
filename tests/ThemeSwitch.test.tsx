@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ThemeSwitch from "@/components/theme/ThemeSwitch";
 import ThemeSync from "@/components/theme/ThemeSync";
-import { APP_THEME_COLOR, DARK_THEME_COLOR, DOOR_THEME_COLOR } from "@/lib/pwa/theme";
+import { APP_THEME_COLOR, DOOR_THEME_COLOR } from "@/lib/pwa/theme";
 import { THEME_STORAGE_KEY } from "@/lib/theme";
 
 let pathname = "/";
@@ -80,15 +80,15 @@ describe("ThemeSwitch (docs/design/theme-white-dark.md §5.6)", () => {
     expect(within(second).getByRole("button", { name: "Dark" })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("has 44px segments and draws its selected state from CSS, so it's right before hydration", () => {
+  it("has 48px segments on phones (40px from lg), radius 8 with the stroke, and draws its selected state from CSS, so it's right before hydration", () => {
     render(<ThemeSwitch />);
     const light = screen.getByRole("button", { name: "Light" });
     const dark = screen.getByRole("button", { name: "Dark" });
     for (const button of [light, dark]) {
       expect(button).toHaveAttribute("type", "button");
-      expect(button).toHaveClass("min-h-11");
-      expect(button.className).not.toMatch(/\bsm:min-h/);
+      expect(button).toHaveClass("min-h-12", "lg:min-h-10");
     }
+    expect(themeGroup()).toHaveClass("rounded-control", "border-control", "border-foreground");
     expect(light).toHaveClass("bg-foreground", "text-background", "dark:bg-transparent", "dark:text-foreground");
     expect(dark).toHaveClass("text-foreground", "hover:bg-surface", "dark:bg-foreground", "dark:text-background");
     // The orange dots mark the selected option (not colour alone), shown by the same CSS switch.
@@ -112,21 +112,26 @@ describe("ThemeSync (§5.5)", () => {
     const colour = meta(APP_THEME_COLOR);
     render(<ThemeSync />);
     expect(document.documentElement).toHaveAttribute("data-theme", "dark");
-    expect(colour.content).toBe(DARK_THEME_COLOR);
+    // The theme-color is the black header's in both themes: never rewritten.
+    expect(colour.content).toBe(APP_THEME_COLOR);
   });
 
-  it("re-syncs a theme-color rewritten on navigation, and leaves the door's alone", async () => {
+  it("leaves every theme-color alone across navigation and theme changes, the door's included", async () => {
     document.documentElement.setAttribute("data-theme", "dark");
     localStorage.setItem(THEME_STORAGE_KEY, "dark");
-    const colour = meta(DOOR_THEME_COLOR);
+    const door = meta(DOOR_THEME_COLOR);
+    const app = meta(APP_THEME_COLOR);
     const { rerender } = render(<ThemeSync />);
-    expect(colour.content).toBe(DOOR_THEME_COLOR);
-    // Next writes the root layout's colour back when you leave the door.
-    colour.content = APP_THEME_COLOR;
     pathname = "/events";
     rerender(<ThemeSync />);
+    localStorage.setItem(THEME_STORAGE_KEY, "light");
+    act(() => {
+      window.dispatchEvent(new StorageEvent("storage", { key: THEME_STORAGE_KEY, newValue: "light" }));
+    });
     await act(async () => {});
-    expect(colour.content).toBe(DARK_THEME_COLOR);
+    expect(document.documentElement).not.toHaveAttribute("data-theme");
+    expect(door.content).toBe(DOOR_THEME_COLOR);
+    expect(app.content).toBe(APP_THEME_COLOR);
   });
 
   it("follows another tab's choice without writing it back", () => {

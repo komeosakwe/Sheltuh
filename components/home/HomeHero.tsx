@@ -46,9 +46,9 @@ export default function HomeHero() {
           <HeroThumb className="lg:hidden" />
         </div>
         {/* Search is the hero's main action: full width on phones, a comfortable field from 640px.
-            The Eventbrite-style bar with a location and an orange submit (owner, 24 Oct 2026); still 52px tall. */}
+            The site's one search bar: the words, Where and an orange Search (components/SearchBar.tsx). */}
         <div className="mt-4 sm:mt-5 sm:max-w-xl lg:mt-4 lg:max-w-2xl">
-          <SearchBar size="lg" tone="signal" label="Search events" placeholder="Search events" />
+          <SearchBar />
         </div>
       </div>
       <HeroCollage className="hidden shrink-0 lg:block" />

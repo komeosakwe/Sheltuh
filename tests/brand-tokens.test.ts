@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { APP_THEME_COLOR, DOOR_THEME_COLOR } from "@/lib/pwa/theme";
+import { APP_BACKGROUND_COLOR, APP_THEME_COLOR, DOOR_THEME_COLOR } from "@/lib/pwa/theme";
 
 /**
  * Review gate for Brand Direction One (docs/design/brand-direction-one.md
@@ -52,10 +52,16 @@ describe("brand colour tokens", () => {
     for (const hex of css.match(/#[0-9a-fA-F]{6}\b/g) ?? []) expect(hex).toBe(hex.toLowerCase());
   });
 
-  it("keeps :root first, so the first --background is white and matches the app theme colour", () => {
+  it("keeps :root first, so the first --background is white and matches the app's splash colour", () => {
     expect(css.indexOf(":root")).toBeLessThan(css.indexOf("[data-"));
     expect(css.match(/--background:\s*(#[0-9a-f]{6})/)?.[1]).toBe("#ffffff");
-    expect(APP_THEME_COLOR).toBe("#ffffff");
+    expect(APP_BACKGROUND_COLOR).toBe("#ffffff");
+  });
+
+  it("makes the browser's theme colour the black header's: the ink scope's --background, in both themes", () => {
+    const ink = css.slice(css.indexOf('[data-surface="ink"] {'));
+    expect(ink.match(/--background:\s*(#[0-9a-f]{6})/)?.[1]).toBe(APP_THEME_COLOR);
+    expect(APP_THEME_COLOR).toBe("#000000");
   });
 
   it("retires the --cream token: white is the foundation, and --paper is the constant white", () => {
@@ -343,8 +349,21 @@ describe("current page in the nav", () => {
     // The page, and the section you're in (aria-current="true": Discover on an event's page).
     const current = umlaut.match(/&\[aria-current="page"\],\s*&\[aria-current="true"\]\s*\{([^}]*)\}/)?.[1] ?? "";
     expect(current).toContain("--umlaut: var(--signal);");
-    expect(current).toContain("text-decoration-line: underline;");
+    // Underlined unless a nav button turns it off: it fills instead (below).
+    expect(current).toContain("text-decoration-line: var(--umlaut-line, underline);");
     expect(current).toContain("text-decoration-thickness: 2px;");
+  });
+
+  // The header's nav button ("For organisers", "Messages"): the dots above it, and the fill marks the page.
+  it("the nav button lifts its dots above the button, fills when current, and only it drops the underline", () => {
+    const button = css.slice(css.indexOf("@utility nav-button {"), css.indexOf("@utility umlaut-lg"));
+    expect(button).toContain("--umlaut-top: -0.625rem;");
+    expect(button).toContain("--umlaut-line: none;");
+    expect(button).toContain("border: var(--stroke-control) solid var(--foreground);");
+    expect(button).toContain("border-radius: var(--radius-control);");
+    expect(button).toContain("min-height: 2.5rem;");
+    expect(button).toMatch(/&\[aria-current="page"\] \{\s*background: var\(--foreground\);\s*color: var\(--background\);/);
+    expect(css.match(/--umlaut-line: none;/g)).toHaveLength(1);
   });
 });
 

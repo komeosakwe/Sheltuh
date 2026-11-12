@@ -64,6 +64,10 @@ describe("Unread badge", () => {
       expect(link).toHaveAccessibleName("Messages, 3 unread");
       expect(link.querySelector("[data-unread-badge]")).toHaveTextContent("3");
     }
+    // The desktop header's Messages button carries it in orange with a black number (the rules' Navigation
+    // board, 6.18:1); the phone menu's row keeps the plain black-and-white count.
+    const desktop = links.find((link) => !link.closest("#site-menu"));
+    expect(desktop?.querySelector("[data-unread-badge]")).toHaveClass("bg-signal", "text-signal-foreground");
     // Background changes aren't announced.
     expect(container.querySelector("[aria-live], [role='status'], [role='alert']")).toBeNull();
     expect(getUnreadCount).toHaveBeenCalledTimes(1);

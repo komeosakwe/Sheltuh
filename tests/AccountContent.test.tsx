@@ -378,7 +378,7 @@ describe("AccountContent", () => {
     expect(screen.getByRole("link", { name: "Privacy Policy" })).toHaveAttribute("href", "/privacy");
   });
 
-  it("lists Organisers you follow, Messages and Blocked members; Your events only for an organiser, Organise events otherwise", async () => {
+  it("lists Saved, Organisers you follow, Messages and Blocked members; Your events only for an organiser, Organise events otherwise", async () => {
     getMyProfile.mockResolvedValue(PROFILE);
     renderAccount();
     await screen.findByLabelText("Display name");
@@ -388,6 +388,8 @@ describe("AccountContent", () => {
     await within(links).findByRole("link", { name: "Organise events" });
     expect(within(links).getAllByRole("link").map((link) => [link.textContent, link.getAttribute("href")])).toEqual([
       ["Organise events", "/organisers/apply"],
+      // Saved left the header in the redesign (PR 2): it's here, on /account.
+      ["Saved", "/saved"],
       ["Organisers you follow", "/following"],
       ["Messages", "/messages"],
       ["Blocked members", "/messages/blocked"],

@@ -24,7 +24,9 @@ test("the page links a valid manifest, icons and iOS metadata", async ({ page, r
 
   const manifestHref = await page.locator('link[rel="manifest"]').getAttribute("href");
   expect(manifestHref).toBe("/manifest.webmanifest");
-  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", "#ffffff");
+  // Black, as the header is in both themes; the installed app's iOS status bar is black too.
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", "#000000");
+  await expect(page.locator('meta[name="apple-mobile-web-app-status-bar-style"]')).toHaveAttribute("content", "black");
   await expect(page.locator('meta[name="viewport"]')).toHaveAttribute("content", /viewport-fit=cover/);
   await expect(page.locator('meta[name="apple-mobile-web-app-title"]')).toHaveAttribute("content", "Sheltüh");
   const appleIcon = await page.locator('link[rel="apple-touch-icon"]').getAttribute("href");

@@ -41,6 +41,19 @@ function linkHrefs(container: HTMLElement) {
     .map((link) => [link.getAttribute("aria-label") ?? link.textContent, link.getAttribute("href")]);
 }
 
+/** The phone and tablet bar (logo, search icon, Menu). */
+function compactBar(container: HTMLElement) {
+  const bar = container.querySelector<HTMLElement>("[data-compact-header]");
+  if (!bar) throw new Error("compact bar not rendered");
+  return bar;
+}
+
+const PLACES = [
+  ["Discover", "/"],
+  ["Nearby", "/map"],
+  ["Community", "/#find-your-people"],
+];
+
 describe("Nav — phone menu", () => {
   it("is a popover invoked by the Menu button, next to a Search link (off the home)", () => {
     pathname = "/events";
@@ -48,20 +61,22 @@ describe("Nav — phone menu", () => {
     expect(menu).toHaveAttribute("popover", "auto");
     const button = screen.getByRole("button", { name: "Menu" });
     expect(button).toHaveAttribute("popovertarget", "site-menu");
-    const bar = container.querySelector<HTMLElement>("header > div.lg\\:hidden");
-    if (!bar) throw new Error("compact bar not rendered");
-    expect(within(bar).getByRole("link", { name: "Search" })).toHaveAttribute("href", "/search");
+    expect(within(compactBar(container)).getByRole("link", { name: "Search" })).toHaveAttribute("href", "/search");
   });
 
-  it("offers every destination when signed out", () => {
+  it("offers the three places, then Sign in and For organisers as buttons, when signed out", () => {
     const { menu } = renderNav(fakeAuthValue({ status: "signed-out", configured: true }));
-    expect(linkHrefs(menu)).toEqual([
-      ["Discover", "/"],
-      ["Map", "/map"],
-      ["Saved", "/saved"],
-      ["Sign in", "/login"],
-      ["For organisers", "/organisers/apply"],
-    ]);
+    expect(linkHrefs(menu)).toEqual([...PLACES, ["Sign in", "/login"], ["For organisers", "/organisers/apply"]]);
+    // The rules' Mobile spec: "Sign in / For organisers at bottom as buttons".
+    expect(within(menu).getByRole("link", { name: "Sign in", hidden: true })).toHaveClass("btn", "btn-lg", "w-full");
+    expect(within(menu).getByRole("link", { name: "For organisers", hidden: true })).toHaveClass("btn", "btn-outline", "btn-lg", "w-full");
+  });
+
+  it("sets the three places in Display/M with the umlaut", () => {
+    const { menu } = renderNav(fakeAuthValue({ status: "signed-out" }));
+    for (const [name] of PLACES) {
+      expect(within(menu).getByRole("link", { name, hidden: true })).toHaveClass("display-m", "umlaut", "umlaut-lg");
+    }
   });
 
   it("offers Sign in in demo mode (accounts not configured)", () => {
@@ -69,14 +84,13 @@ describe("Nav — phone menu", () => {
     expect(within(menu).getByRole("link", { name: "Sign in", hidden: true })).toHaveAttribute("href", "/login");
   });
 
-  it("offers Admin, Messages, Your events and Account to a signed-in admin (Sign out is on /account)", () => {
+  it("offers Admin, Messages, Saved, Your events and Account to a signed-in admin (Sign out is on /account)", () => {
     const { menu } = renderNav(fakeAuthValue({ isAdmin: true }));
     expect(linkHrefs(menu)).toEqual([
-      ["Discover", "/"],
-      ["Map", "/map"],
-      ["Saved", "/saved"],
+      ...PLACES,
       ["Admin", "/admin"],
       ["Messages", "/messages"],
+      ["Saved", "/saved"],
       ["Your events", "/dashboard"],
       ["Account", "/account"],
       ["For organisers", "/organisers/apply"],
@@ -96,11 +110,12 @@ describe("Nav — phone menu", () => {
     expect(within(menu).queryByRole("link", { name: "Sign in", hidden: true })).not.toBeInTheDocument();
   });
 
-  it("marks the current page in the menu", () => {
+  it("marks the current page in the menu: Nearby on /map", () => {
     pathname = "/map";
     const { menu } = renderNav(fakeAuthValue({ status: "signed-out" }));
-    expect(within(menu).getByRole("link", { name: "Map", hidden: true })).toHaveAttribute("aria-current", "page");
+    expect(within(menu).getByRole("link", { name: "Nearby", hidden: true })).toHaveAttribute("aria-current", "page");
     expect(within(menu).getByRole("link", { name: "Discover", hidden: true })).not.toHaveAttribute("aria-current");
+    expect(within(menu).getByRole("link", { name: "Community", hidden: true })).not.toHaveAttribute("aria-current");
   });
 
   it("marks Discover as the current section on an event's page (and What's on)", () => {
@@ -108,7 +123,7 @@ describe("Nav — phone menu", () => {
       pathname = path;
       const { menu } = renderNav(fakeAuthValue({ status: "signed-out" }));
       expect(within(menu).getByRole("link", { name: "Discover", hidden: true })).toHaveAttribute("aria-current", "true");
-      expect(within(menu).getByRole("link", { name: "Map", hidden: true })).not.toHaveAttribute("aria-current");
+      expect(within(menu).getByRole("link", { name: "Nearby", hidden: true })).not.toHaveAttribute("aria-current");
       cleanup();
     }
   });
@@ -157,15 +172,18 @@ describe("Nav — phone menu", () => {
     footer.remove();
   });
 
-  it("closes after an action inside the menu", () => {
+  it("closes after an action inside the menu (Community on the home included: an in-page link)", () => {
     const { menu } = renderNav(fakeAuthValue());
     const hidePopover = vi.fn();
     menu.hidePopover = hidePopover;
-    const account = within(menu).getByRole("link", { name: "Account", hidden: true });
-    // Keep jsdom from attempting the navigation; the click still bubbles to the menu.
-    account.addEventListener("click", (event) => event.preventDefault());
-    fireEvent.click(account);
-    expect(hidePopover).toHaveBeenCalled();
+    for (const name of ["Account", "Community"]) {
+      hidePopover.mockClear();
+      const link = within(menu).getByRole("link", { name, hidden: true });
+      // Keep jsdom from attempting the navigation; the click still bubbles to the menu.
+      link.addEventListener("click", (event) => event.preventDefault());
+      fireEvent.click(link);
+      expect(hidePopover).toHaveBeenCalled();
+    }
   });
 
   it("closes the menu and scrolls to the top when the logo is clicked on the home", () => {
@@ -183,20 +201,10 @@ describe("Nav — phone menu", () => {
     }
   });
 
-  it("holds the Theme switch after For organisers, and stays open when it's used (the sheet re-skins around you)", () => {
-    const { menu } = renderNav(fakeAuthValue({ status: "signed-out", configured: true }));
-    const hidePopover = vi.fn();
-    menu.hidePopover = hidePopover;
-    const group = within(menu).getByRole("group", { name: "Theme", hidden: true });
-    const organisers = within(menu).getByRole("link", { name: "For organisers", hidden: true });
-    expect(organisers.compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(group.closest("[data-theme-switch]")).toHaveClass("mt-8");
-    fireEvent.click(within(group).getByRole("button", { name: "Dark", hidden: true }));
-    expect(document.documentElement).toHaveAttribute("data-theme", "dark");
-    fireEvent.click(within(group).getByRole("button", { name: "Light", hidden: true }));
-    expect(document.documentElement).not.toHaveAttribute("data-theme");
-    expect(hidePopover).not.toHaveBeenCalled();
-    localStorage.clear();
+  it("has no theme switch: it's in the footer only (the rules' Navigation board)", () => {
+    const { container } = renderNav(fakeAuthValue({ status: "signed-out", configured: true }));
+    expect(screen.queryByRole("group", { name: "Theme", hidden: true })).toBeNull();
+    expect(container.querySelector("[data-theme-switch]")).toBeNull();
   });
 
   it("closes when keyboard focus leaves the menu for the page", () => {
@@ -204,99 +212,136 @@ describe("Nav — phone menu", () => {
     const hidePopover = vi.fn();
     menu.hidePopover = hidePopover;
     const discover = within(menu).getByRole("link", { name: "Discover", hidden: true });
-    const map = within(menu).getByRole("link", { name: "Map", hidden: true });
-    fireEvent.focusOut(discover, { relatedTarget: map });
-    fireEvent.focusOut(map, { relatedTarget: screen.getByRole("button", { name: "Menu" }) });
+    const nearby = within(menu).getByRole("link", { name: "Nearby", hidden: true });
+    fireEvent.focusOut(discover, { relatedTarget: nearby });
+    fireEvent.focusOut(nearby, { relatedTarget: screen.getByRole("button", { name: "Menu" }) });
     expect(hidePopover).not.toHaveBeenCalled();
     const outside = document.createElement("button");
     document.body.append(outside);
-    fireEvent.focusOut(map, { relatedTarget: outside });
+    fireEvent.focusOut(nearby, { relatedTarget: outside });
     expect(hidePopover).toHaveBeenCalledTimes(1);
     outside.remove();
   });
 });
 
 describe("Nav — desktop row", () => {
-  it("signed in: Messages and Account (plus Admin); Your events is in the menu and on /account", () => {
+  it("signed in: For organisers, Admin, Messages and the avatar (Account); Saved and Your events are on /account", () => {
     renderNav(fakeAuthValue({ isAdmin: true }));
     const [desktopNav] = screen.getAllByRole("navigation", { name: "Primary" });
     expect(linkHrefs(desktopNav)).toEqual([
-      ["Discover", "/"],
-      ["Map", "/map"],
-      ["Saved", "/saved"],
+      ...PLACES,
+      ["For organisers", "/organisers/apply"],
       ["Admin", "/admin"],
       ["Messages", "/messages"],
       ["Account", "/account"],
-      ["For organisers", "/organisers/apply"],
     ]);
     expect(within(desktopNav).queryByRole("button", { name: "Sign out" })).toBeNull();
+    // The rules' signed-in header: For organisers as a nav item, Messages as a nav button.
+    expect(within(desktopNav).getByRole("link", { name: "For organisers" })).not.toHaveClass("nav-button");
+    expect(within(desktopNav).getByRole("link", { name: "Messages" })).toHaveClass("umlaut", "nav-button");
   });
 
-  it("marks Account as the current page on /account (desktop and menu)", () => {
+  it("signed out: Sign in, then the For organisers nav button", () => {
+    pathname = "/events";
+    renderNav(fakeAuthValue({ status: "signed-out" }));
+    const [desktopNav] = screen.getAllByRole("navigation", { name: "Primary" });
+    expect(desktopNav.closest("#site-menu")).toBeNull();
+    expect(linkHrefs(desktopNav)).toEqual([...PLACES, ["Sign in", "/login"], ["For organisers", "/organisers/apply"]]);
+    expect(within(desktopNav).getByRole("link", { name: "Sign in" })).toHaveClass("umlaut", "label-nav");
+    expect(within(desktopNav).getByRole("link", { name: "For organisers" })).toHaveClass("umlaut", "nav-button");
+  });
+
+  it("sets the three places as nav items: Label/Nav with the umlaut, Discover current on the home", () => {
+    renderNav(fakeAuthValue({ status: "signed-out" }));
+    const [desktopNav] = screen.getAllByRole("navigation", { name: "Primary" });
+    for (const [name] of PLACES) expect(within(desktopNav).getByRole("link", { name })).toHaveClass("umlaut", "label-nav", "min-h-10");
+    expect(within(desktopNav).getByRole("link", { name: "Discover" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("the avatar shows the account's initial, hidden from screen readers: the link is named Account", () => {
+    renderNav(fakeAuthValue({ email: "latte@example.com" }));
+    const [desktopNav] = screen.getAllByRole("navigation", { name: "Primary" });
+    const avatar = within(desktopNav).getByRole("link", { name: "Account" });
+    expect(avatar).toHaveTextContent("L");
+    expect(avatar.querySelector("[aria-hidden='true']")).toHaveTextContent("L");
+    expect(avatar).toHaveClass("size-10");
+  });
+
+  it("marks Account as the current page on /account (desktop and menu), and For organisers on the apply page", () => {
     pathname = "/account";
     renderNav(fakeAuthValue());
     const accountLinks = screen.getAllByRole("link", { name: "Account", hidden: true });
     expect(accountLinks).toHaveLength(2);
     for (const link of accountLinks) expect(link).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "Your events", hidden: true })).not.toHaveAttribute("aria-current");
-  });
-
-  it("keeps the inline site search and the same destinations", () => {
-    // Off the home: the home's hero has the page's search (V16).
-    pathname = "/events";
+    cleanup();
+    pathname = "/organisers/apply";
     renderNav(fakeAuthValue({ status: "signed-out" }));
-    expect(screen.getByRole("search", { name: "Search the site" })).toBeInTheDocument();
-    const [desktopNav] = screen.getAllByRole("navigation", { name: "Primary" });
-    expect(desktopNav.closest("#site-menu")).toBeNull();
-    expect(linkHrefs(desktopNav)).toEqual([
-      ["Discover", "/"],
-      ["Map", "/map"],
-      ["Saved", "/saved"],
-      ["Sign in", "/login"],
-      ["For organisers", "/organisers/apply"],
-    ]);
+    for (const link of screen.getAllByRole("link", { name: "For organisers", hidden: true })) {
+      expect(link).toHaveAttribute("aria-current", "page");
+    }
   });
 });
 
-describe("Nav — Saved", () => {
-  it("puts a Saved heart in the compact bar, between Search and Menu, in every auth state", () => {
+describe("Nav — what left the header", () => {
+  it("has no Saved heart and no Create profile, in any auth state", () => {
     pathname = "/events";
     for (const auth of [fakeAuthValue({ status: "signed-out" }), fakeAuthValue(), fakeAuthValue({ configured: false, status: "signed-out" })]) {
       const { container } = renderNav(auth);
-      const bar = container.querySelector<HTMLElement>("header > div.lg\\:hidden");
-      if (!bar) throw new Error("compact bar not rendered");
-      const controls = Array.from(bar.querySelectorAll("a[href], button")).map(
+      const controls = Array.from(compactBar(container).querySelectorAll("a[href], button")).map(
         (el) => el.getAttribute("aria-label") ?? el.textContent,
       );
-      expect(controls).toEqual(["Sheltüh home", "Search", "Saved", "Menu"]);
+      expect(controls).toEqual(["Sheltüh home", "Search", "Menu"]);
+      const [desktopNav] = screen.getAllByRole("navigation", { name: "Primary" });
+      expect(within(desktopNav).queryByRole("link", { name: "Saved" })).toBeNull();
+      expect(screen.queryByRole("link", { name: /Create profile/, hidden: true })).toBeNull();
       cleanup();
     }
   });
 
-  it("marks Saved as the current page on /saved and fills its heart", () => {
-    pathname = "/saved";
-    renderNav(fakeAuthValue());
-    const links = screen.getAllByRole("link", { name: "Saved", hidden: true });
-    // Compact bar, desktop row and the phone menu.
-    expect(links).toHaveLength(3);
-    for (const link of links) expect(link).toHaveAttribute("aria-current", "page");
-    const hearts = links.map((link) => link.querySelector("svg")).filter((svg) => svg !== null);
-    expect(hearts.length).toBe(2);
-    for (const svg of hearts) expect(svg).toHaveAttribute("fill", "currentColor");
+  it("has no search field anywhere in the header, and no search icon on the desktop row", () => {
+    for (const path of ["/events", "/map", "/events/neon-static"]) {
+      pathname = path;
+      const { container } = renderNav(fakeAuthValue());
+      expect(screen.queryByRole("search")).toBeNull();
+      // Only the phone bar's icon link.
+      const icons = screen.getAllByRole("link", { name: "Search" });
+      expect(icons).toHaveLength(1);
+      expect(compactBar(container).contains(icons[0])).toBe(true);
+      cleanup();
+    }
   });
 
-  it("leaves the heart unfilled and not current elsewhere", () => {
-    pathname = "/map";
+  // Refinement (22 Oct 2026): the home's hero has the page's one search, so the phone bar leaves its icon out there.
+  it("has no search icon on the home; on /search it's marked as the current page", () => {
+    const { container } = renderNav(fakeAuthValue());
+    expect(screen.queryByRole("link", { name: "Search" })).toBeNull();
+    expect(container.querySelector("a[href='/search']")).toBeNull();
+    cleanup();
+    pathname = "/search";
     renderNav(fakeAuthValue());
-    for (const link of screen.getAllByRole("link", { name: "Saved", hidden: true })) {
-      expect(link).not.toHaveAttribute("aria-current");
-      const svg = link.querySelector("svg");
-      if (svg) expect(svg).toHaveAttribute("fill", "none");
-    }
+    expect(screen.getByRole("link", { name: "Search" })).toHaveAttribute("aria-current", "page");
   });
 });
 
 describe("Nav — header", () => {
+  it("is a black ink section in both themes, 64px, with a 1px rule only in Dark", () => {
+    const { container } = renderNav(fakeAuthValue({ status: "signed-out" }));
+    const header = container.querySelector("header");
+    expect(header).toHaveAttribute("data-surface", "ink");
+    expect(header).toHaveClass("dark:border-b", "dark:border-surface-border");
+    expect(header).not.toHaveClass("border-b");
+    expect(compactBar(container)).toHaveClass("h-16");
+  });
+
+  it("gives the phone bar's controls 48px targets and the ü logo", () => {
+    pathname = "/events";
+    const { container } = renderNav(fakeAuthValue({ status: "signed-out" }));
+    const bar = compactBar(container);
+    for (const control of bar.querySelectorAll("a[href], button")) expect(control).toHaveClass("size-12");
+    expect(within(bar).getByRole("link", { name: "Sheltüh home" }).querySelector("svg")).toHaveClass("h-8");
+  });
+
   it("stays put (not sticky) on phones in a conversation, so the keyboard leaves room for the messages", () => {
     pathname = "/messages/c1";
     const { container } = renderNav(fakeAuthValue());
@@ -319,73 +364,6 @@ describe("Nav — header", () => {
     cleanup();
     pathname = "/dashboard/evt-1";
     expect(renderNav(fakeAuthValue()).container.querySelector("header")).toHaveClass("sticky");
-  });
-
-  // A3 (WCAG 2.5.3, accessibility review 22 Oct 2026): the field was named "Search by event, venue or
-  // suburb" while it showed "Search events". Its name is now the words it shows.
-  it("gives the desktop search a short placeholder, which is also the field's name", () => {
-    pathname = "/events";
-    renderNav(fakeAuthValue());
-    const search = within(screen.getByRole("search", { name: "Search the site" })).getByRole("searchbox", {
-      name: "Search events",
-    });
-    expect(search).toHaveAttribute("placeholder", "Search events");
-  });
-
-  // Refinement (22 Oct 2026): the phone bar's search icon goes on the home too, so the hero's field is
-  // the page's one search (no duplicate magnifier).
-  it("has no header search on the home, field or icon, where the hero's search is (V16); every other page keeps both", () => {
-    const { container } = renderNav(fakeAuthValue());
-    expect(screen.queryByRole("search")).toBeNull();
-    expect(screen.queryByRole("link", { name: "Search" })).toBeNull();
-    expect(container.querySelector("a[href='/search']")).toBeNull();
-    cleanup();
-    pathname = "/map";
-    renderNav(fakeAuthValue());
-    expect(screen.getByRole("search", { name: "Search the site" })).toBeInTheDocument();
-    // The phone bar's icon, and the desktop row's (shown only when the row has no room for the bar).
-    const icons = screen.getAllByRole("link", { name: "Search" });
-    expect(icons).toHaveLength(2);
-    for (const icon of icons) expect(icon).toHaveAttribute("href", "/search");
-  });
-
-  // Header fit (24 Oct 2026): signed in, the desktop row's nav is wider and the row wrapped to two lines
-  // at 1024px (members) and up to 1440px (admins). The bar now takes the room the nav leaves, up to
-  // 384px; under 13rem the slot shows the search icon link instead (e2e/header-fit.spec.ts measures it).
-  it("lets the desktop bar shrink into the row's spare room, with the search icon link in its place when too narrow", () => {
-    pathname = "/events";
-    const { container } = renderNav(fakeAuthValue({ isAdmin: true }));
-    const slot = container.querySelector<HTMLElement>("[data-header-search]");
-    if (!slot) throw new Error("header search slot not rendered");
-    expect(slot).toHaveClass("@container", "flex-1", "max-w-sm", "min-w-9");
-    const search = within(slot).getByRole("search", { name: "Search the site" });
-    expect(search.parentElement).toHaveClass("hidden", "@min-[13rem]:block");
-    const icon = within(slot).getByRole("link", { name: "Search" });
-    expect(icon).toHaveAttribute("href", "/search");
-    expect(icon).toHaveClass("@min-[13rem]:hidden", "size-9");
-    expect(icon).not.toHaveAttribute("aria-current");
-    // Keyboard order: the wordmark, then search (bar or icon), then the Primary nav.
-    const primary = screen.getByRole("navigation", { name: "Primary" });
-    expect(slot.compareDocumentPosition(primary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  });
-
-  // Owner round of 24 Oct 2026 (D2, D7): the Eventbrite-style bar in the header has a black submit
-  // (orange on hover), and the header leaves it out on /search too, whose page has the bar with a location.
-  it("puts the bar with a location and a black submit in the header, but not on /search", () => {
-    pathname = "/events";
-    renderNav(fakeAuthValue());
-    const search = screen.getByRole("search", { name: "Search the site" });
-    expect(within(search).getByRole("button", { name: "Location: Your suburb" })).toBeInTheDocument();
-    const submit = within(search).getByRole("button", { name: "Search" });
-    expect(submit).toHaveAttribute("type", "submit");
-    expect(submit).not.toHaveClass("btn-signal");
-    expect(submit).toHaveClass("bg-foreground", "hover:bg-signal");
-    cleanup();
-    pathname = "/search";
-    renderNav(fakeAuthValue());
-    expect(screen.queryByRole("search")).toBeNull();
-    // The phone bar keeps its search icon there, marked as the current page.
-    expect(screen.getByRole("link", { name: "Search" })).toHaveAttribute("aria-current", "page");
   });
 
   it("names its two navigation landmarks distinctly: the desktop row's Primary, the phone menu's Site menu (A11)", () => {

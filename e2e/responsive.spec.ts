@@ -138,11 +138,12 @@ for (const width of [375, 390, 768, 1280, 1440]) {
       await expect(hero.locator(".btn-signal")).toHaveAccessibleName("Search");
       // Refinement (22 Oct 2026): browsing is the category row under the hero; the hero has no links.
       await expect(hero.getByRole("link")).toHaveCount(0);
-      // One search on the home: no header field (desktop) or search icon (phones), and the hero's bar
-      // has two icons, the location pin and one magnifier (its submit button; owner round of 24 Oct 2026).
+      // One search on the home: no header field (desktop) or search icon (phones). The hero's bar has the
+      // rules' icons (redesign PR 2): the field's magnifier, Where's pin and chevron (from 640px; just the
+      // words below it) and the submit's magnifier, with the closed location menu's own icons hidden.
       await expect(page.getByRole("search")).toHaveCount(1);
       await expect(page.locator("header a[href='/search']")).toHaveCount(0);
-      await expect(hero.getByRole("search").locator("svg")).toHaveCount(2);
+      await expect(hero.getByRole("search").locator("[data-search-bar] > svg:visible, [data-location-button] svg:visible, [data-search-submit] svg:visible")).toHaveCount(width >= 640 ? 4 : 1);
       await expect(hero.getByRole("search").getByRole("button", { name: "Search" }).locator("svg")).toHaveCount(1);
       // The h1 is two lines at 100% text size, never more.
       const lines = await hero.getByRole("heading", { level: 1 }).evaluate((h1) => {
@@ -508,33 +509,33 @@ test.describe("home first screen at 390×844", () => {
 test.describe("footer on a phone (375px)", () => {
   test.use({ viewport: { width: 375, height: 812 } });
 
-  test("support and legal links are visible; Explore and Our company open and close from the keyboard", async ({ page }) => {
+  test("every column's links are visible at once, in two columns, 48px tall, with the legal links and no sideways scroll", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
     await expect(page.locator("[data-home-section]").first()).toBeVisible({ timeout: 30_000 });
     const footer = page.locator("footer");
-    await expect(footer.getByRole("link", { name: "Help & FAQs" })).toBeVisible();
-    await expect(footer.getByRole("link", { name: "Contact support" })).toBeVisible();
+    // No disclosures any more (redesign PR 2, the proposal's footer): everything shows.
+    await expect(footer.getByRole("button", { name: "Explore" })).toHaveCount(0);
+    for (const name of ["Help & FAQs", "Contact support", "All events", "Nearby", "For organisers", "About Sheltüh", "Become a partner"]) {
+      const link = footer.getByRole("link", { name, exact: true });
+      await expect(link).toBeVisible();
+      expect(Math.round((await link.boundingBox())?.height ?? 0), name).toBeGreaterThanOrEqual(48);
+    }
+    await expect(footer.getByRole("link", { name: "Email support@sheltuh.com.au" })).toBeVisible();
     await expect(footer.getByRole("navigation", { name: "Legal" }).getByRole("link", { name: "Privacy Policy" })).toBeVisible();
-    const toggle = footer.getByRole("button", { name: "Explore" });
-    await expect(toggle).toHaveAttribute("aria-expanded", "false");
-    await expect(footer.getByRole("link", { name: "All events" })).toBeHidden();
-    // Tab onto it from the last support link, as a keyboard user would.
-    await footer.getByRole("link", { name: "Contact support" }).focus();
+    // Two columns: Fan support and Explore side by side.
+    const [support, explore] = [await footer.getByRole("navigation", { name: "Fan support" }).boundingBox(), await footer.getByRole("navigation", { name: "Explore" }).boundingBox()];
+    if (!support || !explore) throw new Error("footer not laid out");
+    expect(Math.round(explore.y)).toBe(Math.round(support.y));
+    expect(explore.x).toBeGreaterThan(support.x + support.width - 1);
+    // A visible focus ring on a footer link.
+    const help = footer.getByRole("link", { name: "Help & FAQs" });
+    await help.focus();
+    await page.keyboard.press("Shift+Tab");
     await page.keyboard.press("Tab");
-    await expect(toggle).toBeFocused();
-    await page.keyboard.press("Enter");
-    await expect(toggle).toHaveAttribute("aria-expanded", "true");
-    await expect(footer.getByRole("link", { name: "All events" })).toBeVisible();
-    // The next Tab goes into the opened group.
-    await page.keyboard.press("Tab");
-    await expect(footer.getByRole("link", { name: "All events" })).toBeFocused();
-    await toggle.focus();
-    await page.keyboard.press("Space");
-    await expect(toggle).toHaveAttribute("aria-expanded", "false");
-    await expect(footer.getByRole("link", { name: "All events" })).toBeHidden();
-    // A visible focus ring on the toggle.
-    expect(await toggle.evaluate((el) => getComputedStyle(el).outlineStyle)).not.toBe("none");
+    await expect(help).toBeFocused();
+    expect(await help.evaluate((el) => getComputedStyle(el).outlineStyle)).not.toBe("none");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
   });
 });
 
