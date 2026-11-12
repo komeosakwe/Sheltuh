@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useRef, useState, type FormEvent } from "react";
 import AuthField, { fieldsForAuthError, useFocusAfterRender, type AuthErrorField } from "@/components/auth/AuthField";
 import PasswordField from "@/components/auth/PasswordField";
+import { ArrowRightIcon } from "@/components/home/icons";
 import { Button } from "@/components/ui/Button";
 import { track } from "@/lib/analytics";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -17,7 +18,7 @@ const FORM_ERROR_ID = "login-error";
 const INVALID_CREDENTIALS = "invalid login credentials";
 
 function noPasswordHint(names: string): string {
-  return `Signed up with ${names}? Use the ${names} button above.`;
+  return `Signed up with ${names}? Use the ${names} button below.`;
 }
 
 /**
@@ -28,10 +29,14 @@ function noPasswordHint(names: string): string {
  * focus goes to the first invalid field, which is marked and described by
  * its error. A wrong email or password marks both (the service won't say which).
  *
- * With Apple or Google offered above the form (OAuthButtons), the password
- * field's hint says an account made with one of them has no password, and a
- * wrong email or password says to use that button (such an account has no
- * password to get right).
+ * With Apple or Google offered under the form (OAuthButtons, "Or continue
+ * with"), the password field's hint says an account made with one of them has
+ * no password, and a wrong email or password says to use that button (such an
+ * account has no password to get right).
+ *
+ * The submit is "Continue" (the sign-in mock), the page's one orange action.
+ * /login's own "New here? Create an account" (carrying `next`) is under the
+ * buttons, at the end of the card.
  */
 export default function LoginForm({ next }: { next?: string } = {}) {
   const auth = useAuth();
@@ -80,7 +85,7 @@ export default function LoginForm({ next }: { next?: string } = {}) {
       const wrongCredentials = providers.length > 0 && message.trim().toLowerCase() === INVALID_CREDENTIALS;
       setError(
         wrongCredentials
-          ? `That email and password don’t match. If you signed up with ${oauthProviderNames(providers, ["apple", "google"])}, use that button above.`
+          ? `That email and password don’t match. If you signed up with ${oauthProviderNames(providers, ["apple", "google"])}, use that button below.`
           : message,
       );
       setErrorFields(fields);
@@ -104,6 +109,7 @@ export default function LoginForm({ next }: { next?: string } = {}) {
         name="email"
         inputMode="email"
         required
+        placeholder="you@example.com"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
         error={fieldErrors.email}
@@ -145,16 +151,16 @@ export default function LoginForm({ next }: { next?: string } = {}) {
         </Link>
       )}
 
-      <Button type="submit" size="lg" busy={loading} className="w-full">
-        {loading ? "Signing in…" : "Sign in"}
+      <Button type="submit" variant="signal" busy={loading} className="w-full">
+        {loading ? (
+          "Signing in…"
+        ) : (
+          <>
+            Continue
+            <ArrowRightIcon className="size-4 shrink-0" />
+          </>
+        )}
       </Button>
-
-      <p className="text-sm text-muted">
-        No account yet?{" "}
-        <Link href={withNext("/signup", next)} className="text-accent underline underline-offset-2">
-          Sign up
-        </Link>
-      </p>
     </form>
   );
 }

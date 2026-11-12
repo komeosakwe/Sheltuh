@@ -281,15 +281,40 @@ describe("OAuthButtons on /login and /signup", () => {
     return signInWithProvider;
   }
 
-  it.each(["login", "signup"] as const)("/%s: the buttons, their line and the divider come before the email form, carrying ?next=", async (page) => {
-    const signInWithProvider = await renderPage(page, "/events/neon-static");
+  it("/signup: the buttons, their line and the divider come before the email form, carrying ?next=", async () => {
+    const signInWithProvider = await renderPage("signup", "/events/neon-static");
     const appleButton = apple();
     const email = screen.getByLabelText("Email");
     const divider = screen.getByText("or");
     expect(appleButton.compareDocumentPosition(divider) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(divider.compareDocumentPosition(email) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    fireEvent.click(google());
+    expect(signInWithProvider).toHaveBeenCalledWith("google", "/events/neon-static");
+  });
+
+  it("/login (the sign-in mock): the email form and Continue, then \"Or continue with\", the buttons and their line, carrying ?next=", async () => {
+    const signInWithProvider = await renderPage("login", "/events/neon-static");
+    const email = screen.getByLabelText("Email");
+    const submit = screen.getByRole("button", { name: "Continue" });
+    const divider = screen.getByText("Or continue with");
+    const appleButton = apple();
+    const line = screen.getByText(/^Continuing with Apple or Google signs you in/);
+    for (const [before, after] of [
+      [email, submit],
+      [submit, divider],
+      [divider, appleButton],
+      [appleButton, google()],
+      [google(), line],
+    ]) {
+      expect(before.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+    // The buttons are outside the email form: they never submit it.
+    expect(appleButton.closest("form")).toBeNull();
+    expect(google().closest("form")).toBeNull();
     // The callback's "Use email instead" lands on the email form's wrapper, label and all.
-    if (page === "login") expect(email.closest("#email-sign-in")).not.toBeNull();
+    expect(email.closest("#email-sign-in")).not.toBeNull();
+    expect(screen.queryByText("or")).toBeNull();
 
     fireEvent.click(google());
     expect(signInWithProvider).toHaveBeenCalledWith("google", "/events/neon-static");

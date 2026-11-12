@@ -200,18 +200,31 @@ test("a callback URL whose next was tampered with lands on /events, not the othe
 test.describe("at 375×667", () => {
   test.use({ viewport: { width: 375, height: 667 } });
 
+  // /signup keeps the pair above the email form, in the first screen. /login follows the redesign's
+  // sign-in mock (plan PR 6): the email form and Continue first, then "Or continue with" and the pair.
   for (const path of ["/login", "/signup"]) {
-    test(`${path}: Apple full width, then Google's 40px pill centred under it, above the fold, no sideways scroll`, async ({ page }) => {
+    test(`${path}: Apple as wide as the email field, then Google's 40px pill centred under it, no sideways scroll`, async ({ page }) => {
       await mockAuth(page);
       await page.goto(path);
       await expect(appleButton(page)).toBeVisible({ timeout: 60_000 });
+      if (path === "/login") {
+        // Under Continue, scrolled to (the hit-area probe below needs it on screen).
+        const submit = await page.getByRole("button", { name: "Continue", exact: true }).boundingBox();
+        const before = await appleButton(page).boundingBox();
+        if (!submit || !before) throw new Error("not laid out");
+        expect(before.y).toBeGreaterThan(submit.y + submit.height);
+        await googleButton(page).scrollIntoViewIfNeeded();
+      }
       const apple = await appleButton(page).boundingBox();
       const google = await googleButton(page).boundingBox();
-      if (!apple || !google) throw new Error("buttons not laid out");
-      expect(apple.width).toBe(335);
+      const field = await page.locator("#main").getByLabel("Email").boundingBox();
+      if (!apple || !google || !field) throw new Error("buttons not laid out");
+      // The full width of the card's column: 343px at 375 (16px page margins).
+      expect(apple.width).toBe(343);
+      expect(apple.width).toBe(field.width);
       expect(apple.height).toBe(48);
       // A 40px pill sized to its content, not stretched, centred under Apple's.
-      expect(google.width).toBeLessThan(335);
+      expect(google.width).toBeLessThan(apple.width);
       expect(google.height).toBe(40);
       expect(Math.abs(google.x + google.width / 2 - (apple.x + apple.width / 2))).toBeLessThanOrEqual(0.5);
       expect(google.y).toBeGreaterThan(apple.y + apple.height);
@@ -228,7 +241,7 @@ test.describe("at 375×667", () => {
       }, google);
       expect(hits).toEqual([true, true, false, false]);
       // The divider (scoped to the page, away from the header and the search bar).
-      await expect(page.locator("#main").getByText("or", { exact: true })).toBeVisible();
+      await expect(page.locator("#main").getByText(path === "/login" ? "Or continue with" : "or", { exact: true })).toBeVisible();
       await noSidewaysScroll(page);
     });
   }
