@@ -96,4 +96,36 @@ describe("LocationPicker — a newer location action wins", () => {
     expect(JSON.parse(localStorage.getItem(NEAR_STORAGE_KEY) ?? "null")).toMatchObject({ suburb: "Perth", state: "WA" });
     expect(screen.getByRole("button", { name: "Where: Perth" })).toBeInTheDocument();
   });
+
+  it("a place saved elsewhere that matches this picker's own earlier save still beats a pending lookup", async () => {
+    function saveInAnotherTab(suburb: string, state: string) {
+      act(() => {
+        localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb, state }));
+        window.dispatchEvent(new StorageEvent("storage", { key: NEAR_STORAGE_KEY }));
+      });
+    }
+    render(<LocationPicker standalone />);
+    const panel = openPanel();
+    Object.assign(panel, { hidePopover: vi.fn() });
+    // This picker saves Perth itself.
+    fireEvent.click(within(panel).getByRole("button", { name: /Perth/, hidden: true }));
+    const own = release;
+    await act(async () => {
+      own?.(location);
+      await Promise.resolve();
+    });
+    expect(JSON.parse(localStorage.getItem(NEAR_STORAGE_KEY) ?? "null")).toMatchObject({ suburb: "Perth" });
+    saveInAnotherTab("Sydney", "NSW");
+    openPanel();
+    fireEvent.click(within(panel).getByRole("button", { name: /Melbourne/, hidden: true }));
+    const pending = release;
+    // Another tab saves Perth again: the same name this picker saved earlier, but not this picker's write.
+    saveInAnotherTab("Perth", "WA");
+    await act(async () => {
+      pending?.(location);
+      await Promise.resolve();
+    });
+    expect(JSON.parse(localStorage.getItem(NEAR_STORAGE_KEY) ?? "null")).toMatchObject({ suburb: "Perth", state: "WA" });
+    expect(screen.getByRole("button", { name: "Where: Perth" })).toBeInTheDocument();
+  });
 });

@@ -144,8 +144,8 @@ export default function LocationPicker({
   const [anywhere, setAnywhere] = useState(false);
   // Standalone: whether the place applied here is All of Australia, for closing without applying.
   const [anywhereApplied, setAnywhereApplied] = useState(false);
-  // What this picker last remembered itself (a choice, All of Australia, a sent search): its own
-  // write isn't a change from outside.
+  // What this picker last remembered itself (a choice, All of Australia, a sent search) and hasn't
+  // seen arrive yet: its own write isn't a change from outside.
   const [ownWrite, setOwnWrite] = useState<string | null>(null);
   // The place in use changed from outside (Near me, another tab, the page's own place): Where
   // shows it, not an older draft.
@@ -154,6 +154,8 @@ export default function LocationPicker({
   const [outsideChanges, setOutsideChanges] = useState(0);
   if (seen.stored !== stored || seen.near !== near) {
     setSeen({ stored, near });
+    // This picker's own write is recognised once; a later identical value is someone else's.
+    if (seen.stored !== stored) setOwnWrite(null);
     if (stored !== ownWrite || seen.near !== near) {
       setOutsideChanges((count) => count + 1);
       setDraft(null);
