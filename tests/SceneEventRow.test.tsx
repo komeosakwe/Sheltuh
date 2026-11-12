@@ -48,11 +48,11 @@ describe("SceneEventRow", () => {
     expect(row.className).toContain("has-[[data-card-link]:focus-visible]:outline-2");
   });
 
-  it("keeps Locate above the link, 48px, and calls back with the button", () => {
+  it("keeps Locate above the link, 56px from lg (the mocks leave it off below), and calls back with the button", () => {
     const onLocate = vi.fn();
     renderRow({ onLocate });
     const locate = screen.getByRole("button", { name: `Locate ${event.title} on the map` });
-    expect(locate).toHaveClass("relative", "z-10", "size-12");
+    expect(locate).toHaveClass("relative", "z-10", "size-14", "hidden", "lg:flex");
     fireEvent.click(locate);
     expect(onLocate).toHaveBeenCalledWith(event.id, locate);
   });
@@ -82,7 +82,16 @@ describe("SceneEventRow", () => {
     );
     const row = container.querySelector("[data-scene-row]") as HTMLElement;
     expect(row.querySelector(".meta")).toHaveTextContent(/^\w{3} \d{1,2} \w{3,4} · \d{1,2}:\d{2} [ap]m/);
-    expect(screen.getByRole("link", { name: event.title })).toHaveClass("heading-h4");
+    // The title is an h3 (under the list's h2), its link the row's one link; 24/32 from lg.
+    expect(screen.getByRole("heading", { level: 3, name: event.title })).toHaveClass("heading-h4", "lg:heading-h3");
+    expect(row.querySelector(".meta")).toHaveClass("lg:mono-m");
+    expect(row.querySelector("[data-row-price]")).toHaveClass("text-right", "whitespace-nowrap");
+    // Buy tickets only from lg, 48px.
+    const buy = screen.queryByRole("link", { name: /tickets for / });
+    if (buy) {
+      expect(buy.closest(".hidden")).toHaveClass("lg:block");
+      expect(buy).toHaveClass("min-h-12");
+    }
     expect(row.querySelector("[data-place-lines]")).toHaveTextContent(event.venueName);
     expect(row).toHaveTextContent(/· 8\.3 km away/);
     // The card's price label: all-inclusive, in Australian dollars.

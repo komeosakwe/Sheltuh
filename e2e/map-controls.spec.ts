@@ -3,10 +3,10 @@ import { fixtures, mockMapNetwork } from "./map-network";
 
 /*
  * Nearby's controls on a 390px phone (redesign PR 5: the owner's 390 mock and the rules' Tags &
- * chips board): the search field and Where (the one location control), each 48px with the 1.5px
- * stroke; a "Filters" button beside the List | Map switch; the filters (48px chips and dropdowns,
- * radius 8) behind it, wrapping, never sideways; then the count. Live mode, /api/* and tiles
- * answered here (e2e/map-network.ts).
+ * chips board): the site's search bar (one 48px field opening the search sheet, with Where, the one
+ * location control, inside); a "Filters" button beside the List | Map switch; the filters (48px
+ * chips, radius 8) behind it, wrapping, never sideways; then the count. Live mode, /api/* and
+ * tiles answered here (e2e/map-network.ts).
  */
 
 async function openNearby(page: Page, path = "/map") {
@@ -30,8 +30,8 @@ const FILTERS = (page: Page) => [
   page.getByRole("button", { name: "Tonight" }),
   page.getByRole("button", { name: "This weekend" }),
   page.locator("[data-date-chip]"),
-  page.getByRole("combobox", { name: "Category" }),
-  page.getByRole("combobox", { name: "Price" }),
+  page.locator("[data-select-filter]").filter({ has: page.getByRole("combobox", { name: "Category" }) }),
+  page.locator("[data-select-filter]").filter({ has: page.getByRole("combobox", { name: "Price" }) }),
 ];
 
 async function expectFiltersInView(page: Page) {
@@ -48,22 +48,22 @@ async function expectFiltersInView(page: Page) {
 test.describe("Nearby's controls at 390×844", () => {
   test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, permissions: [] });
 
-  test("the search field and Where are 48px fields with the stroke, full width; one location control", async ({ page }) => {
+  test("the search is one 48px field that opens the search sheet, as on the home, with Where inside; one location control", async ({ page }) => {
     await openNearby(page);
-    const search = page.getByRole("searchbox", { name: "Search events, venues or suburbs" });
-    await expect(search).toHaveAttribute("placeholder", "Search events, venues or suburbs");
-    const where = page.locator("[data-location-field]").getByRole("button", { name: /^Where:/ });
-    await expect(where).toHaveAccessibleName("Where: Your suburb");
-    const [searchBox, whereBox] = await Promise.all([search.boundingBox(), where.boundingBox()]);
-    expect(searchBox?.height).toBe(48);
-    expect(whereBox?.height).toBeGreaterThanOrEqual(48);
-    expect(searchBox?.width).toBe(358);
-    expect(whereBox?.width).toBe(358);
-    expect(await search.evaluate((el) => getComputedStyle(el).borderTopLeftRadius)).toBe("8px");
+    const trigger = page.locator("[data-location-field] [data-search-trigger]");
+    await expect(trigger).toHaveAccessibleName("Search events");
+    const box = await trigger.boundingBox();
+    expect(box?.height).toBe(48);
+    expect(box?.width).toBe(358);
+    expect(await trigger.evaluate((el) => getComputedStyle(el).borderTopLeftRadius)).toBe("8px");
     // The 1.5px stroke (drawn as 1px on a 1x screen).
-    expect(await search.evaluate((el) => getComputedStyle(el).borderTopWidth)).toMatch(/^1(\.5)?px$/);
+    expect(await trigger.evaluate((el) => getComputedStyle(el).borderTopWidth)).toMatch(/^1(\.5)?px$/);
+    await trigger.click();
+    const sheet = page.getByRole("dialog", { name: "Search events" });
+    await expect(sheet).toBeVisible();
+    await expect(sheet.getByRole("button", { name: "Where: Your suburb" })).toBeVisible();
     // Typed text stays 16px (iOS zooms into a smaller field).
-    expect(await search.evaluate((el) => getComputedStyle(el).fontSize)).toBe("16px");
+    expect(await sheet.getByRole("searchbox", { name: "Search events" }).evaluate((el) => getComputedStyle(el).fontSize)).toBe("16px");
     // No second location control (the audit: "the header says Caulfield East, the page filter says All of Australia").
     await expect(page.getByRole("combobox", { name: "Location" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /^Where:/ })).toHaveCount(1);
@@ -78,7 +78,7 @@ test.describe("Nearby's controls at 390×844", () => {
     expect(buttonBox.x).toBe(16);
     expect(groupBox.x + groupBox.width).toBe(374);
     expect(Math.abs(buttonBox.y + buttonBox.height / 2 - (groupBox.y + groupBox.height / 2))).toBeLessThanOrEqual(1);
-    await expect(page.getByRole("form", { name: "Filter events" })).toBeHidden();
+    await expect(page.getByRole("form", { name: "Filter events" })).toHaveCount(0);
 
     await page.evaluate(async () => {
       await document.fonts.ready;
@@ -96,7 +96,7 @@ test.describe("Nearby's controls at 390×844", () => {
     await expect(tonight).toHaveAttribute("aria-pressed", "true");
     await expect(page).toHaveURL(/[?&]time=tonight\b/);
     expect(await tonight.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(0, 0, 0)");
-    await expect(page.getByRole("button", { name: /^Filters/ })).toHaveAccessibleName(/^Filters ?, 1 active$/);
+    await expect(page.getByRole("button", { name: /^Filters/ })).toHaveAccessibleName("Filters, 1 active");
     await tonight.click();
     await expect(tonight).toHaveAttribute("aria-pressed", "false");
     await expect(page).not.toHaveURL(/time=/);
@@ -119,6 +119,24 @@ test.describe("Nearby's controls at 390×844", () => {
     await list.click();
     await expect(page.getByRole("region", { name: "Events list" })).toBeVisible();
     await expect(page).not.toHaveURL(/view=/);
+  });
+});
+
+test.describe("Nearby at 320×640", () => {
+  test.use({ viewport: { width: 320, height: 640 }, isMobile: true, hasTouch: true, permissions: [] });
+
+  test("Filters and List | Map wrap or fit, nothing sideways; Escape closes the filters and returns to Filters", async ({ page }) => {
+    await openNearby(page);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(320);
+    const group = page.getByRole("group", { name: "Show events as" });
+    const groupBox = await group.boundingBox();
+    expect((groupBox?.x ?? 0) + (groupBox?.width ?? 0)).toBeLessThanOrEqual(304);
+    await openFilters(page);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(320);
+    await page.getByRole("button", { name: "Tonight" }).focus();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("form", { name: "Filter events" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /^Filters/ })).toBeFocused();
   });
 });
 
@@ -164,8 +182,11 @@ test.describe("Nearby within a radius at 1440×900", () => {
     await expect(count).toHaveText(/^\d+ upcoming events? within 25 km of Caulfield East$/, { timeout: 30_000 });
     await expect(page.getByRole("button", { name: "Where: Caulfield East" })).toBeVisible();
     const distance = page.getByRole("combobox", { name: "Distance" });
+    const distanceChip = page.locator("[data-select-filter]").filter({ has: distance });
     await expect(distance).toHaveValue("25");
-    expect(await distance.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(0, 0, 0)");
+    await expect(distanceChip).toContainText("Within 25 km");
+    // The default radius is not "active": outlined, not filled (one rule with the other filters).
+    expect(await distanceChip.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(255, 255, 255)");
     await expect(page.getByRole("link", { name: "Valley Show", exact: true })).toHaveCount(0);
     const further = page.locator("[data-further-away]");
     await expect(further).toContainText("Further away");
@@ -186,6 +207,7 @@ test.describe("Nearby within a radius at 1440×900", () => {
     await expect(page.getByRole("link", { name: "Valley Show", exact: true })).toBeVisible();
     await expect(distance).toHaveValue("all");
     await expect(distance).toBeFocused();
+    expect(await distanceChip.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(0, 0, 0)");
     await expect(page).toHaveURL(/[?&]within=all\b/);
     await expect(further).toHaveCount(0);
   });
@@ -195,7 +217,7 @@ test.describe("Nearby within a radius at 1440×900", () => {
     await page.addInitScript(() => localStorage.setItem("sheltuh:near:v1", JSON.stringify({ suburb: "Geelong", state: "VIC" })));
     await page.goto("/map");
     const empty = page.locator("[data-nearby-empty]");
-    await expect(empty.getByRole("heading", { level: 2 })).toHaveText("No events found near Geelong.", { timeout: 30_000 });
+    await expect(empty.getByRole("heading", { level: 3 })).toHaveText("No events found near Geelong.", { timeout: 30_000 });
     await expect(empty).toContainText("Try expanding your search area.");
     await expect(empty.getByRole("button", { name: "Within 25 km" })).toHaveAttribute("aria-pressed", "true");
     await empty.getByRole("button", { name: "50 km" }).click();

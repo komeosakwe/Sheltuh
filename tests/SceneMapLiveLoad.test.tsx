@@ -30,6 +30,15 @@ const { default: SceneMap } = await import("@/components/SceneMap");
 // The suburb table (~15k rows) decodes once, here, not inside the first test that places a pin by its suburb.
 beforeAll(async () => {
   await loadLocation();
+  // The map (Leaflet) mounts too once there are events: jsdom has no ResizeObserver.
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
 });
 
 afterEach(() => {
@@ -92,5 +101,27 @@ describe("live /map loading", () => {
     ]);
     // The last page had no cursor: nothing more to load.
     expect(screen.queryByRole("button", { name: "Load more events" })).toBeNull();
+  }, 30_000);
+
+  // Code review (PR 5): a radius can hold only a few of the events read so far. Nearby reads on by
+  // itself, once (4 more pages), then says what it found "so far" and leaves the rest to Load more.
+  it("with few events within the radius, reads 4 more pages once, then says 'so far' beside Load more", async () => {
+    localStorage.setItem("sheltuh:near:v1", JSON.stringify({ suburb: "Perth", state: "WA" }));
+    try {
+      for (let n = 0; n < 12; n++) listPublicEvents.mockResolvedValueOnce(page(n * 50, 50, `c${n + 1}`));
+      render(<SceneMap />);
+      await waitFor(() => expect(listPublicEvents).toHaveBeenCalledTimes(8), { timeout: 10_000 });
+      await waitFor(() => expect(screen.getByRole("heading", { level: 3, name: "No events found near Perth so far." })).toBeInTheDocument(), {
+        timeout: 10_000,
+      });
+      expect(screen.getAllByRole("status").some((el) => el.textContent === "No events within 25 km of Perth so far.")).toBe(true);
+      expect(document.querySelector("[data-map-count]")).toHaveTextContent(/^0 upcoming events within 25 km of Perth so far$/);
+      expect(screen.getByRole("button", { name: "Load more events" })).toBeInTheDocument();
+      // No more by itself.
+      await new Promise<void>((done) => setTimeout(done, 300));
+      expect(listPublicEvents).toHaveBeenCalledTimes(8);
+    } finally {
+      localStorage.removeItem("sheltuh:near:v1");
+    }
   }, 30_000);
 });

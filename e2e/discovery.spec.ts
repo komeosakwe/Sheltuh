@@ -157,15 +157,18 @@ test.describe("discovery at 320×640", () => {
 test.describe("/map sheet and focus at 320×640", () => {
   test.use({ viewport: { width: 320, height: 640 } });
 
-  test("Locate focuses the sheet; a focused footer link scrolls clear of it; Dismiss returns focus", async ({ page }) => {
+  test("a marker opens the sheet; a focused footer link scrolls clear of it; Dismiss returns focus", async ({ page }) => {
     await mockApi(page);
-    await page.goto("/map?view=list");
-    const locate = page.getByRole("button", { name: /^Locate .* on the map$/ }).and(page.locator(":enabled")).first();
-    await locate.click();
+    await page.goto("/map?view=map");
+    // A phone's rows have no Locate (the owner's mocks): the map's own markers select (by keyboard,
+    // since with no tiles the map's notice lies over it).
+    const marker = page.locator(".leaflet-marker-pane button[data-event-id]").first();
+    await marker.focus();
+    await page.keyboard.press("Enter");
 
     const sheet = page.locator("[data-map-sheet]");
     await expect(sheet).toBeVisible();
-    await expect(sheet).toBeFocused();
+    await expect(sheet.getByRole("button", { name: "List" })).toBeVisible();
     const sheetTop = (await sheet.boundingBox())?.y ?? 0;
     expect(sheetTop).toBeGreaterThan(0);
 

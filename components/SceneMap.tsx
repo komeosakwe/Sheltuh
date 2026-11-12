@@ -9,11 +9,13 @@ import SceneMapFilterBar, { NEARBY_DISTANCE_ID, radiusLabel } from "@/components
 import NearMeButton from "@/components/map/NearMeButton";
 import { useMapLocate } from "@/components/map/useMapLocate";
 import SceneMapEventCard from "@/components/map/SceneMapEventCard";
-import { ListIcon, PinFilledIcon } from "@/components/map/MapControlIcons";
 import { Button } from "@/components/ui/Button";
-import FilterChip from "@/components/ui/FilterChip";
+import { filterChipClass } from "@/components/ui/FilterChip";
+import Strap from "@/components/ui/Strap";
+import { useIsDesktop } from "@/components/ui/useIsDesktop";
+import SearchBar from "@/components/SearchBar";
 import { LoadingIndicator, ProgressLoader, useLoadingProgress } from "@/components/ui/ProgressLoader";
-import { EmptyState, Notice, PageHeader } from "@/components/ui/Section";
+import { EmptyState, Notice } from "@/components/ui/Section";
 import { isApiConfigured } from "@/lib/api/client";
 import { listPublicEvents } from "@/lib/api/public-events";
 import { adaptPublicEvent } from "@/lib/live/adapt";
@@ -61,6 +63,10 @@ type Status = "loading" | "loaded" | "error";
 
 /** Live /map reads up to this many pages of PAGE_LIMIT at a time (the first load, and each Load more). */
 export const MAP_PAGES_PER_LOAD = 4;
+/** Live, with a radius holding fewer events than this, Nearby reads on by itself… */
+export const NEARBY_ENOUGH_EVENTS = 12;
+/** …this many times (each MAP_PAGES_PER_LOAD pages) at most; then Load more is the visitor's. */
+export const MAP_AUTO_LOADS = 1;
 const PAGE_LIMIT = 50;
 
 // The remembered "near" suburb (lib/near-storage.ts), followed in the browser: Nearby measures from it.
@@ -236,7 +242,8 @@ function SceneMapView({
   const savedPlace = savedNear && suburbTable.module ? suburbTable.module.findLocality(savedNear) : null;
   // A place the table doesn't know is no place to measure from: the remembered one stands.
   const nearPlace = visitPlace ?? savedPlace;
-  // Where's words, while the visit's place applies (until the table says it doesn't know it).
+  // Where's words, and the address's `near`, while the visit's place applies (until the table says
+  // it doesn't know it: then it's dropped, and asking the browser on open is back on).
   const nearShown = visitNear && (!suburbTable.module || visitPlace) ? visitNear : undefined;
   const nearLat = nearPlace?.lat;
   const nearLng = nearPlace?.lng;
@@ -262,6 +269,8 @@ function SceneMapView({
 
   // The desktop event card sits above the Mapbox wordmark in the map's lower-left corner (components/map/MapboxLogo.tsx).
   const mapboxLogo = useMapTileStyle().id === "mapbox-streets";
+  // From lg the page's own search field and Where; below lg the site's search bar (one in the page at a time).
+  const desktop = useIsDesktop();
   const [filters, setFilters] = useState<FilterState>(initial);
   // List first on phones and tablets (the rules' Layout board: "List default, Map toggle button").
   const [mobileView, setMobileView] = useState<MobileView>(initialView);
@@ -315,7 +324,10 @@ function SceneMapView({
   // open), the nearest event within the radius of those the filters leave opens, as if its pin
   // were tapped, and the map keeps its framing of the visitor and the nearest few rather than
   // flying to it.
-  const locate = useMapLocate(!urlSteers && !nearParam, (position: Coordinates, byRequest: boolean) => {
+  // Asked on open unless the address says what to show: a place of its own counts, unless the
+  // table turns out not to know it (and the visitor hasn't chosen one meanwhile).
+  const nearUnknown = Boolean(nearParam && suburbTable.module && !suburbTable.module.findLocality(nearParam));
+  const locate = useMapLocate(!urlSteers && (!nearParam || (nearUnknown && !nearDropped)), (position: Coordinates, byRequest: boolean) => {
     setAreaBounds(null);
     setSelectedEventId(null);
     setNearestOpenedId(null);
@@ -376,7 +388,8 @@ function SceneMapView({
   // show every distance instead, once, so the selection the link was for still shows.
   if (!selectionChecked && status === "loaded") {
     setSelectionChecked(true);
-    const far = split.outside.some((entry) => entry.item.id === initialSelected);
+    // Far away, or with no position to measure (it can't be "near"): either way the radius hides it.
+    const far = [...split.outside, ...split.unplaced].some((entry) => entry.item.id === initialSelected);
     if (far) setRadius("all");
   }
 
@@ -394,12 +407,12 @@ function SceneMapView({
       selectedEventId: rawSelectedEventId,
       view: mobileView,
       radius,
-      near: visitNear,
+      near: nearShown ?? null,
     });
     const qs = params.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters, rawSelectedEventId, mobileView, radius, visitNear, pathname]);
+  }, [filters, rawSelectedEventId, mobileView, radius, nearShown, pathname]);
 
   // The loader's estimated progress; the results replace it once it's done.
   const progress = useLoadingProgress(status === "loading");
@@ -493,18 +506,33 @@ function SceneMapView({
     filters.search !== "" ||
     areaBounds !== null;
   const count = listed.length;
+  // Live, more pages remain: what's said about the radius holds for what has loaded "so far".
+  const partial = Boolean(hasMore) && radiusKm !== null;
+  const soFar = partial ? " so far" : "";
   const countWords = `upcoming event${count === 1 ? "" : "s"}`;
   // "within 25 km of Caulfield East" (the proposal); just the radius when the place has no name.
   const withinWords = radiusKm === null ? "" : ` within ${radiusKm} km${placeShown ? ` of ${placeShown}` : ""}`;
   // Announced in full; shown as the proposal (the filters show themselves, the rows the distances).
   const countSentence = `${count} ${countWords}${hasActiveFilters ? " matching your filters" : ""}${
     withinWords || (located ? ", nearest first" : "")
-  }`;
+  }${soFar}`;
   const noneNear = radiusKm !== null && count === 0 && filtered.length > 0;
-  const noneNearSentence = `No events found near ${placeShown || "you"}.`;
+  const noneNearSentence = `No events found near ${placeShown || "you"}${soFar}.`;
+  // Announced with the radius, so a wider one that still finds nothing is announced too.
+  const noneNearStatus = `No events within ${radiusKm ?? ""} km${placeShown ? ` of ${placeShown}` : ""}${soFar}.`;
   // Further away: how many more there are outside the radius, and the nearest few places they're in.
   const furtherCount = split.outside.length;
   const furtherPlaces = nearestPlaceNames(split.outside, (event) => bareSuburb(event.suburb, event.state));
+
+  // Live, a radius can hold only a few of the events loaded so far: read on (once, MAP_PAGES_PER_LOAD
+  // more pages at most) before saying so. More than that waits for Load more.
+  const autoLoads = useRef(0);
+  useEffect(() => {
+    if (!hasMore || loadingMore || status !== "loaded" || radiusKm === null || !onLoadMore) return;
+    if (listed.length >= NEARBY_ENOUGH_EVENTS || autoLoads.current >= MAP_AUTO_LOADS) return;
+    autoLoads.current += 1;
+    onLoadMore();
+  }, [hasMore, loadingMore, status, radiusKm, listed.length, onLoadMore]);
 
   function resetFilters() {
     setFilters(DEFAULT_FILTERS);
@@ -514,6 +542,8 @@ function SceneMapView({
 
   /** A radius from the empty state or the Further away strip, whose buttons then go. */
   function chooseRadius(next: NearbyRadius) {
+    // The radius already in use (the empty state's pressed chip): nothing changes, focus stays.
+    if (next === radius) return;
     setRadius(next);
     pendingFocus.current = "results";
   }
@@ -562,17 +592,16 @@ function SceneMapView({
   if (filters.search) chips.push({ key: "q", label: `"${filters.search}"`, onRemove: () => setFilters((f) => ({ ...f, search: "" })) });
   if (areaBounds) chips.push({ key: "area", label: "This area", onRemove: () => setAreaBounds(null) });
 
-  // The owner's mocks (390, 768): List | Map, the chosen half black. 48px, for touch.
+  // The owner's mocks (390, 768): List | Map, the chosen half black, words only. 48px, for touch.
   const viewButton = (view: MobileView, label: string) => (
     <button
       type="button"
       aria-pressed={mobileView === view}
       onClick={() => setMobileView(view)}
-      className={`label-button flex flex-1 items-center justify-center gap-2 rounded-control px-4 ${
+      className={`label-button flex items-center justify-center px-4 ${
         mobileView === view ? "bg-foreground text-background" : "text-foreground hover:bg-hover"
       }`}
     >
-      {view === "map" ? <PinFilledIcon className="size-4" /> : <ListIcon className="size-4" />}
       {label}
     </button>
   );
@@ -580,7 +609,7 @@ function SceneMapView({
     <div
       role="group"
       aria-label="Show events as"
-      className="flex h-12 shrink-0 gap-1 rounded-control border-control border-foreground bg-background p-1 lg:hidden"
+      className="flex h-12 shrink-0 overflow-hidden rounded-control border-control border-foreground bg-background lg:hidden"
     >
       {viewButton("list", "List")}
       {viewButton("map", "Map")}
@@ -590,19 +619,23 @@ function SceneMapView({
   // The radii the empty state offers (the audit's: "Within 10 km", "25 km", "50 km"): the one in
   // use, pressed, and every larger one of those.
   const widerRadii = radiusKm === null ? [] : NEARBY_RADII_KM.filter((km) => km === radiusKm || (km > radiusKm && km >= 10));
+  // A phone's Map view: the search bar floats over the map (the owner's 390 and 768 mocks).
+  const searchOverMap = !desktop && mobileView === "map";
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-6 lg:gap-8">
       {/* The proposal's headline: the brand's Ü shown through BrandU, read as "Sheltüh near you."; the eyebrow names the page. */}
-      <PageHeader
-        brand
-        flush
-        eyebrow="Nearby"
-        title={<BrandU spoken="Sheltüh near you.">SHELTÜH NEAR YOÜ.</BrandU>}
-      />
+      <header className="flex flex-col">
+        <Strap label="Nearby" rule={false} className="rise mb-4" />
+        <h1 className="display-l break-words lg:display-xl">
+          <BrandU spoken="Sheltüh near you.">SHELTÜH NEAR YOÜ.</BrandU>
+        </h1>
+      </header>
 
       <div className="mt-2">
         <SceneMapFilterBar
+          desktop={desktop}
+          showPhoneSearch={!searchOverMap}
           search={filters.search}
           onSearchChange={(search) => setFilters((f) => ({ ...f, search }))}
           near={nearShown}
@@ -617,6 +650,7 @@ function SceneMapView({
           onPricingChange={(pricing) => setFilters((f) => ({ ...f, pricing }))}
           radius={located ? radius : null}
           onRadiusChange={setRadius}
+          radiusPaused={areaBounds !== null}
           viewToggle={viewToggle}
         />
       </div>
@@ -654,7 +688,7 @@ function SceneMapView({
           ? "Loading events…"
           : status === "loaded" && !progress.visible
             ? noneNear
-              ? noneNearSentence
+              ? noneNearStatus
               : countSentence
             : ""}
       </p>
@@ -686,17 +720,17 @@ function SceneMapView({
 
       {status === "loaded" && !progress.visible && (
         <>
-          {/* How many are listed, and within what of where (the proposal); the status above is what
-              announces it. Focusable, for focus to land on when the buttons that changed it go. */}
-          <p
-            ref={countRef}
-            tabIndex={-1}
-            data-map-count=""
-            className="mono-s border-t border-surface-border pt-6 text-foreground focus:outline-none lg:mono-m"
-          >
-            <span className="font-semibold">{count}</span> {countWords}
-            {withinWords}
-          </p>
+          {/* How many are listed, and within what of where (the proposal): the number black, the
+              words muted. The status above is what announces it. Focusable, for focus to land on
+              when the buttons that changed it go. */}
+          <div className="border-t border-surface-border pt-6 lg:mb-4 lg:pt-8">
+            <p ref={countRef} tabIndex={-1} data-map-count="" className="mono-s text-muted focus:outline-none lg:mono-m">
+              <span className="font-semibold text-foreground">{count}</span> {countWords}
+              {withinWords}
+              {soFar}
+            </p>
+            {!located && <p className="body-s mt-2 text-muted">Set Where to see what&rsquo;s near you.</p>}
+          </div>
 
           {filtered.length === 0 ? (
             <EmptyState
@@ -705,12 +739,17 @@ function SceneMapView({
             />
           ) : (
             <>
-              <div className="grid overflow-hidden rounded-card border-control border-foreground bg-background lg:grid-cols-[55fr_45fr]">
+              {/* From lg, map and list in one framed panel, tall enough for three rows; below lg, the
+                  rows sit on the page and a phone's map runs edge to edge. */}
+              <div className="grid lg:grid-cols-[55fr_45fr] lg:overflow-hidden lg:rounded-card lg:border-control lg:border-foreground">
                 {/* At most 60% of a phone's height, so there's always page to scroll by outside the map. */}
                 <div
                   ref={mapPaneRef}
                   data-map-pane=""
-                  className={`relative h-[min(26.25rem,60svh)] lg:h-[37.5rem] ${mobileView === "map" ? "block" : "hidden"} lg:block`}
+                  data-search-over={searchOverMap ? "" : undefined}
+                  className={`relative -mx-4 h-[min(26.25rem,60svh)] md:-mx-8 lg:mx-0 lg:h-[min(60rem,calc(100svh-6rem))] ${
+                    mobileView === "map" ? "block" : "hidden"
+                  } lg:block`}
                 >
                   <SceneMapPanel
                     events={mapEvents}
@@ -725,6 +764,11 @@ function SceneMapView({
                     onSearchArea={setAreaBounds}
                     onShowList={showList}
                   />
+                  {searchOverMap && (
+                    <div data-location-field="" className="absolute inset-x-4 top-4 z-[1100] md:inset-x-8">
+                      <SearchBar near={nearShown} />
+                    </div>
+                  )}
                   {/* Phones: the map's lower-left corner (above the Mapbox wordmark, where it's shown); from lg,
                       under the zoom buttons, clear of the selected event's card. */}
                   {locate.canLocate && (
@@ -758,21 +802,30 @@ function SceneMapView({
                 <section
                   ref={listRef}
                   tabIndex={-1}
-                  aria-label="Events list"
-                  className={`relative h-auto overflow-visible focus-visible:-outline-offset-2 lg:h-[37.5rem] lg:overflow-y-auto lg:border-l-control lg:border-foreground ${
+                  aria-labelledby="nearby-list-title"
+                  className={`relative h-auto overflow-visible focus-visible:-outline-offset-2 lg:h-[min(60rem,calc(100svh-6rem))] lg:overflow-y-auto lg:border-l-control lg:border-foreground ${
                     mobileView === "list" ? "block" : "hidden"
                   } lg:block`}
                 >
+                  <h2 id="nearby-list-title" className="sr-only">
+                    Events list
+                  </h2>
                   {noneNear && (
                     // The audit's empty state (p. 19): say nothing is close, rather than show other states.
-                    <div data-nearby-empty="" className="p-6 lg:p-8">
-                      <h2 className="heading-h3">{noneNearSentence}</h2>
+                    <div data-nearby-empty="" className="py-6 lg:p-8">
+                      <h3 className="heading-h3">{noneNearSentence}</h3>
                       <p className="body-m mt-2 text-muted">Try expanding your search area.</p>
                       <div className="mt-6 flex flex-wrap gap-2">
                         {widerRadii.map((km) => (
-                          <FilterChip key={km} pressed={km === radiusKm} onClick={() => chooseRadius(km)}>
+                          <button
+                            key={km}
+                            type="button"
+                            aria-pressed={km === radiusKm}
+                            onClick={() => chooseRadius(km)}
+                            className={filterChipClass(km === radiusKm)}
+                          >
                             {km === radiusKm ? radiusLabel(km) : `${km} km`}
-                          </FilterChip>
+                          </button>
                         ))}
                       </div>
                     </div>
@@ -813,19 +866,22 @@ function SceneMapView({
 
           {/* The proposal's Further away: what the radius leaves out, and the way to see it all. */}
           {furtherCount > 0 && radiusKm !== null && (
-            <div
+            <section
+              aria-labelledby="nearby-further-title"
               data-further-away=""
               className="flex flex-col items-start gap-4 rounded-card bg-surface p-4 lg:flex-row lg:items-center lg:gap-6 lg:bg-transparent lg:p-0"
             >
-              <p className="mono-s shrink-0 text-muted uppercase">Further away</p>
+              <h2 id="nearby-further-title" className="mono-s shrink-0 text-muted uppercase">
+                Further away
+              </h2>
               <p className="body-m text-foreground">
                 {furtherCount} more event{furtherCount === 1 ? "" : "s"} outside {radiusKm} km
                 {furtherPlaces.length > 0 ? ` — ${furtherPlaces.join(", ")}.` : "."}
               </p>
-              <Button variant="outline" size="sm" onClick={() => chooseRadius("all")} className="shrink-0">
+              <Button variant="outline" onClick={() => chooseRadius("all")} className="shrink-0">
                 Show all of Australia
               </Button>
-            </div>
+            </section>
           )}
 
           {withoutLocationCount > 0 && (
@@ -856,6 +912,7 @@ function SceneMapView({
               findSuburb={findSuburb}
               detailsHref={`/events/${selectedEvent.slug}`}
               onDismiss={handleDismiss}
+              onShowList={showList}
               className="fixed right-[calc(0.75rem+env(safe-area-inset-right))] bottom-[calc(0.75rem+env(safe-area-inset-bottom))] left-[calc(0.75rem+env(safe-area-inset-left))] z-[1200] lg:hidden"
             />
           )}

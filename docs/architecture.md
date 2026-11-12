@@ -4950,8 +4950,15 @@ Search can order results by how close they are to a suburb (owner round,
     as not on the map. With nothing within the radius, the audit's empty
     state ("No events found near {place}." / "Try expanding your search
     area.", with the wider radii) replaces the list; the map stays. "Search
-    this area" lifts the radius while it applies. Without a place, the list
-    is every event soonest first, as before.
+    this area" lifts the radius while it applies (Distance shows disabled).
+    Without a place, the list is every event soonest first, as before, with
+    "Set Where to see what's near you." Live, while more pages remain and the
+    radius holds fewer than 12 events, Nearby reads one more Load more's worth
+    (4 pages) by itself; after that its counts and empty state say "so far"
+    beside Load more.
+  - Below lg the search is the site's search bar (as on the home, with Where
+    inside its sheet), floated over the map in the Map view; from lg, the
+    page's own search field and a standalone Where.
 - **`/map` follows the visitor's location** (owner request, creator call,
   Nov 2026). The map's position is data attributes on its container
   (`data-center-lat`, `data-center-lng`, rounded to about 100 m, and

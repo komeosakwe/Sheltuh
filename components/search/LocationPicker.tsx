@@ -137,8 +137,27 @@ export default function LocationPicker({
   const canLocate = useSyncExternalStore(noSubscribe, hasGeolocation, serverFalse);
   // What the visitor has typed or chosen here; until then, the address's or the remembered suburb.
   const [draft, setDraft] = useState<string | null>(null);
-  const value = draft ?? near ?? stored;
   const [anywhere, setAnywhere] = useState(false);
+  // What this picker last remembered itself (a choice, All of Australia, a sent search): its own
+  // write isn't a change from outside.
+  const [ownWrite, setOwnWrite] = useState<string | null>(null);
+  // The place in use changed from outside (Near me, another tab, the page's own place): Where
+  // shows it, not an older draft.
+  const [seen, setSeen] = useState({ stored, near });
+  if (seen.stored !== stored || seen.near !== near) {
+    setSeen({ stored, near });
+    if (stored !== ownWrite || seen.near !== near) {
+      setDraft(null);
+      if (stored || near) setAnywhere(false);
+    }
+  }
+  /** Remembers `suburb` (or forgets the place, for ""), noting that this picker did it. */
+  function remember(suburb: string, state: StateCode | null) {
+    setOwnWrite(suburb.trim().slice(0, NEAR_MAX_LENGTH));
+    if (suburb) writeStoredNear(suburb, state);
+    else clearStoredNear();
+  }
+  const value = draft ?? near ?? stored;
   const [open, setOpen] = useState(false);
   const [panelStatus, setPanelStatus] = useState<PanelStatus>(null);
   // Announced outside the menu, which has closed by the time it changes.
@@ -277,12 +296,12 @@ export default function LocationPicker({
       const typed = typeof raw === "string" ? raw.trim() : "";
       if (!typed) {
         event.formData.delete("near");
-        clearStoredNear();
+        remember("", null);
         return;
       }
       event.formData.set("near", typed);
       const place = moduleRef.current?.findLocality(typed);
-      if (place) writeStoredNear(place.name, place.state);
+      if (place) remember(place.name, place.state);
     }
     form.addEventListener("formdata", handleFormData);
     return () => form.removeEventListener("formdata", handleFormData);
@@ -314,7 +333,7 @@ export default function LocationPicker({
   function setPlace(suburb: string, state: StateCode | null) {
     setDraft(suburb);
     setAnywhere(false);
-    writeStoredNear(suburb, state);
+    remember(suburb, state);
     setPanelStatus(null);
     closeAndReturn(`Location set: ${placeName(suburb, state)}`);
   }
@@ -400,7 +419,7 @@ export default function LocationPicker({
   function clearLocation() {
     setDraft("");
     setAnywhere(true);
-    clearStoredNear();
+    remember("", null);
     setPanelStatus(null);
     closeAndReturn("Location cleared: all of Australia");
   }
@@ -440,17 +459,20 @@ export default function LocationPicker({
         // Below md, in the search sheet: a full-width field with the stroke. From md, a segment of the
         // bar; standalone (Nearby), the field at every width.
         className={`flex min-h-12 w-full min-w-0 shrink-0 items-center gap-2 rounded-control border-control border-foreground bg-card px-4 text-left hover:bg-hover data-open:border-foreground data-open:bg-hover ${
-          standalone ? "" : "md:w-auto md:max-w-2/5 md:border-transparent md:px-3 md:focus-visible:-outline-offset-2!"
+          standalone ? "lg:min-h-18 lg:px-6" : "md:w-auto md:max-w-2/5 md:border-transparent md:px-3 md:focus-visible:-outline-offset-2!"
         }`.trim()}
       >
         <Icon className="size-5">{PIN}</Icon>
         <span className="flex min-w-0 flex-1 flex-col">
-          <span aria-hidden="true" className="eyebrow text-muted">
+          {/* Standalone (Nearby, the proposal): just the place; the name still says "Where". */}
+          <span aria-hidden="true" className={standalone ? "sr-only" : "eyebrow text-muted"}>
             Where
           </span>
           <span
             data-location-label=""
-            className={`truncate text-sm leading-5 font-semibold ${label || anywhere ? "text-foreground" : "font-normal text-muted"}`}
+            className={`truncate text-sm leading-5 font-semibold ${standalone ? "lg:text-lg lg:leading-7" : ""} ${
+              label || anywhere ? "text-foreground" : "font-normal text-muted"
+            }`}
           >
             {shown}
           </span>

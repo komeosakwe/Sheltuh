@@ -85,7 +85,22 @@ const brisbane = makeEvent({
 });
 const events = [brisbane, malvern, fitzroy, frankston];
 
+/** A desktop (≥1024px) window: the search field, Where and the filters in a row (no Filters button). */
+function desktopMatchMedia(query: string): MediaQueryList {
+  return {
+    matches: query.includes("min-width: 64rem"),
+    media: query,
+    onchange: null,
+    addEventListener() {},
+    removeEventListener() {},
+    addListener() {},
+    removeListener() {},
+    dispatchEvent: () => false,
+  };
+}
+
 beforeAll(async () => {
+  vi.stubGlobal("matchMedia", desktopMatchMedia);
   Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 800 });
   Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 600 });
   vi.stubGlobal(
@@ -160,6 +175,8 @@ describe("Nearby within a radius of the saved suburb", () => {
     expect(count()?.querySelector("span")?.className).not.toMatch(/signal/);
     expect(statusSaying("2 upcoming events within 25 km of Caulfield East")).toBe(true);
     expect(distance()).toHaveValue("25");
+    // The default radius isn't "active": not filled.
+    expect(distance().closest("[data-select-filter]")).not.toHaveClass("bg-foreground");
     // The Brisbane event, the soonest, isn't listed "near you" (the audit's 1,376 km).
     expect(screen.queryByRole("link", { name: "Valley Show" })).toBeNull();
   });
@@ -223,14 +240,21 @@ describe("Nearby within a radius of the saved suburb", () => {
       params = new URLSearchParams("cat=theatre");
       await renderNearby();
       const empty = document.querySelector("[data-nearby-empty]") as HTMLElement;
-      expect(within(empty).getByRole("heading", { level: 2 })).toHaveTextContent("No events found near Caulfield East.");
+      expect(within(empty).getByRole("heading", { level: 3 })).toHaveTextContent("No events found near Caulfield East.");
       expect(empty).toHaveTextContent("Try expanding your search area.");
       const radii = within(empty).getAllByRole("button");
       expect(radii.map((button) => button.textContent)).toEqual(["Within 25 km", "50 km"]);
       expect(radii[0]).toHaveAttribute("aria-pressed", "true");
       expect(radii[1]).toHaveAttribute("aria-pressed", "false");
+      // The current radius: nothing to do, and focus stays on it.
+      radii[0].focus();
+      fireEvent.click(radii[0]);
+      expect(document.activeElement).toBe(radii[0]);
+      // No orange dots here (they mark a selected filter, not a radius choice).
+      expect(empty.querySelector("[data-selected-dots]")).toBeNull();
       expect(listedTitles()).toEqual([]);
-      expect(statusSaying("No events found near Caulfield East.")).toBe(true);
+      // Announced with the radius, so a wider one that still finds nothing is announced too.
+      expect(statusSaying("No events within 25 km of Caulfield East.")).toBe(true);
       expect(count()).toHaveTextContent(/^0 upcoming events within 25 km of Caulfield East$/);
       expect(further()).toHaveTextContent("1 more event outside 25 km — Frankston.");
       // Not the "no events match your filters" state: the filters do match, just not near here.

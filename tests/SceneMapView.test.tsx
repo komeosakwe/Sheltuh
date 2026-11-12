@@ -206,7 +206,7 @@ describe("/map focus and layout on phones (WCAG 2.4.3, 2.4.11)", () => {
     await waitFor(() => expect(document.activeElement).toBe(list));
     expect(list).toHaveAttribute("tabindex", "-1");
     // No nested scroll below lg; it scrolls beside the map from lg. The map keeps its 60svh cap.
-    expect(list).toHaveClass("h-auto", "overflow-visible", "lg:h-[37.5rem]", "lg:overflow-y-auto");
+    expect(list).toHaveClass("h-auto", "overflow-visible", "lg:h-[min(60rem,calc(100svh-6rem))]", "lg:overflow-y-auto");
     expect(list.className).not.toMatch(/(^|\s)overflow-y-auto/);
     expect(list.className).not.toMatch(/(^|\s)h-\[min/);
     expect(document.querySelector(".leaflet-container")?.closest(".relative.h-\\[min\\(26\\.25rem\\,60svh\\)\\]")).not.toBeNull();
@@ -270,6 +270,10 @@ describe("/map focus and layout on phones (WCAG 2.4.3, 2.4.11)", () => {
 });
 
 describe("/map results and controls", () => {
+  afterEach(() => {
+    window.matchMedia = originalMatchMedia;
+  });
+
   it("announces the count in its persistent status; the visible count isn't a second live region", async () => {
     await renderMap();
     const status = screen.getAllByRole("status").find((el) => el.textContent === "2 upcoming events");
@@ -293,14 +297,15 @@ describe("/map results and controls", () => {
     expect(screen.getAllByRole("status").some((el) => el.textContent === "1 upcoming event matching your filters")).toBe(true);
   });
 
-  it("the List | Map switch sits beside the Filters button (the 390 and 768 mocks), 48px, the chosen half black with its icon", async () => {
+  it("the List | Map switch sits beside the Filters button (the 390 and 768 mocks), 48px, the chosen half black, words only", async () => {
     await renderMap();
     const group = screen.getByRole("group", { name: "Show events as" });
     expect(group.parentElement).toContainElement(screen.getByRole("button", { name: /^Filters/ }));
     expect(group).toHaveClass("h-12", "lg:hidden");
     const list = within(group).getByRole("button", { name: "List" });
     expect(list).toHaveClass("bg-foreground", "text-background");
-    expect(list.querySelector("svg")).not.toBeNull();
+    expect(list.querySelector("svg")).toBeNull();
+    expect(group).not.toHaveClass("p-1");
     expect(within(group).getByRole("button", { name: "Map" })).not.toHaveClass("bg-foreground");
   });
 
@@ -311,7 +316,8 @@ describe("/map results and controls", () => {
   });
 
   // The owner's mockup (8 Nov 2026): no label above the field; the placeholder says it, and the label is for assistive tech.
-  it("labels the search field, with the mockup's placeholder", async () => {
+  it("labels the search field (from lg), with the proposal's placeholder", async () => {
+    stubViewport(true);
     await renderMap();
     const search = screen.getByRole("searchbox", { name: "Search events, venues or suburbs" });
     expect(search).toHaveAttribute("placeholder", "Search events, venues or suburbs");
@@ -319,6 +325,7 @@ describe("/map results and controls", () => {
   });
 
   it("the time and scene chips show their own choice, so only other filters get a removable chip", async () => {
+    stubViewport(true);
     params = new URLSearchParams("time=tonight&cat=art&q=night");
     mockEvents = [event("paid-night", "Paid Night", 2000), event("free-day", "Free Day", 0)];
     render(<SceneMap />);

@@ -26,9 +26,10 @@ function rowPrice(event: SheltuhEvent): string {
 /**
  * A Nearby list row (the proposal's Nearby; the owner's 390 and 768 mocks): the photo, the date in
  * mono, the title (the row's one link, stretched over it, so hover, press and keyboard focus show
- * on the row), the venue and "Suburb, STATE" (a line each), "Category · 8.3 km", the all-inclusive
- * "From A$5", then, from lg, the orange "Buy tickets" (the phone and tablet mocks leave it off: the
- * row opens the event). Locate sits top right at every width, selecting the event on the map.
+ * on the row; an h3), the venue and "Suburb, STATE" (a line each), "Category · 8.3 km", the
+ * all-inclusive "From A$5" (on the right of that line below lg), then, from lg, the orange "Buy
+ * tickets" (48px) and Locate top right (56px), selecting the event on the map. The phone and
+ * tablet mocks leave both off: the row opens the event, and the Map view shows where it is.
  * Independent controls, never nested in the link. Selected: a muted fill, a black edge and the
  * word "Selected", never colour alone.
  */
@@ -37,7 +38,7 @@ export default function SceneEventRow({ event, selected, onLocate, hasLocation, 
   return (
     <div
       data-scene-row=""
-      className={`group/row relative grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-4 border-b border-l-2 border-b-surface-border p-4 last:border-b-0 has-[[data-card-link]:focus-visible]:outline-2 has-[[data-card-link]:focus-visible]:-outline-offset-2 has-[[data-card-link]:focus-visible]:outline-foreground has-[[data-card-link]:active]:bg-surface-border lg:p-6 ${
+      className={`group/row relative grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-4 border-b border-l-2 border-b-surface-border py-4 pr-0 pl-2 last:border-b-0 lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:p-6 has-[[data-card-link]:focus-visible]:outline-2 has-[[data-card-link]:focus-visible]:-outline-offset-2 has-[[data-card-link]:focus-visible]:outline-foreground has-[[data-card-link]:active]:bg-surface-border lg:p-6 ${
         selected ? "border-l-foreground bg-surface" : "border-l-transparent hover:bg-surface"
       }`}
     >
@@ -55,7 +56,7 @@ export default function SceneEventRow({ event, selected, onLocate, hasLocation, 
             <span aria-hidden="true">&#10003;</span> Selected
           </p>
         )}
-        <p className="meta">
+        <p className="meta lg:mono-m">
           <span className="whitespace-nowrap">{start.date}</span>{" "}
           <span className="whitespace-nowrap">· {start.time}</span>
           {/* Its own part, so it wraps under the time rather than under the locate button. */}
@@ -66,32 +67,35 @@ export default function SceneEventRow({ event, selected, onLocate, hasLocation, 
             </>
           )}
         </p>
-        <Link
-          href={detailsHref}
-          data-card-link=""
-          className="heading-h4 mt-2 block break-words text-foreground underline-offset-4 group-hover/row:underline after:absolute after:inset-0 after:z-0 after:content-['']"
-        >
-          {event.title}
-        </Link>
-        <PlaceLines event={event} className="body-s mt-1 text-muted" />
-        {/* Phones and tablets: the price at the end of the category line (the mocks); from lg, a line of its own. */}
-        <div className="mt-1 flex flex-wrap items-baseline justify-between gap-x-4 lg:block">
-          <p className="body-s text-muted">
+        {/* An h3 under the list's heading; its link is the row's one link, stretched over it. */}
+        <h3 className="heading-h4 mt-2 break-words lg:heading-h3">
+          <Link
+            href={detailsHref}
+            data-card-link=""
+            className="block text-foreground underline-offset-4 group-hover/row:underline after:absolute after:inset-0 after:z-0 after:content-['']"
+          >
+            {event.title}
+          </Link>
+        </h3>
+        <PlaceLines event={event} className="body-s mt-1 text-muted lg:body-m" />
+        {/* Phones and tablets: the price at the end of the category line, on the right (the mocks); from lg, a line of its own. */}
+        <div className="mt-1 flex items-baseline gap-x-4 lg:block">
+          <p className="body-s min-w-0 flex-1 text-muted lg:body-m">
             {categoryLabel(event)}
             {distance && (
-              <>
+              <span className="whitespace-nowrap">
                 {" "}&middot; {distance}
                 <span className="sr-only"> away</span>
-              </>
+              </span>
             )}
             {!hasLocation && <> &middot; not shown on map</>}
           </p>
-          <p data-row-price="" className="body-m font-semibold text-foreground tabular-nums lg:mt-1">
+          <p data-row-price="" className="body-m shrink-0 text-right font-semibold whitespace-nowrap text-foreground tabular-nums lg:mt-1 lg:text-left">
             {rowPrice(event)}
           </p>
         </div>
         <div className="relative z-10 hidden lg:block">
-          <QuickBuyLink event={event} className="mt-4" />
+          <QuickBuyLink event={event} tall className="mt-4" />
         </div>
       </div>
 
@@ -102,7 +106,7 @@ export default function SceneEventRow({ event, selected, onLocate, hasLocation, 
         aria-pressed={selected}
         aria-label={`Locate ${event.title} on the map`}
         title="Locate on map"
-        className={`relative z-10 flex size-12 shrink-0 items-center justify-center rounded-control border-control disabled:cursor-not-allowed disabled:border-surface-border disabled:bg-surface disabled:text-muted ${
+        className={`relative z-10 hidden size-14 shrink-0 items-center justify-center rounded-control border-control lg:flex disabled:cursor-not-allowed disabled:border-surface-border disabled:bg-surface disabled:text-muted ${
           selected ? "border-foreground bg-foreground text-background" : "border-foreground bg-background text-foreground hover:bg-hover"
         }`}
       >

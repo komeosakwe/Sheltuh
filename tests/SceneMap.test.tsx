@@ -291,7 +291,7 @@ describe("SceneMap photo markers", () => {
       await waitFor(() => expect(mapPanel().dataset.zoom).toBe(String(MAP_NEAR_ZOOM)));
       expect(Number(mapPanel().dataset.centerLng)).toBeCloseTo(115.86, 1);
       expect(within(mapPanel()).queryByRole("button", { name: /^Photo Night\./ })).toBeNull();
-      expect(screen.getByRole("heading", { level: 2, name: "No events found near Perth." })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { level: 3, name: "No events found near Perth." })).toBeInTheDocument();
     } finally {
       localStorage.removeItem("sheltuh:near:v1");
     }

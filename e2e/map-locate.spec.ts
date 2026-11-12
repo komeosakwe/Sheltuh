@@ -113,7 +113,7 @@ test.describe("/map centres on the visitor at 1280×800", () => {
       await field.fill("Darwin");
       await field.press("Enter");
       // Darwin is the suburb table's Darwin City.
-      await expect(page.getByRole("heading", { level: 2, name: "No events found near Darwin City." })).toBeVisible();
+      await expect(page.getByRole("heading", { level: 3, name: "No events found near Darwin City." })).toBeVisible();
       await expect
         .poll(async () => {
           const view = await readView(mapContainer(page));
@@ -376,9 +376,10 @@ test.describe("/map on a 375px phone", () => {
     await expectCentredOn(page, SYDNEY);
     const before = await readView(mapContainer(page));
 
-    await page.getByRole("button", { name: "List", exact: true }).click();
+    const views = page.getByRole("group", { name: "Show events as" });
+    await views.getByRole("button", { name: "List" }).click();
     await expect(mapContainer(page)).toBeHidden();
-    await page.getByRole("button", { name: "Map", exact: true }).click();
+    await views.getByRole("button", { name: "Map" }).click();
     await expect(mapContainer(page)).toBeVisible();
     await expect(page.locator(".leaflet-tile-loaded").first()).toBeVisible({ timeout: 20_000 });
     // Past the reveal's deferred framing (a frame) and any animation it would start.
