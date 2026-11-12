@@ -95,7 +95,7 @@ test.describe("Nearby's controls at 390×844", () => {
     await tonight.click();
     await expect(tonight).toHaveAttribute("aria-pressed", "true");
     await expect(page).toHaveURL(/[?&]time=tonight\b/);
-    expect(await tonight.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(0, 0, 0)");
+    await expect(tonight).toHaveCSS("background-color", "rgb(0, 0, 0)"); // retries: the colour eases in
     await expect(page.getByRole("button", { name: /^Filters/ })).toHaveAccessibleName("Filters, 1 active");
     await tonight.click();
     await expect(tonight).toHaveAttribute("aria-pressed", "false");
@@ -109,7 +109,7 @@ test.describe("Nearby's controls at 390×844", () => {
     const map = group.getByRole("button", { name: "Map" });
     const list = group.getByRole("button", { name: "List" });
     await expect(list).toHaveAttribute("aria-pressed", "true");
-    expect(await list.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(0, 0, 0)");
+    await expect(list).toHaveCSS("background-color", "rgb(0, 0, 0)"); // retries: the colour eases in
     await expect(page.getByRole("region", { name: "Events list" })).toBeVisible();
     await expect(page.locator(".leaflet-container")).toBeHidden();
     await map.click();
@@ -186,7 +186,7 @@ test.describe("Nearby within a radius at 1440×900", () => {
     await expect(distance).toHaveValue("25");
     await expect(distanceChip).toContainText("Within 25 km");
     // The default radius is not "active": outlined, not filled (one rule with the other filters).
-    expect(await distanceChip.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(255, 255, 255)");
+    await expect(distanceChip).toHaveCSS("background-color", "rgb(255, 255, 255)"); // retries: the colour eases in
     await expect(page.getByRole("link", { name: "Valley Show", exact: true })).toHaveCount(0);
     const further = page.locator("[data-further-away]");
     await expect(further).toContainText("Further away");
@@ -207,7 +207,7 @@ test.describe("Nearby within a radius at 1440×900", () => {
     await expect(page.getByRole("link", { name: "Valley Show", exact: true })).toBeVisible();
     await expect(distance).toHaveValue("all");
     await expect(distance).toBeFocused();
-    expect(await distanceChip.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(0, 0, 0)");
+    await expect(distanceChip).toHaveCSS("background-color", "rgb(0, 0, 0)"); // retries: the colour eases in
     await expect(page).toHaveURL(/[?&]within=all\b/);
     await expect(further).toHaveCount(0);
   });

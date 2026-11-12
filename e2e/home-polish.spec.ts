@@ -102,11 +102,12 @@ for (const theme of ["light", "dark"] as const) {
         });
       // --foreground and --background (app/globals.css) in each theme.
       const [ink, page_] = theme === "dark" ? ["rgb(255, 255, 255)", "rgb(0, 0, 0)"] : ["rgb(0, 0, 0)", "rgb(255, 255, 255)"];
+      // Polled: the chip's colours ease in (a short transition), so the first read can be mid-way.
       // Selected: filled with the foreground, the page colour's words and icon, and the orange dots.
-      expect(await look(tonight)).toEqual({ bg: ink, fg: page_, border: ink, icon: page_ });
+      await expect.poll(() => look(tonight)).toEqual({ bg: ink, fg: page_, border: ink, icon: page_ });
       await expect(tonight.locator("[data-selected-dots] span").first()).toHaveCSS("background-color", "rgb(255, 72, 0)");
       // Unselected: the page colour, outlined in the foreground.
-      expect(await look(weekend)).toEqual({ bg: page_, fg: ink, border: ink, icon: ink });
+      await expect.poll(() => look(weekend)).toEqual({ bg: page_, fg: ink, border: ink, icon: ink });
       // The 1.5px stroke (drawn as 1px on a 1x screen).
       expect(await weekend.evaluate((el) => getComputedStyle(el).borderTopWidth)).toMatch(/^1(\.5)?px$/);
 
