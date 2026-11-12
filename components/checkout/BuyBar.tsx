@@ -80,8 +80,8 @@ export function GaBuyBar({
   price: FeedPriceParts;
   /** "Buy tickets", "Free tickets" or "Join waitlist": the link to the tickets when there's no checkout state. */
   label: string;
-  /** The event's start in mono under the price ("Thu 19 Nov · 7:00 pm"). */
-  dateLine: string;
+  /** The event's start in mono under the price ("Thu 19 Nov · 7:00 pm"); none for a draft without a date yet. */
+  dateLine?: string;
   className: string;
 }) {
   const state = useContext(StateContext);
@@ -153,7 +153,7 @@ export function BarPrice({
 }: {
   amount?: string;
   note?: string;
-  dateLine: string;
+  dateLine?: string;
   amountId?: string;
   noteId?: string;
 }) {
@@ -172,7 +172,7 @@ export function BarPrice({
         )}
       </p>
       )}
-      <p className="mono-s text-muted uppercase">{dateLine}</p>
+      {dateLine && <p className="mono-s text-muted uppercase">{dateLine}</p>}
     </div>
   );
 }

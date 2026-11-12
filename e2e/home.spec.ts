@@ -144,8 +144,21 @@ for (const vp of VIEWPORTS) {
       const columns = await grid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").map(parseFloat));
       expect(columns).toHaveLength(vp.columns);
       for (const width of columns) expect(width).toBeCloseTo(vp.card, 0);
-      const feet = await grid.locator("[data-card-foot]").evaluateAll((els) => els.map((el) => getComputedStyle(el).flexDirection));
-      for (const direction of feet) expect(direction).toBe("row");
+      // A row, and laid out as one: every child shares the first one's line (a wrapped row would pass the first check alone).
+      const feet = await grid.locator("[data-card-foot]").evaluateAll((els) =>
+        els.map((el) => {
+          const boxes = Array.from(el.children)
+            .map((child) => child.getBoundingClientRect())
+            .filter((box) => box.width > 0 && box.height > 0);
+          const [first] = boxes;
+          return {
+            direction: getComputedStyle(el).flexDirection,
+            oneLine: boxes.every((box) => box.top < first.bottom && box.bottom > first.top),
+          };
+        }),
+      );
+      expect(feet.length).toBeGreaterThan(0);
+      for (const foot of feet) expect(foot).toEqual({ direction: "row", oneLine: true });
 
       expect(await noSidewaysScroll(page)).toBeLessThanOrEqual(0);
     });
@@ -405,7 +418,7 @@ for (const width of [390, 768, 1280]) {
       for (const name of ["What else?", "Recently on", "After dark"]) await expect(page.getByRole("heading", { name, exact: true })).toHaveCount(0);
       await expect(page.locator("[data-rail-layout], [data-rail-clone], [data-what-else], [data-variant='weekend']")).toHaveCount(0);
       // Each event section's link onward, named for where it goes.
-      await expect(page.getByRole("region", { name: "This weekend" }).getByRole("link", { name: "See all this weekend" })).toHaveAttribute("href", "/map?time=weekend");
+      await expect(page.getByRole("region", { name: "This weekend" }).getByRole("link", { name: "See all this weekend" })).toHaveAttribute("href", "/map?time=weekend&within=all");
       await expect(page.getByRole("region", { name: "All events" }).getByRole("link", { name: "See all events" })).toHaveAttribute("href", "/events");
       // Find your people: Explore communities to /community, then the band, with no invented counts.
       const people = page.locator("#find-your-people");

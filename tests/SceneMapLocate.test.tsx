@@ -401,6 +401,25 @@ describe("/map opens on the visitor's location", () => {
       await waitFor(() => expect(replace.mock.calls.at(-1)?.[0] ?? "").not.toMatch(/near=/));
     });
 
+    // CodeRabbit (PR 43): /map stays mounted when the header's or footer's Nearby link (no near) is
+    // followed from /map?near=…, and a filter change used to write the visit's place back.
+    it("a plain Nearby link followed from here lets it go: the remembered suburb counts, and it isn't written back", async () => {
+      params = new URLSearchParams("near=Sydney");
+      localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Fitzroy", state: "VIC" }));
+      await renderMap();
+      await waitFor(() => expect(listedTitles()).toEqual(["Sydney Show"]));
+      expect(screen.getByRole("button", { name: "Where: Sydney" })).toBeInTheDocument();
+      // The link's navigation: the same mounted page, an address without near (read on the next render).
+      params = new URLSearchParams("view=map");
+      fireEvent.click(viewButton("List"));
+      fireEvent.click(viewButton("Map"));
+      await waitFor(() => expect(screen.getByRole("button", { name: "Where: Fitzroy" })).toBeInTheDocument());
+      await waitFor(() => expect(listedTitles()).toEqual(["Fitzroy Gig"]));
+      await waitFor(() => expect(replace.mock.calls.at(-1)?.[0]).toBe("/map?view=map"));
+      expect(JSON.parse(localStorage.getItem(NEAR_STORAGE_KEY) ?? "null")).toEqual({ suburb: "Fitzroy", state: "VIC" });
+      expect(getCurrentPosition).not.toHaveBeenCalled();
+    });
+
     it("one the suburb table doesn't know doesn't stop the ask on open, and leaves the address", async () => {
       params = new URLSearchParams("near=Atlantis");
       answerAt(MELBOURNE.lat, MELBOURNE.lng);
@@ -485,6 +504,28 @@ describe("Near me", () => {
     expectNoCoordinatesStored();
     // Centring is the map's own move, not the visitor's pan.
     expect(screen.queryByRole("button", { name: /Search this area/ })).toBeNull();
+  });
+
+  // CodeRabbit (PR 43): an answer that arrived after All of Australia used to save the suburb again.
+  it("a place set while it waits for the browser wins: All of Australia, then the late answer, keeps all of Australia", async () => {
+    params = new URLSearchParams("cat=live-music");
+    localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Fitzroy", state: "VIC" }));
+    let answer: PositionCallback = () => {};
+    getCurrentPosition.mockImplementation((success) => {
+      answer = success;
+    });
+    await renderMap();
+    fireEvent.click(screen.getByRole("button", { name: "Near me" }));
+    await screen.findByRole("button", { name: "Locating…" });
+    fireEvent.click(within(wherePanel()).getByRole("button", { name: "All of Australia", hidden: true }));
+    expect(localStorage.getItem(NEAR_STORAGE_KEY)).toBeNull();
+    await act(async () => answer(position(SYDNEY.lat, SYDNEY.lng)));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Near me" })).not.toHaveAttribute("aria-disabled"));
+    expect(localStorage.getItem(NEAR_STORAGE_KEY)).toBeNull();
+    expect(screen.getByRole("button", { name: "Where: All of Australia" })).toBeInTheDocument();
+    // No place to measure from: every event, with no distances.
+    await waitFor(() => expect(listedTitles()).toEqual(["Fitzroy Gig", "Sydney Show"]));
+    expect(document.body).not.toHaveTextContent(/\d km away/);
   });
 
   it("after a refusal on open, still works on demand", async () => {

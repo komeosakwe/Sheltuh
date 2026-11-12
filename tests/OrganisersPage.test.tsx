@@ -116,7 +116,7 @@ describe("/organisers/apply (For organisers)", () => {
       "Music, art, fashion and culture — niche events reach people who are looking for them.",
       "Only the good stuff. Every organiser is checked by a person.",
       "Who’s going turns a ticket into a night with your people.",
-      "Free events are free. Paid events: a small fee per ticket, paid out via Stripe.",
+      "Free events are free. Paid tickets carry one small booking fee each, and your ticket sales are paid out to you through Stripe.",
     ]);
   });
 

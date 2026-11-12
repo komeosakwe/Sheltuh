@@ -380,6 +380,28 @@ test.describe("near you, from the home at 390px", () => {
     await expect(trigger).toBeFocused();
   });
 
+  // CodeRabbit (PR 43): the field that opens the sheet is under it, and comes just before the sheet's
+  // controls in the tab order. Shift+Tab back to it closes the sheet, so focus is never hidden behind it.
+  test("keyboard: Shift+Tab from the sheet's Close back to the field closes the sheet", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/");
+    const search = page.getByRole("search", { name: "Search events" });
+    const trigger = search.locator("[data-search-trigger]");
+    const field = search.getByRole("searchbox", { name: "Search events" });
+    await expect(async () => {
+      await trigger.focus();
+      await page.keyboard.press("Enter");
+      await expect(field).toBeFocused({ timeout: 1_000 });
+    }).toPass({ timeout: 30_000 });
+    const sheet = page.getByRole("dialog", { name: "Search events" });
+    await page.keyboard.press("Shift+Tab");
+    await expect(sheet.getByRole("button", { name: "Close" })).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
+    await expect(trigger).toBeFocused();
+    await expect(sheet).toBeHidden();
+    await expect(field).toBeHidden();
+  });
+
   test("keyboard: tabbing out of the panel closes it, and focus goes on to Search", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");

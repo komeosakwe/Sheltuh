@@ -106,7 +106,8 @@ const PIN = (
  * `standalone` (Nearby, components/SceneMapFilterBar.tsx): not part of a search that's sent, so
  * Where is a bordered field at every width (its container sets the width), and Enter in the
  * suburb field sets the place there and then: a suburb the table knows is remembered (as a
- * choice is), an empty field is All of Australia, and anything else says it wasn't found.
+ * choice is), an empty field is All of Australia, and anything else says it wasn't found. Closing
+ * the menu without applying drops what was typed: Where shows the place in use.
  */
 export default function LocationPicker({
   near,
@@ -131,6 +132,9 @@ export default function LocationPicker({
   // The same module, for rendering the suggestions once it has loaded.
   const [table, setTable] = useState<LocationModule | null>(null);
   const locatingRef = useRef(false);
+  // Each location action (a place, Use my location, All of Australia, Enter) takes the next number:
+  // an earlier one that's still loading doesn't set its place over a later one when it lands.
+  const actionRef = useRef(0);
 
   const stored = useSyncExternalStore(subscribeStoredNear, readStoredNear, serverEmpty);
   const storedState = useSyncExternalStore(subscribeStoredNear, readStoredNearState, serverNull);
@@ -138,6 +142,8 @@ export default function LocationPicker({
   // What the visitor has typed or chosen here; until then, the address's or the remembered suburb.
   const [draft, setDraft] = useState<string | null>(null);
   const [anywhere, setAnywhere] = useState(false);
+  // Standalone: whether the place applied here is All of Australia, for closing without applying.
+  const [anywhereApplied, setAnywhereApplied] = useState(false);
   // What this picker last remembered itself (a choice, All of Australia, a sent search): its own
   // write isn't a change from outside.
   const [ownWrite, setOwnWrite] = useState<string | null>(null);
@@ -148,7 +154,10 @@ export default function LocationPicker({
     setSeen({ stored, near });
     if (stored !== ownWrite || seen.near !== near) {
       setDraft(null);
-      if (stored || near) setAnywhere(false);
+      if (stored || near) {
+        setAnywhere(false);
+        setAnywhereApplied(false);
+      }
     }
   }
   /** Remembers `suburb` (or forgets the place, for ""), noting that this picker did it. */
@@ -159,6 +168,16 @@ export default function LocationPicker({
   }
   const value = draft ?? near ?? stored;
   const [open, setOpen] = useState(false);
+  // Standalone (Nearby): nothing is sent later, so a suburb typed but not applied (Enter) goes when
+  // the menu closes, and Where shows the place in use again rather than words that aren't.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (wasOpen !== open) {
+    setWasOpen(open);
+    if (!open && standalone) {
+      setDraft(null);
+      setAnywhere(anywhereApplied);
+    }
+  }
   const [panelStatus, setPanelStatus] = useState<PanelStatus>(null);
   // Announced outside the menu, which has closed by the time it changes.
   const [announcement, setAnnouncement] = useState("");
@@ -333,6 +352,7 @@ export default function LocationPicker({
   function setPlace(suburb: string, state: StateCode | null) {
     setDraft(suburb);
     setAnywhere(false);
+    setAnywhereApplied(false);
     remember(suburb, state);
     setPanelStatus(null);
     closeAndReturn(`Location set: ${placeName(suburb, state)}`);
@@ -343,6 +363,7 @@ export default function LocationPicker({
    * City): the table is loaded first if it hasn't yet. If it can't load, the name as shown.
    */
   function choose(name: string, state: StateCode | null) {
+    const action = ++actionRef.current;
     loadLocation()
       .then((loaded) => {
         moduleRef.current = loaded;
@@ -350,12 +371,16 @@ export default function LocationPicker({
         return loaded.findLocality(name);
       })
       .catch(() => null)
-      .then((place) => setPlace(place?.name ?? name, place?.state ?? state));
+      .then((place) => {
+        if (action === actionRef.current) setPlace(place?.name ?? name, place?.state ?? state);
+      });
   }
 
   function locateMe() {
     const geolocation = typeof navigator === "undefined" ? undefined : navigator.geolocation;
     if (!geolocation || locatingRef.current) return;
+    const action = ++actionRef.current;
+    const current = () => action === actionRef.current;
     locatingRef.current = true;
     setLocating(true);
     setPanelStatus({ tone: "info", text: "Finding your location…" });
@@ -368,6 +393,7 @@ export default function LocationPicker({
           .then((loaded) => {
             moduleRef.current = loaded;
             setTable(loaded);
+            if (!current()) return;
             const result = loaded.nearestLocality(here);
             if (result.kind === "outside") {
               failLocating("We couldn’t match your location to an Australian suburb. Type your suburb instead.", false);
@@ -377,11 +403,14 @@ export default function LocationPicker({
             const { name: suburb, state } = result.locality;
             setPlace(suburb, state);
           })
-          .catch(() => failLocating("Couldn’t find your location. Type your suburb instead."))
+          .catch(() => {
+            if (current()) failLocating("Couldn’t find your location. Type your suburb instead.");
+          })
           .finally(finishLocating);
       },
       (error) => {
         finishLocating();
+        if (!current()) return;
         failLocating(
           error.code === error.PERMISSION_DENIED
             ? "Location is off for this site. Type your suburb instead."
@@ -399,6 +428,7 @@ export default function LocationPicker({
       clearLocation();
       return;
     }
+    const action = ++actionRef.current;
     loadLocation()
       .then((loaded) => {
         moduleRef.current = loaded;
@@ -407,6 +437,7 @@ export default function LocationPicker({
       })
       .catch(() => null)
       .then((place) => {
+        if (action !== actionRef.current) return;
         if (place) {
           setPlace(place.name, place.state);
           return;
@@ -417,8 +448,10 @@ export default function LocationPicker({
   }
 
   function clearLocation() {
+    actionRef.current += 1;
     setDraft("");
     setAnywhere(true);
+    setAnywhereApplied(true);
     remember("", null);
     setPanelStatus(null);
     closeAndReturn("Location cleared: all of Australia");

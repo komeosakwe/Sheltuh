@@ -20,6 +20,9 @@ function noApiCalls(page: Page) {
   return () => expect(calls).toEqual([]);
 }
 
+/** An hour before the first sample event starts: every sample is upcoming then. */
+const SAMPLES_UPCOMING_AT = Math.min(...sampleEvents.map((e) => Date.parse(e.startsAt))) - 3600_000;
+
 async function noSidewaysScroll(page: Page) {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(0);
@@ -163,10 +166,13 @@ for (const vp of [
 
     test("/community is built from the sample events and calls no API", async ({ page }) => {
       const checkNoApiCalls = noApiCalls(page);
+      // The sample events have fixed dates: the page's clock starts an hour before the first one
+      // begins, so every sample is upcoming whatever the real date.
+      await page.clock.install({ time: SAMPLES_UPCOMING_AT });
       await page.goto("/community");
       await expect(page.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your people.", { timeout: 60_000 });
       await expect(page.getByRole("list", { name: "Local discovery" }).locator("[data-event-card]").first()).toBeVisible();
-      await expect(page.locator("[data-city='Melbourne']")).toContainText(/\d+ upcoming/);
+      await expect(page.locator("[data-city='Melbourne']")).toContainText(/[1-9]\d* upcoming/);
       await noSidewaysScroll(page);
       checkNoApiCalls();
     });

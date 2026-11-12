@@ -103,7 +103,7 @@ describe("SearchBar", () => {
     expect(sheet()).not.toHaveAttribute("role");
   });
 
-  it("closes the sheet when focus leaves it for the page, not when it moves inside or to the field", () => {
+  it("closes the sheet when focus leaves it for the page, or for the field under it; not when it moves inside or to an ancestor", () => {
     render(<SearchBar />);
     const el = sheet();
     const hidePopover = vi.fn();
@@ -111,12 +111,18 @@ describe("SearchBar", () => {
     toggle(el, "open");
     const input = screen.getByRole("searchbox");
     fireEvent.focusOut(input, { relatedTarget: screen.getByRole("button", { name: /^Where: / }) });
-    fireEvent.focusOut(input, { relatedTarget: document.querySelector("[data-search-trigger]") });
+    // A press on the sheet's text focuses the nearest focusable ancestor: stays open.
+    fireEvent.focusOut(input, { relatedTarget: screen.getByRole("search") });
     expect(hidePopover).not.toHaveBeenCalled();
+    // CodeRabbit (PR 43): Shift+Tab from the sheet's first control reaches the field that opened it,
+    // which is under the full-screen sheet: closes, so the next Shift+Tab can't reach the page behind it.
+    const close = within(el).getByRole("button", { name: "Close" });
+    fireEvent.focusOut(close, { relatedTarget: document.querySelector("[data-search-trigger]") });
+    expect(hidePopover).toHaveBeenCalledTimes(1);
     const outside = document.createElement("button");
     document.body.append(outside);
     fireEvent.focusOut(input, { relatedTarget: outside });
-    expect(hidePopover).toHaveBeenCalledTimes(1);
+    expect(hidePopover).toHaveBeenCalledTimes(2);
     outside.remove();
   });
 

@@ -184,7 +184,7 @@ test.describe("This weekend at 390×844", () => {
     await expect(section.getByRole("heading", { level: 2 })).toHaveText("This weekend");
     await expect(section.getByText(/^(?:Fri \d+( \w+)? – Sun \d+ \w+|Until Sun \d+ \w+)$/)).toBeVisible();
     const all = section.getByRole("link", { name: "See all this weekend" });
-    await expect(all).toHaveAttribute("href", "/map?time=weekend");
+    await expect(all).toHaveAttribute("href", "/map?time=weekend&within=all");
     expect((await all.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
 
     const cards = section.locator("[data-event-card]");

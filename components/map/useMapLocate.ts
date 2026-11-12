@@ -100,6 +100,8 @@ export function useMapLocate(promptOnOpen: boolean, onLocated?: LocatedHandler) 
   const saving = useRef<string | null>(null);
   // The latest suburb asked for by name: a slow table load for an earlier pick mustn't win over a later one.
   const suburbAsk = useRef(0);
+  // Each Near me (or ask on open) takes the next number; a place set meanwhile moves it on, so a late answer is dropped.
+  const locateAsk = useRef(0);
   // Latest `onLocated` for the async locate below.
   const onLocatedRef = useRef(onLocated);
   useEffect(() => {
@@ -155,11 +157,16 @@ export function useMapLocate(promptOnOpen: boolean, onLocated?: LocatedHandler) 
     async (onOpen: boolean) => {
       if (busy.current) return;
       busy.current = true;
+      locateAsk.current += 1;
+      const ask = locateAsk.current;
       setLocating(true);
       setStatus(null);
       const result = await locateMe();
       busy.current = false;
       setLocating(false);
+      // The place changed while the browser looked (All of Australia, a place chosen, another tab):
+      // that's the newer choice, so this answer is dropped rather than saved over it.
+      if (ask !== locateAsk.current) return;
       if (result.kind !== "found") {
         // Silent on open (the default view stays); the visitor can press Near me later.
         if (onOpen) rememberLocateRefused();
@@ -197,13 +204,15 @@ export function useMapLocate(promptOnOpen: boolean, onLocated?: LocatedHandler) 
     () =>
       subscribeStoredNear(() => {
         const suburb = readStoredNear();
+        if (suburb === saving.current) return;
+        // A newer choice than a Near me still waiting for the browser: its answer is dropped.
+        locateAsk.current += 1;
         // Forgotten ("All of Australia"): nothing to be near any more.
         if (!suburb) {
           suburbAsk.current += 1;
           setOrigin(null);
           return;
         }
-        if (suburb === saving.current) return;
         centreOnSuburb(suburb, true);
       }),
     [centreOnSuburb],

@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import SearchBar from "@/components/SearchBar";
+import LocationPicker from "@/components/search/LocationPicker";
 import { findLocality } from "@/lib/location";
 import { NEAR_STORAGE_KEY } from "@/lib/near-storage";
 
@@ -629,5 +630,91 @@ describe("LocationPicker — Escape", () => {
     expect(hidePopover).toHaveBeenCalledTimes(1);
     expect(document.activeElement).toBe(screen.getByRole("button", { name: /^Where: / }));
     document.removeEventListener("keydown", outer);
+  });
+});
+
+/** The browser's `toggle` as the menu closes (light dismiss, Escape, Close, or a choice). */
+function closePanel(panel: HTMLElement) {
+  act(() => {
+    panel.dispatchEvent(Object.assign(new Event("toggle"), { newState: "closed", oldState: "open" }));
+  });
+}
+
+// CodeRabbit (PR 43): on Nearby nothing sends the typed words later, so they mustn't outlive the menu.
+describe("LocationPicker — standalone (Nearby): closing without applying", () => {
+  it("drops a typed suburb and shows the place in use again; the search bar keeps it for Search", () => {
+    localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Fitzroy", state: "VIC" }));
+    render(<LocationPicker standalone />);
+    const panel = openPanel();
+    const field = within(panel).getByLabelText("Suburb");
+    fireEvent.change(field, { target: { value: "Bruns" } });
+    expect(screen.getByRole("button", { name: "Where: Bruns" })).toBeInTheDocument();
+    closePanel(panel);
+    expect(screen.getByRole("button", { name: "Where: Fitzroy" })).toBeInTheDocument();
+    expect(field).toHaveValue("Fitzroy");
+    expect(JSON.parse(localStorage.getItem(NEAR_STORAGE_KEY) ?? "null")).toEqual({ suburb: "Fitzroy", state: "VIC" });
+    cleanup();
+
+    // In the search bar a typed suburb is sent with Search, so it stays.
+    renderBar();
+    const barPanel = openPanel();
+    fireEvent.change(within(barPanel).getByLabelText("Suburb"), { target: { value: "Bruns" } });
+    closePanel(barPanel);
+    expect(screen.getByRole("button", { name: "Where: Bruns" })).toBeInTheDocument();
+  });
+
+  it("shows the page's visit place again, not the remembered suburb", () => {
+    localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Fitzroy", state: "VIC" }));
+    render(<LocationPicker near="Sydney" standalone />);
+    const panel = openPanel();
+    fireEvent.change(within(panel).getByLabelText("Suburb"), { target: { value: "Perth" } });
+    closePanel(panel);
+    expect(screen.getByRole("button", { name: "Where: Sydney" })).toBeInTheDocument();
+  });
+
+  it("after All of Australia, typing then closing shows All of Australia again", () => {
+    localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Fitzroy", state: "VIC" }));
+    render(<LocationPicker standalone />);
+    let panel = openPanel();
+    fireEvent.click(within(panel).getByRole("button", { name: "All of Australia", hidden: true }));
+    closePanel(panel);
+    expect(screen.getByRole("button", { name: "Where: All of Australia" })).toBeInTheDocument();
+    panel = openPanel();
+    fireEvent.change(within(panel).getByLabelText("Suburb"), { target: { value: "Carl" } });
+    expect(screen.getByRole("button", { name: "Where: Carl" })).toBeInTheDocument();
+    closePanel(panel);
+    expect(screen.getByRole("button", { name: "Where: All of Australia" })).toBeInTheDocument();
+    expect(localStorage.getItem(NEAR_STORAGE_KEY)).toBeNull();
+  });
+
+  it("Enter still applies what's typed: remembered by the table's name, and kept after the menu closes", async () => {
+    render(<LocationPicker standalone />);
+    const panel = openPanel();
+    const hidePopover = vi.fn(() => closePanel(panel));
+    Object.assign(panel, { hidePopover });
+    const field = within(panel).getByLabelText("Suburb");
+    fireEvent.change(field, { target: { value: "brunswick" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    await waitFor(() => expect(hidePopover).toHaveBeenCalled());
+    const place = findLocality("brunswick");
+    expect(place).not.toBeNull();
+    expect(JSON.parse(localStorage.getItem(NEAR_STORAGE_KEY) ?? "null")).toEqual({ suburb: place?.name, state: place?.state });
+    expect(screen.getByRole("button", { name: `Where: ${place?.name}` })).toBeInTheDocument();
+    expect(field).toHaveValue(place?.name);
+  });
+
+  it("an unknown suburb on Enter keeps the menu open with the message; closing then restores the place", async () => {
+    localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Fitzroy", state: "VIC" }));
+    render(<LocationPicker standalone />);
+    const panel = openPanel();
+    const hidePopover = vi.fn();
+    Object.assign(panel, { hidePopover });
+    const field = within(panel).getByLabelText("Suburb");
+    fireEvent.change(field, { target: { value: "Nowhereville" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    await waitFor(() => expect(within(panel).getByRole("status", { hidden: true })).toHaveTextContent(/couldn’t find that suburb/));
+    expect(hidePopover).not.toHaveBeenCalled();
+    closePanel(panel);
+    expect(screen.getByRole("button", { name: "Where: Fitzroy" })).toBeInTheDocument();
   });
 });

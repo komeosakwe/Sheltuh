@@ -68,7 +68,7 @@ export const WHY_ROWS: readonly { title: string; body: string }[] = [
   },
   { title: "Curated discovery", body: "Only the good stuff. Every organiser is checked by a person." },
   { title: "Community connections", body: "Who’s going turns a ticket into a night with your people." },
-  { title: "Clear pricing", body: "Free events are free. Paid events: a small fee per ticket, paid out via Stripe." },
+  { title: "Clear pricing", body: "Free events are free. Paid tickets carry one small booking fee each, and your ticket sales are paid out to you through Stripe." },
 ];
 
 export const START_EYEBROW = "Start organising";

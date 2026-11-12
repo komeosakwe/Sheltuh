@@ -127,7 +127,7 @@ describe("the home's event sections (redesign PR 3)", () => {
     expect(titlesIn("This weekend")).toEqual(["Event sat", "Event sun"]);
     expect(weekend.querySelectorAll("[data-event-card]").length).toBeGreaterThan(0);
     expect(within(weekend).getByText("Fri 23 – Sun 25 Oct")).toBeInTheDocument();
-    expect(within(weekend).getByRole("link", { name: "See all this weekend" })).toHaveAttribute("href", "/map?time=weekend");
+    expect(within(weekend).getByRole("link", { name: "See all this weekend" })).toHaveAttribute("href", "/map?time=weekend&within=all");
     // A sideways row on phones, the grid from 640px.
     expect(screen.getByRole("list", { name: "This weekend" })).toHaveClass("flex", "overflow-x-auto", "sm:grid", "sm:grid-cols-2", "xl:grid-cols-4");
 

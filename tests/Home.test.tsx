@@ -53,15 +53,19 @@ describe("Home (demo data, Wed 21 Oct 2026; the proposal, redesign PR 3)", () =>
     expect(within(chips).getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("every card is an upcoming event, and none is shown twice above All events (which lists each once)", async () => {
+  it("every card is an upcoming event, none is shown twice in a section above All events, and All events lists each once", async () => {
     render(<Home />);
     await settle();
     const now = Date.now();
     const all = screen.getByRole("region", { name: "All events" });
     const links = Array.from(document.querySelectorAll("[data-card-link], [data-slide] h3"));
     expect(links.length).toBeGreaterThan(5);
-    const above = Array.from(document.querySelectorAll("[data-featured-carousel] [data-slide] h3, [aria-labelledby='home-weekend'] [data-card-link]")).map((el) => el.textContent);
-    expect(new Set(above).size).toBe(above.length);
+    // Each section lists an event once. The carousel doesn't claim its events (lib/home-sections.ts),
+    // so one can also be in This weekend.
+    for (const selector of ["[data-featured-carousel] [data-slide] h3", "[aria-labelledby='home-weekend'] [data-card-link]"]) {
+      const titles = Array.from(document.querySelectorAll(selector)).map((el) => el.textContent);
+      expect(new Set(titles).size).toBe(titles.length);
+    }
     const allSlugs = within(all).getAllByRole("link").filter((a) => a.hasAttribute("data-card-link")).map(slugOf);
     expect(new Set(allSlugs).size).toBe(allSlugs.length);
     for (const a of document.querySelectorAll("[data-card-link]")) {

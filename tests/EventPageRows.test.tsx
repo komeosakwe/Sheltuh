@@ -152,6 +152,37 @@ describe("Similar nearby", () => {
     expect(within(row).getByRole("link", { name: "See all Live music events" })).toHaveAttribute("href", "/events?category=live-music");
   });
 
+  // CodeRabbit (PR 43): the soonest 50 of a category can all be far away; a near one on a later page still counts.
+  it("reads on through the category's pages while the row isn't full, up to 4 pages", async () => {
+    api.getOrganiserProfile.mockResolvedValue(profile([LIVE]));
+    const near = sample("fitzroy-poetry-and-noise");
+    const far = { ...asPublic(LIVE, "org-9"), eventId: "far", slug: "far", title: "Far Gig", suburb: "Perth", location: { lat: -31.95, lng: 115.86 } };
+    api.listPublicEvents
+      .mockResolvedValueOnce({ items: [asPublic(LIVE), far], nextCursor: "c1" })
+      .mockResolvedValueOnce({ items: [asPublic(near, "org-2")], nextCursor: "c2" })
+      .mockResolvedValue({ items: [], nextCursor: undefined });
+    render(<EventDetailsView event={LIVE} demo={false} />);
+    const row = await screen.findByRole("region", { name: "Similar nearby" });
+    expect(within(row).getByRole("link", { name: near.title })).toBeInTheDocument();
+    expect(within(row).queryByRole("link", { name: "Far Gig" })).toBeNull();
+    expect(api.listPublicEvents.mock.calls.map(([args]) => args)).toEqual([
+      { category: "live-music", upcoming: true, limit: 50, cursor: undefined },
+      { category: "live-music", upcoming: true, limit: 50, cursor: "c1" },
+      { category: "live-music", upcoming: true, limit: 50, cursor: "c2" },
+    ]);
+  });
+
+  it("stops after 4 pages, and shows nothing when none of them is near", async () => {
+    api.getOrganiserProfile.mockResolvedValue(profile([LIVE]));
+    let n = 0;
+    api.listPublicEvents.mockImplementation(async () => ({ items: [asPublic(LIVE)], nextCursor: `c${++n}` }));
+    render(<EventDetailsView event={LIVE} demo={false} />);
+    await waitFor(() => expect(api.listPublicEvents).toHaveBeenCalledTimes(4));
+    await act(async () => {});
+    expect(api.listPublicEvents).toHaveBeenCalledTimes(4);
+    expect(screen.queryByRole("region", { name: "Similar nearby" })).toBeNull();
+  });
+
   it("is hidden when nothing is near", async () => {
     api.getOrganiserProfile.mockResolvedValue(profile([LIVE]));
     api.listPublicEvents.mockResolvedValue({ items: [asPublic(LIVE)] });

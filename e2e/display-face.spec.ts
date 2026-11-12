@@ -52,7 +52,13 @@ test("the home h1 is Bootzy, read plainly; body and headings are Instrument Sans
   expect(await page.locator("[data-dotted-letter], .font-dots").count()).toBe(0);
 });
 
+/** The card's event: fixed instants, so its mono line is known (Sat 16 Jan, 5pm in Melbourne). */
+const CARD_STARTS_AT = "2027-01-16T06:00:00.000Z";
+const CARD_ENDS_AT = "2027-01-16T09:00:00.000Z";
+
 test("the cards' mono line is IBM Plex Mono in capitals; their titles are Instrument Sans", async ({ page }) => {
+  // The page's clock starts a week before the event, so it's upcoming (with its price) whatever the real date.
+  await page.clock.install({ time: Date.parse(CARD_STARTS_AT) - 7 * 24 * 3600_000 });
   // One live event for /events' feed (registered after the catch-all, so it wins).
   await page.route("**/api/events*", (route) =>
     route.fulfill({
@@ -67,8 +73,8 @@ test("the cards' mono line is IBM Plex Mono in capitals; their titles are Instru
             venueName: "The Conservatory",
             venueAddress: "1 Garden Rd",
             suburb: "Carlton",
-            startsAt: "2027-01-16T06:00:00.000Z",
-            endsAt: "2027-01-16T09:00:00.000Z",
+            startsAt: CARD_STARTS_AT,
+            endsAt: CARD_ENDS_AT,
             organiserName: "Org",
             ticketTypes: [{ id: "t1", name: "GA", priceCents: 1000, feePolicy: "buyer-pays", quantityAvailable: 10 }],
           },

@@ -212,6 +212,21 @@ describe("EventDetailsView preview", () => {
     expect(screen.queryByRole("button", { name: /Add to calendar/ })).toBeNull();
   });
 
+  // CodeRabbit (PR 43): a ticketed draft without a date used to show its stand-in start (1 Jan 2099) in the buy bar.
+  it("a ticketed draft without a date: the buy bar has its price but no date line; with a date, the date line", () => {
+    const { container } = previewOf({ ...DRAFT, start: { date: "", time: "" }, end: { date: "", time: "" } });
+    const bar = container.querySelector("[data-buy-bar]");
+    expect(bar).not.toBeNull();
+    expect(bar).toHaveTextContent("A$32.30");
+    expect(bar?.querySelector(".mono-s")).toBeNull();
+    expect(bar).not.toHaveTextContent(/2099|Jan/);
+    expect(screen.getByText("Date and time to be added")).toBeInTheDocument();
+    cleanup();
+
+    const dated = previewOf(DRAFT).container.querySelector("[data-buy-bar]");
+    expect(dated?.querySelector(".mono-s")).toHaveTextContent("Sat 10 Oct · 8:00 pm");
+  });
+
   it("an external ticket link counts no click", () => {
     previewOf({ ...DRAFT, ticketingMode: "external", externalTicketUrl: "https://events.humanitix.com/neon-static" });
     const link = screen.getAllByRole("link", { name: /Buy tickets/ })[0];

@@ -136,8 +136,8 @@ export default function HomeEventSections() {
           id="home-weekend"
           title="This weekend"
           note={formatWeekendRange(sections.weekend.window)}
-          // Nearby's weekend filter: the one listing that has one.
-          link={{ href: "/map?time=weekend", label: "See all this weekend" }}
+          // Nearby's weekend filter (the one listing that has one), at any distance: the row has no radius.
+          link={{ href: "/map?time=weekend&within=all", label: "See all this weekend" }}
         >
           {sections.weekend.items.filter(pass).map((event, i) => {
             const count = sections.weekend.going[event.id];

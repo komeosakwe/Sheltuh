@@ -6,6 +6,7 @@ import { COMMUNITY_LEDE, JOIN_STEPS, LOCAL_DISCOVERY, WHO_SEES_YOU } from "@/com
 import { HOW_IT_WORKS_STEPS } from "@/components/whos-going/HowItWorks";
 import { cityScenes } from "@/lib/community";
 import { getUpcomingEvents } from "@/lib/data";
+import { bySoonest } from "@/lib/home-sections";
 import { FakeAuthProvider, fakeAuthValue } from "./test-utils/fakeAuth";
 
 /** /community in demo mode (no API: the sample events). Live mode: tests/CommunityPageLive.test.tsx. */
@@ -92,8 +93,9 @@ describe("/community (demo)", () => {
     expect(within(section).getByText(LOCAL_DISCOVERY.body)).toBeInTheDocument();
     const upcoming = await getUpcomingEvents(NOW);
     const titles = within(within(section).getByRole("list", { name: LOCAL_DISCOVERY.title })).getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
+    // The soonest six, in order (no remembered place, so no state goes first).
+    expect(titles).toEqual([...upcoming].sort(bySoonest).slice(0, 6).map((e) => e.title));
     expect(titles).toHaveLength(Math.min(6, upcoming.length));
-    for (const title of titles) expect(upcoming.map((e) => e.title)).toContain(title);
     expect(within(section).getByRole("link", { name: "See events on Nearby" })).toHaveAttribute("href", "/map");
   });
 

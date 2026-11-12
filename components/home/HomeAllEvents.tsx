@@ -35,6 +35,8 @@ export const ALL_EVENTS_PAGE = 8;
 export const ALL_EVENTS_PAGE_PHONE = 4;
 
 const NO_MATCH = "No events match your filters";
+/** When the home didn't load every event: only what's loaded can be said not to match. */
+const NO_LOADED_MATCH = "None of the events loaded here match your filters";
 /** How long after clearing the status the new count is set (so a repeat is announced). */
 const ANNOUNCE_DELAY_MS = 100;
 
@@ -49,6 +51,8 @@ const ANNOUNCE_DELAY_MS = 100;
  * everything loaded is shown without it being every event, at the bottom too. The note gives the
  * count only when it's the whole number (`complete`: the API returns no total), else "Across
  * Australia". A filter change is announced ("5 events match"); with no match, the empty state.
+ * Neither claims more than the loaded events when they aren't every event ("2 of the loaded events
+ * match"; the empty state then says so and links to the full list).
  * Reset filters (either) clears them and moves focus to the section's heading. The filters are
  * one sideways row on phones.
  */
@@ -94,7 +98,10 @@ export default function HomeAllEvents({
   }
 
   const matches = events.filter((event) => matchesHomeFilters(event, filters, now));
-  const matchMessage = `${matches.length} ${matches.length === 1 ? "event matches" : "events match"}`;
+  // A count of the loaded events only, when they aren't every event (`complete`): more may match.
+  const matchMessage = complete
+    ? `${matches.length} ${matches.length === 1 ? "event matches" : "events match"}`
+    : `${matches.length} of the loaded events ${matches.length === 1 ? "matches" : "match"}`;
   useEffect(() => {
     if (changes === 0) return;
     const timer = setTimeout(() => setAnnouncement(matchMessage), ANNOUNCE_DELAY_MS);
@@ -184,9 +191,20 @@ export default function HomeAllEvents({
       {matches.length === 0 ? (
         <div className="mt-8">
           <EmptyState
-            title={NO_MATCH}
-            action={<Button onClick={reset}>Reset filters</Button>}
-          />
+            title={complete ? NO_MATCH : NO_LOADED_MATCH}
+            action={
+              <div className="flex flex-wrap gap-4">
+                <Button onClick={reset}>Reset filters</Button>
+                {!complete && (
+                  <ButtonLink href="/events" variant="outline">
+                    See all events
+                  </ButtonLink>
+                )}
+              </div>
+            }
+          >
+            {complete ? undefined : "The full list has more events, and some of them may match."}
+          </EmptyState>
         </div>
       ) : (
         <ul ref={listRef} aria-labelledby={titleId} className={`mt-8 ${HOME_GRID}`}>
@@ -204,8 +222,10 @@ export default function HomeAllEvents({
           </Button>
         </div>
       ) : (
-        // Everything loaded is shown, but the home didn't load every event: the way to the rest.
-        !complete && (
+        // Everything loaded is shown, but the home didn't load every event: the way to the rest
+        // (the empty state has its own).
+        !complete &&
+        matches.length > 0 && (
           <div className="mt-12 flex justify-center">
             <ButtonLink href="/events" variant="outline">
               See all events

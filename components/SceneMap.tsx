@@ -196,6 +196,8 @@ interface SceneMapViewProps {
   onRetry?: () => void;
   hasMore?: boolean;
   loadingMore?: boolean;
+  /** Set when the last Load more (by hand or by itself) failed: the loaded events stay. */
+  loadMoreError?: string | null;
   onLoadMore?: () => void;
 }
 
@@ -209,6 +211,7 @@ function SceneMapView({
   onRetry,
   hasMore,
   loadingMore,
+  loadMoreError,
   onLoadMore,
 }: SceneMapViewProps) {
   const router = useRouter();
@@ -245,6 +248,10 @@ function SceneMapView({
   // Where's words, and the address's `near`, while the visit's place applies (until the table says
   // it doesn't know it: then it's dropped, and asking the browser on open is back on).
   const nearShown = visitNear && (!suburbTable.module || visitPlace) ? visitNear : undefined;
+  // While it applies, this page keeps it in the address (the effect below). An address without it
+  // is a plain Nearby link followed from here (the header's, the footer's): the page stays mounted,
+  // so the visit's place is let go, as a choice would, and the remembered suburb counts again.
+  if (nearShown && !searchParams.get("near") && !searchParams.get("suburb")) setNearDropped(true);
   const nearLat = nearPlace?.lat;
   const nearLng = nearPlace?.lng;
   const near = useMemo(
@@ -528,11 +535,11 @@ function SceneMapView({
   // more pages at most) before saying so. More than that waits for Load more.
   const autoLoads = useRef(0);
   useEffect(() => {
-    if (!hasMore || loadingMore || status !== "loaded" || radiusKm === null || !onLoadMore) return;
+    if (!hasMore || loadingMore || loadMoreError || status !== "loaded" || radiusKm === null || !onLoadMore) return;
     if (listed.length >= NEARBY_ENOUGH_EVENTS || autoLoads.current >= MAP_AUTO_LOADS) return;
     autoLoads.current += 1;
     onLoadMore();
-  }, [hasMore, loadingMore, status, radiusKm, listed.length, onLoadMore]);
+  }, [hasMore, loadingMore, loadMoreError, status, radiusKm, listed.length, onLoadMore]);
 
   function resetFilters() {
     setFilters(DEFAULT_FILTERS);
@@ -892,15 +899,17 @@ function SceneMapView({
           )}
 
           {hasMore && (
-            <Button
-              ref={loadMoreRef}
-              variant="outline"
-              onClick={handleLoadMore}
-              busy={loadingMore}
-              className="w-fit self-center"
-            >
-              {loadingMore ? "Loading…" : "Load more events"}
-            </Button>
+            <div className="flex flex-col gap-4">
+              {/* A failed read keeps what's loaded: it says so here, and the button tries again. */}
+              {loadMoreError && !loadingMore && (
+                <Notice tone="danger" role="alert">
+                  {loadMoreError}
+                </Notice>
+              )}
+              <Button ref={loadMoreRef} variant="outline" onClick={handleLoadMore} busy={loadingMore} className="w-fit self-center">
+                {loadingMore ? "Loading…" : loadMoreError ? "Try again" : "Load more events"}
+              </Button>
+            </div>
           )}
 
           {/* Mobile map view only: a compact, dismissible summary for the selected event, since the highlighted list row isn't visible there. */}
@@ -975,6 +984,7 @@ function SceneMapLive({ categories }: { categories: { value: EventCategory; labe
   const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
 
   function load(cursor: string | undefined, replace: boolean) {
     if (replace) {
@@ -983,6 +993,7 @@ function SceneMapLive({ categories }: { categories: { value: EventCategory; labe
       setLoadingMore(true);
     }
     setError(null);
+    setLoadMoreError(null);
 
     readMapPages(cursor)
       .then((page) => {
@@ -996,8 +1007,14 @@ function SceneMapLive({ categories }: { categories: { value: EventCategory; labe
         setStatus("loaded");
       })
       .catch((err) => {
-        setError(err instanceof Error ? err.message : "Couldn't load events.");
-        setStatus("error");
+        const message = err instanceof Error ? err.message : "";
+        if (replace) {
+          setError(message || "Couldn't load events.");
+          setStatus("error");
+        } else {
+          // Load more (the visitor's, or Nearby's own read-on): the events loaded so far stay.
+          setLoadMoreError(`Couldn’t load more events${message ? `: ${message}` : "."}`);
+        }
       })
       .finally(() => setLoadingMore(false));
   }
@@ -1023,6 +1040,7 @@ function SceneMapLive({ categories }: { categories: { value: EventCategory; labe
       onRetry={() => load(undefined, true)}
       hasMore={Boolean(nextCursor)}
       loadingMore={loadingMore}
+      loadMoreError={loadMoreError}
       onLoadMore={() => load(nextCursor, false)}
     />
   );

@@ -124,4 +124,48 @@ describe("live /map loading", () => {
       localStorage.removeItem("sheltuh:near:v1");
     }
   }, 30_000);
+
+  // CodeRabbit (PR 43): a failed read-on used to set the whole page's error, and the map and list went.
+  it("keeps the loaded events when Nearby's own read-on fails, says so beside Load more, and retries", async () => {
+    localStorage.setItem("sheltuh:near:v1", JSON.stringify({ suburb: "Perth", state: "WA" }));
+    try {
+      for (let n = 0; n < 4; n++) listPublicEvents.mockResolvedValueOnce(page(n * 50, 50, `c${n + 1}`));
+      listPublicEvents.mockRejectedValueOnce(new Error("Network down"));
+      render(<SceneMap />);
+      const alert = await screen.findByText("Couldn’t load more events: Network down", undefined, { timeout: 10_000 });
+      expect(alert.closest("[role='alert']")).not.toBeNull();
+      expect(listPublicEvents).toHaveBeenCalledTimes(5);
+      // What loaded is still there: the count, the empty-within-radius state, and the rest's strip.
+      expect(document.querySelector("[data-map-count]")).toHaveTextContent(/^0 upcoming events within 25 km of Perth so far$/);
+      expect(screen.getByRole("button", { name: "Show all of Australia" })).toBeInTheDocument();
+      expect(screen.queryByText("Network down")).toBeNull();
+      // No read-on by itself after a failure.
+      await new Promise<void>((done) => setTimeout(done, 300));
+      expect(listPublicEvents).toHaveBeenCalledTimes(5);
+
+      // The retry reads from where the failed one started, and the message goes.
+      listPublicEvents.mockResolvedValueOnce(page(200, 10));
+      fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+      await waitFor(() => expect(screen.queryByText(/Couldn’t load more events/)).toBeNull());
+      expect((listPublicEvents.mock.calls[5][0] as { cursor?: string }).cursor).toBe("c4");
+      await waitFor(() => expect(screen.queryByRole("button", { name: /Load more events|Try again/ })).toBeNull());
+    } finally {
+      localStorage.removeItem("sheltuh:near:v1");
+    }
+  }, 30_000);
+
+  it("keeps the loaded events when a Load more fails, with the error beside the button", async () => {
+    for (let n = 0; n < 4; n++) listPublicEvents.mockResolvedValueOnce(page(n * 50, 50, `c${n + 1}`));
+    listPublicEvents.mockRejectedValueOnce(new Error("Server error"));
+    render(<SceneMap />);
+    await waitFor(() => expect(screen.getAllByText(/^200 upcoming events$/).length).toBeGreaterThan(0), { timeout: 10_000 });
+    const button = screen.getByRole("button", { name: "Load more events" });
+    button.focus();
+    fireEvent.click(button);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn’t load more events: Server error");
+    expect(screen.getAllByText(/^200 upcoming events$/).length).toBeGreaterThan(0);
+    // The same button, now a retry, keeps focus.
+    expect(screen.getByRole("button", { name: "Try again" })).toBe(button);
+    expect(document.activeElement).toBe(button);
+  }, 30_000);
 });

@@ -173,6 +173,31 @@ describe("HomeAllEvents", () => {
     expect(screen.getByRole("heading", { level: 2, name: "All events" })).toHaveFocus();
   });
 
+  // CodeRabbit (PR 43): the home loads up to its own limit, so on an incomplete load an event
+  // that matches may be on a page it didn't read. Neither the status nor the empty state says otherwise.
+  it("on an incomplete load, counts only the loaded events and its empty state says so, with the full list's link", async () => {
+    render(<Harness complete={false} />);
+    const section = screen.getByRole("region", { name: "All events" });
+    fireEvent.change(screen.getByRole("combobox", { name: "Category" }), { target: { value: "theatre" } });
+    await announced();
+    expect(status()).toHaveTextContent(/^1 of the loaded events matches$/);
+    fireEvent.change(screen.getByRole("combobox", { name: "Category" }), { target: { value: "art" } });
+    await announced();
+    expect(status()).toHaveTextContent(new RegExp(`^${LATER.length} of the loaded events match$`));
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Category" }), { target: { value: "pop-up" } });
+    expect(screen.queryByText("No events match your filters")).toBeNull();
+    expect(within(section).getByText("None of the events loaded here match your filters")).toBeInTheDocument();
+    expect(within(section).getByText("The full list has more events, and some of them may match.")).toBeInTheDocument();
+    await announced();
+    expect(status()).toHaveTextContent(/^0 of the loaded events match$/);
+    // The full list from the empty state (and the head's): one beside Reset filters, no second at the bottom.
+    const links = within(section).getAllByRole("link", { name: "See all events" });
+    expect(links).toHaveLength(2);
+    for (const link of links) expect(link).toHaveAttribute("href", "/events");
+    expect(within(section).getAllByRole("button", { name: "Reset filters" })).toHaveLength(2);
+  });
+
   it("starts again from the first page when a filter changes", () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: "Show more events" }));

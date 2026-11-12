@@ -61,7 +61,6 @@ export default function SearchBar({
   const inputId = useId();
   const sheetId = useId();
   const sheetRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
 
   useEffect(() => {
@@ -72,13 +71,14 @@ export default function SearchBar({
       setSheetOpen(open);
       if (open) sheet?.querySelector<HTMLInputElement>("input[name='q']")?.focus();
     }
-    // Tabbing out of the sheet closes it, so focus never lands on the page hidden behind it. Not
-    // when focus goes to an ancestor (a press on the sheet's text focuses <main tabIndex={-1}>),
-    // or nowhere.
+    // Tabbing out of the sheet closes it, so focus never lands on the page hidden behind it. That
+    // includes Shift+Tab back to the field that opened it (a popover's contents follow its invoker
+    // in the tab order): that field is under the sheet too. Not when focus goes to an ancestor (a
+    // press on the sheet's text focuses <main tabIndex={-1}>), or nowhere.
     function handleFocusOut(event: FocusEvent) {
       const next = event.relatedTarget;
       if (!sheet || !isPopoverOpen(sheet) || !(next instanceof Node)) return;
-      if (next.contains(sheet) || sheet.contains(next) || triggerRef.current?.contains(next)) return;
+      if (sheet.contains(next) || next.contains(sheet)) return;
       sheet.hidePopover?.();
     }
     // Widened past `md` while open: the sheet is the inline bar there.
@@ -105,7 +105,6 @@ export default function SearchBar({
       </label>
       {/* Below md: the one field that opens the sheet. */}
       <button
-        ref={triggerRef}
         type="button"
         popoverTarget={sheetId}
         data-search-trigger=""

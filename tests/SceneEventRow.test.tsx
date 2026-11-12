@@ -15,7 +15,10 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 const event = sampleEvents[0];
 
@@ -70,6 +73,9 @@ describe("SceneEventRow", () => {
   });
 
   it("follows the proposal: mono date, title, venue and suburb, 'Category · km', then the all-inclusive 'From A$'", () => {
+    // The sample has fixed dates, and an ended event has no ticket action: read it the day before.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.parse(event.startsAt) - 24 * 3600_000));
     const { container } = render(
       <SceneEventRow
         event={event}
@@ -87,11 +93,9 @@ describe("SceneEventRow", () => {
     expect(row.querySelector(".meta")).toHaveClass("lg:mono-m");
     expect(row.querySelector("[data-row-price]")).toHaveClass("text-right", "whitespace-nowrap");
     // Buy tickets only from lg, 48px.
-    const buy = screen.queryByRole("link", { name: /tickets for / });
-    if (buy) {
-      expect(buy.closest(".hidden")).toHaveClass("lg:block");
-      expect(buy).toHaveClass("min-h-12");
-    }
+    const buy = screen.getByRole("link", { name: /tickets for / });
+    expect(buy.closest(".hidden")).toHaveClass("lg:block");
+    expect(buy).toHaveClass("min-h-12");
     expect(row.querySelector("[data-place-lines]")).toHaveTextContent(event.venueName);
     expect(row).toHaveTextContent(/· 8\.3 km away/);
     // The card's price label: all-inclusive, in Australian dollars.

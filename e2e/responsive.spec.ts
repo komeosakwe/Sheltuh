@@ -76,7 +76,11 @@ const PAGES: { name: string; path: string; ready: (page: Page) => Promise<void> 
   {
     name: "/community",
     path: "/community",
-    ready: (page) => expect(page.locator("[data-city='Melbourne']")).toBeVisible({ timeout: 30_000 }),
+    // The events loaded: Local discovery's cards replace its placeholders (the city links show before that).
+    ready: async (page) => {
+      await expect(page.locator("[data-city='Melbourne']")).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByRole("list", { name: "Local discovery" }).locator("[data-event-card]").first()).toBeVisible({ timeout: 30_000 });
+    },
   },
   {
     name: "/events",

@@ -270,8 +270,9 @@ export default function EventDetailsView({
     <ExternalTicketLink eventId={event.id} url={ticketUrl} className={className} preview={Boolean(preview)} />
   );
   const externalOnSale = Boolean(ticketUrl) && !ended;
-  // The bars' mono line under the price: the start, "Thu 19 Nov · 7:00 pm".
-  const dateLine = `${formatEventDateShort(event.startsAt, zone)} · ${formatEventTime(event.startsAt, zone)}`;
+  // The bars' mono line under the price: the start, "Thu 19 Nov · 7:00 pm". None for a draft without a
+  // date: its start is only a stand-in (preview-event.ts), and the facts say "Date and time to be added".
+  const dateLine = missing?.when ? undefined : `${formatEventDateShort(event.startsAt, zone)} · ${formatEventTime(event.startsAt, zone)}`;
   // The general admission releases to choose from (the panel says how many as it takes you there).
   const releases = event.ticketTypes.filter((ticket) => !ticket.seated).length;
 

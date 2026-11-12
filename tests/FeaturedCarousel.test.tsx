@@ -115,15 +115,18 @@ describe("FeaturedCarousel", () => {
   it("Next and Previous move one slide, looping, and stop it; the dots go straight to a slide and say which is current", () => {
     stubMotion(true);
     renderCarousel();
+    // jsdom lays nothing out: give the track a width, so a scroll that always went to 0 would fail.
+    Object.defineProperty(track(), "clientWidth", { configurable: true, value: 640 });
     fireEvent.click(screen.getByRole("button", { name: "Next slide" }));
     expect(current()).toBe(1);
     expect(slides().map((slide) => slide.hasAttribute("inert"))).toEqual([true, false, true]);
-    expect(scrollTo).toHaveBeenLastCalledWith({ left: 1 * track().clientWidth, behavior: "smooth" });
+    expect(scrollTo).toHaveBeenLastCalledWith({ left: 640, behavior: "smooth" });
     // The visitor took over: it no longer plays.
     expect(screen.getByRole("button", { name: "Play carousel" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Previous slide" }));
     fireEvent.click(screen.getByRole("button", { name: "Previous slide" }));
     expect(current()).toBe(2);
+    expect(scrollTo).toHaveBeenLastCalledWith({ left: 2 * 640, behavior: "smooth" });
     const dots = within(screen.getByRole("list", { name: "Slides" })).getAllByRole("button");
     expect(dots.map((dot) => dot.getAttribute("aria-label"))).toEqual(["Slide 1: Event paid", "Slide 2: Event free", "Slide 3: Event sold"]);
     expect(dots.map((dot) => dot.getAttribute("aria-current"))).toEqual([null, null, "true"]);
