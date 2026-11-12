@@ -269,7 +269,14 @@ function SceneMapView({
   // A selected event in the address outside the radius (a shared link): opens with no radius, once.
   const [selectionChecked, setSelectionChecked] = useState(!initialSelected);
   const [areaBounds, setAreaBounds] = useState<MapBounds | null>(null);
-  const [rawSelectedEventId, setSelectedEventId] = useState<string | null>(initialSelected);
+  const [rawSelectedEventId, setRawSelectedEventId] = useState<string | null>(initialSelected);
+  // The event opened by itself on arrival (below): kept out of the address until the visitor picks one.
+  const [arrivalOpenedId, setArrivalOpenedId] = useState<string | null>(null);
+  /** The visitor's own selection (a pin, a row, Near me, Dismiss): it goes in the address. */
+  function setSelectedEventId(id: string | null) {
+    setArrivalOpenedId(null);
+    setRawSelectedEventId(id);
+  }
   // The event Near me opened: selecting it doesn't recentre the map, which stays framed on the
   // visitor and the nearest few (SceneMapPanel's `recentreOnSelect`). Any other selection does.
   const [nearestOpenedId, setNearestOpenedId] = useState<string | null>(null);
@@ -400,6 +407,24 @@ function SceneMapView({
     if (far) setRadius("all");
   }
 
+  // Arriving with nothing in the address to show (no filters, no event): once there's a place to
+  // measure from (the browser's answer to the ask on open, else the saved or linked suburb), the
+  // nearest event within the radius opens, as Near me does, with the map kept on the visitor. Once a visit.
+  // Not written to the address: a link copied from here doesn't carry the visitor's own nearest event.
+  const [arrivalPending, setArrivalPending] = useState(!urlSteers);
+  if (arrivalPending && status === "loaded" && located) {
+    setArrivalPending(false);
+    if (rawSelectedEventId === null && !areaBounds) {
+      const reach = radius === "all" ? NEAR_FRAME_FALLBACK_KM : radius;
+      const nearest = nearestWithin(matching, located, (event) => resolveMapCoordinates(event, findSuburb), reach);
+      if (nearest) {
+        setRawSelectedEventId(nearest.item.id);
+        setNearestOpenedId(nearest.item.id);
+        setArrivalOpenedId(nearest.item.id);
+      }
+    }
+  }
+
   // Derived rather than synced via effect: a selection that no longer
   // matches the active filters (or the radius) is simply treated as no selection.
   const selectedEvent = mapEvents.find((event) => event.id === rawSelectedEventId) ?? null;
@@ -411,7 +436,7 @@ function SceneMapView({
   useEffect(() => {
     const params = writeFiltersToParams({
       filters,
-      selectedEventId: rawSelectedEventId,
+      selectedEventId: rawSelectedEventId === arrivalOpenedId ? null : rawSelectedEventId,
       view: mobileView,
       radius,
       near: nearShown ?? null,
@@ -419,7 +444,7 @@ function SceneMapView({
     const qs = params.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters, rawSelectedEventId, mobileView, radius, nearShown, pathname]);
+  }, [filters, rawSelectedEventId, arrivalOpenedId, mobileView, radius, nearShown, pathname]);
 
   // The loader's estimated progress; the results replace it once it's done.
   const progress = useLoadingProgress(status === "loading");

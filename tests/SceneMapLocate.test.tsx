@@ -958,14 +958,39 @@ describe("Near me puts the nearest events first and frames them", () => {
       expect(replace.mock.calls.flat().join(" ")).not.toMatch(/sel=/);
     });
 
-    it("the ask on open orders the list but opens nothing", async () => {
+    // Owner, Nov 2026: "the initial page open of maps should send me to the nearest event or ask for my location to do so".
+    it("the ask on open opens the nearest event, without putting it in the address", async () => {
       answerAt(MELBOURNE.lat, MELBOURNE.lng);
       await renderMap([sydneySoonest, fitzroyGig, footscrayGig]);
       await expectCentredOn(MELBOURNE, 0.06);
       await waitFor(() => expect(listedTitles()[0]).toBe("Fitzroy Gig"));
-      expect(screen.queryByRole("region", { name: "Selected event" })).toBeNull();
-      expect(screen.queryByText(/^Nearest:/)).toBeNull();
+      await waitFor(() => expect(screen.getAllByRole("region", { name: "Selected event" }).length).toBeGreaterThan(0));
+      expect(selectedCard()).toHaveTextContent("Fitzroy Gig");
       expect(replace.mock.calls.flat().join(" ")).not.toMatch(/sel=/);
+    });
+
+    it("pressing Near me after that is the visitor's own pick: it goes in the address", async () => {
+      answerAt(MELBOURNE.lat, MELBOURNE.lng);
+      await renderMap([sydneySoonest, fitzroyGig, footscrayGig]);
+      await waitFor(() => expect(selectedCard()).toHaveTextContent("Fitzroy Gig"));
+      expect(replace.mock.calls.flat().join(" ")).not.toMatch(/sel=/);
+      fireEvent.click(screen.getByRole("button", { name: "Near me" }));
+      await waitFor(() => expect(replace.mock.calls.flat().join(" ")).toMatch(/sel=fitzroy-gig/));
+    });
+
+    it("with a saved suburb (no ask), the event nearest it opens", async () => {
+      localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Fitzroy", state: "VIC" }));
+      await renderMap([sydneySoonest, footscrayGig, fitzroyGig]);
+      await waitFor(() => expect(screen.getAllByRole("region", { name: "Selected event" }).length).toBeGreaterThan(0));
+      expect(selectedCard()).toHaveTextContent("Fitzroy Gig");
+    });
+
+    it("an address with filters opens nothing by itself", async () => {
+      params = new URLSearchParams("cat=live-music");
+      localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Fitzroy", state: "VIC" }));
+      await renderMap([sydneySoonest, fitzroyGig, footscrayGig]);
+      await waitFor(() => expect(listedTitles()[0]).toBe("Fitzroy Gig"));
+      expect(screen.queryByRole("region", { name: "Selected event" })).toBeNull();
     });
 
     it("focus stays on Near me, and Dismiss gives it back there", async () => {

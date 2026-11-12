@@ -272,11 +272,25 @@ test.describe("Near me opens the nearest event", () => {
   test.describe("at 1280×800", () => {
     test.use({ viewport: { width: 1280, height: 800 }, permissions: ["geolocation"], geolocation: MELBOURNE });
 
-    test("the ask on open opens nothing; pressing Near me shows the nearest event's card, still framed on the visitor", async ({ page }) => {
+    test("the ask on open opens the nearest event, kept out of the address and still framed on the visitor", async ({ page }) => {
       await openMap(page);
       await expect(rows(page).first()).toContainText(/km away/, { timeout: 20_000 });
-      // The silent ask on open orders the list but doesn't open an event.
-      await expect(selectedCard(page)).toHaveCount(0);
+      const nearest = await firstRowTitle(page);
+      await expect(selectedCard(page)).toBeVisible();
+      await expect(selectedCard(page)).toContainText(nearest);
+      // The visitor's own nearest event isn't written into a link they might copy.
+      await page.waitForTimeout(500);
+      expect(new URL(page.url()).searchParams.get("sel")).toBeNull();
+      await page.waitForTimeout(1000);
+      const view = await readView(mapContainer(page));
+      expect(view.zoom).toBeGreaterThanOrEqual(10);
+      expect(Math.abs(view.lat - MELBOURNE.latitude)).toBeLessThan(0.1);
+      await expect(page.locator(".scene-visitor")).toBeVisible();
+    });
+
+    test("pressing Near me shows the nearest event's card, still framed on the visitor", async ({ page }) => {
+      await openMap(page);
+      await expect(rows(page).first()).toContainText(/km away/, { timeout: 20_000 });
 
       await page.getByRole("button", { name: "Near me" }).click();
       const nearest = await firstRowTitle(page);

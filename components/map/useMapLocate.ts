@@ -69,7 +69,7 @@ type Status = MapLocateStatus;
  *  - on open, with no suburb saved, no refusal this session and nothing in the address that
  *    should win (`promptOnOpen`), asks the browser once;
  *  - `locate` does the same on demand ("Near me"), and tells `onLocated` it was asked for, so the
- *    page can open the nearest event (only for a press, not for the ask on open);
+ *    page can open the nearest event (the page opens it on arrival by itself: SceneMap's `arrivalPending`);
  *  - either way a position becomes a centre request that frames the nearest events with it, and
  *    the suburb it's in is saved (name and state only, as the search bar's "Use my current
  *    location" does); the request's coordinates are dropped once the map has used it, while
