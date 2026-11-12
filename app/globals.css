@@ -1284,3 +1284,38 @@ h4 {
   font-size: 2rem;
   line-height: 2.5rem;
 }
+
+/* Redesign PR 6 (the owner's For organisers and sign-in mocks). heading-xl: the big Instrument
+   Sans heading, 40/48 below 1024px and 56/64 from it (sign-in's h1, the organisers page's
+   section h2s). figure-xl: a display-size figure, 48/56 on phones and 72/80 from 768px (the
+   organisers page's "13 of 15"). */
+@utility heading-xl {
+  font-family: var(--face-sans);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  font-size: 2.5rem;
+  line-height: 3rem;
+  @media (width >= 64rem) {
+    font-size: 3.5rem;
+    line-height: 4rem;
+  }
+}
+@utility figure-xl {
+  font-family: var(--face-sans);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  font-size: 3rem;
+  line-height: 3.5rem;
+  @media (width >= 48rem) {
+    font-size: 4.5rem;
+    line-height: 5rem;
+  }
+}
+
+/* An ink panel that lifts off the Dark page (data-ink-lift: the For organisers hero, as in the
+   owner's dark mock): the ink scope paints its own --background, so the fill is set there. */
+@media screen {
+  [data-theme="dark"] [data-surface="ink"][data-ink-lift] {
+    --background: var(--hover);
+  }
+}
