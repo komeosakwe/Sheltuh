@@ -125,6 +125,25 @@ describe("live /map loading", () => {
     }
   }, 30_000);
 
+  // CodeRabbit (PR 43): arriving, nothing near in the first pages; the read-on brings one: it opens then.
+  it("on arrival, opens the nearest event that Nearby's own read-on brings in", async () => {
+    localStorage.setItem("sheltuh:near:v1", JSON.stringify({ suburb: "Perth", state: "WA" }));
+    try {
+      for (let n = 0; n < 4; n++) listPublicEvents.mockResolvedValueOnce(page(n * 50, 50, `c${n + 1}`));
+      const perth = page(200, 1);
+      perth.items[0] = { ...perth.items[0], title: "Perth Show", suburb: "Perth", state: "WA", timeZone: "Australia/Perth" };
+      listPublicEvents.mockResolvedValueOnce(perth);
+      render(<SceneMap />);
+      await waitFor(() => expect(listPublicEvents).toHaveBeenCalledTimes(5), { timeout: 10_000 });
+      await waitFor(() => expect(screen.getAllByRole("region", { name: "Selected event" }).length).toBeGreaterThan(0), {
+        timeout: 10_000,
+      });
+      expect(screen.getAllByRole("region", { name: "Selected event" })[0]).toHaveTextContent("Perth Show");
+    } finally {
+      localStorage.removeItem("sheltuh:near:v1");
+    }
+  }, 30_000);
+
   // CodeRabbit (PR 43): a failed read-on used to set the whole page's error, and the map and list went.
   it("keeps the loaded events when Nearby's own read-on fails, says so beside Load more, and retries", async () => {
     localStorage.setItem("sheltuh:near:v1", JSON.stringify({ suburb: "Perth", state: "WA" }));

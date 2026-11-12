@@ -411,17 +411,20 @@ function SceneMapView({
   // measure from (the browser's answer to the ask on open, else the saved or linked suburb), the
   // nearest event within the radius opens, as Near me does, with the map kept on the visitor. Once a visit.
   // Not written to the address: a link copied from here doesn't carry the visitor's own nearest event.
+  // None near in what's loaded yet: it waits while more can still load (the read-on below, or Load
+  // more), and the first batch that brings one opens it (CodeRabbit, PR 43).
   const [arrivalPending, setArrivalPending] = useState(!urlSteers);
-  if (arrivalPending && status === "loaded" && located) {
-    setArrivalPending(false);
-    if (rawSelectedEventId === null && !areaBounds) {
+  if (arrivalPending && status === "loaded" && located && !loadingMore) {
+    if (rawSelectedEventId !== null || areaBounds) setArrivalPending(false);
+    else {
       const reach = radius === "all" ? NEAR_FRAME_FALLBACK_KM : radius;
       const nearest = nearestWithin(matching, located, (event) => resolveMapCoordinates(event, findSuburb), reach);
       if (nearest) {
+        setArrivalPending(false);
         setRawSelectedEventId(nearest.item.id);
         setNearestOpenedId(nearest.item.id);
         setArrivalOpenedId(nearest.item.id);
-      }
+      } else if (!hasMore || !onLoadMore) setArrivalPending(false);
     }
   }
 
