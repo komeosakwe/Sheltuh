@@ -106,9 +106,9 @@ const NOW = at("2026-10-21T01:00:00.000Z");
 const day = (d: number, hourUtc = 8) => `2026-10-${String(d).padStart(2, "0")}T${String(hourUtc).padStart(2, "0")}:00:00.000Z`;
 
 /**
- * Five trending events in December: they fill the carousel, which claims first, so a test about
- * This weekend (or following) sees its own events there. Their trending items come first, so the
- * carousel takes them and nothing else.
+ * Five trending events in December: they fill the carousel, so a test about This weekend (or
+ * following) knows what the banner shows. Their trending items come first, so the carousel takes
+ * them and nothing else (it doesn't claim them either way).
  */
 const DECOYS = Array.from({ length: FEATURED_MAX }, (_, i) => event(`dec-${i}`, `2026-12-${String(i + 10)}T08:00:00.000Z`));
 const withCarouselFull = (
@@ -134,10 +134,12 @@ describe("selectHomeSections", () => {
     expect(sections.anyUpcoming).toBe(true);
     expect(shownEventIds(sections)).not.toContain("ended");
     // No trending data: the carousel is Coming up, the soonest (not yet started, then any still
-    // running), claimed first, so This weekend has nothing left.
+    // running). It doesn't claim them, so This weekend still has the exhibition, open through it (Friday's is
+    // at noon, before the weekend opens at 5 pm).
     expect(sections.popular?.kind).toBe("coming");
     expect(popularEvents(sections.popular).map((e) => e.id)).toEqual(["thu", "fri", "exhibition"]);
-    expect(sections.weekend.status).toBe("hidden");
+    expect(sections.weekend.status).toBe("cards");
+    expect(sections.weekend.items.map((e) => e.id)).toEqual(["exhibition"]);
   });
 
   it("says when nothing at all is upcoming", () => {
@@ -253,7 +255,7 @@ describe("selectHomeSections", () => {
     expect(on.weekend.items.map((e) => e.id)).toEqual(["sat"]);
   });
 
-  it("each priority claims its events: the carousel first (Popular right now in the server's order), then This weekend", () => {
+  it("the carousel picks without claiming (Popular right now in the server's order); This weekend keeps its events", () => {
     const events = [
       event("next", day(22)),
       event("sat", day(24), { priceCents: 0 }),
@@ -269,15 +271,14 @@ describe("selectHomeSections", () => {
     if (sections.popular?.kind !== "popular") throw new Error("expected popular");
     expect(sections.popular.items.map(({ event: e }) => e.id)).toEqual(["next", "sat", "t27", "t28", "t29"]);
     expect(sections.popular.items[0].signal).toEqual({ kind: "going", count: 20 });
-    // This weekend takes what's left of the weekend: Saturday's is already in the carousel.
-    expect(sections.weekend.items.map((e) => e.id)).toEqual(["sun"]);
+    // This weekend keeps all of the weekend, Saturday's too, though it's in the carousel.
+    expect(sections.weekend.items.map((e) => e.id)).toEqual(["sat", "sun"]);
     expect(sections).not.toHaveProperty("lowCost");
     expect(sections).not.toHaveProperty("comingUp");
     expect(sections).not.toHaveProperty("recent");
 
-    const ids = shownEventIds(sections);
-    expect(new Set(ids).size).toBe(ids.length);
-    expect(ids).toEqual(["next", "sat", "t27", "t28", "t29", "sun"]);
+    // Saturday's is in both the banner and This weekend.
+    expect(shownEventIds(sections)).toEqual(["next", "sat", "t27", "t28", "t29", "sat", "sun"]);
   });
 
   it("Popular needs three upcoming trending events; otherwise the carousel is Coming up with the soonest", () => {
@@ -325,7 +326,7 @@ describe("selectHomeSections", () => {
     expect(popularEvents(wide("NSW")).map((e) => e.id)).toEqual(["vic", "wa"]);
   });
 
-  it(`caps the carousel at ${FEATURED_MAX}: it claims no more than it shows`, () => {
+  it(`caps the carousel at ${FEATURED_MAX}`, () => {
     const events = [event("next", day(22)), ...Array.from({ length: 10 }, (_, i) => event(`c${i}`, `2026-11-1${i}T08:00:00.000Z`))];
     expect(popularEvents(selectHomeSections(events, [], NOW).popular)).toHaveLength(FEATURED_MAX);
     const trending = events.map((e) => trend(e));
@@ -340,22 +341,23 @@ describe("selectHomeSections: From organisers you follow", () => {
   const later = Array.from({ length: 4 }, (_, i) => event(`l${i}`, `2026-11-0${i + 1}T08:00:00.000Z`));
   const followedOnly = event("followed", "2026-11-10T08:00:00.000Z");
 
-  it("comes after the carousel and This weekend, without repeating what's above", () => {
+  it("comes after This weekend without repeating it; the carousel's events can be here too", () => {
     const following = [sat, thursday, later[0], followedOnly];
     const trending = [later[0], later[1], later[2], later[3]].map((e) => trend(e));
     const sections = selectHomeSections([thursday, sat, ...later], trending, NOW, following);
-    // The carousel claims the trending four, This weekend Saturday's: what's left, soonest first.
+    // The carousel shows the trending four without claiming them; This weekend claims Saturday's; following
+    // takes the rest, soonest first, the carousel's l0 included.
     expect(popularEvents(sections.popular).map((event) => event.id)).toEqual(["l0", "l1", "l2", "l3"]);
     expect(sections.weekend.items.map((e) => e.id)).toEqual(["sat"]);
-    expect(sections.following.map((e) => e.id)).toEqual(["next", "followed"]);
-    const ids = shownEventIds(sections);
-    expect(new Set(ids).size).toBe(ids.length);
-    expect(ids).toEqual(["l0", "l1", "l2", "l3", "sat", "next", "followed"]);
+    expect(sections.following.map((e) => e.id)).toEqual(["next", "l0", "followed"]);
+    // This weekend and following never repeat each other.
+    const below = [...sections.weekend.items, ...sections.following].map((e) => e.id);
+    expect(new Set(below).size).toBe(below.length);
   });
 
   it("is empty (hidden) with no follows, or when everything is already shown above, and drops ended events", () => {
     expect(selectHomeSections([thursday, sat], [], NOW).following).toEqual([]);
-    // Saturday's is in the carousel (Coming up) already.
+    // Saturday's is in This weekend already.
     expect(selectHomeSections([thursday, sat], [], NOW, [sat]).following).toEqual([]);
     const ended = event("old", "2026-10-01T08:00:00.000Z");
     expect(selectHomeSections([thursday], [], NOW, [ended]).following).toEqual([]);

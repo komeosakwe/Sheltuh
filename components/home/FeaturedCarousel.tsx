@@ -14,7 +14,7 @@ import { ArrowRightIcon, ChevronLeftIcon, ChevronRightIcon, PauseIcon, PlayIcon 
 
 /** How long each slide shows before the next, while it plays (WCAG 2.2.2: over 5s, so it has a Pause). */
 export const CAROUSEL_INTERVAL_MS = 6000;
-/** At most this many slides (lib/home-sections.ts claims no more for it). */
+/** At most this many slides (lib/home-sections.ts picks no more for it). */
 export const CAROUSEL_MAX = FEATURED_MAX;
 /** A scroll that has had no event for this long has ended (engines without `scrollend`). */
 const SCROLL_REST_MS = 150;

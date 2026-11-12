@@ -86,10 +86,11 @@ describe("home: From organisers you follow", () => {
     expect(headings).toEqual(["Popular right now", "This weekend", "From organisers you follow", "All events"]);
     expect(within(rail).getByRole("link", { name: /^Event followed/ })).toBeInTheDocument();
     expect(within(rail).getByRole("link", { name: "See all organisers you follow" })).toHaveAttribute("href", "/following");
-    // The carousel (Popular right now) claims first: T0 is there, so the followed section doesn't repeat it.
+    // The carousel (Popular right now) picks T0 without taking it from the sections below, so the member's
+    // followed section still has it.
     const trending = screen.getByRole("region", { name: "Popular right now" });
     expect(within(trending).getByRole("heading", { level: 3, name: "Event t0" })).toBeInTheDocument();
-    expect(within(rail).queryByRole("link", { name: "Event t0" })).toBeNull();
+    expect(within(rail).getByRole("link", { name: "Event t0" })).toBeInTheDocument();
   });
 
   it("hidden when empty, and when its load fails", async () => {

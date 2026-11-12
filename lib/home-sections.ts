@@ -191,17 +191,20 @@ export function preferState<T>(items: T[], state: StateCode | null | undefined, 
 
 const itself = (event: SheltuhEvent) => event;
 
-/** The featured carousel's slides at most: it claims no more than it shows. */
+/** The featured carousel's slides at most. */
 export const FEATURED_MAX = 5;
 
 /**
  * Splits the home page's events into its sections (redesign PR 3). Ended events are dropped
- * first. Sections then claim events in page order, and a later section never shows an event an
+ * first.
+ * 1. The featured carousel picks its events without claiming them: Popular right now, the trending
+ *    events in the server's order, with three or more left (TRENDING_MIN); otherwise "Coming up",
+ *    the soonest upcoming (not yet started, then any still running), with even one, so the carousel
+ *    shows whenever anything is upcoming. At most FEATURED_MAX. An event in the banner can be in
+ *    the sections below too (with few events, its soonest-five fallback would otherwise empty This
+ *    weekend).
+ * The sections below then claim events in page order, and a later one never shows an event an
  * earlier one did:
- * 1. the featured carousel: Popular right now, the trending events in the server's order, with
- *    three or more left (TRENDING_MIN); otherwise "Coming up", the soonest upcoming (not yet
- *    started, then any still running), with even one, so the carousel shows whenever anything is
- *    upcoming. At most FEATURED_MAX.
  * 2. This weekend: anything open during the weekend, each in its own zone (isOpenThisWeekend).
  * 3. From organisers you follow (`following`: the signed-in member's followed organisers'
  *    upcoming events; empty otherwise).
@@ -243,7 +246,6 @@ export function selectHomeSections(
             acrossAustralia: preferredState !== null && soonest.every((event) => (event.state ?? "VIC") !== preferredState),
           }
         : null;
-  claim(popularEvents(popular));
 
   // 2. This weekend: anything open during the window (owner decision 5), each event in its own
   // zone (a Perth gig at 11 pm on Sunday is this weekend). Events starting inside it come first, by
@@ -295,7 +297,10 @@ export function selectHomeSections(
   };
 }
 
-/** Every event id the sections show, in page order (for checks that nothing repeats). */
+/**
+ * Every event id the sections show, in page order: the carousel's, then This weekend's and From organisers you
+ * follow's (those two never repeat each other; either may repeat a carousel event).
+ */
 export function shownEventIds(sections: HomeSections): string[] {
   return [
     ...popularEvents(sections.popular).map((event) => event.id),

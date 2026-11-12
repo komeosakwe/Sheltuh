@@ -35,9 +35,10 @@ const ROW_ITEM = "flex w-72 min-w-0 shrink-0 snap-start sm:w-auto";
  * The home's event sections under the hero (the proposal, redesign PR 3), in order: the featured
  * carousel (Popular right now from real trending data, else Coming up), the category chips, This
  * weekend, From organisers you follow (signed-in members who follow someone), then All events.
- * The carousel, This weekend and From organisers you follow never repeat an event between them
- * (lib/home-sections.ts claims each once, the carousel first); All events is the full list, with
- * This weekend's events last, so its first page doesn't repeat them.
+ * The carousel picks its events without taking them from the sections below (lib/home-sections.ts),
+ * so an event can be in the banner and in This weekend; This weekend and From organisers you follow
+ * never repeat each other. All events is the full list, with This weekend's events last, so its
+ * first page doesn't repeat them.
  * A section with no cards renders nothing.
  *
  * The chips and All events' dropdowns are one set of filters (lib/home-filters.ts): they narrow

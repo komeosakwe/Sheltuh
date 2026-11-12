@@ -127,13 +127,14 @@ for (const vp of VIEWPORTS) {
       await expect(page.getByRole("heading", { name: "Popular right now" })).toHaveCount(0);
       await expect(page.locator("main").getByRole("alert")).toHaveCount(0);
 
-      // The carousel and This weekend never repeat an event; All events lists each one once.
-      const above = [
-        ...(await carousel.locator("[data-slide] h3").allTextContents()),
-        ...(await titlesIn(page, "This weekend")),
-      ];
-      expect(above.length).toBeGreaterThan(2);
-      expect(new Set(above).size).toBe(above.length);
+      // The carousel picks the soonest without emptying This weekend (an event can be in both); neither
+      // repeats an event within itself, and All events lists each one once.
+      const slides = await carousel.locator("[data-slide] h3").allTextContents();
+      const weekend = await titlesIn(page, "This weekend");
+      expect(slides.length).toBeGreaterThan(0);
+      expect(weekend.length).toBeGreaterThan(0);
+      expect(new Set(slides).size).toBe(slides.length);
+      expect(new Set(weekend).size).toBe(weekend.length);
       const all = await titlesIn(page, "All events");
       expect(all.length).toBeGreaterThan(3);
       expect(new Set(all).size).toBe(all.length);

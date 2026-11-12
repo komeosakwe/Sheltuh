@@ -123,8 +123,8 @@ describe("the home's event sections (redesign PR 3)", () => {
 
     // This weekend: the one EventCard (the old WeekendCard is gone), the dates as its note, and a
     // link to the one listing with a weekend filter (Nearby's).
-    // Saturday's is in the carousel already.
-    expect(titlesIn("This weekend")).toEqual(["Event sun"]);
+    // Saturday's is in the carousel too: the banner picks its events without taking them from This weekend.
+    expect(titlesIn("This weekend")).toEqual(["Event sat", "Event sun"]);
     expect(weekend.querySelectorAll("[data-event-card]").length).toBeGreaterThan(0);
     expect(within(weekend).getByText("Fri 23 – Sun 25 Oct")).toBeInTheDocument();
     expect(within(weekend).getByRole("link", { name: "See all this weekend" })).toHaveAttribute("href", "/map?time=weekend");
@@ -135,7 +135,8 @@ describe("the home's event sections (redesign PR 3)", () => {
     // doesn't repeat them), the first eight, and its count (the load was complete).
     const all = screen.getByRole("region", { name: "All events" });
     expect(within(all).getByText(`${UPCOMING} upcoming · Across Australia`)).toBeInTheDocument();
-    expect(titlesIn("All events")).toEqual([NEXT, SAT, ...COMING.slice(0, 6)].map((e) => e.title));
+    // This weekend's events go last, so the first page is everything else, soonest first.
+    expect(titlesIn("All events")).toEqual([NEXT, ...COMING].map((e) => e.title));
     expect(within(all).getByRole("link", { name: "See all events" })).toHaveAttribute("href", "/events");
     expect(within(all).getByRole("button", { name: "Show more events" })).toBeInTheDocument();
     expect(screen.queryByText("Event ended")).not.toBeInTheDocument();
@@ -144,13 +145,15 @@ describe("the home's event sections (redesign PR 3)", () => {
     expect(document.querySelector("[data-rail-clone], [data-rail-layout]")).toBeNull();
   });
 
-  it("never repeats an event between the carousel and This weekend; All events lists each upcoming event once, This weekend's last", async () => {
+  it("an event can be in both the carousel and This weekend; All events lists each upcoming event once, This weekend's last", async () => {
     loadHomeEvents.mockResolvedValue(EVENTS);
     loadHomeTrending.mockResolvedValue(TRENDING);
     renderHome();
     await flush();
-    const above = [...slideTitles(), ...titlesIn("This weekend")];
-    expect(new Set(above).size).toBe(above.length);
+    expect(slideTitles()).toContain("Event sat");
+    expect(titlesIn("This weekend")).toContain("Event sat");
+    // This weekend itself never repeats an event.
+    expect(new Set(titlesIn("This weekend")).size).toBe(titlesIn("This weekend").length);
     fireEvent.click(screen.getByRole("button", { name: "Show more events" }));
     const all = titlesIn("All events");
     expect(all).toHaveLength(UPCOMING);
@@ -181,11 +184,20 @@ describe("the home's event sections (redesign PR 3)", () => {
     expect(container).not.toHaveTextContent(/Popular this week|Just announced|Featured/);
   });
 
-  it("a section with no cards renders nothing: with no trending, the carousel's Coming up takes the soonest, This weekend's included", async () => {
+  it("with few events, the carousel's Coming up (the soonest five) doesn't empty This weekend", async () => {
     loadHomeEvents.mockResolvedValue([SAT, COMING[0]]);
     const { container } = renderHome();
     await flush();
     expect(slideTitles()).toEqual(["Event sat", "Event c0"]);
+    expect(titlesIn("This weekend")).toEqual(["Event sat"]);
+    expect(container.querySelectorAll("section[data-home-section]")).toHaveLength(3);
+  });
+
+  it("a section with no cards renders nothing: no weekend events, no This weekend", async () => {
+    loadHomeEvents.mockResolvedValue([COMING[0], COMING[1]]);
+    const { container } = renderHome();
+    await flush();
+    expect(slideTitles()).toEqual(["Event c0", "Event c1"]);
     expect(screen.queryByRole("region", { name: "This weekend" })).toBeNull();
     expect(container.querySelectorAll("section[data-home-section]")).toHaveLength(2);
     for (const list of screen.getAllByRole("list")) expect(within(list).queryAllByRole("listitem").length).toBeGreaterThan(0);
