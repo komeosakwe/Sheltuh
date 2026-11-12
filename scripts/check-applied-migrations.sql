@@ -245,6 +245,10 @@ select version, file, coalesce(applied, false) as applied
       and exists (select 1 from fn where proname = 'take_order_detail_budget')
       and exists (select 1 from pg_trigger where tgname = 'orders_details_immutable' and not tgisinternal)
       and exists (select 1 from fn where proname = 'record_order_export')
-      and exists (select 1 from fn where proname = 'hold_seats' and 'p_buyer_name' = any(proargnames)))
+      and exists (select 1 from fn where proname = 'hold_seats' and 'p_buyer_name' = any(proargnames))),
+    ('20261125000000', 'profile_photos',
+      to_regclass('private.profile_photos') is not null
+      and exists (select 1 from fn where proname = 'add_profile_photo')
+      and exists (select 1 from pg_trigger where tgname = 'profile_photos_cap' and not tgisinternal))
   ) as m(version, file, applied)
  order by version;

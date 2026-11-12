@@ -227,6 +227,7 @@ describe("GET /profiles/{profileId}", () => {
       "instagramHandle",
       "instagramUrl",
       "isYou",
+      "photos",
       "profileId",
       "upcomingEvents",
     ]);
@@ -237,6 +238,7 @@ describe("GET /profiles/{profileId}", () => {
       instagramHandle: "ada_l",
       instagramUrl: "https://www.instagram.com/ada_l/",
       hasAvatar: false,
+      photos: [],
       isYou: false,
       canMessage: false,
     });

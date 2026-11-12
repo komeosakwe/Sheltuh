@@ -1551,6 +1551,47 @@ export interface ProfileRecord {
   avatarUrl?: string;
   /** The 96 px thumbnail. */
   avatarThumbUrl?: string;
+  /**
+   * The member's photos beside the profile photo, oldest first, at most 6
+   * (docs/architecture.md, "Member photos"). Always sent by servers that
+   * have them; absent from older servers.
+   */
+  photos?: MemberPhoto[];
+}
+
+/**
+ * One of a member's photos (at most 6, beside the profile photo). Never
+ * public: fetch `url` / `thumbUrl` with the bearer token (fetchAvatar in
+ * lib/api/profiles.ts) and show a blob URL. A photo's bytes never change, so
+ * its URLs don't either.
+ */
+export interface MemberPhoto {
+  /** Opaque id (DELETE / PATCH /api/profiles/me/photos/{photoId}). */
+  photoId: string;
+  /** The photo, fitted inside 1080 px. */
+  url: string;
+  /** A 320 px square thumbnail. */
+  thumbUrl: string;
+  /** `url`'s size in pixels (each at most 1080). */
+  width: number;
+  height: number;
+  /** 1–100 characters, plain text: the alt text and caption. Unset when the member gave none. */
+  description?: string;
+}
+
+/**
+ * POST /api/profiles/me/photos (201 a new photo, 200 the same image already
+ * there) and PATCH /api/profiles/me/photos/{photoId} (200): the photo, and
+ * the caller's profile with every photo.
+ */
+export interface MemberPhotoResult {
+  photo: MemberPhoto;
+  profile: ProfileRecord;
+}
+
+/** PATCH /api/profiles/me/photos/{photoId}. null or "" clears the description. */
+export interface MemberPhotoPatchInput {
+  description: string | null;
 }
 
 /**
@@ -1581,6 +1622,8 @@ export interface MemberProfile {
   /** Versioned; fetch with the bearer token. */
   avatarUrl?: string;
   avatarThumbUrl?: string;
+  /** Oldest first, at most 6; sent only with the profile itself (whoever may see it may see them). */
+  photos?: MemberPhoto[];
   /** It's the caller's own profile. */
   isYou: boolean;
   /**
@@ -1626,6 +1669,8 @@ export interface AdminMemberProfile {
   hasAvatar: boolean;
   /** Admins may fetch it whatever the profile's visibility. */
   avatarUrl?: string;
+  /** The member's photos, oldest first (admins may fetch them whatever the profile's visibility). */
+  photos?: MemberPhoto[];
   suspended: boolean;
   /** Newest first, at most 20. */
   moderationLog: ProfileModerationEntry[];

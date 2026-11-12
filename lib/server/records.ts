@@ -20,6 +20,7 @@ import type {
   EventSeating,
   GoingAttendee,
   IssuedTicket,
+  MemberPhoto,
   MemberProfile,
   MessageRecord,
   ModerationLogEntry,
@@ -1157,7 +1158,40 @@ export function toAdminOrganiserLink(row: Row): AdminOrganiserLinkRecord {
  */
 export const PROFILE_COLUMNS = `display_name, created_at, updated_at, public_id, profile_visible, bio, instagram_handle,
   exists (select 1 from private.social_suspensions s where s.user_id = profiles.user_id) as suspended,
-  ${avatarVersionOf("profiles.user_id")} as avatar_version`;
+  ${avatarVersionOf("profiles.user_id")} as avatar_version,
+  ${photosOf("profiles.user_id")} as photos`;
+
+/**
+ * SQL: the member `userIdSql`'s photos (private.profile_photos; never the
+ * bytes), oldest first, as a JSON array (empty with none): for photoUrls.
+ * Callers must only select it where the reader may see the profile (their
+ * own, a visible one after private.member_profile_visible, or an admin).
+ * Served by profile_photos_user_created_idx; at most 6 rows.
+ */
+export function photosOf(userIdSql: string): string {
+  return `(select coalesce(json_agg(json_build_object('id', ph.id, 'width', ph.width, 'height', ph.height,
+                                                      'description', ph.description)
+                                    order by ph.created_at, ph.id), '[]'::json)
+             from private.profile_photos ph where ph.user_id = ${userIdSql})`;
+}
+
+/** A member photo's URLs (the route checks who may see it on every request). Its bytes never change, so neither do they. */
+export function photoUrls(profileId: string, photoId: string): { url: string; thumbUrl: string } {
+  const base = `/api/profiles/${profileId}/photos/${photoId}`;
+  return { url: base, thumbUrl: `${base}?size=thumb` };
+}
+
+/** photosOf's JSON array as MemberPhotos. */
+export function toMemberPhotos(profileId: string, value: unknown): MemberPhoto[] {
+  const rows = (value ?? []) as { id: string; width: number; height: number; description: string | null }[];
+  return rows.map((p) => ({
+    photoId: p.id,
+    ...photoUrls(profileId, p.id),
+    width: p.width,
+    height: p.height,
+    ...(p.description ? { description: p.description } : {}),
+  }));
+}
 
 /**
  * SQL: the photo's version for the member `userIdSql` (milliseconds since
@@ -1190,6 +1224,7 @@ export function toProfile(row: Row): ProfileRecord {
     instagramHandle: opt(row.instagram_handle),
     hasAvatar: version !== undefined,
     ...(version !== undefined ? avatarUrls(profileId, version) : {}),
+    photos: toMemberPhotos(profileId, row.photos),
   };
 }
 
@@ -1214,7 +1249,8 @@ export function toGoingAttendee(row: Row): GoingAttendee {
 
 /**
  * Another member's profile (GET /api/profiles/{profileId}). `row` holds the
- * profile's public columns only (going.ts / profiles.ts read nothing else).
+ * profile's public columns only (going.ts / profiles.ts read nothing else),
+ * and `photos` (photosOf) when it was read past the visibility check.
  */
 export function toMemberProfile(
   row: Row,
@@ -1232,6 +1268,7 @@ export function toMemberProfile(
     instagramUrl: handle ? socialLinks({ instagramHandle: handle }).instagram : undefined,
     hasAvatar: version !== undefined,
     ...(version !== undefined ? avatarUrls(profileId, version) : {}),
+    ...(row.photos !== undefined ? { photos: toMemberPhotos(profileId, row.photos) } : {}),
     isYou: row.is_you === true,
     upcomingEvents,
     canMessage: messaging.canMessage,
@@ -1239,10 +1276,11 @@ export function toMemberProfile(
   };
 }
 
-/** For `select … from public.profiles p` (admin only): the profile, its photo and newest moderation entries. */
+/** For `select … from public.profiles p` (admin only): the profile, its photos and newest moderation entries. */
 export const ADMIN_PROFILE_SELECT = `
   select p.public_id, p.display_name, p.profile_visible, p.bio, p.instagram_handle,
          ${avatarVersionOf("p.user_id")} as avatar_version,
+         ${photosOf("p.user_id")} as photos,
          exists (select 1 from private.social_suspensions s where s.user_id = p.user_id) as suspended,
          coalesce((
            select json_agg(json_build_object('removed', l.removed, 'reason', l.reason, 'at', l.created_at,
@@ -1264,6 +1302,7 @@ export function toAdminMemberProfile(row: Row): AdminMemberProfile {
     instagramHandle: opt(row.instagram_handle),
     hasAvatar: version !== undefined,
     ...(version !== undefined ? { avatarUrl: avatarUrls(profileId, version).avatarUrl } : {}),
+    photos: toMemberPhotos(profileId, row.photos),
     suspended: row.suspended === true,
     moderationLog: log.map((entry) => ({
       removed: entry.removed,

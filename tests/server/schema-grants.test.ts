@@ -176,6 +176,7 @@ describe("Data API lock-out", () => {
       { table_name: "platform_rate_limits", rls: true },
       { table_name: "profile_avatars", rls: true },
       { table_name: "profile_moderation_log", rls: true },
+      { table_name: "profile_photos", rls: true },
       { table_name: "rate_limits", rls: true },
       { table_name: "refund_status_marks", rls: true },
       { table_name: "report_photos", rls: true },
@@ -416,6 +417,26 @@ describe("Data API lock-out", () => {
                             'organiser_follow_tokens', 'organiser_event_announcements')`,
     );
     expect(policies.n).toBe(0);
+  });
+
+  it("the member photo functions exist, pin search_path, aren't security definer or client-executable; the table has RLS, no policies and no grants", async () => {
+    const names = ["add_profile_photo", "profile_photos_cap"];
+    expect(await privateFunctions(names)).toEqual(locked(names));
+    const definers = await db.query<{ fn: string; definer: boolean }>(
+      `select p.proname as fn, p.prosecdef as definer from pg_proc p
+        where p.pronamespace = to_regnamespace('private') and p.proname = any($1::text[]) order by 1`,
+      [names],
+    );
+    expect(definers).toEqual(names.map((fn) => ({ fn, definer: false })));
+    const [table] = await db.query<{ rls: boolean; policies: number; grants: number }>(
+      `select c.relrowsecurity as rls,
+              (select count(*)::int from pg_policy p where p.polrelid = c.oid) as policies,
+              (select count(*)::int from information_schema.role_table_grants g
+                where g.table_schema = 'private' and g.table_name = c.relname
+                  and g.grantee in ('anon', 'authenticated', 'PUBLIC')) as grants
+         from pg_class c where c.oid = 'private.profile_photos'::regclass`,
+    );
+    expect(table).toEqual({ rls: true, policies: 0, grants: 0 });
   });
 
   it("the organiser logo functions exist, pin search_path and aren't client-executable", async () => {

@@ -169,6 +169,7 @@ const COVERED_ELSEWHERE: Record<string, string> = {
   getMemberProfile: "member-profiles.test.ts (another member visible through a shared event)",
   getMemberAvatar: "member-profiles.test.ts (`private, no-cache` with an ETag)",
   getMyAvatar: "member-profiles.test.ts (`private, no-cache` with an ETag, 304 included)",
+  getMemberPhoto: "profile-photos.test.ts (`private, no-cache` with an ETag, 304 included)",
   adminGetReportAvatar: "member-profiles.test.ts (a report with a photo)",
   adminGetHolderMessage: "holder-messages.test.ts (a message sent to ticket holders)",
   openStopHolderMessages: "holder-messages.test.ts (the stop link redirects and changes nothing)",
