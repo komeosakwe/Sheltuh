@@ -6,7 +6,6 @@ import {
   matchesPricing,
   matchesSearch,
   matchesTimeFilter,
-  suburbsByState,
 } from "../lib/scene-map-filters";
 import type { SheltuhEvent } from "../lib/types";
 
@@ -177,38 +176,5 @@ describe("matchesSearch", () => {
 
   it("empty query matches everything", () => {
     expect(matchesSearch(event, "")).toBe(true);
-  });
-});
-
-describe("suburbsByState (the map's location filter, grouped by state)", () => {
-  it("groups the events' suburbs by state, states and suburbs by name, each labelled \"Suburb, STATE\"", () => {
-    const at = "2026-11-21T10:00:00.000Z";
-    const groups = suburbsByState([
-      eventAt(at, { suburb: "Northbridge", state: "WA" }),
-      eventAt(at, { suburb: "Fitzroy" }),
-      eventAt(at, { suburb: "Richmond NSW", state: "NSW" }),
-      eventAt(at, { suburb: "Collingwood", state: "VIC" }),
-      eventAt(at, { suburb: "Fitzroy", state: "VIC" }),
-      eventAt(at, { suburb: "Newtown", state: "NSW" }),
-    ]);
-    expect(groups).toEqual([
-      {
-        state: "NSW",
-        label: "New South Wales",
-        suburbs: [
-          { value: "Newtown", label: "Newtown, NSW" },
-          { value: "Richmond NSW", label: "Richmond, NSW" },
-        ],
-      },
-      {
-        state: "VIC",
-        label: "Victoria",
-        suburbs: [
-          { value: "Collingwood", label: "Collingwood, VIC" },
-          { value: "Fitzroy", label: "Fitzroy, VIC" },
-        ],
-      },
-      { state: "WA", label: "Western Australia", suburbs: [{ value: "Northbridge", label: "Northbridge, WA" }] },
-    ]);
   });
 });

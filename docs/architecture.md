@@ -4925,9 +4925,33 @@ Search can order results by how close they are to a suburb (owner round,
   marker; with a saved "near" suburb, centred on it (below), and with
   none, on the mainland and Tasmania (`AUSTRALIA_VIEW`, minimum zoom 3, so
   it fits a 375px phone). Live, it reads up to 4 pages of 50 at a time (and
-  Load more the next 4). The location filter lists the events' suburbs
-  under "All of Australia", grouped by state (`<optgroup>`,
-  `suburbsByState`). Markers cluster by pixel distance at any zoom.
+  Load more the next 4). Markers cluster by pixel distance at any zoom.
+- **Nearby (`/map`, redesign PR 5) has one location and a radius** (the
+  audit's P1: "near you" listed events 1,376 km away, and the page's own
+  "All of Australia" suburb filter disagreed with the remembered suburb).
+  - One location control: Where (`components/search/LocationPicker.tsx`,
+    `standalone`), the site's remembered suburb. Choosing a place (or Use my
+    location, or Enter on a typed suburb the table knows) remembers it;
+    All of Australia forgets it. The old suburb filter (`suburbsByState`) is
+    gone.
+  - `?near=<place>` (Community's Scenes by city link to `/map?near=Sydney`;
+    an older `?suburb=` is read the same way) is a place for this visit:
+    Nearby measures from it and Where shows it, but it never overwrites the
+    remembered suburb, and any change to that (Where, Near me, another tab)
+    replaces it. A place the table doesn't know is ignored.
+  - With a place, the list, the markers and the count keep only the events
+    within the radius (`lib/map-near.ts` `NEARBY_RADII_KM` 5 / 10 / 25 / 50,
+    default 25, `splitByRadius`, the edge included; the Distance filter;
+    `?within=` unless 25): "8 upcoming events within 25 km of Caulfield
+    East". The rest are summarised under Further away ("N more events
+    outside 25 km — the three nearest suburbs."), with "Show all of
+    Australia" (`within=all`: every event, still nearest first). Events with
+    no position can't be near: within a radius they're left out and counted
+    as not on the map. With nothing within the radius, the audit's empty
+    state ("No events found near {place}." / "Try expanding your search
+    area.", with the wider radii) replaces the list; the map stays. "Search
+    this area" lifts the radius while it applies. Without a place, the list
+    is every event soonest first, as before.
 - **`/map` follows the visitor's location** (owner request, creator call,
   Nov 2026). The map's position is data attributes on its container
   (`data-center-lat`, `data-center-lng`, rounded to about 100 m, and
@@ -4948,9 +4972,10 @@ Search can order results by how close they are to a suburb (owner round,
     error, timeout, or a position outside Australia: the default view stays,
     silently, and `sessionStorage` `sheltuh:map-locate-refused:v1` stops it
     asking again that browser session.
-  - An address with `q`, `cat`, `time`, `date`, `suburb`, `price`, `sel` or
-    `view` wins: no ask, no centring on a saved suburb (a selected event or
-    filtered results frame themselves, as before).
+  - An address with `q`, `cat`, `time`, `date`, `suburb`, `price` or `sel`
+    (or a `near`) means no ask on open. It still measures from the saved
+    suburb (one location for the site); a selected event in it that lies
+    outside the radius opens with `within=all`, so the link's event shows.
   - "Near me" (44px; on phones in the map's lower-left corner, from 1024px
     under the zoom buttons; only where the browser has geolocation) runs the
     same flow on demand, ignoring the refusal. It's busy ("Locating…") while
@@ -4969,19 +4994,16 @@ Search can order results by how close they are to a suburb (owner round,
     polite status; it never takes focus, stays 20 seconds (and while focus is
     in it, counted afresh after the steps appear), and its ✕ closes it and
     returns focus to Near me.
-  - Picking a suburb in the map's location filter, or the saved suburb
-    changing while on the map (the search bar's "Use my location" or a
-    picked place,
-    another tab: `subscribeStoredNear` in `lib/near-storage.ts`), centres on
-    that suburb's table centre.
+  - The saved suburb changing while on the page (Where, or another tab:
+    `subscribeStoredNear` in `lib/near-storage.ts`) frames that suburb's
+    table centre with the nearest events; forgetting it drops the origin.
   - **Nearest first** (owner report, Nov 2026: a Sydney event headed a
     Melbourne visitor's list, and zoom 13 could show no event at all). Once the
     visitor is located (Near me, or the ask on open), or from the start with a
-    saved suburb and an address carrying no view of its own, the origin is the
-    position (a dot on the map) or the saved suburb's centre
-    (`useMapLocate`'s `origin`, `components/SceneMap.tsx`).
-    - **The list** is the filtered events (date, category, price, search,
-      suburb and "Search this area" all apply as before) sorted by
+    saved suburb (or `?near=`), the origin is the position (a dot on the map)
+    or the place's centre (`useMapLocate`'s `origin`, `components/SceneMap.tsx`).
+    - **The list** is the filtered events (date, category, price, search
+      and "Search this area" all apply as before), within the radius, sorted by
       `lib/map-near.ts` `sortNearestFirst`: distance from the origin to the
       event's pin, or its suburb's centre (so approximate), then soonest;
       events with no position last. Each row says how far ("Live music · 2.3

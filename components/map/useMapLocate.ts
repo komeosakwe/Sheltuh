@@ -74,8 +74,8 @@ type Status = MapLocateStatus;
  *    the suburb it's in is saved (name and state only, as the search bar's "Use my current
  *    location" does); the request's coordinates are dropped once the map has used it, while
  *    `origin` keeps them in this page's memory for "nearest first" (never stored or sent);
- *  - the saved suburb changing while on the map (the search bar, another tab) does the same for
- *    that suburb's centre;
+ *  - the saved suburb changing while on the map (Nearby's Where, another tab) does the same for
+ *    that suburb's centre, and forgetting it ("All of Australia") drops the origin;
  *  - `centreOn` centres on a place already in hand; `centreOnSuburb` finds a suburb by its name
  *    first (the location filter), loading the suburb table if nothing has yet.
  */
@@ -197,7 +197,13 @@ export function useMapLocate(promptOnOpen: boolean, onLocated?: LocatedHandler) 
     () =>
       subscribeStoredNear(() => {
         const suburb = readStoredNear();
-        if (!suburb || suburb === saving.current) return;
+        // Forgotten ("All of Australia"): nothing to be near any more.
+        if (!suburb) {
+          suburbAsk.current += 1;
+          setOrigin(null);
+          return;
+        }
+        if (suburb === saving.current) return;
         centreOnSuburb(suburb, true);
       }),
     [centreOnSuburb],

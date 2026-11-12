@@ -5,8 +5,8 @@ import { sampleEvents } from "@/lib/sample-events";
 /**
  * /events and /map in a real browser (docs/design/brand-direction-one.md §7;
  * owner decisions 1 and 6, and the owner's requests of 21 Oct 2026): the
- * brand h1, image-first cards and list rows with the orange "Buy tickets",
- * the map first on phones, and no sideways scrolling. Live mode, with every
+ * brand h1, image-first cards and Nearby's list rows (the orange "Buy
+ * tickets" from 1024px), the list first on phones, and no sideways scrolling. Live mode, with every
  * /api/* request answered here from the demo sample events, re-timed to the
  * real clock so the spec never goes stale. Map tiles are refused (no network
  * in CI either); the page must still work without them.
@@ -98,38 +98,40 @@ for (const vp of VIEWPORTS) {
       await noSidewaysScroll(page);
     });
 
-    test("/map: the brand h1, map first on phones, list rows with Buy tickets", async ({ page }) => {
+    test("/map: Nearby, the brand h1, the list first on phones, list rows with their price (and Buy tickets from 1024px)", async ({ page }) => {
       await mockApi(page);
       await page.goto("/map");
+      await expect(page).toHaveTitle("Nearby — Sheltüh");
       const h1 = page.getByRole("heading", { level: 1 });
       await expect(h1).toHaveAccessibleName("Sheltüh near you.");
       await expect(h1).toContainText("near you.", { ignoreCase: true });
 
       const group = page.getByRole("group", { name: "Show events as" });
+      const rowBuy = page.getByRole("link", { name: /^(?:Buy tickets|Free tickets) for / }).first();
+      await expect(page.locator("[data-row-price]").first()).toHaveText(/^(From A\$[\d.,]+|Free|Free \+ paid|Sold out)$/);
       if (vp.phone) {
-        await expect(group.getByRole("button").first()).toHaveAccessibleName("Map");
-        await expect(group.getByRole("button", { name: "Map" })).toHaveAttribute("aria-pressed", "true");
+        await expect(group.getByRole("button").first()).toHaveAccessibleName("List");
+        await expect(group.getByRole("button", { name: "List" })).toHaveAttribute("aria-pressed", "true");
+        // The phone mock's row: no ticket button (the row opens the event).
+        await expect(rowBuy).toBeHidden();
+        await group.getByRole("button", { name: "Map" }).click();
+        await expect(page).toHaveURL(/[?&]view=map\b/);
         // The map leaves page to scroll by: at most 60% of the screen's height.
         const mapBox = await page.locator(".leaflet-container").first().boundingBox();
         expect(mapBox?.height ?? 0).toBeLessThanOrEqual(vp.height * 0.6 + 1);
-        await page.getByRole("button", { name: /^Show the list of \d+ events?$/ }).click();
-        await expect(group.getByRole("button", { name: "List" })).toHaveAttribute("aria-pressed", "true");
-        await expect(page).toHaveURL(/[?&]view=list\b/);
       } else {
         await expect(group).toBeHidden();
+        await expect(rowBuy).toBeVisible();
+        await expect(rowBuy).toHaveAttribute("href", /#tickets$/);
       }
-
-      const rowBuy = page.getByRole("link", { name: /^(?:Buy tickets|Free tickets) for / }).first();
-      await expect(rowBuy).toBeVisible();
-      await expect(rowBuy).toHaveAttribute("href", /#tickets$/);
       await noSidewaysScroll(page);
     });
 
-    test("/map?view=list opens the list", async ({ page }) => {
+    test("/map?view=map opens the map", async ({ page }) => {
       test.skip(!vp.phone, "the view switch is for phones; both show from 1024px");
       await mockApi(page);
-      await page.goto("/map?view=list");
-      await expect(page.getByRole("group", { name: "Show events as" }).getByRole("button", { name: "List" })).toHaveAttribute(
+      await page.goto("/map?view=map");
+      await expect(page.getByRole("group", { name: "Show events as" }).getByRole("button", { name: "Map" })).toHaveAttribute(
         "aria-pressed",
         "true",
       );
@@ -195,7 +197,7 @@ test.describe("/map sheet and focus at 320×640", () => {
 
   test("with no map tiles, 'Show the list' switches to the list and focuses it", async ({ page }) => {
     await mockApi(page);
-    await page.goto("/map");
+    await page.goto("/map?view=map");
     await expect(page.getByText(/Map couldn.t load/)).toBeVisible({ timeout: 20_000 });
     await page.getByRole("button", { name: "Show the list", exact: true }).click();
     await expect(page.getByRole("region", { name: "Events list" })).toBeFocused();
@@ -207,7 +209,7 @@ test.describe("/map sheet and focus at 320×640", () => {
 
   test("'Show the list of N events' focuses the list, which doesn't scroll inside the page", async ({ page }) => {
     await mockApi(page);
-    await page.goto("/map");
+    await page.goto("/map?view=map");
     await page.getByRole("button", { name: /^Show the list of \d+ events?$/ }).click();
     const list = page.getByRole("region", { name: "Events list" });
     await expect(list).toBeFocused();

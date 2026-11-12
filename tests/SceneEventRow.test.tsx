@@ -5,8 +5,8 @@ import SceneEventRow from "@/components/SceneEventRow";
 import { sampleEvents } from "@/lib/sample-events";
 
 /*
- * The map list row (mobile polish, 29 Oct 2026): like an event card, the whole row opens the
- * event (the title's link stretches over it), with Locate and the ticket action above it.
+ * The Nearby list row (redesign PR 5; mobile polish, 29 Oct 2026): like an event card, the whole
+ * row opens the event (the title's link stretches over it), with Locate and the ticket action above it.
  */
 
 vi.mock("next/navigation", () => ({
@@ -48,11 +48,11 @@ describe("SceneEventRow", () => {
     expect(row.className).toContain("has-[[data-card-link]:focus-visible]:outline-2");
   });
 
-  it("keeps Locate above the link, at least 44px, and calls back with the button", () => {
+  it("keeps Locate above the link, 48px, and calls back with the button", () => {
     const onLocate = vi.fn();
     renderRow({ onLocate });
     const locate = screen.getByRole("button", { name: `Locate ${event.title} on the map` });
-    expect(locate).toHaveClass("relative", "z-10", "size-11");
+    expect(locate).toHaveClass("relative", "z-10", "size-12");
     fireEvent.click(locate);
     expect(onLocate).toHaveBeenCalledWith(event.id, locate);
   });
@@ -67,5 +67,25 @@ describe("SceneEventRow", () => {
     renderRow({ selected: true });
     expect(screen.getByText("Selected")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: `Locate ${event.title} on the map` })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("follows the proposal: mono date, title, venue and suburb, 'Category · km', then the all-inclusive 'From A$'", () => {
+    const { container } = render(
+      <SceneEventRow
+        event={event}
+        selected={false}
+        hasLocation
+        onLocate={vi.fn()}
+        distance="8.3 km"
+        detailsHref={`/events/${event.slug}`}
+      />,
+    );
+    const row = container.querySelector("[data-scene-row]") as HTMLElement;
+    expect(row.querySelector(".meta")).toHaveTextContent(/^\w{3} \d{1,2} \w{3,4} · \d{1,2}:\d{2} [ap]m/);
+    expect(screen.getByRole("link", { name: event.title })).toHaveClass("heading-h4");
+    expect(row.querySelector("[data-place-lines]")).toHaveTextContent(event.venueName);
+    expect(row).toHaveTextContent(/· 8\.3 km away/);
+    // The card's price label: all-inclusive, in Australian dollars.
+    expect(row.querySelector("[data-row-price]")?.textContent).toMatch(/^(From A\$[\d.,]+|Free|Free \+ paid|Sold out|Tickets coming soon)$/);
   });
 });

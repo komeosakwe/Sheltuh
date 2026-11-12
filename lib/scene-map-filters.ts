@@ -2,8 +2,6 @@ import { cachedDateTimeFormat } from "./time-zones";
 import { eventZone, formatEventDateKey } from "./format";
 import { getMinBuyerTotalCents } from "./pricing";
 import { isFreeEvent } from "./data";
-import { placeName, STATE_NAMES } from "./place";
-import type { StateCode } from "./time-zones";
 import type { SheltuhEvent } from "./types";
 
 export type TimeFilter = "all" | "tonight" | "weekend" | "date";
@@ -88,40 +86,4 @@ export function matchesSearch(event: SheltuhEvent, query: string): boolean {
     event.venueName.toLowerCase().includes(q) ||
     event.suburb.toLowerCase().includes(q)
   );
-}
-
-/** One state's suburbs in the map's location filter. */
-export interface SuburbGroup {
-  state: StateCode;
-  /** The state's name, the group's label ("Victoria"). */
-  label: string;
-  /**
-   * `value`: the suburb as stored (the filter matches it); `label`: "Suburb, STATE" (owner decision
-   * D4), so the closed select still says which state ("Richmond, NSW", never "Richmond NSW, NSW").
-   */
-  suburbs: { value: string; label: string }[];
-}
-
-/**
- * The suburbs present in `events`, grouped by state (an event without one
- * is Victorian), states by name and suburbs alphabetised: the map's location
- * filter, as <optgroup>s.
- */
-export function suburbsByState(events: SheltuhEvent[]): SuburbGroup[] {
-  const byState = new Map<StateCode, Map<string, string>>();
-  for (const event of events) {
-    const state = event.state ?? "VIC";
-    let suburbs = byState.get(state);
-    if (!suburbs) byState.set(state, (suburbs = new Map()));
-    if (!suburbs.has(event.suburb)) suburbs.set(event.suburb, placeName(event.suburb, state));
-  }
-  return [...byState]
-    .map(([state, suburbs]) => ({
-      state,
-      label: STATE_NAMES[state],
-      suburbs: [...suburbs]
-        .map(([value, label]) => ({ value, label }))
-        .sort((a, b) => a.label.localeCompare(b.label) || a.value.localeCompare(b.value)),
-    }))
-    .sort((a, b) => a.label.localeCompare(b.label));
 }

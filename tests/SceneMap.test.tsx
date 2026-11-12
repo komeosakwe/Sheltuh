@@ -279,41 +279,30 @@ describe("SceneMap photo markers", () => {
       await renderMap([withPhoto, interstate]);
       await markerButton("Photo Night", 5_000);
       expect(mapPanel().dataset.zoom).toBe(String(MAP_NEAR_ZOOM));
-      // Centred on Melbourne: Sydney is well outside the view, so its marker isn't drawn (it's still listed).
+      // Centred on Melbourne, within 25 km: Sydney is neither drawn nor listed, only counted further away.
       expect(within(mapPanel()).queryByRole("button", { name: /^Sydney Show\./ })).toBeNull();
-      expect(screen.getByRole("button", { name: "Locate Sydney Show on the map" })).toBeEnabled();
+      expect(screen.queryByRole("button", { name: "Locate Sydney Show on the map" })).toBeNull();
+      expect(document.querySelector("[data-further-away]")).toHaveTextContent("1 more event outside 25 km — Surry Hills.");
       cleanup();
 
-      // A suburb with no event near it (Perth): still centred there, zoomed in; the events stay listed.
+      // A suburb with no event near it (Perth): still centred there, zoomed in; the list says so.
       localStorage.setItem("sheltuh:near:v1", JSON.stringify({ suburb: "Perth" }));
       await renderMap([withPhoto, interstate]);
       await waitFor(() => expect(mapPanel().dataset.zoom).toBe(String(MAP_NEAR_ZOOM)));
       expect(Number(mapPanel().dataset.centerLng)).toBeCloseTo(115.86, 1);
       expect(within(mapPanel()).queryByRole("button", { name: /^Photo Night\./ })).toBeNull();
-      expect(screen.getByRole("button", { name: "Locate Photo Night on the map" })).toBeEnabled();
+      expect(screen.getByRole("heading", { level: 2, name: "No events found near Perth." })).toBeInTheDocument();
     } finally {
       localStorage.removeItem("sheltuh:near:v1");
     }
     // Three map mounts with 5s waits inside: more than the default 5s for the whole test.
   }, 30_000);
 
-  it("groups the location filter's suburbs by state, under All of Australia", async () => {
+  it("has no location filter of its own: Where (the site's one location) is the only one", async () => {
     await renderMap([withPhoto, interstate, westSide]);
     await screen.findByRole("link", { name: "Photo Night" });
-    const select = screen.getByRole("combobox", { name: "Location" });
-    expect(within(select).getAllByRole("option")[0]).toHaveTextContent("All of Australia");
-    const groups = Array.from(select.querySelectorAll("optgroup")).map((group) => [
-      group.label,
-      Array.from(group.querySelectorAll("option")).map((option) => option.textContent),
-    ]);
-    expect(groups).toEqual([
-      // Each option says its state, so the closed select does too (owner decision D4).
-      ["New South Wales", ["Surry Hills, NSW"]],
-      ["Victoria", ["Fitzroy, VIC", "Footscray, VIC"]],
-    ]);
-    fireEvent.change(select, { target: { value: "Surry Hills" } });
-    // The chip names the state too (owner decision D4).
-    expect(await screen.findByRole("button", { name: /^Surry Hills, NSW/ })).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Location" })).toBeNull();
+    expect(screen.getAllByRole("button", { name: /^Where:/ })).toHaveLength(1);
   });
 
   it("gives every list row a thumbnail of the event photo", async () => {

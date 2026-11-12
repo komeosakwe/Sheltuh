@@ -89,12 +89,37 @@ test.describe("/map centres on the visitor at 1280×800", () => {
       await expectCentredOn(page, MELBOURNE);
     });
 
-    test("picking a suburb in the location filter centres on it", async ({ page }) => {
+    test("a suburb typed in Where (Enter) is remembered and Nearby measures from it", async ({ page }) => {
       await openMap(page);
       await expectCentredOn(page, MELBOURNE);
-      const location = page.getByRole("combobox", { name: "Location" });
-      await location.selectOption({ label: "Footscray, VIC" });
-      await expectCentredOn(page, { latitude: -37.8, longitude: 144.9 });
+      await page.getByRole("button", { name: "Where: Melbourne" }).click();
+      const field = page.getByRole("combobox", { name: "Suburb" });
+      await field.fill("Footscray");
+      await field.press("Enter");
+      await expect(page.getByRole("button", { name: "Where: Footscray" })).toBeFocused();
+      await expect(page.locator("[data-map-count]")).toHaveText(/within 25 km of Footscray$/);
+      expect(JSON.parse((await page.evaluate(() => localStorage.getItem("sheltuh:near:v1"))) ?? "null")).toEqual({
+        suburb: "Footscray",
+        state: "VIC",
+      });
+      await expect(page.getByRole("button", { name: "Search this area" })).toHaveCount(0);
+    });
+
+    test("a place far from every event in Where: centred on it, and Nearby says nothing is near", async ({ page }) => {
+      await openMap(page);
+      await expectCentredOn(page, MELBOURNE);
+      await page.getByRole("button", { name: "Where: Melbourne" }).click();
+      const field = page.getByRole("combobox", { name: "Suburb" });
+      await field.fill("Darwin");
+      await field.press("Enter");
+      // Darwin is the suburb table's Darwin City.
+      await expect(page.getByRole("heading", { level: 2, name: "No events found near Darwin City." })).toBeVisible();
+      await expect
+        .poll(async () => {
+          const view = await readView(mapContainer(page));
+          return view.zoom === NEAR_ZOOM && Math.abs(view.lat + 12.46) < 0.05 && Math.abs(view.lng - 130.84) < 0.05;
+        })
+        .toBe(true);
       await expect(page.getByRole("button", { name: "Search this area" })).toHaveCount(0);
     });
   });
@@ -177,10 +202,10 @@ test.describe("/map puts the events nearest the visitor first", () => {
 
   test("the list runs nearest first with distances, the map frames the nearest few, and a later pan stays", async ({ page }) => {
     await openWithSydneySoonest(page);
-    // Soonest first until located; the ask on open then orders it.
+    // Soonest first until located; the ask on open then orders it, within 25 km.
     await expect(rows(page).first()).toContainText(/\d+(\.\d)? km away|< 1 km away/, { timeout: 20_000 });
-    await expect(rows(page).first()).not.toContainText("Sydney Soonest");
-    await expect(rows(page).filter({ hasText: "Sydney Soonest" })).toContainText(/7\d\d km away/);
+    await expect(rows(page).filter({ hasText: "Sydney Soonest" })).toHaveCount(0);
+    await expect(page.locator("[data-further-away]")).toContainText(/\d+ more events outside 25 km — [^.]*Surry Hills/);
     const distances = await rows(page).evaluateAll((els) =>
       els.map((el) => {
         const match = /([\d,.]+|< 1) km away/.exec(el.textContent ?? "");
@@ -203,9 +228,21 @@ test.describe("/map puts the events nearest the visitor first", () => {
     // The visitor pans: the map stays where they put it, "Search this area" is offered, the order stays.
     const before = await readView(mapContainer(page));
     const box = (await mapContainer(page).boundingBox())!;
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    // A grab on the map itself (a tile), not on a marker or the visitor's dot: the nearest events
+    // are framed around the middle.
+    const start = await page.evaluate(({ x, y, width, height }) => {
+      for (const fy of [0.5, 0.7, 0.3, 0.85, 0.15]) {
+        for (const fx of [0.5, 0.65, 0.35, 0.8, 0.2]) {
+          const [px, py] = [x + width * fx, y + height * fy];
+          const hit = document.elementFromPoint(px, py);
+          if (hit?.closest(".leaflet-tile-pane") || hit?.classList.contains("leaflet-container")) return { px, py };
+        }
+      }
+      return { px: x + width / 2, py: y + height / 2 };
+    }, box);
+    await page.mouse.move(start.px, start.py);
     await page.mouse.down();
-    await page.mouse.move(box.x + box.width / 2 + 160, box.y + box.height / 2 + 60, { steps: 8 });
+    await page.mouse.move(start.px + 160, start.py + 60, { steps: 8 });
     await page.mouse.up();
     await expect(page.getByRole("button", { name: "Search this area" })).toBeVisible();
     await page.waitForTimeout(1500);
@@ -267,7 +304,7 @@ test.describe("Near me opens the nearest event", () => {
 
     test("opens the same bottom sheet a pin tap does, and Dismiss returns to Near me", async ({ page, context }) => {
       await mockMapNetwork(page);
-      await page.goto(`/map?cat=${fixtures(Date.now())[0].category}`);
+      await page.goto(`/map?cat=${fixtures(Date.now())[0].category}&view=map`);
       await expect(page.locator(".leaflet-tile-loaded").first()).toBeVisible({ timeout: 20_000 });
       await context.grantPermissions(["geolocation"]);
       await context.setGeolocation(MELBOURNE);
@@ -294,8 +331,8 @@ test.describe("/map when every event has a venue pin", () => {
   test.use({ viewport: { width: 1280, height: 800 }, permissions: [] });
 
   // With pins and no saved suburb, nothing needs the suburb table, so /map hasn't loaded it when a
-  // suburb is picked: the pick has to load it, not fall back to the Melbourne-only list.
-  test("picking a suburb outside Melbourne centres on it before the suburb table was ever loaded", async ({ page }) => {
+  // place is picked: the pick has to load it, not fall back to the Melbourne-only list.
+  test("picking a place outside Melbourne in Where centres on it before the suburb table was ever loaded", async ({ page }) => {
     await mockMapNetwork(page);
     await page.route("**/api/events?*", (route) =>
       route.fulfill({
@@ -315,8 +352,11 @@ test.describe("/map when every event has a venue pin", () => {
     );
     await page.goto("/map");
     await expect(page.locator(".leaflet-tile-loaded").first()).toBeVisible({ timeout: 20_000 });
-    await page.getByRole("combobox", { name: "Location" }).selectOption({ label: "Surry Hills, NSW" });
-    await expectCentredOn(page, { latitude: -33.8861, longitude: 151.2111 });
+    await page.getByRole("button", { name: "Where: Your suburb" }).click();
+    await page.locator("[data-location-panel]").getByRole("button", { name: /^Sydney/ }).click();
+    // Framed with the one event near it (Surry Hills, 2 km from the city's centre).
+    await expectCentredOn(page, { latitude: -33.8775, longitude: 151.21 });
+    await expect(page.getByRole("link", { name: fixtures(Date.now())[0].title, exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Search this area" })).toHaveCount(0);
   });
 });
@@ -326,9 +366,9 @@ test.describe("/map on a 375px phone", () => {
 
   test("Near me, then List, then Map: the map keeps the visitor's location", async ({ page, context }) => {
     // The list is hidden on a phone's Map tab, so there are no Locate buttons to wait for: the tiles will do.
-    // A filter in the address means no saved suburb to open on, and a view that would fit the events.
+    // A filter in the address means no ask on open, and a view that would fit the events.
     await mockMapNetwork(page);
-    await page.goto(`/map?cat=${fixtures(Date.now())[0].category}`);
+    await page.goto(`/map?cat=${fixtures(Date.now())[0].category}&view=map`);
     await expect(page.locator(".leaflet-tile-loaded").first()).toBeVisible({ timeout: 20_000 });
     await context.grantPermissions(["geolocation"]);
     await context.setGeolocation(SYDNEY);
