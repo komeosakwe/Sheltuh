@@ -414,9 +414,11 @@ function SceneMapView({
   // None near in what's loaded yet: it waits while more can still load (the read-on below, or Load
   // more), and the first batch that brings one opens it (CodeRabbit, PR 43).
   const [arrivalPending, setArrivalPending] = useState(!urlSteers);
-  if (arrivalPending && status === "loaded" && located && !loadingMore) {
+  if (arrivalPending && status === "loaded" && located) {
+    // The visitor's own pick (or Search this area) ends it at once, even mid-load: a card they've
+    // since dismissed isn't replaced by one opening by itself (CodeRabbit, PR 43).
     if (rawSelectedEventId !== null || areaBounds) setArrivalPending(false);
-    else {
+    else if (!loadingMore) {
       const reach = radius === "all" ? NEAR_FRAME_FALLBACK_KM : radius;
       const nearest = nearestWithin(matching, located, (event) => resolveMapCoordinates(event, findSuburb), reach);
       if (nearest) {

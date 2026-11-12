@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { loadLocation } from "@/lib/location-loader";
 
@@ -139,6 +139,34 @@ describe("live /map loading", () => {
         timeout: 10_000,
       });
       expect(screen.getAllByRole("region", { name: "Selected event" })[0]).toHaveTextContent("Perth Show");
+    } finally {
+      localStorage.removeItem("sheltuh:near:v1");
+    }
+  }, 30_000);
+
+  // CodeRabbit (PR 43): a card picked and dismissed while the read-on loads isn't replaced by one opening by itself.
+  it("on arrival, a pick made while the read-on loads ends it: nothing opens by itself when the load lands", async () => {
+    localStorage.setItem("sheltuh:near:v1", JSON.stringify({ suburb: "Perth", state: "WA" }));
+    try {
+      for (let n = 0; n < 4; n++) listPublicEvents.mockResolvedValueOnce(page(n * 50, 50, `c${n + 1}`));
+      const perth = page(200, 1);
+      perth.items[0] = { ...perth.items[0], title: "Perth Show", suburb: "Perth", state: "WA", timeZone: "Australia/Perth" };
+      let land: (value: typeof perth) => void = () => {};
+      listPublicEvents.mockReturnValueOnce(new Promise<typeof perth>((resolve) => (land = resolve)));
+      render(<SceneMap />);
+      await waitFor(() => expect(listPublicEvents).toHaveBeenCalledTimes(5), { timeout: 10_000 });
+      // Show all of Australia, then pick one and dismiss it, while the read-on is still out.
+      fireEvent.click(screen.getByRole("button", { name: "Show all of Australia" }));
+      fireEvent.click((await screen.findAllByRole("button", { name: /^Locate Event 0 on the map$/ }))[0]);
+      await waitFor(() => expect(screen.getAllByRole("region", { name: "Selected event" }).length).toBeGreaterThan(0));
+      fireEvent.click(screen.getAllByRole("button", { name: "Dismiss selected event" })[0]);
+      await waitFor(() => expect(screen.queryByRole("region", { name: "Selected event" })).toBeNull());
+      await act(async () => {
+        land(perth);
+        await Promise.resolve();
+      });
+      await screen.findAllByText("Perth Show", undefined, { timeout: 10_000 });
+      expect(screen.queryByRole("region", { name: "Selected event" })).toBeNull();
     } finally {
       localStorage.removeItem("sheltuh:near:v1");
     }
