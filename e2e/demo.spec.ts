@@ -161,6 +161,16 @@ for (const vp of [
       checkNoApiCalls();
     });
 
+    test("/community is built from the sample events and calls no API", async ({ page }) => {
+      const checkNoApiCalls = noApiCalls(page);
+      await page.goto("/community");
+      await expect(page.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your people.", { timeout: 60_000 });
+      await expect(page.getByRole("list", { name: "Local discovery" }).locator("[data-event-card]").first()).toBeVisible();
+      await expect(page.locator("[data-city='Melbourne']")).toContainText(/\d+ upcoming/);
+      await noSidewaysScroll(page);
+      checkNoApiCalls();
+    });
+
     test("Add to calendar's Apple link is the event's .ics, served inline as text/calendar", async ({ page }) => {
       const checkNoApiCalls = noApiCalls(page);
       await page.goto("/events/thornbury-dub-session");

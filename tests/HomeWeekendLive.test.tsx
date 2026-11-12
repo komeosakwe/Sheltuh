@@ -49,12 +49,18 @@ const NOW = "2026-11-11T01:00:00.000Z";
 const SAT = event("sat", "2026-11-14T06:00:00.000Z");
 const SUN = event("sun", "2026-11-15T08:00:00.000Z");
 const LATER = event("later", "2026-11-25T08:00:00.000Z");
+// Five trending events later in the month, first in the server's order: the carousel (which claims
+// first, five at most) takes them, so This weekend keeps both of its events.
+const FEATURED = ["f1", "f2", "f3", "f4", "f5"].map((id, i) => event(id, `2026-11-2${i + 4}T08:00:00.000Z`));
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date(NOW));
-  loadHomeEvents.mockReset().mockResolvedValue([SAT, SUN, LATER]);
-  loadHomeTrending.mockReset().mockResolvedValue([{ event: SAT, signal: { kind: "going", count: 42 } }]);
+  loadHomeEvents.mockReset().mockResolvedValue([SAT, SUN, LATER, ...FEATURED]);
+  loadHomeTrending.mockReset().mockResolvedValue([
+    ...FEATURED.map((e) => ({ event: e, signal: { kind: "popular" } as const })),
+    { event: SAT, signal: { kind: "going", count: 42 } },
+  ]);
 });
 afterEach(() => {
   cleanup();

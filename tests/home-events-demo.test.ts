@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isApiConfigured } from "@/lib/api/client";
-import { loadHomeEvents, loadHomeFeed, loadHomeTrending } from "@/lib/home-events";
+import { loadHomeFeed, loadHomeTrending } from "@/lib/home-events";
 import { getSampleGoing } from "@/lib/sample-going";
 
 // Tests run without Supabase settings, so this is demo mode: sample data, no requests.
@@ -11,18 +11,16 @@ describe("home loaders (demo)", () => {
     expect(isApiConfigured).toBe(false);
   });
 
-  it("loadHomeEvents: the sample events that haven't ended, soonest first", async () => {
-    const events = await loadHomeEvents(NOW);
+  it("loadHomeFeed: the sample events that haven't ended, soonest first", async () => {
+    const { events } = await loadHomeFeed(NOW);
     expect(events.length).toBeGreaterThan(0);
     for (const e of events) expect(Date.parse(e.endsAt ?? e.startsAt)).toBeGreaterThan(NOW.getTime());
     const starts = events.map((e) => e.startsAt);
     expect(starts).toEqual([...starts].sort());
   });
 
-  it("loadHomeFeed: the same events, and always complete (every sample is loaded)", async () => {
-    const feed = await loadHomeFeed(NOW);
-    expect(feed.complete).toBe(true);
-    expect(feed.events).toEqual(await loadHomeEvents(NOW));
+  it("loadHomeFeed: always complete (every sample is loaded)", async () => {
+    expect((await loadHomeFeed(NOW)).complete).toBe(true);
   });
 
   it("loadHomeTrending: upcoming samples by going count (ties soonest first), top 12, labelled with that count", async () => {

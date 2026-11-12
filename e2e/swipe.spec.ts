@@ -210,7 +210,8 @@ test.describe("on a phone (375×667)", () => {
       await expect(articles.nth(i)).toHaveAttribute("aria-posinset", expected);
       await expect(articles.nth(i)).toHaveAttribute("aria-setsize", String(count));
     }
-    await expect(articles.first().locator("[data-swipe-section]")).toHaveText("This weekend");
+    // The home's order: the carousel's events come first.
+    await expect(articles.first().locator("[data-swipe-section]")).toHaveText(/^(Popular right now|Coming up)$/);
     const title = (await articles.first().getAttribute("aria-label")) ?? "";
     await expect(articles.first().getByRole("link", { name: `View event ${title}` })).toBeVisible();
   });
@@ -300,10 +301,10 @@ test.describe("on a desktop (1280×800)", () => {
     expect(await overflow(page)).toBeLessThanOrEqual(0);
   });
 
-  test("/swipe is a centred phone-width column, with the home's first This weekend event first", async ({ page }) => {
+  test("/swipe is a centred phone-width column, with the home's first event (the carousel's first slide) first", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
-    const firstCard = page.getByRole("list", { name: "This weekend" }).locator("[data-event-card] h3").first();
+    const firstCard = page.locator("[data-featured-carousel] [data-slide] h3").first();
     await expect(firstCard).toBeVisible();
     const homeFirst = (await firstCard.textContent())?.trim();
 

@@ -3,6 +3,7 @@ import { listPublicEvents } from "@/lib/api/public-events";
 import { getUpcomingEvents, isUpcomingEvent } from "@/lib/data";
 import { categoryLabel } from "@/lib/event-card";
 import { distanceKm } from "@/lib/geo";
+import { NEAR_FRAME_RADIUS_KM } from "@/lib/map-near";
 import { bySoonest } from "@/lib/home-sections";
 import { adaptPublicEvent } from "@/lib/live/adapt";
 import type { StateCode } from "@/lib/time-zones";
@@ -60,8 +61,6 @@ export const COMMUNITY_CITIES: readonly CommunityCity[] = [
   { name: "Adelaide", state: "SA", centre: { lat: -34.9285, lng: 138.6007 } },
 ];
 
-/** An event counts towards a city within this distance of its centre (Nearby's default radius). */
-export const CITY_RADIUS_KM = 25;
 /** A city's line lists at most this many of its categories. */
 const CITY_CATEGORIES_MAX = 3;
 
@@ -73,19 +72,26 @@ export interface CityScene {
   categories: string[];
 }
 
+export interface CityScenes {
+  scenes: CityScene[];
+  /** Every event could be placed: only then is a city's count the whole number. */
+  allPlaced: boolean;
+}
+
 /**
  * Each city's upcoming events: those whose position (`positionOf`: the venue's pin, else its
- * suburb's centre) is within CITY_RADIUS_KM of the city's centre. An event that can't be placed
- * counts nowhere. Pure.
+ * suburb's centre) is within NEAR_FRAME_RADIUS_KM (25 km, the radius Nearby frames around a
+ * place) of the city's centre. An event that can't be placed counts nowhere, and `allPlaced`
+ * says whether any couldn't. Pure.
  */
 export function cityScenes(
   events: readonly SheltuhEvent[],
   positionOf: (event: SheltuhEvent) => Coordinates | null,
-): CityScene[] {
+): CityScenes {
   const placed = events.map((event) => ({ event, position: positionOf(event) }));
-  return COMMUNITY_CITIES.map((city) => {
+  const scenes = COMMUNITY_CITIES.map((city) => {
     const near = placed
-      .filter(({ position }) => position !== null && distanceKm(city.centre, position) <= CITY_RADIUS_KM)
+      .filter(({ position }) => position !== null && distanceKm(city.centre, position) <= NEAR_FRAME_RADIUS_KM)
       .map(({ event }) => event)
       .sort(bySoonest);
     const tally = new Map<string, number>();
@@ -96,4 +102,5 @@ export function cityScenes(
       .map(([label]) => label);
     return { city, events: near, categories };
   });
+  return { scenes, allPlaced: placed.every(({ position }) => position !== null) };
 }

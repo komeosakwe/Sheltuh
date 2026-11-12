@@ -50,7 +50,7 @@ describe("Home (demo data, Wed 21 Oct 2026; the proposal, redesign PR 3)", () =>
     expect(hero.compareDocumentPosition(carousel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(carousel.compareDocumentPosition(chips) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(chips.compareDocumentPosition(weekend) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(within(chips).getByRole("button", { name: "All events" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(chips).getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("every card is an upcoming event, and none is shown twice above All events (which lists each once)", async () => {

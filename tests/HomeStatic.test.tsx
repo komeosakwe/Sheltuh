@@ -132,11 +132,11 @@ function Chips({ onChange }: { onChange?: (next: HomeFilters) => void }) {
 }
 
 describe("CategoryRow: the category chips (the proposal, redesign PR 3)", () => {
-  it("is a labelled group of toggle chips: All events (pressed by default), each category, then Free", () => {
+  it("is a labelled group of toggle chips: All (pressed by default), each category, then Free", () => {
     render(<Chips />);
     const group = screen.getByRole("group", { name: "Browse by category" });
     const chips = within(group).getAllByRole("button");
-    expect(chips.map((chip) => chip.textContent)).toEqual(["All events", ...HOME_CATEGORIES.map((c) => c.label), "Free"]);
+    expect(chips.map((chip) => chip.textContent)).toEqual(["All", ...HOME_CATEGORIES.map((c) => c.label), "Free"]);
     expect(chips.map((chip) => chip.getAttribute("aria-pressed"))).toEqual(["true", "false", "false", "false", "false", "false", "false"]);
     for (const chip of chips) {
       expect(chip).toHaveAttribute("aria-controls", "home-all-events");
@@ -151,51 +151,59 @@ describe("CategoryRow: the category chips (the proposal, redesign PR 3)", () => 
     expect(within(group).queryAllByRole("link")).toEqual([]);
   });
 
-  it("a category chip sets the category (and unsets All events); pressed again it goes back to all", () => {
+  it("a category chip sets the category (and unsets All); pressed again it goes back to all", () => {
     render(<Chips />);
     const art = screen.getByRole("button", { name: "Art" });
     fireEvent.click(art);
     expect(art).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "All events" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "false");
     expect(JSON.parse(screen.getByTestId("filters").textContent ?? "")).toEqual({ ...NO_HOME_FILTERS, category: "art" });
     fireEvent.click(screen.getByRole("button", { name: "Live music" }));
     expect(art).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByRole("button", { name: "Live music" })).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(screen.getByRole("button", { name: "Live music" }));
-    expect(screen.getByRole("button", { name: "All events" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("Free sets the price filter alongside a category; All events clears both", () => {
+  it("Free sets the price filter alongside a category; All clears both", () => {
     render(<Chips />);
     fireEvent.click(screen.getByRole("button", { name: "Workshops" }));
     fireEvent.click(screen.getByRole("button", { name: "Free" }));
     expect(JSON.parse(screen.getByTestId("filters").textContent ?? "")).toEqual({ category: "workshop", price: "free", date: "all" });
     expect(screen.getByRole("button", { name: "Free" })).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(screen.getByRole("button", { name: "All events" }));
+    fireEvent.click(screen.getByRole("button", { name: "All" }));
     expect(JSON.parse(screen.getByTestId("filters").textContent ?? "")).toEqual(NO_HOME_FILTERS);
-    expect(screen.getByRole("button", { name: "All events" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("is one row that scrolls sideways inside its own container on phones (bleeding to the page edges) and wraps from 640px", () => {
+  it("is one row that scrolls sideways inside its own container below 1024px (bleeding to the page edges), wraps from 1024px, and is seven equal columns from 1280px", () => {
     render(<Chips />);
     const list = screen.getByRole("list");
-    expect(list).toHaveClass("flex", "overflow-x-auto", "px-4", "sm:flex-wrap", "sm:overflow-visible", "sm:px-0");
-    expect(list.parentElement).toHaveClass("-mx-4", "sm:mx-0");
+    expect(list).toHaveClass("flex", "overflow-x-auto", "px-4", "md:px-8", "lg:flex-wrap", "lg:overflow-visible", "lg:px-0", "xl:grid", "xl:grid-cols-7");
+    expect(list.parentElement).toHaveClass("-mx-4", "md:-mx-8", "lg:mx-0");
+    for (const chip of screen.getAllByRole("button")) expect(chip).toHaveClass("xl:w-full", "xl:justify-center");
   });
 });
 
 describe("HomeSectionHead", () => {
-  it("is a Heading/H2 with the two decorative dots, an optional mono note and a link", () => {
+  it("is a Heading/H1-size h2 with the two decorative dots, an optional mono note and a link that stays on the title's row (\"See all\" on phones)", () => {
     render(<HomeSectionHead id="w" title="This weekend" note="Fri 13 – Sun 15 Nov" link={{ href: "/map?time=weekend", label: "See all this weekend" }} />);
     const h2 = screen.getByRole("heading", { level: 2, name: "This weekend" });
     expect(h2).toHaveAttribute("id", "w");
     expect(h2).toHaveAttribute("tabindex", "-1");
-    expect(h2).toHaveClass("heading-h2");
+    expect(h2).toHaveClass("heading-h1");
     expect(h2.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
     const note = screen.getByText("Fri 13 – Sun 15 Nov");
     expect(note).toHaveClass("mono-s", "uppercase", "text-muted");
     expect(h2.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByRole("link", { name: "See all this weekend" })).toHaveAttribute("href", "/map?time=weekend");
+    const link = screen.getByRole("link", { name: "See all this weekend" });
+    expect(link).toHaveAttribute("href", "/map?time=weekend");
+    // Phones show "See all" (its visible words first in the name), from 640px the whole label.
+    expect(link.querySelector(".sm\\:hidden")).toHaveTextContent(/^See all$/);
+    expect(link.querySelector(".hidden.sm\\:inline")).toHaveTextContent(/^See all this weekend$/);
+    // The head is one row: the title (and note) on the left, the link on the right, never wrapping under.
+    expect(h2.closest(".flex.items-start.justify-between")?.lastElementChild).toBe(link);
+    expect(h2.closest(".flex.items-start.justify-between")).toHaveClass("lg:mb-12");
   });
 
   it("has no note or link without them", () => {
@@ -235,22 +243,6 @@ describe("SectionHead", () => {
     expect(root).toHaveClass("items-baseline");
   });
 
-  it("feature: This weekend's big head, with the link's words underlined in orange beside the arrow", () => {
-    render(
-      <SectionHead id="w" title="This weekend" note="Fri 13 – Sun 15 Nov" link={{ href: "/events", label: "All events" }} variant="feature" />,
-    );
-    const h2 = screen.getByRole("heading", { level: 2, name: "This weekend" });
-    expect(h2).toHaveClass("text-3xl", "sm:text-4xl", "font-bold");
-    expect(h2.nextElementSibling).toHaveTextContent("Fri 13 – Sun 15 Nov");
-    const link = screen.getByRole("link", { name: "All events" });
-    expect(link).toHaveAttribute("href", "/events");
-    expect(link).toHaveClass("min-h-11");
-    // The underline is the words' (orange, 3px), not the arrow's; the arrow is decorative.
-    const words = within(link).getByText("All events");
-    expect(words).toHaveClass("underline", "decoration-signal", "decoration-3");
-    expect(link.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
-  });
-
   it("puts the note (real context, e.g. the weekend's dates) after the h2 in reading order", () => {
     render(<SectionHead id="w" title="This weekend" note="Fri 23 – Sun 25 Oct" link={{ href: "/events", label: "All events" }} />);
     const h2 = screen.getByRole("heading", { level: 2, name: "This weekend" });
@@ -280,14 +272,16 @@ describe("GuideCard and CreatorsCard", () => {
     expect(container.querySelector(".bg-card.border-foreground")).not.toBeNull();
   });
 
-  it("Bring your event to life is a black banner with the proposal's line, a decorative 2:1 photo and List your event", () => {
+  it("Bring your event to life is a black banner with the proposal's line, a decorative photo (2:1, 400px and 3:1 from 1024px) and List your event", () => {
     const { container } = render(<CreatorsCard />);
     expect(screen.getByText("For organisers")).toHaveClass("eyebrow");
     expect(screen.getByRole("region", { name: "Bring your event to life" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 2, name: "Bring your event to life" })).toHaveClass("heading-h2");
+    expect(screen.getByRole("heading", { level: 2, name: "Bring your event to life" })).toHaveClass("heading-h1");
     expect(screen.getByText(CREATORS_LINE)).toBeInTheDocument();
     expect(CREATORS_LINE).toBe("Every organiser checked by a person · Only the good stuff");
     const photo = container.querySelector("[aria-hidden='true'] .aspect-\\[2\\/1\\]");
+    expect(photo).toHaveClass("lg:aspect-[3/1]");
+    expect(photo?.parentElement).toHaveClass("lg:w-100");
     expect(photo?.querySelector("img")).toHaveAttribute("src", "/events/street-market.jpg");
     const cta = screen.getByRole("link", { name: "List your event" });
     expect(cta).toHaveAttribute("href", "/organisers/apply");

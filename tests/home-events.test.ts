@@ -14,11 +14,13 @@ vi.mock("@/lib/api/trending", () => ({
   getTrendingEvents: (...args: unknown[]) => getTrendingEvents(...args),
 }));
 
-const { loadHomeEvents, loadHomeFeed, loadHomeTrending, HOME_EVENT_LIMIT, HOME_WEEKEND_TOP_UP_LIMIT, HOME_WEEKEND_TOP_UP_MAX_PAGES } =
+const { loadHomeFeed, loadHomeTrending, HOME_EVENT_LIMIT, HOME_WEEKEND_TOP_UP_LIMIT, HOME_WEEKEND_TOP_UP_MAX_PAGES } =
   await import("@/lib/home-events");
 
 // Wed 21 Oct 2026, 12:00 AEDT. This weekend ends Sun 25 Oct 23:59:59.999 AEDT (12:59:59.999Z).
 const NOW = new Date("2026-10-21T01:00:00.000Z");
+/** loadHomeFeed's events. */
+const loadHomeEvents = async (now: Date) => (await loadHomeFeed(now)).events;
 
 function item(id: string, startsAt = "2026-12-01T09:00:00.000Z", endsAt = "2026-12-01T12:00:00.000Z"): PublicEvent {
   return {
@@ -44,7 +46,7 @@ beforeEach(() => {
 });
 afterEach(() => vi.clearAllMocks());
 
-describe("loadHomeEvents (live)", () => {
+describe("loadHomeFeed (live): the events", () => {
   it("makes one request for upcoming events, with a limit, when the page reaches past the weekend", async () => {
     listPublicEvents.mockResolvedValue({ items: [item("a", "2026-10-22T08:00:00.000Z"), item("b")], nextCursor: "c1" });
     const events = await loadHomeEvents(NOW);

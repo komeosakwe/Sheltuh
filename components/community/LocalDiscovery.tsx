@@ -10,7 +10,7 @@ import { ArrowRightIcon } from "@/components/home/icons";
 import { preferState } from "@/lib/home-sections";
 import { readStoredNearState, subscribeStoredNear } from "@/lib/near-storage";
 import { useCommunityEvents } from "./CommunityEventsProvider";
-import { LOCAL_DISCOVERY } from "./community-content";
+import { LOCAL_DISCOVERY, PANEL_LINE } from "./community-content";
 
 /** How many events the row shows. */
 export const LOCAL_DISCOVERY_MAX = 6;
@@ -23,7 +23,7 @@ const serverNull = () => null;
  * "Local discovery" (the proposal's panel, redesign PR 3): its title and line, then the soonest
  * upcoming events as a sideways row of the one EventCard (256px each, so a card's foot stays on
  * one line), the saved suburb's state first (read in the browser, never sent; as the home), and
- * a link to Nearby. While loading, placeholders; on failure, the error with Try again; with
+ * "See events on Nearby". A cream panel (--hover), as tall as the panel beside it. While loading, placeholders; on failure, the error with Try again; with
  * nothing upcoming, a line saying so.
  */
 export default function LocalDiscovery({ className = "" }: { className?: string }) {
@@ -35,11 +35,11 @@ export default function LocalDiscovery({ className = "" }: { className?: string 
       : [];
 
   return (
-    <section aria-labelledby="community-local" className={`rounded-card bg-surface p-6 md:p-8 ${className}`.trim()}>
-      <h2 id="community-local" className="heading-h2">
+    <section aria-labelledby="community-local" className={`flex flex-col rounded-card bg-hover p-6 md:p-8 lg:p-12 ${className}`.trim()}>
+      <h2 id="community-local" className="heading-h1">
         {LOCAL_DISCOVERY.title}
       </h2>
-      <p className="mt-2 body-l text-muted">{LOCAL_DISCOVERY.body}</p>
+      <p className={PANEL_LINE}>{LOCAL_DISCOVERY.body}</p>
       <p role="status" className="sr-only">
         {state.status === "loading" || (state.status === "error" && state.retrying) ? "Loading events…" : ""}
       </p>
@@ -66,10 +66,10 @@ export default function LocalDiscovery({ className = "" }: { className?: string 
       {state.status === "ready" && events.length === 0 && <p className="mt-6 body-m">No events yet.</p>}
 
       {events.length > 0 && state.status === "ready" && (
-        <ScrollHint className="-mx-6 mt-6 md:-mx-8" fadeClassName="hidden">
+        <ScrollHint className="-mx-6 mt-6 md:-mx-8 lg:-mx-12" fadeClassName="hidden">
           <ul
             aria-labelledby="community-local"
-            className="no-scrollbar flex snap-x snap-mandatory gap-6 overflow-x-auto overscroll-x-contain scroll-px-6 px-6 py-4 md:scroll-px-8 md:px-8"
+            className="no-scrollbar flex snap-x snap-mandatory gap-6 overflow-x-auto overscroll-x-contain scroll-px-6 px-6 py-4 md:scroll-px-8 md:px-8 lg:scroll-px-12 lg:px-12"
           >
             {events.map((event) => (
               <li key={event.id} className="flex w-64 shrink-0 snap-start">
@@ -80,8 +80,8 @@ export default function LocalDiscovery({ className = "" }: { className?: string 
         </ScrollHint>
       )}
 
-      <Link href="/map" className="label-button mt-4 inline-flex min-h-12 items-center gap-2 underline underline-offset-4">
-        Nearby
+      <Link href="/map" className="label-button mt-auto inline-flex min-h-12 items-center gap-2 self-start pt-4 underline underline-offset-4">
+        See events on Nearby
         <ArrowRightIcon className="size-4 shrink-0" />
       </Link>
     </section>

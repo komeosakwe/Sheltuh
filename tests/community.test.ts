@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { CITY_RADIUS_KM, cityScenes, COMMUNITY_CITIES } from "@/lib/community";
+import { cityScenes, COMMUNITY_CITIES } from "@/lib/community";
+import { NEAR_FRAME_RADIUS_KM } from "@/lib/map-near";
 import { matchesHomeFilters, NO_HOME_FILTERS, hasHomeFilters } from "@/lib/home-filters";
 import type { Coordinates, SheltuhEvent } from "@/lib/types";
 
@@ -29,7 +30,8 @@ const NEWTOWN = { lat: -33.8978, lng: 151.1795 };
 describe("cityScenes (/community's Scenes by city)", () => {
   it("lists the proposal's five cities, in its order", () => {
     expect(COMMUNITY_CITIES.map((c) => c.name)).toEqual(["Melbourne", "Sydney", "Brisbane", "Perth", "Adelaide"]);
-    expect(CITY_RADIUS_KM).toBe(25);
+    // Nearby's own radius around a place.
+    expect(NEAR_FRAME_RADIUS_KM).toBe(25);
   });
 
   it("counts each city's events within 25 km of its centre, soonest first; the categories by how many, at most three", () => {
@@ -41,7 +43,10 @@ describe("cityScenes (/community's Scenes by city)", () => {
       event("sydney", "workshop", NEWTOWN),
       event("unplaced", "pop-up"),
     ];
-    const scenes = cityScenes(events, (e) => e.coordinates ?? null);
+    const { scenes, allPlaced } = cityScenes(events, (e) => e.coordinates ?? null);
+    // One event couldn't be placed: the counts aren't whole.
+    expect(allPlaced).toBe(false);
+    expect(cityScenes(events.slice(0, 5), (e) => e.coordinates ?? null).allPlaced).toBe(true);
     const melbourne = scenes[0];
     expect(melbourne.city.name).toBe("Melbourne");
     expect(melbourne.events.map((e) => e.id)).toEqual(["gig", "gig2", "late-art"]);

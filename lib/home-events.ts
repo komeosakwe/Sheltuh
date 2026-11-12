@@ -61,11 +61,6 @@ export async function loadHomeFeed(now: Date): Promise<HomeFeed> {
   return { events: [...byId.values()].filter(notEnded(now)).sort(bySoonest), complete: !page.nextCursor };
 }
 
-/** loadHomeFeed's events alone. */
-export async function loadHomeEvents(now: Date): Promise<SheltuhEvent[]> {
-  return (await loadHomeFeed(now)).events;
-}
-
 /**
  * Trending events, in the order to show them. Live: the trending API, in the
  * server's order (empty when fewer than 3 qualify), minus anything that has

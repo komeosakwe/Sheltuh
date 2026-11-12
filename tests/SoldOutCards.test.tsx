@@ -44,7 +44,7 @@ function expectSoldOutCard() {
 describe("sold-out cards (brand-direction-one.md §6.5; the rules' Cards board)", () => {
   // The redesign's card (the rules: Sold out = the "Sold out" tag and the image at 60%) has no ticket
   // button, so no "Join waitlist" on it: the event page's waitlist is one tap away.
-  it.each(["grid", "rail"] as const)("EventCard %s: the 'Sold out' tag in words, the image at 60%%, no price label", (variant) => {
+  it.each(["grid"] as const)("EventCard %s: the 'Sold out' tag in words, the image at 60%%, no price label", (variant) => {
     const { container } = render(<EventCard event={soldOut} variant={variant} showSave={false} />);
     const tag = screen.getByText("Sold out").closest("[data-tag]");
     expect(tag).toHaveAttribute("data-tag", "neutral");

@@ -81,6 +81,20 @@ function fixtures(now: number): PublicEvent[] {
       endsAt: new Date(now + 9 * DAY + 2 * HOUR).toISOString(),
       ticketTypes: [{ id: "l-1", name: "Entry", priceCents: 0, feePolicy: "buyer-pays", quantityAvailable: 100 }],
     },
+    // Four more later gigs: with Later Gig, the home's featured carousel (which claims first, five at
+    // most) takes these, so This weekend keeps both of its events.
+    ...[10, 11, 12, 13].map((days) => ({
+      ...base,
+      eventId: `evt-later-${days}`,
+      slug: `later-gig-${days}`,
+      title: `Later Gig ${days}`,
+      venueName: "Gallery",
+      venueAddress: "1 Smith St",
+      suburb: "Fitzroy",
+      startsAt: new Date(now + days * DAY).toISOString(),
+      endsAt: new Date(now + days * DAY + 2 * HOUR).toISOString(),
+      ticketTypes: [{ id: `l-${days}`, name: "Entry", priceCents: 0, feePolicy: "buyer-pays" as const, quantityAvailable: 100 }],
+    })),
   ];
 }
 
@@ -120,16 +134,16 @@ async function mockApi(page: Page, { going = 42 }: { going?: number } = {}) {
     const url = new URL(route.request().url());
     const path = url.pathname;
     if (path === "/api/events") {
-      if (url.searchParams.get("recent") === "only") return route.fulfill({ json: { items: [] } });
       return route.fulfill({ json: { items: events, nextCursor: undefined } });
     }
     if (path === "/api/events/trending") {
       return route.fulfill({
         json: {
           items: [
+            // The later five first: the carousel takes them.
+            ...events.slice(2).map((event) => ({ event, label: "popular" })),
             { event: events[0], label: "going", goingCount: 42 },
             { event: events[1], label: "going", goingCount: 118 },
-            { event: events[2], label: "popular" },
           ],
         },
       });

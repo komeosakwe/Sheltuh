@@ -125,14 +125,14 @@ test.describe("the home's ways on, at 390px", () => {
     await mockApi(page);
     await page.goto("/");
     const row = page.getByRole("group", { name: "Browse by category" });
-    await expect(row.getByRole("button", { name: "All events" })).toHaveAttribute("aria-pressed", "true", { timeout: 30_000 });
+    await expect(row.getByRole("button", { name: "All", exact: true })).toHaveAttribute("aria-pressed", "true", { timeout: 30_000 });
     const art = row.getByRole("button", { name: "Art" });
     // The dev server may still be hydrating the page: press until the chip responds (never twice once it has).
     await expect(async () => {
       if ((await art.getAttribute("aria-pressed")) !== "true") await art.click();
       await expect(art).toHaveAttribute("aria-pressed", "true", { timeout: 1_000 });
     }).toPass({ timeout: 30_000 });
-    await expect(row.getByRole("button", { name: "All events" })).toHaveAttribute("aria-pressed", "false");
+    await expect(row.getByRole("button", { name: "All", exact: true })).toHaveAttribute("aria-pressed", "false");
     await expect(page).toHaveURL(/\/$/);
     // Selected: black with white words and the two orange dots, never colour alone.
     // (Polled: the fill eases in over 200ms.)

@@ -11,28 +11,12 @@ import { cardGoing, cardGoingFaces, cardMetaParts, cardState, categoryLabel, sig
 import type { TrendingSignal } from "@/lib/home-sections";
 import type { SheltuhEvent } from "@/lib/types";
 
-export type EventCardVariant = "rail" | "grid";
-
 /**
- * A rail card is a set width at every size, never stretched to fill a row
- * (the home's rails scroll sideways at every width: owner, 23 Oct 2026):
- * 198 / 232 / 240px at 320 / 375 / 430, then 224px from 640px (owner, 4 Nov
- * 2026: "show more than 2 events"), and 256px from 1280px, as wide as a
- * /events card. A fixed width can't keep the next card peeking past the edge
- * across 768 to 1279px (224px cards and 24px gaps from a 32px inset put the
- * fourth card's start 8px off the screen at 768 and the fifth's exactly on the
- * edge at 1024), so the md and lg widths follow the screen: three whole cards
- * and 40% of a fourth from 768px (195px up to 256px), four whole and 40% of
- * a fifth from 1024px (204px up to 256px). `100vw` stands in for the rail's
- * width (it runs edge to edge); the 6.5rem and 8rem are the inset and the 24px
- * gaps: 32 + 3 x 24 and 32 + 4 x 24. A pair (one or two cards: no next card
- * to peek, `HomeRail` `data-rail-layout="pair"`) keeps 224px. A grid card
- * fills its column.
+ * The card's one layout: it fills its column (a grid cell, or a set-width cell in a sideways row).
+ * The rails' fixed-width variant went with the rails (redesign PR 3); the prop stays so callers
+ * say what they render.
  */
-const WIDTH: Record<EventCardVariant, string> = {
-  rail: "w-[min(62vw,15rem)] shrink-0 sm:w-56 md:w-[min(16rem,calc((100vw_-_6.5rem)/3.4))] lg:w-[min(16rem,calc((100vw_-_8rem)/4.4))] in-data-[rail-layout=pair]:md:w-56 in-data-[rail-layout=pair]:lg:w-56 xl:w-64",
-  grid: "w-full",
-};
+export type EventCardVariant = "grid";
 
 /** The image box: 4:3 at every width, radius 16 (the rules' card anatomy). */
 const MEDIA = "aspect-[4/3]";
@@ -74,7 +58,7 @@ function MetaLine({ parts }: { parts: string[] }) {
  * Tab order: the card's link, Play (with a clip), then Save.
  *
  * Hover (and keyboard focus) fills a cream panel just outside the card (dark:
- * #1a1a1a; 6px out on phones, where rails' cards are 12px apart, and 16px
+ * #1a1a1a; 6px out on phones, and 16px
  * from 768px) and underlines the title, over 200ms; no lift and no scale. The
  * panel is absolutely placed, so it never moves the layout. Keyboard focus
  * also rings that panel (the link's own ring is dropped in globals.css, only
@@ -89,10 +73,9 @@ function MetaLine({ parts }: { parts: string[] }) {
  *
  * Sibling cards line up: the card is a flex column and its foot is pushed to
  * the bottom with `mt-auto`, keeping a price label's height even when there's
- * no label, so the feet share a line whatever the titles' lengths. `rail` is
- * the home's sideways rails (a fixed width at every size); `grid` fills its
- * column. A grid photo that's a portrait poster is shown whole on a blurred
- * copy of itself; a rail photo always fills its box.
+ * no label, so the feet share a line whatever the titles' lengths. The card
+ * fills its column. A photo that's a portrait poster is shown whole on a
+ * blurred copy of itself.
  */
 export default function EventCard({
   event,
@@ -130,7 +113,7 @@ export default function EventCard({
       data-event-card=""
       data-variant={variant}
       data-card-state={state}
-      className={`group/card @container relative isolate flex min-w-0 flex-col ${WIDTH[variant]} ${className}`.trim()}
+      className={`group/card @container relative isolate flex w-full min-w-0 flex-col ${className}`.trim()}
     >
       {/* The hover and focus panel: cream just outside the card, behind everything in it. */}
       <span
@@ -144,7 +127,7 @@ export default function EventCard({
           imageUrl={event.imageUrl}
           imageFocus={event.imageFocus}
           title={event.title}
-          fit={variant === "rail" ? "cover" : "auto"}
+          fit="auto"
           priority={priority}
           // Sold out: the image at 60%. Ended: greyed; it's still there to look at, but nothing's on.
           className={`${MEDIA} w-full ${state === "ended" ? "grayscale" : state === "sold-out" ? "opacity-60" : ""}`.trim()}
@@ -206,9 +189,9 @@ export default function EventCard({
 }
 
 /** A card's shape while events load (the rules: image + 3 bars, surface/muted). No shimmer. */
-export function EventCardPlaceholder({ variant, className = "" }: { variant: EventCardVariant; className?: string }) {
+export function EventCardPlaceholder({ className = "" }: { variant?: EventCardVariant; className?: string }) {
   return (
-    <div aria-hidden="true" className={`flex flex-col ${WIDTH[variant]} ${className}`.trim()}>
+    <div aria-hidden="true" className={`flex w-full flex-col ${className}`.trim()}>
       <div className={`${MEDIA} rounded-card bg-surface`} />
       <div className="flex flex-col gap-2 pt-4">
         <div className="h-6 w-20 max-w-full rounded-badge bg-surface" />

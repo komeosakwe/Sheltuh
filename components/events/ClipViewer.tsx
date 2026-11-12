@@ -6,10 +6,6 @@ import SeatDialog from "@/components/seating/SeatDialog";
 import { Button } from "@/components/ui/Button";
 import { usePrefersReducedMotion } from "@/lib/use-reduced-motion";
 
-/** Marks a Play control with its event's id (`ClipPlayButton`): a rail copy's opener hands focus to the real card's. */
-export const CLIP_PLAY_ATTR = "data-clip-play";
-/** The rail copies' marker (components/home/RailItem.tsx RAIL_CLONE_ATTR; not imported, so this stays out of the home bundle). */
-const RAIL_CLONE_SELECTOR = "[data-rail-clone]";
 /** The loader shows only if the clip hasn't started to play by then (§5.2), so a quick load never flashes it. */
 export const CLIP_LOADER_DELAY_MS = 300;
 export const CLIP_ERROR_TEXT = "This clip can’t play right now.";
@@ -37,7 +33,7 @@ export interface ClipViewerRequest {
 interface ClipViewerValue {
   open: (request: ClipViewerRequest) => void;
   close: () => void;
-  /** The viewer is open: the home rails hold still (useRailAutoScroll `held`). */
+  /** The viewer is open: the home's featured carousel holds still (components/home/FeaturedCarousel.tsx). */
   isOpen: boolean;
 }
 
@@ -49,27 +45,8 @@ export function useClipViewer(): ClipViewerValue | null {
 }
 
 /**
- * Where focus should be when the viewer opens, so it comes back there on
- * closing: the opener itself, unless it's in a rail copy (aria-hidden, out of
- * the tab order), in which case the real card's Play for the same event (in
- * the same rail first), never a hidden one. Null: leave focus as it is.
- */
-function focusTarget(trigger: HTMLElement | null | undefined): HTMLElement | null {
-  if (!trigger) return null;
-  const copy = trigger.closest(RAIL_CLONE_SELECTOR);
-  if (!copy) return trigger;
-  const id = trigger.getAttribute(CLIP_PLAY_ATTR);
-  if (id === null) return null;
-  const isReal = (el: HTMLElement) => el.getAttribute(CLIP_PLAY_ATTR) === id && !el.closest(RAIL_CLONE_SELECTOR);
-  const within = (root: ParentNode | null) =>
-    root ? Array.from(root.querySelectorAll<HTMLElement>(`[${CLIP_PLAY_ATTR}]`)).find(isReal) ?? null : null;
-  return within(copy.parentElement) ?? within(document);
-}
-
-/**
  * The clip viewer (docs/design/event-clips.md §5.2), mounted once in the
- * root layout so every page with an EventCard has it, and never inside a
- * rail copy. `open` shows SeatDialog (a bottom sheet on phones, centred from
+ * root layout so every page with an EventCard has it. `open` shows SeatDialog (a bottom sheet on phones, centred from
  * 640px) with the clip; closing (Close, or Escape) unmounts the video, which
  * stops playback and buffering, and puts focus back on the opener.
  */
@@ -78,8 +55,8 @@ export function ClipViewerProvider({ children }: { children: ReactNode }) {
 
   const open = useCallback((next: ClipViewerRequest) => {
     // Before showModal, so SeatDialog remembers this as the place to return to (Safari doesn't
-    // focus a clicked button, and a rail copy's button must never get focus back).
-    focusTarget(next.trigger)?.focus({ preventScroll: true });
+    // focus a clicked button).
+    next.trigger?.focus({ preventScroll: true });
     setRequest(next);
   }, []);
   const close = useCallback(() => setRequest(null), []);

@@ -1,4 +1,5 @@
-import { matchesPricing, matchesTimeFilter } from "./scene-map-filters";
+import { isOpenThisWeekend } from "./home-sections";
+import { isTonight, matchesPricing } from "./scene-map-filters";
 import type { EventCategory, SheltuhEvent } from "./types";
 
 /**
@@ -10,7 +11,11 @@ import type { EventCategory, SheltuhEvent } from "./types";
 export type HomeCategoryFilter = EventCategory | "all";
 /** "under25": an all-inclusive ticket under A$25 (lib/scene-map-filters.ts matchesPricing, as Nearby's). */
 export type HomePriceFilter = "all" | "free" | "under25";
-/** In each event's own zone (lib/scene-map-filters.ts isTonight, isThisWeekend). */
+/**
+ * In each event's own zone: "tonight" is its calendar day (lib/scene-map-filters.ts isTonight);
+ * "weekend" is the home's This weekend section's own rule (lib/home-sections.ts isOpenThisWeekend:
+ * open between Friday 17:00 and Sunday night), so the filter and the section always agree.
+ */
 export type HomeDateFilter = "all" | "tonight" | "weekend";
 
 export interface HomeFilters {
@@ -43,6 +48,6 @@ export function matchesHomeFilters(event: SheltuhEvent, filters: HomeFilters, no
   return (
     (filters.category === "all" || event.category === filters.category) &&
     matchesPricing(event, filters.price) &&
-    matchesTimeFilter(event, filters.date, now, "")
+    (filters.date === "all" || (filters.date === "tonight" ? isTonight(event, now) : isOpenThisWeekend(event, now)))
   );
 }

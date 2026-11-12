@@ -210,14 +210,65 @@ describe("FeaturedCarousel", () => {
     expect(screen.queryByRole("button")).toBeNull();
   });
 
-  it("puts its controls under the photo, and over its bottom-right in white from 1024px; 48px targets below md, 40px from md", () => {
+  it("puts its controls first in the DOM, drawn under the photo, and over its bottom-right in white from 1024px; 48px targets below md, 40px from md", () => {
     stubMotion(true);
     const { container } = renderCarousel();
-    expect(container.querySelector("[data-carousel-controls]")).toHaveClass("mt-4", "lg:absolute", "lg:right-8", "lg:bottom-8");
+    const controls = container.querySelector("[data-carousel-controls]");
+    expect(controls).toHaveClass("order-last", "mt-4", "lg:absolute", "lg:right-8", "lg:bottom-8");
+    // Before the slides in reading and Tab order (the WAI carousel pattern).
+    expect((controls?.compareDocumentPosition(track()) ?? 0) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     for (const name of ["Pause carousel", "Previous slide", "Next slide"]) {
       expect(screen.getByRole("button", { name })).toHaveClass("size-12", "md:size-10", "lg:bg-paper", "lg:text-ink");
     }
     // Each dot's target is at least 24px.
     for (const dot of within(screen.getByRole("list", { name: "Slides" })).getAllByRole("button")) expect(dot).toHaveClass("size-6");
+  });
+
+  it("a slide is 4:5 on phones, 16:9 from 640px and 5:2 from 1024px, with its panel in the flow (so long words grow it rather than being cut off)", () => {
+    renderCarousel();
+    const slide = slides()[0];
+    expect(slide).toHaveClass("aspect-[4/5]", "sm:aspect-video", "lg:aspect-[5/2]", "flex", "flex-col", "justify-end");
+    // Nothing clips the slide itself: only the photo's own box does.
+    expect(slide).not.toHaveClass("overflow-hidden");
+    const panel = slide.querySelector("[data-slide-panel]");
+    expect(panel).not.toHaveClass("absolute");
+    expect(panel).toHaveClass("lg:p-8");
+    expect(slide.querySelector(".absolute.inset-0.overflow-hidden img, .absolute.inset-0.overflow-hidden svg")).not.toBeNull();
+  });
+
+  it("a touch on it stops it (the visitor has taken over); a mouse press doesn't", async () => {
+    stubMotion(true);
+    renderCarousel();
+    const region = screen.getByRole("region", { name: "Popular right now" });
+    fireEvent.pointerDown(region, { pointerType: "mouse" });
+    expect(screen.getByRole("button", { name: "Pause carousel" })).toBeInTheDocument();
+    fireEvent.pointerDown(region, { pointerType: "touch" });
+    expect(screen.getByRole("button", { name: "Play carousel" })).toBeInTheDocument();
+    await act(() => vi.advanceTimersByTimeAsync(2 * CAROUSEL_INTERVAL_MS));
+    expect(current()).toBe(0);
+  });
+
+  it("a scroll it didn't make (a swipe, a trackpad) stops it; its own scrolls don't", async () => {
+    stubMotion(true);
+    renderCarousel();
+    // Its own move: the scroll that follows doesn't stop it.
+    await act(() => vi.advanceTimersByTimeAsync(CAROUSEL_INTERVAL_MS));
+    fireEvent.scroll(track());
+    expect(screen.getByRole("button", { name: "Pause carousel" })).toBeInTheDocument();
+    // Settled (the rest timer), then a scroll the visitor made.
+    await act(() => vi.advanceTimersByTimeAsync(200));
+    fireEvent.scroll(track());
+    expect(screen.getByRole("button", { name: "Play carousel" })).toBeInTheDocument();
+  });
+
+  it("new slides start again from the first", () => {
+    stubMotion(false);
+    const { rerender } = renderCarousel();
+    fireEvent.click(screen.getByRole("button", { name: "Next slide" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next slide" }));
+    expect(current()).toBe(2);
+    rerender(<FeaturedCarousel id="home-featured" title="Popular right now" events={[FREE, PAID]} now={NOW} />);
+    expect(current()).toBe(0);
+    expect(slides()).toHaveLength(2);
   });
 });

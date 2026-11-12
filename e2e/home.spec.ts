@@ -252,13 +252,37 @@ test.describe("the featured carousel at 1280px", () => {
   });
 });
 
+// UX review (blocking): below 640px the slide is 4:5 and grows to fit its panel, so nothing is cut off.
+for (const width of [320, 390]) {
+  test.describe(`the featured carousel at ${width}px`, () => {
+    test.use({ viewport: { width, height: 844 } });
+
+    test("the slide's panel (eyebrow to Details) is wholly inside the slide, and the slide is at least 4:5", async ({ page }) => {
+      await openHome(page, { trending: true });
+      const slide = page.locator("[data-featured-carousel] [data-slide][data-current]");
+      const [box, panel, eyebrow, details] = await Promise.all([
+        slide.boundingBox(),
+        slide.locator("[data-slide-panel]").boundingBox(),
+        slide.locator("[data-slide-panel] p").first().boundingBox(),
+        slide.getByRole("link", { name: /^Details: / }).boundingBox(),
+      ]);
+      if (!box || !panel || !eyebrow || !details) throw new Error("slide not laid out");
+      expect(box.height).toBeGreaterThanOrEqual(box.width * 1.25 - 1);
+      expect(panel.y).toBeGreaterThanOrEqual(box.y);
+      expect(eyebrow.y).toBeGreaterThanOrEqual(box.y);
+      expect(details.y + details.height).toBeLessThanOrEqual(box.y + box.height);
+      expect(await noSidewaysScroll(page)).toBeLessThanOrEqual(0);
+    });
+  });
+}
+
 test.describe("the category chips and All events", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
   test("a category chip filters the listings in the page (no navigation), and the Category filter agrees", async ({ page }) => {
     await openHome(page);
     const chips = page.getByRole("group", { name: "Browse by category" });
-    await expect(chips.getByRole("button", { name: "All events" })).toHaveAttribute("aria-pressed", "true");
+    await expect(chips.getByRole("button", { name: "All", exact: true })).toHaveAttribute("aria-pressed", "true");
     const art = chips.getByRole("button", { name: "Art" });
     await expect(async () => {
       if ((await art.getAttribute("aria-pressed")) !== "true") await art.click();
@@ -270,6 +294,19 @@ test.describe("the category chips and All events", () => {
     expect(listed.length).toBeGreaterThan(0);
     for (const title of listed) expect(arts).toContain(title.trim());
     await expect(page.getByRole("combobox", { name: "Category" })).toHaveValue("art");
+  });
+
+  test("Reset filters clears them and moves focus to the All events heading", async ({ page }) => {
+    await openHome(page);
+    const price = page.getByRole("combobox", { name: "Price" });
+    await expect(async () => {
+      await price.selectOption("free");
+      await expect(page.getByRole("button", { name: "Reset filters" })).toBeVisible({ timeout: 1_000 });
+    }).toPass({ timeout: 30_000 });
+    await expect(page.getByRole("region", { name: "All events" }).getByRole("status")).toHaveText(/^\d+ events? match(es)?$/);
+    await page.getByRole("button", { name: "Reset filters" }).click();
+    await expect(page.getByRole("heading", { level: 2, name: "All events" })).toBeFocused();
+    await expect(price).toHaveValue("all");
   });
 
   test("Show more events adds the next cards and moves focus to the first new one", async ({ page }) => {

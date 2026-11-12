@@ -48,8 +48,11 @@ const T = Array.from({ length: 3 }, (_, i) => event(`t${i}`, `2026-11-2${i}T08:0
 const ENDED = event("ended", "2026-10-01T08:00:00.000Z", 0);
 const EVENTS = [ENDED, NEXT, SAT, SUN, ...COMING, ...T];
 const UPCOMING = EVENTS.length - 1;
-// Trending lists a weekend event too: de-duplication drops it from the carousel.
-const TRENDING: TrendingItem[] = [NEXT, SAT, ...T].map((e) => ({ event: e, signal: { kind: "going", count: 15 } }));
+const trend = (e: SheltuhEvent): TrendingItem => ({ event: e, signal: { kind: "going", count: 15 } });
+// Trending lists a weekend event too: the carousel claims first, so This weekend doesn't repeat it.
+const TRENDING: TrendingItem[] = [NEXT, SAT, ...T].map(trend);
+// Trending well after the weekend only: the carousel takes these, This weekend keeps both of its.
+const TRENDING_LATER: TrendingItem[] = T.map(trend);
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -89,7 +92,7 @@ describe("the home's event sections (redesign PR 3)", () => {
     loadHomeEvents.mockReturnValue(new Promise(() => {}));
     const { container } = renderHome();
     expect(pageStatus()).toHaveTextContent("Loading events…");
-    expect(container.querySelector("[data-home-loading][aria-hidden='true']")).toHaveClass("aspect-square", "sm:aspect-video");
+    expect(container.querySelector("[data-home-loading][aria-hidden='true']")).toHaveClass("aspect-[4/5]", "sm:aspect-video", "lg:aspect-[5/2]");
     const grid = container.querySelector("[data-home-grid-loading][aria-hidden='true']");
     expect(grid?.querySelectorAll(".aspect-\\[4\\/3\\]")).toHaveLength(4);
     expect(screen.getByRole("group", { name: "Browse by category" })).toBeInTheDocument();
@@ -109,9 +112,10 @@ describe("the home's event sections (redesign PR 3)", () => {
       "This weekend",
       "All events",
     ]);
-    // The carousel is named by a visually hidden h2; its slides are the trending events left after This weekend.
+    // The carousel is named by a visually hidden h2; its slides are the trending events, in the
+    // server's order: it claims first.
     expect(screen.getByRole("heading", { level: 2, name: "Popular right now" })).toHaveClass("sr-only");
-    expect(slideTitles()).toEqual(["Event next", "Event t0", "Event t1", "Event t2"]);
+    expect(slideTitles()).toEqual(["Event next", "Event sat", "Event t0", "Event t1", "Event t2"]);
     const chips = screen.getByRole("group", { name: "Browse by category" });
     expect((carousel()?.compareDocumentPosition(chips) ?? 0) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const weekend = screen.getByRole("region", { name: "This weekend" });
@@ -119,17 +123,19 @@ describe("the home's event sections (redesign PR 3)", () => {
 
     // This weekend: the one EventCard (the old WeekendCard is gone), the dates as its note, and a
     // link to the one listing with a weekend filter (Nearby's).
-    expect(titlesIn("This weekend")).toEqual(["Event sat", "Event sun"]);
+    // Saturday's is in the carousel already.
+    expect(titlesIn("This weekend")).toEqual(["Event sun"]);
     for (const card of weekend.querySelectorAll("[data-event-card]")) expect(card).toHaveAttribute("data-variant", "grid");
     expect(within(weekend).getByText("Fri 23 – Sun 25 Oct")).toBeInTheDocument();
     expect(within(weekend).getByRole("link", { name: "See all this weekend" })).toHaveAttribute("href", "/map?time=weekend");
     // A sideways row on phones, the grid from 640px.
     expect(screen.getByRole("list", { name: "This weekend" })).toHaveClass("flex", "overflow-x-auto", "sm:grid", "sm:grid-cols-2", "xl:grid-cols-4");
 
-    // All events: every upcoming event, soonest first, the first eight, and its count (the load was complete).
+    // All events: every upcoming event, soonest first with This weekend's last (so its first page
+    // doesn't repeat them), the first eight, and its count (the load was complete).
     const all = screen.getByRole("region", { name: "All events" });
     expect(within(all).getByText(`${UPCOMING} upcoming · Across Australia`)).toBeInTheDocument();
-    expect(titlesIn("All events")).toEqual(EVENTS.slice(1, 9).map((e) => e.title));
+    expect(titlesIn("All events")).toEqual([NEXT, SAT, ...COMING.slice(0, 6)].map((e) => e.title));
     expect(within(all).getByRole("link", { name: "See all events" })).toHaveAttribute("href", "/events");
     expect(within(all).getByRole("button", { name: "Show more events" })).toBeInTheDocument();
     expect(screen.queryByText("Event ended")).not.toBeInTheDocument();
@@ -138,7 +144,7 @@ describe("the home's event sections (redesign PR 3)", () => {
     expect(document.querySelector("[data-rail-clone], [data-rail-layout]")).toBeNull();
   });
 
-  it("never repeats an event between the carousel and This weekend; All events lists each upcoming event once", async () => {
+  it("never repeats an event between the carousel and This weekend; All events lists each upcoming event once, This weekend's last", async () => {
     loadHomeEvents.mockResolvedValue(EVENTS);
     loadHomeTrending.mockResolvedValue(TRENDING);
     renderHome();
@@ -149,6 +155,7 @@ describe("the home's event sections (redesign PR 3)", () => {
     const all = titlesIn("All events");
     expect(all).toHaveLength(UPCOMING);
     expect(new Set(all).size).toBe(all.length);
+    expect(all.at(-1)).toBe("Event sun");
   });
 
   it("gives cards the real going counts the page has: the trending ones, live or demo alike", async () => {
@@ -174,15 +181,22 @@ describe("the home's event sections (redesign PR 3)", () => {
     expect(container).not.toHaveTextContent(/Popular this week|Just announced|Featured/);
   });
 
-  it("a section with no cards renders nothing; a lone later event is still the carousel's Coming up", async () => {
+  it("a section with no cards renders nothing: with no trending, the carousel's Coming up takes the soonest, This weekend's included", async () => {
     loadHomeEvents.mockResolvedValue([SAT, COMING[0]]);
     const { container } = renderHome();
     await flush();
-    expect(container.querySelectorAll("section[data-home-section]")).toHaveLength(3);
-    expect(slideTitles()).toEqual(["Event c0"]);
-    // One slide: no controls.
-    expect(screen.queryByRole("button", { name: "Next slide" })).toBeNull();
+    expect(slideTitles()).toEqual(["Event sat", "Event c0"]);
+    expect(screen.queryByRole("region", { name: "This weekend" })).toBeNull();
+    expect(container.querySelectorAll("section[data-home-section]")).toHaveLength(2);
     for (const list of screen.getAllByRole("list")) expect(within(list).queryAllByRole("listitem").length).toBeGreaterThan(0);
+  });
+
+  it("a lone event: one slide and no controls", async () => {
+    loadHomeEvents.mockResolvedValue([COMING[0]]);
+    renderHome();
+    await flush();
+    expect(slideTitles()).toEqual(["Event c0"]);
+    expect(screen.queryByRole("button", { name: "Next slide" })).toBeNull();
   });
 
   it("nothing this weekend but events later: no dead end, the next ones are in the carousel and All events", async () => {
@@ -210,7 +224,7 @@ describe("the home's event sections (redesign PR 3)", () => {
 
   it("the chips narrow This weekend and All events (not the carousel); a section left empty hides, All events says so", async () => {
     loadHomeEvents.mockResolvedValue(EVENTS);
-    loadHomeTrending.mockResolvedValue(TRENDING);
+    loadHomeTrending.mockResolvedValue(TRENDING_LATER);
     renderHome();
     await flush();
     const slides = slideTitles();
@@ -219,8 +233,9 @@ describe("the home's event sections (redesign PR 3)", () => {
     expect(titlesIn("This weekend")).toEqual(["Event sat"]);
     expect(titlesIn("All events")).toEqual(["Event sat"]);
     expect(screen.getByRole("region", { name: "All events" })).toHaveTextContent("1 upcoming · Across Australia");
-    // The change is announced, and the dropdown agrees with the chip.
-    expect(within(screen.getByRole("region", { name: "All events" })).getByRole("status")).toHaveTextContent("1 event");
+    // The change is announced (a moment later), and the dropdown agrees with the chip.
+    await act(() => new Promise((r) => setTimeout(r, 150)));
+    expect(within(screen.getByRole("region", { name: "All events" })).getByRole("status")).toHaveTextContent("1 event matches");
     expect(screen.getByRole("combobox", { name: "Category" })).toHaveValue("live-music");
     expect(slideTitles()).toEqual(slides);
 
@@ -229,8 +244,10 @@ describe("the home's event sections (redesign PR 3)", () => {
     const all = screen.getByRole("region", { name: "All events" });
     expect(within(all).getByText("No events match your filters")).toBeInTheDocument();
     fireEvent.click(within(all).getAllByRole("button", { name: "Reset filters" }).at(-1) as HTMLElement);
-    expect(screen.getByRole("button", { name: "All events" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
     expect(titlesIn("This weekend")).toEqual(["Event sat", "Event sun"]);
+    // The button it was on has gone: focus is on the section's heading.
+    expect(screen.getByRole("heading", { level: 2, name: "All events" })).toHaveFocus();
   });
 
   it("on error: an alert with Try again in the first section's place, which loads again; the event sections and chips are hidden", async () => {
@@ -338,15 +355,20 @@ describe("the home's event sections (redesign PR 3)", () => {
 describe("the home with a saved suburb (owner decision D5, browser-only)", () => {
   const PERTH_SAT = { ...event("perth-sat", "2026-10-24T11:00:00.000Z"), state: "WA" as const, timeZone: "Australia/Perth" as const };
 
+  // Trending far later, so the carousel takes those and This weekend keeps the weekend's three.
+  const FAR = Array.from({ length: 3 }, (_, i) => event(`far${i}`, `2026-12-1${i}T08:00:00.000Z`));
+  beforeEach(() => loadHomeTrending.mockResolvedValue(FAR.map(trend)));
   afterEach(() => localStorage.clear());
+  /** All events less the carousel's far-off ones: This weekend's, last, in their order. */
+  const allButFar = () => titlesIn("All events").filter((t) => !t.startsWith("Event far"));
 
   it("lists the saved suburb's state first in This weekend and All events, read from storage without the suburb table", async () => {
     localStorage.setItem("sheltuh:near:v1", JSON.stringify({ suburb: "Perth", state: "WA" }));
-    loadHomeEvents.mockResolvedValue([SAT, SUN, PERTH_SAT]);
+    loadHomeEvents.mockResolvedValue([SAT, SUN, PERTH_SAT, ...FAR]);
     renderHome();
     await flush();
     expect(titlesIn("This weekend")).toEqual(["Event perth-sat", "Event sat", "Event sun"]);
-    expect(titlesIn("All events")).toEqual(["Event perth-sat", "Event sat", "Event sun"]);
+    expect(allButFar()).toEqual(["Event perth-sat", "Event sat", "Event sun"]);
     // Nothing waits on the ~15k-row table: it isn't loaded at all.
     expect(loadLocation).not.toHaveBeenCalled();
     // The suburb isn't sent with the events' requests.
@@ -355,7 +377,7 @@ describe("the home with a saved suburb (owner decision D5, browser-only)", () =>
 
   it("an entry saved before the state was: the state code its name ends with", async () => {
     localStorage.setItem("sheltuh:near:v1", JSON.stringify({ suburb: "Kensington WA" }));
-    loadHomeEvents.mockResolvedValue([SAT, SUN, PERTH_SAT]);
+    loadHomeEvents.mockResolvedValue([SAT, SUN, PERTH_SAT, ...FAR]);
     renderHome();
     await flush();
     expect(titlesIn("This weekend")[0]).toBe("Event perth-sat");
@@ -363,18 +385,18 @@ describe("the home with a saved suburb (owner decision D5, browser-only)", () =>
   });
 
   it("without one: soonest first, Australia-wide, and the suburb table isn't loaded", async () => {
-    loadHomeEvents.mockResolvedValue([SAT, SUN, PERTH_SAT]);
+    loadHomeEvents.mockResolvedValue([SAT, SUN, PERTH_SAT, ...FAR]);
     renderHome();
     await flush();
     expect(titlesIn("This weekend")).toEqual(["Event sat", "Event perth-sat", "Event sun"]);
-    expect(titlesIn("All events")).toEqual(["Event sat", "Event perth-sat", "Event sun"]);
+    expect(allButFar()).toEqual(["Event sat", "Event perth-sat", "Event sun"]);
     expect(loadLocation).not.toHaveBeenCalled();
   });
 
   it("a bare name saved without a state: the usual order, at once, with no table load and no error", async () => {
     localStorage.setItem("sheltuh:near:v1", JSON.stringify({ suburb: "Perth" }));
     loadLocation.mockReturnValue(new Promise(() => {}));
-    loadHomeEvents.mockResolvedValue([SAT, SUN, PERTH_SAT]);
+    loadHomeEvents.mockResolvedValue([SAT, SUN, PERTH_SAT, ...FAR]);
     renderHome();
     await flush();
     expect(titlesIn("This weekend")[0]).toBe("Event sat");

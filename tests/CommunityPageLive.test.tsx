@@ -85,9 +85,16 @@ describe("/community (live)", () => {
     expect(cityLink("Sydney")).toHaveTextContent("No upcoming events");
     const local = screen.getByRole("list", { name: "Local discovery" });
     expect(within(local).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["Event a", "Event b", "Event c"]);
-    // Choosing a city stores the suburb table's own name and state for it, as the location menu does.
-    fireEvent.click(cityLink("Perth"));
-    expect(JSON.parse(localStorage.getItem("sheltuh:near:v1") ?? "{}")).toEqual({ suburb: "Perth", state: "WA" });
+    // Each city goes to Nearby around it.
+    expect(cityLink("Perth")).toHaveAttribute("href", "/map?near=Perth");
+  });
+
+  it("shows no counts while any event can't be placed (an unknown suburb), but still the categories", async () => {
+    listPublicEvents.mockResolvedValue({ items: [item("a", "Fitzroy"), item("lost", "Nowhereville")], nextCursor: undefined });
+    await renderPage();
+    expect(loadLocation).toHaveBeenCalled();
+    expect(cityLink("Melbourne")).toHaveTextContent("Art");
+    for (const name of ["Melbourne", "Sydney", "Brisbane", "Perth", "Adelaide"]) expect(cityLink(name)).not.toHaveTextContent(/upcoming/);
   });
 
   it("never states a count it can't vouch for: with pages left unread, the cities show without counts", async () => {

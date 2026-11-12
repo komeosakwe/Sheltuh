@@ -32,7 +32,7 @@ export default function JoinBanner({ className = "" }: { className?: string }) {
     <section
       aria-labelledby="community-join"
       data-surface="signal"
-      className={`rounded-card p-6 md:p-12 lg:flex lg:items-center lg:justify-between lg:gap-12 ${className}`.trim()}
+      className={`rounded-card p-6 md:p-12 lg:flex lg:items-center lg:justify-between lg:gap-12 lg:p-16 ${className}`.trim()}
     >
       <div className="min-w-0">
         <h2 id="community-join" className="heading-h1">

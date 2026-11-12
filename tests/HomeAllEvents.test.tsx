@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import HomeAllEvents, { ALL_EVENTS_PAGE, ALL_EVENTS_PAGE_PHONE, HOME_GRID } from "@/components/home/HomeAllEvents";
@@ -48,6 +48,8 @@ function Harness({ events = EVENTS, complete = true }: { events?: SheltuhEvent[]
 
 const titles = () => within(screen.getByRole("list", { name: "All events" })).getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
 const status = () => within(screen.getByRole("region", { name: "All events" })).getByRole("status");
+/** The count is set a moment after the status is cleared. */
+const announced = () => act(() => new Promise((r) => setTimeout(r, 150)));
 
 describe("HomeAllEvents", () => {
   it("is a section with the dotted head, its whole count when complete, See all events, the three filters and the grid", () => {
@@ -73,6 +75,27 @@ describe("HomeAllEvents", () => {
   it("never states a count it can't vouch for: 'Across Australia' alone when the load wasn't complete", () => {
     render(<Harness complete={false} />);
     expect(screen.getByRole("region", { name: "All events" }).querySelector("[data-section-note]")).toHaveTextContent(/^Across Australia$/);
+  });
+
+  it("when the home didn't load every event: See all events at the bottom too, once everything loaded is shown", () => {
+    render(<Harness complete={false} />);
+    const section = screen.getByRole("region", { name: "All events" });
+    // While there's more to show, Show more is the way on.
+    expect(within(section).getAllByRole("link", { name: "See all events" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Show more events" }));
+    const links = within(section).getAllByRole("link", { name: "See all events" });
+    expect(links).toHaveLength(2);
+    expect(links[1]).toHaveAttribute("href", "/events");
+    cleanup();
+    // A complete load needs no second link.
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: "Show more events" }));
+    expect(screen.getAllByRole("link", { name: "See all events" })).toHaveLength(1);
+  });
+
+  it("puts the filters in one sideways row on phones, wrapping from 640px", () => {
+    render(<Harness />);
+    expect(screen.getByRole("form", { name: "Filter events" })).toHaveClass("flex-nowrap", "overflow-x-auto", "sm:flex-wrap", "sm:overflow-visible");
   });
 
   it(`shows ${ALL_EVENTS_PAGE} cards, then Show more events adds as many again, moving focus to the first new card`, () => {
@@ -101,18 +124,22 @@ describe("HomeAllEvents", () => {
     expect(titles()).toHaveLength(2 * ALL_EVENTS_PAGE_PHONE);
   });
 
-  it("filters by price (Free, Under A$25 all-inclusive), category and date (Tonight, This weekend), announces the count, and resets", () => {
+  it("filters by price (Free, Under A$25 all-inclusive), category and date (Tonight, This weekend), announces the count, and resets", async () => {
     render(<Harness />);
     const price = screen.getByRole("combobox", { name: "Price" });
     expect(within(price).getAllByRole("option").map((o) => o.textContent)).toEqual(["Any price", "Free", "Under A$25"]);
     fireEvent.change(price, { target: { value: "free" } });
     expect(titles()).toEqual(["Event sat"]);
-    expect(status()).toHaveTextContent("1 event");
+    await announced();
+    expect(status()).toHaveTextContent(/^1 event matches$/);
     expect(price.closest("[data-filter-dropdown]")?.querySelector("select")).toHaveAttribute("data-active");
     fireEvent.change(price, { target: { value: "under25" } });
     // A$10 plus the booking fee is still under A$25; the free one is too; A$60 isn't.
     expect(titles()).toEqual(["Event tonight", "Event sat"]);
-    expect(status()).toHaveTextContent("2 events");
+    // Cleared first, then set: the same words twice in a row are still read out.
+    expect(status()).toHaveTextContent(/^$/);
+    await announced();
+    expect(status()).toHaveTextContent(/^2 events match$/);
 
     fireEvent.change(price, { target: { value: "all" } });
     const date = screen.getByRole("combobox", { name: "Date" });
@@ -127,19 +154,23 @@ describe("HomeAllEvents", () => {
     expect(titles()).toEqual(["Event tonight"]);
     fireEvent.click(screen.getByRole("button", { name: "Reset filters" }));
     expect(titles()).toHaveLength(ALL_EVENTS_PAGE);
+    // The button has gone: focus moves to the section's heading.
+    expect(screen.getByRole("heading", { level: 2, name: "All events" })).toHaveFocus();
     expect(screen.queryByRole("button", { name: "Reset filters" })).toBeNull();
   });
 
-  it("with no match: the empty state and Reset filters, and no Show more", () => {
+  it("with no match: the empty state and Reset filters (focus to the heading after), and no Show more", async () => {
     render(<Harness />);
     fireEvent.change(screen.getByRole("combobox", { name: "Category" }), { target: { value: "pop-up" } });
     expect(screen.getByText("No events match your filters")).toBeInTheDocument();
     expect(screen.queryByRole("list", { name: "All events" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Show more events" })).toBeNull();
-    expect(status()).toHaveTextContent("0 events");
+    await announced();
+    expect(status()).toHaveTextContent(/^0 events match$/);
     const resets = screen.getAllByRole("button", { name: "Reset filters" });
     fireEvent.click(resets[resets.length - 1]);
     expect(titles()).toHaveLength(ALL_EVENTS_PAGE);
+    expect(screen.getByRole("heading", { level: 2, name: "All events" })).toHaveFocus();
   });
 
   it("starts again from the first page when a filter changes", () => {

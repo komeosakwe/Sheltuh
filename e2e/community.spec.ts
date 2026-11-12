@@ -94,18 +94,19 @@ for (const theme of ["light", "dark"] as const) {
 test.describe("/community's ways on, at 1280px", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
-  test("Explore scenes goes to Scenes by city; a city opens Nearby set to it", async ({ page }) => {
+  test("Explore scenes moves to Scenes by city, focus included; a city opens Nearby around it without changing the saved place", async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem("sheltuh:near:v1", JSON.stringify({ suburb: "Fitzroy", state: "VIC" })));
     await openCommunity(page);
     await page.getByRole("link", { name: "Explore scenes" }).click();
     await expect(page).toHaveURL(/\/community#scenes-by-city$/);
+    await expect(page.locator("#scenes-by-city")).toBeFocused();
     await expect(page.getByRole("heading", { level: 2, name: "Scenes by city" })).toBeInViewport();
-    const sydney = page.locator("[data-city='Sydney']");
-    await expect(sydney).toHaveAttribute("href", "/map");
+    const sydney = page.getByRole("link", { name: "Events near Sydney on Nearby" });
+    await expect(sydney).toHaveAttribute("href", "/map?near=Sydney");
     await sydney.click();
-    await expect(page).toHaveURL(/\/map$/, { timeout: 30_000 });
+    await expect(page).toHaveURL(/\/map\?near=Sydney$/, { timeout: 30_000 });
     const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("sheltuh:near:v1") ?? "{}"));
-    expect(stored.state).toBe("NSW");
-    expect(stored.suburb).toMatch(/^Sydney/);
+    expect(stored).toEqual({ suburb: "Fitzroy", state: "VIC" });
   });
 
   test("Join free and Join Sheltüh — free open sign-up; the banner's action is black on orange", async ({ page }) => {

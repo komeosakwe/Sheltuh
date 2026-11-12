@@ -4,7 +4,7 @@ import HeroBadge from "./HeroBadge";
 import { HOME_LEDE, HOME_TITLE, HOME_TITLE_LINES } from "./home-content";
 
 /**
- * The home's hero (the proposal, redesign PR 3): one row from 1280px, as drawn. The round
+ * The home's hero (the proposal, redesign PR 3): one row from 1280px, as drawn (the h1 at 96px there). The round
  * "Melbourne · Naarm · Curated" badge (from 1024px; it turns slowly, and can be paused), the h1
  * FIND YOÜR / NEXT THING. in Display (Bootzy; the Ü through BrandU, read "Find your next
  * thing."), the one-line lede "Curated creative events. See who's going." under it, and the
@@ -20,7 +20,7 @@ export default function HomeHero() {
       <div className="flex items-center gap-8">
         <HeroBadge className="hidden size-28 shrink-0 lg:flex" />
         <div className="min-w-0">
-          <h1 id="home-title" className="display-m lg:display-l">
+          <h1 id="home-title" className="display-m lg:display-l xl:display-xl">
             <BrandU spoken={HOME_TITLE}>
               <span className="lg:block">{first}</span> <span className="lg:block">{second}</span>
             </BrandU>

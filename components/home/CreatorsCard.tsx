@@ -11,7 +11,7 @@ export const CREATORS_LINE = "Every organiser checked by a person · Only the go
  * banner (an ink section, so its text and outline button invert) in both themes. The eyebrow,
  * the h2, the proposal's one line, a licensed photo (decorative) and "List your event" to the
  * organiser application. Stacked on phones (the photo first, 2:1); from 1024px one row, the
- * photo between the words and the button. In Dark a 1px inset white edge keeps the black banner
+ * photo (400px, 3:1) between the words and the button. In Dark a 1px inset white edge keeps the black banner
  * off the black page.
  */
 export default function CreatorsCard({ className = "" }: { className?: string }) {
@@ -23,13 +23,13 @@ export default function CreatorsCard({ className = "" }: { className?: string })
       >
         <div className="flex flex-col gap-2 lg:flex-1">
           <p className="eyebrow text-muted">For organisers</p>
-          <h2 id="home-creators" className="heading-h2">
+          <h2 id="home-creators" className="heading-h1">
             Bring your event to life
           </h2>
           <p className="body-s font-medium text-muted">{CREATORS_LINE}</p>
         </div>
-        <div aria-hidden="true" className="order-first overflow-hidden rounded-card lg:order-none lg:w-80 lg:shrink-0">
-          <EventArt poster={HOME_CREATORS.poster} imageUrl={HOME_CREATORS.imageUrl} title="" className="aspect-[2/1] w-full" />
+        <div aria-hidden="true" className="order-first overflow-hidden rounded-card lg:order-none lg:w-100 lg:shrink-0">
+          <EventArt poster={HOME_CREATORS.poster} imageUrl={HOME_CREATORS.imageUrl} title="" className="aspect-[2/1] w-full lg:aspect-[3/1]" />
         </div>
         <ButtonLink href="/organisers/apply" variant="outline" className="self-start lg:self-auto">
           List your event

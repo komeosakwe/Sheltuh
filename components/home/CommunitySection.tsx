@@ -90,30 +90,35 @@ export default function CommunitySection({ className = "" }: { className?: strin
       : null;
 
   return (
-    <section id="find-your-people" aria-labelledby="home-people" tabIndex={-1} className={`focus:outline-none ${className}`.trim()}>
-      <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-6">
-        <div className="min-w-0">
-          <p className="eyebrow text-muted">Community</p>
-          <h2 id="home-people" className="mt-2 heading-h1 flex items-center gap-3">
-            <DotsMark size="sm" className="text-signal" />
-            Find your people.
-          </h2>
-          <p className="mt-2 body-l text-muted">The people and creative scenes behind the events.</p>
-        </div>
-        <ButtonLink href="/community" variant="solid">
-          Explore communities
-          <ArrowRightIcon className="size-4 shrink-0" />
-        </ButtonLink>
+    <section
+      id="find-your-people"
+      aria-labelledby="home-people"
+      tabIndex={-1}
+      // Phones: the head, the band, then Explore communities full width (the owner's 390 mock). From
+      // 640px Explore communities sits on the head's row, at its right.
+      className={`grid grid-cols-1 gap-y-6 focus:outline-none sm:grid-cols-[1fr_auto] sm:items-end sm:gap-x-8 md:gap-y-8 lg:gap-y-12 ${className}`.trim()}
+    >
+      <div className="min-w-0">
+        <p className="eyebrow text-muted">Community</p>
+        <h2 id="home-people" className="mt-2 heading-h1 flex items-center gap-3">
+          <DotsMark size="sm" className="text-signal" />
+          Find your people.
+        </h2>
+        <p className="mt-2 body-l text-muted">The people and creative scenes behind the events.</p>
       </div>
+      <ButtonLink href="/community" variant="solid" className="w-full max-sm:order-last sm:w-auto">
+        Explore communities
+        <ArrowRightIcon className="size-4 shrink-0" />
+      </ButtonLink>
 
       <div
         data-surface="signal"
         data-community-band=""
         data-community-example={example ? "" : undefined}
-        className="mt-6 flex flex-col gap-6 rounded-card p-6 md:mt-8 md:p-8 lg:flex-row lg:items-center lg:justify-between lg:gap-8 lg:px-12"
+        className="flex flex-col gap-6 rounded-card p-6 sm:col-span-2 md:p-8 lg:flex-row lg:items-center lg:justify-between lg:gap-8 lg:px-12"
       >
         <div className="min-w-0">
-          <h3 className="heading-h2">See who’s going.</h3>
+          <h3 className="heading-h1">See who’s going.</h3>
           <p className="mt-2 body-s font-semibold">{COMMUNITY_BAND_LINE}</p>
           {example && (
             <div className="mt-4">

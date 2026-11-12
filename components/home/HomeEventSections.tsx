@@ -20,8 +20,8 @@ export const HOME_LOAD_ERROR = "Couldn’t load events. Check your connection an
 /** All events' section id: the category chips control it. */
 export const HOME_ALL_EVENTS_ID = "home-all-events";
 
-/** The space above each event section (the proposal's rhythm: 64px from 768px, 48px on phones). */
-const SECTION = "mt-12 md:mt-16";
+/** The space above each event section (the proposal's rhythm: 96px from 1024px, 64px from 768px, 48px on phones). */
+const SECTION = "mt-12 md:mt-16 lg:mt-24";
 
 /**
  * This weekend's and From organisers you follow's cards: the home grid from 640px; on a phone a
@@ -36,7 +36,8 @@ const ROW_ITEM = "flex w-72 min-w-0 shrink-0 snap-start sm:w-auto";
  * carousel (Popular right now from real trending data, else Coming up), the category chips, This
  * weekend, From organisers you follow (signed-in members who follow someone), then All events.
  * The carousel, This weekend and From organisers you follow never repeat an event between them
- * (lib/home-sections.ts claims each once); All events is the full list, so it has everything.
+ * (lib/home-sections.ts claims each once, the carousel first); All events is the full list, with
+ * This weekend's events last, so its first page doesn't repeat them.
  * A section with no cards renders nothing.
  *
  * The chips and All events' dropdowns are one set of filters (lib/home-filters.ts): they narrow
@@ -95,7 +96,7 @@ export default function HomeEventSections() {
         {announceLoading ? "Loading events…" : ""}
       </p>
 
-      {loading && <div aria-hidden="true" data-home-loading="" className="mt-8 aspect-square rounded-card bg-surface sm:aspect-video lg:aspect-[21/9]" />}
+      {loading && <div aria-hidden="true" data-home-loading="" className="mt-8 aspect-[4/5] rounded-card bg-surface sm:aspect-video lg:mt-12 lg:aspect-[5/2]" />}
 
       {state.status === "error" && (
         <div className="mt-8 rounded-card bg-surface p-4 sm:p-8">
@@ -111,11 +112,11 @@ export default function HomeEventSections() {
       {sections && !anyUpcoming && <HomeEmpty />}
 
       {sections?.popular && ready && (
-        <FeaturedCarousel id="home-featured" title={popularTitle(sections.popular)} events={popularEvents(sections.popular)} now={ready.now} className="mt-8" />
+        <FeaturedCarousel id="home-featured" title={popularTitle(sections.popular)} events={popularEvents(sections.popular)} now={ready.now} className="mt-8 lg:mt-12" />
       )}
 
       {(loading || anyUpcoming) && (
-        <CategoryRow filters={filters} onChange={setFilters} controls={HOME_ALL_EVENTS_ID} className="mt-6 md:mt-8" />
+        <CategoryRow filters={filters} onChange={setFilters} controls={HOME_ALL_EVENTS_ID} className="mt-8 lg:mt-12" />
       )}
 
       {loading && (
@@ -168,7 +169,7 @@ export default function HomeEventSections() {
       {ready && anyUpcoming && (
         <HomeAllEvents
           id={HOME_ALL_EVENTS_ID}
-          events={ready.events}
+          events={afterWeekend(ready.events, sections)}
           signals={signals}
           complete={ready.complete}
           mode={mode}
@@ -180,6 +181,15 @@ export default function HomeEventSections() {
       )}
     </div>
   );
+}
+
+/**
+ * All events' order: every upcoming event once, with This weekend's (shown just above) moved to
+ * the end, so its first page never repeats them; the count stays the whole number.
+ */
+function afterWeekend(events: SheltuhEvent[], sections: HomeSections | null): SheltuhEvent[] {
+  const weekend = new Set(sections?.weekend.status === "cards" ? sections.weekend.items.map((event) => event.id) : []);
+  return [...events.filter((event) => !weekend.has(event.id)), ...events.filter((event) => weekend.has(event.id))];
 }
 
 /** The real going counts and qualifiers the page has (trending, and This weekend's), by event id. */

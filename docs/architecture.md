@@ -1006,7 +1006,7 @@ after the fact, and a few kinds go to the review queue first.
 - **Recreating an unpublished event** gets around rule 2 (it's per event)
   unless the admin ticks "review their next events" (`reviewFuture`) or
   turns on the review switch. Trending waits 6 hours after the latest
-  approval, so a self-published event isn't on the Trending rail before
+  approval, so a self-published event isn't in the home's Popular right now before
   admins have had a chance to look.
 - **Followers are emailed at once** (owner decision B-D4), before any admin
   has looked; an email sent can't be recalled. One per follower per
@@ -2683,7 +2683,7 @@ to (`lib/ticketing.ts`, `lib/server/event-input.ts`,
   phone buy bar. It is the organiser's number, so it never says "incl. booking
   fee" and nothing here reads it for money. For the feed's filters, `external_free` counts as free (`is_free` follows it) and
   an external event is never `paid` (a price from doesn't change that). The browser-side "under A$X" filters
-  (`lib/scene-map-filters.ts`, the home's low-cost rail) see no ticket types,
+  (`lib/scene-map-filters.ts`: Nearby's and the home's "Under A$25") see no ticket types,
   so no external event matches them, free ones included (price unknown;
   revisit in F1/F3 if free external events should count as "under").
 - **Review, then frozen.** The admin review queue (`GET /admin/events`)
@@ -3117,7 +3117,7 @@ Members follow organisers (owner request, 21 Oct 2026;
   `followerCount` only from 10 (`FOLLOWER_COUNT_THRESHOLD`; null below, as
   Who's Going hides small counts); the organiser's analytics overview shows
   the exact `followerCount`.
-- **The home rail**: `GET /me/following/events` (published, upcoming events of
+- **The home's "From organisers you follow"**: `GET /me/following/events` (published, upcoming events of
   followed approved organisers, soonest first, paginated, public event
   shape); `GET /me/following` lists the organisers (taken-down ones drop out;
   the follow is kept).
@@ -3161,7 +3161,7 @@ Members follow organisers (owner request, 21 Oct 2026;
 - **Counts can be inflated** with verified throwaway accounts (60 an hour
   each). It's a display number only; nothing is paid on it.
 - **Not everyone is told** past 500 emails a day platform-wide; the rest see
-  the event on their home rail. A skipped email (event unpublished first)
+  the event in their home's "From organisers you follow". A skipped email (event unpublished first)
   still counts as that day's email.
 - **One-click unsubscribe (RFC 8058)** isn't offered (the link is a page);
   Gmail and Yahoo require it only from 5,000 messages a day.
@@ -4295,7 +4295,7 @@ application is approved.
 
 | Method & path | Who |
 |---|---|
-| `GET /events?q&category&pricing&onOrAfter&upcoming&cursor&limit` | public (published only), soonest first. `onOrAfter` (`YYYY-MM-DD`, 400 otherwise): events starting on or after that date in each event's own zone (`(starts_at at time zone time_zone)::date`, with a coarse `starts_at` bound a day earlier for `events_status_starts_idx`). `upcoming=1` (or `true`): only events that haven't ended (`ends_at > now()`, in progress included); the home page and /events always send it. `recent` (`1`/`true`, `only`, `0`/`false`; additive, needs `upcoming=1` else 400; any other value 400): also lists events that ended within the last 14 days (`RECENT_EVENT_DAYS`, `lib/recent-events.ts`), after every upcoming one and most recently ended first (`only`: just those, the home's "Recently on"; /events sends `1`, except in near-a-suburb mode). They stay openable by slug but can't be bought (`orders_not_ended`); their cards say "Ended". The map stays upcoming-only. `pricing=free`: has ticket types, all free, or is external with `externalFree`; `paid`: has a paid ticket type (an event with no ticket types is neither, and so is an external event that isn't free: its price isn't known). 400 for an unknown `category`, `pricing` or `upcoming` value. Every item carries `ticketingMode`, `externalFree`, `externalProvider` and, for external events only, `externalTicketUrl` (see "External ticketing"). 200: `public, max-age=0, s-maxage=60, stale-while-revalidate=120` (shared at the CDN: "CDN windows"), except with a non-empty `q`: `private, no-store` (a search is never shared). With `upcoming`, the page's ids are selected first (`lib/server/upcoming-page.ts`) |
+| `GET /events?q&category&pricing&onOrAfter&upcoming&cursor&limit` | public (published only), soonest first. `onOrAfter` (`YYYY-MM-DD`, 400 otherwise): events starting on or after that date in each event's own zone (`(starts_at at time zone time_zone)::date`, with a coarse `starts_at` bound a day earlier for `events_status_starts_idx`). `upcoming=1` (or `true`): only events that haven't ended (`ends_at > now()`, in progress included); the home page and /events always send it. `recent` (`1`/`true`, `only`, `0`/`false`; additive, needs `upcoming=1` else 400; any other value 400): also lists events that ended within the last 14 days (`RECENT_EVENT_DAYS`, `lib/recent-events.ts`), after every upcoming one and most recently ended first (`only`: just those; the app no longer asks for it since the home's "Recently on" was removed in redesign PR 3, and the server still answers it; /events sends `1`, except in near-a-suburb mode). They stay openable by slug but can't be bought (`orders_not_ended`); their cards say "Ended". The map stays upcoming-only. `pricing=free`: has ticket types, all free, or is external with `externalFree`; `paid`: has a paid ticket type (an event with no ticket types is neither, and so is an external event that isn't free: its price isn't known). 400 for an unknown `category`, `pricing` or `upcoming` value. Every item carries `ticketingMode`, `externalFree`, `externalProvider` and, for external events only, `externalTicketUrl` (see "External ticketing"). 200: `public, max-age=0, s-maxage=60, stale-while-revalidate=120` (shared at the CDN: "CDN windows"), except with a non-empty `q`: `private, no-store` (a search is never shared). With `upcoming`, the page's ids are selected first (`lib/server/upcoming-page.ts`) |
 | `GET /events/slug/{slug}` | public (published only); a list item's shape plus, for an approved organiser, the Host card's `organiserWebsiteUrl`, `organiserSocialLinks` and `organiserBio` (see "Organiser profiles"). 200: `public, max-age=0, s-maxage=15, stale-while-revalidate=45` ("CDN windows"). Query parameters are ignored (the seat page's `?seatMapVersion=` only makes a new cache key). Every public event (list, slug, favourites, organiser profile, trending) carries `soldOut`, and per ticket type `soldOut` and `remaining` (only when 10 or fewer are left): see "Waitlist" |
 | `GET /events/{slug}/calendar.ics` (a page route, not under `/api`: `app/events/[slug]/calendar.ics/route.ts`) | public (published only; demo mode: the sample events). The event as an iCalendar file (`lib/calendar.ts` `buildIcs`, its URL from `NEXT_PUBLIC_SITE_URL`), `text/calendar; charset=utf-8`, `Content-Disposition: inline`, `public, max-age=300, s-maxage=300`. 404 (JSON, `private, no-store`) otherwise. No personal data |
 | `POST /events/{eventId}/waitlist` `{email?}` · `DELETE /events/{eventId}/waitlist` | POST: public (a member's token is read, optionally). 201/200 `{status: "joined", maskedEmail, alreadyJoined}` for a member's own verified email; 202 `{status: "confirmation_sent", expiresInHours}` for anyone else, whatever the address's history; 400 email; 404 not published; 409 external, ended or not sold out; 503 busy (the platform caps; the link is emailed after the response, so a failed send isn't reported). DELETE: signed in, leaves (204, idempotent) |
@@ -4698,8 +4698,8 @@ Design: `docs/design/event-clips.md`.
   a clip (`components/events/ClipPlayButton.tsx`), opening the page's one
   viewer (`components/events/ClipViewer.tsx`, mounted in `app/layout.tsx`;
   SeatDialog with a muted inline `<video>` mounted only while open, no
-  autoplay under reduced motion; the home rails hold still while it's
-  open). Uploads are behind `NEXT_PUBLIC_EVENT_CLIPS=1`: the editor's
+  autoplay under reduced motion; the home's featured carousel holds still
+  while it's open). Uploads are behind `NEXT_PUBLIC_EVENT_CLIPS=1`: the editor's
   `EventClipField` (browser pre-checks in `lib/clip-precheck.ts`, upload
   after the event save, `useEventClip`) and the admin queue's clip row.
   Playback needs no flag.

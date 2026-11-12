@@ -116,7 +116,7 @@ const metaText = (container: HTMLElement) => plain(meta(container).textContent);
 const priceTag = (container: HTMLElement) => container.querySelector<HTMLElement>("[data-price-tag]");
 
 describe("EventCard anatomy (the rules' Cards board)", () => {
-  it.each(["rail", "grid"] as const)(
+  it.each(["grid"] as const)(
     "%s: the 4:3 image with the date chip, then the tags, the title and one mono line; going and the price label in the foot",
     (variant) => {
       const { container } = render(<EventCard event={event} variant={variant} mode="demo" />);
@@ -166,7 +166,7 @@ describe("EventCard anatomy (the rules' Cards board)", () => {
   // Owner brief (29 Oct 2026): the card's link is named by the title alone, so a list of links reads
   // as titles. The tags, date, place, going count and price are the text around it, still on the card.
   it("names the card's link by its title alone; the date, place, price and going count are text beside it", () => {
-    const { container } = render(<EventCard event={event} variant="rail" mode="demo" />);
+    const { container } = render(<EventCard event={event} variant="grid" mode="demo" />);
     expect(cardLink(event)).toHaveAccessibleName("Glasshouse Sessions");
     expect(cardLink(event)).toHaveAttribute("href", "/events/glass-sessions");
     // The heading is named by the title too, for heading navigation.
@@ -214,7 +214,7 @@ describe("EventCard anatomy (the rules' Cards board)", () => {
   it("says an in-progress multi-day event is on now, until when; never a countdown", () => {
     vi.setSystemTime(new Date("2026-10-20T00:00:00.000Z"));
     const running: SheltuhEvent = { ...event, startsAt: "2026-10-15T00:00:00.000Z", endsAt: "2026-11-01T08:00:00.000Z" };
-    const { container } = render(<EventCard event={running} variant="rail" mode="live" />);
+    const { container } = render(<EventCard event={running} variant="grid" mode="live" />);
     expect(metaText(container)).toBe("Now on · until Sun 1 Nov · Carlton, VIC");
     expect(document.body).not.toHaveTextContent(/today|left|hurry/i);
   });
@@ -269,7 +269,7 @@ describe("EventCard: one link, with Save beside it and the price label inside it
 
   // The rules: hover fills cream and underlines the title over 200ms; no lift, no shadow, no scale.
   it("hovers with the cream panel and a title underline, eased over 200ms, and never lifts or scales", () => {
-    const { container } = render(<EventCard event={event} variant="rail" mode="live" />);
+    const { container } = render(<EventCard event={event} variant="grid" mode="live" />);
     const root = cardRoot(container);
     const hover = root.querySelector("[data-card-hover]") as HTMLElement;
     expect(hover).toHaveClass(
@@ -292,7 +292,7 @@ describe("EventCard: one link, with Save beside it and the price label inside it
   });
 
   it("rings the hover panel for keyboard focus (the link's own ring is dropped where :has() works)", () => {
-    const { container } = render(<EventCard event={event} variant="rail" mode="live" />);
+    const { container } = render(<EventCard event={event} variant="grid" mode="live" />);
     expect(container.querySelector("[data-card-hover]")).toHaveClass(
       "outline-foreground",
       "group-has-[[data-card-link]:focus-visible]/card:outline-2",
@@ -307,7 +307,7 @@ describe("EventCard: one link, with Save beside it and the price label inside it
 });
 
 describe("EventCard: the feet line up across sibling cards (owner feedback, 22 Oct 2026)", () => {
-  it.each(["rail", "grid"] as const)("%s: a flex column whose foot is pushed to the bottom with mt-auto", (variant) => {
+  it.each(["grid"] as const)("%s: a flex column whose foot is pushed to the bottom with mt-auto", (variant) => {
     const { container } = render(<EventCard event={event} variant={variant} mode="live" />);
     const root = cardRoot(container);
     expect(root).toHaveClass("flex", "flex-col", "@container");
@@ -335,27 +335,17 @@ describe("EventCard variants", () => {
     expect(eager.container.querySelector("img")).toHaveAttribute("loading", "eager");
   });
 
-  it("rail: a set width at every size (224px from 640px, following the screen from 768px so the next card peeks, 256px from 1280px, never stretched)", () => {
-    const { container } = render(<EventCard event={event} variant="rail" mode="live" />);
-    expect(cardRoot(container)).toHaveClass("w-[min(62vw,15rem)]", "shrink-0", "sm:w-56", "xl:w-64");
-    // 768px to 1279px: three whole cards and 40% of a fourth, then four whole and 40% of a fifth (EventCard's WIDTH).
-    expect(cardRoot(container)).toHaveClass("md:w-[min(16rem,calc((100vw_-_6.5rem)/3.4))]", "lg:w-[min(16rem,calc((100vw_-_8rem)/4.4))]");
-    // A rail of one or two cards has no next card to show, so it keeps 224px.
-    expect(cardRoot(container)).toHaveClass("in-data-[rail-layout=pair]:md:w-56", "in-data-[rail-layout=pair]:lg:w-56");
-    expect(cardRoot(container)).not.toHaveClass("sm:w-full");
-  });
-
   it("grid: fills its cell", () => {
     const { container } = render(<EventCard event={event} variant="grid" mode="live" />);
     expect(cardRoot(container)).toHaveClass("w-full");
   });
 
-  it("placeholder: the variant's width, the 4:3 image box and three flat bars, hidden from screen readers", () => {
-    for (const variant of ["rail", "grid"] as const) {
-      const { container, unmount } = render(<EventCardPlaceholder variant={variant} />);
+  it("placeholder: the card's full width, the 4:3 image box and three flat bars, hidden from screen readers", () => {
+    {
+      const { container, unmount } = render(<EventCardPlaceholder />);
       const root = container.firstElementChild as HTMLElement;
       expect(root).toHaveAttribute("aria-hidden", "true");
-      expect(root).toHaveClass(variant === "rail" ? "w-[min(62vw,15rem)]" : "w-full");
+      expect(root).toHaveClass("w-full");
       expect(root.querySelector(".aspect-\\[4\\/3\\].bg-surface")).not.toBeNull();
       expect(root.querySelector(".aspect-square")).toBeNull();
       expect(root.querySelectorAll(".pt-4 > .bg-surface")).toHaveLength(3);
@@ -373,17 +363,6 @@ describe("EventCard media: organiser artwork", () => {
       img.dispatchEvent(new Event("load"));
     });
   }
-
-  // Owner (4 Nov 2026): the home's photos fill their box instead of sitting letterboxed on black.
-  it("rail: a portrait poster fills the 4:3 box (cover), never letterboxed", () => {
-    const { container } = render(<EventCard event={{ ...event, imageUrl: "/poster.jpg" }} variant="rail" mode="live" />);
-    const img = container.querySelector("img");
-    if (!img) throw new Error("no photo");
-    loadPortrait(img);
-    expect(img).toHaveClass("object-cover");
-    expect(img).not.toHaveClass("object-contain");
-    expect(container.querySelector("[data-art-backdrop]")).toBeNull();
-  });
 
   it("grid: a portrait poster is shown whole in the 4:3 box, on a blurred copy of itself", () => {
     const { container } = render(<EventCard event={{ ...event, imageUrl: "/poster.jpg" }} variant="grid" mode="live" />);
@@ -453,7 +432,7 @@ describe("EventCard ticket states, from real data only", () => {
   it("ended: the 'Ended' tag, no price label and a greyed image, sold out or not", () => {
     vi.setSystemTime(new Date("2026-10-18T11:00:00.000Z"));
     for (const e of [event, soldOut, seated, externalFree]) {
-      const { container, unmount } = render(<EventCard event={e} variant="rail" mode="live" />);
+      const { container, unmount } = render(<EventCard event={e} variant="grid" mode="live" />);
       expect(tags(container)).toEqual(["Live music", "Ended"]);
       expect(priceTag(container)).toBeNull();
       expect(screen.queryByText(/Sold out|incl\. booking fee/)).toBeNull();
@@ -464,13 +443,13 @@ describe("EventCard ticket states, from real data only", () => {
 
   it("never shows remaining counts or urgency, even when the server sends a low count", () => {
     const low: SheltuhEvent = { ...event, ticketTypes: event.ticketTypes.map((t) => ({ ...t, remaining: 2 })) };
-    const { container } = render(<EventCard event={low} variant="rail" mode="demo" />);
+    const { container } = render(<EventCard event={low} variant="grid" mode="demo" />);
     expect(container).not.toHaveTextContent(/left|selling fast|hurry|only/i);
   });
 
   it("external: no outbound link on the card (the event page holds it and its beacon), and never the ticket site's name", () => {
     for (const e of [external, { ...external, externalPriceFromCents: 8900 }, externalFree]) {
-      const { container, unmount } = render(<EventCard event={e} variant="rail" mode="demo" />);
+      const { container, unmount } = render(<EventCard event={e} variant="grid" mode="demo" />);
       for (const a of screen.getAllByRole("link")) expect(a.getAttribute("href")).toMatch(/^\/events\//);
       expect(container).not.toHaveTextContent(/Humanitix|Eventbrite|organiser.s site|Tickets on|Sold by/i);
       unmount();
@@ -480,7 +459,7 @@ describe("EventCard ticket states, from real data only", () => {
 
 describe("EventCard attendance and qualifiers", () => {
   it("demo: the sample's count beside three small colour dots (no initials); the demo banner, not the card, says it's a sample", () => {
-    const { container } = render(<EventCard event={event} variant="rail" mode="demo" />);
+    const { container } = render(<EventCard event={event} variant="grid" mode="demo" />);
     const going = container.querySelector("[data-card-going]") as HTMLElement;
     expect(going).toHaveTextContent(new RegExp(`^${getSampleGoing(event.id).count} going$`));
     const faces = going.querySelector("[data-card-faces]") as HTMLElement;
@@ -495,25 +474,25 @@ describe("EventCard attendance and qualifiers", () => {
   });
 
   it("live: no count, no faces and no going line without a server count", () => {
-    const { container } = render(<EventCard event={event} variant="rail" mode="live" />);
+    const { container } = render(<EventCard event={event} variant="grid" mode="live" />);
     expect(screen.queryByText(/going/)).toBeNull();
     expect(container.querySelector("[data-card-going]")).toBeNull();
   });
 
   it("live, trending by going: the server's count, with no faces (list payloads carry no names)", () => {
-    const { container } = render(<EventCard event={event} variant="rail" mode="live" signal={{ kind: "going", count: 14 }} />);
+    const { container } = render(<EventCard event={event} variant="grid" mode="live" signal={{ kind: "going", count: 14 }} />);
     expect(container.querySelector("[data-card-going]")).toHaveTextContent(/^14 going$/);
     expect(container.querySelector("[data-card-faces]")).toBeNull();
     expect(cardLink(event)).toHaveAccessibleName("Glasshouse Sessions");
   });
 
   it("respects the privacy threshold: below three going, no number at all", () => {
-    render(<EventCard event={event} variant="rail" mode="live" signal={{ kind: "going", count: 2 }} />);
+    render(<EventCard event={event} variant="grid" mode="live" signal={{ kind: "going", count: 2 }} />);
     expect(screen.queryByText(/going/)).toBeNull();
   });
 
   it("external: never a count, demo included; a going signal reads 'Popular'", () => {
-    const { container } = render(<EventCard event={external} variant="rail" mode="demo" signal={{ kind: "going", count: 14 }} />);
+    const { container } = render(<EventCard event={external} variant="grid" mode="demo" signal={{ kind: "going", count: 14 }} />);
     expect(screen.queryByText(/going/)).toBeNull();
     expect(tags(container)).toEqual(["Live music", "Popular"]);
   });
@@ -522,7 +501,7 @@ describe("EventCard attendance and qualifiers", () => {
     [{ signal: { kind: "just-announced" } as const }, "Just announced"],
     [{ signal: { kind: "popular" } as const }, "Popular"],
   ])("one qualifier tag: %o", (extra, qualifier) => {
-    const { container } = render(<EventCard event={event} variant="rail" mode="live" {...extra} />);
+    const { container } = render(<EventCard event={event} variant="grid" mode="live" {...extra} />);
     expect(tags(container)).toEqual(["Live music", qualifier]);
     // Seen, not repeated in the link's name.
     expect(cardLink(event)).toHaveAccessibleName("Glasshouse Sessions");
@@ -548,7 +527,7 @@ describe("EventCard states are distinct", () => {
 
   it("ended: the card still opens the event (title link) in both variants", () => {
     vi.setSystemTime(new Date("2026-10-18T11:00:00.000Z"));
-    for (const variant of ["rail", "grid"] as const) {
+    for (const variant of ["grid"] as const) {
       const { container, unmount } = render(<EventCard event={event} variant={variant} mode="live" />);
       expect(screen.getByRole("link", { name: event.title })).toHaveAttribute("href", `/events/${event.slug}`);
       expect(cardRoot(container)).toHaveAttribute("data-card-state", "ended");
@@ -581,7 +560,7 @@ describe("EventCard photo focus", () => {
     const { container } = render(
       <FakeAuthProvider value={fakeAuthValue()}>
         <FavouritesProvider>
-          <EventCard variant="rail" event={{ ...event, imageUrl: "/api/events/evt-1/image?v=1", imageFocus: { x: 12, y: 34 } }} />
+          <EventCard variant="grid" event={{ ...event, imageUrl: "/api/events/evt-1/image?v=1", imageFocus: { x: 12, y: 34 } }} />
         </FavouritesProvider>
       </FakeAuthProvider>,
     );

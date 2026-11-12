@@ -19,7 +19,7 @@ import { FakeAuthProvider, fakeAuthValue } from "./test-utils/fakeAuth";
  * the page's one viewer (SeatDialog), whose video exists only while it's
  * open, muted with controls and inline, plays on opening except under
  * reduced motion, describes itself, shows an error with Try again, and puts
- * focus back on closing (on the real card when a rail copy opened it).
+ * focus back on closing.
  */
 
 vi.mock("next/navigation", () => ({
@@ -98,7 +98,7 @@ const video = () => document.querySelector("dialog video") as HTMLVideoElement |
 
 describe("the Play button (§5.1)", () => {
   it("names the clip with its length, shows 0:12 (in the name: no aria-label), and opens a dialog", () => {
-    withProviders(<EventCard event={event} variant="rail" mode="demo" />);
+    withProviders(<EventCard event={event} variant="grid" mode="demo" />);
     const button = playButton();
     // Label in Name: visually hidden words before the visible length, never an aria-label over it.
     expect(button).not.toHaveAttribute("aria-label");
@@ -132,7 +132,7 @@ describe("the Play button (§5.1)", () => {
     expect(screen.queryByRole("button", { name: /^Play clip/ })).toBeNull();
   });
 
-  it.each(["rail", "grid"] as const)("%s: outside the card's link, between the link and Save in the tab order", (variant) => {
+  it.each(["grid"] as const)("%s: outside the card's link, between the link and Save in the tab order", (variant) => {
     const { container } = withProviders(<EventCard event={event} variant={variant} mode="demo" />);
     const link = screen.getByRole("link", { name: /^Glasshouse Sessions/ });
     const button = playButton();
@@ -165,7 +165,7 @@ describe("the Play button (§5.1)", () => {
 
 describe("the viewer (§5.2)", () => {
   it("loads nothing until Play is pressed; then a muted, inline video with controls, the photo as poster, described", () => {
-    withProviders(<EventCard event={event} variant="rail" mode="demo" />);
+    withProviders(<EventCard event={event} variant="grid" mode="demo" />);
     expect(video()).toBeNull();
     expect(document.querySelector("video")).toBeNull();
     fireEvent.click(playButton());
@@ -199,14 +199,14 @@ describe("the viewer (§5.2)", () => {
   });
 
   it("a landscape clip gets the wide dialog; no photo, no poster", () => {
-    withProviders(<EventCard event={{ ...event, imageUrl: undefined, clip: { ...CLIP, width: 1920, height: 1080 } }} variant="rail" mode="demo" />);
+    withProviders(<EventCard event={{ ...event, imageUrl: undefined, clip: { ...CLIP, width: 1920, height: 1080 } }} variant="grid" mode="demo" />);
     fireEvent.click(playButton());
     expect(dialog()).toHaveClass("sm:max-w-2xl");
     expect(video()).not.toHaveAttribute("poster");
   });
 
   it("a clip of unknown size gets a 16:9 box instead", () => {
-    withProviders(<EventCard event={{ ...event, clip: { ...CLIP, width: 0, height: 0 } }} variant="rail" mode="demo" />);
+    withProviders(<EventCard event={{ ...event, clip: { ...CLIP, width: 0, height: 0 } }} variant="grid" mode="demo" />);
     fireEvent.click(playButton());
     expect(video()).toHaveClass("aspect-video", "w-full", "object-contain");
     expect(video()?.style.aspectRatio).toBe("");
@@ -214,7 +214,7 @@ describe("the viewer (§5.2)", () => {
 
   it("under reduced motion it doesn't play by itself, and only reads the clip's header", () => {
     stubMotion(true);
-    withProviders(<EventCard event={event} variant="rail" mode="demo" />);
+    withProviders(<EventCard event={event} variant="grid" mode="demo" />);
     fireEvent.click(playButton());
     expect(video()).toHaveAttribute("preload", "metadata");
     expect(play).not.toHaveBeenCalled();
@@ -222,7 +222,7 @@ describe("the viewer (§5.2)", () => {
 
   it("a refused autoplay is quiet: the controls stay", async () => {
     play.mockRejectedValueOnce(new DOMException("blocked", "NotAllowedError"));
-    withProviders(<EventCard event={event} variant="rail" mode="demo" />);
+    withProviders(<EventCard event={event} variant="grid" mode="demo" />);
     fireEvent.click(playButton());
     await act(async () => {});
     expect(video()).toHaveAttribute("controls");
@@ -230,7 +230,7 @@ describe("the viewer (§5.2)", () => {
   });
 
   it.each(["Close", "Escape"])("%s closes it: the video goes (no more loading) and focus is back on Play", (how) => {
-    withProviders(<EventCard event={event} variant="rail" mode="demo" />);
+    withProviders(<EventCard event={event} variant="grid" mode="demo" />);
     const button = playButton();
     fireEvent.click(button);
     expect(video()).not.toBeNull();
@@ -243,7 +243,7 @@ describe("the viewer (§5.2)", () => {
   });
 
   it("shows a loader only if the clip is slow to start, and drops it once it can play", () => {
-    withProviders(<EventCard event={event} variant="rail" mode="demo" />);
+    withProviders(<EventCard event={event} variant="grid" mode="demo" />);
     fireEvent.click(playButton());
     expect(screen.queryByText("Loading clip…")).toBeNull();
     act(() => void vi.advanceTimersByTime(CLIP_LOADER_DELAY_MS));
@@ -253,7 +253,7 @@ describe("the viewer (§5.2)", () => {
   });
 
   it("an error says so, keeps the description, and Try again loads the same clip again", () => {
-    withProviders(<EventCard event={event} variant="rail" mode="demo" />);
+    withProviders(<EventCard event={event} variant="grid" mode="demo" />);
     fireEvent.click(playButton());
     const first = video() as HTMLVideoElement;
     fireEvent.error(first);
@@ -272,7 +272,7 @@ describe("the viewer (§5.2)", () => {
   });
 
   it("when Try again fails again, focus goes to the new Try again, never the page's body", () => {
-    withProviders(<EventCard event={event} variant="rail" mode="demo" />);
+    withProviders(<EventCard event={event} variant="grid" mode="demo" />);
     fireEvent.click(playButton());
     fireEvent.error(video() as HTMLVideoElement);
     fireEvent.click(within(dialog()).getByRole("button", { name: "Try again" }));
