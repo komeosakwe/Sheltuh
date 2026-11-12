@@ -37,6 +37,9 @@ const PANEL_WIDTH = 360;
 /** The rules' `md` (768px): below it the menu is a bottom sheet. */
 const SHEET_BELOW = 768;
 
+/** A typed place the suburb table doesn't know (the venue form's words, components/dashboard/VenueSuburbField.tsx). */
+const UNKNOWN_PLACE = "We couldn’t find that suburb or town. Check the spelling, or add its state (“Richmond, NSW”).";
+
 /** Same suburb, as typed: case and outer spaces aside. */
 const sameNear = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
@@ -99,8 +102,21 @@ const PIN = (
  *
  * After "All of Australia" the segment says so rather than the "Your suburb" prompt, for this page
  * view only (storage holds a suburb or nothing), so after the next page load the prompt is back.
+ *
+ * `standalone` (Nearby, components/SceneMapFilterBar.tsx): not part of a search that's sent, so
+ * Where is a bordered field at every width (its container sets the width), and Enter in the
+ * suburb field sets the place there and then: a suburb the table knows is remembered (as a
+ * choice is), an empty field is All of Australia, and anything else says it wasn't found.
  */
-export default function LocationPicker({ near, appliedNear }: { near?: string; appliedNear?: string }) {
+export default function LocationPicker({
+  near,
+  appliedNear,
+  standalone = false,
+}: {
+  near?: string;
+  appliedNear?: string;
+  standalone?: boolean;
+}) {
   const popoverId = useId();
   const titleId = useId();
   const inputId = useId();
@@ -121,8 +137,27 @@ export default function LocationPicker({ near, appliedNear }: { near?: string; a
   const canLocate = useSyncExternalStore(noSubscribe, hasGeolocation, serverFalse);
   // What the visitor has typed or chosen here; until then, the address's or the remembered suburb.
   const [draft, setDraft] = useState<string | null>(null);
-  const value = draft ?? near ?? stored;
   const [anywhere, setAnywhere] = useState(false);
+  // What this picker last remembered itself (a choice, All of Australia, a sent search): its own
+  // write isn't a change from outside.
+  const [ownWrite, setOwnWrite] = useState<string | null>(null);
+  // The place in use changed from outside (Near me, another tab, the page's own place): Where
+  // shows it, not an older draft.
+  const [seen, setSeen] = useState({ stored, near });
+  if (seen.stored !== stored || seen.near !== near) {
+    setSeen({ stored, near });
+    if (stored !== ownWrite || seen.near !== near) {
+      setDraft(null);
+      if (stored || near) setAnywhere(false);
+    }
+  }
+  /** Remembers `suburb` (or forgets the place, for ""), noting that this picker did it. */
+  function remember(suburb: string, state: StateCode | null) {
+    setOwnWrite(suburb.trim().slice(0, NEAR_MAX_LENGTH));
+    if (suburb) writeStoredNear(suburb, state);
+    else clearStoredNear();
+  }
+  const value = draft ?? near ?? stored;
   const [open, setOpen] = useState(false);
   const [panelStatus, setPanelStatus] = useState<PanelStatus>(null);
   // Announced outside the menu, which has closed by the time it changes.
@@ -261,12 +296,12 @@ export default function LocationPicker({ near, appliedNear }: { near?: string; a
       const typed = typeof raw === "string" ? raw.trim() : "";
       if (!typed) {
         event.formData.delete("near");
-        clearStoredNear();
+        remember("", null);
         return;
       }
       event.formData.set("near", typed);
       const place = moduleRef.current?.findLocality(typed);
-      if (place) writeStoredNear(place.name, place.state);
+      if (place) remember(place.name, place.state);
     }
     form.addEventListener("formdata", handleFormData);
     return () => form.removeEventListener("formdata", handleFormData);
@@ -298,7 +333,7 @@ export default function LocationPicker({ near, appliedNear }: { near?: string; a
   function setPlace(suburb: string, state: StateCode | null) {
     setDraft(suburb);
     setAnywhere(false);
-    writeStoredNear(suburb, state);
+    remember(suburb, state);
     setPanelStatus(null);
     closeAndReturn(`Location set: ${placeName(suburb, state)}`);
   }
@@ -357,10 +392,34 @@ export default function LocationPicker({ near, appliedNear }: { near?: string; a
     );
   }
 
+  /** `standalone`: Enter in the suburb field applies what's typed (see above). */
+  function applyTyped() {
+    const typed = value.trim();
+    if (!typed) {
+      clearLocation();
+      return;
+    }
+    loadLocation()
+      .then((loaded) => {
+        moduleRef.current = loaded;
+        setTable(loaded);
+        return loaded.findLocality(typed);
+      })
+      .catch(() => null)
+      .then((place) => {
+        if (place) {
+          setPlace(place.name, place.state);
+          return;
+        }
+        setPanelStatus({ tone: "danger", text: UNKNOWN_PLACE });
+        inputRef.current?.focus();
+      });
+  }
+
   function clearLocation() {
     setDraft("");
     setAnywhere(true);
-    clearStoredNear();
+    remember("", null);
     setPanelStatus(null);
     closeAndReturn("Location cleared: all of Australia");
   }
@@ -397,17 +456,23 @@ export default function LocationPicker({ near, appliedNear }: { near?: string; a
         data-open={open || undefined}
         // Its visible words, "Where" and the place, are its name (WCAG 2.5.3).
         aria-label={`Where: ${shown}`}
-        // Below md, in the search sheet: a full-width field with the stroke. From md, a segment of the bar.
-        className="flex min-h-12 w-full min-w-0 shrink-0 items-center gap-2 rounded-control border-control border-foreground bg-card px-4 text-left hover:bg-hover data-open:border-foreground data-open:bg-hover md:w-auto md:max-w-2/5 md:border-transparent md:px-3 md:focus-visible:-outline-offset-2!"
+        // Below md, in the search sheet: a full-width field with the stroke. From md, a segment of the
+        // bar; standalone (Nearby), the field at every width.
+        className={`flex min-h-12 w-full min-w-0 shrink-0 items-center gap-2 rounded-control border-control border-foreground bg-card px-4 text-left hover:bg-hover data-open:border-foreground data-open:bg-hover ${
+          standalone ? "lg:min-h-18 lg:px-6" : "md:w-auto md:max-w-2/5 md:border-transparent md:px-3 md:focus-visible:-outline-offset-2!"
+        }`.trim()}
       >
         <Icon className="size-5">{PIN}</Icon>
         <span className="flex min-w-0 flex-1 flex-col">
-          <span aria-hidden="true" className="eyebrow text-muted">
+          {/* Standalone (Nearby, the proposal): just the place; the name still says "Where". */}
+          <span aria-hidden="true" className={standalone ? "sr-only" : "eyebrow text-muted"}>
             Where
           </span>
           <span
             data-location-label=""
-            className={`truncate text-sm leading-5 font-semibold ${label || anywhere ? "text-foreground" : "font-normal text-muted"}`}
+            className={`truncate text-sm leading-5 font-semibold ${standalone ? "lg:text-lg lg:leading-7" : ""} ${
+              label || anywhere ? "text-foreground" : "font-normal text-muted"
+            }`}
           >
             {shown}
           </span>
@@ -522,6 +587,15 @@ export default function LocationPicker({ near, appliedNear }: { near?: string; a
               setAnywhere(false);
               if (!locatingRef.current) setPanelStatus(null);
             }}
+            onKeyDown={
+              standalone
+                ? (event) => {
+                    if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+                    event.preventDefault();
+                    applyTyped();
+                  }
+                : undefined
+            }
             aria-describedby={danger ? statusId : undefined}
             list={listId}
             maxLength={NEAR_MAX_LENGTH}

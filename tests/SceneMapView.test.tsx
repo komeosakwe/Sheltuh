@@ -4,11 +4,11 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import type { SheltuhEvent } from "@/lib/types";
 
 /*
- * The /map page around the map itself (brand-direction-one.md §7; owner
- * requests of 21 Oct 2026): the brand h1, Map first and by default on
- * phones with ?view=list still opening the list, and the orange "Buy
- * tickets" on every list row. Mounts the real SceneMap (demo path), as
- * tests/SceneMap.test.tsx does for the map's markers.
+ * Nearby (/map) around the map itself (redesign PR 5): the brand h1 under
+ * the "Nearby" eyebrow, the list first and by default on phones and
+ * tablets (the rules' Layout board) with ?view=map opening the map, and
+ * the orange "Buy tickets" on every list row from lg. Mounts the real
+ * SceneMap (demo path), as tests/SceneMap.test.tsx does for the markers.
  */
 
 const replace = vi.fn();
@@ -93,8 +93,11 @@ async function renderMap() {
 }
 
 describe("/map around the map", () => {
-  it("has the brand line as its h1, read as 'Sheltüh near you.'", async () => {
+  it("has the brand line as its h1, read as 'Sheltüh near you.', under the eyebrow Nearby", async () => {
     await renderMap();
+    // "Map" names the screen, not the goal (the audit): the page is Nearby.
+    expect(screen.getByText("Nearby")).toBeInTheDocument();
+    expect(screen.queryByText("Map", { selector: "header *" })).toBeNull();
     const h1 = screen.getByRole("heading", { level: 1 });
     expect(h1).toHaveAccessibleName("Sheltüh near you.");
     // The brand line is a display headline (display-l: Bootzy in capitals), shown as SHELTÜH NEAR YOÜ.
@@ -102,35 +105,40 @@ describe("/map around the map", () => {
     expect(h1.querySelector('[aria-hidden="true"]')).toHaveTextContent("SHELTÜH NEAR YOÜ.");
   }, 40_000);
 
-  it("shows the map first and by default on phones, then the list", async () => {
+  it("shows the list first and by default on phones and tablets, then the map", async () => {
     await renderMap();
     const group = screen.getByRole("group", { name: "Show events as" });
     const [first, second] = within(group).getAllByRole("button");
-    expect(first).toHaveAccessibleName("Map");
-    expect(second).toHaveAccessibleName("List");
+    expect(first).toHaveAccessibleName("List");
+    expect(second).toHaveAccessibleName("Map");
     expect(first).toHaveAttribute("aria-pressed", "true");
     expect(second).toHaveAttribute("aria-pressed", "false");
-    // The map view keeps a visible way on to the list below the map.
-    fireEvent.click(screen.getByRole("button", { name: "Show the list of 2 events" }));
+    expect(screen.queryByRole("button", { name: /^Show the list/ })).toBeNull();
+    fireEvent.click(second);
     expect(second).toHaveAttribute("aria-pressed", "true");
-    // The list is written to the URL so it can be shared; the map, the default, isn't.
-    await waitFor(() => expect(replace).toHaveBeenLastCalledWith("/map?view=list", { scroll: false }));
-    fireEvent.click(first);
+    // The map is written to the URL so it can be shared; the list, the default, isn't.
+    await waitFor(() => expect(replace).toHaveBeenLastCalledWith("/map?view=map", { scroll: false }));
+    // The map view keeps a visible way back to the list below the map.
+    fireEvent.click(screen.getByRole("button", { name: "Show the list of 2 events" }));
+    expect(first).toHaveAttribute("aria-pressed", "true");
     await waitFor(() => expect(replace).toHaveBeenLastCalledWith("/map", { scroll: false }));
   });
 
-  it("opens the list for a shared ?view=list", async () => {
-    params = new URLSearchParams("view=list");
+  it("opens the map for a shared ?view=map", async () => {
+    params = new URLSearchParams("view=map");
     await renderMap();
-    expect(screen.getByRole("button", { name: "List" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.queryByRole("button", { name: /^Show the list/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Map" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /^Show the list/ })).toBeInTheDocument();
   });
 
-  it("gives every list row its orange quick buy: Buy tickets, or Free tickets", async () => {
+  it("gives every list row its orange quick buy from lg: Buy tickets, or Free tickets", async () => {
     await renderMap();
     const paid = screen.getByRole("link", { name: "Buy tickets for Paid Night" });
     expect(paid).toHaveAttribute("href", "/events/paid-night#tickets");
     expect(paid).toHaveClass("btn-signal");
+    // The phone and tablet mocks leave it off (the row opens the event); the row's price stays.
+    expect(paid.closest(".hidden")).toHaveClass("lg:block");
+    expect(paid.closest("[data-scene-row]")?.querySelector("[data-row-price]")).toHaveTextContent("A$21.70");
     expect(screen.getByRole("link", { name: "Free tickets for Free Day" })).toHaveAttribute(
       "href",
       "/events/free-day#tickets",
@@ -191,13 +199,14 @@ describe("/map focus and layout on phones (WCAG 2.4.3, 2.4.11)", () => {
 
   it("'Show the list' moves focus to the list, which is part of the page on phones (no scroll box inside it)", async () => {
     stubViewport(false);
+    params = new URLSearchParams("view=map");
     await renderMap();
     fireEvent.click(screen.getByRole("button", { name: "Show the list of 2 events" }));
     const list = screen.getByRole("region", { name: "Events list" });
     await waitFor(() => expect(document.activeElement).toBe(list));
     expect(list).toHaveAttribute("tabindex", "-1");
     // No nested scroll below lg; it scrolls beside the map from lg. The map keeps its 60svh cap.
-    expect(list).toHaveClass("h-auto", "overflow-visible", "lg:h-[37.5rem]", "lg:overflow-y-auto");
+    expect(list).toHaveClass("h-auto", "overflow-visible", "lg:h-[min(60rem,calc(100svh-6rem))]", "lg:overflow-y-auto");
     expect(list.className).not.toMatch(/(^|\s)overflow-y-auto/);
     expect(list.className).not.toMatch(/(^|\s)h-\[min/);
     expect(document.querySelector(".leaflet-container")?.closest(".relative.h-\\[min\\(26\\.25rem\\,60svh\\)\\]")).not.toBeNull();
@@ -232,6 +241,7 @@ describe("/map focus and layout on phones (WCAG 2.4.3, 2.4.11)", () => {
 
   it("Dismiss after choosing a marker returns focus to that marker", async () => {
     stubViewport(false);
+    params = new URLSearchParams("view=map");
     await renderTwoSpots();
     const marker = await screen.findByRole("button", { name: /^Free Day\./ });
     act(() => marker.focus());
@@ -260,17 +270,22 @@ describe("/map focus and layout on phones (WCAG 2.4.3, 2.4.11)", () => {
 });
 
 describe("/map results and controls", () => {
+  afterEach(() => {
+    window.matchMedia = originalMatchMedia;
+  });
+
   it("announces the count in its persistent status; the visible count isn't a second live region", async () => {
     await renderMap();
     const status = screen.getAllByRole("status").find((el) => el.textContent === "2 upcoming events");
     expect(status).toBeDefined();
-    // Shown as the owner's mockup (8 Nov 2026): the number (orange) and the words.
+    // Shown as the proposal: the number (black, bold: never orange text on white) and the words.
     const visible = document.querySelector("[data-map-count]");
     expect(visible).toHaveTextContent(/^2 upcoming events$/);
     expect(visible).not.toHaveAttribute("aria-live");
     expect(visible).not.toHaveAttribute("role");
     expect(visible?.querySelector("span")).toHaveTextContent(/^2$/);
-    expect(visible?.querySelector("span")).toHaveClass("text-signal-text");
+    expect(visible?.querySelector("span")).toHaveClass("font-semibold");
+    expect(visible?.querySelector("span")?.className).not.toMatch(/signal/);
   });
 
   it("the visible count stays short with filters on; the announced one says they're applied", async () => {
@@ -282,14 +297,16 @@ describe("/map results and controls", () => {
     expect(screen.getAllByRole("status").some((el) => el.textContent === "1 upcoming event matching your filters")).toBe(true);
   });
 
-  it("the Map | List switch sits beside the count, the chosen half black with its icon", async () => {
+  it("the List | Map switch sits beside the Filters button (the 390 and 768 mocks), 48px, the chosen half black, words only", async () => {
     await renderMap();
     const group = screen.getByRole("group", { name: "Show events as" });
-    expect(group.parentElement).toContainElement(document.querySelector("[data-map-count]") as HTMLElement);
-    const map = within(group).getByRole("button", { name: "Map" });
-    expect(map).toHaveClass("bg-foreground", "text-background");
-    expect(map.querySelector("svg")).not.toBeNull();
-    expect(within(group).getByRole("button", { name: "List" })).not.toHaveClass("bg-foreground");
+    expect(group.parentElement).toContainElement(screen.getByRole("button", { name: /^Filters/ }));
+    expect(group).toHaveClass("h-12", "lg:hidden");
+    const list = within(group).getByRole("button", { name: "List" });
+    expect(list).toHaveClass("bg-foreground", "text-background");
+    expect(list.querySelector("svg")).toBeNull();
+    expect(group).not.toHaveClass("p-1");
+    expect(within(group).getByRole("button", { name: "Map" })).not.toHaveClass("bg-foreground");
   });
 
   it("has no single-option Sort control (it's always soonest first)", async () => {
@@ -299,7 +316,8 @@ describe("/map results and controls", () => {
   });
 
   // The owner's mockup (8 Nov 2026): no label above the field; the placeholder says it, and the label is for assistive tech.
-  it("labels the search field, with the mockup's placeholder", async () => {
+  it("labels the search field (from lg), with the proposal's placeholder", async () => {
+    stubViewport(true);
     await renderMap();
     const search = screen.getByRole("searchbox", { name: "Search events, venues or suburbs" });
     expect(search).toHaveAttribute("placeholder", "Search events, venues or suburbs");
@@ -307,6 +325,7 @@ describe("/map results and controls", () => {
   });
 
   it("the time and scene chips show their own choice, so only other filters get a removable chip", async () => {
+    stubViewport(true);
     params = new URLSearchParams("time=tonight&cat=art&q=night");
     mockEvents = [event("paid-night", "Paid Night", 2000), event("free-day", "Free Day", 0)];
     render(<SceneMap />);

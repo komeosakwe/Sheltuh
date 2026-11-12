@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import SceneMapFilterBar from "@/components/SceneMapFilterBar";
 import InitialsAvatar from "@/components/ui/InitialsAvatar";
@@ -52,8 +52,9 @@ describe("ProgressLoader", () => {
   });
 });
 
-describe("the map's filter chips", () => {
+describe("Nearby's filters (the rules' Tags & chips board)", () => {
   const props = {
+    desktop: true,
     search: "",
     onSearchChange: vi.fn(),
     categories: EVENT_CATEGORIES,
@@ -63,76 +64,126 @@ describe("the map's filter chips", () => {
     onTimeChange: vi.fn(),
     specificDate: "",
     onSpecificDateChange: vi.fn(),
-    suburbGroups: [],
-    suburb: "all",
-    onSuburbChange: vi.fn(),
     pricing: "all" as const,
     onPricingChange: vi.fn(),
+    radius: 25 as const,
+    onRadiusChange: vi.fn(),
   };
+  const chipOf = (name: string) => screen.getByRole("combobox", { name }).closest("[data-select-filter]") as HTMLElement;
 
-  // The owner's mockup (8 Nov 2026): a chosen chip is peach with an orange icon and bold words.
-  it("a set date or select is peach and bold, with an orange icon, and shows what's chosen", () => {
+  it("a set date or dropdown is black (the foreground), showing what's chosen, its icon first and the chevron beside it", () => {
     render(<SceneMapFilterBar {...props} category="art" time="date" specificDate="2026-11-01" pricing="free" />);
     const date = screen.getByLabelText("Choose a date").closest("[data-date-chip]");
-    expect(date).toHaveClass("bg-peach", "font-bold");
-    expect(date?.querySelector("svg")).toHaveClass("text-signal");
+    expect(date).toHaveClass("bg-foreground", "text-background", "h-12", "rounded-control", "border-control");
     // The chip shows the day itself (iOS Safari draws no padding or placeholder in a date field).
     expect(date).toHaveTextContent("1 Nov");
-    const category = screen.getByLabelText("Category").closest("[data-select-chip]");
-    expect(category).toHaveClass("bg-peach", "font-bold");
+    expect(screen.getByRole("combobox", { name: "Category" })).toHaveValue("art");
+    const category = chipOf("Category");
+    expect(category).toHaveClass("bg-foreground", "text-background");
     expect(category).toHaveTextContent("Art");
-    const price = screen.getByLabelText("Price").closest("[data-select-chip]");
-    expect(price).toHaveClass("bg-peach");
-    expect(price).toHaveTextContent("Free");
+    const [icon, , chevron] = Array.from(category.children).filter((el) => el.tagName !== "LABEL");
+    expect(icon.tagName.toLowerCase()).toBe("svg");
+    expect(chevron.tagName.toLowerCase()).toBe("svg");
+    expect(chipOf("Price")).toHaveTextContent("Free");
     expect(screen.getByRole("button", { name: "Tonight" })).toHaveAttribute("aria-pressed", "false");
   });
 
-  it("unset, they're ivory pills with a hairline, black icons and their default words", () => {
+  it("unset, they're the page colour with the 1.5px stroke, 48px and radius 8, saying their defaults", () => {
     render(<SceneMapFilterBar {...props} category="all" />);
     const date = screen.getByLabelText("Choose a date").closest("[data-date-chip]");
-    expect(date).toHaveClass("bg-panel", "border-soft-line", "rounded-full", "h-8");
-    expect(date).not.toHaveClass("bg-peach");
+    expect(date).toHaveClass("bg-background", "border-foreground", "border-control", "rounded-control", "h-12");
+    expect(date).not.toHaveClass("bg-foreground");
     expect(date).toHaveTextContent("Date");
-    const category = screen.getByLabelText("Category").closest("[data-select-chip]");
-    expect(category).toHaveClass("bg-panel");
-    expect(category).toHaveTextContent("All scenes");
-    expect(screen.getByLabelText("Price").closest("[data-select-chip]")).toHaveTextContent("Any price");
-    expect(category?.querySelector("svg")).toHaveClass("text-foreground");
+    // While focused, the native date field shows (a keyboard user sees what they type).
+    expect(screen.getByLabelText("Choose a date")).toHaveClass("opacity-0", "focus:opacity-100");
+    expect(chipOf("Category")).toHaveClass("bg-background");
+    expect(chipOf("Category")).toHaveTextContent("All scenes");
+    expect(chipOf("Price")).toHaveTextContent("Any price");
+    // Prices are in Australian dollars (A$), as everywhere on the site.
+    expect(within(screen.getByRole("combobox", { name: "Price" })).getByRole("option", { name: "Under A$25" })).toBeInTheDocument();
   });
 
-  it("Tonight and This weekend are toggle buttons: pressed, peach", () => {
+  it("Tonight and This weekend are toggle buttons: pressed, black", () => {
     render(<SceneMapFilterBar {...props} time="tonight" />);
     const tonight = screen.getByRole("button", { name: "Tonight" });
     expect(tonight).toHaveAttribute("aria-pressed", "true");
-    expect(tonight).toHaveClass("bg-peach", "font-bold");
+    expect(tonight).toHaveClass("bg-foreground", "text-background");
     const weekend = screen.getByRole("button", { name: "This weekend" });
     expect(weekend).toHaveAttribute("aria-pressed", "false");
-    expect(weekend).toHaveClass("bg-panel", "font-medium");
+    expect(weekend).toHaveClass("bg-background");
   });
 
-  it("the search field: labelled, the mockup's placeholder, 16px typed text on phones", () => {
+  it("from lg, the search field: labelled, the proposal's placeholder, 72px with the stroke", () => {
     render(<SceneMapFilterBar {...props} />);
     const search = screen.getByRole("searchbox", { name: "Search events, venues or suburbs" });
     expect(search).toHaveAttribute("placeholder", "Search events, venues or suburbs");
-    expect(search).toHaveClass("text-base", "rounded-2xl", "placeholder:text-field");
+    expect(search).toHaveClass("h-18", "rounded-control", "border-control");
   });
 
-  it("the location field shows the chosen suburb over its native select", () => {
-    const suburbGroups = [{ state: "VIC" as const, label: "Victoria", suburbs: [{ value: "Fitzroy", label: "Fitzroy, VIC" }] }];
-    const { rerender } = render(<SceneMapFilterBar {...props} suburbGroups={suburbGroups} />);
-    const field = screen.getByRole("combobox", { name: "Location" }).closest("[data-location-field]");
-    expect(field).toHaveTextContent("All of Australia");
-    rerender(<SceneMapFilterBar {...props} suburbGroups={suburbGroups} suburb="Fitzroy" />);
-    expect(field).toHaveTextContent("Fitzroy, VIC");
+  it("has one location control, Where (a field of its own from lg, without the eyebrow); below lg, the site's search bar", () => {
+    const { rerender } = render(<SceneMapFilterBar {...props} near="Sydney" />);
+    expect(screen.queryByRole("combobox", { name: "Location" })).toBeNull();
+    const where = screen.getByRole("button", { name: "Where: Sydney" });
+    expect(where.className).not.toMatch(/md:border-transparent/);
+    expect(within(where).getByText("Where")).toHaveClass("sr-only");
+    rerender(<SceneMapFilterBar {...props} desktop={false} near="Sydney" />);
+    expect(screen.queryByRole("searchbox", { name: "Search events, venues or suburbs" })).toBeNull();
+    expect(screen.getByRole("search", { name: "Search events" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /^Where:/ })).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Where: Sydney" })).toBeInTheDocument();
   });
 
-  it("is one sideways-scrolling row on phones, wrapping from 640px", () => {
-    render(<SceneMapFilterBar {...props} category="all" />);
-    expect(screen.getByRole("form", { name: "Filter events" })).toHaveClass(
-      "flex-nowrap",
-      "overflow-x-auto",
-      "sm:flex-wrap",
-      "sm:overflow-visible",
+  it("Distance: Within 5, 10, 25 or 50 km, or All of Australia; black only off the default 25 km; disabled while paused", () => {
+    const { rerender } = render(<SceneMapFilterBar {...props} />);
+    const distance = screen.getByRole("combobox", { name: "Distance" });
+    expect(within(distance).getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "Within 5 km",
+      "Within 10 km",
+      "Within 25 km",
+      "Within 50 km",
+      "All of Australia",
+    ]);
+    expect(distance).toHaveValue("25");
+    expect(chipOf("Distance")).toHaveTextContent("Within 25 km");
+    expect(chipOf("Distance")).not.toHaveClass("bg-foreground");
+    fireEvent.change(distance, { target: { value: "10" } });
+    expect(props.onRadiusChange).toHaveBeenLastCalledWith(10);
+    rerender(<SceneMapFilterBar {...props} radius={10} />);
+    expect(chipOf("Distance")).toHaveClass("bg-foreground", "text-background");
+    rerender(<SceneMapFilterBar {...props} radius="all" />);
+    expect(chipOf("Distance")).toHaveClass("bg-foreground");
+    // "Search this area": the radius doesn't apply, and Distance says so.
+    rerender(<SceneMapFilterBar {...props} radius={10} radiusPaused />);
+    expect(screen.getByRole("combobox", { name: "Distance" })).toBeDisabled();
+    expect(chipOf("Distance")).not.toHaveClass("bg-foreground");
+    // No place to measure from yet: no Distance.
+    rerender(<SceneMapFilterBar {...props} radius={null} />);
+    expect(screen.queryByRole("combobox", { name: "Distance" })).toBeNull();
+  });
+
+  it("below lg the filters sit behind Filters (named with how many are set), beside List | Map; Escape closes them", () => {
+    render(
+      <SceneMapFilterBar {...props} desktop={false} category="art" pricing="free" radius={10} viewToggle={<span>switch</span>} />,
     );
+    const button = screen.getByRole("button", { name: "Filters, 3 active" });
+    expect(button).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("form", { name: "Filter events" })).toBeNull();
+    // The List | Map switch is on the Filters button's row, which wraps at 320px.
+    expect(button.parentElement).toHaveTextContent("switch");
+    expect(button.parentElement).toHaveClass("flex-wrap");
+    fireEvent.click(button);
+    expect(button).toHaveAttribute("aria-expanded", "true");
+    const panel = screen.getByRole("form", { name: "Filter events" });
+    expect(button).toHaveAttribute("aria-controls", panel.id);
+    expect(panel).toHaveClass("flex-wrap");
+    fireEvent.keyDown(screen.getByRole("button", { name: "Tonight" }), { key: "Escape" });
+    expect(screen.queryByRole("form", { name: "Filter events" })).toBeNull();
+    expect(button).toHaveAttribute("aria-expanded", "false");
+    expect(document.activeElement).toBe(button);
+  });
+
+  it("the default 25 km isn't counted as set; no count, no number in the name", () => {
+    render(<SceneMapFilterBar {...props} desktop={false} />);
+    expect(screen.getByRole("button", { name: "Filters" })).toBeInTheDocument();
   });
 });

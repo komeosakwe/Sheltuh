@@ -9,8 +9,9 @@ import { NEAR_STORAGE_KEY, writeStoredNear } from "@/lib/near-storage";
 import type { SheltuhEvent } from "@/lib/types";
 
 /*
- * /map centred on the visitor (owner request, creator call): the saved suburb on open, else one ask
- * of the browser; a Near me button; the location filter and the search bar's suburb recentre it.
+ * Nearby (/map) centred on the visitor (owner request, creator call): the saved suburb on open, else
+ * one ask of the browser; a Near me button; the one location control (Where) recentres it. Within a
+ * radius (redesign PR 5): the list, markers and count keep the events within it of the place.
  * Mounts the real SceneMap with the real Leaflet map (see tests/SceneMap.test.tsx); the map's
  * position is read from the data attributes on its container, and navigator.geolocation is a mock.
  */
@@ -174,12 +175,27 @@ afterEach(() => {
   Reflect.deleteProperty(window, "matchMedia");
 });
 
+/**
+ * Renders Nearby in its Map view (a phone's: the list is the default, and the hidden map has no size
+ * in these tests), unless the test's address already says which view.
+ */
 async function renderMap(list: SheltuhEvent[] = events) {
+  if (!params.has("view")) params.set("view", "map");
   mockEvents = list;
   render(<SceneMap />);
   await waitFor(() => expect(document.querySelector(".leaflet-container")).not.toBeNull());
   await waitFor(() => expect(document.querySelector("[data-scene-row]")).not.toBeNull());
 }
+
+/** The phone's List | Map switch's buttons (the selected event's sheet has a "List" button too). */
+const viewButton = (name: "List" | "Map") =>
+  within(screen.getByRole("group", { name: "Show events as" })).getByRole("button", { name });
+
+/** Opens the phone's Filters panel (below lg the filters sit behind it). */
+const openFilters = () => {
+  const button = screen.getByRole("button", { name: /^Filters/ });
+  if (button.getAttribute("aria-expanded") !== "true") fireEvent.click(button);
+};
 
 /** The listed events' titles, top to bottom. */
 const listedTitles = () =>
@@ -224,6 +240,9 @@ function expectNoCoordinatesStored() {
   // Latitudes and longitudes of the points used here (-37.8…, 144.9…, -33.8…, 151.2…).
   expect(storedValues().join("\n")).not.toMatch(/-?\d{2,3}\.\d{3,}/);
 }
+
+/** Where's menu (components/search/LocationPicker.tsx): a popover jsdom leaves in the page. */
+const wherePanel = () => document.querySelector<HTMLElement>("[data-location-panel]") as HTMLElement;
 
 describe("/map opens on the visitor's location", () => {
   it("a saved suburb: centres on it, zoomed in, without asking the browser", async () => {
@@ -291,7 +310,7 @@ describe("/map opens on the visitor's location", () => {
     ["?sel= an event", "sel=sydney-show"],
     ["a suburb filter", "suburb=Surry%20Hills"],
     ["another filter", "cat=live-music"],
-    ["the list", "view=list"],
+    ["a place for this visit (Community's Scenes by city)", "near=Sydney"],
   ])("%s in the address: doesn't ask", async (_name, query) => {
     params = new URLSearchParams(query);
     answerAt(MELBOURNE.lat, MELBOURNE.lng);
@@ -300,11 +319,135 @@ describe("/map opens on the visitor's location", () => {
     expect(localStorage.getItem(NEAR_STORAGE_KEY)).toBeNull();
   });
 
-  it("a saved suburb doesn't override a selected event in the address", async () => {
+  it("a saved suburb doesn't override a selected event in the address: one outside the radius opens with every distance", async () => {
     params = new URLSearchParams("sel=sydney-show");
     localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Fitzroy", state: "VIC" }));
     await renderMap();
     await waitFor(() => expect(view().lat).toBeCloseTo(sydneyShow.coordinates?.lat ?? 0, 2));
+    // Still measured from the saved suburb (one location), nearest first, but with no radius.
+    expect(listedTitles()).toEqual(["Fitzroy Gig", "Sydney Show"]);
+    openFilters();
+    expect(screen.getByRole("combobox", { name: "Distance" })).toHaveValue("all");
+    expect(screen.getAllByRole("region", { name: "Selected event" })[0]).toHaveTextContent("Sydney Show");
+  });
+
+  describe("?near= (Community's Scenes by city link to /map?near=Sydney)", () => {
+    it("centres on that city for this visit, lists within 25 km of it, shows it in Where, and keeps the saved suburb", async () => {
+      params = new URLSearchParams("near=Sydney");
+      localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Fitzroy", state: "VIC" }));
+      answerAt(MELBOURNE.lat, MELBOURNE.lng);
+      await renderMap();
+      const sydney = findLocality("Sydney");
+      await expectCentredOn({ lat: sydney?.lat ?? 0, lng: sydney?.lng ?? 0 });
+      await waitFor(() => expect(listedTitles()).toEqual(["Sydney Show"]));
+      expect(document.querySelector("[data-map-count]")).toHaveTextContent(/^1 upcoming event within 25 km of Sydney$/);
+      expect(document.querySelector("[data-further-away]")).toHaveTextContent("1 more event outside 25 km — Fitzroy.");
+      expect(screen.getByRole("button", { name: "Where: Sydney" })).toBeInTheDocument();
+      // Never written over the remembered suburb, and no ask of the browser.
+      expect(JSON.parse(localStorage.getItem(NEAR_STORAGE_KEY) ?? "null")).toEqual({ suburb: "Fitzroy", state: "VIC" });
+      expect(getCurrentPosition).not.toHaveBeenCalled();
+      // It stays in the address while it applies (a reload keeps it).
+      await waitFor(() => expect(replace.mock.calls.at(-1)?.[0]).toBe("/map?near=Sydney&view=map"));
+    });
+
+    it("a place chosen in Where then wins: it's remembered, and the visit's place leaves the address", async () => {
+      params = new URLSearchParams("near=Sydney");
+      await renderMap();
+      await waitFor(() => expect(listedTitles()).toEqual(["Sydney Show"]));
+      fireEvent.click(within(wherePanel()).getByRole("button", { name: /^Melbourne/, hidden: true }));
+      await waitFor(() => expect(listedTitles()).toEqual(["Fitzroy Gig"]));
+      expect(JSON.parse(localStorage.getItem(NEAR_STORAGE_KEY) ?? "null")).toMatchObject({ state: "VIC" });
+      await waitFor(() => expect(replace.mock.calls.at(-1)?.[0]).toBe("/map?view=map"));
+      expect(screen.getByRole("button", { name: /^Where: Melbourne/ })).toBeInTheDocument();
+    });
+
+    it("an older address's ?suburb= is read the same way", async () => {
+      params = new URLSearchParams("suburb=Surry%20Hills%20NSW");
+      await renderMap();
+      await waitFor(() => expect(listedTitles()).toEqual(["Sydney Show"]));
+      expect(screen.getByRole("button", { name: "Where: Surry Hills NSW" })).toBeInTheDocument();
+    });
+
+    it("a place the suburb table doesn't know is ignored: the saved suburb stands", async () => {
+      params = new URLSearchParams("near=Atlantis");
+      localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Fitzroy", state: "VIC" }));
+      await renderMap();
+      await waitFor(() => expect(listedTitles()).toEqual(["Fitzroy Gig"]));
+      expect(screen.getByRole("button", { name: "Where: Fitzroy" })).toBeInTheDocument();
+    });
+  });
+
+  describe("?near= gives way to a place chosen since (code review, PR 5)", () => {
+    it("another tab's change replaces it", async () => {
+      params = new URLSearchParams("near=Sydney");
+      await renderMap();
+      await waitFor(() => expect(listedTitles()).toEqual(["Sydney Show"]));
+      act(() => {
+        writeStoredNear("Fitzroy", "VIC");
+      });
+      await waitFor(() => expect(listedTitles()).toEqual(["Fitzroy Gig"]));
+      expect(screen.getByRole("button", { name: "Where: Fitzroy" })).toBeInTheDocument();
+      await waitFor(() => expect(replace.mock.calls.at(-1)?.[0]).toBe("/map?view=map"));
+    });
+
+    it("Near me replaces it", async () => {
+      params = new URLSearchParams("near=Sydney");
+      answerAt(MELBOURNE.lat, MELBOURNE.lng);
+      await renderMap();
+      await waitFor(() => expect(listedTitles()).toEqual(["Sydney Show"]));
+      fireEvent.click(screen.getByRole("button", { name: "Near me" }));
+      await waitFor(() => expect(listedTitles()).toEqual(["Fitzroy Gig"]));
+      expect(screen.getByRole("button", { name: "Where: Melbourne" })).toBeInTheDocument();
+      await waitFor(() => expect(replace.mock.calls.at(-1)?.[0] ?? "").not.toMatch(/near=/));
+    });
+
+    it("one the suburb table doesn't know doesn't stop the ask on open, and leaves the address", async () => {
+      params = new URLSearchParams("near=Atlantis");
+      answerAt(MELBOURNE.lat, MELBOURNE.lng);
+      await renderMap();
+      await expectCentredOn(MELBOURNE, 0.06);
+      expect(getCurrentPosition).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(replace.mock.calls.at(-1)?.[0] ?? "").not.toMatch(/near=/));
+    });
+  });
+
+  it("a selected event with no position in the address opens with every distance (it can't be within one)", async () => {
+    const nowhere = makeEvent({ id: "nowhere", title: "Nowhere Gig", suburb: "Atlantis" });
+    params = new URLSearchParams("sel=nowhere");
+    localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Fitzroy", state: "VIC" }));
+    await renderMap([fitzroyGig, nowhere]);
+    await waitFor(() => expect(listedTitles()).toContain("Nowhere Gig"));
+    openFilters();
+    expect(screen.getByRole("combobox", { name: "Distance" })).toHaveValue("all");
+    expect(screen.getAllByRole("region", { name: "Selected event" })[0]).toHaveTextContent("Nowhere Gig");
+  });
+
+  describe("Where names the place in use (code review, PR 5)", () => {
+    it("after Near me, not a place chosen before it", async () => {
+      params = new URLSearchParams("cat=live-music");
+      answerAt(SYDNEY.lat, SYDNEY.lng);
+      await renderMap();
+      fireEvent.click(within(wherePanel()).getByRole("button", { name: /^Melbourne/, hidden: true }));
+      await waitFor(() => expect(screen.getByRole("button", { name: /^Where: Melbourne/ })).toBeInTheDocument());
+      fireEvent.click(screen.getByRole("button", { name: "Near me" }));
+      await waitFor(() => expect(screen.getByRole("button", { name: "Where: Sydney" })).toBeInTheDocument());
+    });
+
+    it("after another tab changes it", async () => {
+      params = new URLSearchParams("cat=live-music");
+      await renderMap();
+      fireEvent.click(within(wherePanel()).getByRole("button", { name: /^Melbourne/, hidden: true }));
+      await waitFor(() => expect(screen.getByRole("button", { name: /^Where: Melbourne/ })).toBeInTheDocument());
+      act(() => {
+        writeStoredNear("Footscray", "VIC");
+      });
+      await waitFor(() => expect(screen.getByRole("button", { name: "Where: Footscray" })).toBeInTheDocument());
+      act(() => {
+        localStorage.removeItem(NEAR_STORAGE_KEY);
+        window.dispatchEvent(new StorageEvent("storage", { key: NEAR_STORAGE_KEY }));
+      });
+      await waitFor(() => expect(screen.getByRole("button", { name: "Where: Your suburb" })).toBeInTheDocument());
+    });
   });
 
   it("without geolocation in the browser: no prompt and no Near me button", async () => {
@@ -484,10 +627,10 @@ describe("the phone's List and Map tabs", () => {
     await expectCentredOn(SYDNEY);
     const fit = vi.spyOn(L.Map.prototype, "fitBounds");
 
-    fireEvent.click(screen.getByRole("button", { name: "List" }));
+    fireEvent.click(viewButton("List"));
     await resized();
     await settle();
-    fireEvent.click(screen.getByRole("button", { name: "Map" }));
+    fireEvent.click(viewButton("Map"));
     await resized();
     await settle();
 
@@ -499,11 +642,13 @@ describe("the phone's List and Map tabs", () => {
     params = new URLSearchParams("cat=live-music&view=list");
     await renderMap();
     const surryHills = findLocality("Surry Hills NSW");
-    fireEvent.change(screen.getByRole("combobox", { name: "Location" }), { target: { value: "Surry Hills" } });
+    act(() => {
+      writeStoredNear("Surry Hills NSW", "NSW");
+    });
     await settle();
     expect(onDefaultView()).toBe(true);
 
-    fireEvent.click(screen.getByRole("button", { name: "Map" }));
+    fireEvent.click(viewButton("Map"));
     await resized();
     await expectCentredOn({ lat: surryHills?.lat ?? 0, lng: surryHills?.lng ?? 0 });
     await settle();
@@ -516,33 +661,61 @@ describe("the phone's List and Map tabs", () => {
     fireEvent.click(screen.getByRole("button", { name: "Near me" }));
     await expectCentredOn(SYDNEY);
 
-    fireEvent.click(screen.getByRole("button", { name: "List" }));
+    fireEvent.click(viewButton("List"));
     await resized();
     await settle();
     const fit = vi.spyOn(L.Map.prototype, "fitBounds");
-    fireEvent.change(screen.getByRole("searchbox", { name: /Search events/ }), { target: { value: "Fitzroy Gig" } });
+    const flyFit = vi.spyOn(L.Map.prototype, "flyToBounds");
+    const fly = vi.spyOn(L.Map.prototype, "flyTo");
+    // A filter that changes the markers: every distance, so Fitzroy joins Sydney's event.
+    openFilters();
+    fireEvent.change(screen.getByRole("combobox", { name: "Distance" }), { target: { value: "all" } });
     await settle();
-    fireEvent.click(screen.getByRole("button", { name: "Map" }));
+    fireEvent.click(viewButton("Map"));
     await resized();
-    await waitFor(() => expect(fit).toHaveBeenCalled());
+    // Framed again when shown: fitted, or (Near me opened the nearest event) flown to that event.
+    await waitFor(() => expect(fit.mock.calls.length + flyFit.mock.calls.length + fly.mock.calls.length).toBeGreaterThan(0));
     // Let the animated refit finish before the map is torn down (Leaflet would finish it on a removed map).
     await new Promise<void>((done) => setTimeout(done, 600));
   });
 });
 
 describe("a location put in recentres the map", () => {
-  it("picking a suburb in the location filter centres on it, zoomed in", async () => {
+  it("is the page's one location control: Where, with no suburb select of Nearby's own", async () => {
     params = new URLSearchParams("cat=live-music");
     await renderMap();
-    const surryHills = findLocality("Surry Hills NSW");
-    expect(surryHills).not.toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Location" })).toBeNull();
+    expect(screen.getAllByRole("button", { name: /^Where:/ })).toHaveLength(1);
+  });
 
-    fireEvent.change(screen.getByRole("combobox", { name: "Location" }), { target: { value: "Surry Hills" } });
-    await expectCentredOn({ lat: surryHills?.lat ?? 0, lng: surryHills?.lng ?? 0 });
+  it("picking a place in Where centres on it, zoomed in, remembers it, and lists what's near it", async () => {
+    params = new URLSearchParams("cat=live-music");
+    await renderMap();
+    const sydney = findLocality("Sydney");
+    expect(sydney).not.toBeNull();
+
+    fireEvent.click(within(wherePanel()).getByRole("button", { name: /^Sydney/, hidden: true }));
+    await expectCentredOn({ lat: sydney?.lat ?? 0, lng: sydney?.lng ?? 0 });
+    expect(JSON.parse(localStorage.getItem(NEAR_STORAGE_KEY) ?? "null")).toMatchObject({ state: "NSW" });
+    await waitFor(() => expect(listedTitles()).toEqual(["Sydney Show"]));
+    expect(screen.getByRole("button", { name: "Where: Sydney" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Search this area/ })).toBeNull();
   });
 
-  it("the search bar's suburb changing while on the map centres on it", async () => {
+  it("All of Australia in Where forgets the place: every event, soonest first, no radius", async () => {
+    localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Fitzroy", state: "VIC" }));
+    await renderMap();
+    await waitFor(() => expect(listedTitles()).toEqual(["Fitzroy Gig"]));
+    fireEvent.click(within(wherePanel()).getByRole("button", { name: "All of Australia", hidden: true }));
+    await waitFor(() => expect(listedTitles()).toEqual(["Fitzroy Gig", "Sydney Show"]));
+    openFilters();
+    expect(screen.getByRole("combobox", { name: "Category" })).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Distance" })).toBeNull();
+    expect(document.querySelector("[data-map-count]")).toHaveTextContent(/^2 upcoming events$/);
+    expect(document.body).not.toHaveTextContent(/\d km/);
+  });
+
+  it("the remembered suburb changing while on the page (another tab) centres on it", async () => {
     params = new URLSearchParams("cat=live-music");
     await renderMap();
     act(() => {
@@ -553,18 +726,22 @@ describe("a location put in recentres the map", () => {
     expect(getCurrentPosition).not.toHaveBeenCalled();
   });
 
+  // Perth: no event is near it, so the map centres on the place itself (none to frame it with).
   it("flies there, or with reduced motion jumps without animation", async () => {
     params = new URLSearchParams("cat=live-music");
     await renderMap();
     const fly = vi.spyOn(L.Map.prototype, "flyTo");
     const setView = vi.spyOn(L.Map.prototype, "setView");
 
-    fireEvent.change(screen.getByRole("combobox", { name: "Location" }), { target: { value: "Surry Hills" } });
+    act(() => {
+      writeStoredNear("Perth", "WA");
+    });
     await waitFor(() => expect(fly).toHaveBeenCalledTimes(1));
     expect(fly.mock.calls[0][1]).toBe(MAP_NEAR_ZOOM);
     cleanup();
     fly.mockClear();
     setView.mockClear();
+    localStorage.clear();
 
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
@@ -576,7 +753,9 @@ describe("a location put in recentres the map", () => {
       }),
     });
     await renderMap();
-    fireEvent.change(screen.getByRole("combobox", { name: "Location" }), { target: { value: "Surry Hills" } });
+    act(() => {
+      writeStoredNear("Perth", "WA");
+    });
     await waitFor(() =>
       expect(setView.mock.calls.some(([, zoom, options]) => zoom === MAP_NEAR_ZOOM && options?.animate === false)).toBe(true),
     );
@@ -621,13 +800,26 @@ describe("Near me puts the nearest events first and frames them", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Near me" }));
     await expectCentredOn(MELBOURNE, 0.06);
-    await waitFor(() => expect(listedTitles()).toEqual(["Fitzroy Gig", "Footscray Gig", "Sydney Show"]));
-    const rows = Array.from(document.querySelectorAll("[data-scene-row]"));
-    // Fitzroy is about 2 km from the CBD, Footscray about 6, Sydney about 700 (approximate, short).
+    // Within 25 km of Melbourne (the default): Sydney isn't "near you" any more (the audit's P1).
+    await waitFor(() => expect(listedTitles()).toEqual(["Fitzroy Gig", "Footscray Gig"]));
+    let rows = Array.from(document.querySelectorAll("[data-scene-row]"));
+    // Fitzroy is about 2 km from the CBD, Footscray about 6 (approximate, short).
     expect(rows[0]).toHaveTextContent(/Live music · 2\.\d km away/);
     expect(rows[1]).toHaveTextContent(/Live music · [4-6]\.\d km away/);
+    expect(document.querySelector("[data-map-count]")).toHaveTextContent(/^2 upcoming events within 25 km of Melbourne$/);
+    expect(
+      screen.getAllByText("2 upcoming events matching your filters within 25 km of Melbourne").some((el) => el.getAttribute("role") === "status"),
+    ).toBe(true);
+    // Sydney is summarised under Further away, one press from the list.
+    const further = document.querySelector("[data-further-away]") as HTMLElement;
+    expect(further).toHaveTextContent("Further away");
+    expect(further).toHaveTextContent("1 more event outside 25 km — Surry Hills.");
+    fireEvent.click(within(further).getByRole("button", { name: "Show all of Australia" }));
+    await waitFor(() => expect(listedTitles()).toEqual(["Fitzroy Gig", "Footscray Gig", "Sydney Show"]));
+    rows = Array.from(document.querySelectorAll("[data-scene-row]"));
     expect(rows[2]).toHaveTextContent(/Live music · 7\d\d km away/);
     expect(screen.getAllByText(/3 upcoming events matching your filters, nearest first/).length).toBeGreaterThan(0);
+    expect(document.querySelector("[data-further-away]")).toBeNull();
     // The position is only in this page's memory.
     expectNoCoordinatesStored();
     expect(replace.mock.calls.flat().join(" ")).not.toMatch(/-?\d{2,3}\.\d{3,}/);
@@ -636,7 +828,8 @@ describe("Near me puts the nearest events first and frames them", () => {
   it("a saved suburb: opens nearest first from its centre, without asking", async () => {
     localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Melbourne", state: "VIC" }));
     await renderMap([sydneySoonest, fitzroyGig]);
-    await waitFor(() => expect(listedTitles()).toEqual(["Fitzroy Gig", "Sydney Show"]));
+    await waitFor(() => expect(listedTitles()).toEqual(["Fitzroy Gig"]));
+    expect(document.querySelector("[data-further-away]")).toHaveTextContent("1 more event outside 25 km — Surry Hills.");
     expect(getCurrentPosition).not.toHaveBeenCalled();
     // A suburb's centre isn't the visitor: no dot for it.
     expect(document.querySelector(".scene-visitor")).toBeNull();
@@ -696,19 +889,28 @@ describe("Near me puts the nearest events first and frames them", () => {
       await renderMap(spread);
       fireEvent.click(screen.getByRole("button", { name: "Near me" }));
       await waitFor(() => expect(replace.mock.calls.at(-1)?.[0] ?? "").toMatch(/sel=brighton-gig/));
-      expect(replace.mock.calls.at(-1)?.[0]).toBe("/map?cat=theatre&sel=brighton-gig");
+      expect(replace.mock.calls.at(-1)?.[0]).toBe("/map?cat=theatre&sel=brighton-gig&view=map");
       expect(replace.mock.calls.flat().join(" ")).not.toMatch(/-?\d{2,3}\.\d{3,}/);
       expectNoCoordinatesStored();
     });
 
-    it("opens nothing when no event is within 100 km, and keeps the view and list as before", async () => {
-      params = new URLSearchParams("cat=live-music");
+    it("opens nothing when no event is near, and says so: the audit's empty state, with wider radii", async () => {
+      params = new URLSearchParams("cat=live-music&view=list");
       const PERTH = { lat: -31.9523, lng: 115.8613 };
       answerAt(PERTH.lat, PERTH.lng);
       await renderMap([fitzroyGig, sydneySoonest]);
       fireEvent.click(screen.getByRole("button", { name: "Near me" }));
-      await expectCentredOn(PERTH);
-      await waitFor(() => expect(listedTitles()).toEqual(["Fitzroy Gig", "Sydney Show"]));
+      const empty = await waitFor(() => {
+        const found = document.querySelector<HTMLElement>("[data-nearby-empty]");
+        expect(found).not.toBeNull();
+        return found as HTMLElement;
+      });
+      expect(within(empty).getByRole("heading", { level: 3 })).toHaveTextContent("No events found near Perth.");
+      expect(empty).toHaveTextContent("Try expanding your search area.");
+      expect(within(empty).getAllByRole("button").map((button) => button.textContent)).toEqual(["Within 25 km", "50 km"]);
+      expect(within(empty).getByRole("button", { name: "Within 25 km" })).toHaveAttribute("aria-pressed", "true");
+      expect(listedTitles()).toEqual([]);
+      expect(document.querySelector("[data-further-away]")).toHaveTextContent("2 more events outside 25 km — Fitzroy, Surry Hills.");
       expect(screen.queryByRole("region", { name: "Selected event" })).toBeNull();
       expect(screen.queryByText(/^Nearest:/)).toBeNull();
       expect(screen.getByText("Map centred on Perth, WA.")).toBeInTheDocument();
@@ -742,7 +944,7 @@ describe("Near me puts the nearest events first and frames them", () => {
     });
 
     it("a later pin tap or row is selected the usual way, flying to it", async () => {
-      params = new URLSearchParams("cat=live-music");
+      params = new URLSearchParams("cat=live-music&within=all");
       answerAt(MELBOURNE.lat, MELBOURNE.lng);
       await renderMap([sydneySoonest, fitzroyGig, footscrayGig]);
       fireEvent.click(screen.getByRole("button", { name: "Near me" }));
@@ -755,11 +957,14 @@ describe("Near me puts the nearest events first and frames them", () => {
     });
   });
 
-  it("an address with its own view keeps soonest first until Near me is pressed", async () => {
+  // The audit's P1: one location for the whole site. An address with filters of its own (coming back
+  // from an event, a shared link) used to drop it and list the whole country soonest first.
+  it("an address with its own filters still measures from the saved suburb, without asking", async () => {
     params = new URLSearchParams("cat=live-music");
     localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Melbourne", state: "VIC" }));
     await renderMap([sydneySoonest, fitzroyGig]);
-    expect(listedTitles()).toEqual(["Sydney Show", "Fitzroy Gig"]);
+    await waitFor(() => expect(listedTitles()).toEqual(["Fitzroy Gig"]));
+    expect(getCurrentPosition).not.toHaveBeenCalled();
   });
 
   it("frames the visitor with the nearest few events, and no further out than the local radius", async () => {
@@ -778,7 +983,9 @@ describe("Near me puts the nearest events first and frames them", () => {
     // The visitor's own dot, and still no "Search this area": framing is the map's own move.
     expect(document.querySelector(".scene-visitor")).not.toBeNull();
     expect(screen.queryByRole("button", { name: /Search this area/ })).toBeNull();
-    expect(listedTitles().slice(0, 4)).toEqual(["Fitzroy Gig", "Footscray Gig", "Brighton Gig", "Frankston Gig"]);
+    // Frankston (38 km) is past the radius too: not listed, but counted under Further away.
+    expect(listedTitles()).toEqual(["Fitzroy Gig", "Footscray Gig", "Brighton Gig"]);
+    expect(document.querySelector("[data-further-away]")).toHaveTextContent("2 more events outside 25 km — Frankston, Surry Hills.");
   });
 
   it("respects the filters: only the matching events are listed and framed", async () => {
@@ -786,8 +993,8 @@ describe("Near me puts the nearest events first and frames them", () => {
     answerAt(MELBOURNE.lat, MELBOURNE.lng);
     await renderMap(spread);
     fireEvent.click(screen.getByRole("button", { name: "Near me" }));
-    await waitFor(() => expect(listedTitles()).toEqual(["Brighton Gig", "Frankston Gig"]));
-    // Brighton (12 km) and Frankston (38 km, past the local radius) are theatre: only Brighton is framed.
+    await waitFor(() => expect(listedTitles()).toEqual(["Brighton Gig"]));
+    // Brighton (12 km) and Frankston (38 km, past the radius) are theatre: only Brighton is listed and framed.
     await waitFor(() => {
       const now = view();
       expect(now.zoom).toBeGreaterThanOrEqual(11);
@@ -795,8 +1002,8 @@ describe("Near me puts the nearest events first and frames them", () => {
     });
   });
 
-  it("with nothing within 25 km, frames the single nearest event up to 100 km away", async () => {
-    params = new URLSearchParams("cat=theatre");
+  it("Within 50 km, with nothing within 25 km, frames the single nearest event", async () => {
+    params = new URLSearchParams("cat=theatre&within=50");
     answerAt(MELBOURNE.lat, MELBOURNE.lng);
     await renderMap([frankstonGig, sydneySoonest]);
     fireEvent.click(screen.getByRole("button", { name: "Near me" }));
@@ -808,8 +1015,8 @@ describe("Near me puts the nearest events first and frames them", () => {
     });
   });
 
-  it("with no event within 100 km, centres on the visitor at MAP_NEAR_ZOOM, listing the nearest with its distance", async () => {
-    params = new URLSearchParams("cat=live-music");
+  it("All of Australia, with no event within 100 km: centres on the visitor at MAP_NEAR_ZOOM, listing the nearest with its distance", async () => {
+    params = new URLSearchParams("cat=live-music&within=all");
     const PERTH = { lat: -31.9523, lng: 115.8613 };
     answerAt(PERTH.lat, PERTH.lng);
     await renderMap([fitzroyGig, sydneySoonest]);
@@ -819,13 +1026,25 @@ describe("Near me puts the nearest events first and frames them", () => {
     expect(document.querySelectorAll("[data-scene-row]")[0]).toHaveTextContent(/2,\d{3} km away/);
   });
 
-  it("an event with no position goes last, with no distance", async () => {
-    params = new URLSearchParams("cat=live-music");
+  it("All of Australia: an event with no position goes last, with no distance", async () => {
+    params = new URLSearchParams("cat=live-music&within=all");
     answerAt(MELBOURNE.lat, MELBOURNE.lng);
     const nowhere = makeEvent({ id: "nowhere", title: "Nowhere Gig", suburb: "Atlantis", startsAt: "2026-11-16T09:00:00.000Z" });
     await renderMap([nowhere, sydneySoonest, fitzroyGig]);
     fireEvent.click(screen.getByRole("button", { name: "Near me" }));
     await waitFor(() => expect(listedTitles()).toEqual(["Fitzroy Gig", "Sydney Show", "Nowhere Gig"]));
     expect(document.querySelectorAll("[data-scene-row]")[2]).not.toHaveTextContent(/km/);
+  });
+
+  it("within a radius, an event with no position can't be near: not listed, counted as not on the map", async () => {
+    params = new URLSearchParams("cat=live-music");
+    answerAt(MELBOURNE.lat, MELBOURNE.lng);
+    const nowhere = makeEvent({ id: "nowhere", title: "Nowhere Gig", suburb: "Atlantis", startsAt: "2026-11-16T09:00:00.000Z" });
+    await renderMap([nowhere, sydneySoonest, fitzroyGig]);
+    fireEvent.click(screen.getByRole("button", { name: "Near me" }));
+    await waitFor(() => expect(listedTitles()).toEqual(["Fitzroy Gig"]));
+    expect(screen.getByText(/1 event not on the map/)).toBeInTheDocument();
+    // Placed but far is "further away"; unplaced isn't.
+    expect(document.querySelector("[data-further-away]")).toHaveTextContent("1 more event outside 25 km — Surry Hills.");
   });
 });

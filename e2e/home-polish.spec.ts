@@ -68,43 +68,47 @@ async function mockApi(page: Page) {
   await page.route("https://server.arcgisonline.com/**", (route) => route.abort());
 }
 
-// Owner (23 Oct 2026): "Make the selected category clearly identifiable" — then the owner's /map mockup
-// (8 Nov 2026): the chosen chip is peach with an orange icon and bold words; unselected chips are ivory
-// pills with a soft hairline. The chips with a selected state are the map's filters (the home's category
-// row is navigation: none of its chips is ever "selected").
+// Owner (23 Oct 2026): "Make the selected category clearly identifiable" — now the rules' Tags & chips
+// board (redesign PR 5): the chosen filter is black (the foreground) with the page colour's words and
+// the two orange dots; the others are the page colour with the 1.5px foreground stroke. The filters
+// with a selected state are Nearby's (the home's category row is navigation: none of its chips is
+// ever "selected"). On a phone they sit behind the "Filters" button.
 for (const theme of ["light", "dark"] as const) {
   test.describe(`filter chips in ${theme === "light" ? "Light" : "Dark"} at 390px`, () => {
     test.use({ viewport: { width: 390, height: 844 } });
 
-    test("the selected chip says so (aria-pressed) and is peach and bold; unselected chips are ivory with a soft edge", async ({ page }) => {
+    test("the selected chip says so (aria-pressed) and is filled with the foreground; unselected chips are outlined", async ({ page }) => {
       if (theme === "dark") await page.addInitScript(() => localStorage.setItem("sheltuh:theme", "dark"));
       await mockApi(page);
       await page.goto("/map");
+      const filters = page.getByRole("button", { name: /^Filters/ });
       const tonight = page.getByRole("button", { name: "Tonight", exact: true });
       const weekend = page.getByRole("button", { name: "This weekend", exact: true });
-      await expect(tonight).toHaveAttribute("aria-pressed", "false", { timeout: 30_000 });
-      // The dev server may still be hydrating the page: press until the chip responds (never twice once it has).
+      // The dev server may still be hydrating the page: press until it responds (never twice once it has).
       await expect(async () => {
-        if ((await tonight.getAttribute("aria-pressed")) !== "true") await tonight.click();
-        await expect(tonight).toHaveAttribute("aria-pressed", "true", { timeout: 1_000 });
+        if ((await filters.getAttribute("aria-expanded")) !== "true") await filters.click();
+        await expect(filters).toHaveAttribute("aria-expanded", "true", { timeout: 1_000 });
       }).toPass({ timeout: 30_000 });
+      await expect(tonight).toHaveAttribute("aria-pressed", "false");
+      await tonight.click();
+      await expect(tonight).toHaveAttribute("aria-pressed", "true");
       await expect(weekend).toHaveAttribute("aria-pressed", "false");
 
       const look = (chip: typeof tonight) =>
         chip.evaluate((el) => {
           const s = getComputedStyle(el);
           const icon = el.querySelector("svg");
-          return { bg: s.backgroundColor, fg: s.color, border: s.borderTopColor, weight: s.fontWeight, icon: icon ? getComputedStyle(icon).color : "" };
+          return { bg: s.backgroundColor, fg: s.color, border: s.borderTopColor, icon: icon ? getComputedStyle(icon).color : "" };
         });
-      // --peach, --panel and --soft-line (app/globals.css) in each theme; the text is the page's.
-      const [ink, peach, panel, line] =
-        theme === "dark"
-          ? ["rgb(255, 255, 255)", "rgb(74, 42, 24)", "rgb(26, 24, 22)", "rgb(74, 69, 64)"]
-          : ["rgb(0, 0, 0)", "rgb(252, 212, 187)", "rgb(251, 247, 241)", "rgb(205, 198, 192)"];
-      // Selected: peach, bold words in the page's text colour, the orange (--signal) icon.
-      expect(await look(tonight)).toMatchObject({ bg: peach, fg: ink, weight: "700", icon: "rgb(255, 72, 0)" });
-      // Unselected: ivory with the page's text colour and icon, and the soft edge.
-      expect(await look(weekend)).toEqual({ bg: panel, fg: ink, border: line, weight: "500", icon: ink });
+      // --foreground and --background (app/globals.css) in each theme.
+      const [ink, page_] = theme === "dark" ? ["rgb(255, 255, 255)", "rgb(0, 0, 0)"] : ["rgb(0, 0, 0)", "rgb(255, 255, 255)"];
+      // Selected: filled with the foreground, the page colour's words and icon, and the orange dots.
+      expect(await look(tonight)).toEqual({ bg: ink, fg: page_, border: ink, icon: page_ });
+      await expect(tonight.locator("[data-selected-dots] span").first()).toHaveCSS("background-color", "rgb(255, 72, 0)");
+      // Unselected: the page colour, outlined in the foreground.
+      expect(await look(weekend)).toEqual({ bg: page_, fg: ink, border: ink, icon: ink });
+      // The 1.5px stroke (drawn as 1px on a 1x screen).
+      expect(await weekend.evaluate((el) => getComputedStyle(el).borderTopWidth)).toMatch(/^1(\.5)?px$/);
 
       // The keyboard focus ring still shows on a chip.
       await weekend.focus();
