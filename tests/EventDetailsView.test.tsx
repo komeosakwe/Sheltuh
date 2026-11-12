@@ -357,13 +357,19 @@ describe("EventDetailsView tickets panel", () => {
 });
 
 describe("EventDetailsView brand layout (brand-direction-one.md §6.10)", () => {
-  it("puts the buy bar on an ink surface with the one orange Buy tickets", () => {
+  it("puts the buy bar on the page's own surface, square, with the one orange Buy tickets → and the date in mono", () => {
     const { container } = render(<EventDetailsView event={findEvent("neon-static")} demo />);
     const bar = buyBar(container);
     if (!bar) throw new Error("buy bar not rendered");
-    expect(bar).toHaveAttribute("data-surface", "ink");
-    expect(bar.className).not.toMatch(/bg-foreground|text-background/);
-    expect(within(bar).getByRole("link", { name: "Buy tickets" })).toHaveClass("btn-signal", "btn-lg");
+    expect(bar).not.toHaveAttribute("data-surface");
+    expect(bar).toHaveClass("bg-background", "border-t", "border-foreground");
+    expect(bar.className).not.toMatch(/rounded/);
+    const buy = within(bar).getByRole("link", { name: "Buy tickets" });
+    expect(buy).toHaveClass("btn-signal", "btn-lg");
+    // The trailing arrow, decorative.
+    expect(buy.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    expect(bar.querySelector("[data-bar-amount]")).toHaveClass("text-lg", "font-semibold");
+    expect(bar.querySelector("p.mono-s")).toHaveTextContent(/^Fri 25 Sept?, · 8:00 pm$|^Fri 25 Sept? · 8:00 pm$/);
     // Checkout itself stays black.
     const tickets = container.querySelector<HTMLElement>("#tickets");
     if (!tickets) throw new Error("#tickets not rendered");
@@ -382,7 +388,7 @@ describe("EventDetailsView brand layout (brand-direction-one.md §6.10)", () => 
       </FakeAuthProvider>,
     );
     const heading = screen.getByRole("heading", { level: 1, name: event.title });
-    expect(heading).toHaveClass("font-display", "uppercase");
+    expect(heading).toHaveClass("event-title");
     expect(heading).not.toHaveClass("display-lg");
     const photo = container.querySelector("img, [aria-hidden='true'] svg");
     if (!photo) throw new Error("no photo");
@@ -447,8 +453,9 @@ describe("EventDetailsView Where: the address links to directions", () => {
     );
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
-    // The address itself is the 44px target.
-    expect(link).toHaveClass("min-h-11");
+    // The address itself is the target: 44px on phones, 24px with a pointer; muted mono with no underline.
+    expect(link).toHaveClass("max-lg:min-h-11", "min-h-6", "mono-m", "text-muted");
+    expect(link.className).not.toMatch(/(^| )underline( |$)/);
   });
 });
 

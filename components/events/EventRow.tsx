@@ -31,7 +31,7 @@ export default function EventRow({
   return (
     <section aria-labelledby={id} className="flex flex-col gap-6">
       <div className="flex items-baseline justify-between gap-4">
-        <div className="flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-1">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-2">
           <h2 id={id} className="heading-h2 break-words">
             {title}
           </h2>
@@ -40,7 +40,7 @@ export default function EventRow({
         {seeAll && (
           <Link
             href={seeAll.href}
-            className="group/link inline-flex min-h-11 shrink-0 items-center gap-1 body-s font-semibold underline-offset-4 hover:underline"
+            className="group/link inline-flex min-h-11 shrink-0 items-center gap-2 body-s font-semibold underline-offset-4 hover:underline"
           >
             {/* The whole name in one span: a leading space in a separate sr-only suffix can be dropped inside a flex link. */}
             <span className="sr-only">See all {seeAll.srLabel}</span>

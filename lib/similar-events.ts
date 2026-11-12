@@ -4,6 +4,18 @@ import type { SheltuhEvent } from "./types";
 /** "Similar nearby" on an event page: events of the same category within this many kilometres of it. */
 export const SIMILAR_RADIUS_KM = 25;
 
+/**
+ * The most events an organiser's public profile lists (GET /organisers/{id}/profile, upcoming first): the API's
+ * PROFILE_EVENT_LIMIT (lib/server/handlers/public-organisers.ts; tests/similar-events.test.ts keeps them equal). At
+ * that many upcoming there may be more, so the count says "24+".
+ */
+export const ORGANISER_PROFILE_EVENT_LIMIT = 24;
+
+/** "4 upcoming", or "24+ upcoming" when the profile's list is full (there may be more). */
+export function upcomingLabel(count: number): string {
+  return `${count >= ORGANISER_PROFILE_EVENT_LIMIT ? `${ORGANISER_PROFILE_EVENT_LIMIT}+` : count} upcoming`;
+}
+
 /** An event page's rows ("More from {organiser}", "Similar nearby") show at most this many cards: one row of four on desktop. */
 export const EVENT_ROW_MAX = 4;
 

@@ -66,7 +66,7 @@ function summaryTotal(): string {
 
 /** The bar's amount, the first line of its text. */
 function barAmount(): string {
-  return bar().querySelector("p")?.textContent ?? "";
+  return bar().querySelector("[data-bar-amount]")?.textContent ?? "";
 }
 
 const more = (name: string) => screen.getByRole("button", { name: `Increase quantity for ${name}` });
@@ -504,14 +504,14 @@ describe("the bar's registration and what its note says", () => {
     const { rerender } = render(
       <BuyBarProvider>
         <TicketSelector event={event} />
-        <GaBuyBar price={{ amount: "From A$32.30", note: "incl. booking fee" }} label="Buy tickets" className="flex" />
+        <GaBuyBar price={{ amount: "From A$32.30", note: "incl. booking fee" }} label="Buy tickets" dateLine="Fri 25 Sept · 8:00 pm" className="flex" />
       </BuyBarProvider>,
     );
     fireEvent.click(more("General admission"));
     expect(within(bar()).getByRole("button", { name: "Buy tickets" })).toBeInTheDocument();
     rerender(
       <BuyBarProvider>
-        <GaBuyBar price={{ amount: "From A$32.30", note: "incl. booking fee" }} label="Buy tickets" className="flex" />
+        <GaBuyBar price={{ amount: "From A$32.30", note: "incl. booking fee" }} label="Buy tickets" dateLine="Fri 25 Sept · 8:00 pm" className="flex" />
       </BuyBarProvider>,
     );
     expect(within(bar()).queryByRole("button")).toBeNull();

@@ -16,7 +16,7 @@ import OrganiserLogo from "@/components/organisers/OrganiserLogo";
 import SaveButton from "@/components/favourites/SaveButton";
 import { ExternalIcon } from "@/components/home/icons";
 import SaveOnReturn from "@/components/favourites/SaveOnReturn";
-import { BuyBarProvider, GaBuyBar, GaBuyPanel, PanelPrice } from "@/components/checkout/BuyBar";
+import { BarPrice, BuyArrow, BuyBarProvider, GaBuyBar, GaBuyPanel, PanelPrice, TICKETS_HEADING_ID } from "@/components/checkout/BuyBar";
 import SeatedTicketsPanel from "@/components/seating/SeatedTicketsPanel";
 import ShareButton from "@/components/ShareButton";
 import TicketSelector from "@/components/TicketSelector";
@@ -105,23 +105,28 @@ function Placeholder({ children }: { children: ReactNode }) {
  * way here.
  */
 function TicketsSection({ selects, children }: { selects: boolean; children: ReactNode }) {
-  if (!selects) {
-    return (
-      <Panel title="Tickets" titleId="tickets-title" variant="plain">
-        {children}
-      </Panel>
-    );
-  }
   return (
-    <section aria-labelledby="tickets-title">
-      <h2 id="tickets-title" className="heading-h2 break-words">
-        Select your tickets
+    <section aria-labelledby={TICKETS_HEADING_ID}>
+      {/* Focusable from script (the desktop panel's action lands here), with a ring when it does, whatever the
+          pointer did before; never a Tab stop. */}
+      <h2
+        id={TICKETS_HEADING_ID}
+        tabIndex={-1}
+        className="heading-h2 rounded-control break-words focus:outline-2 focus:outline-offset-4 focus:outline-foreground"
+      >
+        {selects ? "Select your tickets" : "Tickets"}
       </h2>
-      <p className="body-m mt-2 text-muted">Choose a release to secure your spot.</p>
-      <div className="mt-6">{children}</div>
+      {selects && <p className="body-m mt-2 text-muted">Choose a release to secure your spot.</p>}
+      <div className={selects ? "mt-6" : "mt-4"}>{children}</div>
     </section>
   );
 }
+
+/**
+ * Save, Share and Add to calendar in the ticket panel's row: the rules' Secondary button, filling a third of the row,
+ * 48px on phones and 40px beside the photo, in Label/Button, wrapping onto two lines where a label doesn't fit.
+ */
+const ACTION_ROW_BUTTON = "w-full justify-center px-2 text-center lg:min-h-10 lg:px-1 lg:text-sm!";
 
 /** A time in a date range ("10:00 am", "midnight"): the capture keeps it in `split`'s output. */
 const TIME_PATTERN = /(\d{1,2}:\d{2} [ap]m|midnight)/;
@@ -148,7 +153,7 @@ function BookingInfo({ event }: { event: SheltuhEvent }) {
     <dl data-booking-info="" className="flex flex-col gap-2 text-sm leading-5">
       <div>
         <dt className="eyebrow text-muted">Refunds</dt>
-        <dd className="mt-1 flex flex-col gap-1">
+        <dd className="mt-2 flex flex-col gap-2">
           {policy && (
             <p data-refund-policy="" className="font-semibold">
               {policy}
@@ -219,8 +224,9 @@ export default function EventDetailsView({
 }) {
   const missing = preview?.missing;
   // The one class for every buy bar: sticky to the bottom of the screen (static in the editor's preview), bled across
-  // the page's margins.
-  const buyBarClass = `${preview ? "static" : "sticky"} bottom-0 z-20 -mx-(--page-margin) flex min-h-16 items-center justify-between gap-3 rounded-t-sheet px-(--page-margin) pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] lg:hidden dark:border-t dark:border-foreground`;
+  // the page's margins: the page's own surface (white, black in Dark), square, with a rule along its top (the owner's
+  // 390 mock).
+  const buyBarClass = `${preview ? "static" : "sticky"} bottom-0 z-20 -mx-(--page-margin) flex min-h-16 items-center justify-between gap-3 border-t border-foreground bg-background px-(--page-margin) pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] lg:hidden`;
   const categoryLabel =
     EVENT_CATEGORIES.find((category) => category.value === event.category)?.label ?? event.category;
   const ageTag = ageTagLabel(event.ageRestriction);
@@ -264,6 +270,10 @@ export default function EventDetailsView({
     <ExternalTicketLink eventId={event.id} url={ticketUrl} className={className} preview={Boolean(preview)} />
   );
   const externalOnSale = Boolean(ticketUrl) && !ended;
+  // The bars' mono line under the price: the start, "Thu 19 Nov · 7:00 pm".
+  const dateLine = `${formatEventDateShort(event.startsAt, zone)} · ${formatEventTime(event.startsAt, zone)}`;
+  // The general admission releases to choose from (the panel says how many as it takes you there).
+  const releases = event.ticketTypes.filter((ticket) => !ticket.seated).length;
 
   // The ticket panel's price and one orange action, from 1024px (below that the buy bar has them). The same
   // conditions as the bars below; nothing once the event has ended, or with nothing on sale yet.
@@ -271,12 +281,13 @@ export default function EventDetailsView({
     price && !ended && seatPage ? (
       <div className="flex flex-col gap-4">
         <PanelPrice amount={price.amount} note={price.note} />
-        <Link href={`/events/${event.slug}/seats`} className={buttonClass("signal", "lg", "w-full")}>
+        <Link href={`/events/${event.slug}/seats`} className={buttonClass("signal", "lg", "w-full gap-2")}>
           {buyBarLabel}
+          <BuyArrow />
         </Link>
       </div>
     ) : price && !ended ? (
-      <GaBuyPanel price={price} label={buyBarLabel} />
+      <GaBuyPanel price={price} label={buyBarLabel} releases={selectsTickets ? releases : 0} />
     ) : externalOnSale ? (
       <div className="flex flex-col gap-4">
         {event.externalFree ? (
@@ -284,7 +295,7 @@ export default function EventDetailsView({
         ) : externalFrom ? (
           <PanelPrice amount={externalFrom} note="Price set by the organiser." />
         ) : null}
-        {outboundLink(buttonClass("signal", "lg", "w-full"))}
+        {outboundLink(buttonClass("signal", "lg", "w-full gap-2"))}
       </div>
     ) : null;
 
@@ -315,11 +326,11 @@ export default function EventDetailsView({
       <GoingScope event={event} preview={Boolean(preview)} demo={demo}>
         <div className="grid grid-cols-1 gap-y-2 sm:gap-y-6 lg:grid-cols-12 lg:gap-x-8 lg:gap-y-24">
           {/* The photo, with the date chip on it (decorative: the date line says it). The page's LCP image. On
-              phones never more than 24% of the screen's height, so the title, facts, Save and Share fit above
-              the buy bar (owner request, 26 Oct 2026: e2e/event-page.spec.ts); a wide strip on tablets; 3:2 beside
+              phones never more than 22% of the screen's height, so the title, facts, Save and Share fit above
+              the buy bar (owner request, 26 Oct 2026: e2e/event-page.spec.ts); a 7:2 strip on tablets; 3:2 beside
               the panel from 1024px. An event's clip Play sits on its bottom-left (docs/design/event-clips.md §5.3);
               absolutely placed, so nothing shifts. */}
-          <div className="relative lg:col-span-7">
+          <div className="relative lg:col-span-7 xl:col-span-8">
             <EventArt
               poster={event.poster}
               imageUrl={event.imageUrl}
@@ -327,7 +338,7 @@ export default function EventDetailsView({
               title={event.title}
               priority
               fit="auto"
-              className="aspect-[4/3] max-h-[24svh] w-full rounded-card sm:aspect-video sm:max-h-none lg:aspect-[3/2]"
+              className="aspect-[4/3] max-h-[22svh] w-full rounded-card sm:aspect-video sm:max-h-none md:aspect-[7/2] lg:aspect-[3/2]"
             />
             {!missing?.when && <DateChip event={event} size="page" className="absolute top-2 left-2 sm:top-4 sm:left-4" />}
             <ClipPlayButton event={event} size="hero" className="absolute bottom-2 left-2 sm:bottom-4 sm:left-4" />
@@ -335,20 +346,25 @@ export default function EventDetailsView({
 
           {/* The key facts and the ticket panel: beside the photo from lg, and down the page with it (its rows
               span the photo's and the details'), so the panel can stick while the details scroll by. */}
-          <div className="flex min-w-0 flex-col gap-2 max-lg:pb-8 lg:col-span-5 lg:col-start-8 lg:row-span-2 lg:row-start-1">
+          <div className="flex min-w-0 flex-col gap-2 max-lg:pb-8 lg:col-span-5 lg:col-start-8 lg:row-span-2 lg:row-start-1 xl:col-span-4 xl:col-start-9">
             <div data-event-tags="" className="flex flex-wrap gap-2">
               <CategoryTag tone={event.category}>{categoryLabel}</CategoryTag>
-              {ageTag && <CategoryTag tone="neutral">{ageTag}</CategoryTag>}
+              {ageTag && (
+                <CategoryTag tone="neutral">
+                  <span className="sr-only">Age restriction: </span>
+                  {ageTag}
+                </CategoryTag>
+              )}
             </div>
-            {/* Display type in capitals, a step under the home's: 32px on phones (a long title in two lines at
-                390), 40px from 768px (the mock's, beside the photo). */}
-            <h1 className="font-display text-[2rem] leading-10 break-words uppercase md:text-[2.5rem] md:leading-12">
+            {/* Display type in capitals, a step under the home's (globals.css event-title): 32px up to 1024px (a long
+                title in two lines at 390), 40px beside the photo (the mock's). */}
+            <h1 className="event-title break-words">
               {missing?.title ? <Placeholder>Untitled event</Placeholder> : event.title}
             </h1>
             {/* The one date/time and venue block (no second copy further down), in mono capitals as written
                 (CSS sets the case, so it reads as written): when, with its zone; where, linked to directions;
                 and who, linked to their profile. */}
-            <dl data-event-facts="" className="flex flex-col gap-1">
+            <dl data-event-facts="" className="flex flex-col gap-2">
               <div>
                 <dt className="sr-only">When</dt>
                 <dd>
@@ -392,9 +408,9 @@ export default function EventDetailsView({
                       // Spelled out: it starts with the action, holds the visible address, and says
                       // where it goes and that it opens a new tab.
                       aria-label={`Get directions to ${address} (opens Google Maps in a new tab)`}
-                      // The address is the link: underlined, with the "opens elsewhere" mark, and
-                      // at least 44px tall so it's an easy target.
-                      className="mono-m inline-block min-h-11 max-w-full break-words text-muted uppercase underline underline-offset-4 hover:text-foreground hover:decoration-2"
+                      // The address is the link, muted mono like the mock's, with the "opens elsewhere" mark to say
+                      // it's one; 44px tall to tap on phones, 24px with a pointer.
+                      className="mono-m inline-block min-h-6 max-w-full break-words text-muted uppercase underline-offset-4 hover:text-foreground hover:underline max-lg:min-h-11"
                     >
                       {address}
                       {/* Inline after the last word, so it stays beside the text when it wraps. */}
@@ -435,29 +451,34 @@ export default function EventDetailsView({
                 </dd>
               </div>
             </dl>
-            {/* Who's going (the owner's event mock): the count, a few faces and I'm going or View attendees, which
-                go to the panel further down. Nothing while there's no count to show and nothing to do. */}
-            {!preview && <WhosGoingCard className="mt-2" />}
-
             {/* The ticket panel: sticky under the header from lg while the details scroll by, boxed when it has a price
-                and action (none once the event has ended, or before anything's on sale). Below lg its price and
-                action are the buy bar's, so it's just the secondary row there. */}
+                and action (none once the event has ended, or before anything's on sale), and last in the column there
+                (after Who's going, as in the mock). Below lg its price and action are the buy bar's, so it's just the
+                secondary row, straight after the facts so Save and Share stay above the bar. */}
             <div
               data-ticket-panel=""
-              className={`flex flex-col gap-4 lg:mt-2 ${panelBuy ? "lg:rounded-card lg:border lg:border-foreground lg:p-6" : ""} ${preview ? "" : "lg:sticky lg:top-32"}`}
+              className={`flex flex-col gap-4 lg:order-last lg:mt-2 ${panelBuy ? "lg:rounded-card lg:border lg:border-foreground lg:p-6" : ""} ${preview ? "" : "lg:sticky lg:top-32"}`}
             >
-              {panelBuy && <div className="max-lg:hidden">{panelBuy}</div>}
-              {/* The one secondary row: Save (the page's only Save), Share and Add to calendar, growing to fill
-                  the row and wrapping where they don't fit. */}
-              <div data-event-actions="" className="flex flex-wrap gap-2 *:grow">
-                <SaveButton event={saveTarget} variant="action" className="justify-center" />
+              {panelBuy && (
+                <div className="max-lg:hidden">
+                  <h2 className="sr-only">Price and tickets</h2>
+                  {panelBuy}
+                </div>
+              )}
+              {/* The one secondary row: Save (the page's only Save), Share and Add to calendar, a third each. Top-aligned,
+                  so Share's "Link copied" under it pushes the page down rather than covering anything. */}
+              <div data-event-actions="" className="grid grid-cols-3 items-start gap-2">
+                <SaveButton event={saveTarget} variant="action" className={ACTION_ROW_BUTTON} />
                 <ShareButton slug={event.slug} title={event.title} text={shareText} fill />
                 {!missing?.when && <AddToCalendar event={event} look="button" />}
               </div>
             </div>
+            {/* Who's going (the owner's event mock): the count, a few faces and I'm going (or See who's going, View
+                attendees), to the panel further down. Nothing while there's no count to show and nothing to do. */}
+            {!preview && <WhosGoingCard className="mt-2" />}
           </div>
 
-          <div className="flex min-w-0 flex-col gap-12 lg:col-span-7 lg:row-start-2 lg:gap-16">
+          <div className="flex min-w-0 flex-col gap-12 lg:col-span-7 lg:row-start-2 xl:col-span-8">
             {/* The buy bar's and the panel's target: focusable, so jumping here moves keyboard and
                 screen-reader focus to the tickets too, with the global focus-visible ring around the
                 section to show where you've landed. */}
@@ -565,15 +586,13 @@ export default function EventDetailsView({
               bar at all: nothing's for sale, and the Tickets panel says so. In Dark it gains a
               1px white top rule, so the black bar doesn't merge with the black page. */}
           {price && !ended && seatPage && (
-            <div data-buy-bar data-surface="ink" className={buyBarClass}>
-              <div className="min-w-0">
-                <p className="text-base leading-5 font-semibold tabular-nums">{price.amount}</p>
-                {price.note && <p className="text-base leading-6 text-muted">{price.note}</p>}
-              </div>
+            <div data-buy-bar className={buyBarClass}>
+              <BarPrice amount={price.amount} note={price.note} dateLine={dateLine} />
               {/* A seated event's buy bar goes straight to its seat page (manager decision 2,
                   docs/design/seating.md). */}
-              <Link href={`/events/${event.slug}/seats`} className={buttonClass("signal", "lg", "shrink-0 px-5 sm:px-7")}>
+              <Link href={`/events/${event.slug}/seats`} className={buttonClass("signal", "lg", "shrink-0 gap-2 px-5 sm:px-7")}>
                 {buyBarLabel}
+                <BuyArrow />
               </Link>
             </div>
           )}
@@ -581,24 +600,18 @@ export default function EventDetailsView({
               selector drives it: components/checkout/BuyBar.tsx), and the way to the tickets until
               then ("Buy tickets", or "Free tickets" when every tier is free, in demo mode too (owner,
               21 Oct 2026); "Join waitlist" when sold out). */}
-          {price && !ended && !seatPage && <GaBuyBar price={price} label={buyBarLabel} className={buyBarClass} />}
+          {price && !ended && !seatPage && <GaBuyBar price={price} label={buyBarLabel} dateLine={dateLine} className={buyBarClass} />}
           {/* An external event's buy bar: the organiser's price if given (never the site's name), and
               the outbound link itself, not a jump to #tickets. None once it has ended. */}
           {externalOnSale && (
-            <div data-buy-bar data-surface="ink" className={buyBarClass}>
-              <div className="min-w-0">
-                {/* Never the ticket site's name (owner, 31 Oct 2026): buyers go through our link. */}
-                {event.externalFree ? (
-                  <p className="text-base leading-5 font-semibold">Free</p>
-                ) : externalFrom ? (
-                  <p className="text-base leading-5 font-semibold tabular-nums">{externalFrom}</p>
-                ) : null}
-              </div>
+            <div data-buy-bar className={buyBarClass}>
+              {/* Never the ticket site's name (owner, 31 Oct 2026): buyers go through our link. */}
+              <BarPrice amount={event.externalFree ? "Free" : (externalFrom ?? undefined)} dateLine={dateLine} />
               <ExternalTicketLink
                 eventId={event.id}
                 url={ticketUrl}
                 preview={Boolean(preview)}
-                className={buttonClass("signal", "lg", "shrink-0 px-5 sm:px-7")}
+                className={buttonClass("signal", "lg", "shrink-0 gap-2 px-5 sm:px-7")}
               />
             </div>
           )}

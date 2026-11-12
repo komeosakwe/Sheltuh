@@ -283,6 +283,37 @@ for (const vp of [
   });
 }
 
+// The redesign's Who's going row: below lg it comes after Save, Share and Add to calendar, so an event with a
+// going count keeps them above the bar too (UX review, PR 4).
+test.describe("Save and Share on the first screen with a going count, at 390×664", () => {
+  test.use({ viewport: { width: 390, height: 664 } });
+
+  test("laneway-projections-after-dark with 42 going: the actions row still ends above the buy bar, the row under it", async ({ page }) => {
+    await mockApi(page);
+    await page.route(/\/api\/events\/[^/]+\/going$/, (route) => route.fulfill({ json: { count: 42, countHidden: false, closed: false } }));
+    await page.goto("/events/laneway-projections-after-dark");
+    const row = page.getByRole("region", { name: "Who’s going?" });
+    await expect(row).toBeVisible({ timeout: 30_000 });
+    await expect(row).toContainText("42 going");
+    const bar = await page.locator("[data-buy-bar]").boundingBox();
+    if (!bar) throw new Error("no buy bar");
+    const actions = page.locator("[data-event-actions]");
+    for (const control of [
+      actions.getByRole("link", { name: "Sign in to save Laneway Projections: After Dark" }),
+      actions.getByRole("button", { name: "Share Laneway Projections: After Dark" }),
+    ]) {
+      const box = await control.boundingBox();
+      if (!box) throw new Error("not laid out");
+      expect(box.y + box.height).toBeLessThanOrEqual(bar.y - 4);
+    }
+    const actionsBox = await actions.boundingBox();
+    const rowBox = await row.boundingBox();
+    if (!actionsBox || !rowBox) throw new Error("not laid out");
+    expect(rowBox.y).toBeGreaterThanOrEqual(actionsBox.y + actionsBox.height);
+    await noSidewaysScroll(page);
+  });
+});
+
 test.describe("Report this event at 320px", () => {
   test.use({ viewport: { width: 320, height: 640 } });
 

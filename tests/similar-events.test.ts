@@ -83,8 +83,11 @@ describe("ageTagLabel", () => {
     ["16+.", "16+"],
     ["All ages.", "All ages"],
     ["All ages. Under-16s to be accompanied by an adult.", "All ages"],
-    // Advice, not a limit, and long: only in Good to know.
+    ["all ages", "All ages"],
+    // Only an age or "All ages", never other words: those are in Good to know.
     ["Recommended 15+ for coarse language and mature themes.", null],
+    ["Over 18s only.", null],
+    ["Families welcome.", null],
     ["", null],
     ["   ", null],
     [undefined, null],

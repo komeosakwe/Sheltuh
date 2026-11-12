@@ -412,6 +412,28 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
     chooseRef.current();
   }, []);
 
+  // The desktop ticket panel's Review order: focus goes to the first field still to fill in (the name, a free
+  // order's email, an Other amount that can't be sent), else to Checkout. Nothing is checked out from there.
+  const checkoutButtonRef = useRef<HTMLButtonElement>(null);
+  function reviewOrder() {
+    if (buyerNameError(buyerName)) {
+      nameInputRef.current?.focus();
+    } else if (needsEmail && !EMAIL_REGEX.test(buyerEmail.trim())) {
+      emailInputRef.current?.focus();
+    } else if (offerSupport && supportErrorOf(support)) {
+      supportInputRef.current?.focus();
+    } else {
+      checkoutButtonRef.current?.focus();
+    }
+  }
+  const reviewRef = useRef(reviewOrder);
+  useEffect(() => {
+    reviewRef.current = reviewOrder;
+  });
+  const pressReview = useCallback(() => {
+    reviewRef.current();
+  }, []);
+
   // The phone buy bar mirrors this panel: its total is the Order summary's own figure, and its
   // button is Checkout. Until something is chosen it is the link that takes you to the first ticket
   // ("choose"); while it can't be bought at all (sold out, the demo) nothing is registered and it stays
@@ -448,9 +470,11 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
         busy: loading,
         busyLabel: barBusyLabel,
         onPress: pressBuyBar,
+        ticketCount,
+        onReview: pressReview,
       });
     }
-  }, [setBuyBar, barActive, sentTo, hasAnyTickets, barAmount, barNote, barLabel, barBusyLabel, loading, pressBuyBar, pressChoose]);
+  }, [setBuyBar, barActive, sentTo, hasAnyTickets, barAmount, barNote, barLabel, barBusyLabel, loading, pressBuyBar, pressChoose, ticketCount, pressReview]);
   useEffect(() => () => setBuyBar?.(null), [setBuyBar]);
 
   // A refusal (or a field's error) is said where the buyer is looking: on a phone Checkout is the bar's, so the
@@ -902,6 +926,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                   stays on it. Disabled only with nothing chosen (the hint says what to do). The rules' Primary at
                   size L: a black label on orange (6.18:1), radius 8. */}
               <Button
+                ref={checkoutButtonRef}
                 variant="signal"
                 size="lg"
                 onClick={handleCheckout}

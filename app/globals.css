@@ -1264,3 +1264,23 @@ h4 {
     }
   }
 }
+
+/* The event page (redesign PR 4, the owner's event mock): the title in display type, 32/40 up to 1024px and
+   40/48 beside the photo, and the date chip's day on the photo from 1024px. */
+@utility event-title {
+  font-family: var(--face-display);
+  font-weight: var(--display-weight);
+  letter-spacing: var(--display-tracking);
+  font-synthesis-weight: none;
+  text-transform: uppercase;
+  font-size: 2rem;
+  line-height: 2.5rem;
+  @media (width >= 64rem) {
+    font-size: 2.5rem;
+    line-height: 3rem;
+  }
+}
+@utility date-chip-day-lg {
+  font-size: 2rem;
+  line-height: 2.5rem;
+}

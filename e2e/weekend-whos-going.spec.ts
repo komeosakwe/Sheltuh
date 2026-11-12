@@ -238,14 +238,15 @@ for (const width of [320, 1280, 1440]) {
 test.describe("Who's going? on the event page at 390×844", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test("signed in: the count and the faces between the organiser and Save/Share; View attendees goes to the panel", async ({ page }) => {
+  test("signed in: the count and the faces after Save/Share (before the tickets); View attendees goes to the panel", async ({ page }) => {
     await signedIn(page);
     await mockApi(page);
     await page.goto("/events/here-and-now");
     const card = page.getByRole("region", { name: "Who’s going?" });
     await expect(card).toBeVisible({ timeout: 30_000 });
-    // Named for screen readers; the row leads with the count (the redesign's event mock).
-    await expect(card.getByRole("heading", { level: 2 })).toHaveText("Who’s going?");
+    // Named for screen readers by an aria-label (no extra heading); the row leads with the count (the redesign's event mock).
+    await expect(card).toHaveAttribute("aria-label", "Who’s going?");
+    await expect(card.getByRole("heading")).toHaveCount(0);
     await expect(card).toContainText("42 going");
     await expect(card).toContainText("Ticket holders opt in");
     // All four names this member was sent (up to five are drawn), and no "+N".
@@ -254,13 +255,11 @@ test.describe("Who's going? on the event page at 390×844", () => {
     // A face with a visible profile links to it.
     await expect(card.getByRole("link", { name: "Kofi A.’s profile" })).toHaveAttribute("href", "/members/p1");
 
-    // Under the organiser (16px) and above Save and Share (8px on phones), inside the page's 16px margins.
-    const organiser = await page.locator("[data-event-facts] > div").last().boundingBox();
+    // Below lg, under Save and Share (16px), so they stay above the bar, and inside the page's 16px margins.
     const box = await card.boundingBox();
     const actions = await page.locator("[data-event-actions]").boundingBox();
-    if (!organiser || !box || !actions) throw new Error("not laid out");
-    expect(Math.round(box.y - (organiser.y + organiser.height))).toBe(16);
-    expect(Math.round(actions.y - (box.y + box.height))).toBe(8);
+    if (!box || !actions) throw new Error("not laid out");
+    expect(Math.round(box.y - (actions.y + actions.height))).toBe(16);
     expect(Math.round(box.x)).toBe(16);
     expect(Math.round(box.width)).toBe(358);
 

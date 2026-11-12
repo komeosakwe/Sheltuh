@@ -6,7 +6,7 @@ import type { SheltuhEvent } from "@/lib/types";
 
 // Mono like the address beside them, in the words' own case (the owner's event mock), each a 44px target.
 const LINK_CLASS =
-  "mono-m inline-flex min-h-11 items-center gap-1 underline underline-offset-4 hover:decoration-2";
+  "mono-m inline-flex min-h-11 items-center gap-2 underline underline-offset-4 hover:decoration-2";
 
 /**
  * The event page's Location section, in the main column after About (owner

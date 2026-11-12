@@ -20,6 +20,7 @@ async function loadCandidates(event: SheltuhEvent, demo: boolean): Promise<Shelt
     const { getUpcomingEvents } = await import("@/lib/data");
     return getUpcomingEvents();
   }
+  // The public list has no location filter (lib/api/public-events.ts), so distance is worked out here from one page.
   const page = await listPublicEvents({ category: event.category, upcoming: true, limit: CANDIDATES });
   return page.items.map(adaptPublicEvent);
 }

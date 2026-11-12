@@ -351,7 +351,7 @@ describe("the event page's photo (§5.3)", () => {
     expect(wrapper).toHaveClass("relative");
     const art = wrapper.firstElementChild as HTMLElement;
     expect(art).toHaveAttribute("aria-hidden", "true");
-    expect(art).toHaveClass("aspect-[4/3]", "max-h-[24svh]", "w-full", "rounded-card", "lg:aspect-[3/2]");
+    expect(art).toHaveClass("aspect-[4/3]", "max-h-[22svh]", "w-full", "rounded-card", "lg:aspect-[3/2]");
     expect(container.querySelector("video")).toBeNull();
     fireEvent.click(button);
     expect(video()?.getAttribute("src")).toBe(CLIP.url);

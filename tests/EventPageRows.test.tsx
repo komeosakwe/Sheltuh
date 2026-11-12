@@ -242,7 +242,8 @@ describe("the tags beside the title", () => {
   it("the category, and a short age tag only when the organiser gave one", () => {
     const { container, unmount } = render(<EventDetailsView event={{ ...sample("neon-static"), ageRestriction: "18+. Licensed venue." }} demo />);
     const tags = container.querySelector<HTMLElement>("[data-event-tags]") as HTMLElement;
-    expect([...tags.children].map((t) => t.textContent)).toEqual(["Live music", "18+"]);
+    expect([...tags.children].map((t) => t.textContent)).toEqual(["Live music", "Age restriction: 18+"]);
+    expect(tags.querySelector(".sr-only")).toHaveTextContent("Age restriction:");
     unmount();
     const none = render(<EventDetailsView event={{ ...sample("neon-static"), ageRestriction: undefined }} demo />);
     const only = none.container.querySelector<HTMLElement>("[data-event-tags]") as HTMLElement;

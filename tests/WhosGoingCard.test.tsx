@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventDetailsView from "@/components/EventDetailsView";
 import { ApiError } from "@/lib/api/client";
@@ -102,12 +102,13 @@ async function card() {
 }
 
 describe("Who's going? card", () => {
-  it("is a labelled section between the organiser and the ticket panel's actions, with View attendees to the panel", async () => {
+  it("is a labelled section after the ticket panel's actions (before the tickets), with View attendees to the panel", async () => {
     member({ count: 42, attendees: people(5) });
     renderEvent(LIVE_EVENT);
     const region = await card();
-    // The section's name for screen readers; the row itself leads with the count (the owner's event mock).
-    expect(within(region).getByRole("heading", { level: 2, name: "Who’s going?" })).toHaveClass("sr-only");
+    // Named for screen readers by an aria-label (no extra heading); the row itself leads with the count (the owner's event mock).
+    expect(region).toHaveAttribute("aria-label", "Who’s going?");
+    expect(within(region).queryByRole("heading")).toBeNull();
     expect(region).toHaveTextContent("42 going");
     expect(region).toHaveTextContent("Ticket holders opt in");
     // Live: no "(sample)".
@@ -120,14 +121,16 @@ describe("Who's going? card", () => {
     expect(region).toHaveClass("bg-hover");
     expect(region.querySelector("img")).toBeNull();
 
-    // Reading order: the organiser, then this row, then Save and Share, then the tickets.
+    // Reading order: the organiser, then Save and Share (so they stay above the phone's bar), then this row, then
+    // the tickets. From lg the panel is drawn after this row (CSS order), as in the mock.
     const organiser = document.querySelector("[data-organiser-avatar]");
     const actions = document.querySelector("[data-event-actions]");
     const tickets = screen.getByRole("heading", { name: "Select your tickets" });
     if (!actions || !organiser) throw new Error("no actions row or organiser");
-    expect(organiser.compareDocumentPosition(region) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(region.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(actions.compareDocumentPosition(tickets) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(organiser.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(actions.compareDocumentPosition(region) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(region.compareDocumentPosition(tickets) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(document.querySelector("[data-ticket-panel]")).toHaveClass("lg:order-last");
   });
 
   it("shows up to five faces from the names already sent, and no +N", async () => {
@@ -162,6 +165,16 @@ describe("Who's going? card", () => {
     // No number under three.
     expect(region.querySelector("[data-going-count]")).toBeNull();
     expect(region).toHaveTextContent("Ticket holders opt in");
+  });
+
+  it("I'm going moves focus to the panel's opt-in control itself", async () => {
+    member({ count: 9, attendees: people(3), me: { going: false, eligible: true, hasProfile: true } });
+    renderEvent(LIVE_EVENT);
+    const region = await card();
+    const going = await within(region).findByRole("link", { name: "I’m going" });
+    const optIn = await screen.findByRole("button", { name: "Show me as going" });
+    fireEvent.click(going);
+    expect(optIn).toHaveFocus();
   });
 
   it("isn't I'm going for someone without a ticket (View attendees), or for a suspended member", async () => {
@@ -200,7 +213,9 @@ describe("Who's going? card", () => {
     expect(region).toHaveTextContent("14 going");
     expect(region.querySelector("[data-going-faces]")).toBeNull();
     expect(region.querySelector("[data-going-rest]")).toBeNull();
-    expect(within(region).getByRole("link", { name: `View attendees for ${LIVE_EVENT.title}` })).toBeInTheDocument();
+    // Signed out, the panel's way in is signing in to see the names.
+    expect(within(region).getByRole("link", { name: `See who’s going for ${LIVE_EVENT.title}` })).toHaveAttribute("href", "#whos-going");
+    expect(within(region).queryByRole("link", { name: /View attendees/ })).toBeNull();
   });
 
   it("is hidden under three going, while loading, on a load error and once closed (as the panel keeps its own states)", async () => {
