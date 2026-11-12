@@ -2,6 +2,7 @@ import { cachedDateTimeFormat } from "./time-zones";
 import { eventZone, formatEventDateKey } from "./format";
 import { getMinBuyerTotalCents } from "./pricing";
 import { isFreeEvent } from "./data";
+import { isOpenThisWeekend } from "./home-sections";
 import type { SheltuhEvent } from "./types";
 
 export type TimeFilter = "all" | "tonight" | "weekend" | "date";
@@ -65,7 +66,9 @@ export function isOnDate(event: SheltuhEvent, dateKey: string): boolean {
 export function matchesTimeFilter(event: SheltuhEvent, filter: TimeFilter, now: Date, specificDate: string): boolean {
   if (filter === "all") return true;
   if (filter === "tonight") return isTonight(event, now);
-  if (filter === "weekend") return isThisWeekend(event, now);
+  // The home's one weekend rule (Fri 17:00 to Sun, including events already running), so the home's
+  // "See all this weekend" lists the same events as its This weekend section.
+  if (filter === "weekend") return isOpenThisWeekend(event, now);
   return specificDate === "" || isOnDate(event, specificDate);
 }
 

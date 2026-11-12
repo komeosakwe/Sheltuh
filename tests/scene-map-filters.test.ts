@@ -116,6 +116,18 @@ describe("matchesTimeFilter", () => {
     expect(matchesTimeFilter(eventAt("2099-01-01T00:00:00.000Z"), "all", now, "")).toBe(true);
   });
 
+  it("'weekend' is the home's This weekend rule: Friday evening on, and events already running", () => {
+    // Friday 7pm in Melbourne (AEST): in the weekend from 17:00 Friday.
+    expect(matchesTimeFilter(eventAt("2026-09-18T09:00:00.000Z"), "weekend", now, "")).toBe(true);
+    // An exhibition that opened on Wednesday and runs to Sunday afternoon.
+    expect(
+      matchesTimeFilter(eventAt("2026-09-16T00:00:00.000Z", { endsAt: "2026-09-20T05:00:00.000Z" }), "weekend", now, ""),
+    ).toBe(true);
+    // Friday lunchtime, before the weekend starts; and Monday.
+    expect(matchesTimeFilter(eventAt("2026-09-18T02:00:00.000Z", { endsAt: "2026-09-18T03:00:00.000Z" }), "weekend", now, "")).toBe(false);
+    expect(matchesTimeFilter(eventAt("2026-09-21T09:00:00.000Z"), "weekend", now, "")).toBe(false);
+  });
+
   it("'date' matches only the given date", () => {
     expect(matchesTimeFilter(eventAt("2026-09-25T09:00:00.000Z"), "date", now, "2026-09-25")).toBe(true);
     expect(matchesTimeFilter(eventAt("2026-09-26T09:00:00.000Z"), "date", now, "2026-09-25")).toBe(false);
