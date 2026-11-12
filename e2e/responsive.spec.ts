@@ -135,16 +135,22 @@ for (const width of [375, 390, 768, 1280, 1440]) {
       await expect(hero.getByRole("search", { name: "Search events" })).toBeVisible();
       // Owner round of 24 Oct 2026 (the Eventbrite-style bar): the hero's one orange button is the search submit.
       await expect(hero.locator(".btn-signal")).toHaveCount(1);
-      await expect(hero.locator(".btn-signal")).toHaveAccessibleName("Search");
+      // Below 768px it's inside the search sheet, opened from the one field (named by its words).
+      if (width < 768) {
+        await expect(hero.locator("[data-search-trigger]")).toHaveAccessibleName("Search events");
+        await expect(hero.locator(".btn-signal")).toBeHidden();
+      } else {
+        await expect(hero.locator(".btn-signal")).toHaveAccessibleName("Search");
+      }
       // Refinement (22 Oct 2026): browsing is the category row under the hero; the hero has no links.
       await expect(hero.getByRole("link")).toHaveCount(0);
-      // One search on the home: no header field (desktop) or search icon (phones). The hero's bar has the
-      // rules' icons (redesign PR 2): the field's magnifier, Where's pin and chevron (from 640px; just the
-      // words below it) and the submit's magnifier, with the closed location menu's own icons hidden.
+      // One search on the home: no header field (desktop) or search icon (phones). From 768px the hero's
+      // bar shows the rules' icons (redesign PR 2): the field's magnifier, Where's pin and chevron and the
+      // submit's magnifier. Below it, one field with its magnifier that opens the search sheet.
       await expect(page.getByRole("search")).toHaveCount(1);
       await expect(page.locator("header a[href='/search']")).toHaveCount(0);
-      await expect(hero.getByRole("search").locator("[data-search-bar] > svg:visible, [data-location-button] svg:visible, [data-search-submit] svg:visible")).toHaveCount(width >= 640 ? 4 : 1);
-      await expect(hero.getByRole("search").getByRole("button", { name: "Search" }).locator("svg")).toHaveCount(1);
+      await expect(hero.getByRole("search").locator("svg:visible")).toHaveCount(width >= 768 ? 4 : 1);
+      await expect(hero.locator("[data-search-submit] svg")).toHaveCount(1);
       // The h1 is two lines at 100% text size, never more.
       const lines = await hero.getByRole("heading", { level: 1 }).evaluate((h1) => {
         const lineHeight = parseFloat(getComputedStyle(h1).lineHeight);
@@ -509,7 +515,7 @@ test.describe("home first screen at 390×844", () => {
 test.describe("footer on a phone (375px)", () => {
   test.use({ viewport: { width: 375, height: 812 } });
 
-  test("every column's links are visible at once, in two columns, 48px tall, with the legal links and no sideways scroll", async ({ page }) => {
+  test("every column's links are visible at once, stacked, 48px tall, with the legal links and no sideways scroll", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
     await expect(page.locator("[data-home-section]").first()).toBeVisible({ timeout: 30_000 });
@@ -523,11 +529,16 @@ test.describe("footer on a phone (375px)", () => {
     }
     await expect(footer.getByRole("link", { name: "Email support@sheltuh.com.au" })).toBeVisible();
     await expect(footer.getByRole("navigation", { name: "Legal" }).getByRole("link", { name: "Privacy Policy" })).toBeVisible();
-    // Two columns: Fan support and Explore side by side.
-    const [support, explore] = [await footer.getByRole("navigation", { name: "Fan support" }).boundingBox(), await footer.getByRole("navigation", { name: "Explore" }).boundingBox()];
-    if (!support || !explore) throw new Error("footer not laid out");
-    expect(Math.round(explore.y)).toBe(Math.round(support.y));
-    expect(explore.x).toBeGreaterThan(support.x + support.width - 1);
+    // Stacked below 640px (the rules' Layout board): Explore under Fan support, the socials last.
+    const [support, explore, contact] = [
+      await footer.getByRole("navigation", { name: "Fan support" }).boundingBox(),
+      await footer.getByRole("navigation", { name: "Explore" }).boundingBox(),
+      await footer.getByRole("navigation", { name: "Contact Sheltüh" }).boundingBox(),
+    ];
+    if (!support || !explore || !contact) throw new Error("footer not laid out");
+    expect(Math.round(explore.x)).toBe(Math.round(support.x));
+    expect(explore.y).toBeGreaterThan(support.y + support.height - 1);
+    expect(contact.y).toBeGreaterThan(explore.y);
     // A visible focus ring on a footer link.
     const help = footer.getByRole("link", { name: "Help & FAQs" });
     await help.focus();
@@ -606,3 +617,35 @@ test.describe("event page at 390px", () => {
       .toBe("below the tickets");
   });
 });
+
+// WCAG 2.4.3 (redesign PR 2 review): on the home, Community is an in-page link; focus goes to the
+// section it shows, from the desktop row and from the phone menu once it has closed.
+for (const viewport of [
+  { width: 1440, height: 900 },
+  { width: 390, height: 844 },
+]) {
+  test.describe(`Community on the home at ${viewport.width}px`, () => {
+    test.use({ viewport });
+
+    test("moves focus to Find your people", async ({ page }) => {
+      await mockApi(page);
+      await page.goto("/");
+      await expect(page.locator("[data-home-section]").first()).toBeVisible({ timeout: 30_000 });
+      const section = page.locator("#find-your-people");
+      if (viewport.width < 1024) {
+        const menu = page.locator("#site-menu");
+        await expect(async () => {
+          if (!(await menu.isVisible())) await page.getByRole("button", { name: "Menu" }).click();
+          await expect(menu).toBeVisible({ timeout: 1_000 });
+        }).toPass({ timeout: 30_000 });
+        await page.getByRole("navigation", { name: "Site menu" }).getByRole("link", { name: "Community" }).click();
+        await expect(menu).toBeHidden();
+      } else {
+        await page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Community" }).click();
+      }
+      await expect(section).toBeFocused();
+      await expect(page).toHaveURL(/\/#find-your-people$/);
+      await expect(section).toBeInViewport();
+    });
+  });
+}

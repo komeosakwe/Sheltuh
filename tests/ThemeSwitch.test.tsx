@@ -88,7 +88,7 @@ describe("ThemeSwitch (docs/design/theme-white-dark.md §5.6)", () => {
       expect(button).toHaveAttribute("type", "button");
       expect(button).toHaveClass("min-h-12", "lg:min-h-10");
     }
-    expect(themeGroup()).toHaveClass("rounded-control", "border-control", "border-foreground");
+    expect(themeGroup()).toHaveClass("rounded-control", "border-control", "border-foreground", "p-2", "gap-2");
     expect(light).toHaveClass("bg-foreground", "text-background", "dark:bg-transparent", "dark:text-foreground");
     expect(dark).toHaveClass("text-foreground", "hover:bg-surface", "dark:bg-foreground", "dark:text-background");
     // The orange dots mark the selected option (not colour alone), shown by the same CSS switch.

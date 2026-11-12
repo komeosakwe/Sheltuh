@@ -181,7 +181,7 @@ describe("Footer", () => {
     expect(theme.compareDocumentPosition(support) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("shows every link without expanding anything: no disclosures, 48px rows on phones, two columns then four", () => {
+  it("shows every link without expanding anything: no disclosures, 48px rows on phones, stacked, then two columns, then four", () => {
     const { container } = render(<Footer />);
     // The only buttons are the theme switch's two.
     expect(within(container).queryAllByRole("button").filter((b) => !b.closest("[data-theme-switch]"))).toEqual([]);
@@ -193,7 +193,11 @@ describe("Footer", () => {
     const email = within(screen.getByRole("navigation", { name: "Contact Sheltüh" })).getByRole("link");
     expect(email).toHaveClass("size-12", "lg:size-10");
     expect(email.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
-    expect(screen.getByRole("navigation", { name: "Fan support" }).parentElement).toHaveClass("grid-cols-2", "lg:grid-cols-4");
+    // The rules' Layout board: stacked on phones, two columns from 640px, four from lg; the socials last.
+    const grid = screen.getByRole("navigation", { name: "Fan support" }).parentElement;
+    expect(grid).toHaveClass("grid-cols-1", "sm:grid-cols-2", "lg:grid-cols-4");
+    expect(grid?.lastElementChild).toBe(screen.getByRole("navigation", { name: "Contact Sheltüh" }));
+    for (const link of within(screen.getByRole("navigation", { name: "Explore" })).getAllByRole("link")) expect(link).toHaveClass("body-m");
   });
 
   describe("the install action", () => {

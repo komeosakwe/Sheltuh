@@ -141,8 +141,14 @@ test.describe("the home's ways on, at 390px", () => {
     await mockApi(page);
     await page.goto("/");
     const search = page.getByRole("search", { name: "Search events" });
-    await search.getByRole("searchbox", { name: "Search events" }).fill("jazz");
-    await search.getByRole("button", { name: "Search" }).click();
+    // On a phone the bar is one field that opens the search sheet (redesign PR 2).
+    const field = search.getByRole("searchbox", { name: "Search events" });
+    await expect(async () => {
+      if (!(await field.isVisible())) await search.locator("[data-search-trigger]").click();
+      await expect(field).toBeFocused({ timeout: 1_000 });
+    }).toPass({ timeout: 30_000 });
+    await field.fill("jazz");
+    await search.getByRole("button", { name: "Search", exact: true }).click();
     await expect(page).toHaveURL(/\/search\?q=jazz$/, { timeout: 30_000 });
     await expect(page.getByRole("heading", { level: 1 })).toContainText("jazz");
   });

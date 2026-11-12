@@ -45,7 +45,7 @@ export default function ThemeSwitch({ className = "" }: { className?: string }) 
       <div
         role="group"
         aria-labelledby={labelId}
-        className="mt-2 inline-flex gap-1 rounded-control border-control border-foreground bg-card p-1"
+        className="mt-2 inline-flex gap-2 rounded-control border-control border-foreground bg-card p-2"
       >
         {OPTIONS.map((option) => (
           <button

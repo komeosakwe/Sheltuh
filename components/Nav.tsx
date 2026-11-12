@@ -25,10 +25,12 @@ function isPopoverOpen(element: HTMLElement): boolean {
  * its address). Community is the home's Find your people section until /community exists
  * (redesign PR 3).
  */
+const COMMUNITY_ID = "find-your-people";
+
 const PRIMARY_LINKS = [
   { href: "/", label: "Discover" },
   { href: "/map", label: "Nearby" },
-  { href: "/#find-your-people", label: "Community" },
+  { href: `/#${COMMUNITY_ID}`, label: "Community" },
 ] as const;
 
 /**
@@ -60,7 +62,8 @@ function MenuIcon({ open }: { open: boolean }) {
 
 /**
  * Site header (the proposal, and the rules' Navigation board): black in both themes (an ink
- * section, so everything inside re-skins; in Dark it meets the black page over a 1px rule), 64px.
+ * section, so everything inside re-skins; in Dark it meets the black page over a 1px rule), 64px
+ * below `lg` and 96px from it (--header-h).
  *
  * From `lg` it's one row: the wordmark; Discover, Nearby and Community; then the account area
  * (components/AuthNavLinks.tsx). No search field (owner decision: search lives in the home's
@@ -137,20 +140,34 @@ export default function Nav() {
   }
 
   // Links and actions close the menu (Community, on the home, is an in-page link: no navigation).
+  // The page is live again at once (the toggle event that also does it comes a task later), so
+  // focus can move into it straight away.
   function closeMenuOnAction(event: MouseEvent<HTMLElement>) {
     if (event.target instanceof Element && event.target.closest("a, button")) {
       menuRef.current?.hidePopover?.();
+      setPageInert(false);
     }
   }
+
+  // On the home, Community is an in-page link: move focus to the section it shows (WCAG 2.4.3),
+  // after the hash navigation and, from the menu, after it has closed and handed focus back to
+  // Menu. The section takes focus (tabIndex -1, components/home/CommunitySection.tsx).
+  function focusCommunity() {
+    if (pathname !== "/") return;
+    window.setTimeout(() => document.getElementById(COMMUNITY_ID)?.focus(), 0);
+  }
+  const linkAction = (href: string) => (href === `/#${COMMUNITY_ID}` ? focusCommunity : undefined);
 
   return (
     // In a conversation on phones the header scrolls away, leaving the screen
     // (and what the keyboard leaves of it) to the messages and the composer.
     // The top padding keeps it below a status bar or notch (viewport-fit=cover);
     // it's 0 on desktop and in iOS's black status-bar style.
+    // In Dark the black header meets the black page over a 1px rule, drawn inside it (after:) so
+    // the header stays exactly --header-h tall.
     <header
       data-surface="ink"
-      className={`${atDoor ? "relative" : inThread ? "relative lg:sticky" : "sticky"} top-0 z-30 pt-[env(safe-area-inset-top)] dark:border-b dark:border-surface-border`}
+      className={`${atDoor ? "relative" : inThread ? "relative lg:sticky" : "sticky"} top-0 z-30 pt-[env(safe-area-inset-top)] after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:hidden after:h-px after:bg-surface-border dark:after:block`}
     >
       {/* Compact bar (phones and tablets). */}
       <div data-compact-header="" className="page-container flex h-16 items-center justify-between lg:hidden">
@@ -208,18 +225,24 @@ export default function Nav() {
         </div>
       </div>
 
-      {/* Desktop row. */}
-      <div className="page-container hidden h-16 items-center gap-8 lg:flex">
+      {/* Desktop row: 96px (the proposal). */}
+      <div className="page-container hidden h-24 items-center gap-8 lg:flex">
         <HomeLogoLink className="flex items-center py-2" onActivate={closeMenu}>
-          <Wordmark className="h-6 w-auto" />
+          <Wordmark className="h-5 w-auto" />
         </HomeLogoLink>
-        <nav aria-label="Primary" className="flex flex-1 items-center gap-6">
+        <nav aria-label="Primary" className="flex flex-1 items-center gap-8">
           {PRIMARY_LINKS.map((link) => (
-            <Link key={link.href} href={link.href} className={headerNavClass} aria-current={current(link.href)}>
+            <Link
+              key={link.href}
+              href={link.href}
+              className={headerNavClass}
+              aria-current={current(link.href)}
+              onClick={linkAction(link.href)}
+            >
               {link.label}
             </Link>
           ))}
-          <div className="ml-auto flex items-center gap-6">
+          <div className="ml-auto flex items-center gap-8">
             <HeaderAccount />
           </div>
         </nav>
@@ -247,6 +270,7 @@ export default function Nav() {
                 <Link
                   href={link.href}
                   aria-current={current(link.href)}
+                  onClick={linkAction(link.href)}
                   // The current page gets the orange dots over its first letter.
                   className="display-m umlaut umlaut-lg block pt-4 pb-2"
                 >

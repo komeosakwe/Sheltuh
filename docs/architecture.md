@@ -4839,19 +4839,22 @@ Search can order results by how close they are to a suburb (owner round,
 24 Oct 2026). Phase 1 is **browser-only**: no table, route, handler,
 `lib/api` or migration change, and the API never receives a location.
 
-- `components/search/LocationPicker.tsx` (the search bar's location
-  segment): "Use my current location" calls `navigator.geolocation` only
+- `components/search/LocationPicker.tsx` (the search bar's Where
+  segment and its location menu): "Use my location" calls `navigator.geolocation` only
   on that click, never on load (coarse, 10 s timeout, 10 min cache:
   `lib/geolocation.ts`, shared with `/map`, below). The
   position is matched to a suburb anywhere in Australia (`lib/location.ts`
   `nearestLocality`: of the localities whose boundary could reach it, the
   one with the nearest centre; "outside" overseas or out at sea) and
-  dropped. Or the visitor types a suburb (suggestions start at two letters).
+  dropped. Or the visitor picks a Recent or Suggested place in the menu
+  (the saved suburb; Melbourne, Sydney, Brisbane, Perth), which is
+  remembered straight away, or types a suburb (suggestions start at two
+  letters), which is remembered when they search.
   The table has one centre per locality, not boundaries, so near a border
   the position can be named for the neighbouring suburb (about 1 in 5
   random points inside localities, checked against the ABS polygons).
 - In-app browsers (Instagram, Facebook, TikTok… opening a link in their own
-  WebView) often can't share a location, especially on iOS. "Use my current
+  WebView) often can't share a location, especially on iOS. "Use my
   location" and the map's "Near me" stay as they are; when one fails (denied,
   unavailable, timed out, or the suburb table won't load) and the user agent
   is one of those apps (`lib/in-app-browser.ts` `inAppBrowserName`; the
@@ -4967,7 +4970,8 @@ Search can order results by how close they are to a suburb (owner round,
     in it, counted afresh after the steps appear), and its ✕ closes it and
     returns focus to Near me.
   - Picking a suburb in the map's location filter, or the saved suburb
-    changing while on the map (the search bar's "Use my current location",
+    changing while on the map (the search bar's "Use my location" or a
+    picked place,
     another tab: `subscribeStoredNear` in `lib/near-storage.ts`), centres on
     that suburb's table centre.
   - **Nearest first** (owner report, Nov 2026: a Sydney event headed a

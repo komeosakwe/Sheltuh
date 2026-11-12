@@ -355,15 +355,42 @@ describe("current page in the nav", () => {
   });
 
   // The header's nav button ("For organisers", "Messages"): the dots above it, and the fill marks the page.
-  it("the nav button lifts its dots above the button, fills when current, and only it drops the underline", () => {
-    const button = css.slice(css.indexOf("@utility nav-button {"), css.indexOf("@utility umlaut-lg"));
-    expect(button).toContain("--umlaut-top: -0.625rem;");
-    expect(button).toContain("--umlaut-line: none;");
+  it("the nav button lifts its dots above the button, fills when current, and only the header's buttons drop the underline", () => {
+    const block = (name: string) => {
+      const start = css.indexOf(`@utility ${name} {`);
+      return css.slice(start, css.indexOf("\n@utility ", start + 1));
+    };
+    const button = block("nav-button");
+    // The rules' Navigation board: Label/Nav 18 medium, 24px sides, 40px, the stroke, radius 8.
+    expect(button).toContain("font-size: 1.125rem;");
+    expect(button).toContain("font-weight: 500;");
+    expect(button).toContain("padding-inline: 1.5rem;");
+    expect(button).toContain("min-height: 2.5rem;");
     expect(button).toContain("border: var(--stroke-control) solid var(--foreground);");
     expect(button).toContain("border-radius: var(--radius-control);");
-    expect(button).toContain("min-height: 2.5rem;");
+    // The 20×6 dots, 8px above the button.
+    expect(button).toContain("--umlaut-w: 20px;");
+    expect(button).toContain("--umlaut-h: 6px;");
+    expect(button).toContain("--umlaut-top: -0.875rem;");
+    expect(button).toContain("--umlaut-line: none;");
     expect(button).toMatch(/&\[aria-current="page"\] \{\s*background: var\(--foreground\);\s*color: var\(--background\);/);
-    expect(css.match(/--umlaut-line: none;/g)).toHaveLength(1);
+    // The Messages chip: 32px, 14px, a muted outline.
+    const chip = block("nav-chip");
+    expect(chip).toContain("height: 2rem;");
+    expect(chip).toContain("font-size: 0.875rem;");
+    expect(chip).toContain("border: var(--stroke-control) solid var(--surface-border);");
+    // The nav items: the same 20×6 dots, the underline 12px under the label.
+    const item = block("umlaut-nav");
+    expect(item).toContain("--umlaut-w: 20px;");
+    expect(item).toContain("--umlaut-h: 6px;");
+    expect(item).toContain("--umlaut-offset: 12px;");
+    // Only the header's button, chip and avatar fill instead of underlining.
+    expect(css.match(/--umlaut-line: none;/g)).toHaveLength(3);
+  });
+
+  it("the desktop header is 96px from lg, 64px below", () => {
+    expect(css).toMatch(/--header-h: 4rem;/);
+    expect(css).toMatch(/@media \(width >= 64rem\) \{\s*:root \{\s*--header-h: 6rem;/);
   });
 });
 

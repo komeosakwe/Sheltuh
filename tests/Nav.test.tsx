@@ -236,9 +236,10 @@ describe("Nav — desktop row", () => {
       ["Account", "/account"],
     ]);
     expect(within(desktopNav).queryByRole("button", { name: "Sign out" })).toBeNull();
-    // The rules' signed-in header: For organisers as a nav item, Messages as a nav button.
+    // The rules' signed-in header: For organisers as a nav item, Messages as the small muted chip.
     expect(within(desktopNav).getByRole("link", { name: "For organisers" })).not.toHaveClass("nav-button");
-    expect(within(desktopNav).getByRole("link", { name: "Messages" })).toHaveClass("umlaut", "nav-button");
+    expect(within(desktopNav).getByRole("link", { name: "For organisers" })).toHaveClass("umlaut", "umlaut-nav");
+    expect(within(desktopNav).getByRole("link", { name: "Messages" })).toHaveClass("umlaut", "nav-chip");
   });
 
   it("signed out: Sign in, then the For organisers nav button", () => {
@@ -258,13 +259,16 @@ describe("Nav — desktop row", () => {
     expect(within(desktopNav).getByRole("link", { name: "Discover" })).toHaveAttribute("aria-current", "page");
   });
 
-  it("the avatar shows the account's initial, hidden from screen readers: the link is named Account", () => {
+  it("the avatar is a solid square with the account's initial and a caret, hidden from screen readers: the link is named Account", () => {
     renderNav(fakeAuthValue({ email: "latte@example.com" }));
     const [desktopNav] = screen.getAllByRole("navigation", { name: "Primary" });
     const avatar = within(desktopNav).getByRole("link", { name: "Account" });
-    expect(avatar).toHaveTextContent("L");
-    expect(avatar.querySelector("[aria-hidden='true']")).toHaveTextContent("L");
-    expect(avatar).toHaveClass("size-10");
+    expect(avatar).toHaveAttribute("href", "/account");
+    expect(avatar).toHaveTextContent(/^L$/);
+    expect(avatar.querySelector("span[aria-hidden='true']")).toHaveTextContent("L");
+    // The caret (the avatar menu is Batch 2; for now it's the link).
+    expect(avatar.querySelectorAll("svg[aria-hidden='true']")).toHaveLength(1);
+    expect(avatar).toHaveClass("umlaut", "nav-avatar");
   });
 
   it("marks Account as the current page on /account (desktop and menu), and For organisers on the apply page", () => {
@@ -325,13 +329,18 @@ describe("Nav — what left the header", () => {
 });
 
 describe("Nav — header", () => {
-  it("is a black ink section in both themes, 64px, with a 1px rule only in Dark", () => {
+  it("is a black ink section in both themes, 64px below lg and 96px from it, with a 1px rule only in Dark, drawn inside it", () => {
     const { container } = renderNav(fakeAuthValue({ status: "signed-out" }));
     const header = container.querySelector("header");
     expect(header).toHaveAttribute("data-surface", "ink");
-    expect(header).toHaveClass("dark:border-b", "dark:border-surface-border");
-    expect(header).not.toHaveClass("border-b");
+    // The rule is an ::after inside the header, so it never adds to --header-h.
+    expect(header).toHaveClass("after:absolute", "after:bottom-0", "after:h-px", "after:hidden", "dark:after:block");
+    expect(header?.className).not.toMatch(/(?:^|\s)(?:dark:)?border-b\b/);
     expect(compactBar(container)).toHaveClass("h-16");
+    const [desktopNav] = screen.getAllByRole("navigation", { name: "Primary" });
+    expect(desktopNav.parentElement).toHaveClass("h-24", "gap-8");
+    expect(desktopNav).toHaveClass("gap-8");
+    expect(desktopNav.parentElement?.querySelector("svg")).toHaveClass("h-5");
   });
 
   it("gives the phone bar's controls 48px targets and the ü logo", () => {

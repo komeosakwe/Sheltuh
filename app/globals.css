@@ -71,7 +71,9 @@
   --display-tracking: 0;
   /* The control stroke (the rules' Shape board): chips, filters, inputs and secondary buttons. */
   --stroke-control: 1.5px;
-  --header-h: 4rem; /* 64px: the site header at every width (the rules' Navigation board) */
+  --header-h: 4rem; /* 64px: the phone and tablet header (the rules' Mobile spec); 96px from lg, below */
+  /* The header's nav dots (the rules' Navigation board): two 6px squares, 20px across. */
+  --umlaut-mask-nav: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 6'%3E%3Crect width='6' height='6' rx='1'/%3E%3Crect x='14' width='6' height='6' rx='1'/%3E%3C/svg%3E");
   --buybar-h: 4rem; /* 64px sticky event-page buy bar, < lg (before the safe area) */
   --editbar-h: 4rem; /* 64px sticky save bar on the event editor, before the safe area */
   --seatbar-h: 5.5rem; /* 88px phone summary bar on /events/[slug]/seats (before safe area) */
@@ -84,6 +86,12 @@
   --google-fill: #ffffff;
   --google-stroke: #747775;
   --google-text: #1f1f1f;
+}
+
+@media (width >= 64rem) {
+  :root {
+    --header-h: 6rem; /* 96px: the desktop header (the proposal) */
+  }
 }
 
 /* Dark (docs/design/theme-white-dark.md §2.2): set on <html> by the no-flash script
@@ -677,7 +685,10 @@ h4 {
     height: var(--umlaut-h, 4px);
     translate: var(--umlaut-x, -50%) 0;
     background: var(--umlaut, var(--foreground));
-    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 4'%3E%3Crect width='4' height='4' rx='1'/%3E%3Crect x='6' width='4' height='4' rx='1'/%3E%3C/svg%3E")
+    mask: var(
+        --umlaut-mask,
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 4'%3E%3Crect width='4' height='4' rx='1'/%3E%3Crect x='6' width='4' height='4' rx='1'/%3E%3C/svg%3E")
+      )
       center / 100% 100% no-repeat;
     opacity: 0;
     pointer-events: none;
@@ -692,7 +703,7 @@ h4 {
     --umlaut: var(--signal);
     text-decoration-line: var(--umlaut-line, underline);
     text-decoration-thickness: 2px;
-    text-underline-offset: 4px;
+    text-underline-offset: var(--umlaut-offset, 4px);
   }
   &[aria-selected="true"]::before,
   &[aria-current="page"]::before,
@@ -726,23 +737,36 @@ h4 {
   }
 }
 
-/* The header's nav button (the rules' Navigation board: "For organisers", "Messages"), with
-   `umlaut`: 40px, the 1.5px stroke, radius 8, Label 16/24 medium. Its dots sit above the button,
-   not on the label; hover adds the --hover fill, and the current page fills it in the text colour
-   (no underline: the fill carries the state). In the black header in both themes. */
+/* The header's nav items (the rules' Navigation board), with `umlaut`: the 20×6 pair of dots
+   over the label, and the current page's underline 12px under it. */
+@utility umlaut-nav {
+  --umlaut-w: 20px;
+  --umlaut-h: 6px;
+  --umlaut-top: -0.25rem;
+  --umlaut-offset: 12px;
+  --umlaut-mask: var(--umlaut-mask-nav);
+}
+
+/* The header's nav button ("For organisers"), with `umlaut`: 40px, the 1.5px stroke, radius 8,
+   Label/Nav 18 medium, 24px sides. Its dots sit 8px above the button, not on the label; hover
+   adds the --hover fill, and the current page fills it in the text colour (no underline: the
+   fill carries the state). In the black header in both themes. */
 @utility nav-button {
-  --umlaut-top: -0.625rem;
+  --umlaut-w: 20px;
+  --umlaut-h: 6px;
+  --umlaut-top: -0.875rem;
   --umlaut-line: none;
+  --umlaut-mask: var(--umlaut-mask-nav);
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
   min-height: 2.5rem;
-  padding-inline: 1rem;
+  padding-inline: 1.5rem;
   border: var(--stroke-control) solid var(--foreground);
   border-radius: var(--radius-control);
   font-family: var(--face-sans);
   font-weight: 500;
-  font-size: 1rem;
+  font-size: 1.125rem;
   line-height: 1.5rem;
   color: var(--foreground);
   @media (hover: hover) {
@@ -754,6 +778,61 @@ h4 {
     background: var(--foreground);
     color: var(--background);
   }
+}
+
+/* The header's Messages chip (the rules' signed-in header), with `umlaut`: 32px, 14px medium,
+   a muted 1.5px outline, the dots 8px above it. Current: filled, as the nav button. */
+@utility nav-chip {
+  --umlaut-w: 20px;
+  --umlaut-h: 6px;
+  --umlaut-top: -0.875rem;
+  --umlaut-line: none;
+  --umlaut-mask: var(--umlaut-mask-nav);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 2rem;
+  padding-inline: 1rem;
+  border: var(--stroke-control) solid var(--surface-border);
+  border-radius: var(--radius-control);
+  font-family: var(--face-sans);
+  font-weight: 500;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: var(--foreground);
+  @media (hover: hover) {
+    &:hover:not([aria-current="page"]) {
+      background: var(--hover);
+    }
+  }
+  &[aria-current="page"] {
+    background: var(--foreground);
+    color: var(--background);
+  }
+}
+
+/* The header's avatar (the rules' signed-in header), with `umlaut`: a solid square in the text
+   colour (white in the black header) with the initial and a caret in the page colour; 40px. */
+@utility nav-avatar {
+  --umlaut-w: 20px;
+  --umlaut-h: 6px;
+  --umlaut-top: -0.875rem;
+  --umlaut-line: none;
+  --umlaut-mask: var(--umlaut-mask-nav);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  height: 2.5rem;
+  min-width: 2.5rem;
+  padding-inline: 0.5rem;
+  border-radius: var(--radius-control);
+  background: var(--foreground);
+  color: var(--background);
+  font-family: var(--face-sans);
+  font-weight: 600;
+  font-size: 1rem;
+  line-height: 1.5rem;
 }
 
 @utility umlaut-lg {

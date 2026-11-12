@@ -46,7 +46,7 @@ const LEGAL_LINKS: FooterLink[] = [
 
 const headingClass = "eyebrow pb-2 text-muted";
 /** 48px rows on phones and tablets, 32px from `lg`. */
-const linkClass = "flex min-h-12 items-center body-s underline-offset-4 hover:underline lg:min-h-8";
+const linkClass = "flex min-h-12 items-center body-m underline-offset-4 hover:underline lg:min-h-8";
 
 function GroupLink({ link }: { link: FooterLink }) {
   return link.href.startsWith("mailto:") ? (
@@ -84,7 +84,8 @@ function MailIcon() {
  * (decorative: the © line carries the name), the campaign line "Where is ÜR Sheltüh?" (heard as
  * "Where is your Sheltüh?"), the quiet install action where the browser offers one, and the
  * Light / Dark switch (footer only). Then four columns: Fan support, Explore, Our company and
- * Contact Sheltüh, two to a row below `lg`. Contact Sheltüh has an icon only for a channel that
+ * Contact Sheltüh (the rules' Layout board: stacked on phones, two columns from 640px, four from
+ * `lg`, the socials last). Contact Sheltüh has an icon only for a channel that
  * exists: email (LinkedIn and Instagram wait for their addresses). The legal links and the ©
  * line close the page. `data-page-end`: the page's last block, which gains bottom room while the
  * map's phone sheet is open (globals.css), so nothing ends up under it. In Dark the ink footer
@@ -105,7 +106,7 @@ export default function Footer() {
             <InstallPrompt />
             <ThemeSwitch className="mt-6" />
           </div>
-          <div className="grid grid-cols-2 gap-x-6 gap-y-8 lg:grid-cols-4 lg:gap-x-12">
+          <div className="grid grid-cols-1 gap-x-6 gap-y-8 sm:grid-cols-2 lg:grid-cols-4 lg:gap-x-12">
             {GROUPS.map((group) => (
               <nav key={group.heading} aria-label={group.heading}>
                 <p className={headingClass}>{group.heading}</p>

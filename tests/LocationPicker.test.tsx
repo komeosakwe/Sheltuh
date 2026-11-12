@@ -583,23 +583,21 @@ describe("LocationPicker — the rules' location menu (redesign PR 2)", () => {
     renderBar();
     screen.getByRole("search").addEventListener("submit", submit);
     const panel = openPanel();
-    // The suburb table has loaded (it's needed for the table's name).
-    const input = within(panel).getByLabelText("Suburb");
-    fireEvent.change(input, { target: { value: "Fi" } });
-    await waitFor(() => expect(document.getElementById(input.getAttribute("list") ?? "")?.querySelector("option")).not.toBeNull());
+    // Straight away, before anything's typed: the table is loaded first if it hasn't yet, so the
+    // stored name is always the table's own ("Brisbane" is Brisbane City).
     fireEvent.click(section(panel, "Suggested").getByRole("button", { name: /^Brisbane/, hidden: true }));
-    const button = screen.getByRole("button", { name: "Where: Brisbane City" });
+    const button = await screen.findByRole("button", { name: "Where: Brisbane City" });
     expect(document.activeElement).toBe(button);
     expect(JSON.parse(localStorage.getItem(NEAR_STORAGE_KEY) ?? "null")).toEqual({ suburb: "Brisbane City", state: "QLD" });
     expect(screen.getAllByRole("status").some((s) => s.textContent === "Location set: Brisbane City, QLD")).toBe(true);
     expect(submit).not.toHaveBeenCalled();
   });
 
-  it("one location everywhere: a place chosen in one bar shows in another on the page", () => {
+  it("one location everywhere: a place chosen in one bar shows in another on the page", async () => {
     render(
       <>
-        <SearchBar label="A" />
-        <SearchBar label="B" />
+        <SearchBar />
+        <SearchBar />
       </>,
     );
     const [first] = document.querySelectorAll<HTMLElement>("[data-location-panel]");
@@ -607,7 +605,29 @@ describe("LocationPicker — the rules' location menu (redesign PR 2)", () => {
       first.dispatchEvent(Object.assign(new Event("toggle"), { newState: "open", oldState: "closed" }));
     });
     fireEvent.click(within(first).getByRole("button", { name: /^Perth/, hidden: true }));
-    const b = screen.getByRole("search", { name: "B" });
-    expect(within(b).getByRole("button", { name: "Where: Perth" })).toBeInTheDocument();
+    const b = screen.getAllByRole("search")[1];
+    expect(await within(b).findByRole("button", { name: "Where: Perth" })).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem(NEAR_STORAGE_KEY) ?? "null")).toEqual({ suburb: "Perth", state: "WA" });
+  });
+});
+
+describe("LocationPicker — Escape", () => {
+  it("closes the list only and returns focus to Where (in the phone's sheet the browser would close both)", () => {
+    renderBar();
+    const panel = openPanel();
+    const hidePopover = vi.fn();
+    Object.assign(panel, { hidePopover });
+    const use = within(panel).getByRole("button", { name: "Use my location", hidden: true });
+    const outer = vi.fn();
+    document.addEventListener("keydown", outer);
+    const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    act(() => {
+      use.dispatchEvent(event);
+    });
+    expect(event.defaultPrevented).toBe(true);
+    expect(outer).not.toHaveBeenCalled();
+    expect(hidePopover).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: /^Where: / }));
+    document.removeEventListener("keydown", outer);
   });
 });

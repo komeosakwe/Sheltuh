@@ -170,9 +170,11 @@ export default function PrivacyPage() {
             ask again on the map until your next browser session.
           </li>
           <li>
-            You can type a suburb instead. Either way, only the suburb&rsquo;s name is kept: on this
-            device, in your browser&rsquo;s storage, so the search bar remembers it; and in the
-            address of the search results page (for example /search?near=Fitzroy).
+            You can type a suburb instead, or pick one from the list (the one you used last, or a
+            city we suggest); a place you pick is remembered straight away. Either way, only the
+            suburb&rsquo;s name is kept: on this device, in your browser&rsquo;s storage, so the
+            search bar remembers it; and in the address of the search results page (for example
+            /search?near=Fitzroy).
           </li>
           <li>
             Like any address you visit, that one reaches our website and our hosting

@@ -41,9 +41,9 @@ design.
 
 | Cache name | What | Strategy | Bound | Invalidation |
 | --- | --- | --- | --- | --- |
-| `sheltuh-shell-v4` | `/offline.html` only | Precached on `install` (fetched with `cache: "reload"`) | 1 entry | Replaced when `VERSION` changes; old caches deleted on `activate` |
-| `sheltuh-static-v4` | Same-origin `GET /_next/static/**` (JS, CSS and the self-hosted `next/font` files under `/_next/static/media`). These URLs are content-hashed, so a new deploy uses new URLs | Cache first, network on a miss | 150 entries, 30 days per entry | Oldest entries trimmed after each write; entries older than 30 days are refetched; whole cache dropped on a `VERSION` change |
-| `sheltuh-images-v4` | Same-origin `GET` image requests (`request.destination === "image"`, image file extension) outside `/api` and `/_next/image`: `public/` images, icons, the favicon and apple icon | Stale-while-revalidate | 60 entries, 7 days per entry | As above |
+| `sheltuh-shell-v5` | `/offline.html` only | Precached on `install` (fetched with `cache: "reload"`) | 1 entry | Replaced when `VERSION` changes; old caches deleted on `activate` |
+| `sheltuh-static-v5` | Same-origin `GET /_next/static/**` (JS, CSS and the self-hosted `next/font` files under `/_next/static/media`). These URLs are content-hashed, so a new deploy uses new URLs | Cache first, network on a miss | 150 entries, 30 days per entry | Oldest entries trimmed after each write; entries older than 30 days are refetched; whole cache dropped on a `VERSION` change |
+| `sheltuh-images-v5` | Same-origin `GET` image requests (`request.destination === "image"`, image file extension) outside `/api` and `/_next/image`: `public/` images, icons, the favicon and apple icon | Stale-while-revalidate | 60 entries, 7 days per entry | As above |
 
 A response is only stored when **all** of these hold: it is `200 OK`, it is
 same-origin (`type: "basic"`), its `Cache-Control` doesn't contain `no-store`

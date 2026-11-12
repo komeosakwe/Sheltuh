@@ -2,9 +2,10 @@ import { expect, test, type Page } from "@playwright/test";
 import type { AdminSummary } from "@/lib/api/types";
 
 /**
- * The black desktop header (redesign PR 2, the rules' Navigation board) is one
- * 64px row at every desktop width, whoever is signed in: signed out, Sign in and
- * the For organisers button; signed in, For organisers, Messages with its count
+ * The black desktop header (redesign PR 2, the proposal and the rules' Navigation
+ * board) is one 96px row at every desktop width, in Light and Dark (Dark's rule is
+ * drawn inside it), whoever is signed in: signed out, Sign in and the For
+ * organisers button; signed in, For organisers, the Messages chip with its count
  * and the avatar (plus Admin and its badge for admins), with no sideways scroll
  * and no search field. Live mode, with a stored test session (the Supabase URL
  * is a local placeholder) and every /api/* request answered here.
@@ -86,43 +87,56 @@ async function measure(page: Page, who: Who) {
 }
 
 for (const width of [1024, 1280, 1440, 1920]) {
-  test.describe(`desktop header at ${width}px`, () => {
-    test.use({ viewport: { width, height: 900 } });
+  for (const theme of ["light", "dark"] as const) {
+    test.describe(`desktop header at ${width}px in ${theme === "light" ? "Light" : "Dark"}`, () => {
+      test.use({ viewport: { width, height: 900 } });
 
-    test("is one 64px row, as tall signed in (member, admin with badge) as signed out, with no search field", async ({ page }) => {
-      await as(page, "signed-out");
-      const signedOut = await measure(page, "signed-out");
-      // --header-h (app/globals.css) is 64px.
-      expect(signedOut.height).toBe(64);
-      expect(signedOut.overflow).toBeLessThanOrEqual(0);
-      await expect(page.locator("header").getByRole("search")).toHaveCount(0);
+      test("is one 96px row, as tall signed in (member, admin with badge) as signed out, with no search field", async ({ page }) => {
+        const themed = async (p: Page) => {
+          if (theme === "dark") await p.addInitScript(() => localStorage.setItem("sheltuh:theme", "dark"));
+        };
+        await themed(page);
+        await as(page, "signed-out");
+        const signedOut = await measure(page, "signed-out");
+        // --header-h (app/globals.css) is 96px from lg; in Dark too, its rule drawn inside the header.
+        expect(signedOut.height).toBe(96);
+        expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--header-h").trim())).toBe("6rem");
+        expect(signedOut.overflow).toBeLessThanOrEqual(0);
+        await expect(page.locator("header").getByRole("search")).toHaveCount(0);
 
-      for (const who of ["member", "admin"] as const) {
-        const signedInPage = await page.context().newPage();
-        await as(signedInPage, who);
-        const result = await measure(signedInPage, who);
-        expect(result.height, `${who}: ${JSON.stringify(result)}`).toBe(signedOut.height);
-        expect(result.overflow, who).toBeLessThanOrEqual(0);
-        // One row: every control inside the 64px bar, 40px or taller, and none past the right edge.
-        for (const control of result.controls) {
-          expect(control.top, `${who}: ${JSON.stringify(control)}`).toBeGreaterThanOrEqual(0);
-          expect(control.bottom, `${who}: ${JSON.stringify(control)}`).toBeLessThanOrEqual(64);
-          expect(control.height, who).toBeGreaterThanOrEqual(40);
-          expect(control.right, who).toBeLessThanOrEqual(width);
+        for (const who of ["member", "admin"] as const) {
+          const signedInPage = await page.context().newPage();
+          await themed(signedInPage);
+          await as(signedInPage, who);
+          const result = await measure(signedInPage, who);
+          expect(result.height, `${who}: ${JSON.stringify(result)}`).toBe(signedOut.height);
+          expect(result.overflow, who).toBeLessThanOrEqual(0);
+          // One row: every control inside the bar, 32px or taller (the Messages chip; the rest 40), and none past the right edge.
+          for (const control of result.controls) {
+            expect(control.top, `${who}: ${JSON.stringify(control)}`).toBeGreaterThanOrEqual(0);
+            expect(control.bottom, `${who}: ${JSON.stringify(control)}`).toBeLessThanOrEqual(96);
+            expect(control.height, who).toBeGreaterThanOrEqual(32);
+            expect(control.right, who).toBeLessThanOrEqual(width);
+          }
+          const header = signedInPage.locator("header");
+          await expect(header.getByRole("search")).toHaveCount(0);
+          // No heart on the desktop row: Saved is on /account (and in the phone menu).
+          await expect(signedInPage.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Saved" })).toHaveCount(0);
+          // The avatar: a solid 40px square with the initial and a caret.
+          const avatar = signedInPage.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Account" });
+          await expect(avatar).toBeVisible();
+          const avatarBox = await avatar.boundingBox();
+          expect(Math.round(avatarBox?.height ?? 0)).toBe(40);
+          expect(Math.round(avatarBox?.width ?? 0)).toBeGreaterThanOrEqual(40);
+          expect(await avatar.evaluate((el) => [getComputedStyle(el).backgroundColor, getComputedStyle(el).color])).toEqual([
+            "rgb(255, 255, 255)",
+            "rgb(0, 0, 0)",
+          ]);
+          await signedInPage.close();
         }
-        const header = signedInPage.locator("header");
-        await expect(header.getByRole("search")).toHaveCount(0);
-        // No heart on the desktop row: Saved is on /account (and in the phone menu).
-        await expect(signedInPage.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Saved" })).toHaveCount(0);
-        const avatar = signedInPage.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Account" });
-        await expect(avatar).toBeVisible();
-        const avatarBox = await avatar.boundingBox();
-        expect(Math.round(avatarBox?.width ?? 0)).toBe(40);
-        expect(Math.round(avatarBox?.height ?? 0)).toBe(40);
-        await signedInPage.close();
-      }
+      });
     });
-  });
+  }
 }
 
 test.describe("desktop header at 1440px, signed in", () => {
@@ -135,6 +149,13 @@ test.describe("desktop header at 1440px, signed in", () => {
       await as(themed, "member");
       await measure(themed, "member");
       expect(await themed.locator("header").first().evaluate((el) => getComputedStyle(el).backgroundColor), theme).toBe("rgb(0, 0, 0)");
+      // The Messages chip: 32px, 14px, a muted outline.
+      const chip = themed.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: READY.member });
+      expect(await chip.evaluate((el) => [Math.round(el.getBoundingClientRect().height), getComputedStyle(el).fontSize, getComputedStyle(el).borderTopColor])).toEqual([
+        32,
+        "14px",
+        "rgb(51, 51, 51)",
+      ]);
       const badge = themed.getByRole("navigation", { name: "Primary" }).locator("[data-unread-badge]");
       expect(await badge.evaluate((el) => [getComputedStyle(el).backgroundColor, getComputedStyle(el).color]), theme).toEqual([
         "rgb(255, 72, 0)",

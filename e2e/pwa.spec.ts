@@ -83,9 +83,9 @@ test("the service worker caches static assets and the offline page, and never /a
     return all;
   });
 
-  expect(cached).toContain("sheltuh-shell-v4 /offline.html");
-  expect(cached.some((entry) => entry.startsWith("sheltuh-static-v4 /_next/static/"))).toBe(true);
-  expect(cached).toContain("sheltuh-images-v4 /icons/icon-192.png");
+  expect(cached).toContain("sheltuh-shell-v5 /offline.html");
+  expect(cached.some((entry) => entry.startsWith("sheltuh-static-v5 /_next/static/"))).toBe(true);
+  expect(cached).toContain("sheltuh-images-v5 /icons/icon-192.png");
   expect(cached.filter((entry) => entry.includes("/api"))).toEqual([]);
   // No page HTML: the only non-asset entry is the offline page.
   expect(cached.filter((entry) => !/\/_next\/static\/|\/icons\/|\.(png|svg|ico|jpe?g|webp)$|\/offline\.html$/.test(entry))).toEqual(

@@ -32,8 +32,10 @@ const SUGGESTED: { name: string; state: StateCode }[] = [
   { name: "Perth", state: "WA" },
 ];
 
-/** The menu's widest, from 640px; below that it's the bar's width. */
+/** The menu's width from md; below md it's a bottom sheet. */
 const PANEL_WIDTH = 360;
+/** The rules' `md` (768px): below it the menu is a bottom sheet. */
+const SHEET_BELOW = 768;
 
 /** Same suburb, as typed: case and outer spaces aside. */
 const sameNear = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
@@ -72,7 +74,9 @@ const PIN = (
  * place, white, cream on hover, cream with the black stroke while open (the rules' Search board;
  * no orange focus ring). It opens the location menu, under the bar: "Use my location" and "All of
  * Australia", a typed suburb, then Recent (the remembered suburb) and Suggested (Melbourne,
- * Sydney, Brisbane, Perth). Radius 8, the 1.5px stroke, 48px rows, no shadow.
+ * Sydney, Brisbane, Perth). Radius 8, the 1.5px stroke, 48px rows, no shadow. Below md (in the
+ * search sheet) Where is a full-width field and the menu is a bottom sheet: radius 16 at the top,
+ * a drag handle and Close, over a scrim (the rules' Overlays board).
  *
  * One location, set once and used everywhere: choosing a place (or Use my location) remembers it
  * in this browser at once (lib/near-storage.ts), so the next page, the home and Nearby all start
@@ -139,22 +143,24 @@ export default function LocationPicker({ near, appliedNear }: { near?: string; a
     (place) => !recent || !(sameNear(recent, place.name) || sameNear(recent, tableName(place.name))),
   );
 
-  // Place the menu under the bar: the bar's full width on phones; from 640px, 360px under
-  // this segment, kept within the bar's edges.
+  // From md, place the menu 360px wide under this segment, kept within the bar's edges. Below md
+  // it's a bottom sheet (its classes), so any placement from a wider window is cleared.
   useEffect(() => {
     const popover = popoverRef.current;
     if (!popover) return;
+    const isSheet = () => document.documentElement.clientWidth < SHEET_BELOW;
     function place() {
       const button = buttonRef.current;
       const bar = button?.closest("[data-search-bar]");
       if (!popover || !button || !bar) return;
+      if (isSheet()) {
+        Object.assign(popover.style, { margin: "", top: "", left: "", right: "", bottom: "", width: "", maxHeight: "" });
+        return;
+      }
       const barBox = bar.getBoundingClientRect();
       const viewport = document.documentElement.clientWidth;
-      const width = viewport < 640 ? barBox.width : Math.min(PANEL_WIDTH, viewport - 16);
-      const left =
-        viewport < 640
-          ? barBox.left
-          : Math.max(barBox.left, Math.min(button.getBoundingClientRect().left, barBox.right - width));
+      const width = Math.min(PANEL_WIDTH, viewport - 16);
+      const left = Math.max(barBox.left, Math.min(button.getBoundingClientRect().left, barBox.right - width));
       const top = barBox.bottom + 8;
       Object.assign(popover.style, {
         margin: "0",
@@ -171,6 +177,10 @@ export default function LocationPicker({ near, appliedNear }: { near?: string; a
     function reveal() {
       const bar = buttonRef.current?.closest("[data-search-bar]");
       if (!popover || !bar) return;
+      if (isSheet()) {
+        place();
+        return;
+      }
       const barBox = bar.getBoundingClientRect();
       const siteHeader = document.querySelector("header");
       const headerBottom = siteHeader ? Math.max(0, siteHeader.getBoundingClientRect().bottom) : 0;
@@ -196,7 +206,7 @@ export default function LocationPicker({ near, appliedNear }: { near?: string; a
       reveal();
       window.addEventListener("scroll", place, { passive: true });
       window.addEventListener("resize", place);
-      popover?.querySelector<HTMLElement>("button, input")?.focus();
+      popover?.querySelector<HTMLElement>("[data-location-option], input")?.focus();
       loadLocation()
         .then((loaded) => {
           moduleRef.current = loaded;
@@ -218,13 +228,24 @@ export default function LocationPicker({ near, appliedNear }: { near?: string; a
       if (buttonRef.current?.contains(next)) return;
       popover?.hidePopover?.();
     }
+    // Escape closes this list only, and focus goes back to Where. Inside the phone's search sheet
+    // (itself a popover) the browser would otherwise close both at once.
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      event.preventDefault();
+      event.stopPropagation();
+      popover?.hidePopover?.();
+      buttonRef.current?.focus();
+    }
     popover.addEventListener("beforetoggle", handleBeforeToggle);
     popover.addEventListener("toggle", handleToggle);
     popover.addEventListener("focusout", handleFocusOut);
+    popover.addEventListener("keydown", handleKeyDown);
     return () => {
       popover.removeEventListener("beforetoggle", handleBeforeToggle);
       popover.removeEventListener("toggle", handleToggle);
       popover.removeEventListener("focusout", handleFocusOut);
+      popover.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("scroll", place);
       window.removeEventListener("resize", place);
     };
@@ -282,10 +303,19 @@ export default function LocationPicker({ near, appliedNear }: { near?: string; a
     closeAndReturn(`Location set: ${placeName(suburb, state)}`);
   }
 
-  /** A Recent or Suggested place, by the table's own name and state when it knows it ("Brisbane" is Brisbane City). */
+  /**
+   * A Recent or Suggested place, stored by the table's own name and state ("Brisbane" is Brisbane
+   * City): the table is loaded first if it hasn't yet. If it can't load, the name as shown.
+   */
   function choose(name: string, state: StateCode | null) {
-    const place = moduleRef.current?.findLocality(name);
-    setPlace(place?.name ?? name, place?.state ?? state);
+    loadLocation()
+      .then((loaded) => {
+        moduleRef.current = loaded;
+        setTable(loaded);
+        return loaded.findLocality(name);
+      })
+      .catch(() => null)
+      .then((place) => setPlace(place?.name ?? name, place?.state ?? state));
   }
 
   function locateMe() {
@@ -367,10 +397,11 @@ export default function LocationPicker({ near, appliedNear }: { near?: string; a
         data-open={open || undefined}
         // Its visible words, "Where" and the place, are its name (WCAG 2.5.3).
         aria-label={`Where: ${shown}`}
-        className="flex min-h-12 max-w-1/3 min-w-0 shrink-0 items-center gap-2 rounded-control border-control border-transparent px-2 text-left hover:bg-hover focus-visible:-outline-offset-2! data-open:border-foreground data-open:bg-hover sm:max-w-2/5 sm:px-3"
+        // Below md, in the search sheet: a full-width field with the stroke. From md, a segment of the bar.
+        className="flex min-h-12 w-full min-w-0 shrink-0 items-center gap-2 rounded-control border-control border-foreground bg-card px-4 text-left hover:bg-hover data-open:border-foreground data-open:bg-hover md:w-auto md:max-w-2/5 md:border-transparent md:px-3 md:focus-visible:-outline-offset-2!"
       >
-        <Icon className="hidden size-5 sm:block">{PIN}</Icon>
-        <span className="flex min-w-0 flex-col">
+        <Icon className="size-5">{PIN}</Icon>
+        <span className="flex min-w-0 flex-1 flex-col">
           <span aria-hidden="true" className="eyebrow text-muted">
             Where
           </span>
@@ -381,7 +412,7 @@ export default function LocationPicker({ near, appliedNear }: { near?: string; a
             {shown}
           </span>
         </span>
-        <Icon className={`hidden size-4 sm:block motion-safe:transition-transform motion-safe:duration-200 ${open ? "rotate-180" : ""}`}>
+        <Icon className={`size-4 motion-safe:transition-transform motion-safe:duration-200 ${open ? "rotate-180" : ""}`}>
           <path d="m6 9 6 6 6-6" />
         </Icon>
       </button>
@@ -389,8 +420,8 @@ export default function LocationPicker({ near, appliedNear }: { near?: string; a
         {announcement}
       </span>
       {appliedNear !== undefined && (
-        // Under the bar (the form is `relative`), in the space the page leaves below it.
-        <p aria-live="polite" data-near-hint="" className="absolute top-full left-4 mt-2 text-sm leading-5 text-muted">
+        // From md, under the bar (the form is `relative`), in the space the page leaves below it; in the sheet, under Where.
+        <p aria-live="polite" data-near-hint="" className="text-sm leading-5 text-muted md:absolute md:top-full md:left-4 md:mt-2">
           {outOfDate ? "Press Search to update results." : ""}
         </p>
       )}
@@ -402,17 +433,34 @@ export default function LocationPicker({ near, appliedNear }: { near?: string; a
         role="dialog"
         aria-labelledby={titleId}
         data-location-panel=""
-        className="max-w-full overflow-y-auto rounded-control border-control border-foreground bg-card p-2 text-left text-foreground"
+        // Below md, a bottom sheet (the rules' Overlays board): full width, radius 16 at the top, a
+        // drag handle, 16px inside, over a 40% black scrim. From md, a menu under the bar.
+        className="max-w-full overflow-y-auto rounded-control border-control border-foreground bg-card p-2 text-left text-foreground max-md:inset-x-0 max-md:top-auto max-md:bottom-0 max-md:m-0 max-md:max-h-4/5 max-md:w-full max-md:max-w-none max-md:rounded-b-none max-md:rounded-t-sheet max-md:border-x-0 max-md:border-b-0 max-md:p-4 max-md:pb-[calc(1rem+env(safe-area-inset-bottom))] max-md:backdrop:bg-ink/40"
       >
         <p id={titleId} className="sr-only">
           Find events near you
         </p>
+        <div className="relative mb-2 flex items-center justify-end md:hidden">
+          <span aria-hidden="true" className="absolute left-1/2 h-2 w-10 -translate-x-1/2 rounded-full bg-surface-border" />
+          <button
+            type="button"
+            popoverTarget={popoverId}
+            popoverTargetAction="hide"
+            aria-label="Close"
+            className="flex size-12 items-center justify-center rounded-control"
+          >
+            <Icon className="size-6">
+              <path d="M6 6l12 12M18 6 6 18" />
+            </Icon>
+          </button>
+        </div>
         <div className="flex flex-wrap gap-x-2">
           {canLocate && (
             <button
               type="button"
               onClick={locateMe}
               aria-disabled={locating || undefined}
+              data-location-option=""
               className={`${rowClass} w-auto flex-1 basis-40 whitespace-nowrap`}
             >
               <span className={iconBox}>
@@ -425,7 +473,12 @@ export default function LocationPicker({ near, appliedNear }: { near?: string; a
               Use my location
             </button>
           )}
-          <button type="button" onClick={clearLocation} className={`${rowClass} w-auto flex-1 basis-40 whitespace-nowrap`}>
+          <button
+            type="button"
+            onClick={clearLocation}
+            data-location-option=""
+            className={`${rowClass} w-auto flex-1 basis-40 whitespace-nowrap`}
+          >
             <span className={iconBox}>
               <Icon>
                 <circle cx="12" cy="12" r="9" />

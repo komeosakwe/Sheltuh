@@ -1,11 +1,11 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { isApiConfigured } from "@/lib/api/client";
 import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
 import { loadHomeEvents, loadHomeFollowing, loadHomeRecent, loadHomeTrending } from "@/lib/home-events";
 import { selectHomeSections, type HomeSections } from "@/lib/home-sections";
-import { readStoredNearState } from "@/lib/near-storage";
+import { readStoredNearState, subscribeStoredNear } from "@/lib/near-storage";
 
 export type HomeEventsState =
   | { status: "loading" }
@@ -20,6 +20,19 @@ export interface HomeEventsValue {
 }
 
 const HomeEventsContext = createContext<HomeEventsValue | null>(null);
+
+/** What the loads returned, kept so the sections can be split again when the saved suburb changes. */
+interface HomeLoaded {
+  events: Awaited<ReturnType<typeof loadHomeEvents>>;
+  trending: Awaited<ReturnType<typeof loadHomeTrending>>;
+  following: Awaited<ReturnType<typeof loadHomeFollowing>>;
+  recent: Awaited<ReturnType<typeof loadHomeRecent>>;
+  now: Date;
+}
+
+type LoadState = Exclude<HomeEventsState, { status: "ready" }> | { status: "ready"; loaded: HomeLoaded };
+
+const serverNull = () => null;
 
 /**
  * Loads the home page's events once and splits them into sections, for the
@@ -36,7 +49,9 @@ const HomeEventsContext = createContext<HomeEventsValue | null>(null);
  * (owner decision D5): the state saved with the suburb (lib/near-storage.ts
  * readStoredNearState), read in the browser and never sent. The suburb table
  * is never loaded here, so nothing waits on it; a suburb saved without a
- * state it can be read from leaves the order Australia-wide.
+ * state it can be read from leaves the order Australia-wide. A place chosen
+ * in the search bar's location menu (or Nearby) re-orders the sections at
+ * once, without loading again (subscribeStoredNear, as useMapLocate does).
  */
 export function HomeEventsProvider({ children }: { children: ReactNode }) {
   const mode = isApiConfigured ? "live" : "demo";
@@ -46,13 +61,18 @@ export function HomeEventsProvider({ children }: { children: ReactNode }) {
   // null while the session is still being read: nothing is split until it's known.
   const viewer = authStatus === "loading" ? null : authStatus === "signed-in" ? `member:${auth?.email ?? ""}` : "anonymous";
   const [attempt, setAttempt] = useState(0);
-  const [state, setState] = useState<HomeEventsState>({ status: "loading" });
+  const [load, setState] = useState<LoadState>({ status: "loading" });
+  const preferredState = useSyncExternalStore(subscribeStoredNear, readStoredNearState, serverNull);
+  const state = useMemo<HomeEventsState>(() => {
+    if (load.status !== "ready") return load;
+    const { events, trending, following, recent, now } = load.loaded;
+    return { status: "ready", sections: selectHomeSections(events, trending, now, following, preferredState, recent), now };
+  }, [load, preferredState]);
 
   useEffect(() => {
     if (viewer === null) return;
     let cancelled = false;
     const now = new Date();
-    const preferredState = readStoredNearState();
     Promise.all([
       loadHomeEvents(now),
       loadHomeTrending(now).catch(() => []),
@@ -61,13 +81,7 @@ export function HomeEventsProvider({ children }: { children: ReactNode }) {
       loadHomeRecent(now).catch(() => []),
     ]).then(
       ([events, trending, following, recent]) => {
-        if (!cancelled) {
-          setState({
-            status: "ready",
-            sections: selectHomeSections(events, trending, now, following, preferredState, recent),
-            now,
-          });
-        }
+        if (!cancelled) setState({ status: "ready", loaded: { events, trending, following, recent, now } });
       },
       () => {
         if (!cancelled) setState({ status: "error", retrying: false });

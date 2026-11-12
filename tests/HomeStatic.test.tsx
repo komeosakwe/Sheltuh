@@ -96,8 +96,10 @@ describe("HomeHero (mobile-redesign.md §6.1)", () => {
     const submit = within(search).getByRole("button", { name: "Search" });
     expect(submit).toHaveAttribute("type", "submit");
     expect(within(search).getByRole("button", { name: "Where: Your suburb" })).toBeInTheDocument();
-    // Outside the closed location menu: the field's magnifier, the pin, the chevron and the submit's magnifier.
-    expect(Array.from(search.querySelectorAll("svg")).filter((svg) => !svg.closest("[popover]"))).toHaveLength(4);
+    // The bar (from md), outside the closed location menu: the field's magnifier, the pin, the chevron and
+    // the submit's magnifier. (Below md the one field that opens the search sheet has its own magnifier.)
+    const bar = search.querySelector("[data-search-bar]");
+    expect(Array.from(bar?.querySelectorAll("svg") ?? []).filter((svg) => !svg.closest("[data-location-panel]"))).toHaveLength(4);
     expect(submit.querySelectorAll("svg")).toHaveLength(1);
     expect(Array.from(container.querySelectorAll(".btn-signal"))).toEqual([submit]);
     // Browsing is the category row under the hero; the hero itself has no links. (Where the browser

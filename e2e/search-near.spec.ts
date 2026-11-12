@@ -95,13 +95,32 @@ async function countGeolocation(page: Page) {
 
 const geoCalls = (page: Page) => page.evaluate(() => (window as unknown as { __geoCalls: number }).__geoCalls);
 
-/** Opens the hero's location panel, pressing until the page has hydrated. */
-async function openPanel(page: Page) {
+/**
+ * Below md the bar is one field that opens the full-screen search sheet (the rules' Layout board):
+ * opens it, pressing until the page has hydrated, and returns the search landmark. From md the
+ * bar is inline and there's nothing to open.
+ */
+async function openSheet(page: Page, tap = false) {
   const search = page.getByRole("search", { name: "Search events" });
+  const trigger = search.locator("[data-search-trigger]");
+  const field = search.getByRole("searchbox", { name: "Search events" });
+  await expect(search).toBeVisible({ timeout: 30_000 });
+  if (!(await trigger.isVisible())) return search;
+  // Open: the sheet shows the field (focus on opening is checked by the keyboard test).
+  await expect(async () => {
+    if (!(await field.isVisible())) await (tap ? trigger.tap() : trigger.click());
+    await expect(field).toBeVisible({ timeout: 1_000 });
+  }).toPass({ timeout: 30_000 });
+  return search;
+}
+
+/** Opens the hero's location panel (in the search sheet below md), pressing until the page has hydrated. */
+async function openPanel(page: Page, tap = false) {
+  const search = await openSheet(page, tap);
   const location = search.getByRole("button", { name: /^Where: / });
   const panel = page.getByRole("dialog", { name: "Find events near you" });
   await expect(async () => {
-    if (!(await panel.isVisible())) await location.click();
+    if (!(await panel.isVisible())) await (tap ? location.tap() : location.click());
     await expect(panel).toBeVisible({ timeout: 1_000 });
     await expect(panel.getByRole("button", { name: "Use my location" })).toBeFocused({ timeout: 1_000 });
   }).toPass({ timeout: 30_000 });
@@ -116,13 +135,18 @@ for (const theme of ["light", "dark"] as const) {
     test.describe(`search bar at ${viewport.width}px in ${theme === "light" ? "Light" : "Dark"}`, () => {
       test.use({ viewport });
 
-      test("an orange Search with a black icon, a bar with radius 8 and the stroke, 48px targets, and the global focus ring inset", async ({ page }) => {
+      test("an orange Search with a black icon, radius 8, 48px targets, and a ring that's never orange", async ({ page }) => {
         if (theme === "dark") await page.addInitScript(() => localStorage.setItem("sheltuh:theme", "dark"));
         await mockApi(page);
         await page.goto("/");
-        const search = page.getByRole("search", { name: "Search events" });
-        const submit = search.getByRole("button", { name: "Search" });
+        const phone = viewport.width < 768;
+        // Below md: one field that opens the full-screen sheet with the form in it.
+        const search = await openSheet(page);
+        const submit = search.getByRole("button", { name: "Search", exact: true });
         await expect(submit).toBeVisible({ timeout: 30_000 });
+        // The resting look: away from the pointer (the sheet opens under it), once the 200ms fade settles.
+        await page.mouse.move(0, 0);
+        await expect.poll(() => submit.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(255, 72, 0)");
         const look = await submit.evaluate((el) => {
           const s = getComputedStyle(el);
           const icon = el.querySelector("svg");
@@ -134,22 +158,32 @@ for (const theme of ["light", "dark"] as const) {
             height: Math.round(el.getBoundingClientRect().height),
           };
         });
-        // Never a white icon or label on orange; radius 8, no circle.
-        expect(look).toEqual({ bg: "rgb(255, 72, 0)", text: "rgb(0, 0, 0)", icon: "rgb(0, 0, 0)", radius: "8px", height: 48 });
-        // The word "Search" shows from 640px; on a phone the button is its icon, still 48px wide.
-        const width = Math.round((await submit.boundingBox())?.width ?? 0);
-        if (viewport.width >= 640) expect(width).toBeGreaterThan(48);
-        else expect(width).toBe(48);
-        const bar = search.locator("[data-search-bar]");
-        // The 1.5px control stroke (Chromium draws it in whole device pixels: 1px at 1x, 1.5px at 2x).
-        await expect(bar).toHaveClass(/\bborder-control\b/);
-        const barLook = await bar.evaluate((el) => ({ radius: getComputedStyle(el).borderTopLeftRadius, border: parseFloat(getComputedStyle(el).borderTopWidth) }));
-        expect(barLook.radius).toBe("8px");
-        expect(barLook.border).toBeGreaterThanOrEqual(1);
-        // 48px targets: the field, Where and the submit; the bar is 48 + 2 × 4 padding + the stroke.
-        expect(Math.round((await bar.boundingBox())?.height ?? 0)).toBe(Math.round(48 + 8 + 2 * barLook.border));
+        // Never a white icon or label on orange; radius 8, no circle. In the sheet it's the L button.
+        expect(look).toEqual({ bg: "rgb(255, 72, 0)", text: "rgb(0, 0, 0)", icon: "rgb(0, 0, 0)", radius: "8px", height: phone ? 56 : 48 });
+        // 48px targets: the field and Where (and the submit).
         expect((await search.getByRole("button", { name: /^Where: / }).boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(48);
         expect((await search.getByRole("searchbox").boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(48);
+        const bar = search.locator("[data-search-bar]");
+        if (phone) {
+          // The sheet fills the screen; everything in it is full width.
+          const sheet = await page.locator("[data-search-sheet]").boundingBox();
+          expect(sheet && [Math.round(sheet.x), Math.round(sheet.y), Math.round(sheet.width), Math.round(sheet.height)]).toEqual([0, 0, viewport.width, viewport.height]);
+          const submitBox = await submit.boundingBox();
+          expect(Math.round(submitBox?.width ?? 0)).toBe(viewport.width - 32);
+          // Escape closes it, and focus goes back to the one field.
+          await page.keyboard.press("Escape");
+          await expect(search.getByRole("searchbox")).toBeHidden();
+          await expect(search.locator("[data-search-trigger]")).toBeFocused();
+          return;
+        }
+        // From md: one bar, radius 8 with the 1.5px stroke (Chromium draws it in whole device pixels:
+        // 1px at 1x), 8px inside.
+        await expect(bar).toHaveClass(/\bmd:border-control\b/);
+        const barLook = await bar.evaluate((el) => ({ radius: getComputedStyle(el).borderTopLeftRadius, border: parseFloat(getComputedStyle(el).borderTopWidth), padding: getComputedStyle(el).paddingTop }));
+        expect(barLook.radius).toBe("8px");
+        expect(barLook.border).toBeGreaterThanOrEqual(1);
+        expect(barLook.padding).toBe("8px");
+        expect(Math.round((await bar.boundingBox())?.height ?? 0)).toBe(Math.round(48 + 16 + 2 * barLook.border));
         // The query field's ring is the global one (never orange), drawn inside the bar.
         const field = search.getByRole("searchbox", { name: "Search events" });
         await field.focus();
@@ -195,7 +229,7 @@ test.describe("near you, from the home at 390px", () => {
     expect(everything).not.toContain(lng);
 
     await search.getByRole("searchbox", { name: "Search events" }).fill("a");
-    await search.getByRole("button", { name: "Search" }).click();
+    await search.getByRole("button", { name: "Search", exact: true }).click();
     await expect(page).toHaveURL(/\/search\?q=a&near=Fitzroy$/, { timeout: 30_000 });
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("“a” near Fitzroy");
     expect(page.url()).not.toContain(lat.slice(1));
@@ -250,9 +284,10 @@ test.describe("near you, from the home at 390px", () => {
     );
     await mockApi(page);
     await page.goto("/");
-    const search = page.getByRole("search", { name: "Search events" });
+    const search = await openSheet(page);
     await expect(search.getByRole("button", { name: "Where: Carlton" })).toBeVisible({ timeout: 30_000 });
     await page.reload();
+    await openSheet(page);
     await expect(search.getByRole("button", { name: "Where: Carlton" })).toBeVisible({ timeout: 30_000 });
 
     const { panel, location } = await openPanel(page);
@@ -264,7 +299,7 @@ test.describe("near you, from the home at 390px", () => {
     expect(await page.evaluate((key) => localStorage.getItem(key), NEAR_STORAGE_KEY)).toBeNull();
     // An empty location stays out of the address.
     await search.getByRole("searchbox", { name: "Search events" }).fill("jazz");
-    await search.getByRole("button", { name: "Search" }).click();
+    await search.getByRole("button", { name: "Search", exact: true }).click();
     await expect(page).toHaveURL(/\/search\?q=jazz$/, { timeout: 30_000 });
   });
 
@@ -279,7 +314,7 @@ test.describe("near you, from the home at 390px", () => {
     await field.press("Enter");
     await expect(page).toHaveURL(/\/search\?q=&near=St\+Kilda$/, { timeout: 30_000 });
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Events near St Kilda");
-    await expect(page.getByRole("search", { name: "Search events" }).getByRole("button", { name: "Where: St Kilda" })).toBeVisible();
+    await expect((await openSheet(page)).getByRole("button", { name: "Where: St Kilda" })).toBeVisible();
   });
 
   test("permission denied: says so and asks for the suburb, storing nothing", async ({ page }) => {
@@ -310,29 +345,39 @@ test.describe("near you, from the home at 390px", () => {
     await expect(status).toHaveText("");
   });
 
-  test("keyboard: Enter opens the panel with focus inside; Escape closes it and returns focus", async ({ page }) => {
+  test("keyboard: the one field opens the sheet; Enter on Where opens the list; Escape closes it and returns focus", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
     const search = page.getByRole("search", { name: "Search events" });
+    const trigger = search.locator("[data-search-trigger]");
     const field = search.getByRole("searchbox", { name: "Search events" });
     const location = search.getByRole("button", { name: /^Where: / });
     const panel = page.getByRole("dialog", { name: "Find events near you" });
     await expect(async () => {
-      await field.focus();
-      await page.keyboard.press("Tab");
-      await expect(location).toBeFocused({ timeout: 1_000 });
+      await trigger.focus();
       await page.keyboard.press("Enter");
-      await expect(panel.getByRole("button", { name: "Use my location" })).toBeFocused({ timeout: 1_000 });
+      await expect(field).toBeFocused({ timeout: 1_000 });
     }).toPass({ timeout: 30_000 });
+    await expect(page.getByRole("dialog", { name: "Search events" })).toBeVisible();
+    await page.keyboard.press("Tab");
+    await expect(location).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(panel.getByRole("button", { name: "Use my location" })).toBeFocused();
     // Tab moves on inside the panel.
     await page.keyboard.press("Tab");
     await expect(panel.getByRole("button", { name: "All of Australia" })).toBeFocused();
+    // Escape closes the list only; the sheet stays, with focus back on Where.
     await page.keyboard.press("Escape");
     await expect(panel).toBeHidden();
     await expect(location).toBeFocused();
+    await expect(field).toBeVisible();
     // Then on to the submit.
     await page.keyboard.press("Tab");
-    await expect(search.getByRole("button", { name: "Search" })).toBeFocused();
+    await expect(search.getByRole("button", { name: "Search", exact: true })).toBeFocused();
+    // A second Escape closes the sheet and returns focus to the one field.
+    await page.keyboard.press("Escape");
+    await expect(field).toBeHidden();
+    await expect(trigger).toBeFocused();
   });
 
   test("keyboard: tabbing out of the panel closes it, and focus goes on to Search", async ({ page }) => {
@@ -346,46 +391,37 @@ test.describe("near you, from the home at 390px", () => {
     await expect(panel).toBeVisible();
     await page.keyboard.press("Tab");
     await expect(panel).toBeHidden();
-    await expect(search.getByRole("button", { name: "Search" })).toBeFocused();
+    await expect(search.getByRole("button", { name: "Search", exact: true })).toBeFocused();
   });
 
-  test("a short screen: opening the panel scrolls the page so all of it shows", async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 667 });
-    await mockApi(page);
-    await page.goto("/");
-    expect(await page.evaluate(() => window.scrollY)).toBe(0);
-    const { search, panel } = await openPanel(page);
-    // The page scrolled up to make room.
-    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
-    const bar = await search.locator("[data-search-bar]").boundingBox();
-    const box = await panel.boundingBox();
-    if (!bar || !box) throw new Error("not laid out");
-    expect(box.y).toBeGreaterThan(bar.y + bar.height);
-    expect(box.y + box.height).toBeLessThanOrEqual(667);
-    // The whole panel, not a scrolling slice of it.
-    expect(await panel.evaluate((el) => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(0);
-    // The bar is still in view, below the site header.
-    const header = await page.locator("body header").first().boundingBox();
-    expect(bar.y).toBeGreaterThanOrEqual((header?.y ?? 0) + (header?.height ?? 0));
-  });
-
-  test("a very short screen: the panel stays on screen, under the bar, and scrolls inside", async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 500 });
-    await mockApi(page);
-    await page.goto("/");
-    const { search, panel } = await openPanel(page);
-    const bar = await search.locator("[data-search-bar]").boundingBox();
-    const box = await panel.boundingBox();
-    if (!bar || !box) throw new Error("not laid out");
-    expect(box.y).toBeGreaterThan(bar.y + bar.height);
-    expect(box.y + box.height).toBeLessThanOrEqual(500);
-    const header = await page.locator("body header").first().boundingBox();
-    expect(bar.y).toBeGreaterThanOrEqual((header?.y ?? 0) + (header?.height ?? 0));
-    // Its last part is reachable by scrolling the panel itself.
-    const privacy = panel.getByRole("link", { name: "How we use your location" });
-    await privacy.scrollIntoViewIfNeeded();
-    await expect(privacy).toBeInViewport();
-  });
+  // The rules' Overlays board: on phones the location menu is a bottom sheet, radius 16 at the top, over a scrim.
+  for (const height of [844, 500]) {
+    test(`at 390x${height}: the location list is a bottom sheet, all of it reachable`, async ({ page }) => {
+      await page.setViewportSize({ width: 390, height });
+      await mockApi(page);
+      await page.goto("/");
+      const { panel } = await openPanel(page);
+      const box = await panel.boundingBox();
+      if (!box) throw new Error("not laid out");
+      expect(Math.round(box.x)).toBe(0);
+      expect(Math.round(box.width)).toBe(390);
+      expect(Math.round(box.y + box.height)).toBe(height);
+      // At most 80% of the screen, so the search sheet still shows above it.
+      expect(box.height).toBeLessThanOrEqual(height * 0.8 + 1);
+      const look = await panel.evaluate((el) => {
+        const s = getComputedStyle(el);
+        return { top: s.borderTopLeftRadius, bottom: s.borderBottomLeftRadius, scrim: getComputedStyle(el, "::backdrop").backgroundColor };
+      });
+      expect(look.top).toBe("16px");
+      expect(look.bottom).toBe("0px");
+      expect(look.scrim).toMatch(/^(rgba\(0, 0, 0, 0\.4\)|oklab\(0 0 0 \/ 0\.4\))$/);
+      // A Close button for touch; its last part is reachable by scrolling the sheet itself.
+      await expect(panel.getByRole("button", { name: "Close" })).toBeVisible();
+      const privacy = panel.getByRole("link", { name: "How we use your location" });
+      await privacy.scrollIntoViewIfNeeded();
+      await expect(privacy).toBeInViewport();
+    });
+  }
 });
 
 test.describe("near you, from Perth at 390px", () => {
@@ -398,7 +434,7 @@ test.describe("near you, from Perth at 390px", () => {
     await panel.getByRole("button", { name: "Use my location" }).click();
     await expect(search.getByRole("button", { name: "Where: Perth" })).toBeVisible({ timeout: 10_000 });
     expect(JSON.parse((await page.evaluate((key) => localStorage.getItem(key), NEAR_STORAGE_KEY)) ?? "null")).toEqual({ suburb: "Perth", state: "WA" });
-    await search.getByRole("button", { name: "Search" }).click();
+    await search.getByRole("button", { name: "Search", exact: true }).click();
     await expect(page).toHaveURL(/\/search\?q=&near=Perth$/, { timeout: 30_000 });
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Events near Perth");
     await expect(page.locator("[data-near-band]").first()).toBeVisible({ timeout: 30_000 });
@@ -445,14 +481,14 @@ test.describe("/search without near, at 390px", () => {
     await page.addInitScript(([key]) => localStorage.setItem(key, JSON.stringify({ suburb: "Carlton" })), [NEAR_STORAGE_KEY]);
     await mockApi(page);
     await page.goto("/search?q=a");
-    const search = page.getByRole("search", { name: "Search events" });
+    const search = await openSheet(page);
     await expect(search.getByRole("button", { name: "Where: Carlton" })).toBeVisible({ timeout: 30_000 });
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("“a”");
     await expect(search.locator("[data-near-hint]")).toHaveText("Press Search to update results.");
     await expect(page.locator("[data-near-band]")).toHaveCount(0);
     expect(new URL(page.url()).search).toBe("?q=a");
     // Search applies it.
-    await search.getByRole("button", { name: "Search" }).click();
+    await search.getByRole("button", { name: "Search", exact: true }).click();
     await expect(page).toHaveURL(/\/search\?q=a&near=Carlton$/, { timeout: 30_000 });
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("“a” near Carlton");
     await expect(search.locator("[data-near-hint]")).toHaveText("");
@@ -462,19 +498,22 @@ test.describe("/search without near, at 390px", () => {
 test.describe("near you at 320px", () => {
   test.use({ viewport: { width: 320, height: 640 } });
 
-  test("the bar and its open panel fit: no sideways scroll", async ({ page }) => {
+  test("the one field, the sheet and its bottom-sheet list fit, with the whole place name shown: no sideways scroll", async ({ page }) => {
     await page.addInitScript(([key]) => localStorage.setItem(key, JSON.stringify({ suburb: "Brunswick East" })), [NEAR_STORAGE_KEY]);
     await mockApi(page);
     await page.goto("/");
-    const { search, panel } = await openPanel(page);
-    const barBox = await search.locator("[data-search-bar]").boundingBox();
+    const trigger = page.getByRole("search", { name: "Search events" }).locator("[data-search-trigger]");
+    const triggerBox = await trigger.boundingBox();
+    expect((triggerBox?.x ?? -1) + (triggerBox?.width ?? 999)).toBeLessThanOrEqual(320);
+    const { location, panel } = await openPanel(page);
+    // Where is a full-width field in the sheet: the place isn't cut short.
+    const label = location.locator("[data-location-label]");
+    await expect(label).toHaveText("Brunswick East");
+    expect(await label.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
     const panelBox = await panel.boundingBox();
-    if (!barBox || !panelBox) throw new Error("not laid out");
-    expect(barBox.x + barBox.width).toBeLessThanOrEqual(320);
+    if (!panelBox) throw new Error("not laid out");
     expect(panelBox.x).toBeGreaterThanOrEqual(0);
     expect(panelBox.x + panelBox.width).toBeLessThanOrEqual(320);
-    // Under the bar.
-    expect(panelBox.y).toBeGreaterThan(barBox.y + barBox.height);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
   });
 });
@@ -527,14 +566,9 @@ test.describe("near you on an iPhone-sized touch screen, as WebKit moves focus",
   const { viewport, userAgent, deviceScaleFactor, isMobile, hasTouch } = devices["iPhone 13"];
   test.use({ viewport, userAgent, deviceScaleFactor, isMobile, hasTouch, permissions: ["geolocation"], geolocation: HERE });
 
-  /** Taps the hero's location segment until the page has hydrated and the panel is open. */
+  /** Taps the one field, then Where, until the page has hydrated and the location list is open. */
   async function tapOpen(page: Page) {
-    const search = page.getByRole("search", { name: "Search events" });
-    const panel = page.getByRole("dialog", { name: "Find events near you" });
-    await expect(async () => {
-      if (!(await panel.isVisible())) await search.getByRole("button", { name: /^Where: / }).tap();
-      await expect(panel.getByRole("button", { name: "Use my location" })).toBeFocused({ timeout: 1_000 });
-    }).toPass({ timeout: 30_000 });
+    const { search, panel } = await openPanel(page, true);
     return { search, panel };
   }
 

@@ -19,12 +19,12 @@ export const navLinkClass =
 
 /**
  * A nav item in the black site header (the rules' Navigation board): Label/Nav 18/24 in
- * sentence case, 40px tall, the orange dots above it on hover and on the current page, which
- * is also underlined.
+ * sentence case, 40px tall, the 20×6 orange dots above it on hover and on the current page,
+ * which is also underlined 12px under the label (globals.css `umlaut-nav`).
  */
-export const headerNavClass = "umlaut flex min-h-10 items-center py-2 label-nav text-foreground";
+export const headerNavClass = "umlaut umlaut-nav flex min-h-10 items-center py-2 label-nav text-foreground";
 
-/** The header's outlined nav button ("For organisers", "Messages"): globals.css `nav-button`. */
+/** The header's outlined nav button ("For organisers"): globals.css `nav-button`. */
 const headerButtonClass = "umlaut nav-button";
 
 /** A row in the phone menu's account list: 48px. */
@@ -51,8 +51,8 @@ function initialFor(email: string | undefined): string {
 /**
  * The right of the desktop header (the rules' Navigation board). Signed out (and in the demo,
  * where accounts aren't configured): Sign in, then the For organisers nav button. Signed in:
- * For organisers, Admin with what's waiting (admins only), the Messages button with its unread
- * count, and the avatar's initial, a link to /account (the avatar menu is Batch 2). Saved, Your
+ * For organisers, Admin with what's waiting (admins only), the Messages chip with its unread
+ * count, and the avatar (its initial and a caret), a link to /account (the avatar menu is Batch 2). Saved, Your
  * events and Sign out are on /account.
  */
 export function HeaderAccount() {
@@ -92,16 +92,19 @@ export function HeaderAccount() {
           <CountBadge count={adminWaiting} srText={`, ${adminWaiting} waiting`} dataAttribute="data-admin-badge" />
         </Link>
       )}
-      <Link href="/messages" aria-current={current("/messages")} className={headerButtonClass}>
+      {/* The rules' Messages chip: 32px, 14px, a muted outline, the count in orange. */}
+      <Link href="/messages" aria-current={current("/messages")} className="umlaut nav-chip">
         Messages
         <UnreadBadge count={unreadCount} tone="signal" />
       </Link>
+      {/* The avatar: a solid square with the initial and a caret (the avatar menu is Batch 2;
+          for now it's the link to /account). */}
       <Link
         href="/account"
         aria-label="Account"
         aria-current={current("/account")}
         data-header-avatar=""
-        className={`${headerButtonClass} size-10 justify-center px-0 font-semibold`}
+        className="umlaut nav-avatar"
       >
         {initial ? (
           <span aria-hidden="true">{initial}</span>
@@ -119,6 +122,9 @@ export function HeaderAccount() {
             <path d="M4 21a8 8 0 0 1 16 0" />
           </svg>
         )}
+        <svg aria-hidden="true" viewBox="0 0 12 12" fill="currentColor" className="size-3">
+          <path d="M2 4h8L6 9z" />
+        </svg>
       </Link>
     </>
   );
@@ -184,7 +190,7 @@ export function MenuAccount() {
             "Admin",
             <CountBadge count={adminWaiting} srText={`, ${adminWaiting} waiting`} dataAttribute="data-admin-badge" />,
           )}
-        {row("/messages", "Messages", <UnreadBadge count={unreadCount} />)}
+        {row("/messages", "Messages", <UnreadBadge count={unreadCount} tone="signal" />)}
         {row("/saved", "Saved")}
         {row("/dashboard", "Your events")}
         {row("/account", "Account")}
