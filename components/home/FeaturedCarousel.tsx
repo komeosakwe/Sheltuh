@@ -190,7 +190,7 @@ export default function FeaturedCarousel({
       {count > 1 && (
         <div
           data-carousel-controls=""
-          className="order-last mt-4 flex items-center justify-end gap-2 lg:absolute lg:right-8 lg:bottom-8 lg:z-10 lg:mt-0"
+          className="order-last mt-4 flex items-center justify-end gap-2 lg:absolute lg:right-6 lg:bottom-6 lg:z-10 lg:mt-0"
         >
           {/* From 1024px the dots sit on a white pill over the photo, so they read on any image. */}
           <ul className="mr-2 flex items-center lg:h-10 lg:rounded-control lg:bg-paper lg:px-2" aria-label="Slides">
@@ -257,7 +257,7 @@ export default function FeaturedCarousel({
               inert={i !== index}
               // 4:5 on phones, 16:9 from 640px, 5:2 from 1024px. The panel is in the flow, so a slide
               // whose words need more room (a long title at 320px) grows rather than cutting them off.
-              className="relative flex aspect-[4/5] w-full shrink-0 snap-start flex-col justify-end sm:aspect-video lg:aspect-[5/2]"
+              className="relative flex aspect-square w-full shrink-0 snap-start flex-col justify-end sm:aspect-[2/1] lg:aspect-[7/2]"
             >
               <div className="absolute inset-0 overflow-hidden rounded-card">
                 <EventArt
@@ -272,10 +272,10 @@ export default function FeaturedCarousel({
               <div
                 data-surface="ink"
                 data-slide-panel=""
-                className="relative m-4 rounded-card bg-background/90 p-4 sm:mr-auto sm:max-w-2xl md:m-6 md:p-6 lg:m-8 lg:max-w-xl lg:p-8 xl:max-w-2xl"
+                className="relative m-4 rounded-card bg-background/90 p-4 sm:mr-auto sm:max-w-2xl md:m-6 md:p-6 lg:max-w-xl xl:max-w-2xl"
               >
                 <p className="mono-s text-signal uppercase">{categoryLabel(event)}</p>
-                <h3 className="mt-2 line-clamp-3 font-display text-3xl leading-9 break-words uppercase md:display-m md:line-clamp-2">
+                <h3 className="mt-2 line-clamp-2 font-display text-2xl leading-8 break-words uppercase md:text-4xl md:leading-10">
                   {event.title}
                 </h3>
                 <p className="mono-s mt-3 uppercase">{slideFacts(event, now)}</p>

@@ -92,7 +92,7 @@ describe("the home's event sections (redesign PR 3)", () => {
     loadHomeEvents.mockReturnValue(new Promise(() => {}));
     const { container } = renderHome();
     expect(pageStatus()).toHaveTextContent("Loading events…");
-    expect(container.querySelector("[data-home-loading][aria-hidden='true']")).toHaveClass("aspect-[4/5]", "sm:aspect-video", "lg:aspect-[5/2]");
+    expect(container.querySelector("[data-home-loading][aria-hidden='true']")).toHaveClass("aspect-square", "sm:aspect-[2/1]", "lg:aspect-[7/2]");
     const grid = container.querySelector("[data-home-grid-loading][aria-hidden='true']");
     expect(grid?.querySelectorAll(".aspect-\\[4\\/3\\]")).toHaveLength(4);
     expect(screen.getByRole("group", { name: "Browse by category" })).toBeInTheDocument();

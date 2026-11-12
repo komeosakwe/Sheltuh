@@ -4,7 +4,7 @@ import HeroBadge from "./HeroBadge";
 import { HOME_LEDE, HOME_TITLE, HOME_TITLE_LINES } from "./home-content";
 
 /**
- * The home's hero (the proposal, redesign PR 3): one row from 1280px, as drawn (the h1 at 96px there). The round
+ * The home's hero (the proposal, redesign PR 3): one row from 1280px, as drawn (the h1 at 56px: the owner asked for a home that shows more on first open, Nov 2026). The round
  * "Melbourne · Naarm · Curated" badge (from 1024px; it turns slowly, and can be paused), the h1
  * FIND YOÜR / NEXT THING. in Display (Bootzy; the Ü through BrandU, read "Find your next
  * thing."), the one-line lede "Curated creative events. See who's going." under it, and the
@@ -18,9 +18,9 @@ export default function HomeHero() {
   return (
     <section aria-labelledby="home-title" className="xl:flex xl:items-center xl:justify-between xl:gap-8">
       <div className="flex items-center gap-8">
-        <HeroBadge className="hidden size-28 shrink-0 lg:flex" />
+        <HeroBadge className="hidden size-20 shrink-0 lg:flex" />
         <div className="min-w-0">
-          <h1 id="home-title" className="display-m lg:display-l xl:display-xl">
+          <h1 id="home-title" className="text-[2rem] leading-9 font-display uppercase md:display-m">
             <BrandU spoken={HOME_TITLE}>
               <span className="lg:block">{first}</span> <span className="lg:block">{second}</span>
             </BrandU>
@@ -30,7 +30,7 @@ export default function HomeHero() {
           </p>
         </div>
       </div>
-      <div className="mt-6 md:mt-8 lg:max-w-2xl xl:mt-0 xl:w-full xl:max-w-xl">
+      <div className="mt-4 md:mt-6 lg:max-w-2xl xl:mt-0 xl:w-full xl:max-w-xl">
         <SearchBar />
       </div>
     </section>

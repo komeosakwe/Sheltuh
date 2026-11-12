@@ -266,12 +266,12 @@ test.describe("the featured carousel at 1280px", () => {
   });
 });
 
-// UX review (blocking): below 640px the slide is 4:5 and grows to fit its panel, so nothing is cut off.
+// UX review (blocking): below 640px the slide is square (was 4:5; the owner asked for a home that shows more, Nov 2026) and grows to fit its panel, so nothing is cut off.
 for (const width of [320, 390]) {
   test.describe(`the featured carousel at ${width}px`, () => {
     test.use({ viewport: { width, height: 844 } });
 
-    test("the slide's panel (eyebrow to Details) is wholly inside the slide, and the slide is at least 4:5", async ({ page }) => {
+    test("the slide's panel (eyebrow to Details) is wholly inside the slide, and the slide is at least square", async ({ page }) => {
       await openHome(page, { trending: true });
       const slide = page.locator("[data-featured-carousel] [data-slide][data-current]");
       const [box, panel, eyebrow, details] = await Promise.all([
@@ -281,7 +281,7 @@ for (const width of [320, 390]) {
         slide.getByRole("link", { name: /^Details: / }).boundingBox(),
       ]);
       if (!box || !panel || !eyebrow || !details) throw new Error("slide not laid out");
-      expect(box.height).toBeGreaterThanOrEqual(box.width * 1.25 - 1);
+      expect(box.height).toBeGreaterThanOrEqual(box.width - 1);
       expect(panel.y).toBeGreaterThanOrEqual(box.y);
       expect(eyebrow.y).toBeGreaterThanOrEqual(box.y);
       expect(details.y + details.height).toBeLessThanOrEqual(box.y + box.height);

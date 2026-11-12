@@ -36,7 +36,7 @@ describe("HomeHero (the proposal, redesign PR 3)", () => {
     render(<HomeHero />);
     const h1 = screen.getByRole("heading", { level: 1 });
     expect(h1).toHaveAccessibleName("Find your next thing.");
-    expect(h1).toHaveClass("display-m", "lg:display-l");
+    expect(h1).toHaveClass("font-display", "uppercase", "text-[2rem]", "md:display-m");
     const shown = h1.querySelector('[aria-hidden="true"]') as HTMLElement;
     expect(Array.from(shown.children).map((line) => line.textContent)).toEqual(["Find yoür", "next thing."]);
     for (const line of shown.children) expect(line).toHaveClass("lg:block");
@@ -85,7 +85,7 @@ describe("HomeHero (the proposal, redesign PR 3)", () => {
     stubMotion(false);
     const { container } = render(<HomeHero />);
     const badge = container.querySelector("[data-hero-badge]");
-    expect(badge).toHaveClass("hidden", "lg:flex", "size-28");
+    expect(badge).toHaveClass("hidden", "lg:flex", "size-20");
     const h1 = screen.getByRole("heading", { level: 1 });
     expect((badge?.compareDocumentPosition(h1) ?? 0) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const search = screen.getByRole("search", { name: "Search events" });

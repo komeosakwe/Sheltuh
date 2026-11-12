@@ -97,7 +97,7 @@ export default function HomeEventSections() {
         {announceLoading ? "Loading events…" : ""}
       </p>
 
-      {loading && <div aria-hidden="true" data-home-loading="" className="mt-8 aspect-[4/5] rounded-card bg-surface sm:aspect-video lg:mt-12 lg:aspect-[5/2]" />}
+      {loading && <div aria-hidden="true" data-home-loading="" className="mt-6 aspect-square rounded-card bg-surface sm:aspect-[2/1] lg:mt-8 lg:aspect-[7/2]" />}
 
       {state.status === "error" && (
         <div className="mt-8 rounded-card bg-surface p-4 sm:p-8">
@@ -113,11 +113,11 @@ export default function HomeEventSections() {
       {sections && !anyUpcoming && <HomeEmpty />}
 
       {sections?.popular && ready && (
-        <FeaturedCarousel id="home-featured" title={popularTitle(sections.popular)} events={popularEvents(sections.popular)} now={ready.now} className="mt-8 lg:mt-12" />
+        <FeaturedCarousel id="home-featured" title={popularTitle(sections.popular)} events={popularEvents(sections.popular)} now={ready.now} className="mt-6 lg:mt-8" />
       )}
 
       {(loading || anyUpcoming) && (
-        <CategoryRow filters={filters} onChange={setFilters} controls={HOME_ALL_EVENTS_ID} className="mt-8 lg:mt-12" />
+        <CategoryRow filters={filters} onChange={setFilters} controls={HOME_ALL_EVENTS_ID} className="mt-6 lg:mt-8" />
       )}
 
       {loading && (

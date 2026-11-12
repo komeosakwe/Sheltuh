@@ -20,7 +20,7 @@ const SECTION_GAP = "mt-16 md:mt-24";
 export default function Home() {
   return (
     <HomeEventsProvider>
-      <div className="page-container pt-8 md:pt-12">
+      <div className="page-container pt-6 md:pt-8">
         <HomeHero />
       </div>
       <HomeEventSections />

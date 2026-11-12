@@ -217,7 +217,7 @@ describe("FeaturedCarousel", () => {
     stubMotion(true);
     const { container } = renderCarousel();
     const controls = container.querySelector("[data-carousel-controls]");
-    expect(controls).toHaveClass("order-last", "mt-4", "lg:absolute", "lg:right-8", "lg:bottom-8");
+    expect(controls).toHaveClass("order-last", "mt-4", "lg:absolute", "lg:right-6", "lg:bottom-6");
     // Before the slides in reading and Tab order (the WAI carousel pattern).
     expect((controls?.compareDocumentPosition(track()) ?? 0) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     for (const name of ["Pause carousel", "Previous slide", "Next slide"]) {
@@ -227,15 +227,16 @@ describe("FeaturedCarousel", () => {
     for (const dot of within(screen.getByRole("list", { name: "Slides" })).getAllByRole("button")) expect(dot).toHaveClass("size-6");
   });
 
-  it("a slide is 4:5 on phones, 16:9 from 640px and 5:2 from 1024px, with its panel in the flow (so long words grow it rather than being cut off)", () => {
+  it("a slide is square on phones, 2:1 from 640px and 7:2 from 1024px (the owner: show more on first open), with its panel in the flow (so long words grow it rather than being cut off)", () => {
     renderCarousel();
     const slide = slides()[0];
-    expect(slide).toHaveClass("aspect-[4/5]", "sm:aspect-video", "lg:aspect-[5/2]", "flex", "flex-col", "justify-end");
+    expect(slide).toHaveClass("aspect-square", "sm:aspect-[2/1]", "lg:aspect-[7/2]", "flex", "flex-col", "justify-end");
     // Nothing clips the slide itself: only the photo's own box does.
     expect(slide).not.toHaveClass("overflow-hidden");
     const panel = slide.querySelector("[data-slide-panel]");
     expect(panel).not.toHaveClass("absolute");
-    expect(panel).toHaveClass("lg:p-8");
+    expect(panel).toHaveClass("md:p-6");
+    expect(panel).not.toHaveClass("lg:p-8");
     expect(slide.querySelector(".absolute.inset-0.overflow-hidden img, .absolute.inset-0.overflow-hidden svg")).not.toBeNull();
   });
 
