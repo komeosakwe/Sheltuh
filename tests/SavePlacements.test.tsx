@@ -56,8 +56,8 @@ function withHearts(children: ReactNode) {
 const heartFor = (event: SheltuhEvent) => screen.getByRole("button", { name: `Save ${event.title}` });
 
 describe("heart placements", () => {
-  it.each(["grid"] as const)("EventCard %s: a sibling of the link (never inside it), right after it in tab order", (variant) => {
-    const { container } = withHearts(<EventCard event={EVENT} variant={variant} />);
+  it("EventCard: a sibling of the link (never inside it), right after it in tab order", () => {
+    const { container } = withHearts(<EventCard event={EVENT} />);
     // The card's one link, to its event (the heart is beside it, never inside it).
     const link = screen.getAllByRole("link").find((a) => a.getAttribute("href") === `/events/${EVENT.slug}`);
     if (!link) throw new Error("no main link");
@@ -70,12 +70,12 @@ describe("heart placements", () => {
   });
 
   it("EventCard: showSave={false} leaves the heart off", () => {
-    withHearts(<EventCard event={EVENT} variant="grid" showSave={false} />);
+    withHearts(<EventCard event={EVENT} showSave={false} />);
     expect(screen.queryByRole("button")).toBeNull();
   });
 
-  it.each(["grid"] as const)("EventCard %s: the overlay heart, above the card's stretched link", (variant) => {
-    withHearts(<EventCard event={EVENT} variant={variant} />);
+  it("EventCard: the overlay heart, above the card's stretched link", () => {
+    withHearts(<EventCard event={EVENT} />);
     const heart = heartFor(EVENT);
     expect(heart).toHaveAttribute("data-save-variant", "overlay");
     expect(heart).toHaveClass("z-10");

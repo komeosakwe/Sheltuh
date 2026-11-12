@@ -192,7 +192,7 @@ export default function HomeAllEvents({
         <ul ref={listRef} aria-labelledby={titleId} className={`mt-8 ${HOME_GRID}`}>
           {visible.map((event) => (
             <li key={event.id} className="flex min-w-0">
-              <EventCard event={event} variant="grid" mode={mode} signal={signals[event.id]} now={now} />
+              <EventCard event={event} mode={mode} signal={signals[event.id]} now={now} />
             </li>
           ))}
         </ul>

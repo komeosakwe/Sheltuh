@@ -44,8 +44,8 @@ function expectSoldOutCard() {
 describe("sold-out cards (brand-direction-one.md §6.5; the rules' Cards board)", () => {
   // The redesign's card (the rules: Sold out = the "Sold out" tag and the image at 60%) has no ticket
   // button, so no "Join waitlist" on it: the event page's waitlist is one tap away.
-  it.each(["grid"] as const)("EventCard %s: the 'Sold out' tag in words, the image at 60%%, no price label", (variant) => {
-    const { container } = render(<EventCard event={soldOut} variant={variant} showSave={false} />);
+  it("EventCard: the 'Sold out' tag in words, the image at 60%, no price label", () => {
+    const { container } = render(<EventCard event={soldOut} showSave={false} />);
     const tag = screen.getByText("Sold out").closest("[data-tag]");
     expect(tag).toHaveAttribute("data-tag", "neutral");
     expect(container.querySelector("[data-card-media] > *")).toHaveClass("opacity-60");
@@ -69,7 +69,7 @@ describe("sold-out cards (brand-direction-one.md §6.5; the rules' Cards board)"
   });
 
   it("no badge on the media (no colour-only signal): the art and the decorative date chip; the category and Sold out are tags below", () => {
-    const { container } = render(<EventCard event={soldOut} variant="grid" showSave={false} />);
+    const { container } = render(<EventCard event={soldOut} showSave={false} />);
     const media = container.querySelector("[data-card-media]");
     expect(media?.children).toHaveLength(2);
     for (const child of media?.children ?? []) expect(child).toHaveAttribute("aria-hidden", "true");
@@ -79,7 +79,7 @@ describe("sold-out cards (brand-direction-one.md §6.5; the rules' Cards board)"
 
   it("an ended sold-out event has no Join waitlist: its price line says Ended (§6.2.3 row 1)", () => {
     vi.setSystemTime(new Date("2026-12-01T00:00:00.000Z"));
-    render(<EventCard event={soldOut} variant="grid" showSave={false} />);
+    render(<EventCard event={soldOut} showSave={false} />);
     expect(screen.getByText("Ended")).toBeInTheDocument();
     expect(screen.queryByText("Sold out")).toBeNull();
     expect(screen.queryByRole("link", { name: /Join waitlist/ })).toBeNull();
@@ -93,7 +93,7 @@ describe("sold-out cards (brand-direction-one.md §6.5; the rules' Cards board)"
       externalTicketUrl: "https://events.humanitix.com/x",
       externalProvider: "Humanitix",
     };
-    render(<EventCard event={external} variant="grid" showSave={false} />);
+    render(<EventCard event={external} showSave={false} />);
     expect(screen.queryByText("Sold out")).toBeNull();
     // The price label reads "Buy tickets" (the card has no button of its own); it never names the site.
     expect(screen.getAllByText("Buy tickets")).toHaveLength(1);

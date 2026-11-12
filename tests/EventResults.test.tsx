@@ -48,11 +48,9 @@ describe("EventResults (the rules' Layout board: one grid of event cards)", () =
     expect(list.querySelector("[data-reveal]")).toBeNull();
   });
 
-  it("uses the one card, its grid variant", () => {
+  it("uses the one card", () => {
     const { container } = render(<EventResults events={events(2)} />);
-    const cards = container.querySelectorAll("[data-event-card]");
-    expect(cards).toHaveLength(2);
-    for (const card of cards) expect(card).toHaveAttribute("data-variant", "grid");
+    expect(container.querySelectorAll("[data-event-card]")).toHaveLength(2);
   });
 
   // The redesign's card has no ticket button: the card opens the event, and its price is an orange label.

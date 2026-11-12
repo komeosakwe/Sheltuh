@@ -66,7 +66,7 @@ function summaryTotal(): string {
 
 /** The bar's amount, the first line of its text. */
 function barAmount(): string {
-  return bar().querySelector("p")?.textContent ?? "";
+  return bar().querySelector("[data-bar-amount]")?.textContent ?? "";
 }
 
 const more = (name: string) => screen.getByRole("button", { name: `Increase quantity for ${name}` });
@@ -337,8 +337,8 @@ describe("release cards and the one quantity stepper below them (owner's mockup,
     );
     const cards = screen.getAllByRole("listitem").filter((li) => li.hasAttribute("data-ticket-card"));
     expect(cards).toHaveLength(3);
-    expect(within(cards[0]).getByText("Sold out")).toHaveClass("rounded-full");
-    expect(within(cards[1]).getByText("Available")).toHaveClass("rounded-full", "text-signal-ink");
+    expect(within(cards[0]).getByText("Sold out")).toHaveClass("rounded-badge");
+    expect(within(cards[1]).getByText("Available")).toHaveClass("rounded-badge", "text-foreground");
     // A tier waiting on the one above shows its words, not Available.
     expect(within(cards[2]).queryByText("Available")).toBeNull();
     expect(within(cards[2]).getByText("Opens after Second release")).toBeInTheDocument();
@@ -366,7 +366,7 @@ describe("release cards and the one quantity stepper below them (owner's mockup,
     expect(barAmount()).toBe(summaryTotal());
     const cardOf = (name: string) =>
       [...document.querySelectorAll<HTMLElement>("[data-ticket-card]")].find((li) => within(li).queryByText(name)) as HTMLElement;
-    expect(cardOf("General admission")).toHaveClass("border-signal", "bg-tint");
+    expect(cardOf("General admission")).toHaveClass("border-signal", "bg-hover");
     // The stepper's card is marked apart from the chosen ones: aria-current for assistive tech, words for everyone.
     const vip = cardOf("VIP (side-of-stage viewing)");
     expect(vip.querySelector("button")).toHaveAttribute("aria-current", "true");
@@ -504,14 +504,14 @@ describe("the bar's registration and what its note says", () => {
     const { rerender } = render(
       <BuyBarProvider>
         <TicketSelector event={event} />
-        <GaBuyBar price={{ amount: "From A$32.30", note: "incl. booking fee" }} label="Buy tickets" className="flex" />
+        <GaBuyBar price={{ amount: "From A$32.30", note: "incl. booking fee" }} label="Buy tickets" dateLine="Fri 25 Sept · 8:00 pm" className="flex" />
       </BuyBarProvider>,
     );
     fireEvent.click(more("General admission"));
     expect(within(bar()).getByRole("button", { name: "Buy tickets" })).toBeInTheDocument();
     rerender(
       <BuyBarProvider>
-        <GaBuyBar price={{ amount: "From A$32.30", note: "incl. booking fee" }} label="Buy tickets" className="flex" />
+        <GaBuyBar price={{ amount: "From A$32.30", note: "incl. booking fee" }} label="Buy tickets" dateLine="Fri 25 Sept · 8:00 pm" className="flex" />
       </BuyBarProvider>,
     );
     expect(within(bar()).queryByRole("button")).toBeNull();

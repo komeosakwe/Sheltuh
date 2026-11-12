@@ -124,7 +124,7 @@ export default function HomeEventSections() {
           <div className="mb-8 h-10 w-56 max-w-full rounded-badge bg-surface" />
           <div className={HOME_GRID}>
             {Array.from({ length: 4 }, (_, i) => (
-              <EventCardPlaceholder key={i} variant="grid" className={i > 0 ? "max-sm:hidden" : ""} />
+              <EventCardPlaceholder key={i} className={i > 0 ? "max-sm:hidden" : ""} />
             ))}
           </div>
         </div>
@@ -144,7 +144,6 @@ export default function HomeEventSections() {
               <li key={event.id} className={ROW_ITEM}>
                 <EventCard
                   event={event}
-                  variant="grid"
                   mode={mode}
                   signal={count === undefined ? undefined : { kind: "going", count }}
                   now={ready.now}
@@ -160,7 +159,7 @@ export default function HomeEventSections() {
         <CardRowSection id="home-following" title="From organisers you follow" link={{ href: "/following", label: "See all", srLabel: "organisers you follow" }}>
           {sections.following.filter(pass).map((event) => (
             <li key={event.id} className={ROW_ITEM}>
-              <EventCard event={event} variant="grid" mode={mode} signal={signals[event.id]} now={ready.now} />
+              <EventCard event={event} mode={mode} signal={signals[event.id]} now={ready.now} />
             </li>
           ))}
         </CardRowSection>

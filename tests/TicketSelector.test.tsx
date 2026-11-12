@@ -501,19 +501,21 @@ describe("TicketSelector pricing (ACCC all-inclusive, brand-direction-one.md §6
     expect(within(freeRow).getByText("Free")).toBeInTheDocument();
   });
 
-  it("makes the order total the largest number, in a peach box, with two-decimal figures, and Checkout orange with a lock", () => {
+  it("makes the order total the largest number, in a grey box, with two-decimal figures, and Checkout orange with a lock", () => {
     render(<TicketSelector event={live("neon-static")} />);
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
     const totalTerm = screen.getByText("Total");
     const totalValue = totalTerm.nextElementSibling;
     expect(totalValue).toHaveTextContent("A$32.30");
     expect(totalValue).toHaveClass("text-2xl", "font-bold");
-    expect(totalTerm.parentElement).toHaveClass("bg-tint", "rounded-card");
+    expect(totalTerm.parentElement).toHaveClass("bg-surface", "rounded-card");
     expect(screen.getByText("Tickets").nextElementSibling).toHaveTextContent("A$30.00");
     expect(screen.getByText("Booking fees").nextElementSibling).toHaveTextContent("A$2.30");
     const checkout = screen.getByRole("button", { name: "Checkout" });
-    // The owner's mockup (6 Nov 2026): orange, 12px, large label, a lock; no phone class means it shows at every width here.
-    expect(checkout).toHaveClass("btn-signal", "btn-lg", "rounded-card", "text-xl");
+    // The rules' Primary at size L: orange with its black label and radius 8 (no white label, no 16px corners), a lock;
+    // no phone class means it shows at every width here.
+    expect(checkout).toHaveClass("btn-signal", "btn-lg");
+    expect(checkout.className).not.toMatch(/rounded-card|text-paper/);
     expect(checkout.querySelector("svg")).not.toBeNull();
   });
 

@@ -6,8 +6,8 @@ import { weekendWindow } from "@/lib/home-sections";
 /**
  * In a real browser (live mode, every /api/* answered here): the home's This weekend (redesign PR 3:
  * the one EventCard, a sideways row on phones and a grid from 640px, the going count from trending)
- * and the event page's Who's going? card (the count, three faces and "+N", View attendees to the
- * panel). Events are re-timed into this weekend's window whatever day the suite runs.
+ * and the event page's Who's going row (redesign PR 4: the count, up to five faces, View attendees to
+ * the panel). Events are re-timed into this weekend's window whatever day the suite runs.
  */
 
 const HOUR = 3600_000;
@@ -252,32 +252,34 @@ for (const [width, cardWidth] of [
 test.describe("Who's going? on the event page at 390×844", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test("signed in: the count, three faces and +N between Save/Share and the tickets; View attendees goes to the panel", async ({ page }) => {
+  test("signed in: the count and the faces after Save/Share (before the tickets); View attendees goes to the panel", async ({ page }) => {
     await signedIn(page);
     await mockApi(page);
     await page.goto("/events/here-and-now");
     const card = page.getByRole("region", { name: "Who’s going?" });
     await expect(card).toBeVisible({ timeout: 30_000 });
-    await expect(card.getByRole("heading", { level: 2 })).toHaveText("Who’s going?");
-    await expect(card).toContainText("42 people are going");
-    await expect(card.locator("[data-going-face]")).toHaveCount(3);
-    await expect(card.locator("[data-going-rest]")).toHaveText("+39");
+    // Named for screen readers by an aria-label (no extra heading); the row leads with the count (the redesign's event mock).
+    await expect(card).toHaveAttribute("aria-label", "Who’s going?");
+    await expect(card.getByRole("heading")).toHaveCount(0);
+    await expect(card).toContainText("42 going");
+    await expect(card).toContainText("Ticket holders opt in");
+    // All four names this member was sent (up to five are drawn), and no "+N".
+    await expect(card.locator("[data-going-face]")).toHaveCount(4);
+    await expect(card.locator("[data-going-rest]")).toHaveCount(0);
     // A face with a visible profile links to it.
     await expect(card.getByRole("link", { name: "Kofi A.’s profile" })).toHaveAttribute("href", "/members/p1");
 
-    // Between the actions row and the tickets, 16px from each (owner's mockup).
-    const actions = await page.locator("[data-event-actions]").boundingBox();
+    // Below lg, under Save and Share (16px), so they stay above the bar, and inside the page's 16px margins.
     const box = await card.boundingBox();
-    const tickets = await page.locator("#tickets").boundingBox();
-    if (!actions || !box || !tickets) throw new Error("not laid out");
+    const actions = await page.locator("[data-event-actions]").boundingBox();
+    if (!box || !actions) throw new Error("not laid out");
     expect(Math.round(box.y - (actions.y + actions.height))).toBe(16);
-    expect(Math.round(tickets.y - (box.y + box.height))).toBe(16);
     expect(Math.round(box.x)).toBe(16);
     expect(Math.round(box.width)).toBe(358);
 
     const view = card.getByRole("link", { name: "View attendees for Here & Now" });
     const target = await view.boundingBox();
-    expect(target?.height ?? 0).toBeGreaterThanOrEqual(44);
+    expect(target?.height ?? 0).toBeGreaterThanOrEqual(48);
     await view.focus();
     expect(await view.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe("solid");
     await page.keyboard.press("Enter");
@@ -292,7 +294,7 @@ test.describe("Who's going? on the event page at 390×844", () => {
     await page.goto("/events/here-and-now");
     const card = page.getByRole("region", { name: "Who’s going?" });
     await expect(card).toBeVisible({ timeout: 30_000 });
-    await expect(card).toContainText("42 people are going");
+    await expect(card).toContainText("42 going");
     await expect(card.locator("[data-going-faces]")).toHaveCount(0);
     await expect(card.locator("[data-going-rest]")).toHaveCount(0);
 

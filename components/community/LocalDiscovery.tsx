@@ -47,7 +47,7 @@ export default function LocalDiscovery({ className = "" }: { className?: string 
       {state.status === "loading" && (
         <div aria-hidden="true" className="mt-6 flex gap-6 overflow-hidden">
           {Array.from({ length: 3 }, (_, i) => (
-            <EventCardPlaceholder key={i} variant="grid" className="w-64 shrink-0" />
+            <EventCardPlaceholder key={i} className="w-64 shrink-0" />
           ))}
         </div>
       )}
@@ -73,7 +73,7 @@ export default function LocalDiscovery({ className = "" }: { className?: string 
           >
             {events.map((event) => (
               <li key={event.id} className="flex w-64 shrink-0 snap-start">
-                <EventCard event={event} variant="grid" mode={mode} now={state.now} />
+                <EventCard event={event} mode={mode} now={state.now} />
               </li>
             ))}
           </ul>

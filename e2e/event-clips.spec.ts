@@ -217,13 +217,15 @@ test.describe("at 375×667", () => {
     const playBox = await play.boundingBox();
     expect(titleBox && playBox).toBeTruthy();
     if (!titleBox || !playBox) return;
-    // Lined up with the page's 20px text edge, 44px tall.
-    expect(Math.abs(playBox.x - titleBox.x)).toBeLessThanOrEqual(1);
-    expect(playBox.height).toBeGreaterThanOrEqual(44);
-    // The photo is still full-bleed (375 wide), and the title still on the first screen.
+    // The photo sits in the page's 16px margins (the redesign's event mock), lined up with the title; Play is 8px
+    // inside its bottom-left corner (as on the cards), 44px tall, and the title is still on the first screen.
     const art = await page.locator("[data-clip-play]").locator("xpath=..").locator("[aria-hidden='true']").first().boundingBox();
-    expect(art?.width).toBe(375);
-    expect(art?.x).toBe(0);
+    if (!art) throw new Error("no photo");
+    expect(art.width).toBe(375 - 32);
+    expect(Math.abs(art.x - titleBox.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(playBox.x - (art.x + 8))).toBeLessThanOrEqual(1);
+    expect(Math.abs(art.y + art.height - (playBox.y + playBox.height) - 8)).toBeLessThanOrEqual(1);
+    expect(playBox.height).toBeGreaterThanOrEqual(44);
     expect(titleBox.y + titleBox.height).toBeLessThan(667);
     expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
     expect(clipRequests).toEqual([]);

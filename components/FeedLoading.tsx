@@ -13,14 +13,14 @@ export default function FeedLoading({ percent, done }: { percent: number; done: 
     <div className="flex flex-col gap-6">
       <ProgressLoader percent={percent} done={done} label="Loading events" />
       <div aria-hidden="true" className={RESULTS_GRID}>
-        <EventCardPlaceholder variant="grid" />
-        <EventCardPlaceholder variant="grid" />
+        <EventCardPlaceholder />
+        <EventCardPlaceholder />
         {/* A whole first row: two columns, four from 1024px. */}
         <div className="hidden lg:block">
-          <EventCardPlaceholder variant="grid" />
+          <EventCardPlaceholder />
         </div>
         <div className="hidden lg:block">
-          <EventCardPlaceholder variant="grid" />
+          <EventCardPlaceholder />
         </div>
       </div>
     </div>

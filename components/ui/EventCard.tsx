@@ -11,13 +11,6 @@ import { cardGoing, cardGoingFaces, cardMetaParts, cardState, categoryLabel, sig
 import type { TrendingSignal } from "@/lib/home-sections";
 import type { SheltuhEvent } from "@/lib/types";
 
-/**
- * The card's one layout: it fills its column (a grid cell, or a set-width cell in a sideways row).
- * The rails' fixed-width variant went with the rails (redesign PR 3); the prop stays so callers
- * say what they render.
- */
-export type EventCardVariant = "grid";
-
 /** The image box: 4:3 at every width, radius 16 (the rules' card anatomy). */
 const MEDIA = "aspect-[4/3]";
 
@@ -79,7 +72,6 @@ function MetaLine({ parts }: { parts: string[] }) {
  */
 export default function EventCard({
   event,
-  variant,
   mode = isApiConfigured ? "live" : "demo",
   signal,
   showSave = true,
@@ -88,7 +80,6 @@ export default function EventCard({
   className = "",
 }: {
   event: SheltuhEvent;
-  variant: EventCardVariant;
   mode?: "demo" | "live";
   signal?: TrendingSignal;
   showSave?: boolean;
@@ -111,7 +102,6 @@ export default function EventCard({
   return (
     <div
       data-event-card=""
-      data-variant={variant}
       data-card-state={state}
       className={`group/card @container relative isolate flex w-full min-w-0 flex-col ${className}`.trim()}
     >
@@ -189,7 +179,7 @@ export default function EventCard({
 }
 
 /** A card's shape while events load (the rules: image + 3 bars, surface/muted). No shimmer. */
-export function EventCardPlaceholder({ className = "" }: { variant?: EventCardVariant; className?: string }) {
+export function EventCardPlaceholder({ className = "" }: { className?: string }) {
   return (
     <div aria-hidden="true" className={`flex w-full flex-col ${className}`.trim()}>
       <div className={`${MEDIA} rounded-card bg-surface`} />
