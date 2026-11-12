@@ -78,6 +78,11 @@ describe("/login (the sign-in mock)", () => {
     expect(screen.getByLabelText("Email")).toHaveAttribute("placeholder", "you@example.com");
   });
 
+  it("the h1 is heading-xl (40/48, 56/64 from 1024px)", async () => {
+    await renderLogin();
+    expect(screen.getByRole("heading", { level: 1 })).toHaveClass("heading-xl");
+  });
+
   it("Continue is the page's one orange action, its arrow decorative", async () => {
     const { container } = await renderLogin();
     const submit = screen.getByRole("button", { name: "Continue" });
@@ -94,13 +99,15 @@ describe("/login (the sign-in mock)", () => {
     expect(container.querySelector("img")).toHaveAttribute("alt", "");
   });
 
-  it("in the demo: no buttons, the email form's own notice and privacy line, and the links", async () => {
+  it("in the demo: no buttons, the email form's own notice and privacy line, Find my tickets but no Create an account", async () => {
     await renderLogin({ auth: { configured: false } });
     expect(screen.getByRole("alert")).toHaveTextContent("Accounts aren’t configured in this environment yet.");
     expect(screen.queryByRole("button", { name: /Continue with/ })).toBeNull();
     expect(screen.queryByText("Or continue with")).toBeNull();
     expect(screen.getAllByRole("link", { name: "Privacy Policy" })).toHaveLength(1);
-    expect(screen.getByRole("link", { name: "Create an account" })).toHaveAttribute("href", "/signup");
+    // No accounts in the demo: nothing to create, but tickets can still be found.
+    expect(screen.queryByRole("link", { name: "Create an account" })).toBeNull();
+    expect(screen.queryByText(/New here\?/)).toBeNull();
     expect(screen.getByRole("link", { name: "Find my tickets" })).toBeInTheDocument();
   });
 });
@@ -121,6 +128,18 @@ describe("the other account pages share the frame", () => {
     expect(screen.getByRole("heading", { level: 1, name: title })).toBeInTheDocument();
     expect(screen.getByText("Account")).toBeInTheDocument();
     expect(photoSrc(container)).toContain(AUTH_PHOTO);
+  });
+
+  it("/signup's Sign up is the same orange M button as /login's Continue", async () => {
+    vi.stubEnv("NEXT_PUBLIC_AUTH_PROVIDERS", "");
+    render(
+      <FakeAuthProvider value={fakeAuthValue(signedOut)}>
+        {await SignupPage({ searchParams: Promise.resolve({}) } as PageProps<"/signup">)}
+      </FakeAuthProvider>,
+    );
+    const submit = screen.getByRole("button", { name: "Sign up" });
+    expect(submit).toHaveClass("btn", "btn-signal");
+    expect(submit).not.toHaveClass("btn-lg");
   });
 });
 

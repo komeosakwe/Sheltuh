@@ -21,15 +21,15 @@ const ACCENT_TEXT = "text-muted dark:text-signal";
 /** Create, Reach and Grow: three cards under the hero, stacked on phones, a row from 768px. */
 export function OrganiserPillars({ className = "" }: { className?: string }) {
   return (
-    <ul className={`grid gap-4 md:grid-cols-3 md:gap-6 ${className}`.trim()}>
+    <ul className={`grid gap-4 md:grid-cols-3 ${className}`.trim()}>
       {ORGANISER_PILLARS.map((pillar) => (
-        <li key={pillar.title} className="flex flex-col rounded-card border border-surface-border p-6">
-          <span className="grid size-12 place-items-center rounded-control bg-hover">
+        <li key={pillar.title} className="flex flex-col rounded-card border border-surface-border p-8">
+          <span className="grid size-16 place-items-center rounded-control bg-hover">
             <OrganiserPillarIcon name={pillar.icon} />
           </span>
-          <h2 className="mt-6 heading-h3">{pillar.title}</h2>
+          <h2 className="mt-6 heading-h2">{pillar.title}</h2>
           <p className={`mt-2 eyebrow ${ACCENT_TEXT}`}>{pillar.strap}</p>
-          <p className="mt-4 body-s text-muted">{pillar.body}</p>
+          <p className="mt-4 body-m text-muted">{pillar.body}</p>
         </li>
       ))}
     </ul>
@@ -41,7 +41,7 @@ export function PublishSteps({ className = "" }: { className?: string }) {
   return (
     <section id={HOW_IT_WORKS_ID} aria-labelledby="how-it-works-title" className={className}>
       <Strap label={STEPS_EYEBROW} rule={false} />
-      <h2 id="how-it-works-title" className="mt-4 heading-h1 text-balance">
+      <h2 id="how-it-works-title" className="mt-4 heading-xl text-balance">
         {STEPS_TITLE}
       </h2>
       <ol className="mt-8 grid gap-8 sm:grid-cols-2 sm:gap-x-6 lg:mt-12 lg:grid-cols-4">
@@ -50,8 +50,8 @@ export function PublishSteps({ className = "" }: { className?: string }) {
             <span aria-hidden="true" className={`mono-s ${ACCENT_TEXT}`}>
               {String(i + 1).padStart(2, "0")}
             </span>
-            <h3 className="mt-4 heading-h4">{step.title}</h3>
-            <p className="mt-2 body-s text-muted">{step.body}</p>
+            <h3 className="mt-4 heading-h3">{step.title}</h3>
+            <p className="mt-2 body-m text-muted">{step.body}</p>
           </li>
         ))}
       </ol>
@@ -68,20 +68,20 @@ export function WhySheltuh({ className = "" }: { className?: string }) {
     <section aria-labelledby="why-title" className={`lg:grid lg:grid-cols-12 lg:gap-8 ${className}`.trim()}>
       <div className="lg:col-span-5">
         <Strap label={WHY_EYEBROW} rule={false} />
-        <h2 id="why-title" className="mt-4 heading-h1 text-balance lg:max-w-sm">
+        <h2 id="why-title" className="mt-4 heading-xl text-balance">
           {WHY_TITLE}
         </h2>
         <p className="mt-8 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-6">
           {/* Orange at display size only (3.4:1 passes for large text). */}
-          <span className="shrink-0 font-heading text-5xl leading-14 text-signal">{WHY_STAT.figure}</span>{" "}
-          <span className="body-s font-medium text-muted sm:max-w-56">{WHY_STAT.caption}</span>
+          <span className="shrink-0 figure-xl text-signal">{WHY_STAT.figure}</span>{" "}
+          <span className="body-m font-medium text-muted sm:max-w-64">{WHY_STAT.caption}</span>
         </p>
       </div>
       <dl className="mt-12 border-b border-surface-border lg:col-span-7 lg:mt-0">
         {WHY_ROWS.map((row) => (
           <div key={row.title} className="grid gap-2 border-t border-surface-border py-6 sm:grid-cols-5 sm:gap-6">
-            <dt className="heading-h4 sm:col-span-2">{row.title}</dt>
-            <dd className="body-s text-muted sm:col-span-3">{row.body}</dd>
+            <dt className="heading-h3 sm:col-span-2">{row.title}</dt>
+            <dd className="body-m text-muted sm:col-span-3">{row.body}</dd>
           </div>
         ))}
       </dl>

@@ -15,7 +15,7 @@ export default function OrganisersPage() {
     <>
       <OrganisersHero />
       <div className="page-container pb-16 md:pb-24">
-        <OrganiserPillars className="mt-8 lg:mt-6" />
+        <OrganiserPillars className="mt-8 lg:mt-4" />
         <PublishSteps className="mt-16 lg:mt-24" />
         <WhySheltuh className="mt-16 lg:mt-24" />
         {/* --hover: cream on White, dark grey on Dark (the mock's panels); the orange dots stay above 3:1 on both. */}

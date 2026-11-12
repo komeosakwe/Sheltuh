@@ -13,11 +13,12 @@ import {
 
 /**
  * The For organisers hero (the owner's mock, redesign PR 6): a black panel with the eyebrow, the
- * h1 "Your event. Your community." (Instrument Sans, sentence case, as drawn), the lede, "Get
- * started" (the page's one orange action, to the Start organising panel) and "See how it works"
- * (to the four steps), and a licensed photo. Full width under the header on phones and tablets, a
- * rounded panel inside the page margins from 1024px. In Dark a 1px rule separates it from the
- * black page (the ink scope's own black background can't be re-filled by a utility). Plain in-page links, so the browser moves focus with the scroll.
+ * h1 "Your event. Your community." in Display (Bootzy, in capitals, as Community's h1), the lede,
+ * "Get started" (the page's one orange action, to the Start organising panel) and "See how it
+ * works" (to the four steps), and a licensed photo, inset 16px from the panel's right edge. Full
+ * width under the header on phones and tablets, a rounded panel inside the page margins from
+ * 1024px. In Dark the panel lifts off the black page (data-ink-lift, globals.css: the --hover
+ * fill). Plain in-page links, so the browser moves focus with the scroll.
  */
 export default function OrganisersHero() {
   const [first, second] = ORGANISERS_TITLE_LINES;
@@ -26,15 +27,13 @@ export default function OrganisersHero() {
       <section
         aria-labelledby="organisers-title"
         data-surface="ink"
-        className="overflow-hidden dark:border dark:border-surface-border lg:rounded-card"
+        data-ink-lift=""
+        className="overflow-hidden lg:rounded-card"
       >
-        <div className="px-4 py-12 md:px-8 md:py-16 lg:grid lg:grid-cols-2 lg:items-center lg:gap-12 lg:p-16">
+        <div className="px-4 py-12 md:px-8 md:py-16 lg:grid lg:grid-cols-2 lg:items-center lg:gap-12 lg:py-16 lg:pr-4 lg:pl-16">
           <div className="min-w-0">
             <Strap label={ORGANISERS_EYEBROW} rule={false} className="text-signal" />
-            <h1
-              id="organisers-title"
-              className="mt-6 font-heading text-5xl leading-14 text-balance md:text-7xl md:leading-20"
-            >
+            <h1 id="organisers-title" className="mt-6 display-l break-words">
               <span className="block">{first}</span> <span className="block">{second}</span>
             </h1>
             <p className="mt-6 body-l font-medium">{ORGANISERS_LEDE}</p>

@@ -43,7 +43,10 @@ describe("/organisers/apply (For organisers)", () => {
   it("is titled For organisers, with the mock's h1 and lede", () => {
     renderPage();
     expect(metadata.title).toBe("For organisers — Sheltüh");
-    expect(screen.getByRole("heading", { level: 1 })).toHaveAccessibleName("Your event. Your community.");
+    const h1 = screen.getByRole("heading", { level: 1 });
+    expect(h1).toHaveAccessibleName("Your event. Your community.");
+    // Display (Bootzy, in capitals by CSS), as Community's h1.
+    expect(h1).toHaveClass("display-l");
     expect(screen.getByText("Bring your creative events to the people who want to be there.")).toBeInTheDocument();
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
   });
@@ -169,5 +172,24 @@ describe("/organisers/apply (For organisers)", () => {
   it("the hero photo is in the licence register", () => {
     const register = readFileSync(path.resolve(import.meta.dirname, "../public/events/README.md"), "utf8");
     expect(register).toMatch(/`street-market\.jpg`[^\n]*For organisers hero/);
+  });
+
+  it("uses the named type styles: section h2s heading-xl, the panel's heading-h1, the figure figure-xl", () => {
+    renderPage();
+    expect(screen.getByRole("heading", { level: 2, name: "Publish your first event in four steps" })).toHaveClass("heading-xl");
+    expect(screen.getByRole("heading", { level: 2, name: "Creative audiences, not everyone." })).toHaveClass("heading-xl");
+    expect(screen.getByRole("heading", { level: 2, name: "Sign in to apply as an organiser." })).toHaveClass("heading-h1");
+    expect(screen.getByRole("heading", { level: 2, name: "Create" })).toHaveClass("heading-h2");
+    expect(screen.getByRole("heading", { level: 3, name: "Apply" })).toHaveClass("heading-h3");
+    expect(screen.getByText("13 of 15")).toHaveClass("figure-xl", "text-signal");
+  });
+
+  it("the hero lifts off the Dark page with the --hover fill (data-ink-lift, globals.css)", () => {
+    renderPage();
+    const hero = screen.getByRole("region", { name: "Your event. Your community." });
+    expect(hero).toHaveAttribute("data-surface", "ink");
+    expect(hero).toHaveAttribute("data-ink-lift");
+    const css = readFileSync(path.resolve(import.meta.dirname, "../app/globals.css"), "utf8");
+    expect(css).toMatch(/\[data-theme="dark"\] \[data-surface="ink"\]\[data-ink-lift\] \{\s*--background: var\(--hover\);/);
   });
 });

@@ -20,7 +20,7 @@ import { START_TITLE_ID } from "./organisers-content";
  */
 function PanelTitle({ children }: { children: ReactNode }) {
   return (
-    <h2 id={START_TITLE_ID} className="heading-h2 text-balance">
+    <h2 id={START_TITLE_ID} className="heading-h1 text-balance">
       {children}
     </h2>
   );
@@ -109,7 +109,7 @@ export default function ApplyPageContent() {
       <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between lg:gap-12">
         <div className="flex min-w-0 flex-col gap-4">
           <PanelTitle>Sign in to apply as an organiser.</PanelTitle>
-          <p className="body-s text-muted">{TAKES_FIVE_MINUTES}</p>
+          <p className="body-m text-muted">{TAKES_FIVE_MINUTES}</p>
         </div>
         {/* Stacked on phones: two side by side don't fit "Create an account" at 320px. */}
         <div className="flex shrink-0 flex-col gap-4 sm:flex-row">
@@ -143,7 +143,7 @@ export default function ApplyPageContent() {
   if (current?.status === "pending") {
     return (
       <PanelState title="Application pending">
-        <p className="body-s text-muted">
+        <p className="body-m text-muted">
           Waiting on admin review. We&rsquo;ll let you know once it&rsquo;s decided.
         </p>
       </PanelState>
@@ -153,7 +153,7 @@ export default function ApplyPageContent() {
   // Shown only for the moment before the redirect above (or if it's blocked).
   return (
     <PanelState title={<>You&rsquo;re an approved organiser</>}>
-      <p role="status" className="body-s text-muted">
+      <p role="status" className="body-m text-muted">
         Taking you to your dashboard…
       </p>
       <Link href="/dashboard" className={buttonClass("solid", "md", "self-start")}>
@@ -182,12 +182,12 @@ function FormSection({
     <div className="flex flex-col gap-8">
       {view.mode === "apply" ? (
         <PanelState title={APPLY_TITLE}>
-          <p className="body-s text-muted">{TAKES_FIVE_MINUTES}</p>
+          <p className="body-m text-muted">{TAKES_FIVE_MINUTES}</p>
         </PanelState>
       ) : (
         <PanelState title="Application not approved">
           {view.record.rejectionReason && (
-            <p className="body-s text-muted">Reviewer note: {view.record.rejectionReason}</p>
+            <p className="body-m text-muted">Reviewer note: {view.record.rejectionReason}</p>
           )}
         </PanelState>
       )}

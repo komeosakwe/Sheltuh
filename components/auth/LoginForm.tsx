@@ -129,8 +129,9 @@ export default function LoginForm({ next }: { next?: string } = {}) {
         hint={providers.length > 0 ? noPasswordHint(oauthProviderNames(providers, ["google", "apple"])) : undefined}
         labelAside={
           <Link
+            // 44px to tap, but laid out at its 16px line (-my-3.5), so the label sits 4px above its field.
             href={withNext("/forgot-password", next)}
-            className="inline-flex min-h-11 items-center text-sm text-accent underline underline-offset-2"
+            className="-my-3.5 inline-flex min-h-11 items-center text-sm text-accent underline underline-offset-2"
           >
             Forgot password?
           </Link>

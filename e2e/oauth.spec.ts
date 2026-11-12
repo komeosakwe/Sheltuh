@@ -208,7 +208,12 @@ test.describe("at 375×667", () => {
       await page.goto(path);
       await expect(appleButton(page)).toBeVisible({ timeout: 60_000 });
       if (path === "/login") {
-        // Under Continue, scrolled to (the hit-area probe below needs it on screen).
+        // Sign-in's main action is in the first screen, before any scroll: the whole email field
+        // and Continue (phones get no photo band, components/auth/AuthShell.tsx).
+        await expect(page.locator("#main").getByLabel("Email")).toBeInViewport({ ratio: 1 });
+        await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeInViewport({ ratio: 1 });
+        expect(await page.evaluate(() => window.scrollY)).toBe(0);
+        // The pair is under Continue, scrolled to (the hit-area probe below needs it on screen).
         const submit = await page.getByRole("button", { name: "Continue", exact: true }).boundingBox();
         const before = await appleButton(page).boundingBox();
         if (!submit || !before) throw new Error("not laid out");

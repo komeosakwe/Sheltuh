@@ -8,9 +8,8 @@ Status: spec, 24 Oct 2026. Builds on `brand-direction-one.md` §7 (Auth), `theme
 
 1. **Guest marks, house frame.** The two buttons follow their vendors' rules exactly. Everything around them (spacing, divider, notices, copy, focus) follows the house rules. Don't restyle brand marks to look like `.btn`, and don't let `.btn` styling leak into them.
 2. **A matched pair that inverts with the page,** like `btn-solid`. On White both buttons are near-black; on Dark both are white. Equal size, equal weight, and never less prominent than the email Sign in button (Apple HIG: "no smaller than other sign-in buttons").
-3. **One sign-in path per row, stacked.** Full width at every breakpoint, so both buttons and the divider are visible without scrolling at 320×568.
-4. **Our words, never the provider's.** Errors map to fixed copy, and `error_description` is never rendered.
-5. **No orange, no new motion.** The auth pages stay calm (BD1 §7). The focus ring is the global foreground ring.
+3. **Our words, never the provider's.** Errors map to fixed copy, and `error_description` is never rendered.
+4. **No orange, no new motion.** The auth pages stay calm (BD1 §7). The focus ring is the global foreground ring.
 
 ## 2. Tokens (`app/globals.css`)
 

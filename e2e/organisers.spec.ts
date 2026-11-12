@@ -78,7 +78,7 @@ for (const theme of ["light", "dark"] as const) {
         await expect(page.getByRole("region", { name: "Publish your first event in four steps" })).toBeInViewport();
       });
 
-      test("/login: the photo, the card's copy, Continue, the links, no sideways scroll", async ({ page }) => {
+      test("/login: the card's copy, Continue, the links, the photo where it fits, no sideways scroll", async ({ page }) => {
         await page.goto("/login");
         await expect(page.getByRole("heading", { level: 1, name: "Welcome to Sheltüh" })).toBeVisible({ timeout: 60_000 });
         await expect(page.getByText("Find your place, find your people.")).toBeVisible();
@@ -90,13 +90,21 @@ for (const theme of ["light", "dark"] as const) {
         expect((await main.getByLabel("Email").boundingBox())?.height).toBeGreaterThanOrEqual(48);
         await expect(main.getByRole("link", { name: "Create an account" })).toHaveAttribute("href", "/signup");
         await expect(main.getByRole("link", { name: "Find my tickets" })).toHaveAttribute("href", "/help#where-are-my-tickets");
-        await expect.poll(() => loaded(page, "main img")).toBe(true);
-        // From 1024px the card sits on the photo; below, the photo is a band above the card's content.
-        const photo = await page.locator("main img").first().boundingBox();
-        const h1 = await page.getByRole("heading", { level: 1 }).boundingBox();
-        if (!photo || !h1) throw new Error("not laid out");
-        if (width >= 1024) expect(photo.y + photo.height).toBeGreaterThan(h1.y + h1.height);
-        else expect(photo.y + photo.height).toBeLessThanOrEqual(h1.y);
+        // From 1024px the card sits on the photo; at 640 to 1023px the photo is a band above the
+        // card's content; phones have none, so Email and Continue are in the first screen.
+        const photo = page.locator("main img").first();
+        if (width < 640) {
+          await expect(photo).toBeHidden();
+          await expect(main.getByLabel("Email")).toBeInViewport({ ratio: 1 });
+          await expect(submit).toBeInViewport({ ratio: 1 });
+        } else {
+          await expect.poll(() => loaded(page, "main img")).toBe(true);
+          const box = await photo.boundingBox();
+          const h1 = await page.getByRole("heading", { level: 1 }).boundingBox();
+          if (!box || !h1) throw new Error("not laid out");
+          if (width >= 1024) expect(box.y + box.height).toBeGreaterThan(h1.y + h1.height);
+          else expect(box.y + box.height).toBeLessThanOrEqual(h1.y);
+        }
         await noSidewaysScroll(page);
       });
     });
