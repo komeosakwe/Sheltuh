@@ -76,4 +76,24 @@ describe("LocationPicker — a newer location action wins", () => {
     expect(JSON.parse(localStorage.getItem(NEAR_STORAGE_KEY) ?? "null")).toMatchObject({ suburb: "Perth", state: "WA" });
     expect(screen.getByRole("button", { name: "Where: Perth" })).toBeInTheDocument();
   });
+
+  it("a place saved elsewhere (another tab) while a Suggested place is still loading wins: the stale one isn't stored", async () => {
+    render(<LocationPicker standalone />);
+    const panel = openPanel();
+    Object.assign(panel, { hidePopover: vi.fn() });
+    fireEvent.click(within(panel).getByRole("button", { name: /Melbourne/, hidden: true }));
+    const pending = release;
+    // Another tab saves Perth.
+    act(() => {
+      localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Perth", state: "WA" }));
+      window.dispatchEvent(new StorageEvent("storage", { key: NEAR_STORAGE_KEY }));
+    });
+    expect(screen.getByRole("button", { name: "Where: Perth" })).toBeInTheDocument();
+    await act(async () => {
+      pending?.(location);
+      await Promise.resolve();
+    });
+    expect(JSON.parse(localStorage.getItem(NEAR_STORAGE_KEY) ?? "null")).toMatchObject({ suburb: "Perth", state: "WA" });
+    expect(screen.getByRole("button", { name: "Where: Perth" })).toBeInTheDocument();
+  });
 });

@@ -150,9 +150,12 @@ export default function LocationPicker({
   // The place in use changed from outside (Near me, another tab, the page's own place): Where
   // shows it, not an older draft.
   const [seen, setSeen] = useState({ stored, near });
+  // Counts changes from outside: each one supersedes any lookup this picker still has pending.
+  const [outsideChanges, setOutsideChanges] = useState(0);
   if (seen.stored !== stored || seen.near !== near) {
     setSeen({ stored, near });
     if (stored !== ownWrite || seen.near !== near) {
+      setOutsideChanges((count) => count + 1);
       setDraft(null);
       if (stored || near) {
         setAnywhere(false);
@@ -160,6 +163,11 @@ export default function LocationPicker({
       }
     }
   }
+  // A place chosen elsewhere (another tab, Near me) wins: a pending Use my location or lookup here is
+  // dropped rather than saved over it.
+  useEffect(() => {
+    if (outsideChanges > 0) actionRef.current += 1;
+  }, [outsideChanges]);
   /** Remembers `suburb` (or forgets the place, for ""), noting that this picker did it. */
   function remember(suburb: string, state: StateCode | null) {
     setOwnWrite(suburb.trim().slice(0, NEAR_MAX_LENGTH));

@@ -714,10 +714,12 @@ function SceneMapView({
         </div>
       )}
 
-      {status === "loaded" && !progress.visible && needsSuburbs && suburbTable.failed && (
+      {status === "loaded" && !progress.visible && needsTable && suburbTable.failed && (
         <div className="flex flex-col items-start gap-4">
           <Notice tone="danger" role="alert">
-            Couldn’t load suburb locations. Some events aren’t on the map.
+            {needsSuburbs
+              ? "Couldn’t load suburb locations. Some events aren’t on the map."
+              : "Couldn’t load suburb locations, so we can’t find your place yet."}
           </Notice>
           <Button variant="outline" size="sm" onClick={suburbTable.retry}>
             Try again
