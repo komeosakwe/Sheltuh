@@ -22,15 +22,12 @@ function isPopoverOpen(element: HTMLElement): boolean {
 
 /**
  * Discover · Nearby · Community (the rules' Navigation board). Nearby is the map (/map keeps
- * its address). Community is the home's Find your people section until /community exists
- * (redesign PR 3).
+ * its address); Community is its own page (/community, redesign PR 3).
  */
-const COMMUNITY_ID = "find-your-people";
-
 const PRIMARY_LINKS = [
   { href: "/", label: "Discover" },
   { href: "/map", label: "Nearby" },
-  { href: `/#${COMMUNITY_ID}`, label: "Community" },
+  { href: "/community", label: "Community" },
 ] as const;
 
 /**
@@ -139,7 +136,7 @@ export default function Nav() {
     menuRef.current?.hidePopover?.();
   }
 
-  // Links and actions close the menu (Community, on the home, is an in-page link: no navigation).
+  // Links and actions close the menu (a link to the page already showing doesn't navigate).
   // The page is live again at once (the toggle event that also does it comes a task later), so
   // focus can move into it straight away.
   function closeMenuOnAction(event: MouseEvent<HTMLElement>) {
@@ -148,15 +145,6 @@ export default function Nav() {
       setPageInert(false);
     }
   }
-
-  // On the home, Community is an in-page link: move focus to the section it shows (WCAG 2.4.3),
-  // after the hash navigation and, from the menu, after it has closed and handed focus back to
-  // Menu. The section takes focus (tabIndex -1, components/home/CommunitySection.tsx).
-  function focusCommunity() {
-    if (pathname !== "/") return;
-    window.setTimeout(() => document.getElementById(COMMUNITY_ID)?.focus(), 0);
-  }
-  const linkAction = (href: string) => (href === `/#${COMMUNITY_ID}` ? focusCommunity : undefined);
 
   return (
     // In a conversation on phones the header scrolls away, leaving the screen
@@ -237,7 +225,6 @@ export default function Nav() {
               href={link.href}
               className={headerNavClass}
               aria-current={current(link.href)}
-              onClick={linkAction(link.href)}
             >
               {link.label}
             </Link>
@@ -270,7 +257,6 @@ export default function Nav() {
                 <Link
                   href={link.href}
                   aria-current={current(link.href)}
-                  onClick={linkAction(link.href)}
                   // The current page gets the orange dots over its first letter.
                   className="display-m umlaut umlaut-lg block pt-4 pb-2"
                 >

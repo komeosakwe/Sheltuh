@@ -1,0 +1,71 @@
+import Image from "next/image";
+import BrandU from "@/components/brand/BrandU";
+import DotsMark from "@/components/brand/DotsMark";
+import { ButtonLink } from "@/components/ui/Button";
+import { ArrowRightIcon } from "@/components/home/icons";
+import { COMMUNITY_COLLAGE, COMMUNITY_LEDE, COMMUNITY_TITLE, COMMUNITY_TITLE_LINES } from "./community-content";
+import SignedOutOnly from "./SignedOutOnly";
+
+/** The collage's tilts, in turn: small, so the photos read as pinned up, not as motion. */
+const TILTS = ["-rotate-2", "rotate-1", "-rotate-1", "rotate-2"] as const;
+
+/**
+ * /community's hero (the proposal, redesign PR 3): a strip of licensed photos across the top
+ * (decorative, white-framed and slightly tilted, as drawn; it never moves), then the eyebrow,
+ * the h1 FIND YOÜR / PEOPLE. in Display (read "Find your people."), and beside it from 1024px
+ * the lede with "Explore scenes" (to Scenes by city, below) and "Join free" (sign up; not shown
+ * to members).
+ */
+export default function CommunityHero() {
+  const [first, second] = COMMUNITY_TITLE_LINES;
+  return (
+    <section aria-labelledby="community-title">
+      <div aria-hidden="true" data-community-collage="" className="flex justify-center gap-4 overflow-hidden py-4 md:gap-6 md:py-6">
+        {COMMUNITY_COLLAGE.map((photo, i) => (
+          <div
+            key={photo.src}
+            className={`relative h-32 shrink-0 overflow-hidden border-4 border-paper bg-surface md:h-48 lg:h-56 ${
+              photo.width === photo.height ? "aspect-square" : "aspect-[4/3]"
+            } ${TILTS[i % TILTS.length]}`}
+          >
+            <Image
+              src={photo.src}
+              alt=""
+              fill
+              sizes="(min-width: 1024px) 300px, (min-width: 768px) 256px, 171px"
+              priority={i < 3}
+              className="object-cover"
+            />
+          </div>
+        ))}
+      </div>
+      <div className="page-container mt-8 md:mt-12 lg:grid lg:grid-cols-12 lg:items-end lg:gap-8">
+        <div className="lg:col-span-7">
+          <p className="eyebrow flex items-center gap-2">
+            <DotsMark size="xs" className="text-signal" />
+            Community
+          </p>
+          <h1 id="community-title" className="mt-4 display-l lg:display-xl">
+            <BrandU spoken={COMMUNITY_TITLE}>
+              <span className="block">{first}</span> <span className="block">{second}</span>
+            </BrandU>
+          </h1>
+        </div>
+        <div className="mt-6 lg:col-span-5 lg:mt-0">
+          <p className="body-l text-muted">{COMMUNITY_LEDE}</p>
+          <div className="mt-6 flex flex-wrap gap-4">
+            <ButtonLink href="#scenes-by-city" variant="signal">
+              Explore scenes
+              <ArrowRightIcon className="size-4 shrink-0" />
+            </ButtonLink>
+            <SignedOutOnly>
+              <ButtonLink href="/signup" variant="outline">
+                Join free
+              </ButtonLink>
+            </SignedOutOnly>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}

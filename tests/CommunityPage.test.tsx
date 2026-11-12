@@ -1,0 +1,133 @@
+// @vitest-environment jsdom
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import CommunityPage from "@/components/community/CommunityPage";
+import { COMMUNITY_LEDE, JOIN_STEPS, LOCAL_DISCOVERY, WHO_SEES_YOU } from "@/components/community/community-content";
+import { HOW_IT_WORKS_STEPS } from "@/components/whos-going/HowItWorks";
+import { cityScenes } from "@/lib/community";
+import { getUpcomingEvents } from "@/lib/data";
+import { readStoredNear } from "@/lib/near-storage";
+import { FakeAuthProvider, fakeAuthValue } from "./test-utils/fakeAuth";
+
+/** /community in demo mode (no API: the sample events). Live mode: tests/CommunityPageLive.test.tsx. */
+
+// Wed 21 Oct 2026, 12:00 AEDT.
+const NOW = new Date("2026-10-21T01:00:00.000Z");
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(NOW);
+});
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+  localStorage.clear();
+});
+
+const settle = () => act(() => new Promise((r) => setTimeout(r, 0)));
+
+async function renderPage(status: "signed-out" | "signed-in" = "signed-out") {
+  const utils = render(
+    <FakeAuthProvider value={fakeAuthValue(status === "signed-out" ? { status, email: undefined } : {})}>
+      <CommunityPage />
+    </FakeAuthProvider>,
+  );
+  await settle();
+  return utils;
+}
+
+describe("/community (demo)", () => {
+  it("reads as one outline: the h1 FIND YOÜR PEOPLE. (read 'Find your people.'), then the real sections only", async () => {
+    await renderPage();
+    const h1 = screen.getByRole("heading", { level: 1 });
+    expect(h1).toHaveAccessibleName("Find your people.");
+    expect(h1.querySelector("[aria-hidden='true']")?.textContent).toBe("Find yoür people.");
+    expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual([
+      "Local discovery",
+      "You choose who sees you",
+      "Scenes by city",
+      "Your people are already here.",
+    ]);
+    // Concept-only parts wait for Batch 3: no Word of mouth, Follow scenes, member counts or "you know".
+    expect(document.body).not.toHaveTextContent(/Word of mouth|Follow scenes|members|you know|saved this/i);
+  });
+
+  it("the hero: the proposal's lede, Explore scenes (to Scenes by city) and Join free, over a decorative strip of licensed photos", async () => {
+    const { container } = await renderPage();
+    expect(screen.getByText(COMMUNITY_LEDE)).toBeInTheDocument();
+    expect(COMMUNITY_LEDE).toBe("The people and creative scenes behind the events — across music, art, fashion and culture.");
+    const explore = screen.getByRole("link", { name: "Explore scenes" });
+    expect(explore).toHaveAttribute("href", "#scenes-by-city");
+    expect(explore).toHaveClass("btn-signal");
+    expect(screen.getByRole("link", { name: "Join free" })).toHaveAttribute("href", "/signup");
+    expect(container.querySelector("#scenes-by-city")).toHaveAttribute("tabindex", "-1");
+    const collage = container.querySelector("[data-community-collage]");
+    expect(collage).toHaveAttribute("aria-hidden", "true");
+    const srcs = Array.from(collage?.querySelectorAll("img") ?? []).map((img) => decodeURIComponent(img.getAttribute("src") ?? ""));
+    expect(srcs.length).toBeGreaterThan(4);
+    // Only the licensed photos (public/events, public/home/people), never the proposal's.
+    for (const src of srcs) expect(src).toMatch(/\/(events\/[a-z-]+\.(jpg|webp)|home\/people\/person-\d\.webp)/);
+    for (const img of collage?.querySelectorAll("img") ?? []) expect(img).toHaveAttribute("alt", "");
+  });
+
+  it("Local discovery: its line, the soonest upcoming events as the one EventCard, and a link to Nearby", async () => {
+    await renderPage();
+    const section = screen.getByRole("region", { name: LOCAL_DISCOVERY.title });
+    expect(within(section).getByText(LOCAL_DISCOVERY.body)).toBeInTheDocument();
+    const upcoming = await getUpcomingEvents(NOW);
+    const titles = within(within(section).getByRole("list", { name: LOCAL_DISCOVERY.title })).getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
+    expect(titles).toHaveLength(Math.min(6, upcoming.length));
+    for (const title of titles) expect(upcoming.map((e) => e.title)).toContain(title);
+    expect(within(section).getByRole("link", { name: "Nearby" })).toHaveAttribute("href", "/map");
+  });
+
+  it("You choose who sees you: its line and how Who's Going really works (text only: no toggle, no count)", async () => {
+    await renderPage();
+    const section = screen.getByRole("region", { name: WHO_SEES_YOU.title });
+    expect(within(section).getByText(WHO_SEES_YOU.body)).toBeInTheDocument();
+    expect(within(section).getAllByRole("listitem").map((li) => li.textContent?.replace(/^\d\d/, ""))).toEqual([...HOW_IT_WORKS_STEPS]);
+    expect(within(section).queryByRole("switch")).toBeNull();
+    expect(within(section).queryByRole("checkbox")).toBeNull();
+    expect(section).not.toHaveTextContent(/going ·|\d+ going/);
+  });
+
+  it("Scenes by city: each city links to Nearby, with its real categories and count, and choosing one sets Nearby to it", async () => {
+    await renderPage();
+    const section = screen.getByRole("region", { name: "Scenes by city" });
+    const links = within(section).getAllByRole("link");
+    expect(links.map((a) => a.getAttribute("data-city"))).toEqual(["Melbourne", "Sydney", "Brisbane", "Perth", "Adelaide"]);
+    for (const link of links) expect(link).toHaveAttribute("href", "/map");
+    const scenes = cityScenes(await getUpcomingEvents(NOW), (e) => e.coordinates ?? null);
+    scenes.forEach((scene, i) => {
+      const n = scene.events.length;
+      expect(links[i]).toHaveTextContent(n > 0 ? `${n} upcoming` : "No upcoming events");
+      for (const category of scene.categories) expect(links[i]).toHaveTextContent(category);
+    });
+    expect(scenes[0].events.length).toBeGreaterThan(0);
+    fireEvent.click(links[1]);
+    expect(readStoredNear()).toBe("Sydney");
+  });
+
+  it("the join banner: orange, only the two steps that exist, and Join Sheltüh — free (no sign-in note in the demo)", async () => {
+    const { container } = await renderPage();
+    const banner = screen.getByRole("region", { name: "Your people are already here." });
+    expect(banner).toHaveAttribute("data-surface", "signal");
+    expect(within(banner).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(JOIN_STEPS.map((s) => s.title));
+    expect(JOIN_STEPS.map((s) => s.title)).toEqual(["See who’s going", "Show up — or don’t"]);
+    const join = within(banner).getByRole("link", { name: "Join Sheltüh — free" });
+    expect(join).toHaveAttribute("href", "/signup");
+    expect(join).toHaveClass("btn-solid");
+    expect(banner).not.toHaveTextContent(/Email or Google/i);
+    expect(banner.querySelector(".btn-signal")).toBeNull();
+    // At most one orange band on the page.
+    expect(container.querySelectorAll("[data-surface='signal']")).toHaveLength(1);
+  });
+
+  it("signed in: no Join free, and the banner's action finds an event", async () => {
+    await renderPage("signed-in");
+    expect(screen.queryByRole("link", { name: "Join free" })).toBeNull();
+    const banner = screen.getByRole("region", { name: "Your people are already here." });
+    expect(within(banner).getByRole("link", { name: "Find an event" })).toHaveAttribute("href", "/events");
+    expect(screen.queryByRole("link", { name: "Join Sheltüh — free" })).toBeNull();
+  });
+});

@@ -6,8 +6,6 @@ import EventDetailsView from "@/components/EventDetailsView";
 import ClipPlayButton from "@/components/events/ClipPlayButton";
 import { CLIP_ERROR_TEXT, CLIP_LOADER_DELAY_MS, ClipViewerProvider } from "@/components/events/ClipViewer";
 import { FavouritesProvider } from "@/components/favourites/FavouritesProvider";
-import { HomeRailItem } from "@/components/home/HomeRail";
-import HomeRailSection from "@/components/home/HomeRailSection";
 import EventCard from "@/components/ui/EventCard";
 import { clipPlayName, clipTimeLabel } from "@/lib/clip-display";
 import { sampleEvents } from "@/lib/sample-events";
@@ -286,57 +284,6 @@ describe("the viewer (§5.2)", () => {
     fireEvent.error(again);
     expect(screen.getByRole("alert")).toHaveTextContent(CLIP_ERROR_TEXT);
     expect(within(dialog()).getByRole("button", { name: "Try again" })).toHaveFocus();
-  });
-});
-
-describe("rail copies (§5.1, §5.2)", () => {
-  const CARD = 256;
-  const events = Array.from({ length: 6 }, (_, i) => ({ ...event, id: `evt-${i}`, slug: `e-${i}`, title: `Night ${i}` }));
-
-  function renderRail() {
-    vi.spyOn(HTMLLIElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLLIElement) {
-      const list = this.parentElement;
-      const left = (list ? Array.from(list.children).indexOf(this) : 0) * CARD - (list?.scrollLeft ?? 0);
-      return { left, right: left + CARD, width: CARD, top: 0, bottom: 300, height: 300, x: left, y: 0 } as DOMRect;
-    });
-    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => setTimeout(() => cb(0), 16) as unknown as number);
-    vi.stubGlobal("cancelAnimationFrame", (id: number) => clearTimeout(id));
-    withProviders(
-      <HomeRailSection id="home-popular" title="Popular right now" count={events.length}>
-        {events.map((e) => (
-          <HomeRailItem key={e.id}>
-            <EventCard event={e} variant="rail" mode="demo" />
-          </HomeRailItem>
-        ))}
-      </HomeRailSection>,
-    );
-    const rail = screen.getByRole("list", { name: "Popular right now" });
-    Object.defineProperty(rail, "clientWidth", { configurable: true, value: 1000 });
-    Object.defineProperty(rail, "scrollWidth", { configurable: true, get: () => rail.children.length * CARD + 40 });
-    act(() => {
-      fireEvent.scroll(rail);
-      window.dispatchEvent(new Event("resize"));
-      vi.advanceTimersByTime(32);
-    });
-    const copies = Array.from(rail.querySelectorAll<HTMLElement>(":scope > li[data-rail-clone]"));
-    expect(copies.length).toBeGreaterThan(0);
-    return copies;
-  }
-
-  it("a copy's Play is out of the tab order, yet opens the viewer; focus returns to the real card's Play", () => {
-    const copies = renderRail();
-    const copyPlay = copies[2].querySelector<HTMLButtonElement>("[data-clip-play]");
-    if (!copyPlay) throw new Error("no Play in the copy");
-    expect(copyPlay.tabIndex).toBe(-1);
-    expect(copyPlay.closest("[aria-hidden='true']")).not.toBeNull();
-    const real = screen.getByRole("button", { name: "Play clip: Night 2, 0:12" });
-
-    fireEvent.click(copyPlay);
-    expect(dialog()).toHaveAttribute("open");
-    expect(video()?.getAttribute("src")).toBe(CLIP.url);
-    fireEvent.click(within(dialog()).getByRole("button", { name: "Close" }));
-    expect(real).toHaveFocus();
-    expect(copyPlay).not.toHaveFocus();
   });
 });
 

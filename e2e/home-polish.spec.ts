@@ -6,8 +6,8 @@ import { sampleEvents } from "@/lib/sample-events";
 /**
  * The owner's layout polish of 23 Oct 2026, in a real browser: the selected
  * filter chip's state and colours (Light and Dark), and the home's ways on
- * still working after it (a category chip, the search, a card, the profile
- * CTA). Live mode, with every /api/* request answered here from the demo
+ * (redesign PR 3: a category chip, the search, a card, the profile CTA and
+ * Explore communities). Live mode, with every /api/* request answered here from the demo
  * samples re-timed to the real clock (two of them this weekend), as in
  * home.spec.ts and responsive.spec.ts.
  */
@@ -121,20 +121,28 @@ for (const theme of ["light", "dark"] as const) {
 test.describe("the home's ways on, at 390px", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test("a category chip lands on /events with that category chosen and only its events listed", async ({ page }) => {
+  test("a category chip filters the home's listings in place: pressed, the page's address unchanged, only its events listed", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
-    const row = page.getByRole("navigation", { name: "Browse by category" });
-    // Navigation, not a filter: no chip on the home claims to be selected.
-    await expect(row.locator("[aria-current], [aria-pressed]")).toHaveCount(0);
-    await row.getByRole("link", { name: "Art" }).click();
-    await expect(page).toHaveURL(/\/events\?category=art$/, { timeout: 30_000 });
-    // The filter form is behind "Filters" on phones; its Category field already says Art.
-    await expect(page.locator("#category-filter")).toHaveValue("art");
-    const list = page.getByRole("list", { name: "Events" });
-    await expect(list.getByRole("listitem").first()).toBeVisible({ timeout: 30_000 });
+    const row = page.getByRole("group", { name: "Browse by category" });
+    await expect(row.getByRole("button", { name: "All events" })).toHaveAttribute("aria-pressed", "true", { timeout: 30_000 });
+    const art = row.getByRole("button", { name: "Art" });
+    // The dev server may still be hydrating the page: press until the chip responds (never twice once it has).
+    await expect(async () => {
+      if ((await art.getAttribute("aria-pressed")) !== "true") await art.click();
+      await expect(art).toHaveAttribute("aria-pressed", "true", { timeout: 1_000 });
+    }).toPass({ timeout: 30_000 });
+    await expect(row.getByRole("button", { name: "All events" })).toHaveAttribute("aria-pressed", "false");
+    await expect(page).toHaveURL(/\/$/);
+    // Selected: black with white words and the two orange dots, never colour alone.
+    // (Polled: the fill eases in over 200ms.)
+    await expect.poll(() => art.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(0, 0, 0)");
+    await expect(art.locator("[data-selected-dots]")).toHaveCount(1);
     const arts = sampleEvents.filter((e) => e.category === "art").map((e) => e.title);
-    for (const title of await list.locator("[data-event-card] h3").allTextContents()) expect(arts).toContain(title.trim());
+    const list = page.getByRole("list", { name: "All events", exact: true });
+    const titles = await list.locator("[data-event-card] h3").allTextContents();
+    expect(titles.length).toBeGreaterThan(0);
+    for (const title of titles) expect(arts).toContain(title.trim());
   });
 
   test("the hero's search submits to /search with the words", async ({ page }) => {
@@ -153,50 +161,37 @@ test.describe("the home's ways on, at 390px", () => {
     await expect(page.getByRole("heading", { level: 1 })).toContainText("jazz");
   });
 
-  test("a card's title opens its event page (at 640px, the narrowest rail; phones have grids)", async ({ page }) => {
-    await page.setViewportSize({ width: 640, height: 844 });
+  test("a card's title opens its event page", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
-    const card = page.getByRole("region", { name: "This weekend" }).locator("[data-event-card]").first();
+    const card = page.getByRole("list", { name: "All events", exact: true }).locator("[data-event-card]").first();
     await expect(card).toBeVisible({ timeout: 30_000 });
     const link = card.locator("[data-card-link]");
     const href = await link.getAttribute("href");
     const title = (await card.locator("h3").textContent())?.trim() ?? "";
     expect(href).toMatch(/^\/events\/[^/#?]+$/);
-    // A rail that auto-scrolls never stops moving by itself; the pointer over it holds it, as for a person.
-    await link.evaluate((el) => el.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" }));
-    const box = await link.boundingBox();
-    await page.mouse.move((box?.x ?? 0) + (box?.width ?? 0) / 2, (box?.y ?? 0) + (box?.height ?? 0) / 2);
     await link.click();
     await expect(page).toHaveURL(new RegExp(`${href}$`), { timeout: 30_000 });
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(title, { timeout: 30_000 });
   });
 
-  test("“Create profile now” opens sign-up", async ({ page }) => {
+  test("“Create profile” in the See who’s going band opens sign-up", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
-    const action = page.locator("#find-your-people").getByRole("link", { name: "Create profile now" });
+    const action = page.locator("[data-community-band]").getByRole("link", { name: "Create profile" });
     await action.scrollIntoViewIfNeeded();
     await action.click();
     await expect(page).toHaveURL(/\/signup$/, { timeout: 30_000 });
     await expect(page.getByRole("heading", { level: 1 })).toContainText("Create an account");
   });
 
-  test("the band is compact: about 32px between the action and the card, 20px inside the card", async ({ page }) => {
+  test("“Explore communities” opens /community", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
-    // Measured once the events are in (the sections replace the skeleton and move everything below them), both in the same frame.
-    await expect(page.locator("[data-home-section]").first()).toBeVisible({ timeout: 30_000 });
-    const band = page.locator("#find-your-people");
-    const card = band.locator("[data-community-card]");
-    const gap = await band.evaluate((el) => {
-      const action = el.querySelector("a[href='/signup']")?.getBoundingClientRect();
-      const box = el.querySelector("[data-community-card]")?.getBoundingClientRect();
-      return action && box ? Math.round(box.top - action.bottom) : -1;
-    });
-    expect(gap).toBe(32);
-    expect(await card.evaluate((el) => getComputedStyle(el).paddingTop)).toBe("20px");
-    // No "Illustrative photos" caption (owner, 31 Oct 2026), and no footnote without a real example.
-    await expect(card.locator("[data-community-note]")).toHaveCount(0);
+    const action = page.locator("#find-your-people").getByRole("link", { name: "Explore communities" });
+    await action.scrollIntoViewIfNeeded();
+    await action.click();
+    await expect(page).toHaveURL(/\/community$/, { timeout: 30_000 });
+    await expect(page.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your people.", { timeout: 30_000 });
   });
 });

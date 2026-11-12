@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 import { act, cleanup, render, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import CommunitySection, { COMMUNITY_DEMO_NOTE, COMMUNITY_LIVE_NOTE, COMMUNITY_TEASER } from "@/components/home/CommunitySection";
+import CommunitySection, { COMMUNITY_BAND_LINE, COMMUNITY_DEMO_NOTE, COMMUNITY_LIVE_NOTE } from "@/components/home/CommunitySection";
 import { HomeEventsProvider } from "@/components/home/HomeEventsProvider";
 import type { TrendingItem } from "@/lib/home-sections";
 import type { SheltuhEvent } from "@/lib/types";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 
-/** Find your people's card in live mode: real counts only, and the faces always labelled illustrative (never attendees). */
+/** Find your people's band in live mode: real counts only, and the faces never presented as attendees. */
 
 vi.mock("@/lib/api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/client")>()),
@@ -16,9 +16,8 @@ vi.mock("@/lib/api/client", async (importOriginal) => ({
 const loadHomeEvents = vi.fn<(now: Date) => Promise<SheltuhEvent[]>>();
 const loadHomeTrending = vi.fn<(now: Date) => Promise<TrendingItem[]>>();
 vi.mock("@/lib/home-events", () => ({
-  loadHomeEvents: (now: Date) => loadHomeEvents(now),
+  loadHomeFeed: async (now: Date) => ({ events: await loadHomeEvents(now), complete: true }),
   loadHomeTrending: (now: Date) => loadHomeTrending(now),
-  loadHomeRecent: () => Promise.resolve([]),
   loadHomeFollowing: () => Promise.resolve([]),
 }));
 
@@ -69,7 +68,7 @@ async function renderLive() {
 }
 
 describe("CommunitySection in live mode", () => {
-  it("shows a trending event's real going count, with the illustrative faces and a footnote saying so", async () => {
+  it("shows a trending event's real going count, with the illustrative faces and a footnote saying it's real", async () => {
     loadHomeTrending.mockReset().mockResolvedValue([
       { event: T[0], signal: { kind: "popular" } },
       { event: T[1], signal: { kind: "going", count: 22 } },
@@ -77,10 +76,9 @@ describe("CommunitySection in live mode", () => {
       { event: T[3], signal: { kind: "popular" } },
     ]);
     const { container } = await renderLive();
-    const card = container.querySelector<HTMLElement>("[data-community-card][data-community-example]");
-    if (!card) throw new Error("no example card");
-    expect(within(card).getByText("Event t1")).toBeInTheDocument();
-    expect(card.querySelector("[data-community-count]")).toHaveTextContent(/^22 people going$/);
+    const card = container.querySelector<HTMLElement>("[data-community-band][data-community-example]");
+    if (!card) throw new Error("no example");
+    expect(card.querySelector("[data-community-count]")).toHaveTextContent(/^22 people going · Event t1$/);
     expect(COMMUNITY_LIVE_NOTE).toBe("Popular right now · Real count");
     expect(card.querySelector("[data-community-note]")).toHaveTextContent(COMMUNITY_LIVE_NOTE);
     expect(card).not.toHaveTextContent(COMMUNITY_DEMO_NOTE);
@@ -95,15 +93,15 @@ describe("CommunitySection in live mode", () => {
     }
   });
 
-  it("with no real count to show (no going signals), the card still shows, with the faces and no number", async () => {
+  it("with no real count to show (no going signals), the band still shows, with the faces and no number", async () => {
     loadHomeTrending.mockReset().mockResolvedValue(T.map((e) => ({ event: e, signal: { kind: "popular" } })));
     const { container } = await renderLive();
-    const card = container.querySelector<HTMLElement>("[data-community-card]");
-    if (!card) throw new Error("no card");
+    const card = container.querySelector<HTMLElement>("[data-community-band]");
+    if (!card) throw new Error("no band");
     expect(card).not.toHaveAttribute("data-community-example");
     // Never a real event's title beside the faces without its real count.
     for (const e of T) expect(card).not.toHaveTextContent(e.title);
-    expect(within(card).getByText(COMMUNITY_TEASER.title)).toBeInTheDocument();
+    expect(within(card).getByText(COMMUNITY_BAND_LINE)).toBeInTheDocument();
     expect(card.querySelector("[data-community-count]")).toBeNull();
     expect(card.querySelector("[data-community-note]")).toBeNull();
     expect(card).not.toHaveTextContent(/Illustrative photos/);
@@ -111,11 +109,11 @@ describe("CommunitySection in live mode", () => {
     expect(container.querySelector("#find-your-people")?.textContent).not.toMatch(/\d/);
   });
 
-  it("while the events load or when they fail, shows the no-example card (never a number)", async () => {
+  it("while the events load or when they fail, shows the band without an example (never a number)", async () => {
     loadHomeEvents.mockReset().mockRejectedValue(new Error("down"));
     loadHomeTrending.mockReset().mockRejectedValue(new Error("down"));
     const { container } = await renderLive();
-    const card = container.querySelector<HTMLElement>("[data-community-card]");
+    const card = container.querySelector<HTMLElement>("[data-community-band]");
     expect(card).not.toBeNull();
     expect(card).not.toHaveAttribute("data-community-example");
     expect(container.querySelector("#find-your-people")?.textContent).not.toMatch(/\d/);

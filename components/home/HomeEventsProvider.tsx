@@ -3,15 +3,25 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { isApiConfigured } from "@/lib/api/client";
 import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
-import { loadHomeEvents, loadHomeFollowing, loadHomeRecent, loadHomeTrending } from "@/lib/home-events";
-import { selectHomeSections, type HomeSections } from "@/lib/home-sections";
+import { loadHomeFeed, loadHomeFollowing, loadHomeTrending } from "@/lib/home-events";
+import { isUpcomingEvent } from "@/lib/data";
+import { bySoonest, preferState, selectHomeSections, type HomeSections } from "@/lib/home-sections";
 import { readStoredNearState, subscribeStoredNear } from "@/lib/near-storage";
+import type { SheltuhEvent } from "@/lib/types";
 
 export type HomeEventsState =
   | { status: "loading" }
   /** `retrying`: Try again is loading; the error stays on screen (and its button keeps focus) until it settles. */
   | { status: "error"; retrying: boolean }
-  | { status: "ready"; sections: HomeSections; now: Date };
+  | {
+      status: "ready";
+      sections: HomeSections;
+      now: Date;
+      /** Every loaded upcoming event, soonest first (the saved suburb's state first): All events. */
+      events: SheltuhEvent[];
+      /** `events` is every upcoming event there is, so its count is the whole number. */
+      complete: boolean;
+    };
 
 export interface HomeEventsValue {
   mode: "demo" | "live";
@@ -23,10 +33,9 @@ const HomeEventsContext = createContext<HomeEventsValue | null>(null);
 
 /** What the loads returned, kept so the sections can be split again when the saved suburb changes. */
 interface HomeLoaded {
-  events: Awaited<ReturnType<typeof loadHomeEvents>>;
+  feed: Awaited<ReturnType<typeof loadHomeFeed>>;
   trending: Awaited<ReturnType<typeof loadHomeTrending>>;
   following: Awaited<ReturnType<typeof loadHomeFollowing>>;
-  recent: Awaited<ReturnType<typeof loadHomeRecent>>;
   now: Date;
 }
 
@@ -36,9 +45,12 @@ const serverNull = () => null;
 
 /**
  * Loads the home page's events once and splits them into sections, for the
- * event sections below the hero (docs/design/home.md §5.9). A trending
- * failure only hides Trending; an events failure is the page's one error,
- * shown in the first section's place with Try again.
+ * event sections below the hero (docs/design/home.md §5.9): the featured
+ * carousel (Popular right now, else Coming up), This weekend, From organisers
+ * you follow, and All events (every loaded event, with `complete` saying
+ * whether that's all there are). A trending failure only changes the
+ * carousel to Coming up; an events failure is the page's one error, shown in
+ * the first section's place with Try again.
  *
  * Live and signed in, it also loads the followed organisers' events for "From
  * organisers you follow" (a failure only hides that rail). It waits for the
@@ -65,8 +77,18 @@ export function HomeEventsProvider({ children }: { children: ReactNode }) {
   const preferredState = useSyncExternalStore(subscribeStoredNear, readStoredNearState, serverNull);
   const state = useMemo<HomeEventsState>(() => {
     if (load.status !== "ready") return load;
-    const { events, trending, following, recent, now } = load.loaded;
-    return { status: "ready", sections: selectHomeSections(events, trending, now, following, preferredState, recent), now };
+    const { feed, trending, following, now } = load.loaded;
+    return {
+      status: "ready",
+      sections: selectHomeSections(feed.events, trending, now, following, preferredState),
+      now,
+      events: preferState(
+        feed.events.filter((event) => isUpcomingEvent(event, now)).sort(bySoonest),
+        preferredState,
+        (event) => event,
+      ),
+      complete: feed.complete,
+    };
   }, [load, preferredState]);
 
   useEffect(() => {
@@ -74,14 +96,12 @@ export function HomeEventsProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     const now = new Date();
     Promise.all([
-      loadHomeEvents(now),
+      loadHomeFeed(now),
       loadHomeTrending(now).catch(() => []),
       getToken ? loadHomeFollowing(getToken, now).catch(() => []) : Promise.resolve([]),
-      // A failure only hides "Recently on".
-      loadHomeRecent(now).catch(() => []),
     ]).then(
-      ([events, trending, following, recent]) => {
-        if (!cancelled) setState({ status: "ready", loaded: { events, trending, following, recent, now } });
+      ([feed, trending, following]) => {
+        if (!cancelled) setState({ status: "ready", loaded: { feed, trending, following, now } });
       },
       () => {
         if (!cancelled) setState({ status: "error", retrying: false });

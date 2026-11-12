@@ -16,9 +16,8 @@ const loadHomeEvents = vi.fn<(now: Date) => Promise<SheltuhEvent[]>>();
 const loadHomeTrending = vi.fn<(now: Date) => Promise<TrendingItem[]>>();
 const loadHomeFollowing = vi.fn<(getToken: GetToken, now: Date) => Promise<SheltuhEvent[]>>();
 vi.mock("@/lib/home-events", () => ({
-  loadHomeEvents: (now: Date) => loadHomeEvents(now),
+  loadHomeFeed: async (now: Date) => ({ events: await loadHomeEvents(now), complete: true }),
   loadHomeTrending: (now: Date) => loadHomeTrending(now),
-  loadHomeRecent: () => Promise.resolve([]),
   loadHomeFollowing: (getToken: GetToken, now: Date) => loadHomeFollowing(getToken, now),
 }));
 vi.mock("@/lib/api/going", () => ({ getGoingSummary: vi.fn(() => new Promise(() => {})) }));
@@ -72,7 +71,7 @@ async function settle() {
 }
 
 describe("home: From organisers you follow", () => {
-  it("signed in with follows: right after This weekend, before Popular right now, linking to the follows page", async () => {
+  it("signed in with follows: right after This weekend, before All events, linking to the follows page", async () => {
     loadHomeFollowing.mockResolvedValue([FOLLOWED, T[0]]);
     render(
       <FakeAuthProvider value={fakeAuthValue({ email: "mia@example.com" })}>
@@ -84,13 +83,13 @@ describe("home: From organisers you follow", () => {
     await settle();
     const rail = await screen.findByRole("region", { name: "From organisers you follow" });
     const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
-    expect(headings.indexOf("From organisers you follow")).toBe(headings.indexOf("This weekend") + 1);
-    expect(headings.indexOf("Popular right now")).toBe(headings.indexOf("From organisers you follow") + 1);
+    expect(headings).toEqual(["Popular right now", "This weekend", "From organisers you follow", "All events"]);
     expect(within(rail).getByRole("link", { name: /^Event followed/ })).toBeInTheDocument();
     expect(within(rail).getByRole("link", { name: "See all organisers you follow" })).toHaveAttribute("href", "/following");
-    // T0 moved up into the rail: Popular right now doesn't repeat it.
+    // T0 is claimed by the followed section: the carousel (Popular right now) doesn't repeat it.
     const trending = screen.getByRole("region", { name: "Popular right now" });
-    expect(within(trending).queryByRole("link", { name: /^Event t0/ })).toBeNull();
+    expect(within(trending).queryByRole("heading", { level: 3, name: "Event t0" })).toBeNull();
+    expect(within(trending).getByRole("heading", { level: 3, name: "Event t1" })).toBeInTheDocument();
   });
 
   it("hidden when empty, and when its load fails", async () => {

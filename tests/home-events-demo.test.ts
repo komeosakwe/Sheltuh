@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isApiConfigured } from "@/lib/api/client";
-import { loadHomeEvents, loadHomeRecent, loadHomeTrending } from "@/lib/home-events";
+import { loadHomeEvents, loadHomeFeed, loadHomeTrending } from "@/lib/home-events";
 import { getSampleGoing } from "@/lib/sample-going";
 
 // Tests run without Supabase settings, so this is demo mode: sample data, no requests.
@@ -19,18 +19,10 @@ describe("home loaders (demo)", () => {
     expect(starts).toEqual([...starts].sort());
   });
 
-  it("loadHomeRecent: the sample events that ended in the last 14 days, most recently ended first", async () => {
-    const events = await loadHomeRecent(NOW);
-    for (const e of events) {
-      const ended = Date.parse(e.endsAt ?? e.startsAt);
-      expect(ended).toBeLessThanOrEqual(NOW.getTime());
-      expect(ended).toBeGreaterThan(NOW.getTime() - 14 * 86_400_000);
-    }
-    const ends = events.map((e) => Date.parse(e.endsAt ?? e.startsAt));
-    expect(ends).toEqual([...ends].sort((a, b) => b - a));
-    // Late enough that nothing is within the window; early enough that nothing has started.
-    expect(await loadHomeRecent(new Date("2030-01-01T00:00:00Z"))).toEqual([]);
-    expect(await loadHomeRecent(new Date("2020-01-01T00:00:00Z"))).toEqual([]);
+  it("loadHomeFeed: the same events, and always complete (every sample is loaded)", async () => {
+    const feed = await loadHomeFeed(NOW);
+    expect(feed.complete).toBe(true);
+    expect(feed.events).toEqual(await loadHomeEvents(NOW));
   });
 
   it("loadHomeTrending: upcoming samples by going count (ties soonest first), top 12, labelled with that count", async () => {

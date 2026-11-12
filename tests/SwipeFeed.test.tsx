@@ -19,12 +19,10 @@ vi.mock("@/lib/api/client", async (importOriginal) => ({
 const loadHomeEvents = vi.fn<(now: Date) => Promise<SheltuhEvent[]>>();
 const loadHomeTrending = vi.fn<(now: Date) => Promise<TrendingItem[]>>();
 const loadHomeFollowing = vi.fn<(getToken: GetToken, now: Date) => Promise<SheltuhEvent[]>>();
-const loadHomeRecent = vi.fn<(now: Date) => Promise<SheltuhEvent[]>>();
 vi.mock("@/lib/home-events", () => ({
-  loadHomeEvents: (now: Date) => loadHomeEvents(now),
+  loadHomeFeed: async (now: Date) => ({ events: await loadHomeEvents(now), complete: true }),
   loadHomeTrending: (now: Date) => loadHomeTrending(now),
   loadHomeFollowing: (getToken: GetToken, now: Date) => loadHomeFollowing(getToken, now),
-  loadHomeRecent: (now: Date) => loadHomeRecent(now),
 }));
 
 function event(id: string, startsAt: string, overrides: Partial<SheltuhEvent> = {}): SheltuhEvent {
@@ -96,10 +94,10 @@ beforeEach(() => {
   apiConfigured = true;
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date(NOW));
-  loadHomeEvents.mockReset().mockResolvedValue([ENDED, SOON, SAT, SUN, FOLLOWED, ...T]);
+  // RECENT ended two days ago: it never enters the feed.
+  loadHomeEvents.mockReset().mockResolvedValue([ENDED, RECENT, SOON, SAT, SUN, FOLLOWED, ...T]);
   loadHomeTrending.mockReset().mockResolvedValue([]);
   loadHomeFollowing.mockReset().mockResolvedValue([]);
-  loadHomeRecent.mockReset().mockResolvedValue([RECENT]);
 });
 afterEach(() => {
   cleanup();

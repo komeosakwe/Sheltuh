@@ -249,36 +249,21 @@ describe("retired accents and motion (brand-direction-one.md §9, cleanup)", () 
     expect(badge).toMatch(/HERO_BADGE_TURN = "30s"/);
   });
 
-  // The second, also at the owner's request (23 Oct 2026, "make them automatically scroll", "as
-  // smooth as the very initial one done to simulate DICE"; 24 Oct 2026, "make it go from one end of
-  // screen to next"): the home rails are an endless marquee, a slow continuous drift (60px a second)
-  // across the full width that loops seamlessly on copies of the cards, with no end hold and no
-  // glide back, from one shared hook, only for people who haven't asked for less motion, with a
-  // Pause/Play button (tests/HomeRailAutoScroll.test.tsx covers the behaviour).
-  it("allows one auto-scroll, the home rails' marquee: one hook, motion-gated, with a Pause/Play control", () => {
-    const users = sources.filter(({ text }) => /\buseRailAutoScroll\(/.test(text)).map(({ file }) => file);
-    expect(users.sort()).toEqual(
-      [path.join("components", "home", "HomeRailSection.tsx"), path.join("components", "home", "useRailAutoScroll.ts")].sort(),
-    );
-    const hook = sources.find(({ file }) => file === path.join("components", "home", "useRailAutoScroll.ts"))?.text ?? "";
-    expect(hook).toMatch(/useMotionOk\(\)/);
-    expect(hook).toMatch(/DRIFT_PX_PER_SEC = 60;/);
-    // A loop, not a there-and-back: no hold at an end, no glide back.
-    expect(hook).not.toMatch(/END_HOLD_MS|returnDuration|easeInOutSine/);
-    expect(hook).toMatch(/pos -= loop\.period/);
-    // The copies are hidden from assistive tech and out of the tab order, yet clickable (not inert:
-    // a hovered, held rail's copy must open its event), and only the marquee renders them.
-    const item = sources.find(({ file }) => file === path.join("components", "home", "RailItem.tsx"))?.text ?? "";
-    expect(item).toMatch(/<li ref=\{keepOutOfTabOrder\}[^>]*aria-hidden="true" data-rail-clone="">/);
-    expect(item).toMatch(/el\.tabIndex = -1/);
-    expect(item).not.toMatch(/\binert\b/);
-    const cloning = sources.filter(({ text }) => /<RailCloneSet\b/.test(text)).map(({ file }) => file);
-    expect(cloning).toEqual([path.join("components", "home", "HomeRail.tsx")]);
-    const section = sources.find(({ file }) => file === path.join("components", "home", "HomeRailSection.tsx"))?.text ?? "";
-    expect(section).toMatch(/<RailAutoScrollButton\b/);
-    // The drift itself (frames writing scrollLeft) lives in the hook only.
-    const drifting = sources.filter(({ text }) => /\bscrollLeft = pos\b/.test(text)).map(({ file }) => file);
-    expect(drifting).toEqual([path.join("components", "home", "useRailAutoScroll.ts")]);
+  // The second, at the owner's request (23 Oct 2026, "make them automatically scroll"), now the home's
+  // featured carousel (redesign PR 3; the rails and their marquee are gone): one slide at a time,
+  // advanced by one shared interval, only for people who haven't asked for less motion, with a
+  // Pause/Play button (tests/FeaturedCarousel.test.tsx covers the behaviour).
+  it("allows one auto-advance, the home carousel's: motion-gated, with a Pause/Play control, and no marquee anywhere", () => {
+    const carousel = sources.find(({ file }) => file === path.join("components", "home", "FeaturedCarousel.tsx"))?.text ?? "";
+    expect(carousel).toMatch(/useMotionOk\(\)/);
+    expect(carousel).toMatch(/const moving = motionOk && playing/);
+    expect(carousel).toMatch(/useVisibleInterval\(/);
+    expect(carousel).toMatch(/aria-label=\{playing \? "Pause carousel" : "Play carousel"\}/);
+    // The only script that advances anything by itself on the home.
+    const advancing = sources.filter(({ text }) => /\buseVisibleInterval\(\(\) => goTo\(/.test(text)).map(({ file }) => file);
+    expect(advancing).toEqual([path.join("components", "home", "FeaturedCarousel.tsx")]);
+    // The marquee's hook and its copies are gone.
+    expect(sources.filter(({ text }) => /\buseRailAutoScroll\(|data-rail-clone=""|<RailCloneSet\b/.test(text)).map(({ file }) => file)).toEqual([]);
   });
 });
 

@@ -1,66 +1,53 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import DotsMark from "@/components/brand/DotsMark";
 import { Button, ButtonLink } from "@/components/ui/Button";
-import { RESULTS_GRID } from "@/components/EventResults";
 import EventCard, { EventCardPlaceholder } from "@/components/ui/EventCard";
 import { Notice } from "@/components/ui/Section";
-import { useIsPhone } from "@/components/ui/useIsPhone";
-import { formatWeekendRange, popularTitle, type HomeSections, type TrendingSignal } from "@/lib/home-sections";
+import { matchesHomeFilters, NO_HOME_FILTERS, type HomeFilters } from "@/lib/home-filters";
+import { formatWeekendRange, popularEvents, popularTitle, type HomeSections, type TrendingSignal } from "@/lib/home-sections";
 import type { SheltuhEvent } from "@/lib/types";
+import CategoryRow from "./CategoryRow";
+import FeaturedCarousel from "./FeaturedCarousel";
+import HomeAllEvents, { HOME_GRID } from "./HomeAllEvents";
 import { useHomeEvents } from "./HomeEventsProvider";
-import { HOME_CONTAINER, HomeRailItem, RAIL_SKELETON } from "./HomeRail";
-import HomeGridSection, { HomeGridItem } from "./HomeGridSection";
-import HomeRailSection from "./HomeRailSection";
-import WeekendCard from "./WeekendCard";
+import HomeSectionHead from "./HomeSectionHead";
 
 /** The page's one load error (docs/design/mobile-redesign.md §6.3.4). */
 export const HOME_LOAD_ERROR = "Couldn’t load events. Check your connection and try again.";
 
-/** Every home section's spacing, the first after the category row included (Refinement, 22 Oct 2026: tighter). */
-const SECTION = "mt-6 sm:mt-10 lg:mt-8";
-/** This weekend's: a little more room under the category row for its bigger head (owner's mockup, 8 Nov 2026). */
-const WEEKEND_SECTION = "mt-8 sm:mt-10 lg:mt-8";
+/** All events' section id: the category chips control it. */
+export const HOME_ALL_EVENTS_ID = "home-all-events";
+
+/** The space above each event section (the proposal's rhythm: 64px from 768px, 48px on phones). */
+const SECTION = "mt-12 md:mt-16";
 
 /**
- * The home's event sections below the hero (docs/design/mobile-redesign.md
- * §6.3), in order: This weekend, From organisers you follow (signed-in
- * members who follow someone, when any of their events are left to show),
- * then Popular right now (real trending data), titled "Coming up" when that's
- * too thin to fill it ("Coming up across Australia" when a state is saved and
- * none of them is in it), then "Recently on" (events that ended in the last
- * 14 days: marked "Ended", nothing to buy; it fills a young marketplace's page). A weekend with nothing on is left out, so the few
- * events a young marketplace has always show. Each event appears once on the page (the provider's
- * sections are already de-duplicated). A section with no cards renders
- * nothing, and a section's link shows only beside cards.
- * From 640px every card is the `rail` EventCard, and every section is visible from the
- * start: nothing waits for a scroll to appear. Each section's head sits in
- * the page column and its cards run full width as a horizontal rail at
- * every width (`HomeRailSection`, `HomeRail`), so the caller places this
- * outside the page column. From 640px the cards are 224px wide (256px from
- * 1280px; from 768px they follow the screen, so three whole cards and part of a
- * fourth show at 768, four and part of a fifth at 1024).
+ * This weekend's and From organisers you follow's cards: the home grid from 640px; on a phone a
+ * sideways row of 288px cards (the next one peeking in), so the section stays short there.
+ */
+const ROW =
+  "no-scrollbar -mx-4 flex snap-x snap-mandatory gap-x-4 overflow-x-auto overscroll-x-contain scroll-px-4 px-4 py-2 sm:mx-0 sm:grid sm:grid-cols-2 sm:gap-y-8 sm:overflow-visible sm:px-0 sm:py-0 md:gap-x-6 lg:grid-cols-3 lg:gap-x-8 xl:grid-cols-4";
+const ROW_ITEM = "flex w-72 min-w-0 shrink-0 snap-start sm:w-auto";
+
+/**
+ * The home's event sections under the hero (the proposal, redesign PR 3), in order: the featured
+ * carousel (Popular right now from real trending data, else Coming up), the category chips, This
+ * weekend, From organisers you follow (signed-in members who follow someone), then All events.
+ * The carousel, This weekend and From organisers you follow never repeat an event between them
+ * (lib/home-sections.ts claims each once); All events is the full list, so it has everything.
+ * A section with no cards renders nothing.
  *
- * This weekend is the exception (owner's mockup, 8 Nov 2026): its own `WeekendCard`s, under the
- * feature head (SectionHead `feature`), in a rail at every width, phones included (about 1.15
- * cards across a phone, never drifting there), and a weekend event that's also trending with a
- * going count carries it for the card's going strip.
+ * The chips and All events' dropdowns are one set of filters (lib/home-filters.ts): they narrow
+ * This weekend, From organisers you follow and All events (not the carousel, which is above the
+ * chips); a section with nothing left is hidden, and All events says so with Reset filters.
  *
- * Below 640px (Tailwind `sm`) the other rails give way to the same sections as
- * two-column grids of `grid` EventCards, as /events has (`HomeGridSection`;
- * 12px between columns; the first row's photos load at once, the rest
- * lazily). That is chosen in the browser (`useIsPhone`; the server and the
- * first render are not a phone), but the loading skeleton is CSS (`sm:hidden`
- * / `hidden sm:block`), so a phone never paints the rails' skeleton. The
- * loading skeleton (a grid of card placeholders on phones), the error and the
- * empty state are otherwise the same.
- *
- * The first slot holds the page's loading skeleton, its one load error (with
- * Try again), or, with nothing upcoming at all, a note saying so. Try again
- * keeps the error (and its focused button, now busy) on screen while it
- * loads; when the events arrive, focus moves to the first section's heading,
- * since the button it was on has gone (only if focus went down with it).
+ * The first slot holds the page's loading skeleton, its one load error (with Try again), or,
+ * with nothing upcoming at all, a note saying so. Try again keeps the error (and its focused
+ * button, now busy) on screen while it loads; when the events arrive, focus moves to the first
+ * section (`data-home-focus`), since the button it was on has gone (only if focus went down with
+ * it).
  */
 export default function HomeEventSections() {
   const { mode, state, retry } = useHomeEvents();
@@ -68,10 +55,9 @@ export default function HomeEventSections() {
   const retrying = state.status === "error" && state.retrying;
   // Try again keeps the error box on screen (no skeleton), but its load is announced like the first.
   const announceLoading = loading || retrying;
-  const sections = state.status === "ready" ? state.sections : null;
-  const now = state.status === "ready" ? state.now : undefined;
-  const specs = sections ? sectionSpecs(sections) : [];
-  const phone = useIsPhone();
+  const ready = state.status === "ready" ? state : null;
+  const sections = ready?.sections ?? null;
+  const [filters, setFilters] = useState<HomeFilters>(NO_HOME_FILTERS);
   const rootRef = useRef<HTMLDivElement>(null);
   const retried = useRef(false);
 
@@ -89,7 +75,7 @@ export default function HomeEventSections() {
     // Only when focus went down with the button: never pull it from where the visitor moved it.
     const active = document.activeElement;
     if (active && active !== document.body) return;
-    rootRef.current?.querySelector<HTMLElement>("[data-home-section] h2, [data-home-empty]")?.focus();
+    rootRef.current?.querySelector<HTMLElement>("[data-home-focus], [data-home-empty]")?.focus();
   }, [state.status]);
 
   function handleRetry() {
@@ -97,173 +83,147 @@ export default function HomeEventSections() {
     retry();
   }
 
+  const anyUpcoming = sections?.anyUpcoming ?? false;
+  const now = ready?.now ?? new Date();
+  const signals = sections ? trendingSignals(sections) : {};
+  const pass = (event: SheltuhEvent) => matchesHomeFilters(event, filters, now);
+
   return (
-    <div ref={rootRef}>
+    <div ref={rootRef} className="page-container">
       {/* Always mounted so "Loading events…" is announced. */}
       <p role="status" className="sr-only">
         {announceLoading ? "Loading events…" : ""}
       </p>
 
-      {loading && (
-        <>
-          <div aria-hidden="true" className={`hidden sm:block ${SECTION}`}>
-            <div className={HOME_CONTAINER}>
-              <div className="mb-3 h-6 w-40 bg-surface sm:mb-4" />
-            </div>
-            {/* As many as the widest screen shows; the row clips the rest. */}
-            <div className={RAIL_SKELETON}>
-              {Array.from({ length: 6 }, (_, i) => (
-                <EventCardPlaceholder key={i} variant="rail" />
-              ))}
-            </div>
-          </div>
-          {/* Phones: two columns of card placeholders. */}
-          <div aria-hidden="true" data-home-grid-loading="" className={`${SECTION} sm:hidden`}>
-            <div className={HOME_CONTAINER}>
-              <div className="mb-3 h-6 w-40 bg-surface" />
-              <div className={RESULTS_GRID}>
-                {Array.from({ length: 4 }, (_, i) => (
-                  <EventCardPlaceholder key={i} variant="grid" />
-                ))}
-              </div>
-            </div>
-          </div>
-        </>
-      )}
+      {loading && <div aria-hidden="true" data-home-loading="" className="mt-8 aspect-square rounded-card bg-surface sm:aspect-video lg:aspect-[21/9]" />}
 
       {state.status === "error" && (
-        <div className={`${HOME_CONTAINER} ${SECTION}`}>
-          <div className="rounded-card bg-surface p-5 sm:p-8">
-            <Notice key={failures} tone="danger" role="alert">
-              {HOME_LOAD_ERROR}
-            </Notice>
-            <Button variant="outline" size="lg" className="mt-3" busy={retrying} onClick={handleRetry}>
-              {retrying ? "Trying again…" : "Try again"}
-            </Button>
+        <div className="mt-8 rounded-card bg-surface p-4 sm:p-8">
+          <Notice key={failures} tone="danger" role="alert">
+            {HOME_LOAD_ERROR}
+          </Notice>
+          <Button variant="outline" size="lg" className="mt-4" busy={retrying} onClick={handleRetry}>
+            {retrying ? "Trying again…" : "Try again"}
+          </Button>
+        </div>
+      )}
+
+      {sections && !anyUpcoming && <HomeEmpty />}
+
+      {sections?.popular && ready && (
+        <FeaturedCarousel id="home-featured" title={popularTitle(sections.popular)} events={popularEvents(sections.popular)} now={ready.now} className="mt-8" />
+      )}
+
+      {(loading || anyUpcoming) && (
+        <CategoryRow filters={filters} onChange={setFilters} controls={HOME_ALL_EVENTS_ID} className="mt-6 md:mt-8" />
+      )}
+
+      {loading && (
+        <div aria-hidden="true" data-home-grid-loading="" className={SECTION}>
+          <div className="mb-8 h-10 w-56 max-w-full rounded-badge bg-surface" />
+          <div className={HOME_GRID}>
+            {Array.from({ length: 4 }, (_, i) => (
+              <EventCardPlaceholder key={i} variant="grid" className={i > 0 ? "max-sm:hidden" : ""} />
+            ))}
           </div>
         </div>
       )}
 
-      {sections && !sections.anyUpcoming && sections.recent.length === 0 && <HomeEmpty />}
+      {sections && ready && sections.weekend.status === "cards" && (
+        <CardRowSection
+          id="home-weekend"
+          title="This weekend"
+          note={formatWeekendRange(sections.weekend.window)}
+          // Nearby's weekend filter: the one listing that has one.
+          link={{ href: "/map?time=weekend", label: "See all this weekend" }}
+        >
+          {sections.weekend.items.filter(pass).map((event, i) => {
+            const count = sections.weekend.going[event.id];
+            return (
+              <li key={event.id} className={ROW_ITEM}>
+                <EventCard
+                  event={event}
+                  variant="grid"
+                  mode={mode}
+                  signal={count === undefined ? undefined : { kind: "going", count }}
+                  now={ready.now}
+                  priority={i < 2 && !sections.popular}
+                />
+              </li>
+            );
+          })}
+        </CardRowSection>
+      )}
 
-      {specs.map((spec, s) => {
-        if (spec.weekend) {
-          // This weekend (owner's mockup, 8 Nov 2026): its own cards in a rail at every width, phones
-          // included (about 1.15 cards across, the next one peeking in), with the feature head.
-          return (
-            <HomeRailSection
-              key={spec.id}
-              id={spec.id}
-              title={spec.title}
-              note={spec.note}
-              link={spec.link}
-              count={spec.cards.length}
-              headVariant="feature"
-              autoScroll={!phone}
-              phoneEdges={false}
-              className={WEEKEND_SECTION}
-            >
-              {spec.cards.map(({ event, signal }, i) => (
-                <HomeRailItem key={event.id}>
-                  {/* On a phone the first two load at once (the first screen's), as the grids' first row did;
-                      the rest, and every one from 640px (as the rails'), lazily. */}
-                  <WeekendCard event={event} mode={mode} signal={signal} now={now} priority={phone && s === 0 && i < 2} />
-                </HomeRailItem>
-              ))}
-            </HomeRailSection>
-          );
-        }
-        const cards = spec.cards.map(({ event, signal }, i) =>
-          phone ? (
-            <HomeGridItem key={event.id}>
-              {/* The first row (two cards) loads at once; everything below it lazily. */}
-              <EventCard event={event} variant="grid" mode={mode} signal={signal} now={now} priority={s === 0 && i < 2} />
-            </HomeGridItem>
-          ) : (
-            <HomeRailItem key={event.id}>
-              <EventCard event={event} variant="rail" mode={mode} signal={signal} now={now} />
-            </HomeRailItem>
-          ),
-        );
-        return phone ? (
-          <HomeGridSection key={spec.id} id={spec.id} title={spec.title} note={spec.note} link={spec.link} className={SECTION}>
-            {cards}
-          </HomeGridSection>
-        ) : (
-          <HomeRailSection key={spec.id} id={spec.id} title={spec.title} note={spec.note} link={spec.link} count={spec.cards.length} className={SECTION}>
-            {cards}
-          </HomeRailSection>
-        );
-      })}
+      {sections && ready && sections.following.length > 0 && (
+        <CardRowSection id="home-following" title="From organisers you follow" link={{ href: "/following", label: "See all", srLabel: "organisers you follow" }}>
+          {sections.following.filter(pass).map((event) => (
+            <li key={event.id} className={ROW_ITEM}>
+              <EventCard event={event} variant="grid" mode={mode} signal={signals[event.id]} now={ready.now} />
+            </li>
+          ))}
+        </CardRowSection>
+      )}
+
+      {ready && anyUpcoming && (
+        <HomeAllEvents
+          id={HOME_ALL_EVENTS_ID}
+          events={ready.events}
+          signals={signals}
+          complete={ready.complete}
+          mode={mode}
+          now={ready.now}
+          filters={filters}
+          onFiltersChange={setFilters}
+          className={SECTION}
+        />
+      )}
     </div>
   );
 }
 
-interface SectionSpec {
-  id: string;
-  /** This weekend: WeekendCards in a rail at every width. */
-  weekend?: boolean;
-  title: string;
-  note?: string;
-  link: { href: string; label?: string; srLabel?: string };
-  cards: { event: SheltuhEvent; signal?: TrendingSignal }[];
+/** The real going counts and qualifiers the page has (trending, and This weekend's), by event id. */
+function trendingSignals(sections: HomeSections): Record<string, TrendingSignal> {
+  const signals: Record<string, TrendingSignal> = {};
+  if (sections.popular?.kind === "popular") for (const { event, signal } of sections.popular.items) signals[event.id] = signal;
+  for (const [id, count] of Object.entries(sections.weekend.going)) signals[id] = { kind: "going", count };
+  return signals;
 }
 
-/** The sections with cards, in page order (a section with none is left out). */
-function sectionSpecs(sections: HomeSections): SectionSpec[] {
-  const { weekend, following, popular, recent } = sections;
-  const plain = (events: SheltuhEvent[]) => events.map((event) => ({ event }));
-  const specs: SectionSpec[] = [];
-  if (weekend.status === "cards") {
-    specs.push({
-      id: "home-weekend",
-      weekend: true,
-      title: "This weekend",
-      note: formatWeekendRange(weekend.window),
-      // /events isn't filtered to the weekend, so the link says where it goes.
-      link: { href: "/events", label: "All events" },
-      // A weekend event that's also trending with a going count carries it, for the card's going strip.
-      cards: weekend.items.map((event) => {
-        const count = weekend.going[event.id];
-        return count === undefined ? { event } : { event, signal: { kind: "going", count } };
-      }),
-    });
-  }
-  if (following.length > 0) {
-    specs.push({
-      id: "home-following",
-      title: "From organisers you follow",
-      link: { href: "/following", srLabel: "organisers you follow" },
-      cards: plain(following),
-    });
-  }
-  if (popular) {
-    specs.push({
-      id: "home-popular",
-      title: popularTitle(popular),
-      // Nor sorted by popularity: "All events", as This weekend.
-      link: { href: "/events", label: "All events" },
-      cards: popular.kind === "popular" ? popular.items : plain(popular.items),
-    });
-  }
-  if (recent.length > 0) {
-    // Last, after everything upcoming: these have ended (their cards say "Ended" and have no ticket action).
-    specs.push({ id: "home-recent", title: "Recently on", link: { href: "/events", label: "All events" }, cards: plain(recent) });
-  }
-  return specs;
+/** A titled section of cards (This weekend, From organisers you follow), hidden when the filters leave none. */
+function CardRowSection({
+  id,
+  title,
+  note,
+  link,
+  children,
+}: {
+  id: string;
+  title: string;
+  note?: string;
+  link: { href: string; label: string; srLabel?: string };
+  children: ReactNode[];
+}) {
+  if (children.length === 0) return null;
+  return (
+    <section aria-labelledby={id} data-home-section="" className={SECTION}>
+      <HomeSectionHead id={id} title={title} note={note} link={link} />
+      <ul aria-labelledby={id} className={ROW}>
+        {children}
+      </ul>
+    </section>
+  );
 }
 
 /** "No events yet." and the way to the full list (the page's empty state). */
 function HomeEmpty() {
   return (
-    <div className={`${HOME_CONTAINER} ${SECTION}`}>
-      <div data-home-empty="" tabIndex={-1} className="rounded-card bg-surface p-5 sm:p-8">
-        <DotsMark size="lg" className="text-foreground" />
-        <p className="mt-6 text-base leading-6">No events yet.</p>
-        <ButtonLink href="/events" variant="outline" size="lg" className="mt-3">
-          All events
-        </ButtonLink>
-      </div>
+    <div data-home-empty="" tabIndex={-1} className="mt-8 rounded-card bg-surface p-4 sm:p-8">
+      <DotsMark size="lg" className="text-foreground" />
+      <p className="mt-6 body-m">No events yet.</p>
+      <ButtonLink href="/events" variant="outline" size="lg" className="mt-4">
+        All events
+      </ButtonLink>
     </div>
   );
 }

@@ -13,9 +13,8 @@ import type { SheltuhEvent } from "@/lib/types";
 
 const loadHomeEvents = vi.fn<(now: Date) => Promise<SheltuhEvent[]>>();
 vi.mock("@/lib/home-events", () => ({
-  loadHomeEvents: (now: Date) => loadHomeEvents(now),
+  loadHomeFeed: async (now: Date) => ({ events: await loadHomeEvents(now), complete: true }),
   loadHomeTrending: () => Promise.resolve([]),
-  loadHomeRecent: () => Promise.resolve([]),
   loadHomeFollowing: () => Promise.resolve([]),
 }));
 

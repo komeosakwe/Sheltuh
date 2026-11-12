@@ -51,7 +51,7 @@ function compactBar(container: HTMLElement) {
 const PLACES = [
   ["Discover", "/"],
   ["Nearby", "/map"],
-  ["Community", "/#find-your-people"],
+  ["Community", "/community"],
 ];
 
 describe("Nav — phone menu", () => {
@@ -118,6 +118,20 @@ describe("Nav — phone menu", () => {
     expect(within(menu).getByRole("link", { name: "Community", hidden: true })).not.toHaveAttribute("aria-current");
   });
 
+  // Community is its own page (redesign PR 3), no longer the home's #find-your-people.
+  it("marks Community as the current page on /community, in the menu and the desktop row", () => {
+    pathname = "/community";
+    const { menu } = renderNav(fakeAuthValue({ status: "signed-out" }));
+    expect(within(menu).getByRole("link", { name: "Community", hidden: true })).toHaveAttribute("aria-current", "page");
+    expect(within(menu).getByRole("link", { name: "Discover", hidden: true })).not.toHaveAttribute("aria-current");
+    const row = screen.getByRole("navigation", { name: "Primary" });
+    const community = within(row).getByRole("link", { name: "Community" });
+    expect(community).toHaveAttribute("href", "/community");
+    expect(community).toHaveAttribute("aria-current", "page");
+    // No in-page jump target any more: nothing links to the home's section.
+    expect(document.querySelector("a[href*='#find-your-people']")).toBeNull();
+  });
+
   it("marks Discover as the current section on an event's page (and What's on)", () => {
     for (const path of ["/events/neon-static", "/events"]) {
       pathname = path;
@@ -172,7 +186,7 @@ describe("Nav — phone menu", () => {
     footer.remove();
   });
 
-  it("closes after an action inside the menu (Community on the home included: an in-page link)", () => {
+  it("closes after an action inside the menu (a link to the page already showing included)", () => {
     const { menu } = renderNav(fakeAuthValue());
     const hidePopover = vi.fn();
     menu.hidePopover = hidePopover;
