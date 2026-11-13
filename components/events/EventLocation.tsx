@@ -32,7 +32,7 @@ export default function EventLocation({ event, map = true }: { event: SheltuhEve
 
   return (
     <section aria-labelledby="location-title" className="flex flex-col gap-4">
-      <h2 id="location-title" className="heading-h2">
+      <h2 id="location-title" className="heading-section">
         Location
       </h2>
       <div data-event-location="" className="flex flex-col gap-2">

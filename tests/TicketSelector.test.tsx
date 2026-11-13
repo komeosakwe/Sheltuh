@@ -9,7 +9,7 @@ import { setTrackingRef } from "@/lib/tracking-ref";
 import type { SheltuhEvent } from "@/lib/types";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 import { typeName } from "./test-utils/buyerName";
-import { priceLine, selectCard } from "./test-utils/ticketCards";
+import { priceLine, addTicket } from "./test-utils/ticketCards";
 
 // Live mode: checkout is only offered when the API is configured.
 vi.mock("@/lib/api/client", async (importOriginal) => ({
@@ -287,20 +287,22 @@ describe("TicketSelector (free tickets)", () => {
 
   it("caps free tickets at 4 per booking in total, across free ticket types, and says so", () => {
     render(<TicketSelector event={freeEvent()} />);
-    // One stepper, for the selected release (the first on sale to begin with).
-    const more = () => screen.getByRole("button", { name: /^Increase quantity for / });
-    expect(more()).toHaveAccessibleName("Increase quantity for Free entry");
-    expect(more()).toHaveAccessibleDescription("Up to 4 free tickets per booking.");
-    for (let i = 0; i < 3; i++) fireEvent.click(more());
-    expect(more()).toHaveAttribute("aria-disabled", "false");
-    selectCard("Kids");
-    expect(more()).toHaveAccessibleName("Increase quantity for Kids");
-    expect(more()).toHaveAttribute("aria-disabled", "true");
-    expect(more()).toHaveAccessibleDescription("Up to 4 free tickets per booking.");
-    selectCard("Free entry");
-    expect(more()).toHaveAttribute("aria-disabled", "true");
+    // A stepper per ticket type, each described by the shared free-ticket limit.
+    const more = (name: string) => screen.getByRole("button", { name: `Increase quantity for ${name}` });
+    expect(more("Free entry")).toHaveAccessibleDescription("Up to 4 free tickets per booking.");
+    expect(more("Kids")).toHaveAccessibleDescription("Up to 4 free tickets per booking.");
+    for (let i = 0; i < 3; i++) fireEvent.click(more("Free entry"));
+    expect(more("Free entry")).toHaveAttribute("aria-disabled", "false");
+    expect(more("Kids")).toHaveAttribute("aria-disabled", "false");
+    addTicket("Kids");
+    // Four free tickets across both types: neither "+" adds another.
+    expect(more("Kids")).toHaveAttribute("aria-disabled", "true");
+    expect(more("Free entry")).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(more("Free entry"));
+    expect(screen.getByRole("group", { name: "Quantity for Free entry" })).toHaveTextContent("3");
     fireEvent.click(screen.getByRole("button", { name: "Decrease quantity for Free entry" }));
-    expect(more()).toHaveAttribute("aria-disabled", "false");
+    expect(more("Kids")).toHaveAttribute("aria-disabled", "false");
+    expect(more("Free entry")).toHaveAttribute("aria-disabled", "false");
   });
 
   it("keeps focus on a stepper that reaches its limit, and a press there changes nothing", async () => {
@@ -346,23 +348,18 @@ describe("TicketSelector (free tickets)", () => {
 
   it("applies the same free-ticket cap when paid tickets are in the booking too", () => {
     render(<TicketSelector event={mixedEvent()} />);
-    const more = () => screen.getByRole("button", { name: /^Increase quantity for / });
+    const more = (name: string) => screen.getByRole("button", { name: `Increase quantity for ${name}` });
     // The paid type isn't limited by the free cap, and isn't described by it: only by its own limit.
-    expect(more()).toHaveAccessibleName("Increase quantity for Supporter");
-    expect(more()).toHaveAccessibleDescription("Up to 8 per booking.");
-    for (let i = 0; i < 6; i++) fireEvent.click(more());
-    // Pressing a free card adds its first ticket; one more press makes two of each free type.
-    selectCard("Free entry");
-    fireEvent.click(more());
-    selectCard("Kids");
-    fireEvent.click(more());
-    expect(more()).toHaveAccessibleName("Increase quantity for Kids");
-    expect(more()).toHaveAttribute("aria-disabled", "true");
-    selectCard("Free entry");
-    expect(more()).toHaveAttribute("aria-disabled", "true");
-    selectCard("Supporter");
-    expect(more()).toHaveAccessibleName("Increase quantity for Supporter");
-    expect(more()).toHaveAttribute("aria-disabled", "false");
+    expect(more("Supporter")).toHaveAccessibleDescription("Up to 8 per booking.");
+    for (let i = 0; i < 6; i++) fireEvent.click(more("Supporter"));
+    // Two of each free type: the free cap is reached.
+    addTicket("Free entry");
+    addTicket("Free entry");
+    addTicket("Kids");
+    addTicket("Kids");
+    expect(more("Kids")).toHaveAttribute("aria-disabled", "true");
+    expect(more("Free entry")).toHaveAttribute("aria-disabled", "true");
+    expect(more("Supporter")).toHaveAttribute("aria-disabled", "false");
     // Checkout (a paid order) still shows the free-ticket limit.
     expect(screen.getByRole("button", { name: "Checkout" })).toBeEnabled();
     expect(screen.getAllByText(/Up to 4 free tickets per booking/)[0]).toBeInTheDocument();
@@ -386,7 +383,7 @@ describe("TicketSelector (free tickets)", () => {
     );
     render(<TicketSelector event={mixedEvent()} />);
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Supporter" }));
-    selectCard("Free entry");
+    addTicket("Free entry");
     typeName();
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
     const alert = await screen.findByRole("alert");
@@ -477,11 +474,16 @@ describe("TicketSelector pricing (ACCC all-inclusive, brand-direction-one.md §6
     // Owner (28 Oct 2026, less helper text): the price alone; the fee is explained once, by Checkout.
     expect(screen.queryByText(/ticket \+ A\$/)).toBeNull();
     expect(screen.getByRole("group", { name: "Quantity for General admission" })).toHaveTextContent("0");
-    // Compact on phones, larger from sm; the amount is bold and "incl. booking fee" lighter (the owner's mockup).
-    expect(total).toHaveClass("text-base", "sm:text-xl", "tabular-nums");
-    expect(within(total).getByText("A$32.30")).toHaveClass("font-bold");
-    expect(within(total).getByText("incl. booking fee")).toHaveClass("font-medium");
-    expect(total.className).not.toMatch(/\blg:/);
+    // Secondary detail under the name (the owner's event reference, 13 Nov 2026): 14px, the amount in 500 and
+    // "incl. booking fee" muted; never bold, never in capitals.
+    expect(total).toHaveClass("body-s", "tabular-nums");
+    expect(within(total).getByText("A$32.30")).toHaveClass("font-medium");
+    expect(within(total).getByText("incl. booking fee")).toHaveClass("text-muted");
+    expect(total.className).not.toMatch(/\bfont-bold\b|\buppercase\b/);
+    // The name is 16px 600, as written.
+    const name = within(total.closest("li") as HTMLElement).getByText("General admission");
+    expect(name).toHaveClass("body-m", "font-semibold");
+    expect(name.className).not.toMatch(/\buppercase\b/);
   });
 
   it("an organiser-absorbed fee reads as the plain total, with no breakdown; a free tier says Free", () => {
@@ -507,7 +509,7 @@ describe("TicketSelector pricing (ACCC all-inclusive, brand-direction-one.md §6
     const totalTerm = screen.getByText("Total");
     const totalValue = totalTerm.nextElementSibling;
     expect(totalValue).toHaveTextContent("A$32.30");
-    expect(totalValue).toHaveClass("text-2xl", "font-bold");
+    expect(totalValue).toHaveClass("text-2xl", "font-semibold");
     expect(totalTerm.parentElement).toHaveClass("bg-surface", "rounded-card");
     expect(screen.getByText("Tickets").nextElementSibling).toHaveTextContent("A$30.00");
     expect(screen.getByText("Booking fees").nextElementSibling).toHaveTextContent("A$2.30");
@@ -739,7 +741,7 @@ describe("TicketSelector before anything is chosen", () => {
     };
     render(<TicketSelector event={event} />);
     expect(screen.getByRole("button", { name: "Checkout" })).toBeDisabled();
-    selectCard("Listener");
+    addTicket("Listener");
     expect(screen.getByRole("button", { name: "Free tickets" })).toBeEnabled();
     expect(screen.getByText(/We’ll email a link to confirm your tickets/)).toBeInTheDocument();
   });
@@ -960,7 +962,7 @@ describe("TicketSelector: group tickets", () => {
     createCheckoutSession.mockReturnValue(new Promise(() => {}));
     render(<TicketSelector event={groupEvent()} />);
     // Pressing the group's card selects it with its first group; one more press makes two.
-    selectCard("Group of 4");
+    addTicket("Group of 4");
     const more = screen.getByRole("button", { name: "Increase quantity for Group of 4" });
     fireEvent.click(more);
     expect(screen.getByRole("status")).toHaveTextContent("Group of 4: 2 groups, 8 tickets. Total A$255.40");
@@ -990,7 +992,7 @@ describe("TicketSelector: group tickets", () => {
 
   it("stops at 5 groups (20 people), and says so in groups", () => {
     render(<TicketSelector event={groupEvent()} />);
-    selectCard("Group of 4");
+    addTicket("Group of 4");
     const more = screen.getByRole("button", { name: "Increase quantity for Group of 4" });
     for (let i = 0; i < 7; i++) fireEvent.click(more);
     expect(screen.getByRole("group", { name: "Quantity for Group of 4" })).toHaveTextContent("5 groups");
@@ -1002,7 +1004,7 @@ describe("TicketSelector: group tickets", () => {
     render(<TicketSelector event={groupEvent({ remaining: 8 })} />);
     const row = screen.getByText("Group of 4").closest("li") as HTMLElement;
     expect(row).toHaveTextContent("Only 2 groups left.");
-    selectCard("Group of 4");
+    addTicket("Group of 4");
     const more = screen.getByRole("button", { name: "Increase quantity for Group of 4" });
     fireEvent.click(more);
     fireEvent.click(more);
@@ -1014,7 +1016,7 @@ describe("TicketSelector: group tickets", () => {
     render(<TicketSelector event={groupEvent({ remaining: 12 })} />);
     const row = screen.getByText("Group of 4").closest("li") as HTMLElement;
     expect(row).toHaveTextContent("Only 3 groups left.");
-    selectCard("Group of 4");
+    addTicket("Group of 4");
     const more = screen.getByRole("button", { name: "Increase quantity for Group of 4" });
     for (let i = 0; i < 5; i++) fireEvent.click(more);
     expect(screen.getByRole("group", { name: "Quantity for Group of 4" })).toHaveTextContent("3 groups");

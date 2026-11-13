@@ -39,6 +39,14 @@ export function buttonClass(
 export const secondaryActionClass =
   "label-button inline-flex min-h-12 items-center gap-2 rounded-control border-control border-foreground px-4 text-foreground motion-safe:transition-colors motion-safe:duration-200 motion-safe:ease-out hover:bg-foreground hover:text-background";
 
+/**
+ * Save, Share and Calendar in the event page's action row (the owner's event reference, 13 Nov 2026): the Secondary
+ * button filling a third of the row, 48px tall at every width, icon and label on one line in Instrument Sans 500
+ * (14px; 16px on tablets, where a third of the row is wide). Each label is one short word, so it fits a third of a
+ * 320px screen beside its icon. (`!` where it overrides secondaryActionClass's own gap, padding, size and weight.)
+ */
+export const actionRowClass = `${secondaryActionClass} w-full justify-center gap-1.5! px-1! text-center whitespace-nowrap font-medium! text-sm! sm:text-base! lg:text-sm!`;
+
 interface StyleProps {
   variant?: ButtonVariant;
   size?: ButtonSize;

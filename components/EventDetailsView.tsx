@@ -9,12 +9,11 @@ import EventLocation from "@/components/events/EventLocation";
 import { EventOrganiserProvider } from "@/components/events/EventOrganiserProvider";
 import ClipPlayButton from "@/components/events/ClipPlayButton";
 import MoreFromOrganiser from "@/components/events/MoreFromOrganiser";
-import OrganiserUpcoming from "@/components/events/OrganiserUpcoming";
 import SimilarNearby from "@/components/events/SimilarNearby";
 import ExternalTicketLink from "@/components/ExternalTicketLink";
 import OrganiserLogo from "@/components/organisers/OrganiserLogo";
 import SaveButton from "@/components/favourites/SaveButton";
-import { ExternalIcon } from "@/components/home/icons";
+import { ArrowRightIcon, ArrowUpRightIcon, CalendarIcon, PinIcon } from "@/components/home/icons";
 import SaveOnReturn from "@/components/favourites/SaveOnReturn";
 import { BarPrice, BuyArrow, BuyBarProvider, GaBuyBar, GaBuyPanel, PanelPrice, TICKETS_HEADING_ID } from "@/components/checkout/BuyBar";
 import SeatedTicketsPanel from "@/components/seating/SeatedTicketsPanel";
@@ -37,7 +36,8 @@ import { SUPPORT_EMAIL } from "@/lib/contact";
 import { isSafeTicketUrl, reportEventHref } from "@/lib/event-url";
 import { eventZone, formatEventDateShort, formatEventDateTimeRange, formatEventTime, formatTimeZoneLabel, zoneSuffix } from "@/lib/format";
 import { directionsHref } from "@/lib/maps";
-import { externalPriceFromLabel, formatFeedPriceParts, isSoldOut } from "@/lib/pricing";
+import { placeName } from "@/lib/place";
+import { externalPriceFromLabel, formatFeedPriceParts, isSoldOut, startingPrice } from "@/lib/pricing";
 import { goesToSeatPage, quickBuyLabel } from "@/lib/quick-buy";
 import { soonFields, type SoonFields } from "@/lib/soon";
 import { DEFAULT_REFUND_POLICY, REFUND_ACL_STATEMENT, refundTermsLine } from "@/lib/refund-policy";
@@ -101,10 +101,10 @@ function Placeholder({ children }: { children: ReactNode }) {
 
 /**
  * The tickets section (#tickets), first in the main column: the existing selector, seat panel, outside
- * ticket link or waitlist, unchanged. A general admission event with tickets on sale is "Select your
- * tickets" over its subheading (owner, 6 Nov 2026); every other state (seats, an outside ticket link, sold
- * out, ended, none yet) is "Tickets". The ticket panel beside the photo (and the phone's buy bar) is the
- * way here.
+ * ticket link or waitlist. A general admission event with tickets on sale is "Choose your tickets" over
+ * "Select a ticket type to continue." (the owner's event reference, 13 Nov 2026); every other state (seats,
+ * an outside ticket link, sold out, ended, none yet) is "Tickets". The ticket panel beside the photo (and
+ * the phone's buy bar) is the way here.
  */
 function TicketsSection({
   selects,
@@ -119,30 +119,24 @@ function TicketsSection({
   return (
     <section aria-labelledby={TICKETS_HEADING_ID}>
       {/* The heading, and beside it (under it where there's no room) the soon tag, outside the heading so its name
-          stays "Select your tickets". */}
+          stays "Choose your tickets". */}
       <div data-tickets-head="" className="flex flex-wrap items-center gap-x-3 gap-y-2">
         {/* Focusable from script (the desktop panel's action lands here), with a ring when it does, whatever the
             pointer did before; never a Tab stop. */}
         <h2
           id={TICKETS_HEADING_ID}
           tabIndex={-1}
-          className="heading-h2 min-w-0 rounded-control break-words focus:outline-2 focus:outline-offset-4 focus:outline-foreground"
+          className="heading-section min-w-0 rounded-control break-words focus:outline-2 focus:outline-offset-4 focus:outline-foreground"
         >
-          {selects ? "Select your tickets" : "Tickets"}
+          {selects ? "Choose your tickets" : "Tickets"}
         </h2>
         {soon && <SoonTag event={soon} />}
       </div>
-      {selects && <p className="body-m mt-2 text-muted">Choose a release to secure your spot.</p>}
-      <div className={selects ? "mt-6" : "mt-4"}>{children}</div>
+      {selects && <p className="body-m mt-1 text-muted">Select a ticket type to continue.</p>}
+      <div className="mt-4">{children}</div>
     </section>
   );
 }
-
-/**
- * Save, Share and Add to calendar in the ticket panel's row: the rules' Secondary button, filling a third of the row,
- * 48px on phones and 40px beside the photo, in Label/Button, wrapping onto two lines where a label doesn't fit.
- */
-const ACTION_ROW_BUTTON = "w-full justify-center px-2 text-center lg:min-h-10 lg:px-1 lg:text-sm!";
 
 /** A time in a date range ("10:00 am", "midnight"): the capture keeps it in `split`'s output. */
 const TIME_PATTERN = /(\d{1,2}:\d{2} [ap]m|midnight)/;
@@ -208,8 +202,8 @@ function whenLabel(startsAt: string, endsAt: string | undefined, timeZone: strin
  *
  * From 1024px: the photo (radius 16, with the date chip) on the left; on the right the tags (the
  * category, and a short age tag only when the organiser gave an age restriction), the title in display
- * type, the date and the venue in mono (the venue linked to directions), "by {organiser}" with their
- * upcoming count, the Who's going row, and the ticket panel: the all-inclusive "From A$X incl. booking
+ * type, the date and the venue as two groups with an icon each (the venue with Get directions), "Hosted by
+ * {organiser}" with View organiser, the Who's going row, and the ticket panel: the all-inclusive "From A$X incl. booking
  * fee", the one orange action (Buy tickets, Free tickets, Join waitlist, Choose seats, or the outside
  * ticket link) and Save, Share and Add to calendar as Secondary buttons. The panel sticks under the header
  * while the details scroll by. Below the photo: the tickets (#tickets: the selector, seats, outside link
@@ -282,11 +276,17 @@ export default function EventDetailsView({
   const organiserHref = organiserProfileHref(event);
   const directions = directionsHref(event);
   const address = [event.venueName, event.venueAddress].filter(Boolean).join(", ");
+  // The venue group's two lines: the venue's name, then its full street address (or, without one, its suburb, as the
+  // Location section does). A venue with no name leads with the address.
+  const venueName = event.venueName.trim();
+  const fullAddress = event.venueAddress.trim() || placeName(event.suburb, event.state);
+  const venueLine = venueName || fullAddress;
+  const addressLine = venueName ? fullAddress : "";
   const outboundLink = (className: string) => (
     <ExternalTicketLink eventId={event.id} url={ticketUrl} className={className} preview={Boolean(preview)} />
   );
   const externalOnSale = Boolean(ticketUrl) && !ended;
-  // The bars' mono line under the price: the start, "Thu 19 Nov · 7:00 pm". None for a draft without a
+  // The bars' date line under the price: the start, "Thu 19 Nov · 7:00 pm". None for a draft without a
   // date: its start is only a stand-in (preview-event.ts), and the facts say "Date and time to be added".
   const dateLine = missing?.when ? undefined : `${formatEventDateShort(event.startsAt, zone)} · ${formatEventTime(event.startsAt, zone)}`;
   // The "🔥 Tomorrow" tag's times (lib/soon.ts), beside the category, the tickets heading and the bars' date line;
@@ -365,8 +365,9 @@ export default function EventDetailsView({
           </div>
 
           {/* The key facts and the ticket panel: beside the photo from lg, and down the page with it (its rows
-              span the photo's and the details'), so the panel can stick while the details scroll by. */}
-          <div className="flex min-w-0 flex-col gap-2 max-lg:pb-8 lg:col-span-5 lg:col-start-8 lg:row-span-2 lg:row-start-1 xl:col-span-4 xl:col-start-9">
+              span the photo's and the details'), so the panel can stick while the details scroll by. Below lg, 12px
+              between its rows and a hairline under it, before the tickets (the owner's event reference). */}
+          <div className="flex min-w-0 flex-col gap-3 max-lg:border-b max-lg:border-surface-border max-lg:pb-6 lg:col-span-5 lg:col-start-8 lg:row-span-2 lg:row-start-1 xl:col-span-4 xl:col-start-9">
             <div data-event-tags="" className="flex flex-wrap gap-2">
               <CategoryTag tone={event.category}>{categoryLabel}</CategoryTag>
               {soon && <SoonTag event={soon} />}
@@ -382,14 +383,18 @@ export default function EventDetailsView({
             <h1 className="event-title break-words">
               {missing?.title ? <Placeholder>Untitled event</Placeholder> : event.title}
             </h1>
-            {/* The one date/time and venue block (no second copy further down), in Instrument Sans as
-                written (not capitals or mono: the owner found them hard to read, 13 Nov): when (500, the
-                lead fact), with its zone; where, linked to directions; and who, linked to their profile. */}
-            <dl data-event-facts="" className="flex flex-col gap-2">
-              <div>
-                <dt className="sr-only">When</dt>
-                <dd>
-                  <p className="mono-m font-medium">
+            {/* The one date/time and venue block (no second copy further down), as two groups with an icon each (the
+                owner's event reference, 13 Nov 2026), in Instrument Sans as written: when (16px 500), its zone under it
+                (14px, muted); where: the venue (16px 500), its full address under it, and a separate Get directions
+                link. Long names and addresses wrap. */}
+            <dl data-event-facts="" className="mt-1 flex flex-col gap-3">
+              <div data-event-when="" className="flex gap-3">
+                <dt className="flex shrink-0 pt-0.5">
+                  <CalendarIcon className="size-5" />
+                  <span className="sr-only">When</span>
+                </dt>
+                <dd className="min-w-0">
+                  <p className="body-m font-medium">
                     {/* Each time stays whole ("4:00 pm", never "4:00 / pm"); the rest wraps where it must,
                         so a long range fits a 320px screen. */}
                     {missing?.when ? (
@@ -407,71 +412,84 @@ export default function EventDetailsView({
                     )}
                   </p>
                   {!missing?.when && (
-                    <p className="mono-s text-muted">{formatTimeZoneLabel(event.startsAt, zone, event.state)}</p>
+                    <p className="body-s text-muted">{formatTimeZoneLabel(event.startsAt, zone, event.state)}</p>
                   )}
                 </dd>
               </div>
-              <div>
-                <dt className="sr-only">Where</dt>
+              <div data-event-where="" className="flex gap-3">
+                <dt className="flex shrink-0 pt-0.5">
+                  <PinIcon className="size-5" />
+                  <span className="sr-only">Where</span>
+                </dt>
                 {missing?.where ? (
-                  <dd className="mono-m">
+                  <dd className="body-m">
                     <Placeholder>Venue to be added</Placeholder>
                   </dd>
-                ) : directions ? (
-                  // The address itself links to directions. It opens the maps app where there is
-                  // one (lib/maps.ts), in a new tab otherwise.
-                  <dd className="min-w-0">
-                    <a
-                      href={directions}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      data-directions=""
-                      // Spelled out: it starts with the action, holds the visible address, and says
-                      // where it goes and that it opens a new tab.
-                      aria-label={`Get directions to ${address} (opens Google Maps in a new tab)`}
-                      // The address is the link, muted like the mock's, with the "opens elsewhere" mark to say
-                      // it's one; 44px tall to tap on phones, 24px with a pointer.
-                      className="mono-m inline-block min-h-6 max-w-full break-words text-muted underline-offset-4 hover:text-foreground hover:underline max-lg:min-h-11"
-                    >
-                      {address}
-                      {/* Inline after the last word, so it stays beside the text when it wraps. */}
-                      <ExternalIcon className="ml-1 inline size-4 align-[-2px]" />
-                    </a>
-                  </dd>
                 ) : (
-                  <dd className="mono-m min-w-0 break-words text-muted">{address}</dd>
+                  <dd className="flex min-w-0 flex-col items-start">
+                    {venueLine && <p className="body-m font-medium break-words">{venueLine}</p>}
+                    {addressLine && (
+                      <p data-venue-address="" className="body-s break-words text-muted">
+                        {addressLine}
+                      </p>
+                    )}
+                    {directions && (
+                      // Its own link under the address (lib/maps.ts: the maps app where there is one, a new tab
+                      // otherwise). Named in full: it starts with the visible words, holds the address, and says
+                      // where it goes and that it opens a new tab. A 44px target on phones that takes only its
+                      // 24px line in the column (the address above it isn't pressable, and the 12px gap below
+                      // keeps it clear of the organiser row); 24px with a pointer.
+                      <a
+                        href={directions}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        data-directions=""
+                        aria-label={`Get directions to ${address} (opens Google Maps in a new tab)`}
+                        className="body-s inline-flex min-h-11 items-center gap-1 font-medium underline underline-offset-4 hover:decoration-2 max-lg:-my-2.5 lg:mt-1 lg:min-h-6"
+                      >
+                        Get directions
+                        <ArrowUpRightIcon className="size-4 shrink-0" />
+                      </a>
+                    )}
+                  </dd>
                 )}
               </div>
-              <div className="flex items-center gap-2">
-                <dt className="flex shrink-0">
-                  {/* Their profile mark: their logo in the avatar square, or their initials (no
-                      logo, the demo, or it didn't load). Decorative and out of the tab order: the
-                      name beside it is the link. */}
-                  {organiserHref ? (
-                    <Link href={organiserHref} aria-hidden="true" tabIndex={-1} data-organiser-avatar="" className="flex">
-                      <OrganiserLogo name={event.organiserName} url={event.organiserLogoThumbUrl} size="md" fallback="initials" />
-                    </Link>
-                  ) : (
-                    <span data-organiser-avatar="" className="flex">
-                      <OrganiserLogo name={event.organiserName} url={event.organiserLogoThumbUrl} size="md" fallback="initials" />
-                    </span>
-                  )}
-                  <span className="sr-only">Organiser</span>
-                </dt>
-                <dd className="body-s min-w-0">
-                  by{" "}
-                  {/* A live event's organiser profile, or in the demo the sample organiser's. */}
-                  {organiserHref ? (
-                    <Link href={organiserHref} className="font-semibold underline-offset-4 hover:underline">
-                      {event.organiserName}
-                    </Link>
-                  ) : (
-                    <span className="font-semibold">{event.organiserName}</span>
-                  )}
-                  {!preview && <OrganiserUpcoming />}
-                </dd>
-              </div>
             </dl>
+            {/* Who's hosting (the owner's event reference): their mark, "Hosted by {name}", and View organiser → to their
+                profile at the right, or under the name where the row is too narrow for both. (Their upcoming count is
+                gone from here: beside the link it crowded the row.) */}
+            <div data-event-organiser="" className="flex items-center gap-3">
+              {/* Their profile mark: their logo in the avatar square, or their initials (no logo, the demo, or it didn't
+                  load). Decorative and out of the tab order: View organiser is the link. */}
+              {organiserHref ? (
+                <Link href={organiserHref} aria-hidden="true" tabIndex={-1} data-organiser-avatar="" className="flex shrink-0">
+                  <OrganiserLogo name={event.organiserName} url={event.organiserLogoThumbUrl} size="md" fallback="initials" />
+                </Link>
+              ) : (
+                <span data-organiser-avatar="" className="flex shrink-0">
+                  <OrganiserLogo name={event.organiserName} url={event.organiserLogoThumbUrl} size="md" fallback="initials" />
+                </span>
+              )}
+              <div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-x-3">
+                {/* Wraps beside the link while it has 160px; below that the link drops under it. */}
+                <p className="body-m min-w-0 flex-1 basis-40 break-words">
+                  Hosted by <span className="font-semibold">{event.organiserName}</span>
+                </p>
+                {/* A live event's organiser profile, or in the demo the sample organiser's. */}
+                {organiserHref && (
+                  <Link
+                    href={organiserHref}
+                    className="group/link body-s inline-flex min-h-11 shrink-0 items-center gap-1 font-medium underline underline-offset-4 hover:decoration-2 lg:min-h-6"
+                  >
+                    {/* The whole name in one span: a leading space in a separate sr-only suffix can be dropped inside a
+                        flex link. */}
+                    <span className="sr-only">View organiser {event.organiserName}</span>
+                    <span aria-hidden="true">View organiser</span>
+                    <ArrowRightIcon className="size-4 shrink-0 motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-hover/link:translate-x-0.5" />
+                  </Link>
+                )}
+              </div>
+            </div>
             {/* The ticket panel: sticky under the header from lg while the details scroll by, boxed when it has a price
                 and action (none once the event has ended, or before anything's on sale), and last in the column there
                 (after Who's going, as in the mock). Below lg its price and action are the buy bar's, so it's just the
@@ -489,17 +507,17 @@ export default function EventDetailsView({
               {/* The one secondary row: Save (the page's only Save), Share and Add to calendar, a third each. Top-aligned,
                   so Share's "Link copied" under it pushes the page down rather than covering anything. */}
               <div data-event-actions="" className="grid grid-cols-3 items-start gap-2">
-                <SaveButton event={saveTarget} variant="action" className={ACTION_ROW_BUTTON} />
+                <SaveButton event={saveTarget} variant="action" />
                 <ShareButton slug={event.slug} title={event.title} text={shareText} fill />
                 {!missing?.when && <AddToCalendar event={event} look="button" />}
               </div>
             </div>
             {/* Who's going (the owner's event mock): the count, a few faces and I'm going (or See who's going, View
                 attendees), to the panel further down. Nothing while there's no count to show and nothing to do. */}
-            {!preview && <WhosGoingCard className="mt-2" />}
+            {!preview && <WhosGoingCard className="mt-1" />}
           </div>
 
-          <div className="flex min-w-0 flex-col gap-12 lg:col-span-7 lg:row-start-2 xl:col-span-8">
+          <div className="flex min-w-0 flex-col gap-10 max-lg:pt-4 lg:col-span-7 lg:row-start-2 lg:gap-12 xl:col-span-8">
             {/* The buy bar's and the panel's target: focusable, so jumping here moves keyboard and
                 screen-reader focus to the tickets too, with the global focus-visible ring around the
                 section to show where you've landed. */}
@@ -608,7 +626,7 @@ export default function EventDetailsView({
               1px white top rule, so the black bar doesn't merge with the black page. */}
           {price && !ended && seatPage && (
             <div data-buy-bar className={buyBarClass}>
-              <BarPrice amount={price.amount} note={price.note} dateLine={dateLine} soon={soon} />
+              <BarPrice amount={startingPrice(price.amount)} note={price.note} dateLine={dateLine} soon={soon} />
               {/* A seated event's buy bar goes straight to its seat page (manager decision 2,
                   docs/design/seating.md). */}
               <Link href={`/events/${event.slug}/seats`} className={buttonClass("signal", "lg", "shrink-0 gap-2 px-5 sm:px-7")}>

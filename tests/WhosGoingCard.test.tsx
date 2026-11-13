@@ -125,7 +125,7 @@ describe("Who's going? card", () => {
     // the tickets. From lg the panel is drawn after this row (CSS order), as in the mock.
     const organiser = document.querySelector("[data-organiser-avatar]");
     const actions = document.querySelector("[data-event-actions]");
-    const tickets = screen.getByRole("heading", { name: "Select your tickets" });
+    const tickets = screen.getByRole("heading", { name: "Choose your tickets" });
     if (!actions || !organiser) throw new Error("no actions row or organiser");
     expect(organiser.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(actions.compareDocumentPosition(region) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import { buttonClass, secondaryActionClass } from "@/components/ui/Button";
+import { actionRowClass, buttonClass, secondaryActionClass } from "@/components/ui/Button";
 import { PHONE_QUERY } from "@/components/ui/useIsPhone";
 import { publicEventUrl } from "@/lib/event-url";
 
@@ -198,7 +198,7 @@ export default function ShareButton({
         aria-label={`Share ${title}`}
         aria-expanded={open ? true : undefined}
         aria-controls={open ? popoverId : undefined}
-        className={fill ? `${secondaryActionClass} w-full justify-center px-2 text-center lg:min-h-10 lg:px-1 lg:text-sm!` : secondaryActionClass}
+        className={fill ? actionRowClass : secondaryActionClass}
       >
         <ShareIcon />
         {/* The name "Share {title}" starts with what's shown. */}

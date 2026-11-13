@@ -35,10 +35,10 @@ for (const vp of [
   test.describe(`demo at ${vp.width}×${vp.height}`, () => {
     test.use({ viewport: vp });
 
-    test("an event's organiser name opens the sample organiser's page, with their events", async ({ page }) => {
+    test("an event's View organiser opens the sample organiser's page, with their events", async ({ page }) => {
       const checkNoApiCalls = noApiCalls(page);
       await page.goto("/events/dead-letter-office");
-      const link = page.getByRole("link", { name: "Small Hours Theatre", exact: true });
+      const link = page.getByRole("link", { name: "View organiser Small Hours Theatre", exact: true });
       await expect(link).toBeVisible({ timeout: 60_000 });
       await link.click();
 

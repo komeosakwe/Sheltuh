@@ -61,7 +61,7 @@ describe("the desktop ticket panel", () => {
   it("before a choice: Buy tickets → takes focus to the tickets heading, with a ring, and says how many releases", () => {
     const event = live("neon-static");
     render(<EventDetailsView event={event} demo={false} />);
-    const heading = screen.getByRole("heading", { level: 2, name: "Select your tickets" });
+    const heading = screen.getByRole("heading", { level: 2, name: "Choose your tickets" });
     expect(heading).toHaveAttribute("tabindex", "-1");
     expect(heading).toHaveClass("focus:outline-2");
     const buy = within(panel()).getByRole("link", { name: "Buy tickets" });
@@ -83,7 +83,7 @@ describe("the desktop ticket panel", () => {
     expect(event.ticketTypes).toHaveLength(1);
     render(<EventDetailsView event={event} demo={false} />);
     fireEvent.click(within(panel()).getByRole("link", { name: "Buy tickets" }));
-    expect(screen.getByRole("heading", { level: 2, name: "Select your tickets" })).toHaveFocus();
+    expect(screen.getByRole("heading", { level: 2, name: "Choose your tickets" })).toHaveFocus();
     expect(within(panel()).getByRole("status")).toBeEmptyDOMElement();
   });
 

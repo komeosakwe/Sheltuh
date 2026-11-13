@@ -151,9 +151,11 @@ describe("EventDetailsView preview", () => {
     expect(screen.getByText("Opens after First release")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Increase quantity for Second release" })).toBeNull();
     expect(screen.getByRole("button", { name: "Increase quantity for First release" })).toBeInTheDocument();
-    // The cheaper second ticket isn't on sale yet: one price on sale, so no "From", and not A$20.
-    expect(screen.queryByText(/From A\$/)).toBeNull();
+    // The cheaper second ticket isn't on sale yet: the starting price is the one on sale, never A$20's. (The bar says
+    // "From" before a choice even for one price, so a starting price never reads as a total.)
+    expect(document.querySelector("[data-buy-bar] [data-bar-amount]")).toHaveTextContent(/^From A\$32\.30$/);
     expect(document.querySelector("[data-buy-bar]")).not.toHaveTextContent("A$21");
+    expect(screen.queryByText(/From A\$21/)).toBeNull();
     expect(screen.getAllByText(/A\$32\.30/).length).toBeGreaterThan(0);
   });
 

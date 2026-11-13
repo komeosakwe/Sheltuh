@@ -46,7 +46,8 @@ describe("EventDetailsView buy bar (phones and tablets)", () => {
     const { container } = render(<EventDetailsView event={findEvent("fitzroy-poetry-and-noise")} demo={false} />);
     const bar = buyBar(container);
     if (!bar) throw new Error("buy bar not rendered");
-    expect(within(bar).getByText("A$21.70")).toBeInTheDocument();
+    // One ticket type, and still "From" before a choice: a starting price, never read as a total.
+    expect(within(bar).getByText("From A$21.70")).toBeInTheDocument();
     expect(within(bar).getByRole("link", { name: "Buy tickets" })).toHaveAttribute("href", "#tickets");
   });
 
@@ -80,7 +81,8 @@ describe("EventDetailsView buy bar (phones and tablets)", () => {
     const tickets = container.querySelector<HTMLElement>("#tickets");
     if (!tickets) throw new Error("#tickets not rendered");
     expect(tickets).toHaveAttribute("tabindex", "-1");
-    expect(within(tickets).getByRole("heading", { name: "Select your tickets" })).toBeInTheDocument();
+    expect(within(tickets).getByRole("heading", { name: "Choose your tickets" })).toBeInTheDocument();
+    expect(within(tickets).getByText("Select a ticket type to continue.")).toBeInTheDocument();
     // Arriving there shows the (global) focus-visible ring: nothing removes it.
     expect(tickets.className).not.toMatch(/outline-none/);
   });
@@ -176,17 +178,49 @@ describe("EventDetailsView key facts under the title (Refinement, 22 Oct 2026)",
     expect(screen.getAllByText("When")).toHaveLength(1);
     expect(screen.getAllByText("Where")).toHaveLength(1);
     expect(screen.queryByText(`${event.venueName} · ${event.suburb}`)).toBeNull();
-    const address = `${event.venueName}, ${event.venueAddress}`;
-    expect(container.textContent?.split(address)).toHaveLength(2);
-    // The time zone, directions and the organiser all stay (Add to calendar is in the ticket panel's row).
+    // The street address is said once on the page above Location (which has its own copy further down).
+    expect(within(facts).getAllByText(event.venueAddress)).toHaveLength(1);
+    // The time zone and directions stay (Add to calendar is in the ticket panel's row; the organiser is the row after).
     expect(within(facts).getByText(/^Melbourne time/)).toBeInTheDocument();
     expect(within(facts).getByRole("link", { name: /^Get directions to / })).toBeInTheDocument();
-    expect(within(facts).getByText(/^by/)).toBeInTheDocument();
-    // In mono capitals (CSS sets the case, so the text reads as written).
-    expect(within(facts).getByText(/^Melbourne time/)).toHaveClass("mono-s");
+    const organiser = container.querySelector<HTMLElement>("[data-event-organiser]");
+    if (!organiser) throw new Error("organiser row not rendered");
+    expect(facts.compareDocumentPosition(organiser) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(organiser).toHaveTextContent(`Hosted by ${event.organiserName}`);
+    // Instrument Sans as written: the zone a 14px muted line, never in capitals or mono.
+    expect(within(facts).getByText(/^Melbourne time/)).toHaveClass("body-s", "text-muted");
     expect(within(facts).getByText(/^Melbourne time/)).not.toHaveClass("uppercase");
-    expect(within(facts).getByRole("link", { name: /^Get directions to / })).toHaveClass("mono-m");
-    expect(within(facts).getByRole("link", { name: /^Get directions to / })).not.toHaveClass("uppercase");
+    expect(within(facts).getByRole("link", { name: /^Get directions to / }).className).not.toMatch(/\b(uppercase|mono-m|mono-s|font-mono)\b/);
+  });
+
+  it("groups the details as When and Where, each with a decorative icon, the lead line 16px 500 and the rest 14px", () => {
+    const event = findEvent("neon-static");
+    const { container } = render(<EventDetailsView event={event} demo />);
+    const groups = [...container.querySelectorAll<HTMLElement>("[data-event-facts] > div")];
+    expect(groups.map((g) => g.querySelector("dt")?.textContent)).toEqual(["When", "Where"]);
+    for (const group of groups) {
+      // The icon is decorative; the term ("When", "Where") is read instead.
+      const icon = group.querySelector("dt svg");
+      expect(icon).toHaveAttribute("aria-hidden", "true");
+      expect(group.querySelector("dt .sr-only")).not.toBeNull();
+    }
+    const [when, where] = groups;
+    expect(when.querySelector("dd p")).toHaveClass("body-m", "font-medium");
+    // Where: the venue (16px 500), then its full address (14px, muted), then Get directions.
+    const venue = within(where).getByText(event.venueName);
+    expect(venue).toHaveClass("body-m", "font-medium", "break-words");
+    const address = within(where).getByText(event.venueAddress);
+    expect(address).toHaveClass("body-s", "text-muted", "break-words");
+    expect(venue.compareDocumentPosition(address) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("shows the suburb under the venue when there's no street address (as the Location section does)", () => {
+    const event = { ...findEvent("neon-static"), venueAddress: "", suburb: "Collingwood" };
+    const { container } = render(<EventDetailsView event={event} demo />);
+    const where = container.querySelector<HTMLElement>("[data-event-where]");
+    if (!where) throw new Error("Where not rendered");
+    expect(within(where).getByText(event.venueName)).toBeInTheDocument();
+    expect(within(where).getByText("Collingwood, VIC")).toBeInTheDocument();
   });
 
   it("keeps each time whole ('8:00 pm', 'midnight'), so a narrow screen never splits one, but lets the rest wrap", () => {
@@ -228,7 +262,7 @@ describe("EventDetailsView key facts under the title (Refinement, 22 Oct 2026)",
   it("puts the tickets before About on phones (reading order: title, facts, tickets, then the description)", () => {
     const event = findEvent("neon-static");
     render(<EventDetailsView event={event} demo />);
-    const tickets = screen.getByRole("region", { name: "Select your tickets" });
+    const tickets = screen.getByRole("region", { name: "Choose your tickets" });
     const about = screen.getByRole("region", { name: "About this event" });
     expect(tickets.compareDocumentPosition(about) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(about).getByText(event.description)).toBeInTheDocument();
@@ -237,26 +271,31 @@ describe("EventDetailsView key facts under the title (Refinement, 22 Oct 2026)",
   it("repeats no page-level demo notice (the layout's banner is the one); the ticket panel still says nothing can be booked", () => {
     render(<EventDetailsView event={findEvent("neon-static")} demo />);
     expect(screen.queryByText(/fictional sample data/)).toBeNull();
-    expect(within(screen.getByRole("region", { name: "Select your tickets" })).getByText(/Checkout unavailable in this demo/i)).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Choose your tickets" })).getByText(/Checkout unavailable in this demo/i)).toBeInTheDocument();
   });
 });
 
 describe("EventDetailsView organiser", () => {
-  it("links 'Organised by' to the organiser's profile for a live event", () => {
+  it("says 'Hosted by {name}' with View organiser → to their profile for a live event", () => {
     const event = { ...findEvent("neon-static"), organiserId: "org 1", organiserName: "Northside Noise" };
-    render(<EventDetailsView event={event} demo={false} />);
-    const link = screen.getByRole("link", { name: "Northside Noise" });
+    const { container } = render(<EventDetailsView event={event} demo={false} />);
+    const row = container.querySelector<HTMLElement>("[data-event-organiser]");
+    if (!row) throw new Error("organiser row not rendered");
+    expect(within(row).getByText("Northside Noise")).toHaveClass("font-semibold");
+    expect(within(row).getByText(/^Hosted by/)).toHaveTextContent("Hosted by Northside Noise");
+    // Named for who it's for, starting with the words shown.
+    const link = within(row).getByRole("link", { name: "View organiser Northside Noise" });
     expect(link).toHaveAttribute("href", "/organisers/org%201");
-    expect(link.closest("dd")).toHaveTextContent("by Northside Noise");
+    expect(link).toHaveTextContent("View organiser");
+    expect(link.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
   });
 
   it("in the demo, links a sample event's organiser to the sample organiser's profile", () => {
     const event = findEvent("dead-letter-office");
     expect(event.organiserId).toBeUndefined();
     render(<EventDetailsView event={event} demo />);
-    const link = screen.getByRole("link", { name: "Small Hours Theatre" });
+    const link = screen.getByRole("link", { name: "View organiser Small Hours Theatre" });
     expect(link).toHaveAttribute("href", "/organisers/small-hours-theatre");
-    expect(link.closest("dd")).toHaveTextContent("by Small Hours Theatre");
   });
 
   it("shows the organiser's avatar beside their name, linked to the profile but out of the tab order", () => {
@@ -266,8 +305,8 @@ describe("EventDetailsView organiser", () => {
     expect(avatar).toHaveAttribute("href", "/organisers/small-hours-theatre");
     expect(avatar).toHaveAttribute("aria-hidden", "true");
     expect(avatar).toHaveAttribute("tabindex", "-1");
-    // The name stays the one link people reach.
-    expect(screen.getAllByRole("link", { name: "Small Hours Theatre" })).toHaveLength(1);
+    // View organiser stays the one link people reach.
+    expect(screen.getAllByRole("link", { name: "View organiser Small Hours Theatre" })).toHaveLength(1);
   });
 
   it("shows the avatar without a link when there's no profile", () => {
@@ -295,9 +334,9 @@ describe("EventDetailsView organiser", () => {
     expect(img).toHaveAttribute("width", "32");
     expect(img).toHaveAttribute("height", "32");
     expect(avatar).not.toHaveTextContent(/\S/); // no initials beside it
-    // Decorative: it adds nothing to the accessibility tree, and the name stays the one link.
+    // Decorative: it adds nothing to the accessibility tree, and View organiser stays the one link.
     expect(screen.queryByRole("img")).toBeNull();
-    expect(screen.getAllByRole("link", { name: event.organiserName })).toHaveLength(1);
+    expect(screen.getAllByRole("link", { name: `View organiser ${event.organiserName}` })).toHaveLength(1);
   });
 
   it("falls back to the organiser's initials when the logo fails to load", () => {
@@ -326,9 +365,10 @@ describe("EventDetailsView organiser", () => {
 
   it("keeps the organiser as plain text when there's no profile to link to", () => {
     const event = { ...findEvent("neon-static"), organiserName: "Nobody In The Samples" };
-    render(<EventDetailsView event={event} demo />);
-    expect(screen.getByText("Nobody In The Samples", { selector: "dd span" }).closest("dd")).toHaveTextContent("by Nobody In The Samples");
-    expect(screen.queryByRole("link", { name: "Nobody In The Samples" })).not.toBeInTheDocument();
+    const { container } = render(<EventDetailsView event={event} demo />);
+    expect(container.querySelector("[data-event-organiser]")).toHaveTextContent("Hosted by Nobody In The Samples");
+    expect(screen.queryByRole("link", { name: /Nobody In The Samples/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /^View organiser/ })).not.toBeInTheDocument();
   });
 });
 
@@ -359,7 +399,7 @@ describe("EventDetailsView tickets panel", () => {
 });
 
 describe("EventDetailsView brand layout (brand-direction-one.md §6.10)", () => {
-  it("puts the buy bar on the page's own surface, square, with the one orange Buy tickets → and the date in mono", () => {
+  it("puts the buy bar on the page's own surface, square, with the one orange Buy tickets → and the date under the price", () => {
     const { container } = render(<EventDetailsView event={findEvent("neon-static")} demo />);
     const bar = buyBar(container);
     if (!bar) throw new Error("buy bar not rendered");
@@ -370,7 +410,7 @@ describe("EventDetailsView brand layout (brand-direction-one.md §6.10)", () => 
     expect(buy).toHaveClass("btn-signal", "btn-lg");
     // The trailing arrow, decorative.
     expect(buy.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
-    expect(bar.querySelector("[data-bar-amount]")).toHaveClass("text-lg", "font-semibold");
+    expect(bar.querySelector("[data-bar-amount]")).toHaveClass("text-xl", "font-semibold");
     expect(bar.querySelector("p.mono-s")).toHaveTextContent(/^Fri 25 Sept?, · 8:00 pm$|^Fri 25 Sept? · 8:00 pm$/);
     // Checkout itself stays black.
     const tickets = container.querySelector<HTMLElement>("#tickets");
@@ -404,15 +444,24 @@ describe("EventDetailsView brand layout (brand-direction-one.md §6.10)", () => 
       `Share ${event.title}`,
       "Add to calendar",
     ]);
-    // The rules' Secondary buttons, filling the row.
-    expect(within(row).getByRole("button", { name: "Add to calendar" })).toHaveClass("border-control", "w-full");
+    // The rules' Secondary buttons, filling the row, each 48px with its icon and one-word label on one line, 500.
+    const buttons = within(row).getAllByRole("button");
+    expect(buttons.map((b) => b.textContent)).toEqual(["Save", "Share", "Calendar"]);
+    for (const button of buttons) {
+      expect(button).toHaveClass("border-control", "w-full", "min-h-12", "whitespace-nowrap", "font-medium!");
+      expect(button.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    }
     expect(heading.compareDocumentPosition(share) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("names the Tickets and Good to know sections by their headings (region landmarks)", () => {
     render(<EventDetailsView event={findEvent("neon-static")} demo />);
-    expect(screen.getByRole("region", { name: "Select your tickets" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Choose your tickets" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Good to know" })).toBeInTheDocument();
+    // The section headings are 22–24px, 600 (heading-section).
+    for (const name of ["Choose your tickets", "About this event", "Good to know"]) {
+      expect(screen.getByRole("heading", { level: 2, name })).toHaveClass("heading-section");
+    }
   });
 
   it("says the time is Melbourne time with the zone in effect, and midnight in words", () => {
@@ -436,8 +485,8 @@ describe("EventDetailsView brand layout (brand-direction-one.md §6.10)", () => 
   });
 });
 
-describe("EventDetailsView Where: the address links to directions", () => {
-  it("makes the address one link to directions, opening Google Maps in a new tab with a clear name", () => {
+describe("EventDetailsView Where: Get directions", () => {
+  it("is its own link under the address, opening Google Maps in a new tab with a clear name", () => {
     const event = findEvent("neon-static");
     render(<EventDetailsView event={event} demo />);
     const where = screen.getByText("Where").closest("div");
@@ -447,25 +496,26 @@ describe("EventDetailsView Where: the address links to directions", () => {
     const link = links[0];
     const address = `${event.venueName}, ${event.venueAddress}`;
     expect(link).toHaveAccessibleName(`Get directions to ${address} (opens Google Maps in a new tab)`);
-    expect(link).toHaveTextContent(address);
-    expect(link).not.toHaveTextContent("Get directions");
+    // The visible words start its name (WCAG 2.5.3); the address is the text above it, not the link.
+    expect(link).toHaveTextContent(/^Get directions$/);
+    expect(within(where).getByText(event.venueAddress).closest("a")).toBeNull();
     expect(link).toHaveAttribute(
       "href",
       `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`,
     );
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
-    // The address itself is the target: 44px on phones, 24px with a pointer; muted mono with no underline.
-    expect(link).toHaveClass("max-lg:min-h-11", "min-h-6", "mono-m", "text-muted");
-    expect(link.className).not.toMatch(/(^| )underline( |$)/);
+    // 44px to tap on phones, 24px with a pointer; underlined 14px 500, with the decorative ↗.
+    expect(link).toHaveClass("min-h-11", "lg:min-h-6", "body-s", "font-medium", "underline");
+    expect(link.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
   });
 });
 
 describe("EventDetailsView organiser row", () => {
-  it("links the organiser's name to their profile, with no separate More from link", () => {
+  it("links to the organiser's profile with View organiser, with no separate More from link", () => {
     const event = { ...findEvent("neon-static"), organiserId: "org 1", organiserName: "Northside Noise" };
     render(<EventDetailsView event={event} demo={false} />);
-    expect(screen.getByRole("link", { name: "Northside Noise" })).toHaveAttribute("href", "/organisers/org%201");
+    expect(screen.getByRole("link", { name: "View organiser Northside Noise" })).toHaveAttribute("href", "/organisers/org%201");
     expect(screen.queryByRole("link", { name: /^More from/ })).toBeNull();
   });
 });

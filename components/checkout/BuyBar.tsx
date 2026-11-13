@@ -5,7 +5,7 @@ import { ArrowRightIcon } from "@/components/home/icons";
 import { Button, buttonClass } from "@/components/ui/Button";
 import { SoonText } from "@/components/ui/SoonTag";
 import { useSoftKeyboardOpen } from "@/lib/use-soft-keyboard";
-import type { FeedPriceParts } from "@/lib/pricing";
+import { startingPrice, type FeedPriceParts } from "@/lib/pricing";
 import type { SoonFields } from "@/lib/soon";
 
 /**
@@ -95,7 +95,15 @@ export function GaBuyBar({
   const id = useId();
   const amountId = `${id}-amount`;
   const noteId = `${id}-note`;
-  const shown = state && state.kind !== "choose" ? state : price;
+  // Before a selection: the event's starting price ("From A$32.30", "incl. booking fee"). Once tickets are chosen: the
+  // order's total, said to be one ("A$64.60", "Total · incl. booking fee" or "Total · no booking fee"; the same figure
+  // as the Order summary's).
+  const shown =
+    state?.kind === "checkout"
+      ? { amount: state.amount, note: `Total · ${state.note.charAt(0).toLowerCase()}${state.note.slice(1)}` }
+      : state?.kind === "status"
+        ? state
+        : { amount: startingPrice(price.amount), note: price.note };
 
   useEffect(() => {
     const bar = barRef.current;
@@ -124,8 +132,8 @@ export function GaBuyBar({
     };
   }, []);
 
-  // The rules' sticky-bar button: Primary at size L (56px), radius 8, Label/Button in sentence case ("Buy tickets →"),
-  // a black label on orange (6.18:1). While busy it's the grey disabled one.
+  // The rules' sticky-bar button: Primary at size L (56px), radius 8, flat Signal Orange (#ff4800) with a black label
+  // (6.18:1), no gradient or shadow, in sentence case ("Buy tickets →"). While busy it's the grey disabled one.
   const actionClass = "shrink-0 gap-2 px-5 sm:px-7 @max-xs:w-full";
   return (
     <div
@@ -145,8 +153,9 @@ export function GaBuyBar({
 }
 
 /**
- * A phone buy bar's left side (the owner's 390 mock): the all-inclusive amount at 18px semibold (none for an external
- * event whose organiser gave no price), what it includes beside it, and the event's start under it, as written. Not a live region: the selector's own status
+ * A phone buy bar's left side (the owner's event reference, 13 Nov 2026): the all-inclusive amount at 20px semibold
+ * (none for an external event whose organiser gave no price), what it includes beside it (under it where there's no
+ * room), and the event's start under that, as written. Not a live region: the selector's own status
  * announces each change to the total. When the event is close, the start line leads with it ("🔥 Tomorrow · Sat 14 Nov ·
  * 5:00 pm", components/ui/SoonTag.tsx), on one line: the date is cut short where it must be, never the label.
  */
@@ -169,7 +178,7 @@ export function BarPrice({
     <div className="min-w-0 flex-1">
       {amount && (
       <p className="flex flex-wrap items-baseline gap-x-2">
-        <span id={amountId} data-bar-amount="" className="text-lg leading-6 font-semibold tabular-nums">
+        <span id={amountId} data-bar-amount="" className="text-xl leading-7 font-semibold tabular-nums">
           {amount}
         </span>
         {note && (
@@ -198,8 +207,8 @@ export function BuyArrow() {
 /**
  * The bar's (and the desktop ticket panel's) one action, from the selector's state. `checkout`: a button, the same
  * submit as the Checkout in the ticket section, busy (not disabled) while it works, so focus stays on it and a second
- * tap does nothing. Otherwise a link: nothing's chosen yet (or it's sold out); with the selector there it moves focus
- * to the first ticket's "+" and says what to do, and without, it just goes to the tickets.
+ * tap does nothing. Otherwise a link: nothing's chosen yet (or it's sold out); with the selector there it's "Choose
+ * tickets", which moves focus to the first ticket's "+" and says what to do, and without, it just goes to the tickets.
  */
 function BuyAction({
   state,
@@ -239,13 +248,19 @@ function BuyAction({
             }
           : undefined
       }
+      // The starting price (or the status) beside it is part of what it does: "From A$32.30 incl. booking fee".
+      aria-describedby={describedBy}
       className={buttonClass("signal", "lg", className)}
     >
-      {state?.kind === "status" ? state.label : label}
+      {/* With the selector there and nothing chosen it says what's needed first; it never checks out until then. */}
+      {state?.kind === "status" ? state.label : state?.kind === "choose" ? CHOOSE_LABEL : label}
       <BuyArrow />
     </a>
   );
 }
+
+/** The phone bar's action while the selector waits for a choice: it takes focus to the first ticket type's "+". */
+export const CHOOSE_LABEL = "Choose tickets";
 
 /** The heading of the tickets section (#tickets), which the panel's action moves focus to. */
 export const TICKETS_HEADING_ID = "tickets-title";
@@ -262,9 +277,9 @@ export function focusTicketsHeading(): boolean {
   return true;
 }
 
-/** "3 releases. Choose one, then set the quantity.": said as focus lands on the tickets, where there's a choice. */
+/** "3 ticket types. Set a quantity for each one you want.": said as focus lands on the tickets, where there's a choice. */
 export function releasesHint(releases: number): string {
-  return `${releases} releases. Choose one, then set the quantity.`;
+  return `${releases} ticket types. Set a quantity for each one you want.`;
 }
 
 /**

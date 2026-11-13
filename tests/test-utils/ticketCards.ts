@@ -1,20 +1,16 @@
-import { fireEvent, within } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 
 /**
- * Taps a release's card in the ticket panel: the quantity stepper (below the cards) moves to it, and a
- * release with none chosen gets its first ticket. Throws for a card that can't be pressed (sold out, waiting).
+ * Presses a ticket type's "+" in the ticket panel (each row has its own − n + stepper: the owner's event reference,
+ * 13 Nov 2026), adding one ticket (or group). Throws for a row with no stepper (sold out, waiting).
  */
-export function selectCard(name: string): void {
-  // Among the cards only: a release's name is also a row of the order summary once it's chosen.
-  const card = [...document.querySelectorAll<HTMLElement>("[data-ticket-card]")].find((li) => within(li).queryByText(name));
-  const button = card?.querySelector("button");
-  if (!button) throw new Error(`"${name}" has no card to press`);
-  fireEvent.click(button);
+export function addTicket(name: string): void {
+  fireEvent.click(screen.getByRole("button", { name: `Increase quantity for ${name}` }));
 }
 
 /**
- * A card's price line as one matcher ("A$32.30 incl. booking fee"): the amount is bold and the rest lighter,
- * so they're two runs inside one element. For `getByText(priceLine(...))`.
+ * A row's price line as one matcher ("A$32.30 incl. booking fee"): the amount is set apart from the rest, so they're
+ * two runs inside one element. For `getByText(priceLine(...))`.
  */
 export function priceLine(text: string) {
   return (_content: string, element: Element | null) => Boolean(element?.hasAttribute("data-ticket-price")) && element?.textContent === text;

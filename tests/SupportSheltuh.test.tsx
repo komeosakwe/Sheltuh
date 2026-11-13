@@ -11,7 +11,7 @@ import { sampleEvents } from "@/lib/sample-events";
 import { SUPPORT_PAUSED, SUPPORT_RECIPIENT_NOTE } from "@/lib/support";
 import type { SheltuhEvent } from "@/lib/types";
 import { typeName } from "./test-utils/buyerName";
-import { selectCard } from "./test-utils/ticketCards";
+import { addTicket } from "./test-utils/ticketCards";
 
 /**
  * Support Sheltüh at checkout (components/checkout/SupportSheltuh.tsx): the
@@ -296,9 +296,9 @@ describe("Support Sheltüh in the ticket selector (general admission)", () => {
       ],
     };
     render(<TicketSelector event={event} />);
-    selectCard("Listener");
+    addTicket("Listener");
     expect(screen.queryByRole("group", { name: GROUP_NAME })).toBeNull();
-    selectCard("Paid");
+    addTicket("Paid");
     expect(group()).toBeInTheDocument();
   });
 

@@ -545,6 +545,19 @@ h4 {
     line-height: 1.75rem;
   }
 }
+/* The event page's section headings (owner's brief, 13 Nov 2026: 22–24px, 600): Choose your tickets, About this
+   event, Who's going, Location, Good to know, More from and Similar nearby. 22px on phones, 24px from 768px. */
+@utility heading-section {
+  font-family: var(--face-sans);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-size: 1.375rem;
+  line-height: 1.75rem;
+  @media (width >= 48rem) {
+    font-size: 1.5rem;
+    line-height: 2rem;
+  }
+}
 @utility body-l {
   font-family: var(--face-sans);
   font-weight: 400;
