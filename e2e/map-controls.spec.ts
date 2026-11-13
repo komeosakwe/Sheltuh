@@ -63,7 +63,7 @@ test.describe("Nearby's controls at 390×844", () => {
     await expect(sheet).toBeVisible();
     await expect(sheet.getByRole("button", { name: "Where: Your suburb" })).toBeVisible();
     // Typed text stays 16px (iOS zooms into a smaller field).
-    expect(await sheet.getByRole("searchbox", { name: "Search events" }).evaluate((el) => getComputedStyle(el).fontSize)).toBe("16px");
+    expect(await sheet.getByRole("combobox", { name: "Search events" }).evaluate((el) => getComputedStyle(el).fontSize)).toBe("16px");
     // No second location control (the audit: "the header says Caulfield East, the page filter says All of Australia").
     await expect(page.getByRole("combobox", { name: "Location" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /^Where:/ })).toHaveCount(1);

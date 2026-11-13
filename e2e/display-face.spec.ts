@@ -41,7 +41,7 @@ test("the home h1 is Bootzy, read plainly; body and headings are Instrument Sans
   expect(await fontFamily(page, "body")).toMatch(/^"Instrument Sans", /);
   expect(await fontFamily(page, "main h2")).toMatch(/^"Instrument Sans", /);
   expect(await fontFamily(page, "main h3")).toMatch(/^"Instrument Sans", /);
-  const search = page.getByRole("searchbox", { name: "Search events" });
+  const search = page.getByRole("combobox", { name: "Search events" });
   expect(await search.evaluate((el) => getComputedStyle(el).fontFamily)).toMatch(/^"Instrument Sans", /);
   expect(await fontFamily(page, ".eyebrow")).toMatch(/^"IBM Plex Mono", /);
 

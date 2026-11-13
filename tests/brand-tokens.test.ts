@@ -118,8 +118,11 @@ describe("brand colour tokens", () => {
     // The 1.5px control stroke, on fields and buttons.
     expect(css).toContain("--stroke-control: 1.5px;");
     expect(css).toMatch(/@utility border-control \{\s*border-style: solid;\s*border-width: var\(--stroke-control\);/);
-    // No shadows anywhere: the transitional flat shadow-card token is gone too.
-    expect(css).not.toMatch(/--shadow-card|box-shadow:/);
+    // No shadows: the transitional flat shadow-card token is gone too. The one exception in this
+    // file is the open dropdown list (the owner's request, Nov 2026), and only on the --shadow-soft
+    // token: never a raw shadow.
+    expect(css).not.toMatch(/--shadow-card|box-shadow:(?!\s*var\(--shadow-soft\);)/);
+    expect(css.match(/box-shadow:/g) ?? []).toHaveLength(1);
     expect(css).not.toMatch(/border-radius:\s*9999px/);
   });
 });

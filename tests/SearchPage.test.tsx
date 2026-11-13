@@ -95,7 +95,7 @@ describe("/search?near= (owner round of 24 Oct 2026)", () => {
 
   it("a short placeholder, “Search events”, which also names the field; location has its own", async () => {
     render(await page({}));
-    const field = screen.getByRole("searchbox", { name: "Search events" });
+    const field = screen.getByRole("combobox", { name: "Search events" });
     expect(field).toHaveAttribute("placeholder", "Search events");
     expect(field).toHaveClass("text-ellipsis");
     expect(screen.getByRole("button", { name: "Where: Your suburb" })).toBeInTheDocument();

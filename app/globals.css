@@ -342,7 +342,7 @@
   --radius-dot: 0.5rem; /* 8px: organiser logos and map markers (echo the umlaut) */
   /* The exception to flat elevation, at the owner's request (mockups, 8 Nov 2026): /map's search and
      location fields and its chips, and the home's This weekend cards, sit on a soft shadow; the map's location
-     card floats over the map. */
+     card floats over the map. An open dropdown list sits on the soft one too (Nov 2026, "Dropdown lists" below). */
   --shadow-soft: 0 3px 8px rgb(74 52 30 / 0.12);
   --shadow-float: 0 6px 20px rgb(0 0 0 / 0.22);
   /* /map's controls, measured from the mockup at 390px. The search field's own text stays 16px on phones
@@ -906,9 +906,11 @@ h4 {
   textarea[aria-invalid="true"] {
     border-color: var(--danger);
   }
+  /* Medium (500), as the muted secondary text below (the owner's option B, Nov 2026). */
   input::placeholder,
   textarea::placeholder {
     color: var(--muted);
+    font-weight: 500;
   }
   input[type="checkbox"],
   input[type="radio"] {
@@ -916,10 +918,115 @@ h4 {
   }
 }
 
+/* Secondary text (the owner's option B, Nov 2026): muted text at reading size (body-l, body-m,
+   text-base, text-lg: ledes, intros, empty-state and helper lines) is Instrument Sans Medium (500),
+   in --muted, sentence case and normal tracking, as the fields' placeholders are. Smaller muted
+   text (text-sm, text-xs, body-s: card meta, captions, dense rows and tables) and the mono eyebrows
+   keep 400, so dense UI doesn't get heavy. An element's own weight class still wins. */
+@layer utilities {
+  .text-muted:is(.body-l, .body-m, .text-base, .text-lg):not(.font-normal, .font-semibold, .font-bold) {
+    font-weight: 500;
+  }
+}
+
 /* Never orange: next to .btn-signal it would merge with the fill. White inside ink scopes and in Dark. */
 :focus-visible {
   outline: 2px solid var(--foreground);
   outline-offset: 3px;
+}
+
+/* Dropdown lists (owner request, Nov 2026: "lists across the website should be rounded like the
+   image"): an open select's list is a rounded card on a soft shadow (the --shadow-soft exception),
+   8px inside, 40px rows in sentence-case Instrument Sans, cream under the pointer or the keyboard,
+   and a check at the right of the chosen one. Still the native select (the customizable select,
+   `appearance: base-select`), so its keyboard, screen-reader and form behaviour don't change, and
+   React renders it as before. Only where the browser has it, and only with a mouse or trackpad:
+   phones and tablets keep their own picker, and other browsers their own list. Unlayered, so it
+   wins over a select's `appearance-none`; the closed select keeps its own classes' look (only the
+   arrow is redrawn, as a chevron like the native one, and dropped where the select draws its own). */
+@supports (appearance: base-select) {
+  @media (hover: hover) and (pointer: fine) {
+    select:not([multiple]),
+    select:not([multiple])::picker(select) {
+      appearance: base-select;
+    }
+    select:not([multiple])::picker-icon {
+      content: "";
+      inline-size: 1rem;
+      block-size: 1rem;
+      flex: none;
+      margin-inline: auto -0.25rem; /* the select clips at its content box */
+      background-color: currentColor;
+      mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")
+        center / contain no-repeat;
+    }
+    select.appearance-none::picker-icon {
+      display: none;
+    }
+    /* The closed select as tall as the native one: base-select asks for at least 24px of content and
+       takes the inherited line height, where the native one uses `normal`. In the base layer, so a
+       select's own min-h-* and leading still win. */
+    @layer base {
+      select:not([multiple]) {
+        align-items: center;
+        min-block-size: auto;
+        line-height: normal;
+      }
+    }
+    select:not([multiple])::picker(select) {
+      margin-block: 0.5rem;
+      padding: 0.5rem;
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-card);
+      background-color: var(--card);
+      color: var(--foreground);
+      box-shadow: var(--shadow-soft);
+      font-family: var(--face-sans);
+      font-size: 1rem;
+      font-weight: 400;
+      line-height: 1.5rem;
+      letter-spacing: 0;
+      text-transform: none;
+      opacity: 1;
+      /* Under the select, as drawn; above it only when it won't fit below. */
+      position-try-order: normal;
+    }
+    select:not([multiple]) option {
+      min-block-size: 2.5rem;
+      padding-inline: 0.75rem;
+      gap: 0.75rem;
+      border-radius: var(--radius-control);
+      background-color: transparent;
+      color: var(--foreground);
+      font-weight: 400;
+      cursor: pointer;
+    }
+    select:not([multiple]) option:hover,
+    select:not([multiple]) option:focus-visible {
+      background-color: var(--hover);
+    }
+    /* Dark's --hover barely shows on its card: the menu rows' surface instead (as the location menu). */
+    [data-theme="dark"] select:not([multiple]) option:hover,
+    [data-theme="dark"] select:not([multiple]) option:focus-visible {
+      background-color: var(--surface);
+    }
+    /* Inside the list, so the ring isn't cut off at its edge. */
+    select:not([multiple]) option:focus-visible {
+      outline-offset: -2px;
+    }
+    select:not([multiple]) option:disabled {
+      color: var(--disabled);
+      cursor: default;
+    }
+    select:not([multiple]) option:disabled:hover {
+      background-color: transparent;
+    }
+    select:not([multiple]) option::checkmark {
+      order: 1;
+      margin-inline-start: auto;
+      content: "\2713" / "";
+    }
+  }
 }
 
 /* An event card's stretched link (components/ui/EventCard.tsx), and a ticket card's button (components/TicketSelector.tsx,

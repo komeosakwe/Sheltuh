@@ -68,12 +68,15 @@ describe("HomeHero (the proposal, redesign PR 3)", () => {
   it("makes search the main action: an orange submit (the hero's one orange button), with the rules' four icons", () => {
     const { container } = render(<HomeHero />);
     const search = screen.getByRole("search", { name: "Search events" });
-    expect(within(search).getByRole("searchbox", { name: "Search events" })).toHaveAttribute("placeholder", "Search events");
+    expect(within(search).getByRole("combobox", { name: "Search events" })).toHaveAttribute("placeholder", "Search events");
     const submit = within(search).getByRole("button", { name: "Search" });
     expect(submit).toHaveAttribute("type", "submit");
     expect(within(search).getByRole("button", { name: "Where: Your suburb" })).toBeInTheDocument();
     const bar = search.querySelector("[data-search-bar]");
-    expect(Array.from(bar?.querySelectorAll("svg") ?? []).filter((svg) => !svg.closest("[data-location-panel]"))).toHaveLength(4);
+    // Not counting the closed menus' own icons: the location panel's, and the suggestions' categories.
+    expect(
+      Array.from(bar?.querySelectorAll("svg") ?? []).filter((svg) => !svg.closest("[data-location-panel], [data-search-suggestions]")),
+    ).toHaveLength(4);
     expect(submit.querySelectorAll("svg")).toHaveLength(1);
     expect(Array.from(container.querySelectorAll(".btn-signal"))).toEqual([submit]);
     // The hero has no links of its own (the location popover's Privacy link is in the closed popover).

@@ -1,7 +1,11 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { HOME_CATEGORIES } from "@/components/home/CategoryRow";
 import LocationPicker from "@/components/search/LocationPicker";
+import SearchSuggestions, { suggestionOptionId } from "@/components/search/SearchSuggestions";
+import { searchSuggestionGroups, type SearchSuggestion } from "@/lib/search-suggestions";
+import type { SheltuhEvent } from "@/lib/types";
 
 /** Whether a popover is showing; false where the selector isn't supported (jsdom, old browsers). */
 function isPopoverOpen(element: HTMLElement): boolean {
@@ -40,12 +44,22 @@ function SearchIcon({ className }: { className: string }) {
  *
  * The Where segment and its location menu are components/search/LocationPicker.tsx; the place it
  * sets is the one remembered suburb every page uses.
+ *
+ * Suggestions (the owner's "suggest events to search up", Nov 2026): while the field has focus and
+ * is empty, a list opens under it (components/search/SearchSuggestions.tsx): the categories, each
+ * opening /events filtered to it, and, where the page passes them (the home's loaded events), a
+ * few events coming up, each opening its page. The field is a combobox (WAI-ARIA APG): Down and Up
+ * move through the options (aria-activedescendant; focus stays in the field), Enter opens the one
+ * chosen (with none chosen it searches, as before), Escape closes the list (and, in the sheet, a
+ * second Escape closes the sheet), and so do typing, a click outside and tabbing away. Picking is
+ * a page load, as the search itself is.
  */
 export default function SearchBar({
   defaultValue = "",
   near,
   appliedNear,
   autoFocus = false,
+  suggestedEvents,
 }: {
   defaultValue?: string;
   /** /search passes its `near` when the address has one, so the bar mirrors it; otherwise the remembered suburb is used. */
@@ -56,12 +70,53 @@ export default function SearchBar({
    */
   appliedNear?: string;
   autoFocus?: boolean;
+  /** Events the page has already loaded (upcoming, in its order) to suggest under the empty field, with the time they were loaded at. */
+  suggestedEvents?: { events: readonly SheltuhEvent[]; now: Date };
 }) {
   // Unique per instance: the page can hold more than one bar.
   const inputId = useId();
   const sheetId = useId();
   const sheetRef = useRef<HTMLDivElement>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const listId = useId();
+  const [focused, setFocused] = useState(false);
+  const [empty, setEmpty] = useState(defaultValue === "");
+  // Escape closed the list: it stays closed until the field is typed in or focused again.
+  const [dismissed, setDismissed] = useState(false);
+  const [activeKey, setActiveKey] = useState<string | null>(null);
+  const groups = useMemo(() => searchSuggestionGroups(HOME_CATEGORIES, suggestedEvents), [suggestedEvents]);
+  const options = groups.flatMap((group) => group.options);
+  const suggesting = focused && empty && !dismissed;
+  const active = suggesting ? (options.find((option) => option.key === activeKey) ?? null) : null;
+
+  function pick(option: SearchSuggestion) {
+    setActiveKey(null);
+    window.location.assign(option.href);
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.nativeEvent.isComposing) return;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      if (!empty || options.length === 0) return;
+      event.preventDefault();
+      const down = event.key === "ArrowDown";
+      const at = active ? options.indexOf(active) : -1;
+      const next = !suggesting || at < 0 ? (down ? 0 : options.length - 1) : (at + (down ? 1 : -1) + options.length) % options.length;
+      setDismissed(false);
+      setActiveKey(options[next].key);
+    } else if (event.key === "Enter") {
+      if (!active) return;
+      // Opens the suggestion instead of sending the empty search.
+      event.preventDefault();
+      pick(active);
+    } else if (event.key === "Escape") {
+      if (!suggesting) return;
+      // Closes the list only: the sheet (a popover) stays open for a second Escape.
+      event.preventDefault();
+      setDismissed(true);
+      setActiveKey(null);
+    }
+  }
 
   useEffect(() => {
     const sheet = sheetRef.current;
@@ -116,7 +171,8 @@ export default function SearchBar({
         {defaultValue ? (
           <span className="truncate">{defaultValue}</span>
         ) : (
-          <span className="text-muted">Search events</span>
+          // The phone's field shows the placeholder's words: Medium, as a placeholder is (globals.css).
+          <span className="font-medium text-muted">Search events</span>
         )}
       </button>
       <div
@@ -152,12 +208,31 @@ export default function SearchBar({
               id={inputId}
               type="search"
               name="q"
+              role="combobox"
+              aria-autocomplete="none"
+              aria-expanded={suggesting}
+              aria-controls={listId}
+              aria-activedescendant={active ? suggestionOptionId(listId, active) : undefined}
               defaultValue={defaultValue}
               autoFocus={autoFocus}
               maxLength={100}
               placeholder="Search events"
               autoComplete="off"
               enterKeyHint="search"
+              onFocus={() => {
+                setFocused(true);
+                setDismissed(false);
+              }}
+              onBlur={() => {
+                setFocused(false);
+                setActiveKey(null);
+              }}
+              onChange={(event) => {
+                setEmpty(event.target.value === "");
+                setDismissed(false);
+                setActiveKey(null);
+              }}
+              onKeyDown={handleKeyDown}
               className="h-12 w-full min-w-0 pr-4 pl-12 text-base text-ellipsis text-foreground placeholder:text-muted md:border-0 md:bg-transparent md:px-2 md:py-0 md:focus-visible:-outline-offset-2!"
             />
           </div>
@@ -171,6 +246,14 @@ export default function SearchBar({
             <SearchIcon className="size-5" />
             Search
           </button>
+          <SearchSuggestions
+            id={listId}
+            open={suggesting}
+            groups={groups}
+            activeKey={active?.key ?? null}
+            onActivate={setActiveKey}
+            onPick={pick}
+          />
         </div>
       </div>
     </form>

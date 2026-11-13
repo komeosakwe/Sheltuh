@@ -155,7 +155,7 @@ test.describe("the home's ways on, at 390px", () => {
     await page.goto("/");
     const search = page.getByRole("search", { name: "Search events" });
     // On a phone the bar is one field that opens the search sheet (redesign PR 2).
-    const field = search.getByRole("searchbox", { name: "Search events" });
+    const field = search.getByRole("combobox", { name: "Search events" });
     await expect(async () => {
       if (!(await field.isVisible())) await search.locator("[data-search-trigger]").click();
       await expect(field).toBeFocused({ timeout: 1_000 });

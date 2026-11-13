@@ -103,7 +103,7 @@ const geoCalls = (page: Page) => page.evaluate(() => (window as unknown as { __g
 async function openSheet(page: Page, tap = false) {
   const search = page.getByRole("search", { name: "Search events" });
   const trigger = search.locator("[data-search-trigger]");
-  const field = search.getByRole("searchbox", { name: "Search events" });
+  const field = search.getByRole("combobox", { name: "Search events" });
   await expect(search).toBeVisible({ timeout: 30_000 });
   if (!(await trigger.isVisible())) return search;
   // Open: the sheet shows the field (focus on opening is checked by the keyboard test).
@@ -162,7 +162,7 @@ for (const theme of ["light", "dark"] as const) {
         expect(look).toEqual({ bg: "rgb(255, 72, 0)", text: "rgb(0, 0, 0)", icon: "rgb(0, 0, 0)", radius: "8px", height: phone ? 56 : 48 });
         // 48px targets: the field and Where (and the submit).
         expect((await search.getByRole("button", { name: /^Where: / }).boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(48);
-        expect((await search.getByRole("searchbox").boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(48);
+        expect((await search.getByRole("combobox", { name: "Search events" }).boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(48);
         const bar = search.locator("[data-search-bar]");
         if (phone) {
           // The sheet fills the screen; everything in it is full width.
@@ -170,9 +170,16 @@ for (const theme of ["light", "dark"] as const) {
           expect(sheet && [Math.round(sheet.x), Math.round(sheet.y), Math.round(sheet.width), Math.round(sheet.height)]).toEqual([0, 0, viewport.width, viewport.height]);
           const submitBox = await submit.boundingBox();
           expect(Math.round(submitBox?.width ?? 0)).toBe(viewport.width - 32);
-          // Escape closes it, and focus goes back to the one field.
+          // Escape closes it, and focus goes back to the one field. With the empty field focused, the
+          // first Escape closes its suggestions (the combobox's list) and the next one the sheet.
+          const field = search.getByRole("combobox", { name: "Search events" });
+          await field.focus();
+          await expect(field).toHaveAttribute("aria-expanded", "true");
           await page.keyboard.press("Escape");
-          await expect(search.getByRole("searchbox")).toBeHidden();
+          await expect(field).toHaveAttribute("aria-expanded", "false");
+          await expect(field).toBeVisible();
+          await page.keyboard.press("Escape");
+          await expect(field).toBeHidden();
           await expect(search.locator("[data-search-trigger]")).toBeFocused();
           return;
         }
@@ -185,7 +192,7 @@ for (const theme of ["light", "dark"] as const) {
         expect(barLook.padding).toBe("8px");
         expect(Math.round((await bar.boundingBox())?.height ?? 0)).toBe(Math.round(48 + 16 + 2 * barLook.border));
         // The query field's ring is the global one (never orange), drawn inside the bar.
-        const field = search.getByRole("searchbox", { name: "Search events" });
+        const field = search.getByRole("combobox", { name: "Search events" });
         await field.focus();
         await page.keyboard.press("Shift+Tab");
         await page.keyboard.press("Tab");
@@ -228,7 +235,7 @@ test.describe("near you, from the home at 390px", () => {
     expect(everything).not.toContain(lat);
     expect(everything).not.toContain(lng);
 
-    await search.getByRole("searchbox", { name: "Search events" }).fill("a");
+    await search.getByRole("combobox", { name: "Search events" }).fill("a");
     await search.getByRole("button", { name: "Search", exact: true }).click();
     await expect(page).toHaveURL(/\/search\?q=a&near=Fitzroy$/, { timeout: 30_000 });
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("“a” near Fitzroy");
@@ -298,7 +305,7 @@ test.describe("near you, from the home at 390px", () => {
     await expect(search.getByRole("button", { name: "Where: All of Australia" })).toBeVisible();
     expect(await page.evaluate((key) => localStorage.getItem(key), NEAR_STORAGE_KEY)).toBeNull();
     // An empty location stays out of the address.
-    await search.getByRole("searchbox", { name: "Search events" }).fill("jazz");
+    await search.getByRole("combobox", { name: "Search events" }).fill("jazz");
     await search.getByRole("button", { name: "Search", exact: true }).click();
     await expect(page).toHaveURL(/\/search\?q=jazz$/, { timeout: 30_000 });
   });
@@ -350,7 +357,7 @@ test.describe("near you, from the home at 390px", () => {
     await page.goto("/");
     const search = page.getByRole("search", { name: "Search events" });
     const trigger = search.locator("[data-search-trigger]");
-    const field = search.getByRole("searchbox", { name: "Search events" });
+    const field = search.getByRole("combobox", { name: "Search events" });
     const location = search.getByRole("button", { name: /^Where: / });
     const panel = page.getByRole("dialog", { name: "Find events near you" });
     await expect(async () => {
@@ -387,7 +394,7 @@ test.describe("near you, from the home at 390px", () => {
     await page.goto("/");
     const search = page.getByRole("search", { name: "Search events" });
     const trigger = search.locator("[data-search-trigger]");
-    const field = search.getByRole("searchbox", { name: "Search events" });
+    const field = search.getByRole("combobox", { name: "Search events" });
     await expect(async () => {
       await trigger.focus();
       await page.keyboard.press("Enter");

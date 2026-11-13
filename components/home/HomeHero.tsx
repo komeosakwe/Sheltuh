@@ -1,7 +1,7 @@
 import BrandU from "@/components/brand/BrandU";
-import SearchBar from "@/components/SearchBar";
 import HeroBadge from "./HeroBadge";
 import { HOME_LEDE, HOME_TITLE, HOME_TITLE_LINES } from "./home-content";
+import HomeSearchBar from "./HomeSearchBar";
 
 /**
  * The home's hero (the proposal, redesign PR 3): one row from 1280px, as drawn (the h1 at 56px: the owner asked for a home that shows more on first open, Nov 2026). The round
@@ -9,7 +9,7 @@ import { HOME_LEDE, HOME_TITLE, HOME_TITLE_LINES } from "./home-content";
  * FIND YOÜR / NEXT THING. in Display (Bootzy; the Ü through BrandU, read "Find your next
  * thing."), the one-line lede "Curated creative events. See who's going." under it, and the
  * site's search bar beside them (components/SearchBar.tsx: the words, Where and an orange
- * Search). From 1024 to 1279px the search drops under the headline, which keeps its two lines;
+ * Search; HomeSearchBar, which suggests the home's loaded events under its empty field). From 1024 to 1279px the search drops under the headline, which keeps its two lines;
  * below 1024px the headline wraps where it must (never `nowrap`), then the lede, then the search,
  * full width. Nothing animates in.
  */
@@ -31,7 +31,7 @@ export default function HomeHero() {
         </div>
       </div>
       <div className="mt-4 md:mt-6 lg:max-w-2xl xl:mt-0 xl:w-full xl:max-w-xl">
-        <SearchBar />
+        <HomeSearchBar />
       </div>
     </section>
   );

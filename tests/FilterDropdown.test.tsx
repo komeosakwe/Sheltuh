@@ -57,6 +57,36 @@ describe("FilterDropdown", () => {
     expect(chevron).toHaveClass("pointer-events-none", "text-background");
   });
 
+  it("is as wide as its widest option, whichever is chosen: a hidden sizer holds every option's words", () => {
+    const { container } = render(<Price value="free" />);
+    const sizer = container.querySelector("[data-filter-sizer]");
+    expect(sizer).toHaveAttribute("aria-hidden", "true");
+    expect(sizer).toHaveClass("invisible", "h-0", "label-button", "pr-10", "pl-4", "border-control");
+    expect([...(sizer?.children ?? [])].map((child) => child.textContent)).toEqual(["Any price", "Free", "Paid"]);
+    // The sizer shares the select's grid cell, and isn't read: the name is still just "Price".
+    expect(screen.getByRole("combobox", { name: "Price" })).toHaveClass("col-start-1", "row-start-1", "w-full");
+  });
+
+  it("sizes from mapped options and their words", () => {
+    const options = [
+      { value: "all", label: "All categories" },
+      { value: "live-music", label: "Live music" },
+    ];
+    const { container } = render(
+      <FilterDropdown label="Category" active={false} value="all" onChange={() => {}}>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </FilterDropdown>,
+    );
+    expect([...(container.querySelector("[data-filter-sizer]")?.children ?? [])].map((child) => child.textContent)).toEqual([
+      "All categories",
+      "Live music",
+    ]);
+  });
+
   it("keeps the browser's own focus ring (no outline override)", () => {
     render(<Price value="any" />);
     expect(screen.getByRole("combobox", { name: "Price" }).className).not.toMatch(/outline-none|focus.*outline-(?:signal|0)/);
