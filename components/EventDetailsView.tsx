@@ -362,14 +362,14 @@ export default function EventDetailsView({
             <h1 className="event-title break-words">
               {missing?.title ? <Placeholder>Untitled event</Placeholder> : event.title}
             </h1>
-            {/* The one date/time and venue block (no second copy further down), in mono capitals as written
-                (CSS sets the case, so it reads as written): when, with its zone; where, linked to directions;
-                and who, linked to their profile. */}
+            {/* The one date/time and venue block (no second copy further down), in mono as written (not
+                capitals: the owner found them hard to read, 13 Nov): when, with its zone; where, linked to
+                directions; and who, linked to their profile. */}
             <dl data-event-facts="" className="flex flex-col gap-2">
               <div>
                 <dt className="sr-only">When</dt>
                 <dd>
-                  <p className="mono-m uppercase">
+                  <p className="mono-m">
                     {/* Each time stays whole ("4:00 pm", never "4:00 / pm"); the rest wraps where it must,
                         so a long range fits a 320px screen. */}
                     {missing?.when ? (
@@ -387,7 +387,7 @@ export default function EventDetailsView({
                     )}
                   </p>
                   {!missing?.when && (
-                    <p className="mono-s text-muted uppercase">{formatTimeZoneLabel(event.startsAt, zone, event.state)}</p>
+                    <p className="mono-s text-muted">{formatTimeZoneLabel(event.startsAt, zone, event.state)}</p>
                   )}
                 </dd>
               </div>
@@ -411,7 +411,7 @@ export default function EventDetailsView({
                       aria-label={`Get directions to ${address} (opens Google Maps in a new tab)`}
                       // The address is the link, muted mono like the mock's, with the "opens elsewhere" mark to say
                       // it's one; 44px tall to tap on phones, 24px with a pointer.
-                      className="mono-m inline-block min-h-6 max-w-full break-words text-muted uppercase underline-offset-4 hover:text-foreground hover:underline max-lg:min-h-11"
+                      className="mono-m inline-block min-h-6 max-w-full break-words text-muted underline-offset-4 hover:text-foreground hover:underline max-lg:min-h-11"
                     >
                       {address}
                       {/* Inline after the last word, so it stays beside the text when it wraps. */}
@@ -419,7 +419,7 @@ export default function EventDetailsView({
                     </a>
                   </dd>
                 ) : (
-                  <dd className="mono-m min-w-0 break-words text-muted uppercase">{address}</dd>
+                  <dd className="mono-m min-w-0 break-words text-muted">{address}</dd>
                 )}
               </div>
               <div className="flex items-center gap-2">

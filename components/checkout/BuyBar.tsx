@@ -172,7 +172,7 @@ export function BarPrice({
         )}
       </p>
       )}
-      {dateLine && <p className="mono-s text-muted uppercase">{dateLine}</p>}
+      {dateLine && <p className="mono-s text-muted">{dateLine}</p>}
     </div>
   );
 }

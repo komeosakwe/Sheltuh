@@ -172,7 +172,8 @@ describe("external event: the phone buy bar", () => {
     // No price line at all: just the date line and the button. No empty amount either.
     expect(bar.querySelector("[data-bar-amount]")).toBeNull();
     expect(bar.querySelectorAll("p")).toHaveLength(1);
-    expect(bar.querySelector("p")).toHaveClass("mono-s", "uppercase");
+    expect(bar.querySelector("p")).toHaveClass("mono-s");
+    expect(bar.querySelector("p")).not.toHaveClass("uppercase");
     // Not a jump to #tickets: the bar's button is the outbound link.
     expect(bar.querySelector('a[href="#tickets"]')).toBeNull();
     const cta = within(bar).getByRole("link", { name: "Buy tickets (opens in a new tab)" });

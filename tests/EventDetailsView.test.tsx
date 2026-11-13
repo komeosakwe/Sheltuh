@@ -183,8 +183,10 @@ describe("EventDetailsView key facts under the title (Refinement, 22 Oct 2026)",
     expect(within(facts).getByRole("link", { name: /^Get directions to / })).toBeInTheDocument();
     expect(within(facts).getByText(/^by/)).toBeInTheDocument();
     // In mono capitals (CSS sets the case, so the text reads as written).
-    expect(within(facts).getByText(/^Melbourne time/)).toHaveClass("mono-s", "uppercase");
-    expect(within(facts).getByRole("link", { name: /^Get directions to / })).toHaveClass("mono-m", "uppercase");
+    expect(within(facts).getByText(/^Melbourne time/)).toHaveClass("mono-s");
+    expect(within(facts).getByText(/^Melbourne time/)).not.toHaveClass("uppercase");
+    expect(within(facts).getByRole("link", { name: /^Get directions to / })).toHaveClass("mono-m");
+    expect(within(facts).getByRole("link", { name: /^Get directions to / })).not.toHaveClass("uppercase");
   });
 
   it("keeps each time whole ('8:00 pm', 'midnight'), so a narrow screen never splits one, but lets the rest wrap", () => {
