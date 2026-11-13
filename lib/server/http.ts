@@ -17,6 +17,75 @@ export class HttpError extends Error {
   ) {
     super(message);
   }
+
+  /**
+   * A 429 that no wait lifts (a lifetime cap, e.g. an event's total holder
+   * messages): runHandler sends it without the default Retry-After rather
+   * than name a time after which trying again still fails. Set by `capReached`.
+   */
+  noRetryAfter = false;
+}
+
+/**
+ * The Retry-After a 429 gets when its limit gave none (route.ts runHandler),
+ * so no 429 goes without the header: the shortest window any rate limit here
+ * has (1 minute), so it never tells a client to come back sooner than a real
+ * window could reset. Every rate limit passes its own value (tooManyRequests).
+ */
+export const DEFAULT_RETRY_AFTER_SECONDS = 60;
+
+/** A Retry-After header (RFC 9110 §10.2.3), in whole seconds, at least 1. */
+export function retryAfterHeader(seconds: number): Record<string, string> {
+  return { "retry-after": String(Math.max(1, Math.ceil(seconds))) };
+}
+
+/**
+ * A rate-limit window as the private.take_*_rate_limit functions are given it
+ * (an interval like "1 minute", "10 minutes", "24 hours", "1 day").
+ */
+export type RateWindow = `${number} ${"second" | "seconds" | "minute" | "minutes" | "hour" | "hours" | "day" | "days"}`;
+
+const WINDOW_UNIT_SECONDS: Record<string, number> = { second: 1, minute: 60, hour: 3_600, day: 86_400 };
+
+/**
+ * A window's length in seconds. Every limiter here is a fixed window that
+ * starts at its first hit and only answers allowed or not, so once it
+ * refuses, it resets within this long: the honest Retry-After when the exact
+ * reset isn't known. A day is 24 hours (the database's sessions run in UTC,
+ * where interval '1 day' never meets a daylight-saving change).
+ */
+export function windowSeconds(window: RateWindow): number {
+  const match = /^(\d+) (second|minute|hour|day)s?$/.exec(window);
+  if (!match) throw new Error(`Unsupported rate-limit window: ${window}`);
+  return Number(match[1]) * WINDOW_UNIT_SECONDS[match[2]];
+}
+
+/** Seconds until the next UTC midnight (at least 1): when an allowance per UTC day starts again. */
+export function secondsUntilUtcMidnight(now: Date = new Date()): number {
+  const next = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
+  return Math.max(1, Math.ceil((next - now.getTime()) / 1000));
+}
+
+/**
+ * A 429 that says when to try again: Retry-After `retryAfterSeconds`, the
+ * time until the refusing limit resets or, when that isn't known, the
+ * longest it can be (the window's length, `windowSeconds`; the longest of
+ * them when one answer covers several limits). Never shorter than the real wait.
+ */
+export function tooManyRequests(
+  message: string,
+  retryAfterSeconds: number,
+  fieldErrors?: Record<string, string>,
+  details?: Record<string, unknown>,
+): HttpError {
+  return new HttpError(429, message, fieldErrors, details, retryAfterHeader(retryAfterSeconds));
+}
+
+/** A 429 no wait lifts (a lifetime cap): sent without any Retry-After (HttpError.noRetryAfter). */
+export function capReached(message: string, fieldErrors?: Record<string, string>, details?: Record<string, unknown>): HttpError {
+  const err = new HttpError(429, message, fieldErrors, details);
+  err.noRetryAfter = true;
+  return err;
 }
 
 export function json(status: number, body: unknown): Response {

@@ -244,7 +244,10 @@ describe("rate limit", () => {
     // Refusals first: none of these uses a slot.
     for (let i = 0; i < EVENT_RELEASE_LIMIT.limit + 2; i++) expect((await release(5)).status).toBe(400);
     for (let i = 1; i <= EVENT_RELEASE_LIMIT.limit; i++) expect((await release(10 + i)).status).toBe(200);
-    expect((await release(10 + EVENT_RELEASE_LIMIT.limit + 1)).status).toBe(429);
+    const over = await release(10 + EVENT_RELEASE_LIMIT.limit + 1);
+    expect(over.status).toBe(429);
+    // One answer for the account's hourly and the event's 24-hour limit: the longer window.
+    expect(over.headers.get("retry-after")).toBe("86400");
     expect((await ticket()).quantity_available).toBe(10 + EVENT_RELEASE_LIMIT.limit);
     expect((await logEntries()).length).toBe(EVENT_RELEASE_LIMIT.limit);
     // Another organiser's event has its own allowance.

@@ -661,6 +661,8 @@ describe("rate limits", () => {
       expect(over.status).toBe(429);
       expect(over.body).toStrictEqual({ error: PAYMENT_BUSY });
       expect(over.headers.get("cache-control")).toBe("private, no-store");
+      // A per-minute window: back within a minute.
+      expect(over.headers.get("retry-after")).toBe("60");
       // Only the counter was asked: no order lookup, no Stripe.
       expect(query).toHaveBeenCalledTimes(1);
       expect(String(query.mock.calls[0][0])).toContain("take_client_rate_limit");
@@ -690,6 +692,7 @@ describe("rate limits", () => {
       expect(over.status).toBe(429);
       expect(over.body).toStrictEqual({ error: PAYMENT_BUSY });
       expect(over.headers.get("cache-control")).toBe("private, no-store");
+      expect(over.headers.get("retry-after")).toBe("60");
       expect(api.stripe.checkout.sessions.retrieve).toHaveBeenCalledTimes(20);
 
       expect((await payment(second, ipFor(20))).body.status).toBe("open");
