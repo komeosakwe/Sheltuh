@@ -975,7 +975,7 @@ for (const width of [320, 390, 430]) {
       // Each ticket type is a row with its own stepper inside it; pressing + is never blocked by the bar.
       const tickets = page.locator("#tickets");
       await expect(tickets.getByRole("heading", { level: 2, name: "Choose your tickets" })).toBeVisible();
-      await expect(tickets.getByText("Select a ticket type to continue.")).toBeVisible();
+      await expect(tickets.getByText("Choose how many tickets you want.")).toBeVisible();
       for (const name of ["General admission", "VIP (side-of-stage viewing)"]) {
         const row = tickets.locator("[data-ticket-card]").filter({ hasText: name });
         const rowBox = await row.boundingBox();
@@ -1045,3 +1045,91 @@ for (const width of [320, 390, 430]) {
     });
   });
 }
+
+// UX review (13 Nov 2026): with enlarged text (the root font at 125–200%), Save / Share / Calendar never spill out
+// of their buttons, the ticket stepper still fits its row, and a tall buy bar drops its date line so its action
+// is whole. EVENT_SHOTS=<dir> saves the probes.
+for (const width of [320, 390]) {
+  for (const scale of [125, 150, 200]) {
+    test.describe(`large text at ${width}px, ${scale}%`, () => {
+      test.use({ viewport: { width, height: 844 }, hasTouch: true });
+
+      test("the action row, the ticket rows and the buy bar keep everything inside", async ({ page }) => {
+        await mockApi(page);
+        await page.goto("/events/neon-static");
+        await expect(page.getByRole("heading", { level: 1, name: "Neon Static" })).toBeVisible({ timeout: 30_000 });
+        await page.addStyleTag({ content: `html{font-size:${scale}% !important}` });
+        await page.evaluate(() => document.fonts.ready);
+
+        const actions = page.locator("[data-event-actions]");
+        await actions.scrollIntoViewIfNeeded();
+        for (const control of await actions.locator("a, button").all()) {
+          // Nothing spills sideways out of a control, and its icon and label don't overlap.
+          expect(await control.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+          const icon = await control.locator("svg").boundingBox();
+          const label = await control.locator("span:not(.sr-only)").first().boundingBox();
+          const box = await control.boundingBox();
+          if (!icon || !label || !box) throw new Error("not laid out");
+          expect(icon.width).toBeGreaterThanOrEqual(15);
+          const overlaps = icon.x < label.x + label.width && label.x < icon.x + icon.width && icon.y < label.y + label.height && label.y < icon.y + icon.height;
+          expect(overlaps).toBe(false);
+          expect(label.x + label.width).toBeLessThanOrEqual(box.x + box.width + 1);
+          expect(box.height).toBeGreaterThanOrEqual(48);
+        }
+        if (process.env.EVENT_SHOTS) await actions.screenshot({ path: `${process.env.EVENT_SHOTS}/event-after2-text${scale}-${width}-actions.png` });
+
+        const tickets = page.locator("#tickets");
+        for (const row of await tickets.locator("[data-ticket-card]").all()) {
+          const rowBox = await row.boundingBox();
+          const stepper = await row.getByRole("group").boundingBox();
+          if (!rowBox || !stepper) throw new Error("not laid out");
+          expect(stepper.x + stepper.width).toBeLessThanOrEqual(rowBox.x + rowBox.width);
+        }
+        // Nothing on the event page itself reaches past the screen's edge. (The site footer's theme switch does at
+        // 320px with 200% text: outside this page's scope, reported separately.)
+        const wide = await page.evaluate(() =>
+          [...document.querySelectorAll("main *")]
+            .filter((el) => !el.closest("footer") && el.getBoundingClientRect().right > window.innerWidth + 1)
+            .map((el) => `${el.tagName} ${(el.textContent ?? "").slice(0, 30)}`),
+        );
+        expect(wide).toEqual([]);
+
+        // The bar never takes more than a third of the screen without dropping its date line, and its action is whole.
+        const bar = page.locator("[data-buy-bar]");
+        const barBox = await bar.boundingBox();
+        const cta = await bar.getByRole("link", { name: "Choose tickets" }).boundingBox();
+        if (!barBox || !cta) throw new Error("not laid out");
+        if (barBox.height >= 844 / 3 - 1) await expect(bar.locator("[data-bar-date]")).toBeHidden();
+        expect(cta.y + cta.height).toBeLessThanOrEqual(barBox.y + barBox.height);
+        if (process.env.EVENT_SHOTS) {
+          await tickets.locator("[data-ticket-card]").first().scrollIntoViewIfNeeded();
+          await page.screenshot({ path: `${process.env.EVENT_SHOTS}/event-after2-text${scale}-${width}-tickets.png` });
+        }
+      });
+    });
+  }
+}
+
+test.describe("Choose tickets' visible feedback at 390px (a tap's focus shows no ring)", () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+
+  test("a tap with the rows on screen shows a hint and rings the first row on sale, until a quantity changes", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/events/neon-static");
+    const tickets = page.locator("#tickets");
+    await expect(tickets.getByRole("heading", { name: "Choose your tickets" })).toBeVisible({ timeout: 30_000 });
+    await expect(tickets.getByText("Choose how many tickets you want.")).toBeVisible();
+    await tickets.locator("[data-ticket-card]").first().scrollIntoViewIfNeeded();
+    await page.locator("[data-buy-bar]").getByRole("link", { name: "Choose tickets" }).tap();
+    await expect(tickets.locator("[data-choose-hint]")).toHaveText("Use + to add a ticket.");
+    await expect(tickets.locator("[data-choose-hint]")).toBeVisible();
+    const ringed = tickets.locator("[data-choose-target]");
+    await expect(ringed).toContainText("General admission");
+    expect(await ringed.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe("solid");
+    await expect(tickets.getByRole("button", { name: "Increase quantity for General admission" })).toBeFocused();
+    await tickets.getByRole("button", { name: "Increase quantity for General admission" }).tap();
+    await expect(tickets.locator("[data-choose-hint]")).toHaveCount(0);
+    await expect(tickets.locator("[data-choose-target]")).toHaveCount(0);
+    if (process.env.EVENT_SHOTS) await page.screenshot({ path: `${process.env.EVENT_SHOTS}/event-after2-choose-390.png` });
+  });
+});

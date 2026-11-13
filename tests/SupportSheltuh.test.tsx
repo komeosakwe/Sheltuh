@@ -280,7 +280,7 @@ describe("Support Sheltüh in the ticket selector (general admission)", () => {
     removeGa();
     expect(screen.queryByRole("group", { name: GROUP_NAME })).toBeNull();
     expect(total()).toHaveTextContent("A$0");
-    expect(status()).toHaveTextContent("General admission: 0. Total A$0.");
+    expect(status()).toHaveTextContent("General admission: 0. No tickets chosen.");
     addGa();
     expect(chip("A$10")).not.toBeChecked();
     expect(total()).toHaveTextContent("A$32.30");

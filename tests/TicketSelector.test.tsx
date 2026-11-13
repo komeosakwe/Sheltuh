@@ -289,8 +289,9 @@ describe("TicketSelector (free tickets)", () => {
     render(<TicketSelector event={freeEvent()} />);
     // A stepper per ticket type, each described by the shared free-ticket limit.
     const more = (name: string) => screen.getByRole("button", { name: `Increase quantity for ${name}` });
-    expect(more("Free entry")).toHaveAccessibleDescription("Up to 4 free tickets per booking.");
-    expect(more("Kids")).toHaveAccessibleDescription("Up to 4 free tickets per booking.");
+    // The count first ("Increase quantity for Free entry, 0"), then the limit.
+    expect(more("Free entry")).toHaveAccessibleDescription("0 Up to 4 free tickets per booking.");
+    expect(more("Kids")).toHaveAccessibleDescription("0 Up to 4 free tickets per booking.");
     for (let i = 0; i < 3; i++) fireEvent.click(more("Free entry"));
     expect(more("Free entry")).toHaveAttribute("aria-disabled", "false");
     expect(more("Kids")).toHaveAttribute("aria-disabled", "false");
@@ -350,7 +351,7 @@ describe("TicketSelector (free tickets)", () => {
     render(<TicketSelector event={mixedEvent()} />);
     const more = (name: string) => screen.getByRole("button", { name: `Increase quantity for ${name}` });
     // The paid type isn't limited by the free cap, and isn't described by it: only by its own limit.
-    expect(more("Supporter")).toHaveAccessibleDescription("Up to 8 per booking.");
+    expect(more("Supporter")).toHaveAccessibleDescription("0 Up to 8 per booking.");
     for (let i = 0; i < 6; i++) fireEvent.click(more("Supporter"));
     // Two of each free type: the free cap is reached.
     addTicket("Free entry");
@@ -677,7 +678,7 @@ describe("TicketSelector announcements (one status for the panel)", () => {
     render(<TicketSelector event={smallEvent()} />);
     const more = screen.getByRole("button", { name: "Increase quantity for Balcony" });
     // A static hint, before the limit is reached, on the + button.
-    expect(more).toHaveAccessibleDescription("Up to 3 per booking.");
+    expect(more).toHaveAccessibleDescription("0 Up to 3 per booking.");
     // For screen readers only: the + goes aria-disabled at the limit.
     expect(screen.getByText("Up to 3 per booking.")).toHaveClass("sr-only");
     for (let i = 0; i < 3; i++) fireEvent.click(more);
@@ -695,7 +696,42 @@ describe("TicketSelector announcements (one status for the panel)", () => {
     render(<TicketSelector event={live("brunswick-zine-fair")} />);
     const more = screen.getByRole("button", { name: "Increase quantity for Free entry" });
     for (let i = 0; i < 4; i++) fireEvent.click(more);
-    expect(status()).toHaveTextContent("Free entry: 4. Total A$0. Up to 4 free tickets per booking.");
+    // A free total is said as "Free", never "A$0".
+    expect(status()).toHaveTextContent("Free entry: 4. Total: Free. Up to 4 free tickets per booking.");
+  });
+
+  it("says 'No tickets chosen.' when the order is back to nothing, not a zero total", () => {
+    render(<TicketSelector event={live("neon-static")} />);
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
+    fireEvent.click(screen.getByRole("button", { name: "Decrease quantity for General admission" }));
+    expect(status().textContent?.trim()).toBe("General admission: 0. No tickets chosen.");
+  });
+
+  it("describes each − and + by the count first, so focus reads 'Increase quantity for X, 1'", () => {
+    render(<TicketSelector event={live("neon-static")} />);
+    const more = screen.getByRole("button", { name: "Increase quantity for General admission" });
+    const less = screen.getByRole("button", { name: "Decrease quantity for General admission" });
+    expect(less).toHaveAccessibleDescription("0");
+    fireEvent.click(more);
+    expect(more).toHaveAccessibleDescription(/^1\b/);
+    expect(less).toHaveAccessibleDescription("1");
+    // A group's count is said in groups.
+    cleanup();
+    const base = live("neon-static");
+    render(
+      <TicketSelector
+        event={{ ...base, ticketTypes: [{ id: "g", name: "Group of 4", priceCents: 12000, feePolicy: "buyer-pays", quantityAvailable: 40, admits: 4 }] }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Group of 4" }));
+    expect(screen.getByRole("button", { name: "Decrease quantity for Group of 4" })).toHaveAccessibleDescription("1 group");
+  });
+
+  it("keeps the stepper's buttons at 44px in px (size-stepper), so very large text can't push it out of a 320px row", () => {
+    render(<TicketSelector event={live("neon-static")} />);
+    for (const name of ["Increase quantity for General admission", "Decrease quantity for General admission"]) {
+      expect(screen.getByRole("button", { name })).toHaveClass("size-stepper");
+    }
   });
 
   it("says nothing before anything changes, and nothing for a press on − at 0", () => {

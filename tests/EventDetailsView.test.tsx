@@ -82,7 +82,7 @@ describe("EventDetailsView buy bar (phones and tablets)", () => {
     if (!tickets) throw new Error("#tickets not rendered");
     expect(tickets).toHaveAttribute("tabindex", "-1");
     expect(within(tickets).getByRole("heading", { name: "Choose your tickets" })).toBeInTheDocument();
-    expect(within(tickets).getByText("Select a ticket type to continue.")).toBeInTheDocument();
+    expect(within(tickets).getByText("Choose how many tickets you want.")).toBeInTheDocument();
     // Arriving there shows the (global) focus-visible ring: nothing removes it.
     expect(tickets.className).not.toMatch(/outline-none/);
   });
@@ -448,9 +448,16 @@ describe("EventDetailsView brand layout (brand-direction-one.md §6.10)", () => 
     const buttons = within(row).getAllByRole("button");
     expect(buttons.map((b) => b.textContent)).toEqual(["Save", "Share", "Calendar"]);
     for (const button of buttons) {
-      expect(button).toHaveClass("border-control", "w-full", "min-h-12", "whitespace-nowrap", "font-medium!");
+      expect(button).toHaveClass("border-control", "w-full", "min-w-0", "min-h-12", "font-medium!");
+      // The icon never shrinks; the label may break rather than spill out (only ever with very large text).
       expect(button.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+      expect(button.querySelector("svg")).toHaveClass("shrink-0");
+      expect(button.querySelector("span:not(.sr-only)")).toHaveClass("min-w-0", "break-words");
+      // With large text the row (a container, in rem) puts the icon over the label, then one button per line.
+      expect(button).toHaveClass("@3xs:@max-2xs:flex-col");
     }
+    expect(row.parentElement).toHaveClass("@container");
+    expect(row).toHaveClass("grid-cols-3", "@max-3xs:grid-cols-1");
     expect(heading.compareDocumentPosition(share) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 

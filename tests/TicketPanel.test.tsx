@@ -87,6 +87,32 @@ describe("the desktop ticket panel", () => {
     expect(within(panel()).getByRole("status")).toBeEmptyDOMElement();
   });
 
+  it("counts only the ticket types that can be chosen now: not sold out, not waiting for the one above", () => {
+    const event = live("cinder-warehouse-sessions");
+    const [first, second, third] = event.ticketTypes;
+    // Three tiers: the first sold out, the second on sale, the third on sale too.
+    render(
+      <EventDetailsView
+        event={{
+          ...event,
+          ticketTypes: [
+            { ...first, soldOut: true, remaining: 0 },
+            { ...second, opensAfter: undefined, opensAfterPrevious: undefined },
+            { ...third, opensAfter: undefined, opensAfterPrevious: undefined },
+          ],
+        }}
+        demo={false}
+      />,
+    );
+    fireEvent.click(within(panel()).getByRole("link", { name: "Buy tickets" }));
+    expect(within(panel()).getByRole("status")).toHaveTextContent(releasesHint(2));
+    cleanup();
+    // As released: only the first is on sale (the others wait for it), so there's no choice to explain.
+    render(<EventDetailsView event={event} demo={false} />);
+    fireEvent.click(within(panel()).getByRole("link", { name: "Buy tickets" }));
+    expect(within(panel()).getByRole("status")).toBeEmptyDOMElement();
+  });
+
   it("after a choice: the total and the ticket count, and Review order (outline) to the name, then to Checkout", () => {
     render(<EventDetailsView event={live("neon-static")} demo={false} />);
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));

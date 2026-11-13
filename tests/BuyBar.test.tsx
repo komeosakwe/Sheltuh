@@ -87,7 +87,7 @@ describe("the buy bar before anything is chosen", () => {
     const link = within(bar()).getByRole("link", { name: "Choose tickets" });
     expect(link).toHaveAttribute("href", "#tickets");
     // The price is part of what it does.
-    expect(link).toHaveAccessibleDescription("From A$32.30 incl. booking fee");
+    expect(link).toHaveAccessibleDescription("From A$32.30, incl. booking fee");
     expect(within(bar()).queryByRole("button")).toBeNull();
   });
 
@@ -130,7 +130,8 @@ describe("the buy bar once tickets are chosen", () => {
     expect(within(bar()).queryByRole("link")).toBeNull();
     expect(barAmount()).toBe("A$32.30");
     expect(barNote()).toBe("Total · incl. booking fee");
-    expect(button).toHaveAccessibleDescription("A$32.30 Total · incl. booking fee");
+    // In reading order: "Total A$32.30, incl. booking fee".
+    expect(button).toHaveAccessibleDescription("Total A$32.30, incl. booking fee");
     expect(button).toHaveClass("btn-signal");
 
     await act(async () => {
@@ -353,8 +354,8 @@ describe("sold-out and waiting releases, and the steppers' limits", () => {
     expect(within(screen.getByRole("region", { name: "Choose your tickets" })).getByRole("status")).toHaveTextContent("Second release: 3. Only 3 left.");
     expect(barAmount()).toBe("A$112.80");
     // 44px targets.
-    expect(plus).toHaveClass("size-11");
-    expect(minus).toHaveClass("size-11");
+    expect(plus).toHaveClass("size-stepper");
+    expect(minus).toHaveClass("size-stepper");
     fireEvent.click(minus);
     fireEvent.click(minus);
     fireEvent.click(minus);
@@ -499,6 +500,75 @@ describe("the on-screen keyboard", () => {
     act(() => screen.getByLabelText("Your name").focus());
     viewport.resize(window.innerHeight / 2);
     expect(bar()).not.toHaveClass("invisible");
+  });
+});
+
+describe("Choose tickets' visible feedback (UX review: a tap's focus shows no ring)", () => {
+  /** The first release sold out, the second and third on sale. */
+  function released(): SheltuhEvent {
+    const event = live("cinder-warehouse-sessions");
+    const [first, second, third] = event.ticketTypes;
+    return {
+      ...event,
+      ticketTypes: [
+        { ...first, soldOut: true, remaining: 0 },
+        { ...second, opensAfter: undefined, opensAfterPrevious: undefined },
+        { ...third, opensAfter: undefined, opensAfterPrevious: undefined },
+      ],
+    };
+  }
+
+  it("shows a hint over the rows and rings the first one on sale, until a quantity changes", () => {
+    render(<EventDetailsView event={released()} demo={false} />);
+    expect(document.querySelector("[data-choose-hint]")).toBeNull();
+    fireEvent.click(within(bar()).getByRole("link", { name: "Choose tickets" }));
+    const hint = document.querySelector("[data-choose-hint]");
+    expect(hint).toHaveTextContent("Use + to add a ticket.");
+    // Seen, not a second live region (the selector's status says "Choose a ticket first." where needed).
+    expect(hint).not.toHaveAttribute("role");
+    expect(hint?.className).not.toMatch(/sr-only/);
+    const ringed = document.querySelectorAll("[data-choose-target]");
+    expect(ringed).toHaveLength(1);
+    expect(ringed[0]).toHaveTextContent("Second release");
+    expect(ringed[0]).toHaveClass("outline-2", "outline-foreground");
+    expect(more("Second release")).toHaveFocus();
+    fireEvent.click(more("Final release"));
+    expect(document.querySelector("[data-choose-hint]")).toBeNull();
+    expect(document.querySelector("[data-choose-target]")).toBeNull();
+  });
+});
+
+describe("a tall bar (a short screen or very large text) drops its date line", () => {
+  const realInnerHeight = window.innerHeight;
+  afterEach(() => {
+    window.innerHeight = realInnerHeight;
+    Reflect.deleteProperty(HTMLElement.prototype, "scrollHeight");
+  });
+
+  function barHeight(px: number) {
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.hasAttribute("data-buy-bar") ? px : 0;
+      },
+    });
+  }
+
+  it("keeps the date line while the bar is under a third of the screen, and drops it at a third or more", () => {
+    barHeight(120);
+    window.innerHeight = 844;
+    render(<EventDetailsView event={live("neon-static")} demo={false} />);
+    expect(bar().querySelector("[data-bar-date]")).toHaveClass("flex");
+    expect(bar().querySelector("[data-bar-date]")).not.toHaveClass("hidden");
+    cleanup();
+    window.innerHeight = 320;
+    render(<EventDetailsView event={live("neon-static")} demo={false} />);
+    expect(bar().querySelector("[data-bar-date]")).toHaveClass("hidden");
+    // And it may take up to 40% of the screen rather than cut its action off.
+    expect(bar()).toHaveClass("max-h-bar-tall");
+    expect(bar()).not.toHaveClass("max-h-bar");
+    // The action is still there, whole.
+    expect(within(bar()).getByRole("link", { name: "Choose tickets" })).toBeInTheDocument();
   });
 });
 

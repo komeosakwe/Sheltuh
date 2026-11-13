@@ -274,7 +274,8 @@ test.describe("desktop keeps the panel's Checkout and has no buy bar", () => {
     await expect(heading).toBeInViewport();
     // A visible ring, though a pointer pressed the link.
     expect(await heading.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe("solid");
-    await expect(panel.getByRole("status")).toHaveText("3 ticket types. Set a quantity for each one you want.");
+    // One ticket type on sale (the first sold out, the third waiting for the second): no choice to explain.
+    await expect(panel.getByRole("status")).toBeEmpty();
 
     // A choice: the panel says the total and the count, and offers Review order (outline), not a checkout.
     const tickets = page.locator("#tickets");

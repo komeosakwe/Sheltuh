@@ -37,10 +37,11 @@ import type { SheltuhEvent, TicketType } from "@/lib/types";
 const NAME_FIELD_ID = "buyer-name";
 /**
  * A row's quantity stepper's − and + (the owner's event reference, 13 Nov 2026): 44px squares joined into one
- * bordered control with the count between them. aria-disabled (not disabled) keeps focus on them at 0 and at the cap.
+ * bordered control with the count between them. Fixed in px (size-stepper), so with very large text the stepper
+ * still fits a 320px row (only its glyphs grow). aria-disabled (not disabled) keeps focus on them at 0 and at the cap.
  */
 const quantityButtonClass =
-  "flex size-11 shrink-0 items-center justify-center bg-card text-xl leading-none text-foreground motion-safe:transition-colors hover:bg-surface aria-disabled:cursor-not-allowed aria-disabled:text-muted aria-disabled:hover:bg-card";
+  "flex size-stepper shrink-0 items-center justify-center bg-card text-xl leading-none text-foreground motion-safe:transition-colors hover:bg-surface aria-disabled:cursor-not-allowed aria-disabled:text-muted aria-disabled:hover:bg-card";
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** What a quantity of `ticket` is called to a screen reader: "3", or for a group ticket "2 groups, 8 tickets". */
@@ -68,6 +69,9 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   // The panel's one live region: each change to the selection, and why a
   // stepper at its limit didn't change it (brand-direction-one.md §6.9).
   const [announcement, setAnnouncement] = useState("");
+  // The phone bar's Choose tickets was pressed with nothing chosen: a visible hint over the rows and a ring round the
+  // first one on sale (focus moved there from a tap shows no ring of its own), until a quantity changes.
+  const [nudged, setNudged] = useState(false);
   // The Booking fees (i): its short explanation, shown under the row once asked for.
   const [feeOpen, setFeeOpen] = useState(false);
   const idPrefix = useId();
@@ -197,6 +201,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
     }
     const next = { ...quantities, [ticket.id]: clamped };
     setQuantities(next);
+    setNudged(false);
     // A refusal was about the old selection.
     setError(null);
     // Support Sheltüh is for paid orders only: with no paid ticket left, it goes (and isn't
@@ -206,14 +211,18 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
     if (!nextHasPaid) clearSupport();
     const totalCents = orderTotalCents(ticketTypes, next) + nextSupportCents;
     const reachedLimit = clamped > current && clamped >= limitFor(ticket, next).cap;
-    const total = `Total ${formatAud(totalCents)}${totalCents > 0 ? ` incl. ${totalIncludesWords(nextSupportCents)}` : ""}.`;
+    // A free order's total is said as "Free", never "A$0".
+    const total =
+      totalCents > 0 ? `Total ${formatAud(totalCents)} incl. ${totalIncludesWords(nextSupportCents)}.` : "Total: Free.";
     // With more than one ticket type in the order, say what changed and what the order now holds (each stepper
-    // is for its own row, so "Third release: 1" alone wouldn't say what the order is).
+    // is for its own row, so "Third release: 1" alone wouldn't say what the order is). Back to nothing: says so.
     const chosenReleases = ticketTypes.filter((t) => (next[t.id] ?? 0) > 0).length;
     const what =
       chosenReleases > 1
         ? `${clamped > current ? "Added" : "Removed"} ${Math.abs(clamped - current)} ${ticket.name}. Your order: ${describeOrder(next)}. ${total}`
-        : `${ticket.name}: ${quantityWords(ticket, clamped)}. ${total}`;
+        : chosenReleases === 0
+          ? `${ticket.name}: 0. No tickets chosen.`
+          : `${ticket.name}: ${quantityWords(ticket, clamped)}. ${total}`;
     announce(what + (reachedLimit ? ` ${limitFor(ticket, next).reason}` : ""));
   }
 
@@ -378,7 +387,8 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   }, []);
 
   // The bar's link when nothing is chosen: focus goes to the first ticket type's "+", and if that is already on
-  // screen, where a jump would show nothing, it says what to do.
+  // screen, where a jump would show nothing, it says what to do. For everyone, a hint shows over the rows and the
+  // first one on sale is ringed (a tap's focus shows no ring).
   function chooseATicket() {
     const root = rootRef.current;
     if (!root) return;
@@ -386,6 +396,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
     if (!target) return;
     const box = target.getBoundingClientRect();
     if (box.top >= 0 && box.bottom <= window.innerHeight) announce("Choose a ticket first.");
+    setNudged(true);
     target.focus();
   }
   const chooseRef = useRef(chooseATicket);
@@ -511,6 +522,9 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   const totalLabelId = `${idPrefix}-total-label`;
   const totalId = `${idPrefix}-total`;
   const feeText = `Booking fee: ${describeBookingFee()}.`;
+  // The first ticket type on sale (not sold out, not waiting): the one Choose tickets takes you to.
+  const firstOnSaleId = soldOut ? undefined : ticketTypes.find((t) => t.soldOut !== true && opensWhenText(t) === null)?.id;
+  const showChooseHint = nudged && !hasAnyTickets && firstOnSaleId !== undefined;
 
   return (
     <div ref={rootRef} className="flex flex-col gap-4">
@@ -529,6 +543,12 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
           words in place of the stepper, nothing to press. Chosen (some of it in the order): cream with an orange
           border, and the count says so too (never colour alone). Where a row is too narrow for both, the stepper
           drops under the name. */}
+      {showChooseHint && (
+        // Seen, not announced (the live region below says "Choose a ticket first." where that's needed).
+        <p data-choose-hint="" className="body-s font-medium text-foreground">
+          Use + to add a ticket.
+        </p>
+      )}
       <ul className="flex flex-col gap-2">
         {lineSummaries.map(({ ticket, quantity }, index) => {
           const showOwnLimit =
@@ -537,6 +557,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
           const group = isGroupTicket(ticket);
           const groupLineId = `${idPrefix}-group-${index}`;
           const descId = `${idPrefix}-desc-${index}`;
+          const countId = `${idPrefix}-count-${index}`;
           // "save A$20": only when the group is really cheaper than the same number of singles.
           const saving = group ? groupSavingLabel(ticket, ticketTypes) : null;
           const tierSoldOut = ticket.soldOut === true;
@@ -558,17 +579,26 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
           const { cap } = limitFor(ticket, quantities);
           // What the + needs said before it's pressed: the per-booking limit (or "Only N left"), what one group
           // admits, the ticket's own description, and the free-ticket limit.
+          // The count first ("Increase quantity for General admission, 1"), then the rest.
           const describedBy =
             [
+              countId,
               showOwnLimit ? ownLimitId : null,
               group ? groupLineId : null,
               ticket.description ? descId : null,
               ticket.priceCents === 0 ? "free-ticket-limit" : null,
             ]
               .filter(Boolean)
-              .join(" ") || undefined;
+              .join(" ");
+          // Ringed after Choose tickets (the global focus ring's look: 2px foreground, offset).
+          const ringed = showChooseHint && ticket.id === firstOnSaleId;
           return (
-            <li key={ticket.id} data-ticket-card="" className={`rounded-card border ${rowClass}`}>
+            <li
+              key={ticket.id}
+              data-ticket-card=""
+              data-choose-target={ringed ? "" : undefined}
+              className={`rounded-card border ${rowClass}${ringed ? " outline-2 outline-offset-3 outline-foreground" : ""}`}
+            >
               <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-3 py-3 sm:px-4">
                 <div className="flex min-w-0 flex-1 basis-28 flex-col">
                   <p className={`body-m font-semibold break-words hyphens-auto ${dimmed ? "text-muted" : "text-foreground"}`}>{ticket.name}</p>
@@ -596,16 +626,26 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                       onClick={() => setQuantity(ticket, quantity - 1)}
                       aria-disabled={quantity <= 0}
                       aria-label={`Decrease quantity for ${ticket.name}`}
+                      aria-describedby={countId}
                       className={`${quantityButtonClass} rounded-l-control`}
                     >
                       &minus;
                     </button>
                     <span
+                      id={countId}
                       data-quantity=""
-                      className="flex min-w-10 items-center justify-center border-x border-foreground px-1 text-base leading-6 font-semibold tabular-nums text-foreground"
+                      className="flex min-w-stepper items-center justify-center border-x border-foreground px-1 text-base leading-6 font-semibold tabular-nums text-foreground"
                     >
-                      {quantity}
-                      {group && <span className="sr-only">{quantity === 1 ? " group" : " groups"}</span>}
+                      {/* A group's count is said whole, in one run ("1 group"): a space split off into its own
+                          element can be dropped. */}
+                      {group ? (
+                        <>
+                          <span aria-hidden="true">{quantity}</span>
+                          <span className="sr-only">{`${quantity} ${quantity === 1 ? "group" : "groups"}`}</span>
+                        </>
+                      ) : (
+                        quantity
+                      )}
                     </span>
                     <button
                       type="button"

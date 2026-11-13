@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { CalendarIcon } from "@/components/home/icons";
-import { actionRowClass } from "@/components/ui/Button";
+import { actionRowClass, actionRowLabelClass } from "@/components/ui/Button";
 import { googleCalendarUrl, icsFilename, outlookCalendarUrl, type CalendarEvent } from "@/lib/calendar";
 import { eventCalendarPath, publicEventUrl } from "@/lib/event-url";
 
@@ -160,7 +160,7 @@ export default function AddToCalendar({
         {look === "button" ? (
           <>
             <CalendarIcon className="size-4 shrink-0" />
-            Calendar
+            <span className={actionRowLabelClass}>Calendar</span>
           </>
         ) : (
           <>

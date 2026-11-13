@@ -71,7 +71,8 @@ export function useSetBuyBar(): ((state: BuyBarState | null) => void) | null {
  * Its height is measured (`--buybar-measured` on <html>, which globals.css scroll-padding reads), because
  * it isn't fixed: the note wraps (two lines at most), and below about 360px of screen, or with large text
  * (the container query is in rem), the button goes under the amount at full width. It never takes more
- * than a third of the screen (`max-h-bar`).
+ * than a third of the screen (`max-h-bar`); where it would reach that (a short screen, very large text), the date line
+ * gives way and the bar may take up to 40% (`max-h-bar-tall`), so the action is never cut off.
  */
 export function GaBuyBar({
   price,
@@ -95,24 +96,48 @@ export function GaBuyBar({
   const id = useId();
   const amountId = `${id}-amount`;
   const noteId = `${id}-note`;
+  const descriptionId = `${id}-description`;
+  // The bar would take a third of the screen or more with its date line: it goes (lowered as it's measured below).
+  const [tall, setTall] = useState(false);
+  const tallRef = useRef(false);
+  const dateHeight = useRef(0);
   // Before a selection: the event's starting price ("From A$32.30", "incl. booking fee"). Once tickets are chosen: the
   // order's total, said to be one ("A$64.60", "Total · incl. booking fee" or "Total · no booking fee"; the same figure
   // as the Order summary's).
   const shown =
     state?.kind === "checkout"
-      ? { amount: state.amount, note: `Total · ${state.note.charAt(0).toLowerCase()}${state.note.slice(1)}` }
+      ? { amount: state.amount, note: `Total · ${lowerFirst(state.note)}` }
       : state?.kind === "status"
         ? state
         : { amount: startingPrice(price.amount), note: price.note };
+  // The action's description, in reading order: "Total A$37.60, incl. booking fee"; "From A$32.30, incl. booking fee".
+  const description =
+    state?.kind === "checkout"
+      ? `Total ${state.amount}, ${lowerFirst(state.note)}`
+      : shown.note
+        ? `${shown.amount}, ${shown.note}`
+        : shown.amount;
 
   useEffect(() => {
     const bar = barRef.current;
     if (!bar) return;
     const root = document.documentElement;
-    const measure = () => root.style.setProperty("--buybar-measured", `${Math.ceil(bar.getBoundingClientRect().height)}px`);
+    const measure = () => {
+      root.style.setProperty("--buybar-measured", `${Math.ceil(bar.getBoundingClientRect().height)}px`);
+      // Its height with the date line, whether or not it's shown now (so hiding it can't flip the answer back).
+      const date = bar.querySelector<HTMLElement>("[data-bar-date]");
+      if (date && !tallRef.current) dateHeight.current = date.getBoundingClientRect().height;
+      const natural = bar.scrollHeight + (tallRef.current ? dateHeight.current : 0);
+      const next = natural > 0 && natural >= window.innerHeight / 3;
+      if (next !== tallRef.current) {
+        tallRef.current = next;
+        setTall(next);
+      }
+    };
     measure();
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
     observer?.observe(bar);
+    window.addEventListener("resize", measure);
     // Focus is never left under the bar (WCAG 2.4.11). Browsers don't apply scroll-padding to a focus that lands on
     // something already "in view", though the bar covers it, so a focus that ends up under the bar is scrolled clear
     // (scrollIntoView honours the padding set above). Not while the bar is out of the layout (desktop).
@@ -127,6 +152,7 @@ export function GaBuyBar({
     document.addEventListener("focusin", keepFocusClear);
     return () => {
       observer?.disconnect();
+      window.removeEventListener("resize", measure);
       document.removeEventListener("focusin", keepFocusClear);
       root.style.removeProperty("--buybar-measured");
     };
@@ -140,14 +166,26 @@ export function GaBuyBar({
       ref={barRef}
       data-buy-bar
       // Hidden, not removed: the page keeps the bar's height at its end.
-      className={`${className} max-h-bar${keyboardOpen ? " invisible" : ""}`}
+      className={`${className} ${tall ? "max-h-bar-tall" : "max-h-bar"}${keyboardOpen ? " invisible" : ""}`}
     >
       <div className="@container min-w-0 flex-1">
         <div className="flex items-center gap-3 @max-xs:flex-col @max-xs:items-stretch @max-xs:gap-2">
-          <BarPrice amount={shown.amount} note={shown.note} dateLine={dateLine} soon={soon} amountId={amountId} noteId={noteId} />
-          <BuyAction state={state} label={label} describedBy={shown.note ? `${amountId} ${noteId}` : amountId} className={actionClass} />
+          <BarPrice
+            amount={shown.amount}
+            note={shown.note}
+            dateLine={dateLine}
+            soon={soon}
+            hideDate={tall}
+            amountId={amountId}
+            noteId={noteId}
+          />
+          <BuyAction state={state} label={label} describedBy={descriptionId} className={actionClass} />
         </div>
       </div>
+      {/* Read as the action's description (a hidden element still describes it), never on its own. */}
+      <span id={descriptionId} hidden>
+        {description}
+      </span>
     </div>
   );
 }
@@ -166,11 +204,14 @@ export function BarPrice({
   soon,
   amountId,
   noteId,
+  hideDate = false,
 }: {
   amount?: string;
   note?: string;
   dateLine?: string;
   soon?: SoonFields;
+  /** The bar would be a third of the screen or more with it (GaBuyBar): left out. */
+  hideDate?: boolean;
   amountId?: string;
   noteId?: string;
 }) {
@@ -182,7 +223,7 @@ export function BarPrice({
           {amount}
         </span>
         {note && (
-          // The whole text is also the button's description, so nothing is lost to a screen reader.
+          // Also in the button's description, so nothing is lost to a screen reader.
           <span id={noteId} data-bar-note="" className="body-s line-clamp-2 text-muted">
             {note}
           </span>
@@ -190,13 +231,18 @@ export function BarPrice({
       </p>
       )}
       {dateLine && (
-        <p data-bar-date="" className="mono-s flex min-w-0 text-muted">
+        <p data-bar-date="" className={`mono-s min-w-0 text-muted ${hideDate ? "hidden" : "flex"}`}>
           {soon && <SoonText event={soon} />}
           <span className="min-w-0 truncate">{dateLine}</span>
         </p>
       )}
     </div>
   );
+}
+
+/** "Incl. booking fee" → "incl. booking fee", after "Total · " or "Total A$X, ". */
+function lowerFirst(text: string): string {
+  return `${text.charAt(0).toLowerCase()}${text.slice(1)}`;
 }
 
 /** The trailing arrow on every buy action (the rules' Buy tickets button): 16px, decorative. */

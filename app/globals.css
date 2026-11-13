@@ -364,6 +364,9 @@
   --text-2xs--line-height: 1rem;
   --text-3xs: 0.59375rem;
   --text-3xs--line-height: 0.75rem;
+  /* The event page's ticket stepper buttons (components/TicketSelector.tsx): 44px in px, not rem, so with 200% text the
+     − n + still fits a 320px ticket row (UX review, 13 Nov 2026). `size-stepper`, `min-w-stepper`. */
+  --spacing-stepper: 44px;
 }
 
 * {
@@ -453,6 +456,12 @@ h4 {
 /* The phone buy bar never takes more than a third of the screen (large text, a long note): it scrolls inside. */
 @utility max-h-bar {
   max-height: 33svh;
+  overflow-y: auto;
+}
+/* Where even that would cut its action off (a short screen, 200% text: components/checkout/BuyBar.tsx), the bar drops
+   its date line and may take up to 40% of the screen, so the whole action shows (UX review, 13 Nov 2026). */
+@utility max-h-bar-tall {
+  max-height: 40svh;
   overflow-y: auto;
 }
 

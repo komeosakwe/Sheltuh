@@ -120,7 +120,8 @@ describe("TicketSelector, one tier sold out, or few left", () => {
     fireEvent.click(more);
     fireEvent.click(more);
     expect(more).toHaveAttribute("aria-disabled", "true");
-    expect(more).toHaveAccessibleDescription("Only 2 left.");
+    // The count first, then why there's no more.
+    expect(more).toHaveAccessibleDescription("2 Only 2 left.");
   });
 
   it("says both when the per-booking cap is lower than what's left", () => {

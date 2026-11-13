@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { MouseEvent } from "react";
-import { actionRowClass } from "@/components/ui/Button";
+import { actionRowClass, actionRowLabelClass } from "@/components/ui/Button";
 import { withNext } from "@/lib/safe-next-path";
 import type { SaveTarget } from "./favourites-store";
 import { useFavourites } from "./FavouritesProvider";
@@ -22,7 +22,7 @@ function classes(variant: SaveButtonVariant, saved: boolean) {
       return {
         target: `group/save ${actionRowClass}`,
         mark: null,
-        icon: `size-4 motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-active/save:scale-90 ${heart}`.trim(),
+        icon: `size-4 shrink-0 motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-active/save:scale-90 ${heart}`.trim(),
       };
     case "plain":
       return {
@@ -85,7 +85,7 @@ export default function SaveButton({
       ) : (
         <HeartIcon filled={saved} className={c.icon} />
       )}
-      {variant === "action" && "Save"}
+      {variant === "action" && <span className={actionRowLabelClass}>Save</span>}
     </>
   );
 

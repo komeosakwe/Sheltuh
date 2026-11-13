@@ -21,7 +21,7 @@ import ShareButton from "@/components/ShareButton";
 import TicketSelector from "@/components/TicketSelector";
 import TicketsHashFocus from "@/components/TicketsHashFocus";
 import BackLink from "@/components/ui/BackLink";
-import { buttonClass } from "@/components/ui/Button";
+import { actionRowGridClass, buttonClass } from "@/components/ui/Button";
 import CategoryTag from "@/components/ui/CategoryTag";
 import DateChip from "@/components/ui/DateChip";
 import SoonTag from "@/components/ui/SoonTag";
@@ -102,7 +102,7 @@ function Placeholder({ children }: { children: ReactNode }) {
 /**
  * The tickets section (#tickets), first in the main column: the existing selector, seat panel, outside
  * ticket link or waitlist. A general admission event with tickets on sale is "Choose your tickets" over
- * "Select a ticket type to continue." (the owner's event reference, 13 Nov 2026); every other state (seats,
+ * "Choose how many tickets you want." (the owner's event reference, 13 Nov 2026; UX review's wording); every other state (seats,
  * an outside ticket link, sold out, ended, none yet) is "Tickets". The ticket panel beside the photo (and
  * the phone's buy bar) is the way here.
  */
@@ -132,7 +132,7 @@ function TicketsSection({
         </h2>
         {soon && <SoonTag event={soon} />}
       </div>
-      {selects && <p className="body-m mt-1 text-muted">Select a ticket type to continue.</p>}
+      {selects && <p className="body-m mt-1 text-muted">Choose how many tickets you want.</p>}
       <div className="mt-4">{children}</div>
     </section>
   );
@@ -292,8 +292,9 @@ export default function EventDetailsView({
   // The "🔥 Tomorrow" tag's times (lib/soon.ts), beside the category, the tickets heading and the bars' date line;
   // none for a draft without a date (its start is only a stand-in).
   const soon = missing?.when ? undefined : soonFields(event);
-  // The general admission releases to choose from (the panel says how many as it takes you there).
-  const releases = event.ticketTypes.filter((ticket) => !ticket.seated).length;
+  // The general admission ticket types that can be chosen now (the panel says how many as it takes you there): not
+  // sold out, and not waiting for the one above to sell out.
+  const releases = event.ticketTypes.filter((ticket) => !ticket.seated && ticket.soldOut !== true && !ticket.opensAfter).length;
 
   // The ticket panel's price and one orange action, from 1024px (below that the buy bar has them). The same
   // conditions as the bars below; nothing once the event has ended, or with nothing on sale yet.
@@ -479,12 +480,15 @@ export default function EventDetailsView({
                 {organiserHref && (
                   <Link
                     href={organiserHref}
-                    className="group/link body-s inline-flex min-h-11 shrink-0 items-center gap-1 font-medium underline underline-offset-4 hover:decoration-2 lg:min-h-6"
+                    // Never wider than the row: with very large text its words wrap, the arrow beside them.
+                    className="group/link body-s inline-flex min-h-11 max-w-full min-w-0 items-center gap-1 font-medium underline underline-offset-4 hover:decoration-2 lg:min-h-6"
                   >
                     {/* The whole name in one span: a leading space in a separate sr-only suffix can be dropped inside a
                         flex link. */}
                     <span className="sr-only">View organiser {event.organiserName}</span>
-                    <span aria-hidden="true">View organiser</span>
+                    <span aria-hidden="true" className="min-w-0">
+                      View organiser
+                    </span>
                     <ArrowRightIcon className="size-4 shrink-0 motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-hover/link:translate-x-0.5" />
                   </Link>
                 )}
@@ -506,10 +510,13 @@ export default function EventDetailsView({
               )}
               {/* The one secondary row: Save (the page's only Save), Share and Add to calendar, a third each. Top-aligned,
                   so Share's "Link copied" under it pushes the page down rather than covering anything. */}
-              <div data-event-actions="" className="grid grid-cols-3 items-start gap-2">
-                <SaveButton event={saveTarget} variant="action" />
-                <ShareButton slug={event.slug} title={event.title} text={shareText} fill />
-                {!missing?.when && <AddToCalendar event={event} look="button" />}
+              {/* A container, so the row can follow the text size (components/ui/Button.tsx actionRowClass). */}
+              <div className="@container">
+                <div data-event-actions="" className={actionRowGridClass}>
+                  <SaveButton event={saveTarget} variant="action" />
+                  <ShareButton slug={event.slug} title={event.title} text={shareText} fill />
+                  {!missing?.when && <AddToCalendar event={event} look="button" />}
+                </div>
               </div>
             </div>
             {/* Who's going (the owner's event mock): the count, a few faces and I'm going (or See who's going, View
