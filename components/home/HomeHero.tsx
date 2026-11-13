@@ -20,12 +20,12 @@ export default function HomeHero() {
       <div className="flex items-center gap-8">
         <HeroBadge className="hidden size-20 shrink-0 lg:flex" />
         <div className="min-w-0">
-          <h1 id="home-title" className="text-[2rem] leading-9 font-display uppercase md:display-m">
+          <h1 id="home-title" className="text-[2.625rem] leading-[2.75rem] font-display uppercase md:display-m">
             <BrandU spoken={HOME_TITLE}>
-              <span className="lg:block">{first}</span> <span className="lg:block">{second}</span>
+              <span className="max-md:block lg:block">{first}</span> <span className="max-md:block lg:block">{second}</span>
             </BrandU>
           </h1>
-          <p data-home-lede="" className="mt-2 body-l text-muted md:mt-4">
+          <p data-home-lede="" className="mt-3 text-[1.0625rem] leading-7 font-medium text-muted md:mt-4 md:body-l">
             {HOME_LEDE}
           </p>
         </div>
