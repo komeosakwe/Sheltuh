@@ -10,6 +10,7 @@ import type { SheltuhEvent } from "@/lib/types";
 import { COMMUNITY_SAMPLE_FACES } from "./home-content";
 import { useOptionalHomeEvents } from "./HomeEventsProvider";
 import { ArrowRightIcon } from "./icons";
+import SceneCards from "./SceneCards";
 
 /** Live mode's footnote: the count is the server's thresholded Who's Going count for a Popular right now event. */
 export const COMMUNITY_LIVE_NOTE = "Popular right now · Real count";
@@ -66,8 +67,12 @@ function Faces() {
  * live thresholded count or the demo's sample count, with a footnote saying which) and one black
  * action: "Create profile" (sign up), or, signed in, "Find an event". Never an orange button on
  * the orange band, and black on orange only (6.18:1); the band looks the same in Light and Dark
- * (the signal scope). The proposal's Fashion, Art and Music cards ("8 friends going", Follow)
- * have no data behind them, so they're left out. `#find-your-people` still lands here.
+ * (the signal scope). Under the band, the three scene cards (SceneCards: Live music, Art and
+ * Pop-ups, the proposal's Music, Art and Fashion), from real data only: each category's own event
+ * photo, a going count this week only when there's a real one, "See events" to its listing, and an
+ * event count only when it's the whole number. The proposal's "8 friends going", "1.2K members"
+ * and Follow still have no data behind them, so they're left out. `#find-your-people` still lands
+ * here.
  */
 export default function CommunitySection({ className = "" }: { className?: string }) {
   const auth = useOptionalAuth();
@@ -140,6 +145,8 @@ export default function CommunitySection({ className = "" }: { className?: strin
           </ButtonLink>
         </div>
       </div>
+
+      <SceneCards className="sm:col-span-2" />
     </section>
   );
 }

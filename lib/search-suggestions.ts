@@ -1,6 +1,11 @@
 import { cardMetaParts } from "./event-card";
 import type { EventCategory, SheltuhEvent } from "./types";
 
+/** A category's listing: /events filtered to it (the search suggestions' and the home's scene cards' one URL). */
+export function categoryHref(category: EventCategory): string {
+  return `/events?category=${encodeURIComponent(category)}`;
+}
+
 /** At most this many events under "Coming up". */
 export const SUGGESTED_EVENTS_MAX = 3;
 
@@ -37,7 +42,7 @@ export function searchSuggestionGroups(
         key: `category-${category}`,
         label,
         category,
-        href: `/events?category=${encodeURIComponent(category)}`,
+        href: categoryHref(category),
       })),
     },
   ];

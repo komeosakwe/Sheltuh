@@ -1,4 +1,4 @@
-import type { EventPoster } from "@/lib/types";
+import type { EventCategory, EventPoster } from "@/lib/types";
 
 /**
  * Static art and copy for the home page. Each image slot shows its poster
@@ -60,3 +60,14 @@ export const HOME_CREATORS: HomeArt = {
  * card shows no photo caption (owner, 31 Oct 2026).
  */
 export const COMMUNITY_SAMPLE_FACES: readonly string[] = [1, 2, 3, 4, 5].map((n) => `/home/people/person-${n}.webp`);
+
+/**
+ * Find your people's three scene cards (components/home/SceneCards.tsx), in order: the owner's
+ * mockup's Music, Art and Fashion as the real categories Live music, Art and Pop-ups, each with
+ * its short line. Names and icons come from the category row (HOME_CATEGORIES).
+ */
+export const COMMUNITY_SCENES: readonly { category: EventCategory; line: string }[] = [
+  { category: "live-music", line: "Join the moment" },
+  { category: "art", line: "Find your crowd" },
+  { category: "pop-up", line: "Meet the scene" },
+];

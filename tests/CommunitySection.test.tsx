@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import CommunitySection, { COMMUNITY_BAND_LINE, COMMUNITY_DEMO_NOTE } from "@/components/home/CommunitySection";
 import { HomeEventsProvider } from "@/components/home/HomeEventsProvider";
 import { COMMUNITY_SAMPLE_FACES } from "@/components/home/home-content";
+import { SCENES_DEMO_NOTE, SCENES_LIST_NAME } from "@/components/home/SceneCards";
 import { getSampleGoing } from "@/lib/sample-going";
 import { sampleEvents } from "@/lib/sample-events";
 import { FakeAuthProvider, fakeAuthValue } from "./test-utils/fakeAuth";
@@ -11,8 +12,9 @@ import { FakeAuthProvider, fakeAuthValue } from "./test-utils/fakeAuth";
 /**
  * Find your people (the proposal, redesign PR 3): the head (eyebrow, h2, lede, Explore
  * communities → /community), then the compact orange "See who's going." band with the owner's
- * illustrative portraits and, when the page has one, a real example. Demo mode here (no API
- * configured); live mode is tests/CommunitySectionLive.test.tsx.
+ * illustrative portraits and, when the page has one, a real example; then the three scene cards
+ * (Live music, Art, Pop-ups) from real data only. Demo mode here (no API configured); live mode is
+ * tests/CommunitySectionLive.test.tsx.
  */
 
 /** The five portraits: decorative (hidden, empty alt), round and overlapping, in order. */
@@ -150,5 +152,92 @@ describe("CommunitySection: the band's example (demo)", () => {
     expect(b.querySelector("[data-community-note]")?.textContent).toBe(COMMUNITY_DEMO_NOTE);
     expect(COMMUNITY_DEMO_NOTE).toBe("Example event · Sample count");
     expectIllustrativeFaces(b);
+  });
+});
+
+const SCENES = [
+  { name: "Live music", href: "/events?category=live-music", line: "Join the moment" },
+  { name: "Art", href: "/events?category=art", line: "Find your crowd" },
+  { name: "Pop-ups", href: "/events?category=pop-up", line: "Meet the scene" },
+];
+
+/** The scene cards' list items, by scene name. */
+function sceneCards() {
+  const list = screen.getByRole("list", { name: SCENES_LIST_NAME });
+  const items = within(list).getAllByRole("listitem");
+  return { list, items, byName: (name: string) => items.find((item) => within(item).queryByRole("heading", { level: 3, name })) as HTMLElement };
+}
+
+describe("CommunitySection: the scene cards", () => {
+  it("without the home's events: the three scenes, each a heading, one 'See events' link to its listing, the line, a neutral tile and no numbers", () => {
+    const { container } = render(<CommunitySection />);
+    const { items } = sceneCards();
+    expect(items).toHaveLength(3);
+    items.forEach((item, i) => {
+      const scene = SCENES[i];
+      expect(within(item).getByRole("heading", { level: 3 })).toHaveTextContent(scene.name);
+      const links = within(item).getAllByRole("link");
+      // One link (one tab stop) per card, named with its scene.
+      expect(links).toHaveLength(1);
+      expect(links[0]).toHaveAccessibleName(`See events: ${scene.name}`);
+      expect(links[0]).toHaveAttribute("href", scene.href);
+      expect(links[0]).toHaveClass("btn-outline", "btn-sm");
+      expect(within(item).getByText(scene.line)).toHaveClass("text-muted");
+      // No event to show: the category's icon on a neutral tile, decorative; no stock photo.
+      const fallback = item.querySelector("[data-scene-fallback]");
+      expect(fallback).toHaveAttribute("aria-hidden", "true");
+      expect(fallback?.querySelector("svg")).not.toBeNull();
+      expect(item.querySelector("img")).toBeNull();
+      expect(item.querySelector("[data-scene-going]")).toBeNull();
+      expect(item.querySelector("[data-scene-meta]")).toBeNull();
+    });
+    expect(container.querySelector("[data-scenes-note]")).toBeNull();
+    expect(container.textContent).not.toMatch(/\d/);
+  });
+
+  it("demo: each scene's own soonest event's photo, the sample going count this week (labelled sample), and whole event counts; no members, friends or Follow", async () => {
+    const { container } = render(
+      <HomeEventsProvider>
+        <CommunitySection />
+      </HomeEventsProvider>,
+    );
+    await settle();
+    const { byName } = sceneCards();
+    // Wed 21 Oct: Live music's soonest is Sub Bass Sunday (1 Nov); nothing on this week, none this month.
+    const music = byName("Live music");
+    expect(decodeURIComponent(music.querySelector("img")?.getAttribute("src") ?? "")).toContain("/events/record-shop-dj.jpg");
+    expect(music.querySelector("[data-scene-going]")).toBeNull();
+    expect(music.querySelector("[data-scene-meta]")).toHaveTextContent(/^\d+ upcoming$/);
+    // Art: After Hours Life Drawing (Thu 22 Oct), the one art event this week and this month.
+    const art = byName("Art");
+    expect(decodeURIComponent(art.querySelector("img")?.getAttribute("src") ?? "")).toContain("/events/gallery-opening.jpg");
+    expect(art.querySelector("[data-scene-going]")).toHaveTextContent(`${getSampleGoing("evt-after-hours-life-drawing").count} going this week`);
+    expect(art.querySelector("[data-scene-meta]")).toHaveTextContent("1 event this month");
+    // Pop-ups: Wax and Wick Market (Sun 25 Oct).
+    const popups = byName("Pop-ups");
+    expect(popups.querySelector("[data-scene-going]")).toHaveTextContent(`${getSampleGoing("evt-wax-and-wick-market").count} going this week`);
+    expect(popups.querySelector("[data-scene-meta]")).toHaveTextContent("1 event this month");
+    // The photos are decorative (the art box is hidden); no faces beside the counts.
+    for (const item of [music, art, popups]) {
+      for (const img of Array.from(item.querySelectorAll("img"))) expect(img.closest("[aria-hidden='true']")).not.toBeNull();
+      expect(item.querySelector("[data-community-faces]")).toBeNull();
+    }
+    expect(container.querySelector("[data-scenes-note]")).toHaveTextContent(SCENES_DEMO_NOTE);
+    expect(SCENES_DEMO_NOTE).toBe("This week · Sample counts");
+    expect(container.querySelector("#find-your-people")).not.toHaveTextContent(/friends|members|follow/i);
+  });
+
+  it("the card's text comes before its photo (the heading first), the photo is shown first", async () => {
+    render(
+      <HomeEventsProvider>
+        <CommunitySection />
+      </HomeEventsProvider>,
+    );
+    await settle();
+    const art = sceneCards().byName("Art");
+    const media = art.querySelector("[data-scene-media]");
+    const heading = within(art).getByRole("heading", { level: 3 });
+    expect(media).toHaveClass("order-first");
+    expect(heading.compareDocumentPosition(media as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

@@ -470,6 +470,97 @@ for (const vp of [
   });
 }
 
+// The scene cards under the band (the owner's mockup, real data only): three equal columns from
+// 1024px, a sideways row bleeding to the edges below it, and never the page scrolling sideways.
+const SCENES = [
+  { name: "Live music", category: "live-music" },
+  { name: "Art", category: "art" },
+  { name: "Pop-ups", category: "pop-up" },
+];
+for (const vp of [
+  { width: 1440, height: 900, row: false },
+  { width: 1024, height: 768, row: false },
+  { width: 390, height: 844, row: true },
+  { width: 320, height: 640, row: true },
+]) {
+  test.describe(`Find your people's scene cards at ${vp.width}px`, () => {
+    test.use({ viewport: { width: vp.width, height: vp.height } });
+
+    test("Live music, Art and Pop-ups, each its own event's photo and one link to its listing, with no invented counts", async ({ page }) => {
+      await openHome(page, { trending: true, going: 22 });
+      const list = page.getByRole("list", { name: "Scenes", exact: true });
+      await list.scrollIntoViewIfNeeded();
+      const items = list.getByRole("listitem");
+      await expect(items).toHaveCount(3);
+      for (const [i, scene] of SCENES.entries()) {
+        const item = items.nth(i);
+        await expect(item.getByRole("heading", { level: 3 })).toHaveText(scene.name);
+        await expect(item.getByRole("link")).toHaveCount(1);
+        await expect(item.getByRole("link", { name: `See events: ${scene.name}` })).toHaveAttribute("href", `/events?category=${scene.category}`);
+        // The fixtures have events in all three: each shows its lead event's art, never the fallback tile.
+        await expect(item.locator("[data-scene-media] [aria-hidden='true']").first()).toBeVisible();
+        await expect(item.locator("[data-scene-fallback]")).toHaveCount(0);
+        // Every upcoming event was served (no next cursor), so the event count is the whole number.
+        await expect(item.locator("[data-scene-meta]")).toHaveText(/^(\d+ events? this month|\d+ upcoming)$/);
+      }
+      // The only real going count is 22, on an event weeks away: no "going this week" anywhere.
+      await expect(list.locator("[data-scene-going]")).toHaveCount(0);
+      await expect(page.locator("[data-scenes-note]")).toHaveCount(0);
+      await expect(page.locator("#find-your-people")).not.toContainText(/friends|members|follow/i);
+
+      const boxes = await Promise.all([0, 1, 2].map(async (i) => items.nth(i).boundingBox()));
+      if (boxes.some((box) => !box)) throw new Error("scene cards not laid out");
+      const [a, b, c] = boxes as NonNullable<(typeof boxes)[number]>[];
+      if (vp.row) {
+        // The home's phone row: 288px cards side by side, the next one peeking in.
+        expect(Math.round(a.width)).toBe(288);
+        expect(b.y).toBeCloseTo(a.y, 0);
+        expect(b.x).toBeGreaterThan(a.x + a.width);
+      } else {
+        // Three equal columns on one row, filling the band's width.
+        const band = await page.locator("[data-community-band]").boundingBox();
+        if (!band) throw new Error("band not laid out");
+        expect(Math.abs(a.width - b.width)).toBeLessThan(1);
+        expect(Math.abs(b.width - c.width)).toBeLessThan(1);
+        expect(b.y).toBeCloseTo(a.y, 0);
+        expect(c.y).toBeCloseTo(a.y, 0);
+        expect(a.x).toBeCloseTo(band.x, 0);
+        expect(c.x + c.width).toBeCloseTo(band.x + band.width, 0);
+      }
+      // The link is reachable by keyboard, with the visible focus ring, and is big enough to tap.
+      const link = items.nth(1).getByRole("link");
+      await link.focus();
+      await expect(link).toBeFocused();
+      expect(await link.evaluate((el) => getComputedStyle(el).outlineStyle)).not.toBe("none");
+      expect((await link.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(40);
+      expect(await noSidewaysScroll(page)).toBeLessThanOrEqual(0);
+    });
+  });
+}
+
+test.describe("Find your people's scene cards: the whole card opens the listing", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  test("a click on Art's photo opens /events?category=art", async ({ page }) => {
+    // /events asks for recently ended events too (openHome's mock refuses those), so serve both pages here.
+    const events = fixtures(Date.now()).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+    await page.route("**/api/**", (route) =>
+      new URL(route.request().url()).pathname === "/api/events"
+        ? route.fulfill({ json: { items: events, nextCursor: undefined } })
+        : route.fulfill({ status: 404, json: { error: "not mocked in e2e" } }),
+    );
+    await page.goto("/");
+    const art = page.getByRole("list", { name: "Scenes", exact: true }).getByRole("listitem").nth(1);
+    const media = art.locator("[data-scene-media]");
+    await media.scrollIntoViewIfNeeded();
+    // A real click on the photo's middle: the card's one link covers the card, so it takes the click.
+    const box = await media.boundingBox();
+    if (!box) throw new Error("photo not laid out");
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await expect(page).toHaveURL(/\/events\?category=art$/, { timeout: 30_000 });
+  });
+});
+
 test.describe("/events", () => {
   test.use({ viewport: { width: 375, height: 812 } });
 

@@ -5,7 +5,7 @@ import { isApiConfigured } from "@/lib/api/client";
 import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
 import { loadHomeFeed, loadHomeFollowing, loadHomeTrending } from "@/lib/home-events";
 import { isUpcomingEvent } from "@/lib/data";
-import { bySoonest, preferState, selectHomeSections, type HomeSections } from "@/lib/home-sections";
+import { bySoonest, preferState, selectHomeSections, type HomeSections, type TrendingItem } from "@/lib/home-sections";
 import { readStoredNearState, subscribeStoredNear } from "@/lib/near-storage";
 import type { SheltuhEvent } from "@/lib/types";
 
@@ -21,6 +21,11 @@ export type HomeEventsState =
       events: SheltuhEvent[];
       /** `events` is every upcoming event there is, so its count is the whole number. */
       complete: boolean;
+      /**
+       * The trending list as loaded (live: the server's order and its thresholded going counts;
+       * demo: the sample events with the most people going). Empty when trending failed.
+       */
+      trending: TrendingItem[];
     };
 
 export interface HomeEventsValue {
@@ -88,6 +93,7 @@ export function HomeEventsProvider({ children }: { children: ReactNode }) {
         (event) => event,
       ),
       complete: feed.complete,
+      trending,
     };
   }, [load, preferredState]);
 
