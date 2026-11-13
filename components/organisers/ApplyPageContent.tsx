@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import ApplicationForm from "@/components/organisers/ApplicationForm";
-import { Button } from "@/components/ui/Button";
+import { buttonClass, Button } from "@/components/ui/Button";
 import { LoadingState } from "@/components/ui/ProgressLoader";
 import type { OrganiserRecord } from "@/lib/api/types";
 import { accountKey } from "@/lib/auth/account";
@@ -12,12 +12,34 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { useKeptWhileSignedOut } from "@/lib/auth/useKeptWhileSignedOut";
 import { useOrganiser } from "@/lib/auth/useOrganiser";
 import { withNext } from "@/lib/safe-next-path";
+import { START_TITLE_ID } from "./organisers-content";
 
-function StatusCard({ children }: { children: ReactNode }) {
+/**
+ * The Start organising panel's h2 (the panel, on OrganisersPage, is labelled by it): what this
+ * state is, so every state has one.
+ */
+function PanelTitle({ children }: { children: ReactNode }) {
   return (
-    <div className="rounded-card border border-foreground bg-card p-4 text-foreground">{children}</div>
+    <h2 id={START_TITLE_ID} className="heading-h1 text-balance">
+      {children}
+    </h2>
   );
 }
+
+/** The panel's heading and what's under it, for the states with a body. */
+function PanelState({ title, children }: { title: ReactNode; children?: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-4">
+      <PanelTitle>{title}</PanelTitle>
+      {children}
+    </div>
+  );
+}
+
+/** The panel's heading before an application (and in the demo, or while loading). */
+const APPLY_TITLE = "Become an organiser";
+/** The mock's line under the heading (the owner's estimate). */
+const TAKES_FIVE_MINUTES = "Takes about five minutes.";
 
 /** Signing in or up from here comes back here (any way of signing in: email, Apple or Google). */
 const APPLY_PATH = "/organisers/apply";
@@ -64,44 +86,54 @@ export default function ApplyPageContent() {
 
   if (!auth.configured) {
     return (
-      <p role="alert" className="border-l-2 border-danger px-4 py-3 text-sm text-foreground">
-        Accounts aren&rsquo;t configured in this environment yet.
-      </p>
+      <PanelState title={APPLY_TITLE}>
+        <p role="alert" className="border-l-2 border-danger px-4 py-3 text-sm text-foreground">
+          Accounts aren&rsquo;t configured in this environment yet.
+        </p>
+      </PanelState>
     );
   }
 
   if (keptForm && kept) return <FormSection view={keptForm} account={kept.account} onSuccess={onSuccess} />;
 
   if (auth.status === "loading" || loading) {
-    return <LoadingState text="Loading…" />;
+    return (
+      <PanelState title={APPLY_TITLE}>
+        <LoadingState text="Loading…" />
+      </PanelState>
+    );
   }
 
   if (auth.status === "signed-out") {
     return (
-      <StatusCard>
-        <p className="mb-3">Sign in to apply as an organiser.</p>
-        <div className="flex gap-3">
-          <Link href={withNext("/login", APPLY_PATH)} className="btn btn-solid">
+      <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between lg:gap-12">
+        <div className="flex min-w-0 flex-col gap-4">
+          <PanelTitle>Sign in to apply as an organiser.</PanelTitle>
+          <p className="body-m text-muted">{TAKES_FIVE_MINUTES}</p>
+        </div>
+        {/* Stacked on phones: two side by side don't fit "Create an account" at 320px. */}
+        <div className="flex shrink-0 flex-col gap-4 sm:flex-row">
+          <Link href={withNext("/login", APPLY_PATH)} className={buttonClass("solid", "md", "w-full sm:w-auto")}>
             Sign in
           </Link>
-          <Link href={withNext("/signup", APPLY_PATH)} className="btn btn-outline">
-            Sign up
+          <Link href={withNext("/signup", APPLY_PATH)} className={buttonClass("outline", "md", "w-full sm:w-auto")}>
+            Create an account
           </Link>
         </div>
-      </StatusCard>
+      </div>
     );
   }
 
   if (error) {
     return (
-      <StatusCard>
-        <p role="alert" className="mb-3 text-danger">
+      <PanelState title={APPLY_TITLE}>
+        <p role="alert" className="text-danger">
           {error}
         </p>
-        <Button variant="outline" busy={refreshing} onClick={() => void refetch()}>
+        <Button variant="outline" busy={refreshing} onClick={() => void refetch()} className="self-start">
           {refreshing ? "Trying again…" : "Try again"}
         </Button>
-      </StatusCard>
+      </PanelState>
     );
   }
 
@@ -110,26 +142,24 @@ export default function ApplyPageContent() {
 
   if (current?.status === "pending") {
     return (
-      <StatusCard>
-        <p className="font-heading text-2xl text-foreground">Application pending</p>
-        <p className="mt-2 text-sm text-muted">
+      <PanelState title="Application pending">
+        <p className="body-m text-muted">
           Waiting on admin review. We&rsquo;ll let you know once it&rsquo;s decided.
         </p>
-      </StatusCard>
+      </PanelState>
     );
   }
 
   // Shown only for the moment before the redirect above (or if it's blocked).
   return (
-    <StatusCard>
-      <p className="font-heading text-2xl text-foreground">You&rsquo;re an approved organiser</p>
-      <p role="status" className="mt-2 mb-3 text-sm text-muted">
+    <PanelState title={<>You&rsquo;re an approved organiser</>}>
+      <p role="status" className="body-m text-muted">
         Taking you to your dashboard…
       </p>
-      <Link href="/dashboard" className="btn btn-solid">
+      <Link href="/dashboard" className={buttonClass("solid", "md", "self-start")}>
         Go to your dashboard
       </Link>
-    </StatusCard>
+    </PanelState>
   );
 }
 
@@ -149,14 +179,17 @@ function FormSection({
   onSuccess: (record: OrganiserRecord, account: string) => void;
 }) {
   return (
-    <div className="flex flex-col gap-6">
-      {view.mode === "apply" ? null : (
-        <StatusCard>
-          <p className="font-heading text-2xl text-foreground">Application not approved</p>
+    <div className="flex flex-col gap-8">
+      {view.mode === "apply" ? (
+        <PanelState title={APPLY_TITLE}>
+          <p className="body-m text-muted">{TAKES_FIVE_MINUTES}</p>
+        </PanelState>
+      ) : (
+        <PanelState title="Application not approved">
           {view.record.rejectionReason && (
-            <p className="mt-2 text-sm text-muted">Reviewer note: {view.record.rejectionReason}</p>
+            <p className="body-m text-muted">Reviewer note: {view.record.rejectionReason}</p>
           )}
-        </StatusCard>
+        </PanelState>
       )}
       <ApplicationForm
         key={`${account}\n${view.mode}`}

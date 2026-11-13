@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import SearchBar from "@/components/SearchBar";
+import LocationPicker from "@/components/search/LocationPicker";
 import { findLocality } from "@/lib/location";
 import { NEAR_STORAGE_KEY } from "@/lib/near-storage";
 
@@ -52,7 +53,7 @@ function submittedData(form: HTMLFormElement): FormData {
 }
 
 function renderBar(near?: string) {
-  return render(<SearchBar label="Search events" size="lg" tone="signal" placeholder="Search events" near={near} />);
+  return render(<SearchBar near={near} />);
 }
 
 beforeEach(() => {
@@ -71,7 +72,7 @@ describe("LocationPicker — asking for the browser's position", () => {
     expect(getCurrentPosition).not.toHaveBeenCalled();
     const panel = openPanel();
     expect(getCurrentPosition).not.toHaveBeenCalled();
-    fireEvent.click(within(panel).getByRole("button", { name: "Use my current location", hidden: true }));
+    fireEvent.click(within(panel).getByRole("button", { name: "Use my location", hidden: true }));
     expect(getCurrentPosition).toHaveBeenCalledTimes(1);
     expect(getCurrentPosition.mock.calls[0][2]).toEqual({ enableHighAccuracy: false, timeout: 10_000, maximumAge: 600_000 });
     expect(within(panel).getByRole("status", { hidden: true })).toHaveTextContent("Finding your location…");
@@ -84,8 +85,8 @@ describe("LocationPicker — asking for the browser's position", () => {
     expect(panel).toHaveAttribute("role", "dialog");
     expect(panel).toHaveAttribute("aria-labelledby");
     expect(document.getElementById(panel.getAttribute("aria-labelledby") ?? "")).toHaveTextContent("Find events near you");
-    expect(screen.getByRole("button", { name: "Location: Your suburb" })).toHaveAttribute("popovertarget", panel.id);
-    const use = within(panel).getByRole("button", { name: "Use my current location", hidden: true });
+    expect(screen.getByRole("button", { name: "Where: Your suburb" })).toHaveAttribute("popovertarget", panel.id);
+    const use = within(panel).getByRole("button", { name: "Use my location", hidden: true });
     expect(use).toHaveAttribute("type", "button");
     expect(within(panel).queryByText(/Your browser will ask first/)).toBeNull();
     expect(within(panel).getByRole("link", { name: "How we use your location", hidden: true })).toHaveAttribute("href", "/privacy#location");
@@ -104,9 +105,9 @@ describe("LocationPicker — asking for the browser's position", () => {
     const northcote = findLocality("Northcote");
     if (!northcote) throw new Error("fixture");
     getCurrentPosition.mockImplementation((success) => success(position(northcote.lat + 0.001, northcote.lng)));
-    fireEvent.click(within(panel).getByRole("button", { name: "Use my current location", hidden: true }));
+    fireEvent.click(within(panel).getByRole("button", { name: "Use my location", hidden: true }));
 
-    const button = await screen.findByRole("button", { name: "Location: Northcote" });
+    const button = await screen.findByRole("button", { name: "Where: Northcote" });
     expect(document.activeElement).toBe(button);
     expect(within(panel).getByLabelText("Suburb")).toHaveValue("Northcote");
     expect(screen.getAllByRole("status").some((s) => s.textContent === "Location set: Northcote, VIC")).toBe(true);
@@ -119,11 +120,11 @@ describe("LocationPicker — asking for the browser's position", () => {
     expect(document.body.innerHTML).not.toContain(String(northcote.lat + 0.001));
   });
 
-  /** The status line sits right under "Use my current location"; after a failure, focus is on the suburb field, described by it. */
+  /** The status line sits right under the row with "Use my location"; after a failure, focus is on the suburb field, described by it. */
   function expectFailure(panel: HTMLElement, message: string) {
-    const use = within(panel).getByRole("button", { name: "Use my current location", hidden: true });
+    const use = within(panel).getByRole("button", { name: "Use my location", hidden: true });
     const status = within(panel).getByRole("status", { hidden: true });
-    expect(use.nextElementSibling).toBe(status);
+    expect(use.parentElement?.nextElementSibling).toBe(status);
     expect(status).toHaveTextContent(message);
     const field = within(panel).getByLabelText("Suburb");
     expect(document.activeElement).toBe(field);
@@ -138,10 +139,10 @@ describe("LocationPicker — asking for the browser's position", () => {
     renderBar();
     const panel = openPanel();
     getCurrentPosition.mockImplementation((_success, failure) => failure(positionError(code)));
-    fireEvent.click(within(panel).getByRole("button", { name: "Use my current location", hidden: true }));
+    fireEvent.click(within(panel).getByRole("button", { name: "Use my location", hidden: true }));
     expectFailure(panel, message);
     expect(localStorage.getItem(NEAR_STORAGE_KEY)).toBeNull();
-    expect(screen.getByRole("button", { name: "Location: Your suburb" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Where: Your suburb" })).toBeInTheDocument();
   });
 
   describe("inside an in-app browser", () => {
@@ -163,7 +164,7 @@ describe("LocationPicker — asking for the browser's position", () => {
       renderBar();
       const panel = openPanel();
       getCurrentPosition.mockImplementation((_success, failure) => failure(positionError(code)));
-      fireEvent.click(within(panel).getByRole("button", { name: "Use my current location", hidden: true }));
+      fireEvent.click(within(panel).getByRole("button", { name: "Use my location", hidden: true }));
       const message = "Instagram’s browser can’t share your location. Type your suburb, or open Sheltüh in your browser from the ••• menu.";
       const status = within(panel).getByRole("status", { hidden: true });
       expect(status).toHaveTextContent(message);
@@ -177,7 +178,7 @@ describe("LocationPicker — asking for the browser's position", () => {
       renderBar();
       const panel = openPanel();
       getCurrentPosition.mockImplementation((_success, failure) => failure(positionError(1)));
-      fireEvent.click(within(panel).getByRole("button", { name: "Use my current location", hidden: true }));
+      fireEvent.click(within(panel).getByRole("button", { name: "Use my location", hidden: true }));
       const status = within(panel).getByRole("status", { hidden: true });
       expect(status).toHaveTextContent("open Sheltüh in Chrome.");
       expect(within(status).getByRole("link", { name: "Open in Chrome", hidden: true })).toHaveAttribute(
@@ -191,7 +192,7 @@ describe("LocationPicker — asking for the browser's position", () => {
       renderBar();
       const panel = openPanel();
       getCurrentPosition.mockImplementation((_success, failure) => failure(positionError(2)));
-      fireEvent.click(within(panel).getByRole("button", { name: "Use my current location", hidden: true }));
+      fireEvent.click(within(panel).getByRole("button", { name: "Use my location", hidden: true }));
       const status = within(panel).getByRole("status", { hidden: true });
       expect(status).toHaveTextContent(
         /^Instagram’s browser can’t share your location\. Type your suburb, or open Sheltüh in your browser from the ••• menu\.$/,
@@ -204,7 +205,7 @@ describe("LocationPicker — asking for the browser's position", () => {
       renderBar();
       const panel = openPanel();
       getCurrentPosition.mockImplementation((_success, failure) => failure(positionError(2)));
-      fireEvent.click(within(panel).getByRole("button", { name: "Use my current location", hidden: true }));
+      fireEvent.click(within(panel).getByRole("button", { name: "Use my location", hidden: true }));
       expectFailure(panel, "Couldn’t find your location. Type your suburb instead.");
       expect(within(panel).queryByRole("link", { name: /Open in/, hidden: true })).toBeNull();
     });
@@ -214,7 +215,7 @@ describe("LocationPicker — asking for the browser's position", () => {
       renderBar();
       const panel = openPanel();
       getCurrentPosition.mockImplementation((success) => success(position(-36.8485, 174.7633)));
-      fireEvent.click(within(panel).getByRole("button", { name: "Use my current location", hidden: true }));
+      fireEvent.click(within(panel).getByRole("button", { name: "Use my location", hidden: true }));
       await waitFor(() =>
         expectFailure(panel, "We couldn’t match your location to an Australian suburb. Type your suburb instead."),
       );
@@ -225,7 +226,7 @@ describe("LocationPicker — asking for the browser's position", () => {
     renderBar();
     const panel = openPanel();
     getCurrentPosition.mockImplementation((success) => success(position(-36.8485, 174.7633)));
-    fireEvent.click(within(panel).getByRole("button", { name: "Use my current location", hidden: true }));
+    fireEvent.click(within(panel).getByRole("button", { name: "Use my location", hidden: true }));
     await waitFor(() =>
       expectFailure(panel, "We couldn’t match your location to an Australian suburb. Type your suburb instead."),
     );
@@ -241,8 +242,8 @@ describe("LocationPicker — asking for the browser's position", () => {
     renderBar();
     const panel = openPanel();
     getCurrentPosition.mockImplementation((success) => success(position(lat, lng)));
-    fireEvent.click(within(panel).getByRole("button", { name: "Use my current location", hidden: true }));
-    await screen.findByRole("button", { name: `Location: ${suburb}` });
+    fireEvent.click(within(panel).getByRole("button", { name: "Use my location", hidden: true }));
+    await screen.findByRole("button", { name: `Where: ${suburb}` });
     expect(JSON.parse(localStorage.getItem(NEAR_STORAGE_KEY) ?? "null")).toEqual({ suburb, state });
   });
 
@@ -252,8 +253,8 @@ describe("LocationPicker — asking for the browser's position", () => {
     const richmond = findLocality("Richmond NSW");
     if (!richmond) throw new Error("fixture");
     getCurrentPosition.mockImplementation((success) => success(position(richmond.lat + 0.001, richmond.lng - 0.001)));
-    fireEvent.click(within(panel).getByRole("button", { name: "Use my current location", hidden: true }));
-    await screen.findByRole("button", { name: "Location: Richmond NSW" });
+    fireEvent.click(within(panel).getByRole("button", { name: "Use my location", hidden: true }));
+    await screen.findByRole("button", { name: "Where: Richmond NSW" });
     expect(within(panel).getByLabelText("Suburb")).toHaveValue("Richmond NSW");
     expect(screen.getAllByRole("status").some((s) => s.textContent === "Location set: Richmond, NSW")).toBe(true);
     expect(JSON.parse(localStorage.getItem(NEAR_STORAGE_KEY) ?? "null")).toEqual({ suburb: "Richmond NSW", state: "NSW" });
@@ -263,7 +264,7 @@ describe("LocationPicker — asking for the browser's position", () => {
     renderBar();
     const panel = openPanel();
     getCurrentPosition.mockImplementation((_success, failure) => failure(positionError(1)));
-    const use = within(panel).getByRole("button", { name: "Use my current location", hidden: true });
+    const use = within(panel).getByRole("button", { name: "Use my location", hidden: true });
     const status = within(panel).getByRole("status", { hidden: true });
     fireEvent.click(use);
     expect(status).not.toBeEmptyDOMElement();
@@ -279,7 +280,7 @@ describe("LocationPicker — asking for the browser's position", () => {
   it("keeps “Finding your location…” when the panel reopens mid-request", () => {
     renderBar();
     const panel = openPanel();
-    fireEvent.click(within(panel).getByRole("button", { name: "Use my current location", hidden: true }));
+    fireEvent.click(within(panel).getByRole("button", { name: "Use my location", hidden: true }));
     openPanel();
     expect(within(panel).getByRole("status", { hidden: true })).toHaveTextContent("Finding your location…");
   });
@@ -288,7 +289,7 @@ describe("LocationPicker — asking for the browser's position", () => {
     removeGeolocation();
     renderBar();
     const panel = openPanel();
-    expect(within(panel).queryByRole("button", { name: "Use my current location", hidden: true })).toBeNull();
+    expect(within(panel).queryByRole("button", { name: "Use my location", hidden: true })).toBeNull();
     expect(within(panel).getByLabelText("Suburb")).toHaveAttribute("name", "near");
     expect(within(panel).getByRole("link", { name: "How we use your location", hidden: true })).toHaveAttribute("href", "/privacy#location");
   });
@@ -319,51 +320,51 @@ describe("LocationPicker — the typed suburb and the remembered one", () => {
     renderBar();
     const panel = openPanel();
     fireEvent.change(within(panel).getByLabelText("Suburb"), { target: { value: "Carlton" } });
-    expect(screen.getByRole("button", { name: "Location: Carlton" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Where: Carlton" })).toBeInTheDocument();
   });
 
   it("prefills the remembered suburb after mount (hero, header)", () => {
     localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Brunswick" }));
     renderBar();
-    expect(screen.getByRole("button", { name: "Location: Brunswick" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Where: Brunswick" })).toBeInTheDocument();
     expect(screen.getByLabelText("Suburb")).toHaveValue("Brunswick");
   });
 
   it("on /search mirrors the address, not the remembered suburb", () => {
     localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Brunswick" }));
     renderBar("");
-    expect(screen.getByRole("button", { name: "Location: Your suburb" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Where: Your suburb" })).toBeInTheDocument();
     cleanup();
     renderBar("Carlton");
-    expect(screen.getByRole("button", { name: "Location: Carlton" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Where: Carlton" })).toBeInTheDocument();
   });
 
-  it("Anywhere in Australia clears the field and the remembered suburb, says “Anywhere”, and returns focus", () => {
+  it("All of Australia clears the field and the remembered suburb, says so on the segment, and returns focus", () => {
     localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Brunswick" }));
     renderBar();
     const panel = openPanel();
-    fireEvent.click(within(panel).getByRole("button", { name: "Anywhere in Australia", hidden: true }));
+    fireEvent.click(within(panel).getByRole("button", { name: "All of Australia", hidden: true }));
     expect(localStorage.getItem(NEAR_STORAGE_KEY)).toBeNull();
     expect(within(panel).getByLabelText("Suburb")).toHaveValue("");
     // The explicit choice shows on the button (for this page view), not the "Your suburb" prompt.
-    const button = screen.getByRole("button", { name: "Location: Anywhere" });
-    expect(button).toHaveTextContent("Anywhere");
+    const button = screen.getByRole("button", { name: "Where: All of Australia" });
+    expect(button).toHaveTextContent("All of Australia");
     expect(document.activeElement).toBe(button);
-    // Typing replaces it; emptying the field again is the prompt, not "Anywhere".
+    // Typing replaces it; emptying the field again is the prompt, not "All of Australia".
     fireEvent.change(within(panel).getByLabelText("Suburb"), { target: { value: "Carlton" } });
-    expect(screen.getByRole("button", { name: "Location: Carlton" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Where: Carlton" })).toBeInTheDocument();
     fireEvent.change(within(panel).getByLabelText("Suburb"), { target: { value: "" } });
-    expect(screen.getByRole("button", { name: "Location: Your suburb" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Where: Your suburb" })).toBeInTheDocument();
   });
 
-  it("“Anywhere” lasts only for this page view: a new bar shows the prompt", () => {
+  it("“All of Australia” lasts only for this page view: a new bar shows the prompt", () => {
     renderBar();
     const panel = openPanel();
-    fireEvent.click(within(panel).getByRole("button", { name: "Anywhere in Australia", hidden: true }));
-    expect(screen.getByRole("button", { name: "Location: Anywhere" })).toBeInTheDocument();
+    fireEvent.click(within(panel).getByRole("button", { name: "All of Australia", hidden: true }));
+    expect(screen.getByRole("button", { name: "Where: All of Australia" })).toBeInTheDocument();
     cleanup();
     renderBar();
-    expect(screen.getByRole("button", { name: "Location: Your suburb" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Where: Your suburb" })).toBeInTheDocument();
   });
 
   it("on submit: leaves an empty `near` out, and keeps a typed one", () => {
@@ -414,8 +415,8 @@ describe("LocationPicker — closing", () => {
     Object.assign(panel, { hidePopover });
     const field = within(panel).getByLabelText("Suburb");
     // Within the panel, back to the location button, or to nothing (a click on the panel's text): stays open.
-    focusOut(field, within(panel).getByRole("button", { name: "Anywhere in Australia", hidden: true }));
-    focusOut(field, screen.getByRole("button", { name: /^Location: / }));
+    focusOut(field, within(panel).getByRole("button", { name: "All of Australia", hidden: true }));
+    focusOut(field, screen.getByRole("button", { name: /^Where: / }));
     focusOut(field, null);
     expect(hidePopover).not.toHaveBeenCalled();
     // Tabbed on to Search: closes.
@@ -427,7 +428,7 @@ describe("LocationPicker — closing", () => {
   function renderInMain() {
     return render(
       <main id="main" tabIndex={-1}>
-        <SearchBar label="Search events" size="lg" tone="signal" placeholder="Search events" />
+        <SearchBar />
       </main>,
     );
   }
@@ -454,11 +455,11 @@ describe("LocationPicker — closing", () => {
     const panel = openPanel();
     const hidePopover = vi.fn();
     Object.assign(panel, { hidePopover });
-    focusOut(within(panel).getByRole("button", { name: "Use my current location", hidden: true }), document.getElementById("main"));
+    focusOut(within(panel).getByRole("button", { name: "Use my location", hidden: true }), document.getElementById("main"));
     expect(hidePopover).not.toHaveBeenCalled();
   });
 
-  it("a WebKit tap on Use my current location asks for the position and sets the suburb (it used to close first)", async () => {
+  it("a WebKit tap on Use my location asks for the position and sets the suburb (it used to close first)", async () => {
     renderInMain();
     const panel = openPanel();
     const hidePopover = vi.fn();
@@ -466,20 +467,20 @@ describe("LocationPicker — closing", () => {
     const fitzroy = findLocality("Fitzroy");
     if (!fitzroy) throw new Error("fixture");
     getCurrentPosition.mockImplementation((success) => success(position(fitzroy.lat, fitzroy.lng)));
-    pressLikeWebKit(within(panel).getByRole("button", { name: "Use my current location", hidden: true }));
+    pressLikeWebKit(within(panel).getByRole("button", { name: "Use my location", hidden: true }));
     // Closed by the success, once, not by the press.
-    await screen.findByRole("button", { name: "Location: Fitzroy" });
+    await screen.findByRole("button", { name: "Where: Fitzroy" });
     expect(getCurrentPosition).toHaveBeenCalledTimes(1);
     expect(hidePopover).toHaveBeenCalledTimes(1);
     expect(JSON.parse(localStorage.getItem(NEAR_STORAGE_KEY) ?? "null")).toEqual({ suburb: "Fitzroy", state: "VIC" });
   });
 
-  it("a WebKit tap on Anywhere in Australia clears the suburb", () => {
+  it("a WebKit tap on All of Australia clears the suburb", () => {
     localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Fitzroy", state: "VIC" }));
     renderInMain();
     const panel = openPanel();
-    pressLikeWebKit(within(panel).getByRole("button", { name: "Anywhere in Australia", hidden: true }));
-    expect(screen.getByRole("button", { name: "Location: Anywhere" })).toBeInTheDocument();
+    pressLikeWebKit(within(panel).getByRole("button", { name: "All of Australia", hidden: true }));
+    expect(screen.getByRole("button", { name: "Where: All of Australia" })).toBeInTheDocument();
     expect(localStorage.getItem(NEAR_STORAGE_KEY)).toBeNull();
   });
 
@@ -492,7 +493,7 @@ describe("LocationPicker — closing", () => {
     getCurrentPosition.mockImplementation((_success, failure) => {
       answer = failure;
     });
-    const use = within(panel).getByRole("button", { name: "Use my current location", hidden: true });
+    const use = within(panel).getByRole("button", { name: "Use my location", hidden: true });
     act(() => use.focus());
     fireEvent.click(use);
     // The prompt takes focus from the page (focus goes nowhere), and may hide it.
@@ -508,5 +509,212 @@ describe("LocationPicker — closing", () => {
     expect(within(panel).getByRole("status", { hidden: true })).toHaveTextContent("Couldn’t find your location. Type your suburb instead.");
     expect(hidePopover).not.toHaveBeenCalled();
     Reflect.deleteProperty(document, "visibilityState");
+  });
+});
+
+describe("LocationPicker — the rules' location menu (redesign PR 2)", () => {
+  /** The rows under a menu section's label ("Recent", "Suggested"). */
+  function section(panel: HTMLElement, name: string) {
+    return within(within(panel).getByRole("group", { name, hidden: true }));
+  }
+
+  it("the segment shows WHERE over the place, and is named by both (WCAG 2.5.3)", () => {
+    localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Caulfield East", state: "VIC" }));
+    renderBar();
+    const button = screen.getByRole("button", { name: "Where: Caulfield East" });
+    expect(button).toHaveTextContent(/^Where\s*Caulfield East$/);
+    expect(button).toHaveClass("min-h-12", "rounded-control", "hover:bg-hover", "data-open:bg-hover", "data-open:border-foreground");
+    // The open state is drawn from the menu's own toggle, not guessed.
+    expect(button).not.toHaveAttribute("data-open");
+    openPanel();
+    expect(button).toHaveAttribute("data-open");
+  });
+
+  it("opens with Use my location and All of Australia, then the suburb field, Recent and Suggested, in that order", () => {
+    localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Caulfield East", state: "VIC" }));
+    renderBar();
+    const panel = openPanel();
+    const order = [
+      within(panel).getByRole("button", { name: "Use my location", hidden: true }),
+      within(panel).getByRole("button", { name: "All of Australia", hidden: true }),
+      within(panel).getByLabelText("Suburb"),
+      within(panel).getByRole("group", { name: "Recent", hidden: true }),
+      within(panel).getByRole("group", { name: "Suggested", hidden: true }),
+      within(panel).getByRole("link", { name: "How we use your location", hidden: true }),
+    ];
+    for (let i = 1; i < order.length; i++) {
+      expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+    // Black words, never orange (orange text only on black); 48px rows; radius 8, the stroke, no shadow.
+    expect(order[0]).not.toHaveClass("text-signal");
+    expect(order[0]).toHaveClass("min-h-12");
+    expect(panel).toHaveClass("rounded-control", "border-control", "border-foreground");
+    expect(panel.className).not.toMatch(/shadow/);
+  });
+
+  it("Recent is the remembered suburb, marked current with its state; Suggested is Melbourne, Sydney, Brisbane and Perth", () => {
+    localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Caulfield East", state: "VIC" }));
+    renderBar();
+    const panel = openPanel();
+    const recent = section(panel, "Recent").getAllByRole("button", { hidden: true });
+    expect(recent).toHaveLength(1);
+    expect(recent[0]).toHaveTextContent("Caulfield East");
+    expect(recent[0]).toHaveTextContent("VIC · current");
+    expect(recent[0]).toHaveAttribute("aria-current", "true");
+    expect(
+      section(panel, "Suggested")
+        .getAllByRole("button", { hidden: true })
+        .map((row) => row.textContent),
+    ).toEqual(["MelbourneVIC, Australia", "SydneyNSW, Australia", "BrisbaneQLD, Australia", "PerthWA, Australia"]);
+  });
+
+  it("with nothing remembered there's no Recent; a remembered suggested city isn't listed twice", () => {
+    renderBar();
+    expect(within(openPanel()).queryByRole("group", { name: "Recent", hidden: true })).toBeNull();
+    cleanup();
+    localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Sydney", state: "NSW" }));
+    renderBar();
+    const panel = openPanel();
+    expect(section(panel, "Recent").getByRole("button", { hidden: true })).toHaveTextContent("Sydney");
+    expect(section(panel, "Suggested").queryByRole("button", { name: /^Sydney/, hidden: true })).toBeNull();
+  });
+
+  it("choosing a suggested place sets it on the segment and remembers it at once, by the table's own name; nothing submits", async () => {
+    const submit = vi.fn((event: Event) => event.preventDefault());
+    renderBar();
+    screen.getByRole("search").addEventListener("submit", submit);
+    const panel = openPanel();
+    // Straight away, before anything's typed: the table is loaded first if it hasn't yet, so the
+    // stored name is always the table's own ("Brisbane" is Brisbane City).
+    fireEvent.click(section(panel, "Suggested").getByRole("button", { name: /^Brisbane/, hidden: true }));
+    const button = await screen.findByRole("button", { name: "Where: Brisbane City" });
+    expect(document.activeElement).toBe(button);
+    expect(JSON.parse(localStorage.getItem(NEAR_STORAGE_KEY) ?? "null")).toEqual({ suburb: "Brisbane City", state: "QLD" });
+    expect(screen.getAllByRole("status").some((s) => s.textContent === "Location set: Brisbane City, QLD")).toBe(true);
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it("one location everywhere: a place chosen in one bar shows in another on the page", async () => {
+    render(
+      <>
+        <SearchBar />
+        <SearchBar />
+      </>,
+    );
+    const [first] = document.querySelectorAll<HTMLElement>("[data-location-panel]");
+    act(() => {
+      first.dispatchEvent(Object.assign(new Event("toggle"), { newState: "open", oldState: "closed" }));
+    });
+    fireEvent.click(within(first).getByRole("button", { name: /^Perth/, hidden: true }));
+    const b = screen.getAllByRole("search")[1];
+    expect(await within(b).findByRole("button", { name: "Where: Perth" })).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem(NEAR_STORAGE_KEY) ?? "null")).toEqual({ suburb: "Perth", state: "WA" });
+  });
+});
+
+describe("LocationPicker — Escape", () => {
+  it("closes the list only and returns focus to Where (in the phone's sheet the browser would close both)", () => {
+    renderBar();
+    const panel = openPanel();
+    const hidePopover = vi.fn();
+    Object.assign(panel, { hidePopover });
+    const use = within(panel).getByRole("button", { name: "Use my location", hidden: true });
+    const outer = vi.fn();
+    document.addEventListener("keydown", outer);
+    const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    act(() => {
+      use.dispatchEvent(event);
+    });
+    expect(event.defaultPrevented).toBe(true);
+    expect(outer).not.toHaveBeenCalled();
+    expect(hidePopover).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: /^Where: / }));
+    document.removeEventListener("keydown", outer);
+  });
+});
+
+/** The browser's `toggle` as the menu closes (light dismiss, Escape, Close, or a choice). */
+function closePanel(panel: HTMLElement) {
+  act(() => {
+    panel.dispatchEvent(Object.assign(new Event("toggle"), { newState: "closed", oldState: "open" }));
+  });
+}
+
+// CodeRabbit (PR 43): on Nearby nothing sends the typed words later, so they mustn't outlive the menu.
+describe("LocationPicker — standalone (Nearby): closing without applying", () => {
+  it("drops a typed suburb and shows the place in use again; the search bar keeps it for Search", () => {
+    localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Fitzroy", state: "VIC" }));
+    render(<LocationPicker standalone />);
+    const panel = openPanel();
+    const field = within(panel).getByLabelText("Suburb");
+    fireEvent.change(field, { target: { value: "Bruns" } });
+    expect(screen.getByRole("button", { name: "Where: Bruns" })).toBeInTheDocument();
+    closePanel(panel);
+    expect(screen.getByRole("button", { name: "Where: Fitzroy" })).toBeInTheDocument();
+    expect(field).toHaveValue("Fitzroy");
+    expect(JSON.parse(localStorage.getItem(NEAR_STORAGE_KEY) ?? "null")).toEqual({ suburb: "Fitzroy", state: "VIC" });
+    cleanup();
+
+    // In the search bar a typed suburb is sent with Search, so it stays.
+    renderBar();
+    const barPanel = openPanel();
+    fireEvent.change(within(barPanel).getByLabelText("Suburb"), { target: { value: "Bruns" } });
+    closePanel(barPanel);
+    expect(screen.getByRole("button", { name: "Where: Bruns" })).toBeInTheDocument();
+  });
+
+  it("shows the page's visit place again, not the remembered suburb", () => {
+    localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Fitzroy", state: "VIC" }));
+    render(<LocationPicker near="Sydney" standalone />);
+    const panel = openPanel();
+    fireEvent.change(within(panel).getByLabelText("Suburb"), { target: { value: "Perth" } });
+    closePanel(panel);
+    expect(screen.getByRole("button", { name: "Where: Sydney" })).toBeInTheDocument();
+  });
+
+  it("after All of Australia, typing then closing shows All of Australia again", () => {
+    localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Fitzroy", state: "VIC" }));
+    render(<LocationPicker standalone />);
+    let panel = openPanel();
+    fireEvent.click(within(panel).getByRole("button", { name: "All of Australia", hidden: true }));
+    closePanel(panel);
+    expect(screen.getByRole("button", { name: "Where: All of Australia" })).toBeInTheDocument();
+    panel = openPanel();
+    fireEvent.change(within(panel).getByLabelText("Suburb"), { target: { value: "Carl" } });
+    expect(screen.getByRole("button", { name: "Where: Carl" })).toBeInTheDocument();
+    closePanel(panel);
+    expect(screen.getByRole("button", { name: "Where: All of Australia" })).toBeInTheDocument();
+    expect(localStorage.getItem(NEAR_STORAGE_KEY)).toBeNull();
+  });
+
+  it("Enter still applies what's typed: remembered by the table's name, and kept after the menu closes", async () => {
+    render(<LocationPicker standalone />);
+    const panel = openPanel();
+    const hidePopover = vi.fn(() => closePanel(panel));
+    Object.assign(panel, { hidePopover });
+    const field = within(panel).getByLabelText("Suburb");
+    fireEvent.change(field, { target: { value: "brunswick" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    await waitFor(() => expect(hidePopover).toHaveBeenCalled());
+    const place = findLocality("brunswick");
+    expect(place).not.toBeNull();
+    expect(JSON.parse(localStorage.getItem(NEAR_STORAGE_KEY) ?? "null")).toEqual({ suburb: place?.name, state: place?.state });
+    expect(screen.getByRole("button", { name: `Where: ${place?.name}` })).toBeInTheDocument();
+    expect(field).toHaveValue(place?.name);
+  });
+
+  it("an unknown suburb on Enter keeps the menu open with the message; closing then restores the place", async () => {
+    localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Fitzroy", state: "VIC" }));
+    render(<LocationPicker standalone />);
+    const panel = openPanel();
+    const hidePopover = vi.fn();
+    Object.assign(panel, { hidePopover });
+    const field = within(panel).getByLabelText("Suburb");
+    fireEvent.change(field, { target: { value: "Nowhereville" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    await waitFor(() => expect(within(panel).getByRole("status", { hidden: true })).toHaveTextContent(/couldn’t find that suburb/));
+    expect(hidePopover).not.toHaveBeenCalled();
+    closePanel(panel);
+    expect(screen.getByRole("button", { name: "Where: Fitzroy" })).toBeInTheDocument();
   });
 });

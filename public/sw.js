@@ -17,7 +17,8 @@
 // v3: offline.html re-branded (Brand Direction One: cream, the official wordmark), and the
 // icons in the image cache were redrawn; replacing the caches drops the old ones at once.
 // v4: offline.html white foundation (docs/design/theme-white-dark.md §5.13).
-const VERSION = "v4";
+// v5: offline.html's theme-color is black, as the redesigned header is in both themes.
+const VERSION = "v5";
 const CACHE_PREFIX = "sheltuh-";
 const SHELL_CACHE = `${CACHE_PREFIX}shell-${VERSION}`;
 const STATIC_CACHE = `${CACHE_PREFIX}static-${VERSION}`;

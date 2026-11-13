@@ -8,9 +8,8 @@ Status: spec, 24 Oct 2026. Builds on `brand-direction-one.md` §7 (Auth), `theme
 
 1. **Guest marks, house frame.** The two buttons follow their vendors' rules exactly. Everything around them (spacing, divider, notices, copy, focus) follows the house rules. Don't restyle brand marks to look like `.btn`, and don't let `.btn` styling leak into them.
 2. **A matched pair that inverts with the page,** like `btn-solid`. On White both buttons are near-black; on Dark both are white. Equal size, equal weight, and never less prominent than the email Sign in button (Apple HIG: "no smaller than other sign-in buttons").
-3. **One sign-in path per row, stacked.** Full width at every breakpoint, so both buttons and the divider are visible without scrolling at 320×568.
-4. **Our words, never the provider's.** Errors map to fixed copy, and `error_description` is never rendered.
-5. **No orange, no new motion.** The auth pages stay calm (BD1 §7). The focus ring is the global foreground ring.
+3. **Our words, never the provider's.** Errors map to fixed copy, and `error_description` is never rendered.
+4. **No orange, no new motion.** The auth pages stay calm (BD1 §7). The focus ring is the global foreground ring.
 
 ## 2. Tokens (`app/globals.css`)
 
@@ -121,7 +120,7 @@ If only one provider is enabled, render that button alone, then the divider. If 
 - Google: a standard multicolour G file, 24×24, on both themes (replaced on 27 Oct 2026 by Google's whole button image: see below).
 
 **Google, as built (28 Oct 2026, owner chose "Continue with Google" on both pages).** Google's branding kit has no standalone G and only "Sign in" text images, so the button is built in HTML/CSS to Google's guidelines (`docs/auth-logos.md` has the details and why the kit's own files aren't used):
-- A 40px pill (`border-radius: 20px`, the guidelines' value), 1px stroke, 12px side padding, a 20px G (`public/auth/google-g.svg`, one file on both themes) and the title "Continue with Google" as real text, Roboto Medium 14px/20px, 10px apart. Light theme: fill `#FFFFFF`, stroke `#747775`, text `#1F1F1F`; Dark theme: `#131314`, `#8E918F`, `#E3E3E3` (`--google-fill` / `--google-stroke` / `--google-text`, re-scoped in `[data-theme="dark"]`).
+- **Matched to Apple's (owner, 13 Nov 2026):** full width, 48px, the control radius (8px; Google allows a rectangle as well as a pill), the title at Apple's size (43% of 48px) beside a 24px G centred in a 46px square (inside the 1px border, where Apple's logo square sits). Google's own parts are unchanged: the G (`public/auth/google-g.svg`, one file on both themes), a 1px stroke, the title "Continue with Google" as real text in Roboto Medium. Light theme: fill `#FFFFFF`, stroke `#747775`, text `#1F1F1F`; Dark theme: `#131314`, `#8E918F`, `#E3E3E3` (`--google-fill` / `--google-stroke` / `--google-text`, re-scoped in `[data-theme="dark"]`). It replaced a 40px pill with a 14px title.
 - Sized to its content and centred under the full-width Apple button, so the pair isn't matched in size or shape (§1.2): Apple stays 48px, full width, `rounded-control`.
 - A `::before` extends the hit area 4px above and below, to **48px**. The usual 8% hover wash applies; busy, the active nudge, the in-app notice and errors are unchanged.
 - The G has `alt=""`; the accessible name is the visible text, **"Continue with Google"**. The login hint says "Use the Google or Apple button above".

@@ -1,5 +1,5 @@
 import type { MetadataRoute } from "next";
-import { APP_THEME_COLOR } from "@/lib/pwa/theme";
+import { APP_BACKGROUND_COLOR, APP_THEME_COLOR } from "@/lib/pwa/theme";
 
 /**
  * The web app manifest, served at /manifest.webmanifest (Next adds the
@@ -19,7 +19,7 @@ export default function manifest(): MetadataRoute.Manifest {
     scope: "/",
     display: "standalone",
     theme_color: APP_THEME_COLOR,
-    background_color: APP_THEME_COLOR,
+    background_color: APP_BACKGROUND_COLOR,
     categories: ["entertainment", "lifestyle", "music"],
     icons: [
       { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },

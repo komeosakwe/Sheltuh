@@ -19,9 +19,9 @@ async function requestedPath(params: Parameters<typeof listPublicEvents>[0]) {
 }
 
 describe("listPublicEvents: recent", () => {
-  it("sends recent=1 for true and recent=only for 'only'", async () => {
+  it("sends recent=1 for true", async () => {
     expect(await requestedPath({ upcoming: true, recent: true })).toMatch(/\/events\?upcoming=1&recent=1$/);
-    expect(await requestedPath({ upcoming: true, recent: "only", limit: 6 })).toMatch(/\/events\?upcoming=1&recent=only&limit=6$/);
+    expect(await requestedPath({ upcoming: true, recent: true, limit: 6 })).toMatch(/\/events\?upcoming=1&recent=1&limit=6$/);
   });
 
   it("sends nothing when absent or false (the original request)", async () => {

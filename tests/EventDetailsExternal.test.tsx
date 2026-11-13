@@ -165,10 +165,15 @@ describe("external event: the phone buy bar", () => {
     const { bar } = parts(container);
     if (!bar) throw new Error("buy bar not rendered");
     expect(bar).toHaveClass("lg:hidden");
-    expect(bar).toHaveAttribute("data-surface", "ink");
+    // The page's own surface (the owner's 390 mock), not ink.
+    expect(bar).not.toHaveAttribute("data-surface");
+    expect(bar).toHaveClass("bg-background", "border-t");
     expect(bar).not.toHaveTextContent(/Humanitix|Tickets on/);
-    // No price line at all: just the button. No empty paragraph either.
-    expect(bar.querySelectorAll("p")).toHaveLength(0);
+    // No price line at all: just the date line and the button. No empty amount either.
+    expect(bar.querySelector("[data-bar-amount]")).toBeNull();
+    expect(bar.querySelectorAll("p")).toHaveLength(1);
+    expect(bar.querySelector("p")).toHaveClass("mono-s");
+    expect(bar.querySelector("p")).not.toHaveClass("uppercase");
     // Not a jump to #tickets: the bar's button is the outbound link.
     expect(bar.querySelector('a[href="#tickets"]')).toBeNull();
     const cta = within(bar).getByRole("link", { name: "Buy tickets (opens in a new tab)" });
@@ -245,8 +250,8 @@ describe("external event: Who's Going is closed (only the count-only signal rema
 
   it("a Sheltüh-ticketed demo event still shows its sample Who's Going (control)", () => {
     render(<EventDetailsView event={sample("neon-static")} demo />);
-    // The panel, and the Who's going? card under Save and Share (owner's mockup, 8 Nov 2026).
+    // The panel, and the Who's going row beside the title (the owner's event mock).
     expect(screen.getByRole("heading", { name: /^who.s going$/i })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Who’s going?" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Who’s going?" })).toBeInTheDocument();
   });
 });

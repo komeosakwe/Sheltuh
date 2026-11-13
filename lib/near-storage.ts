@@ -66,7 +66,15 @@ export function parseStoredNearState(raw: string | null): StateCode | null {
   return isStateCode(saved) ? saved : trailingState(suburb);
 }
 
+/**
+ * The page's own copy of a choice that storage refused (private mode, quota, blocked): reads fall back to it,
+ * so the place chosen still drives this page (the map, its radius, the home's order) until the page goes.
+ * `undefined` = nothing refused; `null` = refused while forgetting.
+ */
+let pageOnly: string | null | undefined;
+
 function readRaw(): string | null {
+  if (pageOnly !== undefined) return pageOnly;
   const store = local();
   if (!store) return null;
   try {
@@ -95,7 +103,11 @@ const listeners = new Set<() => void>();
  */
 export function subscribeStoredNear(onChange: () => void): () => void {
   function handle(event: StorageEvent) {
-    if (event.key === null || event.key === NEAR_STORAGE_KEY) onChange();
+    if (event.key === null || event.key === NEAR_STORAGE_KEY) {
+      // Another tab saved a place: that one wins over this page's unsaved copy.
+      pageOnly = undefined;
+      onChange();
+    }
   }
   listeners.add(onChange);
   window.addEventListener("storage", handle);
@@ -111,27 +123,36 @@ function notify() {
 
 /** Stores `suburb` (the table's name for it) and its state; false when storage can't be written. */
 export function writeStoredNear(suburb: string, state?: StateCode | null): boolean {
+  const raw = JSON.stringify({ suburb: suburb.trim().slice(0, NEAR_MAX_LENGTH), ...(state ? { state } : {}) });
   const store = local();
-  if (!store) return false;
-  try {
-    const value = { suburb: suburb.trim().slice(0, NEAR_MAX_LENGTH), ...(state ? { state } : {}) };
-    store.setItem(NEAR_STORAGE_KEY, JSON.stringify(value));
-  } catch {
-    return false;
+  let saved = false;
+  if (store) {
+    try {
+      store.setItem(NEAR_STORAGE_KEY, raw);
+      saved = true;
+    } catch {
+      saved = false;
+    }
   }
+  // Not saved: the page keeps the choice anyway, so what Where shows and what the page uses never differ.
+  pageOnly = saved ? undefined : raw;
   notify();
-  return true;
+  return saved;
 }
 
 /** Forgets the stored suburb; false when storage can't be written. */
 export function clearStoredNear(): boolean {
   const store = local();
-  if (!store) return false;
-  try {
-    store.removeItem(NEAR_STORAGE_KEY);
-  } catch {
-    return false;
+  let cleared = false;
+  if (store) {
+    try {
+      store.removeItem(NEAR_STORAGE_KEY);
+      cleared = true;
+    } catch {
+      cleared = false;
+    }
   }
+  pageOnly = cleared ? undefined : null;
   notify();
-  return true;
+  return cleared;
 }

@@ -1,12 +1,11 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { APP_THEME_COLOR, DARK_THEME_COLOR, DOOR_THEME_COLOR } from "@/lib/pwa/theme";
+import { APP_THEME_COLOR, DOOR_THEME_COLOR } from "@/lib/pwa/theme";
 import {
   getTheme,
   readStoredTheme,
   setTheme,
   subscribeTheme,
-  syncThemeColor,
   THEME_INIT_SCRIPT,
   THEME_STORAGE_KEY,
 } from "@/lib/theme";
@@ -41,30 +40,16 @@ describe("THEME_INIT_SCRIPT (docs/design/theme-white-dark.md §5.4)", () => {
     expect(THEME_INIT_SCRIPT).not.toMatch(/<\/?script/i);
   });
 
-  it("turns Dark on from a stored dark, and swaps a white theme-color to black", () => {
+  // The redesign's header is black in both themes, so the theme-color is black for everyone: the
+  // script turns Dark on and leaves the meta alone (no swap, no stale copy for React to replace).
+  it("turns Dark on from a stored dark, and leaves the black theme-color as it is", () => {
     localStorage.setItem(THEME_STORAGE_KEY, "dark");
     const meta = themeColorMeta(APP_THEME_COLOR);
     runInitScript();
     expect(document.documentElement).toHaveAttribute("data-theme", "dark");
-    expect(meta.content).toBe(DARK_THEME_COLOR);
-  });
-
-  it("fixes a theme-color that arrives later in the head, once the document has parsed", () => {
-    localStorage.setItem(THEME_STORAGE_KEY, "dark");
-    runInitScript();
-    const meta = themeColorMeta(APP_THEME_COLOR);
-    document.dispatchEvent(new Event("DOMContentLoaded"));
-    expect(meta.content).toBe(DARK_THEME_COLOR);
-  });
-
-  it("doesn't recolour the theme-color on DOMContentLoaded if Light was chosen in the meantime", () => {
-    localStorage.setItem(THEME_STORAGE_KEY, "dark");
-    runInitScript();
-    document.documentElement.removeAttribute("data-theme"); // the person picked Light before the document finished
-    const meta = themeColorMeta(APP_THEME_COLOR);
-    document.dispatchEvent(new Event("DOMContentLoaded"));
     expect(meta.content).toBe(APP_THEME_COLOR);
     expect(meta).not.toHaveAttribute("data-theme-fixed");
+    expect(THEME_INIT_SCRIPT).not.toContain("theme-color");
   });
 
   it.each([["light"], [null], ["purple"], ["DARK"]])("leaves the page Light for a stored %s", (stored) => {
@@ -93,7 +78,7 @@ describe("THEME_INIT_SCRIPT (docs/design/theme-white-dark.md §5.4)", () => {
 });
 
 describe("setTheme / getTheme", () => {
-  it("stores the choice, toggles the attribute and syncs theme-color", () => {
+  it("stores the choice and toggles the attribute; the theme-color stays the header's black", () => {
     const meta = themeColorMeta(APP_THEME_COLOR);
     const listener = vi.fn();
     const unsubscribe = subscribeTheme(listener);
@@ -102,7 +87,7 @@ describe("setTheme / getTheme", () => {
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
     expect(document.documentElement).toHaveAttribute("data-theme", "dark");
     expect(getTheme()).toBe("dark");
-    expect(meta.content).toBe(DARK_THEME_COLOR);
+    expect(meta.content).toBe(APP_THEME_COLOR);
 
     setTheme("light");
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe("light");
@@ -135,28 +120,13 @@ describe("setTheme / getTheme", () => {
     expect(readStoredTheme()).toBe("light");
   });
 
-  it("drops the script's changed theme-color once React has rendered its own, and keeps it otherwise", () => {
-    localStorage.setItem(THEME_STORAGE_KEY, "dark");
-    const scripted = themeColorMeta(APP_THEME_COLOR);
-    runInitScript();
-    syncThemeColor("dark");
-    expect(scripted.isConnected).toBe(true); // the only one: kept
-    // React didn't adopt it (its content changed) and renders its own white one.
-    const reacts = themeColorMeta(APP_THEME_COLOR);
-    syncThemeColor("dark");
-    expect(scripted.isConnected).toBe(false);
-    expect([...document.querySelectorAll('meta[name="theme-color"]')]).toEqual([reacts]);
-    expect(reacts.content).toBe(DARK_THEME_COLOR);
-  });
-
-  it("syncThemeColor only swaps white and black, never another colour", () => {
+  it("never touches any theme-color, the door's included", () => {
     const door = themeColorMeta(DOOR_THEME_COLOR);
-    const app = themeColorMeta(DARK_THEME_COLOR);
-    syncThemeColor("light");
+    const app = themeColorMeta(APP_THEME_COLOR);
+    setTheme("light");
+    setTheme("dark");
     expect(app.content).toBe(APP_THEME_COLOR);
     expect(door.content).toBe(DOOR_THEME_COLOR);
-    syncThemeColor("dark");
-    expect(app.content).toBe(DARK_THEME_COLOR);
-    expect(door.content).toBe(DOOR_THEME_COLOR);
+    expect(document.querySelectorAll('meta[name="theme-color"]')).toHaveLength(2);
   });
 });

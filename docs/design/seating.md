@@ -93,7 +93,7 @@ Orange is never text here, and never sits on `bg-surface` (2.87:1). Focus rings 
 
 ### 2.4 Type, spacing, radii
 
-- Type: BD1 §3.2 only. Seat numbers Plex Mono 500 `tabular-nums` 12px (14px at `s` ≥ 40). Section labels `eyebrow` 12/16 black. Row labels `meta` 12/16 `muted`. Seat lines 14/20 600 (summary), 16/24 600 (stub).
+- Type (owner decision, 13 Nov 2026: no Plex Mono for text): seat numbers, the companion "C", the stage, section and row labels are Instrument Sans as written (seat numbers, "C", stage and section labels 500, seat numbers `tabular-nums`; row labels 400 muted), not mono or capitals. Original rule: BD1 §3.2 only. Seat numbers Plex Mono 500 `tabular-nums` 12px (14px at `s` ≥ 40). Section labels `eyebrow` 12/16 black. Row labels `meta` 12/16 `muted`. Seat lines 14/20 600 (summary), 16/24 600 (stub).
 - Spacing: the BD1 scale (4…96px). Radii: `rounded-control` (8px) for controls, list seat chips and zoom buttons; `rounded-card` (12px) for panels, sheets and the summary card; the map canvas is square (BD1 §2.4).
 - Motion: §6.
 

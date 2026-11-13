@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import DotsMark from "@/components/brand/DotsMark";
 import { ButtonLink } from "@/components/ui/Button";
 import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
 import { cardGoing } from "@/lib/event-card";
@@ -8,21 +9,15 @@ import { popularEvents, type TrendingSignal } from "@/lib/home-sections";
 import type { SheltuhEvent } from "@/lib/types";
 import { COMMUNITY_SAMPLE_FACES } from "./home-content";
 import { useOptionalHomeEvents } from "./HomeEventsProvider";
-import { HOME_CONTAINER } from "./HomeRail";
 import { ArrowRightIcon } from "./icons";
-
-/** The card's muted lines: black at 60% on white is #666 (5.74:1). Inside the band `--muted` is black. */
-const CARD_MUTED = "text-foreground/60";
+import SceneCards from "./SceneCards";
 
 /** Live mode's footnote: the count is the server's thresholded Who's Going count for a Popular right now event. */
 export const COMMUNITY_LIVE_NOTE = "Popular right now · Real count";
 /** Demo mode's footnote: a real sample event, with its sample (made-up) count. */
 export const COMMUNITY_DEMO_NOTE = "Example event · Sample count";
-/** With no real example to show: what the card says instead of an event and a number. */
-export const COMMUNITY_TEASER = {
-  title: "Know who’ll be there",
-  body: "Ticket holders opt in to Who’s Going.",
-} as const;
+/** The band's line under "See who's going." (the proposal's, with its second half cut: §7, no communities to follow). */
+export const COMMUNITY_BAND_LINE = "Ticket holders choose to appear.";
 
 interface Example {
   title: string;
@@ -31,10 +26,9 @@ interface Example {
 }
 
 /**
- * One real example for the card, or none: the first event on the page that
- * has a count to show (the same rule as the cards: live, the server's
- * thresholded trending count; demo, the sample's count, labelled as one).
- * Never an invented number.
+ * One real example for the band, or none: the first event on the page that has a count to show
+ * (the same rule as the cards: live, the server's thresholded trending count; demo, the sample's
+ * count, labelled as one). Never an invented number.
  */
 function pickExample(mode: "demo" | "live", candidates: { event: SheltuhEvent; signal?: TrendingSignal }[]): Example | null {
   for (const { event, signal } of candidates) {
@@ -45,135 +39,114 @@ function pickExample(mode: "demo" | "live", candidates: { event: SheltuhEvent; s
 }
 
 /**
- * The card's overlapping round portraits, with a white ring between them (an
- * explicit owner exception, 23 Oct 2026: avatars are rounded squares
- * everywhere else): the illustrative stock photos in `COMMUNITY_SAMPLE_FACES`
- * (home-content.ts), the same in demo and live. Decorative and never anyone's
- * attendance: hidden from assistive tech, and every footnote says so.
- * 56px on phones, 80px from 640px, 72px from 1024px (the narrow card column)
- * and 80px again from 1280px.
+ * The band's overlapping round portraits (an owner exception, 23 Oct 2026): the illustrative,
+ * licensed stock photos in `COMMUNITY_SAMPLE_FACES` (people from behind; public/home/README.md),
+ * the same in demo and live. Decorative and never anyone's attendance: hidden from assistive
+ * tech, and kept apart from the example's count.
  */
 function Faces() {
   return (
-    <div aria-hidden="true" data-community-faces="" className="mt-4 flex sm:mt-6">
+    <div aria-hidden="true" data-community-faces="" className="flex shrink-0">
       {COMMUNITY_SAMPLE_FACES.map((photo, i) => (
         <span
           key={photo}
-          className={`relative size-14 shrink-0 overflow-hidden rounded-full border-4 border-card bg-surface sm:size-20 lg:size-18 xl:size-20 ${i > 0 ? "-ml-4" : ""}`.trim()}
+          className={`relative size-10 shrink-0 overflow-hidden rounded-full border-2 border-paper bg-surface md:size-12 ${i > 0 ? "-ml-3" : ""}`.trim()}
         >
-          <Image
-            src={photo}
-            alt=""
-            width={80}
-            height={80}
-            loading="lazy"
-            decoding="async"
-            className="size-full object-cover"
-          />
+          <Image src={photo} alt="" width={48} height={48} loading="lazy" decoding="async" className="size-full object-cover" />
         </span>
       ))}
     </div>
   );
 }
 
-/** A footnote whose " · " parts each stay on one line, so no part splits on a phone. */
-function NoteParts({ note }: { note: string }) {
-  return note.split(" · ").map((part, i) => (
-    <span key={part}>
-      {i > 0 && " · "}
-      <span className="whitespace-nowrap">{part}</span>
-    </span>
-  ));
-}
-
 /**
- * "Find your people" (owner mockup, 23 Oct 2026; docs/design/mobile-redesign.md
- * §6.4.4): the page's one orange band, full-bleed (the caller places it
- * outside the page column). Left, the pitch: an eyebrow, a two-line
- * sentence-case headline, two lines of body and one large black action
- * (sign up; signed in, find an event). Right from 1024px (stacked under it
- * before), a white "A look inside" card, always: the owner's illustrative
- * portraits (five overlapping circles) and, when the page has a real example
- * (a live thresholded count or the demo's sample count), that event's title
- * and "N people going". With none, a short pitch instead of an event and a
- * number: never an invented count, and the faces are never paired with an
- * event as if they were its attendees (the footnote always says the photos
- * are illustrative; Australian Consumer Law).
- * `#find-your-people` links land here, focus included (tabIndex -1).
- * Black on orange (6.18:1); never an orange button here. The band looks the
- * same in Light and Dark: the signal scope pins --card and --surface to
- * their Light values, so the card stays white with black text.
- * Phones are compact (owner, 23 Oct 2026, layout polish): 40px band padding,
- * 32px between the pitch, the action and the card, 20px card padding;
- * from 640px the spacing is as before.
+ * "Find your people." (the proposal, redesign PR 3): the home's community section. An eyebrow,
+ * the dotted Heading/H1-size h2, the proposal's lede and "Explore communities" (→ /community),
+ * then the compact orange "See who's going." band: its one line (the proposal's first half: no
+ * communities to follow yet), the illustrative faces, a real example when the page has one (a
+ * live thresholded count or the demo's sample count, with a footnote saying which) and one black
+ * action: "Create profile" (sign up), or, signed in, "Find an event". Never an orange button on
+ * the orange band, and black on orange only (6.18:1); the band looks the same in Light and Dark
+ * (the signal scope). Under the band, the three scene cards (SceneCards: Live music, Art and
+ * Pop-ups, the proposal's Music, Art and Fashion), from real data only: each category's own event
+ * photo, a going count this week only when there's a real one, "See events" to its listing, and an
+ * event count only when it's the whole number. The proposal's "8 friends going", "1.2K members"
+ * and Follow still have no data behind them, so they're left out. `#find-your-people` still lands
+ * here.
  */
 export default function CommunitySection({ className = "" }: { className?: string }) {
   const auth = useOptionalAuth();
   const signedIn = auth?.status === "signed-in";
   const home = useOptionalHomeEvents();
   const sections = home?.state.status === "ready" ? home.state.sections : null;
-  const example = home && sections
-    ? pickExample(home.mode, [
-        ...(sections.popular?.kind === "popular"
-          ? sections.popular.items.map(({ event, signal }) => ({ event, signal }))
-          : popularEvents(sections.popular).map((event) => ({ event }))),
-        ...(sections.weekend.status === "cards" ? sections.weekend.items.map((event) => ({ event })) : []),
-      ])
-    : null;
+  const example =
+    home && sections
+      ? pickExample(home.mode, [
+          ...(sections.popular?.kind === "popular"
+            ? sections.popular.items.map(({ event, signal }) => ({ event, signal }))
+            : popularEvents(sections.popular).map((event) => ({ event }))),
+          ...(sections.weekend.status === "cards"
+            ? sections.weekend.items.map((event) => {
+                const count = sections.weekend.going[event.id];
+                return { event, signal: count === undefined ? undefined : ({ kind: "going", count } as const) };
+              })
+            : []),
+        ])
+      : null;
 
   return (
     <section
       id="find-your-people"
       aria-labelledby="home-people"
       tabIndex={-1}
-      data-surface="signal"
-      className={`focus:outline-none ${className}`.trim()}
+      // Phones: the head, the band, then Explore communities full width (the owner's 390 mock). From
+      // 640px Explore communities sits on the head's row, at its right.
+      className={`grid grid-cols-1 gap-y-6 focus:outline-none sm:grid-cols-[1fr_auto] sm:items-end sm:gap-x-8 md:gap-y-8 lg:gap-y-12 ${className}`.trim()}
     >
+      <div className="min-w-0">
+        <p className="eyebrow text-muted">Community</p>
+        <h2 id="home-people" className="mt-2 heading-h1 flex items-center gap-3">
+          <DotsMark size="sm" className="text-signal" />
+          Find your people.
+        </h2>
+        <p className="mt-2 body-l text-muted">The people and creative scenes behind the events.</p>
+      </div>
+      <ButtonLink href="/community" variant="solid" className="w-full max-sm:order-last sm:w-auto">
+        Explore communities
+        <ArrowRightIcon className="size-4 shrink-0" />
+      </ButtonLink>
+
       <div
-        className={`${HOME_CONTAINER} py-10 sm:py-16 lg:grid lg:grid-cols-12 lg:items-center lg:gap-x-8 lg:py-20`}
+        data-surface="signal"
+        data-community-band=""
+        data-community-example={example ? "" : undefined}
+        className="flex flex-col gap-6 rounded-card p-6 sm:col-span-2 md:p-8 lg:flex-row lg:items-center lg:justify-between lg:gap-8 lg:px-12"
       >
-        <div className="lg:col-span-7">
-          {/* The literal space keeps the heading's name "See who’s going. Find your people." as sentences. */}
-          <h2 id="home-people" className="text-4xl leading-none font-bold tracking-tighter sm:text-5xl lg:text-6xl">
-            <span className="block">See who’s going.</span> <span className="block">Find your people.</span>
-          </h2>
-          {/* The one action: signed out (or while auth loads, the server render), sign up; signed in, find an event. */}
-          <ButtonLink
-            href={signedIn ? "/events" : "/signup"}
-            variant="solid"
-            size="lg"
-            className="mt-8 min-h-14 w-full gap-3 px-7 text-base leading-6 tracking-normal normal-case sm:w-auto"
-          >
-            {signedIn ? "Find an event" : "Create profile now"}
-            <ArrowRightIcon className="size-5 shrink-0" />
+        <div className="min-w-0">
+          <h3 className="heading-h1">See who’s going.</h3>
+          <p className="mt-2 body-s font-semibold">{COMMUNITY_BAND_LINE}</p>
+          {example && (
+            <div className="mt-4">
+              <p data-community-count="" className="body-m">
+                <span className="font-semibold tabular-nums">{example.count} people going</span> · {example.title}
+              </p>
+              <p data-community-note="" className="mt-1 mono-s">
+                {example.sample ? COMMUNITY_DEMO_NOTE : COMMUNITY_LIVE_NOTE}
+              </p>
+            </div>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-6">
+          <Faces />
+          {/* Signed out (or while auth loads, the server render), sign up; signed in, find an event. */}
+          <ButtonLink href={signedIn ? "/events" : "/signup"} variant="solid" className="w-full sm:w-auto">
+            {signedIn ? "Find an event" : "Create profile"}
+            <ArrowRightIcon className="size-4 shrink-0" />
           </ButtonLink>
         </div>
-        <div
-          data-community-card=""
-          data-community-example={example ? "" : undefined}
-          className="mt-8 rounded-2xl bg-card p-5 text-foreground sm:mt-10 sm:max-w-md sm:p-8 lg:col-span-5 lg:mt-0 lg:max-w-none"
-        >
-          <p className={`eyebrow tracking-widest ${CARD_MUTED}`}>A look inside</p>
-          <p className="mt-3 text-2xl leading-8 font-bold tracking-tight break-words sm:text-3xl sm:leading-9">
-            {example ? example.title : COMMUNITY_TEASER.title}
-          </p>
-          <Faces />
-          {example ? (
-            <p data-community-count="" className="mt-4 flex flex-wrap items-baseline gap-x-2 sm:mt-6">
-              <span className="text-5xl leading-none font-bold tracking-tighter tabular-nums sm:text-6xl">{example.count}</span>{" "}
-              <span className="text-lg leading-7 font-semibold">people going</span>
-            </p>
-          ) : (
-            <p className="mt-4 text-lg leading-7 sm:mt-6">{COMMUNITY_TEASER.body}</p>
-          )}
-          {/* No "Illustrative photos" line (owner, 31 Oct 2026); with no example there's no footnote. */}
-          {example && (
-            <p data-community-note="" className={`mt-3 text-sm leading-5 ${CARD_MUTED}`}>
-              <NoteParts note={example.sample ? COMMUNITY_DEMO_NOTE : COMMUNITY_LIVE_NOTE} />
-            </p>
-          )}
-        </div>
       </div>
+
+      <SceneCards className="sm:col-span-2" />
     </section>
   );
 }

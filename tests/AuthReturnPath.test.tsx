@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import LoginPage from "@/app/login/page";
 import ForgotPasswordForm from "@/components/auth/ForgotPasswordForm";
 import LoginForm from "@/components/auth/LoginForm";
 import SignupForm from "@/components/auth/SignupForm";
@@ -46,19 +47,27 @@ describe("withNext", () => {
   });
 });
 
-describe("LoginForm links", () => {
-  it("carries next to Sign up and Forgot password", () => {
-    renderWithAuth(<LoginForm next={NEXT} />);
-    expect(screen.getByRole("link", { name: "Sign up" })).toHaveAttribute("href", `/signup?next=${ENCODED}`);
+describe("/login's links", () => {
+  async function renderLogin(next: string) {
+    const element = await LoginPage({ params: Promise.resolve({}), searchParams: Promise.resolve({ next }) } as PageProps<"/login">);
+    renderWithAuth(element);
+  }
+
+  it("carries next to Create an account and Forgot password", async () => {
+    await renderLogin(NEXT);
+    expect(screen.getByRole("link", { name: "Create an account" })).toHaveAttribute("href", `/signup?next=${ENCODED}`);
     expect(screen.getByRole("link", { name: "Forgot password?" })).toHaveAttribute(
       "href",
       `/forgot-password?next=${ENCODED}`,
     );
+    // Tickets are emailed: Help's answer, not an account page, so no next.
+    expect(screen.getByRole("link", { name: "Find my tickets" })).toHaveAttribute("href", "/help#where-are-my-tickets");
   });
 
-  it("doesn't pass an unsafe next along", () => {
-    renderWithAuth(<LoginForm next="//evil.example" />);
-    expect(screen.getByRole("link", { name: "Sign up" })).toHaveAttribute("href", "/signup");
+  it("doesn't pass an unsafe next along", async () => {
+    await renderLogin("//evil.example");
+    expect(screen.getByRole("link", { name: "Create an account" })).toHaveAttribute("href", "/signup");
+    expect(screen.getByRole("link", { name: "Forgot password?" })).toHaveAttribute("href", "/forgot-password");
   });
 });
 
@@ -67,7 +76,7 @@ describe("LoginForm, unverified account", () => {
     renderWithAuth(<LoginForm next={NEXT} />, fakeAuthValue({ status: "signed-out", signIn: vi.fn().mockRejectedValue(new Error("Email not confirmed")) }));
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "mia@example.com" } });
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "Hunter22x" } });
-    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     expect(await screen.findByRole("link", { name: "Verify your email" })).toHaveAttribute(
       "href",
       `/verify?email=mia%40example.com&next=${ENCODED}`,

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, within } from "@testing-library/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import HomeEventSections from "@/components/home/HomeEventSections";
 import { HomeEventsProvider } from "@/components/home/HomeEventsProvider";
@@ -19,9 +19,8 @@ vi.mock("@/lib/api/client", async (importOriginal) => ({
 const loadHomeEvents = vi.fn<(now: Date) => Promise<SheltuhEvent[]>>();
 const loadHomeTrending = vi.fn<(now: Date) => Promise<TrendingItem[]>>();
 vi.mock("@/lib/home-events", () => ({
-  loadHomeEvents: (now: Date) => loadHomeEvents(now),
+  loadHomeFeed: async (now: Date) => ({ events: await loadHomeEvents(now), complete: true }),
   loadHomeTrending: (now: Date) => loadHomeTrending(now),
-  loadHomeRecent: () => Promise.resolve([]),
   loadHomeFollowing: () => Promise.resolve([]),
 }));
 vi.mock("@/lib/location-loader", () => ({ loadLocation: vi.fn() }));
@@ -50,12 +49,18 @@ const NOW = "2026-11-11T01:00:00.000Z";
 const SAT = event("sat", "2026-11-14T06:00:00.000Z");
 const SUN = event("sun", "2026-11-15T08:00:00.000Z");
 const LATER = event("later", "2026-11-25T08:00:00.000Z");
+// Five trending events later in the month, first in the server's order: the carousel (which claims
+// first, five at most) takes them, so This weekend keeps both of its events.
+const FEATURED = ["f1", "f2", "f3", "f4", "f5"].map((id, i) => event(id, `2026-11-2${i + 4}T08:00:00.000Z`));
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date(NOW));
-  loadHomeEvents.mockReset().mockResolvedValue([SAT, SUN, LATER]);
-  loadHomeTrending.mockReset().mockResolvedValue([{ event: SAT, signal: { kind: "going", count: 42 } }]);
+  loadHomeEvents.mockReset().mockResolvedValue([SAT, SUN, LATER, ...FEATURED]);
+  loadHomeTrending.mockReset().mockResolvedValue([
+    ...FEATURED.map((e) => ({ event: e, signal: { kind: "popular" } as const })),
+    { event: SAT, signal: { kind: "going", count: 42 } },
+  ]);
 });
 afterEach(() => {
   cleanup();
@@ -63,22 +68,26 @@ afterEach(() => {
 });
 
 describe("This weekend, live", () => {
-  it("gives a trending weekend event its going count, and the others no strip", async () => {
-    const { container } = render(
+  it("gives a trending weekend event its going count, and the others none, in This weekend and All events alike", async () => {
+    render(
       <HomeEventsProvider>
         <HomeEventSections />
       </HomeEventsProvider>,
     );
     await act(() => Promise.resolve());
     await act(() => Promise.resolve());
-    const rail = container.querySelector<HTMLElement>("#home-weekend-rail");
-    if (!rail) throw new Error("no This weekend rail");
-    expect(within(rail.closest("section") as HTMLElement).getByText("Fri 13 – Sun 15 Nov")).toBeInTheDocument();
-    const [sat, sun] = Array.from(rail.querySelectorAll<HTMLElement>("[data-event-card]"));
-    expect(within(sat).getByRole("heading", { level: 3 })).toHaveTextContent("Event sat");
-    expect(sat.querySelector("[data-card-going]")).toHaveTextContent(/^42 going$/);
-    expect(sat.querySelector("[data-card-faces]")).toBeNull();
-    expect(sun.querySelector("[data-card-going]")).toBeNull();
-    expect(within(sat).getByRole("link", { name: "Open Event sat" })).toHaveAttribute("href", "/events/sat");
+    const section = screen.getByRole("region", { name: "This weekend" });
+    expect(within(section).getByText("Fri 13 – Sun 15 Nov")).toBeInTheDocument();
+    for (const list of [screen.getByRole("list", { name: "This weekend" }), screen.getByRole("list", { name: "All events" })]) {
+      const cards = Array.from(list.querySelectorAll<HTMLElement>("[data-event-card]"));
+      const sat = cards.find((card) => card.querySelector("h3")?.textContent === "Event sat") as HTMLElement;
+      const sun = cards.find((card) => card.querySelector("h3")?.textContent === "Event sun") as HTMLElement;
+      expect(sat.querySelector("[data-card-going]")).toHaveTextContent(/^42 going$/);
+      // Live list payloads carry no names: no faces.
+      expect(sat.querySelector("[data-card-faces]")).toBeNull();
+      expect(sun.querySelector("[data-card-going]")).toBeNull();
+      // The card's one link is its title.
+      expect(within(sat).getByRole("link", { name: "Event sat" })).toHaveAttribute("href", "/events/sat");
+    }
   });
 });

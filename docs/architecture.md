@@ -1007,7 +1007,7 @@ after the fact, and a few kinds go to the review queue first.
 - **Recreating an unpublished event** gets around rule 2 (it's per event)
   unless the admin ticks "review their next events" (`reviewFuture`) or
   turns on the review switch. Trending waits 6 hours after the latest
-  approval, so a self-published event isn't on the Trending rail before
+  approval, so a self-published event isn't in the home's Popular right now before
   admins have had a chance to look.
 - **Followers are emailed at once** (owner decision B-D4), before any admin
   has looked; an email sent can't be recalled. One per follower per
@@ -2684,7 +2684,7 @@ to (`lib/ticketing.ts`, `lib/server/event-input.ts`,
   phone buy bar. It is the organiser's number, so it never says "incl. booking
   fee" and nothing here reads it for money. For the feed's filters, `external_free` counts as free (`is_free` follows it) and
   an external event is never `paid` (a price from doesn't change that). The browser-side "under A$X" filters
-  (`lib/scene-map-filters.ts`, the home's low-cost rail) see no ticket types,
+  (`lib/scene-map-filters.ts`: Nearby's and the home's "Under A$25") see no ticket types,
   so no external event matches them, free ones included (price unknown;
   revisit in F1/F3 if free external events should count as "under").
 - **Review, then frozen.** The admin review queue (`GET /admin/events`)
@@ -3118,7 +3118,7 @@ Members follow organisers (owner request, 21 Oct 2026;
   `followerCount` only from 10 (`FOLLOWER_COUNT_THRESHOLD`; null below, as
   Who's Going hides small counts); the organiser's analytics overview shows
   the exact `followerCount`.
-- **The home rail**: `GET /me/following/events` (published, upcoming events of
+- **The home's "From organisers you follow"**: `GET /me/following/events` (published, upcoming events of
   followed approved organisers, soonest first, paginated, public event
   shape); `GET /me/following` lists the organisers (taken-down ones drop out;
   the follow is kept).
@@ -3162,7 +3162,7 @@ Members follow organisers (owner request, 21 Oct 2026;
 - **Counts can be inflated** with verified throwaway accounts (60 an hour
   each). It's a display number only; nothing is paid on it.
 - **Not everyone is told** past 500 emails a day platform-wide; the rest see
-  the event on their home rail. A skipped email (event unpublished first)
+  the event in their home's "From organisers you follow". A skipped email (event unpublished first)
   still counts as that day's email.
 - **One-click unsubscribe (RFC 8058)** isn't offered (the link is a page);
   Gmail and Yahoo require it only from 5,000 messages a day.
@@ -4324,7 +4324,7 @@ without one. The UI keeps showing the API's words, which already say when
 
 | Method & path | Who |
 |---|---|
-| `GET /events?q&category&pricing&onOrAfter&upcoming&cursor&limit` | public (published only), soonest first. `onOrAfter` (`YYYY-MM-DD`, 400 otherwise): events starting on or after that date in each event's own zone (`(starts_at at time zone time_zone)::date`, with a coarse `starts_at` bound a day earlier for `events_status_starts_idx`). `upcoming=1` (or `true`): only events that haven't ended (`ends_at > now()`, in progress included); the home page and /events always send it. `recent` (`1`/`true`, `only`, `0`/`false`; additive, needs `upcoming=1` else 400; any other value 400): also lists events that ended within the last 14 days (`RECENT_EVENT_DAYS`, `lib/recent-events.ts`), after every upcoming one and most recently ended first (`only`: just those, the home's "Recently on"; /events sends `1`, except in near-a-suburb mode). They stay openable by slug but can't be bought (`orders_not_ended`); their cards say "Ended". The map stays upcoming-only. `pricing=free`: has ticket types, all free, or is external with `externalFree`; `paid`: has a paid ticket type (an event with no ticket types is neither, and so is an external event that isn't free: its price isn't known). 400 for an unknown `category`, `pricing` or `upcoming` value. Every item carries `ticketingMode`, `externalFree`, `externalProvider` and, for external events only, `externalTicketUrl` (see "External ticketing"). 200: `public, max-age=0, s-maxage=60, stale-while-revalidate=120` (shared at the CDN: "CDN windows"), except with a non-empty `q`: `private, no-store` (a search is never shared). With `upcoming`, the page's ids are selected first (`lib/server/upcoming-page.ts`) |
+| `GET /events?q&category&pricing&onOrAfter&upcoming&cursor&limit` | public (published only), soonest first. `onOrAfter` (`YYYY-MM-DD`, 400 otherwise): events starting on or after that date in each event's own zone (`(starts_at at time zone time_zone)::date`, with a coarse `starts_at` bound a day earlier for `events_status_starts_idx`). `upcoming=1` (or `true`): only events that haven't ended (`ends_at > now()`, in progress included); the home page and /events always send it. `recent` (`1`/`true`, `only`, `0`/`false`; additive, needs `upcoming=1` else 400; any other value 400): also lists events that ended within the last 14 days (`RECENT_EVENT_DAYS`, `lib/recent-events.ts`), after every upcoming one and most recently ended first (`only`: just those; the app no longer asks for it since the home's "Recently on" was removed in redesign PR 3, and the server still answers it; /events sends `1`, except in near-a-suburb mode). They stay openable by slug but can't be bought (`orders_not_ended`); their cards say "Ended". The map stays upcoming-only. `pricing=free`: has ticket types, all free, or is external with `externalFree`; `paid`: has a paid ticket type (an event with no ticket types is neither, and so is an external event that isn't free: its price isn't known). 400 for an unknown `category`, `pricing` or `upcoming` value. Every item carries `ticketingMode`, `externalFree`, `externalProvider` and, for external events only, `externalTicketUrl` (see "External ticketing"). 200: `public, max-age=0, s-maxage=60, stale-while-revalidate=120` (shared at the CDN: "CDN windows"), except with a non-empty `q`: `private, no-store` (a search is never shared). With `upcoming`, the page's ids are selected first (`lib/server/upcoming-page.ts`) |
 | `GET /events/slug/{slug}` | public (published only); a list item's shape plus, for an approved organiser, the Host card's `organiserWebsiteUrl`, `organiserSocialLinks` and `organiserBio` (see "Organiser profiles"). 200: `public, max-age=0, s-maxage=15, stale-while-revalidate=45` ("CDN windows"). Query parameters are ignored (the seat page's `?seatMapVersion=` only makes a new cache key). Every public event (list, slug, favourites, organiser profile, trending) carries `soldOut`, and per ticket type `soldOut` and `remaining` (only when 10 or fewer are left): see "Waitlist" |
 | `GET /events/{slug}/calendar.ics` (a page route, not under `/api`: `app/events/[slug]/calendar.ics/route.ts`) | public (published only; demo mode: the sample events). The event as an iCalendar file (`lib/calendar.ts` `buildIcs`, its URL from `NEXT_PUBLIC_SITE_URL`), `text/calendar; charset=utf-8`, `Content-Disposition: inline`, `public, max-age=300, s-maxage=300`. 404 (JSON, `private, no-store`) otherwise. No personal data |
 | `POST /events/{eventId}/waitlist` `{email?}` · `DELETE /events/{eventId}/waitlist` | POST: public (a member's token is read, optionally). 201/200 `{status: "joined", maskedEmail, alreadyJoined}` for a member's own verified email; 202 `{status: "confirmation_sent", expiresInHours}` for anyone else, whatever the address's history; 400 email; 404 not published; 409 external, ended or not sold out; 503 busy (the platform caps; the link is emailed after the response, so a failed send isn't reported). DELETE: signed in, leaves (204, idempotent) |
@@ -4727,8 +4727,8 @@ Design: `docs/design/event-clips.md`.
   a clip (`components/events/ClipPlayButton.tsx`), opening the page's one
   viewer (`components/events/ClipViewer.tsx`, mounted in `app/layout.tsx`;
   SeatDialog with a muted inline `<video>` mounted only while open, no
-  autoplay under reduced motion; the home rails hold still while it's
-  open). Uploads are behind `NEXT_PUBLIC_EVENT_CLIPS=1`: the editor's
+  autoplay under reduced motion; the home's featured carousel holds still
+  while it's open). Uploads are behind `NEXT_PUBLIC_EVENT_CLIPS=1`: the editor's
   `EventClipField` (browser pre-checks in `lib/clip-precheck.ts`, upload
   after the event save, `useEventClip`) and the admin queue's clip row.
   Playback needs no flag.
@@ -4868,19 +4868,22 @@ Search can order results by how close they are to a suburb (owner round,
 24 Oct 2026). Phase 1 is **browser-only**: no table, route, handler,
 `lib/api` or migration change, and the API never receives a location.
 
-- `components/search/LocationPicker.tsx` (the search bar's location
-  segment): "Use my current location" calls `navigator.geolocation` only
+- `components/search/LocationPicker.tsx` (the search bar's Where
+  segment and its location menu): "Use my location" calls `navigator.geolocation` only
   on that click, never on load (coarse, 10 s timeout, 10 min cache:
   `lib/geolocation.ts`, shared with `/map`, below). The
   position is matched to a suburb anywhere in Australia (`lib/location.ts`
   `nearestLocality`: of the localities whose boundary could reach it, the
   one with the nearest centre; "outside" overseas or out at sea) and
-  dropped. Or the visitor types a suburb (suggestions start at two letters).
+  dropped. Or the visitor picks a Recent or Suggested place in the menu
+  (the saved suburb; Melbourne, Sydney, Brisbane, Perth), which is
+  remembered straight away, or types a suburb (suggestions start at two
+  letters), which is remembered when they search.
   The table has one centre per locality, not boundaries, so near a border
   the position can be named for the neighbouring suburb (about 1 in 5
   random points inside localities, checked against the ABS polygons).
 - In-app browsers (Instagram, Facebook, TikTok… opening a link in their own
-  WebView) often can't share a location, especially on iOS. "Use my current
+  WebView) often can't share a location, especially on iOS. "Use my
   location" and the map's "Near me" stay as they are; when one fails (denied,
   unavailable, timed out, or the suburb table won't load) and the user agent
   is one of those apps (`lib/in-app-browser.ts` `inAppBrowserName`; the
@@ -4951,9 +4954,40 @@ Search can order results by how close they are to a suburb (owner round,
   marker; with a saved "near" suburb, centred on it (below), and with
   none, on the mainland and Tasmania (`AUSTRALIA_VIEW`, minimum zoom 3, so
   it fits a 375px phone). Live, it reads up to 4 pages of 50 at a time (and
-  Load more the next 4). The location filter lists the events' suburbs
-  under "All of Australia", grouped by state (`<optgroup>`,
-  `suburbsByState`). Markers cluster by pixel distance at any zoom.
+  Load more the next 4). Markers cluster by pixel distance at any zoom.
+- **Nearby (`/map`, redesign PR 5) has one location and a radius** (the
+  audit's P1: "near you" listed events 1,376 km away, and the page's own
+  "All of Australia" suburb filter disagreed with the remembered suburb).
+  - One location control: Where (`components/search/LocationPicker.tsx`,
+    `standalone`), the site's remembered suburb. Choosing a place (or Use my
+    location, or Enter on a typed suburb the table knows) remembers it;
+    All of Australia forgets it. The old suburb filter (`suburbsByState`) is
+    gone.
+  - `?near=<place>` (Community's Scenes by city link to `/map?near=Sydney`;
+    an older `?suburb=` is read the same way) is a place for this visit:
+    Nearby measures from it and Where shows it, but it never overwrites the
+    remembered suburb, and any change to that (Where, Near me, another tab)
+    replaces it. A place the table doesn't know is ignored.
+  - With a place, the list, the markers and the count keep only the events
+    within the radius (`lib/map-near.ts` `NEARBY_RADII_KM` 5 / 10 / 25 / 50,
+    default 25, `splitByRadius`, the edge included; the Distance filter;
+    `?within=` unless 25): "8 upcoming events within 25 km of Caulfield
+    East". The rest are summarised under Further away ("N more events
+    outside 25 km — the three nearest suburbs."), with "Show all of
+    Australia" (`within=all`: every event, still nearest first). Events with
+    no position can't be near: within a radius they're left out and counted
+    as not on the map. With nothing within the radius, the audit's empty
+    state ("No events found near {place}." / "Try expanding your search
+    area.", with the wider radii) replaces the list; the map stays. "Search
+    this area" lifts the radius while it applies (Distance shows disabled).
+    Without a place, the list is every event soonest first, as before, with
+    "Set Where to see what's near you." Live, while more pages remain and the
+    radius holds fewer than 12 events, Nearby reads one more Load more's worth
+    (4 pages) by itself; after that its counts and empty state say "so far"
+    beside Load more.
+  - Below lg the search is the site's search bar (as on the home, with Where
+    inside its sheet), floated over the map in the Map view; from lg, the
+    page's own search field and a standalone Where.
 - **`/map` follows the visitor's location** (owner request, creator call,
   Nov 2026). The map's position is data attributes on its container
   (`data-center-lat`, `data-center-lng`, rounded to about 100 m, and
@@ -4974,9 +5008,10 @@ Search can order results by how close they are to a suburb (owner round,
     error, timeout, or a position outside Australia: the default view stays,
     silently, and `sessionStorage` `sheltuh:map-locate-refused:v1` stops it
     asking again that browser session.
-  - An address with `q`, `cat`, `time`, `date`, `suburb`, `price`, `sel` or
-    `view` wins: no ask, no centring on a saved suburb (a selected event or
-    filtered results frame themselves, as before).
+  - An address with `q`, `cat`, `time`, `date`, `suburb`, `price` or `sel`
+    (or a `near`) means no ask on open. It still measures from the saved
+    suburb (one location for the site); a selected event in it that lies
+    outside the radius opens with `within=all`, so the link's event shows.
   - "Near me" (44px; on phones in the map's lower-left corner, from 1024px
     under the zoom buttons; only where the browser has geolocation) runs the
     same flow on demand, ignoring the refusal. It's busy ("Locating…") while
@@ -4995,18 +5030,16 @@ Search can order results by how close they are to a suburb (owner round,
     polite status; it never takes focus, stays 20 seconds (and while focus is
     in it, counted afresh after the steps appear), and its ✕ closes it and
     returns focus to Near me.
-  - Picking a suburb in the map's location filter, or the saved suburb
-    changing while on the map (the search bar's "Use my current location",
-    another tab: `subscribeStoredNear` in `lib/near-storage.ts`), centres on
-    that suburb's table centre.
+  - The saved suburb changing while on the page (Where, or another tab:
+    `subscribeStoredNear` in `lib/near-storage.ts`) frames that suburb's
+    table centre with the nearest events; forgetting it drops the origin.
   - **Nearest first** (owner report, Nov 2026: a Sydney event headed a
     Melbourne visitor's list, and zoom 13 could show no event at all). Once the
     visitor is located (Near me, or the ask on open), or from the start with a
-    saved suburb and an address carrying no view of its own, the origin is the
-    position (a dot on the map) or the saved suburb's centre
-    (`useMapLocate`'s `origin`, `components/SceneMap.tsx`).
-    - **The list** is the filtered events (date, category, price, search,
-      suburb and "Search this area" all apply as before) sorted by
+    saved suburb (or `?near=`), the origin is the position (a dot on the map)
+    or the place's centre (`useMapLocate`'s `origin`, `components/SceneMap.tsx`).
+    - **The list** is the filtered events (date, category, price, search
+      and "Search this area" all apply as before), within the radius, sorted by
       `lib/map-near.ts` `sortNearestFirst`: distance from the origin to the
       event's pin, or its suburb's centre (so approximate), then soonest;
       events with no position last. Each row says how far ("Live music · 2.3

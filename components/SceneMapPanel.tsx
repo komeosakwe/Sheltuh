@@ -30,6 +30,15 @@ function hasSize(map: L.Map): boolean {
   return size.x > 0 && size.y > 0;
 }
 
+/**
+ * Room kept clear round fitted markers: 48px, and from lg 140px on the left, where Near me sits
+ * under the zoom buttons, so it never covers a marker the map has just framed.
+ */
+function framePadding(): { paddingTopLeft: L.Point; paddingBottomRight: L.Point } {
+  const desktop = typeof window.matchMedia === "function" && window.matchMedia("(min-width: 64rem)").matches;
+  return { paddingTopLeft: L.point(desktop ? 140 : 48, 48), paddingBottomRight: L.point(48, 48) };
+}
+
 /** Fits `targets`, or the mainland and Tasmania when there are none. */
 function fitTargets(map: L.Map, targets: MarkerDatum[], reducedMotion: boolean, programmaticMoveRef: RefObject<boolean>) {
   programmaticMoveRef.current = true;
@@ -45,7 +54,7 @@ function fitTargets(map: L.Map, targets: MarkerDatum[], reducedMotion: boolean, 
     return;
   }
   const bounds = L.latLngBounds(targets.map((m) => [m.lat, m.lng]));
-  map.fitBounds(bounds, { padding: [48, 48], maxZoom: 15, animate: !reducedMotion });
+  map.fitBounds(bounds, { ...framePadding(), maxZoom: 15, animate: !reducedMotion });
 }
 
 /** Centres on `place` at the suburb zoom: flies there when `smooth` (and motion is welcome), else jumps. */
@@ -88,7 +97,7 @@ function frameAround(
   }
   const bounds = L.latLngBounds([[around.lat, around.lng], ...near.map((place): L.LatLngTuple => [place.lat, place.lng])]);
   programmaticMoveRef.current = true;
-  const options = { padding: L.point(48, 48), maxZoom: MAP_NEAR_ZOOM };
+  const options = { ...framePadding(), maxZoom: MAP_NEAR_ZOOM };
   if (smooth && !reducedMotion) map.flyToBounds(bounds, { ...options, duration: 0.8 });
   else map.fitBounds(bounds, { ...options, animate: false });
   return true;
@@ -379,7 +388,7 @@ function SearchThisAreaControl({
   if (!showButton) return null;
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-3 z-[1000] flex justify-center">
+    <div data-search-area="" className="pointer-events-none absolute inset-x-0 top-3 z-[1000] flex justify-center">
       <button
         type="button"
         onClick={() => {

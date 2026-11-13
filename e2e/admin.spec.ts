@@ -474,15 +474,15 @@ async function headerHeight(page: Page, path: string, ready: RegExp) {
 
 test.describe("main nav", () => {
   for (const width of [1024, 1440]) {
-    test(`the desktop header is the same height with and without the search bar at ${width}px`, async ({ page }) => {
+    test(`the desktop header is the same height on every page at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
       await signedInAsAdmin(page, { signedIn: false });
       const heights: Record<string, number> = {};
       for (const path of ["/", "/search", "/events/event-1"]) heights[path] = await headerHeight(page, path, /^Sign in$/);
       const values = Object.values(heights);
       expect(new Set(values).size, JSON.stringify(heights)).toBe(1);
-      // --header-h (app/globals.css) is 70px on desktop: the header must fit it.
-      expect(values[0], JSON.stringify(heights)).toBeLessThanOrEqual(70);
+      // --header-h (app/globals.css) is 96px from lg: the header is exactly it.
+      expect(values[0], JSON.stringify(heights)).toBe(96);
     });
   }
 

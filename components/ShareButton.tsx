@@ -44,9 +44,15 @@ export default function ShareButton({
   title,
   text,
   className = "",
+  fill = false,
 }: {
   slug: string;
   title: string;
+  /**
+   * The button fills the box it's given (the event page's ticket panel, in a row with Save and Add to
+   * calendar), and "Link copied" shows just under it rather than beside it, so the row never gets wider.
+   */
+  fill?: boolean;
   /** The share sheet's message, e.g. "{title} · {Sat 24 Oct, 7:00 pm} · {venue}". */
   text?: string;
   className?: string;
@@ -167,7 +173,7 @@ export default function ShareButton({
   return (
     <div
       ref={rootRef}
-      className={`relative flex items-center gap-2 ${className}`.trim()}
+      className={`relative flex ${fill ? "flex-col" : "items-center gap-2"} ${className}`.trim()}
       onKeyDown={(event) => {
         if (event.key === "Escape" && open) {
           event.stopPropagation();
@@ -192,14 +198,15 @@ export default function ShareButton({
         aria-label={`Share ${title}`}
         aria-expanded={open ? true : undefined}
         aria-controls={open ? popoverId : undefined}
-        className={secondaryActionClass}
+        className={fill ? `${secondaryActionClass} w-full justify-center px-2 text-center lg:min-h-10 lg:px-1 lg:text-sm!` : secondaryActionClass}
       >
         <ShareIcon />
         {/* The name "Share {title}" starts with what's shown. */}
         <span>Share</span>
       </button>
       {/* Beside the button, and always in the page so the change is announced. */}
-      <p role="status" className="text-sm whitespace-nowrap">
+      {/* Filling a row: under the button, in the flow, so it pushes the page down rather than covering anything. */}
+      <p role="status" className={fill ? "text-xs leading-4 not-empty:mt-2" : "text-sm whitespace-nowrap"}>
         {status}
       </p>
       {manualUrl !== null && (

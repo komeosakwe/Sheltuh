@@ -20,6 +20,9 @@ function noApiCalls(page: Page) {
   return () => expect(calls).toEqual([]);
 }
 
+/** An hour before the first sample event starts: every sample is upcoming then. */
+const SAMPLES_UPCOMING_AT = Math.min(...sampleEvents.map((e) => Date.parse(e.startsAt))) - 3600_000;
+
 async function noSidewaysScroll(page: Page) {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(0);
@@ -118,8 +121,10 @@ for (const vp of [
       // Directly under the header, inside main, and the page's only demo note.
       expect(await banner.evaluate((el) => el.parentElement?.id)).toBe("main");
       await expect(page.locator("main [role='note']")).toHaveCount(1);
-      // Demo counts on cards stay labelled, in the rails and the phone grids alike.
-      await expect(page.locator("[data-event-card] [data-card-secondary]").filter({ hasText: /going/ }).first()).toContainText("(sample)");
+      // The banner says it's sample data, so the one event card's counts are bare ("12 going"), in the
+      // rails and the phone grids alike (visual QA, PR 1).
+      const count = page.locator("[data-event-card]:not([data-variant='weekend']) [data-card-going]").first();
+      await expect(count).toHaveText(/^\d+ going$/);
 
       const now = Date.now();
       const event = sampleEvents.find(
@@ -155,6 +160,19 @@ for (const vp of [
       await expect(page.locator("[data-demo-banner]")).toHaveCount(1);
       await expect(page.locator("[data-demo-banner]")).toContainText("Demo · Sample data");
       await expect(page.getByRole("link", { name: "Close" })).toHaveAttribute("href", "/");
+      await noSidewaysScroll(page);
+      checkNoApiCalls();
+    });
+
+    test("/community is built from the sample events and calls no API", async ({ page }) => {
+      const checkNoApiCalls = noApiCalls(page);
+      // The sample events have fixed dates: the page's clock starts an hour before the first one
+      // begins, so every sample is upcoming whatever the real date.
+      await page.clock.install({ time: SAMPLES_UPCOMING_AT });
+      await page.goto("/community");
+      await expect(page.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your people.", { timeout: 60_000 });
+      await expect(page.getByRole("list", { name: "Local discovery" }).locator("[data-event-card]").first()).toBeVisible();
+      await expect(page.locator("[data-city='Melbourne']")).toContainText(/[1-9]\d* upcoming/);
       await noSidewaysScroll(page);
       checkNoApiCalls();
     });

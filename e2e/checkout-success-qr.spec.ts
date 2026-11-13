@@ -93,6 +93,12 @@ test("a checked-in ticket says when, and keeps its QR", async ({ page }) => {
   await expect(first.getByRole("img", { name: "QR code for ticket 7KQM-2HXD" })).toBeVisible();
   await expect(page.getByRole("listitem").filter({ hasText: "A2B3-C4D5" }).getByText("Ready to scan")).toBeVisible();
   await expect(page.getByText("Turn your brightness up at the door.")).toHaveCount(1);
+  // Codes are the one place mono stays (owner decision, 13 Nov 2026): the backup code and the order
+  // reference in IBM Plex Mono, so 0/O and 1/l read apart; the label above the code is Instrument Sans.
+  const mono = (el: Element) => getComputedStyle(el).fontFamily;
+  expect(await first.getByText("7KQM-2HXD", { exact: true }).evaluate(mono)).toMatch(/^"IBM Plex Mono", /);
+  expect(await first.getByText("Backup code", { exact: true }).evaluate(mono)).toMatch(/^"Instrument Sans", /);
+  expect(await page.getByText("#7C1F2E0A", { exact: true }).first().evaluate(mono)).toMatch(/^"IBM Plex Mono", /);
 });
 
 test("a code that isn't a real one shows as text only, with no QR", async ({ page }) => {

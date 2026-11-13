@@ -1,16 +1,16 @@
 /**
- * White (--background in app/globals.css). The installed app's status bar,
- * theme colour and splash screen use it so they run straight into the
- * white header. The manifest can't follow the visitor's theme, so the splash
- * is white for everyone (docs/design/theme-white-dark.md §5.1).
+ * Black: the site header's colour in both themes (the redesign's black header). The browser's
+ * theme colour and the installed app's status bar use it, so they run straight into the header,
+ * in Light and Dark alike.
  */
-export const APP_THEME_COLOR = "#ffffff";
+export const APP_THEME_COLOR = "#000000";
 
 /**
- * Black: the Dark theme's --background and its header. The no-flash script
- * and ThemeSync swap the theme-color meta to it in Dark (lib/theme.ts).
+ * White (the Light theme's --background in app/globals.css): the installed app's splash screen,
+ * shown before the page. The manifest can't follow the visitor's theme, so it's the default
+ * theme's page colour (docs/design/theme-white-dark.md §5.1).
  */
-export const DARK_THEME_COLOR = "#000000";
+export const APP_BACKGROUND_COLOR = "#ffffff";
 
 /**
  * Ink: the door check-in scope's --background (the door scope in

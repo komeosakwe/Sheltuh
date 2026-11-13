@@ -1,3 +1,5 @@
+import Link from "next/link";
+import type { ReactNode } from "react";
 import { ArrowRightIcon } from "@/components/home/icons";
 import { ButtonLink } from "@/components/ui/Button";
 import WaitlistBlock from "@/components/waitlist/WaitlistBlock";
@@ -22,17 +24,33 @@ import { patternIdsFor, SeatPatternDefs, SeatSwatch } from "./SeatGlyph";
  * as quantities. Sold out: the waitlist instead; once the event has ended,
  * no "Choose your seats".
  */
-export default function SeatedTicketsPanel({ event, demo }: { event: SheltuhEvent; demo: boolean }) {
+export default function SeatedTicketsPanel({
+  event,
+  demo,
+}: {
+  event: SheltuhEvent;
+  demo: boolean;
+}) {
   const patterns = patternIdsFor(`panel-${event.id}`);
   const seated = event.ticketTypes
     .filter((ticket) => ticket.seated)
-    .sort((a, b) => getTicketBuyerTotalCents(a) - getTicketBuyerTotalCents(b) || (a.id < b.id ? -1 : 1));
+    .sort(
+      (a, b) =>
+        getTicketBuyerTotalCents(a) - getTicketBuyerTotalCents(b) ||
+        (a.id < b.id ? -1 : 1),
+    );
   const treatments = tierTreatments(seated);
   const soldOut = isSoldOut(event);
-  const ended = Date.parse(event.endsAt ?? event.startsAt) <= new Date().getTime();
+  const ended =
+    Date.parse(event.endsAt ?? event.startsAt) <= new Date().getTime();
   const price = formatFeedPriceParts(event);
-  const buyerPaysAFee = event.ticketTypes.some((t) => t.priceCents > 0 && t.feePolicy === "buyer-pays");
-  const low = seated.find((ticket) => !ticket.soldOut && ticket.remaining !== undefined && ticket.remaining > 0);
+  const buyerPaysAFee = event.ticketTypes.some(
+    (t) => t.priceCents > 0 && t.feePolicy === "buyer-pays",
+  );
+  const low = seated.find(
+    (ticket) =>
+      !ticket.soldOut && ticket.remaining !== undefined && ticket.remaining > 0,
+  );
 
   return (
     <div className="flex flex-col gap-5 rounded-card border border-foreground bg-card p-4 sm:p-5">
@@ -49,53 +67,128 @@ export default function SeatedTicketsPanel({ event, demo }: { event: SheltuhEven
           const tierSoldOut = ticket.soldOut === true;
           // A tier that sold out before it was set to wait says "Sold out", not "Opens when…".
           const waitingText = tierSoldOut ? null : opensWhenText(ticket);
+          // A tier on sale opens the seat page (the owner tried to tap Concession, 13 Nov: the seat-colour key beside
+          // each name reads as a checkbox). The seats themselves are still chosen there.
+          const choosable = !soldOut && !ended && !tierSoldOut && !waitingText;
           return (
             // The standard ticket row (as TicketSelector's): the name, then the all-inclusive price under it at every width.
             <li
               key={ticket.id}
-              className="grid grid-cols-[1rem_1fr] items-start gap-x-3 border-t border-surface-border py-3 first:border-t-0 first:pt-0"
+              className="border-t border-surface-border first:border-t-0"
             >
-              <span className="mt-1">
-                {ticket.seated && <SeatSwatch size={16} treatment={treatments.get(ticket.id) ?? "outline"} patterns={patterns} />}
-              </span>
-              <div className="min-w-0">
-                <p className={`text-base leading-snug font-semibold ${waitingText ? "text-muted" : ""}`.trim()}>{ticket.name}</p>
-                <p className={`mt-1 text-base leading-6 font-semibold tabular-nums ${tierSoldOut || waitingText ? "text-muted" : ""}`.trim()}>
-                  {formatTicketHeadline(ticket)}
-                </p>
-                {!ticket.seated && <p className="mt-1 text-xs text-muted">Standing</p>}
-                {waitingText ? (
-                  <p className="mt-1 text-sm font-semibold">{waitingText}</p>
-                ) : tierSoldOut ? (
-                  <p className="eyebrow mt-1">Sold out</p>
+              <TierRow
+                href={choosable ? `/events/${event.slug}/seats` : undefined}
+                className={`grid grid-cols-[1rem_1fr_auto] items-start gap-x-3 py-3 ${
+                  choosable
+                    ? "-mx-2 rounded-control px-2 hover:bg-hover focus-visible:bg-hover"
+                    : ""
+                }`.trim()}
+              >
+                <span className="mt-1">
+                  {ticket.seated && (
+                    <SeatSwatch
+                      size={16}
+                      treatment={treatments.get(ticket.id) ?? "outline"}
+                      patterns={patterns}
+                    />
+                  )}
+                </span>
+                <div className="min-w-0">
+                  <p
+                    className={`text-base leading-snug font-semibold ${waitingText ? "text-muted" : ""}`.trim()}
+                  >
+                    {ticket.name}
+                  </p>
+                  <p
+                    className={`mt-1 text-base leading-6 font-semibold tabular-nums ${tierSoldOut || waitingText ? "text-muted" : ""}`.trim()}
+                  >
+                    {formatTicketHeadline(ticket)}
+                  </p>
+                  {!ticket.seated && (
+                    <p className="mt-1 text-xs text-muted">Standing</p>
+                  )}
+                  {waitingText ? (
+                    <p className="mt-1 text-sm font-semibold">{waitingText}</p>
+                  ) : tierSoldOut ? (
+                    <p className="eyebrow mt-1">Sold out</p>
+                  ) : (
+                    ticket.remaining !== undefined &&
+                    ticket.remaining > 0 && (
+                      <p className="mt-1 text-xs font-semibold">
+                        Only {ticket.remaining}{" "}
+                        {ticket.seated
+                          ? ticket.remaining === 1
+                            ? "seat"
+                            : "seats"
+                          : ticket.remaining === 1
+                            ? "ticket"
+                            : "tickets"}{" "}
+                        left
+                      </p>
+                    )
+                  )}
+                </div>
+                {choosable ? (
+                  <ArrowRightIcon className="mt-1 h-4 w-4 shrink-0 text-muted" />
                 ) : (
-                  ticket.remaining !== undefined &&
-                  ticket.remaining > 0 && (
-                    <p className="mt-1 text-xs font-semibold">
-                      Only {ticket.remaining} {ticket.seated ? (ticket.remaining === 1 ? "seat" : "seats") : ticket.remaining === 1 ? "ticket" : "tickets"} left
-                    </p>
-                  )
+                  <span />
                 )}
-              </div>
+              </TierRow>
             </li>
           );
         })}
       </ul>
 
       {soldOut ? (
-        <WaitlistBlock eventId={event.id} closed={ended} demo={demo || !isApiConfigured} />
+        <WaitlistBlock
+          eventId={event.id}
+          closed={ended}
+          demo={demo || !isApiConfigured}
+        />
       ) : ended ? (
-        <p className="border-t border-foreground pt-4 text-sm">Ticket sales for this event have ended.</p>
+        <p className="border-t border-foreground pt-4 text-sm">
+          Ticket sales for this event have ended.
+        </p>
       ) : (
         <div className="flex flex-col gap-3 border-t border-foreground pt-4">
-          {low && <p className="text-sm font-semibold">Few seats left in {low.name}.</p>}
-          <ButtonLink variant="solid" size="lg" href={`/events/${event.slug}/seats`} className="w-full">
+          {low && (
+            <p className="text-sm font-semibold">
+              Few seats left in {low.name}.
+            </p>
+          )}
+          <ButtonLink
+            variant="solid"
+            size="lg"
+            href={`/events/${event.slug}/seats`}
+            className="w-full"
+          >
             Choose your seats
             <ArrowRightIcon className="h-4 w-4 shrink-0" />
           </ButtonLink>
-          {buyerPaysAFee && <p className="text-xs text-muted">{describeBookingFeeNote()}</p>}
+          {buyerPaysAFee && (
+            <p className="text-xs text-muted">{describeBookingFeeNote()}</p>
+          )}
         </div>
       )}
     </div>
+  );
+}
+
+/** A tier's row: a link to the seat page while it's on sale, plain otherwise. */
+function TierRow({
+  href,
+  className,
+  children,
+}: {
+  href?: string;
+  className: string;
+  children: ReactNode;
+}) {
+  return href ? (
+    <Link href={href} className={className}>
+      {children}
+    </Link>
+  ) : (
+    <div className={className}>{children}</div>
   );
 }

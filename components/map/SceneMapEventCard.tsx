@@ -20,6 +20,8 @@ interface SceneMapEventCardProps {
   ref?: Ref<HTMLElement>;
   /** Where an event without coordinates of its own goes: its suburb's centre (lib/geo.ts). */
   findSuburb?: SuburbLookup;
+  /** The phone's sheet: a "List" button back to the list (the owner's 390 and 768 mocks). */
+  onShowList?: () => void;
 }
 
 /**
@@ -39,6 +41,7 @@ export default function SceneMapEventCard({
   className,
   ref,
   findSuburb,
+  onShowList,
 }: SceneMapEventCardProps) {
   const start = startLabel(event);
   const pinned = resolveEventCoordinates(event, findSuburb);
@@ -107,6 +110,11 @@ export default function SceneMapEventCard({
         <Link href={detailsHref} className={buttonClass("outline", "md", "min-h-11 w-full sm:min-h-10")}>
           View event<span className="sr-only">: {event.title}</span>
         </Link>
+        {sheet && onShowList && (
+          <button type="button" onClick={onShowList} className={buttonClass("solid", "md", "min-h-12 w-full")}>
+            List
+          </button>
+        )}
       </div>
       {!sheet && dismiss}
     </section>

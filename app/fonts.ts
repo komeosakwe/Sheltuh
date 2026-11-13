@@ -2,18 +2,15 @@ import { IBM_Plex_Mono, Instrument_Sans } from "next/font/google";
 import localFont from "next/font/local";
 
 /**
- * The brand faces (docs/design/brand-direction-one.md §3.1), self-hosted by
- * next/font with size-adjusted fallbacks. All are preloaded: Instrument
- * titles and Plex Mono dates sit above the fold on cards, and the home's
- * search field is in the plain face. `latin` includes ü. app/globals.css maps
- * them to --face-sans (dotted, then plain), --face-sans-plain and --face-mono.
+ * The brand faces (the redesign rules' Type board), self-hosted by next/font.
+ * Bootzy and Instrument Sans are preloaded: display headlines, card titles and
+ * dates sit above the fold. IBM Plex Mono is no longer a text face (owner
+ * decision, 13 Nov 2026): it's kept only for machine codes, so it isn't
+ * preloaded. app/globals.css maps them to --face-sans, --face-mono and
+ * --face-display.
  */
 
-/**
- * Instrument Sans, variable weight 400–700, unmodified. It's --face-sans-plain:
- * form fields (what people type looks the way they typed it), and any
- * character outside the dotted font's latin subset.
- */
+/** Instrument Sans, variable weight 400–700: UI, headings, body, buttons, nav and form fields. */
 export const instrument = Instrument_Sans({
   variable: "--font-instrument",
   subsets: ["latin"],
@@ -21,49 +18,37 @@ export const instrument = Instrument_Sans({
 });
 
 /**
- * Instrument Sans Dots (CSS family `instrumentDots`): the same latin Instrument Sans file with the plain
- * vowels a e i o u A E I O U drawn as ä ë ï ö ü Ä Ë Ï Ö Ü (owner request,
- * 23 Oct 2026: the brand's dots over every vowel). Only the rendering
- * changes; the text stays plainly spelled. Body, headings, buttons and nav,
- * via --face-sans. Built by scripts/build-dotted-font.py, OFL 1.1; see
- * app/fonts/instrument-sans-dots/README.md.
- *
- * No size-adjusted Arial fallback of its own (adjustFontFallback: false), so
- * until it loads, and for any character it lacks, the text falls through to
- * Instrument Sans and its fallback in --face-sans.
+ * IBM Plex Mono 400, for machine codes only (`font-mono`): the ticket's
+ * entry code, order references, the door's code entry and admin links that
+ * carry a token, where 0 and O or 1 and l must be told apart. Dates, times,
+ * places and eyebrows are Instrument Sans. Not preloaded: only the ticket,
+ * check-in and admin pages use it, and the browser fetches it there when a
+ * code is drawn.
  */
-export const instrumentDots = localFont({
-  variable: "--font-instrument-dots",
-  src: [{ path: "./fonts/instrument-sans-dots/InstrumentSansDots-latin.woff2", weight: "400 700", style: "normal" }],
-  // The CSS family name. next/font/local names the --font-instrument-dots variable after this
-  // export, so the @font-face must use the same name or nothing would match it.
-  declarations: [{ prop: "font-family", value: "instrumentDots" }],
+export const plexMono = IBM_Plex_Mono({
+  variable: "--font-plex-mono",
+  weight: ["400"],
+  subsets: ["latin"],
+  display: "swap",
+  preload: false,
+});
+
+/**
+ * Bootzy (Bootzy TM, Regular only), the display face: the display-* type
+ * styles only, never body, buttons or labels. The owner-supplied file,
+ * converted from its OTF to WOFF2 unchanged (app/fonts/bootzy/README.md).
+ *
+ * `adjustFontFallback: false`: next/font/local's default puts a
+ * size-adjusted Arial face right after Bootzy, so the glyphs Bootzy lacks
+ * (· … * ~ → × and the no-break space) would draw in Arial. Without it they
+ * fall through --face-display to Instrument Sans. One weight (400), and
+ * globals.css sets `font-synthesis-weight: none` on every display style, so
+ * a bold heading never gets a smeared fake bold.
+ */
+export const bootzy = localFont({
+  variable: "--font-bootzy",
+  src: [{ path: "./fonts/bootzy/Bootzy-Regular.woff2", weight: "400", style: "normal" }],
   display: "swap",
   adjustFontFallback: false,
   preload: true,
 });
-
-/** IBM Plex Mono 400 and 500: eyebrows, straps, dates and references. */
-export const plexMono = IBM_Plex_Mono({
-  variable: "--font-plex-mono",
-  weight: ["400", "500"],
-  subsets: ["latin"],
-  display: "swap",
-});
-
-/*
- * Bootzy, the display face, isn't licensed into the repo yet; --face-display
- * falls back to Instrument Sans 700 set tight. When the licensed files land:
- * 1. add app/fonts/bootzy/Bootzy-Regular.woff2 (and its licence file);
- * 2. uncomment this export, and add `${bootzy.variable}`
- *    to <html className> in app/layout.tsx;
- * 3. flip the display block in app/globals.css :root (§3.4).
- *
- * export const bootzy = localFont({
- *   variable: "--font-bootzy",
- *   src: [{ path: "./fonts/bootzy/Bootzy-Regular.woff2", weight: "400", style: "normal" }],
- *   display: "swap",
- *   adjustFontFallback: "Arial",
- *   preload: true,
- * });
- */
