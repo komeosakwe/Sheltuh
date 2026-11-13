@@ -25,7 +25,7 @@ export default function HomeHero() {
               <span className="max-md:block lg:block">{first}</span> <span className="max-md:block lg:block">{second}</span>
             </BrandU>
           </h1>
-          <p data-home-lede="" className="mt-3 text-[1.0625rem] leading-7 font-medium text-muted md:mt-4 md:body-l">
+          <p data-home-lede="" className="mt-3 text-[1.0625rem] leading-7 font-medium text-muted md:mt-4 md:text-lg md:leading-7">
             {HOME_LEDE}
           </p>
         </div>
