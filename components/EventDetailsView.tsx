@@ -25,6 +25,7 @@ import BackLink from "@/components/ui/BackLink";
 import { buttonClass } from "@/components/ui/Button";
 import CategoryTag from "@/components/ui/CategoryTag";
 import DateChip from "@/components/ui/DateChip";
+import SoonTag from "@/components/ui/SoonTag";
 import { Panel } from "@/components/ui/Section";
 import ExternalGoing from "@/components/ExternalGoing";
 import WhosGoing from "@/components/WhosGoing";
@@ -38,6 +39,7 @@ import { eventZone, formatEventDateShort, formatEventDateTimeRange, formatEventT
 import { directionsHref } from "@/lib/maps";
 import { externalPriceFromLabel, formatFeedPriceParts, isSoldOut } from "@/lib/pricing";
 import { goesToSeatPage, quickBuyLabel } from "@/lib/quick-buy";
+import { soonFields, type SoonFields } from "@/lib/soon";
 import { DEFAULT_REFUND_POLICY, REFUND_ACL_STATEMENT, refundTermsLine } from "@/lib/refund-policy";
 import { organiserProfileHref } from "@/lib/sample-organisers";
 import { siteOrigin } from "@/lib/share-metadata";
@@ -104,18 +106,32 @@ function Placeholder({ children }: { children: ReactNode }) {
  * out, ended, none yet) is "Tickets". The ticket panel beside the photo (and the phone's buy bar) is the
  * way here.
  */
-function TicketsSection({ selects, children }: { selects: boolean; children: ReactNode }) {
+function TicketsSection({
+  selects,
+  soon,
+  children,
+}: {
+  selects: boolean;
+  /** The event's times for the "🔥 Tomorrow" tag beside the heading; none for a draft without a date. */
+  soon?: SoonFields;
+  children: ReactNode;
+}) {
   return (
     <section aria-labelledby={TICKETS_HEADING_ID}>
-      {/* Focusable from script (the desktop panel's action lands here), with a ring when it does, whatever the
-          pointer did before; never a Tab stop. */}
-      <h2
-        id={TICKETS_HEADING_ID}
-        tabIndex={-1}
-        className="heading-h2 rounded-control break-words focus:outline-2 focus:outline-offset-4 focus:outline-foreground"
-      >
-        {selects ? "Select your tickets" : "Tickets"}
-      </h2>
+      {/* The heading, and beside it (under it where there's no room) the soon tag, outside the heading so its name
+          stays "Select your tickets". */}
+      <div data-tickets-head="" className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        {/* Focusable from script (the desktop panel's action lands here), with a ring when it does, whatever the
+            pointer did before; never a Tab stop. */}
+        <h2
+          id={TICKETS_HEADING_ID}
+          tabIndex={-1}
+          className="heading-h2 min-w-0 rounded-control break-words focus:outline-2 focus:outline-offset-4 focus:outline-foreground"
+        >
+          {selects ? "Select your tickets" : "Tickets"}
+        </h2>
+        {soon && <SoonTag event={soon} />}
+      </div>
       {selects && <p className="body-m mt-2 text-muted">Choose a release to secure your spot.</p>}
       <div className={selects ? "mt-6" : "mt-4"}>{children}</div>
     </section>
@@ -273,6 +289,9 @@ export default function EventDetailsView({
   // The bars' mono line under the price: the start, "Thu 19 Nov · 7:00 pm". None for a draft without a
   // date: its start is only a stand-in (preview-event.ts), and the facts say "Date and time to be added".
   const dateLine = missing?.when ? undefined : `${formatEventDateShort(event.startsAt, zone)} · ${formatEventTime(event.startsAt, zone)}`;
+  // The "🔥 Tomorrow" tag's times (lib/soon.ts), beside the category, the tickets heading and the bars' date line;
+  // none for a draft without a date (its start is only a stand-in).
+  const soon = missing?.when ? undefined : soonFields(event);
   // The general admission releases to choose from (the panel says how many as it takes you there).
   const releases = event.ticketTypes.filter((ticket) => !ticket.seated).length;
 
@@ -350,6 +369,7 @@ export default function EventDetailsView({
           <div className="flex min-w-0 flex-col gap-2 max-lg:pb-8 lg:col-span-5 lg:col-start-8 lg:row-span-2 lg:row-start-1 xl:col-span-4 xl:col-start-9">
             <div data-event-tags="" className="flex flex-wrap gap-2">
               <CategoryTag tone={event.category}>{categoryLabel}</CategoryTag>
+              {soon && <SoonTag event={soon} />}
               {ageTag && (
                 <CategoryTag tone="neutral">
                   <span className="sr-only">Age restriction: </span>
@@ -484,7 +504,7 @@ export default function EventDetailsView({
                 screen-reader focus to the tickets too, with the global focus-visible ring around the
                 section to show where you've landed. */}
             <div id="tickets" tabIndex={-1} className="rounded-card lg:max-w-xl">
-              <TicketsSection selects={selectsTickets}>
+              <TicketsSection selects={selectsTickets} soon={soon}>
                 {external ? (
                   <div className="flex flex-col gap-4 rounded-card border border-foreground bg-card p-4 sm:p-6">
                     {event.externalFree && <p className="text-base leading-6 font-semibold">Free entry</p>}
@@ -588,7 +608,7 @@ export default function EventDetailsView({
               1px white top rule, so the black bar doesn't merge with the black page. */}
           {price && !ended && seatPage && (
             <div data-buy-bar className={buyBarClass}>
-              <BarPrice amount={price.amount} note={price.note} dateLine={dateLine} />
+              <BarPrice amount={price.amount} note={price.note} dateLine={dateLine} soon={soon} />
               {/* A seated event's buy bar goes straight to its seat page (manager decision 2,
                   docs/design/seating.md). */}
               <Link href={`/events/${event.slug}/seats`} className={buttonClass("signal", "lg", "shrink-0 gap-2 px-5 sm:px-7")}>
@@ -601,13 +621,13 @@ export default function EventDetailsView({
               selector drives it: components/checkout/BuyBar.tsx), and the way to the tickets until
               then ("Buy tickets", or "Free tickets" when every tier is free, in demo mode too (owner,
               21 Oct 2026); "Join waitlist" when sold out). */}
-          {price && !ended && !seatPage && <GaBuyBar price={price} label={buyBarLabel} dateLine={dateLine} className={buyBarClass} />}
+          {price && !ended && !seatPage && <GaBuyBar price={price} label={buyBarLabel} dateLine={dateLine} soon={soon} className={buyBarClass} />}
           {/* An external event's buy bar: the organiser's price if given (never the site's name), and
               the outbound link itself, not a jump to #tickets. None once it has ended. */}
           {externalOnSale && (
             <div data-buy-bar className={buyBarClass}>
               {/* Never the ticket site's name (owner, 31 Oct 2026): buyers go through our link. */}
-              <BarPrice amount={event.externalFree ? "Free" : (externalFrom ?? undefined)} dateLine={dateLine} />
+              <BarPrice amount={event.externalFree ? "Free" : (externalFrom ?? undefined)} dateLine={dateLine} soon={soon} />
               <ExternalTicketLink
                 eventId={event.id}
                 url={ticketUrl}

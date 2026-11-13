@@ -3,8 +3,10 @@
 import { createContext, useContext, useEffect, useId, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { ArrowRightIcon } from "@/components/home/icons";
 import { Button, buttonClass } from "@/components/ui/Button";
+import { SoonText } from "@/components/ui/SoonTag";
 import { useSoftKeyboardOpen } from "@/lib/use-soft-keyboard";
 import type { FeedPriceParts } from "@/lib/pricing";
+import type { SoonFields } from "@/lib/soon";
 
 /**
  * What the ticket selector tells the event page's phone buy bar (below lg) and
@@ -75,6 +77,7 @@ export function GaBuyBar({
   price,
   label,
   dateLine,
+  soon,
   className,
 }: {
   price: FeedPriceParts;
@@ -82,6 +85,8 @@ export function GaBuyBar({
   label: string;
   /** The event's start in mono under the price ("Thu 19 Nov · 7:00 pm"); none for a draft without a date yet. */
   dateLine?: string;
+  /** The event's times, for "🔥 Tomorrow · " before the date line (lib/soon.ts). */
+  soon?: SoonFields;
   className: string;
 }) {
   const state = useContext(StateContext);
@@ -131,7 +136,7 @@ export function GaBuyBar({
     >
       <div className="@container min-w-0 flex-1">
         <div className="flex items-center gap-3 @max-xs:flex-col @max-xs:items-stretch @max-xs:gap-2">
-          <BarPrice amount={shown.amount} note={shown.note} dateLine={dateLine} amountId={amountId} noteId={noteId} />
+          <BarPrice amount={shown.amount} note={shown.note} dateLine={dateLine} soon={soon} amountId={amountId} noteId={noteId} />
           <BuyAction state={state} label={label} describedBy={shown.note ? `${amountId} ${noteId}` : amountId} className={actionClass} />
         </div>
       </div>
@@ -142,18 +147,21 @@ export function GaBuyBar({
 /**
  * A phone buy bar's left side (the owner's 390 mock): the all-inclusive amount at 18px semibold (none for an external
  * event whose organiser gave no price), what it includes beside it, and the event's start under it, as written. Not a live region: the selector's own status
- * announces each change to the total.
+ * announces each change to the total. When the event is close, the start line leads with it ("🔥 Tomorrow · Sat 14 Nov ·
+ * 5:00 pm", components/ui/SoonTag.tsx), on one line: the date is cut short where it must be, never the label.
  */
 export function BarPrice({
   amount,
   note,
   dateLine,
+  soon,
   amountId,
   noteId,
 }: {
   amount?: string;
   note?: string;
   dateLine?: string;
+  soon?: SoonFields;
   amountId?: string;
   noteId?: string;
 }) {
@@ -172,7 +180,12 @@ export function BarPrice({
         )}
       </p>
       )}
-      {dateLine && <p className="mono-s text-muted">{dateLine}</p>}
+      {dateLine && (
+        <p data-bar-date="" className="mono-s flex min-w-0 text-muted">
+          {soon && <SoonText event={soon} />}
+          <span className="min-w-0 truncate">{dateLine}</span>
+        </p>
+      )}
     </div>
   );
 }
