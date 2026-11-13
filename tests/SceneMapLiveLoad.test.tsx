@@ -145,6 +145,24 @@ describe("live /map loading", () => {
 
   // Code review (PR 5): a radius can hold only a few of the events read so far. Nearby reads on by
   // itself, once (4 more pages), then says what it found "so far" and leaves the rest to Load more.
+  // Code review (PR 47): Nearby's automatic load is not a press of Load more, so even when it reads
+  // the last page (the button goes away), focus stays where it was.
+  it("an automatic Nearby load that reads the last page doesn't move focus", async () => {
+    localStorage.setItem("sheltuh:near:v1", JSON.stringify({ suburb: "Perth", state: "WA" }));
+    try {
+      for (let n = 0; n < 4; n++) listPublicEvents.mockResolvedValueOnce(page(n * 50, 50, `c${n + 1}`));
+      listPublicEvents.mockResolvedValueOnce(page(200, 50));
+      render(<SceneMap />);
+      await waitFor(() => expect(listPublicEvents).toHaveBeenCalledTimes(5), { timeout: 10_000 });
+      await waitFor(() => expect(screen.queryByRole("button", { name: /Load more events|Loading/ })).toBeNull(), { timeout: 10_000 });
+      // Let any focus effect run.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(document.activeElement === document.body || document.activeElement === null).toBe(true);
+    } finally {
+      localStorage.removeItem("sheltuh:near:v1");
+    }
+  }, 30_000);
+
   it("with few events within the radius, reads 4 more pages once, then says 'so far' beside Load more", async () => {
     localStorage.setItem("sheltuh:near:v1", JSON.stringify({ suburb: "Perth", state: "WA" }));
     try {
