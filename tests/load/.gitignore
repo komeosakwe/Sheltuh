@@ -1,0 +1,3 @@
+# Seed output (event ids, door ticket codes, member emails) and run results: local only.
+*.local.json
+results/
