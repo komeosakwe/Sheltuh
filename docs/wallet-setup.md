@@ -95,7 +95,8 @@ use OpenSSL, which macOS, Linux and Git Bash on Windows already have.
    details → copy the **Team ID** (10 letters and digits). That's
    `APPLE_WALLET_TEAM_ID`.
 2. **Pass Type ID.** Certificates, Identifiers & Profiles → Identifiers → **+**
-   → **Pass Type IDs** → Continue. Description `Sheltüh tickets`,
+   → **Pass Type IDs** → Continue. Description `Sheltuh tickets` (Apple refuses
+   the ü there: "Invalid description"; buyers never see it),
    identifier **`pass.au.com.sheltuh.tickets`** → Register. That's
    `APPLE_WALLET_PASS_TYPE_ID`.
 3. **CSR and private key**, in an empty folder outside the repo:
@@ -105,6 +106,10 @@ use OpenSSL, which macOS, Linux and Git Bash on Windows already have.
      -keyout pass-key.pem -out pass.csr \
      -subj "/emailAddress=info@sheltuh.com.au/CN=Sheltuh Wallet/C=AU"
    ```
+
+   In **Git Bash on Windows**, put `MSYS_NO_PATHCONV=1 ` in front of
+   `openssl`: otherwise Git Bash rewrites the `-subj "/…"` value as a Windows
+   path and the command fails.
 
    `pass-key.pem` is the private key (unencrypted, so no passphrase is
    needed). Keep it private.
