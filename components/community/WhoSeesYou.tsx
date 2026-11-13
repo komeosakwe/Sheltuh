@@ -15,7 +15,7 @@ function Icon({ kind }: { kind: PointIcon }) {
       strokeWidth={1.75}
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="size-6 shrink-0"
+      className="size-6 shrink-0 lg:size-8"
     >
       {kind === "people" && (
         <>
@@ -55,12 +55,12 @@ export default function WhoSeesYou({ className = "" }: { className?: string }) {
       <p className={`${PANEL_LINE} lg:mt-4 lg:text-2xl lg:leading-8`}>{WHO_SEES_YOU.body}</p>
       <ul
         data-who-points=""
-        className="mt-6 flex flex-col gap-5 rounded-card bg-card p-5 md:gap-6 md:p-8 lg:mt-8 lg:flex-1 lg:justify-evenly lg:gap-8 lg:p-10"
+        className="mt-6 flex flex-col gap-5 rounded-card bg-card p-5 md:gap-6 md:p-8 lg:mt-8 lg:flex-1 lg:justify-evenly lg:gap-8 lg:px-8 lg:py-10"
       >
         {WHO_SEES_YOU.points.map((point) => (
-          <li key={point.text} className="flex items-center gap-4 lg:gap-5">
+          <li key={point.text} className="flex items-center gap-4 lg:gap-6">
             <Icon kind={point.icon} />
-            <span className="body-l">{point.text}</span>
+            <span className="body-l font-medium text-pretty md:text-xl md:leading-7 lg:text-2xl lg:leading-8">{point.text}</span>
           </li>
         ))}
       </ul>
