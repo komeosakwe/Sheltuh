@@ -928,7 +928,9 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
 **Which branches build.** `vercel.json`'s `ignoreCommand` builds Production
 (`main`) and one preview branch only; every other branch push is skipped, so
-build minutes don't grow with each working branch. The preview branch is
+build minutes don't grow with each working branch. If Vercel's system
+variables are missing (`VERCEL_ENV` empty), everything builds: it fails open,
+so Production can never be skipped by mistake. The preview branch is
 `PREVIEW_BRANCH` (a Vercel environment variable, Preview scope, plain text:
 a branch name, e.g. `claude/member-photos`), else `claude/redesign-batch1`.
 Change it there, then redeploy that branch (or push to it). It only takes effect
