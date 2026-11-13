@@ -209,6 +209,8 @@ Sizes are base (320–639) / `sm` 640 / `lg` 1024; leading is in px.
 
 This applies site-wide (section h2s, empty-state titles), which is what the brief asks for: one consistent, smaller heading step. It moved from P2 to P1 because the P0 screenshots showed the section heads too loud on phones. `display-xl` had no user once the hero switched: **deleted in P2** (`tests/brand-tokens.test.ts` now checks it stays gone).
 
+> **Owner decision, 13 Nov 2026: IBM Plex Mono is retired as a text face.** Everything below that says Plex Mono (categories, dates, labels, notes, footer headings) is now Instrument Sans in sentence case with normal tracking; mono stays only for machine codes (ticket codes, order references, the door's code entry). See `brand-direction-one.md` §3.
+
 **Mono selectively (P2, done):** Plex Mono stays on categories, dates and times, field and row labels (`dt`, "Order summary"), section notes, footer group headings and the © line. It came off:
 - every back link: `components/ui/BackLink.tsx` is the one back link (Instrument `text-sm leading-5 font-semibold underline`, 44px tall, "←" decorative). The event page uses it with its existing words, "Back to all events" (to `/`, unchanged, as tests pin it); dashboards, admin and the door console share its `backLinkClass`;
 - the footer legal links (`text-sm`, sentence case, underlined);

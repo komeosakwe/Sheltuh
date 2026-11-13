@@ -68,11 +68,7 @@ export default async function SearchPage({
           // No `near` in the address: the bar prefills the remembered suburb (results stay as they are).
           near={near || undefined}
           appliedNear={near}
-          size="lg"
-          tone="signal"
           autoFocus={!query && !near}
-          label="Search events"
-          placeholder="Search events"
         />
       </div>
       {near && !place && (

@@ -5,9 +5,9 @@ import { sampleEvents } from "@/lib/sample-events";
 
 /**
  * Event clips in a real browser (docs/design/event-clips.md): the Play
- * button on the home rails' cards and on the event page's photo, nothing
+ * button on the home's cards and on the event page's photo, nothing
  * fetched before it's pressed, the viewer dialog (focus in, Escape, focus
- * back), the rails holding still while it's open, the 375px layout, and the
+ * back), the home's carousel holding still while it's open, the 375px layout, and the
  * editor's upload with the Storage PUT intercepted. Live mode with every
  * /api/* request answered here (NEXT_PUBLIC_EVENT_CLIPS=1 on the e2e
  * server). Playwright's Chromium has no H.264 decoder, so these check the
@@ -52,7 +52,7 @@ function asPublic(index: number, start: number): PublicEvent {
   };
 }
 
-/** Every event a week or more out (so none is this weekend's pair): one long "Coming up" rail. */
+/** Every event a week or more out (so none is this weekend's): the carousel's Coming up, and All events. */
 function fixtures(): PublicEvent[] {
   const now = Date.now();
   return sampleEvents.map((_, i) => asPublic(i, now + 8 * DAY + i * 26 * HOUR));
@@ -94,24 +94,24 @@ async function mockPublicApi(page: Page) {
 async function openHome(page: Page) {
   const { events, clipRequests, releaseClips } = await mockPublicApi(page);
   await page.goto("/");
-  const section = page.locator("[data-home-section]").filter({ has: page.getByRole("heading", { name: "Coming up", exact: true }) });
-  const rail = section.getByRole("list");
-  await expect(rail).toBeVisible({ timeout: 30_000 });
+  const section = page.getByRole("region", { name: "All events" });
+  const grid = section.getByRole("list", { name: "All events", exact: true });
+  await expect(grid).toBeVisible({ timeout: 30_000 });
   await page.mouse.move(1, 1);
-  await section.evaluate((el) => el.scrollIntoView({ block: "center", behavior: "instant" }));
-  return { events, clipRequests, releaseClips, section, rail };
+  await section.evaluate((el) => el.scrollIntoView({ block: "start", behavior: "instant" }));
+  return { events, clipRequests, releaseClips, section, grid };
 }
 
-const realCards = (rail: Locator) => rail.locator(":scope > li:not([data-rail-clone])");
+const cardsIn = (grid: Locator) => grid.locator(":scope > li");
 const pageOverflow = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 
-test.describe("home rails at 1280×800", () => {
+test.describe("the home at 1280×800", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
   test("each card has a Play between its link and Save; nothing loads before the press; Escape closes and focus comes back", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
-    const { events, clipRequests, releaseClips, rail } = await openHome(page);
-    const first = realCards(rail).first();
+    const { events, clipRequests, releaseClips, grid } = await openHome(page);
+    const first = cardsIn(grid).first();
     const title = (await first.locator("h3").textContent()) ?? "";
     const event = events.find((e) => e.title === title);
     expect(event).toBeDefined();
@@ -157,33 +157,31 @@ test.describe("home rails at 1280×800", () => {
     expect(await page.locator("video").count()).toBe(0);
   });
 
-  test("the rails hold still while the viewer is open, and carry on once it's closed", async ({ page }) => {
+  test("the featured carousel holds still while the viewer is open, and carries on once it's closed", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "no-preference" });
-    const { rail } = await openHome(page);
-    // Drifting.
-    const before = await rail.evaluate((ul) => ul.scrollLeft);
-    await expect.poll(() => rail.evaluate((ul) => ul.scrollLeft), { timeout: 5000 }).toBeGreaterThan(before + 10);
-    // Pressed without moving the pointer over the rail (a hover would hold it anyway).
-    await realCards(rail).nth(1).locator("[data-clip-play]").dispatchEvent("click");
+    const { grid } = await openHome(page);
+    const current = () =>
+      page.locator("[data-featured-carousel] [data-slide]").evaluateAll((slides) => slides.findIndex((s) => s.hasAttribute("data-current")));
+    // Pressed without moving the pointer over the carousel (a hover would hold it anyway).
+    await cardsIn(grid).nth(1).locator("[data-clip-play]").dispatchEvent("click");
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
-    await page.waitForTimeout(300);
-    const held = await rail.evaluate((ul) => ul.scrollLeft);
-    await page.waitForTimeout(1500);
-    expect(await rail.evaluate((ul) => ul.scrollLeft)).toBe(held);
+    const held = await current();
+    // Longer than a slide's turn (6s): it doesn't move.
+    await page.waitForTimeout(7_000);
+    expect(await current()).toBe(held);
     await dialog.getByRole("button", { name: "Close" }).dispatchEvent("click");
     await expect(dialog).toBeHidden();
-    // Focus back on Play would hold it too (keyboard focus in the section): let it go.
-    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-    await expect.poll(() => rail.evaluate((ul) => ul.scrollLeft), { timeout: 5000 }).toBeGreaterThan(held + 10);
+    // Focus back on Play is outside the carousel, so nothing else holds it.
+    await expect.poll(current, { timeout: 10_000 }).not.toBe(held);
   });
 });
 
 test.describe("at 375×667", () => {
   test.use({ viewport: { width: 375, height: 667 } });
 
-  // /events' grid: the card on a phone (the home's phone layout is grids of the same cards).
-  test("/events: the Play chip sits in the image's bottom-left, a 44px target, with no sideways scroll", async ({ page }) => {
+  // /events' grid: the card on a phone (the home's All events is the same card).
+  test("/events: the Play chip sits in the image's bottom-right, a 44px target, with no sideways scroll", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await mockPublicApi(page);
     await page.goto("/events");
@@ -196,12 +194,13 @@ test.describe("at 375×667", () => {
     if (!media || !play || !chip) return;
     expect(play.width).toBeGreaterThanOrEqual(44);
     expect(play.height).toBeGreaterThanOrEqual(44);
-    expect(play.x).toBeGreaterThanOrEqual(media.x);
+    expect(play.x + play.width).toBeLessThanOrEqual(media.x + media.width);
     expect(media.y + media.height - (play.y + play.height)).toBeGreaterThanOrEqual(0);
-    // The 36px chip sits 8px in from the left and bottom edges, as Save does from the top-right.
+    // Visual QA (PR 1): bottom-right, its 44px target 8px in from the right and bottom edges (the date
+    // chip is top-left, Save top-right); the 36px chip is centred in the target's height.
     expect(chip.height).toBe(36);
-    expect(Math.abs(chip.x - media.x - 8)).toBeLessThanOrEqual(1);
-    expect(Math.abs(media.y + media.height - (chip.y + chip.height) - 8)).toBeLessThanOrEqual(1);
+    expect(Math.abs(media.x + media.width - (chip.x + chip.width) - 8)).toBeLessThanOrEqual(1);
+    expect(Math.abs(media.y + media.height - (play.y + play.height) - 8)).toBeLessThanOrEqual(1);
     expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
   });
 
@@ -218,13 +217,15 @@ test.describe("at 375×667", () => {
     const playBox = await play.boundingBox();
     expect(titleBox && playBox).toBeTruthy();
     if (!titleBox || !playBox) return;
-    // Lined up with the page's 20px text edge, 44px tall.
-    expect(Math.abs(playBox.x - titleBox.x)).toBeLessThanOrEqual(1);
-    expect(playBox.height).toBeGreaterThanOrEqual(44);
-    // The photo is still full-bleed (375 wide), and the title still on the first screen.
+    // The photo sits in the page's 16px margins (the redesign's event mock), lined up with the title; Play is 8px
+    // inside its bottom-left corner (as on the cards), 44px tall, and the title is still on the first screen.
     const art = await page.locator("[data-clip-play]").locator("xpath=..").locator("[aria-hidden='true']").first().boundingBox();
-    expect(art?.width).toBe(375);
-    expect(art?.x).toBe(0);
+    if (!art) throw new Error("no photo");
+    expect(art.width).toBe(375 - 32);
+    expect(Math.abs(art.x - titleBox.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(playBox.x - (art.x + 8))).toBeLessThanOrEqual(1);
+    expect(Math.abs(art.y + art.height - (playBox.y + playBox.height) - 8)).toBeLessThanOrEqual(1);
+    expect(playBox.height).toBeGreaterThanOrEqual(44);
     expect(titleBox.y + titleBox.height).toBeLessThan(667);
     expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
     expect(clipRequests).toEqual([]);

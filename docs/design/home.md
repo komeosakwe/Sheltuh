@@ -1,6 +1,21 @@
 # Home page (all widths) design spec
 
-> **Superseded for the hero, section order and cards by [`mobile-redesign.md`](mobile-redesign.md)** (22 Oct 2026).
+> **Superseded by the redesign (Batch 1, PR 3, Nov 2026).** The home is now, top to bottom: the hero
+> (the round badge from 1024px, FIND YOÜR NEXT THING. in Display, the lede "Curated creative events.
+> See who's going." and the search, one row from 1280px); a featured carousel (Popular right now
+> from real trending data, else Coming up: it claims its events first, at most five, and advances
+> by itself only where motion is welcome, with Pause, Previous, Next and dots); the category chips
+> (toggle filters, "All" pressed by default); This weekend; From organisers you follow; All events
+> (Price, Category and Date filters, Show more events, a 1/2/3/4-column grid: 304px cards at 1440,
+> This weekend's events last); Find your people (the compact "See who's going." band and Explore
+> communities, which goes to `/community`); and the organiser banner. The rails and their marquee,
+> What else?, Recently on, the hero collage and `WeekendCard` are gone, and the "each event once"
+> rule now covers the carousel, This weekend and following (All events is the full list). The code
+> is the reference: `components/home/*`, `lib/home-sections.ts`, `lib/home-filters.ts`. What
+> follows is kept for its history and its still-current parts (the weekend window, the
+> trending rules and the honest prices).
+>
+> Earlier: superseded for the hero, section order and cards by [`mobile-redesign.md`](mobile-redesign.md) (22 Oct 2026).
 
 Status: proposed · Owner: ui-design-director · Scope: `/` from 320px up.
 
@@ -44,7 +59,9 @@ This replaces the split home: `PhoneHome` below `sm` plus the desktop tree (`Int
 | Cream / Black | 20.08:1 | Featured card text on the scrim (≥85% black), Creators card, Trending chip |
 | Signal / Cream | 3.25:1 | **Non-text only**: strap dots. Never text. |
 
-**Type.** Faces and utilities are as in `brand-direction-one.md` §3: Instrument Sans (`font-sans`, `font-heading`), Plex Mono (`eyebrow`, `meta`), and the display token (`font-display`; Bootzy when licensed). Sizes are given as base / `sm:` / `md:` / `lg:`. A blank cell inherits the cell to its left.
+> **Owner decision, 13 Nov 2026: IBM Plex Mono is retired as a text face.** The strap and card-date rows below are now Instrument Sans in sentence case, normal tracking (`eyebrow` 500, `meta` 400): "Sat 14 Nov · 8pm · Windsor, VIC". See `brand-direction-one.md` §3.
+
+**Type.** Faces and utilities are as in `brand-direction-one.md` §3: Instrument Sans (`font-sans`, `font-heading`), Plex Mono (`eyebrow`, `meta`; superseded above), and the display token (`font-display`; Bootzy when licensed). Sizes are given as base / `sm:` / `md:` / `lg:`. A blank cell inherits the cell to its left.
 
 | Role | Base (<640) | sm 640 | md 768 | lg 1024 | LH | Tracking | Case | Wt |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |

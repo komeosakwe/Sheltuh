@@ -2,13 +2,13 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import SceneMap from "@/components/SceneMap";
 
-export const metadata: Metadata = { title: "Scene map — Sheltüh" };
+// The page is Nearby (the audit: "Map" names the screen, not the goal); its address stays /map.
+export const metadata: Metadata = { title: "Nearby — Sheltüh" };
 
 export default function MapPage() {
   return (
-    // The site's page edges, so the heading lines up with the logo; only the map and list
-    // panel widens on large screens (SceneMap, .map-bleed).
-    <div className="mx-auto flex max-w-6xl flex-col gap-8 px-5 py-12 sm:px-8 sm:py-20">
+    // The rules' content column (1312px, margins 16 / 32 / 64), as the other redesigned pages.
+    <div className="page-container flex flex-col gap-8 pt-12 pb-16 lg:pt-16 lg:pb-24">
       <Suspense fallback={<p className="text-sm text-muted">Loading&hellip;</p>}>
         <SceneMap />
       </Suspense>

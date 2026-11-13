@@ -1,89 +1,130 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import {
   NEAR_MAX_LENGTH,
-  NEAR_STORAGE_KEY,
   clearStoredNear,
   readStoredNear,
+  readStoredNearState,
+  subscribeStoredNear,
   writeStoredNear,
 } from "@/lib/near-storage";
-// The suburb table loads only when someone opens the picker or asks for their location.
+// The suburb table loads only when someone opens the menu or asks for their location.
 import { loadLocation, type LocationModule } from "@/lib/location-loader";
 import { GEOLOCATION_OPTIONS, hasGeolocation } from "@/lib/geolocation";
 import { currentInAppLocationHelp } from "@/lib/in-app-browser";
 import { placeName } from "@/lib/place";
+import type { StateCode } from "@/lib/time-zones";
 
-function subscribeStorage(onChange: () => void) {
-  function handle(event: StorageEvent) {
-    if (event.key === null || event.key === NEAR_STORAGE_KEY) onChange();
-  }
-  window.addEventListener("storage", handle);
-  return () => window.removeEventListener("storage", handle);
-}
 const noSubscribe = () => () => {};
 const serverEmpty = () => "";
+const serverNull = () => null;
 const serverFalse = () => false;
 
 type PanelStatus = { tone: "info" | "danger"; text: string; link?: { label: string; href: string } } | null;
 
-const SIZES = {
-  // The header: a 36px segment in a 44px bar. In a bar under 20rem (the bar is a size
-  // container, components/SearchBar.tsx) it's just the pin, so "Search events" keeps its room;
-  // the button's name still says the suburb.
-  sm: { button: "h-9 px-2 text-sm sm:px-3", icon: "size-4", label: "hidden @xs:block" },
-  // The hero and /search: 44px in a 52px bar. 14px is fine on a button (no iOS zoom).
-  // Tighter sides below 640px, so the words keep room in a 320–400px bar.
-  lg: { button: "h-11 px-2 text-sm sm:px-3", icon: "size-4", label: "" },
-} as const;
+/** The rules' location menu: the popular places under "Suggested", with their states. */
+const SUGGESTED: { name: string; state: StateCode }[] = [
+  { name: "Melbourne", state: "VIC" },
+  { name: "Sydney", state: "NSW" },
+  { name: "Brisbane", state: "QLD" },
+  { name: "Perth", state: "WA" },
+];
+
+/** The menu's width from md; below md it's a bottom sheet. */
+const PANEL_WIDTH = 360;
+/** The rules' `md` (768px): below it the menu is a bottom sheet. */
+const SHEET_BELOW = 768;
+
+/** A typed place the suburb table doesn't know (the venue form's words, components/dashboard/VenueSuburbField.tsx). */
+const UNKNOWN_PLACE = "We couldn’t find that suburb or town. Check the spelling, or add its state (“Richmond, NSW”).";
 
 /** Same suburb, as typed: case and outer spaces aside. */
 const sameNear = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
+const iconBox = "flex size-8 shrink-0 items-center justify-center rounded-control bg-surface";
+/** A menu row (the rules' Overlays board): 48px, a muted fill on hover, never orange. */
+const rowClass =
+  "flex min-h-12 w-full items-center gap-3 rounded-control px-2 text-left text-sm leading-5 font-semibold hover:bg-surface";
+
+function Icon({ children, className = "size-4" }: { children: ReactNode; className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={`shrink-0 ${className}`}
+    >
+      {children}
+    </svg>
+  );
+}
+
+const PIN = (
+  <>
+    <path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z" />
+    <circle cx="12" cy="9.5" r="2.5" />
+  </>
+);
+
 /**
- * The search bar's location segment (components/SearchBar.tsx): a button
- * showing the chosen suburb that opens a small "Find events near you"
- * popover with "Use my current location" and a typed suburb (`near`).
+ * The search bar's Where segment (components/SearchBar.tsx): a mono "WHERE" over the chosen
+ * place, white, cream on hover, cream with the black stroke while open (the rules' Search board;
+ * no orange focus ring). It opens the location menu, under the bar: "Use my location" and "All of
+ * Australia", a typed suburb, then Recent (the remembered suburb) and Suggested (Melbourne,
+ * Sydney, Brisbane, Perth). Radius 8, the 1.5px stroke, 48px rows, no shadow. Below md (in the
+ * search sheet) Where is a full-width field and the menu is a bottom sheet: radius 16 at the top,
+ * a drag handle and Close, over a scrim (the rules' Overlays board).
  *
- * Privacy (docs/architecture.md, "Location"): the browser's position is
- * asked for only when "Use my current location" is pressed, never on load;
- * it's turned into the suburb it's in (anywhere in Australia, from the
- * ABS table in lib/localities.ts) here and dropped. Only the
- * suburb's name (and its state) is kept (localStorage, `{suburb, state}`) and the name submitted
- * (`/search?near=`); coordinates never reach storage, the URL or the API.
- *
- * `near`: when the address has one (/search?near=…), the bar mirrors it;
- * otherwise (undefined: other pages, and /search without `near`) it starts
- * from the remembered suburb, after the page has mounted. An empty `near` is
- * left out of the address, and searching with no location forgets the
- * remembered suburb, so the next /search doesn't bring it back.
+ * One location, set once and used everywhere: choosing a place (or Use my location) remembers it
+ * in this browser at once (lib/near-storage.ts), so the next page, the home and Nearby all start
+ * from it; All of Australia forgets it. A typed suburb is remembered when the search is sent.
  * Nothing submits by itself (WCAG 3.2.2): the visitor presses Search.
  *
- * `appliedNear` (/search only): the suburb the results are ordered by ("" for
- * none). While the bar's location differs from it (a change here, or the
- * remembered suburb on a /search without `near`), a hint under the bar says
- * to press Search.
+ * Privacy (docs/architecture.md, "Location"): the browser's position is asked for only when "Use
+ * my location" is pressed, never on load; it's turned into the suburb it's in (anywhere in
+ * Australia, from the ABS table in lib/localities.ts) here and dropped. Only the suburb's name
+ * (and its state) is kept (localStorage, `{suburb, state}`) and the name submitted
+ * (`/search?near=`); coordinates never reach storage, the URL or the API.
  *
- * "Anywhere": after "Anywhere in Australia" the button reads "Anywhere"
- * rather than the "Your suburb" prompt. It's kept for this page view only
- * (storage holds a suburb or nothing), so after the next page load the
- * prompt is back.
+ * `near`: when the address has one (/search?near=…), the bar mirrors it; otherwise (undefined:
+ * other pages, and /search without `near`) it starts from the remembered suburb, after the page
+ * has mounted. An empty `near` is left out of the address, and searching with no location forgets
+ * the remembered suburb, so the next /search doesn't bring it back.
+ *
+ * `appliedNear` (/search only): the suburb the results are ordered by ("" for none). While the
+ * bar's location differs from it, a hint under the bar says to press Search.
+ *
+ * After "All of Australia" the segment says so rather than the "Your suburb" prompt, for this page
+ * view only (storage holds a suburb or nothing), so after the next page load the prompt is back.
+ *
+ * `standalone` (Nearby, components/SceneMapFilterBar.tsx): not part of a search that's sent, so
+ * Where is a bordered field at every width (its container sets the width), and Enter in the
+ * suburb field sets the place there and then: a suburb the table knows is remembered (as a
+ * choice is), an empty field is All of Australia, and anything else says it wasn't found. Closing
+ * the menu without applying drops what was typed: Where shows the place in use.
  */
 export default function LocationPicker({
   near,
   appliedNear,
-  size,
+  standalone = false,
 }: {
   near?: string;
   appliedNear?: string;
-  size: "sm" | "lg";
+  standalone?: boolean;
 }) {
   const popoverId = useId();
   const titleId = useId();
   const inputId = useId();
   const listId = useId();
   const statusId = useId();
+  const recentId = useId();
+  const suggestedId = useId();
   const buttonRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -91,44 +132,100 @@ export default function LocationPicker({
   // The same module, for rendering the suggestions once it has loaded.
   const [table, setTable] = useState<LocationModule | null>(null);
   const locatingRef = useRef(false);
+  // Each location action (a place, Use my location, All of Australia, Enter) takes the next number:
+  // an earlier one that's still loading doesn't set its place over a later one when it lands.
+  const actionRef = useRef(0);
 
-  const stored = useSyncExternalStore(subscribeStorage, readStoredNear, serverEmpty);
+  const stored = useSyncExternalStore(subscribeStoredNear, readStoredNear, serverEmpty);
+  const storedState = useSyncExternalStore(subscribeStoredNear, readStoredNearState, serverNull);
   const canLocate = useSyncExternalStore(noSubscribe, hasGeolocation, serverFalse);
   // What the visitor has typed or chosen here; until then, the address's or the remembered suburb.
   const [draft, setDraft] = useState<string | null>(null);
-  const value = draft ?? near ?? stored;
   const [anywhere, setAnywhere] = useState(false);
+  // Standalone: whether the place applied here is All of Australia, for closing without applying.
+  const [anywhereApplied, setAnywhereApplied] = useState(false);
+  // What this picker last remembered itself (a choice, All of Australia, a sent search) and hasn't
+  // seen arrive yet: its own write isn't a change from outside.
+  const [ownWrite, setOwnWrite] = useState<string | null>(null);
+  // The place in use changed from outside (Near me, another tab, the page's own place): Where
+  // shows it, not an older draft.
+  const [seen, setSeen] = useState({ stored, near });
+  // Counts changes from outside: each one supersedes any lookup this picker still has pending.
+  const [outsideChanges, setOutsideChanges] = useState(0);
+  if (seen.stored !== stored || seen.near !== near) {
+    setSeen({ stored, near });
+    // This picker's own write is recognised once; a later identical value is someone else's.
+    if (seen.stored !== stored) setOwnWrite(null);
+    if (stored !== ownWrite || seen.near !== near) {
+      setOutsideChanges((count) => count + 1);
+      setDraft(null);
+      if (stored || near) {
+        setAnywhere(false);
+        setAnywhereApplied(false);
+      }
+    }
+  }
+  // A place chosen elsewhere (another tab, Near me) wins: a pending Use my location or lookup here is
+  // dropped rather than saved over it.
+  useEffect(() => {
+    if (outsideChanges > 0) actionRef.current += 1;
+  }, [outsideChanges]);
+  /** Remembers `suburb` (or forgets the place, for ""), noting that this picker did it. */
+  function remember(suburb: string, state: StateCode | null) {
+    setOwnWrite(suburb.trim().slice(0, NEAR_MAX_LENGTH));
+    if (suburb) writeStoredNear(suburb, state);
+    else clearStoredNear();
+  }
+  const value = draft ?? near ?? stored;
+  const [open, setOpen] = useState(false);
+  // Standalone (Nearby): nothing is sent later, so a suburb typed but not applied (Enter) goes when
+  // the menu closes, and Where shows the place in use again rather than words that aren't.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (wasOpen !== open) {
+    setWasOpen(open);
+    if (!open && standalone) {
+      setDraft(null);
+      setAnywhere(anywhereApplied);
+    }
+  }
   const [panelStatus, setPanelStatus] = useState<PanelStatus>(null);
-  // Announced outside the popover, which has closed by the time it changes.
+  // Announced outside the menu, which has closed by the time it changes.
   const [announcement, setAnnouncement] = useState("");
   const [locating, setLocating] = useState(false);
 
   const label = value.trim();
-  const shown = label || (anywhere ? "Anywhere" : "Your suburb");
-  const styles = SIZES[size];
+  const shown = label || (anywhere ? "All of Australia" : "Your suburb");
   const outOfDate = appliedNear !== undefined && !sameNear(label, appliedNear);
   // Suburbs starting with what's typed (two letters or more), as "Suburb, STATE" (owner decision D4:
   // "Richmond, VIC" beside "Richmond, NSW"; each finds its own again); none until the table has loaded.
   const suggestions = table ? table.suggestLocalities(label).map((place) => placeName(place.name, place.state)) : [];
+  /** The table's own name for a place ("Brisbane" is Brisbane City), once the table has loaded. */
+  const tableName = (name: string) => table?.findLocality(name)?.name ?? name;
+  const isCurrent = (name: string) => label !== "" && (sameNear(label, name) || sameNear(label, tableName(name)));
+  const recent = stored.trim();
+  const suggested = SUGGESTED.filter(
+    (place) => !recent || !(sameNear(recent, place.name) || sameNear(recent, tableName(place.name))),
+  );
 
-  // Place the panel under the bar: the bar's full width on phones; from 640px, 320px under
-  // this segment, kept within the bar's edges.
+  // From md, place the menu 360px wide under this segment, kept within the bar's edges. Below md
+  // it's a bottom sheet (its classes), so any placement from a wider window is cleared.
   useEffect(() => {
     const popover = popoverRef.current;
     if (!popover) return;
+    const isSheet = () => document.documentElement.clientWidth < SHEET_BELOW;
     function place() {
       const button = buttonRef.current;
       const bar = button?.closest("[data-search-bar]");
       if (!popover || !button || !bar) return;
+      if (isSheet()) {
+        Object.assign(popover.style, { margin: "", top: "", left: "", right: "", bottom: "", width: "", maxHeight: "" });
+        return;
+      }
       const barBox = bar.getBoundingClientRect();
       const viewport = document.documentElement.clientWidth;
-      const width = viewport < 640 ? barBox.width : Math.min(320, viewport - 16);
-      const left =
-        viewport < 640
-          ? barBox.left
-          : Math.max(barBox.left, Math.min(button.getBoundingClientRect().left, barBox.right - width));
-      // In the site header, below its bottom rule rather than over it.
-      const top = Math.max(barBox.bottom, bar.closest("header")?.getBoundingClientRect().bottom ?? 0) + 8;
+      const width = Math.min(PANEL_WIDTH, viewport - 16);
+      const left = Math.max(barBox.left, Math.min(button.getBoundingClientRect().left, barBox.right - width));
+      const top = barBox.bottom + 8;
       Object.assign(popover.style, {
         margin: "0",
         top: `${top}px`,
@@ -139,11 +236,15 @@ export default function LocationPicker({
         maxHeight: `${Math.max(160, window.innerHeight - top - 8)}px`,
       });
     }
-    // On opening: if the whole panel won't fit below the bar, scroll the page up by the
-    // difference first (not past the bar, and not for the header's bar, which doesn't scroll).
+    // On opening: if the whole menu won't fit below the bar, scroll the page up by the
+    // difference first (not past the bar, which stays below the sticky site header).
     function reveal() {
       const bar = buttonRef.current?.closest("[data-search-bar]");
-      if (!popover || !bar || bar.closest("header")) return;
+      if (!popover || !bar) return;
+      if (isSheet()) {
+        place();
+        return;
+      }
       const barBox = bar.getBoundingClientRect();
       const siteHeader = document.querySelector("header");
       const headerBottom = siteHeader ? Math.max(0, siteHeader.getBoundingClientRect().bottom) : 0;
@@ -157,7 +258,9 @@ export default function LocationPicker({
       if ((event as ToggleEvent).newState === "open") place();
     }
     function handleToggle(event: Event) {
-      if ((event as ToggleEvent).newState !== "open") {
+      const opened = (event as ToggleEvent).newState === "open";
+      setOpen(opened);
+      if (!opened) {
         window.removeEventListener("scroll", place);
         window.removeEventListener("resize", place);
         return;
@@ -167,7 +270,7 @@ export default function LocationPicker({
       reveal();
       window.addEventListener("scroll", place, { passive: true });
       window.addEventListener("resize", place);
-      popover?.querySelector<HTMLElement>("button, input")?.focus();
+      popover?.querySelector<HTMLElement>("[data-location-option], input")?.focus();
       loadLocation()
         .then((loaded) => {
           moduleRef.current = loaded;
@@ -176,26 +279,37 @@ export default function LocationPicker({
         // The suggestions are a convenience: typing still works without them.
         .catch(() => setTable(null));
     }
-    // Tabbing out of the panel closes it, as clicking outside does (popover="auto").
-    // Only when focus lands somewhere else. A press on the panel moves focus to the nearest
+    // Tabbing out of the menu closes it, as clicking outside does (popover="auto").
+    // Only when focus lands somewhere else. A press on the menu moves focus to the nearest
     // focusable element around it, an ancestor: <main tabIndex={-1}> (app/layout.tsx, the skip
-    // link's target). That's a press on the panel's text anywhere, and in Safari and every iOS
+    // link's target). That's a press on the menu's text anywhere, and in Safari and every iOS
     // browser (WebKit doesn't focus a pressed button or link) a press on its buttons and link
-    // too: closing then hid the button before its click landed, so "Use my current location"
-    // did nothing on an iPhone. A press outside the panel is light dismiss's to close.
+    // too: closing then hid the button before its click landed, so "Use my location"
+    // did nothing on an iPhone. A press outside the menu is light dismiss's to close.
     function handleFocusOut(event: FocusEvent) {
       const next = event.relatedTarget;
       if (!(next instanceof Node) || !popover || next.contains(popover) || popover.contains(next)) return;
       if (buttonRef.current?.contains(next)) return;
       popover?.hidePopover?.();
     }
+    // Escape closes this list only, and focus goes back to Where. Inside the phone's search sheet
+    // (itself a popover) the browser would otherwise close both at once.
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      event.preventDefault();
+      event.stopPropagation();
+      popover?.hidePopover?.();
+      buttonRef.current?.focus();
+    }
     popover.addEventListener("beforetoggle", handleBeforeToggle);
     popover.addEventListener("toggle", handleToggle);
     popover.addEventListener("focusout", handleFocusOut);
+    popover.addEventListener("keydown", handleKeyDown);
     return () => {
       popover.removeEventListener("beforetoggle", handleBeforeToggle);
       popover.removeEventListener("toggle", handleToggle);
       popover.removeEventListener("focusout", handleFocusOut);
+      popover.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("scroll", place);
       window.removeEventListener("resize", place);
     };
@@ -211,12 +325,12 @@ export default function LocationPicker({
       const typed = typeof raw === "string" ? raw.trim() : "";
       if (!typed) {
         event.formData.delete("near");
-        clearStoredNear();
+        remember("", null);
         return;
       }
       event.formData.set("near", typed);
       const place = moduleRef.current?.findLocality(typed);
-      if (place) writeStoredNear(place.name, place.state);
+      if (place) remember(place.name, place.state);
     }
     form.addEventListener("formdata", handleFormData);
     return () => form.removeEventListener("formdata", handleFormData);
@@ -228,7 +342,7 @@ export default function LocationPicker({
     setAnnouncement(message);
   }
 
-  /** A failed "Use my current location": say why, and move to the suburb field (described by the message). */
+  /** A failed "Use my location": say why, and move to the suburb field (described by the message). */
   function failLocating(text: string, inAppBrowserCause = true) {
     // In an in-app browser (Instagram, Facebook…) location usually can't work: say so, and offer the
     // real browser. Not for a position that was read fine but isn't in Australia.
@@ -244,9 +358,39 @@ export default function LocationPicker({
     setLocating(false);
   }
 
+  /** Shows and remembers a suburb (the table's own name, and its state), and closes the menu. */
+  function setPlace(suburb: string, state: StateCode | null) {
+    setDraft(suburb);
+    setAnywhere(false);
+    setAnywhereApplied(false);
+    remember(suburb, state);
+    setPanelStatus(null);
+    closeAndReturn(`Location set: ${placeName(suburb, state)}`);
+  }
+
+  /**
+   * A Recent or Suggested place, stored by the table's own name and state ("Brisbane" is Brisbane
+   * City): the table is loaded first if it hasn't yet. If it can't load, the name as shown.
+   */
+  function choose(name: string, state: StateCode | null) {
+    const action = ++actionRef.current;
+    loadLocation()
+      .then((loaded) => {
+        moduleRef.current = loaded;
+        setTable(loaded);
+        return loaded.findLocality(name);
+      })
+      .catch(() => null)
+      .then((place) => {
+        if (action === actionRef.current) setPlace(place?.name ?? name, place?.state ?? state);
+      });
+  }
+
   function locateMe() {
     const geolocation = typeof navigator === "undefined" ? undefined : navigator.geolocation;
     if (!geolocation || locatingRef.current) return;
+    const action = ++actionRef.current;
+    const current = () => action === actionRef.current;
     locatingRef.current = true;
     setLocating(true);
     setPanelStatus({ tone: "info", text: "Finding your location…" });
@@ -259,6 +403,7 @@ export default function LocationPicker({
           .then((loaded) => {
             moduleRef.current = loaded;
             setTable(loaded);
+            if (!current()) return;
             const result = loaded.nearestLocality(here);
             if (result.kind === "outside") {
               failLocating("We couldn’t match your location to an Australian suburb. Type your suburb instead.", false);
@@ -266,17 +411,16 @@ export default function LocationPicker({
             }
             // Its name says the state when the suburb's name alone is another one's ("Richmond NSW").
             const { name: suburb, state } = result.locality;
-            setDraft(suburb);
-            setAnywhere(false);
-            writeStoredNear(suburb, state);
-            setPanelStatus(null);
-            closeAndReturn(`Location set: ${placeName(suburb, state)}`);
+            setPlace(suburb, state);
           })
-          .catch(() => failLocating("Couldn’t find your location. Type your suburb instead."))
+          .catch(() => {
+            if (current()) failLocating("Couldn’t find your location. Type your suburb instead.");
+          })
           .finally(finishLocating);
       },
       (error) => {
         finishLocating();
+        if (!current()) return;
         failLocating(
           error.code === error.PERMISSION_DENIED
             ? "Location is off for this site. Type your suburb instead."
@@ -287,15 +431,63 @@ export default function LocationPicker({
     );
   }
 
+  /** `standalone`: Enter in the suburb field applies what's typed (see above). */
+  function applyTyped() {
+    const typed = value.trim();
+    if (!typed) {
+      clearLocation();
+      return;
+    }
+    const action = ++actionRef.current;
+    loadLocation()
+      .then((loaded) => {
+        moduleRef.current = loaded;
+        setTable(loaded);
+        return loaded.findLocality(typed);
+      })
+      .catch(() => null)
+      .then((place) => {
+        if (action !== actionRef.current) return;
+        if (place) {
+          setPlace(place.name, place.state);
+          return;
+        }
+        setPanelStatus({ tone: "danger", text: UNKNOWN_PLACE });
+        inputRef.current?.focus();
+      });
+  }
+
   function clearLocation() {
+    actionRef.current += 1;
     setDraft("");
     setAnywhere(true);
-    clearStoredNear();
+    setAnywhereApplied(true);
+    remember("", null);
     setPanelStatus(null);
-    closeAndReturn("Location cleared: anywhere in Australia");
+    closeAndReturn("Location cleared: all of Australia");
   }
 
   const danger = panelStatus?.tone === "danger";
+
+  function placeRow(name: string, sub: string, state: StateCode | null) {
+    const current = isCurrent(name);
+    return (
+      <button type="button" onClick={() => choose(name, state)} aria-current={current || undefined} className={rowClass}>
+        <span className={iconBox}>
+          <Icon>{PIN}</Icon>
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate">{name}</span>
+          <span className="block text-xs leading-4 font-normal text-muted">{sub}</span>
+        </span>
+        {current && (
+          <Icon className="size-5 text-signal">
+            <path d="m5 12 5 5 9-10" />
+          </Icon>
+        )}
+      </button>
+    );
+  }
 
   return (
     <>
@@ -304,33 +496,40 @@ export default function LocationPicker({
         type="button"
         popoverTarget={popoverId}
         data-location-button=""
-        // Says what the button is and keeps its visible words in its name (WCAG 2.5.3).
-        aria-label={`Location: ${shown}`}
-        className={`flex min-w-0 max-w-2/5 shrink-0 items-center gap-1 rounded-full font-semibold focus-visible:-outline-offset-2! ${styles.button}`}
+        data-open={open || undefined}
+        // Its visible words, "Where" and the place, are its name (WCAG 2.5.3).
+        aria-label={`Where: ${shown}`}
+        // Below md, in the search sheet: a full-width field with the stroke. From md, a segment of the
+        // bar; standalone (Nearby), the field at every width.
+        className={`flex min-h-12 w-full min-w-0 shrink-0 items-center gap-2 rounded-control border-control border-foreground bg-card px-4 text-left hover:bg-hover data-open:border-foreground data-open:bg-hover ${
+          standalone ? "lg:min-h-18 lg:px-6" : "md:w-auto md:max-w-2/5 md:border-transparent md:px-3 md:focus-visible:-outline-offset-2!"
+        }`.trim()}
       >
-        <svg
-          aria-hidden="true"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className={`shrink-0 ${styles.icon}`}
-        >
-          <path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z" />
-          <circle cx="12" cy="9.5" r="2.5" />
-        </svg>
-        <span data-location-label="" className={`truncate ${styles.label} ${label || anywhere ? "text-foreground" : "font-normal text-muted"}`}>
-          {shown}
+        <Icon className="size-5">{PIN}</Icon>
+        <span className="flex min-w-0 flex-1 flex-col">
+          {/* Standalone (Nearby, the proposal): just the place; the name still says "Where". */}
+          <span aria-hidden="true" className={standalone ? "sr-only" : "eyebrow text-muted"}>
+            Where
+          </span>
+          <span
+            data-location-label=""
+            className={`truncate text-sm leading-5 font-semibold ${standalone ? "lg:text-lg lg:leading-7" : ""} ${
+              label || anywhere ? "text-foreground" : "font-normal text-muted"
+            }`}
+          >
+            {shown}
+          </span>
         </span>
+        <Icon className={`size-4 motion-safe:transition-transform motion-safe:duration-200 ${open ? "rotate-180" : ""}`}>
+          <path d="m6 9 6 6 6-6" />
+        </Icon>
       </button>
       <span role="status" className="sr-only">
         {announcement}
       </span>
       {appliedNear !== undefined && (
-        // Under the bar (the form is `relative`), in the space the page leaves below it.
-        <p aria-live="polite" data-near-hint="" className="absolute top-full left-4 mt-2 text-sm leading-5 text-muted">
+        // From md, under the bar (the form is `relative`), in the space the page leaves below it; in the sheet, under Where.
+        <p aria-live="polite" data-near-hint="" className="text-sm leading-5 text-muted md:absolute md:top-full md:left-4 md:mt-2">
           {outOfDate ? "Press Search to update results." : ""}
         </p>
       )}
@@ -342,81 +541,138 @@ export default function LocationPicker({
         role="dialog"
         aria-labelledby={titleId}
         data-location-panel=""
-        className="w-80 max-w-full overflow-y-auto rounded-card border border-foreground bg-card p-4 text-left text-foreground"
+        // Below md, a bottom sheet (the rules' Overlays board): full width, radius 16 at the top, a
+        // drag handle, 16px inside, over a 40% black scrim. From md, a menu under the bar.
+        className="max-w-full overflow-y-auto rounded-control border-control border-foreground bg-card p-2 text-left text-foreground max-md:inset-x-0 max-md:top-auto max-md:bottom-0 max-md:m-0 max-md:max-h-4/5 max-md:w-full max-md:max-w-none max-md:rounded-b-none max-md:rounded-t-sheet max-md:border-x-0 max-md:border-b-0 max-md:p-4 max-md:pb-[calc(1rem+env(safe-area-inset-bottom))] max-md:backdrop:bg-ink/40"
       >
-        <p id={titleId} className="text-base leading-6 font-semibold">
+        <p id={titleId} className="sr-only">
           Find events near you
         </p>
-        {canLocate && (
-          <>
+        <div className="relative mb-2 flex items-center justify-end md:hidden">
+          <span aria-hidden="true" className="absolute left-1/2 h-2 w-10 -translate-x-1/2 rounded-full bg-surface-border" />
+          <button
+            type="button"
+            popoverTarget={popoverId}
+            popoverTargetAction="hide"
+            aria-label="Close"
+            className="flex size-12 items-center justify-center rounded-control"
+          >
+            <Icon className="size-6">
+              <path d="M6 6l12 12M18 6 6 18" />
+            </Icon>
+          </button>
+        </div>
+        <div className="flex flex-wrap gap-x-2">
+          {canLocate && (
             <button
               type="button"
               onClick={locateMe}
               aria-disabled={locating || undefined}
-              className="btn btn-outline mt-3 min-h-11 w-full"
+              data-location-option=""
+              className={`${rowClass} w-auto flex-1 basis-40 whitespace-nowrap`}
             >
-              Use my current location
+              <span className={iconBox}>
+                <Icon>
+                  <circle cx="12" cy="12" r="7" />
+                  <circle cx="12" cy="12" r="2" />
+                  <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+                </Icon>
+              </span>
+              Use my location
             </button>
-            {/* Right under the button it answers. */}
-            <p
-              id={statusId}
-              role="status"
-              data-location-status=""
-              className={`text-sm leading-5 ${panelStatus ? "mt-2" : ""} ${danger ? "text-danger" : "text-muted"}`}
-            >
-              {panelStatus?.text ?? ""}
-              {panelStatus?.link && (
-                <a
-                  href={panelStatus.link.href}
-                  className="mt-1 flex min-h-11 items-center font-semibold text-foreground underline underline-offset-4"
-                >
-                  {panelStatus.link.label}
-                </a>
-              )}
-            </p>
-            <p aria-hidden="true" className="eyebrow mt-3 text-center text-muted">
-              or
-            </p>
-          </>
-        )}
-        {/* "Suburb", not "Your suburb": names the field without asking for it as personal data
-            (no autofill purpose), and doesn't repeat the location button's prompt. */}
-        <label htmlFor={inputId} className={`block text-sm leading-5 font-semibold ${canLocate ? "mt-1" : "mt-3"}`}>
-          Suburb
-        </label>
-        <input
-          ref={inputRef}
-          id={inputId}
-          type="text"
-          name="near"
-          value={value}
-          onChange={(event) => {
-            setDraft(event.target.value);
-            setAnywhere(false);
-            if (!locatingRef.current) setPanelStatus(null);
-          }}
-          aria-describedby={danger ? statusId : undefined}
-          list={listId}
-          maxLength={NEAR_MAX_LENGTH}
-          autoComplete="off"
-          enterKeyHint="search"
-          className="mt-1 min-h-11 w-full px-3 text-base text-foreground placeholder:text-muted focus-visible:outline-offset-0!"
-        />
-        <datalist id={listId}>
-          {suggestions.map((name) => (
-            <option key={name} value={name} />
-          ))}
-        </datalist>
-        <button
-          type="button"
-          onClick={clearLocation}
-          className="mt-2 flex min-h-11 items-center text-sm leading-5 font-semibold underline underline-offset-4"
+          )}
+          <button
+            type="button"
+            onClick={clearLocation}
+            data-location-option=""
+            className={`${rowClass} w-auto flex-1 basis-40 whitespace-nowrap`}
+          >
+            <span className={iconBox}>
+              <Icon>
+                <circle cx="12" cy="12" r="9" />
+                <path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" />
+              </Icon>
+            </span>
+            All of Australia
+          </button>
+        </div>
+        {/* Right under the button it answers. */}
+        <p
+          id={statusId}
+          role="status"
+          data-location-status=""
+          className={`px-2 text-sm leading-5 ${panelStatus ? "mt-1 mb-2" : ""} ${danger ? "text-danger" : "text-muted"}`}
         >
-          Anywhere in Australia
-        </button>
-        {/* Outside the location block: also there when the browser can't locate. */}
-        <p className="mt-1 text-sm leading-5 text-muted">
-          <Link href="/privacy#location" className="inline-flex min-h-6 items-center text-foreground underline underline-offset-4">
+          {panelStatus?.text ?? ""}
+          {panelStatus?.link && (
+            <a
+              href={panelStatus.link.href}
+              className="mt-1 flex min-h-12 items-center font-semibold text-foreground underline underline-offset-4"
+            >
+              {panelStatus.link.label}
+            </a>
+          )}
+        </p>
+        <div className="mt-2 border-t border-surface-border px-2 pt-3">
+          {/* "Suburb", not "Your suburb": names the field without asking for it as personal data
+              (no autofill purpose). */}
+          <label htmlFor={inputId} className="eyebrow block text-muted">
+            Suburb
+          </label>
+          <input
+            ref={inputRef}
+            id={inputId}
+            type="text"
+            name="near"
+            value={value}
+            onChange={(event) => {
+              setDraft(event.target.value);
+              setAnywhere(false);
+              if (!locatingRef.current) setPanelStatus(null);
+            }}
+            onKeyDown={
+              standalone
+                ? (event) => {
+                    if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+                    event.preventDefault();
+                    applyTyped();
+                  }
+                : undefined
+            }
+            aria-describedby={danger ? statusId : undefined}
+            list={listId}
+            maxLength={NEAR_MAX_LENGTH}
+            autoComplete="off"
+            enterKeyHint="search"
+            className="mt-1 min-h-12 w-full px-3 text-base text-foreground placeholder:text-muted focus-visible:outline-offset-0!"
+          />
+          <datalist id={listId}>
+            {suggestions.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
+        </div>
+        {recent && (
+          <div role="group" aria-labelledby={recentId} className="mt-3">
+            <p id={recentId} className="eyebrow px-2 pb-1 text-muted">
+              Recent
+            </p>
+            {placeRow(recent, [storedState, isCurrent(recent) ? "current" : ""].filter(Boolean).join(" · "), storedState)}
+          </div>
+        )}
+        <div role="group" aria-labelledby={suggestedId} className="mt-3">
+          <p id={suggestedId} className="eyebrow px-2 pb-1 text-muted">
+            Suggested
+          </p>
+          <ul>
+            {suggested.map((place) => (
+              <li key={place.name}>{placeRow(place.name, `${place.state}, Australia`, place.state)}</li>
+            ))}
+          </ul>
+        </div>
+        {/* Also there when the browser can't locate. */}
+        <p className="mt-2 border-t border-surface-border px-2 pt-2 text-sm leading-5">
+          <Link href="/privacy#location" className="inline-flex min-h-12 items-center text-foreground underline underline-offset-4">
             How we use your location
           </Link>
         </p>

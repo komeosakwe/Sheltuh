@@ -207,10 +207,10 @@ describe("Who's Going — demo", () => {
     // View attendees jumps to this panel, as the summary link did.
     expect(within(card).getByRole("link", { name: `View attendees for ${DEMO_EVENT.title}` })).toHaveAttribute("href", "#whos-going");
     // A demo count is labelled as a sample (docs/design/mobile-redesign.md, Refinement 22 Oct 2026).
-    expect(card).toHaveTextContent(`${sampleData.count} people are going (sample)`);
-    // The first three sample names' faces, then everyone else as "+N".
-    expect(card.querySelectorAll("[data-going-face]")).toHaveLength(3);
-    expect(card.querySelector("[data-going-rest]")).toHaveTextContent(`+${sampleData.count - 3}`);
+    expect(card).toHaveTextContent(`${sampleData.count} going (sample)`);
+    // The first five sample names' faces (the owner's event mock), and no "+N".
+    expect(card.querySelectorAll("[data-going-face]")).toHaveLength(5);
+    expect(card.querySelector("[data-going-rest]")).toBeNull();
 
     // "Show more" works locally.
     fireEvent.click(within(region).getByRole("button", { name: "Show more" }));
@@ -294,7 +294,7 @@ describe("Who's Going — signed out", () => {
       `/login?next=${encodeURIComponent(`/events/${LIVE_EVENT.slug}`)}`,
     );
     // Signed out the API sends no names: the count, no faces and no "+N".
-    expect(summaryCard()).toHaveTextContent("14 people are going");
+    expect(summaryCard()).toHaveTextContent("14 going");
     expect(summaryCard()?.querySelector("[data-going-faces]")).toBeNull();
     expect(summaryCard()?.querySelector("[data-going-rest]")).toBeNull();
     expect(api.getGoingSummary).toHaveBeenCalledWith(LIVE_EVENT.id);

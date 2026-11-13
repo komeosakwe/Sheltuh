@@ -376,7 +376,8 @@ export default function CheckoutConfirmation() {
   return (
     <div className="flex flex-col gap-8 py-10 sm:py-14">
       <div className="flex flex-col gap-3">
-        <Strap label="Order confirmed" note={order.reference} />
+        {/* The reference is a machine code (owner decision, 13 Nov 2026): the one mono in the strap, so 0 and O read apart. */}
+        <Strap label="Order confirmed" note={<span className="font-mono">{order.reference}</span>} />
         <h1 className="display-md break-words">{order.eventTitle}</h1>
         {order.maskedEmail && (
           <p className="text-sm text-muted">Tickets sent to {order.maskedEmail}.</p>
@@ -436,7 +437,9 @@ export default function CheckoutConfirmation() {
         <div className="flex flex-col gap-1 text-xs text-muted">
           <p>Screenshot your codes in case signal drops at the venue.</p>
           <p>Each code works once. Don&rsquo;t share it.</p>
-          <p>Order reference {order.reference}</p>
+          <p>
+            Order reference <span className="font-mono">{order.reference}</span>
+          </p>
         </div>
       </section>
 

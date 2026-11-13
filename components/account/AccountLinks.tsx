@@ -17,12 +17,13 @@ const EVENTS_ROWS: Record<Exclude<AccountEventsRow, null>, AccountLink> = {
 /**
  * The rest of the account, as a short list of single-line link rows (48px,
  * a chevron on the right): Your events for organisers (Organise events, to
- * apply, for everyone else), then Organisers you follow, Messages and
- * Blocked members. A labelled nav, each row a link.
+ * apply, for everyone else), then Saved (it left the header in the redesign), Organisers you
+ * follow, Messages and Blocked members. A labelled nav, each row a link.
  */
 export default function AccountLinks({ events }: { events: AccountEventsRow }) {
   const links: AccountLink[] = [
     ...(events ? [EVENTS_ROWS[events]] : []),
+    { href: "/saved", label: "Saved" },
     { href: "/following", label: "Organisers you follow" },
     { href: "/messages", label: "Messages" },
     { href: "/messages/blocked", label: "Blocked members" },

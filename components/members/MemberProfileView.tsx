@@ -322,7 +322,7 @@ export default function MemberProfileView({
           <ul className={RESULTS_GRID}>
             {events.map((event) => (
               <li key={event.id} className="flex min-w-0">
-                <EventCard event={event} variant="grid" />
+                <EventCard event={event} />
               </li>
             ))}
           </ul>

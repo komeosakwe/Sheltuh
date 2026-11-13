@@ -3,8 +3,13 @@ import {
   NEAR_FRAME_EVENTS,
   NEAR_FRAME_FALLBACK_KM,
   NEAR_FRAME_RADIUS_KM,
+  DEFAULT_NEARBY_RADIUS,
+  NEARBY_RADII_KM,
   formatDistanceKm,
+  nearestPlaceNames,
   nearestToFrame,
+  parseNearbyRadius,
+  splitByRadius,
   nearestWithin,
   sortNearestFirst,
 } from "@/lib/map-near";
@@ -94,5 +99,54 @@ describe("nearestWithin", () => {
   it("breaks ties by the soonest", () => {
     const nearest = nearestWithin([at("late", 5, "2026-11-09T00:00:00Z"), at("soon", 5, "2026-11-02T00:00:00Z")], CBD, positionOf);
     expect(nearest?.item.id).toBe("soon");
+  });
+});
+
+describe("Nearby's radius", () => {
+  const at = (id: string, km: number | null, startsAt = "2026-11-01T00:00:00Z", suburb = id) => ({ id, km, startsAt, suburb });
+  const positionOf = (item: { km: number | null }) => (item.km === null ? null : north(item.km));
+
+  it("offers 5, 10, 25 and 50 km, 25 by default; the address's within= is read safely", () => {
+    expect(NEARBY_RADII_KM).toEqual([5, 10, 25, 50]);
+    expect(DEFAULT_NEARBY_RADIUS).toBe(25);
+    expect(parseNearbyRadius("10")).toBe(10);
+    expect(parseNearbyRadius("all")).toBe("all");
+    expect(parseNearbyRadius(null)).toBe(25);
+    expect(parseNearbyRadius("7")).toBe(25);
+    expect(parseNearbyRadius("25km")).toBe(25);
+  });
+
+  it("splits nearest-first entries at the radius, the edge inside, keeping the order; unplaced apart", () => {
+    const sorted = [at("near", 2), at("edge", 25), at("just-out", 25.2), at("far", 700), at("nowhere", null)].map((item) => ({
+      item,
+      km: item.km,
+    }));
+    const split = splitByRadius(sorted, 25);
+    expect(split.inside.map((entry) => entry.item.id)).toEqual(["near", "edge"]);
+    expect(split.outside.map((entry) => entry.item.id)).toEqual(["just-out", "far"]);
+    expect(split.unplaced.map((entry) => entry.item.id)).toEqual(["nowhere"]);
+    // Doesn't change its input.
+    expect(sorted.map((entry) => entry.item.id)).toEqual(["near", "edge", "just-out", "far", "nowhere"]);
+  });
+
+  it("works on sortNearestFirst's output: measured distances, nearest first", () => {
+    const split = splitByRadius(sortNearestFirst([at("far", 700), at("nowhere", null), at("near", 2)], CBD, positionOf), 25);
+    expect(split.inside.map((entry) => entry.item.id)).toEqual(["near"]);
+    expect(split.outside.map((entry) => entry.item.id)).toEqual(["far"]);
+    expect(split.unplaced.map((entry) => entry.item.id)).toEqual(["nowhere"]);
+  });
+
+  it("names the first few different places, nearest first, case-insensitively, skipping empty names", () => {
+    const entries = [
+      at("a", 30, undefined, "Frankston"),
+      at("b", 31, undefined, "frankston"),
+      at("c", 700, undefined, "Surry Hills"),
+      at("d", 800, undefined, " "),
+      at("e", 1376, undefined, "Fortitude Valley"),
+      at("f", 2700, undefined, "Northbridge"),
+    ].map((item) => ({ item, km: item.km }));
+    expect(nearestPlaceNames(entries, (item) => item.suburb)).toEqual(["Frankston", "Surry Hills", "Fortitude Valley"]);
+    expect(nearestPlaceNames(entries, (item) => item.suburb, 1)).toEqual(["Frankston"]);
+    expect(nearestPlaceNames([], (item: { suburb: string }) => item.suburb)).toEqual([]);
   });
 });

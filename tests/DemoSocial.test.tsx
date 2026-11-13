@@ -108,7 +108,9 @@ describe("/members/[profileId] (demo)", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Priya R." })).toBeInTheDocument();
     expect(screen.getAllByRole("note")[0]).toHaveTextContent("A fictional member, made up for this demo.");
     expect(document.querySelector("img[data-member-photo]")).toBeNull();
-    expect(screen.getByText("PR")).toBeInTheDocument();
+    // Her initials in the profile's header (the first "PR": she's also among the going faces on the
+    // cards of the events she's going to).
+    expect(screen.getAllByText("PR")[0]).toHaveClass("size-24");
     expect(screen.getByText(/Gig regular/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /@sheltuh_demo_priya on Instagram/ })).toHaveAttribute(
       "href",

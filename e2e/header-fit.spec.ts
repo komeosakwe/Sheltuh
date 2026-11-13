@@ -2,13 +2,13 @@ import { expect, test, type Page } from "@playwright/test";
 import type { AdminSummary } from "@/lib/api/types";
 
 /**
- * The desktop header is one row at every desktop width, whoever is signed in.
- * Signed in, the nav is wider (Messages and Account, plus Admin and its badge
- * for admins), so the header's search bar shrinks into the room left, and where
- * that's under 13rem the slot shows the search icon link instead. The header
- * is then exactly as tall as it is signed out, with no sideways scroll. Live
- * mode, with a stored test session (the Supabase URL is a local placeholder)
- * and every /api/* request answered here.
+ * The black desktop header (redesign PR 2, the proposal and the rules' Navigation
+ * board) is one 96px row at every desktop width, in Light and Dark (Dark's rule is
+ * drawn inside it), whoever is signed in: signed out, Sign in and the For
+ * organisers button; signed in, For organisers, the Messages chip with its count
+ * and the avatar (plus Admin and its badge for admins), with no sideways scroll
+ * and no search field. Live mode, with a stored test session (the Supabase URL
+ * is a local placeholder) and every /api/* request answered here.
  */
 
 const DAY = 86_400_000;
@@ -70,87 +70,115 @@ async function as(page: Page, who: Who) {
 /** The header on /events once its account links (and badges) have settled. */
 async function measure(page: Page, who: Who) {
   await page.goto("/events");
-  await expect(page.locator("header").getByRole("link", { name: READY[who] }).first()).toBeVisible({ timeout: 30_000 });
+  const header = page.locator("header").first();
+  await expect(header.getByRole("link", { name: READY[who] }).first()).toBeVisible({ timeout: 30_000 });
   await page.evaluate(() => document.fonts.ready);
-  const header = await page.locator("header").first().boundingBox();
-  // A hidden bar isn't a landmark at all (display: none), so look before measuring.
-  const search = page.getByRole("search", { name: "Search the site" });
-  const bar = (await search.isVisible()) ? await search.boundingBox() : null;
+  const box = await header.boundingBox();
+  const primary = page.getByRole("navigation", { name: "Primary" });
+  // Every visible control in the row, as [top, bottom, right] (one row: they all sit inside the header).
+  const controls = await primary.locator("a").evaluateAll((links) =>
+    links
+      .map((link) => link.getBoundingClientRect())
+      .filter((r) => r.width > 0)
+      .map((r) => ({ top: Math.round(r.top), bottom: Math.round(r.bottom), right: Math.round(r.right), height: Math.round(r.height) })),
+  );
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-  return { height: Math.round(header?.height ?? 0), barWidth: bar ? Math.round(bar.width) : null, overflow };
+  return { height: Math.round(box?.height ?? 0), controls, overflow };
 }
 
 for (const width of [1024, 1280, 1440, 1920]) {
-  test.describe(`desktop header at ${width}px`, () => {
-    test.use({ viewport: { width, height: 900 } });
+  for (const theme of ["light", "dark"] as const) {
+    test.describe(`desktop header at ${width}px in ${theme === "light" ? "Light" : "Dark"}`, () => {
+      test.use({ viewport: { width, height: 900 } });
 
-    test("is one row, as tall signed in (member, admin with badge) as signed out, with search always reachable", async ({ page }) => {
-      await as(page, "signed-out");
-      const signedOut = await measure(page, "signed-out");
-      // Signed out the bar has its full width (at 1024 the nav's text width depends on the
-      // machine's font rendering, so allow a few px less there), and the header fits
-      // --header-h (70px on desktop).
-      if (width >= 1280) expect(signedOut.barWidth).toBe(384);
-      else {
-        expect(signedOut.barWidth).toBeGreaterThanOrEqual(360);
-        expect(signedOut.barWidth).toBeLessThanOrEqual(384);
-      }
-      expect(signedOut.height).toBeLessThanOrEqual(70);
-      expect(signedOut.overflow).toBeLessThanOrEqual(0);
+      test("is one 96px row, as tall signed in (member, admin with badge) as signed out, with no search field", async ({ page }) => {
+        const themed = async (p: Page) => {
+          if (theme === "dark") await p.addInitScript(() => localStorage.setItem("sheltuh:theme", "dark"));
+        };
+        await themed(page);
+        await as(page, "signed-out");
+        const signedOut = await measure(page, "signed-out");
+        // --header-h (app/globals.css) is 96px from lg; in Dark too, its rule drawn inside the header.
+        expect(signedOut.height).toBe(96);
+        expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--header-h").trim())).toBe("6rem");
+        expect(signedOut.overflow).toBeLessThanOrEqual(0);
+        await expect(page.locator("header").getByRole("search")).toHaveCount(0);
 
-      for (const who of ["member", "admin"] as const) {
-        const signedInPage = await page.context().newPage();
-        await as(signedInPage, who);
-        const result = await measure(signedInPage, who);
-        expect(result.height, `${who}: ${JSON.stringify(result)}`).toBe(signedOut.height);
-        expect(result.overflow, who).toBeLessThanOrEqual(0);
-
-        const search = signedInPage.getByRole("search", { name: "Search the site" });
-        const icon = signedInPage.locator("[data-header-search]").getByRole("link", { name: "Search" });
-        // From 1280px (the 1152px column) there's room for the bar whoever is signed in.
-        if (width >= 1280) expect(result.barWidth, who).not.toBeNull();
-        if (result.barWidth === null) {
-          // No room for a usable bar: the icon link to /search instead, never both.
-          await expect(search).toBeHidden();
-          await expect(icon).toBeVisible();
-          await expect(icon).toHaveAttribute("href", "/search");
-          const box = await icon.boundingBox();
-          expect(Math.round(box?.height ?? 0)).toBeGreaterThanOrEqual(24);
-        } else {
-          // A shown bar stays usable: at least 13rem, with the whole "Search events" placeholder in view.
-          expect(result.barWidth, who).toBeGreaterThanOrEqual(208);
-          await expect(icon).toBeHidden();
-          const field = search.getByRole("searchbox", { name: "Search events" });
-          const clipped = await field.evaluate((el: HTMLInputElement) => {
-            const s = getComputedStyle(el);
-            const ctx = document.createElement("canvas").getContext("2d");
-            if (!ctx) return true;
-            ctx.font = `${s.fontWeight} ${s.fontSize} ${s.fontFamily}`;
-            const room = el.clientWidth - parseFloat(s.paddingLeft) - parseFloat(s.paddingRight);
-            return ctx.measureText(el.placeholder).width > room;
-          });
-          expect(clipped, `${who}: placeholder clipped at ${result.barWidth}px`).toBe(false);
-          // The location segment keeps its name when it narrows to the pin.
-          await expect(search.getByRole("button", { name: /^Location: / })).toBeVisible();
+        for (const who of ["member", "admin"] as const) {
+          const signedInPage = await page.context().newPage();
+          await themed(signedInPage);
+          await as(signedInPage, who);
+          const result = await measure(signedInPage, who);
+          expect(result.height, `${who}: ${JSON.stringify(result)}`).toBe(signedOut.height);
+          expect(result.overflow, who).toBeLessThanOrEqual(0);
+          // One row: every control inside the bar, 32px or taller (the Messages chip; the rest 40), and none past the right edge.
+          for (const control of result.controls) {
+            expect(control.top, `${who}: ${JSON.stringify(control)}`).toBeGreaterThanOrEqual(0);
+            expect(control.bottom, `${who}: ${JSON.stringify(control)}`).toBeLessThanOrEqual(96);
+            expect(control.height, who).toBeGreaterThanOrEqual(32);
+            expect(control.right, who).toBeLessThanOrEqual(width);
+          }
+          const header = signedInPage.locator("header");
+          await expect(header.getByRole("search")).toHaveCount(0);
+          // No heart on the desktop row: Saved is on /account (and in the phone menu).
+          await expect(signedInPage.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Saved" })).toHaveCount(0);
+          // The avatar: a solid 40px square with the initial and a caret.
+          const avatar = signedInPage.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Account" });
+          await expect(avatar).toBeVisible();
+          const avatarBox = await avatar.boundingBox();
+          expect(Math.round(avatarBox?.height ?? 0)).toBe(40);
+          expect(Math.round(avatarBox?.width ?? 0)).toBeGreaterThanOrEqual(40);
+          expect(await avatar.evaluate((el) => [getComputedStyle(el).backgroundColor, getComputedStyle(el).color])).toEqual([
+            "rgb(255, 255, 255)",
+            "rgb(0, 0, 0)",
+          ]);
+          await signedInPage.close();
         }
-        await signedInPage.close();
-      }
+      });
     });
-  });
+  }
 }
 
-test.describe("desktop header at 1024px, as an admin", () => {
-  test.use({ viewport: { width: 1024, height: 900 } });
+test.describe("desktop header at 1440px, signed in", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
 
-  test("the search icon link goes to /search and is reachable by keyboard right after the wordmark", async ({ page }) => {
-    await as(page, "admin");
-    await measure(page, "admin");
-    const icon = page.locator("[data-header-search]").getByRole("link", { name: "Search" });
-    await expect(icon).toBeVisible();
+  test("is black in Light and Dark, and the Messages count is orange with a black number", async ({ page }) => {
+    for (const theme of ["light", "dark"] as const) {
+      const themed = await page.context().newPage();
+      if (theme === "dark") await themed.addInitScript(() => localStorage.setItem("sheltuh:theme", "dark"));
+      await as(themed, "member");
+      await measure(themed, "member");
+      expect(await themed.locator("header").first().evaluate((el) => getComputedStyle(el).backgroundColor), theme).toBe("rgb(0, 0, 0)");
+      // The Messages chip: 32px, 14px, a muted outline.
+      const chip = themed.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: READY.member });
+      expect(await chip.evaluate((el) => [Math.round(el.getBoundingClientRect().height), getComputedStyle(el).fontSize, getComputedStyle(el).borderTopColor])).toEqual([
+        32,
+        "14px",
+        "rgb(51, 51, 51)",
+      ]);
+      const badge = themed.getByRole("navigation", { name: "Primary" }).locator("[data-unread-badge]");
+      expect(await badge.evaluate((el) => [getComputedStyle(el).backgroundColor, getComputedStyle(el).color]), theme).toEqual([
+        "rgb(255, 72, 0)",
+        "rgb(0, 0, 0)",
+      ]);
+      await themed.close();
+    }
+  });
+
+  test("keyboard: the wordmark, Discover, Nearby, Community, For organisers, Messages, then the avatar, each with a visible ring", async ({ page }) => {
+    await as(page, "member");
+    await measure(page, "member");
     await page.locator("header").getByRole("link", { name: "Sheltüh home" }).last().focus();
-    await page.keyboard.press("Tab");
-    await expect(icon).toBeFocused();
-    await page.keyboard.press("Enter");
-    await expect(page).toHaveURL(/\/search$/);
+    const primary = page.getByRole("navigation", { name: "Primary" });
+    for (const name of ["Discover", "Nearby", "Community", "For organisers", READY.member, "Account"]) {
+      await page.keyboard.press("Tab");
+      const link = primary.getByRole("link", { name });
+      await expect(link).toBeFocused();
+      // The global ring: 2px, white inside the black header (never orange).
+      expect(await link.evaluate((el) => [getComputedStyle(el).outlineStyle, getComputedStyle(el).outlineColor])).toEqual([
+        "solid",
+        "rgb(255, 255, 255)",
+      ]);
+    }
   });
 });

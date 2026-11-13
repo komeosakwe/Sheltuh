@@ -1,6 +1,6 @@
 /**
  * In-app browsers (Instagram, Facebook, TikTok and the like open links in their own WebView). On
- * iOS those usually can't share the visitor's location, so a failed "Use my current location" /
+ * iOS those usually can't share the visitor's location, so a failed "Use my location" /
  * "Near me" says so and offers a way out to the real browser (docs/architecture.md, "Location
  * (near you)"). Pure: the caller passes the user agent and the address.
  */

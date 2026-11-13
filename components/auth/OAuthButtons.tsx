@@ -55,9 +55,13 @@ function Logo({ file, className }: { file: string; className: string }) {
 
 /**
  * Continue with Apple / Continue with Google (docs/design/social-sign-in.md
- * §3 to §5), above the email form on /login and /signup. Only the
- * providers NEXT_PUBLIC_AUTH_PROVIDERS lists, Apple first; nothing at all
- * in demo mode or with none listed.
+ * §3 to §5). Only the providers NEXT_PUBLIC_AUTH_PROVIDERS lists, Apple
+ * first; nothing at all in demo mode or with none listed.
+ *
+ * `placement`: "above" (the default; /signup and the invite) puts the pair,
+ * their privacy line and the "or" divider before the email form; "below"
+ * (/login, the redesign's sign-in mock) puts the "Or continue with" divider,
+ * then the pair and their privacy line, after it.
  *
  * A click leaves for the provider (AuthContext's signInWithProvider), which
  * comes back to /auth/callback with `next`. Until then both buttons are
@@ -73,7 +77,7 @@ function Logo({ file, className }: { file: string; className: string }) {
  *
  * Real buttons outside any form: they never submit the email form.
  */
-export default function OAuthButtons({ next }: { next?: string }) {
+export default function OAuthButtons({ next, placement = "above" }: { next?: string; placement?: "above" | "below" }) {
   const auth = useAuth();
   const providers = offeredOAuthProviders(auth.configured);
   const [status, setStatus] = useState<Status | null>(null);
@@ -123,70 +127,96 @@ export default function OAuthButtons({ next }: { next?: string }) {
     }
   }
 
+  const pair = (
+    <div>
+      <div className="flex flex-col gap-3">
+        {providers.includes("apple") && (
+          <button
+            type="button"
+            aria-disabled={busy ? true : undefined}
+            onClick={() => void start("apple")}
+            className="btn-oauth btn-oauth-apple"
+          >
+            {/* White theme: the black button and white logo; Dark: the white button and black logo. */}
+            <Logo file={APPLE_ON_WHITE} className="h-12 w-auto shrink-0 dark:hidden" />
+            <Logo file={APPLE_ON_DARK} className="hidden h-12 w-auto shrink-0 dark:block" />
+            <span>Continue with Apple</span>
+          </button>
+        )}
+        {providers.includes("google") && (
+          <button
+            type="button"
+            aria-disabled={busy ? true : undefined}
+            onClick={() => void start("google")}
+            className="btn-oauth btn-oauth-google"
+          >
+            {/* Google's G, centred in a square like Apple's 48px logo file (46px: inside Google's 1px border, so the button stays
+                48px), with the title beside it as on Apple's; the colours follow the theme. */}
+            <span aria-hidden="true" className="flex size-[2.875rem] shrink-0 items-center justify-center">
+              <Logo file={GOOGLE_G} className="size-6 shrink-0" />
+            </span>
+            <span>Continue with Google</span>
+          </button>
+        )}
+      </div>
+
+      {/* Always rendered, empty until there's something to say (its content brings its own spacing). */}
+      <div role="status" aria-atomic="true">
+        {status?.kind === "busy" && (
+          <div className="mt-8">
+            <DotsLoader label={`Opening ${OAUTH_PROVIDER_NAMES[status.provider]}`} />
+          </div>
+        )}
+        {status?.kind === "in-app" && (
+          <div className="mt-8">
+            <Notice>{inAppMessage(status.platform, status.apple)}</Notice>
+          </div>
+        )}
+      </div>
+      <div role="alert" aria-atomic="true">
+        {failed && (
+          <div className="mt-8">
+            <Notice tone="danger">
+              Couldn&rsquo;t open {OAUTH_PROVIDER_NAMES[failed]} sign-in. Check your connection and try again.
+            </Notice>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const legal = (
+    <LegalNote
+      lead={`Continuing with ${oauthProviderNames(providers, ["apple", "google"])} signs you in, or creates an account if you’re new. How we handle your details:`}
+    />
+  );
+
+  if (placement === "below") {
+    return (
+      <div className={`${roboto.variable} flex flex-col gap-6`}>
+        <Divider label="Or continue with" />
+        {pair}
+        {legal}
+      </div>
+    );
+  }
+
   return (
     <div className={`${roboto.variable} flex flex-col gap-8`}>
-      <div>
-        <div className="flex flex-col gap-3">
-          {providers.includes("apple") && (
-            <button
-              type="button"
-              aria-disabled={busy ? true : undefined}
-              onClick={() => void start("apple")}
-              className="btn-oauth btn-oauth-apple"
-            >
-              {/* White theme: the black button and white logo; Dark: the white button and black logo. */}
-              <Logo file={APPLE_ON_WHITE} className="h-12 w-auto shrink-0 dark:hidden" />
-              <Logo file={APPLE_ON_DARK} className="hidden h-12 w-auto shrink-0 dark:block" />
-              <span>Continue with Apple</span>
-            </button>
-          )}
-          {providers.includes("google") && (
-            <button
-              type="button"
-              aria-disabled={busy ? true : undefined}
-              onClick={() => void start("google")}
-              className="btn-oauth btn-oauth-google"
-            >
-              {/* Google's G (20px, per its guidelines) and the title as text; the pill's colours follow the theme. */}
-              <Logo file={GOOGLE_G} className="size-5 shrink-0" />
-              <span>Continue with Google</span>
-            </button>
-          )}
-        </div>
+      {pair}
+      {legal}
+      <Divider label="or" />
+    </div>
+  );
+}
 
-        {/* Always rendered, empty until there's something to say (its content brings its own spacing). */}
-        <div role="status" aria-atomic="true">
-          {status?.kind === "busy" && (
-            <div className="mt-8">
-              <DotsLoader label={`Opening ${OAUTH_PROVIDER_NAMES[status.provider]}`} />
-            </div>
-          )}
-          {status?.kind === "in-app" && (
-            <div className="mt-8">
-              <Notice>{inAppMessage(status.platform, status.apple)}</Notice>
-            </div>
-          )}
-        </div>
-        <div role="alert" aria-atomic="true">
-          {failed && (
-            <div className="mt-8">
-              <Notice tone="danger">
-                Couldn&rsquo;t open {OAUTH_PROVIDER_NAMES[failed]} sign-in. Check your connection and try again.
-              </Notice>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <LegalNote
-        lead={`Continuing with ${oauthProviderNames(providers, ["apple", "google"])} signs you in, or creates an account if you’re new. How we handle your details:`}
-      />
-
-      <div className="flex items-center gap-4">
-        <span aria-hidden="true" className="h-px flex-1 bg-surface-border" />
-        <span className="eyebrow text-muted">or</span>
-        <span aria-hidden="true" className="h-px flex-1 bg-surface-border" />
-      </div>
+/** A hairline either side of a short mono label: "or" above the email form, "Or continue with" below it. */
+function Divider({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-4">
+      <span aria-hidden="true" className="h-px flex-1 bg-surface-border" />
+      <span className="eyebrow text-muted">{label}</span>
+      <span aria-hidden="true" className="h-px flex-1 bg-surface-border" />
     </div>
   );
 }
