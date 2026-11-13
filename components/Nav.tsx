@@ -3,7 +3,11 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
-import { HeaderAccount, MenuAccount, headerNavClass } from "@/components/AuthNavLinks";
+import {
+  HeaderAccount,
+  MenuAccount,
+  headerNavClass,
+} from "@/components/AuthNavLinks";
 import UMark from "@/components/brand/UMark";
 import Wordmark from "@/components/brand/Wordmark";
 import HomeLogoLink from "@/components/HomeLogoLink";
@@ -52,7 +56,11 @@ function MenuIcon({ open }: { open: boolean }) {
       strokeLinecap="round"
       className="size-6"
     >
-      {open ? <path d="M6 6l12 12M18 6 6 18" /> : <path d="M4 7h16M4 12h16M4 17h16" />}
+      {open ? (
+        <path d="M6 6l12 12M18 6 6 18" />
+      ) : (
+        <path d="M4 7h16M4 12h16M4 17h16" />
+      )}
     </svg>
   );
 }
@@ -82,10 +90,15 @@ export default function Nav() {
   // At the door the header scrolls away at every width, so it doesn't sit lit above the scanner.
   const atDoor = /^\/dashboard\/[^/]+\/check-in$/.test(pathname);
 
-  const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
+  const isActive = (href: string) =>
+    href === "/" ? pathname === "/" : pathname.startsWith(href);
   // The page itself, or (Discover) the section: What's on and every event's page belong to Discover.
   const current = (href: string): "page" | "true" | undefined =>
-    isActive(href) ? "page" : href === "/" && pathname.startsWith("/events") ? "true" : undefined;
+    isActive(href)
+      ? "page"
+      : href === "/" && pathname.startsWith("/events")
+        ? "true"
+        : undefined;
 
   // Keep the button label in step with the popover, and move focus into the
   // menu when it opens (the browser moves it back to the button on close).
@@ -158,9 +171,15 @@ export default function Nav() {
       className={`${atDoor ? "relative" : inThread ? "relative lg:sticky" : "sticky"} top-0 z-30 pt-[env(safe-area-inset-top)] after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:hidden after:h-px after:bg-surface-border dark:after:block`}
     >
       {/* Compact bar (phones and tablets). */}
-      <div data-compact-header="" className="page-container flex h-16 items-center justify-between lg:hidden">
+      <div
+        data-compact-header=""
+        className="page-container flex h-16 items-center justify-between lg:hidden"
+      >
         {/* The ü logo, 32px tall (the rules' Mobile (390) spec); the link carries the name. */}
-        <HomeLogoLink className="-ml-2 flex size-12 items-center justify-center rounded-control" onActivate={closeMenu}>
+        <HomeLogoLink
+          className="-ml-2 flex size-12 items-center justify-center rounded-control"
+          onActivate={closeMenu}
+        >
           <UMark className="h-8 w-auto" />
         </HomeLogoLink>
         <div className="-mr-2 flex items-center">
@@ -205,7 +224,8 @@ export default function Nav() {
                   {unreadCount > 99 ? "99+" : unreadCount}
                 </span>
                 <span className="sr-only">
-                  , {unreadCount} unread {unreadCount === 1 ? "message" : "messages"}
+                  , {unreadCount} unread{" "}
+                  {unreadCount === 1 ? "message" : "messages"}
                 </span>
               </>
             )}
@@ -214,7 +234,9 @@ export default function Nav() {
       </div>
 
       {/* Desktop row: 96px (the proposal). */}
-      <div className="page-container hidden h-24 items-center gap-8 lg:flex">
+      {/* Full width (owner, 13 Nov): the logo hugs the left and the actions the right on any screen, 64px in
+          from 1280px (the mock's margin at 1440), rather than stopping at the page column on wide screens. */}
+      <div className="hidden h-24 w-full items-center gap-8 px-8 lg:flex xl:px-16">
         <HomeLogoLink className="flex items-center py-2" onActivate={closeMenu}>
           <Wordmark className="h-5 w-auto" />
         </HomeLogoLink>

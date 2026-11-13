@@ -68,10 +68,10 @@ describe("sold-out cards (brand-direction-one.md §6.5; the rules' Cards board)"
     expectSoldOutCard();
   });
 
-  it("no badge on the media (no colour-only signal): the art and the decorative date chip; the category and Sold out are tags below", () => {
+  it("no badge on the media (no colour-only signal): the art alone; the category and Sold out are tags below", () => {
     const { container } = render(<EventCard event={soldOut} showSave={false} />);
     const media = container.querySelector("[data-card-media]");
-    expect(media?.children).toHaveLength(2);
+    expect(media?.children).toHaveLength(1);
     for (const child of media?.children ?? []) expect(child).toHaveAttribute("aria-hidden", "true");
     expect(media).not.toHaveTextContent(/Sold out/);
     expect(container.querySelector("[data-card-tags]")).toHaveTextContent(/^TheatreSold out$/);

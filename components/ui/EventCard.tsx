@@ -4,7 +4,6 @@ import ClipPlayButton from "@/components/events/ClipPlayButton";
 import SaveButton from "@/components/favourites/SaveButton";
 import CardPrice from "@/components/ui/CardPrice";
 import CategoryTag from "@/components/ui/CategoryTag";
-import DateChip from "@/components/ui/DateChip";
 import GoingRow from "@/components/ui/GoingRow";
 import { isApiConfigured } from "@/lib/api/client";
 import { cardGoing, cardGoingFaces, cardMetaParts, cardState, categoryLabel, signalLabel } from "@/lib/event-card";
@@ -32,8 +31,8 @@ function MetaLine({ parts }: { parts: string[] }) {
  * the home, /events, /search, /saved and profiles.
  *
  * Anatomy, in reading order: the 4:3 photo or poster (radius 16) with the
- * date chip on its top-left (decorative: the mono line says the date) and
- * the Save heart on its top-right; the tags (the category in its tint, then
+ * Save heart on its top-right (no date chip on the photo: the owner asked for it gone, 13 Nov; the
+ * mono line says the date); the tags (the category in its tint, then
  * any state: "Sold out", "Ended", "Reserved seating", or a trending
  * qualifier; no "Free" tag, since the price label says it); the title
  * (Heading/H4, at most two lines); one mono line "SAT 14 NOV · 5PM · COBURG,
@@ -122,7 +121,6 @@ export default function EventCard({
           // Sold out: the image at 60%. Ended: greyed; it's still there to look at, but nothing's on.
           className={`${MEDIA} w-full ${state === "ended" ? "grayscale" : state === "sold-out" ? "opacity-60" : ""}`.trim()}
         />
-        <DateChip event={event} className="absolute top-2 left-2" />
       </div>
       <div className="flex min-w-0 flex-col gap-2 pt-4">
         <p data-card-tags="" className="flex min-w-0 flex-wrap gap-2">

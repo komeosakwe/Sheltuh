@@ -116,7 +116,7 @@ const metaText = (container: HTMLElement) => plain(meta(container).textContent);
 const priceTag = (container: HTMLElement) => container.querySelector<HTMLElement>("[data-price-tag]");
 
 describe("EventCard anatomy (the rules' Cards board)", () => {
-  it("the 4:3 image with the date chip, then the tags, the title and one mono line; going and the price label in the foot", () => {
+  it("the 4:3 image (no date chip: owner, 13 Nov), then the tags, the title and one mono line; going and the price label in the foot", () => {
       const { container } = render(<EventCard event={event} mode="demo" />);
       const root = cardRoot(container);
       // The first child is the (decorative) hover panel; the media follows.
@@ -125,14 +125,13 @@ describe("EventCard anatomy (the rules' Cards board)", () => {
       expect(hover).toHaveAttribute("aria-hidden", "true");
       const media = hover.nextElementSibling as HTMLElement;
       expect(media).toHaveAttribute("data-card-media");
-      // A 4:3 image at radius 16, with the date chip (decorative) and nothing else.
+      // A 4:3 image at radius 16 and nothing else on it.
       expect(media).toHaveClass("rounded-card", "overflow-hidden");
-      expect(media.children).toHaveLength(2);
+      expect(media.children).toHaveLength(1);
       expect(media.firstElementChild).toHaveAttribute("aria-hidden", "true");
       expect(media.firstElementChild).toHaveClass("aspect-[4/3]");
       expect(media.firstElementChild?.className).not.toMatch(/aspect-square/);
-      expect(media.lastElementChild).toHaveAttribute("data-date-chip");
-      expect(media.lastElementChild).toHaveAttribute("aria-hidden", "true");
+      expect(container.querySelector("[data-date-chip]")).toBeNull();
       const text = media.nextElementSibling as HTMLElement;
       expect(text).toHaveClass("flex", "flex-col", "gap-2", "pt-4");
       expect(Array.from(text.children).map((el) => plain(el.textContent))).toEqual([
@@ -216,12 +215,11 @@ describe("EventCard anatomy (the rules' Cards board)", () => {
     expect(document.body).not.toHaveTextContent(/today|left|hurry/i);
   });
 
-  it("dates the chip in the event's own zone: weekday, day and month", () => {
+  it("dates the mono line in the event's own zone", () => {
     // 11:30 pm on Sat 17 Oct in Perth is already Sun 18 Oct in Melbourne.
     const perth = { ...event, state: "WA" as const, timeZone: "Australia/Perth" as const, startsAt: "2026-10-17T15:30:00.000Z" };
     const { container } = render(<EventCard event={perth} mode="live" />);
-    const chip = container.querySelector("[data-date-chip]") as HTMLElement;
-    expect(Array.from(chip.children).map((el) => el.textContent)).toEqual(["Sat", "17", "OCT"]);
+    expect(metaText(container)).toMatch(/^Sat 17 Oct/);
   });
 });
 
