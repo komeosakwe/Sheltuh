@@ -193,6 +193,8 @@ describe("holding seats at checkout (paid)", () => {
     const over = await checkout({ seats: { mapVersion: version, seatIds: ["B9"] } }, { eventId: big.eventId });
     expect(over.status).toBe(429);
     expect(over.body).toMatchObject({ code: "hold_cap", seatIds: ["B9"], fieldErrors: { seats: expect.any(String) } });
+    // Every hold counted now lapses within a hold's length (35 minutes).
+    expect(over.headers.get("retry-after")).toBe(String(35 * 60));
     expect(await api.db.query(`select 1 from public.orders where event_id = $1`, [big.eventId])).toHaveLength(2);
     // An expired hold doesn't count.
     await api.db.query(`update public.event_seats set hold_expires_at = now() - interval '1 second' where event_id = $1 and id = 'A1'`, [big.eventId]);

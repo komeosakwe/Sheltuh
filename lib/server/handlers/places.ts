@@ -23,7 +23,7 @@ import type { VenueLocation } from "@/lib/api/types";
 import { requireCaller, type Caller } from "../auth";
 import type { Deps } from "../deps";
 import type { EventInput } from "../event-input";
-import { HttpError, okPrivate, readJson } from "../http";
+import { HttpError, okPrivate, type RateWindow, readJson, tooManyRequests, windowSeconds } from "../http";
 import {
   isAustralianRegion,
   PLACE_ID_PATTERN,
@@ -45,7 +45,7 @@ export const PLACES_UNAVAILABLE = "Google Maps search isn't available right now.
 export interface PlacesRateLimit {
   bucket: string;
   hits: number;
-  window: string;
+  window: RateWindow;
 }
 
 /**
@@ -143,18 +143,19 @@ export const PLACES_TOO_MANY = "Too many venue searches. Try again later, or dro
 async function takeLimit(deps: Deps, caller: Caller, kind: PlacesKind, field?: "location"): Promise<void> {
   const [hourly, daily] = PLACES_RATE_LIMITS[kind];
   const platform = PLACES_PLATFORM_DAILY_CAPS[kind];
-  const [{ outcome }] = await deps.db.query<{ outcome: "ok" | "account" | "platform" }>(
+  const [{ outcome }] = await deps.db.query<{ outcome: "ok" | "hourly" | "daily" | "platform" }>(
     `select case
-              when not private.take_rate_limit($1, $2, $3, $4::interval) then 'account'
-              when not private.take_rate_limit($1, $5, $6, $7::interval) then 'account'
+              when not private.take_rate_limit($1, $2, $3, $4::interval) then 'hourly'
+              when not private.take_rate_limit($1, $5, $6, $7::interval) then 'daily'
               when not private.take_platform_rate_limit(
                      $8::text || ':' || to_char(now() at time zone $10, 'YYYY-MM-DD'), $9, interval '25 hours') then 'platform'
               else 'ok'
             end as outcome`,
     [caller.userId, hourly.bucket, hourly.hits, hourly.window, daily.bucket, daily.hits, daily.window, platform.bucket, platform.hits, PLACES_QUOTA_TIME_ZONE],
   );
-  if (outcome === "account") {
-    throw new HttpError(429, PLACES_TOO_MANY, field ? { [field]: PLACES_TOO_MANY } : undefined);
+  if (outcome === "hourly" || outcome === "daily") {
+    const window = outcome === "hourly" ? hourly.window : daily.window;
+    throw tooManyRequests(PLACES_TOO_MANY, windowSeconds(window), field ? { [field]: PLACES_TOO_MANY } : undefined);
   }
   if (outcome === "platform") {
     logUnavailable(new PlacesUnavailableError("daily_cap"));

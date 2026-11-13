@@ -1,5 +1,5 @@
 import { requireAdmin, requireCaller } from "../auth";
-import { createdPrivate, HttpError, okPrivate, readJson } from "../http";
+import { createdPrivate, HttpError, okPrivate, readJson, tooManyRequests, windowSeconds } from "../http";
 import { parseReport, parseResolveReport } from "../message-input";
 import { decodeCursor, isUuid, parseLimit, toPage } from "../pagination";
 import { ADMIN_REPORT_SELECT, toAdminReport } from "../records";
@@ -69,7 +69,10 @@ export const createReport: Handler = async (req, _params, { db, verifyAccessToke
     case "self":
       throw new HttpError(400, "You can't report yourself.");
     case "rate_limited":
-      throw new HttpError(429, "You've sent a lot of reports today. Email support@sheltuh.com.au if it's urgent.");
+      throw tooManyRequests(
+        "You've sent a lot of reports today. Email support@sheltuh.com.au if it's urgent.",
+        windowSeconds(REPORT_RATE_LIMIT.window),
+      );
     default:
       throw new Error(`Unexpected file_report result: ${row.result}`);
   }

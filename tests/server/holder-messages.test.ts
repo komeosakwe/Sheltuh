@@ -529,6 +529,8 @@ describe("POST /api/events/{eventId}/holder-messages", () => {
           const over = await post(validBody());
           expect(over.status).toBe(429);
           expect(over.body.code).toBe("event_day_cap");
+          // The last 24 hours, rolling: free again within a day.
+          expect(over.headers.get("retry-after")).toBe("86400");
           await nextDay();
         }
       }
@@ -539,6 +541,9 @@ describe("POST /api/events/{eventId}/holder-messages", () => {
       const beyond = await post(validBody());
       expect(beyond.status).toBe(429);
       expect(beyond.body.code).toBe("event_total_cap");
+      // A lifetime cap: no wait lifts it, so no Retry-After (not even the default).
+      expect(beyond.headers.get("retry-after")).toBeNull();
+      expect(beyond.body).toStrictEqual({ error: "This event has used all of its messages.", code: "event_total_cap" });
       expect((await get(organiser.token)).body).toMatchObject({
         canSend: false,
         blockedReason: "event_total_cap",
@@ -569,6 +574,7 @@ describe("POST /api/events/{eventId}/holder-messages", () => {
       const over = await post(validBody(), organiser.token, extra.eventId);
       expect(over.status).toBe(429);
       expect(over.body.code).toBe("rate_limited");
+      expect(over.headers.get("retry-after")).toBe("86400"); // the account's 24-hour window
       expect((await get(organiser.token, extra.eventId)).body.remaining).toMatchObject({ eventToday: LIMITS.perEventPerDay, organiserToday: 0 });
       expect(await api.db.query(`select 1 from private.holder_messages`)).toHaveLength(LIMITS.perOrganiserPerDay);
 

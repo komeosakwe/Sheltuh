@@ -425,7 +425,8 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
      address; the per-order 20 caps Stripe retrieves for one order from any
      number of addresses. The per-client limit fails open (logged, no
      request detail) without a client IP; both fail open without
-     `STRIPE_WEBHOOK_SECRET`. A 429 is `{error}`, `private, no-store`.
+     `STRIPE_WEBHOOK_SECRET`. A 429 is `{error}`, `private, no-store`,
+     `Retry-After: 60`.
    - It writes nothing but those counters, and logs nothing about the order
      or the secret. An
      `open` session without a client secret (a hosted session from before
@@ -3713,8 +3714,8 @@ published event at `/dashboard/{eventId}`).
 - **Rate limit.** 30 releases an hour per organiser account
   (`take_rate_limit`, bucket `ticket_releases`) and 10 per 24 hours per event
   (`take_event_rate_limit`, same bucket name), so one event's log can't be
-  grown without bound; 429 (no `Retry-After`: the windows are fixed, and the
-  other rate limits don't send one).
+  grown without bound; 429 with `Retry-After` 86400 (one answer for both
+  limits, so the longer window; see "API").
 - **Record.** `EventRecord.ticketsSold` (ticket type id → sold, the
   organiser's and admins' shapes only; `toPublicEvent` doesn't carry it) feeds
   the "sold / total" in the UI.
@@ -4292,6 +4293,34 @@ unchanged.
 
 All routes are JSON under `/api`. "Organiser" means a signed-in user whose
 application is approved.
+
+**Rate limits (429) and `Retry-After`.** Every 429 carries a `Retry-After`
+header in seconds (RFC 9110), beside its unchanged `{error, …}` body and
+`private, no-store`; same-origin, so the browser can read it without CORS
+`Expose-Headers`. Handlers throw `tooManyRequests(message, seconds, …)`
+(`lib/server/http.ts`) with the time until the refusing limit resets. The
+limiters (`take_rate_limit`, `take_client_rate_limit`,
+`take_event_rate_limit`, `take_platform_rate_limit`) are fixed windows
+started by their first hit that answer only allowed or not, so the value is
+the window's length (`windowSeconds(limit.window)`), the longest the reset
+can be: 60 for the per-minute ones (payment page, GA checkout per minute,
+wallet passes, invite resend cooldown), 300 check-ins (and an email resent
+in the last 5 minutes), 600 the per-10-minute ones (checkout per client,
+seat-hold attempts, Who's Going list, member profiles and photos, Orders
+view reads), 3600 the hourly ones, 86400 the 24-hour and 1-day ones. When
+one result covers limits with different windows (`rate_limited` from
+`release_tickets`, `set_ticket_lock`, `request_conversation`, the invite and
+organiser-link allowances), it's the longest of them; Places tells its
+hourly and daily allowances apart. Two are calendar or rolling, not
+windows: the Orders view's daily budget (`daily_limit`) counts to the next
+UTC midnight (`private.order_detail_views.day`), and the seat-hold cap
+(`hold_cap`) is a hold's length (35 minutes), within which every hold it
+counted lapses. Lifetime caps no wait lifts (an event's total holder
+messages, `event_total_cap`; an invite link's 10 sign-up tokens) are
+`capReached` and send no `Retry-After`. `runHandler` gives any other 429
+`DEFAULT_RETRY_AFTER_SECONDS` (60, the shortest window), so none goes
+without one. The UI keeps showing the API's words, which already say when
+("Try again tomorrow", "Wait a minute"); it doesn't read the header.
 
 | Method & path | Who |
 |---|---|
@@ -5078,7 +5107,8 @@ picked plus their own pin, or their pin alone (owner decisions A-D1 to A-D6,
       Details and an event save's check (`verifyVenuePlace`, the same Google
       request) share 30 an hour and 120 a day (`places_details`,
       `places_details_daily`). Past either: 429 (with
-      `fieldErrors.location` on an event save).
+      `fieldErrors.location` on an event save), `Retry-After` 3600 past the
+      hourly one and 86400 past the daily one.
     - platform-wide, `private.take_platform_rate_limit`, per Google day
       (Google's quotas reset at midnight Pacific Time, so the bucket is
       `places_autocomplete_day:<date>` / `places_details_day:<date>`, that

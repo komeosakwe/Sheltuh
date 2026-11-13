@@ -11,7 +11,7 @@ import { clientIp, clientKey } from "../client-key";
 import type { Db } from "../db";
 import type { Deps } from "../deps";
 import { sendOnboardingEmailsSoon, sendReviewEmailsSoon } from "../email-outbox";
-import { createdPrivate, HttpError, okPrivate, readJson } from "../http";
+import { createdPrivate, HttpError, okPrivate, readJson, tooManyRequests, windowSeconds } from "../http";
 import { decodeCursor, isUuid, parseLimit, toPage } from "../pagination";
 import { checkOrganiserDisplayName } from "../profile-input";
 import { ADMIN_ORGANISER_LINK_SELECT, toAdminOrganiserLink } from "../records";
@@ -170,9 +170,10 @@ export const adminCreateOrganiserLink: Handler = async (req, _params, deps) => {
     ],
   );
   if (row.result === "rate_limited") {
-    throw new HttpError(
-      429,
+    // One answer for this admin's hourly and everyone's daily allowance: the longer.
+    throw tooManyRequests(
       `That's a lot of organiser links. You can make ${ORGANISER_LINK_LIMITS.adminHourly.hits} an hour, and the team ${ORGANISER_LINK_LIMITS.platformDaily.hits} a day. Try again later.`,
+      Math.max(windowSeconds(ORGANISER_LINK_LIMITS.adminHourly.window), windowSeconds(ORGANISER_LINK_LIMITS.platformDaily.window)),
     );
   }
   if (row.result !== "created") throw new Error(`Unexpected create_organiser_invite_link result: ${row.result}`);
@@ -220,7 +221,9 @@ export const adminCancelOrganiserLink: Handler<{ linkId: string }> = async (req,
  */
 export const viewOrganiserLink: Handler = async (req, _params, deps) => {
   const token = readToken(await readJson(req));
-  if (!(await takeClientHit(req, deps, ORGANISER_LINK_LIMITS.viewsPerClient))) throw new HttpError(429, TOO_MANY);
+  if (!(await takeClientHit(req, deps, ORGANISER_LINK_LIMITS.viewsPerClient))) {
+    throw tooManyRequests(TOO_MANY, windowSeconds(ORGANISER_LINK_LIMITS.viewsPerClient.window));
+  }
   const [row] = await deps.db.query<{ expires_at: string | Date }>(
     `select l.expires_at from private.organiser_invite_links l
       where l.token_hash = $1 and l.status = 'active' and l.expires_at > now()
@@ -288,7 +291,8 @@ export const joinWithOrganiserLink: Handler = async (req, _params, deps) => {
     [caller.userId, bucket, hits, window],
   );
   if (!account.allowed || !(await takeClientHit(req, deps, ORGANISER_LINK_LIMITS.joinsPerClient))) {
-    throw new HttpError(429, TOO_MANY);
+    const retryAfter = account.allowed ? ORGANISER_LINK_LIMITS.joinsPerClient.window : window;
+    throw tooManyRequests(TOO_MANY, windowSeconds(retryAfter));
   }
 
   const [row] = await deps.db.query<{ result: string; organiser_id: string | null }>(

@@ -1,6 +1,6 @@
 import { requireCaller, requireVerifiedCaller } from "../auth";
 import type { Db } from "../db";
-import { HttpError, okPrivate, okPublic } from "../http";
+import { HttpError, okPrivate, okPublic, tooManyRequests, windowSeconds } from "../http";
 import { isUuid } from "../pagination";
 import type { Handler } from "../route";
 import type { ExternalGoingSummary, MyExternalGoing } from "../types";
@@ -40,7 +40,7 @@ async function takeRateLimit(db: Db, userId: string) {
     `select private.take_rate_limit($1, 'external_going', $2, $3::interval) as allowed`,
     [userId, EXTERNAL_GOING_RATE_LIMIT.hits, EXTERNAL_GOING_RATE_LIMIT.window],
   );
-  if (!allowed) throw new HttpError(429, "Too many requests. Try again in a few minutes.");
+  if (!allowed) throw tooManyRequests("Too many requests. Try again in a few minutes.", windowSeconds(EXTERNAL_GOING_RATE_LIMIT.window));
 }
 
 const toMine = (row: StateRow): MyExternalGoing => ({ going: row.open && row.is_going, open: row.open });
