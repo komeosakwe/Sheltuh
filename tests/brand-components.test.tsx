@@ -145,8 +145,17 @@ describe("Footer", () => {
       ["About Sheltüh", "/about"],
       ["Become a partner", "/partners"],
     ]);
-    // An icon only for a channel that exists: email (no LinkedIn or Instagram address yet).
-    expect(links("Contact Sheltüh")).toEqual([[`Email ${SUPPORT_EMAIL}`, `mailto:${SUPPORT_EMAIL}`]]);
+    // Email, then Sheltüh's own socials (owner, 13 Nov 2026), each named for screen readers and opening a new tab.
+    expect(links("Contact Sheltüh")).toEqual([
+      [`Email ${SUPPORT_EMAIL}`, `mailto:${SUPPORT_EMAIL}`],
+      ["Sheltüh on Instagram (opens in a new tab)", "https://www.instagram.com/findsheltuh/"],
+      ["Sheltüh on TikTok (opens in a new tab)", "https://www.tiktok.com/@findsheltuh"],
+      ["Sheltüh on LinkedIn (opens in a new tab)", "https://www.linkedin.com/company/sheltuh/"],
+    ]);
+    for (const social of within(screen.getByRole("navigation", { name: "Contact Sheltüh" })).getAllByRole("link").slice(1)) {
+      expect(social).toHaveAttribute("target", "_blank");
+      expect(social).toHaveAttribute("rel", "noopener noreferrer");
+    }
     expect(links("Legal")).toEqual([
       ["Privacy Policy", "/privacy"],
       ["Terms of Use", "/terms"],
@@ -190,9 +199,11 @@ describe("Footer", () => {
       expect(within(nav).getByRole("list").className).not.toMatch(/(?:^|\s)hidden(?:\s|$)/);
       for (const link of within(nav).getAllByRole("link")) expect(link).toHaveClass("min-h-12", "lg:min-h-8");
     }
-    const email = within(screen.getByRole("navigation", { name: "Contact Sheltüh" })).getByRole("link");
-    expect(email).toHaveClass("size-12", "lg:size-10");
-    expect(email.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    // Email and each social: a 48px icon target on phones, 40px from lg, the icon decorative (the label names it).
+    for (const icon of within(screen.getByRole("navigation", { name: "Contact Sheltüh" })).getAllByRole("link")) {
+      expect(icon).toHaveClass("size-12", "lg:size-10");
+      expect(icon.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    }
     // The rules' Layout board: stacked on phones, two columns from 640px, four from lg; the socials last.
     const grid = screen.getByRole("navigation", { name: "Fan support" }).parentElement;
     expect(grid).toHaveClass("grid-cols-1", "sm:grid-cols-2", "lg:grid-cols-4");

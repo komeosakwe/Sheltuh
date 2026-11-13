@@ -3,7 +3,8 @@ import BrandU from "@/components/brand/BrandU";
 import Wordmark from "@/components/brand/Wordmark";
 import InstallPrompt from "@/components/pwa/InstallPrompt";
 import ThemeSwitch from "@/components/theme/ThemeSwitch";
-import { SUPPORT_EMAIL } from "@/lib/contact";
+import OrganiserLinkIcon from "@/components/organisers/OrganiserLinkIcon";
+import { SHELTUH_SOCIALS, SUPPORT_EMAIL } from "@/lib/contact";
 
 interface FooterLink {
   href: string;
@@ -85,8 +86,8 @@ function MailIcon() {
  * "Where is your Sheltüh?"), the quiet install action where the browser offers one, and the
  * Light / Dark switch (footer only). Then four columns: Fan support, Explore, Our company and
  * Contact Sheltüh (the rules' Layout board: stacked on phones, two columns from 640px, four from
- * `lg`, the socials last). Contact Sheltüh has an icon only for a channel that
- * exists: email (LinkedIn and Instagram wait for their addresses). The legal links and the ©
+ * `lg`, the socials last). Contact Sheltüh: email, then Sheltüh's Instagram, TikTok and LinkedIn
+ * (lib/contact.ts), each an icon named for screen readers, the socials opening in a new tab. The legal links and the ©
  * line close the page. `data-page-end`: the page's last block, which gains bottom room while the
  * map's phone sheet is open (globals.css), so nothing ends up under it. In Dark the ink footer
  * meets a black page, so it gains a 1px white rule.
@@ -131,6 +132,19 @@ export default function Footer() {
                     <MailIcon />
                   </a>
                 </li>
+                {SHELTUH_SOCIALS.map((social) => (
+                  <li key={social.network}>
+                    <a
+                      href={social.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={`Sheltüh on ${social.name} (opens in a new tab)`}
+                      className="flex size-12 items-center justify-center rounded-control text-muted hover:bg-signal hover:text-signal-foreground lg:size-10"
+                    >
+                      <OrganiserLinkIcon kind={social.network} />
+                    </a>
+                  </li>
+                ))}
               </ul>
             </nav>
           </div>
