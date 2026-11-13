@@ -113,11 +113,11 @@ export function cardDateLabel(event: SheltuhEvent, now: Date): CardDateLabel {
 }
 
 /**
- * The card's one mono line (the redesign's event card), as parts joined by " · ": the start's
+ * The card's one meta line (the redesign's event card), as parts joined by " · ": the start's
  * date, its compact time with any zone but Melbourne's ("5pm", "4pm Perth time"), then "Suburb,
  * STATE" (owner decision D4), or the venue when there's no suburb. An event under way has "Now on
- * · until …" in place of the date and time. The card sets it in capitals with CSS, so it shows
- * "SAT 14 NOV · 5PM · COBURG, VIC" and reads as written. Parts that don't exist are left out.
+ * · until …" in place of the date and time. Shown as written, in Instrument Sans (owner decision,
+ * 13 Nov 2026): "Sat 14 Nov · 5pm · Coburg, VIC". Parts that don't exist are left out.
  */
 export function cardMetaParts(event: SheltuhEvent, now: Date): string[] {
   const date = cardDateLabel(event, now);
@@ -129,7 +129,7 @@ export function cardMetaParts(event: SheltuhEvent, now: Date): string[] {
   return [...when, place].filter(Boolean);
 }
 
-/** The card's date chip: `{ weekday: "Sat", day: "14", month: "NOV" }`, the start in the event's own zone. */
+/** The card's date chip: `{ weekday: "Sat", day: "14", month: "Nov" }`, the start in the event's own zone. */
 export function cardDateChip(event: EventStartFields): { weekday: string; day: string; month: string } {
   const zone = eventZone(event.timeZone);
   const { range, month } = formatDateBadge(event.startsAt, undefined, zone);

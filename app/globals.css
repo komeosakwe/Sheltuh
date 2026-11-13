@@ -58,7 +58,10 @@
   --door-hold-foreground: #0b0b0b;
   /* Faces (app/fonts.ts): three typefaces, one job each (the rules' Type board).
      --face-sans is plain Instrument Sans for UI, headings, body, buttons and nav (form fields too,
-     via --face-sans-plain). --face-mono is IBM Plex Mono for facts: dates, times, places, eyebrows.
+     via --face-sans-plain), and for the facts and labels too: dates, times, places and eyebrows, in
+     sentence case (owner decision, 13 Nov 2026: no more Plex Mono capitals). --face-mono (IBM Plex
+     Mono, `font-mono`) is only for machine codes, where telling 0 from O and 1 from l matters:
+     ticket codes, order references, the door's code entry and admin links that carry a token.
      --face-display is Bootzy, for display headlines only (the display-* styles), at weight 400 with
      no synthesised bold: it's Regular only. No size-adjusted fallback of its own
      (adjustFontFallback: false), so any glyph Bootzy lacks (· … * ~ → × and the no-break space),
@@ -576,23 +579,28 @@ h4 {
   font-size: 0.75rem;
   line-height: 1rem;
 }
+/* Mono/M and Mono/S keep the Type board's names, but no longer its face (owner decision,
+   13 Nov 2026): Instrument Sans 400 as written, in sentence case and normal tracking, with
+   tabular figures so dates, times and counts still line up. Machine codes use font-mono. */
 @utility mono-m {
-  font-family: var(--face-mono);
-  font-weight: 500;
+  font-family: var(--face-sans);
+  font-weight: 400;
   font-size: 0.875rem;
   line-height: 1.25rem;
+  font-variant-numeric: tabular-nums;
 }
 @utility mono-s {
-  font-family: var(--face-mono);
+  font-family: var(--face-sans);
   font-weight: 400;
   font-size: 0.75rem;
   line-height: 1rem;
+  font-variant-numeric: tabular-nums;
 }
 
 /*
  * The old names, re-pointed at the styles above so every screen re-skins with no edits:
  * display-lg is heading-h1 (sentence case now), display-md heading-h3, title-lg display-m (an
- * event's title), eyebrow mono-s in capitals, meta mono-s as written.
+ * event's title), eyebrow a 500 label in sentence case, meta mono-s as written.
  */
 @utility display-lg {
   font-family: var(--face-sans);
@@ -630,22 +638,25 @@ h4 {
   }
 }
 
-/* Eyebrows, straps, field labels: mono-s in capitals, lightly tracked. */
+/* Eyebrows, straps, field labels: Instrument Sans 500 at 12px, so they still read as labels, in
+   sentence case with normal tracking (owner decision, 13 Nov 2026: no more mono capitals). The
+   text is written as it should read ("Fan support", "Where"); nothing upper-cases it. */
 @utility eyebrow {
-  font-family: var(--face-mono);
+  font-family: var(--face-sans);
   font-size: 0.75rem;
   line-height: 1rem;
-  font-weight: 400;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
-/* Timestamps, notes, references: mono-s as written, so dates read as dates. */
+/* Timestamps, notes: mono-s as written (Instrument Sans 400, tabular figures), so dates read as dates. */
 @utility meta {
-  font-family: var(--face-mono);
+  font-family: var(--face-sans);
   font-size: 0.75rem;
   line-height: 1rem;
   font-weight: 400;
+  font-variant-numeric: tabular-nums;
 }
 
 /* The 1.5px control stroke: chips, filters, inputs, secondary buttons (dividers stay 1px). */
@@ -921,8 +932,8 @@ h4 {
 /* Secondary text (the owner's option B, Nov 2026): muted text at reading size (body-l, body-m,
    text-base, text-lg: ledes, intros, empty-state and helper lines) is Instrument Sans Medium (500),
    in --muted, sentence case and normal tracking, as the fields' placeholders are. Smaller muted
-   text (text-sm, text-xs, body-s: card meta, captions, dense rows and tables) and the mono eyebrows
-   keep 400, so dense UI doesn't get heavy. An element's own weight class still wins. */
+   text (text-sm, text-xs, body-s: card meta, captions, dense rows and tables) keeps 400, so dense
+   UI doesn't get heavy; eyebrows set their own 500 as labels. An element's own weight class still wins. */
 @layer utilities {
   .text-muted:is(.body-l, .body-m, .text-base, .text-lg):not(.font-normal, .font-semibold, .font-bold) {
     font-weight: 500;

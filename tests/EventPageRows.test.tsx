@@ -87,7 +87,9 @@ describe("the organiser's profile read (live)", () => {
     expect(api.getOrganiserProfile).toHaveBeenCalledWith("org-1");
 
     const host = screen.getByRole("region", { name: "Organiser" });
-    expect(within(host).getByText("1.2K followers · ✓ Checked")).toHaveClass("mono-s", "uppercase");
+    // As written, never in capitals (owner decision, 13 Nov 2026).
+    expect(within(host).getByText("1.2K followers · ✓ Checked")).toHaveClass("mono-s");
+    expect(within(host).getByText("1.2K followers · ✓ Checked")).not.toHaveClass("uppercase");
 
     const more = screen.getByRole("region", { name: `More from ${LIVE.organiserName}` });
     const titles = within(more).getAllByRole("link").map((a) => a.textContent);
@@ -143,7 +145,8 @@ describe("Similar nearby", () => {
     render(<EventDetailsView event={LIVE} demo={false} />);
     const row = await screen.findByRole("region", { name: "Similar nearby" });
     expect(api.listPublicEvents).toHaveBeenCalledWith({ category: "live-music", upcoming: true, limit: 50 });
-    expect(within(row).getByText("Live music · near Collingwood")).toHaveClass("mono-s", "uppercase");
+    expect(within(row).getByText("Live music · near Collingwood")).toHaveClass("mono-s");
+    expect(within(row).getByText("Live music · near Collingwood")).not.toHaveClass("uppercase");
     const titles = within(row).getAllByRole("link").map((a) => a.textContent);
     expect(titles).toContain(near.title);
     expect(titles).not.toContain(LIVE.title);

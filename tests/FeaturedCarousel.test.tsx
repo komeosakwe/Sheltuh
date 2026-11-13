@@ -86,11 +86,12 @@ describe("FeaturedCarousel", () => {
     const [paid, free, sold] = slides();
     expect(container).not.toHaveTextContent(/Featured/i);
     expect(within(paid).getByText("Live music")).toHaveClass("mono-s", "text-signal");
+    expect(within(paid).getByText("Live music")).not.toHaveClass("uppercase");
     expect(within(paid).getByRole("heading", { level: 3, name: "Event paid" })).toBeInTheDocument();
-    // "SUN 15 NOV · 7PM · NORTHCOTE, VIC · FROM A$…": the card's facts, then the buyer-payable price.
+    // "Sun 15 Nov · 7pm · Northcote, VIC · From A$…" as written: the card's facts, then the buyer-payable price.
     const price = formatCardPriceLabel(PAID);
     expect(price).toMatch(/^From A\$|^A\$/);
-    expect(within(paid).getByText(new RegExp(`Sun 15 Nov · 7pm · Northcote, VIC · ${price?.replace("$", "\\$")}$`))).toHaveClass("uppercase");
+    expect(within(paid).getByText(new RegExp(`Sun 15 Nov · 7pm · Northcote, VIC · ${price?.replace("$", "\\$")}$`))).not.toHaveClass("uppercase");
     // The ticket action says what the card would ("Buy tickets", "Free tickets", "Join waitlist"), named with the event.
     expect(within(paid).getByRole("link", { name: "Buy tickets: Event paid" })).toHaveAttribute("href", "/events/paid#tickets");
     expect(within(paid).getByRole("link", { name: "Buy tickets: Event paid" })).toHaveClass("btn-signal");

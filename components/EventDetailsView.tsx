@@ -362,14 +362,14 @@ export default function EventDetailsView({
             <h1 className="event-title break-words">
               {missing?.title ? <Placeholder>Untitled event</Placeholder> : event.title}
             </h1>
-            {/* The one date/time and venue block (no second copy further down), in mono as written (not
-                capitals: the owner found them hard to read, 13 Nov): when, with its zone; where, linked to
-                directions; and who, linked to their profile. */}
+            {/* The one date/time and venue block (no second copy further down), in Instrument Sans as
+                written (not capitals or mono: the owner found them hard to read, 13 Nov): when (500, the
+                lead fact), with its zone; where, linked to directions; and who, linked to their profile. */}
             <dl data-event-facts="" className="flex flex-col gap-2">
               <div>
                 <dt className="sr-only">When</dt>
                 <dd>
-                  <p className="mono-m">
+                  <p className="mono-m font-medium">
                     {/* Each time stays whole ("4:00 pm", never "4:00 / pm"); the rest wraps where it must,
                         so a long range fits a 320px screen. */}
                     {missing?.when ? (
@@ -409,7 +409,7 @@ export default function EventDetailsView({
                       // Spelled out: it starts with the action, holds the visible address, and says
                       // where it goes and that it opens a new tab.
                       aria-label={`Get directions to ${address} (opens Google Maps in a new tab)`}
-                      // The address is the link, muted mono like the mock's, with the "opens elsewhere" mark to say
+                      // The address is the link, muted like the mock's, with the "opens elsewhere" mark to say
                       // it's one; 44px tall to tap on phones, 24px with a pointer.
                       className="mono-m inline-block min-h-6 max-w-full break-words text-muted underline-offset-4 hover:text-foreground hover:underline max-lg:min-h-11"
                     >

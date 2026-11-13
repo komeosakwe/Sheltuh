@@ -78,7 +78,7 @@ export default function SceneCards({ className = "" }: { className?: string }) {
             </div>
             <p className="mt-1 body-m text-muted">{line}</p>
             {data.meta && (
-              <p data-scene-meta="" className="mt-2 mono-s text-muted uppercase">
+              <p data-scene-meta="" className="mt-2 mono-s text-muted">
                 {data.meta}
               </p>
             )}

@@ -5,7 +5,8 @@ import { cardDateChip, type EventStartFields } from "@/lib/event-card";
  * weekday, the day and the month of the start, in the event's own zone, on
  * white with black text in both themes (it sits on a photo), the day at 24px.
  * The weekday is black too, never orange: small orange type fails on white. Decorative (`aria-hidden`): the
- * card's mono line says the same date in words.
+ * card's meta line says the same date in words. All three in Instrument Sans, as written ("Sat",
+ * "14", "Nov"), never in capitals (owner decision, 13 Nov 2026).
  */
 export default function DateChip({
   event,
@@ -25,9 +26,9 @@ export default function DateChip({
       data-date-chip=""
       className={`flex flex-col items-center rounded-badge bg-paper text-ink ${page ? "w-10 py-2 lg:w-16 lg:py-3" : "w-10 py-2"} ${className}`.trim()}
     >
-      <span className={`uppercase ${page ? "mono-s lg:mono-m" : "mono-s"}`}>{weekday}</span>
+      <span className={page ? "mono-s lg:mono-m" : "mono-s"}>{weekday}</span>
       <span className={`font-semibold tabular-nums ${page ? "text-2xl leading-6 lg:date-chip-day-lg" : "text-2xl leading-6"}`}>{day}</span>
-      <span className={`uppercase ${page ? "mono-s lg:mono-m" : "mono-s"}`}>{month}</span>
+      <span className={page ? "mono-s lg:mono-m" : "mono-s"}>{month}</span>
     </span>
   );
 }

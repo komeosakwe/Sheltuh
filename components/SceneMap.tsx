@@ -913,7 +913,7 @@ function SceneMapView({
               data-further-away=""
               className="flex flex-col items-start gap-4 rounded-card bg-surface p-4 lg:flex-row lg:items-center lg:gap-6 lg:bg-transparent lg:p-0"
             >
-              <h2 id="nearby-further-title" className="mono-s shrink-0 text-muted uppercase">
+              <h2 id="nearby-further-title" className="mono-s shrink-0 text-muted">
                 Further away
               </h2>
               <p className="body-m text-foreground">

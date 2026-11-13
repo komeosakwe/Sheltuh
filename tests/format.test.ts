@@ -120,29 +120,29 @@ describe("toMelbourneDateTimeInputParts — ignores the runtime's own timezone",
 describe("formatDateBadge (phone home date badge, Melbourne time)", () => {
   it("shows a single day as its date and month", () => {
     // 2026-10-03T00:00Z is 11:00 am on Sat 3 Oct in Melbourne (AEDT).
-    expect(formatDateBadge("2026-10-03T00:00:00.000Z")).toEqual({ range: "3", month: "OCT" });
+    expect(formatDateBadge("2026-10-03T00:00:00.000Z")).toEqual({ range: "3", month: "Oct" });
   });
 
   it("counts an end on the same Melbourne date as one day", () => {
-    expect(formatDateBadge("2026-10-03T00:00:00.000Z", "2026-10-03T03:00:00.000Z")).toEqual({ range: "3", month: "OCT" });
+    expect(formatDateBadge("2026-10-03T00:00:00.000Z", "2026-10-03T03:00:00.000Z")).toEqual({ range: "3", month: "Oct" });
   });
 
   it("uses the Melbourne date, not the UTC one", () => {
     // 2026-10-02T14:00Z is 1:00 am on Sat 3 Oct in Melbourne, still 2 Oct in UTC.
-    expect(formatDateBadge("2026-10-02T14:00:00.000Z")).toEqual({ range: "3", month: "OCT" });
+    expect(formatDateBadge("2026-10-02T14:00:00.000Z")).toEqual({ range: "3", month: "Oct" });
   });
 
   it("shows a span within a month as a day range", () => {
     expect(formatDateBadge("2026-10-19T00:00:00.000Z", "2026-10-25T08:00:00.000Z")).toEqual({
       range: "19–25",
-      month: "OCT",
+      month: "Oct",
     });
   });
 
   it("names the start month when a span crosses into the next month", () => {
     expect(formatDateBadge("2026-10-30T00:00:00.000Z", "2026-11-02T08:00:00.000Z")).toEqual({
-      range: "30 OCT–2",
-      month: "NOV",
+      range: "30 Oct–2",
+      month: "Nov",
     });
   });
 });
@@ -215,8 +215,8 @@ describe("formatters in another event zone (Perth: AWST, no daylight saving; Ade
     expect(formatEventDateTimeRange(start, winterLate, "Australia/Adelaide")).toBe(
       "Wed 12 Aug, 10:30 pm – Thu 13 Aug, 12:30 am",
     );
-    expect(formatDateBadge(start, winterLate, "Australia/Perth")).toEqual({ range: "12", month: "AUG" });
-    expect(formatDateBadge(start, winterLate, "Australia/Adelaide")).toEqual({ range: "12–13", month: "AUG" });
+    expect(formatDateBadge(start, winterLate, "Australia/Perth")).toEqual({ range: "12", month: "Aug" });
+    expect(formatDateBadge(start, winterLate, "Australia/Adelaide")).toEqual({ range: "12–13", month: "Aug" });
     const now = new Date("2026-08-12T14:00:00.000Z"); // 10:00 pm in Perth, 12:00 am (13 Aug) in Melbourne
     expect(formatMessageTime(start, now, "Australia/Perth")).toBe("9:00 pm");
     expect(formatMessageTime(start, now)).toBe("Wed 12 Aug, 11:00 pm");

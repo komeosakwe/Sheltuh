@@ -59,7 +59,9 @@ This replaces the split home: `PhoneHome` below `sm` plus the desktop tree (`Int
 | Cream / Black | 20.08:1 | Featured card text on the scrim (≥85% black), Creators card, Trending chip |
 | Signal / Cream | 3.25:1 | **Non-text only**: strap dots. Never text. |
 
-**Type.** Faces and utilities are as in `brand-direction-one.md` §3: Instrument Sans (`font-sans`, `font-heading`), Plex Mono (`eyebrow`, `meta`), and the display token (`font-display`; Bootzy when licensed). Sizes are given as base / `sm:` / `md:` / `lg:`. A blank cell inherits the cell to its left.
+> **Owner decision, 13 Nov 2026: IBM Plex Mono is retired as a text face.** The strap and card-date rows below are now Instrument Sans in sentence case, normal tracking (`eyebrow` 500, `meta` 400): "Sat 14 Nov · 8pm · Windsor, VIC". See `brand-direction-one.md` §3.
+
+**Type.** Faces and utilities are as in `brand-direction-one.md` §3: Instrument Sans (`font-sans`, `font-heading`), Plex Mono (`eyebrow`, `meta`; superseded above), and the display token (`font-display`; Bootzy when licensed). Sizes are given as base / `sm:` / `md:` / `lg:`. A blank cell inherits the cell to its left.
 
 | Role | Base (<640) | sm 640 | md 768 | lg 1024 | LH | Tracking | Case | Wt |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |

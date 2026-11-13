@@ -274,11 +274,11 @@ export default function FeaturedCarousel({
                 data-slide-panel=""
                 className="relative m-4 rounded-card bg-background/90 p-4 sm:mr-auto sm:max-w-2xl md:m-6 md:p-6 lg:max-w-xl xl:max-w-2xl"
               >
-                <p className="mono-s text-signal uppercase">{categoryLabel(event)}</p>
+                <p className="mono-s text-signal">{categoryLabel(event)}</p>
                 <h3 className="mt-2 line-clamp-2 font-display text-2xl leading-8 break-words uppercase md:text-4xl md:leading-10">
                   {event.title}
                 </h3>
-                <p className="mono-s mt-3 uppercase">{slideFacts(event, now)}</p>
+                <p className="mono-s mt-3">{slideFacts(event, now)}</p>
                 <div className="mt-4 flex flex-wrap gap-2 md:gap-4">
                   {cta && (
                     // Named with the event (each slide has one), its visible words first (WCAG 2.5.3).

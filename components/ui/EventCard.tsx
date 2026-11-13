@@ -14,13 +14,14 @@ import type { SheltuhEvent } from "@/lib/types";
 const MEDIA = "aspect-[4/3]";
 
 /**
- * The card's mono line, from cardMetaParts, on one line: cut short with an ellipsis when it
- * doesn't fit (the whole line is still the text read), Mono/S on a narrow card and Mono/M from
- * an 18rem card, so a two-column phone grid never scrolls sideways.
+ * The card's meta line, from cardMetaParts, on one line, as written (Instrument Sans in sentence
+ * case: owner decision, 13 Nov 2026): cut short with an ellipsis when it doesn't fit (the whole
+ * line is still the text read), Mono/S on a narrow card and Mono/M from an 18rem card, so a
+ * two-column phone grid never scrolls sideways.
  */
 function MetaLine({ parts }: { parts: string[] }) {
   return (
-    <p data-card-meta="" className="mono-s truncate text-muted uppercase @2xs:mono-m">
+    <p data-card-meta="" className="mono-s truncate text-muted @2xs:mono-m">
       {parts.join(" · ")}
     </p>
   );
@@ -32,12 +33,12 @@ function MetaLine({ parts }: { parts: string[] }) {
  *
  * Anatomy, in reading order: the 4:3 photo or poster (radius 16) with the
  * Save heart on its top-right (no date chip on the photo: the owner asked for it gone, 13 Nov; the
- * mono line says the date); the tags (the category in its tint, then
+ * meta line says the date); the tags (the category in its tint, then
  * any state: "Sold out", "Ended", "Reserved seating", or a trending
  * qualifier; no "Free" tag, since the price label says it); the title
- * (Heading/H4, at most two lines); one mono line "SAT 14 NOV · 5PM · COBURG,
- * VIC" (cardMetaParts, set in capitals by CSS so it reads as written, cut
- * short if it doesn't fit); then the foot, with who's going on the left and
+ * (Heading/H4, at most two lines); one meta line "Sat 14 Nov · 5pm · Coburg,
+ * VIC" (cardMetaParts, shown as written, never in capitals, cut short if it
+ * doesn't fit); then the foot, with who's going on the left and
  * the orange price label on the right. No ticket button and no "By
  * {organiser}": the card opens the event, where both are.
  *

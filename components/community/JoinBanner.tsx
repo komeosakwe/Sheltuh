@@ -66,7 +66,7 @@ export default function JoinBanner({ className = "" }: { className?: string }) {
       data-surface="signal"
       className={`rounded-card p-6 md:p-10 lg:p-12 ${className}`.trim()}
     >
-      <p className="text-sm leading-5 font-semibold uppercase">{JOIN_EYEBROW}</p>
+      <p className="text-sm leading-5 font-semibold">{JOIN_EYEBROW}</p>
       <h2 id="community-join" className="mt-2 heading-h1">
         {JOIN_TITLE}
       </h2>
@@ -99,7 +99,7 @@ export default function JoinBanner({ className = "" }: { className?: string }) {
               </Link>
             </p>
           )}
-          {note && <p className="mono-s uppercase">{note}</p>}
+          {note && <p className="mono-s">{note}</p>}
         </div>
       </div>
     </section>

@@ -38,7 +38,7 @@ export default function EventLocation({ event, map = true }: { event: SheltuhEve
       <div data-event-location="" className="flex flex-col gap-2">
         {map && <EventLocationMap event={event} directions={directions} />}
         <div className="flex flex-wrap items-center gap-x-2">
-          <address className="mono-m flex flex-wrap gap-x-2 not-italic uppercase">
+          <address className="mono-m flex flex-wrap gap-x-2 not-italic">
             {venue && <span className="font-semibold">{venue}</span>}
             {venue && where && <span aria-hidden="true">·</span>}
             {where && <span className="break-words">{where}</span>}

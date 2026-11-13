@@ -140,10 +140,11 @@ describe("EventCard anatomy (the rules' Cards board)", () => {
         "Sun 18 Oct · 7pm · Carlton, VIC",
       ]);
       expect(text.children[1].tagName).toBe("H3");
-      // The title is Heading/H4, at most two lines; the mono line is Mono/M, secondary, in capitals by CSS.
+      // The title is Heading/H4, at most two lines; the meta line is Mono/M, secondary, as written (never in capitals).
       expect(text.children[1]).toHaveClass("heading-h4", "line-clamp-2", "break-words");
       // One line, cut short if it doesn't fit: Mono/S on a narrow card, Mono/M from an 18rem one.
-      expect(meta(container)).toHaveClass("mono-s", "@2xs:mono-m", "truncate", "text-muted", "uppercase");
+      expect(meta(container)).toHaveClass("mono-s", "@2xs:mono-m", "truncate", "text-muted");
+      expect(meta(container)).not.toHaveClass("uppercase");
       // The foot: who's going (decorative faces, then the count), then the all-inclusive price label (the amount alone).
       const [going, price] = Array.from(foot(container).children);
       expect(going).toHaveAttribute("data-card-going");

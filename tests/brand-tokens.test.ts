@@ -277,6 +277,10 @@ describe("brand faces", () => {
   it("loads Instrument Sans and IBM Plex Mono, and no longer Bricolage Grotesque or Inter", () => {
     expect(fonts).toMatch(/import \{ IBM_Plex_Mono, Instrument_Sans \} from "next\/font\/google";/);
     expect(layout).toContain("${instrument.variable} ${plexMono.variable}");
+    // Plex Mono is only for machine codes now (owner decision, 13 Nov 2026): one weight, not preloaded.
+    const plex = fonts.slice(fonts.indexOf("IBM_Plex_Mono({"), fonts.indexOf("});", fonts.indexOf("IBM_Plex_Mono({")));
+    expect(plex).toContain('weight: ["400"],');
+    expect(plex).toContain("preload: false,");
     for (const file of [layout, fonts]) {
       expect(file).not.toMatch(/Bricolage|\bInter\b/);
     }
@@ -428,11 +432,11 @@ describe("the type scale (the rules' Type board)", () => {
     }
   });
 
-  it("keeps headings, body, labels and mono in sentence case (capitals are display's and the eyebrow's only)", () => {
+  it("keeps headings, body, labels, eyebrows and meta in sentence case (capitals are display's only)", () => {
     const sentenceCase = [
       "heading-h1", "heading-h2", "heading-h3", "heading-h4",
       "body-l", "body-m", "body-s", "label-nav", "label-tag", "mono-m", "mono-s",
-      "display-lg", "display-md", "meta",
+      "display-lg", "display-md", "meta", "eyebrow",
     ];
     for (const name of sentenceCase) expect(utility(name), name).not.toContain("uppercase");
     // A button's label is sentence case ("Buy tickets", never "BUY TICKETS").
@@ -440,8 +444,21 @@ describe("the type scale (the rules' Type board)", () => {
     const headings = css.slice(css.indexOf("h1,\nh2,\nh3,\nh4 {"), css.indexOf("}", css.indexOf("h1,\nh2,\nh3,\nh4 {")));
     expect(headings).toContain("font-weight: 700;");
     expect(headings).not.toContain("uppercase");
-    expect(utility("eyebrow")).toContain("text-transform: uppercase;");
-    expect(utility("eyebrow")).toContain("letter-spacing: 0.02em;");
+    // Eyebrows (owner decision, 13 Nov 2026): Instrument Sans 500 labels, as written, normal tracking.
+    expect(utility("eyebrow")).toContain("text-transform: none;");
+    expect(utility("eyebrow")).toContain("letter-spacing: 0;");
+    expect(utility("eyebrow")).toContain("font-weight: 500;");
+  });
+
+  it("sets eyebrows, meta and Mono/M and Mono/S in Instrument Sans: mono is for machine codes only", () => {
+    for (const name of ["eyebrow", "meta", "mono-m", "mono-s"]) {
+      expect(utility(name), name).toContain("font-family: var(--face-sans);");
+      expect(utility(name), name).not.toContain("--face-mono");
+    }
+    // Dates, times and counts keep lining up without the monospace.
+    for (const name of ["meta", "mono-m", "mono-s"]) expect(utility(name), name).toContain("font-variant-numeric: tabular-nums;");
+    // Nothing else in the stylesheet reaches for the mono face but the font-mono theme key.
+    expect(css.match(/var\(--face-mono\)/g)).toEqual(["var(--face-mono)"]);
   });
 
   it("points the old names at the new styles: display-lg is heading-h1, display-md heading-h3, title-lg display-m", () => {

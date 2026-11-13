@@ -37,7 +37,7 @@ export default function HomeSectionHead({
           {title}
         </h2>
         {note && (
-          <p data-section-note="" className="mono-s basis-full text-muted uppercase sm:basis-auto">
+          <p data-section-note="" className="mono-s basis-full text-muted sm:basis-auto">
             {note}
           </p>
         )}

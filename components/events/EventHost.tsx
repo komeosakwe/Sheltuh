@@ -77,7 +77,7 @@ export default function EventHost({ event, demo }: { event: SheltuhEvent; demo: 
         <OrganiserLogo name={event.organiserName} url={event.organiserLogoThumbUrl} size="card" fallback="initials" />
         <div className="flex min-w-0 flex-col">
           <p className="heading-h4 break-words">{event.organiserName}</p>
-          {facts.length > 0 && <p className="mono-s text-muted uppercase">{facts.join(" · ")}</p>}
+          {facts.length > 0 && <p className="mono-s text-muted">{facts.join(" · ")}</p>}
         </div>
       </div>
       {bio && <p className="body-s max-w-2xl break-words whitespace-pre-line">{bio}</p>}

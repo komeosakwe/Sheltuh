@@ -41,18 +41,19 @@ describe("the compact card time", () => {
 });
 
 describe("DateChip", () => {
-  it("shows the weekday, day and month of the start, and is hidden from screen readers (the mono line says it)", () => {
+  it("shows the weekday, day and month of the start as written, and is hidden from screen readers (the meta line says it)", () => {
     const { container } = render(<DateChip event={event} />);
     const chip = container.firstElementChild as HTMLElement;
     expect(chip).toHaveAttribute("aria-hidden", "true");
-    expect(Array.from(chip.children).map((el) => el.textContent)).toEqual(["Sat", "14", "NOV"]);
+    expect(Array.from(chip.children).map((el) => el.textContent)).toEqual(["Sat", "14", "Nov"]);
+    expect(chip.querySelector(".uppercase")).toBeNull();
   });
 
   it("dates it in the event's own zone, not Melbourne's", () => {
     // 12:30 am on Sun 15 Nov in Melbourne is still Sat 14 Nov in Perth.
     const late = { startsAt: "2026-11-14T13:30:00.000Z", timeZone: "Australia/Perth" as const, state: "WA" as const };
-    expect(cardDateChip(late)).toEqual({ weekday: "Sat", day: "14", month: "NOV" });
-    expect(cardDateChip({ ...late, timeZone: undefined, state: "VIC" })).toEqual({ weekday: "Sun", day: "15", month: "NOV" });
+    expect(cardDateChip(late)).toEqual({ weekday: "Sat", day: "14", month: "Nov" });
+    expect(cardDateChip({ ...late, timeZone: undefined, state: "VIC" })).toEqual({ weekday: "Sun", day: "15", month: "Nov" });
   });
 
   it("is white with black text in both themes (it sits on a photo), never orange text", () => {

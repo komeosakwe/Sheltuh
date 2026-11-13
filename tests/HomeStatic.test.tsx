@@ -197,7 +197,8 @@ describe("HomeSectionHead", () => {
     expect(h2).toHaveClass("heading-h1");
     expect(h2.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
     const note = screen.getByText("Fri 13 – Sun 15 Nov");
-    expect(note).toHaveClass("mono-s", "uppercase", "text-muted");
+    expect(note).toHaveClass("mono-s", "text-muted");
+    expect(note).not.toHaveClass("uppercase"); // as written (owner decision, 13 Nov 2026)
     expect(h2.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const link = screen.getByRole("link", { name: "See all this weekend" });
     expect(link).toHaveAttribute("href", "/map?time=weekend");

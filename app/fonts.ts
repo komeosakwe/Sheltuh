@@ -2,10 +2,12 @@ import { IBM_Plex_Mono, Instrument_Sans } from "next/font/google";
 import localFont from "next/font/local";
 
 /**
- * The three brand faces (the redesign rules' Type board), self-hosted by
- * next/font. All are preloaded: display headlines, card titles and Plex Mono
- * dates sit above the fold. app/globals.css maps them to --face-sans,
- * --face-mono and --face-display.
+ * The brand faces (the redesign rules' Type board), self-hosted by next/font.
+ * Bootzy and Instrument Sans are preloaded: display headlines, card titles and
+ * dates sit above the fold. IBM Plex Mono is no longer a text face (owner
+ * decision, 13 Nov 2026): it's kept only for machine codes, so it isn't
+ * preloaded. app/globals.css maps them to --face-sans, --face-mono and
+ * --face-display.
  */
 
 /** Instrument Sans, variable weight 400–700: UI, headings, body, buttons, nav and form fields. */
@@ -15,12 +17,20 @@ export const instrument = Instrument_Sans({
   display: "swap",
 });
 
-/** IBM Plex Mono 400 and 500: dates, times, places, eyebrows and references. */
+/**
+ * IBM Plex Mono 400, for machine codes only (`font-mono`): the ticket's
+ * entry code, order references, the door's code entry and admin links that
+ * carry a token, where 0 and O or 1 and l must be told apart. Dates, times,
+ * places and eyebrows are Instrument Sans. Not preloaded: only the ticket,
+ * check-in and admin pages use it, and the browser fetches it there when a
+ * code is drawn.
+ */
 export const plexMono = IBM_Plex_Mono({
   variable: "--font-plex-mono",
-  weight: ["400", "500"],
+  weight: ["400"],
   subsets: ["latin"],
   display: "swap",
+  preload: false,
 });
 
 /**

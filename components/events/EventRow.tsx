@@ -21,7 +21,7 @@ export default function EventRow({
 }: {
   id: string;
   title: string;
-  /** Context in mono capitals beside the title, e.g. "Live music · near Northcote". */
+  /** Context beside the title, as written, e.g. "Live music · near Northcote". */
   note?: string;
   /** "See all", named for screen readers by `srLabel` ("See all events by High Note"). */
   seeAll?: { href: string; srLabel: string };
@@ -35,7 +35,7 @@ export default function EventRow({
           <h2 id={id} className="heading-h2 break-words">
             {title}
           </h2>
-          {note && <p className="mono-s text-muted uppercase">{note}</p>}
+          {note && <p className="mono-s text-muted">{note}</p>}
         </div>
         {seeAll && (
           <Link

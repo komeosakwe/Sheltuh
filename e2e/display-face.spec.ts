@@ -3,7 +3,9 @@ import { expect, test, type Page } from "@playwright/test";
 /**
  * The three faces in a real Chromium (app/fonts.ts, the redesign rules' Type
  * board): display headlines in Bootzy (its file really loads), running text,
- * headings and buttons in Instrument Sans, facts in IBM Plex Mono. The
+ * headings and buttons in Instrument Sans, and the facts and eyebrows too,
+ * as written (owner decision, 13 Nov 2026): IBM Plex Mono is only for
+ * machine codes (a ticket's code), so the home never loads it. The
  * dotted body face is gone, and the brand's Ü is a real letter shown only in
  * display headlines and read as plain words. /api is intercepted.
  */
@@ -18,7 +20,7 @@ const fontFamily = (page: Page, selector: string) =>
 /** next/font names a local face after its export, with a hash in production. */
 const BOOTZY = /^"?bootzy\b/i;
 
-test("the home h1 is Bootzy, read plainly; body and headings are Instrument Sans; mono is IBM Plex Mono", async ({ page }) => {
+test("the home h1 is Bootzy, read plainly; body, headings and eyebrows are Instrument Sans; no Plex Mono", async ({ page }) => {
   await page.goto("/");
   const h1 = page.getByRole("heading", { level: 1 });
   await expect(h1).toBeVisible();
@@ -43,20 +45,27 @@ test("the home h1 is Bootzy, read plainly; body and headings are Instrument Sans
   expect(await fontFamily(page, "main h3")).toMatch(/^"Instrument Sans", /);
   const search = page.getByRole("combobox", { name: "Search events" });
   expect(await search.evaluate((el) => getComputedStyle(el).fontFamily)).toMatch(/^"Instrument Sans", /);
-  expect(await fontFamily(page, ".eyebrow")).toMatch(/^"IBM Plex Mono", /);
+  // Eyebrows: Instrument Sans labels in sentence case, normal tracking (the footer's "Explore", "Fan support").
+  const eyebrow = page.locator("footer .eyebrow").first();
+  expect(await eyebrow.evaluate((el) => getComputedStyle(el).fontFamily)).toMatch(/^"Instrument Sans", /);
+  expect(await eyebrow.evaluate((el) => getComputedStyle(el).textTransform)).toBe("none");
+  expect(await eyebrow.evaluate((el) => getComputedStyle(el).letterSpacing)).toMatch(/^(?:normal|0px)$/);
+  expect(await eyebrow.evaluate((el) => getComputedStyle(el).fontWeight)).toBe("500");
 
   // The Bootzy file really loaded (a face of that family, status "loaded"), and nothing dotted is left.
   const faces = await page.evaluate(() => [...document.fonts].map((face) => ({ family: face.family, status: face.status })));
   expect(faces.some((face) => /bootzy/i.test(face.family) && face.status === "loaded")).toBe(true);
   expect(faces.some((face) => /instrumentDots/i.test(face.family))).toBe(false);
   expect(await page.locator("[data-dotted-letter], .font-dots").count()).toBe(0);
+  // Plex Mono is declared (for codes) but not preloaded or drawn here, so the home never downloads it.
+  expect(faces.some((face) => /plex/i.test(face.family) && face.status !== "unloaded")).toBe(false);
 });
 
-/** The card's event: fixed instants, so its mono line is known (Sat 16 Jan, 5pm in Melbourne). */
+/** The card's event: fixed instants, so its meta line is known (Sat 16 Jan, 5pm in Melbourne). */
 const CARD_STARTS_AT = "2027-01-16T06:00:00.000Z";
 const CARD_ENDS_AT = "2027-01-16T09:00:00.000Z";
 
-test("the cards' mono line is IBM Plex Mono in capitals; their titles are Instrument Sans", async ({ page }) => {
+test("the cards' meta line is Instrument Sans as written, never in capitals; so are their titles", async ({ page }) => {
   // The page's clock starts a week before the event, so it's upcoming (with its price) whatever the real date.
   await page.clock.install({ time: Date.parse(CARD_STARTS_AT) - 7 * 24 * 3600_000 });
   // One live event for /events' feed (registered after the catch-all, so it wins).
@@ -87,10 +96,13 @@ test("the cards' mono line is IBM Plex Mono in capitals; their titles are Instru
   await expect(card).toBeVisible();
   await page.evaluate(() => document.fonts.ready);
   const meta = card.locator("[data-card-meta]");
-  // Read as written, shown in capitals: SAT 16 JAN · 5PM · CARLTON, VIC.
+  // Shown and read as written (owner decision, 13 Nov 2026): never SAT 16 JAN · 5PM.
   await expect(meta).toHaveText("Sat 16 Jan · 5pm · Carlton, VIC");
-  expect(await meta.evaluate((el) => getComputedStyle(el).fontFamily)).toMatch(/^"IBM Plex Mono", /);
-  expect(await meta.evaluate((el) => getComputedStyle(el).textTransform)).toBe("uppercase");
+  expect(await meta.innerText()).toBe("Sat 16 Jan · 5pm · Carlton, VIC");
+  expect(await meta.evaluate((el) => getComputedStyle(el).fontFamily)).toMatch(/^"Instrument Sans", /);
+  expect(await meta.evaluate((el) => getComputedStyle(el).textTransform)).toBe("none");
+  expect(await meta.evaluate((el) => getComputedStyle(el).fontWeight)).toBe("400");
+  expect(await meta.evaluate((el) => getComputedStyle(el).fontVariantNumeric)).toBe("tabular-nums");
   expect(await card.locator("h3").evaluate((el) => getComputedStyle(el).fontFamily)).toMatch(/^"Instrument Sans", /);
   // The price is a label inside the card's one link, never its own tab stop.
   const price = card.locator("[data-price-tag]");

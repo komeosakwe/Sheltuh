@@ -74,7 +74,7 @@ export default function ScenesByCity({ className = "" }: { className?: string })
                   <span className="flex min-w-0 flex-col gap-2">
                     <span className="heading-h1 underline-offset-4 group-hover/city:underline">{city.name}</span>
                     {parts.length > 0 && (
-                      <span id={lineId} className="mono-s text-muted uppercase">
+                      <span id={lineId} className="mono-s text-muted">
                         {parts.join(" · ")}
                       </span>
                     )}

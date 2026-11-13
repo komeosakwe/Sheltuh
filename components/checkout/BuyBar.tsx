@@ -141,7 +141,7 @@ export function GaBuyBar({
 
 /**
  * A phone buy bar's left side (the owner's 390 mock): the all-inclusive amount at 18px semibold (none for an external
- * event whose organiser gave no price), what it includes beside it, and the event's start in mono capitals under it. Not a live region: the selector's own status
+ * event whose organiser gave no price), what it includes beside it, and the event's start under it, as written. Not a live region: the selector's own status
  * announces each change to the total.
  */
 export function BarPrice({
