@@ -1214,30 +1214,19 @@ h4 {
     font-size: calc(3rem * 0.43);
     line-height: 1;
   }
-  /* Continue with Google, per Google's branding guidelines: a 40px pill (radius 20px, which the
-     guidelines specify), 1px stroke, 12px left/right padding, 10px between the G and the title,
-     Roboto Medium 14px/20px. Fill, stroke and title come from the Light/Dark tokens above.
-     Sized to its content and centred under Apple's; ::before stretches the hit area 4px above and
-     below, to 48px. The hover wash is .btn-oauth::after (8% of the title colour over the fill). */
+  /* Continue with Google, the same size and shape as Apple's (owner, 13 Nov: one pair of matching
+     buttons): full width, 48px, the control radius (Google allows a rectangle as well as a pill), and
+     the same title size and layout, with the G centred in a square like Apple's logo file.
+     Google's own parts are kept as its guidelines set them: the G, a 1px stroke, Roboto Medium, and
+     the Light/Dark fill, stroke and title colours from the tokens above. The hover wash is
+     .btn-oauth::after (8% of the title colour over the fill). */
   .btn-oauth-google {
-    width: auto;
-    min-height: 0;
-    height: 2.5rem;
-    align-self: center;
-    gap: 0.625rem;
-    padding-inline: 0.75rem;
     border: 1px solid var(--google-stroke);
-    border-radius: 20px;
     background: var(--google-fill);
     color: var(--google-text);
-    font-size: 0.875rem;
-    line-height: 1.25rem;
-  }
-  .btn-oauth-google::before {
-    content: "";
-    position: absolute;
-    /* Offsets are from the padding box, inside the 1px border: reach past it too. */
-    inset: calc(-0.25rem - 1px) -1px;
+    padding-inline: 0 8%;
+    font-size: calc(3rem * 0.43);
+    line-height: 1;
   }
   @media (hover: hover) {
     .btn-oauth:hover:not([aria-disabled="true"])::after {

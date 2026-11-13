@@ -203,7 +203,7 @@ test.describe("at 375×667", () => {
   // /signup keeps the pair above the email form, in the first screen. /login follows the redesign's
   // sign-in mock (plan PR 6): the email form and Continue first, then "Or continue with" and the pair.
   for (const path of ["/login", "/signup"]) {
-    test(`${path}: Apple as wide as the email field, then Google's 40px pill centred under it, no sideways scroll`, async ({ page }) => {
+    test(`${path}: Apple and Google the same: as wide as the email field, 48px, no sideways scroll`, async ({ page }) => {
       await mockAuth(page);
       await page.goto(path);
       await expect(appleButton(page)).toBeVisible({ timeout: 60_000 });
@@ -228,23 +228,14 @@ test.describe("at 375×667", () => {
       expect(apple.width).toBe(343);
       expect(apple.width).toBe(field.width);
       expect(apple.height).toBe(48);
-      // A 40px pill sized to its content, not stretched, centred under Apple's.
-      expect(google.width).toBeLessThan(apple.width);
-      expect(google.height).toBe(40);
-      expect(Math.abs(google.x + google.width / 2 - (apple.x + apple.width / 2))).toBeLessThanOrEqual(0.5);
+      // Google's matches Apple's (owner, 13 Nov): the same width and height, directly under it. Each centres its logo and title.
+      expect(google.width).toBe(apple.width);
+      expect(google.height).toBe(48);
+      expect(google.x).toBe(apple.x);
       expect(google.y).toBeGreaterThan(apple.y + apple.height);
       expect(google.y + google.height).toBeLessThanOrEqual(667);
       // The real image loaded, not a broken one.
       await expect.poll(() => googleImageLoaded(page)).toBe(true);
-      // Its hit area reaches 4px above and below the button: 48px tall (and no further: 6px out is page).
-      expect(await googleButton(page).evaluate((button) => getComputedStyle(button, "::before").height)).toBe("48px");
-      const hits = await googleButton(page).evaluate((button, box) => {
-        const x = box.x + box.width / 2;
-        return [box.y - 3, box.y + box.height + 3, box.y - 6, box.y + box.height + 6].map((y) =>
-          button.contains(document.elementFromPoint(x, y)),
-        );
-      }, google);
-      expect(hits).toEqual([true, true, false, false]);
       // The divider (scoped to the page, away from the header and the search bar).
       await expect(page.locator("#main").getByText(path === "/login" ? "Or continue with" : "or", { exact: true })).toBeVisible();
       await noSidewaysScroll(page);
@@ -265,7 +256,7 @@ test.describe("at 375×667", () => {
     }).toPass({ timeout: 10_000 });
   });
 
-  test("the pair follows the theme: black Apple and Google's Light pill on White, white Apple and Google's Dark pill on Dark", async ({ page }) => {
+  test("the pair follows the theme: black Apple and Google's Light button on White, white Apple and Google's Dark button on Dark", async ({ page }) => {
     await mockAuth(page);
     const fill = async () =>
       appleButton(page).evaluate((el) => {
@@ -294,9 +285,10 @@ test.describe("at 375×667", () => {
       color: "rgb(31, 31, 31)",
       border: "rgb(116, 119, 117)",
       borderWidth: "1px",
-      radius: "20px",
-      fontSize: "14px",
-      lineHeight: "20px",
+      // Apple's shape and title size (owner, 13 Nov): the control radius, 43% of 48px.
+      radius: "8px",
+      fontSize: "20.64px",
+      lineHeight: "20.64px",
       fontWeight: "500",
     });
     await expect(appleButton(page).locator('img[src="/auth/apple-logo-white.svg"]')).toBeVisible();

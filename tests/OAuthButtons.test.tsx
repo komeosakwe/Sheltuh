@@ -97,7 +97,7 @@ describe("OAuthButtons: which buttons render", () => {
     // Google's G: one multi-colour file on both themes, at 20px, beside the title as real text.
     const googleImages = Array.from(google().querySelectorAll("img"));
     expect(googleImages.map((img) => img.getAttribute("src"))).toEqual(["/auth/google-g.svg"]);
-    expect(googleImages[0].className).toMatch(/\bsize-5\b/);
+    expect(googleImages[0].className).toMatch(/\bsize-6\b/);
     for (const img of [...appleLogos, ...googleImages]) {
       expect(img).toHaveAttribute("alt", "");
       expect(img).toHaveAttribute("aria-hidden", "true");
@@ -345,34 +345,29 @@ function rule(css: string, selector: string): string {
   return css.match(new RegExp(`${selector.replace(/[.:]/g, "\\$&")} \\{([^}]*)\\}`))?.[1] ?? "";
 }
 
-describe("OAuthButtons: Google's button follows Google's branding guidelines (app/globals.css)", () => {
+describe("OAuthButtons: Google's button matches Apple's, with Google's own parts (app/globals.css)", () => {
   const css = readFileSync(path.resolve(import.meta.dirname, "../app/globals.css"), "utf8");
 
-  it("is a 40px pill with a 20px radius, 1px stroke, 12px padding, 10px gap, Roboto Medium 14px/20px, sized to its content", () => {
+  it("has Apple's size, shape, title size and layout (owner, 13 Nov), with Google's 1px stroke, fill, title colour and Roboto Medium", () => {
     const google = rule(css, ".btn-oauth-google");
-    expect(google).toMatch(/height: 2\.5rem;/);
-    expect(google).toMatch(/width: auto;/);
-    expect(google).toMatch(/align-self: center;/);
-    expect(google).toMatch(/border-radius: 20px;/);
-    expect(google).toMatch(/padding-inline: 0\.75rem;/);
-    expect(google).toMatch(/gap: 0\.625rem;/);
-    expect(google).toMatch(/font-size: 0\.875rem;/);
-    expect(google).toMatch(/line-height: 1\.25rem;/);
+    const apple = rule(css, ".btn-oauth-apple");
+    for (const shared of [/padding-inline: 0 8%;/, /font-size: calc\(3rem \* 0\.43\);/, /line-height: 1;/]) {
+      expect(google).toMatch(shared);
+      expect(apple).toMatch(shared);
+    }
+    // Full width, 48px and the control radius come from .btn-oauth, which Google's no longer overrides.
+    expect(google).not.toMatch(/(^|\s)(width|height|min-height|border-radius|align-self):/);
+    expect(rule(css, ".btn-oauth")).toMatch(/width: 100%;[\s\S]*min-height: 3rem;[\s\S]*border-radius: var\(--radius-control\);/);
+    expect(google).toMatch(/border: 1px solid var\(--google-stroke\);/);
     expect(google).toMatch(/background: var\(--google-fill\);/);
     expect(google).toMatch(/color: var\(--google-text\);/);
-    // Roboto Medium (the shared .btn-oauth face and weight).
     expect(rule(css, ".btn-oauth")).toMatch(/font-weight: 500;/);
+    expect(css).not.toMatch(/\.btn-oauth-google::before/);
   });
 
   it("takes Light on the White theme and Dark on the Dark theme, at Google's values", () => {
     expect(css).toMatch(/--google-fill: #ffffff;\s*--google-stroke: #747775;\s*--google-text: #1f1f1f;/);
     expect(css).toMatch(/--google-fill: #131314;\s*--google-stroke: #8e918f;\s*--google-text: #e3e3e3;/);
   });
-
-  it("stretches the 40px button's hit area 4px above and below, to 48px", () => {
-    const hitArea = rule(css, ".btn-oauth-google::before");
-    expect(hitArea).toMatch(/content: "";/);
-    expect(hitArea).toMatch(/position: absolute;/);
-    expect(hitArea).toMatch(/inset: calc\(-0\.25rem - 1px\) -1px;/);
-  });
 });
+

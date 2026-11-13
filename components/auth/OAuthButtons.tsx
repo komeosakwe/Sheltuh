@@ -150,8 +150,11 @@ export default function OAuthButtons({ next, placement = "above" }: { next?: str
             onClick={() => void start("google")}
             className="btn-oauth btn-oauth-google"
           >
-            {/* Google's G (20px, per its guidelines) and the title as text; the pill's colours follow the theme. */}
-            <Logo file={GOOGLE_G} className="size-5 shrink-0" />
+            {/* Google's G, centred in a square like Apple's 48px logo file (46px: inside Google's 1px border, so the button stays
+                48px), with the title beside it as on Apple's; the colours follow the theme. */}
+            <span aria-hidden="true" className="flex size-[2.875rem] shrink-0 items-center justify-center">
+              <Logo file={GOOGLE_G} className="size-6 shrink-0" />
+            </span>
             <span>Continue with Google</span>
           </button>
         )}
