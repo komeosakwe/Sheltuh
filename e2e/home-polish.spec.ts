@@ -6,8 +6,8 @@ import { sampleEvents } from "@/lib/sample-events";
 /**
  * The owner's layout polish of 23 Oct 2026, in a real browser: the selected
  * filter chip's state and colours (Light and Dark), and the home's ways on
- * still working after it (a category chip, the search, a card, the profile
- * CTA). Live mode, with every /api/* request answered here from the demo
+ * (redesign PR 3: a category chip, the search, a card, the profile CTA and
+ * Explore communities). Live mode, with every /api/* request answered here from the demo
  * samples re-timed to the real clock (two of them this weekend), as in
  * home.spec.ts and responsive.spec.ts.
  */
@@ -68,43 +68,48 @@ async function mockApi(page: Page) {
   await page.route("https://server.arcgisonline.com/**", (route) => route.abort());
 }
 
-// Owner (23 Oct 2026): "Make the selected category clearly identifiable" — then the owner's /map mockup
-// (8 Nov 2026): the chosen chip is peach with an orange icon and bold words; unselected chips are ivory
-// pills with a soft hairline. The chips with a selected state are the map's filters (the home's category
-// row is navigation: none of its chips is ever "selected").
+// Owner (23 Oct 2026): "Make the selected category clearly identifiable" — now the rules' Tags & chips
+// board (redesign PR 5): the chosen filter is black (the foreground) with the page colour's words and
+// the two orange dots; the others are the page colour with the 1.5px foreground stroke. The filters
+// with a selected state are Nearby's (the home's category row is navigation: none of its chips is
+// ever "selected"). On a phone they sit behind the "Filters" button.
 for (const theme of ["light", "dark"] as const) {
   test.describe(`filter chips in ${theme === "light" ? "Light" : "Dark"} at 390px`, () => {
     test.use({ viewport: { width: 390, height: 844 } });
 
-    test("the selected chip says so (aria-pressed) and is peach and bold; unselected chips are ivory with a soft edge", async ({ page }) => {
+    test("the selected chip says so (aria-pressed) and is filled with the foreground; unselected chips are outlined", async ({ page }) => {
       if (theme === "dark") await page.addInitScript(() => localStorage.setItem("sheltuh:theme", "dark"));
       await mockApi(page);
       await page.goto("/map");
+      const filters = page.getByRole("button", { name: /^Filters/ });
       const tonight = page.getByRole("button", { name: "Tonight", exact: true });
       const weekend = page.getByRole("button", { name: "This weekend", exact: true });
-      await expect(tonight).toHaveAttribute("aria-pressed", "false", { timeout: 30_000 });
-      // The dev server may still be hydrating the page: press until the chip responds (never twice once it has).
+      // The dev server may still be hydrating the page: press until it responds (never twice once it has).
       await expect(async () => {
-        if ((await tonight.getAttribute("aria-pressed")) !== "true") await tonight.click();
-        await expect(tonight).toHaveAttribute("aria-pressed", "true", { timeout: 1_000 });
+        if ((await filters.getAttribute("aria-expanded")) !== "true") await filters.click();
+        await expect(filters).toHaveAttribute("aria-expanded", "true", { timeout: 1_000 });
       }).toPass({ timeout: 30_000 });
+      await expect(tonight).toHaveAttribute("aria-pressed", "false");
+      await tonight.click();
+      await expect(tonight).toHaveAttribute("aria-pressed", "true");
       await expect(weekend).toHaveAttribute("aria-pressed", "false");
 
       const look = (chip: typeof tonight) =>
         chip.evaluate((el) => {
           const s = getComputedStyle(el);
           const icon = el.querySelector("svg");
-          return { bg: s.backgroundColor, fg: s.color, border: s.borderTopColor, weight: s.fontWeight, icon: icon ? getComputedStyle(icon).color : "" };
+          return { bg: s.backgroundColor, fg: s.color, border: s.borderTopColor, icon: icon ? getComputedStyle(icon).color : "" };
         });
-      // --peach, --panel and --soft-line (app/globals.css) in each theme; the text is the page's.
-      const [ink, peach, panel, line] =
-        theme === "dark"
-          ? ["rgb(255, 255, 255)", "rgb(74, 42, 24)", "rgb(26, 24, 22)", "rgb(74, 69, 64)"]
-          : ["rgb(0, 0, 0)", "rgb(252, 212, 187)", "rgb(251, 247, 241)", "rgb(205, 198, 192)"];
-      // Selected: peach, bold words in the page's text colour, the orange (--signal) icon.
-      expect(await look(tonight)).toMatchObject({ bg: peach, fg: ink, weight: "700", icon: "rgb(255, 72, 0)" });
-      // Unselected: ivory with the page's text colour and icon, and the soft edge.
-      expect(await look(weekend)).toEqual({ bg: panel, fg: ink, border: line, weight: "500", icon: ink });
+      // --foreground and --background (app/globals.css) in each theme.
+      const [ink, page_] = theme === "dark" ? ["rgb(255, 255, 255)", "rgb(0, 0, 0)"] : ["rgb(0, 0, 0)", "rgb(255, 255, 255)"];
+      // Polled: the chip's colours ease in (a short transition), so the first read can be mid-way.
+      // Selected: filled with the foreground, the page colour's words and icon, and the orange dots.
+      await expect.poll(() => look(tonight)).toEqual({ bg: ink, fg: page_, border: ink, icon: page_ });
+      await expect(tonight.locator("[data-selected-dots] span").first()).toHaveCSS("background-color", "rgb(255, 72, 0)");
+      // Unselected: the page colour, outlined in the foreground.
+      await expect.poll(() => look(weekend)).toEqual({ bg: page_, fg: ink, border: ink, icon: ink });
+      // The 1.5px stroke (drawn as 1px on a 1x screen).
+      expect(await weekend.evaluate((el) => getComputedStyle(el).borderTopWidth)).toMatch(/^1(\.5)?px$/);
 
       // The keyboard focus ring still shows on a chip.
       await weekend.focus();
@@ -121,76 +126,77 @@ for (const theme of ["light", "dark"] as const) {
 test.describe("the home's ways on, at 390px", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test("a category chip lands on /events with that category chosen and only its events listed", async ({ page }) => {
+  test("a category chip filters the home's listings in place: pressed, the page's address unchanged, only its events listed", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
-    const row = page.getByRole("navigation", { name: "Browse by category" });
-    // Navigation, not a filter: no chip on the home claims to be selected.
-    await expect(row.locator("[aria-current], [aria-pressed]")).toHaveCount(0);
-    await row.getByRole("link", { name: "Art" }).click();
-    await expect(page).toHaveURL(/\/events\?category=art$/, { timeout: 30_000 });
-    // The filter form is behind "Filters" on phones; its Category field already says Art.
-    await expect(page.locator("#category-filter")).toHaveValue("art");
-    const list = page.getByRole("list", { name: "Events" });
-    await expect(list.getByRole("listitem").first()).toBeVisible({ timeout: 30_000 });
+    const row = page.getByRole("group", { name: "Browse by category" });
+    await expect(row.getByRole("button", { name: "All", exact: true })).toHaveAttribute("aria-pressed", "true", { timeout: 30_000 });
+    const art = row.getByRole("button", { name: "Art" });
+    // The dev server may still be hydrating the page: press until the chip responds (never twice once it has).
+    await expect(async () => {
+      if ((await art.getAttribute("aria-pressed")) !== "true") await art.click();
+      await expect(art).toHaveAttribute("aria-pressed", "true", { timeout: 1_000 });
+    }).toPass({ timeout: 30_000 });
+    await expect(row.getByRole("button", { name: "All", exact: true })).toHaveAttribute("aria-pressed", "false");
+    await expect(page).toHaveURL(/\/$/);
+    // Selected: black with white words and the two orange dots, never colour alone.
+    // (Polled: the fill eases in over 200ms.)
+    await expect.poll(() => art.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(0, 0, 0)");
+    await expect(art.locator("[data-selected-dots]")).toHaveCount(1);
     const arts = sampleEvents.filter((e) => e.category === "art").map((e) => e.title);
-    for (const title of await list.locator("[data-event-card] h3").allTextContents()) expect(arts).toContain(title.trim());
+    const list = page.getByRole("list", { name: "All events", exact: true });
+    const titles = await list.locator("[data-event-card] h3").allTextContents();
+    expect(titles.length).toBeGreaterThan(0);
+    for (const title of titles) expect(arts).toContain(title.trim());
   });
 
   test("the hero's search submits to /search with the words", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
     const search = page.getByRole("search", { name: "Search events" });
-    await search.getByRole("searchbox", { name: "Search events" }).fill("jazz");
-    await search.getByRole("button", { name: "Search" }).click();
+    // On a phone the bar is one field that opens the search sheet (redesign PR 2).
+    const field = search.getByRole("combobox", { name: "Search events" });
+    await expect(async () => {
+      if (!(await field.isVisible())) await search.locator("[data-search-trigger]").click();
+      await expect(field).toBeFocused({ timeout: 1_000 });
+    }).toPass({ timeout: 30_000 });
+    await field.fill("jazz");
+    await search.getByRole("button", { name: "Search", exact: true }).click();
     await expect(page).toHaveURL(/\/search\?q=jazz$/, { timeout: 30_000 });
     await expect(page.getByRole("heading", { level: 1 })).toContainText("jazz");
   });
 
-  test("a card's title opens its event page (at 640px, the narrowest rail; phones have grids)", async ({ page }) => {
-    await page.setViewportSize({ width: 640, height: 844 });
+  test("a card's title opens its event page", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
-    const card = page.getByRole("region", { name: "This weekend" }).locator("[data-event-card]").first();
+    const card = page.getByRole("list", { name: "All events", exact: true }).locator("[data-event-card]").first();
     await expect(card).toBeVisible({ timeout: 30_000 });
     const link = card.locator("[data-card-link]");
     const href = await link.getAttribute("href");
     const title = (await card.locator("h3").textContent())?.trim() ?? "";
     expect(href).toMatch(/^\/events\/[^/#?]+$/);
-    // A rail that auto-scrolls never stops moving by itself; the pointer over it holds it, as for a person.
-    await link.evaluate((el) => el.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" }));
-    const box = await link.boundingBox();
-    await page.mouse.move((box?.x ?? 0) + (box?.width ?? 0) / 2, (box?.y ?? 0) + (box?.height ?? 0) / 2);
     await link.click();
     await expect(page).toHaveURL(new RegExp(`${href}$`), { timeout: 30_000 });
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(title, { timeout: 30_000 });
   });
 
-  test("“Create profile now” opens sign-up", async ({ page }) => {
+  test("“Create profile” in the See who’s going band opens sign-up", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
-    const action = page.locator("#find-your-people").getByRole("link", { name: "Create profile now" });
+    const action = page.locator("[data-community-band]").getByRole("link", { name: "Create profile" });
     await action.scrollIntoViewIfNeeded();
     await action.click();
     await expect(page).toHaveURL(/\/signup$/, { timeout: 30_000 });
     await expect(page.getByRole("heading", { level: 1 })).toContainText("Create an account");
   });
 
-  test("the band is compact: about 32px between the action and the card, 20px inside the card", async ({ page }) => {
+  test("“Explore communities” opens /community", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
-    // Measured once the events are in (the sections replace the skeleton and move everything below them), both in the same frame.
-    await expect(page.locator("[data-home-section]").first()).toBeVisible({ timeout: 30_000 });
-    const band = page.locator("#find-your-people");
-    const card = band.locator("[data-community-card]");
-    const gap = await band.evaluate((el) => {
-      const action = el.querySelector("a[href='/signup']")?.getBoundingClientRect();
-      const box = el.querySelector("[data-community-card]")?.getBoundingClientRect();
-      return action && box ? Math.round(box.top - action.bottom) : -1;
-    });
-    expect(gap).toBe(32);
-    expect(await card.evaluate((el) => getComputedStyle(el).paddingTop)).toBe("20px");
-    // No "Illustrative photos" caption (owner, 31 Oct 2026), and no footnote without a real example.
-    await expect(card.locator("[data-community-note]")).toHaveCount(0);
+    const action = page.locator("#find-your-people").getByRole("link", { name: "Explore communities" });
+    await action.scrollIntoViewIfNeeded();
+    await action.click();
+    await expect(page).toHaveURL(/\/community$/, { timeout: 30_000 });
+    await expect(page.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your people.", { timeout: 30_000 });
   });
 });

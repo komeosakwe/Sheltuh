@@ -1,11 +1,12 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import type { PublicEvent } from "@/lib/api/public-events";
 import { weekendWindow } from "@/lib/home-sections";
 import { sampleEvents } from "@/lib/sample-events";
 
 /**
- * The home page in a real browser (docs/design/mobile-redesign.md §6.1,
- * §6.3: the one-message hero, no Up next). The e2e server runs in live mode with every /api/*
+ * The home page in a real browser (the proposal, redesign PR 3: the hero, the featured carousel,
+ * the category chips, This weekend, All events, Find your people and the organiser banner). The
+ * e2e server runs in live mode with every /api/*
  * request intercepted here, so the events are the demo sample events served
  * as the live list API would, re-timed relative to the real clock (so the
  * spec never goes stale), two of them inside this weekend's window.
@@ -49,19 +50,16 @@ function fixtures(now: number): PublicEvent[] {
 
 /**
  * `trending`: serve the trending list (the last few events, labelled
- * "popular"); otherwise it's a 404 and the home's third slot is Coming up.
+ * "popular"); otherwise it's a 404 and the carousel is Coming up.
  */
-async function mockApi(
-  page: Page,
-  { trending = false, going, ended }: { trending?: boolean; going?: number; ended?: PublicEvent[] } = {},
-) {
+async function mockApi(page: Page, { trending = false, going }: { trending?: boolean; going?: number } = {}) {
   const events = fixtures(Date.now()).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
   await page.route("**/api/**", (route) => {
     const url = new URL(route.request().url());
     if (url.pathname === "/api/events") {
       expect(url.searchParams.get("upcoming")).toBe("1");
-      // "Recently on" asks for just the events that ended in the last 2 weeks.
-      if (url.searchParams.get("recent") === "only") return route.fulfill({ json: { items: ended ?? [], nextCursor: undefined } });
+      // Recently on is gone: nothing asks for ended events.
+      expect(url.searchParams.get("recent")).toBeNull();
       return route.fulfill({ json: { items: events, nextCursor: undefined } });
     }
     if (trending && url.pathname === "/api/events/trending") {
@@ -75,85 +73,15 @@ async function mockApi(
   });
 }
 
-async function openHome(page: Page, options?: { trending?: boolean; going?: number; ended?: PublicEvent[] }) {
+async function openHome(page: Page, options?: { trending?: boolean; going?: number }) {
   await mockApi(page, options);
   await page.goto("/");
   await expect(page.locator("[data-home-section]").first()).toBeVisible();
   await page.evaluate(() => document.fonts.ready);
 }
 
-const VIEWPORTS = [
-  { name: "desktop 1440×900", width: 1440, height: 900, phone: false },
-  { name: "desktop 1280×800", width: 1280, height: 800, phone: false },
-  // The narrowest width with rails (Tailwind's `sm`); below it the sections are two-column grids instead.
-  { name: "tablet 640×900", width: 640, height: 900, phone: false },
-];
-
-for (const vp of VIEWPORTS) {
-  test.describe(`home at ${vp.name}`, () => {
-    test.use({ viewport: { width: vp.width, height: vp.height } });
-
-    test("one h1, the first section's events above the fold, each event once, no sideways scroll", async ({ page }) => {
-      await openHome(page);
-
-      await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
-      await expect(page.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your next thing.");
-      // No Up next any more (docs/design/mobile-redesign.md §6.1).
-      await expect(page.getByRole("region", { name: "Up next" })).toHaveCount(0);
-
-      const fold = vp.height;
-      const box = async (locator: ReturnType<Page["locator"]>) => {
-        const b = await locator.boundingBox();
-        if (!b) throw new Error("not rendered");
-        return b;
-      };
-
-      // §6.1 acceptance: the first section's heading and the top of its first card are above the fold.
-      const firstSection = page.locator("[data-home-section]").first();
-      const heading = firstSection.getByRole("heading", { level: 2 });
-      const h = await box(heading);
-      expect(h.y + h.height).toBeLessThanOrEqual(fold);
-      const firstCard = firstSection.locator("[data-event-card]").first();
-      expect((await box(firstCard)).y).toBeLessThan(fold);
-      // Refinement (owner, 22 Oct 2026): on the phone, the first card's whole image and its title too.
-      if (vp.phone) {
-        const image = await box(firstCard.locator("[data-card-media]"));
-        expect(image.y + image.height).toBeLessThanOrEqual(fold);
-        const title = await box(firstCard.getByRole("heading", { level: 3 }));
-        expect(title.y + title.height).toBeLessThanOrEqual(fold);
-      }
-
-      // Each event at most once across every section. The auto-scroll's copies of a rail's cards
-      // (aria-hidden and out of the tab order, `li[data-rail-clone]`) aren't the page listing an event again.
-      // A This weekend card's "Open {title}" arrow goes to the same page as its title: the card's one link counts.
-      const hrefs = await page
-        .locator("main a[href^='/events/']")
-        .evaluateAll((links) =>
-          links
-            .filter((a) => !a.closest("[data-rail-clone]") && !a.matches("[aria-label^='Open ']"))
-            .map((a) => a.getAttribute("href") ?? "")
-            .filter((href) => /^\/events\/[^?#/]+$/.test(href)),
-        );
-      expect(hrefs.length).toBeGreaterThan(5);
-      expect(new Set(hrefs).size).toBe(hrefs.length);
-
-      // No horizontal overflow.
-      const overflow = await page.evaluate(
-        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-      );
-      expect(overflow).toBeLessThanOrEqual(0);
-
-      // The trending request isn't mocked here (404): the third slot is Coming up, never "Popular", and no error.
-      await expect(page.getByRole("heading", { name: "Popular right now" })).toHaveCount(0);
-      await expect(page.getByRole("heading", { level: 2, name: "Coming up", exact: true })).toBeVisible();
-      await expect(page.locator("main").getByRole("alert")).toHaveCount(0);
-    });
-  });
-}
-
 /** Serves `count` events, all well past this weekend, and opens the home. */
 async function openWith(page: Page, count: number) {
-  // Well past this weekend, whatever day the suite runs.
   const events = fixtures(Date.now())
     .slice(2, 2 + count)
     .map((event, i) => {
@@ -168,102 +96,246 @@ async function openWith(page: Page, count: number) {
   await page.goto("/");
 }
 
-// Below 640px the rails are replaced by two-column grids of cards (owner, 3 Nov 2026).
-test.describe("home at phone 390×844", () => {
-  test.use({ viewport: { width: 390, height: 844 } });
+const noSidewaysScroll = (page: Page) =>
+  page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 
-  test("one h1, the first section's heading and a row of cards under the hero, grids in place of the rails, no sideways scroll", async ({ page }) => {
-    await openHome(page);
-    await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
-    await expect(page.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your next thing.");
+/** The card titles in a listing, in order. */
+const titlesIn = (page: Page, name: string) => page.getByRole("list", { name, exact: true }).locator("[data-event-card] h3").allTextContents();
 
-    const first = page.locator("[data-home-section]").first();
-    await expect(first.getByRole("heading", { level: 2 })).toHaveText("This weekend");
-    // This weekend is its own cards in a sideways rail (owner's mockup, 8 Nov 2026); the next section is a grid.
-    await expect(first.getByRole("list")).toHaveCSS("display", "flex");
-    await expect(first.locator("[data-event-card][data-variant='weekend']").first()).toBeVisible();
-    const grid = page.locator("[data-home-grid]").first().getByRole("list");
-    await expect(grid).toHaveCSS("display", "grid");
-    expect((await grid.evaluate((el) => getComputedStyle(el).gridTemplateColumns)).split(" ")).toHaveLength(2);
-    await expect(page.locator("[data-rail-layout]")).toHaveCount(1);
-    await expect(page.locator("[data-event-card][data-variant='rail']")).toHaveCount(0);
-    await expect(page.locator("[data-home-feed]")).toHaveCount(0);
-    await expect(page.getByText("Swipe through events")).toHaveCount(0);
-    await expect(page.locator("main").getByRole("alert")).toHaveCount(0);
+// The rules' Layout board: 1312px of content, four 304px cards at 1440; three from 1024, two on a tablet, one on a phone.
+const VIEWPORTS = [
+  { name: "desktop 1440×900", width: 1440, height: 900, columns: 4, card: 304 },
+  { name: "desktop 1280×800", width: 1280, height: 800, columns: 4, card: 280 },
+  { name: "laptop 1024×768", width: 1024, height: 768, columns: 3, card: 298.67 },
+  { name: "tablet 768×1024", width: 768, height: 1024, columns: 2, card: 340 },
+  { name: "phone 390×844", width: 390, height: 844, columns: 1, card: 358 },
+];
 
-    const overflow = await page.evaluate(
-      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-    );
-    expect(overflow).toBeLessThanOrEqual(0);
+for (const vp of VIEWPORTS) {
+  test.describe(`home at ${vp.name}`, () => {
+    test.use({ viewport: { width: vp.width, height: vp.height } });
+
+    test("one h1, the carousel starting above the fold, each event once above All events, a grid of whole-foot cards, no sideways scroll", async ({ page }) => {
+      await openHome(page);
+
+      await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
+      await expect(page.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your next thing.");
+      // The trending request isn't mocked here (404): the carousel is Coming up, never "Popular", and no error.
+      const carousel = page.getByRole("region", { name: "Coming up", exact: true });
+      await expect(carousel).toHaveAttribute("aria-roledescription", "carousel");
+      expect((await carousel.boundingBox())?.y ?? Infinity).toBeLessThan(vp.height);
+      await expect(page.getByRole("heading", { name: "Popular right now" })).toHaveCount(0);
+      await expect(page.locator("main").getByRole("alert")).toHaveCount(0);
+
+      // The carousel picks the soonest without emptying This weekend (an event can be in both); neither
+      // repeats an event within itself, and All events lists each one once.
+      const slides = await carousel.locator("[data-slide] h3").allTextContents();
+      const weekend = await titlesIn(page, "This weekend");
+      expect(slides.length).toBeGreaterThan(0);
+      expect(weekend.length).toBeGreaterThan(0);
+      expect(new Set(slides).size).toBe(slides.length);
+      expect(new Set(weekend).size).toBe(weekend.length);
+      const all = await titlesIn(page, "All events");
+      expect(all.length).toBeGreaterThan(3);
+      expect(new Set(all).size).toBe(all.length);
+
+      // The grid: its columns, each card at its width, and every card's foot (who's going, the price) on one line.
+      const grid = page.getByRole("list", { name: "All events", exact: true });
+      const columns = await grid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").map(parseFloat));
+      expect(columns).toHaveLength(vp.columns);
+      for (const width of columns) expect(width).toBeCloseTo(vp.card, 0);
+      // A row, and laid out as one: every child shares the first one's line (a wrapped row would pass the first check alone).
+      const feet = await grid.locator("[data-card-foot]").evaluateAll((els) =>
+        els.map((el) => {
+          const boxes = Array.from(el.children)
+            .map((child) => child.getBoundingClientRect())
+            .filter((box) => box.width > 0 && box.height > 0);
+          const [first] = boxes;
+          return {
+            direction: getComputedStyle(el).flexDirection,
+            oneLine: boxes.every((box) => box.top < first.bottom && box.bottom > first.top),
+          };
+        }),
+      );
+      expect(feet.length).toBeGreaterThan(0);
+      for (const foot of feet) expect(foot).toEqual({ direction: "row", oneLine: true });
+
+      expect(await noSidewaysScroll(page)).toBeLessThanOrEqual(0);
+    });
   });
-});
+}
 
 test.describe("home with few events", () => {
-  test.use({ viewport: { width: 375, height: 667 } });
+  for (const vp of [
+    { width: 375, height: 667 },
+    { width: 1280, height: 800 },
+  ]) {
+    test(`one event, none this weekend, at ${vp.width}px: it's the carousel's Coming up and All events' one card, no dead end`, async ({ page }) => {
+      await page.setViewportSize(vp);
+      await openWith(page, 1);
+      const carousel = page.getByRole("region", { name: "Coming up", exact: true });
+      await expect(carousel.locator("[data-slide]")).toHaveCount(1);
+      // One slide: no controls.
+      await expect(carousel.getByRole("button")).toHaveCount(0);
+      await expect(page.getByRole("list", { name: "All events", exact: true }).locator("[data-event-card]")).toHaveCount(1);
+      await expect(page.getByRole("heading", { name: "This weekend" })).toHaveCount(0);
+      await expect(page.getByText(/Nothing this weekend/)).toHaveCount(0);
+    });
+  }
 
-  test("one event, none this weekend: shown as Coming up in the grid's first cell, no dead end", async ({ page }) => {
-    await openWith(page, 1);
-    const section = page.locator("[data-home-section]").filter({ has: page.getByRole("heading", { name: "Coming up", exact: true }) });
-    await expect(section.locator("[data-event-card]")).toHaveCount(1);
-    await expect(page.getByText(/Nothing this weekend/)).toHaveCount(0);
-    await expect(page.getByRole("heading", { name: "This weekend" })).toHaveCount(0);
-    await page.screenshot({ path: process.env.HOME_FEW_SHOT ?? "test-results/home-few.png" });
-  });
-
-  test("no events: says so with a link to all events", async ({ page }) => {
+  test("no events: says so with a link to all events, and no chips", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
     await openWith(page, 0);
     await expect(page.getByText("No events yet.")).toBeVisible();
     await expect(page.getByRole("link", { name: "All events" }).first()).toHaveAttribute("href", "/events");
+    await expect(page.getByRole("group", { name: "Browse by category" })).toHaveCount(0);
   });
 });
 
-test.describe("home with few events, with rails", () => {
+// The proposal's banner (redesign PR 3): the WAI carousel pattern.
+test.describe("the featured carousel at 1280px", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
-  test("one event, none this weekend: shown as Coming up, no dead end", async ({ page }) => {
-    await openWith(page, 1);
-    const section = page.locator("[data-home-section]").filter({ has: page.getByRole("heading", { name: "Coming up", exact: true }) });
-    await expect(section.locator("[data-event-card]")).toHaveCount(1);
-    await expect(page.getByText(/Nothing this weekend/)).toHaveCount(0);
-    await expect(page.getByRole("heading", { name: "This weekend" })).toHaveCount(0);
-    await page.screenshot({ path: process.env.HOME_FEW_SHOT ?? "test-results/home-few.png" });
-  });
-});
+  const current = (page: Page) =>
+    page.locator("[data-featured-carousel] [data-slide]").evaluateAll((slides) => slides.findIndex((s) => s.hasAttribute("data-current")));
 
-test.describe("the photo push-in (the hero photo shows from 1024px)", () => {
-  test.use({ viewport: { width: 1280, height: 800 } });
-
-  test("runs one cycle of 5s or less", async ({ page }) => {
-    await openHome(page);
-    const animation = await page.locator("img.ken-burns").first().evaluate((img) => {
-      const style = getComputedStyle(img);
-      return { name: style.animationName, count: style.animationIterationCount, duration: style.animationDuration };
-    });
-    expect(animation.name).toBe("push-in");
-    expect(animation.count).toBe("1");
-    expect(parseFloat(animation.duration)).toBeLessThanOrEqual(5);
+  test("each slide: the category alone (no 'Featured'), the title, an all-inclusive A$ price, its own ticket action and Details", async ({ page }) => {
+    await openHome(page, { trending: true });
+    const carousel = page.getByRole("region", { name: "Popular right now" });
+    const slide = carousel.locator("[data-slide][data-current]");
+    await expect(slide).toHaveAttribute("aria-label", /^1 of \d$/);
+    await expect(carousel).not.toContainText(/Featured/i);
+    await expect(slide.locator("p.mono-s").first()).toHaveText(/^(Live music|Art|Workshop|Pop-up|Theatre)$/);
+    await expect(slide.locator("p.mono-s").nth(1)).toHaveText(/ · (?:From )?A\$[\d.]+$|· Free$|· Sold out$|· Buy tickets$/);
+    await expect(slide.getByRole("link", { name: /^Details: / })).toHaveAttribute("href", /^\/events\/[^/#]+$/);
+    // Only the current slide is reachable: the others are inert.
+    await expect(carousel.locator("[data-slide]:not([data-current])[inert]")).toHaveCount((await carousel.locator("[data-slide]").count()) - 1);
   });
 
-  test("is off under reduced motion", async ({ page }) => {
+  test("advances by itself, never moving focus; Pause stops it; Next, Previous and the dots move it and take over", async ({ page }) => {
+    await openHome(page, { trending: true });
+    const carousel = page.getByRole("region", { name: "Popular right now" });
+    // Keep the pointer and focus out of it: either holds it still.
+    await page.mouse.move(5, 5);
+    await expect(carousel.locator("[data-slide]").first()).toHaveAttribute("data-current", "");
+    await expect.poll(() => current(page), { timeout: 15_000 }).toBe(1);
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+    // The slide in view is the current one, once the glide settles.
+    await expect
+      .poll(() =>
+        carousel.locator("[data-slide][data-current]").evaluate((slide) => {
+          const track = slide.parentElement?.getBoundingClientRect();
+          const box = slide.getBoundingClientRect();
+          return track ? Math.abs(box.left - track.left) < 2 : false;
+        }),
+      )
+      .toBe(true);
+
+    await carousel.getByRole("button", { name: "Pause carousel" }).click();
+    await expect(carousel.getByRole("button", { name: "Play carousel" })).toBeFocused();
+    await expect(page.locator("#home-featured-slides")).toHaveAttribute("aria-live", "polite");
+    await page.mouse.move(5, 5);
+    await page.waitForTimeout(7_000);
+    expect(await current(page)).toBe(1);
+
+    await carousel.getByRole("button", { name: "Next slide" }).click();
+    await expect.poll(() => current(page)).toBe(2);
+    await carousel.getByRole("button", { name: "Previous slide" }).click();
+    await expect.poll(() => current(page)).toBe(1);
+    await carousel.getByRole("button", { name: /^Slide 1: / }).click();
+    await expect.poll(() => current(page)).toBe(0);
+    await expect(carousel.getByRole("button", { name: /^Slide 1: / })).toHaveAttribute("aria-current", "true");
+    // 40px controls from md, each with a visible ring.
+    const next = carousel.getByRole("button", { name: "Next slide" });
+    expect((await next.boundingBox())?.height).toBe(40);
+    await next.focus();
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Tab");
+    expect(await next.evaluate((el) => getComputedStyle(el).outlineStyle)).not.toBe("none");
+  });
+
+  test("under reduced motion it never moves by itself and has no Pause", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await openHome(page);
-    const names = await page
-      .locator("img.ken-burns")
-      .evaluateAll((imgs) => imgs.map((img) => getComputedStyle(img).animationName));
-    expect(names.length).toBeGreaterThan(0);
-    for (const name of names) expect(name).toBe("none");
+    await openHome(page, { trending: true });
+    const carousel = page.getByRole("region", { name: "Popular right now" });
+    await expect(carousel.getByRole("button", { name: "Next slide" })).toBeVisible();
+    await expect(carousel.getByRole("button", { name: /Pause carousel|Play carousel/ })).toHaveCount(0);
+    await page.mouse.move(5, 5);
+    await page.waitForTimeout(7_000);
+    expect(await current(page)).toBe(0);
   });
 });
 
-/** Moves the mouse onto `target` without waiting for it to hold still (an auto-scrolling rail holds still under the pointer). */
-async function pointAt(page: Page, target: Locator) {
-  await target.evaluate((el) => el.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" }));
-  const box = await target.boundingBox();
-  if (!box) throw new Error("not rendered");
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+// UX review (blocking): below 640px the slide is square (was 4:5; the owner asked for a home that shows more, Nov 2026) and grows to fit its panel, so nothing is cut off.
+for (const width of [320, 390]) {
+  test.describe(`the featured carousel at ${width}px`, () => {
+    test.use({ viewport: { width, height: 844 } });
+
+    test("the slide's panel (eyebrow to Details) is wholly inside the slide, and the slide is at least square", async ({ page }) => {
+      await openHome(page, { trending: true });
+      const slide = page.locator("[data-featured-carousel] [data-slide][data-current]");
+      const [box, panel, eyebrow, details] = await Promise.all([
+        slide.boundingBox(),
+        slide.locator("[data-slide-panel]").boundingBox(),
+        slide.locator("[data-slide-panel] p").first().boundingBox(),
+        slide.getByRole("link", { name: /^Details: / }).boundingBox(),
+      ]);
+      if (!box || !panel || !eyebrow || !details) throw new Error("slide not laid out");
+      expect(box.height).toBeGreaterThanOrEqual(box.width - 1);
+      expect(panel.y).toBeGreaterThanOrEqual(box.y);
+      expect(eyebrow.y).toBeGreaterThanOrEqual(box.y);
+      expect(details.y + details.height).toBeLessThanOrEqual(box.y + box.height);
+      expect(await noSidewaysScroll(page)).toBeLessThanOrEqual(0);
+    });
+  });
 }
 
-test("a card's Buy tickets lands on the event page with focus on the tickets", async ({ page }) => {
+test.describe("the category chips and All events", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  test("a category chip filters the listings in the page (no navigation), and the Category filter agrees", async ({ page }) => {
+    await openHome(page);
+    const chips = page.getByRole("group", { name: "Browse by category" });
+    await expect(chips.getByRole("button", { name: "All", exact: true })).toHaveAttribute("aria-pressed", "true");
+    const art = chips.getByRole("button", { name: "Art" });
+    await expect(async () => {
+      if ((await art.getAttribute("aria-pressed")) !== "true") await art.click();
+      await expect(art).toHaveAttribute("aria-pressed", "true", { timeout: 1_000 });
+    }).toPass({ timeout: 30_000 });
+    await expect(page).toHaveURL(/\/$/);
+    const arts = sampleEvents.filter((e) => e.category === "art").map((e) => e.title);
+    const listed = await titlesIn(page, "All events");
+    expect(listed.length).toBeGreaterThan(0);
+    for (const title of listed) expect(arts).toContain(title.trim());
+    await expect(page.getByRole("combobox", { name: "Category" })).toHaveValue("art");
+  });
+
+  test("Reset filters clears them and moves focus to the All events heading", async ({ page }) => {
+    await openHome(page);
+    const price = page.getByRole("combobox", { name: "Price" });
+    await expect(async () => {
+      await price.selectOption("free");
+      await expect(page.getByRole("button", { name: "Reset filters" })).toBeVisible({ timeout: 1_000 });
+    }).toPass({ timeout: 30_000 });
+    await expect(page.getByRole("region", { name: "All events" }).getByRole("status")).toHaveText(/^\d+ events? match(es)?$/);
+    await page.getByRole("button", { name: "Reset filters" }).click();
+    await expect(page.getByRole("heading", { level: 2, name: "All events" })).toBeFocused();
+    await expect(price).toHaveValue("all");
+  });
+
+  test("Show more events adds the next cards and moves focus to the first new one", async ({ page }) => {
+    await openHome(page);
+    const grid = page.getByRole("list", { name: "All events", exact: true });
+    await expect(grid.locator("[data-event-card]")).toHaveCount(8);
+    await page.getByRole("button", { name: "Show more events" }).click();
+    await expect(grid.locator("[data-event-card]").nth(8).locator("[data-card-link]")).toBeFocused();
+    expect(await grid.locator("[data-event-card]").count()).toBeGreaterThan(8);
+  });
+});
+
+// The redesign's card (the rules' Cards board) has no ticket button: its price is an orange label inside
+// the card's one link, so a tap on the price opens the event like anywhere else on the card.
+test("a tap on a card's price label opens its event page", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   const events = fixtures(Date.now());
   await mockApi(page);
@@ -273,17 +345,20 @@ test("a card's Buy tickets lands on the event page with focus on the tickets", a
     return event ? route.fulfill({ json: event }) : route.fulfill({ status: 404, json: { error: "not found" } });
   });
   await page.goto("/");
-  // This weekend's cards open the event (an orange arrow, owner's mockup of 8 Nov 2026): the quick buy is the next rail's.
-  const section = page.locator("[data-home-section]").nth(1);
-  const quickBuy = section.getByRole("link", { name: /^(?:Buy tickets|Free tickets) for / }).first();
-  const href = await quickBuy.getAttribute("href");
-  expect(href).toMatch(/^\/events\/[^/]+#tickets$/);
-  // A rail that auto-scrolls never stops moving by itself; the pointer over it holds it, as for a person.
-  await pointAt(page, quickBuy);
-  await quickBuy.click();
+  const grid = page.getByRole("list", { name: "All events", exact: true });
+  const card = grid.locator("[data-event-card]").filter({ has: page.locator("[data-price-tag='signal']") }).first();
+  const href = await card.locator("[data-card-link]").getAttribute("href");
+  expect(href).toMatch(/^\/events\/[^/#]+$/);
+  await expect(grid.getByRole("link", { name: /^(?:Buy tickets|Free tickets) for / })).toHaveCount(0);
+  const price = card.locator("[data-price-tag]");
+  await price.scrollIntoViewIfNeeded();
+  // A real click where the label is drawn: the card's stretched link is what's under the pointer there.
+  const box = await price.boundingBox();
+  if (!box) throw new Error("price not laid out");
+  expect(await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest("a")?.getAttribute("href"), [box.x + box.width / 2, box.y + box.height / 2])).toBe(href);
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   // The dev server compiles the event route on first visit, which can take a while under load.
-  await expect(page).toHaveURL(/#tickets$/, { timeout: 30_000 });
-  await expect(page.locator("#tickets")).toBeFocused({ timeout: 30_000 });
+  await expect(page).toHaveURL(new RegExp(`${href}$`), { timeout: 30_000 });
 });
 
 test.describe("the logo on the home", () => {
@@ -315,248 +390,174 @@ test.describe("the logo on the home", () => {
   });
 });
 
-test.describe("keyboard", () => {
-  // The narrowest rail (from 640px; phones have the inline event screens).
-  test.use({ viewport: { width: 640, height: 844 } });
-
-  test("at 640px, a card reached with Tab is brought fully into view in its rail", async ({ page }) => {
-    await openHome(page);
-    const section = page.locator("[data-home-section]").filter({ has: page.getByRole("heading", { name: "Coming up", exact: true }) });
-    const items = section.getByRole("listitem");
-    expect(await items.count()).toBeGreaterThan(2);
-    // Start on the first card's link, then Tab through the next two cards (link, Save, Buy tickets each).
-    await items.first().getByRole("link").first().focus();
-    const inView = async (item: Locator) => {
-      const b = await item.boundingBox();
-      if (!b) return "not rendered";
-      return b.x >= 0 && b.x + b.width <= 640 && b.y >= 0 && b.y + b.height <= 844 ? "in view" : `${b.x},${b.y} ${b.width}×${b.height}`;
-    };
-    for (let i = 0; i < 6; i++) {
-      await page.keyboard.press("Tab");
-      await expect.poll(() => inView(page.locator("li:has(:focus)").last())).toBe("in view");
-    }
-    // And it stays there: the rail's auto-scroll hands over to snapping once the visitor's scroll is at rest
-    // (a glide onto the nearest card, which must not take the focused card back out of view).
-    await expect.poll(() => section.getByRole("list").evaluate((ul) => ul.style.scrollSnapType)).toBe("");
-    expect(await inView(page.locator("li:has(:focus)").last())).toBe("in view");
-    // It got past the cards that were on screen to begin with.
-    await expect(items.nth(2).locator(":focus")).toHaveCount(1);
-  });
-});
-
-// The brief's order (docs/design/mobile-redesign.md §6.3.1), at the narrowest rail width and a desktop width.
-for (const width of [640, 1280]) {
+// The proposal's order, at a phone, a tablet and a desktop width.
+for (const width of [390, 768, 1280]) {
   test.describe(`home order at ${width}px`, () => {
-    test.use({ viewport: { width, height: width < 768 ? 812 : 800 } });
+    test.use({ viewport: { width, height: 844 } });
 
-    test("hero, the category row, This weekend, Popular right now, What else?, Find your people, For organisers, footer", async ({ page }) => {
+    test("hero, carousel, chips, This weekend, All events, Find your people, Bring your event to life, footer", async ({ page }) => {
       await openHome(page, { trending: true });
-      await expect(page.getByRole("heading", { level: 2, name: "Popular right now" })).toBeVisible();
-      const headings = await page.locator("main h2").allTextContents();
-      // Refinement (22 Oct 2026): the categories are a chip row (a labelled nav, no heading) under the search.
-      expect(headings.map((h) => h.trim())).toEqual([
-        "This weekend",
-        "Popular right now",
-        "What else?",
-        "See who’s going. Find your people.",
-        "Bring your event to life",
-      ]);
-      // What else? is in the page from 640px only (owner, 23 Oct 2026): hidden, not removed, on phones.
-      await expect(page.locator("[data-what-else]")).toBeVisible({ visible: width >= 640 });
-      const hero = await page.getByRole("search", { name: "Search events" }).boundingBox();
-      const chips = await page.getByRole("navigation", { name: "Browse by category" }).boundingBox();
-      const weekend = await page.getByRole("heading", { level: 2, name: "This weekend" }).boundingBox();
-      expect((hero?.y ?? Infinity) < (chips?.y ?? -1) && (chips?.y ?? Infinity) < (weekend?.y ?? -1)).toBe(true);
-      // The hero comes first, the footer last.
-      const h1 = await page.getByRole("heading", { level: 1 }).boundingBox();
-      const first = await page.locator("main h2").first().boundingBox();
-      expect((h1?.y ?? Infinity) < (first?.y ?? -1)).toBe(true);
-      await expect(page.locator("footer")).toBeAttached();
-      // Gone from the home: Trending and Coming up as separate sections, Free & low-cost, the guide card (After dark).
-      for (const name of ["Trending", "Coming up near you", "Free & low-cost", "After dark"]) {
-        await expect(page.getByRole("heading", { name, exact: true })).toHaveCount(0);
-      }
-      // Each event section has a clear link onward, named for where it goes: "All events" where the
-      // target isn't the section's own list (A8), "See all …" where it is.
-      for (const section of await page.locator("[data-home-section]").all()) {
-        await expect(section.getByRole("link", { name: /^(?:See all .+|All events)$/ })).toHaveAttribute(
-          "href",
-          /^\/(events|following)$/,
-        );
-      }
-      // Section heads never repeat the h2 in a strap: each head says its title once.
-      const repeats = await page.locator("[data-home-section]").evaluateAll((sections) =>
-        sections.map((section) => {
-          const title = section.querySelector("h2")?.textContent?.trim() ?? "";
-          const head = section.firstElementChild?.textContent ?? "";
-          return head.split(title).length - 1;
-        }),
+      await expect(page.getByRole("region", { name: "Popular right now" })).toBeVisible();
+      const headings = (await page.locator("main h2").allTextContents()).map((h) => h.trim());
+      expect(headings).toEqual(["Popular right now", "This weekend", "All events", "Find your people.", "Bring your event to life"]);
+      const ys = await Promise.all(
+        [
+          page.getByRole("heading", { level: 1 }),
+          page.getByRole("search", { name: "Search events" }),
+          page.getByRole("region", { name: "Popular right now" }),
+          page.getByRole("group", { name: "Browse by category" }),
+          page.getByRole("region", { name: "This weekend" }),
+          page.getByRole("region", { name: "All events" }),
+          page.locator("#find-your-people"),
+          page.getByRole("region", { name: "Bring your event to life" }),
+          page.locator("footer"),
+        ].map(async (locator) => (await locator.boundingBox())?.y ?? NaN),
       );
-      expect(repeats.length).toBeGreaterThan(1);
-      for (const n of repeats) expect(n).toBe(1);
-      // Find your people (owner mockup, 23 Oct 2026): the pitch and one action; the step-by-step is on
-      // the event page's Who's Going panel.
-      const band = page.locator("#find-your-people");
-      await expect(band.getByRole("heading", { name: "See who’s going. Find your people." })).toBeVisible();
-      await expect(band).not.toContainText("Better together");
-      await expect(band).not.toContainText("Discover the crowd before you book.");
-      await expect(band.getByRole("link")).toHaveCount(1);
-      await expect(band.getByRole("link", { name: "Create profile now" })).toHaveAttribute("href", "/signup");
-      await expect(band.getByRole("listitem")).toHaveCount(0);
-      // Live with no going counts: the card still shows the illustrative faces, but no event and no number.
-      const card = band.locator("[data-community-card]");
-      await expect(card).toBeVisible();
-      await expect(band.locator("[data-community-example]")).toHaveCount(0);
-      await expect(card).toContainText("Know who’ll be there");
-      await expect(card.locator("[data-community-note]")).toHaveCount(0);
-      await expect(card.locator("[data-community-faces] img")).toHaveCount(5);
-      expect(await band.textContent()).not.toMatch(/\d/);
-      // The pitch's heading is two lines at every width.
-      const lines = await band.getByRole("heading", { level: 2 }).evaluate((h2) => {
-        const lineHeight = parseFloat(getComputedStyle(h2).lineHeight);
-        return Math.round(h2.getBoundingClientRect().height / lineHeight);
-      });
-      expect(lines).toBe(2);
+      expect(ys.every((y, i) => i === 0 || y > ys[i - 1])).toBe(true);
+      // Gone from the home: the rails, What else?, Recently on and the old weekend card.
+      for (const name of ["What else?", "Recently on", "After dark"]) await expect(page.getByRole("heading", { name, exact: true })).toHaveCount(0);
+      await expect(page.locator("[data-rail-layout], [data-rail-clone], [data-what-else], [data-variant='weekend']")).toHaveCount(0);
+      // Each event section's link onward, named for where it goes.
+      await expect(page.getByRole("region", { name: "This weekend" }).getByRole("link", { name: "See all this weekend" })).toHaveAttribute("href", "/map?time=weekend&within=all");
+      await expect(page.getByRole("region", { name: "All events" }).getByRole("link", { name: "See all events" })).toHaveAttribute("href", "/events");
+      // Find your people: Explore communities to /community, then the band, with no invented counts.
+      const people = page.locator("#find-your-people");
+      await expect(people.getByRole("link", { name: "Explore communities" })).toHaveAttribute("href", "/community");
+      await expect(people).not.toContainText(/friends going|members|Follow/);
+      // The organiser banner, last.
+      await expect(page.getByRole("region", { name: "Bring your event to life" }).getByRole("link", { name: "List your event" })).toHaveAttribute("href", "/organisers/apply");
+      expect(await noSidewaysScroll(page)).toBeLessThanOrEqual(0);
     });
   });
 }
 
-// Below 640px: the sections are grids, in the rails' order; the rest of the page is as before.
-test.describe("home order at 375px", () => {
-  test.use({ viewport: { width: 375, height: 812 } });
-
-  test("hero, the category row, the grids, Find your people, For organisers, footer", async ({ page }) => {
-    await openHome(page, { trending: true });
-    // Section headings are h2s under the hero's h1; the event titles are h3s inside the cards.
-    const headings = await page.locator("main h2").allTextContents();
-    expect(headings.map((h) => h.trim())).toEqual([
-      "This weekend",
-      "Popular right now",
-      "What else?",
-      "See who’s going. Find your people.",
-      "Bring your event to life",
-    ]);
-    // What else? is in the page from 640px only (owner, 23 Oct 2026): hidden, not removed, on phones.
-    await expect(page.locator("[data-what-else]")).toBeHidden();
-    const hero = await page.getByRole("search", { name: "Search events" }).boundingBox();
-    const chips = await page.getByRole("navigation", { name: "Browse by category" }).boundingBox();
-    const sections = page.locator("[data-home-section]");
-    await expect(sections).toHaveCount(2);
-    const first = await sections.first().boundingBox();
-    const last = await sections.last().boundingBox();
-    const community = await page.locator("#find-your-people").boundingBox();
-    expect((hero?.y ?? Infinity) < (chips?.y ?? -1) && (chips?.y ?? Infinity) < (first?.y ?? -1)).toBe(true);
-    expect((first?.y ?? Infinity) < (last?.y ?? -1) && (last?.y ?? Infinity) < (community?.y ?? -1)).toBe(true);
-    await expect(page.locator("footer")).toBeAttached();
-  });
-});
-
-// Owner mockup (23 Oct 2026): the pitch, and a white "A look inside" card from a real count, with the
-// owner's illustrative portraits (always labelled as such).
+// The band: a real count from trending, with the owner's illustrative portraits (never attendees).
 for (const vp of [
-  { width: 1280, height: 800, desktop: true },
-  { width: 390, height: 844, desktop: false },
+  { width: 1280, height: 800 },
+  { width: 390, height: 844 },
+  { width: 320, height: 640 },
 ]) {
   test.describe(`Find your people at ${vp.width}px`, () => {
     test.use({ viewport: { width: vp.width, height: vp.height } });
 
-    test("shows a trending event's real count in the card, with the illustrative faces and an honest note", async ({ page }) => {
+    test("the band shows a trending event's real count, the illustrative faces and an honest note, and its action works by keyboard", async ({ page }) => {
       await openHome(page, { trending: true, going: 22 });
-      const band = page.locator("#find-your-people");
-      const card = band.locator("[data-community-card][data-community-example]");
-      await expect(card).toBeVisible();
-      await expect(card.getByText("A look inside")).toBeVisible();
-      await expect(card.locator("[data-community-count]")).toHaveText("22 people going");
-      await expect(card.locator("[data-community-note]")).toHaveText("Popular right now · Real count");
-      await expect(card).not.toContainText(/sample/i);
-      // Five round portraits, hidden from assistive tech, empty alt, and actually loaded.
-      const faces = card.locator("[data-community-faces]");
+      const band = page.locator("[data-community-band]");
+      await band.scrollIntoViewIfNeeded();
+      await expect(band.getByRole("heading", { level: 3, name: "See who’s going." })).toBeVisible();
+      await expect(band.locator("[data-community-count]")).toHaveText(/^22 people going · .+$/);
+      await expect(band.locator("[data-community-note]")).toHaveText("Popular right now · Real count");
+      await expect(band).not.toContainText(/sample|follow a community/i);
+      const faces = band.locator("[data-community-faces]");
       await expect(faces).toHaveAttribute("aria-hidden", "true");
-      await faces.scrollIntoViewIfNeeded();
       await expect
         .poll(() => faces.locator("img").evaluateAll((imgs) => imgs.filter((img) => (img as HTMLImageElement).naturalWidth > 0).length))
         .toBe(5);
-      const circles = await faces.locator(":scope > span").evaluateAll((spans) =>
-        spans.map((span) => ({
-          text: span.textContent,
-          alt: span.querySelector("img")?.getAttribute("alt"),
-          size: span.getBoundingClientRect().width,
-          radius: getComputedStyle(span).borderRadius,
-        })),
-      );
-      expect(circles).toHaveLength(5);
-      for (const circle of circles) {
-        expect(circle.text).toBe("");
-        expect(circle.alt).toBe("");
-        expect(circle.size).toBe(vp.desktop ? 80 : 56);
-        expect(parseFloat(circle.radius)).toBeGreaterThanOrEqual(circle.size / 2);
-      }
-      // The faces stay inside the card.
-      const cardBox = await card.boundingBox();
+      const bandBox = await band.boundingBox();
       const facesBox = await faces.boundingBox();
-      if (!cardBox || !facesBox) throw new Error("card not laid out");
-      expect(facesBox.x + facesBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width);
-      // Side by side on a desktop, stacked on a phone.
-      const pitch = await band.getByRole("heading", { level: 2 }).boundingBox();
-      const box = await card.boundingBox();
-      if (!pitch || !box) throw new Error("band not laid out");
-      if (vp.desktop) expect(box.x).toBeGreaterThan(pitch.x + pitch.width - 1);
-      else expect(box.y).toBeGreaterThan(pitch.y + pitch.height);
+      if (!bandBox || !facesBox) throw new Error("band not laid out");
+      expect(facesBox.x + facesBox.width).toBeLessThanOrEqual(bandBox.x + bandBox.width);
       // The focus ring shows on the orange (black, never orange), and the action is reachable.
-      const action = band.getByRole("link", { name: "Create profile now" });
+      const action = band.getByRole("link", { name: "Create profile" });
       await action.focus();
       await page.keyboard.press("Shift+Tab");
       await page.keyboard.press("Tab");
       await expect(action).toBeFocused();
       expect(await action.evaluate((a) => getComputedStyle(a).outlineColor)).toBe("rgb(0, 0, 0)");
-      expect((await action.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(56);
-      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-      expect(overflow).toBeLessThanOrEqual(0);
+      expect((await action.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(48);
+      expect(await noSidewaysScroll(page)).toBeLessThanOrEqual(0);
     });
   });
 }
 
-// The band's card at the narrowest phone, the tightest two-column width and a wide desktop: the five
-// faces stay inside the card and nothing scrolls sideways, with or without a real example.
-for (const width of [320, 1024, 1440]) {
-  test.describe(`Find your people's card at ${width}px`, () => {
-    test.use({ viewport: { width, height: 800 } });
+// The scene cards under the band (the owner's mockup, real data only): three equal columns from
+// 1024px, a sideways row bleeding to the edges below it, and never the page scrolling sideways.
+const SCENES = [
+  { name: "Live music", category: "live-music" },
+  { name: "Art", category: "art" },
+  { name: "Pop-ups", category: "pop-up" },
+];
+for (const vp of [
+  { width: 1440, height: 900, row: false },
+  { width: 1024, height: 768, row: false },
+  { width: 390, height: 844, row: true },
+  { width: 320, height: 640, row: true },
+]) {
+  test.describe(`Find your people's scene cards at ${vp.width}px`, () => {
+    test.use({ viewport: { width: vp.width, height: vp.height } });
 
-    for (const going of [undefined, 22]) {
-      test(`fits ${going === undefined ? "without" : "with"} a real example`, async ({ page }) => {
-        await openHome(page, { trending: true, going });
-        const card = page.locator("#find-your-people [data-community-card]");
-        await card.scrollIntoViewIfNeeded();
-        await expect(card).not.toContainText("Illustrative photos");
-        const cardBox = await card.boundingBox();
-        const facesBox = await card.locator("[data-community-faces]").boundingBox();
-        if (!cardBox || !facesBox) throw new Error("card not laid out");
-        expect(facesBox.x + facesBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width);
-        const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-        expect(overflow).toBeLessThanOrEqual(0);
-      });
-    }
+    test("Live music, Art and Pop-ups, each its own event's photo and one link to its listing, with no invented counts", async ({ page }) => {
+      await openHome(page, { trending: true, going: 22 });
+      const list = page.getByRole("list", { name: "Scenes", exact: true });
+      await list.scrollIntoViewIfNeeded();
+      const items = list.getByRole("listitem");
+      await expect(items).toHaveCount(3);
+      for (const [i, scene] of SCENES.entries()) {
+        const item = items.nth(i);
+        await expect(item.getByRole("heading", { level: 3 })).toHaveText(scene.name);
+        await expect(item.getByRole("link")).toHaveCount(1);
+        await expect(item.getByRole("link", { name: `See events: ${scene.name}` })).toHaveAttribute("href", `/events?category=${scene.category}`);
+        // The fixtures have events in all three: each shows its lead event's art, never the fallback tile.
+        await expect(item.locator("[data-scene-media] [aria-hidden='true']").first()).toBeVisible();
+        await expect(item.locator("[data-scene-fallback]")).toHaveCount(0);
+        // Every upcoming event was served (no next cursor), so the event count is the whole number.
+        await expect(item.locator("[data-scene-meta]")).toHaveText(/^(\d+ events? this month|\d+ upcoming)$/);
+      }
+      // The only real going count is 22, on an event weeks away: no "going this week" anywhere.
+      await expect(list.locator("[data-scene-going]")).toHaveCount(0);
+      await expect(page.locator("[data-scenes-note]")).toHaveCount(0);
+      await expect(page.locator("#find-your-people")).not.toContainText(/friends|members|follow/i);
+
+      const boxes = await Promise.all([0, 1, 2].map(async (i) => items.nth(i).boundingBox()));
+      if (boxes.some((box) => !box)) throw new Error("scene cards not laid out");
+      const [a, b, c] = boxes as NonNullable<(typeof boxes)[number]>[];
+      if (vp.row) {
+        // The home's phone row: 288px cards side by side, the next one peeking in.
+        expect(Math.round(a.width)).toBe(288);
+        expect(b.y).toBeCloseTo(a.y, 0);
+        expect(b.x).toBeGreaterThan(a.x + a.width);
+      } else {
+        // Three equal columns on one row, filling the band's width.
+        const band = await page.locator("[data-community-band]").boundingBox();
+        if (!band) throw new Error("band not laid out");
+        expect(Math.abs(a.width - b.width)).toBeLessThan(1);
+        expect(Math.abs(b.width - c.width)).toBeLessThan(1);
+        expect(b.y).toBeCloseTo(a.y, 0);
+        expect(c.y).toBeCloseTo(a.y, 0);
+        expect(a.x).toBeCloseTo(band.x, 0);
+        expect(c.x + c.width).toBeCloseTo(band.x + band.width, 0);
+      }
+      // The link is reachable by keyboard, with the visible focus ring, and is big enough to tap.
+      const link = items.nth(1).getByRole("link");
+      await link.focus();
+      await expect(link).toBeFocused();
+      expect(await link.evaluate((el) => getComputedStyle(el).outlineStyle)).not.toBe("none");
+      expect((await link.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(40);
+      expect(await noSidewaysScroll(page)).toBeLessThanOrEqual(0);
+    });
   });
 }
 
-test.describe("the home's grids on a phone (375×667)", () => {
-  test.use({ viewport: { width: 375, height: 667 } });
+test.describe("Find your people's scene cards: the whole card opens the listing", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
 
-  test("two columns on the page's 20px gutters with 12px between, the first heading under the category row", async ({ page }) => {
-    await openHome(page);
-    // The first grid (This weekend is a rail on phones too since the owner's mockup of 8 Nov 2026), and the first heading.
-    const section = page.locator("[data-home-grid]").first();
-    const cards = section.locator("[data-event-card]");
-    const [a, b] = [await cards.nth(0).boundingBox(), await cards.nth(1).boundingBox()];
-    const chips = await page.getByRole("navigation", { name: "Browse by category" }).boundingBox();
-    const heading = await page.locator("[data-home-section]").first().getByRole("heading", { level: 2 }).boundingBox();
-    if (!a || !b || !chips || !heading) throw new Error("home not laid out");
-    expect(a.x).toBe(20);
-    expect(b.x + b.width).toBe(375 - 20);
-    expect(b.x - (a.x + a.width)).toBe(12);
-    expect(a.y).toBe(b.y);
-    expect(heading.y).toBeGreaterThanOrEqual(chips.y + chips.height);
-    expect(heading.y).toBeLessThan(667);
+  test("a click on Art's photo opens /events?category=art", async ({ page }) => {
+    // /events asks for recently ended events too (openHome's mock refuses those), so serve both pages here.
+    const events = fixtures(Date.now()).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+    await page.route("**/api/**", (route) =>
+      new URL(route.request().url()).pathname === "/api/events"
+        ? route.fulfill({ json: { items: events, nextCursor: undefined } })
+        : route.fulfill({ status: 404, json: { error: "not mocked in e2e" } }),
+    );
+    await page.goto("/");
+    const art = page.getByRole("list", { name: "Scenes", exact: true }).getByRole("listitem").nth(1);
+    const media = art.locator("[data-scene-media]");
+    await media.scrollIntoViewIfNeeded();
+    // A real click on the photo's middle: the card's one link covers the card, so it takes the click.
+    const box = await media.boundingBox();
+    if (!box) throw new Error("photo not laid out");
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await expect(page).toHaveURL(/\/events\?category=art$/, { timeout: 30_000 });
   });
 });
 
@@ -580,139 +581,38 @@ test.describe("/events", () => {
   });
 });
 
-// Owner (23 Oct 2026): "keep this as well and the motion in the picture": the desktop hero collage with
-// its turning badge, and What else? with its highlight that follows the scroll.
-test.describe("hero collage at 1280px", () => {
+// Owner (23 Oct 2026): "keep this as well and the motion in the picture": the hero's turning badge.
+test.describe("the hero badge at 1280px", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
-  test("shows its one photo and the badge, which turns slowly and can be paused", async ({ page }) => {
+  test("sits before the h1, turns slowly and can be paused from the keyboard", async ({ page }) => {
     await openHome(page);
-    const collage = page.locator("[data-hero-collage]");
-    await expect(collage).toBeVisible();
-    // Owner (4 Nov 2026): the hero is compact, so the collage is the lead photo alone.
-    await expect(collage.locator("img")).toHaveCount(1);
-    expect(await collage.locator("img").evaluateAll((imgs) => imgs.map((img) => img.getAttribute("src")))).toEqual(["/events/gallery-opening.jpg"]);
     const badge = page.getByRole("button", { name: "Pause the badge animation" });
     await expect(badge).toBeVisible();
-    // Its name changes with its state, so find the drawing by its own marker (the collage's: the
-    // thumbnail's still copy, hidden from 1024px, has one too).
-    const art = collage.locator("[data-hero-badge-art]");
+    const [badgeBox, h1Box] = [await badge.boundingBox(), await page.getByRole("heading", { level: 1 }).boundingBox()];
+    expect((badgeBox?.x ?? Infinity) + (badgeBox?.width ?? 0)).toBeLessThanOrEqual(h1Box?.x ?? -1);
+    const art = page.locator("[data-hero-badge-art]");
     const spin = await art.evaluate((svg) => {
       const style = getComputedStyle(svg);
       return { name: style.animationName, duration: style.animationDuration, count: style.animationIterationCount, state: style.animationPlayState };
     });
     expect(spin).toEqual({ name: "spin", duration: "30s", count: "infinite", state: "running" });
-    // Keyboard: Tab reaches it, and Enter pauses it.
     await badge.focus();
     await page.keyboard.press("Enter");
     await expect(page.getByRole("button", { name: "Play the badge animation" })).toBeFocused();
     expect(await art.evaluate((svg) => getComputedStyle(svg).animationPlayState)).toBe("paused");
-    // The first section still starts above the fold.
-    const heading = await page.locator("[data-home-section]").first().getByRole("heading", { level: 2 }).boundingBox();
-    expect((heading?.y ?? Infinity) + (heading?.height ?? 0)).toBeLessThanOrEqual(800);
   });
 
   test("holds still, and isn't a control, under reduced motion", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await openHome(page);
-    await expect(page.locator("[data-hero-collage]")).toBeVisible();
     await expect(page.getByRole("button", { name: /badge animation/ })).toHaveCount(0);
-    expect(await page.locator("[data-hero-collage] [data-hero-badge-art]").evaluate((svg) => getComputedStyle(svg).animationName)).toBe("none");
+    expect(await page.locator("[data-hero-badge-art]").evaluate((svg) => getComputedStyle(svg).animationName)).toBe("none");
   });
-});
 
-for (const vp of [
-  { width: 1280, height: 800, desktop: true },
-  { width: 390, height: 844, desktop: false },
-]) {
-  test.describe(`What else? at ${vp.width}px`, () => {
-    test.use({ viewport: { width: vp.width, height: vp.height } });
-
-    test("on desktop, lights each promise in turn as it crosses the middle of the screen (the rest stay readable); not on phones", async ({ page }) => {
-      await openHome(page);
-      // No collage on phones: the hero stays short.
-      await expect(page.locator("[data-hero-collage]")).toBeVisible({ visible: vp.desktop });
-      if (!vp.desktop) {
-        // Not on phones at all (owner, 23 Oct 2026).
-        await expect(page.locator("[data-what-else]")).toBeHidden();
-        return;
-      }
-      const section = page.getByRole("region", { name: "What else?" });
-      const items = section.getByRole("listitem");
-      await expect(items).toHaveCount(3);
-      await expect(items.nth(0)).toHaveAttribute("data-active", "true");
-      // Inactive items: the muted token (5.65:1 on white), fully opaque.
-      const inactive = await items.nth(1).evaluate((li) => ({ color: getComputedStyle(li).color, opacity: getComputedStyle(li).opacity }));
-      expect(inactive).toEqual({ color: "rgb(107, 103, 94)", opacity: "1" });
-      await items.nth(2).evaluate((li) => {
-        const box = li.getBoundingClientRect();
-        window.scrollBy({ top: box.top + box.height / 2 - window.innerHeight / 2, behavior: "instant" });
-      });
-      await expect(items.nth(2)).toHaveAttribute("data-active", "true");
-      await expect(items.nth(0)).toHaveAttribute("data-active", "false");
-      // The photo beside the list from 1024px, following the highlight: sample-event photos for now
-      // (owner, 26 Oct 2026: "reuse the event photos for now").
-      const photo = section.locator("[data-what-else-photo='active']");
-      await expect(section.locator("[data-what-else-photo='active']")).toHaveCount(1);
-      await expect(photo.locator("img")).toBeVisible();
-      await expect(photo.locator("img")).toHaveAttribute("src", "/events/gallery-opening.jpg");
-      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-      expect(overflow).toBeLessThanOrEqual(0);
-    });
-  });
-}
-
-test.describe("Recently on", () => {
-  test.use({ viewport: { width: 1280, height: 800 } });
-
-  test("an event that ended 3 days ago is the last rail, marked Ended, with no ticket action, and still opens", async ({ page }) => {
-    const now = Date.now();
-    const [base] = fixtures(now);
-    const gone: PublicEvent = {
-      ...base,
-      eventId: "gone-id",
-      slug: "gone-slug",
-      title: "Gone last week",
-      startsAt: new Date(now - 3 * 24 * HOUR - 3 * HOUR).toISOString(),
-      endsAt: new Date(now - 3 * 24 * HOUR).toISOString(),
-    };
-    await openHome(page, { ended: [gone] });
-
-    const sections = page.locator("[data-home-section]");
-    const recent = sections.last();
-    await expect(recent.getByRole("heading", { level: 2, name: "Recently on" })).toBeVisible();
-    const card = recent.locator("[data-event-card]").first();
-    await expect(card).toHaveAttribute("data-card-state", "ended");
-    await expect(card.getByText("Ended", { exact: true })).toBeVisible();
-    await expect(card.getByRole("link", { name: / for / })).toHaveCount(0);
-    await expect(card.locator("[data-card-link]")).toHaveAttribute("href", "/events/gone-slug");
-    // Not among the upcoming sections.
-    await expect(sections.first().getByText("Gone last week")).toHaveCount(0);
-  });
-});
-
-test.describe("Recently on, on a phone", () => {
-  test.use({ viewport: { width: 390, height: 844 } });
-
-  test("is the last grid, its card marked Ended, with no ticket action, and still opens", async ({ page }) => {
-    const now = Date.now();
-    const [base] = fixtures(now);
-    const gone: PublicEvent = {
-      ...base,
-      eventId: "gone-id",
-      slug: "gone-slug",
-      title: "Gone last week",
-      startsAt: new Date(now - 3 * 24 * HOUR - 3 * HOUR).toISOString(),
-      endsAt: new Date(now - 3 * 24 * HOUR).toISOString(),
-    };
-    await openHome(page, { ended: [gone] });
-    const recent = page.locator("[data-home-section]").last();
-    await expect(recent.getByRole("heading", { level: 2, name: "Recently on" })).toBeVisible();
-    await expect(recent.getByRole("link", { name: "All events" })).toHaveAttribute("href", "/events");
-    const card = recent.locator("[data-event-card]").first();
-    await expect(card).toHaveAttribute("data-card-state", "ended");
-    await expect(card.getByText("Ended", { exact: true })).toBeVisible();
-    await expect(card.locator("[data-card-link]")).toHaveAttribute("href", "/events/gone-slug");
-    await expect(page.locator("[data-home-section]").first().getByText("Gone last week")).toHaveCount(0);
+  test("is hidden below 1024px", async ({ page }) => {
+    await page.setViewportSize({ width: 1023, height: 800 });
+    await openHome(page);
+    await expect(page.locator("[data-hero-badge]")).toBeHidden();
   });
 });

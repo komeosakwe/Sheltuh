@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
+import { secondaryActionClass } from "@/components/ui/Button";
 import { googleCalendarUrl, icsFilename, outlookCalendarUrl, type CalendarEvent } from "@/lib/calendar";
 import { eventCalendarPath, publicEventUrl } from "@/lib/event-url";
 
@@ -49,17 +50,16 @@ type Links = { google: string; outlook: string };
 export default function AddToCalendar({
   event,
   className = "",
-  menuFromParent = false,
+  look = "link",
 }: {
   event: CalendarEvent;
   className?: string;
   /**
-   * Set where the button sits inline, after other text: the menu then opens
-   * from the nearest positioned ancestor (the caller makes one, e.g. the
-   * column), so it starts at that edge and stays on screen, rather than from
-   * the button.
+   * `link`: underlined words with a chevron, inline after other text. `button`: the rules' Secondary button,
+   * filling its box (the event page's ticket panel, beside Save and Share); its menu opens from the button's
+   * right edge, so a button at the end of a row keeps it on screen.
    */
-  menuFromParent?: boolean;
+  look?: "link" | "button";
 }) {
   const [links, setLinks] = useState<Links | null>(null);
   const [android, setAndroid] = useState(false);
@@ -125,7 +125,7 @@ export default function AddToCalendar({
   return (
     <div
       ref={rootRef}
-      className={`${menuFromParent ? "" : "relative "}w-fit ${className}`.trim()}
+      className={`relative ${look === "button" ? "" : "w-fit "}${className}`.trim()}
       onKeyDown={(e) => {
         if (e.key === "Escape" && open) {
           e.stopPropagation();
@@ -147,10 +147,16 @@ export default function AddToCalendar({
         onClick={toggle}
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
-        className="-ml-0.5 inline-flex min-h-11 items-center gap-1 px-0.5 text-sm font-semibold underline underline-offset-4"
+        className={
+          look === "button"
+            ? `${secondaryActionClass} w-full justify-center px-2 text-center lg:min-h-10 lg:px-1 lg:text-sm!`
+            : "-ml-0.5 inline-flex min-h-11 items-center gap-1 px-0.5 text-sm font-semibold underline underline-offset-4"
+        }
       >
         Add to calendar
-        <ChevronIcon open={open} />
+        {/* Not in the button look (the owner's mock): a third of a row has no room beside the words, and
+            aria-expanded says it's a menu. */}
+        {look === "link" && <ChevronIcon open={open} />}
       </button>
       {/* Always in the page, so the message is announced when it appears. */}
       <p role="status" className="text-sm text-muted empty:hidden">
@@ -159,7 +165,7 @@ export default function AddToCalendar({
       {links && (
         <ul
           id={menuId}
-          className="absolute top-full left-0 z-30 mt-1 w-64 max-w-[calc(100vw-2.5rem)] rounded-control border border-foreground bg-card py-1"
+          className={`absolute top-full ${look === "button" ? "right-0" : "left-0"} z-30 mt-1 w-64 max-w-[calc(100vw-2.5rem)] rounded-control border border-foreground bg-card py-1`}
         >
           {android ? [google, apple] : [apple, google]}
           <li>

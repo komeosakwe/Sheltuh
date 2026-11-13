@@ -1,19 +1,20 @@
-Photos for the home page's static slots (`components/home/home-content.ts`):
-the hero, the city guide card and the creators card. Drop a file here (e.g. `hero.jpg`),
-ideally a square of at least 1200px so it survives every crop (images crop from the centre),
-then set the matching `imageUrl` (e.g. `HOME_HERO.imageUrl = "/home/hero.jpg"`). Until then
-each slot shows its generated poster art, at the same fixed size.
-Find your people's "A look inside" card shows the five portraits in `people/` as overlapping
-circles, in demo and live alike, always footnoted "Illustrative photos" (they are never anyone
-going to an event). Their paths are listed in `COMMUNITY_SAMPLE_FACES`.
+Photos for the home page's static slots (`components/home/home-content.ts`): the city guide card
+(on /events) and the organiser banner. Drop a file here (e.g. `organisers.jpg`), ideally a square
+of at least 1200px so it survives every crop (images crop from the centre), then set the matching
+`imageUrl` (e.g. `HOME_CREATORS.imageUrl = "/home/organisers.jpg"`). Until then each slot shows
+its generated poster art, at the same fixed size.
+The home's "See who's going." band (Find your people) shows the five portraits in `people/` as
+overlapping circles, in demo and live alike (they are never anyone going to an event; any count
+beside them is a real example, footnoted). Their paths are listed in `COMMUNITY_SAMPLE_FACES`.
+Three of them (`person-2`, `-3`, `-4`) are also in /community's hero collage (`COMMUNITY_COLLAGE`).
 
 Replaced on 8 Nov 2026 (owner decision) with free stock photos from Unsplash, chosen so no face is
 shown: each is a person from behind or in silhouette. Downloaded from `images.unsplash.com/<image id>`,
 cropped square and resized with sharp to 320×320 WebP, saved without EXIF/GPS/XMP metadata.
 Licence: Unsplash License, <https://unsplash.com/license> (free for commercial use, attribution
 appreciated but not required; no model release, so no identifiable faces were used). Each source page
-reads "Free to use under the Unsplash License" (not Unsplash+). Downloaded 8 Nov 2026. Used only in
-the home "Find your people" / "A look inside" card (`COMMUNITY_SAMPLE_FACES`).
+reads "Free to use under the Unsplash License" (not Unsplash+). Downloaded 8 Nov 2026. Used in
+the home's "See who's going." band (`COMMUNITY_SAMPLE_FACES`) and /community's hero collage.
 
 | File | Source page | Image id | Photographer | People (identifiable?) | Logos / artworks | sha256 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -25,18 +26,12 @@ the home "Find your people" / "A look inside" card (`COMMUNITY_SAMPLE_FACES`).
 
 Only use images you have the rights to.
 
-## Photos still needed (owner round, 23 Oct 2026)
+## Photos still needed
 
-The owner asked that the home's promo slots stop repeating the photos its event cards use. The six
-photos in `public/events/` are all sample events' images, so only two are free for promo use, once
-each: `gallery-opening.jpg` leads the desktop hero collage and `street-market.jpg` is the For
-organisers card. Since 26 Oct 2026 the other slots temporarily reuse sample-event photos (owner: "reuse the event photos for now"); replace them as photos arrive (set
-`imageUrl` in `components/home/home-content.ts`; nothing else changes):
-
-| Slot | Count | Subject | Orientation, minimum size |
-| --- | --- | --- | --- |
-| What else? panel (`HOME_WHAT_ELSE`, desktop only) | 3 | One per promise: a person reviewing listings / curating; a ticket or door scene; a free community event | Portrait 4:5, 1000×1250 |
-
-Ideally also a dedicated hero lead (landscape 5:4, 1600×1280) and an organiser photo (landscape 2:1,
-1600×800), so no promo photo is shared with a sample event at all. Every one needs recorded rights
-(the six in `public/events/` are Unsplash photos since 8 Nov 2026, see its README).
+The home's hero has no photo since redesign PR 3 (the proposal), and What else? is gone.
+`street-market.jpg` (a sample event's image too) stands in as the organiser banner and on
+/community until the owner supplies brand photography: ideally an organiser photo (landscape 2:1,
+1600×800) and community photos for /community's hero collage and Scenes by city (one per city,
+landscape 4:3, 1600×1200), with no identifiable faces unless the owner has a model release. Every
+one needs recorded rights (the six in `public/events/` are Unsplash photos since 8 Nov 2026, see
+its README).

@@ -92,7 +92,7 @@ test.describe("/account for a member who isn't an organiser, at 320px", () => {
     await expect(links.getByRole("link", { name: "Organise events" })).toHaveAttribute("href", "/organisers/apply", {
       timeout: 60_000,
     });
-    await expect(links.getByRole("link")).toHaveText(["Organise events", "Organisers you follow", "Messages", "Blocked members"]);
+    await expect(links.getByRole("link")).toHaveText(["Organise events", "Saved", "Organisers you follow", "Messages", "Blocked members"]);
     await noSidewaysScroll(page);
   });
 });
@@ -140,8 +140,8 @@ for (const vp of [
 
       // 48px link rows, in order; 44px+ controls.
       const rows = links.getByRole("link");
-      await expect(rows).toHaveText(["Your events", "Organisers you follow", "Messages", "Blocked members"]);
-      for (let i = 0; i < 4; i++) expect(await height(page, rows.nth(i))).toBeGreaterThanOrEqual(48);
+      await expect(rows).toHaveText(["Your events", "Saved", "Organisers you follow", "Messages", "Blocked members"]);
+      for (let i = 0; i < 5; i++) expect(await height(page, rows.nth(i))).toBeGreaterThanOrEqual(48);
       expect(await height(page, page.getByRole("button", { name: "Sign out" }))).toBeGreaterThanOrEqual(44);
       expect(await height(page, card.getByText("Choose a photo"))).toBeGreaterThanOrEqual(44);
       expect(await height(page, card.getByRole("checkbox", { name: "Show my profile to other members" }).locator(".."))).toBeGreaterThanOrEqual(44);

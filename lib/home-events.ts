@@ -2,10 +2,9 @@ import { isApiConfigured, type GetToken } from "@/lib/api/client";
 import { listFollowingEvents } from "@/lib/api/follows";
 import { listPublicEvents } from "@/lib/api/public-events";
 import { getTrendingEvents } from "@/lib/api/trending";
-import { getEvents, getUpcomingEvents, isUpcomingEvent } from "@/lib/data";
+import { getUpcomingEvents, isUpcomingEvent } from "@/lib/data";
 import { bySoonest, latestWeekendEnd, type TrendingItem } from "@/lib/home-sections";
 import { adaptPublicEvent } from "@/lib/live/adapt";
-import { byRecentlyEnded, isRecentlyEnded } from "@/lib/recent-events";
 import { getSampleGoing } from "@/lib/sample-going";
 import type { SheltuhEvent } from "@/lib/types";
 
@@ -22,6 +21,13 @@ const DEMO_TRENDING_MAX = 12;
 
 const notEnded = (now: Date) => (event: SheltuhEvent) => isUpcomingEvent(event, now);
 
+/** The home's upcoming events, and whether they're all of them (no page was left unread). */
+export interface HomeFeed {
+  events: SheltuhEvent[];
+  /** Every upcoming event was loaded (demo: always; live: the last page had no next cursor). */
+  complete: boolean;
+}
+
 /**
  * The home page's events that haven't ended, soonest first (docs/design/home.md
  * §6.1). Live: one request for upcoming events; then, while the last loaded
@@ -33,10 +39,12 @@ const notEnded = (now: Date) => (event: SheltuhEvent) => isUpcomingEvent(event, 
  * still running over it ("This weekend" includes multi-week events). Demo:
  * the sample events. Either way, events that have ended by `now` are dropped
  * (demo data includes past events, and a tab can stay open for a long time).
+ * `complete` says whether that was every upcoming event, so a count is only
+ * ever shown when it's the whole number (the API returns no total).
  */
-export async function loadHomeEvents(now: Date): Promise<SheltuhEvent[]> {
+export async function loadHomeFeed(now: Date): Promise<HomeFeed> {
   if (!isApiConfigured) {
-    return (await getUpcomingEvents(now)).filter(notEnded(now)).sort(bySoonest);
+    return { events: (await getUpcomingEvents(now)).filter(notEnded(now)).sort(bySoonest), complete: true };
   }
 
   const weekendEnd = latestWeekendEnd(now);
@@ -50,22 +58,7 @@ export async function loadHomeEvents(now: Date): Promise<SheltuhEvent[]> {
     if (!page.nextCursor || lastStart > weekendEnd || topUps >= HOME_WEEKEND_TOP_UP_MAX_PAGES) break;
     page = await listPublicEvents({ upcoming: true, limit: HOME_WEEKEND_TOP_UP_LIMIT, cursor: page.nextCursor });
   }
-  return [...byId.values()].filter(notEnded(now)).sort(bySoonest);
-}
-
-/** "Recently on" shows at most this many (the rail's size); the server is asked for just them. */
-export const HOME_RECENT_LIMIT = 6;
-
-/**
- * Events that ended within the last 14 days (RECENT_EVENT_DAYS), most recently
- * ended first, for "Recently on" (the API's `recent=only`; demo: the sample
- * events). Those that fell outside the window by `now` are dropped.
- */
-export async function loadHomeRecent(now: Date): Promise<SheltuhEvent[]> {
-  const recent = (event: SheltuhEvent) => isRecentlyEnded(event, now);
-  if (!isApiConfigured) return (await getEvents()).filter(recent).sort(byRecentlyEnded);
-  const page = await listPublicEvents({ upcoming: true, recent: "only", limit: HOME_RECENT_LIMIT });
-  return page.items.map(adaptPublicEvent).filter(recent).sort(byRecentlyEnded);
+  return { events: [...byId.values()].filter(notEnded(now)).sort(bySoonest), complete: !page.nextCursor };
 }
 
 /**

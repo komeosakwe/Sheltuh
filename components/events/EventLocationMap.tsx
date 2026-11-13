@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
 import type { EventLocationLeafletProps } from "@/components/events/EventLocationLeaflet";
+import { PinIcon } from "@/components/home/icons";
 import { useLocationModule } from "@/components/search/useLocationModule";
 import { findListedSuburb, resolveMapCoordinates, type SuburbLookup } from "@/lib/geo";
 import { placeName } from "@/lib/place";
@@ -103,6 +104,8 @@ export default function EventLocationMap({
         // The box is sized before anything loads: 208px tall on phones, 256px from lg.
         className="relative isolate h-52 w-full overflow-hidden rounded-card border border-surface-border bg-surface lg:h-64"
       >
+        {/* The placeholder's pin (the owner's event mock), under the map once it has loaded. */}
+        <PinIcon className="absolute top-1/2 left-1/2 -z-10 size-8 -translate-1/2 text-signal" />
         {position && (
           <div inert className="h-full w-full">
             <EventLocationLeaflet

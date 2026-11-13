@@ -56,25 +56,26 @@ function withHearts(children: ReactNode) {
 const heartFor = (event: SheltuhEvent) => screen.getByRole("button", { name: `Save ${event.title}` });
 
 describe("heart placements", () => {
-  it.each(["grid", "rail"] as const)("EventCard %s: a sibling of the link (never inside it), right after it in tab order", (variant) => {
-    const { container } = withHearts(<EventCard event={EVENT} variant={variant} />);
-    // The card's main link (the other is its quick-buy link, also a sibling of the heart).
+  it("EventCard: a sibling of the link (never inside it), right after it in tab order", () => {
+    const { container } = withHearts(<EventCard event={EVENT} />);
+    // The card's one link, to its event (the heart is beside it, never inside it).
     const link = screen.getAllByRole("link").find((a) => a.getAttribute("href") === `/events/${EVENT.slug}`);
     if (!link) throw new Error("no main link");
     const heart = heartFor(EVENT);
     expect(link.contains(heart)).toBe(false);
     expect(link.compareDocumentPosition(heart) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(heart).toHaveClass("absolute", "right-1", "top-1");
+    // Over the photo's corner: its 32px mark 8px in at every width (a 48px target on phones, 40px from 768px).
+    expect(heart).toHaveClass("absolute", "top-0", "right-0", "md:top-1", "md:right-1");
     expect(container.firstElementChild).toHaveClass("relative");
   });
 
   it("EventCard: showSave={false} leaves the heart off", () => {
-    withHearts(<EventCard event={EVENT} variant="grid" showSave={false} />);
+    withHearts(<EventCard event={EVENT} showSave={false} />);
     expect(screen.queryByRole("button")).toBeNull();
   });
 
-  it.each(["grid", "rail"] as const)("EventCard %s: the overlay heart, above the card's stretched link", (variant) => {
-    withHearts(<EventCard event={EVENT} variant={variant} />);
+  it("EventCard: the overlay heart, above the card's stretched link", () => {
+    withHearts(<EventCard event={EVENT} />);
     const heart = heartFor(EVENT);
     expect(heart).toHaveAttribute("data-save-variant", "overlay");
     expect(heart).toHaveClass("z-10");

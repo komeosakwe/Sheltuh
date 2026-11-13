@@ -76,42 +76,44 @@ async function visibleTitle(page: Page): Promise<string | null> {
 test.describe("on a phone (375×667)", () => {
   test.use({ viewport: { width: 375, height: 667 }, hasTouch: true });
 
-  test("the home shows its sections as grids of cards (This weekend's rail aside), with no event screens and no link to /swipe", async ({ page }) => {
+  test("the home shows its sections as cards (This weekend a sideways row, All events a grid), with no event screens and no link to /swipe", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
     await expect(page.locator("[data-home-section]").first()).toBeVisible();
-    await expect(page.locator("[data-home-grid]").first()).toBeVisible();
+    await expect(page.getByRole("list", { name: "All events", exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
     await expect(page.getByRole("main")).toHaveCount(1);
     await expect(page.getByText("Swipe through events")).toHaveCount(0);
     await expect(page.getByRole("article")).toHaveCount(0);
-    // The one rail is This weekend's (owner's mockup, 8 Nov 2026: a sideways row on phones too).
-    await expect(page.locator("[data-rail-layout]")).toHaveCount(1);
-    await expect(page.getByRole("region", { name: "This weekend" }).locator("[data-rail-layout]")).toHaveCount(1);
+    // No rails or marquee (redesign PR 3); This weekend is a sideways row on phones.
+    await expect(page.locator("[data-rail-layout]")).toHaveCount(0);
+    expect(await page.getByRole("list", { name: "This weekend" }).evaluate((ul) => getComputedStyle(ul).overflowX)).toBe("auto");
     await expect(page.locator("a[href='/swipe']")).toHaveCount(0);
     // No snapping: the page scrolls freely.
     expect(await page.evaluate(() => getComputedStyle(document.documentElement).scrollSnapType)).toBe("none");
     expect(await overflow(page)).toBeLessThanOrEqual(0);
   });
 
-  test("an events error shows Try again, not the grids or the rails", async ({ page }) => {
+  test("an events error shows Try again, not the sections", async ({ page }) => {
     await mockApi(page, { fail: true });
     await page.goto("/");
     await expect(page.getByRole("main").getByRole("alert")).toContainText("Couldn’t load events");
     await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
-    await expect(page.locator("[data-home-grid]")).toHaveCount(0);
+    await expect(page.locator("[data-event-card]")).toHaveCount(0);
     await expect(page.getByRole("article")).toHaveCount(0);
     await expect(page.locator("[data-home-section]")).toHaveCount(0);
   });
 
 
-  test("growing the window to desktop width swaps the grids for the rails", async ({ page }) => {
+  test("growing the window to desktop width turns the phone's single column into the four-column grid", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
-    await expect(page.locator("[data-home-grid]").first()).toBeVisible();
+    const grid = page.getByRole("list", { name: "All events", exact: true });
+    await expect(grid).toBeVisible();
+    const columns = () => grid.evaluate((ul) => getComputedStyle(ul).gridTemplateColumns.split(" ").length);
+    expect(await columns()).toBe(1);
     await page.setViewportSize({ width: 1280, height: 800 });
-    await expect(page.locator("[data-rail-layout]").first()).toBeVisible();
-    await expect(page.locator("[data-home-grid]")).toHaveCount(0);
+    await expect.poll(columns).toBe(4);
   });
 
   test("/swipe still opens on the first event; a screen down is the second; Close goes home", async ({ page }) => {
@@ -167,7 +169,7 @@ test.describe("on a phone (375×667)", () => {
 
     await close.tap();
     await expect(page).toHaveURL(/\/$/);
-    await expect(page.locator("[data-home-grid]").first()).toBeVisible();
+    await expect(page.locator("[data-home-section]").first()).toBeVisible();
     // The header is back.
     await expect(page.getByRole("banner")).toBeVisible();
   });
@@ -208,7 +210,8 @@ test.describe("on a phone (375×667)", () => {
       await expect(articles.nth(i)).toHaveAttribute("aria-posinset", expected);
       await expect(articles.nth(i)).toHaveAttribute("aria-setsize", String(count));
     }
-    await expect(articles.first().locator("[data-swipe-section]")).toHaveText("This weekend");
+    // The home's order: the carousel's events come first.
+    await expect(articles.first().locator("[data-swipe-section]")).toHaveText(/^(Popular right now|Coming up)$/);
     const title = (await articles.first().getAttribute("aria-label")) ?? "";
     await expect(articles.first().getByRole("link", { name: `View event ${title}` })).toBeVisible();
   });
@@ -287,20 +290,21 @@ test.describe("on a phone (375×667)", () => {
 test.describe("on a desktop (1280×800)", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
-  test("the home keeps its rails and has no grids, event screens or snapping", async ({ page }) => {
+  test("the home has its grids, and no rails, event screens or snapping", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
     await expect(page.locator("[data-home-section]").first()).toBeVisible();
-    await expect(page.locator("[data-home-grid]")).toHaveCount(0);
+    await expect(page.getByRole("list", { name: "All events", exact: true })).toHaveCSS("display", "grid");
+    await expect(page.locator("[data-rail-layout]")).toHaveCount(0);
     await expect(page.getByRole("article")).toHaveCount(0);
     expect(await page.evaluate(() => getComputedStyle(document.documentElement).scrollSnapType)).toBe("none");
     expect(await overflow(page)).toBeLessThanOrEqual(0);
   });
 
-  test("/swipe is a centred phone-width column, with the home's first event first", async ({ page }) => {
+  test("/swipe is a centred phone-width column, with the home's first event (the carousel's first slide) first", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
-    const firstCard = page.locator("[data-home-section]").first().locator("[data-event-card] h3").first();
+    const firstCard = page.locator("[data-featured-carousel] [data-slide] h3").first();
     await expect(firstCard).toBeVisible();
     const homeFirst = (await firstCard.textContent())?.trim();
 

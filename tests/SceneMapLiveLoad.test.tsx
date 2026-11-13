@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { loadLocation } from "@/lib/location-loader";
 
@@ -30,10 +30,20 @@ const { default: SceneMap } = await import("@/components/SceneMap");
 // The suburb table (~15k rows) decodes once, here, not inside the first test that places a pin by its suburb.
 beforeAll(async () => {
   await loadLocation();
+  // The map (Leaflet) mounts too once there are events: jsdom has no ResizeObserver.
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
 });
 
 afterEach(() => {
   cleanup();
+  Reflect.deleteProperty(window, "matchMedia");
   listPublicEvents.mockReset();
   listPublicEvents.mockResolvedValue({ items: [], nextCursor: undefined });
 });
@@ -60,6 +70,14 @@ function page(from: number, count: number, nextCursor?: string) {
     };
   });
   return { items, nextCursor };
+}
+
+/** A desktop-width window (useIsDesktop): the arrival pick is desktop only. */
+function asDesktop() {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: (query: string) => ({ matches: query === "(min-width: 64rem)", media: query, addEventListener: () => {}, removeEventListener: () => {} }),
+  });
 }
 
 describe("live /map loading", () => {
@@ -92,5 +110,120 @@ describe("live /map loading", () => {
     ]);
     // The last page had no cursor: nothing more to load.
     expect(screen.queryByRole("button", { name: "Load more events" })).toBeNull();
+  }, 30_000);
+
+  // Code review (PR 5): a radius can hold only a few of the events read so far. Nearby reads on by
+  // itself, once (4 more pages), then says what it found "so far" and leaves the rest to Load more.
+  it("with few events within the radius, reads 4 more pages once, then says 'so far' beside Load more", async () => {
+    localStorage.setItem("sheltuh:near:v1", JSON.stringify({ suburb: "Perth", state: "WA" }));
+    try {
+      for (let n = 0; n < 12; n++) listPublicEvents.mockResolvedValueOnce(page(n * 50, 50, `c${n + 1}`));
+      render(<SceneMap />);
+      await waitFor(() => expect(listPublicEvents).toHaveBeenCalledTimes(8), { timeout: 10_000 });
+      await waitFor(() => expect(screen.getByRole("heading", { level: 3, name: "No events found near Perth so far." })).toBeInTheDocument(), {
+        timeout: 10_000,
+      });
+      expect(screen.getAllByRole("status").some((el) => el.textContent === "No events within 25 km of Perth so far.")).toBe(true);
+      expect(document.querySelector("[data-map-count]")).toHaveTextContent(/^0 upcoming events within 25 km of Perth so far$/);
+      expect(screen.getByRole("button", { name: "Load more events" })).toBeInTheDocument();
+      // No more by itself.
+      await new Promise<void>((done) => setTimeout(done, 300));
+      expect(listPublicEvents).toHaveBeenCalledTimes(8);
+    } finally {
+      localStorage.removeItem("sheltuh:near:v1");
+    }
+  }, 30_000);
+
+  // CodeRabbit (PR 43): arriving, nothing near in the first pages; the read-on brings one: it opens then.
+  it("on arrival, opens the nearest event that Nearby's own read-on brings in", async () => {
+    asDesktop();
+    localStorage.setItem("sheltuh:near:v1", JSON.stringify({ suburb: "Perth", state: "WA" }));
+    try {
+      for (let n = 0; n < 4; n++) listPublicEvents.mockResolvedValueOnce(page(n * 50, 50, `c${n + 1}`));
+      const perth = page(200, 1);
+      perth.items[0] = { ...perth.items[0], title: "Perth Show", suburb: "Perth", state: "WA", timeZone: "Australia/Perth" };
+      listPublicEvents.mockResolvedValueOnce(perth);
+      render(<SceneMap />);
+      await waitFor(() => expect(listPublicEvents).toHaveBeenCalledTimes(5), { timeout: 10_000 });
+      await waitFor(() => expect(screen.getAllByRole("region", { name: "Selected event" }).length).toBeGreaterThan(0), {
+        timeout: 10_000,
+      });
+      expect(screen.getAllByRole("region", { name: "Selected event" })[0]).toHaveTextContent("Perth Show");
+    } finally {
+      localStorage.removeItem("sheltuh:near:v1");
+    }
+  }, 30_000);
+
+  // CodeRabbit (PR 43): a card picked and dismissed while the read-on loads isn't replaced by one opening by itself.
+  it("on arrival, a pick made while the read-on loads ends it: nothing opens by itself when the load lands", async () => {
+    asDesktop();
+    localStorage.setItem("sheltuh:near:v1", JSON.stringify({ suburb: "Perth", state: "WA" }));
+    try {
+      for (let n = 0; n < 4; n++) listPublicEvents.mockResolvedValueOnce(page(n * 50, 50, `c${n + 1}`));
+      const perth = page(200, 1);
+      perth.items[0] = { ...perth.items[0], title: "Perth Show", suburb: "Perth", state: "WA", timeZone: "Australia/Perth" };
+      let land: (value: typeof perth) => void = () => {};
+      listPublicEvents.mockReturnValueOnce(new Promise<typeof perth>((resolve) => (land = resolve)));
+      render(<SceneMap />);
+      await waitFor(() => expect(listPublicEvents).toHaveBeenCalledTimes(5), { timeout: 10_000 });
+      // Show all of Australia, then pick one and dismiss it, while the read-on is still out.
+      fireEvent.click(screen.getByRole("button", { name: "Show all of Australia" }));
+      fireEvent.click((await screen.findAllByRole("button", { name: /^Locate Event 0 on the map$/ }))[0]);
+      await waitFor(() => expect(screen.getAllByRole("region", { name: "Selected event" }).length).toBeGreaterThan(0));
+      fireEvent.click(screen.getAllByRole("button", { name: "Dismiss selected event" })[0]);
+      await waitFor(() => expect(screen.queryByRole("region", { name: "Selected event" })).toBeNull());
+      await act(async () => {
+        land(perth);
+        await Promise.resolve();
+      });
+      await screen.findAllByText("Perth Show", undefined, { timeout: 10_000 });
+      expect(screen.queryByRole("region", { name: "Selected event" })).toBeNull();
+    } finally {
+      localStorage.removeItem("sheltuh:near:v1");
+    }
+  }, 30_000);
+
+  // CodeRabbit (PR 43): a failed read-on used to set the whole page's error, and the map and list went.
+  it("keeps the loaded events when Nearby's own read-on fails, says so beside Load more, and retries", async () => {
+    localStorage.setItem("sheltuh:near:v1", JSON.stringify({ suburb: "Perth", state: "WA" }));
+    try {
+      for (let n = 0; n < 4; n++) listPublicEvents.mockResolvedValueOnce(page(n * 50, 50, `c${n + 1}`));
+      listPublicEvents.mockRejectedValueOnce(new Error("Network down"));
+      render(<SceneMap />);
+      const alert = await screen.findByText("Couldn’t load more events: Network down", undefined, { timeout: 10_000 });
+      expect(alert.closest("[role='alert']")).not.toBeNull();
+      expect(listPublicEvents).toHaveBeenCalledTimes(5);
+      // What loaded is still there: the count, the empty-within-radius state, and the rest's strip.
+      expect(document.querySelector("[data-map-count]")).toHaveTextContent(/^0 upcoming events within 25 km of Perth so far$/);
+      expect(screen.getByRole("button", { name: "Show all of Australia" })).toBeInTheDocument();
+      expect(screen.queryByText("Network down")).toBeNull();
+      // No read-on by itself after a failure.
+      await new Promise<void>((done) => setTimeout(done, 300));
+      expect(listPublicEvents).toHaveBeenCalledTimes(5);
+
+      // The retry reads from where the failed one started, and the message goes.
+      listPublicEvents.mockResolvedValueOnce(page(200, 10));
+      fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+      await waitFor(() => expect(screen.queryByText(/Couldn’t load more events/)).toBeNull());
+      expect((listPublicEvents.mock.calls[5][0] as { cursor?: string }).cursor).toBe("c4");
+      await waitFor(() => expect(screen.queryByRole("button", { name: /Load more events|Try again/ })).toBeNull());
+    } finally {
+      localStorage.removeItem("sheltuh:near:v1");
+    }
+  }, 30_000);
+
+  it("keeps the loaded events when a Load more fails, with the error beside the button", async () => {
+    for (let n = 0; n < 4; n++) listPublicEvents.mockResolvedValueOnce(page(n * 50, 50, `c${n + 1}`));
+    listPublicEvents.mockRejectedValueOnce(new Error("Server error"));
+    render(<SceneMap />);
+    await waitFor(() => expect(screen.getAllByText(/^200 upcoming events$/).length).toBeGreaterThan(0), { timeout: 10_000 });
+    const button = screen.getByRole("button", { name: "Load more events" });
+    button.focus();
+    fireEvent.click(button);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn’t load more events: Server error");
+    expect(screen.getAllByText(/^200 upcoming events$/).length).toBeGreaterThan(0);
+    // The same button, now a retry, keeps focus.
+    expect(screen.getByRole("button", { name: "Try again" })).toBe(button);
+    expect(document.activeElement).toBe(button);
   }, 30_000);
 });

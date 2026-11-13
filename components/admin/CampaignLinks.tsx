@@ -18,7 +18,7 @@ type DestinationKind = "home" | "map" | "event" | "organiser";
 
 const DESTINATIONS: { value: DestinationKind; label: string }[] = [
   { value: "home", label: "Home page" },
-  { value: "map", label: "Map" },
+  { value: "map", label: "Nearby" },
   { value: "event", label: "An event" },
   { value: "organiser", label: "An organiser’s page" },
 ];

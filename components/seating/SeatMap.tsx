@@ -118,8 +118,7 @@ export function MapLabels({ template, scale, seatPx }: { template: SeatMapTempla
           dominantBaseline="central"
           textAnchor="middle"
           fontSize={font}
-          className="fill-background font-mono font-medium uppercase"
-          letterSpacing="0.04em"
+          className="fill-background font-medium"
         >
           {stage.label}
         </text>
@@ -132,8 +131,7 @@ export function MapLabels({ template, scale, seatPx }: { template: SeatMapTempla
           dominantBaseline="central"
           textAnchor={sectionLabelAnchor(section)}
           fontSize={font}
-          className="fill-foreground font-mono font-medium uppercase"
-          letterSpacing="0.04em"
+          className="fill-foreground font-medium"
         >
           {section.label}
         </text>
@@ -157,7 +155,7 @@ export function MapLabels({ template, scale, seatPx }: { template: SeatMapTempla
                   dominantBaseline="central"
                   textAnchor="middle"
                   fontSize={font}
-                  className="fill-muted font-mono uppercase"
+                  className="fill-muted"
                 >
                   {row.label}
                 </text>

@@ -258,6 +258,40 @@ test.describe("the bar before anything is chosen, at 390×844", () => {
 test.describe("desktop keeps the panel's Checkout and has no buy bar", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
+  test("the ticket panel never checks out: Buy tickets → focuses the tickets heading, then Review order the name, then Checkout", async ({ page }) => {
+    await mockApi(page);
+    await page.goto(`/events/${sample!.slug}`);
+    const panel = page.locator("[data-buy-panel]");
+    const buy = panel.getByRole("link", { name: "Buy tickets" });
+    await expect(buy).toBeVisible({ timeout: 30_000 });
+    // Before a choice: the all-inclusive From price and the one orange action.
+    await expect(panel).toContainText("incl. booking fee");
+    await buy.click();
+    const heading = page.locator("#tickets").getByRole("heading", { level: 2, name: "Select your tickets" });
+    await expect(heading).toBeFocused();
+    await expect(heading).toBeInViewport();
+    // A visible ring, though a pointer pressed the link.
+    expect(await heading.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe("solid");
+    await expect(panel.getByRole("status")).toHaveText("3 releases. Choose one, then set the quantity.");
+
+    // A choice: the panel says the total and the count, and offers Review order (outline), not a checkout.
+    const tickets = page.locator("#tickets");
+    await tickets.getByRole("button", { name: "Increase quantity for Second release" }).click();
+    await tickets.getByRole("button", { name: "Increase quantity for Second release" }).click();
+    await expect(panel).toContainText(/Total A\$[\d.]+ · 2 tickets/);
+    await expect(panel.locator(".btn-signal")).toHaveCount(0);
+    const review = panel.getByRole("button", { name: "Review order" });
+    // Sticky: still in view after the jump down to the tickets.
+    await expect(review).toBeInViewport();
+    await review.click();
+    await expect(tickets.getByLabel("Your name")).toBeFocused();
+    await tickets.getByLabel("Your name").fill("Mia Tran");
+    await review.click();
+    const checkout = tickets.getByRole("button", { name: "Checkout" });
+    await expect(checkout).toBeFocused();
+    await expect(checkout).toBeInViewport();
+  });
+
   test("one Checkout, in the panel, enabled once a ticket is chosen", async ({ page }) => {
     await mockApi(page);
     await page.goto(`/events/${sample!.slug}`);

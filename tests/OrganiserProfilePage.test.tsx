@@ -207,12 +207,9 @@ describe("/organisers/[organiserId] (live)", () => {
       "Event soon",
       "Event later",
     ]);
-    // The card's own link (its name starts with the title); its quick buy is a separate link to the tickets.
+    // The card's one link (named by the title); the redesign's card has no ticket button and no "By {organiser}".
     expect(within(upcoming).getByRole("link", { name: /^Event soon/ })).toHaveAttribute("href", "/events/soon");
-    expect(within(upcoming).getByRole("link", { name: /tickets for Event soon$/ })).toHaveAttribute(
-      "href",
-      "/events/soon#tickets",
-    );
+    expect(within(upcoming).queryByRole("link", { name: /tickets for Event soon$/ })).not.toBeInTheDocument();
     expect(within(upcoming).queryByRole("link", { name: /^By / })).not.toBeInTheDocument();
 
     const past = screen.getByRole("heading", { level: 2, name: "Past events" }).closest("section");

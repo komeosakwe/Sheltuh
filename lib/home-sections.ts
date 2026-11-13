@@ -1,6 +1,5 @@
 import { isUpcomingEvent } from "@/lib/data";
 import { eventZone } from "@/lib/format";
-import { byRecentlyEnded, isRecentlyEnded } from "@/lib/recent-events";
 import {
   cachedDateTimeFormat,
   localToUtcIso,
@@ -19,7 +18,7 @@ import type { SheltuhEvent } from "@/lib/types";
 
 /** Cards per section at most (grids fill 3×2 or 2×3). */
 const SECTION_MAX = 6;
-/** "Popular right now" shows only with at least this many trending events left after de-duplication. */
+/** "Popular right now" shows only with at least this many upcoming trending events. */
 export const TRENDING_MIN = 3;
 
 /** Why an event is trending. Never a raw view count, and a going count only when the server sends one. */
@@ -31,7 +30,7 @@ export interface TrendingItem {
 }
 
 /**
- * The home's third slot (mobile-redesign.md §6.3.1): "Popular right now" from
+ * The home's featured carousel (redesign PR 3): "Popular right now" from
  * real trending data, or, when that's too thin, "Coming up" with the soonest
  * events left (even one: a young marketplace has few). Events that aren't trending are never called popular.
  */
@@ -74,12 +73,6 @@ export interface HomeSections {
   following: SheltuhEvent[];
   /** Popular right now, or its Coming up fallback; null when nothing is left to show. */
   popular: PopularSection | null;
-  /**
-   * "Recently on": events that ended within the last 14 days (RECENT_EVENT_DAYS), most
-   * recently ended first, after every other section and not repeated from one. Still
-   * openable; nothing to buy. Empty when there are none (hidden).
-   */
-  recent: SheltuhEvent[];
 }
 
 const WEEKDAY: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
@@ -144,7 +137,7 @@ export function latestWeekendEnd(now: Date): number {
 }
 
 /** Whether `event` is open at any time during `window`: never for an empty window (its weekend is over there). */
-function openDuring(event: SheltuhEvent, window: WeekendWindow): boolean {
+export function openDuring(event: SheltuhEvent, window: WeekendWindow): boolean {
   return window.start <= window.end && startMs(event) <= window.end && endMs(event) >= window.start;
 }
 
@@ -171,6 +164,14 @@ export function formatWeekendRange(window: WeekendWindow): string {
 }
 
 const startMs = (event: SheltuhEvent) => Date.parse(event.startsAt);
+
+/**
+ * Whether `event` is on this weekend, in its own zone's wall clock (Fri 17:00 to Sun 23:59): the
+ * home's This weekend section and its "This weekend" date filter share this one rule.
+ */
+export function isOpenThisWeekend(event: SheltuhEvent, now: Date): boolean {
+  return openDuring(event, weekendWindow(now, eventZone(event.timeZone)));
+}
 const endMs = (event: SheltuhEvent) => Date.parse(event.endsAt ?? event.startsAt);
 
 /** Soonest start first; ties by id, so the order is stable. The home's one event order. */
@@ -190,20 +191,26 @@ export function preferState<T>(items: T[], state: StateCode | null | undefined, 
 
 const itself = (event: SheltuhEvent) => event;
 
+/** The featured carousel's slides at most. */
+export const FEATURED_MAX = 5;
+
 /**
- * Splits the home page's events into its sections (docs/design/home.md §6.2,
- * docs/design/mobile-redesign.md §6.3.2). Ended events are dropped first.
- * Sections then claim events in priority order (This weekend, From
- * organisers you follow, then Popular right now or its Coming up fallback),
- * and a later section never shows an event an earlier one did. A section
- * that's hidden for having too few events claims nothing. `following`: the
- * signed-in member's followed organisers' upcoming events (empty otherwise).
- * `preferredState`: the state of the visitor's saved suburb, whose events
- * come first in every section (preferState), before each section takes its
- * share; absent, Australia-wide soonest first (owner decision D5).
- * `recent`: events that have ended, for the last section ("Recently on"):
- * only those ended within RECENT_EVENT_DAYS are kept, and never one a
- * section above shows. Ended events never enter any other section.
+ * Splits the home page's events into its sections (redesign PR 3). Ended events are dropped
+ * first.
+ * 1. The featured carousel picks its events without claiming them: Popular right now, the trending
+ *    events in the server's order, with three or more left (TRENDING_MIN); otherwise "Coming up",
+ *    the soonest upcoming (not yet started, then any still running), with even one, so the carousel
+ *    shows whenever anything is upcoming. At most FEATURED_MAX. An event in the banner can be in
+ *    the sections below too (with few events, its soonest-five fallback would otherwise empty This
+ *    weekend).
+ * The sections below then claim events in page order, and a later one never shows an event an
+ * earlier one did:
+ * 2. This weekend: anything open during the weekend, each in its own zone (isOpenThisWeekend).
+ * 3. From organisers you follow (`following`: the signed-in member's followed organisers'
+ *    upcoming events; empty otherwise).
+ * `preferredState`: the state of the visitor's saved suburb, whose events come first in every
+ * section (preferState) before each takes its share; absent, Australia-wide soonest first (owner
+ * decision D5).
  */
 export function selectHomeSections(
   events: SheltuhEvent[],
@@ -211,7 +218,6 @@ export function selectHomeSections(
   now: Date,
   following: SheltuhEvent[] = [],
   preferredState: StateCode | null = null,
-  recent: SheltuhEvent[] = [],
 ): HomeSections {
   const nowMs = now.getTime();
   const upcoming = events.filter((event) => isUpcomingEvent(event, now)).sort(bySoonest);
@@ -221,7 +227,27 @@ export function selectHomeSections(
   const unclaimed = (event: SheltuhEvent) => !claimed.has(event.id);
   const claim = (list: SheltuhEvent[]) => list.forEach((event) => claimed.add(event.id));
 
-  // 1. This weekend: anything open during the window (owner decision 5), each event's in its own
+  // 1. The carousel: Popular right now (trending, in the server's order, three or more), otherwise
+  // Coming up (the soonest: not yet started, then any still running), with even one.
+  const trendingUpcoming = preferState(
+    trending.filter(({ event }) => isUpcomingEvent(event, now)),
+    preferredState,
+    (item) => item.event,
+  ).filter((item, index, list) => list.findIndex((other) => other.event.id === item.event.id) === index);
+  const running = upcoming.filter((event) => startMs(event) <= nowMs);
+  const soonest = preferState([...notStarted, ...running], preferredState, itself).slice(0, FEATURED_MAX);
+  const popular: PopularSection | null =
+    trendingUpcoming.length >= TRENDING_MIN
+      ? { kind: "popular", items: trendingUpcoming.slice(0, FEATURED_MAX) }
+      : soonest.length > 0
+        ? {
+            kind: "coming",
+            items: soonest,
+            acrossAustralia: preferredState !== null && soonest.every((event) => (event.state ?? "VIC") !== preferredState),
+          }
+        : null;
+
+  // 2. This weekend: anything open during the window (owner decision 5), each event in its own
   // zone (a Perth gig at 11 pm on Sunday is this weekend). Events starting inside it come first, by
   // start; then events already running when it opens (exhibitions), by start. The heading, and
   // whether the weekend is on (`during`), are the platform's.
@@ -243,7 +269,7 @@ export function selectHomeSections(
     preferredState,
     itself,
   ).slice(0, SECTION_MAX);
-  // Nothing on: hide (Coming up shows what's next).
+  // Nothing (left) on: hide.
   const weekendStatus = weekendItems.length > 0 ? "cards" : "hidden";
   claim(weekendItems);
   const weekendIds = new Set(weekendItems.map((event) => event.id));
@@ -252,7 +278,7 @@ export function selectHomeSections(
     if (signal.kind === "going" && weekendIds.has(event.id)) weekendGoing[event.id] = signal.count;
   }
 
-  // 1b. From organisers you follow: soonest first, shown with even one event (the member asked for them).
+  // 3. From organisers you follow: soonest first, shown with even one event (the member asked for them).
   const followingItems = preferState(
     following
       .filter((event) => isUpcomingEvent(event, now) && unclaimed(event))
@@ -263,54 +289,23 @@ export function selectHomeSections(
   ).slice(0, SECTION_MAX);
   claim(followingItems);
 
-  // 2. Popular right now: trending, in the server's order, with three or more left. Otherwise the
-  // same slot is "Coming up": soonest first (not yet started, then any still running), with even one.
-  const trendingLeft = preferState(
-    trending.filter(({ event }) => isUpcomingEvent(event, now) && unclaimed(event)),
-    preferredState,
-    (item) => item.event,
-  ).slice(0, SECTION_MAX);
-  const running = upcoming.filter((event) => startMs(event) <= nowMs);
-  const comingLeft = preferState([...notStarted, ...running].filter(unclaimed), preferredState, itself).slice(0, SECTION_MAX);
-  const popular: PopularSection | null =
-    trendingLeft.length >= TRENDING_MIN
-      ? { kind: "popular", items: trendingLeft }
-      : comingLeft.length > 0
-        ? {
-            kind: "coming",
-            items: comingLeft,
-            acrossAustralia: preferredState !== null && comingLeft.every((event) => (event.state ?? "VIC") !== preferredState),
-          }
-        : null;
-
-  claim(popularEvents(popular));
-
-  // 3. Recently on: ended in the last 14 days, most recently ended first; last, after everything upcoming.
-  const recentItems = preferState(
-    recent
-      .filter((event) => isRecentlyEnded(event, now) && unclaimed(event))
-      .sort(byRecentlyEnded)
-      .filter((event, index, list) => list.findIndex((other) => other.id === event.id) === index),
-    preferredState,
-    itself,
-  ).slice(0, SECTION_MAX);
-
   return {
     anyUpcoming: upcoming.length > 0,
     weekend: { window, status: weekendStatus, items: weekendItems, going: weekendGoing },
     following: followingItems,
     popular,
-    recent: recentItems,
   };
 }
 
-/** Every event id the sections show, in page order (for checks that nothing repeats). */
+/**
+ * Every event id the sections show, in page order: the carousel's, then This weekend's and From organisers you
+ * follow's (those two never repeat each other; either may repeat a carousel event).
+ */
 export function shownEventIds(sections: HomeSections): string[] {
   return [
+    ...popularEvents(sections.popular).map((event) => event.id),
     ...sections.weekend.items.map((event) => event.id),
     ...sections.following.map((event) => event.id),
-    ...popularEvents(sections.popular).map((event) => event.id),
-    ...sections.recent.map((event) => event.id),
   ];
 }
 
@@ -333,17 +328,17 @@ export interface SwipeFeedItem {
 
 /**
  * The swipe feed's events (/swipe): the upcoming events the home's sections
- * show, in their order (This weekend, From organisers you follow, then Popular
- * right now or Coming up), each once, with that section's title. "Recently on" is left out: those have ended.
+ * show, in their order (the carousel's Popular right now or Coming up, This
+ * weekend, then From organisers you follow), each once, with that section's title.
  */
 export function swipeFeedEvents(sections: HomeSections): SwipeFeedItem[] {
   const weekend = sections.weekend.status === "cards" ? sections.weekend.items : [];
   const { popular } = sections;
   const popularLabel = popular ? popularTitle(popular) : "";
   const all: SwipeFeedItem[] = [
+    ...popularEvents(popular).map((event) => ({ event, section: popularLabel })),
     ...weekend.map((event) => ({ event, section: "This weekend" })),
     ...sections.following.map((event) => ({ event, section: "From organisers you follow" })),
-    ...popularEvents(popular).map((event) => ({ event, section: popularLabel })),
   ];
   const seen = new Set<string>();
   return all.filter(({ event }) => {

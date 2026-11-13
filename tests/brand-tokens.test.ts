@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { APP_THEME_COLOR, DOOR_THEME_COLOR } from "@/lib/pwa/theme";
+import { APP_BACKGROUND_COLOR, APP_THEME_COLOR, DOOR_THEME_COLOR } from "@/lib/pwa/theme";
 
 /**
  * Review gate for Brand Direction One (docs/design/brand-direction-one.md
@@ -42,13 +42,26 @@ describe("brand colour tokens", () => {
     expect(rootBlock).toContain("--signal-foreground: #000000;");
     // Accent stays black: orange text links would fail contrast on white (3.40:1).
     expect(rootBlock).toContain("--accent: #000000;");
+    // The redesign's neutrals (the rules' Colour board, "Light and dark"): surface/muted,
+    // border/subtle, text/secondary, surface/card-hover (cream) and text/disabled.
+    expect(rootBlock).toContain("--surface: #f2f1ee;");
+    expect(rootBlock).toContain("--surface-border: #e5e3de;");
+    expect(rootBlock).toContain("--muted: #5c5c5c;");
+    expect(rootBlock).toContain("--hover: #fffae7;");
+    expect(rootBlock).toContain("--disabled: #a3a3a3;");
     for (const hex of css.match(/#[0-9a-fA-F]{6}\b/g) ?? []) expect(hex).toBe(hex.toLowerCase());
   });
 
-  it("keeps :root first, so the first --background is white and matches the app theme colour", () => {
+  it("keeps :root first, so the first --background is white and matches the app's splash colour", () => {
     expect(css.indexOf(":root")).toBeLessThan(css.indexOf("[data-"));
     expect(css.match(/--background:\s*(#[0-9a-f]{6})/)?.[1]).toBe("#ffffff");
-    expect(APP_THEME_COLOR).toBe("#ffffff");
+    expect(APP_BACKGROUND_COLOR).toBe("#ffffff");
+  });
+
+  it("makes the browser's theme colour the black header's: the ink scope's --background, in both themes", () => {
+    const ink = css.slice(css.indexOf('[data-surface="ink"] {'));
+    expect(ink.match(/--background:\s*(#[0-9a-f]{6})/)?.[1]).toBe(APP_THEME_COLOR);
+    expect(APP_THEME_COLOR).toBe("#000000");
   });
 
   it("retires the --cream token: white is the foundation, and --paper is the constant white", () => {
@@ -64,7 +77,10 @@ describe("brand colour tokens", () => {
     expect(ink).toContain("--foreground: #ffffff;");
     expect(ink).toContain("--accent: #ffffff;");
     expect(ink).toContain("--accent-strong: #e0e0e0;"); // visible hover on the white solid button
-    expect(ink).toContain("--muted: #a39e93;"); // 7.87:1 on black
+    expect(ink).toContain("--muted: #a3a3a3;"); // 8.33:1 on black
+    // Ink takes Dark's values, cream hover included.
+    expect(ink).toContain("--surface: #1f1f1f;");
+    expect(ink).toContain("--hover: #1a1a1a;");
     const signal = block('[data-surface="signal"]');
     expect(signal).toContain("--background: #ff4800;");
     expect(signal).toContain("--foreground: #000000;");
@@ -76,7 +92,7 @@ describe("brand colour tokens", () => {
   });
 
   it("exposes the new colours to Tailwind", () => {
-    for (const name of ["signal", "signal-foreground", "ink", "paper", "card"]) {
+    for (const name of ["signal", "signal-foreground", "ink", "paper", "card", "hover", "disabled"]) {
       expect(css).toContain(`--color-${name}: var(--${name});`);
     }
   });
@@ -90,12 +106,23 @@ describe("brand colour tokens", () => {
     expect(css).toMatch(/:focus-visible\s*\{\s*outline: 2px solid var\(--foreground\);/);
   });
 
-  it("makes shapes rounded squares and shadows flat", () => {
+  // The rules' Shape board: two radii, 8 for what you tap (and tags), 16 for what you look at.
+  it("makes shapes rounded squares on two radii, and shadows flat", () => {
     expect(css).toContain("--radius-control: 0.5rem;");
-    expect(css).toContain("--radius-card: 0.75rem;");
-    expect(css).toContain("--radius-badge: 0.25rem;");
-    // No shadows anywhere: the transitional flat shadow-card token is gone too.
-    expect(css).not.toMatch(/--shadow-card|box-shadow:/);
+    expect(css).toContain("--radius-card: 1rem;");
+    expect(css).toContain("--radius-badge: 0.5rem;");
+    expect(css).toContain("--radius-sheet: 1rem;");
+    expect(css).toContain("--radius-dot: 0.5rem;");
+    // No 4, 12, 18 or 24px radius among the tokens.
+    expect(css).not.toMatch(/--radius-[\w-]+: (?:0\.25rem|0\.75rem|1\.125rem|1\.5rem);/);
+    // The 1.5px control stroke, on fields and buttons.
+    expect(css).toContain("--stroke-control: 1.5px;");
+    expect(css).toMatch(/@utility border-control \{\s*border-style: solid;\s*border-width: var\(--stroke-control\);/);
+    // No shadows: the transitional flat shadow-card token is gone too. The one exception in this
+    // file is the open dropdown list (the owner's request, Nov 2026), and only on the --shadow-soft
+    // token: never a raw shadow.
+    expect(css).not.toMatch(/--shadow-card|box-shadow:(?!\s*var\(--shadow-soft\);)/);
+    expect(css.match(/box-shadow:/g) ?? []).toHaveLength(1);
     expect(css).not.toMatch(/border-radius:\s*9999px/);
   });
 });
@@ -108,6 +135,8 @@ const COLOUR_TOKENS = [
   "--surface-border",
   "--foreground",
   "--muted",
+  "--hover",
+  "--disabled",
   "--accent",
   "--accent-strong",
   "--accent-foreground",
@@ -130,10 +159,12 @@ describe("the Dark theme and the paper scope (docs/design/theme-white-dark.md §
     expect(Object.fromEntries(values)).toMatchObject({
       "--background": "#000000",
       "--card": "#141414",
-      "--surface": "#262626",
+      "--surface": "#1f1f1f",
       "--surface-border": "#333333",
       "--foreground": "#ffffff",
-      "--muted": "#a39e93",
+      "--muted": "#a3a3a3",
+      "--hover": "#1a1a1a",
+      "--disabled": "#5c5c5c",
       "--accent": "#ffffff",
       "--accent-strong": "#e0e0e0",
       "--accent-foreground": "#000000",
@@ -221,36 +252,21 @@ describe("retired accents and motion (brand-direction-one.md §9, cleanup)", () 
     expect(badge).toMatch(/HERO_BADGE_TURN = "30s"/);
   });
 
-  // The second, also at the owner's request (23 Oct 2026, "make them automatically scroll", "as
-  // smooth as the very initial one done to simulate DICE"; 24 Oct 2026, "make it go from one end of
-  // screen to next"): the home rails are an endless marquee, a slow continuous drift (60px a second)
-  // across the full width that loops seamlessly on copies of the cards, with no end hold and no
-  // glide back, from one shared hook, only for people who haven't asked for less motion, with a
-  // Pause/Play button (tests/HomeRailAutoScroll.test.tsx covers the behaviour).
-  it("allows one auto-scroll, the home rails' marquee: one hook, motion-gated, with a Pause/Play control", () => {
-    const users = sources.filter(({ text }) => /\buseRailAutoScroll\(/.test(text)).map(({ file }) => file);
-    expect(users.sort()).toEqual(
-      [path.join("components", "home", "HomeRailSection.tsx"), path.join("components", "home", "useRailAutoScroll.ts")].sort(),
-    );
-    const hook = sources.find(({ file }) => file === path.join("components", "home", "useRailAutoScroll.ts"))?.text ?? "";
-    expect(hook).toMatch(/useMotionOk\(\)/);
-    expect(hook).toMatch(/DRIFT_PX_PER_SEC = 60;/);
-    // A loop, not a there-and-back: no hold at an end, no glide back.
-    expect(hook).not.toMatch(/END_HOLD_MS|returnDuration|easeInOutSine/);
-    expect(hook).toMatch(/pos -= loop\.period/);
-    // The copies are hidden from assistive tech and out of the tab order, yet clickable (not inert:
-    // a hovered, held rail's copy must open its event), and only the marquee renders them.
-    const item = sources.find(({ file }) => file === path.join("components", "home", "RailItem.tsx"))?.text ?? "";
-    expect(item).toMatch(/<li ref=\{keepOutOfTabOrder\}[^>]*aria-hidden="true" data-rail-clone="">/);
-    expect(item).toMatch(/el\.tabIndex = -1/);
-    expect(item).not.toMatch(/\binert\b/);
-    const cloning = sources.filter(({ text }) => /<RailCloneSet\b/.test(text)).map(({ file }) => file);
-    expect(cloning).toEqual([path.join("components", "home", "HomeRail.tsx")]);
-    const section = sources.find(({ file }) => file === path.join("components", "home", "HomeRailSection.tsx"))?.text ?? "";
-    expect(section).toMatch(/<RailAutoScrollButton\b/);
-    // The drift itself (frames writing scrollLeft) lives in the hook only.
-    const drifting = sources.filter(({ text }) => /\bscrollLeft = pos\b/.test(text)).map(({ file }) => file);
-    expect(drifting).toEqual([path.join("components", "home", "useRailAutoScroll.ts")]);
+  // The second, at the owner's request (23 Oct 2026, "make them automatically scroll"), now the home's
+  // featured carousel (redesign PR 3; the rails and their marquee are gone): one slide at a time,
+  // advanced by one shared interval, only for people who haven't asked for less motion, with a
+  // Pause/Play button (tests/FeaturedCarousel.test.tsx covers the behaviour).
+  it("allows one auto-advance, the home carousel's: motion-gated, with a Pause/Play control, and no marquee anywhere", () => {
+    const carousel = sources.find(({ file }) => file === path.join("components", "home", "FeaturedCarousel.tsx"))?.text ?? "";
+    expect(carousel).toMatch(/useMotionOk\(\)/);
+    expect(carousel).toMatch(/const moving = motionOk && playing/);
+    expect(carousel).toMatch(/useVisibleInterval\(/);
+    expect(carousel).toMatch(/aria-label=\{playing \? "Pause carousel" : "Play carousel"\}/);
+    // The only script that advances anything by itself on the home.
+    const advancing = sources.filter(({ text }) => /\buseVisibleInterval\(\(\) => goTo\(/.test(text)).map(({ file }) => file);
+    expect(advancing).toEqual([path.join("components", "home", "FeaturedCarousel.tsx")]);
+    // The marquee's hook and its copies are gone.
+    expect(sources.filter(({ text }) => /\buseRailAutoScroll\(|data-rail-clone=""|<RailCloneSet\b/.test(text)).map(({ file }) => file)).toEqual([]);
   });
 });
 
@@ -261,15 +277,22 @@ describe("brand faces", () => {
   it("loads Instrument Sans and IBM Plex Mono, and no longer Bricolage Grotesque or Inter", () => {
     expect(fonts).toMatch(/import \{ IBM_Plex_Mono, Instrument_Sans \} from "next\/font\/google";/);
     expect(layout).toContain("${instrument.variable} ${plexMono.variable}");
+    // Plex Mono is only for machine codes now (owner decision, 13 Nov 2026): one weight, not preloaded.
+    const plex = fonts.slice(fonts.indexOf("IBM_Plex_Mono({"), fonts.indexOf("});", fonts.indexOf("IBM_Plex_Mono({")));
+    expect(plex).toContain('weight: ["400"],');
+    expect(plex).toContain("preload: false,");
     for (const file of [layout, fonts]) {
       expect(file).not.toMatch(/Bricolage|\bInter\b/);
     }
   });
 
-  it("maps the faces to tokens, with the display token falling back to Instrument Sans until Bootzy is licensed", () => {
+  it("maps the faces to tokens: Bootzy for display, falling back to Instrument Sans, at weight 400", () => {
     expect(css).toMatch(/--face-sans: var\(--font-instrument\),/);
     expect(css).toMatch(/--face-mono: var\(--font-plex-mono\),/);
-    expect(css).toContain("--face-display: var(--face-dots);");
+    expect(css).toContain("--face-display: var(--font-bootzy), var(--face-sans);");
+    expect(css).toContain("--display-weight: 400;");
+    // The dotted face is retired everywhere.
+    expect(css).not.toMatch(/--face-dots|--font-instrument-dots|font-dots|display-plain/);
     expect(css).toContain("--font-sans: var(--face-sans);");
     expect(css).toContain("--font-mono: var(--face-mono);");
     // The old theme keys pointed at next/font variables of the same name.
@@ -277,21 +300,180 @@ describe("brand faces", () => {
   });
 });
 
+describe("buttons (the rules' Buttons board)", () => {
+  const rule = (selector: string) => {
+    const at = css.indexOf(`${selector} {`);
+    return at < 0 ? "" : css.slice(at, css.indexOf("}", at));
+  };
+
+  it("is Label/Button 16/24 in sentence case at every size: S 40, M 48, L 56", () => {
+    const btn = rule("  .btn");
+    expect(btn).toContain("min-height: 3rem;");
+    expect(btn).toContain("font-size: 1rem;");
+    expect(btn).toContain("line-height: 1.5rem;");
+    expect(btn).toContain("text-transform: none;");
+    expect(rule("  .btn-sm")).toContain("min-height: 2.5rem;");
+    expect(rule("  .btn-sm")).not.toMatch(/font-size|line-height/);
+    expect(rule("  .btn-lg")).toContain("min-height: 3.5rem;");
+    expect(rule("  .btn-lg")).not.toMatch(/font-size|line-height/);
+  });
+
+  it("keeps the primary's orange edge on hover and press (black fill, orange label)", () => {
+    expect(css).toMatch(/\.btn-signal:hover:not\(:disabled, \[aria-disabled="true"\]\) \{\s*background: var\(--ink\);\s*border-color: var\(--signal\);\s*color: var\(--signal\);/);
+    expect(css).toMatch(/\.btn-signal:active:not\(:disabled, \[aria-disabled="true"\]\) \{\s*background: var\(--ink\);\s*border-color: var\(--signal\);\s*color: var\(--signal\);/);
+  });
+
+  it("greys a disabled button's label (text/disabled) but keeps a busy one's readable (--muted)", () => {
+    expect(css).toMatch(/\.btn:disabled,\s*\.btn\[aria-disabled="true"\] \{[^}]*color: var\(--muted\);/);
+    expect(css).toMatch(/\.btn:disabled \{\s*color: var\(--disabled\);\s*\}/);
+  });
+});
+
 describe("current page in the nav", () => {
+  // The rules' Navigation board: orange dots under the pointer as well as on the current page.
+  it("turns the dots orange on hover, not black", () => {
+    const umlaut = css.slice(css.indexOf("@utility umlaut {"), css.indexOf("@utility umlaut-lg"));
+    expect(umlaut).toMatch(/@media \(hover: hover\) \{\s*&:hover,\s*\[role="tab"\]:hover > & \{\s*--umlaut: var\(--signal\);/);
+  });
+
   it("marks it with a 2px underline as well as the orange dots (not colour and small marks alone)", () => {
     const umlaut = css.slice(css.indexOf("@utility umlaut {"), css.indexOf("@utility umlaut-lg"));
     // The page, and the section you're in (aria-current="true": Discover on an event's page).
     const current = umlaut.match(/&\[aria-current="page"\],\s*&\[aria-current="true"\]\s*\{([^}]*)\}/)?.[1] ?? "";
     expect(current).toContain("--umlaut: var(--signal);");
-    expect(current).toContain("text-decoration-line: underline;");
+    // Underlined unless a nav button turns it off: it fills instead (below).
+    expect(current).toContain("text-decoration-line: var(--umlaut-line, underline);");
     expect(current).toContain("text-decoration-thickness: 2px;");
+  });
+
+  // The header's nav button ("For organisers", "Messages"): the dots above it, and the fill marks the page.
+  it("the nav button lifts its dots above the button, fills when current, and only the header's buttons drop the underline", () => {
+    const block = (name: string) => {
+      const start = css.indexOf(`@utility ${name} {`);
+      return css.slice(start, css.indexOf("\n@utility ", start + 1));
+    };
+    const button = block("nav-button");
+    // The rules' Navigation board: Label/Nav 18 medium, 24px sides, 40px, the stroke, radius 8.
+    expect(button).toContain("font-size: 1.125rem;");
+    expect(button).toContain("font-weight: 500;");
+    expect(button).toContain("padding-inline: 1.5rem;");
+    expect(button).toContain("min-height: 2.5rem;");
+    expect(button).toContain("border: var(--stroke-control) solid var(--foreground);");
+    expect(button).toContain("border-radius: var(--radius-control);");
+    // The 20×6 dots, 8px above the button.
+    expect(button).toContain("--umlaut-w: 20px;");
+    expect(button).toContain("--umlaut-h: 6px;");
+    expect(button).toContain("--umlaut-top: -0.875rem;");
+    expect(button).toContain("--umlaut-line: none;");
+    expect(button).toMatch(/&\[aria-current="page"\] \{\s*background: var\(--foreground\);\s*color: var\(--background\);/);
+    // The Messages chip: 32px, 14px, a muted outline.
+    const chip = block("nav-chip");
+    expect(chip).toContain("height: 2rem;");
+    expect(chip).toContain("font-size: 0.875rem;");
+    expect(chip).toContain("border: var(--stroke-control) solid var(--surface-border);");
+    // The nav items: the same 20×6 dots, the underline 12px under the label.
+    const item = block("umlaut-nav");
+    expect(item).toContain("--umlaut-w: 20px;");
+    expect(item).toContain("--umlaut-h: 6px;");
+    expect(item).toContain("--umlaut-offset: 12px;");
+    // Only the header's button, chip and avatar fill instead of underlining.
+    expect(css.match(/--umlaut-line: none;/g)).toHaveLength(3);
+  });
+
+  it("the desktop header is 96px from lg, 64px below", () => {
+    expect(css).toMatch(/--header-h: 4rem;/);
+    expect(css).toMatch(/@media \(width >= 64rem\) \{\s*:root \{\s*--header-h: 6rem;/);
   });
 });
 
-describe("type scale clean-up (docs/design/mobile-redesign.md P2)", () => {
-  it("has no display-xl any more: nothing used it once the hero moved to display-lg", () => {
-    expect(css).not.toMatch(/@utility display-xl\b/);
-    for (const { file, text } of sources) expect(text, file).not.toMatch(/\bdisplay-xl\b/);
+describe("the type scale (the rules' Type board)", () => {
+  /** A utility's whole block, up to the next top-level @utility. */
+  const utility = (name: string) => {
+    const start = css.indexOf(`@utility ${name} {`);
+    const next = css.indexOf("\n@utility ", start + 1);
+    return start < 0 ? "" : css.slice(start, next < 0 ? undefined : next);
+  };
+
+  it("defines the fifteen styles", () => {
+    const styles = [
+      "display-xl", "display-l", "display-m",
+      "heading-h1", "heading-h2", "heading-h3", "heading-h4",
+      "body-l", "body-m", "body-s",
+      "label-nav", "label-button", "label-tag",
+      "mono-m", "mono-s",
+    ];
+    for (const name of styles) expect(utility(name), name).not.toBe("");
+  });
+
+  it.each([
+    ["display-xl", "3.5rem", "4rem", "6rem", "6rem"],
+    ["display-l", "3rem", "3.5rem", "4.5rem", "5rem"],
+    ["display-m", "2.5rem", "3rem", "3.5rem", "4rem"],
+    ["heading-h1", "2rem", "2.5rem", "2.5rem", "3rem"],
+    ["heading-h2", "1.75rem", "2.25rem", "2rem", "2.5rem"],
+    ["heading-h3", "1.25rem", "1.75rem", "1.5rem", "2rem"],
+    ["heading-h4", "1.125rem", "1.5rem", "1.25rem", "1.75rem"],
+    ["body-l", "1rem", "1.5rem", "1.125rem", "1.75rem"],
+  ])("%s: %s/%s below 768px, %s/%s from 768px", (name, size, leading, desktopSize, desktopLeading) => {
+    expect(utility(name)).toMatch(
+      new RegExp(
+        `font-size: ${size};\\s*line-height: ${leading};\\s*@media \\(width >= 48rem\\) \\{\\s*font-size: ${desktopSize};\\s*line-height: ${desktopLeading};`,
+      ),
+    );
+  });
+
+  it("sets the display styles (and title-lg, an event's title) in Bootzy capitals at 400 with no synthesised bold", () => {
+    for (const name of ["display-xl", "display-l", "display-m", "title-lg", "font-display"]) {
+      const body = utility(name);
+      expect(body, name).toContain("font-family: var(--face-display);");
+      expect(body, name).toContain("font-weight: var(--display-weight);");
+      expect(body, name).toContain("font-synthesis-weight: none;");
+      if (name !== "font-display") expect(body, name).toContain("text-transform: uppercase;");
+    }
+  });
+
+  it("keeps headings, body, labels, eyebrows and meta in sentence case (capitals are display's only)", () => {
+    const sentenceCase = [
+      "heading-h1", "heading-h2", "heading-h3", "heading-h4",
+      "body-l", "body-m", "body-s", "label-nav", "label-tag", "mono-m", "mono-s",
+      "display-lg", "display-md", "meta", "eyebrow",
+    ];
+    for (const name of sentenceCase) expect(utility(name), name).not.toContain("uppercase");
+    // A button's label is sentence case ("Buy tickets", never "BUY TICKETS").
+    expect(utility("label-button")).toContain("text-transform: none;");
+    const headings = css.slice(css.indexOf("h1,\nh2,\nh3,\nh4 {"), css.indexOf("}", css.indexOf("h1,\nh2,\nh3,\nh4 {")));
+    expect(headings).toContain("font-weight: 700;");
+    expect(headings).not.toContain("uppercase");
+    // Eyebrows (owner decision, 13 Nov 2026): Instrument Sans 500 labels, as written, normal tracking.
+    expect(utility("eyebrow")).toContain("text-transform: none;");
+    expect(utility("eyebrow")).toContain("letter-spacing: 0;");
+    expect(utility("eyebrow")).toContain("font-weight: 500;");
+  });
+
+  it("sets eyebrows, meta and Mono/M and Mono/S in Instrument Sans: mono is for machine codes only", () => {
+    for (const name of ["eyebrow", "meta", "mono-m", "mono-s"]) {
+      expect(utility(name), name).toContain("font-family: var(--face-sans);");
+      expect(utility(name), name).not.toContain("--face-mono");
+    }
+    // Dates, times and counts keep lining up without the monospace.
+    for (const name of ["meta", "mono-m", "mono-s"]) expect(utility(name), name).toContain("font-variant-numeric: tabular-nums;");
+    // Nothing else in the stylesheet reaches for the mono face but the font-mono theme key.
+    expect(css.match(/var\(--face-mono\)/g)).toEqual(["var(--face-mono)"]);
+  });
+
+  it("points the old names at the new styles: display-lg is heading-h1, display-md heading-h3, title-lg display-m", () => {
+    const body = (name: string) =>
+      utility(name)
+        .replace(/@utility [\w-]+ \{/, "")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .trim();
+    expect(body("display-lg")).toBe(body("heading-h1"));
+    expect(body("display-md")).toBe(body("heading-h3"));
+    expect(body("title-lg")).toBe(body("display-m"));
+  });
+
+  it("reaches the display face only through the display styles and font-display", () => {
+    for (const { file, text } of sources) expect(text, file).not.toMatch(/var\(--font-bootzy\)/);
   });
 
   // Refinement (22 Oct 2026): the bordered badge was one of the repeated bulky notices. A small "Demo"
@@ -305,14 +487,4 @@ describe("type scale clean-up (docs/design/mobile-redesign.md P2)", () => {
     for (const file of [notice, banner]) expect(file?.text).not.toMatch(/bg-signal|text-signal/);
   });
 
-  it("keeps heavy uppercase for a page's main headline: section heads, headings and metadata aren't uppercased", () => {
-    const utility = (name: string) => css.slice(css.indexOf(`@utility ${name} {`), css.indexOf("}", css.indexOf(`@utility ${name} {`) + 20));
-    expect(css.slice(css.indexOf("@utility display-lg {"), css.indexOf("@utility display-md {"))).toContain("text-transform: uppercase;");
-    for (const name of ["display-md", "title-lg", "meta"]) expect(utility(name)).not.toContain("uppercase");
-    const headings = css.slice(css.indexOf("h1,\nh2,\nh3,\nh4 {"), css.indexOf("}", css.indexOf("h1,\nh2,\nh3,\nh4 {")));
-    expect(headings).toContain("font-weight: 700;");
-    expect(headings).not.toContain("uppercase");
-    // Less tracking on labels than before (0.04em).
-    expect(utility("eyebrow")).toContain("letter-spacing: 0.02em;");
-  });
 });

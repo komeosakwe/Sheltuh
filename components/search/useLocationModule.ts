@@ -35,9 +35,12 @@ export function useLocationModule(enabled = true): {
     };
   }, [enabled, table, attempt]);
 
+  // Loaded meanwhile by something else (Where's menu, say): there already, so no loading state,
+  // and an earlier failure here no longer stands.
+  const available = table ?? loadedLocation();
   return {
-    module: table,
-    failed,
+    module: available,
+    failed: failed && !available,
     retry: () => {
       setFailed(false);
       setAttempt((n) => n + 1);

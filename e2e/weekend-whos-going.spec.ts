@@ -4,11 +4,10 @@ import type { GoingAttendee } from "@/lib/api/types";
 import { weekendWindow } from "@/lib/home-sections";
 
 /**
- * The owner's two mockups of 8 Nov 2026, in a real browser (live mode, every /api/* answered here):
- * the home's This weekend (the feature head, its own cards in a sideways rail at every width, the
- * going strip from a trending count) and the event page's Who's going? card (the count, three
- * faces and "+N", View attendees to the panel). Events are re-timed into this weekend's window
- * whatever day the suite runs.
+ * In a real browser (live mode, every /api/* answered here): the home's This weekend (redesign PR 3:
+ * the one EventCard, a sideways row on phones and a grid from 640px, the going count from trending)
+ * and the event page's Who's going row (redesign PR 4: the count, up to five faces, View attendees to
+ * the panel). Events are re-timed into this weekend's window whatever day the suite runs.
  */
 
 const HOUR = 3600_000;
@@ -82,6 +81,20 @@ function fixtures(now: number): PublicEvent[] {
       endsAt: new Date(now + 9 * DAY + 2 * HOUR).toISOString(),
       ticketTypes: [{ id: "l-1", name: "Entry", priceCents: 0, feePolicy: "buyer-pays", quantityAvailable: 100 }],
     },
+    // Four more later gigs: with Later Gig, the home's featured carousel (which claims first, five at
+    // most) takes these, so This weekend keeps both of its events.
+    ...[10, 11, 12, 13].map((days) => ({
+      ...base,
+      eventId: `evt-later-${days}`,
+      slug: `later-gig-${days}`,
+      title: `Later Gig ${days}`,
+      venueName: "Gallery",
+      venueAddress: "1 Smith St",
+      suburb: "Fitzroy",
+      startsAt: new Date(now + days * DAY).toISOString(),
+      endsAt: new Date(now + days * DAY + 2 * HOUR).toISOString(),
+      ticketTypes: [{ id: `l-${days}`, name: "Entry", priceCents: 0, feePolicy: "buyer-pays" as const, quantityAvailable: 100 }],
+    })),
   ];
 }
 
@@ -121,16 +134,16 @@ async function mockApi(page: Page, { going = 42 }: { going?: number } = {}) {
     const url = new URL(route.request().url());
     const path = url.pathname;
     if (path === "/api/events") {
-      if (url.searchParams.get("recent") === "only") return route.fulfill({ json: { items: [] } });
       return route.fulfill({ json: { items: events, nextCursor: undefined } });
     }
     if (path === "/api/events/trending") {
       return route.fulfill({
         json: {
           items: [
+            // The later five first: the carousel takes them.
+            ...events.slice(2).map((event) => ({ event, label: "popular" })),
             { event: events[0], label: "going", goingCount: 42 },
             { event: events[1], label: "going", goingCount: 118 },
-            { event: events[2], label: "popular" },
           ],
         },
       });
@@ -160,74 +173,75 @@ const sidewaysOverflow = (page: Page) =>
 test.describe("This weekend at 390×844", () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
 
-  test("the feature head, about 1.15 cards across, the going strip from the trending count, and named actions", async ({ page }) => {
+  test("the dotted head with its dates, a row of 288px cards with the next peeking in, real going counts, and the card opens the event", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await mockApi(page);
     await page.goto("/");
     const section = page.getByRole("region", { name: "This weekend" });
     await expect(section).toBeVisible({ timeout: 30_000 });
     await page.evaluate(() => document.fonts.ready);
-    // A real h2, the dates under it, and All events to /events.
+    // A real h2, the dates beside it, and See all this weekend to Nearby's weekend filter.
     await expect(section.getByRole("heading", { level: 2 })).toHaveText("This weekend");
     await expect(section.getByText(/^(?:Fri \d+( \w+)? – Sun \d+ \w+|Until Sun \d+ \w+)$/)).toBeVisible();
-    const all = section.getByRole("link", { name: "All events" });
-    await expect(all).toHaveAttribute("href", "/events");
+    const all = section.getByRole("link", { name: "See all this weekend" });
+    await expect(all).toHaveAttribute("href", "/map?time=weekend&within=all");
     expect((await all.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
 
     const cards = section.locator("[data-event-card]");
     await expect(cards).toHaveCount(2);
     const [a, b] = [await cards.nth(0).boundingBox(), await cards.nth(1).boundingBox()];
     if (!a || !b) throw new Error("cards not laid out");
-    const across = (390 - a.x) / (a.width + 12);
-    expect(across).toBeGreaterThan(1.1);
-    expect(across).toBeLessThan(1.25);
+    expect(Math.round(a.width)).toBe(288);
+    // The next card peeks in from the right edge.
+    expect(b.x).toBeLessThan(390);
     expect(b.x + b.width).toBeGreaterThan(390);
 
     const first = cards.first();
     await expect(first.getByRole("heading", { level: 3 })).toHaveText("Here & Now");
     await expect(first.locator("[data-card-going]")).toHaveText("42 going");
     await expect(cards.nth(1).locator("[data-card-going]")).toHaveText("118 going");
-    await expect(first.locator("[data-card-foot]")).toContainText("A$25.94 incl. booking fee");
-    await expect(cards.nth(1).locator("[data-card-foot]")).toContainText("From A$67");
+    // The all-inclusive price labels.
+    await expect(first.locator("[data-price-tag]")).toHaveText("A$25.94");
+    await expect(cards.nth(1).locator("[data-price-tag]")).toHaveText("From A$67");
     await expect(first).not.toContainText(/featured/i);
 
-    // Save (signed out: sign in, then back to save) and the arrow, each a 44px target named for the event.
+    // Save (signed out: sign in, then back to save), a target named for the event.
     const save = first.getByRole("link", { name: "Sign in to save Here & Now" });
-    const open = first.getByRole("link", { name: "Open Here & Now" });
-    for (const target of [save, open]) {
-      const box = await target.boundingBox();
-      expect(box?.width ?? 0).toBeGreaterThanOrEqual(44);
-      expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
-    }
-    await expect(open).toHaveAttribute("href", "/events/here-and-now");
+    const box = await save.boundingBox();
+    expect(box?.width ?? 0).toBeGreaterThanOrEqual(40);
+    expect(box?.height ?? 0).toBeGreaterThanOrEqual(40);
     // Keyboard focus rings the card from its title link (a visible outline, never removed).
-    await first.locator("[data-card-link]").focus();
+    const link = first.locator("[data-card-link]");
+    await expect(link).toHaveAccessibleName("Here & Now");
+    await link.focus();
     await page.keyboard.press("Shift+Tab");
     await page.keyboard.press("Tab");
-    const ring = await first.evaluate((el) => getComputedStyle(el).outlineStyle);
-    expect(ring).toBe("solid");
+    expect(await first.locator("[data-card-hover]").evaluate((el) => getComputedStyle(el).outlineStyle)).toBe("solid");
     expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(0);
 
-    await open.click();
+    await link.click();
     await expect(page).toHaveURL(/\/events\/here-and-now$/, { timeout: 30_000 });
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Here & Now", { timeout: 30_000 });
   });
 });
 
-for (const width of [320, 1280, 1440]) {
+// The card's width at each (the rules' Layout board): a 288px row card on phones, the grid's column above.
+for (const [width, cardWidth] of [
+  [320, 288],
+  [1280, 280],
+  [1440, 304],
+] as const) {
   test.describe(`This weekend and Who's going? at ${width}px`, () => {
     test.use({ viewport: { width, height: 900 } });
 
     test("no sideways page scroll on the home or the event page", async ({ page }) => {
       await mockApi(page);
       await page.goto("/");
-      await expect(page.getByRole("region", { name: "This weekend" }).locator("[data-event-card]").first()).toBeVisible({ timeout: 30_000 });
+      const card = page.getByRole("region", { name: "This weekend" }).locator("[data-event-card]").first();
+      await expect(card).toBeVisible({ timeout: 30_000 });
       await page.evaluate(() => document.fonts.ready);
       expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(0);
-      if (width >= 640) {
-        const card = await page.getByRole("region", { name: "This weekend" }).locator("[data-event-card]").first().boundingBox();
-        expect(Math.round(card?.width ?? 0)).toBe(256);
-      }
+      expect(Math.round((await card.boundingBox())?.width ?? 0)).toBe(cardWidth);
       await page.goto("/events/here-and-now");
       await expect(page.getByRole("region", { name: "Who’s going?" })).toBeVisible({ timeout: 30_000 });
       expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(0);
@@ -238,32 +252,34 @@ for (const width of [320, 1280, 1440]) {
 test.describe("Who's going? on the event page at 390×844", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test("signed in: the count, three faces and +N between Save/Share and the tickets; View attendees goes to the panel", async ({ page }) => {
+  test("signed in: the count and the faces after Save/Share (before the tickets); View attendees goes to the panel", async ({ page }) => {
     await signedIn(page);
     await mockApi(page);
     await page.goto("/events/here-and-now");
     const card = page.getByRole("region", { name: "Who’s going?" });
     await expect(card).toBeVisible({ timeout: 30_000 });
-    await expect(card.getByRole("heading", { level: 2 })).toHaveText("Who’s going?");
-    await expect(card).toContainText("42 people are going");
-    await expect(card.locator("[data-going-face]")).toHaveCount(3);
-    await expect(card.locator("[data-going-rest]")).toHaveText("+39");
+    // Named for screen readers by an aria-label (no extra heading); the row leads with the count (the redesign's event mock).
+    await expect(card).toHaveAttribute("aria-label", "Who’s going?");
+    await expect(card.getByRole("heading")).toHaveCount(0);
+    await expect(card).toContainText("42 going");
+    await expect(card).toContainText("Ticket holders opt in");
+    // All four names this member was sent (up to five are drawn), and no "+N".
+    await expect(card.locator("[data-going-face]")).toHaveCount(4);
+    await expect(card.locator("[data-going-rest]")).toHaveCount(0);
     // A face with a visible profile links to it.
     await expect(card.getByRole("link", { name: "Kofi A.’s profile" })).toHaveAttribute("href", "/members/p1");
 
-    // Between the actions row and the tickets, 16px from each (owner's mockup).
-    const actions = await page.locator("[data-event-actions]").boundingBox();
+    // Below lg, under Save and Share (16px), so they stay above the bar, and inside the page's 16px margins.
     const box = await card.boundingBox();
-    const tickets = await page.locator("#tickets").boundingBox();
-    if (!actions || !box || !tickets) throw new Error("not laid out");
+    const actions = await page.locator("[data-event-actions]").boundingBox();
+    if (!box || !actions) throw new Error("not laid out");
     expect(Math.round(box.y - (actions.y + actions.height))).toBe(16);
-    expect(Math.round(tickets.y - (box.y + box.height))).toBe(16);
     expect(Math.round(box.x)).toBe(16);
     expect(Math.round(box.width)).toBe(358);
 
     const view = card.getByRole("link", { name: "View attendees for Here & Now" });
     const target = await view.boundingBox();
-    expect(target?.height ?? 0).toBeGreaterThanOrEqual(44);
+    expect(target?.height ?? 0).toBeGreaterThanOrEqual(48);
     await view.focus();
     expect(await view.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe("solid");
     await page.keyboard.press("Enter");
@@ -278,7 +294,7 @@ test.describe("Who's going? on the event page at 390×844", () => {
     await page.goto("/events/here-and-now");
     const card = page.getByRole("region", { name: "Who’s going?" });
     await expect(card).toBeVisible({ timeout: 30_000 });
-    await expect(card).toContainText("42 people are going");
+    await expect(card).toContainText("42 going");
     await expect(card.locator("[data-going-faces]")).toHaveCount(0);
     await expect(card.locator("[data-going-rest]")).toHaveCount(0);
 

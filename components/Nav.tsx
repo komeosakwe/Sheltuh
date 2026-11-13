@@ -3,14 +3,15 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
-import AuthNavLinks, { navLinkClass } from "@/components/AuthNavLinks";
+import {
+  HeaderAccount,
+  MenuAccount,
+  headerNavClass,
+} from "@/components/AuthNavLinks";
+import UMark from "@/components/brand/UMark";
 import Wordmark from "@/components/brand/Wordmark";
 import HomeLogoLink from "@/components/HomeLogoLink";
-import SearchBar from "@/components/SearchBar";
-import SavedNavLink from "@/components/favourites/SavedNavLink";
 import { useUnread } from "@/components/messages/UnreadProvider";
-import ThemeSwitch from "@/components/theme/ThemeSwitch";
-import { ButtonLink } from "@/components/ui/Button";
 
 const MENU_ID = "site-menu";
 
@@ -23,15 +24,15 @@ function isPopoverOpen(element: HTMLElement): boolean {
   }
 }
 
+/**
+ * Discover · Nearby · Community (the rules' Navigation board). Nearby is the map (/map keeps
+ * its address); Community is its own page (/community, redesign PR 3).
+ */
 const PRIMARY_LINKS = [
   { href: "/", label: "Discover" },
-  { href: "/map", label: "Map" },
+  { href: "/map", label: "Nearby" },
+  { href: "/community", label: "Community" },
 ] as const;
-
-/** The phone menu's own primary list: the desktop links plus Saved (an icon link on desktop). */
-const MENU_PRIMARY_LINKS = [...PRIMARY_LINKS, { href: "/saved", label: "Saved" }] as const;
-
-const menuAccountLinkClass = "flex min-h-11 items-center text-base leading-6 font-semibold";
 
 /**
  * While the phone menu is open the page behind it is inert: screen readers'
@@ -44,11 +45,40 @@ function setPageInert(inert: boolean) {
   }
 }
 
+function MenuIcon({ open }: { open: boolean }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      className="size-6"
+    >
+      {open ? (
+        <path d="M6 6l12 12M18 6 6 18" />
+      ) : (
+        <path d="M4 7h16M4 12h16M4 17h16" />
+      )}
+    </svg>
+  );
+}
+
 /**
- * Site header. Below `lg` it is one 56px bar (wordmark, search link except on the
- * home, whose hero has the search; Saved; Menu button)
- * whose menu is a native popover: Escape and outside taps close it, and focus
- * returns to the Menu button. From `lg` up it is the one-row desktop header.
+ * Site header (the proposal, and the rules' Navigation board): black in both themes (an ink
+ * section, so everything inside re-skins; in Dark it meets the black page over a 1px rule), 64px
+ * below `lg` and 96px from it (--header-h).
+ *
+ * From `lg` it's one row: the wordmark; Discover, Nearby and Community; then the account area
+ * (components/AuthNavLinks.tsx). No search field (owner decision: search lives in the home's
+ * hero, /search and Nearby), no heart and no "Create profile".
+ *
+ * Below `lg` (phones and tablets): the ü logo, a search icon link (not on the home, whose hero
+ * has the page's search) and Menu, 48px targets. Menu opens a black drawer under the bar, a
+ * native popover (Escape and outside taps close it, focus returns to Menu): the three places in
+ * Display/M with the orange dots on the current one, then the account links and Sign in / For
+ * organisers as buttons. The theme switch is in the footer only.
  */
 export default function Nav() {
   const pathname = usePathname();
@@ -57,13 +87,18 @@ export default function Nav() {
   const [menuOpen, setMenuOpen] = useState(false);
   const unreadCount = useUnread()?.count ?? 0;
   const inThread = /^\/messages\/(?!blocked$)[^/]+$/.test(pathname);
-  // At the door the paper header scrolls away at every width, so it doesn't sit lit above the scanner.
+  // At the door the header scrolls away at every width, so it doesn't sit lit above the scanner.
   const atDoor = /^\/dashboard\/[^/]+\/check-in$/.test(pathname);
 
-  const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
+  const isActive = (href: string) =>
+    href === "/" ? pathname === "/" : pathname.startsWith(href);
   // The page itself, or (Discover) the section: What's on and every event's page belong to Discover.
   const current = (href: string): "page" | "true" | undefined =>
-    isActive(href) ? "page" : href === "/" && pathname.startsWith("/events") ? "true" : undefined;
+    isActive(href)
+      ? "page"
+      : href === "/" && pathname.startsWith("/events")
+        ? "true"
+        : undefined;
 
   // Keep the button label in step with the popover, and move focus into the
   // menu when it opens (the browser moves it back to the button on close).
@@ -114,10 +149,13 @@ export default function Nav() {
     menuRef.current?.hidePopover?.();
   }
 
-  // Links and actions close the menu; the theme switch doesn't: the sheet re-skinning around you is the feedback.
+  // Links and actions close the menu (a link to the page already showing doesn't navigate).
+  // The page is live again at once (the toggle event that also does it comes a task later), so
+  // focus can move into it straight away.
   function closeMenuOnAction(event: MouseEvent<HTMLElement>) {
-    if (event.target instanceof Element && event.target.closest("a, button") && !event.target.closest("[data-theme-switch]")) {
+    if (event.target instanceof Element && event.target.closest("a, button")) {
       menuRef.current?.hidePopover?.();
+      setPageInert(false);
     }
   }
 
@@ -125,24 +163,33 @@ export default function Nav() {
     // In a conversation on phones the header scrolls away, leaving the screen
     // (and what the keyboard leaves of it) to the messages and the composer.
     // The top padding keeps it below a status bar or notch (viewport-fit=cover);
-    // it's 0 on desktop and in iOS's default status-bar style.
+    // it's 0 on desktop and in iOS's black status-bar style.
+    // In Dark the black header meets the black page over a 1px rule, drawn inside it (after:) so
+    // the header stays exactly --header-h tall.
     <header
-      className={`${atDoor ? "relative" : inThread ? "relative lg:sticky" : "sticky"} top-0 z-30 bg-background pt-[env(safe-area-inset-top)] lg:border-b lg:border-foreground`}
+      data-surface="ink"
+      className={`${atDoor ? "relative" : inThread ? "relative lg:sticky" : "sticky"} top-0 z-30 pt-[env(safe-area-inset-top)] after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:hidden after:h-px after:bg-surface-border dark:after:block`}
     >
       {/* Compact bar (phones and tablets). */}
-      <div className="flex h-14 items-center justify-between border-b border-foreground px-5 sm:px-8 lg:hidden">
-        {/* The official wordmark, 20px tall (88px wide); the link carries the name. */}
-        <HomeLogoLink className="flex h-11 items-center" onActivate={closeMenu}>
-          <Wordmark className="h-5 w-auto" />
+      <div
+        data-compact-header=""
+        className="page-container flex h-16 items-center justify-between lg:hidden"
+      >
+        {/* The ü logo, 32px tall (the rules' Mobile (390) spec); the link carries the name. */}
+        <HomeLogoLink
+          className="-ml-2 flex size-12 items-center justify-center rounded-control"
+          onActivate={closeMenu}
+        >
+          <UMark className="h-8 w-auto" />
         </HomeLogoLink>
-        <div className="flex items-center">
-          {/* Not on the home: its hero holds the page's one search (as the desktop row leaves its field out there). */}
+        <div className="-mr-2 flex items-center">
+          {/* Not on the home: its hero holds the page's one search. */}
           {pathname !== "/" && (
             <Link
               href="/search"
               aria-label="Search"
               aria-current={pathname === "/search" ? "page" : undefined}
-              className="flex size-11 items-center justify-center"
+              className="flex size-12 items-center justify-center rounded-control"
             >
               <svg
                 aria-hidden="true"
@@ -151,33 +198,34 @@ export default function Nav() {
                 stroke="currentColor"
                 strokeWidth="2"
                 strokeLinecap="round"
-                className="h-5 w-5 text-foreground"
+                className="size-6"
               >
                 <circle cx="11" cy="11" r="7" />
                 <path d="m20 20-3.5-3.5" />
               </svg>
             </Link>
           )}
-          <SavedNavLink size="compact" />
           <button
             ref={menuButtonRef}
             type="button"
             popoverTarget={MENU_ID}
-            className="-mr-3 flex h-11 items-center gap-2 px-3 text-[0.8125rem] leading-4 font-semibold tracking-[0.01em] uppercase"
+            className="relative flex size-12 items-center justify-center rounded-control"
           >
-            {menuOpen ? "Close" : "Menu"}
+            <MenuIcon open={menuOpen} />
+            <span className="sr-only">{menuOpen ? "Close" : "Menu"}</span>
             {/* The Messages count lives inside the menu; this says there's something in there. */}
             {unreadCount > 0 && (
               <>
                 <span
                   aria-hidden="true"
                   data-menu-unread=""
-                  className="inline-flex h-5 min-w-5 items-center justify-center rounded-badge bg-foreground px-1 text-xs leading-5 font-semibold tracking-normal text-background tabular-nums"
+                  className="absolute top-1 right-0 inline-flex h-5 min-w-5 items-center justify-center rounded-badge bg-signal px-1 text-xs leading-5 font-semibold text-signal-foreground tabular-nums"
                 >
                   {unreadCount > 99 ? "99+" : unreadCount}
                 </span>
                 <span className="sr-only">
-                  , {unreadCount} unread {unreadCount === 1 ? "message" : "messages"}
+                  , {unreadCount} unread{" "}
+                  {unreadCount === 1 ? "message" : "messages"}
                 </span>
               </>
             )}
@@ -185,101 +233,63 @@ export default function Nav() {
         </div>
       </div>
 
-      {/* Desktop row. */}
-      <div className="mx-auto hidden max-w-6xl min-h-17 flex-wrap items-center gap-x-6 gap-y-3 px-5 py-3 sm:px-8 lg:flex">
-        <HomeLogoLink className="flex items-center py-1" onActivate={closeMenu}>
-          <Wordmark className="h-6 w-auto" />
+      {/* Desktop row: 96px (the proposal). */}
+      {/* Full width (owner, 13 Nov): the logo hugs the left and the actions the right on any screen, 64px in
+          from 1280px (the mock's margin at 1440), rather than stopping at the page column on wide screens. */}
+      <div className="hidden h-24 w-full items-center gap-8 px-8 lg:flex xl:px-16">
+        <HomeLogoLink className="flex items-center py-2" onActivate={closeMenu}>
+          <Wordmark className="h-5 w-auto" />
         </HomeLogoLink>
-        {/* The home's hero and /search have the page's search; a second field (and a second
-            location) beside it would only compete (owner, 24 Oct 2026, D7). Black submit here.
-            The bar takes the room the nav leaves (up to 384px), so the row never wraps: signed in,
-            the nav is wider. Under 13rem (an admin's nav at 1024px) "Search events" would no
-            longer fit beside the pin and the submit, so this slot shows the search icon link
-            instead, as phones do. 13rem is that measure (no container size token is this small). */}
-        {pathname !== "/" && pathname !== "/search" && (
-          <div data-header-search="" className="@container flex max-w-sm min-w-9 flex-1 items-center">
-            <div className="hidden w-full @min-[13rem]:block">
-              <SearchBar label="Search the site" placeholder="Search events" tone="plain" />
-            </div>
-            <Link
-              href="/search"
-              aria-label="Search"
-              className="flex size-9 items-center justify-center rounded-control text-foreground hover:bg-foreground hover:text-background @min-[13rem]:hidden"
-            >
-              <svg
-                aria-hidden="true"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                className="size-5"
-              >
-                <circle cx="11" cy="11" r="7" />
-                <path d="m20 20-3.5-3.5" />
-              </svg>
-            </Link>
-          </div>
-        )}
-        <nav aria-label="Primary" className="ml-auto flex flex-wrap items-center gap-x-1 gap-y-1 sm:gap-x-3">
+        <nav aria-label="Primary" className="flex flex-1 items-center gap-8">
           {PRIMARY_LINKS.map((link) => (
             <Link
               key={link.href}
               href={link.href}
-              // The "umlaut": two orange squares over the current page's label
-              // (from aria-current), black ones over the label under the pointer.
-              className={navLinkClass}
+              className={headerNavClass}
               aria-current={current(link.href)}
             >
               {link.label}
             </Link>
           ))}
-          <SavedNavLink size="desktop" />
-          <AuthNavLinks compact />
-          <ButtonLink href="/organisers/apply" variant="outline" size="sm" className="ml-1">
-            For organisers
-          </ButtonLink>
+          <div className="ml-auto flex items-center gap-8">
+            <HeaderAccount />
+          </div>
         </nav>
       </div>
 
-      {/* Phone menu. No display class on this root: it would override the
-          popover's closed `display: none` and the menu could never close.
-          It's fixed to the viewport, so it clears the top inset and a
-          landscape notch itself (all 0 unless the device has them). */}
+      {/* Phone menu: a black drawer filling the screen under the bar. No display class on this
+          root: it would override the popover's closed `display: none` and the menu could never
+          close. It's fixed to the viewport, so it clears the top inset and a landscape notch
+          itself (all 0 unless the device has them). */}
       <div
         id={MENU_ID}
         ref={menuRef}
         popover="auto"
-        className="inset-x-0 top-[calc(var(--header-h)+env(safe-area-inset-top))] bottom-auto m-0 h-[calc(100dvh-var(--header-h)-env(safe-area-inset-top))] w-full max-w-none overflow-y-auto overscroll-contain border-0 border-t border-foreground bg-background py-0 pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] text-foreground lg:hidden"
+        className="inset-x-0 top-[calc(var(--header-h)+env(safe-area-inset-top))] bottom-auto m-0 h-[calc(100dvh-var(--header-h)-env(safe-area-inset-top))] w-full max-w-none overflow-y-auto overscroll-contain border-0 border-t border-surface-border bg-background py-0 pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] text-foreground lg:hidden"
       >
         <nav
           // Its own name: the desktop row's nav is "Primary", and two landmarks shouldn't share one.
           aria-label="Site menu"
           onClick={closeMenuOnAction}
-          className="flex min-h-full flex-col px-5 pb-[calc(2rem+env(safe-area-inset-bottom))] pt-6 sm:px-8"
+          className="page-container flex min-h-full flex-col pt-6 pb-[calc(2rem+env(safe-area-inset-bottom))]"
         >
-          <ul className="flex flex-col">
-            {MENU_PRIMARY_LINKS.map((link) => (
+          <ul className="flex flex-col gap-2">
+            {PRIMARY_LINKS.map((link) => (
               <li key={link.href}>
                 <Link
                   href={link.href}
                   aria-current={current(link.href)}
-                  // The current page gets the orange umlaut over its first letter.
-                  className="display-lg umlaut umlaut-lg block pt-4 pb-3"
+                  // The current page gets the orange dots over its first letter.
+                  className="display-m umlaut umlaut-lg block pt-4 pb-2"
                 >
                   {link.label}
                 </Link>
               </li>
             ))}
           </ul>
-          <div className="mt-6 flex flex-col border-t border-foreground pt-6">
-            <AuthNavLinks className={menuAccountLinkClass} />
+          <div className="mt-auto flex flex-col gap-4 border-t border-surface-border pt-6">
+            <MenuAccount />
           </div>
-          <ButtonLink href="/organisers/apply" variant="outline" size="lg" className="mt-8 w-full">
-            For organisers
-          </ButtonLink>
-          <ThemeSwitch className="mt-8" />
-          <p className="eyebrow mt-auto pt-8 text-muted">Across Australia</p>
         </nav>
       </div>
     </header>
