@@ -372,7 +372,11 @@ function SceneMapView({
     }
     // "Load more" keeps focus while it loads (busy, not disabled). If the last page took the
     // button away with focus on it, focus goes to the first new event instead of the page.
-    if (idsBeforeMore.current && !loadingMore) {
+    // The ids are taken here, from a render that's loading more, not in handleLoadMore: a press
+    // can land before an earlier render's effect has run, and that effect (loadingMore false)
+    // would otherwise take them as the load having finished, and drop them.
+    if (loadingMore) idsBeforeMore.current ??= new Set(filtered.map((event) => event.id));
+    else if (idsBeforeMore.current) {
       const before = idsBeforeMore.current;
       idsBeforeMore.current = null;
       if (!loadMoreRef.current && (document.activeElement === document.body || document.activeElement === null)) {
@@ -473,7 +477,6 @@ function SceneMapView({
   }
 
   function handleLoadMore() {
-    idsBeforeMore.current = new Set(filtered.map((event) => event.id));
     onLoadMore?.();
   }
 
