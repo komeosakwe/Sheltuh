@@ -43,6 +43,7 @@ beforeAll(async () => {
 
 afterEach(() => {
   cleanup();
+  Reflect.deleteProperty(window, "matchMedia");
   listPublicEvents.mockReset();
   listPublicEvents.mockResolvedValue({ items: [], nextCursor: undefined });
 });
@@ -69,6 +70,14 @@ function page(from: number, count: number, nextCursor?: string) {
     };
   });
   return { items, nextCursor };
+}
+
+/** A desktop-width window (useIsDesktop): the arrival pick is desktop only. */
+function asDesktop() {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: (query: string) => ({ matches: query === "(min-width: 64rem)", media: query, addEventListener: () => {}, removeEventListener: () => {} }),
+  });
 }
 
 describe("live /map loading", () => {
@@ -127,6 +136,7 @@ describe("live /map loading", () => {
 
   // CodeRabbit (PR 43): arriving, nothing near in the first pages; the read-on brings one: it opens then.
   it("on arrival, opens the nearest event that Nearby's own read-on brings in", async () => {
+    asDesktop();
     localStorage.setItem("sheltuh:near:v1", JSON.stringify({ suburb: "Perth", state: "WA" }));
     try {
       for (let n = 0; n < 4; n++) listPublicEvents.mockResolvedValueOnce(page(n * 50, 50, `c${n + 1}`));
@@ -146,6 +156,7 @@ describe("live /map loading", () => {
 
   // CodeRabbit (PR 43): a card picked and dismissed while the read-on loads isn't replaced by one opening by itself.
   it("on arrival, a pick made while the read-on loads ends it: nothing opens by itself when the load lands", async () => {
+    asDesktop();
     localStorage.setItem("sheltuh:near:v1", JSON.stringify({ suburb: "Perth", state: "WA" }));
     try {
       for (let n = 0; n < 4; n++) listPublicEvents.mockResolvedValueOnce(page(n * 50, 50, `c${n + 1}`));

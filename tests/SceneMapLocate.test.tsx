@@ -244,6 +244,14 @@ function expectNoCoordinatesStored() {
 /** Where's menu (components/search/LocationPicker.tsx): a popover jsdom leaves in the page. */
 const wherePanel = () => document.querySelector<HTMLElement>("[data-location-panel]") as HTMLElement;
 
+/** A desktop-width window (useIsDesktop): the arrival pick is desktop only. */
+function asDesktop() {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: (query: string) => ({ matches: query === "(min-width: 64rem)", media: query, addEventListener: () => {}, removeEventListener: () => {} }),
+  });
+}
+
 describe("/map opens on the visitor's location", () => {
   it("a saved suburb: centres on it, zoomed in, without asking the browser", async () => {
     localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Fitzroy", state: "VIC" }));
@@ -960,6 +968,7 @@ describe("Near me puts the nearest events first and frames them", () => {
 
     // Owner, Nov 2026: "the initial page open of maps should send me to the nearest event or ask for my location to do so".
     it("the ask on open opens the nearest event, without putting it in the address", async () => {
+      asDesktop();
       answerAt(MELBOURNE.lat, MELBOURNE.lng);
       await renderMap([sydneySoonest, fitzroyGig, footscrayGig]);
       await expectCentredOn(MELBOURNE, 0.06);
@@ -970,6 +979,7 @@ describe("Near me puts the nearest events first and frames them", () => {
     });
 
     it("pressing Near me after that is the visitor's own pick: it goes in the address", async () => {
+      asDesktop();
       answerAt(MELBOURNE.lat, MELBOURNE.lng);
       await renderMap([sydneySoonest, fitzroyGig, footscrayGig]);
       await waitFor(() => expect(selectedCard()).toHaveTextContent("Fitzroy Gig"));
@@ -979,10 +989,19 @@ describe("Near me puts the nearest events first and frames them", () => {
     });
 
     it("with a saved suburb (no ask), the event nearest it opens", async () => {
+      asDesktop();
       localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Fitzroy", state: "VIC" }));
       await renderMap([sydneySoonest, footscrayGig, fitzroyGig]);
       await waitFor(() => expect(screen.getAllByRole("region", { name: "Selected event" }).length).toBeGreaterThan(0));
       expect(selectedCard()).toHaveTextContent("Fitzroy Gig");
+    });
+
+    it("on a phone or tablet nothing opens by itself: the card would cover the map (owner, 13 Nov)", async () => {
+      answerAt(MELBOURNE.lat, MELBOURNE.lng);
+      await renderMap([sydneySoonest, fitzroyGig, footscrayGig]);
+      await expectCentredOn(MELBOURNE, 0.06);
+      await waitFor(() => expect(listedTitles()[0]).toBe("Fitzroy Gig"));
+      expect(screen.queryByRole("region", { name: "Selected event" })).toBeNull();
     });
 
     it("an address with filters opens nothing by itself", async () => {

@@ -409,7 +409,7 @@ function SceneMapView({
 
   // Arriving with nothing in the address to show (no filters, no event): once there's a place to
   // measure from (the browser's answer to the ask on open, else the saved or linked suburb), the
-  // nearest event within the radius opens, as Near me does, with the map kept on the visitor. Once a visit.
+  // nearest event within the radius opens, as Near me does, with the map kept on the visitor (from 1024px only). Once a visit.
   // Not written to the address: a link copied from here doesn't carry the visitor's own nearest event.
   // None near in what's loaded yet: it waits while more can still load (the read-on below, or Load
   // more), and the first batch that brings one opens it (CodeRabbit, PR 43).
@@ -418,6 +418,9 @@ function SceneMapView({
     // The visitor's own pick (or Search this area) ends it at once, even mid-load: a card they've
     // since dismissed isn't replaced by one opening by itself (CodeRabbit, PR 43).
     if (rawSelectedEventId !== null || areaBounds) setArrivalPending(false);
+    // Phones and tablets: the card would cover the map they came to see (owner, 13 Nov), so nothing
+    // opens by itself; the list still runs nearest first and the map is still framed on them.
+    else if (!desktop) setArrivalPending(false);
     else if (!loadingMore) {
       const reach = radius === "all" ? NEAR_FRAME_FALLBACK_KM : radius;
       const nearest = nearestWithin(matching, located, (event) => resolveMapCoordinates(event, findSuburb), reach);
