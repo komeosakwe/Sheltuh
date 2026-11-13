@@ -122,7 +122,7 @@ export default function Footer() {
             ))}
             <nav aria-label="Contact Sheltüh">
               <p className={headingClass}>Contact Sheltüh</p>
-              <ul className="flex gap-2">
+              <ul className="flex flex-wrap gap-2">
                 <li>
                   <a
                     href={`mailto:${SUPPORT_EMAIL}`}
