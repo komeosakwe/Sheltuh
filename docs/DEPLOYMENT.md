@@ -926,6 +926,16 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
 ## Vercel
 
+**Which branches build.** `vercel.json`'s `ignoreCommand` builds Production
+(`main`) and one preview branch only; every other branch push is skipped, so
+build minutes don't grow with each working branch. The preview branch is
+`PREVIEW_BRANCH` (a Vercel environment variable, Preview scope, plain text:
+a branch name, e.g. `claude/member-photos`), else `claude/redesign-batch1`.
+Change it there, then redeploy that branch (or push to it). It only takes effect
+on branches whose `vercel.json` has the `ignoreCommand`, i.e. after this reaches
+`main`; until then, the same command can go in Vercel → Project → Settings →
+Git → Ignored Build Step. GitHub Actions CI is unaffected.
+
 1. [ ] Environment variables (Production and Preview), from `.env.example`:
        `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`,
        `NEXT_PUBLIC_SITE_URL`, `DATABASE_URL` (transaction pooler, port 6543,
