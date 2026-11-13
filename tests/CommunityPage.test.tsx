@@ -2,8 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import CommunityPage from "@/components/community/CommunityPage";
-import { COMMUNITY_LEDE, JOIN_STEPS, LOCAL_DISCOVERY, WHO_SEES_YOU } from "@/components/community/community-content";
-import { HOW_IT_WORKS_STEPS } from "@/components/whos-going/HowItWorks";
+import { COMMUNITY_LEDE, JOIN_FEATURES, JOIN_LEDE, LOCAL_DISCOVERY } from "@/components/community/community-content";
 import { cityScenes } from "@/lib/community";
 import { getUpcomingEvents } from "@/lib/data";
 import { bySoonest } from "@/lib/home-sections";
@@ -56,9 +55,9 @@ describe("/community (demo)", () => {
     expect(h1.querySelector("[aria-hidden='true']")?.textContent).toBe("Find yoür people.");
     expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual([
       "Local discovery",
-      "You choose who sees you",
+      "Your visibility, your choice",
       "Scenes by city",
-      "Your people are already here.",
+      "Find your people.",
     ]);
     // Concept-only parts wait for Batch 3: no Word of mouth, Follow scenes, member counts or "you know".
     expect(document.body).not.toHaveTextContent(/Word of mouth|Follow scenes|members|you know|saved this/i);
@@ -99,11 +98,16 @@ describe("/community (demo)", () => {
     expect(within(section).getByRole("link", { name: "See events on Nearby" })).toHaveAttribute("href", "/map");
   });
 
-  it("You choose who sees you: its line and how Who's Going really works (text only: no toggle, no count)", async () => {
+  it("Your visibility, your choice (owner's newer card): its line, three points and How Who's going works (text only: no toggle, no count)", async () => {
     await renderPage();
-    const section = screen.getByRole("region", { name: WHO_SEES_YOU.title });
-    expect(within(section).getByText(WHO_SEES_YOU.body)).toBeInTheDocument();
-    expect(within(section).getAllByRole("listitem").map((li) => li.textContent?.replace(/^\d\d/, ""))).toEqual([...HOW_IT_WORKS_STEPS]);
+    const section = screen.getByRole("region", { name: "Your visibility, your choice" });
+    expect(within(section).getByText("Who’s going is opt-in for each event.")).toBeInTheDocument();
+    expect(within(section).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "Choose when to appear",
+      "Browse without joining the list",
+      "Message eligible attendees when available",
+    ]);
+    expect(within(section).getByRole("link", { name: "How Who’s going works" })).toHaveAttribute("href", "/privacy#whos-going");
     expect(within(section).queryByRole("switch")).toBeNull();
     expect(within(section).queryByRole("checkbox")).toBeNull();
     expect(section).not.toHaveTextContent(/going ·|\d+ going/);
@@ -135,12 +139,20 @@ describe("/community (demo)", () => {
     expect(JSON.parse(localStorage.getItem("sheltuh:near:v1") ?? "{}")).toEqual({ suburb: "Fitzroy", state: "VIC" });
   });
 
-  it("the join banner: orange, only the two steps that exist, and Join Sheltüh — free (no sign-in note in the demo)", async () => {
+  it("the join banner (owner's newer version): orange, Community, Find your people., its line, the two features, Join Sheltüh — free and Sign in", async () => {
     const { container } = await renderPage();
-    const banner = screen.getByRole("region", { name: "Your people are already here." });
+    const banner = joinBanner();
     expect(banner).toHaveAttribute("data-surface", "signal");
-    expect(within(banner).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(JOIN_STEPS.map((s) => s.title));
-    expect(JOIN_STEPS.map((s) => s.title)).toEqual(["See who’s going", "Show up — or don’t"]);
+    expect(banner).toHaveTextContent(/^Community/);
+    expect(within(banner).getByText(JOIN_LEDE)).toBeInTheDocument();
+    expect(JOIN_LEDE).toBe("Discover creative events and choose how you connect.");
+    expect(within(banner).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(JOIN_FEATURES.map((f) => f.title));
+    expect(JOIN_FEATURES.map((f) => [f.title, f.body])).toEqual([
+      ["See who’s going", "See attendees who choose to appear."],
+      ["Your visibility, your choice", "Choose whether you appear on each event’s attendee list."],
+    ]);
+    expect(within(banner).getByText(/^Already a member\?/)).toBeInTheDocument();
+    expect(within(banner).getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/login");
     const join = within(banner).getByRole("link", { name: "Join Sheltüh — free" });
     expect(join).toHaveAttribute("href", "/signup");
     expect(join).toHaveClass("btn-solid");
@@ -153,8 +165,16 @@ describe("/community (demo)", () => {
   it("signed in: no Join free, and the banner's action finds an event", async () => {
     await renderPage("signed-in");
     expect(screen.queryByRole("link", { name: "Join free" })).toBeNull();
-    const banner = screen.getByRole("region", { name: "Your people are already here." });
+    const banner = joinBanner();
     expect(within(banner).getByRole("link", { name: "Find an event" })).toHaveAttribute("href", "/events");
     expect(screen.queryByRole("link", { name: "Join Sheltüh — free" })).toBeNull();
+    expect(within(banner).queryByText(/Already a member/)).toBeNull();
   });
 });
+
+/** The join banner (its title, "Find your people.", is also the page's h1). */
+function joinBanner(): HTMLElement {
+  const banner = document.querySelector<HTMLElement>('section[aria-labelledby="community-join"]');
+  if (!banner) throw new Error("join banner not rendered");
+  return banner;
+}

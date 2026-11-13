@@ -131,16 +131,23 @@ describe("/community (live)", () => {
     listPublicEvents.mockResolvedValue({ items: [], nextCursor: undefined });
     vi.stubEnv("NEXT_PUBLIC_AUTH_PROVIDERS", "google");
     await renderPage();
-    expect(screen.getByRole("region", { name: "Your people are already here." })).toHaveTextContent("Email or Google · 1 min");
+    expect(joinBanner()).toHaveTextContent("Email or Google · 1 min");
     cleanup();
     vi.stubEnv("NEXT_PUBLIC_AUTH_PROVIDERS", "google,apple");
     await renderPage();
-    expect(screen.getByRole("region", { name: "Your people are already here." })).not.toHaveTextContent(/Email or Google/);
+    expect(joinBanner()).not.toHaveTextContent(/Email or Google/);
     cleanup();
     vi.stubEnv("NEXT_PUBLIC_AUTH_PROVIDERS", "");
     await renderPage();
-    expect(screen.getByRole("region", { name: "Your people are already here." })).not.toHaveTextContent(/Email or Google/);
+    expect(joinBanner()).not.toHaveTextContent(/Email or Google/);
     // Nothing upcoming: Local discovery says so.
     expect(within(screen.getByRole("region", { name: "Local discovery" })).getByText("No events yet.")).toBeInTheDocument();
   });
 });
+
+/** The join banner (its title, "Find your people.", is also the page's h1). */
+function joinBanner(): HTMLElement {
+  const banner = document.querySelector<HTMLElement>('section[aria-labelledby="community-join"]');
+  if (!banner) throw new Error("join banner not rendered");
+  return banner;
+}

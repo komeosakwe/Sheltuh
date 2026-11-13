@@ -17,18 +17,27 @@ export const LOCAL_DISCOVERY = {
   body: "Find scenes near you through Nearby and your local feed.",
 } as const;
 
+/** The owner's newer "Your visibility, your choice" card (13 Nov 2026). */
 export const WHO_SEES_YOU = {
-  title: "You choose who sees you",
-  body: "Who’s going is opt-in. Show up for your scene, or stay off the list.",
+  title: "Your visibility, your choice",
+  body: "Who’s going is opt-in for each event.",
+  points: [
+    { icon: "people", text: "Choose when to appear" },
+    { icon: "eye", text: "Browse without joining the list" },
+    { icon: "message", text: "Message eligible attendees when available" },
+  ],
+  link: { label: "How Who’s going works", href: "/privacy#whos-going" },
 } as const;
 
 export const SCENES_TITLE = "Scenes by city";
 
-/** The join banner: its title and the two steps that exist today (the proposal's 02 and 03). */
-export const JOIN_TITLE = "Your people are already here.";
-export const JOIN_STEPS: readonly { title: string; body: string }[] = [
-  { title: "See who’s going", body: "Know friends and familiar faces before you buy." },
-  { title: "Show up — or don’t", body: "Choose per event if others can see you’re going." },
+/** The join banner (owner's newer version, 13 Nov 2026): eyebrow, title, line, and the two things it offers today. */
+export const JOIN_EYEBROW = "Community";
+export const JOIN_TITLE = "Find your people.";
+export const JOIN_LEDE = "Discover creative events and choose how you connect.";
+export const JOIN_FEATURES: readonly { icon: "people" | "visibility"; title: string; body: string }[] = [
+  { icon: "people", title: "See who’s going", body: "See attendees who choose to appear." },
+  { icon: "visibility", title: "Your visibility, your choice", body: "Choose whether you appear on each event’s attendee list." },
 ];
 
 /**

@@ -70,7 +70,7 @@ for (const theme of ["light", "dark"] as const) {
         await expect(page.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your people.");
         await expect(page).toHaveTitle("Community — Sheltüh");
         const headings = (await page.locator("main h2").allTextContents()).map((h) => h.trim());
-        expect(headings).toEqual(["Local discovery", "You choose who sees you", "Scenes by city", "Your people are already here."]);
+        expect(headings).toEqual(["Local discovery", "Your visibility, your choice", "Scenes by city", "Find your people."]);
         await expect(page.locator("main")).not.toContainText(/Word of mouth|Follow scenes|members|you know/i);
         // Local discovery: real upcoming events, the one EventCard.
         await expect(page.getByRole("list", { name: "Local discovery" }).locator("[data-event-card]").first()).toBeVisible();
@@ -112,7 +112,7 @@ test.describe("/community's ways on, at 1280px", () => {
   test("Join free and Join Sheltüh — free open sign-up; the banner's action is black on orange", async ({ page }) => {
     await openCommunity(page);
     await expect(page.getByRole("link", { name: "Join free" })).toHaveAttribute("href", "/signup");
-    const banner = page.getByRole("region", { name: "Your people are already here." });
+    const banner = page.locator('section[aria-labelledby="community-join"]');
     const join = banner.getByRole("link", { name: "Join Sheltüh — free" });
     expect(await banner.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(255, 72, 0)");
     expect(await join.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(0, 0, 0)");
