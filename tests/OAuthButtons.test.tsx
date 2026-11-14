@@ -5,7 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, describe, expect, it, vi } from "vitest";
 import LoginPage from "@/app/login/page";
 import SignupPage from "@/app/signup/page";
-import OAuthButtons from "@/components/auth/OAuthButtons";
+import OAuthButtons, { BUSY_RETURN_GRACE_MS, BUSY_TIMEOUT_MS } from "@/components/auth/OAuthButtons";
 import type { AuthContextValue } from "@/lib/auth/AuthContext";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 import { UA } from "./test-utils/user-agents";
@@ -174,6 +174,45 @@ describe("OAuthButtons: starting a sign-in", () => {
     });
     expect(apple()).not.toHaveAttribute("aria-disabled");
     expect(screen.getByRole("status")).toBeEmptyDOMElement();
+  });
+
+  it("unlocks when the page comes back without leaving (a closed Apple sheet), but not on the tap's own focus", () => {
+    vi.useFakeTimers();
+    try {
+      renderButtons({ auth: { signInWithProvider: leaving() } });
+      fireEvent.click(apple());
+      expect(apple()).toHaveAttribute("aria-disabled", "true");
+      // The tap's own focus, straight away: still busy.
+      act(() => {
+        window.dispatchEvent(new Event("focus"));
+      });
+      expect(apple()).toHaveAttribute("aria-disabled", "true");
+      // Back in front after the sheet closes.
+      act(() => {
+        vi.advanceTimersByTime(BUSY_RETURN_GRACE_MS + 10);
+        window.dispatchEvent(new Event("focus"));
+      });
+      expect(apple()).not.toHaveAttribute("aria-disabled");
+      expect(google()).not.toHaveAttribute("aria-disabled");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("unlocks after the time-out even with no focus or visibility event", () => {
+    vi.useFakeTimers();
+    try {
+      renderButtons({ auth: { signInWithProvider: leaving() } });
+      fireEvent.click(google());
+      expect(google()).toHaveAttribute("aria-disabled", "true");
+      act(() => {
+        vi.advanceTimersByTime(BUSY_TIMEOUT_MS);
+      });
+      expect(google()).not.toHaveAttribute("aria-disabled");
+      expect(screen.getByRole("status")).toBeEmptyDOMElement();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("says what happens in a polite status and an alert that are always there (atomic), so they're read when filled", async () => {
