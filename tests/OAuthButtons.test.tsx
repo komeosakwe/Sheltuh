@@ -199,6 +199,33 @@ describe("OAuthButtons: starting a sign-in", () => {
     }
   });
 
+  it("a sign-in that fails late, after the buttons unlocked and another started, leaves the newer one alone", async () => {
+    vi.useFakeTimers();
+    try {
+      let rejectFirst: (err: Error) => void = () => {};
+      const signInWithProvider = vi
+        .fn()
+        .mockImplementationOnce(() => new Promise((_resolve, reject) => (rejectFirst = reject)))
+        .mockImplementation(leaving());
+      renderButtons({ auth: { signInWithProvider } });
+      fireEvent.click(apple());
+      act(() => {
+        vi.advanceTimersByTime(BUSY_RETURN_GRACE_MS + 10);
+        window.dispatchEvent(new Event("focus"));
+      });
+      fireEvent.click(google());
+      expect(google()).toHaveAttribute("aria-disabled", "true");
+      await act(async () => {
+        rejectFirst(new Error("late"));
+        await Promise.resolve();
+      });
+      expect(google()).toHaveAttribute("aria-disabled", "true");
+      expect(screen.getByRole("alert")).toBeEmptyDOMElement();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("unlocks after the time-out even with no focus or visibility event", () => {
     vi.useFakeTimers();
     try {

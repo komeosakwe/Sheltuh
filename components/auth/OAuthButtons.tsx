@@ -88,12 +88,16 @@ export default function OAuthButtons({ next, placement = "above" }: { next?: str
   const [status, setStatus] = useState<Status | null>(null);
   const [failed, setFailed] = useState<OAuthProvider | null>(null);
   const reannounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // Which sign-in attempt owns the busy state and the failure alert. A recovery (below) or a new
+  // tap moves it on, so an earlier attempt that fails late can't touch a newer one's state.
+  const attempt = useRef(0);
   const busy = status?.kind === "busy";
 
   useEffect(() => {
     function onPageShow(event: PageTransitionEvent) {
       if (!event.persisted) return;
       clearTimeout(reannounce.current);
+      attempt.current += 1;
       setStatus(null);
     }
     window.addEventListener("pageshow", onPageShow);
@@ -112,6 +116,7 @@ export default function OAuthButtons({ next, placement = "above" }: { next?: str
     const startedAt = Date.now();
     function release() {
       if (Date.now() - startedAt < BUSY_RETURN_GRACE_MS) return;
+      attempt.current += 1;
       setStatus(null);
     }
     function onVisibility() {
@@ -119,7 +124,10 @@ export default function OAuthButtons({ next, placement = "above" }: { next?: str
     }
     window.addEventListener("focus", release);
     document.addEventListener("visibilitychange", onVisibility);
-    const fallback = setTimeout(() => setStatus(null), BUSY_TIMEOUT_MS);
+    const fallback = setTimeout(() => {
+      attempt.current += 1;
+      setStatus(null);
+    }, BUSY_TIMEOUT_MS);
     return () => {
       window.removeEventListener("focus", release);
       document.removeEventListener("visibilitychange", onVisibility);
@@ -144,11 +152,14 @@ export default function OAuthButtons({ next, placement = "above" }: { next?: str
       reannounce.current = setTimeout(() => setStatus(inApp), REANNOUNCE_DELAY_MS);
       return;
     }
+    const mine = ++attempt.current;
     setStatus({ kind: "busy", provider });
     try {
       await auth.signInWithProvider(provider, oauthReturnPath(next) ?? undefined);
       // The page is on its way to the provider: stay busy until it's gone.
     } catch {
+      // A newer attempt (or a recovery) has taken over: this late failure isn't news any more.
+      if (attempt.current !== mine) return;
       // What went wrong is the connection or the service, not anything to fix here.
       setStatus(null);
       setFailed(provider);
