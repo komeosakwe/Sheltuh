@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { closeTopOverlay } from "@/lib/mobile/close-overlay";
 import { isNativeApp } from "@/lib/mobile/native";
 
 /**
@@ -25,6 +26,7 @@ export default function NativeAppShell() {
           currentPath: () => `${window.location.pathname}${window.location.search}${window.location.hash}`,
           navigate: (path) => router.push(path),
           goBack: () => window.history.back(),
+          closeOverlay: () => closeTopOverlay(document),
         }),
       )
       .then((stopShell) => {

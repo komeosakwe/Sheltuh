@@ -12,9 +12,9 @@ import {
   OAUTH_PROVIDER_NAMES,
   oauthProviderNames,
   oauthReturnPath,
-  offeredOAuthProviders,
   type OAuthProvider,
 } from "@/lib/auth/oauth";
+import { useOfferedOAuthProviders } from "@/lib/auth/useOfferedOAuthProviders";
 import { roboto } from "./oauth-font";
 
 /** What the polite status line under the buttons says. */
@@ -84,7 +84,8 @@ export const BUSY_TIMEOUT_MS = 20_000;
 
 export default function OAuthButtons({ next, placement = "above" }: { next?: string; placement?: "above" | "below" }) {
   const auth = useAuth();
-  const providers = offeredOAuthProviders(auth.configured);
+  // None inside the phone app yet (lib/auth/useOfferedOAuthProviders.ts).
+  const { providers, flagged, nativeApp } = useOfferedOAuthProviders(auth.configured);
   const [status, setStatus] = useState<Status | null>(null);
   const [failed, setFailed] = useState<OAuthProvider | null>(null);
   const reannounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -135,6 +136,15 @@ export default function OAuthButtons({ next, placement = "above" }: { next?: str
     };
   }, [busy]);
 
+  if (nativeApp && flagged.length > 0) {
+    // The buttons would finish signing in in the phone's browser, not here (docs/mobile-app.md).
+    return (
+      <p className="text-sm leading-5 text-muted">
+        Signing in with {oauthProviderNames(flagged, ["apple", "google"])} isn&rsquo;t in the app yet. If your account
+        uses it, sign in on the Sheltüh website in your browser.
+      </p>
+    );
+  }
   if (providers.length === 0) return null;
 
   async function start(provider: OAuthProvider) {

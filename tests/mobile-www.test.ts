@@ -23,7 +23,9 @@ describe("mobile/www/index.html", () => {
   });
 
   it("says what's wrong and what to do, and offers Try again only when there's a page to go back to", () => {
-    expect(html).toContain("Can&rsquo;t reach Sheltüh");
+    expect(html).toContain("Sheltüh couldn&rsquo;t load");
+    // Neutral: it also shows when the site is down or the WebView is too old, not only offline.
+    expect(html).not.toMatch(/offline|no connection/i);
     expect(html).toMatch(/<button type="button" id="retry" hidden>Try again<\/button>/);
     expect(html).toContain("window.history.length > 1");
     expect(html).toContain("close Sheltüh and open it again");

@@ -15,12 +15,17 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
+        <!--
+          taskAffinity "": another app can't place its activity in Sheltüh's task (task hijacking).
+          Unverified on a device: see the checklist in docs/mobile-app.md.
+        -->
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
             android:name=".MainActivity"
             android:label="@string/title_activity_main"
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:launchMode="singleTask"
+            android:taskAffinity=""
             android:exported="true">
 
             <intent-filter>

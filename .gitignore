@@ -67,7 +67,11 @@ supabase/.temp/
 *.mobileprovision
 *.provisionprofile
 keystore.properties
-/android/key.properties
+key.properties
+# Google Play / Google Cloud service-account keys (Play Console API, fastlane supply…)
+*service-account*.json
+*service_account*.json
+play-*.json
 google-services.json
 GoogleService-Info.plist
 # Machine-specific SDK paths

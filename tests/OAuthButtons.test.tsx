@@ -398,6 +398,47 @@ describe("OAuthButtons on /login and /signup", () => {
   });
 });
 
+describe("OAuthButtons inside the phone app (docs/mobile-app.md: no Google or Apple sign-in there yet)", () => {
+  function inApp() {
+    Object.defineProperty(window, "Capacitor", { value: { isNativePlatform: () => true }, configurable: true });
+  }
+  afterEach(() => {
+    Reflect.deleteProperty(window, "Capacitor");
+  });
+
+  it("shows no buttons, only where to sign in with those accounts", () => {
+    inApp();
+    renderButtons({ flag: "google,apple" });
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(
+      screen.getByText("Signing in with Apple or Google isn’t in the app yet. If your account uses it, sign in on the Sheltüh website in your browser."),
+    ).toBeInTheDocument();
+  });
+
+  it("says nothing when no provider is on", () => {
+    inApp();
+    const { container } = renderButtons({ flag: "" });
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("/login keeps exactly one privacy line, and the password error doesn't point at a missing button", async () => {
+    inApp();
+    vi.stubEnv("NEXT_PUBLIC_AUTH_PROVIDERS", "google,apple");
+    const signIn = vi.fn().mockRejectedValue(new Error("Invalid login credentials"));
+    const element = await LoginPage({ searchParams: Promise.resolve({}) } as PageProps<"/login">);
+    render(<FakeAuthProvider value={fakeAuthValue({ status: "signed-out", signIn })}>{element}</FakeAuthProvider>);
+    expect(screen.queryByRole("button", { name: /Continue with/ })).toBeNull();
+    expect(screen.getAllByRole("link", { name: "Privacy Policy" })).toHaveLength(1);
+    expect(screen.getByText(/^How we handle your details:/)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "someone@example.com" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "wrong-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).not.toHaveTextContent(/use that button/);
+  });
+});
+
 describe("OAuthButtons in forced colours (Windows contrast themes)", () => {
   const css = readFileSync(path.resolve(import.meta.dirname, "../app/globals.css"), "utf8");
 

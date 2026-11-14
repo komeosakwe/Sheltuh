@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deepLinkPath } from "@/lib/mobile/deep-link";
+import { deepLinkPath, isExcludedAppLink } from "@/lib/mobile/deep-link";
 import { isNativeApp } from "@/lib/mobile/native";
 
 const ORIGIN = "https://sheltuh.com.au";
@@ -33,6 +33,7 @@ describe("deepLinkPath (links that open the phone app)", () => {
     ["encoded dot segments", "https://sheltuh.com.au/%2e//evil.example"],
     ["an empty string", ""],
     ["not a URL", "not a url"],
+    ["an event's calendar file (excluded from the app)", "https://sheltuh.com.au/events/rooftop-jazz/calendar.ics"],
   ])("ignores %s", (_label, url) => {
     expect(deepLinkPath(url, ORIGIN)).toBeNull();
   });
@@ -44,6 +45,19 @@ describe("deepLinkPath (links that open the phone app)", () => {
   it("only accepts the origin the app loaded (a preview build's links don't open production pages)", () => {
     expect(deepLinkPath("https://sheltuh.com.au/events/x", "https://preview.sheltuh.com.au")).toBeNull();
     expect(deepLinkPath("https://preview.sheltuh.com.au/events/x", "https://preview.sheltuh.com.au")).toBe("/events/x");
+  });
+});
+
+describe("isExcludedAppLink", () => {
+  it.each([
+    ["/events/rooftop-jazz/calendar.ics", true],
+    ["/events/a/b/calendar.ics", true],
+    ["/events/rooftop-jazz", false],
+    ["/events/rooftop-jazz/calendarxics", false],
+    ["/events/calendar.ics", false],
+    ["/checkout/success", false],
+  ])("%s → %s", (path, excluded) => {
+    expect(isExcludedAppLink(path)).toBe(excluded);
   });
 });
 

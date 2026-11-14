@@ -1,0 +1,37 @@
+// Release guard (docs/mobile-app.md, "Release guard"): a release build must open the production
+// site. Fails any release variant unless the config `npx cap sync android` copied in has
+// server.url exactly the production origin, no cleartext, no allowNavigation and no WebView
+// debugging. Debug builds aren't checked (they may point at a preview or `next dev`).
+// Keep EXPECTED_SERVER_URL equal to DEFAULT_APP_SERVER_URL in lib/mobile/app-config.ts
+// (tests/mobile-native-projects.test.ts checks).
+import groovy.json.JsonSlurper
+
+def EXPECTED_SERVER_URL = 'https://sheltuh.com.au/'
+def syncedConfig = file('src/main/assets/capacitor.config.json')
+
+def checkReleaseServerUrl = tasks.register('checkReleaseServerUrl') {
+    group = 'verification'
+    description = 'Checks that a release build opens the production site.'
+    doLast {
+        if (!syncedConfig.exists()) {
+            throw new GradleException("Release build refused: ${syncedConfig} is missing. Run `npx cap sync android` first (docs/mobile-app.md).")
+        }
+        def config = new JsonSlurper().parse(syncedConfig)
+        def server = config.server ?: [:]
+        def problems = []
+        if (server.url != EXPECTED_SERVER_URL) problems << "server.url is ${server.url ?: 'unset'}, not ${EXPECTED_SERVER_URL}"
+        if (server.cleartext) problems << 'server.cleartext is on'
+        if (server.allowNavigation) problems << 'server.allowNavigation is set'
+        if (config.android?.webContentsDebuggingEnabled) problems << 'android.webContentsDebuggingEnabled is on'
+        if (!problems.isEmpty()) {
+            throw new GradleException("Release build refused: ${problems.join('; ')}. Run `npx cap sync android` without SHELTUH_APP_URL, then build again (docs/mobile-app.md).")
+        }
+    }
+}
+
+// AGP runs pre<Variant>Build first for every variant: hook every release one.
+tasks.configureEach { task ->
+    if (task.name ==~ /pre\w*ReleaseBuild/) {
+        task.dependsOn(checkReleaseServerUrl)
+    }
+}

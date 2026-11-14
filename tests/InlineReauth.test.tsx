@@ -184,6 +184,21 @@ describe("InlineReauth — signing in with Google or Apple in a new tab", () => 
     ).toBeInTheDocument();
   });
 
+  it("in the phone app (new tabs open the phone's browser; no Google or Apple sign-in there yet), no link: says so", () => {
+    Object.defineProperty(window, "Capacitor", { value: { isNativePlatform: () => true }, configurable: true });
+    try {
+      mount(SIGNED_OUT);
+      expect(screen.queryByRole("link", { name: "Sign in in a new tab" })).toBeNull();
+      expect(
+        screen.getByText(
+          "Signed in with Google or Apple? That sign-in isn’t in the app yet, so it can’t reach this page. Copy anything you want to keep, then sign in on the Sheltüh website in your browser.",
+        ),
+      ).toBeInTheDocument();
+    } finally {
+      Reflect.deleteProperty(window, "Capacitor");
+    }
+  });
+
   it("says it's waiting once the link is used, in a polite live region, and clears it when the sign-in arrives", async () => {
     const { become, onSignedIn } = mount(SIGNED_OUT, { expected: OWNER });
     const live = screen.getByText((_, el) => el?.getAttribute("aria-live") === "polite");

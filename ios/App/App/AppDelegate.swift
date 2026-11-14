@@ -1,6 +1,28 @@
 import UIKit
 import Capacitor
 
+/// Keeps the WebView's website data (localStorage, and so the signed-in Supabase session) and
+/// cookies out of iCloud and computer backups, so restoring a backup on another phone doesn't
+/// restore the session (docs/mobile-app.md, "Storage and backups"). WebKit keeps them under
+/// Library/WebKit and Library/Cookies. Only folders that exist are marked: at first launch the
+/// WebView hasn't made them yet, so SceneDelegate runs this again when the app goes to the
+/// background. Not yet compiled or run on a device: see the checklist in docs/mobile-app.md.
+func excludeWebViewDataFromBackup() {
+    let fileManager = FileManager.default
+    guard let library = fileManager.urls(for: .libraryDirectory, in: .userDomainMask).first else { return }
+    for name in ["WebKit", "Cookies"] {
+        var folder = library.appendingPathComponent(name, isDirectory: true)
+        guard fileManager.fileExists(atPath: folder.path) else { continue }
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        do {
+            try folder.setResourceValues(values)
+        } catch {
+            CAPLog.print("Couldn't exclude \(name) from backups: \(error.localizedDescription)")
+        }
+    }
+}
+
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
 
@@ -8,6 +30,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // Override point for customization after application launch.
+        excludeWebViewDataFromBackup()
         return true
     }
 

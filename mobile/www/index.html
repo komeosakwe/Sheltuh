@@ -5,11 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#000000" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-hX9SJbXAhjdK0W+FXYqdzmUeDOyKnyVlTWVSrA3edvg='" />
-    <title>Can't reach Sheltüh</title>
+    <title>Sheltüh couldn't load</title>
     <!--
       The phone app's fallback page (docs/mobile-app.md). The app is the live
       site (capacitor.config.ts server.url); the native shell shows this page,
-      bundled in the app, when that site can't be loaded (server.errorPath).
+      bundled in the app, when that site can't be loaded (server.errorPath): no
+      connection, the site down, or (Android) a WebView too old for the app.
       Self-contained: no network requests, no other files. On Android it has no
       access to Capacitor plugins (Capacitor's docs). The script's hash is in
       the Content-Security-Policy above: change the script, update the hash
@@ -100,12 +101,15 @@
   <body>
     <header>Sheltüh</header>
     <main id="main">
-      <h1>Can&rsquo;t reach Sheltüh</h1>
+      <h1>Sheltüh couldn&rsquo;t load</h1>
       <p>
-        Sheltüh needs an internet connection. Check your Wi-Fi or mobile data, then try again.
+        Something stopped Sheltüh from loading. Check your Wi-Fi or mobile data, then try again.
       </p>
       <button type="button" id="retry" hidden>Try again</button>
-      <p id="reopen" class="muted">If it still doesn&rsquo;t load, close Sheltüh and open it again.</p>
+      <p id="reopen" class="muted">
+        If it still doesn&rsquo;t load, close Sheltüh and open it again. If that doesn&rsquo;t help, update the
+        app and Android System WebView (or iOS) from your phone&rsquo;s app store or settings.
+      </p>
       <p class="muted">
         Your ticket QR codes are also in your confirmation email.
       </p>

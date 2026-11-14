@@ -43,6 +43,8 @@ dependencies {
 }
 
 apply from: 'capacitor.build.gradle'
+// Release builds must open the production site (docs/mobile-app.md, "Release guard").
+apply from: 'release-guard.gradle'
 
 try {
     def servicesJSON = file('google-services.json')

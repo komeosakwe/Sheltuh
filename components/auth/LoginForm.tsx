@@ -9,7 +9,8 @@ import { ArrowRightIcon } from "@/components/home/icons";
 import { Button } from "@/components/ui/Button";
 import { track } from "@/lib/analytics";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { oauthProviderNames, offeredOAuthProviders } from "@/lib/auth/oauth";
+import { oauthProviderNames } from "@/lib/auth/oauth";
+import { useOfferedOAuthProviders } from "@/lib/auth/useOfferedOAuthProviders";
 import { DEFAULT_AFTER_SIGN_IN, safeNextPath, withNext } from "@/lib/safe-next-path";
 
 const FORM_ERROR_ID = "login-error";
@@ -50,7 +51,8 @@ export default function LoginForm({ next }: { next?: string } = {}) {
   const emailRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const focusAfterRender = useFocusAfterRender();
-  const providers = offeredOAuthProviders(auth.configured);
+  // The buttons this page shows (none inside the phone app), so the hints never point at a missing one.
+  const { providers } = useOfferedOAuthProviders(auth.configured);
 
   if (!auth.configured) {
     return (

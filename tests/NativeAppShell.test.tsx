@@ -10,6 +10,7 @@ interface ShellOptions {
   currentPath(): string;
   navigate(path: string): void;
   goBack(): void;
+  closeOverlay(): boolean;
 }
 
 const stop = vi.fn<() => void>();
@@ -58,6 +59,14 @@ describe("NativeAppShell", () => {
     const back = vi.spyOn(window.history, "back").mockImplementation(() => {});
     options.goBack();
     expect(back).toHaveBeenCalledTimes(1);
+    // Wired to the page's dialogs and popovers (lib/mobile/close-overlay.ts): nothing open here.
+    expect(options.closeOverlay()).toBe(false);
+    const dialog = document.body.appendChild(document.createElement("dialog"));
+    dialog.setAttribute("open", "");
+    dialog.close = vi.fn(); // jsdom's <dialog> has no close()
+    expect(options.closeOverlay()).toBe(true);
+    expect(dialog.close).toHaveBeenCalledTimes(1);
+    dialog.remove();
   });
 
   it("stops the shell on unmount", async () => {

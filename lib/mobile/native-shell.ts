@@ -9,9 +9,10 @@ import { deepLinkPath } from "@/lib/mobile/deep-link";
  *
  * - A link that opens the app (App Link / Universal Link) shows that page,
  *   if it's one of ours (lib/mobile/deep-link.ts).
- * - Android's back button/gesture goes back through the pages visited in the
- *   app; on the first page it leaves the app the way Android 12+ does for any
- *   app (moved to the background, not closed).
+ * - Android's back button/gesture closes an open dialog or menu first; then it
+ *   goes back through the pages visited in the app; on the first page it
+ *   leaves the app the way Android 12+ does for any app (moved to the
+ *   background, not closed).
  */
 
 export interface NativeShellOptions {
@@ -23,6 +24,8 @@ export interface NativeShellOptions {
   navigate(path: string): void;
   /** One step back in the app's history (window.history.back). */
   goBack(): void;
+  /** Close the dialog or menu on top, if any (lib/mobile/close-overlay.ts); true if one was open. */
+  closeOverlay(): boolean;
 }
 
 /** Starts listening and resolves to a function that stops it. Nothing happens outside the app. */
@@ -40,6 +43,8 @@ export async function startNativeShell(options: NativeShellOptions): Promise<() 
   if (Capacitor.getPlatform() === "android") {
     pending.push(
       App.addListener("backButton", ({ canGoBack }) => {
+        // An open dialog or menu closes first, as Escape does in a browser.
+        if (options.closeOverlay()) return;
         if (canGoBack) {
           options.goBack();
           return;

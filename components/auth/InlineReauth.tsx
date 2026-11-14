@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { sameAccount, type AccountRef } from "@/lib/auth/account";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { oauthProviderNames, offeredOAuthProviders } from "@/lib/auth/oauth";
+import { useNativeApp } from "@/lib/mobile/use-native-app";
 import { isIosHomeScreenApp } from "@/lib/pwa/install";
 import { withNext } from "@/lib/safe-next-path";
 
@@ -84,6 +85,8 @@ interface Props {
  * password sign-in here decides for itself, and if it's the wrong account
  * signs out this browser only (`"local"`). Not in the iOS home-screen app:
  * its new tabs open in Safari, which has its own storage, so it says so.
+ * Nor in the phone app (docs/mobile-app.md), whose new tabs open the phone's
+ * browser and which has no Google or Apple sign-in yet.
  */
 export default function InlineReauth({ expectedAccount, onSignedIn }: Props) {
   const auth = useAuth();
@@ -99,6 +102,8 @@ export default function InlineReauth({ expectedAccount, onSignedIn }: Props) {
   const focusAfterRender = useFocusAfterRender();
   const providers = offeredOAuthProviders(auth.configured);
   const iosApp = useIosHomeScreenApp();
+  // The phone app: a new tab opens the phone's browser, apart from the app (docs/mobile-app.md).
+  const nativeApp = useNativeApp();
   const [waiting, setWaiting] = useState(false);
   const lockedEmail = expectedAccount?.email;
 
@@ -245,7 +250,13 @@ export default function InlineReauth({ expectedAccount, onSignedIn }: Props) {
         {loading ? "Signing in…" : "Sign in"}
       </Button>
       {providers.length > 0 &&
-        (iosApp ? (
+        (nativeApp ? (
+          <p className="text-xs leading-4 text-muted">
+            Signed in with {oauthProviderNames(providers, ["google", "apple"])}? That sign-in isn&rsquo;t in the app yet,
+            so it can&rsquo;t reach this page. Copy anything you want to keep, then sign in on the Sheltüh website in your
+            browser.
+          </p>
+        ) : iosApp ? (
           <p className="text-xs leading-4 text-muted">
             Signed in with {oauthProviderNames(providers, ["google", "apple"])}? In the home-screen app, that sign-in
             can&rsquo;t reach this page. Copy anything you want to keep, then sign in again with Sign in, at the top of the

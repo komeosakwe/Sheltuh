@@ -21,4 +21,9 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
         SceneDelegateProxy.shared.scene(scene, continue: userActivity)
     }
+
+    // With scenes, UIKit calls this instead of the app delegate's applicationDidEnterBackground.
+    func sceneDidEnterBackground(_ scene: UIScene) {
+        excludeWebViewDataFromBackup()
+    }
 }

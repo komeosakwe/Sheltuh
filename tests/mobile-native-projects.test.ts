@@ -66,6 +66,32 @@ describe("Android project", () => {
     expect(manifest).not.toContain("usesCleartextTraffic");
   });
 
+  it("keeps the site's own HTTP error pages: only network failures show the bundled page", () => {
+    const activity = read("android/app/src/main/java/au/com/sheltuh/app/MainActivity.java");
+    expect(activity).toContain("bridge.setWebViewClient(new SiteErrorPagesClient(bridge))");
+    expect(activity).toMatch(/class SiteErrorPagesClient extends BridgeWebViewClient/);
+    // HTTP errors reach Capacitor's handler as not-main-frame, so it never loads errorPath for them.
+    expect(activity).toContain("super.onReceivedHttpError(view, new NotMainFrame(request), errorResponse);");
+    expect(activity).toMatch(/public boolean isForMainFrame\(\) \{\s*return false;/);
+    // Network failures (onReceivedError) keep Capacitor's behaviour: the bundled page.
+    expect(activity).not.toContain("onReceivedError(");
+  });
+
+  it("can't have its task joined by another app's activity", () => {
+    expect(manifest).toMatch(/android:name="\.MainActivity"[\s\S]*?android:taskAffinity=""/);
+  });
+
+  it("refuses release builds that don't open the production site", () => {
+    expect(read("android/app/build.gradle")).toContain("apply from: 'release-guard.gradle'");
+    const guard = read("android/app/release-guard.gradle");
+    expect(guard).toContain(`def EXPECTED_SERVER_URL = '${DEFAULT_APP_SERVER_URL}'`);
+    expect(guard).toContain("def syncedConfig = file('src/main/assets/capacitor.config.json')");
+    for (const check of ["server.url != EXPECTED_SERVER_URL", "server.cleartext", "server.allowNavigation", "webContentsDebuggingEnabled"]) {
+      expect(guard).toContain(check);
+    }
+    expect(guard).toMatch(/task\.name ==~ \/pre\\w\*ReleaseBuild\//);
+  });
+
   it("has the brand icon's orange behind the adaptive icon", () => {
     expect(read("android/app/src/main/res/values/ic_launcher_background.xml")).toContain(
       '<color name="ic_launcher_background">#FF4800</color>',
@@ -89,6 +115,15 @@ describe("iOS project", () => {
     expect(plist).toMatch(/<key>UIViewControllerBasedStatusBarAppearance<\/key>\s*<true\/>/);
   });
 
+  it("keeps the WebView's data (the session) out of backups, at launch and on going to the background", () => {
+    const appDelegate = read("ios/App/App/AppDelegate.swift");
+    expect(appDelegate).toMatch(/func excludeWebViewDataFromBackup\(\)/);
+    expect(appDelegate).toContain('for name in ["WebKit", "Cookies"]');
+    expect(appDelegate).toContain("values.isExcludedFromBackup = true");
+    expect(appDelegate).toMatch(/didFinishLaunchingWithOptions[\s\S]*?excludeWebViewDataFromBackup\(\)[\s\S]*?return true/);
+    expect(read("ios/App/App/SceneDelegate.swift")).toMatch(/func sceneDidEnterBackground\(_ scene: UIScene\) \{\s*excludeWebViewDataFromBackup\(\)/);
+  });
+
   it("has an opaque 1024px icon (iOS fills transparency with black)", async () => {
     const meta = await sharp(path.join(ROOT, "ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png")).metadata();
     expect([meta.width, meta.height, meta.hasAlpha]).toEqual([1024, 1024, false]);
@@ -98,7 +133,19 @@ describe("iOS project", () => {
 describe(".gitignore", () => {
   const lines = new Set(read(".gitignore").split(/\r?\n/).map((line) => line.trim()));
 
-  it.each(["*.jks", "*.keystore", "*.p12", "*.mobileprovision", "/android/local.properties", "*.apk", "*.aab", "*.ipa"])(
+  it.each([
+    "*.jks",
+    "*.keystore",
+    "*.p12",
+    "*.mobileprovision",
+    "key.properties",
+    "*service-account*.json",
+    "play-*.json",
+    "/android/local.properties",
+    "*.apk",
+    "*.aab",
+    "*.ipa",
+  ])(
     "never commits %s",
     (pattern) => {
       expect(lines.has(pattern)).toBe(true);

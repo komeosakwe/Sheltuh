@@ -18,13 +18,21 @@ vi.mock("@capacitor/core", () => ({ Capacitor: capacitor }));
 
 const { startNativeShell } = await import("@/lib/mobile/native-shell");
 
-function options(current = "/") {
+function options(current = "/", overlayOpen = false) {
   return {
     origin: "https://sheltuh.com.au",
     currentPath: vi.fn(() => current),
     navigate: vi.fn(),
     goBack: vi.fn(),
+    closeOverlay: vi.fn(() => overlayOpen),
   };
+}
+
+/** The listener the shell registered for `event`; fails the test if there's none. */
+function listener(event: string): Listener {
+  const found = listeners.get(event);
+  expect(found, `${event} listener`).toBeDefined();
+  return found as Listener;
 }
 
 beforeEach(() => {
@@ -42,7 +50,7 @@ describe("startNativeShell: deep links", () => {
   it("shows the page a link to our site opened the app with", async () => {
     const opts = options();
     await startNativeShell(opts);
-    listeners.get("appUrlOpen")?.({ url: "https://sheltuh.com.au/events/rooftop-jazz?ref=ig" });
+    listener("appUrlOpen")({ url: "https://sheltuh.com.au/events/rooftop-jazz?ref=ig" });
     expect(opts.navigate).toHaveBeenCalledWith("/events/rooftop-jazz?ref=ig");
   });
 
@@ -55,23 +63,40 @@ describe("startNativeShell: deep links", () => {
   ])("ignores %s", async (url) => {
     const opts = options();
     await startNativeShell(opts);
-    listeners.get("appUrlOpen")?.({ url });
+    listener("appUrlOpen")({ url });
+    expect(opts.navigate).not.toHaveBeenCalled();
+  });
+
+  it("ignores a link the deep-link rules exclude (the calendar file), staying put", async () => {
+    const opts = options();
+    await startNativeShell(opts);
+    listener("appUrlOpen")({ url: "https://sheltuh.com.au/events/rooftop-jazz/calendar.ics" });
     expect(opts.navigate).not.toHaveBeenCalled();
   });
 
   it("doesn't navigate again to the page already on screen", async () => {
     const opts = options("/events/x");
     await startNativeShell(opts);
-    listeners.get("appUrlOpen")?.({ url: "https://sheltuh.com.au/events/x" });
+    listener("appUrlOpen")({ url: "https://sheltuh.com.au/events/x" });
     expect(opts.navigate).not.toHaveBeenCalled();
   });
 });
 
 describe("startNativeShell: Android back button", () => {
+  it("closes an open dialog or menu first, without going back or leaving", async () => {
+    const opts = options("/", true);
+    await startNativeShell(opts);
+    listener("backButton")({ canGoBack: true });
+    listener("backButton")({ canGoBack: false });
+    expect(opts.closeOverlay).toHaveBeenCalledTimes(2);
+    expect(opts.goBack).not.toHaveBeenCalled();
+    expect(app.minimizeApp).not.toHaveBeenCalled();
+  });
+
   it("goes back when there's somewhere to go back to", async () => {
     const opts = options();
     await startNativeShell(opts);
-    listeners.get("backButton")?.({ canGoBack: true });
+    listener("backButton")({ canGoBack: true });
     expect(opts.goBack).toHaveBeenCalledTimes(1);
     expect(app.minimizeApp).not.toHaveBeenCalled();
   });
@@ -79,7 +104,7 @@ describe("startNativeShell: Android back button", () => {
   it("leaves the app (to the background, as Android 12+ does) on the first page", async () => {
     const opts = options();
     await startNativeShell(opts);
-    listeners.get("backButton")?.({ canGoBack: false });
+    listener("backButton")({ canGoBack: false });
     expect(opts.goBack).not.toHaveBeenCalled();
     expect(app.minimizeApp).toHaveBeenCalledTimes(1);
     expect(app.exitApp).not.toHaveBeenCalled();

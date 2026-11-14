@@ -1020,6 +1020,17 @@ Git → Ignored Build Step. GitHub Actions CI is unaffected.
        `docs/wallet-setup.md`. The private keys are secrets: never commit
        them, and revoke them (Google: delete the service account key; Apple:
        revoke the Pass Type ID certificate) if they may have leaked.
+       Optional: the phone app's deep links (`docs/mobile-app.md`, "Deep
+       links"), server-only, **Production only** (a debug key's fingerprint
+       only on a preview). Each verification file turns itself on after a
+       redeploy once both its variables are set and valid, and 404s until
+       then. Android (`/.well-known/assetlinks.json`):
+       `ANDROID_APP_PACKAGE_NAME` (`au.com.sheltuh.app`),
+       `ANDROID_APP_CERT_FINGERPRINTS` (SHA-256, comma-separated). iOS
+       (`/.well-known/apple-app-site-association`, needs the Apple
+       Developer Program): `IOS_APP_TEAM_ID`, `IOS_APP_BUNDLE_ID`
+       (`au.com.sheltuh.app`). The values are public, not secrets; never
+       prefix them with `NEXT_PUBLIC_`.
 2. [ ] Region: `vercel.json` pins functions to **Sydney (syd1)**
        (`"regions": ["syd1"]`), next to the database (`supabase-setup.md`
        §4). After the first deploy, check Settings → Functions shows syd1
