@@ -170,7 +170,18 @@ test.describe("/checkout/pay Content Security Policy (Report-Only)", () => {
 });
 
 test.describe("other pages don't get the payment page's policy", () => {
-  for (const path of ["/", "/events/neon-static", `/checkout/success?session_id=${ORDER_ID}`, "/checkout/confirm"]) {
+  // The email auth pages too: with Cloudflare Turnstile on (NEXT_PUBLIC_TURNSTILE_SITE_KEY), its script and
+  // iframe (https://challenges.cloudflare.com) load there, and this policy doesn't restrict either.
+  for (const path of [
+    "/",
+    "/events/neon-static",
+    `/checkout/success?session_id=${ORDER_ID}`,
+    "/checkout/confirm",
+    "/login",
+    "/signup",
+    "/forgot-password",
+    "/verify",
+  ]) {
     test(`${path}: only the site-wide frame-ancestors policy`, async ({ page }) => {
       await mockApi(page);
       const response = await page.request.get(path, { maxRedirects: 0 });

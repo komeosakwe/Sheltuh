@@ -3,10 +3,12 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
 import AuthField, { fieldsForAuthError, useFocusAfterRender, type AuthErrorField } from "@/components/auth/AuthField";
+import HumanCheckField from "@/components/auth/HumanCheckField";
 import { Button } from "@/components/ui/Button";
 import { sameAccount, type AccountRef } from "@/lib/auth/account";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { oauthProviderNames, offeredOAuthProviders } from "@/lib/auth/oauth";
+import { useHumanCheck } from "@/lib/auth/useHumanCheck";
 import { isIosHomeScreenApp } from "@/lib/pwa/install";
 import { withNext } from "@/lib/safe-next-path";
 
@@ -101,6 +103,7 @@ export default function InlineReauth({ expectedAccount, onSignedIn }: Props) {
   const iosApp = useIosHomeScreenApp();
   const [waiting, setWaiting] = useState(false);
   const lockedEmail = expectedAccount?.email;
+  const humanCheck = useHumanCheck("reauth");
 
   const live: AccountRef | undefined =
     auth.status === "signed-in" ? { userId: auth.userId, email: auth.email } : undefined;
@@ -156,7 +159,7 @@ export default function InlineReauth({ expectedAccount, onSignedIn }: Props) {
     setLoading(true);
     passwordAttempt.current = true;
     try {
-      await auth.signIn(email, password);
+      await auth.signIn(email, password, await humanCheck.getToken());
       if (expectedAccount && lockedEmail !== undefined && !sameAccount({ email }, { email: lockedEmail })) {
         // Signed in here, as the wrong account: this browser only, never the account's other devices.
         auth.signOut("local");
@@ -176,6 +179,8 @@ export default function InlineReauth({ expectedAccount, onSignedIn }: Props) {
       if (editable.includes("email")) focusAfterRender(emailRef.current);
       else if (editable.includes("password")) focusAfterRender(passwordRef.current);
     } finally {
+      // The token is used up either way.
+      humanCheck.reset();
       passwordAttempt.current = false;
       setLoading(false);
     }
@@ -244,6 +249,7 @@ export default function InlineReauth({ expectedAccount, onSignedIn }: Props) {
       <Button onClick={handleSignIn} busy={loading} className="w-fit">
         {loading ? "Signing in…" : "Sign in"}
       </Button>
+      <HumanCheckField check={humanCheck} compact />
       {providers.length > 0 &&
         (iosApp ? (
           <p className="text-xs leading-4 text-muted">

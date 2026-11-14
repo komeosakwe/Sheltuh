@@ -63,7 +63,7 @@ async function signInWith(next: string | undefined) {
   fireEvent.change(screen.getByLabelText("Password"), { target: { value: "hunter22" } });
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   await waitFor(() => expect(push).toHaveBeenCalledTimes(1));
-  expect(auth.signIn).toHaveBeenCalledWith("mia@example.com", "hunter22");
+  expect(auth.signIn).toHaveBeenCalledWith("mia@example.com", "hunter22", undefined);
   return push.mock.calls[0][0];
 }
 

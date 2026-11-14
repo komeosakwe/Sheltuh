@@ -4,9 +4,11 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useRef, useState, type FormEvent } from "react";
 import AuthField, { fieldsForAuthError, useFocusAfterRender, type AuthErrorField } from "@/components/auth/AuthField";
+import HumanCheckField from "@/components/auth/HumanCheckField";
 import { Button } from "@/components/ui/Button";
 import { track } from "@/lib/analytics";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { useHumanCheck } from "@/lib/auth/useHumanCheck";
 import { DEFAULT_AFTER_SIGN_IN, safeNextPath, withNext } from "@/lib/safe-next-path";
 
 const FORM_ERROR_ID = "verify-error";
@@ -34,6 +36,8 @@ export default function VerifyForm() {
   const emailRef = useRef<HTMLInputElement>(null);
   const codeRef = useRef<HTMLInputElement>(null);
   const focusAfterRender = useFocusAfterRender();
+  // For "Resend code" only: confirming the code (verifyOtp) isn't guarded.
+  const humanCheck = useHumanCheck("resend-code");
 
   if (!auth.configured) {
     return (
@@ -92,11 +96,13 @@ export default function VerifyForm() {
     setFieldErrors({});
     setResending(true);
     try {
-      await auth.resendConfirmationCode(email.trim());
+      await auth.resendConfirmationCode(email.trim(), await humanCheck.getToken());
       setResendMessage("New code sent.");
     } catch (err) {
       showServerError(err instanceof Error ? err.message : "Couldn't resend the code.", ["email"]);
     } finally {
+      // The token is used up either way.
+      humanCheck.reset();
       setResending(false);
     }
   }
@@ -157,6 +163,7 @@ export default function VerifyForm() {
           {resending ? "Sending…" : "Resend code"}
         </button>
       </div>
+      <HumanCheckField check={humanCheck} />
 
       <p className="text-sm text-muted">
         <Link href={withNext("/login", next)} className="text-accent underline underline-offset-2">

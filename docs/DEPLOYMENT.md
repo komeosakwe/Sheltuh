@@ -714,6 +714,21 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
     is deleted 90 days after it was accepted, withdrawn or expired. Review
     the invite email's wording alongside the Privacy Policy and, once
     drafted, link the Organiser Agreement from it.
+  - Human check (Cloudflare Turnstile; `architecture.md`, "Human check"):
+    once `NEXT_PUBLIC_TURNSTILE_SITE_KEY` is set, Cloudflare's script runs
+    on the email sign-in, sign-up, password reset and verify pages (and the
+    "signed out, sign in again" box) and collects browser and device signals
+    to tell people from bots. **List Cloudflare as a service provider
+    (processor) in the Privacy Policy**, with what it collects and why, and
+    link its Turnstile privacy notice. Not drafted yet: owner's legal to-do.
+    The forms already say "Protected by Cloudflare Turnstile" with that link.
+- [ ] **Human check on email sign-in** (optional; Cloudflare Turnstile; off
+      until the key is set; `supabase-setup.md` §1, "Human check on email
+      sign-in", and `architecture.md`, "Human check"). **In this order**:
+      the Cloudflare widget, then the Vercel key and a redeploy, and only
+      then Supabase's CAPTCHA setting. Turning Supabase's on first locks
+      everyone out of email sign-in, sign-up, password reset and "Resend
+      code".
 - [ ] **Google and Apple sign-in** (optional; off until the flag is set;
       `supabase-setup.md` §1, "Sign in with Google and Apple", and
       `architecture.md`, same section). In order:

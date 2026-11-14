@@ -4,11 +4,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState, type FormEvent } from "react";
 import AuthField, { fieldsForAuthError, useFocusAfterRender, type AuthErrorField } from "@/components/auth/AuthField";
+import HumanCheckField from "@/components/auth/HumanCheckField";
 import LegalNote from "@/components/auth/LegalNote";
 import PasswordField from "@/components/auth/PasswordField";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { emailError, passwordError } from "@/lib/auth/password-rules";
+import { useHumanCheck } from "@/lib/auth/useHumanCheck";
 import { withNext } from "@/lib/safe-next-path";
 
 const FORM_ERROR_ID = "signup-error";
@@ -34,6 +36,7 @@ export default function SignupForm({ next }: { next?: string } = {}) {
   const emailRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const focusAfterRender = useFocusAfterRender();
+  const humanCheck = useHumanCheck("sign-up");
 
   if (!auth.configured) {
     return (
@@ -77,7 +80,7 @@ export default function SignupForm({ next }: { next?: string } = {}) {
 
     setLoading(true);
     try {
-      await auth.signUp(email.trim(), password);
+      await auth.signUp(email.trim(), password, await humanCheck.getToken());
       router.push(withNext("/verify", next, { email: email.trim() }));
     } catch (err) {
       const message = err instanceof Error ? err.message : "Couldn't sign up.";
@@ -87,6 +90,8 @@ export default function SignupForm({ next }: { next?: string } = {}) {
       if (fields.includes("email")) focusAfterRender(emailRef.current);
       else if (fields.includes("password")) focusAfterRender(passwordRef.current);
     } finally {
+      // The token is used up either way.
+      humanCheck.reset();
       setLoading(false);
     }
   }
@@ -142,6 +147,7 @@ export default function SignupForm({ next }: { next?: string } = {}) {
       <Button type="submit" variant="signal" busy={loading} className="w-full">
         {loading ? "Creating account…" : "Sign up"}
       </Button>
+      <HumanCheckField check={humanCheck} />
 
       <p className="text-sm text-muted">
         Already have an account?{" "}

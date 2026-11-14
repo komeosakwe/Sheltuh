@@ -337,7 +337,7 @@ describe("ForgotPasswordForm", () => {
     fireEvent.change(email, { target: { value: "mia@example.com" } });
     fireEvent.click(screen.getByRole("button", { name: "Send reset code" }));
     const code = await screen.findByLabelText("Reset code");
-    expect(auth.forgotPassword).toHaveBeenCalledWith("mia@example.com");
+    expect(auth.forgotPassword).toHaveBeenCalledWith("mia@example.com", undefined);
 
     fireEvent.click(screen.getByRole("button", { name: "Reset password" }));
     await waitFor(() => expect(document.activeElement).toBe(code));
@@ -414,6 +414,9 @@ describe("fieldsForAuthError", () => {
     ["Email not confirmed", ["email"]],
     ["Failed to fetch", []],
     ["Email rate limit exceeded", []],
+    // A refused CAPTCHA token (lib/auth/turnstile.ts) is about no field, whatever the form.
+    ["Couldn’t confirm you’re human. Try again.", []],
+    ["captcha protection: request disallowed (timeout-or-duplicate)", []],
   ])("%s → %j", (message, fields) => {
     expect(fieldsForAuthError(message, ["email"])).toEqual(fields);
   });
