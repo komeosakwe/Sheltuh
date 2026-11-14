@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ForgotPasswordForm from "@/components/auth/ForgotPasswordForm";
+import HumanCheckField from "@/components/auth/HumanCheckField";
 import InlineReauth from "@/components/auth/InlineReauth";
 import LoginForm from "@/components/auth/LoginForm";
 import SignupForm from "@/components/auth/SignupForm";
@@ -16,7 +17,7 @@ import {
   type TurnstileApi,
   type TurnstileRenderOptions,
 } from "@/lib/auth/turnstile";
-import { HUMAN_CHECK_WAIT_MS } from "@/lib/auth/useHumanCheck";
+import { HUMAN_CHECK_WAIT_MS, useHumanCheck, type HumanCheck } from "@/lib/auth/useHumanCheck";
 import { applyTheme } from "@/lib/theme";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 
@@ -428,21 +429,33 @@ describe("Turnstile on", () => {
     expect(turnstile.api.remove).toHaveBeenCalledWith("widget-1");
   });
 
-  it("verify: Resend code passes the token; Verify email (not guarded) is unchanged", async () => {
+  it("verify: nothing from Cloudflare until Resend code is pressed; Verify email (not guarded) never loads it", async () => {
     searchParams = new URLSearchParams({ email: "mia@example.com" });
-    const turnstile = fakeTurnstile();
     const auth = renderWith(<VerifyForm />);
-    await loadScript(turnstile.api);
-    expect(turnstile.last().options.action).toBe("resend-code");
-    turnstile.pass("token-resend");
-    fireEvent.click(screen.getByRole("button", { name: "Resend code" }));
-    expect(await screen.findByText("New code sent.")).toBeInTheDocument();
-    expect(auth.resendConfirmationCode).toHaveBeenCalledWith("mia@example.com", "token-resend");
-    expect(turnstile.api.reset).toHaveBeenCalledWith("widget-1");
+    expect(scripts()).toEqual([]);
+    expect(screen.queryByRole("group", { name: /human check/i })).toBeNull();
+    expect(screen.queryByText(/Cloudflare/)).toBeNull();
 
     fireEvent.change(screen.getByLabelText("Verification code"), { target: { value: "123456" } });
     fireEvent.click(screen.getByRole("button", { name: "Verify email" }));
     await waitFor(() => expect(auth.confirmSignUp).toHaveBeenCalledWith("mia@example.com", "123456"));
+    expect(scripts()).toEqual([]);
+  });
+
+  it("verify: Resend code adds the widget, waits for its token, passes it, and resets after", async () => {
+    searchParams = new URLSearchParams({ email: "mia@example.com" });
+    const turnstile = fakeTurnstile();
+    const auth = renderWith(<VerifyForm />);
+    fireEvent.click(screen.getByRole("button", { name: "Resend code" }));
+    await waitFor(() => expect(scripts()).toHaveLength(1));
+    expect(screen.getByRole("group", { name: "Human check (Cloudflare Turnstile)" })).toBeInTheDocument();
+    await loadScript(turnstile.api);
+    expect(turnstile.last().options.action).toBe("resend-code");
+    expect(auth.resendConfirmationCode).not.toHaveBeenCalled();
+    turnstile.pass("token-resend");
+    expect(await screen.findByText("New code sent.")).toBeInTheDocument();
+    expect(auth.resendConfirmationCode).toHaveBeenCalledWith("mia@example.com", "token-resend");
+    expect(turnstile.api.reset).toHaveBeenCalledWith("widget-1");
   });
 
   it("inline sign-in (expired session) passes the token, and resets after", async () => {
@@ -457,6 +470,36 @@ describe("Turnstile on", () => {
     await waitFor(() => expect(onSignedIn).toHaveBeenCalledTimes(1));
     expect(auth.signIn).toHaveBeenCalledWith("me@example.com", "hunter2", "token-reauth");
     expect(turnstile.api.reset).toHaveBeenCalledWith("widget-1");
+  });
+
+  it("a token is handed out once: a second request waits for Turnstile's next one", async () => {
+    const turnstile = fakeTurnstile();
+    const seen: (string | undefined)[] = [];
+    let check: HumanCheck | undefined;
+    function Harness() {
+      check = useHumanCheck("sign-in");
+      return <HumanCheckField check={check} />;
+    }
+    render(<Harness />);
+    await loadScript(turnstile.api);
+    turnstile.pass("token-once");
+    const use = () => check?.getToken().then((token) => seen.push(token));
+    await act(async () => {
+      await use();
+    });
+    expect(seen).toEqual(["token-once"]);
+    // No reset in between, and Turnstile hasn't issued another: the second waits.
+    let second: Promise<unknown> | undefined;
+    act(() => {
+      second = use();
+    });
+    await waitFor(() => expect(status()).toHaveTextContent("Checking you’re human…"));
+    expect(seen).toEqual(["token-once"]);
+    turnstile.pass("token-next");
+    await act(async () => {
+      await second;
+    });
+    expect(seen).toEqual(["token-once", "token-next"]);
   });
 
   it("the widget is removed when its form goes", async () => {

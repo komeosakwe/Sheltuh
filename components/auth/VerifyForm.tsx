@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import AuthField, { fieldsForAuthError, useFocusAfterRender, type AuthErrorField } from "@/components/auth/AuthField";
 import HumanCheckField from "@/components/auth/HumanCheckField";
 import { Button } from "@/components/ui/Button";
@@ -18,6 +18,14 @@ const FORM_ERROR_ID = "verify-error";
  * to the first invalid field, which is marked and described by its error.
  * "Resend code" stays focusable while it sends (busy, not disabled), and asks
  * for the email if it's empty rather than being disabled without saying why.
+ *
+ * The `?email=` sign-up and sign-in send here with is read once, into the
+ * field, and taken out of the address bar (history.replaceState, which Next
+ * syncs with useSearchParams), so the address isn't left in the URL, history
+ * or a copied link. `next` stays.
+ *
+ * Cloudflare Turnstile (lib/auth/useHumanCheck.ts) guards only "Resend code",
+ * so its widget (and Cloudflare's script) is added only once that's pressed.
  */
 export default function VerifyForm() {
   const auth = useAuth();
@@ -38,6 +46,17 @@ export default function VerifyForm() {
   const focusAfterRender = useFocusAfterRender();
   // For "Resend code" only: confirming the code (verifyOtp) isn't guarded.
   const humanCheck = useHumanCheck("resend-code");
+  // The widget is rendered (and Cloudflare's script loaded) from the first "Resend code" on.
+  const [checkShown, setCheckShown] = useState(false);
+
+  // Once read into the field, the email leaves the address bar.
+  const emailInUrl = searchParams.has("email");
+  useEffect(() => {
+    if (!emailInUrl) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("email");
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  }, [emailInUrl]);
 
   if (!auth.configured) {
     return (
@@ -95,6 +114,7 @@ export default function VerifyForm() {
     }
     setFieldErrors({});
     setResending(true);
+    setCheckShown(true);
     try {
       await auth.resendConfirmationCode(email.trim(), await humanCheck.getToken());
       setResendMessage("New code sent.");
@@ -163,7 +183,7 @@ export default function VerifyForm() {
           {resending ? "Sending…" : "Resend code"}
         </button>
       </div>
-      <HumanCheckField check={humanCheck} />
+      {checkShown && <HumanCheckField check={humanCheck} />}
 
       <p className="text-sm text-muted">
         <Link href={withNext("/login", next)} className="text-accent underline underline-offset-2">

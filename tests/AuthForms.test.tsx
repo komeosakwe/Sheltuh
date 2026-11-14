@@ -274,6 +274,38 @@ describe("SignupForm", () => {
 });
 
 describe("VerifyForm", () => {
+  it("reads ?email= into the field, then takes it out of the address bar, keeping next and the fragment", async () => {
+    const before = window.location.href;
+    window.history.replaceState(null, "", "/verify?email=mia%40example.com&next=%2Fevents%2Fneon-static#code");
+    try {
+      searchParams = new URLSearchParams("email=mia%40example.com&next=%2Fevents%2Fneon-static");
+      renderWith(<VerifyForm />);
+      expect(screen.getByLabelText("Email")).toHaveValue("mia@example.com");
+      await waitFor(() => expect(window.location.search).toBe("?next=%2Fevents%2Fneon-static"));
+      expect(window.location.pathname).toBe("/verify");
+      expect(window.location.hash).toBe("#code");
+      expect(window.location.href).not.toContain("mia");
+      // Still in the field after the address changed.
+      expect(screen.getByLabelText("Email")).toHaveValue("mia@example.com");
+    } finally {
+      window.history.replaceState(null, "", before);
+    }
+  });
+
+  it("leaves an address without ?email= alone", () => {
+    const before = window.location.href;
+    window.history.replaceState(null, "", "/verify?next=%2Faccount");
+    const replace = vi.spyOn(window.history, "replaceState");
+    try {
+      searchParams = new URLSearchParams("next=%2Faccount");
+      renderWith(<VerifyForm />);
+      expect(replace).not.toHaveBeenCalled();
+    } finally {
+      replace.mockRestore();
+      window.history.replaceState(null, "", before);
+    }
+  });
+
   it("asks for the code before calling Supabase", async () => {
     searchParams = new URLSearchParams("email=mia%40example.com");
     const auth = renderWith(<VerifyForm />);

@@ -21,7 +21,8 @@ export interface HumanCheck {
   /** NEXT_PUBLIC_TURNSTILE_SITE_KEY is set. Off: getToken resolves undefined at once and nothing is loaded. */
   enabled: boolean;
   /**
-   * A token for the next Supabase call, waiting for one if Cloudflare is
+   * A token for the next Supabase call, handed out once (it's single use: a
+   * second call waits for Turnstile's next one, after `reset`), waiting for one if Cloudflare is
    * still checking (HUMAN_CHECK_WAIT_MS, longer while the widget asks for a
    * tap). Resolves undefined, never rejects, when it's off or no token can be
    * had: the request is then sent without one and Supabase decides (it
@@ -160,9 +161,16 @@ export function useHumanCheck(action: HumanCheckAction): HumanCheck {
     else if (was === "load-failed") setLoadAttempt((n) => n + 1);
   }, [report]);
 
+  /** The current token, which is then no longer held: single use. */
+  const takeToken = useCallback((): string | undefined => {
+    const value = token.current ?? undefined;
+    token.current = null;
+    return value;
+  }, []);
+
   const getToken = useCallback((): Promise<string | undefined> => {
     if (!siteKey) return Promise.resolve(undefined);
-    if (token.current) return Promise.resolve(token.current);
+    if (token.current) return Promise.resolve(takeToken());
     if (problemNow.current === "unsupported") return Promise.resolve(undefined);
     // A failed check (or script) gets another go for this submit.
     if (problemNow.current) reset();
@@ -181,14 +189,17 @@ export function useHumanCheck(action: HumanCheckAction): HumanCheck {
         timer = interactiveNow.current ? undefined : setTimeout(() => finish(undefined), HUMAN_CHECK_WAIT_MS);
       };
       const waiter = (reason: WakeReason) => {
-        if (reason === "token") finish(token.current ?? undefined);
-        else if (reason === "problem") finish(undefined);
+        if (reason === "token") {
+          // Another wait may have taken it: then keep waiting for the next.
+          const value = takeToken();
+          if (value) finish(value);
+        } else if (reason === "problem") finish(undefined);
         else arm();
       };
       waiters.current.add(waiter);
       arm();
     });
-  }, [siteKey, reset]);
+  }, [siteKey, reset, takeToken]);
 
   return {
     enabled: Boolean(siteKey),

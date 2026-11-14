@@ -60,13 +60,15 @@ for (const path of ["/login", "/signup", "/forgot-password", "/verify?email=mia%
   });
 }
 
-test("sign-up without a site key: Supabase gets no CAPTCHA token, and the account goes on to /verify", async ({ page }) => {
+test("sign-up without a site key: Supabase gets no CAPTCHA token, and /verify gets the email without keeping it in the URL", async ({ page }) => {
   const seen = await watch(page);
   await page.goto("/signup");
   await page.getByRole("textbox", { name: "Email" }).fill("mia@example.com");
   await page.getByLabel("Password", { exact: true }).fill("Hunter22x!");
   await page.getByRole("button", { name: "Sign up" }).click();
-  await expect(page).toHaveURL(/\/verify\?/, { timeout: 30_000 });
+  // /verify reads ?email= into its field, then takes it out of the address bar.
+  await expect(page).toHaveURL(/\/verify$/, { timeout: 30_000 });
+  await expect(page.getByRole("textbox", { name: "Email" })).toHaveValue("mia@example.com");
   const signup = seen.auth.find((call) => call.path.startsWith(`${SUPABASE}/signup`));
   expect(signup?.body).toMatchObject({ email: "mia@example.com" });
   expect((signup?.body.gotrue_meta_security as Record<string, unknown> | undefined)?.captcha_token).toBeUndefined();

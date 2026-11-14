@@ -107,8 +107,31 @@ new code by email** until it's turned off again.
 3. **Only then: Supabase → Authentication → Attack Protection → Enable
    CAPTCHA protection** (older dashboards: Authentication → Settings → Bot
    and Abuse Protection). Provider **Turnstile by Cloudflare**, paste the
-   **secret key**, save. Then sign up, sign in, ask for a reset code and
-   resend a code on the live site once each.
+   **secret key**, save. Ideally do steps 1 to 3 first on a **test**
+   Supabase project with Cloudflare's test keys (below), then for real.
+   Straight after turning it on, on the live site, check each of these
+   once:
+   - sign up, then enter the emailed code;
+   - "Resend code" on the verify page;
+   - sign in with email and password;
+   - forgot password: ask for a code, then enter it with a new password;
+   - accept an account invite (`/invite` link from `/admin/invites`);
+   - sign in with Google and/or Apple, if they're on;
+   - leave a signed-in tab open for over an hour, then use it (the session
+     refreshes; refresh isn't guarded, so it should just work).
+
+   If any of these fails, turn Supabase's CAPTCHA protection off again
+   first, then investigate.
+
+**Keys and hostnames, never mixed up.**
+- **Never put Cloudflare's always-pass test secret
+  (`1x0000000000000000000000000000000AA`) in the production Supabase
+  project:** it accepts any token, which turns the protection off while
+  looking on.
+- In the widget's hostname list, use **exact hostnames** only
+  (`sheltuh.com.au`, `www.sheltuh.com.au`, a specific preview hostname).
+  **Never a shared parent domain such as `vercel.app`**: that lets anyone's
+  site on it use the widget.
 
 **Previews and local development.** Previews share the production Supabase
 project (`.env.example`), so after step 3, a preview built without the site

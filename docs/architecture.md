@@ -55,8 +55,11 @@ iframe served by Stripe), with the publishable key
   organisers and admins only, rate-limited; see "Venue location"). The
   browser itself loads only keyless or public-key resources: Stripe.js on
   the payment page (above), map tiles (Mapbox Streets with a public token,
-  else Esri: `docs/maps.md`), and a featured video's player
-  once it's clicked. No Google Maps script loads on our pages, and no
+  else Esri: `docs/maps.md`), a featured video's player
+  once it's clicked, and, when `NEXT_PUBLIC_TURNSTILE_SITE_KEY` is set,
+  Cloudflare Turnstile's script and frame on the email sign-in, sign-up,
+  password reset and "Resend code" forms (public site key; the secret is
+  only in Supabase; see "Human check"). No Google Maps script loads on our pages, and no
   Google Places content is shown on our maps, which stay Leaflet.
 - **The database enforces the rules that matter most.** Whatever the
   application code does:
@@ -5531,12 +5534,17 @@ lock-out warning: `supabase-setup.md`, "Human check on email sign-in".
 
 - **Loading.** Cloudflare's `api.js?render=explicit`, added once
   (`loadTurnstile`) when a guarded form is on the page, never from our
-  origin. Its iframe is Cloudflare's. A content security policy covers only
-  `/checkout/pay` (`proxy.ts`), which has no auth form; every other page has
-  just `frame-ancestors 'none'`, which doesn't restrict the script or the
-  iframe (`e2e/checkout-csp.spec.ts`). A future site-wide policy must allow
-  `https://challenges.cloudflare.com` in `script-src` and `frame-src`
-  (`TURNSTILE_ORIGIN`).
+  origin. Its iframe is Cloudflare's. On `/verify` it's added only once
+  "Resend code" is pressed (confirming the code isn't guarded), and the
+  page takes the `?email=` it was sent with out of the address bar once it's
+  in the field. Pages served on their own have no script policy, just
+  `frame-ancestors 'none'`, which doesn't restrict the script or the
+  iframe (`e2e/checkout-csp.spec.ts`). `/checkout/pay` has one (`proxy.ts`,
+  `lib/csp.ts`), and a policy stays with its document: after a client-side
+  navigation from there to `/login` (or to a page with an expired-session
+  sign-in box) the payment page's policy still applies. So it allows
+  `https://challenges.cloudflare.com` (`TURNSTILE_ORIGIN`) in `script-src`
+  and `frame-src`, and any future site-wide policy must too.
 - **The widget** (`useHumanCheck`, `HumanCheckField`, under the submit
   button): managed mode, `appearance: "interaction-only"` (invisible unless
   Cloudflare wants a tap), the site's Light or Dark theme (rendered again on
@@ -5573,6 +5581,14 @@ lock-out warning: `supabase-setup.md`, "Human check on email sign-in".
   and the real supabase-js client (`tests/HumanCheck.test.tsx`,
   `tests/AuthContextCaptcha.test.tsx`). Cloudflare's real widget is first
   exercised on the deployed site (`supabase-setup.md`, step 2).
+- **A third-party script on the password pages.** With the key set,
+  Cloudflare's `api.js` runs in our origin on the pages where people type
+  their password, as Stripe.js does on the payment page: a compromised
+  Cloudflare script could read what's typed. Accepted for the bot
+  protection, from a provider already trusted with the site's DNS. It's
+  never self-hosted or proxied (Cloudflare requires the live URL), and it
+  loads only on the guarded forms (and on `/verify` only after "Resend
+  code"), never site-wide.
 
 ## Wallet passes
 

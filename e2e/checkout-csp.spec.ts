@@ -107,7 +107,8 @@ test.describe("/checkout/pay Content Security Policy (Report-Only)", () => {
       "default-src 'self'",
       "'strict-dynamic'",
       "https://js.stripe.com",
-      "frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com https://checkout.stripe.com",
+      // Cloudflare Turnstile: the policy outlives a client-side navigation to /login's human check (lib/csp.ts).
+      "frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com https://checkout.stripe.com https://challenges.cloudflare.com",
       "connect-src 'self'",
       "object-src 'none'",
       "base-uri 'none'",
@@ -116,6 +117,7 @@ test.describe("/checkout/pay Content Security Policy (Report-Only)", () => {
       expect(policy).toContain(part);
     }
     expect(policy).toMatch(/script-src [^;]*'sha256-[A-Za-z0-9+/=]+'/);
+    expect(policy).toMatch(/script-src [^;]*https:\/\/challenges\.cloudflare\.com/);
 
     // Next put this request's nonce on its scripts (the page renders per request).
     const html = (await response?.text()) ?? "";
