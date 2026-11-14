@@ -36,7 +36,7 @@ describe("HomeHero (the proposal, redesign PR 3)", () => {
     render(<HomeHero />);
     const h1 = screen.getByRole("heading", { level: 1 });
     expect(h1).toHaveAccessibleName("Find your next thing.");
-    expect(h1).toHaveClass("font-display", "uppercase", "text-[2rem]", "md:display-m");
+    expect(h1).toHaveClass("font-display", "uppercase", "text-[2.625rem]", "md:display-m");
     const shown = h1.querySelector('[aria-hidden="true"]') as HTMLElement;
     expect(Array.from(shown.children).map((line) => line.textContent)).toEqual(["Find yoür", "next thing."]);
     for (const line of shown.children) expect(line).toHaveClass("lg:block");
@@ -56,6 +56,9 @@ describe("HomeHero (the proposal, redesign PR 3)", () => {
     const lede = container.querySelector("[data-home-lede]");
     expect(lede).toHaveTextContent(/^Curated creative events\. See who’s going\.$/);
     expect(lede).toHaveClass("text-muted");
+    // Medium at every width: no body-l at any breakpoint, whose weight 400 would win from 768px.
+    expect(lede).toHaveClass("font-medium");
+    expect(lede?.className).not.toMatch(/(^|\s)(md:|lg:)?body-l(\s|$)/);
     // The lede follows the h1 in reading order.
     const h1 = screen.getByRole("heading", { level: 1 });
     expect(h1.compareDocumentPosition(lede as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

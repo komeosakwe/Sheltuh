@@ -1,5 +1,5 @@
 import { requireCaller } from "../auth";
-import { createdPrivate, HttpError, noContentPrivate, okPrivate, readJson } from "../http";
+import { createdPrivate, HttpError, noContentPrivate, okPrivate, readJson, tooManyRequests, windowSeconds } from "../http";
 import { parseTarget } from "../message-input";
 import { decodeCursor, isUuid, parseLimit, toPage } from "../pagination";
 import { toBlock } from "../records";
@@ -92,9 +92,9 @@ export const createBlock: Handler = async (req, _params, { db, verifyAccessToken
     case "self":
       throw new HttpError(400, "You can't block yourself.");
     case "rate_limited":
-      throw new HttpError(
-        429,
+      throw tooManyRequests(
         "You've blocked a lot of members today. Try again tomorrow, or email support@sheltuh.com.au if someone is bothering you.",
+        windowSeconds(BLOCK_RATE_LIMIT.window),
       );
     default:
       throw new Error(`Unexpected create_block result: ${row.result}`);

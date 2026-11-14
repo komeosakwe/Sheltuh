@@ -1,5 +1,5 @@
 import { requireCaller } from "../auth";
-import { HttpError, okPrivate } from "../http";
+import { HttpError, okPrivate, tooManyRequests, windowSeconds } from "../http";
 import { encodeLogo, LOGO_UPLOAD_RATE_LIMIT, readLogoUpload } from "../organiser-logo";
 import { isUuid } from "../pagination";
 import { toOwnOrganiserView } from "../records";
@@ -45,7 +45,7 @@ export const putMyOrganiserLogo: Handler = async (req, _params, { db, verifyAcce
     `select private.take_rate_limit($1, 'organiser_logo_uploads', $2, $3::interval) as allowed`,
     [caller.userId, LOGO_UPLOAD_RATE_LIMIT.hits, LOGO_UPLOAD_RATE_LIMIT.window],
   );
-  if (!allowed) throw new HttpError(429, "You've changed your logo a lot today. Try again tomorrow.");
+  if (!allowed) throw tooManyRequests("You've changed your logo a lot today. Try again tomorrow.", windowSeconds(LOGO_UPLOAD_RATE_LIMIT.window));
 
   const { image, thumb } = await encodeLogo(await readLogoUpload(req));
 

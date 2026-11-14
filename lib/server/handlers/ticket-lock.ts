@@ -8,7 +8,7 @@
  */
 import type { TicketLockResult } from "@/lib/api/types";
 import { requireCaller } from "../auth";
-import { HttpError, okPrivate, readJson } from "../http";
+import { HttpError, okPrivate, readJson, tooManyRequests, windowSeconds } from "../http";
 import { isUuid } from "../pagination";
 import type { Handler } from "../route";
 import { fail } from "../validation";
@@ -85,7 +85,8 @@ export const setTicketLock: Handler<{ eventId: string; ticketTypeId: string }> =
     case "first_tier":
       fail({ opensAfterPrevious: "The first ticket has nothing above it to wait for." });
     case "rate_limited":
-      throw new HttpError(429, RATE_LIMITED);
+      // One answer for the account's hourly and the event's 24-hour limit: the longer.
+      throw tooManyRequests(RATE_LIMITED, Math.max(windowSeconds(LOCK_LIMIT.window), windowSeconds(EVENT_LOCK_LIMIT.window)));
   }
   throw new Error("set_ticket_lock returned an unknown result.");
 };

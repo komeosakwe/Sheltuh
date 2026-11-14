@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { requireCaller, requireVerifiedCaller } from "../auth";
 import type { Db } from "../db";
-import { createdPrivate, HttpError, noContentPrivate, okPrivate, readJson } from "../http";
+import { createdPrivate, HttpError, noContentPrivate, okPrivate, readJson, tooManyRequests, windowSeconds } from "../http";
 import { decodeCursor, isUuid, parseLimit, toPage } from "../pagination";
 import { EVENT_SELECT, toPublicEventFromRow } from "../records";
 import type { Handler } from "../route";
@@ -103,7 +103,7 @@ export const followOrganiser: Handler<{ organiserId: string }> = async (req, { o
     case "limit":
       throw new HttpError(409, `You're following ${FOLLOW_LIMITS.maxFollows} organisers, the most there can be. Unfollow some first.`);
     case "rate_limited":
-      throw new HttpError(429, "You've followed a lot of organisers in the last hour. Try again later.");
+      throw tooManyRequests("You've followed a lot of organisers in the last hour. Try again later.", windowSeconds(FOLLOW_LIMITS.newFollows.window));
     default:
       throw new Error(`Unexpected follow_organiser result: ${row.result}`);
   }

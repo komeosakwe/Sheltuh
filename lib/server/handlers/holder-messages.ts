@@ -22,7 +22,7 @@ import { containsEmailAddress, containsWebAddress } from "@/lib/contact-detail";
 import { requireAdmin, requireCaller } from "../auth";
 import type { Deps } from "../deps";
 import { sendHolderMessagesSoon } from "../email-outbox";
-import { createdPrivate, HttpError, okPrivate, readJson } from "../http";
+import { capReached, createdPrivate, HttpError, okPrivate, readJson, tooManyRequests, windowSeconds } from "../http";
 import { parseMessageText } from "../message-input";
 import { decodeCursor, isUuid, parseLimit, toPage } from "../pagination";
 import {
@@ -52,6 +52,8 @@ export const HOLDER_MESSAGE_LIMITS: HolderMessageLimits = {
 const AFTER_END = "2 days";
 /** Per organiser account (take_rate_limit bucket 'holder_messages'). */
 const ORGANISER_WINDOW = "24 hours";
+/** perEventPerDay counts the event's messages of the last 24 hours (rolling; private.send_holder_message). */
+const EVENT_DAY_WINDOW = "24 hours";
 /** Most messages an event's history lists (its total cap is 6, so this is never reached). */
 const HISTORY_LIMIT = 20;
 
@@ -168,7 +170,7 @@ export const getHolderMessages: Handler<{ eventId: string }> = async (req, { eve
 };
 
 /** A refusal the compose form can tell apart: `code` in the body (HolderMessageBlockReason, or `audience_changed`). */
-function refusal(status: 409 | 429, message: string, code: string, extra: Record<string, unknown> = {}): HttpError {
+function refusal(status: 409, message: string, code: string, extra: Record<string, unknown> = {}): HttpError {
   return new HttpError(status, message, undefined, { code, ...extra });
 }
 
@@ -254,11 +256,16 @@ export const sendHolderMessage: Handler<{ eventId: string }> = async (req, { eve
         audienceCount: row.out_audience,
       });
     case "event_day_cap":
-      throw refusal(429, "This event has sent its messages for today. Try again tomorrow.", "event_day_cap");
+      throw tooManyRequests("This event has sent its messages for today. Try again tomorrow.", windowSeconds(EVENT_DAY_WINDOW), undefined, {
+        code: "event_day_cap",
+      });
     case "event_total_cap":
-      throw refusal(429, "This event has used all of its messages.", "event_total_cap");
+      // A lifetime cap: no wait lifts it, so no Retry-After.
+      throw capReached("This event has used all of its messages.", undefined, { code: "event_total_cap" });
     case "rate_limited":
-      throw refusal(429, "You've sent a lot of messages today. Try again tomorrow.", "rate_limited");
+      throw tooManyRequests("You've sent a lot of messages today. Try again tomorrow.", windowSeconds(ORGANISER_WINDOW), undefined, {
+        code: "rate_limited",
+      });
   }
   throw new Error("send_holder_message returned an unknown result.");
 };

@@ -1,6 +1,6 @@
 import { getDeps, type Deps } from "./deps";
 import { redactForLog } from "./email-address";
-import { errorJson, HttpError } from "./http";
+import { DEFAULT_RETRY_AFTER_SECONDS, errorJson, HttpError, retryAfterHeader } from "./http";
 
 type Params = Record<string, string>;
 
@@ -17,9 +17,21 @@ export function errorMessageForLog(err: unknown): string {
 }
 
 /**
+ * An HttpError's response headers. A 429 always says when to try again: one
+ * whose limit gave no Retry-After gets DEFAULT_RETRY_AFTER_SECONDS, unless no
+ * wait lifts it (HttpError.noRetryAfter, `capReached`).
+ */
+function errorHeaders(err: HttpError): Record<string, string> | undefined {
+  if (err.statusCode !== 429 || err.noRetryAfter) return err.headers;
+  if (err.headers && Object.keys(err.headers).some((name) => name.toLowerCase() === "retry-after")) return err.headers;
+  return { ...err.headers, ...retryAfterHeader(DEFAULT_RETRY_AFTER_SECONDS) };
+}
+
+/**
  * Runs a handler, turning a thrown HttpError into its response and anything
  * else into a bare 500. Error responses are `private, no-store`: many are
  * about the caller (their conversation, their block), and none is worth caching.
+ * Every 429 carries Retry-After, except a lifetime cap (errorHeaders).
  */
 export async function runHandler<P extends Params>(
   handler: Handler<P>,
@@ -31,7 +43,7 @@ export async function runHandler<P extends Params>(
     return await handler(req, params, deps);
   } catch (err) {
     if (err instanceof HttpError) {
-      return errorJson(err.statusCode, { ...err.details, error: err.message, fieldErrors: err.fieldErrors }, err.headers);
+      return errorJson(err.statusCode, { ...err.details, error: err.message, fieldErrors: err.fieldErrors }, errorHeaders(err));
     }
     // Never log request bodies or tokens — they carry personal data.
     console.error("Unhandled API error:", errorMessageForLog(err));

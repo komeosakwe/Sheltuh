@@ -1,6 +1,6 @@
 import { requireCaller, requireVerifiedCaller, type Caller } from "../auth";
 import type { Db } from "../db";
-import { HttpError, ok, okPrivate } from "../http";
+import { HttpError, ok, okPrivate, tooManyRequests, windowSeconds } from "../http";
 import { decodeCursor, isUuid, parseLimit, toPage } from "../pagination";
 import { avatarVersionOf, toGoingAttendee } from "../records";
 import type { Handler } from "../route";
@@ -94,7 +94,7 @@ export const listGoingAttendees: Handler<{ eventId: string }> = async (req, { ev
     `select private.take_rate_limit($1, 'going_attendees', $2, $3::interval) as allowed`,
     [caller.userId, ATTENDEE_LIST_RATE_LIMIT.hits, ATTENDEE_LIST_RATE_LIMIT.window],
   );
-  if (!allowed) throw new HttpError(429, "Too many requests. Try again in a few minutes.");
+  if (!allowed) throw tooManyRequests("Too many requests. Try again in a few minutes.", windowSeconds(ATTENDEE_LIST_RATE_LIMIT.window));
 
   if (!viewer.open) return okPrivate({ items: [] });
 

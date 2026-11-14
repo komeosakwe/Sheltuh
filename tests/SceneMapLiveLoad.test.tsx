@@ -25,7 +25,7 @@ vi.mock("@/lib/api/public-events", async (importOriginal) => ({
   listPublicEvents: (...args: unknown[]) => listPublicEvents(...args),
 }));
 
-const { default: SceneMap } = await import("@/components/SceneMap");
+const { default: SceneMap, MAP_PAGES_PER_LOAD } = await import("@/components/SceneMap");
 
 // The suburb table (~15k rows) decodes once, here, not inside the first test that places a pin by its suburb.
 beforeAll(async () => {
@@ -112,8 +112,57 @@ describe("live /map loading", () => {
     expect(screen.queryByRole("button", { name: "Load more events" })).toBeNull();
   }, 30_000);
 
+  it("when the last page takes Load more away, focus goes to the first new event, even pressed before the last render's effects ran", async () => {
+    for (let n = 0; n < MAP_PAGES_PER_LOAD; n++) listPublicEvents.mockResolvedValueOnce(page(n, 1, `c${n + 1}`));
+    listPublicEvents.mockResolvedValueOnce(page(MAP_PAGES_PER_LOAD, 1));
+    const { container } = render(<SceneMap />);
+    // React runs a non-urgent render's effects in a later task once the render has used up its
+    // ~5ms slice (a busy machine, a slow phone), so a press can land between the list appearing
+    // and its effects running. Every clock read costs 10ms here, from the first load to the
+    // press, so React always yields there, and the press is made the moment the button shows.
+    const now = performance.now.bind(performance);
+    let skew = 0;
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => now() + (skew += 10));
+    try {
+      await new Promise<void>((resolve) => {
+        const observer = new MutationObserver(() => {
+          const more = screen.queryByRole("button", { name: "Load more events" });
+          if (!more) return;
+          observer.disconnect();
+          more.focus();
+          fireEvent.click(more);
+          clock.mockRestore();
+          resolve();
+        });
+        observer.observe(container, { childList: true, subtree: true });
+      });
+    } finally {
+      clock.mockRestore();
+    }
+    await waitFor(() => expect(screen.queryByRole("button", { name: /Load more events|Loading/ })).toBeNull());
+    await waitFor(() => expect(document.activeElement).toHaveAttribute("href", `/events/event-${MAP_PAGES_PER_LOAD}`));
+  });
+
   // Code review (PR 5): a radius can hold only a few of the events read so far. Nearby reads on by
   // itself, once (4 more pages), then says what it found "so far" and leaves the rest to Load more.
+  // Code review (PR 47): Nearby's automatic load is not a press of Load more, so even when it reads
+  // the last page (the button goes away), focus stays where it was.
+  it("an automatic Nearby load that reads the last page doesn't move focus", async () => {
+    localStorage.setItem("sheltuh:near:v1", JSON.stringify({ suburb: "Perth", state: "WA" }));
+    try {
+      for (let n = 0; n < 4; n++) listPublicEvents.mockResolvedValueOnce(page(n * 50, 50, `c${n + 1}`));
+      listPublicEvents.mockResolvedValueOnce(page(200, 50));
+      render(<SceneMap />);
+      await waitFor(() => expect(listPublicEvents).toHaveBeenCalledTimes(5), { timeout: 10_000 });
+      await waitFor(() => expect(screen.queryByRole("button", { name: /Load more events|Loading/ })).toBeNull(), { timeout: 10_000 });
+      // Let any focus effect run.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(document.activeElement === document.body || document.activeElement === null).toBe(true);
+    } finally {
+      localStorage.removeItem("sheltuh:near:v1");
+    }
+  }, 30_000);
+
   it("with few events within the radius, reads 4 more pages once, then says 'so far' beside Load more", async () => {
     localStorage.setItem("sheltuh:near:v1", JSON.stringify({ suburb: "Perth", state: "WA" }));
     try {
