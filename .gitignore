@@ -57,3 +57,40 @@ supabase/.temp/
 
 # Local ticket-email previews (scripts/preview-ticket-email.ts)
 /email-previews/
+
+# Phone app (Capacitor; docs/mobile-app.md). android/ and ios/ also carry their own
+# .gitignore from Capacitor's templates; these are belt and braces at the root.
+# Signing material and store credentials: never committed (keep them in a password manager).
+*.jks
+*.keystore
+*.p12
+*.mobileprovision
+*.provisionprofile
+keystore.properties
+/android/key.properties
+google-services.json
+GoogleService-Info.plist
+# Machine-specific SDK paths
+/android/local.properties
+# Build outputs
+/android/build/
+/android/app/build/
+/android/.gradle/
+/android/.idea/
+/android/captures/
+*.apk
+*.aab
+/ios/App/build/
+/ios/DerivedData/
+*.ipa
+*.xcarchive
+*.dSYM.zip
+# Copied in by `npx cap sync` from capacitor.config.ts and mobile/www (regenerated each sync,
+# and the config copy names whichever server URL the last sync used)
+/android/app/src/main/assets/public/
+/android/app/src/main/assets/capacitor.config.json
+/android/app/src/main/assets/capacitor.plugins.json
+/android/app/src/main/res/xml/config.xml
+/ios/App/App/public/
+/ios/App/App/capacitor.config.json
+/ios/App/App/config.xml

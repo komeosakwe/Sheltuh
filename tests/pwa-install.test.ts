@@ -100,6 +100,20 @@ describe("isStandalone / detectInstallPlatform", () => {
     vi.spyOn(navigator, "userAgent", "get").mockReturnValue(UA.androidChrome);
     expect(detectInstallPlatform(window)).toBe("other");
   });
+
+  it("counts the phone app (Capacitor's native bridge on the page) as installed", () => {
+    stubDisplayMode("browser");
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue(UA.iphoneSafari);
+    Object.defineProperty(window, "Capacitor", { value: { isNativePlatform: () => true }, configurable: true });
+    try {
+      expect(detectInstallPlatform(window)).toBe("standalone");
+      // Capacitor's web build defines the same object, answering false: still a browser.
+      Object.defineProperty(window, "Capacitor", { value: { isNativePlatform: () => false }, configurable: true });
+      expect(detectInstallPlatform(window)).toBe("ios-safari");
+    } finally {
+      Reflect.deleteProperty(window, "Capacitor");
+    }
+  });
 });
 
 describe("isIosHomeScreenApp (InlineReauth: no new-tab sign-in there)", () => {
@@ -188,6 +202,24 @@ describe("syncServiceWorker", () => {
     expect(outcome).toBe("removed");
     expect(container.register).not.toHaveBeenCalled();
     expect(unregister).toHaveBeenCalledTimes(2);
+    expect([...cacheStorage.store]).toEqual(["other-app"]);
+  });
+
+  it("inside the phone app, never registers and removes any worker and Sheltüh caches", async () => {
+    const unregister = vi.fn(async () => true);
+    const container = fakeContainer([{ unregister }]);
+    const cacheStorage = fakeCacheStorage([`${CACHE_PREFIX}static-v5`, "other-app"]);
+    const outcome = await syncServiceWorker({
+      production: true,
+      disabled: false,
+      nativeApp: true,
+      protocol: "https:",
+      container,
+      cacheStorage,
+    });
+    expect(outcome).toBe("removed");
+    expect(container.register).not.toHaveBeenCalled();
+    expect(unregister).toHaveBeenCalledTimes(1);
     expect([...cacheStorage.store]).toEqual(["other-app"]);
   });
 

@@ -10,6 +10,7 @@ import { FavouritesProvider } from "@/components/favourites/FavouritesProvider";
 import { UnreadProvider } from "@/components/messages/UnreadProvider";
 import Nav from "@/components/Nav";
 import { HideOnSwipe, SiteMain } from "@/components/SiteFrame";
+import NativeAppShell from "@/components/mobile/NativeAppShell";
 import ServiceWorkerRegistration from "@/components/pwa/ServiceWorkerRegistration";
 import RouteProgress from "@/components/RouteProgress";
 import ThemeSync from "@/components/theme/ThemeSync";
@@ -116,6 +117,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             isApiConfigured,
           ) && <VercelAnalytics />}
         <ServiceWorkerRegistration />
+        {/* The phone app's deep links and back button; nothing in a browser (docs/mobile-app.md). */}
+        <NativeAppShell />
         <ThemeSync />
       </body>
     </html>

@@ -12,6 +12,12 @@ export interface ServiceWorkerEnvironment {
   production: boolean;
   /** The kill switch (NEXT_PUBLIC_DISABLE_SERVICE_WORKER). */
   disabled: boolean;
+  /**
+   * Running inside the phone app (lib/mobile/native.ts). The app never uses
+   * the service worker: it is removed as with the kill switch. See
+   * docs/mobile-app.md, "No service worker in the app".
+   */
+  nativeApp?: boolean;
   /** window.location.protocol */
   protocol: string;
   container?: Pick<ServiceWorkerContainer, "register" | "getRegistrations">;
@@ -28,7 +34,7 @@ export function isKillSwitchOn(value: string | undefined): boolean {
 export async function syncServiceWorker(env: ServiceWorkerEnvironment): Promise<ServiceWorkerOutcome> {
   if (!env.container) return "skipped";
 
-  if (env.disabled) {
+  if (env.disabled || env.nativeApp) {
     const registrations = await env.container.getRegistrations();
     await Promise.all(registrations.map((registration) => registration.unregister()));
     if (env.cacheStorage) {

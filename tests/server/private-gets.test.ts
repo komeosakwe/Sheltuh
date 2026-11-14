@@ -152,6 +152,9 @@ const PUBLIC_GETS = new Set([
   "getEventClip",
   "eventCalendarRoute",
   "getExternalGoingSummary", // external-going.test.ts pins its cache header
+  // The phone app's deep-link verification files (public by design; mobile-well-known.test.ts pins the header)
+  "assetLinksRoute",
+  "appleAppSiteAssociationRoute",
 ]);
 
 /**

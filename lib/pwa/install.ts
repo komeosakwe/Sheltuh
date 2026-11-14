@@ -1,4 +1,5 @@
 import { IN_APP_BROWSER_TOKENS } from "@/lib/auth/in-app-browser";
+import { isNativeApp } from "@/lib/mobile/native";
 
 /**
  * Rules for the "add to home screen" affordance (components/pwa/InstallPrompt.tsx).
@@ -76,8 +77,9 @@ export function isIosHomeScreenApp(win: Window): boolean {
 
 export type InstallPlatform = "standalone" | "ios-safari" | "other";
 
+/** The phone app (docs/mobile-app.md) counts as installed: there's nothing to add to the home screen. */
 export function detectInstallPlatform(win: Window): InstallPlatform {
-  if (isStandalone(win)) return "standalone";
+  if (isStandalone(win) || isNativeApp(win)) return "standalone";
   if (isIosSafari(win.navigator.userAgent, win.navigator.maxTouchPoints ?? 0)) return "ios-safari";
   return "other";
 }

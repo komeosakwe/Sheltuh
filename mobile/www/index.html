@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#000000" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-hX9SJbXAhjdK0W+FXYqdzmUeDOyKnyVlTWVSrA3edvg='" />
+    <title>Can't reach Sheltüh</title>
+    <!--
+      The phone app's fallback page (docs/mobile-app.md). The app is the live
+      site (capacitor.config.ts server.url); the native shell shows this page,
+      bundled in the app, when that site can't be loaded (server.errorPath).
+      Self-contained: no network requests, no other files. On Android it has no
+      access to Capacitor plugins (Capacitor's docs). The script's hash is in
+      the Content-Security-Policy above: change the script, update the hash
+      (tests/mobile-www.test.ts checks it).
+    -->
+    <style>
+      :root {
+        --background: #ffffff;
+        --foreground: #000000;
+        --muted: #6b675e;
+        color-scheme: light;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        background: var(--background);
+        -webkit-text-size-adjust: 100%;
+        text-size-adjust: 100%;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        min-height: 100dvh;
+        background: var(--background);
+        color: var(--foreground);
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+        font-size: 1rem;
+        line-height: 1.6;
+        padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+          env(safe-area-inset-left);
+      }
+      header {
+        display: flex;
+        align-items: center;
+        min-height: 3.5rem;
+        padding: 0 1.25rem;
+        background: #000000;
+        color: #ffffff;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+      }
+      main {
+        max-width: 42rem;
+        margin: 0 auto;
+        padding: 2.5rem 1.25rem 3rem;
+      }
+      h1 {
+        margin: 0;
+        font-size: clamp(2rem, 9vw, 3.5rem);
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: -0.035em;
+        line-height: 0.95;
+      }
+      p {
+        margin: 1rem 0 0;
+        max-width: 32rem;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 3rem;
+        margin-top: 1.5rem;
+        padding: 0.75rem 1.5rem;
+        border: 1px solid var(--foreground);
+        border-radius: 0.5rem;
+        background: var(--foreground);
+        color: var(--background);
+        font: inherit;
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      :focus-visible {
+        outline: 2px solid var(--foreground);
+        outline-offset: 3px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>Sheltüh</header>
+    <main id="main">
+      <h1>Can&rsquo;t reach Sheltüh</h1>
+      <p>
+        Sheltüh needs an internet connection. Check your Wi-Fi or mobile data, then try again.
+      </p>
+      <button type="button" id="retry" hidden>Try again</button>
+      <p id="reopen" class="muted">If it still doesn&rsquo;t load, close Sheltüh and open it again.</p>
+      <p class="muted">
+        Your ticket QR codes are also in your confirmation email.
+      </p>
+    </main>
+    <script>
+      // "Try again" goes back to the page that failed to load, when the app kept it in its history.
+      (function () {
+        var retry = document.getElementById("retry");
+        if (window.history.length > 1) {
+          retry.hidden = false;
+          retry.addEventListener("click", function () {
+            window.history.back();
+          });
+        }
+      })();
+    </script>
+  </body>
+</html>

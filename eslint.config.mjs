@@ -31,6 +31,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // The phone app's native projects (docs/mobile-app.md): Capacitor's templates and the
+    // web assets `npx cap sync` copies in (Cordova shims), none of it this app's code.
+    "android/**",
+    "ios/**",
   ]),
 ]);
 

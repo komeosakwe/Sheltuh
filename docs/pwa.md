@@ -1,7 +1,9 @@
 # Installable web app (PWA)
 
-Status: Phase 1 (installable web app). There is no native wrapper (Capacitor):
-that is a separate, later phase that has not been started.
+Status: Phase 1 (installable web app). Phase 2, the Capacitor phone app, has
+started (increment 1, the app shell: `docs/mobile-app.md`). Inside the app the
+service worker is never registered (an existing one is removed, as with the
+kill switch) and the install offer never shows.
 
 This page explains what the PWA layer does, what it deliberately does not do,
 and how to switch it off. **Read the caching design before you change

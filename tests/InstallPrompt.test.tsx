@@ -186,6 +186,18 @@ describe("InstallPrompt: where it never appears", () => {
     expect(group()).toBeNull();
   });
 
+  it("not inside the Sheltüh phone app (iOS Safari user agent, Chrome's install event)", () => {
+    useUserAgent(UA.iphoneSafari);
+    Object.defineProperty(window, "Capacitor", { value: { isNativePlatform: () => true }, configurable: true });
+    try {
+      render(<InstallPrompt />);
+      fireBeforeInstallPrompt();
+      expect(group()).toBeNull();
+    } finally {
+      Reflect.deleteProperty(window, "Capacitor");
+    }
+  });
+
   it.each(["/events/rooftop-jazz", "/checkout/success", "/messages", "/messages/abc", "/login", "/account", "/dashboard"])(
     "not on %s (checkout, conversations, forms)",
     (p) => {

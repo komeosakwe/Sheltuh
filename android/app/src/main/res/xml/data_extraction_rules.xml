@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ (docs/mobile-app.md, "Storage and backups"): nothing from this app goes into a cloud
+  backup or a phone-to-phone transfer. "root" is every private file the app has, the WebView's
+  storage (and so the signed-in session) included; android:allowBackup="false" covers Android 11
+  and lower.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" path="./" />
+        <exclude domain="device_root" path="./" />
+        <exclude domain="external" path="./" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" path="./" />
+        <exclude domain="device_root" path="./" />
+        <exclude domain="external" path="./" />
+    </device-transfer>
+</data-extraction-rules>

@@ -28,6 +28,13 @@ facts change. Details of each shipped piece live in `docs/architecture.md`.
    slows down and at what number of simultaneous users. Local only; a
    staging run needs a separate Supabase project and Vercel deployment and
    the owner's explicit authorisation.
+5. **Phone app** (Capacitor; `docs/mobile-app.md`). Increment 1, the app
+   shell, is built and not yet run on a device: the Android and iOS projects
+   open the live site, with deep links (off until set up), the Android back
+   button and an offline page. Next: sign-in with Google and Apple through
+   the system browser, then push notifications, saved tickets and the
+   organiser scanner. App id decided (`au.com.sheltuh.app`, permanent once
+   published); the Apple Developer entity is still the owner's to decide.
 
 ## Planned
 
@@ -41,8 +48,6 @@ facts change. Details of each shipped piece live in `docs/architecture.md`.
   Instagram and contact links, with moderation. Needs photo upload,
   moderation tooling and a safety and privacy review. Decide whether to
   launch it before messaging has run for a while.
-- **Phone app:** Capacitor wrapper (push notifications, saved tickets, organiser
-  scanner) after the PWA has been tried on real devices.
 - Mobile pages not yet redone: search results rows, map page on phones,
   content pages.
 - Messaging follow-ups: "already talking" state and block or report straight

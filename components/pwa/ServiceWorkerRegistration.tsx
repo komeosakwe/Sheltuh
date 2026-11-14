@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect } from "react";
+import { isNativeApp } from "@/lib/mobile/native";
 import { isKillSwitchOn, syncServiceWorker } from "@/lib/pwa/service-worker";
 
 /**
  * Registers the service worker after the page has loaded (production on
- * HTTPS only), or removes it when NEXT_PUBLIC_DISABLE_SERVICE_WORKER is set.
+ * HTTPS only), or removes it when NEXT_PUBLIC_DISABLE_SERVICE_WORKER is set
+ * or inside the phone app.
  * Renders nothing. See docs/pwa.md.
  */
 export default function ServiceWorkerRegistration() {
@@ -14,6 +16,7 @@ export default function ServiceWorkerRegistration() {
       syncServiceWorker({
         production: process.env.NODE_ENV === "production",
         disabled: isKillSwitchOn(process.env.NEXT_PUBLIC_DISABLE_SERVICE_WORKER),
+        nativeApp: isNativeApp(window),
         protocol: window.location.protocol,
         container: "serviceWorker" in navigator ? navigator.serviceWorker : undefined,
         cacheStorage: typeof caches === "undefined" ? undefined : caches,
