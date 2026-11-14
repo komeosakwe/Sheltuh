@@ -27,6 +27,13 @@ describe("EventArt", () => {
     expect(container.querySelector("svg")).not.toBeNull();
   });
 
+  it("puts a neutral surface, not the poster colour, behind a photo that fills the box (no coloured edge on phones)", () => {
+    const { container, rerender } = render(<EventArt poster={poster} title="Neon Static" imageUrl="/events/x.jpg" />);
+    expect((container.firstElementChild as HTMLElement).style.backgroundColor).toBe("var(--surface)");
+    rerender(<EventArt poster={poster} title="Neon Static" />);
+    expect((container.firstElementChild as HTMLElement).style.backgroundColor).not.toBe("var(--surface)");
+  });
+
   it("is decorative: the title is always real text elsewhere, so the art is hidden from assistive tech", () => {
     const { container } = render(<EventArt poster={poster} title="Neon Static" imageUrl="/events/x.jpg" />);
     expect(container.firstElementChild).toHaveAttribute("aria-hidden", "true");

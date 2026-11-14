@@ -241,7 +241,9 @@ export default function EventArt({
     <div
       aria-hidden="true"
       className={`relative overflow-hidden ${className ?? ""}`}
-      style={{ backgroundColor: contain ? "var(--ink)" : poster.background }}
+      // Behind a photo that fills the box, a neutral surface, not the poster colour: phones anti-alias
+      // the rounded clip's edge, and a bright poster colour showed through as a thin line under it.
+      style={{ backgroundColor: contain ? "var(--ink)" : showImage ? "var(--surface)" : poster.background }}
     >
       {/* A poster shown whole (contain) sits on a blurred, enlarged copy of itself rather than flat
           black, so the letterboxing reads as the poster's own colours. Decorative (the box is aria-hidden). */}
