@@ -4,12 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventDetailsView from "@/components/EventDetailsView";
 import TicketSelector from "@/components/TicketSelector";
 import { BuyBarProvider, GaBuyBar } from "@/components/checkout/BuyBar";
+import { calculateOrderSummary, sumOrderSummaries } from "@/lib/fees";
+import { formatAudExact } from "@/lib/format";
 import { sampleEvents } from "@/lib/sample-events";
 import type { SheltuhEvent } from "@/lib/types";
 import { SOFT_KEYBOARD_MIN_PX } from "@/lib/use-soft-keyboard";
 import { FakeAuthProvider, fakeAuthValue } from "./test-utils/fakeAuth";
 import { typeName } from "./test-utils/buyerName";
-import { selectCard } from "./test-utils/ticketCards";
+import { addTicket } from "./test-utils/ticketCards";
 
 /**
  * The event page's phone buy bar as the one Checkout for a general admission event (owner, 6 Nov 2026):
@@ -69,16 +71,41 @@ function barAmount(): string {
   return bar().querySelector("[data-bar-amount]")?.textContent ?? "";
 }
 
+/** What the bar's amount says it includes ("incl. booking fee", "Total · incl. booking fee"). */
+function barNote(): string {
+  return bar().querySelector("[data-bar-note]")?.textContent ?? "";
+}
+
 const more = (name: string) => screen.getByRole("button", { name: `Increase quantity for ${name}` });
 const less = (name: string) => screen.getByRole("button", { name: `Decrease quantity for ${name}` });
 
 describe("the buy bar before anything is chosen", () => {
-  it("keeps the 'From' price and is a link to the tickets, not a disabled button", () => {
+  it("shows the starting price (From, incl. booking fee) and Choose tickets, a link to the tickets, not a disabled button", () => {
     render(<EventDetailsView event={live("neon-static")} demo={false} />);
-    expect(within(bar()).getByText("From A$32.30")).toBeInTheDocument();
-    const link = within(bar()).getByRole("link", { name: "Buy tickets" });
+    expect(barAmount()).toBe("From A$32.30");
+    expect(barNote()).toBe("incl. booking fee");
+    const link = within(bar()).getByRole("link", { name: "Choose tickets" });
     expect(link).toHaveAttribute("href", "#tickets");
+    // The price is part of what it does.
+    expect(link).toHaveAccessibleDescription("From A$32.30, incl. booking fee");
     expect(within(bar()).queryByRole("button")).toBeNull();
+  });
+
+  it("says From before a selection even with one ticket type, so a starting price never reads as a total", () => {
+    const base = live("neon-static");
+    render(<EventDetailsView event={{ ...base, ticketTypes: [base.ticketTypes[0]] }} demo={false} />);
+    expect(barAmount()).toBe("From A$32.30");
+    expect(barNote()).toBe("incl. booking fee");
+    fireEvent.click(more("General admission"));
+    expect(barAmount()).toBe("A$32.30");
+    expect(barNote()).toBe("Total · incl. booking fee");
+  });
+
+  it("is a flat Signal Orange button with a black label: no gradient, no shadow", () => {
+    render(<EventDetailsView event={live("neon-static")} demo={false} />);
+    const link = within(bar()).getByRole("link", { name: "Choose tickets" });
+    expect(link).toHaveClass("btn", "btn-signal", "btn-lg");
+    expect(link.className).not.toMatch(/gradient|shadow/);
   });
 
   it("keeps the panel's Checkout at every width, phones included (owner request)", () => {
@@ -102,7 +129,9 @@ describe("the buy bar once tickets are chosen", () => {
     const button = within(bar()).getByRole("button", { name: "Buy tickets" });
     expect(within(bar()).queryByRole("link")).toBeNull();
     expect(barAmount()).toBe("A$32.30");
-    expect(within(bar()).getByText("incl. booking fee")).toBeInTheDocument();
+    expect(barNote()).toBe("Total · incl. booking fee");
+    // In reading order: "Total A$32.30, incl. booking fee".
+    expect(button).toHaveAccessibleDescription("Total A$32.30, incl. booking fee");
     expect(button).toHaveClass("btn-signal");
 
     await act(async () => {
@@ -141,11 +170,8 @@ describe("the buy bar once tickets are chosen", () => {
     const steps: Array<() => void> = [
       () => fireEvent.click(more("General admission")),
       () => fireEvent.click(more("General admission")),
-      () => selectCard("VIP (side-of-stage viewing)"),
-      () => {
-        selectCard("General admission");
-        fireEvent.click(less("General admission"));
-      },
+      () => addTicket("VIP (side-of-stage viewing)"),
+      () => fireEvent.click(less("General admission")),
     ];
     for (const step of steps) {
       step();
@@ -153,11 +179,25 @@ describe("the buy bar once tickets are chosen", () => {
     }
     expect(barAmount()).toBe("A$87.30");
     fireEvent.click(less("General admission"));
-    selectCard("VIP (side-of-stage viewing)");
     fireEvent.click(less("VIP (side-of-stage viewing)"));
     // Nothing chosen again: back to the link and the "From" price.
-    expect(within(bar()).getByRole("link", { name: "Buy tickets" })).toBeInTheDocument();
+    expect(within(bar()).getByRole("link", { name: "Choose tickets" })).toBeInTheDocument();
     expect(barAmount()).toBe("From A$32.30");
+    expect(barNote()).toBe("incl. booking fee");
+  });
+
+  it("its total is lib/fees.ts's own figure for the selection (never a price worked out in the UI)", () => {
+    const event = live("neon-static");
+    render(<EventDetailsView event={event} demo={false} />);
+    const [ga, vip] = event.ticketTypes;
+    fireEvent.click(more(ga.name));
+    fireEvent.click(more(ga.name));
+    fireEvent.click(more(vip.name));
+    const expected = sumOrderSummaries([
+      calculateOrderSummary(ga.priceCents, 2, ga.feePolicy),
+      calculateOrderSummary(vip.priceCents, 1, vip.feePolicy),
+    ]).totalCents;
+    expect(barAmount()).toBe(formatAudExact(expected));
   });
 
   it("matches the summary for group tiers (groups of people priced as the server does)", () => {
@@ -170,10 +210,10 @@ describe("the buy bar once tickets are chosen", () => {
       ],
     };
     render(<EventDetailsView event={event} demo={false} />);
-    selectCard("Group of 4");
+    addTicket("Group of 4");
     expect(barAmount()).toBe("A$127.70");
     fireEvent.click(more("Group of 4"));
-    selectCard("Single");
+    addTicket("Single");
     expect(barAmount()).toBe(summaryTotal());
     expect(barAmount()).toBe("A$293.00");
   });
@@ -188,7 +228,7 @@ describe("the buy bar once tickets are chosen", () => {
     fireEvent.click(more("Free entry"));
     expect(barAmount()).toBe("A$0.00");
     expect(barAmount()).toBe(summaryTotal());
-    expect(within(bar()).getByText("No booking fee")).toBeInTheDocument();
+    expect(barNote()).toBe("Total · no booking fee");
     typeName();
     await act(async () => {
       fireEvent.click(within(bar()).getByRole("button", { name: "Free tickets" }));
@@ -201,7 +241,7 @@ describe("the buy bar once tickets are chosen", () => {
     render(<EventDetailsView event={live("neon-static")} demo={false} />);
     fireEvent.click(more("General admission"));
     expect(barAmount()).toBe(summaryTotal());
-    expect(within(bar()).getByText("incl. booking fee")).toBeInTheDocument();
+    expect(barNote()).toBe("Total · incl. booking fee");
   });
 });
 
@@ -311,11 +351,11 @@ describe("sold-out and waiting releases, and the steppers' limits", () => {
     for (let i = 0; i < 5; i++) fireEvent.click(plus);
     expect(screen.getByRole("group", { name: "Quantity for Second release" })).toHaveTextContent("3");
     expect(plus).toHaveAttribute("aria-disabled", "true");
-    expect(within(screen.getByRole("region", { name: "Select your tickets" })).getByRole("status")).toHaveTextContent("Second release: 3. Only 3 left.");
+    expect(within(screen.getByRole("region", { name: "Choose your tickets" })).getByRole("status")).toHaveTextContent("Second release: 3. Only 3 left.");
     expect(barAmount()).toBe("A$112.80");
     // 44px targets.
-    expect(plus).toHaveClass("h-12", "w-14");
-    expect(minus).toHaveClass("h-12", "w-14");
+    expect(plus).toHaveClass("size-stepper");
+    expect(minus).toHaveClass("size-stepper");
     fireEvent.click(minus);
     fireEvent.click(minus);
     fireEvent.click(minus);
@@ -325,8 +365,8 @@ describe("sold-out and waiting releases, and the steppers' limits", () => {
   });
 });
 
-describe("release cards and the one quantity stepper below them (owner's mockup, 6 Nov 2026)", () => {
-  it("each release is a compact card: uppercase name, bold amount, and a status pill (Available only when it's on sale)", () => {
+describe("ticket rows, each with its own stepper (the owner's event reference, 13 Nov 2026)", () => {
+  it("each ticket type is a bordered row: its name as written, its all-inclusive price, and a stepper or words", () => {
     const event = live("cinder-warehouse-sessions");
     const [first, second, third] = event.ticketTypes;
     render(
@@ -335,63 +375,56 @@ describe("release cards and the one quantity stepper below them (owner's mockup,
         demo={false}
       />,
     );
-    const cards = screen.getAllByRole("listitem").filter((li) => li.hasAttribute("data-ticket-card"));
-    expect(cards).toHaveLength(3);
-    expect(within(cards[0]).getByText("Sold out")).toHaveClass("rounded-badge");
-    expect(within(cards[1]).getByText("Available")).toHaveClass("rounded-badge", "text-foreground");
-    // A tier waiting on the one above shows its words, not Available.
-    expect(within(cards[2]).queryByText("Available")).toBeNull();
-    expect(within(cards[2]).getByText("Opens after Second release")).toBeInTheDocument();
-    expect(within(cards[1]).getByText("Second release")).toHaveClass("uppercase", "font-bold");
+    const rows = screen.getAllByRole("listitem").filter((li) => li.hasAttribute("data-ticket-card"));
+    expect(rows).toHaveLength(3);
+    // Sold out: a badge in place of the stepper.
+    expect(within(rows[0]).getByText("Sold out")).toHaveClass("rounded-badge");
+    expect(within(rows[0]).queryByRole("group")).toBeNull();
+    // On sale: a bordered row with its own stepper; no "Available" pill (the stepper says so).
+    expect(rows[1]).toHaveClass("border", "border-foreground", "rounded-card");
+    expect(within(rows[1]).getByRole("group", { name: "Quantity for Second release" })).toBeInTheDocument();
+    expect(screen.queryByText("Available")).toBeNull();
+    // Waiting on the one above: its words, no stepper.
+    expect(within(rows[2]).getByText("Opens after Second release")).toBeInTheDocument();
+    expect(within(rows[2]).queryByRole("group")).toBeNull();
+    // Names as written: 600, never in capitals.
+    expect(within(rows[1]).getByText("Second release")).toHaveClass("font-semibold");
+    expect(within(rows[1]).getByText("Second release")).not.toHaveClass("uppercase");
   });
 
-  it("the stepper is below the cards, with a Quantity label, and tapping a card moves it while every release keeps its count", () => {
+  it("every ticket type's stepper is in its own row and keeps its own count; there's no separate Quantity block", () => {
     render(<EventDetailsView event={live("neon-static")} demo={false} />);
-    const list = screen.getAllByRole("list").find((ul) => ul.querySelector("[data-ticket-card]"));
-    if (!list) throw new Error("cards not rendered");
-    const group = screen.getByRole("group", { name: "Quantity for General admission" });
-    expect(list.contains(group)).toBe(false);
-    expect(list.compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByText("Quantity")).toBeInTheDocument();
+    const rowOf = (name: string) =>
+      [...document.querySelectorAll<HTMLElement>("[data-ticket-card]")].find((li) => within(li).queryByText(name)) as HTMLElement;
+    const gaGroup = screen.getByRole("group", { name: "Quantity for General admission" });
+    const vipGroup = screen.getByRole("group", { name: "Quantity for VIP (side-of-stage viewing)" });
+    expect(rowOf("General admission").contains(gaGroup)).toBe(true);
+    expect(rowOf("VIP (side-of-stage viewing)").contains(vipGroup)).toBe(true);
+    expect(screen.queryByText("Quantity")).toBeNull();
     fireEvent.click(more("General admission"));
     fireEvent.click(more("General admission"));
-    // Another card: the stepper is now its, the first card says what's chosen of it, the total is both.
-    selectCard("VIP (side-of-stage viewing)");
-    expect(screen.queryByRole("group", { name: "Quantity for General admission" })).toBeNull();
-    expect(screen.getByRole("group", { name: "Quantity for VIP (side-of-stage viewing)" })).toHaveTextContent("1");
-    // Every chosen card says how many (the stepper's too).
-    expect(screen.getByText("2 selected")).toBeInTheDocument();
-    expect(screen.getByText("1 selected")).toBeInTheDocument();
+    addTicket("VIP (side-of-stage viewing)");
+    expect(gaGroup).toHaveTextContent("2");
+    expect(vipGroup).toHaveTextContent("1");
     expect(barAmount()).toBe("A$119.60");
     expect(barAmount()).toBe(summaryTotal());
-    const cardOf = (name: string) =>
-      [...document.querySelectorAll<HTMLElement>("[data-ticket-card]")].find((li) => within(li).queryByText(name)) as HTMLElement;
-    expect(cardOf("General admission")).toHaveClass("border-signal", "bg-hover");
-    // The stepper's card is marked apart from the chosen ones: aria-current for assistive tech, words for everyone.
-    const vip = cardOf("VIP (side-of-stage viewing)");
-    expect(vip.querySelector("button")).toHaveAttribute("aria-current", "true");
-    expect(vip.querySelector("button")).not.toHaveAttribute("aria-pressed");
-    expect(within(vip).getByText("Quantity below")).toBeInTheDocument();
-    expect(cardOf("General admission").querySelector("button")).not.toHaveAttribute("aria-current");
-    expect(within(cardOf("General admission")).queryByText("Quantity below")).toBeNull();
-    // The card is described by what it says beyond its name (how many are chosen here, and the limit).
-    expect(vip.querySelector("button")).toHaveAccessibleDescription(/1 selected/);
-    selectCard("General admission");
-    expect(screen.getByRole("group", { name: "Quantity for General admission" })).toHaveTextContent("2");
-    expect(within(cardOf("General admission")).getByText("Quantity below")).toBeInTheDocument();
-    expect(within(vip).queryByText("Quantity below")).toBeNull();
+    // Chosen rows are marked (and the count says so too: never colour alone).
+    expect(rowOf("General admission")).toHaveClass("border-signal", "bg-hover");
+    expect(rowOf("VIP (side-of-stage viewing)")).toHaveClass("border-signal", "bg-hover");
+    fireEvent.click(less("VIP (side-of-stage viewing)"));
+    expect(rowOf("VIP (side-of-stage viewing)")).not.toHaveClass("border-signal");
   });
 
-  it("with two releases chosen, the order summary has one row each and the status says what changed and whose the stepper is", () => {
+  it("with two ticket types chosen, the order summary has one row each and the status says what changed", () => {
     render(<EventDetailsView event={live("neon-static")} demo={false} />);
-    const panel = within(screen.getByRole("region", { name: "Select your tickets" }));
+    const panel = within(screen.getByRole("region", { name: "Choose your tickets" }));
     const status = () => panel.getAllByRole("status").find((el) => el.classList.contains("sr-only"))?.textContent ?? "";
-    // One release: the single formula line.
+    // One ticket type: the single formula line.
     fireEvent.click(more("General admission"));
     expect(panel.getByText("Tickets").closest("dt")).toHaveTextContent("Tickets (1 × A$30.00)");
-    selectCard("VIP (side-of-stage viewing)");
+    addTicket("VIP (side-of-stage viewing)");
     expect(status()).toBe(
-      "Added 1 VIP (side-of-stage viewing). Your order: General admission × 1, VIP (side-of-stage viewing) × 1. Total A$87.30 incl. booking fees. Quantity is now for VIP (side-of-stage viewing).",
+      "Added 1 VIP (side-of-stage viewing). Your order: General admission × 1, VIP (side-of-stage viewing) × 1. Total A$87.30 incl. booking fees.",
     );
     const rows = [...document.querySelectorAll("dl > div")].map((row) => row.textContent);
     expect(rows).toContain("General admission × 1A$30.00");
@@ -399,12 +432,8 @@ describe("release cards and the one quantity stepper below them (owner's mockup,
     expect(panel.queryByText("Tickets")).toBeNull();
     fireEvent.click(less("VIP (side-of-stage viewing)"));
     expect(status()).toBe("VIP (side-of-stage viewing): 0. Total A$32.30 incl. booking fees.");
-    // Back to one release chosen: the single line again.
+    // Back to one ticket type chosen: the single line again.
     expect(panel.getByText("Tickets").closest("dt")).toHaveTextContent("Tickets (1 × A$30.00)");
-    // Pressing a card that is already chosen only moves the stepper, and says so.
-    fireEvent.click(more("VIP (side-of-stage viewing)"));
-    selectCard("General admission");
-    expect(status()).toBe("General admission: 1 selected. Quantity is now for General admission.");
   });
 });
 
@@ -474,16 +503,85 @@ describe("the on-screen keyboard", () => {
   });
 });
 
+describe("Choose tickets' visible feedback (UX review: a tap's focus shows no ring)", () => {
+  /** The first release sold out, the second and third on sale. */
+  function released(): SheltuhEvent {
+    const event = live("cinder-warehouse-sessions");
+    const [first, second, third] = event.ticketTypes;
+    return {
+      ...event,
+      ticketTypes: [
+        { ...first, soldOut: true, remaining: 0 },
+        { ...second, opensAfter: undefined, opensAfterPrevious: undefined },
+        { ...third, opensAfter: undefined, opensAfterPrevious: undefined },
+      ],
+    };
+  }
+
+  it("shows a hint over the rows and rings the first one on sale, until a quantity changes", () => {
+    render(<EventDetailsView event={released()} demo={false} />);
+    expect(document.querySelector("[data-choose-hint]")).toBeNull();
+    fireEvent.click(within(bar()).getByRole("link", { name: "Choose tickets" }));
+    const hint = document.querySelector("[data-choose-hint]");
+    expect(hint).toHaveTextContent("Use + to add a ticket.");
+    // Seen, not a second live region (the selector's status says "Choose a ticket first." where needed).
+    expect(hint).not.toHaveAttribute("role");
+    expect(hint?.className).not.toMatch(/sr-only/);
+    const ringed = document.querySelectorAll("[data-choose-target]");
+    expect(ringed).toHaveLength(1);
+    expect(ringed[0]).toHaveTextContent("Second release");
+    expect(ringed[0]).toHaveClass("outline-2", "outline-foreground");
+    expect(more("Second release")).toHaveFocus();
+    fireEvent.click(more("Final release"));
+    expect(document.querySelector("[data-choose-hint]")).toBeNull();
+    expect(document.querySelector("[data-choose-target]")).toBeNull();
+  });
+});
+
+describe("a tall bar (a short screen or very large text) drops its date line", () => {
+  const realInnerHeight = window.innerHeight;
+  afterEach(() => {
+    window.innerHeight = realInnerHeight;
+    Reflect.deleteProperty(HTMLElement.prototype, "scrollHeight");
+  });
+
+  function barHeight(px: number) {
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.hasAttribute("data-buy-bar") ? px : 0;
+      },
+    });
+  }
+
+  it("keeps the date line while the bar is under a third of the screen, and drops it at a third or more", () => {
+    barHeight(120);
+    window.innerHeight = 844;
+    render(<EventDetailsView event={live("neon-static")} demo={false} />);
+    expect(bar().querySelector("[data-bar-date]")).toHaveClass("flex");
+    expect(bar().querySelector("[data-bar-date]")).not.toHaveClass("hidden");
+    cleanup();
+    window.innerHeight = 320;
+    render(<EventDetailsView event={live("neon-static")} demo={false} />);
+    expect(bar().querySelector("[data-bar-date]")).toHaveClass("hidden");
+    // And it may take up to 40% of the screen rather than cut its action off.
+    expect(bar()).toHaveClass("max-h-bar-tall");
+    expect(bar()).not.toHaveClass("max-h-bar");
+    // The action is still there, whole.
+    expect(within(bar()).getByRole("link", { name: "Choose tickets" })).toBeInTheDocument();
+  });
+});
+
 describe("the bar with nothing chosen: a link that takes you to the first ticket", () => {
   it("moves focus to the stepper's + and says what to do when it's already on screen, instead of a no-op jump", () => {
     render(<EventDetailsView event={live("neon-static")} demo={false} />);
-    const link = within(bar()).getByRole("link", { name: "Buy tickets" });
+    const link = within(bar()).getByRole("link", { name: "Choose tickets" });
     // jsdom has no layout: put the + on screen.
     const plus = more("General admission");
     vi.spyOn(plus, "getBoundingClientRect").mockReturnValue({ top: 100, bottom: 148 } as DOMRect);
     expect(fireEvent.click(link)).toBe(false); // the default (a jump to #tickets) is prevented
     expect(plus).toHaveFocus();
-    const panel = within(screen.getByRole("region", { name: "Select your tickets" }));
+    const panel = within(screen.getByRole("region", { name: "Choose your tickets" }));
     expect(panel.getAllByRole("status").find((el) => el.classList.contains("sr-only"))).toHaveTextContent("Choose a ticket first.");
   });
 
@@ -491,9 +589,9 @@ describe("the bar with nothing chosen: a link that takes you to the first ticket
     render(<EventDetailsView event={live("neon-static")} demo={false} />);
     const plus = more("General admission");
     vi.spyOn(plus, "getBoundingClientRect").mockReturnValue({ top: 5000, bottom: 5048 } as DOMRect);
-    fireEvent.click(within(bar()).getByRole("link", { name: "Buy tickets" }));
+    fireEvent.click(within(bar()).getByRole("link", { name: "Choose tickets" }));
     expect(plus).toHaveFocus();
-    const panel = within(screen.getByRole("region", { name: "Select your tickets" }));
+    const panel = within(screen.getByRole("region", { name: "Choose your tickets" }));
     expect(panel.getAllByRole("status").find((el) => el.classList.contains("sr-only"))).toBeEmptyDOMElement();
   });
 });
@@ -530,7 +628,7 @@ describe("the bar's registration and what its note says", () => {
     fireEvent.click(more("General admission"));
     expect(barAmount()).toBe("A$30.00");
     expect(barAmount()).toBe(summaryTotal());
-    expect(within(bar()).getByText("No booking fee")).toBeInTheDocument();
+    expect(barNote()).toBe("Total · no booking fee");
     expect(within(bar()).queryByText(/incl\. booking fee/)).toBeNull();
   });
 
@@ -563,7 +661,7 @@ describe("the bar's registration and what its note says", () => {
   it("is capped at a third of the screen and stacks the button under the amount in a narrow container", () => {
     render(<EventDetailsView event={live("neon-static")} demo={false} />);
     expect(bar()).toHaveClass("max-h-bar");
-    const link = within(bar()).getByRole("link", { name: "Buy tickets" });
+    const link = within(bar()).getByRole("link", { name: "Choose tickets" });
     expect(link).toHaveClass("@max-xs:w-full");
     expect(bar().querySelector(".\\@container")?.firstElementChild).toHaveClass("@max-xs:flex-col");
   });

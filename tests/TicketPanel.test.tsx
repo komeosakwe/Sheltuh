@@ -61,7 +61,7 @@ describe("the desktop ticket panel", () => {
   it("before a choice: Buy tickets → takes focus to the tickets heading, with a ring, and says how many releases", () => {
     const event = live("neon-static");
     render(<EventDetailsView event={event} demo={false} />);
-    const heading = screen.getByRole("heading", { level: 2, name: "Select your tickets" });
+    const heading = screen.getByRole("heading", { level: 2, name: "Choose your tickets" });
     expect(heading).toHaveAttribute("tabindex", "-1");
     expect(heading).toHaveClass("focus:outline-2");
     const buy = within(panel()).getByRole("link", { name: "Buy tickets" });
@@ -83,7 +83,33 @@ describe("the desktop ticket panel", () => {
     expect(event.ticketTypes).toHaveLength(1);
     render(<EventDetailsView event={event} demo={false} />);
     fireEvent.click(within(panel()).getByRole("link", { name: "Buy tickets" }));
-    expect(screen.getByRole("heading", { level: 2, name: "Select your tickets" })).toHaveFocus();
+    expect(screen.getByRole("heading", { level: 2, name: "Choose your tickets" })).toHaveFocus();
+    expect(within(panel()).getByRole("status")).toBeEmptyDOMElement();
+  });
+
+  it("counts only the ticket types that can be chosen now: not sold out, not waiting for the one above", () => {
+    const event = live("cinder-warehouse-sessions");
+    const [first, second, third] = event.ticketTypes;
+    // Three tiers: the first sold out, the second on sale, the third on sale too.
+    render(
+      <EventDetailsView
+        event={{
+          ...event,
+          ticketTypes: [
+            { ...first, soldOut: true, remaining: 0 },
+            { ...second, opensAfter: undefined, opensAfterPrevious: undefined },
+            { ...third, opensAfter: undefined, opensAfterPrevious: undefined },
+          ],
+        }}
+        demo={false}
+      />,
+    );
+    fireEvent.click(within(panel()).getByRole("link", { name: "Buy tickets" }));
+    expect(within(panel()).getByRole("status")).toHaveTextContent(releasesHint(2));
+    cleanup();
+    // As released: only the first is on sale (the others wait for it), so there's no choice to explain.
+    render(<EventDetailsView event={event} demo={false} />);
+    fireEvent.click(within(panel()).getByRole("link", { name: "Buy tickets" }));
     expect(within(panel()).getByRole("status")).toBeEmptyDOMElement();
   });
 

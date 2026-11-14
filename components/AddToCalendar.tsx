@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { secondaryActionClass } from "@/components/ui/Button";
+import { CalendarIcon } from "@/components/home/icons";
+import { actionRowClass, actionRowLabelClass } from "@/components/ui/Button";
 import { googleCalendarUrl, icsFilename, outlookCalendarUrl, type CalendarEvent } from "@/lib/calendar";
 import { eventCalendarPath, publicEventUrl } from "@/lib/event-url";
 
@@ -56,8 +57,8 @@ export default function AddToCalendar({
   className?: string;
   /**
    * `link`: underlined words with a chevron, inline after other text. `button`: the rules' Secondary button,
-   * filling its box (the event page's ticket panel, beside Save and Share); its menu opens from the button's
-   * right edge, so a button at the end of a row keeps it on screen.
+   * filling its box (the event page's action row, beside Save and Share), a calendar icon and "Calendar" (named
+   * "Add to calendar"); its menu opens from the button's right edge, so a button at the end of a row keeps it on screen.
    */
   look?: "link" | "button";
 }) {
@@ -149,14 +150,24 @@ export default function AddToCalendar({
         aria-controls={open ? menuId : undefined}
         className={
           look === "button"
-            ? `${secondaryActionClass} w-full justify-center px-2 text-center lg:min-h-10 lg:px-1 lg:text-sm!`
+            ? actionRowClass
             : "-ml-0.5 inline-flex min-h-11 items-center gap-1 px-0.5 text-sm font-semibold underline underline-offset-4"
         }
+        // The button look shows "Calendar" beside its icon (a third of a row has room for one word); its name is the
+        // whole action, which contains the visible word (WCAG 2.5.3), so "click Calendar" still works by voice.
+        aria-label={look === "button" ? "Add to calendar" : undefined}
       >
-        Add to calendar
-        {/* Not in the button look (the owner's mock): a third of a row has no room beside the words, and
-            aria-expanded says it's a menu. */}
-        {look === "link" && <ChevronIcon open={open} />}
+        {look === "button" ? (
+          <>
+            <CalendarIcon className="size-4 shrink-0" />
+            <span className={actionRowLabelClass}>Calendar</span>
+          </>
+        ) : (
+          <>
+            Add to calendar
+            <ChevronIcon open={open} />
+          </>
+        )}
       </button>
       {/* Always in the page, so the message is announced when it appears. */}
       <p role="status" className="text-sm text-muted empty:hidden">

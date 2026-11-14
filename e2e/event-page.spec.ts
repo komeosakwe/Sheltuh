@@ -170,7 +170,7 @@ test.describe("external event (free, organiser's site) at 390×844", () => {
 test.describe("Sheltüh-ticketed event at 390×844", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test("buy bar Buy tickets focuses the first ticket, whose totals include the fee and come first", async ({ page }) => {
+  test("buy bar Choose tickets focuses the first ticket, whose totals include the fee and come first", async ({ page }) => {
     await mockApi(page);
     await page.goto("/events/neon-static");
     const bar = page.locator("[data-buy-bar]");
@@ -179,7 +179,7 @@ test.describe("Sheltüh-ticketed event at 390×844", () => {
     await expect(page).toHaveTitle("Neon Static — Sheltüh");
     // With nothing chosen the bar's link takes focus to the first ticket's "+" (and, if that is already on
     // screen, says what to do: tests/BuyBar.test.tsx), rather than jumping to the section.
-    await bar.getByRole("link", { name: "Buy tickets" }).click();
+    await bar.getByRole("link", { name: "Choose tickets" }).click();
     const tickets = page.locator("#tickets");
     await expect(tickets.getByRole("button", { name: "Increase quantity for General admission" })).toBeFocused();
     await expect(tickets.getByText("A$32.30 incl. booking fee")).toBeVisible();
@@ -233,15 +233,17 @@ for (const vp of [
   });
 }
 
-// Owner request (26 Oct 2026): on a phone, Save and Share are on the first screen too, above the
-// buy bar, with a two-line title and a two-line address (the redesign's title is 32px on phones, so
-// the longest sample title still takes two lines). 390×664 is a 390×844 phone less its
-// browser chrome; 375×667 is the small iPhone; 370×667 is the same phone where a slightly wider font (CI's) wraps
-// one more line above the row, which once left it a pixel under the bar.
+// Owner request (26 Oct 2026): on a phone, Save and Share are on the first screen too, above the buy bar, with a
+// two-line title (the redesign's title is 32px on phones, so the longest sample title still takes two lines).
+// Since the owner's event reference (13 Nov 2026) the details are two icon groups (the venue with its address and
+// Get directions on lines of their own) and "Hosted by" has its own row above the actions, so this holds on a
+// full-height phone (390×844, 375×812, and 370×812 where a slightly wider font wraps one more line), but no longer
+// on a 664–667px viewport (a phone less its browser chrome), where the row starts at the bar's top edge: the title,
+// date and venue are still on that first screen ("first screen at 375×667" above). Reported to the owner.
 for (const vp of [
-  { width: 390, height: 664 },
-  { width: 375, height: 667 },
-  { width: 370, height: 667 },
+  { width: 390, height: 844 },
+  { width: 375, height: 812 },
+  { width: 370, height: 812 },
 ]) {
   test.describe(`Save and Share on the first screen at ${vp.width}×${vp.height}`, () => {
     test.use({ viewport: vp });
@@ -253,11 +255,12 @@ for (const vp of [
       await expect(h1).toBeVisible({ timeout: 30_000 });
       expect(await page.evaluate(() => window.scrollY)).toBe(0);
 
-      // The case it's for: the title and the address each take two lines.
+      // The case it's for: a two-line title, and the venue's full group (its name, the address under it and Get
+      // directions under that: the owner's event reference, 13 Nov 2026).
       const lines = (el: HTMLElement) => Math.round(el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight));
       expect(await h1.evaluate(lines)).toBe(2);
       const address = page.locator("[data-event-facts] [data-directions]");
-      expect(await address.evaluate(lines)).toBe(2);
+      await expect(page.locator("[data-event-facts] [data-venue-address]")).toBeVisible();
 
       const bar = await page.locator("[data-buy-bar]").boundingBox();
       if (!bar) throw new Error("no buy bar");
@@ -272,7 +275,7 @@ for (const vp of [
         expect(box.y + box.height).toBeLessThanOrEqual(bar.y - 4);
       }
       // Add to calendar (in the same row since the redesign, the owner's event mock) keeps its 44px target, and
-      // doesn't overlap the address link above it.
+      // doesn't overlap Get directions above it.
       const calendar = await actions.getByRole("button", { name: "Add to calendar" }).boundingBox();
       const addressBox = await address.boundingBox();
       if (!calendar || !addressBox) throw new Error("not laid out");
@@ -285,8 +288,8 @@ for (const vp of [
 
 // The redesign's Who's going row: below lg it comes after Save, Share and Add to calendar, so an event with a
 // going count keeps them above the bar too (UX review, PR 4).
-test.describe("Save and Share on the first screen with a going count, at 390×664", () => {
-  test.use({ viewport: { width: 390, height: 664 } });
+test.describe("Save and Share on the first screen with a going count, at 390×844", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
 
   test("laneway-projections-after-dark with 42 going: the actions row still ends above the buy bar, the row under it", async ({ page }) => {
     await mockApi(page);
@@ -510,18 +513,19 @@ for (const width of [375, 1280]) {
       if (!event) throw new Error("no sample");
       const address = `${event.venueName}, ${event.venueAddress}`;
 
-      // The address is the directions link, out to Google Maps in a new tab.
+      // Get directions, its own link under the address, out to Google Maps in a new tab.
       const directions = page.getByRole("link", { name: `Get directions to ${address} (opens Google Maps in a new tab)` });
       await expect(directions).toHaveAttribute("href", `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`);
       await expect(directions).toHaveAttribute("target", "_blank");
       await expect(directions).toHaveAttribute("rel", "noopener noreferrer");
-      await expect(directions).toContainText(address);
+      await expect(directions).toHaveText("Get directions");
+      await expect(page.locator("[data-event-facts] [data-venue-address]")).toHaveText(event.venueAddress);
 
       // The zone in effect at the start (a week out from now: AEST or AEDT).
       await expect(page.getByText(/^Melbourne time \((AEST|AEDT)\)$/)).toBeVisible();
 
-      // The organiser's name links to their profile; there's no separate More from link.
-      await expect(page.getByRole("link", { name: event.organiserName, exact: true }).first()).toHaveAttribute(
+      // View organiser links to their profile; there's no separate More from link.
+      await expect(page.getByRole("link", { name: `View organiser ${event.organiserName}`, exact: true })).toHaveAttribute(
         "href",
         "/organisers/org-demo",
       );
@@ -870,3 +874,262 @@ for (const vp of [
     });
   });
 }
+
+// The owner's event reference (13 Nov 2026), at the three phone widths: the details as two icon groups, "Hosted by"
+// with View organiser, Save / Share / Calendar as equal 48px one-line controls, ticket rows each with their own stepper,
+// and the sticky bar's starting price before a choice and the total after. Edge cases: a long title, venue and
+// address, several long-named tiers, and a sold-out event. Fixtures live here only (never in the sample data).
+// EVENT_SHOTS=<dir> saves screenshots of each for visual review.
+const LONG_EVENT: PublicEvent = {
+  ...asPublic("neon-static"),
+  title: "The Extraordinarily Long-Named Midsummer Experimental Sound and Light Festival",
+  venueName: "The Old Melbourne Mechanics' Institute Grand Ballroom and Annexe",
+  venueAddress: "1234 Long Example Boulevard, North Melbourne Industrial Precinct VIC 3051",
+  organiserName: "The Collective of Very Patient Experimental Sound Makers",
+  ticketTypes: [
+    { id: "t-early", name: "Early bird (limited, includes a commemorative risograph poster)", priceCents: 2500, feePolicy: "buyer-pays", quantityAvailable: 50 },
+    { id: "t-ga", name: "General admission", priceCents: 3500, feePolicy: "buyer-pays", quantityAvailable: 100 },
+    { id: "t-conc", name: "Concession", priceCents: 2000, feePolicy: "buyer-pays", quantityAvailable: 40 },
+    { id: "t-vip", name: "VIP", priceCents: 9900, feePolicy: "buyer-pays", quantityAvailable: 10, soldOut: true, remaining: 0 },
+  ],
+};
+
+async function mockEvent(page: Page, event: PublicEvent) {
+  await page.route("**/api/**", (route) => {
+    const url = new URL(route.request().url());
+    if (/^\/api\/events\/slug\//.test(url.pathname)) return route.fulfill({ json: event });
+    if (/\/going$/.test(url.pathname)) return route.fulfill({ json: { count: 0, countHidden: true, closed: false } });
+    if (/\/view$/.test(url.pathname)) return route.fulfill({ status: 204 });
+    // The organiser's profile and the rest: not part of these checks.
+    return route.fulfill({ status: 404, json: { error: "not mocked in e2e" } });
+  });
+}
+
+async function shoot(page: Page, name: string) {
+  if (!process.env.EVENT_SHOTS) return;
+  await page.addStyleTag({ content: "nextjs-portal{display:none!important}" });
+  await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+  await page.screenshot({ path: `${process.env.EVENT_SHOTS}/${name}.png`, fullPage: true });
+  await page.screenshot({ path: `${process.env.EVENT_SHOTS}/${name}-fold.png` });
+  await page.locator("#tickets").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `${process.env.EVENT_SHOTS}/${name}-tickets.png` });
+}
+
+for (const width of [320, 390, 430]) {
+  test.describe(`event page reference layout at ${width}px`, () => {
+    test.use({ viewport: { width, height: 844 }, hasTouch: true });
+
+    test("details groups, Hosted by, the action row, ticket rows and the bar before and after a choice", async ({ page }) => {
+      await mockApi(page);
+      await page.goto("/events/neon-static");
+      await expect(page.getByRole("heading", { level: 1, name: "Neon Static" })).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => document.fonts.ready);
+
+      // Two groups, each an icon beside its text: When (the range, then the zone) and Where (venue, address,
+      // Get directions).
+      for (const group of ["[data-event-when]", "[data-event-where]"]) {
+        const icon = await page.locator(`${group} dt svg`).boundingBox();
+        const text = await page.locator(`${group} dd`).boundingBox();
+        if (!icon || !text) throw new Error(`${group} not laid out`);
+        expect(icon.x + icon.width).toBeLessThanOrEqual(text.x);
+      }
+      await expect(page.locator("[data-event-where] [data-venue-address]")).toBeVisible();
+      await expect(page.locator("[data-event-where] [data-directions]")).toHaveText("Get directions");
+
+      // Hosted by, with View organiser to the profile.
+      const organiser = page.locator("[data-event-organiser]");
+      await expect(organiser).toContainText("Hosted by Static Collective");
+      await expect(organiser.getByRole("link", { name: "View organiser Static Collective" })).toHaveAttribute("href", "/organisers/org-demo");
+
+      // Save, Share and Calendar: equal 48px controls, each label on one line.
+      const actions = page.locator("[data-event-actions]");
+      const controls = [
+        actions.getByRole("link", { name: "Sign in to save Neon Static" }),
+        actions.getByRole("button", { name: "Share Neon Static" }),
+        actions.getByRole("button", { name: "Add to calendar" }),
+      ];
+      await expect(controls[2]).toHaveText("Calendar");
+      for (const control of controls) {
+        const box = await control.boundingBox();
+        expect(box?.height).toBe(48);
+        // Nothing clipped or pushed out of the control.
+        expect(await control.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+      }
+
+      // Before a choice: the bar's starting price, and Choose tickets (it never checks out yet).
+      const bar = page.locator("[data-buy-bar]");
+      await expect(bar.locator("[data-bar-amount]")).toHaveText("From A$32.30");
+      await expect(bar.locator("[data-bar-note]")).toHaveText("incl. booking fee");
+      await expect(bar.getByRole("button")).toHaveCount(0);
+      // Flat Signal Orange (#ff4800) with a black label.
+      const cta = bar.getByRole("link", { name: "Choose tickets" });
+      expect(await cta.evaluate((el) => [getComputedStyle(el).backgroundColor, getComputedStyle(el).color, getComputedStyle(el).backgroundImage, getComputedStyle(el).boxShadow])).toEqual([
+        "rgb(255, 72, 0)",
+        "rgb(0, 0, 0)",
+        "none",
+        "none",
+      ]);
+      // The bar keeps its padding under the action (plus the home indicator's safe area on an iPhone).
+      expect(parseFloat(await bar.evaluate((el) => getComputedStyle(el).paddingBottom))).toBeGreaterThanOrEqual(8);
+
+      // Each ticket type is a row with its own stepper inside it; pressing + is never blocked by the bar.
+      const tickets = page.locator("#tickets");
+      await expect(tickets.getByRole("heading", { level: 2, name: "Choose your tickets" })).toBeVisible();
+      await expect(tickets.getByText("Choose how many tickets you want.")).toBeVisible();
+      for (const name of ["General admission", "VIP (side-of-stage viewing)"]) {
+        const row = tickets.locator("[data-ticket-card]").filter({ hasText: name });
+        const rowBox = await row.boundingBox();
+        const stepper = await row.getByRole("group", { name: `Quantity for ${name}` }).boundingBox();
+        if (!rowBox || !stepper) throw new Error(`${name} not laid out`);
+        expect(stepper.x + stepper.width).toBeLessThanOrEqual(rowBox.x + rowBox.width);
+        expect(stepper.y + stepper.height).toBeLessThanOrEqual(rowBox.y + rowBox.height);
+        const plus = row.getByRole("button", { name: `Increase quantity for ${name}` });
+        expect((await plus.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+      }
+      await shoot(page, `event-after-live-${width}`);
+      await tickets.getByRole("button", { name: "Increase quantity for General admission" }).click();
+      await tickets.getByRole("button", { name: "Increase quantity for General admission" }).click();
+      // After a choice: the total (lib/fees.ts's, as the Order summary says it) and Buy tickets.
+      await expect(bar.locator("[data-bar-amount]")).toHaveText("A$64.60");
+      await expect(bar.locator("[data-bar-note]")).toHaveText("Total · incl. booking fee");
+      await expect(tickets.getByText("Total").locator("xpath=following-sibling::dd")).toHaveText("A$64.60");
+      await expect(bar.getByRole("button", { name: "Buy tickets" })).toBeVisible();
+      if (process.env.EVENT_SHOTS) await bar.screenshot({ path: `${process.env.EVENT_SHOTS}/event-after-live-${width}-bar-selected.png` });
+      await noSidewaysScroll(page);
+    });
+
+    test("edge cases: a long title, venue, address and organiser, several long-named tiers (one sold out)", async ({ page }) => {
+      await mockEvent(page, LONG_EVENT);
+      await page.goto("/events/neon-static");
+      await expect(page.getByRole("heading", { level: 1, name: LONG_EVENT.title })).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => document.fonts.ready);
+      // Long names and addresses wrap: nothing scrolls sideways.
+      await noSidewaysScroll(page);
+      const where = page.locator("[data-event-where]");
+      await expect(where).toContainText(LONG_EVENT.venueName);
+      await expect(where).toContainText(LONG_EVENT.venueAddress);
+      const tickets = page.locator("#tickets");
+      // Every on-sale row's stepper stays inside its row, and its + can be pressed (Playwright refuses a click the
+      // sticky bar would intercept).
+      for (const ticket of LONG_EVENT.ticketTypes.filter((t) => !t.soldOut)) {
+        const row = tickets.locator("[data-ticket-card]").filter({ hasText: ticket.name });
+        const rowBox = await row.boundingBox();
+        const stepper = await row.getByRole("group").boundingBox();
+        if (!rowBox || !stepper) throw new Error(`${ticket.name} not laid out`);
+        expect(stepper.x + stepper.width).toBeLessThanOrEqual(rowBox.x + rowBox.width);
+        await row.getByRole("button", { name: `Increase quantity for ${ticket.name}` }).click();
+      }
+      // The sold-out tier says so instead of a stepper.
+      const vip = tickets.locator("[data-ticket-card]").filter({ hasText: "VIP" });
+      await expect(vip).toContainText("Sold out");
+      await expect(vip.getByRole("button")).toHaveCount(0);
+      await expect(page.locator("[data-buy-bar] [data-bar-note]")).toHaveText("Total · incl. booking fee");
+      await noSidewaysScroll(page);
+      await shoot(page, `event-after-edge-long-multitier-${width}`);
+    });
+
+    test("edge case: a sold-out event shows Sold out on every row and the bar is Join waitlist", async ({ page }) => {
+      const base = asPublic("neon-static");
+      await mockEvent(page, { ...base, soldOut: true, ticketTypes: base.ticketTypes.map((t) => ({ ...t, soldOut: true, remaining: 0 })) });
+      await page.goto("/events/neon-static");
+      await expect(page.getByRole("heading", { level: 1, name: "Neon Static" })).toBeVisible({ timeout: 30_000 });
+      const tickets = page.locator("#tickets");
+      await expect(tickets.getByRole("heading", { level: 2, name: "Tickets" })).toBeVisible();
+      await expect(tickets.locator("[data-ticket-card]").filter({ hasText: "Sold out" })).toHaveCount(base.ticketTypes.length);
+      await expect(tickets.getByRole("button", { name: /Increase quantity/ })).toHaveCount(0);
+      const bar = page.locator("[data-buy-bar]");
+      await expect(bar.locator("[data-bar-amount]")).toHaveText("Sold out");
+      await expect(bar.getByRole("link", { name: "Join waitlist" })).toHaveAttribute("href", "#tickets");
+      await noSidewaysScroll(page);
+      await shoot(page, `event-after-edge-soldout-${width}`);
+    });
+  });
+}
+
+// UX review (13 Nov 2026): with enlarged text (the root font at 125–200%), Save / Share / Calendar never spill out
+// of their buttons, the ticket stepper still fits its row, and a tall buy bar drops its date line so its action
+// is whole. EVENT_SHOTS=<dir> saves the probes.
+for (const width of [320, 390]) {
+  for (const scale of [125, 150, 200]) {
+    test.describe(`large text at ${width}px, ${scale}%`, () => {
+      test.use({ viewport: { width, height: 844 }, hasTouch: true });
+
+      test("the action row, the ticket rows and the buy bar keep everything inside", async ({ page }) => {
+        await mockApi(page);
+        await page.goto("/events/neon-static");
+        await expect(page.getByRole("heading", { level: 1, name: "Neon Static" })).toBeVisible({ timeout: 30_000 });
+        await page.addStyleTag({ content: `html{font-size:${scale}% !important}` });
+        await page.evaluate(() => document.fonts.ready);
+
+        const actions = page.locator("[data-event-actions]");
+        await actions.scrollIntoViewIfNeeded();
+        for (const control of await actions.locator("a, button").all()) {
+          // Nothing spills sideways out of a control, and its icon and label don't overlap.
+          expect(await control.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+          const icon = await control.locator("svg").boundingBox();
+          const label = await control.locator("span:not(.sr-only)").first().boundingBox();
+          const box = await control.boundingBox();
+          if (!icon || !label || !box) throw new Error("not laid out");
+          expect(icon.width).toBeGreaterThanOrEqual(15);
+          const overlaps = icon.x < label.x + label.width && label.x < icon.x + icon.width && icon.y < label.y + label.height && label.y < icon.y + icon.height;
+          expect(overlaps).toBe(false);
+          expect(label.x + label.width).toBeLessThanOrEqual(box.x + box.width + 1);
+          expect(box.height).toBeGreaterThanOrEqual(48);
+        }
+        if (process.env.EVENT_SHOTS) await actions.screenshot({ path: `${process.env.EVENT_SHOTS}/event-after2-text${scale}-${width}-actions.png` });
+
+        const tickets = page.locator("#tickets");
+        for (const row of await tickets.locator("[data-ticket-card]").all()) {
+          const rowBox = await row.boundingBox();
+          const stepper = await row.getByRole("group").boundingBox();
+          if (!rowBox || !stepper) throw new Error("not laid out");
+          expect(stepper.x + stepper.width).toBeLessThanOrEqual(rowBox.x + rowBox.width);
+        }
+        // Nothing on the event page itself reaches past the screen's edge. (The site footer's theme switch does at
+        // 320px with 200% text: outside this page's scope, reported separately.)
+        const wide = await page.evaluate(() =>
+          [...document.querySelectorAll("main *")]
+            .filter((el) => !el.closest("footer") && el.getBoundingClientRect().right > window.innerWidth + 1)
+            .map((el) => `${el.tagName} ${(el.textContent ?? "").slice(0, 30)}`),
+        );
+        expect(wide).toEqual([]);
+
+        // The bar never takes more than a third of the screen without dropping its date line, and its action is whole.
+        const bar = page.locator("[data-buy-bar]");
+        const barBox = await bar.boundingBox();
+        const cta = await bar.getByRole("link", { name: "Choose tickets" }).boundingBox();
+        if (!barBox || !cta) throw new Error("not laid out");
+        if (barBox.height >= 844 / 3 - 1) await expect(bar.locator("[data-bar-date]")).toBeHidden();
+        expect(cta.y + cta.height).toBeLessThanOrEqual(barBox.y + barBox.height);
+        if (process.env.EVENT_SHOTS) {
+          await tickets.locator("[data-ticket-card]").first().scrollIntoViewIfNeeded();
+          await page.screenshot({ path: `${process.env.EVENT_SHOTS}/event-after2-text${scale}-${width}-tickets.png` });
+        }
+      });
+    });
+  }
+}
+
+test.describe("Choose tickets' visible feedback at 390px (a tap's focus shows no ring)", () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+
+  test("a tap with the rows on screen shows a hint and rings the first row on sale, until a quantity changes", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/events/neon-static");
+    const tickets = page.locator("#tickets");
+    await expect(tickets.getByRole("heading", { name: "Choose your tickets" })).toBeVisible({ timeout: 30_000 });
+    await expect(tickets.getByText("Choose how many tickets you want.")).toBeVisible();
+    await tickets.locator("[data-ticket-card]").first().scrollIntoViewIfNeeded();
+    await page.locator("[data-buy-bar]").getByRole("link", { name: "Choose tickets" }).tap();
+    await expect(tickets.locator("[data-choose-hint]")).toHaveText("Use + to add a ticket.");
+    await expect(tickets.locator("[data-choose-hint]")).toBeVisible();
+    const ringed = tickets.locator("[data-choose-target]");
+    await expect(ringed).toContainText("General admission");
+    expect(await ringed.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe("solid");
+    await expect(tickets.getByRole("button", { name: "Increase quantity for General admission" })).toBeFocused();
+    await tickets.getByRole("button", { name: "Increase quantity for General admission" }).tap();
+    await expect(tickets.locator("[data-choose-hint]")).toHaveCount(0);
+    await expect(tickets.locator("[data-choose-target]")).toHaveCount(0);
+    if (process.env.EVENT_SHOTS) await page.screenshot({ path: `${process.env.EVENT_SHOTS}/event-after2-choose-390.png` });
+  });
+});

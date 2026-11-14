@@ -364,6 +364,9 @@
   --text-2xs--line-height: 1rem;
   --text-3xs: 0.59375rem;
   --text-3xs--line-height: 0.75rem;
+  /* The event page's ticket stepper buttons (components/TicketSelector.tsx): 44px in px, not rem, so with 200% text the
+     − n + still fits a 320px ticket row (UX review, 13 Nov 2026). `size-stepper`, `min-w-stepper`. */
+  --spacing-stepper: 44px;
 }
 
 * {
@@ -455,6 +458,12 @@ h4 {
   max-height: 33svh;
   overflow-y: auto;
 }
+/* Where even that would cut its action off (a short screen, 200% text: components/checkout/BuyBar.tsx), the bar drops
+   its date line and may take up to 40% of the screen, so the whole action shows (UX review, 13 Nov 2026). */
+@utility max-h-bar-tall {
+  max-height: 40svh;
+  overflow-y: auto;
+}
 
 /*
  * The fifteen type styles (the rules' Type board), on a 4px line-height rhythm. Below 768px
@@ -543,6 +552,19 @@ h4 {
   @media (width >= 48rem) {
     font-size: 1.25rem;
     line-height: 1.75rem;
+  }
+}
+/* The event page's section headings (owner's brief, 13 Nov 2026: 22–24px, 600): Choose your tickets, About this
+   event, Who's going, Location, Good to know, More from and Similar nearby. 22px on phones, 24px from 768px. */
+@utility heading-section {
+  font-family: var(--face-sans);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-size: 1.375rem;
+  line-height: 1.75rem;
+  @media (width >= 48rem) {
+    font-size: 1.5rem;
+    line-height: 2rem;
   }
 }
 @utility body-l {

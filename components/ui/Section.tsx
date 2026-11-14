@@ -111,7 +111,7 @@ export function PageHeader({
 
 /**
  * A black-ruled section (§6.4): grouped content on the page, never a rounded box. `plain`: no rule, and
- * a Heading/H2 title (the event page's sections, the owner's event mock).
+ * a section heading (heading-section, 22–24px: the event page's sections, the owner's brief of 13 Nov 2026).
  */
 export function Panel({
   children,
@@ -134,7 +134,7 @@ export function Panel({
       className={`${plain ? "" : "border-t border-foreground pt-5"} ${className}`.trim()}
     >
       {title && (
-        <h2 id={titleId} className={plain ? "heading-h2 mb-4" : "font-heading mb-4 text-xl leading-6"}>
+        <h2 id={titleId} className={plain ? "heading-section mb-3" : "font-heading mb-4 text-xl leading-6"}>
           {title}
         </h2>
       )}

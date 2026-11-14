@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { MouseEvent } from "react";
-import { secondaryActionClass } from "@/components/ui/Button";
+import { actionRowClass, actionRowLabelClass } from "@/components/ui/Button";
 import { withNext } from "@/lib/safe-next-path";
 import type { SaveTarget } from "./favourites-store";
 import { useFavourites } from "./FavouritesProvider";
@@ -17,12 +17,12 @@ export type SaveButtonVariant = "overlay" | "glass" | "plain" | "action";
 function classes(variant: SaveButtonVariant, saved: boolean) {
   const heart = saved ? "text-signal" : "";
   switch (variant) {
-    // The event page's secondary action row, beside Share: the page's one Save.
+    // The event page's action row, beside Share and Calendar: the page's one Save.
     case "action":
       return {
-        target: `group/save ${secondaryActionClass}`,
+        target: `group/save ${actionRowClass}`,
         mark: null,
-        icon: `size-4 motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-active/save:scale-90 ${heart}`.trim(),
+        icon: `size-4 shrink-0 motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-active/save:scale-90 ${heart}`.trim(),
       };
     case "plain":
       return {
@@ -85,7 +85,7 @@ export default function SaveButton({
       ) : (
         <HeartIcon filled={saved} className={c.icon} />
       )}
-      {variant === "action" && "Save"}
+      {variant === "action" && <span className={actionRowLabelClass}>Save</span>}
     </>
   );
 

@@ -8,8 +8,8 @@ import { sampleEvents } from "@/lib/sample-events";
 import type { SheltuhEvent } from "@/lib/types";
 
 /**
- * The event page's organiser profile read and its rows (the owner's event mock, the audit's fix): "by
- * {organiser} · N upcoming", the Organiser card's followers and "✓ Checked", "More from {organiser}" and
+ * The event page's organiser profile read and its rows (the owner's event mock, the audit's fix): the Organiser
+ * card's followers and "✓ Checked", "More from {organiser}" and
  * "Similar nearby"; and the ticket panel's price and one orange action from 1024px.
  */
 const api = { getOrganiserProfile: vi.fn(), listPublicEvents: vi.fn() };
@@ -75,18 +75,20 @@ function profile(upcoming: SheltuhEvent[], followerCount: number | null = null) 
 }
 
 describe("the organiser's profile read (live)", () => {
-  it("says how many upcoming events they have, their followers in short form and Checked, and More from without this event", async () => {
+  it("shows their followers in short form and Checked, and More from without this event (no upcoming count by the title)", async () => {
     const others = [sample("fitzroy-poetry-and-noise"), sample("paper-moon-ceramics-lab")];
     api.getOrganiserProfile.mockResolvedValue(profile([LIVE, ...others], 1240));
     api.listPublicEvents.mockResolvedValue({ items: [] });
     render(<EventDetailsView event={LIVE} demo={false} />);
 
-    const facts = document.querySelector("[data-event-facts]") as HTMLElement;
-    await waitFor(() => expect(within(facts).getByText(/3 upcoming/)).toBeInTheDocument());
+    const host = screen.getByRole("region", { name: "Organiser" });
+    await waitFor(() => expect(within(host).getByText("1.2K followers · ✓ Checked")).toBeInTheDocument());
+    // The row under the title is just "Hosted by {name}" and View organiser (owner's event reference, 13 Nov 2026):
+    // no upcoming count crowding it.
+    expect(document.querySelector("[data-event-organiser]")).not.toHaveTextContent(/upcoming/);
     expect(api.getOrganiserProfile).toHaveBeenCalledTimes(1);
     expect(api.getOrganiserProfile).toHaveBeenCalledWith("org-1");
 
-    const host = screen.getByRole("region", { name: "Organiser" });
     // As written, never in capitals (owner decision, 13 Nov 2026).
     expect(within(host).getByText("1.2K followers · ✓ Checked")).toHaveClass("mono-s");
     expect(within(host).getByText("1.2K followers · ✓ Checked")).not.toHaveClass("uppercase");
@@ -114,7 +116,6 @@ describe("the organiser's profile read (live)", () => {
     render(<EventDetailsView event={LIVE} demo={false} />);
     await waitFor(() => expect(api.getOrganiserProfile).toHaveBeenCalled());
     await act(async () => {});
-    expect(document.querySelector("[data-organiser-upcoming]")).toBeNull();
     expect(screen.getByRole("region", { name: "Organiser" })).not.toHaveTextContent("Checked");
     expect(screen.queryByRole("region", { name: /^More from/ })).toBeNull();
   });

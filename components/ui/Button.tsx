@@ -39,6 +39,23 @@ export function buttonClass(
 export const secondaryActionClass =
   "label-button inline-flex min-h-12 items-center gap-2 rounded-control border-control border-foreground px-4 text-foreground motion-safe:transition-colors motion-safe:duration-200 motion-safe:ease-out hover:bg-foreground hover:text-background";
 
+/**
+ * Save, Share and Calendar in the event page's action row (the owner's event reference, 13 Nov 2026): the Secondary
+ * button filling a third of the row, at least 48px tall, in Instrument Sans 500 (14px; 16px on tablets, where a third
+ * of the row is wide). At the default text size each one-word label fits a third of a 320px screen beside its icon, on
+ * one line. With larger text the row (the `@container` around it, measured in rem, so it follows the text size) gets
+ * too narrow for that: under 18rem the icon goes over the label, and under 16rem (actionRowGridClass) the buttons stack
+ * one per line at full width, icon beside label again. The label itself (actionRowLabelClass) may still break rather
+ * than spill out. (`!` where it overrides secondaryActionClass's own gap, padding, size and weight.)
+ */
+export const actionRowClass = `${secondaryActionClass} w-full min-w-0 justify-center gap-1.5! px-1! text-center font-medium! text-sm! sm:text-base! lg:text-sm! @3xs:@max-2xs:flex-col @3xs:@max-2xs:gap-1! @3xs:@max-2xs:py-2`;
+
+/** The action row's grid (inside an `@container`): three columns, one per line under 16rem (large text). */
+export const actionRowGridClass = "grid grid-cols-3 items-start gap-2 @max-3xs:grid-cols-1";
+
+/** An action row button's label: shrinks with its column and breaks rather than overflowing (very large text only). */
+export const actionRowLabelClass = "min-w-0 break-words";
+
 interface StyleProps {
   variant?: ButtonVariant;
   size?: ButtonSize;

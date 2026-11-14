@@ -156,6 +156,15 @@ export function formatFeedPriceParts(event: SheltuhEvent): FeedPriceParts | null
   return { amount: `${prefix}${formatAud(minTotalCents)}${groupSuffix(event)}`, note: "incl. booking fee" };
 }
 
+/**
+ * The event page's buy bar before anything is chosen: formatFeedPriceParts' amount as a starting price ("From A$32.30",
+ * even with one ticket type, so it never reads as a total). "Free", "Sold out" and an amount that already says "From"
+ * stay as they are.
+ */
+export function startingPrice(amount: string): string {
+  return amount.startsWith("A$") ? `From ${amount}` : amount;
+}
+
 /** The card's label when the cheapest ticket on sale is free and a paid one is on sale too. */
 export const FREE_AND_PAID_LABEL = "Free + paid";
 

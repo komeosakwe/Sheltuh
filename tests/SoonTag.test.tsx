@@ -119,7 +119,7 @@ describe("on the event page", () => {
     expect([...tags.children].map((tag) => tag.getAttribute("data-tag"))).toEqual(["live-music", "soon", "neutral"]);
 
     const head = container.querySelector<HTMLElement>("[data-tickets-head]") as HTMLElement;
-    expect(within(head).getByRole("heading", { level: 2, name: "Select your tickets" })).toBeInTheDocument();
+    expect(within(head).getByRole("heading", { level: 2, name: "Choose your tickets" })).toBeInTheDocument();
     expect(soonTags(head).map((tag) => tag.textContent)).toEqual(["🔥Tomorrow"]);
 
     const date = container.querySelector<HTMLElement>("[data-buy-bar] [data-bar-date]") as HTMLElement;

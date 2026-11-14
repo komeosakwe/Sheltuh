@@ -276,7 +276,7 @@ describe("Who's Going — loading and errors", () => {
     await waitFor(() => expect(document.getElementById("whos-going")).toBeNull());
     expect(summaryCard()).toBeNull();
     // Tickets are unaffected.
-    expect(screen.getByRole("heading", { name: "Select your tickets" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Choose your tickets" })).toBeInTheDocument();
   });
 });
 

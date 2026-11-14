@@ -106,8 +106,9 @@ describe("the event page's buy bar when sold out (§6.10)", () => {
   it("reads Sold out and Join waitlist, to #tickets, orange", () => {
     const { container } = render(<EventDetailsView event={soldOut} demo />);
     const bar = container.querySelector("[data-buy-bar]") as HTMLElement;
-    expect(within(bar).getByText("Sold out")).toBeInTheDocument();
+    expect(within(bar).getByText("Sold out", { selector: "[data-bar-amount]" })).toBeInTheDocument();
     const cta = within(bar).getByRole("link", { name: "Join waitlist" });
+    expect(cta).toHaveAccessibleDescription("Sold out");
     expect(cta).toHaveAttribute("href", "#tickets");
     expect(cta).toHaveClass("btn-signal");
     // The ticket card has the (demo, disabled) waitlist.

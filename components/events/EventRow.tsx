@@ -32,7 +32,7 @@ export default function EventRow({
     <section aria-labelledby={id} className="flex flex-col gap-6">
       <div className="flex items-baseline justify-between gap-4">
         <div className="flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-2">
-          <h2 id={id} className="heading-h2 break-words">
+          <h2 id={id} className="heading-section break-words">
             {title}
           </h2>
           {note && <p className="mono-s text-muted">{note}</p>}
