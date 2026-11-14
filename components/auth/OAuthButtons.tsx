@@ -77,18 +77,27 @@ function Logo({ file, className }: { file: string; className: string }) {
  *
  * Real buttons outside any form: they never submit the email form.
  */
+/** Focus or visibility returning this soon after the tap is the tap itself, not a return. */
+export const BUSY_RETURN_GRACE_MS = 1500;
+/** However the provider's page or sheet went away, the buttons work again after this. */
+export const BUSY_TIMEOUT_MS = 20_000;
+
 export default function OAuthButtons({ next, placement = "above" }: { next?: string; placement?: "above" | "below" }) {
   const auth = useAuth();
   const providers = offeredOAuthProviders(auth.configured);
   const [status, setStatus] = useState<Status | null>(null);
   const [failed, setFailed] = useState<OAuthProvider | null>(null);
   const reannounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // Which sign-in attempt owns the busy state and the failure alert. A recovery (below) or a new
+  // tap moves it on, so an earlier attempt that fails late can't touch a newer one's state.
+  const attempt = useRef(0);
   const busy = status?.kind === "busy";
 
   useEffect(() => {
     function onPageShow(event: PageTransitionEvent) {
       if (!event.persisted) return;
       clearTimeout(reannounce.current);
+      attempt.current += 1;
       setStatus(null);
     }
     window.addEventListener("pageshow", onPageShow);
@@ -98,6 +107,33 @@ export default function OAuthButtons({ next, placement = "above" }: { next?: str
       clearTimeout(timer.current);
     };
   }, []);
+
+  // A sign-in that never left the page (iOS shows Sign in with Apple as a sheet over it, and
+  // closing the sheet tells the page nothing) must not leave both buttons locked. Once the page
+  // is back in front after a moment, or after BUSY_TIMEOUT_MS at the latest, they work again.
+  useEffect(() => {
+    if (!busy) return;
+    const startedAt = Date.now();
+    function release() {
+      if (Date.now() - startedAt < BUSY_RETURN_GRACE_MS) return;
+      attempt.current += 1;
+      setStatus(null);
+    }
+    function onVisibility() {
+      if (document.visibilityState === "visible") release();
+    }
+    window.addEventListener("focus", release);
+    document.addEventListener("visibilitychange", onVisibility);
+    const fallback = setTimeout(() => {
+      attempt.current += 1;
+      setStatus(null);
+    }, BUSY_TIMEOUT_MS);
+    return () => {
+      window.removeEventListener("focus", release);
+      document.removeEventListener("visibilitychange", onVisibility);
+      clearTimeout(fallback);
+    };
+  }, [busy]);
 
   if (providers.length === 0) return null;
 
@@ -116,11 +152,14 @@ export default function OAuthButtons({ next, placement = "above" }: { next?: str
       reannounce.current = setTimeout(() => setStatus(inApp), REANNOUNCE_DELAY_MS);
       return;
     }
+    const mine = ++attempt.current;
     setStatus({ kind: "busy", provider });
     try {
       await auth.signInWithProvider(provider, oauthReturnPath(next) ?? undefined);
       // The page is on its way to the provider: stay busy until it's gone.
     } catch {
+      // A newer attempt (or a recovery) has taken over: this late failure isn't news any more.
+      if (attempt.current !== mine) return;
       // What went wrong is the connection or the service, not anything to fix here.
       setStatus(null);
       setFailed(provider);
