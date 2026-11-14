@@ -22,7 +22,7 @@ const RESET_SQL = `truncate private.user_reports, private.report_photos, public.
   private.rate_limits, private.platform_rate_limits, private.client_rate_limits, private.checkout_attempts, private.free_order_refusals, private.social_suspensions, private.external_event_going, public.event_attendees, public.profiles,
   public.event_favourites, public.event_view_counts, public.event_outbound_clicks, public.event_tracking_links, private.event_rate_limits, private.event_view_cap_days,
   private.trending_snapshot, private.event_curation, private.event_waitlist_tokens, private.event_waitlist,
-  private.profile_avatars, private.profile_moderation_log, private.organiser_follow_tokens, private.organiser_event_announcements,
+  private.profile_avatars, private.profile_photos, private.profile_moderation_log, private.organiser_follow_tokens, private.organiser_event_announcements,
   public.organiser_follows, private.organiser_logos, private.event_clip_uploads, private.event_clips,
   private.account_invites, private.organiser_invite_links, private.email_job_recipients, private.onboarding_emails,
   private.event_reminders, private.holder_message_stop_tokens, private.holder_message_suppressions, private.holder_message_recipients, private.holder_messages, private.email_outbox, private.cron_runs, private.order_detail_exports, private.order_detail_views, private.payment_exceptions,

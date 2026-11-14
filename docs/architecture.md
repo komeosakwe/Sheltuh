@@ -111,6 +111,7 @@ iframe served by Stripe), with the publishable key
 | `private.event_waitlist_tokens` | `token_hash` | SHA-256 hashes of emailed waitlist tokens, never the tokens: `confirm` (a guest's join link, 24 hours, used once) and `leave` (one per notification email, valid while the entry exists). Deleted with the entry; expired confirmation links a week after expiry. |
 | `profiles` | `user_id` | A member's social identity: `display_name` (1–40 characters), `adult_confirmed_at` (required: no profile without an 18+ confirmation). Deleted with the Supabase account. `social_suspended_at` is deprecated and ignored (see `private.social_suspensions`). Member profile fields (see "Member profiles"): `public_id` (random uuid, unique: the opaque `profileId`, never the user id; a recreated profile gets a new one), `profile_visible` (opt-in, default false), `bio` (1–200 characters) and `instagram_handle` (Instagram's username pattern, check constraint), both optional. |
 | `private.profile_avatars` | `user_id` | The member's photo as the server re-encoded it: `image` (512 × 512 WebP, ≤ 512 KB) and `thumb` (96 × 96 WebP, ≤ 64 KB), no metadata. Deleted with the profile. |
+| `private.profile_photos` | `id` | A member's photos beside the profile photo, at most 6 (`20261125000000_profile_photos.sql`; see "Member photos"): `image` (WebP fitted inside 1080 px, ≤ 512 KB, as the server re-encoded it, no metadata), `thumb` (320 × 320 WebP, ≤ 64 KB), `width`/`height` (1–1080), optional `description` (1–100 characters, one line, trimmed), `image_sha256` (checked `= sha256(image)`, unique per member: the same image again is the same photo). At most 6 per member is enforced by the trigger `profile_photos_cap` (it locks the profile row, then counts) as well as by `add_profile_photo`. Index `(user_id, created_at, id)`: a member's photos oldest first. Deleted with the profile. |
 | `private.profile_moderation_log` | `id` (identity) | An admin's removal of a member's photo, bio or Instagram handle: the member's account, the admin, which fields (never the content) and the reason (1–500). Deleted with the member's account, and 2 years after the entry (`purge_social_data`). |
 | `event_attendees` | `id` | One row per Who's Going opt-in, unique per `(event_id, user_id)`. `id` is the opaque `attendeeId` shown to members: a fresh one per event, so it can't be linked across events or to a user. Deleted with the profile or the event, and by `purge_social_data` 30 days after the event ends. |
 | `private.external_event_going` | `(event_id, user_id)` | One row per "I'm going" tap on an external-ticket event (`20261116000000_external_going.sql`; see "External ticketing"). Count only: no name, profile or ticket behind it. RLS on, no policies, no client grants. Deleted with the event or the member's account, and by `purge_social_data` 30 days after the event ends. Index on `user_id` for the account cascade. |
@@ -223,6 +224,7 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
 | `create_block_by_profile` | `create_block` for a profile the blocker can see now (`member_profile_visible`); same snapshot, rate limit and results. |
 | `request_conversation_by_profile` | A first message by `profileId`: the profile must be visible to the sender (`unavailable` otherwise, 404); picks the soonest open event both are opted in to (`not_going` if none) and hands over to `request_conversation` with that attendeeId, so every other rule is the same code. |
 | `admin_remove_profile_content` | An admin removes a member's photo, bio and/or Instagram handle: locks the profile (no key update), then the photo; removes only what's there; logs the fields, admin and reason in `profile_moderation_log`. Returns `removed` (with the fields), `unchanged` or `not_found`. |
+| `add_profile_photo` | Adds a member photo the API re-encoded (`POST /profiles/me/photos`; see "Member photos"): locks the profile (no key update; lock order profile, then photos, as `admin_remove_profile_content`), re-checks it exists (`no_profile`) and isn't suspended (`suspended`); the same image already one of theirs is `exists` with its id (nothing inserted); 6 already is `full`; else it inserts and returns `added` with the new id. Concurrent uploads for one member queue on the profile lock, so at 5 photos exactly one more is added. |
 | `follow_organiser` | A follow (or a change of its email choice): key-share-locks the approved organiser (`not_found` otherwise; `self` for its own account), then an advisory lock on the account; an existing follow is `exists` (its choice updated if sent); else the 500-follow cap (`limit`) and the 60-an-hour allowance (`rate_limited`) before the insert (`followed`, emails off unless the choice sent was true). |
 | `unsubscribe_follow` | Turns a follow's emails off by an unsubscribe token's hash (the follow stays). Idempotent: `unsubscribed` or `not_found`. |
 | `notify_followers` | Run at commit by the deferred constraint trigger `events_followers_announce` (status becomes `published`): for a published, upcoming event of an approved organiser, records the announcement (once per event ever: a republish is a no-op), then, under an advisory lock per organiser, queues one `organiser_new_events` job per follower with emails on and a confirmed email (`auth.users.email_confirmed_at`) who has none waiting, due at the later of now and 24 hours after their last, until the platform's 500 a day. Locks each follow row as it's queued. |
@@ -2074,6 +2076,114 @@ Clickable Who's Going names (owner request, 21 Oct 2026;
   reporter blocked them); reports by conversation or attendee still work.
 - **A screenshot outlives a block.** Nothing can stop a member keeping a copy
   of a photo they once saw.
+
+## Member photos
+
+Up to 6 photos on a member profile, beside the profile photo (owner
+decisions, 12 Nov 2026; `lib/server/handlers/profile-photos.ts`,
+`lib/server/avatar.ts` `encodeMemberPhoto`, `lib/member-photo-rules.ts`,
+`lib/member-photos-flag.ts`,
+`supabase/migrations/20261125000000_profile_photos.sql`). Members are
+attendees with a Who's Going profile (18+, verified email), not organisers.
+
+- **Off until the owner turns it on.** `NEXT_PUBLIC_MEMBER_PHOTOS=1`
+  (`.env.example`) lets members upload; anything else (the default) and
+  `POST /profiles/me/photos` is a 503, enforced by the server (after
+  sign-in, before anything is read or used). Describing, deleting and seeing
+  photos don't depend on it, so switching it off strands nothing. To go on
+  only after the Terms and Privacy wording below is approved, and the open
+  questions (a rule on photos of children; Online Safety Act advice) are
+  settled.
+- **Who sees them: exactly the profile photo's audience.** Every fetch
+  re-runs `private.member_profile_visible` (verified-email viewer with a
+  profile, neither suspended, no block either way, profile visible or their
+  own), so a block, suspension or hidden profile applies at once; admins see
+  any (moderation), each read logged by the admin's id and the opaque photo
+  and profile ids. `GET /profiles/{profileId}` lists `photos` only past that
+  check (the same statement); `GET /profiles/me` and
+  `GET /admin/profiles/{profileId}` always list them. No public or signed
+  URLs: like the profile photo, the browser fetches the bytes with the
+  bearer token (`fetchAvatar` accepts these URLs) and shows a blob URL.
+  Fetches share the profile photo's limit (`avatar_views`, 600 per 10
+  minutes, 304s included). `private, no-cache`; the ETag is the photo id (a
+  photo's bytes never change: a new photo is a new id); a 304 only once the
+  gate has passed. Anything the caller may not see is the same 404, another
+  member's photo id under this profile included.
+- **Storage.** Postgres `bytea` in `private.profile_photos`, like profile
+  photos (no Supabase Storage). Each photo is re-encoded on the server and
+  the upload itself is never stored: the same decoder rules as profile
+  photos (JPEG, PNG or WebP sniffed from the bytes, libvips' own loader
+  confirmed from the header, first frame, at most 24 megapixels, EXIF
+  orientation applied), any transparency flattened onto white, fitted inside
+  1080 px (never enlarged) as raw sRGB pixels, then a WebP of at most 512 KB
+  (the bound of a report's photo copy, `report_photos`) and a 320 px square
+  thumbnail of at most 64 KB, each stepping its quality down (82 → 25; a
+  noise-like image past that is scaled down a fifth at a time) until it
+  fits. No metadata at all (no EXIF, GPS, camera, ICC or XMP). Uploads are
+  read as a stream and cut off past 4 MB (under Vercel's 4.5 MB request
+  limit); the browser is expected to downsize first (`prepareEventImage`,
+  lib/image.ts: at most 1600 px, under 2 MB). Decoding shares the profile
+  photos' and logos' slots (`AVATAR_ENCODE_CONCURRENCY`: 2 at once per
+  instance, 8 waiting, then 503).
+- **Adding one** (`POST /profiles/me/photos`, raw bytes), in this order so
+  cheap refusals use nothing: verified email; the flag; one read of the
+  caller's profile, suspension and photo count (403 suspended, 404 no
+  profile, 409 `photos_full` at 6, before the allowance, the body or the
+  decoder); the day's allowance (20 uploads per 24 hours, bucket
+  `profile_photo_uploads`, 429); the capped body read (413) and sniff (400);
+  the encode; then `private.add_profile_photo`, which re-checks the profile,
+  suspension and count under the profile's lock. The same image again (a
+  retried upload; the encoder is deterministic and the database keys each
+  photo by its SHA-256) is a 200 with the photo already there, and nothing
+  added. The cap is also a database rule (trigger `profile_photos_cap`).
+- **Descriptions.** Optional, 1–100 characters, plain text on one line (runs
+  of whitespace, line breaks included, become one space), no links, no
+  control, invisible or text-direction characters (the bio's cleaning):
+  `PATCH /profiles/me/photos/{photoId} {description}`; null or "" removes
+  it. Used as the photo's alt text and caption.
+- **Deleting.** `DELETE /profiles/me/photos/{photoId}`: signed in is enough
+  (a suspended or unverified member can always remove their own), 204
+  idempotent. Photos are deleted with the profile (`DELETE /profiles/me`)
+  and with the account (cascade).
+- **Not built yet** (later PRs): report copies of member photos and admin
+  removal of one photo (PR 2: the flag must stay off until it has merged);
+  the account and profile UI. No automated scanning (owner decision):
+  reports and admin removal are the control.
+- **Known follow-ups** (not built): a kill switch for serving (the flag only
+  stops uploads); a platform-wide daily upload cap (today only per member);
+  a separate, lower limit for full-size fetches (they share `avatar_views`
+  with thumbnails and profile photos); `GET /profiles/me/photos/{photoId}`
+  so a suspended member can still see their own photos (APP 12 access); and
+  PR 4's moderation view must show the full image, not the thumbnail (thumbs
+  are centre crops and can hide what was reported).
+
+**Terms and Privacy Policy wording needed before the flag goes on** (owner
+to approve): that a member may add up to 6 photos to their profile, seen
+only by the members who can see the profile (never publicly), re-encoded
+with all embedded information (camera details, location/GPS, date) removed;
+that descriptions are shown with them; that they're deleted with the photo,
+the profile or the account; what photos aren't allowed (and the rule on
+photos of children, still open).
+
+### Accepted risks (member photos)
+
+- **No automated scanning** (owner decision). Harmful images are found by
+  reports and removed by admins; until PR 2 ships report copies and admin
+  removal of a single photo, the flag stays off.
+- **A suspended member can't see their own photos.** The serving route runs
+  the profile gate, which hides a suspended member's profile from everyone,
+  themselves included (unlike the profile photo, which has `GET
+  /profiles/me/avatar`). They can still list (`GET /profiles/me`) and
+  delete them.
+- **A retry at the 6th photo is a 409.** The count is checked before the
+  upload is decoded (so a full set uses no allowance), so a retried upload
+  of the photo that made 6 is `photos_full`, not the 200 a retry gets below
+  6. The photo is there: `GET /profiles/me` shows it.
+- **Images are decoded on the server.** As for profile photos: bounded (4
+  MB, 24 megapixels, first frame, three sniffed formats, one decode per
+  upload, shared slots, 20 a day, verified members only), and a libvips
+  vulnerability would still be reachable; keep sharp updated.
+- **A screenshot outlives a block.** As for profile photos.
 
 ## Favourites
 
@@ -4371,11 +4481,14 @@ without one. The UI keeps showing the API's words, which already say when
 | `GET /events/{id}/external-going` | public (published only): `{count, closed, countHidden}` for an external event ("Going on external events"). `public, max-age=0, s-maxage=15, stale-while-revalidate=45` |
 | `GET /events/{id}/external-going/me` · `DELETE …/me` | signed in; `{going, open}`, `private, no-store`. DELETE idempotent, 429 over 30 an hour (shared with PUT) |
 | `PUT /events/{id}/external-going/me` | verified email (403); 404 unpublished, 409 not external or ended, 429 over 30 an hour |
-| `GET /profiles/me` · `DELETE /profiles/me` | signed in (own profile; DELETE also removes every opt-in, every conversation the member is in, for both sides, and the photo, bio and handle). GET also has `profileId`, `profileVisible`, `bio?`, `instagramHandle?`, `hasAvatar`, `avatarUrl?`, `avatarThumbUrl?` |
+| `GET /profiles/me` · `DELETE /profiles/me` | signed in (own profile; DELETE also removes every opt-in, every conversation the member is in, for both sides, and the photo, member photos, bio and handle). GET also has `profileId`, `profileVisible`, `bio?`, `instagramHandle?`, `hasAvatar`, `avatarUrl?`, `avatarThumbUrl?`, `photos` (`MemberPhoto[]`, oldest first) |
 | `PATCH /profiles/me` `{displayName?, profileVisible?, bio?, instagramHandle?}` | verified email, a profile (404), not suspended (403). Absent: unchanged; null or "" clears bio or handle. 400 fieldErrors |
 | `PUT /profiles/me/avatar` (raw JPEG/PNG/WebP) · `DELETE …/avatar` · `GET …/avatar[?size=thumb]` | PUT: verified, a profile (404), not suspended (403); 200 the profile; 400 not a supported image (or over 24 megapixels); 413 over 5 MB; 429 over 20 a day; 503 too many photos being decoded on the instance. DELETE: signed in, 204 idempotent. GET: the caller's own |
 | `GET /profiles/{profileId}` | verified member with a profile, not suspended: `MemberProfile` (see "Member profiles"); 404 for anything they can't see; 429 |
 | `GET /profiles/{profileId}/avatar[?size=thumb]` | the same gate (404 otherwise, also with a matching `If-None-Match`), or an admin (logged). WebP, `private, no-cache`, ETag (304); 429 over 600 per 10 minutes (members) |
+| `POST /profiles/me/photos` (raw JPEG/PNG/WebP) | verified email (401/403); 503 while `NEXT_PUBLIC_MEMBER_PHOTOS` isn't `1`; 403 suspended; 404 no profile; 409 `code: "photos_full"` at 6 (before the allowance, the body or the decoder); 429 over 20 a day; 413 over 4 MB; 400 not a supported image (or over 24 megapixels; `fieldErrors.photo`); 503 too many photos being decoded on the instance. 201 `{photo, profile}` (`MemberPhotoResult`); 200 the same with the existing photo when the same image is already one of the caller's. See "Member photos" |
+| `PATCH /profiles/me/photos/{photoId}` `{description}` · `DELETE …/photos/{photoId}` | PATCH: verified email, not suspended (403); 400 `fieldErrors.description`; 404 not one of the caller's photos (malformed ids included); 200 `{photo, profile}`. null or "" clears. DELETE: signed in, 204 idempotent (another member's or a malformed id is a no-op) |
+| `GET /profiles/{profileId}/photos/{photoId}[?size=thumb]` | the profile photo's gate and limit (shares `avatar_views`), or an admin (logged by ids). The same 404 for anything else: hidden, blocked either way, suspended either way, the viewer without a profile, unknown or malformed ids, another member's photo id under this profile; a conditional request (`If-None-Match`) that fails the gate also gets this 404, never a 304. WebP, `private, no-cache`, ETag the photo id (304 only after the gate), `nosniff`, `Cross-Origin-Resource-Policy: same-origin` |
 | `GET /admin/profiles/{profileId}` · `POST …/remove-content` `{fields, reason}` | admin. `AdminMemberProfile` (with the moderation log; remove-content adds `removed`). 400; 404 |
 | `GET /admin/reports/{reportId}/avatar` | admin: a profile report's copy of the photo. 404 none |
 | `GET /organisers/{organiserId}/follow` · `POST …/follow` `{notifyNewEvents?}` · `DELETE …/follow` | GET signed in, `{following, notifyNewEvents}` (404 not approved). POST verified email: 201 new (emails off unless `notifyNewEvents: true`) / 200 existing; 400 not a boolean (null included) or own organiser; 404; 409 500 follows; 429. DELETE signed in, 204 idempotent |
@@ -4639,6 +4752,16 @@ What that means:
   `tests/server/wallet-passes.test.ts`, `wallet-google.test.ts`,
   `wallet-apple.test.ts` (helpers `tests/server/helpers/wallet.ts`) and
   `tests/WalletButtons.test.tsx`.
+- Member photos (see that section): `lib/server/handlers/profile-photos.ts`
+  (routes `app/api/profiles/me/photos/route.ts`,
+  `app/api/profiles/me/photos/[photoId]/route.ts`,
+  `app/api/profiles/[profileId]/photos/[photoId]/route.ts`);
+  `encodeMemberPhoto` in `lib/server/avatar.ts`; `photosOf`, `photoUrls` and
+  `toMemberPhotos` in `lib/server/records.ts`; `parsePhotoDescription` in
+  `lib/server/member-profile-input.ts`; `lib/member-photo-rules.ts` (limits);
+  `lib/member-photos-flag.ts` (`NEXT_PUBLIC_MEMBER_PHOTOS`);
+  `uploadMyPhoto`, `describeMyPhoto` and `deleteMyPhoto` in
+  `lib/api/profiles.ts`; tests `tests/server/profile-photos.test.ts`.
 - `components/tickets/TicketQr.tsx` / `lib/ticket-qr.ts`: the ticket QR,
   as inline SVG on `/checkout/success` and as a PNG in the ticket email.
 - Link previews: `lib/share-metadata.ts` builds title, description,

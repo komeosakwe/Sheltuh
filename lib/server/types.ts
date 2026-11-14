@@ -39,6 +39,8 @@ export type {
   FeaturedVideo,
   FollowedOrganiser,
   FollowStatus,
+  MemberPhoto,
+  MemberPhotoResult,
   MemberProfile,
   OrganiserLogField,
   ProfileContentField,
