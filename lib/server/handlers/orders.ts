@@ -18,7 +18,7 @@ import {
   stripeErrorLabel,
 } from "../checkout-attempts";
 import { clientIp, clientKey, orderKey } from "../client-key";
-import { HttpError, ok, okPrivate, readJson } from "../http";
+import { HttpError, ok, okPrivate, type RateWindow, readJson, tooManyRequests, windowSeconds } from "../http";
 import { parseBuyerName, parseCheckoutLineItems, parseSupportCents, refuseSupportOnFreeOrder } from "../order-input";
 import { parseCheckoutSeats } from "../seat-map-input";
 import { ORDER_ID_PATTERN, orderReference } from "../order-reference";
@@ -736,7 +736,7 @@ export const CHECKOUT_RATE_LIMITS = {
 } as const;
 
 /** A fixed-window limit on private.take_client_rate_limit: CHECKOUT_RATE_LIMITS, and the wallet passes' (./wallet.ts). */
-export type KeyedLimit = { readonly bucket: string; readonly hits: number; readonly window: string };
+export type KeyedLimit = { readonly bucket: string; readonly hits: number; readonly window: RateWindow };
 
 const CHECKOUTS_BUSY = "You've started a lot of checkouts in the last minute. Wait a minute, then try again.";
 const PAYMENT_BUSY = "This checkout has been loaded a lot in the last minute. Wait a minute, then reload the page.";
@@ -949,7 +949,9 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
       await refuseIfClosed(() => insertOrder(orderId));
     },
     limitError: (limit) =>
-      new HttpError(429, limit === "minute" ? CHECKOUTS_BUSY : CLIENT_BUSY, undefined, { code: "client_rate_limited" }),
+      limit === "minute"
+        ? tooManyRequests(CHECKOUTS_BUSY, windowSeconds(CHECKOUT_RATE_LIMITS.paidCheckout.window), undefined, { code: "client_rate_limited" })
+        : tooManyRequests(CLIENT_BUSY, windowSeconds(CHECKOUT_LIMITS.window), undefined, { code: "client_rate_limited" }),
   });
 };
 
@@ -1146,6 +1148,11 @@ function seatError(status: number, message: string, field: string, details: Seat
   return new HttpError(status, message, { [field]: message }, { ...details });
 }
 
+/** A seated checkout's 429 (fieldErrors.seats, SeatErrorDetails), with Retry-After `retryAfterSeconds`. */
+function seatLimitError(message: string, retryAfterSeconds: number, details: SeatErrorDetails): HttpError {
+  return tooManyRequests(message, retryAfterSeconds, { seats: message }, { ...details });
+}
+
 /** A tier with seats is sold only by choosing seats: never as a quantity (400). */
 function refuseSeatedLines(event: EventRecord, lineItems: OrderLineItem[]) {
   if (!event.seating) return;
@@ -1315,9 +1322,10 @@ async function createSeatedCheckout(
       case "held":
         return;
       case "rate_limited":
-        throw seatError(429, BUSY, "seats", { code: "rate_limited", seatIds });
+        throw seatLimitError(BUSY, windowSeconds(SEAT_HOLD_LIMITS.attempts.window), { code: "rate_limited", seatIds });
       case "hold_cap":
-        throw seatError(429, BUSY, "seats", { code: "hold_cap", seatIds });
+        // Every hold counted now lapses within a hold's length (sooner if it's paid for or released).
+        throw seatLimitError(BUSY, windowSeconds(SEAT_HOLD_LIMITS.hold), { code: "hold_cap", seatIds });
       case "seats_unavailable":
         throw seatError(409, SEATS_TAKEN, "seats", { code: "seats_unavailable", seatIds: hold.unavailable_seat_ids ?? seatIds });
       case "version":
@@ -1350,7 +1358,8 @@ async function createSeatedCheckout(
     sessionSeconds: SEAT_HOLD_LIMITS.stripeSessionMinutes * 60,
     createOrder,
     // Seated: only the per-client limit is taken before the hold (hold_seats refuses the event's itself).
-    limitError: () => seatError(429, CLIENT_BUSY, "seats", { code: "client_rate_limited", seatIds }),
+    limitError: () =>
+      seatLimitError(CLIENT_BUSY, windowSeconds(SEAT_HOLD_LIMITS.perClient.window), { code: "client_rate_limited", seatIds }),
   });
 }
 
@@ -1500,7 +1509,7 @@ export const getOrderPayment: Handler<{ sessionId: string }> = async (req, { ses
   if (!ORDER_ID_PATTERN.test(sessionId)) throw new HttpError(404, ORDER_NOT_FOUND);
   const secret = rateLimitSecret(deps, "the payment page's rate limits were skipped");
   if (!(await takeClientLimit(req, deps, secret, CHECKOUT_RATE_LIMITS.paymentPerClient, "Payment page read"))) {
-    throw new HttpError(429, PAYMENT_BUSY);
+    throw tooManyRequests(PAYMENT_BUSY, windowSeconds(CHECKOUT_RATE_LIMITS.paymentPerClient.window));
   }
   const [row] = await deps.db.query<{
     status: OrderStatus;
@@ -1554,7 +1563,7 @@ export const getOrderPayment: Handler<{ sessionId: string }> = async (req, { ses
 
   // Every answer from here asks Stripe: at most so many a minute per order, from any number of clients.
   if (secret && !(await takeKeyedLimit(deps.db, orderKey(sessionId, secret), CHECKOUT_RATE_LIMITS.paymentPerOrder))) {
-    throw new HttpError(429, PAYMENT_BUSY);
+    throw tooManyRequests(PAYMENT_BUSY, windowSeconds(CHECKOUT_RATE_LIMITS.paymentPerOrder.window));
   }
   const session = await deps.stripe().checkout.sessions.retrieve(row.stripe_checkout_session_id);
   if (session.status === "complete") return answer({ status: "processing", delayed: session.payment_status !== "paid" });

@@ -306,6 +306,9 @@ function SceneMapView({
   const dismissedFrom = useRef<{ eventId: string; opener: HTMLElement | null } | null>(null);
   // The events listed before "Load more", to find the first new one if the button then goes.
   const idsBeforeMore = useRef<Set<string> | null>(null);
+  // Set by the Load more press only: Nearby's automatic loads (few events within the radius) must
+  // never move focus.
+  const manualLoad = useRef(false);
 
   const now = useMemo(() => new Date(), []);
 
@@ -498,7 +501,13 @@ function SceneMapView({
     }
     // "Load more" keeps focus while it loads (busy, not disabled). If the last page took the
     // button away with focus on it, focus goes to the first new event instead of the page.
-    if (idsBeforeMore.current && !loadingMore) {
+    // The ids are taken here, from a render that's loading more, not in handleLoadMore: a press
+    // can land before an earlier render's effect has run, and that effect (loadingMore false)
+    // would otherwise take them as the load having finished, and drop them.
+    if (loadingMore) {
+      if (manualLoad.current) idsBeforeMore.current ??= new Set(listed.map((entry) => entry.item.id));
+    } else if (idsBeforeMore.current) {
+      manualLoad.current = false;
       const before = idsBeforeMore.current;
       idsBeforeMore.current = null;
       if (!loadMoreRef.current && (document.activeElement === document.body || document.activeElement === null)) {
@@ -622,7 +631,7 @@ function SceneMapView({
   }
 
   function handleLoadMore() {
-    idsBeforeMore.current = new Set(listed.map((entry) => entry.item.id));
+    manualLoad.current = true;
     onLoadMore?.();
   }
 

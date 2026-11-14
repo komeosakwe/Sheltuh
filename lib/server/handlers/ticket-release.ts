@@ -8,7 +8,7 @@ import type { ReleaseTicketsResult } from "@/lib/api/types";
 import { requireCaller } from "../auth";
 import { PG_CHECK_VIOLATION, pgConstraint, pgErrorCode } from "../db";
 import { sendWaitlistEmailsSoon } from "../email-outbox";
-import { HttpError, okPrivate, readJson } from "../http";
+import { HttpError, okPrivate, readJson, tooManyRequests, windowSeconds } from "../http";
 import { isUuid } from "../pagination";
 import type { Handler } from "../route";
 import { fail, ticketAdmitsMultipleMessage } from "../validation";
@@ -101,7 +101,8 @@ export const releaseTickets: Handler<{ eventId: string; ticketTypeId: string }> 
     case "too_many":
       fail({ quantityAvailable: `Can't be more than ${MAX_TICKETS_PER_TYPE.toLocaleString("en-AU")}.` });
     case "rate_limited":
-      throw new HttpError(429, RATE_LIMITED);
+      // One answer for the account's hourly and the event's 24-hour limit: the longer.
+      throw tooManyRequests(RATE_LIMITED, Math.max(windowSeconds(RELEASE_LIMIT.window), windowSeconds(EVENT_RELEASE_LIMIT.window)));
   }
   throw new Error("release_tickets returned an unknown result.");
 };

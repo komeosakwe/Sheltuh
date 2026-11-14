@@ -15,7 +15,7 @@ import type { Db } from "../db";
 import type { Deps } from "../deps";
 import { sendOnboardingEmailsSoon } from "../email-outbox";
 import { maskEmail, redactForLog } from "../email-address";
-import { createdPrivate, HttpError, okPrivate, readJson } from "../http";
+import { capReached, createdPrivate, HttpError, okPrivate, readJson, tooManyRequests, windowSeconds } from "../http";
 import { buildInviteEmail, inviteLink } from "../invite-email";
 import { SOCIAL_RULES } from "../organiser-input";
 import { decodeCursor, isUuid, parseLimit, toPage } from "../pagination";
@@ -182,6 +182,12 @@ async function sendInviteEmail(deps: Deps, inviteId: string, token: string, toke
 }
 
 const ALLOWANCE_USED = `You've sent a lot of invites. You can send ${INVITE_LIMITS.adminHourly.hits} an hour, and the team ${INVITE_LIMITS.platformDaily.hits} a day. Try again later.`;
+/** One answer for this admin's hourly and everyone's daily allowance: Retry-After the longer window. */
+const allowanceUsed = () =>
+  tooManyRequests(
+    ALLOWANCE_USED,
+    Math.max(windowSeconds(INVITE_LIMITS.adminHourly.window), windowSeconds(INVITE_LIMITS.platformDaily.window)),
+  );
 
 /**
  * GET /api/admin/invites?status&cursor&limit — admin. Invites in one status
@@ -249,7 +255,7 @@ export const adminCreateInvite: Handler = async (req, _params, deps) => {
         email: "This address's account already has an organiser.",
       });
     case "rate_limited":
-      throw new HttpError(429, ALLOWANCE_USED);
+      throw allowanceUsed();
     default:
       throw new Error(`Unexpected create_account_invite result: ${row.result}`);
   }
@@ -301,9 +307,12 @@ export const adminResendInvite: Handler<{ inviteId: string }> = async (req, { in
     case "already_invited":
       throw new HttpError(409, "This address has another invite waiting. Resend that one instead.");
     case "too_soon":
-      throw new HttpError(429, "This invite was sent less than a minute ago. Wait a minute, then resend it.");
+      throw tooManyRequests(
+        "This invite was sent less than a minute ago. Wait a minute, then resend it.",
+        windowSeconds(INVITE_LIMITS.resendCooldown),
+      );
     case "rate_limited":
-      throw new HttpError(429, ALLOWANCE_USED);
+      throw allowanceUsed();
     default:
       throw new Error(`Unexpected resend_account_invite result: ${row.result}`);
   }
@@ -514,7 +523,9 @@ export const getInviteAccountLink: Handler = async (req, _params, deps) => {
     tokenHash,
   ]);
   if (!known) throw new HttpError(404, LINK_NOT_FOUND);
-  if (!(await takeLinkRequest(req, deps))) throw new HttpError(429, TOO_MANY_LINKS);
+  if (!(await takeLinkRequest(req, deps))) {
+    throw tooManyRequests(TOO_MANY_LINKS, windowSeconds(INVITE_LIMITS.linkRequestsPerClient.window));
+  }
 
   const [row] = await deps.db.query<{ result: string; email: string | null }>(
     `select * from private.issue_invite_account_link($1, $2)`,
@@ -532,7 +543,8 @@ export const getInviteAccountLink: Handler = async (req, _params, deps) => {
     case "has_account":
       throw hasAccount();
     case "limit":
-      throw new HttpError(429, TOO_MANY_LINKS);
+      // This link's sign-up tokens are used up for good (only a resend, with a new link, starts again): no Retry-After.
+      throw capReached(TOO_MANY_LINKS);
     default:
       throw new Error(`Unexpected issue_invite_account_link result: ${row.result}`);
   }
