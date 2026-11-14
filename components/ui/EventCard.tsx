@@ -5,8 +5,10 @@ import SaveButton from "@/components/favourites/SaveButton";
 import CardPrice from "@/components/ui/CardPrice";
 import CategoryTag from "@/components/ui/CategoryTag";
 import GoingRow from "@/components/ui/GoingRow";
+import SoonTag from "@/components/ui/SoonTag";
 import { isApiConfigured } from "@/lib/api/client";
 import { cardGoing, cardGoingFaces, cardMetaParts, cardState, categoryLabel, signalLabel } from "@/lib/event-card";
+import { soonFields } from "@/lib/soon";
 import type { TrendingSignal } from "@/lib/home-sections";
 import type { SheltuhEvent } from "@/lib/types";
 
@@ -33,7 +35,8 @@ function MetaLine({ parts }: { parts: string[] }) {
  *
  * Anatomy, in reading order: the 4:3 photo or poster (radius 16) with the
  * Save heart on its top-right (no date chip on the photo: the owner asked for it gone, 13 Nov; the
- * meta line says the date); the tags (the category in its tint, then
+ * meta line says the date); the tags (the category in its tint, the
+ * "soon" tag when it's close, "🔥 Tonight" (components/ui/SoonTag.tsx), then
  * any state: "Sold out", "Ended", "Reserved seating", or a trending
  * qualifier; no "Free" tag, since the price label says it); the title
  * (Heading/H4, at most two lines); one meta line "Sat 14 Nov · 5pm · Coburg,
@@ -126,6 +129,8 @@ export default function EventCard({
       <div className="flex min-w-0 flex-col gap-2 pt-4">
         <p data-card-tags="" className="flex min-w-0 flex-wrap gap-2">
           <CategoryTag tone={event.category}>{categoryLabel(event)}</CategoryTag>
+          {/* "🔥 Tomorrow" when it's close (lib/soon.ts), from the browser's clock once it has hydrated. */}
+          <SoonTag event={soonFields(event)} />
           {tags.map((tag) => (
             <CategoryTag key={tag} tone="neutral">
               {tag}

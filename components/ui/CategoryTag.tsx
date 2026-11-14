@@ -2,11 +2,11 @@ import type { ReactNode } from "react";
 import type { EventCategory } from "@/lib/types";
 
 /**
- * A tag's tint: an event category's own, `free`, or `neutral` (states such
- * as "Sold out"). Any other value (a category this build doesn't know)
- * takes the neutral tint.
+ * A tag's tint: an event category's own, `free`, `neutral` (states such
+ * as "Sold out"), or `soon` (the "🔥 Tomorrow" tag: components/ui/SoonTag.tsx).
+ * Any other value (a category this build doesn't know) takes the neutral tint.
  */
-export type TagTone = EventCategory | "free" | "neutral" | (string & {});
+export type TagTone = EventCategory | "free" | "neutral" | "soon" | (string & {});
 
 /**
  * A tag (the rules' Tags & chips board, "Tags look"): it labels, it never

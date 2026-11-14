@@ -36,7 +36,7 @@ function pair(tone: string): { tint: string; ink: string; tintDark: string; inkD
   return { tint, ink, tintDark, inkDark };
 }
 
-const TONES = [...EVENT_CATEGORIES.map((category) => category.value), "fashion", "free", "neutral"];
+const TONES = [...EVENT_CATEGORIES.map((category) => category.value), "fashion", "free", "neutral", "soon"];
 
 describe("category tag tints", () => {
   it.each(TONES)("%s: the tint and its text are at least 4.5:1, in Light and in Dark", (tone) => {
@@ -59,6 +59,9 @@ describe("category tag tints", () => {
     expect(pair("theatre")).toMatchObject({ tintDark: "#3a1e25", inkDark: "#f0afbf" });
     expect(pair("workshop")).toMatchObject({ tintDark: "#3a2a1a", inkDark: "#f3c48e" });
     expect(pair("free")).toMatchObject({ tintDark: "#171715", inkDark: "#d6d3cc" });
+    // The "soon" tag ("🔥 Tomorrow"): coral, apart from workshop's tan.
+    expect(pair("soon")).toMatchObject({ tint: "#ffdccb", ink: "#8f2500", tintDark: "#3d1a0c", inkDark: "#ff8a5c" });
+    expect(pair("soon").tint).not.toBe(pair("workshop").tint);
   });
 
   it("has a tint for every category in lib/types, so no category falls back unnoticed", () => {

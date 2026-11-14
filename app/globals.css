@@ -280,6 +280,14 @@
   --tag-tint-dark: #171715;
   --tag-ink-dark: #d6d3cc;
 }
+/* The "soon" tag ("🔥 Tomorrow", components/ui/SoonTag.tsx): a coral tint in the signal family, apart from
+   workshop's tan, with dark text (6.7:1 in Light and Dark). Time only, never scarcity. */
+[data-tag="soon"] {
+  --tag-tint: #ffdccb;
+  --tag-ink: #8f2500;
+  --tag-tint-dark: #3d1a0c;
+  --tag-ink-dark: #ff8a5c;
+}
 [data-surface="ink"] [data-tag] {
   background-color: var(--tag-tint-dark);
   color: var(--tag-ink-dark);

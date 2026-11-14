@@ -124,6 +124,57 @@ for (const width of WIDTHS) {
   });
 }
 
+// The "soon" tag (lib/soon.ts): the fixtures are re-timed to the real clock, so the third sample (SOON_SLUG) starts
+// in half an hour (Today, Tonight, or Tomorrow just before midnight) and the first two are on now.
+const SOON_SLUG = "southbank-sketch-salon";
+const SOON_TAG = /^🔥(On now|Tonight|Today|Tomorrow)$/;
+
+for (const width of [390, 1024]) {
+  test.describe(`the soon tag at ${width}px`, () => {
+    test.use({ viewport: { width, height: 844 } });
+
+    test("the event page's tag row wraps whole tags and nothing scrolls sideways; the bar's date line stays one line", async ({ page }) => {
+      await mockApi(page);
+      await page.goto(`/events/${SOON_SLUG}`);
+      const row = page.locator("[data-event-tags]");
+      await expect(row.locator('[data-tag="soon"]')).toHaveText(SOON_TAG, { timeout: 30_000 });
+      await expect(page.locator('[data-tickets-head] [data-tag="soon"]')).toHaveText(SOON_TAG);
+      await page.evaluate(() => document.fonts.ready);
+      expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(0);
+      // Every tag is whole (one 24px line) and inside the screen, wherever the row wraps.
+      for (const box of await row.locator("[data-tag]").evaluateAll((tags) =>
+        tags.map((tag) => ({ right: tag.getBoundingClientRect().right, height: tag.getBoundingClientRect().height, clipped: tag.scrollWidth > tag.clientWidth })),
+      )) {
+        expect(box.height).toBe(24);
+        expect(box.right).toBeLessThanOrEqual(width);
+        expect(box.clipped).toBe(false);
+      }
+      if (width < 1024) {
+        const date = page.locator("[data-buy-bar] [data-bar-date]");
+        await expect(date).toHaveText(new RegExp(`^${SOON_TAG.source.slice(1, -1)}\\s·\\s`));
+        const line = await date.evaluate((el) => ({
+          height: el.getBoundingClientRect().height,
+          lineHeight: parseFloat(getComputedStyle(el).lineHeight),
+          labelClipped: (() => {
+            const label = el.querySelector<HTMLElement>("[data-soon-text]");
+            return !label || label.scrollWidth > label.clientWidth;
+          })(),
+        }));
+        expect(line.height).toBeLessThanOrEqual(line.lineHeight + 1);
+        expect(line.labelClipped).toBe(false);
+      }
+    });
+
+    test("the home's cards carry it with no sideways scroll", async ({ page }) => {
+      await mockApi(page);
+      await page.goto("/");
+      await expect(page.locator('[data-card-tags] [data-tag="soon"]').first()).toHaveText(SOON_TAG, { timeout: 30_000 });
+      await page.evaluate(() => document.fonts.ready);
+      expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(0);
+    });
+  });
+}
+
 for (const width of [375, 390, 768, 1280, 1440]) {
   test.describe(`home hero at ${width}px`, () => {
     test.use({ viewport: { width, height: 800 } });
