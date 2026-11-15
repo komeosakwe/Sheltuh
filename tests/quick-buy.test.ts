@@ -103,4 +103,9 @@ describe("seated events (reserved seating; docs/design/seating.md §5.1, manager
     expect(quickBuyHref(event())).toBe("/events/e#tickets");
     expect(goesToSeatPage(event())).toBe(false);
   });
+
+  it("an external event goes to its page, not #tickets: it has no tickets section while on sale (owner, 15 Nov 2026)", () => {
+    expect(quickBuyHref(external(false))).toBe("/events/e");
+    expect(quickBuyHref(external(true))).toBe("/events/e");
+  });
 });

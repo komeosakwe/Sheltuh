@@ -527,17 +527,23 @@ export default function EventDetailsView({
           <div className="flex min-w-0 flex-col gap-10 max-lg:pt-4 lg:col-span-7 lg:row-start-2 lg:gap-12 xl:col-span-8">
             {/* The buy bar's and the panel's target: focusable, so jumping here moves keyboard and
                 screen-reader focus to the tickets too, with the global focus-visible ring around the
-                section to show where you've landed. */}
-            <div id="tickets" tabIndex={-1} className="rounded-card lg:max-w-xl">
-              <TicketsSection selects={selectsTickets} soon={soon}>
-                {external ? (
-                  <div className="flex flex-col gap-4 rounded-card border border-foreground bg-card p-4 sm:p-6">
-                    {event.externalFree && <p className="text-base leading-6 font-semibold">Free entry</p>}
-                    {externalFrom && (
-                      <div>
-                        <p className="text-base leading-6 font-semibold tabular-nums">{externalFrom}</p>
-                        <p className="text-sm text-muted">Price set by the organiser.</p>
-                      </div>
+                section to show where you've landed. None for an external event on sale (owner, 15 Nov 2026): its
+                price and "Buy tickets" are already in the panel and the phone buy bar, so a box here only repeated
+                them. Once it has ended, or without a usable link, the section stays to say so (with no price or link once ended). */}
+            {!(external && externalOnSale) && (
+              <div id="tickets" tabIndex={-1} className="rounded-card lg:max-w-xl">
+                <TicketsSection selects={selectsTickets} soon={soon}>
+                  {external && ended ? (
+                    // Nothing to buy any more: no price, and no link to the other site (owner, 15 Nov 2026).
+                    <p className="text-sm font-semibold">{ENDED_TEXT}</p>
+                  ) : external ? (
+                    <div className="flex flex-col gap-4 rounded-card border border-foreground bg-card p-4 sm:p-6">
+                      {event.externalFree && <p className="text-base leading-6 font-semibold">Free entry</p>}
+                      {externalFrom && (
+                        <div>
+                          <p className="text-base leading-6 font-semibold tabular-nums">{externalFrom}</p>
+                          <p className="text-sm text-muted">Price set by the organiser.</p>
+                        </div>
                     )}
                     {/* Black here: the orange one is the panel's (or the bar's). */}
                     {ticketUrl ? (
@@ -568,6 +574,7 @@ export default function EventDetailsView({
                 )}
               </TicketsSection>
             </div>
+            )}
 
             <Panel title="About this event" titleId="about-title" variant="plain">
               <p className="body-l max-w-2xl break-words whitespace-pre-line">
