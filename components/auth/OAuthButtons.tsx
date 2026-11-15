@@ -79,8 +79,9 @@ function Logo({ file, className }: { file: string; className: string }) {
  */
 /** Focus or visibility returning this soon after the tap is the tap itself, not a return. */
 export const BUSY_RETURN_GRACE_MS = 1500;
-/** However the provider's page or sheet went away, the buttons work again after this. */
-export const BUSY_TIMEOUT_MS = 20_000;
+/** Still on this page this long after a tap means the sign-in didn't leave (iOS's Apple sheet was
+ * closed, which tells the page nothing): the buttons work again. A real redirect is gone by then. */
+export const BUSY_TIMEOUT_MS = 4_000;
 
 export default function OAuthButtons({ next, placement = "above" }: { next?: string; placement?: "above" | "below" }) {
   const auth = useAuth();
@@ -91,7 +92,7 @@ export default function OAuthButtons({ next, placement = "above" }: { next?: str
   // Which sign-in attempt owns the busy state and the failure alert. A recovery (below) or a new
   // tap moves it on, so an earlier attempt that fails late can't touch a newer one's state.
   const attempt = useRef(0);
-  const busy = status?.kind === "busy";
+  const busyStatus = status?.kind === "busy" ? status : null;
 
   useEffect(() => {
     function onPageShow(event: PageTransitionEvent) {
@@ -112,7 +113,9 @@ export default function OAuthButtons({ next, placement = "above" }: { next?: str
   // closing the sheet tells the page nothing) must not leave both buttons locked. Once the page
   // is back in front after a moment, or after BUSY_TIMEOUT_MS at the latest, they work again.
   useEffect(() => {
-    if (!busy) return;
+    // Keyed on the busy status itself (a new object for every tap), not just whether something is
+    // busy, so switching provider restarts the grace period and the time-out for the new attempt.
+    if (busyStatus === null) return;
     const startedAt = Date.now();
     function release() {
       if (Date.now() - startedAt < BUSY_RETURN_GRACE_MS) return;
@@ -133,14 +136,20 @@ export default function OAuthButtons({ next, placement = "above" }: { next?: str
       document.removeEventListener("visibilitychange", onVisibility);
       clearTimeout(fallback);
     };
-  }, [busy]);
+  }, [busyStatus]);
 
   if (providers.length === 0) return null;
 
+  const busyWith = (provider: OAuthProvider) => status?.kind === "busy" && status.provider === provider;
+
   async function start(provider: OAuthProvider) {
-    if (busy) return;
+    // A second tap on the provider that's opening is ignored; the other provider always works.
+    if (status?.kind === "busy" && status.provider === provider) return;
     clearTimeout(reannounce.current);
     setFailed(null);
+    // Taken before the in-app branch too, so any tap retires a sign-in still pending for the other
+    // provider: its late failure can't clear what this tap shows.
+    const mine = ++attempt.current;
     if (provider === "google" && isInAppBrowser(navigator.userAgent)) {
       const inApp: Status = {
         kind: "in-app",
@@ -152,7 +161,6 @@ export default function OAuthButtons({ next, placement = "above" }: { next?: str
       reannounce.current = setTimeout(() => setStatus(inApp), REANNOUNCE_DELAY_MS);
       return;
     }
-    const mine = ++attempt.current;
     setStatus({ kind: "busy", provider });
     try {
       await auth.signInWithProvider(provider, oauthReturnPath(next) ?? undefined);
@@ -172,7 +180,7 @@ export default function OAuthButtons({ next, placement = "above" }: { next?: str
         {providers.includes("apple") && (
           <button
             type="button"
-            aria-disabled={busy ? true : undefined}
+            aria-disabled={busyWith("apple") ? true : undefined}
             onClick={() => void start("apple")}
             className="btn-oauth btn-oauth-apple"
           >
@@ -185,7 +193,7 @@ export default function OAuthButtons({ next, placement = "above" }: { next?: str
         {providers.includes("google") && (
           <button
             type="button"
-            aria-disabled={busy ? true : undefined}
+            aria-disabled={busyWith("google") ? true : undefined}
             onClick={() => void start("google")}
             className="btn-oauth btn-oauth-google"
           >

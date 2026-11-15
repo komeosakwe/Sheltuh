@@ -109,7 +109,7 @@ describe("OAuthButtons: which buttons render", () => {
 });
 
 describe("OAuthButtons: starting a sign-in", () => {
-  it("starts the provider's sign-in once with the safe next, and stays busy (both buttons) while the page leaves", () => {
+  it("starts the provider's sign-in once with the safe next; that button stays busy, the other provider still works", () => {
     const signInWithProvider = leaving();
     renderButtons({ next: "/events/neon-static#whos-going", auth: { signInWithProvider } });
 
@@ -119,13 +119,19 @@ describe("OAuthButtons: starting a sign-in", () => {
     expect(signInWithProvider).toHaveBeenCalledWith("google", "/events/neon-static#whos-going");
 
     expect(google()).toHaveAttribute("aria-disabled", "true");
-    expect(apple()).toHaveAttribute("aria-disabled", "true");
+    expect(apple()).not.toHaveAttribute("aria-disabled");
     expect(document.activeElement).toBe(google());
     expect(screen.getByRole("status")).toHaveTextContent("Opening Google…");
 
+    // A second tap on Google is ignored...
     fireEvent.click(google());
-    fireEvent.click(apple());
     expect(signInWithProvider).toHaveBeenCalledTimes(1);
+    // ...but Apple works straight away (iOS can leave the page here after a closed sheet).
+    fireEvent.click(apple());
+    expect(signInWithProvider).toHaveBeenCalledTimes(2);
+    expect(signInWithProvider).toHaveBeenLastCalledWith("apple", "/events/neon-static#whos-going");
+    expect(apple()).toHaveAttribute("aria-disabled", "true");
+    expect(google()).not.toHaveAttribute("aria-disabled");
   });
 
   it("drops an unsafe next (another site, or an /auth page)", () => {
@@ -226,6 +232,36 @@ describe("OAuthButtons: starting a sign-in", () => {
     }
   });
 
+  it("switching provider restarts the time-out for the new attempt, and its own failure still shows", async () => {
+    vi.useFakeTimers();
+    try {
+      let rejectGoogle: (err: Error) => void = () => {};
+      const signInWithProvider = vi
+        .fn()
+        .mockImplementationOnce(leaving())
+        .mockImplementationOnce(() => new Promise((_resolve, reject) => (rejectGoogle = reject)));
+      renderButtons({ auth: { signInWithProvider } });
+      fireEvent.click(apple());
+      act(() => {
+        vi.advanceTimersByTime(BUSY_TIMEOUT_MS - 100);
+      });
+      fireEvent.click(google());
+      act(() => {
+        vi.advanceTimersByTime(200);
+      });
+      // Past Apple's time-out, but Google's has only just started.
+      expect(google()).toHaveAttribute("aria-disabled", "true");
+      await act(async () => {
+        rejectGoogle(new Error("offline"));
+        await Promise.resolve();
+      });
+      expect(google()).not.toHaveAttribute("aria-disabled");
+      expect(screen.getByRole("alert")).not.toBeEmptyDOMElement();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("unlocks after the time-out even with no focus or visibility event", () => {
     vi.useFakeTimers();
     try {
@@ -318,6 +354,29 @@ describe("OAuthButtons: inside an app's browser", () => {
         vi.advanceTimersByTime(100);
       });
       expect(status).toHaveTextContent(/doesn’t work inside this app’s browser/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a Google tap there retires a pending Apple sign-in: Apple's late failure doesn't replace the guidance", async () => {
+    vi.useFakeTimers();
+    try {
+      setUserAgent(UA.iphoneInstagram);
+      let rejectApple: (err: Error) => void = () => {};
+      const signInWithProvider = vi.fn(() => new Promise<void>((_resolve, reject) => (rejectApple = reject)));
+      renderButtons({ auth: { signInWithProvider } });
+      fireEvent.click(apple());
+      fireEvent.click(google());
+      act(() => {
+        vi.advanceTimersByTime(100);
+      });
+      await act(async () => {
+        rejectApple(new Error("late"));
+        await Promise.resolve();
+      });
+      expect(screen.getByRole("status")).toHaveTextContent(/doesn’t work inside this app’s browser/);
+      expect(screen.getByRole("alert")).toBeEmptyDOMElement();
     } finally {
       vi.useRealTimers();
     }
