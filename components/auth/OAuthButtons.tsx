@@ -92,7 +92,6 @@ export default function OAuthButtons({ next, placement = "above" }: { next?: str
   // Which sign-in attempt owns the busy state and the failure alert. A recovery (below) or a new
   // tap moves it on, so an earlier attempt that fails late can't touch a newer one's state.
   const attempt = useRef(0);
-  const busy = status?.kind === "busy";
   const busyStatus = status?.kind === "busy" ? status : null;
 
   useEffect(() => {
