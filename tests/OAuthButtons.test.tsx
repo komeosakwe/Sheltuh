@@ -109,7 +109,7 @@ describe("OAuthButtons: which buttons render", () => {
 });
 
 describe("OAuthButtons: starting a sign-in", () => {
-  it("starts the provider's sign-in once with the safe next, and stays busy (both buttons) while the page leaves", () => {
+  it("starts the provider's sign-in once with the safe next; that button stays busy, the other provider still works", () => {
     const signInWithProvider = leaving();
     renderButtons({ next: "/events/neon-static#whos-going", auth: { signInWithProvider } });
 
@@ -119,13 +119,19 @@ describe("OAuthButtons: starting a sign-in", () => {
     expect(signInWithProvider).toHaveBeenCalledWith("google", "/events/neon-static#whos-going");
 
     expect(google()).toHaveAttribute("aria-disabled", "true");
-    expect(apple()).toHaveAttribute("aria-disabled", "true");
+    expect(apple()).not.toHaveAttribute("aria-disabled");
     expect(document.activeElement).toBe(google());
     expect(screen.getByRole("status")).toHaveTextContent("Opening Google…");
 
+    // A second tap on Google is ignored...
     fireEvent.click(google());
-    fireEvent.click(apple());
     expect(signInWithProvider).toHaveBeenCalledTimes(1);
+    // ...but Apple works straight away (iOS can leave the page here after a closed sheet).
+    fireEvent.click(apple());
+    expect(signInWithProvider).toHaveBeenCalledTimes(2);
+    expect(signInWithProvider).toHaveBeenLastCalledWith("apple", "/events/neon-static#whos-going");
+    expect(apple()).toHaveAttribute("aria-disabled", "true");
+    expect(google()).not.toHaveAttribute("aria-disabled");
   });
 
   it("drops an unsafe next (another site, or an /auth page)", () => {

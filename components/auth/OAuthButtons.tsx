@@ -79,8 +79,9 @@ function Logo({ file, className }: { file: string; className: string }) {
  */
 /** Focus or visibility returning this soon after the tap is the tap itself, not a return. */
 export const BUSY_RETURN_GRACE_MS = 1500;
-/** However the provider's page or sheet went away, the buttons work again after this. */
-export const BUSY_TIMEOUT_MS = 20_000;
+/** Still on this page this long after a tap means the sign-in didn't leave (iOS's Apple sheet was
+ * closed, which tells the page nothing): the buttons work again. A real redirect is gone by then. */
+export const BUSY_TIMEOUT_MS = 4_000;
 
 export default function OAuthButtons({ next, placement = "above" }: { next?: string; placement?: "above" | "below" }) {
   const auth = useAuth();
@@ -137,8 +138,11 @@ export default function OAuthButtons({ next, placement = "above" }: { next?: str
 
   if (providers.length === 0) return null;
 
+  const busyWith = (provider: OAuthProvider) => status?.kind === "busy" && status.provider === provider;
+
   async function start(provider: OAuthProvider) {
-    if (busy) return;
+    // A second tap on the provider that's opening is ignored; the other provider always works.
+    if (status?.kind === "busy" && status.provider === provider) return;
     clearTimeout(reannounce.current);
     setFailed(null);
     if (provider === "google" && isInAppBrowser(navigator.userAgent)) {
@@ -172,7 +176,7 @@ export default function OAuthButtons({ next, placement = "above" }: { next?: str
         {providers.includes("apple") && (
           <button
             type="button"
-            aria-disabled={busy ? true : undefined}
+            aria-disabled={busyWith("apple") ? true : undefined}
             onClick={() => void start("apple")}
             className="btn-oauth btn-oauth-apple"
           >
@@ -185,7 +189,7 @@ export default function OAuthButtons({ next, placement = "above" }: { next?: str
         {providers.includes("google") && (
           <button
             type="button"
-            aria-disabled={busy ? true : undefined}
+            aria-disabled={busyWith("google") ? true : undefined}
             onClick={() => void start("google")}
             className="btn-oauth btn-oauth-google"
           >
