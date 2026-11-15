@@ -93,6 +93,7 @@ export default function OAuthButtons({ next, placement = "above" }: { next?: str
   // tap moves it on, so an earlier attempt that fails late can't touch a newer one's state.
   const attempt = useRef(0);
   const busy = status?.kind === "busy";
+  const busyStatus = status?.kind === "busy" ? status : null;
 
   useEffect(() => {
     function onPageShow(event: PageTransitionEvent) {
@@ -113,7 +114,9 @@ export default function OAuthButtons({ next, placement = "above" }: { next?: str
   // closing the sheet tells the page nothing) must not leave both buttons locked. Once the page
   // is back in front after a moment, or after BUSY_TIMEOUT_MS at the latest, they work again.
   useEffect(() => {
-    if (!busy) return;
+    // Keyed on the busy status itself (a new object for every tap), not just whether something is
+    // busy, so switching provider restarts the grace period and the time-out for the new attempt.
+    if (busyStatus === null) return;
     const startedAt = Date.now();
     function release() {
       if (Date.now() - startedAt < BUSY_RETURN_GRACE_MS) return;
@@ -134,7 +137,7 @@ export default function OAuthButtons({ next, placement = "above" }: { next?: str
       document.removeEventListener("visibilitychange", onVisibility);
       clearTimeout(fallback);
     };
-  }, [busy]);
+  }, [busyStatus]);
 
   if (providers.length === 0) return null;
 

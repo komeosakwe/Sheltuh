@@ -232,6 +232,36 @@ describe("OAuthButtons: starting a sign-in", () => {
     }
   });
 
+  it("switching provider restarts the time-out for the new attempt, and its own failure still shows", async () => {
+    vi.useFakeTimers();
+    try {
+      let rejectGoogle: (err: Error) => void = () => {};
+      const signInWithProvider = vi
+        .fn()
+        .mockImplementationOnce(leaving())
+        .mockImplementationOnce(() => new Promise((_resolve, reject) => (rejectGoogle = reject)));
+      renderButtons({ auth: { signInWithProvider } });
+      fireEvent.click(apple());
+      act(() => {
+        vi.advanceTimersByTime(BUSY_TIMEOUT_MS - 100);
+      });
+      fireEvent.click(google());
+      act(() => {
+        vi.advanceTimersByTime(200);
+      });
+      // Past Apple's time-out, but Google's has only just started.
+      expect(google()).toHaveAttribute("aria-disabled", "true");
+      await act(async () => {
+        rejectGoogle(new Error("offline"));
+        await Promise.resolve();
+      });
+      expect(google()).not.toHaveAttribute("aria-disabled");
+      expect(screen.getByRole("alert")).not.toBeEmptyDOMElement();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("unlocks after the time-out even with no focus or visibility event", () => {
     vi.useFakeTimers();
     try {
