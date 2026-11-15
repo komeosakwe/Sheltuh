@@ -147,6 +147,9 @@ export default function OAuthButtons({ next, placement = "above" }: { next?: str
     if (status?.kind === "busy" && status.provider === provider) return;
     clearTimeout(reannounce.current);
     setFailed(null);
+    // Taken before the in-app branch too, so any tap retires a sign-in still pending for the other
+    // provider: its late failure can't clear what this tap shows.
+    const mine = ++attempt.current;
     if (provider === "google" && isInAppBrowser(navigator.userAgent)) {
       const inApp: Status = {
         kind: "in-app",
@@ -158,7 +161,6 @@ export default function OAuthButtons({ next, placement = "above" }: { next?: str
       reannounce.current = setTimeout(() => setStatus(inApp), REANNOUNCE_DELAY_MS);
       return;
     }
-    const mine = ++attempt.current;
     setStatus({ kind: "busy", provider });
     try {
       await auth.signInWithProvider(provider, oauthReturnPath(next) ?? undefined);

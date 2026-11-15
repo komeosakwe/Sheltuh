@@ -359,6 +359,29 @@ describe("OAuthButtons: inside an app's browser", () => {
     }
   });
 
+  it("a Google tap there retires a pending Apple sign-in: Apple's late failure doesn't replace the guidance", async () => {
+    vi.useFakeTimers();
+    try {
+      setUserAgent(UA.iphoneInstagram);
+      let rejectApple: (err: Error) => void = () => {};
+      const signInWithProvider = vi.fn(() => new Promise<void>((_resolve, reject) => (rejectApple = reject)));
+      renderButtons({ auth: { signInWithProvider } });
+      fireEvent.click(apple());
+      fireEvent.click(google());
+      act(() => {
+        vi.advanceTimersByTime(100);
+      });
+      await act(async () => {
+        rejectApple(new Error("late"));
+        await Promise.resolve();
+      });
+      expect(screen.getByRole("status")).toHaveTextContent(/doesn’t work inside this app’s browser/);
+      expect(screen.getByRole("alert")).toBeEmptyDOMElement();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("starts Google as usual in a real browser (Chrome on iPhone)", () => {
     setUserAgent(UA.iphoneChrome);
     const signInWithProvider = leaving();
