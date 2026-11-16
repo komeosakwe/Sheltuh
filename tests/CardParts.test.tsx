@@ -125,6 +125,13 @@ describe("PriceTag", () => {
     const [signal, neutral] = Array.from(container.querySelectorAll("[data-price-tag]"));
     // The board's price label: 40px, Label/Button 16/24, 8px each side.
     expect(signal).toHaveClass("bg-signal", "text-signal-foreground", "rounded-control", "min-h-10", "label-button", "px-2");
+    // Inverted with the card's hover, its link's keyboard focus and a press (touch), as the card's panel is.
+    expect(signal).toHaveClass(
+      "group-hover/card:bg-ink",
+      "group-has-[[data-card-link]:focus-visible]/card:bg-ink",
+      "group-has-[[data-card-link]:active]/card:bg-ink",
+      "group-has-[[data-card-link]:active]/card:text-signal",
+    );
     expect(neutral).toHaveClass("bg-surface", "text-foreground");
     expect(neutral).not.toHaveClass("bg-signal");
     for (const tag of [signal, neutral]) {
