@@ -314,6 +314,29 @@ test.describe("home first screen at 390×844", () => {
   });
 });
 
+// Round 2 §1.2: the chips scroll below 1280px (the 1024–1279 band included) and are one row of seven from 1280px.
+for (const width of [1024, 1200, 1280]) {
+  test.describe(`the category chips at ${width}px`, () => {
+    test.use({ viewport: { width, height: 800 } });
+
+    test(width < 1280 ? "are a sideways scroller, never wrapping onto a second row" : "are one row of seven equal columns", async ({ page }) => {
+      await mockApi(page);
+      await page.goto("/");
+      const row = page.getByRole("group", { name: "Browse by category" }).getByRole("list");
+      await expect(row).toBeVisible({ timeout: 30_000 });
+      const layout = await row.evaluate((ul) => ({
+        display: getComputedStyle(ul).display,
+        overflowX: getComputedStyle(ul).overflowX,
+        tops: new Set(Array.from(ul.children).map((li) => Math.round(li.getBoundingClientRect().top))).size,
+      }));
+      expect(layout.tops).toBe(1);
+      if (width < 1280) expect(layout).toMatchObject({ display: "flex", overflowX: "auto" });
+      else expect(layout).toMatchObject({ display: "grid", overflowX: "visible" });
+      expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(0);
+    });
+  });
+}
+
 test.describe("footer on a phone (375px)", () => {
   test.use({ viewport: { width: 375, height: 812 } });
 

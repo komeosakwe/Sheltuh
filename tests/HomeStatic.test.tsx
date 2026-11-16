@@ -187,11 +187,13 @@ describe("CategoryRow: the category chips (the proposal, redesign PR 3)", () => 
     expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("is one row that scrolls sideways inside its own container below 1024px (bleeding to the page edges), wraps from 1024px, and is seven equal columns from 1280px", () => {
+  it("is one row that scrolls sideways inside its own container below 1280px (bleeding to the page edges, Round 2 §1.2), and is seven equal columns from 1280px", () => {
     render(<Chips />);
     const list = screen.getByRole("list");
-    expect(list).toHaveClass("flex", "overflow-x-auto", "px-4", "md:px-8", "lg:flex-wrap", "lg:overflow-visible", "lg:px-0", "xl:grid", "xl:grid-cols-7");
-    expect(list.parentElement).toHaveClass("-mx-4", "md:-mx-8", "lg:mx-0");
+    expect(list).toHaveClass("flex", "overflow-x-auto", "px-4", "md:px-8", "xl:flex-wrap", "xl:overflow-visible", "xl:px-0", "xl:grid", "xl:grid-cols-7");
+    expect(list.className).not.toMatch(/(?:^|\s)lg:/);
+    expect(list.parentElement).toHaveClass("-mx-4", "md:-mx-8", "xl:mx-0");
+    expect(list.parentElement?.className).not.toContain("lg:mx-0");
     for (const chip of screen.getAllByRole("button")) expect(chip).toHaveClass("xl:w-full", "xl:justify-center");
   });
 });
