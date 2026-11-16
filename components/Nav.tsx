@@ -67,8 +67,8 @@ function MenuIcon({ open }: { open: boolean }) {
 
 /**
  * Site header (the proposal, and the rules' Navigation board): black in both themes (an ink
- * section, so everything inside re-skins; in Dark it meets the black page over a 1px rule), 64px
- * below `lg` and 96px from it (--header-h).
+ * section, so everything inside re-skins; in Dark it meets the black page over a 1px rule), 56px
+ * below `lg` and 72px from it (--header-h; Round 2 §1.2).
  *
  * From `lg` it's one row: the wordmark; Discover, Nearby and Community; then the account area
  * (components/AuthNavLinks.tsx). No search field (owner decision: search lives in the home's
@@ -173,7 +173,7 @@ export default function Nav() {
       {/* Compact bar (phones and tablets). */}
       <div
         data-compact-header=""
-        className="page-container flex h-16 items-center justify-between lg:hidden"
+        className="page-container flex h-14 items-center justify-between lg:hidden"
       >
         {/* The ü logo, 32px tall (the rules' Mobile (390) spec); the link carries the name. */}
         <HomeLogoLink
@@ -233,10 +233,10 @@ export default function Nav() {
         </div>
       </div>
 
-      {/* Desktop row: 96px (the proposal). */}
+      {/* Desktop row: 72px (Round 2 §1.2). */}
       {/* Full width (owner, 13 Nov): the logo hugs the left and the actions the right on any screen, 64px in
           from 1280px (the mock's margin at 1440), rather than stopping at the page column on wide screens. */}
-      <div className="hidden h-24 w-full items-center gap-8 px-8 lg:flex xl:px-16">
+      <div className="hidden h-18 w-full items-center gap-8 px-8 lg:flex xl:px-16">
         <HomeLogoLink className="flex items-center py-2" onActivate={closeMenu}>
           <Wordmark className="h-5 w-auto" />
         </HomeLogoLink>

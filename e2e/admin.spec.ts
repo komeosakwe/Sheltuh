@@ -481,8 +481,8 @@ test.describe("main nav", () => {
       for (const path of ["/", "/search", "/events/event-1"]) heights[path] = await headerHeight(page, path, /^Sign in$/);
       const values = Object.values(heights);
       expect(new Set(values).size, JSON.stringify(heights)).toBe(1);
-      // --header-h (app/globals.css) is 96px from lg: the header is exactly it.
-      expect(values[0], JSON.stringify(heights)).toBe(96);
+      // --header-h (app/globals.css) is 72px from lg: the header is exactly it.
+      expect(values[0], JSON.stringify(heights)).toBe(72);
     });
   }
 

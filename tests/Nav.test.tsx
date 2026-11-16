@@ -343,16 +343,16 @@ describe("Nav — what left the header", () => {
 });
 
 describe("Nav — header", () => {
-  it("is a black ink section in both themes, 64px below lg and 96px from it, with a 1px rule only in Dark, drawn inside it", () => {
+  it("is a black ink section in both themes, 56px below lg and 72px from it, with a 1px rule only in Dark, drawn inside it", () => {
     const { container } = renderNav(fakeAuthValue({ status: "signed-out" }));
     const header = container.querySelector("header");
     expect(header).toHaveAttribute("data-surface", "ink");
     // The rule is an ::after inside the header, so it never adds to --header-h.
     expect(header).toHaveClass("after:absolute", "after:bottom-0", "after:h-px", "after:hidden", "dark:after:block");
     expect(header?.className).not.toMatch(/(?:^|\s)(?:dark:)?border-b\b/);
-    expect(compactBar(container)).toHaveClass("h-16");
+    expect(compactBar(container)).toHaveClass("h-14");
     const [desktopNav] = screen.getAllByRole("navigation", { name: "Primary" });
-    expect(desktopNav.parentElement).toHaveClass("h-24", "gap-8");
+    expect(desktopNav.parentElement).toHaveClass("h-18", "gap-8");
     expect(desktopNav).toHaveClass("gap-8");
     expect(desktopNav.parentElement?.querySelector("svg")).toHaveClass("h-5");
   });

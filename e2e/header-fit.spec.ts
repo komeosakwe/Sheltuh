@@ -3,7 +3,7 @@ import type { AdminSummary } from "@/lib/api/types";
 
 /**
  * The black desktop header (redesign PR 2, the proposal and the rules' Navigation
- * board) is one 96px row at every desktop width, in Light and Dark (Dark's rule is
+ * board) is one 72px row (Round 2 §1.2) at every desktop width, in Light and Dark (Dark's rule is
  * drawn inside it), whoever is signed in: signed out, Sign in and the For
  * organisers button; signed in, For organisers, the Messages chip with its count
  * and the avatar (plus Admin and its badge for admins), with no sideways scroll
@@ -91,16 +91,16 @@ for (const width of [1024, 1280, 1440, 1920]) {
     test.describe(`desktop header at ${width}px in ${theme === "light" ? "Light" : "Dark"}`, () => {
       test.use({ viewport: { width, height: 900 } });
 
-      test("is one 96px row, as tall signed in (member, admin with badge) as signed out, with no search field", async ({ page }) => {
+      test("is one 72px row, as tall signed in (member, admin with badge) as signed out, with no search field", async ({ page }) => {
         const themed = async (p: Page) => {
           if (theme === "dark") await p.addInitScript(() => localStorage.setItem("sheltuh:theme", "dark"));
         };
         await themed(page);
         await as(page, "signed-out");
         const signedOut = await measure(page, "signed-out");
-        // --header-h (app/globals.css) is 96px from lg; in Dark too, its rule drawn inside the header.
-        expect(signedOut.height).toBe(96);
-        expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--header-h").trim())).toBe("6rem");
+        // --header-h (app/globals.css) is 72px from lg; in Dark too, its rule drawn inside the header.
+        expect(signedOut.height).toBe(72);
+        expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--header-h").trim())).toBe("4.5rem");
         expect(signedOut.overflow).toBeLessThanOrEqual(0);
         await expect(page.locator("header").getByRole("search")).toHaveCount(0);
 
@@ -114,7 +114,7 @@ for (const width of [1024, 1280, 1440, 1920]) {
           // One row: every control inside the bar, 32px or taller (the Messages chip; the rest 40), and none past the right edge.
           for (const control of result.controls) {
             expect(control.top, `${who}: ${JSON.stringify(control)}`).toBeGreaterThanOrEqual(0);
-            expect(control.bottom, `${who}: ${JSON.stringify(control)}`).toBeLessThanOrEqual(96);
+            expect(control.bottom, `${who}: ${JSON.stringify(control)}`).toBeLessThanOrEqual(72);
             expect(control.height, who).toBeGreaterThanOrEqual(32);
             expect(control.right, who).toBeLessThanOrEqual(width);
           }
