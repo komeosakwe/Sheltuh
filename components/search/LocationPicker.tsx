@@ -32,10 +32,28 @@ const SUGGESTED: { name: string; state: StateCode }[] = [
   { name: "Perth", state: "WA" },
 ];
 
-/** The menu's width from md; below md it's a bottom sheet. */
+/** The menu's width where it's a menu under the bar. */
 const PANEL_WIDTH = 360;
-/** The rules' `md` (768px): below it the menu is a bottom sheet. */
-const SHEET_BELOW = 768;
+
+/**
+ * Below these widths the menu is a bottom sheet. Standalone (Nearby): the rules' `md` (768px). In the
+ * search bar: `lg` (1024px), where the bar itself is the search sheet (components/SearchBar.tsx), so
+ * Where's list is a bottom sheet inside it at every width the sheet is used, not a 360px menu
+ * hanging under the sheet's Search button.
+ */
+const SHEET_BELOW = { standalone: 768, bar: 1024 } as const;
+
+/**
+ * The menu as a bottom sheet (the rules' Overlays board): full width, radius 16 at the top, a drag
+ * handle, 16px inside, over a 40% black scrim; per SHEET_BELOW. Whole class names, for Tailwind.
+ */
+const PANEL_SHEET = {
+  standalone:
+    "max-md:inset-x-0 max-md:top-auto max-md:bottom-0 max-md:m-0 max-md:max-h-4/5 max-md:w-full max-md:max-w-none max-md:rounded-b-none max-md:rounded-t-sheet max-md:border-x-0 max-md:border-b-0 max-md:p-4 max-md:pb-[calc(1rem+env(safe-area-inset-bottom))] max-md:backdrop:bg-ink/40",
+  bar: "max-lg:inset-x-0 max-lg:top-auto max-lg:bottom-0 max-lg:m-0 max-lg:max-h-4/5 max-lg:w-full max-lg:max-w-none max-lg:rounded-b-none max-lg:rounded-t-sheet max-lg:border-x-0 max-lg:border-b-0 max-lg:p-4 max-lg:pb-[calc(1rem+env(safe-area-inset-bottom))] max-lg:backdrop:bg-ink/40",
+} as const;
+/** The sheet's handle and Close, shown only while it's a sheet. */
+const SHEET_HEAD = { standalone: "md:hidden", bar: "lg:hidden" } as const;
 
 /** A typed place the suburb table doesn't know (the venue form's words, components/dashboard/VenueSuburbField.tsx). */
 const UNKNOWN_PLACE = "We couldn’t find that suburb or town. Check the spelling, or add its state (“Richmond, NSW”).";
@@ -77,9 +95,10 @@ const PIN = (
  * place, white, cream on hover, cream with the black stroke while open (the rules' Search board;
  * no orange focus ring). It opens the location menu, under the bar: "Use my location" and "All of
  * Australia", a typed suburb, then Recent (the remembered suburb) and Suggested (Melbourne,
- * Sydney, Brisbane, Perth). Radius 8, the 1.5px stroke, 48px rows, no shadow. Below md (in the
+ * Sydney, Brisbane, Perth). Radius 8, the 1.5px stroke, 48px rows, no shadow. Below lg (in the
  * search sheet) Where is a full-width field and the menu is a bottom sheet: radius 16 at the top,
- * a drag handle and Close, over a scrim (the rules' Overlays board).
+ * a drag handle and Close, over a scrim (the rules' Overlays board). Standalone (Nearby), the menu
+ * is a bottom sheet below md only.
  *
  * One location, set once and used everywhere: choosing a place (or Use my location) remembers it
  * in this browser at once (lib/near-storage.ts), so the next page, the home and Nearby all start
@@ -207,12 +226,14 @@ export default function LocationPicker({
     (place) => !recent || !(sameNear(recent, place.name) || sameNear(recent, tableName(place.name))),
   );
 
-  // From md, place the menu 360px wide under this segment, kept within the bar's edges. Below md
-  // it's a bottom sheet (its classes), so any placement from a wider window is cleared.
+  const mode = standalone ? "standalone" : "bar";
+
+  // Where it's a menu, place it 360px wide under this segment, kept within the bar's edges. Below
+  // SHEET_BELOW it's a bottom sheet (its classes), so any placement from a wider window is cleared.
   useEffect(() => {
     const popover = popoverRef.current;
     if (!popover) return;
-    const isSheet = () => document.documentElement.clientWidth < SHEET_BELOW;
+    const isSheet = () => document.documentElement.clientWidth < SHEET_BELOW[mode];
     function place() {
       const button = buttonRef.current;
       const bar = button?.closest("[data-search-bar]");
@@ -313,7 +334,7 @@ export default function LocationPicker({
       window.removeEventListener("scroll", place);
       window.removeEventListener("resize", place);
     };
-  }, []);
+  }, [mode]);
 
   // On submit: leave an empty `near` out of the address (so /search?q=jazz stays clean) and
   // forget the remembered suburb; remember a suburb the table knows, by its own name, with its state.
@@ -542,14 +563,14 @@ export default function LocationPicker({
         role="dialog"
         aria-labelledby={titleId}
         data-location-panel=""
-        // Below md, a bottom sheet (the rules' Overlays board): full width, radius 16 at the top, a
-        // drag handle, 16px inside, over a 40% black scrim. From md, a menu under the bar.
-        className="max-w-full overflow-y-auto rounded-control border-control border-foreground bg-card p-2 text-left text-foreground max-md:inset-x-0 max-md:top-auto max-md:bottom-0 max-md:m-0 max-md:max-h-4/5 max-md:w-full max-md:max-w-none max-md:rounded-b-none max-md:rounded-t-sheet max-md:border-x-0 max-md:border-b-0 max-md:p-4 max-md:pb-[calc(1rem+env(safe-area-inset-bottom))] max-md:backdrop:bg-ink/40"
+        // A bottom sheet below md standalone and below lg in the search bar (PANEL_SHEET); wider, a
+        // menu under the bar.
+        className={`max-w-full overflow-y-auto rounded-control border-control border-foreground bg-card p-2 text-left text-foreground ${PANEL_SHEET[mode]}`}
       >
         <p id={titleId} className="sr-only">
           Find events near you
         </p>
-        <div className="relative mb-2 flex items-center justify-end md:hidden">
+        <div className={`relative mb-2 flex items-center justify-end ${SHEET_HEAD[mode]}`}>
           <span aria-hidden="true" className="absolute left-1/2 h-2 w-10 -translate-x-1/2 rounded-full bg-surface-border" />
           <button
             type="button"
