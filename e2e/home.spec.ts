@@ -102,12 +102,14 @@ const noSidewaysScroll = (page: Page) =>
 /** The card titles in a listing, in order. */
 const titlesIn = (page: Page, name: string) => page.getByRole("list", { name, exact: true }).locator("[data-event-card] h3").allTextContents();
 
-// The rules' Layout board: 1312px of content, four 304px cards at 1440; three from 1024, two on a tablet, one on a phone.
+// The rules' Layout board: 1312px of content, four 304px cards at 1440 (64px margins from 1280: 264px there); three
+// from 1024, two from 768, one below 768 (Round 2 §1.2).
 const VIEWPORTS = [
   { name: "desktop 1440×900", width: 1440, height: 900, columns: 4, card: 304 },
-  { name: "desktop 1280×800", width: 1280, height: 800, columns: 4, card: 280 },
+  { name: "desktop 1280×800", width: 1280, height: 800, columns: 4, card: 264 },
   { name: "laptop 1024×768", width: 1024, height: 768, columns: 3, card: 298.67 },
   { name: "tablet 768×1024", width: 768, height: 1024, columns: 2, card: 340 },
+  { name: "small tablet 700×900", width: 700, height: 900, columns: 1, card: 668 },
   { name: "phone 390×844", width: 390, height: 844, columns: 1, card: 358 },
 ];
 

@@ -128,8 +128,15 @@ describe("the home's event sections (redesign PR 3)", () => {
     expect(weekend.querySelectorAll("[data-event-card]").length).toBeGreaterThan(0);
     expect(within(weekend).getByText("Fri 23 – Sun 25 Oct")).toBeInTheDocument();
     expect(within(weekend).getByRole("link", { name: "See all this weekend" })).toHaveAttribute("href", "/map?time=weekend&within=all");
-    // A sideways row on phones, the grid from 640px.
-    expect(screen.getByRole("list", { name: "This weekend" })).toHaveClass("flex", "overflow-x-auto", "sm:grid", "sm:grid-cols-2", "xl:grid-cols-4");
+    // Round 2 §1.2: a swipe row below 1024px (bleeding to the page's edges: 16px, 32px from 768px), two
+    // cards per view from 768px; the grid of three from 1024px and four from 1280px.
+    const row = screen.getByRole("list", { name: "This weekend" });
+    expect(row).toHaveClass("flex", "overflow-x-auto", "snap-x", "-mx-4", "px-4", "md:-mx-8", "md:px-8", "md:scroll-px-8", "lg:mx-0", "lg:grid", "lg:grid-cols-3", "lg:overflow-visible", "lg:px-0", "xl:grid-cols-4");
+    expect(row.className).not.toMatch(/(?:^|\s)sm:/);
+    for (const item of row.children) expect(item).toHaveClass("w-72", "shrink-0", "snap-start", "md:w-[calc((100%-1.5rem)/2)]", "lg:w-auto");
+    // Round 2 §1.4: 64 / 48 / 40 between sections.
+    expect(weekend).toHaveClass("mt-10", "md:mt-12", "lg:mt-16");
+    expect(screen.getByRole("region", { name: "All events" })).toHaveClass("mt-10", "md:mt-12", "lg:mt-16");
 
     // All events: every upcoming event, soonest first with This weekend's last (so its first page
     // doesn't repeat them), the first eight, and its count (the load was complete).

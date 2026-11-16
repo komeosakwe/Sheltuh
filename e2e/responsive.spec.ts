@@ -248,23 +248,25 @@ test.describe("home at 375px, without scrolling", () => {
   });
 });
 
-// This weekend (redesign PR 3): the one EventCard in a sideways row on phones, the grid from 640px.
-for (const width of [375, 640, 1024]) {
+// This weekend (Round 2 §1.2): the one EventCard in a sideways swipe row below 1024px (288px cards on phones,
+// two per view from 768px), the grid from 1024px.
+for (const width of [375, 640, 768, 1024]) {
   test.describe(`This weekend at ${width}px`, () => {
     test.use({ viewport: { width, height: 844 } });
 
-    test(width < 640 ? "a sideways row of 288px cards from the page's edge, the next one peeking in, and a still page" : "a grid of cards, no sideways scrolling", async ({ page }) => {
+    test(width < 1024 ? "a sideways row of cards from the page's edge, the next one peeking in, and a still page" : "a grid of cards, no sideways scrolling", async ({ page }) => {
       await mockApi(page);
       await page.goto("/");
       const list = page.getByRole("list", { name: "This weekend" });
       await expect(list.locator("[data-event-card]").first()).toBeVisible({ timeout: 30_000 });
       const style = await list.evaluate((ul) => ({ display: getComputedStyle(ul).display, overflowX: getComputedStyle(ul).overflowX }));
-      if (width < 640) {
+      if (width < 1024) {
         expect(style).toEqual({ display: "flex", overflowX: "auto" });
         const first = await list.locator("li").first().boundingBox();
         if (!first) throw new Error("not laid out");
-        expect(first.width).toBe(288);
-        expect(first.x).toBe(16);
+        // Phones: 288px. From 768px: two per view in the 704px column, 24px apart.
+        expect(first.width).toBe(width < 768 ? 288 : 340);
+        expect(first.x).toBe(width < 768 ? 16 : 32);
         // The page itself never moves sideways, even with the row scrolled to its end.
         await list.evaluate((ul) => ul.scrollTo({ left: ul.scrollWidth, behavior: "instant" }));
       } else {

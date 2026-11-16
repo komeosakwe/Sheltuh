@@ -24,12 +24,14 @@ export const HOME_ALL_EVENTS_ID = "home-all-events";
 const SECTION = "mt-10 md:mt-12 lg:mt-16";
 
 /**
- * This weekend's and From organisers you follow's cards: the home grid from 640px; on a phone a
- * sideways row of 288px cards (the next one peeking in), so the section stays short there.
+ * This weekend's and From organisers you follow's cards (Round 2 §1.2): a grid of three from 1024px
+ * and four from 1280px; below 1024px a sideways swipe row bleeding to the page's edges, with two
+ * cards per view from 768px and 288px cards on phones (the next one peeking in), so the section
+ * stays short there.
  */
 const ROW =
-  "no-scrollbar -mx-4 flex snap-x snap-mandatory gap-x-4 overflow-x-auto overscroll-x-contain scroll-px-4 px-4 py-2 sm:mx-0 sm:grid sm:grid-cols-2 sm:gap-y-8 sm:overflow-visible sm:px-0 sm:py-0 md:gap-x-6 lg:grid-cols-3 lg:gap-x-8 xl:grid-cols-4";
-const ROW_ITEM = "flex w-72 min-w-0 shrink-0 snap-start sm:w-auto";
+  "no-scrollbar -mx-4 flex snap-x snap-mandatory gap-x-4 overflow-x-auto overscroll-x-contain scroll-px-4 px-4 py-2 md:-mx-8 md:gap-x-6 md:scroll-px-8 md:px-8 lg:mx-0 lg:grid lg:grid-cols-3 lg:gap-x-8 lg:gap-y-8 lg:overflow-visible lg:px-0 lg:py-0 xl:grid-cols-4";
+const ROW_ITEM = "flex w-72 min-w-0 shrink-0 snap-start md:w-[calc((100%-1.5rem)/2)] lg:w-auto";
 
 /**
  * The home's event sections under the hero (the proposal, redesign PR 3), in order: the featured
@@ -125,7 +127,7 @@ export default function HomeEventSections() {
           <div className="mb-8 h-10 w-56 max-w-full rounded-badge bg-surface" />
           <div className={HOME_GRID}>
             {Array.from({ length: 4 }, (_, i) => (
-              <EventCardPlaceholder key={i} className={i > 0 ? "max-sm:hidden" : ""} />
+              <EventCardPlaceholder key={i} className={i > 0 ? "max-md:hidden" : ""} />
             ))}
           </div>
         </div>
