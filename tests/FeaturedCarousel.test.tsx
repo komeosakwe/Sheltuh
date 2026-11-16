@@ -314,7 +314,7 @@ describe("FeaturedCarousel", () => {
   });
 
   // Round 2 §1.1: no box. The ink scope on the slide (black under the photo), one gradient over it, and the words straight on it.
-  it("has no text box: the slide is the ink scope, under a clear-to-80%-black gradient, with 24/32/48px padding and stepped widths", () => {
+  it("has no text box: the slide is the ink scope, under a clear-to-black gradient, with 24/32/48px padding and stepped widths", () => {
     renderCarousel();
     const slide = slides()[0];
     expect(slide).toHaveAttribute("data-surface", "ink");
@@ -325,7 +325,9 @@ describe("FeaturedCarousel", () => {
     expect(content).toHaveClass("p-6", "pb-22", "md:p-8", "lg:p-12", "md:max-w-md", "lg:max-w-xl", "xl:max-w-2xl");
     const shade = slide.querySelector("[data-slide-shade]") as HTMLElement;
     expect(shade).toHaveAttribute("aria-hidden", "true");
-    expect(shade).toHaveClass("absolute", "inset-0", "-z-10", "bg-linear-to-b", "from-transparent", "from-35%", "to-ink/80");
+    // Darker than §1.1's clear-to-35% (which failed WCAG 1.4.3 on bright photos), more so below 768px.
+    expect(shade).toHaveClass("absolute", "inset-0", "-z-10", "bg-linear-to-b", "from-transparent", "via-ink/60", "via-20%", "to-ink/85");
+    expect(shade).toHaveClass("sm:from-5%", "sm:via-30%", "md:from-10%", "md:via-35%", "md:to-ink/80");
     // The photo, then the shade over it, then the words.
     const art = slide.firstElementChild as HTMLElement;
     expect(art).toHaveClass("absolute", "inset-0", "-z-10", "overflow-hidden");

@@ -36,7 +36,8 @@ const FOCUS_DEFAULTS = "object-[50%_50%] sm:object-[50%_40%] lg:object-[50%_35%]
 /**
  * The home's featured banner (the proposal's full-width banner, redesign PR 3; Round 2 §1.1): one
  * event at a time, its photo full bleed (4:5 below 640px, 2:1 to 1023px, 5:2 from 1024px) under a
- * black gradient (clear to 35%, 80% black at the bottom), with no box: the category (no "Featured"
+ * black gradient (60% ink by a fifth to a third of the way down, 80–85% at the bottom: §1.1's clear
+ * to 35% failed WCAG 1.4.3 on bright photos), with no box: the category (no "Featured"
  * until promoted listings exist, owner decision), the title in title-banner (Bootzy, as entered),
  * "date · venue" and the event's own ticket action (Buy tickets, Free tickets, Choose seats or Join
  * waitlist, as its card would say; none when there's nothing to buy yet), M below 1440px and L from
@@ -271,7 +272,17 @@ export default function FeaturedCarousel({
                   className="size-full"
                 />
               </div>
-              <div aria-hidden="true" data-slide-shade="" className="absolute inset-0 -z-10 rounded-card bg-linear-to-b from-transparent from-35% to-ink/80" />
+              {/* The shade, for the words' contrast (WCAG 1.4.3: 4.5:1 for the category and facts, 3:1 for the
+                  title, measured against the brightest pixel behind each line on every demo slide, with one-
+                  and two-line titles, from 320 to 1440px). The words can start a quarter of the way down a
+                  4:5 slide at 320px and a third of the way down a 2:1 one, so 60% ink is reached by then:
+                  below 640px 60% at 20% and 85% at the bottom; to 767px clear to 5%, 60% at 30%, 85%; from
+                  768px clear to 10%, 60% at 35%, 80% at the bottom. */}
+              <div
+                aria-hidden="true"
+                data-slide-shade=""
+                className="absolute inset-0 -z-10 rounded-card bg-linear-to-b from-transparent via-ink/60 via-20% to-ink/85 sm:from-5% sm:via-30% md:from-10% md:via-35% md:to-ink/80"
+              />
               {/* Not positioned, so the title's stretched link covers the whole slide. Below 768px the
                   bottom padding clears the controls (24 + 48 + 16). */}
               <div data-slide-content="" className="flex flex-col p-6 pb-22 md:max-w-md md:p-8 lg:max-w-xl lg:p-12 xl:max-w-2xl">
