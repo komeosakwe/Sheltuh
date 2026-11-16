@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import FeaturedCarousel, { CAROUSEL_INTERVAL_MS, CAROUSEL_MAX, slideFacts } from "@/components/home/FeaturedCarousel";
+import FeaturedCarousel, { CAROUSEL_INTERVAL_MS, CAROUSEL_MAX } from "@/components/home/FeaturedCarousel";
+import { slideFacts } from "@/lib/event-card";
 import { formatCardPriceLabel } from "@/lib/pricing";
 import type { SheltuhEvent } from "@/lib/types";
 

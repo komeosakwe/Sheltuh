@@ -640,7 +640,6 @@ function closePanel(panel: HTMLElement) {
   });
 }
 
-// CodeRabbit (PR 43): on Nearby nothing sends the typed words later, so they mustn't outlive the menu.
 // Round 2 §1.2: the search bar's Where is a segment of the inline bar from lg (the sheet's field below it);
 // Nearby's standalone picker and the shared menu keep their own breakpoints.
 describe("LocationPicker — breakpoints", () => {
@@ -660,6 +659,7 @@ describe("LocationPicker — breakpoints", () => {
   });
 });
 
+// CodeRabbit (PR 43): on Nearby nothing sends the typed words later, so they mustn't outlive the menu.
 describe("LocationPicker — standalone (Nearby): closing without applying", () => {
   it("drops a typed suburb and shows the place in use again; the search bar keeps it for Search", () => {
     localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Fitzroy", state: "VIC" }));

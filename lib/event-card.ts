@@ -112,6 +112,13 @@ export function cardDateLabel(event: SheltuhEvent, now: Date): CardDateLabel {
   return startLabel(event);
 }
 
+/** The featured banner slide's facts line (Round 2 §1.1): "Sat 21 Nov · Northcote Theatre", or "Now on · until … · venue". */
+export function slideFacts(event: SheltuhEvent, now: Date): string {
+  const date = cardDateLabel(event, now);
+  const venue = event.venueName.trim() || eventPlaceName(event);
+  return ["running" in date ? date.running : date.date, venue].filter(Boolean).join(" · ");
+}
+
 /**
  * The card's one meta line (the redesign's event card), as parts joined by " · ": the start's
  * date, its compact time with any zone but Melbourne's ("5pm", "4pm Perth time"), then "Suburb,

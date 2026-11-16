@@ -6,9 +6,8 @@ import EventArt from "@/components/EventArt";
 import { useClipViewer } from "@/components/events/ClipViewer";
 import { ButtonLink } from "@/components/ui/Button";
 import { useMotionOk } from "@/components/ui/useMotionOk";
-import { cardCta, cardDateLabel, categoryLabel } from "@/lib/event-card";
+import { cardCta, categoryLabel, slideFacts } from "@/lib/event-card";
 import { FEATURED_MAX } from "@/lib/home-sections";
-import { eventPlaceName } from "@/lib/place";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
 import type { SheltuhEvent } from "@/lib/types";
 import { ArrowRightIcon, PauseIcon, PlayIcon } from "./icons";
@@ -33,13 +32,6 @@ const ROTATION =
  * phones, a little higher on wider crops, so subjects stay above the text at the bottom.
  */
 const FOCUS_DEFAULTS = "object-[50%_50%] sm:object-[50%_40%] lg:object-[50%_35%]";
-
-/** The slide's facts line (Round 2 §1.1): "Sat 21 Nov · Northcote Theatre", or "Now on · until … · venue". */
-export function slideFacts(event: SheltuhEvent, now: Date): string {
-  const date = cardDateLabel(event, now);
-  const venue = event.venueName.trim() || eventPlaceName(event);
-  return ["running" in date ? date.running : date.date, venue].filter(Boolean).join(" · ");
-}
 
 /**
  * The home's featured banner (the proposal's full-width banner, redesign PR 3; Round 2 §1.1): one
