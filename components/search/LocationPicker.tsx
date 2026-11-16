@@ -499,10 +499,10 @@ export default function LocationPicker({
         data-open={open || undefined}
         // Its visible words, "Where" and the place, are its name (WCAG 2.5.3).
         aria-label={`Where: ${shown}`}
-        // Below md, in the search sheet: a full-width field with the stroke. From md, a segment of the
-        // bar; standalone (Nearby), the field at every width.
+        // Below lg, in the search sheet: a full-width field with the stroke. From lg, a segment of the
+        // bar (Round 2 §1.2); standalone (Nearby), the field at every width.
         className={`flex min-h-12 w-full min-w-0 shrink-0 items-center gap-2 rounded-control border-control border-foreground bg-card px-4 text-left hover:bg-hover data-open:border-foreground data-open:bg-hover ${
-          standalone ? "lg:min-h-18 lg:px-6" : "md:w-auto md:max-w-2/5 md:border-transparent md:px-3 md:focus-visible:-outline-offset-2!"
+          standalone ? "lg:min-h-18 lg:px-6" : "lg:w-auto lg:max-w-2/5 lg:border-transparent lg:px-3 lg:focus-visible:-outline-offset-2!"
         }`.trim()}
       >
         <Icon className="size-5">{PIN}</Icon>
@@ -528,8 +528,9 @@ export default function LocationPicker({
         {announcement}
       </span>
       {appliedNear !== undefined && (
-        // From md, under the bar (the form is `relative`), in the space the page leaves below it; in the sheet, under Where.
-        <p aria-live="polite" data-near-hint="" className="text-sm leading-5 text-muted md:absolute md:top-full md:left-4 md:mt-2">
+        // From lg, under the bar (the form is `relative`), in the space the page leaves below it; in the sheet, under
+        // Where. Only SearchBar (/search) passes appliedNear, so this follows the bar's breakpoint, not Nearby's.
+        <p aria-live="polite" data-near-hint="" className="text-sm leading-5 text-muted lg:absolute lg:top-full lg:left-4 lg:mt-2">
           {outOfDate ? "Press Search to update results." : ""}
         </p>
       )}

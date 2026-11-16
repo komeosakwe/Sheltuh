@@ -2,9 +2,9 @@ import "@testing-library/jest-dom/vitest";
 
 /**
  * jsdom has no Tailwind, but it does hide a closed popover (`[popover]` is `display: none` until
- * it's open). The search bar's sheet (components/SearchBar.tsx) is a popover only below md; from
- * md it's `md:contents`, the inline bar. Component tests see the desktop layout, as a browser at
- * md and up does: this mirrors that one rule. (The location menu, a popover at every width, stays
+ * it's open). The search bar's sheet (components/SearchBar.tsx) is a popover only below lg; from
+ * lg it's `lg:contents`, the inline bar. Component tests see the desktop layout, as a browser at
+ * lg and up does: this mirrors that one rule. (The location menu, a popover at every width, stays
  * hidden until opened, so tests query it with `hidden: true`.)
  */
 if (typeof document !== "undefined") {

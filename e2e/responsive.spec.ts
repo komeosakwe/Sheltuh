@@ -203,9 +203,9 @@ for (const width of [375, 390, 768, 1024, 1200, 1280, 1440]) {
       } else {
         expect(searchBox.y).toBeGreaterThan(ledeBox.y + ledeBox.height - 1);
       }
-      // The hero's one orange button is the search submit; below 768px it's inside the search sheet.
+      // The hero's one orange button is the search submit; below 1024px it's inside the search sheet (Round 2 §1.2).
       await expect(hero.locator(".btn-signal")).toHaveCount(1);
-      if (width < 768) {
+      if (width < 1024) {
         await expect(hero.locator("[data-search-trigger]")).toHaveAccessibleName("Search events");
         await expect(hero.locator(".btn-signal")).toBeHidden();
       } else {
@@ -215,7 +215,7 @@ for (const width of [375, 390, 768, 1024, 1200, 1280, 1440]) {
       // One search on the home: no header field (desktop) or search icon (phones).
       await expect(page.getByRole("search")).toHaveCount(1);
       await expect(page.locator("header a[href='/search']")).toHaveCount(0);
-      await expect(hero.getByRole("search").locator("svg:visible")).toHaveCount(width >= 768 ? 4 : 1);
+      await expect(hero.getByRole("search").locator("svg:visible")).toHaveCount(width >= 1024 ? 4 : 1);
       // No photos in the hero any more (the collage and the phone tile are gone).
       await expect(hero.locator("img, [data-hero-collage], [data-hero-thumb]")).toHaveCount(0);
       // FIND YOÜR / NEXT THING. is two lines at most at 100% text size (one where it fits).

@@ -641,6 +641,25 @@ function closePanel(panel: HTMLElement) {
 }
 
 // CodeRabbit (PR 43): on Nearby nothing sends the typed words later, so they mustn't outlive the menu.
+// Round 2 §1.2: the search bar's Where is a segment of the inline bar from lg (the sheet's field below it);
+// Nearby's standalone picker and the shared menu keep their own breakpoints.
+describe("LocationPicker — breakpoints", () => {
+  it("in the search bar, Where becomes a bar segment from lg; standalone, it's the field at every width", () => {
+    render(<SearchBar />);
+    const inBar = screen.getByRole("button", { name: /^Where: / });
+    expect(inBar).toHaveClass("lg:w-auto", "lg:max-w-2/5", "lg:border-transparent", "lg:px-3", "lg:focus-visible:-outline-offset-2!");
+    expect(inBar.className).not.toMatch(/(?:^|\s)md:/);
+    cleanup();
+    render(<LocationPicker standalone />);
+    const standalone = screen.getByRole("button", { name: /^Where: / });
+    expect(standalone).toHaveClass("lg:min-h-18", "lg:px-6");
+    expect(standalone.className).not.toMatch(/w-auto|border-transparent/);
+    // The shared menu is still a bottom sheet below md only.
+    const panel = document.querySelector("[data-location-panel]");
+    expect(panel).toHaveClass("max-md:bottom-0", "max-md:rounded-t-sheet");
+  });
+});
+
 describe("LocationPicker — standalone (Nearby): closing without applying", () => {
   it("drops a typed suburb and shows the place in use again; the search bar keeps it for Search", () => {
     localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Fitzroy", state: "VIC" }));

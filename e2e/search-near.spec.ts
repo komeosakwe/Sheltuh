@@ -96,9 +96,9 @@ async function countGeolocation(page: Page) {
 const geoCalls = (page: Page) => page.evaluate(() => (window as unknown as { __geoCalls: number }).__geoCalls);
 
 /**
- * Below md the bar is one field that opens the full-screen search sheet (the rules' Layout board):
- * opens it, pressing until the page has hydrated, and returns the search landmark. From md the
- * bar is inline and there's nothing to open.
+ * Below lg the bar is one field that opens the full-screen search sheet (the rules' Layout board;
+ * Round 2 §1.2): opens it, pressing until the page has hydrated, and returns the search landmark.
+ * From lg the bar is inline and there's nothing to open.
  */
 async function openSheet(page: Page, tap = false) {
   const search = page.getByRole("search", { name: "Search events" });
@@ -114,7 +114,7 @@ async function openSheet(page: Page, tap = false) {
   return search;
 }
 
-/** Opens the hero's location panel (in the search sheet below md), pressing until the page has hydrated. */
+/** Opens the hero's location panel (in the search sheet below lg), pressing until the page has hydrated. */
 async function openPanel(page: Page, tap = false) {
   const search = await openSheet(page, tap);
   const location = search.getByRole("button", { name: /^Where: / });
@@ -130,6 +130,7 @@ async function openPanel(page: Page, tap = false) {
 for (const theme of ["light", "dark"] as const) {
   for (const viewport of [
     { width: 390, height: 844 },
+    { width: 768, height: 1024 },
     { width: 1440, height: 900 },
   ]) {
     test.describe(`search bar at ${viewport.width}px in ${theme === "light" ? "Light" : "Dark"}`, () => {
@@ -139,8 +140,9 @@ for (const theme of ["light", "dark"] as const) {
         if (theme === "dark") await page.addInitScript(() => localStorage.setItem("sheltuh:theme", "dark"));
         await mockApi(page);
         await page.goto("/");
-        const phone = viewport.width < 768;
-        // Below md: one field that opens the full-screen sheet with the form in it.
+        // Phones and tablets (below lg): the sheet.
+        const phone = viewport.width < 1024;
+        // Below lg: one field that opens the full-screen sheet with the form in it.
         const search = await openSheet(page);
         const submit = search.getByRole("button", { name: "Search", exact: true });
         await expect(submit).toBeVisible({ timeout: 30_000 });
@@ -183,9 +185,9 @@ for (const theme of ["light", "dark"] as const) {
           await expect(search.locator("[data-search-trigger]")).toBeFocused();
           return;
         }
-        // From md: one bar, radius 8 with the 1.5px stroke (Chromium draws it in whole device pixels:
+        // From lg: one bar, radius 8 with the 1.5px stroke (Chromium draws it in whole device pixels:
         // 1px at 1x), 8px inside.
-        await expect(bar).toHaveClass(/\bmd:border-control\b/);
+        await expect(bar).toHaveClass(/\blg:border-control\b/);
         const barLook = await bar.evaluate((el) => ({ radius: getComputedStyle(el).borderTopLeftRadius, border: parseFloat(getComputedStyle(el).borderTopWidth), padding: getComputedStyle(el).paddingTop }));
         expect(barLook.radius).toBe("8px");
         expect(barLook.border).toBeGreaterThanOrEqual(1);
