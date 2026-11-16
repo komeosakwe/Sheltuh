@@ -10,7 +10,8 @@ import HomeSearchBar from "./HomeSearchBar";
  * 768px, 56/64 from 1280px; the Ü through BrandU, read "Find your next thing."), the one-line lede
  * "Curated creative events. See who's going." under it in body-m, and the site's search bar beside
  * them (components/SearchBar.tsx: the words, Where and an orange Search; HomeSearchBar, which
- * suggests the home's loaded events under its empty field), 448px wide from 1024px and 576px from
+ * suggests the home's loaded events under its empty field), 512px wide from 1024px (room for
+ * "Search events" whole beside Where) and 576px from
  * 1280px. Below 1024px the headline wraps where it must (never `nowrap`), then the lede, then the
  * search, full width. Nothing animates in.
  */
@@ -31,7 +32,7 @@ export default function HomeHero() {
           </p>
         </div>
       </div>
-      <div className="mt-4 md:mt-6 lg:mt-0 lg:w-full lg:max-w-md xl:max-w-xl">
+      <div className="mt-4 md:mt-6 lg:mt-0 lg:w-full lg:max-w-lg xl:max-w-xl">
         <HomeSearchBar />
       </div>
     </section>

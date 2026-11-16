@@ -98,10 +98,10 @@ describe("HomeHero (the proposal, redesign PR 3)", () => {
     expect((badge?.compareDocumentPosition(h1) ?? 0) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const search = screen.getByRole("search", { name: "Search events" });
     expect(h1.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // One row from 1024px (Round 2 §1.2): the text block and the search side by side, the search 448px
-    // wide at 1024–1279px and 576px from 1280px.
+    // One row from 1024px (Round 2 §1.2): the text block and the search side by side, the search 512px
+    // wide at 1024–1279px ("Search events" whole beside Where) and 576px from 1280px.
     expect(container.querySelector("section")).toHaveClass("lg:flex", "lg:items-center", "lg:justify-between", "lg:gap-8");
-    expect(search.parentElement).toHaveClass("lg:mt-0", "lg:w-full", "lg:max-w-md", "xl:max-w-xl");
+    expect(search.parentElement).toHaveClass("lg:mt-0", "lg:w-full", "lg:max-w-lg", "xl:max-w-xl");
     expect(search.parentElement?.className).not.toContain("lg:max-w-2xl");
   });
 
