@@ -146,10 +146,10 @@ describe("EventCard anatomy (the rules' Cards board)", () => {
       expect(text.children[1].tagName).toBe("H3");
       // The title is Heading/H4, at most two lines; the meta lines are Mono/M, secondary, as written (never in capitals).
       expect(text.children[1]).toHaveClass("heading-h4", "line-clamp-2", "break-words");
-      // Each one line, cut short if it doesn't fit: Mono/S on a narrow card, Mono/M from an 18rem one. Instrument
+      // Each one line, cut short if it doesn't fit: Mono/S on a narrow card, Mono/M from a 16rem one. Instrument
       // Sans (mono-* are sans in name only), never font-mono.
       for (const line of [meta(container), where(container)]) {
-        expect(line).toHaveClass("mono-s", "@2xs:mono-m", "truncate", "text-muted");
+        expect(line).toHaveClass("mono-s", "@3xs:mono-m", "truncate", "text-muted");
         expect(line?.className).not.toMatch(/uppercase|font-mono/);
       }
       // The foot: who's going (decorative faces, then the count), then the all-inclusive price label (the amount alone).

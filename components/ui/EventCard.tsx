@@ -16,13 +16,14 @@ import type { SheltuhEvent } from "@/lib/types";
 const MEDIA = "aspect-[2/1]";
 
 /** A meta line: one line, cut short with an ellipsis when it doesn't fit (the whole line is still the text read). */
-const META = "mono-s truncate text-muted @2xs:mono-m";
+const META = "mono-s truncate text-muted @3xs:mono-m";
 
 /**
  * The card's two meta lines (Round 2 §1.5), as written in Instrument Sans (owner decision, 13 Nov
  * 2026; mono-* are Instrument Sans with tabular figures): when (cardWhenParts: "Sat 14 Nov · 5pm",
  * kept by the owner's amendment) and where (cardWhereLabel: "Northcote, VIC · Northcote Theatre").
- * Mono/S on a narrow card and Mono/M from an 18rem card, so a narrow card never scrolls sideways.
+ * Mono/S on a narrow card and Mono/M from a 16rem card (the 264px cards at 1280–1439px and the 272px
+ * cream cards on /community included), so a narrow card never scrolls sideways.
  */
 function MetaLines({ when, where }: { when: string[]; where: string }) {
   return (
