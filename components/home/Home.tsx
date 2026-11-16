@@ -4,8 +4,8 @@ import HomeEventSections from "./HomeEventSections";
 import { HomeEventsProvider } from "./HomeEventsProvider";
 import HomeHero from "./HomeHero";
 
-/** The space above the home's last two sections (the proposal's rhythm). */
-const SECTION_GAP = "mt-16 md:mt-24";
+/** The space above the home's last two sections (Round 2 §1.4: 64 / 48 / 40, as the event sections). */
+const SECTION_GAP = "mt-10 md:mt-12 lg:mt-16";
 
 /**
  * The home page (the proposal, redesign PR 3), top to bottom: the hero (the h1, the lede and

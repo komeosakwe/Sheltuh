@@ -20,8 +20,8 @@ export const HOME_LOAD_ERROR = "Couldn’t load events. Check your connection an
 /** All events' section id: the category chips control it. */
 export const HOME_ALL_EVENTS_ID = "home-all-events";
 
-/** The space above each event section (the proposal's rhythm: 96px from 1024px, 64px from 768px, 48px on phones). */
-const SECTION = "mt-12 md:mt-16 lg:mt-24";
+/** The space above each event section (Round 2 §1.4: 64px from 1024px, 48px from 768px, 40px on phones). */
+const SECTION = "mt-10 md:mt-12 lg:mt-16";
 
 /**
  * This weekend's and From organisers you follow's cards: the home grid from 640px; on a phone a

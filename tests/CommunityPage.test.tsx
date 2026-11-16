@@ -63,6 +63,20 @@ describe("/community (demo)", () => {
     expect(document.body).not.toHaveTextContent(/Word of mouth|Follow scenes|members|you know|saved this/i);
   });
 
+  // Round 2 §1.3–1.4: section titles at heading-section-l (32/40, 24/32 on phones), and 64 / 48 / 40
+  // between sections.
+  it("sets its section titles at the section size and spaces its sections 64 / 48 / 40", async () => {
+    const { container } = await renderPage();
+    for (const name of ["Local discovery", "Your visibility, your choice", "Find your people."]) {
+      const h2 = screen.getByRole("heading", { level: 2, name });
+      expect(h2, name).toHaveClass("heading-section-l");
+      expect(h2.className, name).not.toMatch(/heading-h1|text-5xl/);
+    }
+    const panels = container.querySelector("#community-local")?.closest("section")?.parentElement;
+    expect(panels).toHaveClass("mt-10", "md:mt-12", "lg:mt-16");
+    expect(container.querySelector("[aria-labelledby='community-join']")).toHaveClass("mt-10", "md:mt-12", "lg:mt-16");
+  });
+
   it("the hero: the proposal's lede, Explore scenes (a plain in-page link to Scenes by city) and Join free, over two rows of licensed photos, each once", async () => {
     const { container } = await renderPage();
     expect(screen.getByText(COMMUNITY_LEDE)).toBeInTheDocument();

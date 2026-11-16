@@ -192,12 +192,13 @@ describe("CategoryRow: the category chips (the proposal, redesign PR 3)", () => 
 });
 
 describe("HomeSectionHead", () => {
-  it("is a Heading/H1-size h2 with the two decorative dots, an optional mono note and a link that stays on the title's row (\"See all\" on phones)", () => {
+  it("is a section-title h2 (heading-section-l, Round 2 §1.3) with the two decorative dots, an optional mono note and a link that stays on the title's row (\"See all\" on phones)", () => {
     render(<HomeSectionHead id="w" title="This weekend" note="Fri 13 – Sun 15 Nov" link={{ href: "/map?time=weekend", label: "See all this weekend" }} />);
     const h2 = screen.getByRole("heading", { level: 2, name: "This weekend" });
     expect(h2).toHaveAttribute("id", "w");
     expect(h2).toHaveAttribute("tabindex", "-1");
-    expect(h2).toHaveClass("heading-h1");
+    expect(h2).toHaveClass("heading-section-l");
+    expect(h2).not.toHaveClass("heading-h1");
     expect(h2.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
     const note = screen.getByText("Fri 13 – Sun 15 Nov");
     expect(note).toHaveClass("mono-s", "text-muted");
@@ -283,7 +284,8 @@ describe("GuideCard and CreatorsCard", () => {
     const { container } = render(<CreatorsCard />);
     expect(screen.getByText("For organisers")).toHaveClass("eyebrow");
     expect(screen.getByRole("region", { name: "Bring your event to life" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 2, name: "Bring your event to life" })).toHaveClass("heading-h1");
+    // Round 2 §1.2–1.3: the section-title size, balanced so "life" never sits alone on a line.
+    expect(screen.getByRole("heading", { level: 2, name: "Bring your event to life" })).toHaveClass("heading-section-l", "text-balance");
     expect(screen.getByText(CREATORS_LINE)).toBeInTheDocument();
     expect(CREATORS_LINE).toBe("Every organiser checked by a person · Only the good stuff");
     const photo = container.querySelector("[aria-hidden='true'] .aspect-\\[2\\/1\\]");
@@ -295,6 +297,16 @@ describe("GuideCard and CreatorsCard", () => {
     expect(cta).toHaveClass("btn-outline");
     expect(container.querySelector("[data-surface='ink']")).not.toBeNull();
     expect(container.querySelector(".btn-signal")).toBeNull();
+  });
+
+  it("Bring your event to life reads words, photo, button at every width: DOM order is visual order (Round 2 §0)", () => {
+    const { container } = render(<CreatorsCard />);
+    const heading = screen.getByRole("heading", { level: 2, name: "Bring your event to life" });
+    const photo = container.querySelector("[aria-hidden='true'] .aspect-\\[2\\/1\\]")?.parentElement as HTMLElement;
+    const cta = screen.getByRole("link", { name: "List your event" });
+    expect(heading.compareDocumentPosition(photo) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(photo.compareDocumentPosition(cta) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    for (const el of container.querySelectorAll("*")) expect(el.className.toString()).not.toMatch(/(?:^|\s)(?:\w+:)*order-/);
   });
 });
 

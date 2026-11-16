@@ -36,7 +36,7 @@ export default function LocalDiscovery({ className = "" }: { className?: string 
 
   return (
     <section aria-labelledby="community-local" className={`flex flex-col rounded-card bg-hover p-6 md:p-8 lg:p-12 ${className}`.trim()}>
-      <h2 id="community-local" className="heading-h1">
+      <h2 id="community-local" className="heading-section-l">
         {LOCAL_DISCOVERY.title}
       </h2>
       <p className={PANEL_LINE}>{LOCAL_DISCOVERY.body}</p>

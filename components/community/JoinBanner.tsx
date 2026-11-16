@@ -67,7 +67,7 @@ export default function JoinBanner({ className = "" }: { className?: string }) {
       className={`rounded-card p-6 md:p-10 lg:p-12 ${className}`.trim()}
     >
       <p className="text-sm leading-5 font-semibold">{JOIN_EYEBROW}</p>
-      <h2 id="community-join" className="mt-2 heading-h1">
+      <h2 id="community-join" className="mt-2 heading-section-l">
         {JOIN_TITLE}
       </h2>
       <p className="mt-2 body-m font-medium">{JOIN_LEDE}</p>
