@@ -289,11 +289,14 @@ export default function FeaturedCarousel({
                   from 640px the slide is wide enough for the action to sit beside them, bottoms aligned. */}
               <div data-slide-content="" className="flex flex-col p-6 pb-22 sm:pb-6 md:max-w-md md:p-8 lg:max-w-xl lg:p-12 xl:max-w-2xl">
                 <p className="mono-s text-foreground">{categoryLabel(event)}</p>
-                <h3 className="title-banner mt-2 line-clamp-2 break-words">
+                {/* The clamp is on the link, not the h3: its overflow would clip the link's focus ring. The
+                    link stays unpositioned, so its ::after still stretches over the slide (unclipped: the
+                    slide, not the link, is its containing block); w-fit, so the ring hugs the words. */}
+                <h3 className="title-banner mt-2">
                   <Link
                     href={href}
                     data-banner-link=""
-                    className="underline decoration-transparent underline-offset-4 group-hover/slide:decoration-current focus-visible:decoration-current after:absolute after:inset-0 after:z-0 after:rounded-card after:content-[''] motion-safe:transition-colors motion-safe:duration-200"
+                    className="line-clamp-2 w-fit break-words underline decoration-transparent underline-offset-4 group-hover/slide:decoration-current focus-visible:decoration-current after:absolute after:inset-0 after:z-0 after:rounded-card after:content-[''] motion-safe:transition-colors motion-safe:duration-200"
                   >
                     {event.title}
                   </Link>

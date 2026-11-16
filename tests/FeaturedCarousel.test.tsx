@@ -146,7 +146,11 @@ describe("FeaturedCarousel", () => {
     const link = within(slide).getByRole("link", { name: "Baby Keem at the Forum" });
     expect(link).toHaveClass("underline", "decoration-transparent", "group-hover/slide:decoration-current", "focus-visible:decoration-current");
     const h3 = within(slide).getByRole("heading", { level: 3 });
-    expect(h3).toHaveClass("title-banner", "line-clamp-2", "break-words");
+    expect(h3).toHaveClass("title-banner");
+    // Clamped on the link, so the h3's overflow never clips the link's focus ring; the link isn't positioned.
+    expect(h3.className).not.toMatch(/line-clamp|overflow/);
+    expect(link).toHaveClass("line-clamp-2", "break-words");
+    expect(link.className).not.toMatch(/(?:^|\s)(relative|absolute)(?:\s|$)/);
     // Round 2 §1.7: never upper-cased by CSS.
     for (const el of [h3, link]) expect(el.className).not.toMatch(/uppercase/);
     expect(h3).toHaveTextContent("Baby Keem at the Forum");
