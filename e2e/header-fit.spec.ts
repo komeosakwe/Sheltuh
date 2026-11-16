@@ -157,6 +157,8 @@ for (const width of [1024, 1440]) {
       const scrolledHeight = width >= 1280 ? 64 : 72;
       await expect(header).toHaveAttribute("data-scrolled", "");
       await expect.poll(async () => Math.round((await header.boundingBox())?.height ?? 0)).toBe(scrolledHeight);
+      // Its place in the flow stays 72px (an 8px margin under the 64px row), so the page below never moves.
+      expect(await header.evaluate((el) => Math.round(el.getBoundingClientRect().height + parseFloat(getComputedStyle(el).marginBottom)))).toBe(72);
       // Still sticky, at the top.
       expect(Math.round((await header.boundingBox())?.y ?? -1)).toBe(0);
       expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--header-h").trim())).toBe("4.5rem");

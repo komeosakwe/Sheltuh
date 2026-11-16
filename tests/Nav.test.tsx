@@ -391,6 +391,9 @@ describe("Nav — header", () => {
       const row = desktopNav.parentElement as HTMLElement;
       expect(row).toHaveClass("h-18", "xl:group-data-scrolled/header:h-16", "motion-safe:transition-[height]", "motion-safe:duration-200");
       expect(row.className).not.toMatch(/(?:^|\s)(?:lg:)?group-data-scrolled/);
+      // The header's place in the flow stays 72px (the row's lost 8px become a bottom margin), easing together,
+      // so nothing below it moves and scroll anchoring never shifts the page.
+      expect(header).toHaveClass("xl:data-scrolled:mb-2", "motion-safe:transition-[margin]", "motion-safe:duration-200", "motion-safe:ease-out");
       act(() => report?.([{ isIntersecting: false }]));
       expect(header).toHaveAttribute("data-scrolled", "");
       act(() => report?.([{ isIntersecting: true }]));

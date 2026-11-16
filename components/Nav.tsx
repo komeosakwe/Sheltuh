@@ -76,8 +76,10 @@ function MenuIcon({ open }: { open: boolean }) {
  *
  * From 1280px the row tightens to 64px once the page has scrolled (Round 2 §1.2): a sentinel at the
  * document's top (an IntersectionObserver, no scroll listener) sets `data-scrolled` on the header.
- * --header-h stays 72px, so scroll padding and sticky offsets never under-measure it. The change
- * eases only for people who don't prefer reduced motion.
+ * --header-h stays 72px, so scroll padding and sticky offsets never under-measure it. The header
+ * takes an 8px bottom margin as its row loses 8px, so its place in the flow stays 72px: nothing below
+ * it moves, and scroll anchoring never nudges the page (back at the top, scrollY is 0, not 8). Both
+ * ease together, only for people who don't prefer reduced motion.
  *
  * Below `lg` (phones and tablets): the ü logo, a search icon link (not on the home, whose hero
  * has the page's search) and Menu, 48px targets. Menu opens a black drawer under the bar, a
@@ -192,7 +194,7 @@ export default function Nav() {
       <header
         data-surface="ink"
         data-scrolled={scrolled ? "" : undefined}
-        className={`group/header ${atDoor ? "relative" : inThread ? "relative lg:sticky" : "sticky"} top-0 z-30 pt-[env(safe-area-inset-top)] after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:hidden after:h-px after:bg-surface-border dark:after:block`}
+        className={`group/header ${atDoor ? "relative" : inThread ? "relative lg:sticky" : "sticky"} top-0 z-30 pt-[env(safe-area-inset-top)] xl:data-scrolled:mb-2 motion-safe:transition-[margin] motion-safe:duration-200 motion-safe:ease-out after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:hidden after:h-px after:bg-surface-border dark:after:block`}
       >
         {/* Compact bar (phones and tablets). */}
         <div
