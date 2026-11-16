@@ -139,6 +139,34 @@ for (const width of [1024, 1280, 1440, 1920]) {
   }
 }
 
+// Round 2 §1.2–1.3: 16px Medium nav labels; from 1280px the row tightens to 64px once the page has scrolled
+// (back to 72 at the top), while --header-h stays 72px. At 1024–1279 it stays 72.
+for (const width of [1024, 1440]) {
+  test.describe(`desktop header at ${width}px, scrolled`, () => {
+    test.use({ viewport: { width, height: 900 } });
+
+    test(width >= 1280 ? "tightens to 64px once scrolled and back to 72 at the top; the nav is 16px Medium" : "stays 72px when scrolled; the nav is 16px Medium", async ({ page }) => {
+      await as(page, "signed-out");
+      await measure(page, "signed-out");
+      const header = page.locator("header").first();
+      const discover = page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Discover" });
+      expect(await discover.evaluate((el) => [getComputedStyle(el).fontSize, getComputedStyle(el).fontWeight])).toEqual(["16px", "500"]);
+      // Room to scroll, whatever the mocked page holds.
+      await page.evaluate(() => document.querySelector("main")?.style.setProperty("min-height", "300vh"));
+      await page.evaluate(() => window.scrollTo(0, 400));
+      const scrolledHeight = width >= 1280 ? 64 : 72;
+      await expect(header).toHaveAttribute("data-scrolled", "");
+      await expect.poll(async () => Math.round((await header.boundingBox())?.height ?? 0)).toBe(scrolledHeight);
+      // Still sticky, at the top.
+      expect(Math.round((await header.boundingBox())?.y ?? -1)).toBe(0);
+      expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--header-h").trim())).toBe("4.5rem");
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await expect(header).not.toHaveAttribute("data-scrolled");
+      await expect.poll(async () => Math.round((await header.boundingBox())?.height ?? 0)).toBe(72);
+    });
+  });
+}
+
 test.describe("desktop header at 1440px, signed in", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 

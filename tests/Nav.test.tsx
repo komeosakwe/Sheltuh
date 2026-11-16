@@ -357,6 +357,53 @@ describe("Nav — header", () => {
     expect(desktopNav.parentElement?.querySelector("svg")).toHaveClass("h-5");
   });
 
+  // Round 2 §1.2: from 1280px the row tightens to 64px once the page has scrolled; --header-h stays 72px.
+  it("marks the header scrolled once its top-of-document sentinel leaves the viewport; only the XL row shrinks, eased for motion-safe only", () => {
+    let report: ((entries: { isIntersecting: boolean }[]) => void) | undefined;
+    const observe = vi.fn();
+    const disconnect = vi.fn();
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor(callback: (entries: { isIntersecting: boolean }[]) => void) {
+          report = callback;
+        }
+        observe = observe;
+        disconnect = disconnect;
+        unobserve() {}
+        takeRecords() {
+          return [];
+        }
+      },
+    );
+    try {
+      const { container, unmount } = renderNav(fakeAuthValue({ status: "signed-out" }));
+      const header = container.querySelector("header") as HTMLElement;
+      const sentinel = container.querySelector("[data-header-sentinel]") as HTMLElement;
+      // Outside the sticky header (so it scrolls away), absolutely placed (so it takes no room), hidden from assistive tech.
+      expect(header.contains(sentinel)).toBe(false);
+      expect(sentinel).toHaveAttribute("aria-hidden", "true");
+      expect(sentinel).toHaveClass("absolute", "top-0", "pointer-events-none");
+      expect(observe).toHaveBeenCalledWith(sentinel);
+      expect(header).toHaveClass("group/header");
+      expect(header).not.toHaveAttribute("data-scrolled");
+      const [desktopNav] = screen.getAllByRole("navigation", { name: "Primary" });
+      const row = desktopNav.parentElement as HTMLElement;
+      expect(row).toHaveClass("h-18", "xl:group-data-scrolled/header:h-16", "motion-safe:transition-[height]", "motion-safe:duration-200");
+      expect(row.className).not.toMatch(/(?:^|\s)(?:lg:)?group-data-scrolled/);
+      act(() => report?.([{ isIntersecting: false }]));
+      expect(header).toHaveAttribute("data-scrolled", "");
+      act(() => report?.([{ isIntersecting: true }]));
+      expect(header).not.toHaveAttribute("data-scrolled");
+      // The compact bar never changes.
+      expect(compactBar(container).className).not.toMatch(/scrolled/);
+      unmount();
+      expect(disconnect).toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("gives the phone bar's controls 48px targets and the ü logo", () => {
     pathname = "/events";
     const { container } = renderNav(fakeAuthValue({ status: "signed-out" }));
