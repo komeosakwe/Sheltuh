@@ -27,10 +27,12 @@ const SECTION = "mt-10 md:mt-12 lg:mt-16";
  * This weekend's and From organisers you follow's cards (Round 2 §1.2): a grid of three from 1024px
  * and four from 1280px; below 1024px a sideways swipe row bleeding to the page's edges, with two
  * cards per view from 768px and 288px cards on phones (the next one peeking in), so the section
- * stays short there.
+ * stays short there. The row scrolls sideways, which clips it top and bottom too, so it pads 8px
+ * round the cards' 6px panel on phones, and from 768px 20px round their 16px panel and 2px focus
+ * ring (pulled back 12px with a negative margin, so the section's spacing doesn't change).
  */
 const ROW =
-  "no-scrollbar -mx-4 flex snap-x snap-mandatory gap-x-4 overflow-x-auto overscroll-x-contain scroll-px-4 px-4 py-2 md:-mx-8 md:gap-x-6 md:scroll-px-8 md:px-8 lg:mx-0 lg:grid lg:grid-cols-3 lg:gap-x-8 lg:gap-y-8 lg:overflow-visible lg:px-0 lg:py-0 xl:grid-cols-4";
+  "no-scrollbar -mx-4 flex snap-x snap-mandatory gap-x-4 overflow-x-auto overscroll-x-contain scroll-px-4 px-4 py-2 md:-mx-8 md:-my-3 md:gap-x-6 md:scroll-px-8 md:px-8 md:py-5 lg:mx-0 lg:my-0 lg:grid lg:grid-cols-3 lg:gap-x-8 lg:gap-y-8 lg:overflow-visible lg:px-0 lg:py-0 xl:grid-cols-4";
 const ROW_ITEM = "flex w-72 min-w-0 shrink-0 snap-start md:w-[calc((100%-1.5rem)/2)] lg:w-auto";
 
 /**
