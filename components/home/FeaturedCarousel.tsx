@@ -60,7 +60,8 @@ const FOCUS_DEFAULTS = "object-[50%_50%] sm:object-[50%_40%] lg:object-[50%_35%]
  *
  * The controls (Pause/Play, then the dots on a white pill) sit over the photo's bottom-right at every
  * width, white in both themes so they stand out on any photo, before the slides in the DOM (tab order:
- * Pause, the dots, the title, the ticket action). Below 768px the words leave room under them. A touch
+ * Pause, the dots, the title, the ticket action). Below 640px the words leave room under them; from 640px
+ * the ticket action's bottom lines up with theirs. A touch
  * on it, or a swipe or any scroll the carousel didn't make, stops it; new slides start again from the first.
  */
 export default function FeaturedCarousel({
@@ -283,9 +284,10 @@ export default function FeaturedCarousel({
                 data-slide-shade=""
                 className="absolute inset-0 -z-10 rounded-card bg-linear-to-b from-transparent via-ink/60 via-20% to-ink/85 sm:from-5% sm:via-30% md:from-10% md:via-35% md:to-ink/80"
               />
-              {/* Not positioned, so the title's stretched link covers the whole slide. Below 768px the
-                  bottom padding clears the controls (24 + 48 + 16). */}
-              <div data-slide-content="" className="flex flex-col p-6 pb-22 md:max-w-md md:p-8 lg:max-w-xl lg:p-12 xl:max-w-2xl">
+              {/* Not positioned, so the title's stretched link covers the whole slide. Below 640px the
+                  bottom padding clears the controls (24 + 48 + 16), which would overlap the ticket action;
+                  from 640px the slide is wide enough for the action to sit beside them, bottoms aligned. */}
+              <div data-slide-content="" className="flex flex-col p-6 pb-22 sm:pb-6 md:max-w-md md:p-8 lg:max-w-xl lg:p-12 xl:max-w-2xl">
                 <p className="mono-s text-foreground">{categoryLabel(event)}</p>
                 <h3 className="title-banner mt-2 line-clamp-2 break-words">
                   <Link

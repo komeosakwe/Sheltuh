@@ -322,7 +322,7 @@ describe("FeaturedCarousel", () => {
     const content = slide.querySelector("[data-slide-content]") as HTMLElement;
     expect(content).not.toHaveAttribute("data-surface");
     expect(content.className).not.toMatch(/bg-/);
-    expect(content).toHaveClass("p-6", "pb-22", "md:p-8", "lg:p-12", "md:max-w-md", "lg:max-w-xl", "xl:max-w-2xl");
+    expect(content).toHaveClass("p-6", "pb-22", "sm:pb-6", "md:p-8", "lg:p-12", "md:max-w-md", "lg:max-w-xl", "xl:max-w-2xl");
     const shade = slide.querySelector("[data-slide-shade]") as HTMLElement;
     expect(shade).toHaveAttribute("aria-hidden", "true");
     // Darker than §1.1's clear-to-35% (which failed WCAG 1.4.3 on bright photos), more so below 768px.
