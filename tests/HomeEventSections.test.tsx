@@ -92,9 +92,11 @@ describe("the home's event sections (redesign PR 3)", () => {
     loadHomeEvents.mockReturnValue(new Promise(() => {}));
     const { container } = renderHome();
     expect(pageStatus()).toHaveTextContent("Loading events…");
-    expect(container.querySelector("[data-home-loading][aria-hidden='true']")).toHaveClass("aspect-square", "sm:aspect-[2/1]", "lg:aspect-[7/2]");
+    expect(container.querySelector("[data-home-loading][aria-hidden='true']")).toHaveClass("aspect-[4/5]", "sm:aspect-[2/1]", "lg:aspect-[5/2]");
     const grid = container.querySelector("[data-home-grid-loading][aria-hidden='true']");
-    expect(grid?.querySelectorAll(".aspect-\\[4\\/3\\]")).toHaveLength(4);
+    // The card's 2:1 image box (Round 2 §1.5); one placeholder below 768px, where the grid is one column.
+    expect(grid?.querySelectorAll(".aspect-\\[2\\/1\\]")).toHaveLength(4);
+    expect(Array.from(grid?.querySelectorAll("[aria-hidden='true'].w-full") ?? []).filter((el) => el.classList.contains("max-md:hidden"))).toHaveLength(3);
     expect(screen.getByRole("group", { name: "Browse by category" })).toBeInTheDocument();
     expect(container.querySelectorAll("[data-card-link]")).toHaveLength(0);
     expect(container.querySelectorAll("section[data-home-section]")).toHaveLength(0);

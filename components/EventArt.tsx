@@ -180,6 +180,7 @@ export default function EventArt({
   imageUrl,
   imageFocus,
   className,
+  imgClassName,
   children,
   priority = false,
   motion = false,
@@ -196,6 +197,11 @@ export default function EventArt({
    */
   imageFocus?: ImageFocus | null;
   className?: string;
+  /**
+   * Extra classes on the photo's `<img>` (not the poster art), e.g. per-breakpoint `object-[…]` focal
+   * defaults for a photo with no `imageFocus` (the featured banner). An `imageFocus` still wins: it's inline.
+   */
+  imgClassName?: string;
   children?: ReactNode;
   /**
    * `true`: the page's largest above-the-fold image: load it eagerly at high
@@ -272,7 +278,7 @@ export default function EventArt({
           onError={() => setFailedUrl(imageUrl ?? null)}
           onLoad={(event) => fitLoaded(event.currentTarget)}
           style={contain ? undefined : { objectPosition: position }}
-          className={`absolute inset-0 h-full w-full ${contain ? "object-contain" : "object-cover"} ${motion ? "ken-burns" : ""}`.trim()}
+          className={`absolute inset-0 h-full w-full ${contain ? "object-contain" : "object-cover"} ${motion ? "ken-burns" : ""} ${imgClassName ?? ""}`.replace(/\s+/g, " ").trim()}
         />
       ) : (
       <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice" className="absolute inset-0 h-full w-full">

@@ -281,7 +281,7 @@ test.describe("home first screen at 390×844", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
   // The owner's 390 mock: the hero, the search, then the featured carousel's first slide, whole.
-  test("shows the search, then the carousel's first slide with its title and actions", async ({ page }) => {
+  test("shows the search, then the carousel's first slide with its title and its ticket action", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
     await expect(page.locator("[data-home-section]").first()).toBeVisible({ timeout: 30_000 });
@@ -296,7 +296,8 @@ test.describe("home first screen at 390×844", () => {
     const slide = page.locator("[data-featured-carousel] [data-slide][data-current]");
     await inView(slide);
     await inView(slide.getByRole("heading", { level: 3 }));
-    await inView(slide.getByRole("link", { name: /^Details: / }));
+    // Round 2 §1.1: the ticket action is the slide's one button (the whole slide opens the event).
+    await inView(slide.locator("[data-slide-content] .btn").first());
   });
 
   test("the category chips scroll inside their own container, 48px tall, and the page doesn't move sideways", async ({ page }) => {

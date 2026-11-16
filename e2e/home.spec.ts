@@ -194,27 +194,100 @@ test.describe("home with few events", () => {
   });
 });
 
-// The proposal's banner (redesign PR 3): the WAI carousel pattern.
+// The proposal's banner (redesign PR 3; Round 2 §1.1): the WAI carousel pattern, a stretched title link and dots plus Pause.
 test.describe("the featured carousel at 1280px", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
   const current = (page: Page) =>
     page.locator("[data-featured-carousel] [data-slide]").evaluateAll((slides) => slides.findIndex((s) => s.hasAttribute("data-current")));
 
-  test("each slide: the category alone (no 'Featured'), the title, an all-inclusive A$ price, its own ticket action and Details", async ({ page }) => {
+  test("each slide: the category alone (no 'Featured'), the title as its one link, 'date · venue' (no time or price), its own ticket action, no Details", async ({ page }) => {
     await openHome(page, { trending: true });
     const carousel = page.getByRole("region", { name: "Popular right now" });
     const slide = carousel.locator("[data-slide][data-current]");
     await expect(slide).toHaveAttribute("aria-label", /^1 of \d$/);
     await expect(carousel).not.toContainText(/Featured/i);
     await expect(slide.locator("p.mono-s").first()).toHaveText(/^(Live music|Art|Workshop|Pop-up|Theatre)$/);
-    await expect(slide.locator("p.mono-s").nth(1)).toHaveText(/ · (?:From )?A\$[\d.]+$|· Free$|· Sold out$|· Buy tickets$/);
-    await expect(slide.getByRole("link", { name: /^Details: / })).toHaveAttribute("href", /^\/events\/[^/#]+$/);
+    const facts = slide.locator("[data-slide-facts]");
+    await expect(facts).toHaveText(/^(\w{3} \d{1,2} \w{3}|Now on · until .+) · .+$/);
+    await expect(facts).not.toHaveText(/A\$|\d(?:am|pm)\b/);
+    await expect(slide.locator("[data-banner-link]")).toHaveAttribute("href", /^\/events\/[^/#]+$/);
+    await expect(carousel.getByRole("link", { name: /^Details: / })).toHaveCount(0);
+    await expect(carousel.getByRole("button", { name: /Previous slide|Next slide/ })).toHaveCount(0);
+    // Mixed case, never upper-cased by CSS (Round 2 §1.7); 40px from 1280px.
+    const title = slide.locator("h3");
+    expect(await title.evaluate((el) => getComputedStyle(el).textTransform)).toBe("none");
+    expect(await title.evaluate((el) => getComputedStyle(el).fontSize)).toBe("40px");
     // Only the current slide is reachable: the others are inert.
     await expect(carousel.locator("[data-slide]:not([data-current])[inert]")).toHaveCount((await carousel.locator("[data-slide]").count()) - 1);
+    // No interactive element inside another (axe's nested-interactive).
+    expect(await carousel.evaluate((el) => el.querySelectorAll("a a, a button, button a, button button").length)).toBe(0);
   });
 
-  test("advances by itself, never moving focus; Pause stops it; Next, Previous and the dots move it and take over", async ({ page }) => {
+  test("a click anywhere on the slide but Buy tickets and the controls opens the event; Buy tickets goes to the tickets", async ({ page }) => {
+    await openHome(page, { trending: true });
+    const carousel = page.getByRole("region", { name: "Popular right now" });
+    await carousel.getByRole("button", { name: "Pause carousel" }).click();
+    const slide = carousel.locator("[data-slide][data-current]");
+    const href = await slide.locator("[data-banner-link]").getAttribute("href");
+    const buy = slide.locator(".btn").first();
+    await expect(buy).toBeVisible();
+    // Hit-test: the photo's top-left, the facts line and the title all land on the title's link; Buy tickets on itself.
+    const box = await slide.boundingBox();
+    const factsBox = await slide.locator("[data-slide-facts]").boundingBox();
+    if (!box || !factsBox) throw new Error("slide not laid out");
+    const hit = (x: number, y: number) =>
+      page.evaluate(([px, py]) => {
+        const el = document.elementFromPoint(px, py);
+        return el?.closest("a, button")?.getAttribute("data-banner-link") !== null ? "title" : (el?.closest("a, button")?.getAttribute("aria-label") ?? "none");
+      }, [x, y] as const);
+    expect(await hit(box.x + 24, box.y + 24)).toBe("title");
+    expect(await hit(factsBox.x + 4, factsBox.y + factsBox.height / 2)).toBe("title");
+    const buyBox = await buy.boundingBox();
+    if (!buyBox) throw new Error("no ticket action");
+    expect(await hit(buyBox.x + buyBox.width / 2, buyBox.y + buyBox.height / 2)).toMatch(/^(Buy tickets|Free tickets|Choose seats|Join waitlist): /);
+    await page.mouse.click(box.x + box.width / 2, box.y + 24);
+    await expect(page).toHaveURL(new RegExp(`${href}$`));
+  });
+
+  test("tabs Pause, the dots, the title, then the ticket action; the title underlines on focus with a visible ring", async ({ page }) => {
+    await openHome(page, { trending: true });
+    const carousel = page.getByRole("region", { name: "Popular right now" });
+    const pause = carousel.getByRole("button", { name: "Pause carousel" });
+    await pause.focus();
+    const order: string[] = [];
+    for (let i = 0; i < 12; i++) {
+      const name = await page.evaluate(() => {
+        const el = document.activeElement as HTMLElement | null;
+        if (!el || !el.closest("[data-featured-carousel]")) return null;
+        return el.hasAttribute("data-banner-link") ? "title" : (el.getAttribute("aria-label") ?? el.textContent ?? "");
+      });
+      if (name === null) break;
+      order.push(name);
+      await page.keyboard.press("Tab");
+    }
+    const dotCount = await carousel.getByRole("list", { name: "Slides" }).getByRole("button").count();
+    expect(order[0]).toBe("Pause carousel");
+    expect(order.slice(1, 1 + dotCount).every((name) => /^Slide \d: /.test(name))).toBe(true);
+    expect(order[1 + dotCount]).toBe("title");
+    expect(order[2 + dotCount]).toMatch(/^(Buy tickets|Free tickets|Choose seats|Join waitlist): /);
+    const title = carousel.locator("[data-slide][data-current] [data-banner-link]");
+    await title.focus();
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Tab");
+    await expect(title).toBeFocused();
+    // Once the 200ms ease settles: a white ring, and the underline in the text's colour.
+    await expect
+      .poll(() =>
+        title.evaluate((el) => {
+          const style = getComputedStyle(el);
+          return { outline: style.outlineStyle, outlineColor: style.outlineColor, underlined: style.textDecorationColor === style.color };
+        }),
+      )
+      .toEqual({ outline: "solid", outlineColor: "rgb(255, 255, 255)", underlined: true });
+  });
+
+  test("advances by itself, never moving focus; Pause stops it; the dots move it and take over", async ({ page }) => {
     await openHome(page, { trending: true });
     const carousel = page.getByRole("region", { name: "Popular right now" });
     // Keep the pointer and focus out of it: either holds it still.
@@ -240,27 +313,40 @@ test.describe("the featured carousel at 1280px", () => {
     await page.waitForTimeout(7_000);
     expect(await current(page)).toBe(1);
 
-    await carousel.getByRole("button", { name: "Next slide" }).click();
+    await carousel.getByRole("button", { name: /^Slide 3: / }).click();
     await expect.poll(() => current(page)).toBe(2);
-    await carousel.getByRole("button", { name: "Previous slide" }).click();
-    await expect.poll(() => current(page)).toBe(1);
     await carousel.getByRole("button", { name: /^Slide 1: / }).click();
     await expect.poll(() => current(page)).toBe(0);
     await expect(carousel.getByRole("button", { name: /^Slide 1: / })).toHaveAttribute("aria-current", "true");
-    // 40px controls from md, each with a visible ring.
-    const next = carousel.getByRole("button", { name: "Next slide" });
-    expect((await next.boundingBox())?.height).toBe(40);
-    await next.focus();
+    // A 40px Pause/Play from md, over the photo's bottom-right (48px in from 1024px), with a visible ring.
+    const play = carousel.getByRole("button", { name: "Play carousel" });
+    const [playBox, slideBox, pillBox] = await Promise.all([
+      play.boundingBox(),
+      page.locator("#home-featured-slides").boundingBox(),
+      carousel.getByRole("list", { name: "Slides" }).boundingBox(),
+    ]);
+    if (!playBox || !slideBox || !pillBox) throw new Error("not laid out");
+    expect(playBox.height).toBe(40);
+    expect(Math.round(slideBox.y + slideBox.height - (pillBox.y + pillBox.height))).toBe(48);
+    expect(Math.round(slideBox.x + slideBox.width - (pillBox.x + pillBox.width))).toBe(48);
+    expect(playBox.x + playBox.width).toBeLessThanOrEqual(pillBox.x);
+    await play.focus();
     await page.keyboard.press("Shift+Tab");
     await page.keyboard.press("Tab");
-    expect(await next.evaluate((el) => getComputedStyle(el).outlineStyle)).not.toBe("none");
+    expect(await play.evaluate((el) => getComputedStyle(el).outlineStyle)).not.toBe("none");
+    // A dot's ring is black on the white pill.
+    const dot = carousel.getByRole("button", { name: /^Slide 2: / });
+    await dot.focus();
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Tab");
+    await expect.poll(() => dot.evaluate((el) => getComputedStyle(el).outlineColor)).toBe("rgb(0, 0, 0)");
   });
 
   test("under reduced motion it never moves by itself and has no Pause", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await openHome(page, { trending: true });
     const carousel = page.getByRole("region", { name: "Popular right now" });
-    await expect(carousel.getByRole("button", { name: "Next slide" })).toBeVisible();
+    await expect(carousel.getByRole("button", { name: /^Slide 1: / })).toBeVisible();
     await expect(carousel.getByRole("button", { name: /Pause carousel|Play carousel/ })).toHaveCount(0);
     await page.mouse.move(5, 5);
     await page.waitForTimeout(7_000);
@@ -268,25 +354,50 @@ test.describe("the featured carousel at 1280px", () => {
   });
 });
 
-// UX review (blocking): below 640px the slide is square (was 4:5; the owner asked for a home that shows more, Nov 2026) and grows to fit its panel, so nothing is cut off.
+// Round 2 §1.1: 5:2 from 1024px (1312×525 at 1440, 1136×454 at 1200), the title 40px from 1280px and 32px below it.
+for (const { width, w, h, title } of [
+  { width: 1440, w: 1312, h: 525, title: "40px" },
+  { width: 1200, w: 1136, h: 454, title: "32px" },
+  { width: 1024, w: 960, h: 384, title: "32px" },
+]) {
+  test.describe(`the featured carousel at ${width}px`, () => {
+    test.use({ viewport: { width, height: 900 } });
+
+    test(`is ${w}×${h}, with no text box and the title at ${title}`, async ({ page }) => {
+      await openHome(page, { trending: true });
+      const slide = page.locator("[data-featured-carousel] [data-slide][data-current]");
+      const box = await slide.boundingBox();
+      if (!box) throw new Error("slide not laid out");
+      expect(Math.round(box.width)).toBe(w);
+      expect(Math.abs(box.height - h)).toBeLessThanOrEqual(1);
+      await expect(slide.locator("[data-slide-panel]")).toHaveCount(0);
+      expect(await slide.locator("[data-slide-content]").evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgba(0, 0, 0, 0)");
+      expect(await slide.locator("h3").evaluate((el) => getComputedStyle(el).fontSize)).toBe(title);
+      expect(await noSidewaysScroll(page)).toBeLessThanOrEqual(0);
+    });
+  });
+}
+
+// Round 2 §1.1: 4:5 below 640px; the words grow the slide rather than being cut off, and Buy tickets stays clear of the controls.
 for (const width of [320, 390]) {
   test.describe(`the featured carousel at ${width}px`, () => {
     test.use({ viewport: { width, height: 844 } });
 
-    test("the slide's panel (eyebrow to Details) is wholly inside the slide, and the slide is at least square", async ({ page }) => {
+    test("the slide is at least 4:5, its words (category to the ticket action) wholly inside it and clear of the dots and Pause", async ({ page }) => {
       await openHome(page, { trending: true });
       const slide = page.locator("[data-featured-carousel] [data-slide][data-current]");
-      const [box, panel, eyebrow, details] = await Promise.all([
+      const [box, eyebrow, action, controls] = await Promise.all([
         slide.boundingBox(),
-        slide.locator("[data-slide-panel]").boundingBox(),
-        slide.locator("[data-slide-panel] p").first().boundingBox(),
-        slide.getByRole("link", { name: /^Details: / }).boundingBox(),
+        slide.locator("[data-slide-content] p").first().boundingBox(),
+        slide.locator("[data-slide-content] .btn").first().boundingBox(),
+        page.locator("[data-featured-carousel] [data-carousel-controls]").boundingBox(),
       ]);
-      if (!box || !panel || !eyebrow || !details) throw new Error("slide not laid out");
-      expect(box.height).toBeGreaterThanOrEqual(box.width - 1);
-      expect(panel.y).toBeGreaterThanOrEqual(box.y);
+      if (!box || !eyebrow || !action || !controls) throw new Error("slide not laid out");
+      expect(box.height).toBeGreaterThanOrEqual(box.width * 1.25 - 1);
       expect(eyebrow.y).toBeGreaterThanOrEqual(box.y);
-      expect(details.y + details.height).toBeLessThanOrEqual(box.y + box.height);
+      expect(action.y + action.height).toBeLessThanOrEqual(box.y + box.height);
+      expect(action.y + action.height).toBeLessThanOrEqual(controls.y);
+      expect(controls.y + controls.height).toBeLessThanOrEqual(box.y + box.height);
       expect(await noSidewaysScroll(page)).toBeLessThanOrEqual(0);
     });
   });
