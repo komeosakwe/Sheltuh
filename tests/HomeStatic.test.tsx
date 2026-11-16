@@ -36,7 +36,9 @@ describe("HomeHero (the proposal, redesign PR 3)", () => {
     render(<HomeHero />);
     const h1 = screen.getByRole("heading", { level: 1 });
     expect(h1).toHaveAccessibleName("Find your next thing.");
-    expect(h1).toHaveClass("font-display", "uppercase", "text-[2.625rem]", "md:display-m");
+    // Round 2 §1.3: display-hero (Bootzy capitals, 40/48, 48/56 from 768px, 56/64 from 1280px), no one-off sizes.
+    expect(h1).toHaveClass("display-hero");
+    expect(h1.className).not.toMatch(/text-\[|leading-\[|display-m/);
     const shown = h1.querySelector('[aria-hidden="true"]') as HTMLElement;
     expect(Array.from(shown.children).map((line) => line.textContent)).toEqual(["Find yoür", "next thing."]);
     for (const line of shown.children) expect(line).toHaveClass("lg:block");
@@ -55,10 +57,9 @@ describe("HomeHero (the proposal, redesign PR 3)", () => {
     const { container } = render(<HomeHero />);
     const lede = container.querySelector("[data-home-lede]");
     expect(lede).toHaveTextContent(/^Curated creative events\. See who’s going\.$/);
-    expect(lede).toHaveClass("text-muted");
-    // Medium at every width: no body-l at any breakpoint, whose weight 400 would win from 768px.
-    expect(lede).toHaveClass("font-medium");
-    expect(lede?.className).not.toMatch(/(^|\s)(md:|lg:)?body-l(\s|$)/);
+    // Round 2 §1.3: body-m (16/24) at every width, Medium through the secondary-text rule (muted body-m).
+    expect(lede).toHaveClass("body-m", "text-muted");
+    expect(lede?.className).not.toMatch(/(^|\s)(md:|lg:)?(body-l|text-lg|font-normal)(\s|$)|text-\[/);
     // The lede follows the h1 in reading order.
     const h1 = screen.getByRole("heading", { level: 1 });
     expect(h1.compareDocumentPosition(lede as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -91,13 +92,17 @@ describe("HomeHero (the proposal, redesign PR 3)", () => {
     stubMotion(false);
     const { container } = render(<HomeHero />);
     const badge = container.querySelector("[data-hero-badge]");
-    expect(badge).toHaveClass("hidden", "lg:flex", "size-20");
+    // Round 2 §1.2: 72px from 1024px, 80px from 1280px; hidden below 1024px (B3).
+    expect(badge).toHaveClass("hidden", "lg:flex", "size-18", "xl:size-20");
     const h1 = screen.getByRole("heading", { level: 1 });
     expect((badge?.compareDocumentPosition(h1) ?? 0) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const search = screen.getByRole("search", { name: "Search events" });
     expect(h1.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // One row from 1280px: the text block and the search side by side.
-    expect(container.querySelector("section")).toHaveClass("xl:flex", "xl:items-center", "xl:justify-between");
+    // One row from 1024px (Round 2 §1.2): the text block and the search side by side, the search 448px
+    // wide at 1024–1279px and 576px from 1280px.
+    expect(container.querySelector("section")).toHaveClass("lg:flex", "lg:items-center", "lg:justify-between", "lg:gap-8");
+    expect(search.parentElement).toHaveClass("lg:mt-0", "lg:w-full", "lg:max-w-md", "xl:max-w-xl");
+    expect(search.parentElement?.className).not.toContain("lg:max-w-2xl");
   });
 
   it("where motion is fine, the badge is the hero's one Pause control; under reduced motion it holds still and isn't one", () => {

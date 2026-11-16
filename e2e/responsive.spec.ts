@@ -175,11 +175,11 @@ for (const width of [390, 1024]) {
   });
 }
 
-for (const width of [375, 390, 768, 1280, 1440]) {
+for (const width of [375, 390, 768, 1024, 1200, 1280, 1440]) {
   test.describe(`home hero at ${width}px`, () => {
     test.use({ viewport: { width, height: 800 } });
 
-    test("the h1, the proposal's one-line lede, then the search (beside them from 1280px), the page's only search, and no links", async ({ page }) => {
+    test("the h1, the proposal's one-line lede, then the search (beside them from 1024px), the page's only search, and no links", async ({ page }) => {
       await mockApi(page);
       await page.goto("/");
       const hero = page.getByRole("region", { name: "Find your next thing." });
@@ -196,8 +196,8 @@ for (const width of [375, 390, 768, 1280, 1440]) {
       expect(ledeBox.y).toBeGreaterThan(h1Box.y + h1Box.height - 1);
       // The lede is one line.
       expect(await lede.evaluate((p) => Math.round(p.getBoundingClientRect().height / parseFloat(getComputedStyle(p).lineHeight)))).toBe(1);
-      if (width >= 1280) {
-        // One row, as drawn: the search beside the headline.
+      if (width >= 1024) {
+        // One row from 1024px (Round 2 §1.2): the search beside the headline, no empty band at 1200.
         expect(searchBox.x).toBeGreaterThan(h1Box.x + h1Box.width);
         expect(searchBox.y).toBeLessThan(ledeBox.y + ledeBox.height);
       } else {
