@@ -282,7 +282,7 @@ function PayLayout({ header, summary, hold, form }: { header: ReactNode; summary
     <div className="pt-6 pb-16 sm:pt-8 lg:pt-12">
       {header}
       <div className="mt-6 flex max-w-2xl flex-col gap-6 lg:mt-8 lg:grid lg:max-w-none lg:grid-cols-12 lg:items-start lg:gap-12">
-        <div className="flex flex-col gap-6 lg:sticky lg:top-24 lg:col-span-5">
+        <div className="flex flex-col gap-6 lg:sticky lg:top-(--header-h) lg:col-span-5">
           {summary}
           {hold}
         </div>
