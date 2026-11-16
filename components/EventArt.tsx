@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { EventPoster, ImageFocus } from "@/lib/types";
 
@@ -173,6 +173,8 @@ function renderPattern(poster: EventPoster) {
 
 /** `fit="auto"`: how many times wider than the image a box must be before the image is contained, not cropped. */
 const FAR_STRIP = 1.3;
+/** At least this many times as tall as it is wide, an image is a portrait poster (`auto` and `poster`). */
+const PORTRAIT_POSTER = 1.2;
 
 export default function EventArt({
   poster,
@@ -213,30 +215,62 @@ export default function EventArt({
   /** Slowly pushes the photo in and back (reduced-motion safe). For hero and feature images only. */
   motion?: boolean;
   /**
-   * `auto` (the event page, rail and grid cards, editor previews): a portrait poster (at least 1.2 times as tall as
+   * `auto` (the event page, the home's scene cards, editor previews): a portrait poster (at least 1.2 times as tall as
    * it is wide) in a landscape or square box is shown whole on black rather
    * than cropped to a strip; anything else is cropped to fill (`cover`, the
    * default). The box never changes size, so nothing shifts. A client-side
    * guess from the image's own size, until events carry image metadata.
+   *
+   * `poster` (event cards and the featured banner, whose 2:1 and 5:2 boxes are much wider than an
+   * ordinary photo): only a portrait poster in a box that isn't portrait is shown whole; every other
+   * image (3:2, 4:3, 16:9 photos) is cropped to fill, so photos are never pillarboxed. The box is
+   * watched (ResizeObserver), so a box that turns portrait or landscape at a breakpoint (the banner's
+   * 4:5 below 640px) re-decides without a reload.
    */
-  fit?: "cover" | "auto";
+  fit?: "cover" | "auto" | "poster";
 }) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const [containedUrl, setContainedUrl] = useState<string | null>(null);
+  /** `poster`: the loaded image that's a portrait poster, and whether the box is portrait now. */
+  const [portraitUrl, setPortraitUrl] = useState<string | null>(null);
+  const [boxPortrait, setBoxPortrait] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
   const showImage = Boolean(imageUrl) && failedUrl !== imageUrl;
-  const contain = showImage && fit === "auto" && containedUrl === imageUrl;
+  const contain =
+    showImage &&
+    ((fit === "auto" && containedUrl === imageUrl) || (fit === "poster" && portraitUrl === imageUrl && !boxPortrait));
   const position = imageFocus ? `${imageFocus.x}% ${imageFocus.y}%` : undefined;
+
+  // `poster`: the box's shape can change with the viewport (the banner is 4:5 below 640px and 2:1 or
+  // 5:2 from it), so it's observed rather than measured once on load. The first observation reports
+  // the current size.
+  useEffect(() => {
+    const box = boxRef.current;
+    if (fit !== "poster" || !box || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (!entry) return;
+      const { width, height } = entry.contentRect;
+      setBoxPortrait(height > width);
+    });
+    observer.observe(box);
+    return () => observer.disconnect();
+  }, [fit]);
 
   /**
    * `auto`: a loaded image is shown whole (contained) rather than cropped when either it's a
    * portrait poster in a box that isn't portrait, or the box is a much wider strip than the image
    * (1.3 times or more, e.g. a 3:2 photo in the event page's phone strip), where cropping to fill
-   * would lose a third of it or more. A wide image in a squarer box still fills it.
+   * would lose a third of it or more. A wide image in a squarer box still fills it. `poster`: only
+   * whether it's a portrait poster is noted here; the box's shape is the observer's (above).
    */
   function fitLoaded(img: HTMLImageElement) {
-    if (fit !== "auto" || !img.naturalWidth || !img.naturalHeight) return;
+    if (fit === "cover" || !img.naturalWidth || !img.naturalHeight) return;
+    const portraitPoster = img.naturalHeight / img.naturalWidth >= PORTRAIT_POSTER;
+    if (fit === "poster") {
+      setPortraitUrl(portraitPoster ? (imageUrl ?? null) : null);
+      return;
+    }
     const box = img.parentElement?.getBoundingClientRect();
-    const portraitPoster = img.naturalHeight / img.naturalWidth >= 1.2;
     const boxNotPortrait = !box || box.height <= box.width;
     const mismatch = box && box.width > 0 && box.height > 0 ? (img.naturalWidth / img.naturalHeight) / (box.width / box.height) : 1;
     const stripBox = mismatch <= 1 / FAR_STRIP;
@@ -245,6 +279,7 @@ export default function EventArt({
 
   return (
     <div
+      ref={boxRef}
       aria-hidden="true"
       className={`relative overflow-hidden ${className ?? ""}`}
       // Behind a photo that fills the box, a neutral surface, not the poster colour: phones anti-alias

@@ -266,7 +266,7 @@ export default function FeaturedCarousel({
                   imageFocus={event.imageFocus}
                   imgClassName={event.imageFocus ? undefined : FOCUS_DEFAULTS}
                   title={event.title}
-                  fit="auto"
+                  fit="poster"
                   priority={i === 0}
                   className="size-full"
                 />

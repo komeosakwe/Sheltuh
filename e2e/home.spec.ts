@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import type { PublicEvent } from "@/lib/api/public-events";
 import { weekendWindow } from "@/lib/home-sections";
 import { sampleEvents } from "@/lib/sample-events";
@@ -52,7 +52,7 @@ function fixtures(now: number): PublicEvent[] {
  * `trending`: serve the trending list (the last few events, labelled
  * "popular"); otherwise it's a 404 and the carousel is Coming up.
  */
-async function mockApi(page: Page, { trending = false, going }: { trending?: boolean; going?: number } = {}) {
+async function mockApi(page: Page, { trending = false, going, lead }: { trending?: boolean; going?: number; lead?: string } = {}) {
   const events = fixtures(Date.now()).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
   await page.route("**/api/**", (route) => {
     const url = new URL(route.request().url());
@@ -64,7 +64,9 @@ async function mockApi(page: Page, { trending = false, going }: { trending?: boo
     }
     if (trending && url.pathname === "/api/events/trending") {
       // `going`: the first trending event carries a real (thresholded) going count.
-      const items = events.slice(-4).map((event, i) =>
+      // `lead`: that event's slide comes first (the rest are the last three).
+      const leading = lead ? events.filter((event) => event.slug === lead) : [];
+      const items = [...leading, ...events.filter((event) => event.slug !== lead).slice(-(4 - leading.length))].map((event, i) =>
         going !== undefined && i === 0 ? { event, label: "going", goingCount: going } : { event, label: "popular" },
       );
       return route.fulfill({ json: { items } });
@@ -73,7 +75,7 @@ async function mockApi(page: Page, { trending = false, going }: { trending?: boo
   });
 }
 
-async function openHome(page: Page, options?: { trending?: boolean; going?: number }) {
+async function openHome(page: Page, options?: { trending?: boolean; going?: number; lead?: string }) {
   await mockApi(page, options);
   await page.goto("/");
   await expect(page.locator("[data-home-section]").first()).toBeVisible();
@@ -374,6 +376,44 @@ for (const { width, w, h, title } of [
       expect(await slide.locator("[data-slide-content]").evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgba(0, 0, 0, 0)");
       expect(await slide.locator("h3").evaluate((el) => getComputedStyle(el).fontSize)).toBe(title);
       expect(await noSidewaysScroll(page)).toBeLessThanOrEqual(0);
+    });
+  });
+}
+
+// Round 2 review: at the card's 2:1 and the banner's 5:2, an ordinary 3:2 photo fills its box (object-fit: cover),
+// never pillarboxed on a blurred copy; only a portrait poster is shown whole. With no imageFocus, the banner's
+// photo takes its per-breakpoint focal default (50% 50% on phones, 50% 35% from 1024px). Neon Static's demo
+// photo is 1080×720.
+for (const { width, height, focus } of [
+  { width: 1440, height: 900, focus: "50% 35%" },
+  { width: 390, height: 844, focus: "50% 50%" },
+]) {
+  test.describe(`a 3:2 photo at ${width}px`, () => {
+    test.use({ viewport: { width, height } });
+
+    test("covers its box in a card and in the banner, with no blurred backdrop", async ({ page }) => {
+      await openHome(page, { trending: true, lead: "neon-static" });
+      const fitOf = (img: Locator) =>
+        img.evaluate(async (el: HTMLImageElement) => {
+          if (!el.complete) await new Promise((resolve) => el.addEventListener("load", resolve, { once: true }));
+          const style = getComputedStyle(el);
+          return { ratio: el.naturalWidth / el.naturalHeight, fit: style.objectFit, position: style.objectPosition };
+        });
+
+      const slide = page.locator("[data-featured-carousel] [data-slide][data-current]");
+      await expect(slide.getByRole("link", { name: "Neon Static", exact: true })).toBeAttached();
+      const banner = await fitOf(slide.locator("img"));
+      expect(banner.ratio).toBeCloseTo(1.5, 2);
+      expect(banner.fit).toBe("cover");
+      expect(banner.position).toBe(focus);
+      await expect(slide.locator("[data-art-backdrop]")).toHaveCount(0);
+
+      const card = page.locator("[data-event-card]:has(a[href='/events/neon-static'])").first();
+      await card.scrollIntoViewIfNeeded();
+      const inCard = await fitOf(card.locator("[data-card-media] img"));
+      expect(inCard.ratio).toBeCloseTo(1.5, 2);
+      expect(inCard.fit).toBe("cover");
+      await expect(card.locator("[data-art-backdrop]")).toHaveCount(0);
     });
   });
 }

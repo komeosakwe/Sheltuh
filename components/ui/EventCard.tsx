@@ -163,7 +163,7 @@ export default function EventCard({
           imageUrl={event.imageUrl}
           imageFocus={event.imageFocus}
           title={event.title}
-          fit="auto"
+          fit="poster"
           priority={priority}
           // Sold out: the image at 60%. Ended: greyed; it's still there to look at, but nothing's on.
           className={`${MEDIA} w-full ${state === "ended" ? "grayscale" : state === "sold-out" ? "opacity-60" : ""}`.trim()}
