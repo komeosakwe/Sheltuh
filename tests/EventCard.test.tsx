@@ -11,8 +11,8 @@ import { FakeAuthProvider, fakeAuthValue } from "./test-utils/fakeAuth";
 
 /*
  * The one event card (the redesign rules' Cards board): its
- * anatomy and reading order (the image with the date chip, the tags, the
- * title, one mono line, then who's going and the price label), the one
+ * anatomy and reading order (the 2:1 image, the tags, the title, the two
+ * meta lines (when, then where), then who's going and the price label), the one
  * stretched link with Save outside it and the price label inside it (never a
  * control), the hover panel, every ticket state from real data (each with its
  * own `data-card-state`), and going counts that are real or (in the demo)
@@ -113,10 +113,12 @@ const meta = (container: HTMLElement) => container.querySelector<HTMLElement>("[
 /** The mono line's text with its no-break spaces (each "·" is joined to the part after it) as plain spaces. */
 const plain = (text: string | null | undefined) => (text ?? "").replace(/\u00a0/g, " ");
 const metaText = (container: HTMLElement) => plain(meta(container).textContent);
+const where = (container: HTMLElement) => container.querySelector<HTMLElement>("[data-card-where]");
+const whereText = (container: HTMLElement) => plain(where(container)?.textContent);
 const priceTag = (container: HTMLElement) => container.querySelector<HTMLElement>("[data-price-tag]");
 
 describe("EventCard anatomy (the rules' Cards board)", () => {
-  it("the 4:3 image (no date chip: owner, 13 Nov), then the tags, the title and one mono line; going and the price label in the foot", () => {
+  it("the 2:1 image (no date chip: owner, 13 Nov), then the tags, the title and two meta lines; going and the price label in the foot", () => {
       const { container } = render(<EventCard event={event} mode="demo" />);
       const root = cardRoot(container);
       // The first child is the (decorative) hover panel; the media follows.
@@ -125,26 +127,31 @@ describe("EventCard anatomy (the rules' Cards board)", () => {
       expect(hover).toHaveAttribute("aria-hidden", "true");
       const media = hover.nextElementSibling as HTMLElement;
       expect(media).toHaveAttribute("data-card-media");
-      // A 4:3 image at radius 16 and nothing else on it.
+      // A 2:1 image (Round 2 §1.5) at radius 16 and nothing else on it.
       expect(media).toHaveClass("rounded-card", "overflow-hidden");
       expect(media.children).toHaveLength(1);
       expect(media.firstElementChild).toHaveAttribute("aria-hidden", "true");
-      expect(media.firstElementChild).toHaveClass("aspect-[4/3]");
-      expect(media.firstElementChild?.className).not.toMatch(/aspect-square/);
+      expect(media.firstElementChild).toHaveClass("aspect-[2/1]");
+      expect(media.firstElementChild?.className).not.toMatch(/aspect-square|aspect-\[4\/3\]/);
       expect(container.querySelector("[data-date-chip]")).toBeNull();
       const text = media.nextElementSibling as HTMLElement;
       expect(text).toHaveClass("flex", "flex-col", "gap-2", "pt-4");
+      // Round 2 §1.5: when (the date and time, kept by the owner's amendment), then where (location · venue).
       expect(Array.from(text.children).map((el) => plain(el.textContent))).toEqual([
         "Live music",
         "Glasshouse Sessions",
-        "Sun 18 Oct · 7pm · Carlton, VIC",
+        "Sun 18 Oct · 7pm",
+        "Carlton, VIC · The Conservatory",
       ]);
       expect(text.children[1].tagName).toBe("H3");
-      // The title is Heading/H4, at most two lines; the meta line is Mono/M, secondary, as written (never in capitals).
+      // The title is Heading/H4, at most two lines; the meta lines are Mono/M, secondary, as written (never in capitals).
       expect(text.children[1]).toHaveClass("heading-h4", "line-clamp-2", "break-words");
-      // One line, cut short if it doesn't fit: Mono/S on a narrow card, Mono/M from an 18rem one.
-      expect(meta(container)).toHaveClass("mono-s", "@2xs:mono-m", "truncate", "text-muted");
-      expect(meta(container)).not.toHaveClass("uppercase");
+      // Each one line, cut short if it doesn't fit: Mono/S on a narrow card, Mono/M from an 18rem one. Instrument
+      // Sans (mono-* are sans in name only), never font-mono.
+      for (const line of [meta(container), where(container)]) {
+        expect(line).toHaveClass("mono-s", "@2xs:mono-m", "truncate", "text-muted");
+        expect(line?.className).not.toMatch(/uppercase|font-mono/);
+      }
       // The foot: who's going (decorative faces, then the count), then the all-inclusive price label (the amount alone).
       const [going, price] = Array.from(foot(container).children);
       expect(going).toHaveAttribute("data-card-going");
@@ -168,51 +175,62 @@ describe("EventCard anatomy (the rules' Cards board)", () => {
     expect(cardLink(event)).toHaveAttribute("href", "/events/glass-sessions");
     // The heading is named by the title too, for heading navigation.
     expect(screen.getByRole("heading", { level: 3 })).toHaveAccessibleName("Glasshouse Sessions");
-    expect(cardRoot(container)).toHaveTextContent("Sun 18 Oct · 7pm · Carlton, VIC");
+    expect(cardRoot(container)).toHaveTextContent("Sun 18 Oct · 7pm");
+    expect(cardRoot(container)).toHaveTextContent("Carlton, VIC · The Conservatory");
     expect(cardRoot(container)).toHaveTextContent("From A$37.60");
     expect(cardRoot(container)).toHaveTextContent(`${getSampleGoing(event.id).count} going`);
   });
 
-  it("leaves an empty place off the mono line, with no dangling separator", () => {
+  it("leaves an empty place off the meta lines: no where line, and no dangling separator", () => {
     const { container } = render(<EventCard event={{ ...event, venueName: "", suburb: "" }} mode="live" />);
     expect(cardLink(event)).toHaveAccessibleName("Glasshouse Sessions");
     expect(metaText(container)).toBe("Sun 18 Oct · 7pm");
     expect(metaText(container)).not.toMatch(/·\s*$/);
+    expect(where(container)).toBeNull();
   });
 
-  it("names the venue on the mono line only when there's no suburb (owner decision D4: always 'Suburb, STATE')", () => {
+  it("puts location · venue on the where line, whichever exists alone, as entered (owner decision D4: 'Suburb, STATE')", () => {
     const { container } = render(<EventCard event={{ ...event, suburb: "" }} mode="live" />);
-    expect(metaText(container)).toBe("Sun 18 Oct · 7pm · The Conservatory");
+    expect(metaText(container)).toBe("Sun 18 Oct · 7pm");
+    expect(whereText(container)).toBe("The Conservatory");
     cleanup();
     const long = { ...event, suburb: "Fortitude Valley", state: "QLD" as const };
     const again = render(<EventCard event={long} mode="live" />);
-    expect(metaText(again.container)).toBe("Sun 18 Oct · 7pm · Fortitude Valley, QLD");
+    expect(whereText(again.container)).toBe("Fortitude Valley, QLD · The Conservatory");
+    cleanup();
+    const noVenue = render(<EventCard event={{ ...event, venueName: " " }} mode="live" />);
+    expect(whereText(noVenue.container)).toBe("Carlton, VIC");
   });
 
-  // Visual QA (PR 1): one line that never wraps, so a narrow card never scrolls the page sideways.
-  it("keeps the mono line to one plain line of text, never wrapped (it's cut short instead)", () => {
+  // Visual QA (PR 1): each line never wraps, so a narrow card never scrolls the page sideways.
+  it("keeps each meta line to one plain line of text, never wrapped (it's cut short instead)", () => {
     const { container } = render(<EventCard event={event} mode="live" />);
-    expect(meta(container).children).toHaveLength(0);
-    expect(meta(container).textContent).toBe("Sun 18 Oct · 7pm · Carlton, VIC");
-    expect(meta(container)).toHaveClass("truncate");
+    for (const line of [meta(container), where(container) as HTMLElement]) {
+      expect(line.children).toHaveLength(0);
+      expect(line).toHaveClass("truncate");
+    }
+    expect(meta(container).textContent).toBe("Sun 18 Oct · 7pm");
+    expect(where(container)?.textContent).toBe("Carlton, VIC · The Conservatory");
   });
 
   it("names a zone outside Melbourne's with the time (visual QA)", () => {
     const perth = { ...event, state: "WA" as const, timeZone: "Australia/Perth" as const, suburb: "Fremantle" };
     const { container } = render(<EventCard event={perth} mode="live" />);
-    expect(metaText(container)).toBe("Sun 18 Oct · 4pm Perth time · Fremantle, WA");
+    expect(metaText(container)).toBe("Sun 18 Oct · 4pm Perth time");
+    expect(whereText(container)).toBe("Fremantle, WA · The Conservatory");
   });
 
   it("shows a half-past time with its minutes, as the mocks' '7:30PM'", () => {
     const { container } = render(<EventCard event={{ ...event, startsAt: "2026-10-18T08:30:00.000Z" }} mode="live" />);
-    expect(metaText(container)).toBe("Sun 18 Oct · 7:30pm · Carlton, VIC");
+    expect(metaText(container)).toBe("Sun 18 Oct · 7:30pm");
   });
 
   it("says an in-progress multi-day event is on now, until when; never a countdown", () => {
     vi.setSystemTime(new Date("2026-10-20T00:00:00.000Z"));
     const running: SheltuhEvent = { ...event, startsAt: "2026-10-15T00:00:00.000Z", endsAt: "2026-11-01T08:00:00.000Z" };
     const { container } = render(<EventCard event={running} mode="live" />);
-    expect(metaText(container)).toBe("Now on · until Sun 1 Nov · Carlton, VIC");
+    expect(metaText(container)).toBe("Now on · until Sun 1 Nov");
+    expect(whereText(container)).toBe("Carlton, VIC · The Conservatory");
     expect(document.body).not.toHaveTextContent(/today|left|hurry/i);
   });
 
@@ -296,6 +314,40 @@ describe("EventCard: one link, with Save beside it and the price label inside it
     );
   });
 
+  // Round 2 §1.5: every hover state has a keyboard equivalent and touch press feedback.
+  it("underlines the title for keyboard focus too, and shows the cream panel on a touch press", () => {
+    const { container } = render(<EventCard event={event} mode="live" />);
+    expect(cardLink(event)).toHaveClass("focus-visible:decoration-current");
+    expect(container.querySelector("[data-card-hover]")).toHaveClass("group-has-[[data-card-link]:active]/card:opacity-100");
+  });
+
+  // Round 2 §1.5 and the designer's note: card hover (or keyboard focus on its link) turns the price label black with
+  // an orange label, as Buy tickets' hover. It's the card's state: the label stays a plain, unfocusable span.
+  it("inverts the orange price label on card hover and keyboard focus, eased (motion-safe), and stays a label", () => {
+    const { container } = render(<EventCard event={event} mode="live" />);
+    const price = priceTag(container) as HTMLElement;
+    expect(price).toHaveClass(
+      "bg-signal",
+      "text-signal-foreground",
+      "group-hover/card:bg-ink",
+      "group-hover/card:text-signal",
+      "group-has-[[data-card-link]:focus-visible]/card:bg-ink",
+      "group-has-[[data-card-link]:focus-visible]/card:text-signal",
+      "motion-safe:transition-colors",
+      "motion-safe:duration-200",
+    );
+    expect(price.className).not.toMatch(/(?:^|\s)hover:|(?:^|\s)transition-colors/);
+    expect(price.tagName).toBe("SPAN");
+    expect(price).not.toHaveAttribute("tabindex");
+  });
+
+  it("leaves the neutral 'Tickets coming soon' label as it is on hover and focus", () => {
+    const { container } = render(<EventCard event={{ ...event, ticketTypes: [] }} mode="live" />);
+    const price = priceTag(container) as HTMLElement;
+    expect(price).toHaveAttribute("data-price-tag", "neutral");
+    expect(price.className).not.toMatch(/group-hover|group-has|bg-ink/);
+  });
+
   it("showSave={false} leaves the heart off", () => {
     withHearts(<EventCard event={event} showSave={false} />);
     expect(screen.queryByRole("button")).toBeNull();
@@ -336,18 +388,68 @@ describe("EventCard variants", () => {
     expect(cardRoot(container)).toHaveClass("w-full");
   });
 
-  it("placeholder: the card's full width, the 4:3 image box and three flat bars, hidden from screen readers", () => {
+  it("placeholder: the card's full width, the 2:1 image box and three flat bars, hidden from screen readers", () => {
     {
       const { container, unmount } = render(<EventCardPlaceholder />);
       const root = container.firstElementChild as HTMLElement;
       expect(root).toHaveAttribute("aria-hidden", "true");
       expect(root).toHaveClass("w-full");
-      expect(root.querySelector(".aspect-\\[4\\/3\\].bg-surface")).not.toBeNull();
+      expect(root.querySelector(".aspect-\\[2\\/1\\].bg-surface")).not.toBeNull();
       expect(root.querySelector(".aspect-square")).toBeNull();
       expect(root.querySelectorAll(".pt-4 > .bg-surface")).toHaveLength(3);
       expect(root.innerHTML).not.toMatch(/animate/);
       unmount();
     }
+  });
+});
+
+// Round 2 §1.5: on a cream panel (/community's Local discovery) a cream hover can't be seen, so the card is
+// white with the 1.5px black stroke and turns surface grey on hover, keyboard focus or a press.
+describe("EventCard on cream (surface=\"cream\")", () => {
+  it("is an outlined white card that greys on hover, keyboard focus and press, with its ring on the card", () => {
+    const { container } = render(<EventCard event={event} mode="live" surface="cream" />);
+    const root = cardRoot(container);
+    expect(root).toHaveAttribute("data-card-surface", "cream");
+    expect(root).toHaveClass(
+      "bg-card",
+      "border-control",
+      "border-foreground",
+      "rounded-card",
+      "hover:bg-surface",
+      "has-[[data-card-link]:focus-visible]:bg-surface",
+      "has-[[data-card-link]:focus-visible]:outline-2",
+      "has-[[data-card-link]:focus-visible]:outline-offset-3",
+      "has-[[data-card-link]:focus-visible]:outline-foreground",
+      "has-[[data-card-link]:active]:bg-surface",
+    );
+    // No cream panel: the card's own fill is the hover.
+    expect(container.querySelector("[data-card-hover]")).toBeNull();
+  });
+
+  it("stretches its link over the card exactly (not past the stroke), with the same title underline and price inversion", () => {
+    const { container } = render(<EventCard event={event} mode="live" surface="cream" />);
+    const link = cardLink(event);
+    expect(link).toHaveClass("after:absolute", "after:inset-0", "group-hover/card:decoration-current", "focus-visible:decoration-current");
+    expect(link.className).not.toMatch(/after:-inset/);
+    expect(priceTag(container)).toHaveClass("group-hover/card:bg-ink", "group-has-[[data-card-link]:focus-visible]/card:bg-ink");
+  });
+
+  it("rounds the image's top corners inside the stroke, and pads the text and the foot 16px", () => {
+    const { container } = render(<EventCard event={event} mode="live" surface="cream" />);
+    const media = container.querySelector("[data-card-media]") as HTMLElement;
+    expect(media).toHaveClass("rounded-b-none", "rounded-t-[calc(var(--radius-card)-var(--stroke-control))]");
+    expect(media.firstElementChild).toHaveClass("aspect-[2/1]");
+    expect(media.nextElementSibling).toHaveClass("px-4", "pt-4");
+    expect(foot(container)).toHaveClass("px-4", "pb-4");
+  });
+
+  it("is the default card by default: no stroke, the cream panel, and the link's hover margin", () => {
+    const { container } = render(<EventCard event={event} mode="live" />);
+    const root = cardRoot(container);
+    expect(root).toHaveAttribute("data-card-surface", "default");
+    expect(root.className).not.toMatch(/border-control|bg-card|hover:bg-surface/);
+    expect(container.querySelector("[data-card-hover]")).not.toBeNull();
+    expect(foot(container).className).not.toMatch(/px-4|pb-4/);
   });
 });
 
@@ -360,7 +462,7 @@ describe("EventCard media: organiser artwork", () => {
     });
   }
 
-  it("grid: a portrait poster is shown whole in the 4:3 box, on a blurred copy of itself", () => {
+  it("grid: a portrait poster is shown whole in the 2:1 box, on a blurred copy of itself", () => {
     const { container } = render(<EventCard event={{ ...event, imageUrl: "/poster.jpg" }} mode="live" />);
     const img = container.querySelector("img");
     if (!img) throw new Error("no photo");

@@ -120,13 +120,29 @@ export function cardDateLabel(event: SheltuhEvent, now: Date): CardDateLabel {
  * 13 Nov 2026): "Sat 14 Nov · 5pm · Coburg, VIC". Parts that don't exist are left out.
  */
 export function cardMetaParts(event: SheltuhEvent, now: Date): string[] {
-  const date = cardDateLabel(event, now);
-  const when =
-    "running" in date
-      ? [date.running]
-      : [date.date, [formatEventTimeCompact(event.startsAt, eventZone(event.timeZone)), date.zone].filter(Boolean).join(" ")];
   const place = eventPlaceName(event) || event.venueName.trim();
-  return [...when, place].filter(Boolean);
+  return [...cardWhenParts(event, now), place].filter(Boolean);
+}
+
+/**
+ * The event card's first meta line (Round 2 §1.5), as parts joined by " · ": the start's date and its
+ * compact time with any zone but Melbourne's (["Sat 14 Nov", "5pm"], ["Sun 18 Oct", "4pm Perth time"]),
+ * or ["Now on · until …"] for an event under way. The owner's amendment keeps the date and time on cards.
+ */
+export function cardWhenParts(event: SheltuhEvent, now: Date): string[] {
+  const date = cardDateLabel(event, now);
+  if ("running" in date) return [date.running];
+  return [date.date, [formatEventTimeCompact(event.startsAt, eventZone(event.timeZone)), date.zone].filter(Boolean).join(" ")].filter(
+    Boolean,
+  );
+}
+
+/**
+ * The event card's second meta line (Round 2 §1.5): where it is, location then venue, as entered
+ * ("Northcote, VIC · Northcote Theatre"). Whichever exists alone when the other doesn't; "" when neither.
+ */
+export function cardWhereLabel(event: SheltuhEvent): string {
+  return [eventPlaceName(event), event.venueName.trim()].filter(Boolean).join(" · ");
 }
 
 /** The card's date chip: `{ weekday: "Sat", day: "14", month: "Nov" }`, the start in the event's own zone. */

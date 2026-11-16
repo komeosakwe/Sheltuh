@@ -77,6 +77,18 @@ describe("/community (demo)", () => {
     expect(container.querySelector("[aria-labelledby='community-join']")).toHaveClass("mt-10", "md:mt-12", "lg:mt-16");
   });
 
+  // Round 2 §1.5: a cream hover can't be seen on the cream panel, so its cards are the outlined white variant.
+  it("Local discovery's cards are the outlined cream-surface variant, 272px wide", async () => {
+    await renderPage();
+    const list = screen.getByRole("list", { name: LOCAL_DISCOVERY.title });
+    const cards = list.querySelectorAll("[data-event-card]");
+    expect(cards.length).toBeGreaterThan(0);
+    for (const card of cards) {
+      expect(card).toHaveAttribute("data-card-surface", "cream");
+      expect(card.closest("li")).toHaveClass("w-68");
+    }
+  });
+
   it("the hero: the proposal's lede, Explore scenes (a plain in-page link to Scenes by city) and Join free, over two rows of licensed photos, each once", async () => {
     const { container } = await renderPage();
     expect(screen.getByText(COMMUNITY_LEDE)).toBeInTheDocument();

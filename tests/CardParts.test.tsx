@@ -5,7 +5,7 @@ import CategoryTag from "@/components/ui/CategoryTag";
 import DateChip from "@/components/ui/DateChip";
 import GoingRow from "@/components/ui/GoingRow";
 import PriceTag from "@/components/ui/PriceTag";
-import { cardDateChip, cardMetaParts } from "@/lib/event-card";
+import { cardDateChip, cardMetaParts, cardWhenParts, cardWhereLabel } from "@/lib/event-card";
 import { formatEventTimeCompact, formatEventWeekday } from "@/lib/format";
 import { FREE_AND_PAID_LABEL, formatCardPriceLabel } from "@/lib/pricing";
 import type { SheltuhEvent } from "@/lib/types";
@@ -83,6 +83,21 @@ describe("the card's mono line", () => {
 
   it("is the date, the compact time and 'Suburb, STATE' (owner decision D4)", () => {
     expect(cardMetaParts(base, new Date("2026-11-01T00:00:00.000Z"))).toEqual(["Sat 14 Nov", "5pm", "Coburg, VIC"]);
+  });
+
+  // Round 2 §1.5: the card's two lines. Line 1 keeps the date and time (owner's amendment); line 2 is
+  // location · venue, as entered.
+  it("splits into when (date · time, or 'Now on · until …') and where (location · venue)", () => {
+    const now = new Date("2026-11-01T00:00:00.000Z");
+    expect(cardWhenParts(base, now)).toEqual(["Sat 14 Nov", "5pm"]);
+    expect(cardWhereLabel(base)).toBe("Coburg, VIC · The Hall");
+    const running = { ...base, startsAt: "2026-10-30T00:00:00.000Z", endsAt: "2026-11-08T08:00:00.000Z" } as SheltuhEvent;
+    expect(cardWhenParts(running, now)).toEqual(["Now on · until Sun 8 Nov"]);
+    expect(cardWhereLabel({ ...base, suburb: "" } as SheltuhEvent)).toBe("The Hall");
+    expect(cardWhereLabel({ ...base, venueName: "  " } as SheltuhEvent)).toBe("Coburg, VIC");
+    expect(cardWhereLabel({ ...base, suburb: "", venueName: "" } as SheltuhEvent)).toBe("");
+    // As entered: never re-cased.
+    expect(cardWhereLabel({ ...base, venueName: "THE HALL" } as SheltuhEvent)).toBe("Coburg, VIC · THE HALL");
   });
 });
 
