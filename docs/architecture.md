@@ -4878,11 +4878,32 @@ Events can be anywhere in Australia (owner plan, steps S3 and S4;
   With a saved "near" suburb (browser-only), `HomeEventsProvider` reads its
   state from storage (`readStoredNearState`: the state saved with the
   suburb, or for an entry saved before that, the state code its name ends
-  with, "Richmond NSW") and `selectHomeSections(…, preferredState)` lists
-  that state's events first in each section (a stable reorder, before each
-  takes its six). The home never loads the suburb table, so nothing waits on
-  it; a bare name saved without a state leaves the order Australia-wide. The
-  state never reaches the API.
+  with, "Richmond NSW") and passes it as `preferredState`, which it also
+  exposes in its ready state. `selectHomeSections(…, preferredState)` then:
+  - **This weekend** *filters* by it (Round 2): only that state's weekend
+    events, then one per artist (`onePerArtist`: `artistKey` = the
+    organiser's id, or name when it has none, plus the normalised title; no
+    artist field exists), then its six, so de-duplicating first fills the row
+    with distinct events. Nothing left in the state: the section hides.
+    Without a saved state it's Australia-wide, still one per artist.
+  - every other section lists that state's events first (a stable reorder,
+    before each takes its six).
+  - All events shows its first page (8, 4 on phones) with a bottom "See all
+    events →" instead of Show more, and drops "· Across Australia" from its
+    note when a state is saved.
+
+  The home never loads the suburb table, so nothing waits on it; a bare name
+  saved without a state leaves everything Australia-wide. The state never
+  reaches the API. "Selected location" in the Round 2 handoff is this state,
+  not a radius (a radius would load the suburb table, about 155 kB gzipped).
+- **Zone on compact lines** (Round 2, owner decision R0): cards, Nearby
+  rows, the map's card and the seat page name the event's zone (" Perth
+  time") only when its clock differs from Melbourne's at the event's start
+  (`zoneSuffix(timeZone, state, startsAt)`, `lib/event-card.ts`
+  `startLabel` / `cardDateLabel`). The rule reads only the event, so server
+  and browser render the same (no change after hydration). Without the
+  instant (emails, wallet passes, link previews, orders, admin) any zone but
+  Melbourne's is named, as before.
 - **Platform zone** (owner decision D1): analytics day buckets, trending,
   rate-limit days, retention, and admin and message times stay in
   Australia/Melbourne.
