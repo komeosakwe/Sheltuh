@@ -17,7 +17,8 @@ interface LinkItem {
 }
 
 /**
- * The organiser's website and social profiles, each a new-tab link with a
+ * The organiser's social profiles (in SOCIAL_NETWORKS order, Instagram
+ * first) and then their website, each a new-tab link with a
  * text label ("Instagram: @name") and a visible new-tab arrow, which the
  * aria-label also says in words. The website is organiser-supplied, so it's
  * nofollow ugc; social URLs are built by the server from validated handles.
@@ -34,16 +35,6 @@ export default function OrganiserLinks({
   layout?: "list" | "grid";
 }) {
   const items: LinkItem[] = [];
-  const hostname = websiteUrl ? websiteHostname(websiteUrl) : null;
-  if (websiteUrl && hostname) {
-    items.push({
-      key: "website",
-      href: websiteUrl,
-      label: "Website",
-      detail: hostname,
-      rel: "noopener noreferrer nofollow ugc",
-    });
-  }
   for (const { network, label } of SOCIAL_NETWORKS) {
     const href = socialLinks[network];
     if (!href) continue;
@@ -54,6 +45,18 @@ export default function OrganiserLinks({
       label,
       detail: handle ? displayHandle(network, handle) : null,
       rel: "noopener noreferrer",
+    });
+  }
+
+  // The website last, after the social profiles (Instagram first).
+  const hostname = websiteUrl ? websiteHostname(websiteUrl) : null;
+  if (websiteUrl && hostname) {
+    items.push({
+      key: "website",
+      href: websiteUrl,
+      label: "Website",
+      detail: hostname,
+      rel: "noopener noreferrer nofollow ugc",
     });
   }
 
@@ -87,7 +90,7 @@ export default function OrganiserLinks({
                   : "flex min-w-0 flex-wrap items-baseline gap-x-2"
               }
             >
-              <span className="font-semibold group-hover:underline group-hover:underline-offset-4">
+              <span className="font-semibold underline-offset-4 group-hover:underline group-focus-visible:underline">
                 {item.label}
               </span>
               {item.detail && (

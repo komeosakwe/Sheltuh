@@ -28,6 +28,37 @@ export const SOCIAL_NETWORKS: readonly { network: SocialNetwork; label: string }
   { network: "linkedin", label: "LinkedIn" },
 ];
 
+/** An organiser profile's path: `/organisers/{id}`. */
+export function organiserProfilePath(organiserId: string): string {
+  return `/organisers/${encodeURIComponent(organiserId)}`;
+}
+
+/**
+ * An organiser profile's public address, for sharing and reports: the origin
+ * and `/organisers/{id}` only, never the address bar's query or fragment
+ * (as publicEventUrl in lib/event-url.ts).
+ */
+export function publicOrganiserUrl(organiserId: string, origin: string): string {
+  return `${origin.replace(/\/+$/, "")}${organiserProfilePath(organiserId)}`;
+}
+
+/**
+ * "Report this organiser": an email to Sheltüh's support, its subject naming
+ * the organiser and their profile ("Report: {name} ({url})"), the whole
+ * subject encoded (a name can hold "&" or "?"). Without a configured origin
+ * (`siteOrigin()`, a demo deployment), the profile's path stands in. As
+ * reportEventHref in lib/event-url.ts.
+ */
+export function reportOrganiserHref(
+  displayName: string,
+  organiserId: string,
+  origin: string | undefined,
+  email: string,
+): string {
+  const page = origin ? publicOrganiserUrl(organiserId, origin) : organiserProfilePath(organiserId);
+  return `mailto:${email}?subject=${encodeURIComponent(`Report: ${displayName} (${page})`)}`;
+}
+
 /** The organiser profile page's title before (or without) the organiser's name. */
 export const ORGANISER_PAGE_TITLE = "Organiser — Sheltüh";
 /** The title while the profile can't be shown (unknown or not public). */
