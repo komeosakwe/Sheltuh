@@ -182,8 +182,11 @@ export default function EventImageField({
               size="sm"
               className="min-h-11"
               onClick={() => {
+                // When this button goes (no photo left), focus moves to Choose a photo rather than the page.
+                const goes = !pending || !(existingUrl && !removed);
                 if (pending) onPendingChange(null);
                 else onRemovedChange(true);
+                if (goes) inputRef.current?.focus();
               }}
             >
               {pending ? "Discard new photo" : "Remove photo"}
@@ -217,25 +220,40 @@ export default function EventImageField({
                 Show the whole photo in the home banner
               </label>
               <p id="event-banner-fit-hint" className="max-w-sm text-xs text-muted">
-                For when the event is in the banner at the top of the home page. Otherwise the photo is cropped to fill it, keeping the focus in view.
+                If your event is featured at the top of the home page, show the whole photo instead of cropping it. Unticked, it&rsquo;s cropped around your focus point.
               </p>
             </div>
-            {/* The banner as it shows from 1024px (5:2): whole on the photo's blurred backdrop, or cropped as the
-                banner crops it (FeaturedCarousel's wide focal default when there's no focus). */}
+            {/* The banner as it shows from 1024px (5:2) and on a phone (4:5): whole on the photo's blurred backdrop
+                (at the top on a phone), or cropped as the banner crops it (FeaturedCarousel's focal defaults when
+                there's no focus). Over each, the home's scrim (banner-scrim) where the words sit. */}
             {shown && (
-              <div className="flex w-full flex-col gap-1 sm:w-64">
-                <div data-surface="ink" data-banner-preview="" className="overflow-hidden rounded-control">
-                  <EventArt
-                    poster={poster}
-                    imageUrl={shown}
-                    imageFocus={focus}
-                    imgClassName={bannerFit === "whole" || focus ? undefined : "object-[50%_35%]"}
-                    title={title.trim() || "Untitled event"}
-                    fit={bannerFit === "whole" ? "contain" : "poster"}
-                    className="aspect-[5/2] w-full"
-                  />
-                </div>
-                <span className="text-xs text-muted">Banner</span>
+              <div data-banner-previews="" className="flex w-full items-end gap-3 sm:w-auto">
+                <BannerPreview
+                  label="Banner"
+                  data={{ "data-banner-preview": "" }}
+                  className="min-w-0 flex-1 sm:w-64 sm:flex-none"
+                  frameClassName="aspect-[5/2]"
+                  scrimClassName="h-2/3"
+                  imgClassName={bannerFit === "whole" || focus ? undefined : "object-[50%_35%]"}
+                  poster={poster}
+                  shown={shown}
+                  focus={focus}
+                  bannerFit={bannerFit}
+                  title={title}
+                />
+                <BannerPreview
+                  label="Phone"
+                  data={{ "data-banner-phone-preview": "" }}
+                  className="w-20 shrink-0"
+                  frameClassName="aspect-[4/5]"
+                  scrimClassName="h-3/4"
+                  imgClassName={bannerFit === "whole" ? "object-top" : focus ? undefined : "object-[50%_50%]"}
+                  poster={poster}
+                  shown={shown}
+                  focus={focus}
+                  bannerFit={bannerFit}
+                  title={title}
+                />
               </div>
             )}
           </div>
@@ -246,6 +264,55 @@ export default function EventImageField({
           {pickError ?? error}
         </p>
       )}
+    </div>
+  );
+}
+
+/**
+ * One of the editor's previews of the home banner: the photo in the banner's frame, as the banner shows it (whole
+ * or cropped), with the home's scrim (banner-scrim, its fade scaled to the preview) over the share of it the words
+ * take there: about two thirds of the 5:2 banner, three quarters of a phone's 4:5 slide.
+ */
+function BannerPreview({
+  label,
+  data,
+  className,
+  frameClassName,
+  scrimClassName,
+  imgClassName,
+  poster,
+  shown,
+  focus,
+  bannerFit,
+  title,
+}: {
+  label: string;
+  data: Record<`data-${string}`, string>;
+  className: string;
+  frameClassName: string;
+  scrimClassName: string;
+  imgClassName: string | undefined;
+  poster: EventPoster;
+  shown: string;
+  focus: ImageFocus | null;
+  bannerFit: BannerFit;
+  title: string;
+}) {
+  return (
+    <div className={`flex flex-col gap-1 ${className}`}>
+      <div data-surface="ink" {...data} className="relative overflow-hidden rounded-control">
+        <EventArt
+          poster={poster}
+          imageUrl={shown}
+          imageFocus={focus}
+          imgClassName={imgClassName}
+          title={title.trim() || "Untitled event"}
+          fit={bannerFit === "whole" ? "contain" : "poster"}
+          className={`${frameClassName} w-full`}
+        />
+        <div aria-hidden="true" data-preview-scrim="" className={`banner-scrim banner-scrim-scaled absolute inset-x-0 bottom-0 ${scrimClassName}`} />
+      </div>
+      <span className="text-xs text-muted">{label}</span>
     </div>
   );
 }

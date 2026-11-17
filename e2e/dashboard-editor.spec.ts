@@ -985,7 +985,7 @@ test.describe("/dashboard/[eventId]: photo focus at 375px", () => {
   });
 
   // Round 2 Part 2: "Show the whole photo in the home banner" (event_images.banner_fit), saved with the focus in one PATCH.
-  test("the banner toggle shows the whole photo in its 5:2 preview and saves only the fit", async ({ page }) => {
+  test("the banner toggle shows the whole photo in its 5:2 and 4:5 previews, under the scrim, and saves only the fit", async ({ page }) => {
     const png = Buffer.from(
       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
       "base64",
@@ -1017,8 +1017,17 @@ test.describe("/dashboard/[eventId]: photo focus at 375px", () => {
     await expect(preview).toHaveCSS("object-fit", "cover");
     const box = await page.locator("[data-banner-preview] > div").boundingBox();
     expect((box?.width ?? 0) / (box?.height ?? 1)).toBeCloseTo(2.5, 1);
+    const phone = page.locator("[data-banner-phone-preview] img");
+    const phoneBox = await page.locator("[data-banner-phone-preview] > div").boundingBox();
+    expect((phoneBox?.width ?? 0) / (phoneBox?.height ?? 1)).toBeCloseTo(0.8, 1);
+    // The home's scrim where the words sit, on both previews.
+    for (const frame of ["[data-banner-preview]", "[data-banner-phone-preview]"]) {
+      await expect(page.locator(`${frame} [data-preview-scrim]`)).toHaveCSS("background-image", /linear-gradient/);
+    }
     await toggle.check();
     await expect(preview).toHaveCSS("object-fit", "contain");
+    await expect(phone).toHaveCSS("object-fit", "contain");
+    await expect(phone).toHaveCSS("object-position", "50% 0%");
 
     await page.getByRole("button", { name: "Save draft" }).click();
     await expect.poll(() => saved).toEqual([{ bannerFit: "whole" }]);

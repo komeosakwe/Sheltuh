@@ -35,12 +35,13 @@ vi.mock("@/lib/api/events", async (importOriginal) => ({
 
 const adminUpdateEvent = vi.fn();
 const adminSetEventImageDisplay = vi.fn();
+const adminUploadEventImage = vi.fn();
 vi.mock("@/lib/api/admin", () => ({
   adminListOrganisers: vi.fn(),
   adminCreateOrganiser: vi.fn(),
   adminCreateEvent: vi.fn(),
   adminUpdateEvent: (...args: unknown[]) => adminUpdateEvent(...args),
-  adminUploadEventImage: vi.fn(),
+  adminUploadEventImage: (...args: unknown[]) => adminUploadEventImage(...args),
   adminDeleteEventImage: vi.fn(),
   adminSetEventImageDisplay: (...args: unknown[]) => adminSetEventImageDisplay(...args),
 }));
@@ -52,7 +53,7 @@ vi.mock("@/lib/image", async (importOriginal) => ({
 
 beforeEach(() => {
   stubMatchMedia();
-  for (const fn of [updateEventDraft, uploadEventImage, deleteEventImage, setEventImageDisplay, prepareEventImage, adminUpdateEvent, adminSetEventImageDisplay]) {
+  for (const fn of [updateEventDraft, uploadEventImage, deleteEventImage, setEventImageDisplay, prepareEventImage, adminUpdateEvent, adminSetEventImageDisplay, adminUploadEventImage]) {
     fn.mockReset();
   }
   URL.createObjectURL = vi.fn(() => "blob:picked");
@@ -88,15 +89,18 @@ const EVENT: EventRecord = {
 const LABEL = "Show the whole photo in the home banner";
 
 function renderEditor(initial: EventRecord = EVENT) {
+  const onSaved = vi.fn();
   render(
     <FakeAuthProvider value={fakeAuthValue({ email: "owner@example.com" })}>
-      <EventEditor getToken={vi.fn().mockResolvedValue("token")} initial={initial} onSaved={vi.fn()} />
+      <EventEditor getToken={vi.fn().mockResolvedValue("token")} initial={initial} onSaved={onSaved} />
     </FakeAuthProvider>,
   );
+  return { onSaved };
 }
 
 const checkbox = () => screen.findByRole("checkbox", { name: LABEL });
 const preview = () => document.querySelector("[data-banner-preview] img") as HTMLImageElement | null;
+const phonePreview = () => document.querySelector("[data-banner-phone-preview] img") as HTMLImageElement | null;
 const save = () => fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
 
 function pickPhoto() {
@@ -106,19 +110,36 @@ function pickPhoto() {
 }
 
 describe("EventEditor banner fit", () => {
-  it("is offered with a photo, off by default, described, with a 5:2 banner preview that crops until it's on", async () => {
+  it("is offered with a photo, off by default, described, with 5:2 banner and 4:5 phone previews that crop until it's on", async () => {
     renderEditor();
     const box = await checkbox();
     expect(box).not.toBeChecked();
-    expect(box).toHaveAccessibleDescription(/cropped to fill/);
+    expect(box).toHaveAccessibleDescription(
+      "If your event is featured at the top of the home page, show the whole photo instead of cropping it. Unticked, it’s cropped around your focus point.",
+    );
     await waitFor(() => expect(preview()).not.toBeNull());
     expect(document.querySelector("[data-banner-preview] > div")).toHaveClass("aspect-[5/2]");
+    expect(document.querySelector("[data-banner-phone-preview] > div")).toHaveClass("aspect-[4/5]");
+    expect(screen.getByText("Banner")).toBeInTheDocument();
+    expect(screen.getByText("Phone")).toBeInTheDocument();
     expect(preview()).toHaveClass("object-cover");
+    expect(phonePreview()).toHaveClass("object-cover");
+    // The home's scrim where the words sit, on both, decorative: about two thirds of the banner, three quarters of the phone.
+    const scrims = ["[data-banner-preview]", "[data-banner-phone-preview]"].map((frame) => document.querySelector(`${frame} [data-preview-scrim]`));
+    for (const scrim of scrims) {
+      expect(scrim).toHaveClass("banner-scrim", "banner-scrim-scaled", "absolute", "bottom-0");
+      expect(scrim).toHaveAttribute("aria-hidden", "true");
+    }
+    expect(scrims[0]).toHaveClass("h-2/3");
+    expect(scrims[1]).toHaveClass("h-3/4");
 
     fireEvent.click(box);
     expect(box).toBeChecked();
     expect(preview()).toHaveClass("object-contain");
     expect(document.querySelector("[data-banner-preview] [data-art-backdrop]")).not.toBeNull();
+    // On the phone the whole photo sits at the top, clear of the words (FeaturedCarousel's max-sm:object-top).
+    expect(phonePreview()).toHaveClass("object-contain", "object-top");
+    expect(document.querySelector("[data-banner-phone-preview] [data-art-backdrop]")).not.toBeNull();
   });
 
   it("shows a saved whole fit as checked", async () => {
@@ -206,13 +227,13 @@ describe("EventEditor banner fit", () => {
     expect(setEventImageDisplay).not.toHaveBeenCalled();
   });
 
-  it("when the fit fails after an upload, the photo stays saved and the fit is sent again on the next save", async () => {
+  it("when the fit fails after an upload, the photo stays saved (the page is told) and the fit is sent again on the next save", async () => {
     prepareEventImage.mockResolvedValue(new Blob(["x"], { type: "image/jpeg" }));
     updateEventDraft.mockResolvedValue(EVENT);
-    const uploaded = { ...EVENT, imageFocus: undefined, imageUrl: "/api/events/evt-1/image?v=2" };
+    const uploaded = { ...EVENT, imageFocus: undefined, imageUrl: "/api/events/evt-1/image?v=2", updatedAt: "2026-01-02T00:00:00.000Z" };
     uploadEventImage.mockResolvedValue(uploaded);
     setEventImageDisplay.mockRejectedValueOnce(new Error("network")).mockResolvedValueOnce({ ...uploaded, bannerFit: "whole" });
-    renderEditor();
+    const { onSaved } = renderEditor();
     pickPhoto();
     await waitFor(() => expect(screen.getByRole("button", { name: "Discard new photo" })).toBeInTheDocument());
     fireEvent.click(await checkbox());
@@ -220,6 +241,7 @@ describe("EventEditor banner fit", () => {
     await waitFor(() => expect(setEventImageDisplay).toHaveBeenCalledTimes(1));
     // The error is shown, and the saved photo is back in the field (not a pending one).
     expect(await screen.findByText("network")).toBeInTheDocument();
+    expect(onSaved).toHaveBeenCalledWith(uploaded);
     expect(await screen.findByRole("button", { name: "Remove photo" })).toBeInTheDocument();
     expect(await checkbox()).toBeChecked();
 
@@ -240,6 +262,42 @@ describe("EventEditor banner fit", () => {
     save();
     await waitFor(() => expect(deleteEventImage).toHaveBeenCalledTimes(1));
     expect(setEventImageDisplay).not.toHaveBeenCalled();
+  });
+
+  it("Remove photo moves focus to Choose a photo (not the page), as does discarding the only photo", async () => {
+    prepareEventImage.mockResolvedValue(new Blob(["x"], { type: "image/jpeg" }));
+    renderEditor();
+    await checkbox();
+    const remove = screen.getByRole("button", { name: "Remove photo" });
+    remove.focus();
+    fireEvent.click(remove);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Remove photo" })).toBeNull());
+    const input = document.getElementById("event-image") as HTMLInputElement;
+    expect(input).toHaveFocus();
+    expect(input).toHaveAccessibleName("Event photo Choose a photo");
+
+    // An event with no saved photo: discarding the new one leaves none, so focus goes back to the picker too.
+    cleanup();
+    renderEditor({ ...EVENT, imageUrl: undefined, imageFocus: undefined });
+    await screen.findByRole("button", { name: "Save draft" });
+    pickPhoto();
+    const discard = await screen.findByRole("button", { name: "Discard new photo" });
+    discard.focus();
+    fireEvent.click(discard);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Discard new photo" })).toBeNull());
+    expect(document.getElementById("event-image")).toHaveFocus();
+  });
+
+  it("discarding a new photo over a saved one keeps focus on the button, now Remove photo", async () => {
+    prepareEventImage.mockResolvedValue(new Blob(["x"], { type: "image/jpeg" }));
+    renderEditor();
+    await checkbox();
+    pickPhoto();
+    const discard = await screen.findByRole("button", { name: "Discard new photo" });
+    discard.focus();
+    fireEvent.click(discard);
+    const remove = await screen.findByRole("button", { name: "Remove photo" });
+    expect(remove).toHaveFocus();
   });
 
   it("discarding a new photo brings back the saved photo's fit", async () => {
@@ -284,5 +342,34 @@ describe("Admin EventEditor banner fit", () => {
     await waitFor(() => expect(adminUpdateEvent).toHaveBeenCalledTimes(2));
     expect(adminUpdateEvent.mock.calls[1][1].expectedUpdatedAt).toBe("2026-01-03T00:00:00.000Z");
     expect(adminSetEventImageDisplay).toHaveBeenCalledTimes(1);
+  });
+
+  it("when the fit fails after an admin upload, the page gets the uploaded record and the next save is made against its version", async () => {
+    prepareEventImage.mockResolvedValue(new Blob(["x"], { type: "image/jpeg" }));
+    adminUpdateEvent.mockResolvedValue({ ...ADMIN_EVENT, updatedAt: "2026-01-02T00:00:00.000Z" });
+    const uploaded: AdminEventRecord = { ...ADMIN_EVENT, imageUrl: "/api/events/evt-1/image?v=2", updatedAt: "2026-01-04T00:00:00.000Z" };
+    adminUploadEventImage.mockResolvedValue(uploaded);
+    adminSetEventImageDisplay.mockRejectedValueOnce(new Error("network")).mockResolvedValueOnce({ ...uploaded, bannerFit: "whole", updatedAt: "2026-01-05T00:00:00.000Z" });
+    const onSaved = vi.fn();
+    render(
+      <FakeAuthProvider value={fakeAuthValue({ email: "admin@sheltuh.example", isAdmin: true })}>
+        <EventEditor mode="admin" initial={ADMIN_EVENT} getToken={vi.fn().mockResolvedValue("token")} onSaved={onSaved} />
+      </FakeAuthProvider>,
+    );
+    pickPhoto();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Discard new photo" })).toBeInTheDocument());
+    fireEvent.click(await checkbox());
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(await screen.findByText("network")).toBeInTheDocument();
+    expect(adminUploadEventImage).toHaveBeenCalledTimes(1);
+    expect(onSaved).toHaveBeenCalledWith(uploaded);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save changes" })).not.toHaveAttribute("aria-disabled", "true"));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(adminUpdateEvent).toHaveBeenCalledTimes(2));
+    expect(adminUpdateEvent.mock.calls[1][1].expectedUpdatedAt).toBe("2026-01-04T00:00:00.000Z");
+    await waitFor(() => expect(adminSetEventImageDisplay).toHaveBeenCalledTimes(2));
+    expect(adminSetEventImageDisplay.mock.calls[1][1]).toEqual({ bannerFit: "whole" });
+    expect(adminUploadEventImage).toHaveBeenCalledTimes(1);
   });
 });
