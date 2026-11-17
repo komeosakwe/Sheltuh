@@ -596,6 +596,20 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       session expired. Apply `20261124000000_checkout_expiry_missing.sql`
       with it (also additive: the sweeper's cap on sessions Stripe says don't
       exist).
+- [ ] **Buyer email checks** (`20261127000000_order_email_changes.sql`,
+      docs/architecture.md "Buyer email checks"). Apply the migration
+      **before** the code deploys: until it's there, email changes and
+      `/admin/emails` fail (the confirmation page falls back to the masked
+      email, with a warning logged once).
+      It's additive (a new private table and six functions; no existing
+      table, column or function changes) and reversible (drop the functions,
+      then the table, discarding the change log). After deploying, in test
+      mode: a checkout with `fan@gmial.com` is refused with "Did you mean
+      fan@gmail.com?"; a paid checkout's confirmation page shows the full
+      address on the paying browser only; one change re-sends the tickets to
+      the new address; `/admin/emails` finds the order by its reference.
+      Lookups aren't logged (they fail open); if buyers report a real
+      address refused, `EMAIL_DOMAIN_CHECKS=off` is the switch.
 - [ ] **Before go-live: Stripe test-mode check of the pay deadline**
       (unverified so far: what Stripe does when we expire a session whose
       payment is under way). In test mode, on the embedded checkout:
@@ -1003,6 +1017,11 @@ Git → Ignored Build Step. GitHub Actions CI is unaffected.
        **Leave it unset** until the migration is applied, it has been tried in
        Stripe test mode on a Preview deployment, and the platform's Stripe
        payouts are set to manual (Stripe step 7). Unset = today's behaviour.
+       Optional: `EMAIL_DOMAIN_CHECKS=off` (server-only, never `NEXT_PUBLIC_`)
+       turns the buyer email checks' typo list and DNS lookup off, leaving the
+       format as the only check (docs/architecture.md, "Buyer email checks").
+       Leave it unset (on); set it only for a typo-list false positive or a
+       DNS problem on the host, then redeploy.
        Optional: `OPS_ALERT_EMAIL` (server-only), one address for ops alerts
        about payment exceptions and checkout surges (unset = logged only).
        Optional: `ADMIN_NOTIFY_EMAILS` (server-only, never `NEXT_PUBLIC_`),

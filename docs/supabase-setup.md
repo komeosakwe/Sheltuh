@@ -498,6 +498,21 @@ only cleared (the `orders_details_immutable` trigger). A paid guest's `buyer_ema
 form collected; a name given for an order whose email differs is cleared only
 by the order's own address.
 
+### Buyer email changes
+
+`20261127000000_order_email_changes.sql` (docs/architecture.md, "Buyer
+email checks") logs every change of a paid order's email, both addresses
+masked. Support changes an order's email from `/admin/emails` (find it by the
+order's reference, then "Change email", with a reason), never in SQL: an
+`update orders set buyer_email = …` would leave no record and wouldn't send
+the tickets again. An order's changes (no full addresses in this table):
+
+```sql
+select c.created_at, c.changed_by, c.old_email_masked, c.new_email_masked, c.reason, u.email as admin
+from private.order_email_changes c left join auth.users u on u.id = c.admin_id
+where c.order_id like 'ord_' || lower('<8-character reference>') || '%' order by c.id;
+```
+
 ### Platform-managed organisers
 
 When you create one (`/admin/events/new` → new organiser, or
