@@ -1,6 +1,6 @@
 import sharp from "sharp";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { MAX_AVATAR_INPUT_PIXELS } from "@/lib/server/avatar";
+import { decoder, MAX_AVATAR_INPUT_PIXELS } from "@/lib/server/avatar";
 import {
   adminListOrganisers,
   adminRejectOrganiser,
@@ -274,11 +274,14 @@ describe("PUT /organisers/me/cover: re-encoding", () => {
     expect((await sharp((await storedCover(organiser.organiserId))!.image).metadata()).width).toBe(COVER_SIZE.width);
   });
 
-  it("refuses other formats, whatever the declared type, and files that don't decode (400 on cover)", async () => {
+  it("refuses other formats, whatever the declared type, files that don't decode, and SVG behind an image signature (400 on cover)", async () => {
     const gif = await sharp({ create: { width: 8, height: 8, channels: 3, background: "#000" } }).gif().toBuffer();
     const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>');
     const corrupt = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(200, 7)]);
-    // Polyglots: a valid image signature followed by SVG markup.
+    // SVG markup behind a PNG or WebP signature. These pass the magic-byte sniff, but libvips (sharp 0.35)
+    // picks its PNG or WebP loader from the same signature, which fails on the markup: they never reach
+    // decoder's loader check (the test below covers that). No file was found that passes the sniff and
+    // that libvips gives to another loader.
     const svgBody = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>';
     const riffSvg = Buffer.concat([Buffer.from("RIFF"), Buffer.from([0x60, 0, 0, 0]), Buffer.from("WEBP"), Buffer.from(svgBody)]);
     const pngSvg = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from(svgBody)]);
@@ -289,6 +292,27 @@ describe("PUT /organisers/me/cover: re-encoding", () => {
     }
     expect(await storedCover(organiser.organiserId)).toBeUndefined();
     expect(await logEntries(organiser.organiserId)).toEqual([]);
+  });
+
+  it("decoder hands libvips nothing but its JPEG, PNG and WebP loaders, whatever it's given", async () => {
+    // decoder is the second line: readCoverUpload's sniff refuses these first. Given them directly,
+    // libvips would decode each (SVG with librsvg), so only the loader check refuses them.
+    const formats = {
+      svg: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>'),
+      gif: await sharp({ create: { width: 8, height: 8, channels: 3, background: "#000" } }).gif().toBuffer(),
+      tiff: await sharp({ create: { width: 8, height: 8, channels: 3, background: "#000" } }).tiff().toBuffer(),
+      heif: await sharp({ create: { width: 8, height: 8, channels: 3, background: "#000" } }).avif().toBuffer(),
+    };
+    for (const [name, bytes] of Object.entries(formats)) {
+      expect([name, (await sharp(bytes).metadata()).format]).toEqual([name, name]);
+      const refused = await decoder(bytes, "cover").then(
+        () => null,
+        (err: unknown) => err,
+      );
+      expect([name, refused]).toEqual([name, expect.objectContaining({ statusCode: 400, fieldErrors: { cover: expect.any(String) } })]);
+    }
+    // And the formats it's for still go through.
+    expect(await decoder(await smallPng(), "cover")).toBeTruthy();
   });
 
   it(`refuses over ${MAX_COVER_UPLOAD_BYTES / 1024 / 1024} MB (413), by declared length or as the stream runs past it`, async () => {
