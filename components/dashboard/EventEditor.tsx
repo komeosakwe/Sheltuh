@@ -126,7 +126,7 @@ import { groupTicketsEnabled } from "@/lib/group-tickets-flag";
 import { formatFeedPriceParts } from "@/lib/pricing";
 import { DEFAULT_REFUND_POLICY, type RefundPolicy } from "@/lib/refund-policy";
 import { sellsPaidTicketsOnSheltuh, type TicketingMode } from "@/lib/ticketing";
-import { placeName, placeQuery } from "@/lib/place";
+import { placeName, placeQuery, sameStreetLine } from "@/lib/place";
 import { localToUtcIso, PLATFORM_TIME_ZONE, zoneShortLabel } from "@/lib/time-zones";
 import { EVENT_CATEGORIES, type Coordinates } from "@/lib/types";
 
@@ -908,13 +908,18 @@ export default function EventEditor(props: Props) {
    * A Google place was picked (VenuePlaceSearch): linked, and its name,
    * street address and suburb fill the fields that are empty or still say
    * what an earlier pick filled in (never over what the organiser typed).
+   * An address rather than a venue ("170 Russell Street") has no name to
+   * give: the venue name is left for the organiser (Round 2: the page said
+   * the address twice).
    */
   function handlePicked({ suggestion, details }: PickedPlace) {
     const fillable = (value: string, last: string | undefined) => !value.trim() || value === last;
     const next = { ...prefilled };
+    const addressOnly = Boolean(details.streetAddress && sameStreetLine(suggestion.primaryText, details.streetAddress));
     if (suggestion.primaryText && fillable(venueName, prefilled.venueName)) {
-      setVenueName(suggestion.primaryText);
-      next.venueName = suggestion.primaryText;
+      const name = addressOnly ? "" : suggestion.primaryText;
+      setVenueName(name);
+      next.venueName = name;
     }
     if (details.streetAddress && fillable(venueAddress, prefilled.venueAddress)) {
       setVenueAddress(details.streetAddress);

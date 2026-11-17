@@ -212,6 +212,32 @@ describe("EventEditor — picking a Google place", () => {
     expect(screen.getByLabelText("Suburb or town")).toHaveValue("Brunswick, VIC");
   });
 
+  it("an address pick (no venue) leaves the venue name for the organiser, and clears a name an earlier pick filled (Round 2)", async () => {
+    renderEditor(null);
+    await pickTheTote();
+    expect(screen.getByLabelText("Venue name")).toHaveValue("The Tote Hotel");
+
+    api.autocompletePlaces.mockResolvedValue({
+      suggestions: [{ placeId: "ChIJrussell000000000", primaryText: "170 Russell Street", secondaryText: "Melbourne VIC, Australia" }],
+    });
+    api.getPlaceDetails.mockResolvedValue({
+      ...TOTE_DETAILS,
+      placeId: "ChIJrussell000000000",
+      formattedAddress: "170 Russell St, Melbourne VIC 3000",
+      streetAddress: "170 Russell St",
+      locality: "Melbourne",
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Change/ }));
+    fireEvent.focus(searchBox());
+    fireEvent.change(searchBox(), { target: { value: "170 Russell" } });
+    fireEvent.click(await screen.findByRole("option", { name: /170 Russell Street/ }));
+    await screen.findByText(/170 Russell Street, Melbourne VIC/);
+    // Not the street line twice: the name is empty, the address filled.
+    expect(screen.getByLabelText("Venue name")).toHaveValue("");
+    expect(screen.getByLabelText("Venue address")).toHaveValue("170 Russell St");
+    expect(screen.getByLabelText("Suburb or town")).toHaveValue("Melbourne, VIC");
+  });
+
   it("a saved event's own fields stay as they are", async () => {
     renderEditor();
     await pickTheTote();
