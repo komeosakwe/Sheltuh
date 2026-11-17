@@ -464,6 +464,21 @@ export async function adminRemoveOrganiserCover(organiserId: string, reason: str
   });
 }
 
+/**
+ * Clears an organiser's own-word profile chips (`customTags`; the chips from
+ * the list stay), with a reason (logged on their organiser log as an edit by
+ * the Sheltüh team). Unchanged, and nothing logged, without any. ApiError
+ * 400 (reason), 404.
+ */
+export async function adminRemoveOrganiserTags(organiserId: string, reason: string, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<AdminOrganiserRecord>(`/admin/organisers/${encodeURIComponent(organiserId)}/remove-tags`, {
+    method: "POST",
+    body: { reason },
+    token,
+  });
+}
+
 /** A member profile whatever its visibility, with its moderation log (AdminReport.reportedProfileId). */
 export async function adminGetMemberProfile(profileId: string, getToken: GetToken) {
   const token = await getToken();

@@ -1,6 +1,6 @@
 import type { EventCategory } from "@/lib/types";
 import { ApiError, apiFetch, isApiConfigured, type GetToken } from "./client";
-import type { OrganiserPayouts, OrganiserRecord, PublicOrganiserProfile } from "./types";
+import type { OrganiserPayouts, OrganiserRecord, OrganiserTagsInput, PublicOrganiserProfile } from "./types";
 
 /**
  * Social handles, as the organiser types them: a leading '@' and surrounding
@@ -163,6 +163,20 @@ async function fetchWithToken(url: string, getToken: GetToken, signal?: AbortSig
   }
   if (!res.ok) throw new ApiError(res.status, `Request failed (${res.status}).`);
   return res.blob();
+}
+
+/**
+ * Sets the chips on the caller's public profile: the whole new set (list
+ * items and own words; lib/api/organiser-tags.ts has the rules, and
+ * parseCustomTag checks an own word as the API does). Resolves to the
+ * organiser record (`profileTags` in list order, `customTags` cleaned).
+ * ApiError 400 (`fieldErrors.profileTags`, `fieldErrors.customTags` or
+ * `fieldErrors["customTags.<i>"]`), 403 (not approved), 409 (the account
+ * changed meanwhile).
+ */
+export async function setOrganiserTags(input: OrganiserTagsInput, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<OrganiserRecord>("/organisers/me/tags", { method: "PUT", body: input, token });
 }
 
 /** Public: an approved organiser's profile and their published events. 404 for anything else. */
