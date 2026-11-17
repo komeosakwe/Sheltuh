@@ -80,17 +80,31 @@ describe("organiser profile: Add logo for its own organiser", () => {
   });
 });
 
-describe("organiser profile: events organised", () => {
-  it("is shown from one event organised", () => {
-    view(profile({ eventsHosted: 3 }));
-    expect(screen.getByText("Events organised")).toBeInTheDocument();
+describe("organiser profile: Add logo over a cover", () => {
+  it("takes the logo's place over the cover's corner, filled and ringed so the photo doesn't show through", () => {
+    view(profile({ coverUrl: "/api/organisers/org-1/cover?v=1" }));
+    const link = screen.getByRole("link", { name: "Add logo" });
+    expect(link).toHaveClass("bg-background", "ring-4", "ring-background", "xl:size-40");
+    expect(link.parentElement).toHaveClass("-mt-12");
+  });
+
+  it("isn't filled or ringed without a cover", () => {
+    view(profile());
+    expect(screen.getByRole("link", { name: "Add logo" })).not.toHaveClass("ring-4");
+  });
+});
+
+describe("organiser profile: event count", () => {
+  it("is shown from one event", () => {
+    view(profile({ eventCount: 3 }));
+    expect(screen.getByText("events").parentElement).toHaveTextContent("3 events");
   });
 
   it("is hidden at 0 (and when not sent)", () => {
-    view(profile({ eventsHosted: 0 }));
-    expect(screen.queryByText("Events organised")).toBeNull();
+    view(profile({ eventCount: 0 }));
+    expect(screen.queryByText(/^events?$/)).toBeNull();
     cleanup();
     view(profile());
-    expect(screen.queryByText("Events organised")).toBeNull();
+    expect(screen.queryByText(/^events?$/)).toBeNull();
   });
 });
