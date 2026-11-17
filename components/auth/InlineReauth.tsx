@@ -157,11 +157,12 @@ export default function InlineReauth({ expectedAccount, onSignedIn }: Props) {
       return;
     }
     setLoading(true);
-    passwordAttempt.current = true;
     try {
       const token = await humanCheck.getToken();
-      // The form went while it waited: send nothing.
-      if (token === HUMAN_CHECK_CANCELLED) return;
+      // The form went while it waited, or a sign-in from the new tab settled it meanwhile: send nothing.
+      if (token === HUMAN_CHECK_CANCELLED || settled.current) return;
+      // Only from here does this sign-in decide for its own session (not while it waits for the token).
+      passwordAttempt.current = true;
       await auth.signIn(email, password, token);
       if (expectedAccount && lockedEmail !== undefined && !sameAccount({ email }, { email: lockedEmail })) {
         // Signed in here, as the wrong account: this browser only, never the account's other devices.

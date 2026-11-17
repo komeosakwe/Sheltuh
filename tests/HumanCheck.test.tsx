@@ -472,6 +472,36 @@ describe("Turnstile on", () => {
     expect(turnstile.api.reset).toHaveBeenCalledWith("widget-1");
   });
 
+  it("inline sign-in: the expected account signing in from the new tab while a submit waits for its token still counts, and nothing more is sent", async () => {
+    vi.stubEnv("NEXT_PUBLIC_AUTH_PROVIDERS", "google,apple");
+    const turnstile = fakeTurnstile();
+    const onSignedIn = vi.fn();
+    const signIn = vi.fn().mockResolvedValue(undefined);
+    const owner = { userId: "user-owner", email: "owner@example.com" };
+    const tree = (auth: Partial<AuthContextValue>) => (
+      <FakeAuthProvider value={fakeAuthValue({ signIn, ...auth })}>
+        <InlineReauth expectedAccount={owner} onSignedIn={onSignedIn} />
+      </FakeAuthProvider>
+    );
+    const view = render(tree({ status: "signed-out", userId: undefined, email: undefined, accessToken: undefined }));
+    await loadScript(turnstile.api);
+    fireEvent.click(screen.getByRole("link", { name: "Sign in in a new tab" }));
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "hunter2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => expect(status()).toHaveTextContent("Checking you’re human…"));
+
+    // The other tab's sign-in arrives before Cloudflare answers.
+    act(() =>
+      view.rerender(tree({ status: "signed-in", ...owner, accessToken: "new-tab-token", lastSignInAt: "2026-10-25T10:00:00Z" })),
+    );
+    expect(onSignedIn).toHaveBeenCalledTimes(1);
+
+    turnstile.pass("token-late");
+    await act(async () => {});
+    expect(signIn).not.toHaveBeenCalled();
+    expect(onSignedIn).toHaveBeenCalledTimes(1);
+  });
+
   it("a token is handed out once: a second request waits for Turnstile's next one", async () => {
     const turnstile = fakeTurnstile();
     const seen: Awaited<ReturnType<HumanCheck["getToken"]>>[] = [];
