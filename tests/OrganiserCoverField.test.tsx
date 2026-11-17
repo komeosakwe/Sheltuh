@@ -81,8 +81,12 @@ describe("OrganiserCoverField", () => {
     expect(input).toHaveAttribute("accept", "image/jpeg,image/png,image/webp");
     expect(input).toHaveClass("sr-only");
     expect(input).toHaveAccessibleName("Cover photo (optional) Choose a cover photo");
-    expect(input).toHaveAccessibleDescription(/We crop it to a wide 7:2 strip/);
-    expect(input).toHaveAccessibleDescription(/Only upload a photo you have the rights to use\./);
+    // The rules, then the rights, and nothing else.
+    expect(input).toHaveAccessibleDescription(
+      "JPEG, PNG or WebP, cropped to a wide 7:2 strip. 2240 × 640 px or larger looks sharpest; phones show the clear middle. Only upload a photo you have the rights to use.",
+    );
+    // A full-width button on phones.
+    expect(screen.getByText("Choose a cover photo")).toHaveClass("max-sm:w-full");
     expect(screen.queryByRole("button", { name: "Remove cover photo" })).toBeNull();
     // No phone-crop shades over a placeholder.
     expect(container.querySelector("[data-phone-crop]")).toBeNull();
@@ -95,7 +99,8 @@ describe("OrganiserCoverField", () => {
     expect(shades).toHaveLength(2);
     for (const shade of shades) expect(shade).toHaveAttribute("aria-hidden", "true");
     expect(picker()).toHaveAccessibleName("Cover photo (optional) Change cover photo");
-    expect(screen.getByRole("button", { name: "Remove cover photo" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove cover photo" })).toHaveClass("max-sm:w-full");
+    expect(screen.getByText("Change cover photo")).toHaveClass("max-sm:w-full");
   });
 
   it("checks the type before cropping or sending anything", () => {
@@ -115,7 +120,11 @@ describe("OrganiserCoverField", () => {
 
     expect(screen.getByRole("img", { name: "Your new cover photo, uploading" })).toHaveAttribute("src", "blob:1");
     expect(statusText()).toContain("Uploading your cover photo…");
-    expect(container.querySelector("[data-organiser-cover-field]")).toHaveAttribute("aria-busy", "true");
+    // Busy, but not the status line: what it says is announced as it changes.
+    const busyRegion = container.querySelector("[aria-busy='true']");
+    expect(busyRegion).toHaveAttribute("data-organiser-cover-body");
+    expect(container.querySelector("[data-organiser-cover-field]")).toContainElement(busyRegion as HTMLElement);
+    for (const status of screen.getAllByRole("status")) expect(busyRegion).not.toContainElement(status);
     await waitFor(() => expect(uploadOrganiserCover).toHaveBeenCalledWith(PREPARED, getToken));
     expect(prepareCoverImage).toHaveBeenCalledWith(file);
     expect(picker()).toHaveAttribute("aria-disabled", "true");

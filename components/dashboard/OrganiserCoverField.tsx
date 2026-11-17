@@ -134,83 +134,90 @@ export default function OrganiserCoverField({
   const showsImage = busy?.kind === "upload" || (Boolean(shownUrl) && !loadFailed);
 
   return (
-    <div id="cover" data-organiser-cover-field="" className="flex flex-col gap-3" aria-busy={busy ? true : undefined}>
-      <p id="organiser-cover-title" className="eyebrow text-muted">
-        Cover photo (optional)
-      </p>
-      <div className="relative aspect-7/2 w-full max-w-2xl overflow-hidden rounded-card bg-surface">
-        {busy?.kind === "upload" ? (
-          // eslint-disable-next-line @next/next/no-img-element -- a local object URL preview of the chosen file
-          <img
-            src={busy.preview}
-            alt="Your new cover photo, uploading"
-            className="size-full object-cover object-center opacity-60"
-          />
-        ) : shownUrl && !loadFailed ? (
-          // eslint-disable-next-line @next/next/no-img-element -- a same-origin API image (1120 px, versioned)
-          <img
-            src={shownUrl}
-            alt="Your cover photo"
-            width={1120}
-            height={320}
-            decoding="async"
-            onError={() => setFailedUrl(shownUrl)}
-            className="size-full object-cover object-center"
-          />
-        ) : (
-          <span className="flex size-full items-center justify-center px-2 text-center text-xs text-muted">
-            {loadFailed ? "Couldn’t show your cover photo" : "No cover photo yet"}
-          </span>
-        )}
-        {showsImage && (
-          // What a 320px phone crops away at each side (it keeps the middle 47%).
-          <>
-            <span aria-hidden="true" data-phone-crop="" className="absolute inset-y-0 left-0 w-[26.5%] bg-ink/50" />
-            <span aria-hidden="true" data-phone-crop="" className="absolute inset-y-0 right-0 w-[26.5%] bg-ink/50" />
-          </>
-        )}
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <input
-          ref={inputRef}
-          id="organiser-cover"
-          type="file"
-          accept={LOGO_TYPES.join(",")}
-          // Not disabled while busy (that would drop focus from it): a pick then is ignored.
-          aria-disabled={busy ? true : undefined}
-          onChange={(e) => pick(e.target.files?.[0])}
-          aria-labelledby="organiser-cover-title organiser-cover-pick"
-          aria-describedby="organiser-cover-hint"
-          className="peer sr-only"
-        />
-        <label
-          id="organiser-cover-pick"
-          htmlFor="organiser-cover"
-          className={buttonClass(
-            "outline",
-            "md",
-            `min-h-11 cursor-pointer peer-focus-visible:outline-2 peer-focus-visible:outline-offset-3 peer-focus-visible:outline-foreground ${
-              busy ? "pointer-events-none border-surface-border bg-surface text-muted" : ""
-            }`,
+    <div id="cover" data-organiser-cover-field="" className="flex flex-col gap-3">
+      {/* Busy while it uploads or removes; the status line is outside it, so its progress is still announced. */}
+      <div data-organiser-cover-body="" className="flex flex-col gap-3" aria-busy={busy ? true : undefined}>
+        <p id="organiser-cover-title" className="eyebrow text-muted">
+          Cover photo (optional)
+        </p>
+        <div className="relative aspect-7/2 w-full max-w-2xl overflow-hidden rounded-card bg-surface">
+          {busy?.kind === "upload" ? (
+            // eslint-disable-next-line @next/next/no-img-element -- a local object URL preview of the chosen file
+            <img
+              src={busy.preview}
+              alt="Your new cover photo, uploading"
+              className="size-full object-cover object-center opacity-60"
+            />
+          ) : shownUrl && !loadFailed ? (
+            // eslint-disable-next-line @next/next/no-img-element -- a same-origin API image (1120 px, versioned)
+            <img
+              src={shownUrl}
+              alt="Your cover photo"
+              width={1120}
+              height={320}
+              decoding="async"
+              onError={() => setFailedUrl(shownUrl)}
+              className="size-full object-cover object-center"
+            />
+          ) : (
+            <span className="flex size-full items-center justify-center px-2 text-center text-xs text-muted">
+              {loadFailed ? "Couldn’t show your cover photo" : "No cover photo yet"}
+            </span>
           )}
-        >
-          {hasCover ? "Change cover photo" : "Choose a cover photo"}
-        </label>
-        {hasCover && busy?.kind !== "upload" && (
-          <Button variant="outline" size="md" busy={busy?.kind === "remove"} onClick={remove} className="min-h-11">
-            {busy?.kind === "remove" ? "Removing…" : "Remove cover photo"}
-          </Button>
-        )}
+          {showsImage && (
+            // What a 320px phone crops away at each side (it keeps the middle 47%).
+            <>
+              <span aria-hidden="true" data-phone-crop="" className="absolute inset-y-0 left-0 w-[26.5%] bg-ink/50" />
+              <span aria-hidden="true" data-phone-crop="" className="absolute inset-y-0 right-0 w-[26.5%] bg-ink/50" />
+            </>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <input
+            ref={inputRef}
+            id="organiser-cover"
+            type="file"
+            accept={LOGO_TYPES.join(",")}
+            // Not disabled while busy (that would drop focus from it): a pick then is ignored.
+            aria-disabled={busy ? true : undefined}
+            onChange={(e) => pick(e.target.files?.[0])}
+            aria-labelledby="organiser-cover-title organiser-cover-pick"
+            aria-describedby="organiser-cover-hint"
+            className="peer sr-only"
+          />
+          <label
+            id="organiser-cover-pick"
+            htmlFor="organiser-cover"
+            className={buttonClass(
+              "outline",
+              "md",
+              `min-h-11 cursor-pointer max-sm:w-full peer-focus-visible:outline-2 peer-focus-visible:outline-offset-3 peer-focus-visible:outline-foreground ${
+                busy ? "pointer-events-none border-surface-border bg-surface text-muted" : ""
+              }`,
+            )}
+          >
+            {hasCover ? "Change cover photo" : "Choose a cover photo"}
+          </label>
+          {hasCover && busy?.kind !== "upload" && (
+            <Button
+              variant="outline"
+              size="md"
+              busy={busy?.kind === "remove"}
+              onClick={remove}
+              className="min-h-11 max-sm:w-full"
+            >
+              {busy?.kind === "remove" ? "Removing…" : "Remove cover photo"}
+            </Button>
+          )}
+        </div>
+        <p id="organiser-cover-hint" className="max-w-xl text-xs text-muted">
+          JPEG, PNG or WebP, cropped to a wide 7:2 strip. 2240 &times; 640 px or larger looks sharpest; phones show the
+          clear middle. Only upload a photo you have the rights to use.
+        </p>
+        {busy?.kind === "upload" && <DotsLoader label="Uploading" />}
+        {narrowWidth !== null && <Notice tone="info">{narrowCoverWarning(narrowWidth)}</Notice>}
+        {error && <ActionErrorNotice message={error} returnTo={RETURN_TO} />}
       </div>
-      <p id="organiser-cover-hint" className="max-w-xl text-xs text-muted">
-        JPEG, PNG or WebP, saved when you choose it. It&rsquo;s public, at the top of your profile. We crop it to a wide
-        7:2 strip; 2240 &times; 640 px or larger looks sharpest. Phones show the middle (the clear area above), and your
-        logo covers part of the bottom-left corner. Camera and location data is removed. Only upload a photo you have
-        the rights to use.
-      </p>
-      {busy?.kind === "upload" && <DotsLoader label="Uploading" />}
-      {narrowWidth !== null && <Notice tone="info">{narrowCoverWarning(narrowWidth)}</Notice>}
-      {error && <ActionErrorNotice message={error} returnTo={RETURN_TO} />}
       <p role="status" className="sr-only">
         {status}
       </p>
