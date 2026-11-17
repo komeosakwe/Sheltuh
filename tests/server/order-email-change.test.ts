@@ -283,6 +283,15 @@ describe("the buyer's change (POST /orders/by-session/{id}/email)", () => {
     expect(api.sendEmail.mock.calls.map(([message]) => message.to)).toEqual([NEW]);
   });
 
+  it("an order whose sent job was purged (90 days on) gets a new one", async () => {
+    const { orderId, access } = await paidOrder();
+    await api.db.query(`delete from private.email_outbox where order_id = $1`, [orderId]);
+    expect((await change(orderId, { email: NEW }, { access })).body.result).toBe("changed");
+    expect(await job(orderId)).toMatchObject({ status: "pending", attempts: 0 });
+    await api.runDeferred();
+    expect(api.sendEmail.mock.calls.map(([message]) => message.to)).toEqual([NEW]);
+  });
+
   it("per client: 10 an hour, every well-formed request; per order: 5 a day, only with the token", async () => {
     const { orderId, access } = await paidOrder();
     const ip = "203.0.113.20";

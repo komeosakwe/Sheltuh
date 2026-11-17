@@ -193,7 +193,8 @@ begin
   select j.id into v_job_id
     from private.email_outbox j where j.order_id = p_order_id and j.kind = 'ticket_email';
   if v_job_id is not null then
-    perform 1 from private.email_outbox j where j.id = v_job_id for update;
+    -- Null again if the job went meanwhile (the purge of sent jobs): then it's looked for once more below.
+    select j.id into v_job_id from private.email_outbox j where j.id = v_job_id for update;
   end if;
   select * into v_order from public.orders o where o.id = p_order_id for update;
   if not found then

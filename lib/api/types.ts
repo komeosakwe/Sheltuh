@@ -840,7 +840,8 @@ export interface LeaveWaitlistResult {
  * needs, and nothing more. The order id in the URL is the only credential, so
  * this never carries the order, event or organiser ids, the fee split, Stripe
  * ids, line items, the order's own timestamps, the venue's street address or
- * the full email address. A pending order is `{ status: "pending" }` only.
+ * the full email address (except `email`, for the paying browser only: see
+ * there). A pending order is `{ status: "pending" }` only.
  */
 export interface CustomerOrder {
   status: Exclude<OrderStatus, "pending">;
