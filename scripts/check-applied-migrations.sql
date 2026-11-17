@@ -245,6 +245,9 @@ select version, file, coalesce(applied, false) as applied
       and exists (select 1 from fn where proname = 'take_order_detail_budget')
       and exists (select 1 from pg_trigger where tgname = 'orders_details_immutable' and not tgisinternal)
       and exists (select 1 from fn where proname = 'record_order_export')
-      and exists (select 1 from fn where proname = 'hold_seats' and 'p_buyer_name' = any(proargnames)))
+      and exists (select 1 from fn where proname = 'hold_seats' and 'p_buyer_name' = any(proargnames))),
+    ('20261129000000', 'event_banner_fit',
+      exists (select 1 from col where attrelid = to_regclass('public.event_images') and attname = 'banner_fit')
+      and exists (select 1 from fn where proname = 'admin_set_event_image_display'))
   ) as m(version, file, applied)
  order by version;
