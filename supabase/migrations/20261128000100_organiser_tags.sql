@@ -14,7 +14,8 @@
 --     one own word (the API's rules are stricter: parseCustomTag): 2 to 24
 --     characters, trimmed, no double spaces, and none of what a link, handle,
 --     markup or hidden text needs (@ # . / : \ < >, control, format and
---     separator characters, the Hangul fillers) or what emoji are made of.
+--     separator characters, everything else Unicode says renders as nothing)
+--     or what emoji are made of.
 --     Applied by the trigger organisers_custom_tags_valid when a word is
 --     added, not on every later update of the row (as the ticket link's check,
 --     20261023000100_review_hardening.sql), so tightening the rule later never
@@ -68,9 +69,13 @@ as $$
      -- What a link, handle or markup needs, in any width.
      and p_tag !~ '[@#./:<>\u3002\uFF0E\uFF61\uFF0F\uFF1A\uFF20\uFF03\uFE6B\uFE5F\u2024\uFE52]'
      -- Control and C1 characters, every Unicode format character (Cf), the
-     -- line and paragraph separators, the combining grapheme joiner and the
-     -- Hangul fillers (as orders_buyer_name_check, plus the zero-width joiners).
-     and p_tag !~ '[\u0001-\u001F\u007F-\u009F\u00AD\u034F\u0600-\u0605\u061C\u06DD\u070F\u0890-\u0891\u08E2\u115F-\u1160\u180E\u200B-\u200F\u2028-\u202E\u2060-\u2064\u2066-\u206F\u3164\uFEFF\uFFA0\uFFF9-\uFFFB\U000110BD\U000110CD\U00013430-\U0001343F\U0001BCA0-\U0001BCA3\U0001D173-\U0001D17A\U000E0001\U000E0020-\U000E007F]'
+     -- line and paragraph separators, and the rest of the assigned characters
+     -- that render as nothing (Default_Ignorable_Code_Point; the variation
+     -- selectors are below):
+     -- orders_buyer_name_check's list plus the zero-width joiners, the Hangul
+     -- fillers, the Khmer inherent vowels and the Mongolian variation
+     -- selectors.
+     and p_tag !~ '[\u0001-\u001F\u007F-\u009F\u00AD\u034F\u0600-\u0605\u061C\u06DD\u070F\u0890-\u0891\u08E2\u115F-\u1160\u17B4-\u17B5\u180B-\u180F\u200B-\u200F\u2028-\u202E\u2060-\u2064\u2066-\u206F\u3164\uFEFF\uFFA0\uFFF9-\uFFFB\U000110BD\U000110CD\U00013430-\U0001343F\U0001BCA0-\U0001BCA3\U0001D173-\U0001D17A\U000E0001\U000E0020-\U000E007F]'
      -- Emoji and their building blocks: pictographs and symbols, regional
      -- indicators, variation selectors, combining marks for symbols (the
      -- keycap U+20E3).

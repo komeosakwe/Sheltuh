@@ -222,7 +222,7 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
 | `put_organiser_cover` · `delete_organiser_cover` · `admin_remove_organiser_cover` | The cover image's writes (`PUT` / `DELETE /organisers/me/cover`, `POST /admin/organisers/{id}/remove-cover`), exactly as the three logo functions: the organiser row locked (for no key update) before the cover row, approval re-checked for an upload (`not_approved` → 409: nothing written), `updated_at` bumped, a `profile_edit` logged with old and new version (`cover`; by the admin, with the reason, for a removal). Return `updated` / `deleted` / `removed`, `unchanged` (no cover: nothing written) or `not_found`. |
 | `set_organiser_tags` | An approved organiser's profile chips (`PUT /organisers/me/tags`, already checked by the API): locks the organiser row (for no key update), checks it's approved (`not_approved` → 409), writes only the columns that really change (`profile_tags`, `custom_tags`) and logs a `profile_edit` with their old and new values joined with ", ", in one step. A no-op writes nothing. Returns `updated`, `unchanged`, `not_approved` or `not_found`. |
 | `admin_remove_organiser_custom_tags` | An admin clears an organiser's own words (any status; the list items stay), with a reason, logged as a `profile_edit` by the admin (`byStaff`). Returns `removed`, `unchanged` (none: nothing logged) or `not_found`. |
-| `organiser_custom_tag_ok` | Immutable: one own word passes the database's structural floor (2–24 characters, trimmed, no double spaces, none of `@ # . / : \ < >` or their fullwidth forms, no control, format, separator or Hangul filler characters, no emoji building blocks). Called by the trigger `organisers_custom_tags_valid` for newly added words only, so tightening it never blocks an unrelated update. The API's `parseCustomTag` is stricter. |
+| `organiser_custom_tag_ok` | Immutable: one own word passes the database's structural floor (2–24 characters, trimmed, no double spaces, none of `@ # . / : \ < >` or their fullwidth forms, no control, format or separator characters or any other assigned default-ignorable one (the Hangul fillers, the combining grapheme joiner, U+17B4–17B5, U+180B–180F), no emoji building blocks). Called by the trigger `organisers_custom_tags_valid` for newly added words only, so tightening it never blocks an unrelated update. The API's `parseCustomTag` is stricter. |
 | `member_profile_visible` | The one rule for seeing a member profile (stable SQL): the member behind a `profileId` if the viewer has a profile, neither is suspended, neither blocks the other, and the profile is visible or the viewer's own; else null. Used by every read and write by `profileId`; the API also requires a verified email. |
 | `file_profile_report` | A report about a profile: key-share-locks the profile; only one the reporter can see now (`member_profile_visible`) or a member they've blocked (else `not_found`, the unknown-id answer); an open profile report by the same reporter about the same member is returned as it is (`already_open`, no allowance used; two at once: the unique index makes the second find the first); then the reports rate limit, the photo copied once per distinct image (`report_photos`, upserted so a concurrent purge skips it), and the insert (`target_type` `profile`). Returns `filed`, `already_open`, `not_found`, `self` or `rate_limited`. |
 | `create_block_by_profile` | `create_block` for a profile the blocker can see now (`member_profile_visible`); same snapshot, rate limit and results. |
@@ -3116,18 +3116,26 @@ Admins create events themselves, for any organiser
   letters of any script, digits (`\p{Nd}`, at most 4, so no phone
   numbers), single spaces and `& ' ’ -`, combining marks only on a letter
   and at most 2 in a row, 2–24 characters with at least one letter; no
-  control, invisible or Hangul filler characters, emoji, variation
-  selectors or enclosing marks (the keycap and VS16 tricks), nothing a link
-  or handle needs (`. : / \ @ #` in any width), no repeat of another own
-  word or a list label (compared folded: case, accents, compatibility forms,
-  punctuation), and no claim word (`CLAIM_WORDS`: official, verified,
-  certified, accredited, endorsed, approved, authorised, sponsored,
-  promoted, featured, partner, Sheltüh, admin, moderator, trending, sold
-  out, staff pick, editor's pick/choice, top rated), matched folded, as whole
-  words and squashed across spaces or punctuation ("soldout", "o f f i c i a
-  l"). 400 with `fieldErrors` on `profileTags`, `customTags` or
-  `customTags.<i>`; 403 not approved (before the body is read); 409 if the
-  status changed before the write. Every change is logged with old and new
+  control, invisible or other default-ignorable characters (as display
+  names: `\p{Default_Ignorable_Code_Point}`, the Hangul fillers included),
+  emoji, variation selectors, enclosing marks or combining marks for symbols
+  (U+20D0–20FF: the keycap and VS16 tricks), nothing a link or handle needs
+  (`. : / \ @ #` in any width), no word mixing Latin, Cyrillic and Greek
+  letters, no repeat of another own word or a list label (compared folded:
+  case, accents, compatibility forms, punctuation), and no claim word
+  (`CLAIM_WORDS`: official, verified, certified, accredited, endorsed,
+  approved, authorised, sponsored, promoted, featured, partner, Sheltüh,
+  admin, moderator, trending, sold out, staff pick, editor's pick/choice, top
+  rated), compared on the display names' lookalike skeleton
+  (`lib/lookalikes.ts`: case, accents, compatibility forms, Cyrillic/Greek
+  lookalikes, i/l/1 → l, 0 → o, rn → m: "OfficiaI", "Appr0ved"), as whole
+  words, squashed across spaces or punctuation ("soldout", "o f f i c i a
+  l") and split at a change of case ("OfficialVenue"); "sheltuh" is refused
+  anywhere ("TeamSheltuh"). 400 with `fieldErrors` on `profileTags`,
+  `customTags` or `customTags.<i>` (and on `profileTags` or `customTags` if
+  the database's checks ever refuse what the API let through, rather than a
+  500); 403 not approved (before the body is read); 409 if the status
+  changed before the write. Every change is logged with old and new
   values (`profileTags`, `customTags`); an admin clears the own words with a
   reason (`POST /admin/organisers/{id}/remove-tags`, `byStaff`). The
   database re-checks the slugs, counts and a structural deny-list (see
@@ -3136,9 +3144,11 @@ Admins create events themselves, for any organiser
   to the list (`tagsForEventCategories`: workshop → workshops, pop-up →
   pop-ups & markets, the rest by name); an empty choice shows none. Own
   words are only ever rendered as text, never in a link. **Accepted risk**:
-  look-alike letters from another script ("οfficial" with a Greek ο) get
-  past the claim words; scripts aren't restricted, so the log, admin
-  removal and takedown are the controls. No rate limit on saves (each is
+  the lookalike skeleton is a hand-picked subset of Unicode's confusables,
+  and a claim made in other words or another language gets past the list;
+  the log, admin removal and takedown are the controls. A claim word run
+  together with a change of case is refused even where it reads as one word
+  ("UnOfficial"). No rate limit on saves (each is
   one logged row; the admin queue shows the newest 20 entries).
 - **Host card on the event page** (`GET /events/slug/{slug}` only): the
   public event carries `organiserWebsiteUrl`, `organiserSocialLinks` (the
@@ -4458,7 +4468,7 @@ without one. The UI keeps showing the API's words, which already say when
 | `PUT /organisers/me/cover` (raw JPEG/PNG/WebP) · `DELETE /organisers/me/cover` | As the logo's: PUT an approved organiser (403 otherwise, before the body is read); 200 the organiser record (`coverUrl`, `coverSmallUrl`), `private, no-store`; 400 `fieldErrors.cover` (not a supported image, over 24 megapixels, or too detailed to fit); 409 no longer approved by the time it's written; 413 over 4 MB; 429 over 20 a day; 503 too many images being decoded. DELETE: signed in, any status; 200 the record without them (idempotent); 404 no organiser |
 | `GET /organisers/{organiserId}/cover[?size=small][&v=…]` | As the logo's: public while approved (current `v`: `public, max-age=3600, s-maxage=3600`; otherwise `private, max-age=3600`), else an admin or the owner with a bearer token (`private, no-store`). WebP 2240 × 640 (1120 × 320 small), `nosniff`, ETag (304). 404 for anything else |
 | `POST /admin/organisers/{organiserId}/remove-cover` `{reason}` | admin. As remove-logo |
-| `PUT /organisers/me/tags` `{profileTags, customTags}` | an approved organiser (403 otherwise, before the body is read). 200 the organiser record (`profileTags` in list order, `customTags` cleaned; unchanged and nothing logged if it already was so), `private, no-store`; 400 `fieldErrors.profileTags`, `.customTags` or `["customTags.<i>"]`; 409 status changed (see "Organiser profiles", "Categories") |
+| `PUT /organisers/me/tags` `{profileTags, customTags}` | an approved organiser (403 otherwise, before the body is read). 200 the organiser record (`profileTags` in list order, `customTags` cleaned; unchanged and nothing logged if it already was so), `private, no-store`; 400 `fieldErrors.profileTags`, `.customTags` or `["customTags.<i>"]` (also for a refusal by the database's checks); 409 status changed (see "Organiser profiles", "Categories") |
 | `POST /admin/organisers/{organiserId}/remove-tags` `{reason}` | admin. Clears the own words (`customTags`) only. 200 `AdminOrganiserRecord` (unchanged, nothing logged, without any); 400 `fieldErrors.reason`; 403; 404 |
 | `PUT /profiles/me` | verified email, not suspended (403). Creating needs `adultConfirmed: true` (an explicit `false` is a 400); a rename (no `adultConfirmed`) with no profile is a 404. Display names are checked in `lib/server/profile-input.ts`: no control, invisible or default-ignorable characters (U+FE0E/FE0F allowed), at least one letter or digit, at most 4 combining marks per character, no links, emails or @handles, no Latin/Cyrillic/Greek mix within a word, and no reserved names, compared on a lookalike skeleton |
 | `GET /conversations?cursor` | verified member: own conversations, newest activity first |

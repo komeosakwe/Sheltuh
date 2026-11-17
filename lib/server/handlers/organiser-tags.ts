@@ -10,6 +10,7 @@ import {
   type OrganiserTag,
 } from "@/lib/api/organiser-tags";
 import { requireCaller } from "../auth";
+import { PG_CHECK_VIOLATION, pgConstraint, pgErrorCode } from "../db";
 import { HttpError, okPrivate, readJson } from "../http";
 import { toOwnOrganiserView } from "../records";
 import type { Handler } from "../route";
@@ -83,12 +84,34 @@ export function parseOrganiserTags(body: Record<string, unknown>): OrganiserTags
   return { profileTags, customTags };
 }
 
+const DB_REFUSED_CUSTOM = "One of your own words can't be used. Try another.";
+const DB_REFUSED_PROFILE = "Choose categories from the list.";
+
+/**
+ * The database refused the chips (the constraints and trigger in
+ * 20261128000100_organiser_tags.sql): parseOrganiserTags checks all of it
+ * first, so this is the API and the database disagreeing, a 400 on the field
+ * rather than a 500. Anything else is rethrown.
+ */
+function tagsWriteRefused(err: unknown): never {
+  if (pgErrorCode(err) === PG_CHECK_VIOLATION) {
+    switch (pgConstraint(err)) {
+      case "organisers_profile_tags_check":
+        throw new HttpError(400, DB_REFUSED_PROFILE, { profileTags: DB_REFUSED_PROFILE });
+      case "organisers_custom_tags_check":
+      case "organisers_custom_tags_valid":
+        throw new HttpError(400, DB_REFUSED_CUSTOM, { customTags: DB_REFUSED_CUSTOM });
+    }
+  }
+  throw err;
+}
+
 /**
  * PUT /api/organisers/me/tags — body {profileTags, customTags}
  * (OrganiserTagsInput): the whole new set of chips on the caller's public
  * profile. An approved organiser only (403, checked before the body is read);
- * 400 as parseOrganiserTags; 409 if the organiser stopped being approved
- * before the write. 200 with the caller's organiser record (unchanged, and
+ * 400 as parseOrganiserTags, or as the database's checks (tagsWriteRefused);
+ * 409 if the organiser stopped being approved before the write. 200 with the caller's organiser record (unchanged, and
  * nothing logged, if it already was so), `private, no-store`.
  */
 export const putMyOrganiserTags: Handler = async (req, _params, { db, verifyAccessToken }) => {
@@ -97,10 +120,12 @@ export const putMyOrganiserTags: Handler = async (req, _params, { db, verifyAcce
   if (!organiser || organiser.status !== "approved") throw new HttpError(403, NOT_APPROVED);
 
   const { profileTags, customTags } = parseOrganiserTags(await readJson(req));
-  const [{ result }] = await db.query<{ result: "updated" | "unchanged" | "not_approved" | "not_found" }>(
-    `select private.set_organiser_tags($1, $2::text[], $3::text[]) as result`,
-    [caller.userId, profileTags, customTags],
-  );
+  const [{ result }] = await db
+    .query<{ result: "updated" | "unchanged" | "not_approved" | "not_found" }>(
+      `select private.set_organiser_tags($1, $2::text[], $3::text[]) as result`,
+      [caller.userId, profileTags, customTags],
+    )
+    .catch(tagsWriteRefused);
   if (result === "not_found") throw new HttpError(404, NO_ORGANISER);
   if (result === "not_approved") throw new HttpError(409, "Your organiser status changed — refresh and try again.");
   const record = await findOrganiserByOwner(db, caller.userId);

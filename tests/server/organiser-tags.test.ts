@@ -1,5 +1,7 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { MAX_CUSTOM_TAGS, MAX_PROFILE_TAGS, ORGANISER_TAGS, type OrganiserTag } from "@/lib/api/organiser-tags";
+import { MAX_CUSTOM_TAGS, MAX_PROFILE_TAGS, ORGANISER_TAGS, parseCustomTag, type OrganiserTag } from "@/lib/api/organiser-tags";
 import {
   adminListOrganisers,
   adminRejectOrganiser,
@@ -9,6 +11,7 @@ import {
 import { putMyOrganiserTags } from "@/lib/server/handlers/organiser-tags";
 import { applyAsOrganiser, getMyOrganiser } from "@/lib/server/handlers/organisers";
 import { getPublicOrganiserProfile } from "@/lib/server/handlers/public-organisers";
+import { ALL_ACCEPTED_CUSTOM_TAGS } from "../fixtures/organiser-custom-tags";
 import { TestApi } from "./helpers/api";
 import { application, approvedOrganiser, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
@@ -313,6 +316,27 @@ describe("PUT /organisers/me/tags", () => {
     expect((await logEntries()).some((e) => "profile_tags" in e.changed_fields)).toBe(false);
   });
 
+  it("a database refusal the API didn't foresee is a 400 on the field, not a 500, and nothing is written", async () => {
+    // What the API would send if its rules and the database's ever disagreed: the
+    // trigger (organisers_custom_tags_valid) and both check constraints.
+    const cases: [string, (params: unknown[]) => unknown[], string][] = [
+      ["trigger", ([owner, profileTags]) => [owner, profileTags, ["Ja\u200Bzz"]], "customTags"],
+      ["organisers_custom_tags_check", ([owner]) => [owner, [], ["Jazz", "Soul", "Funk"]], "customTags"],
+      ["organisers_profile_tags_check", ([owner, , customTags]) => [owner, ["jazz"], customTags], "profileTags"],
+    ];
+    for (const [name, rewrite, field] of cases) {
+      const disagreeing = new TestApi({
+        query: (text, params = []) =>
+          api.db.query(text, text.includes("private.set_organiser_tags") ? rewrite(params) : params),
+      });
+      const token = disagreeing.tokenFor({ userId: organiser.userId, email: organiser.email, emailVerified: true, isAdmin: false });
+      const res = await put(token, { profileTags: ["art"], customTags: ["Jazz"] }, disagreeing);
+      expect([name, res.status, Object.keys(res.body.fieldErrors ?? {})]).toEqual([name, 400, [field]]);
+    }
+    expect(await stored()).toEqual({ profile_tags: null, custom_tags: [] });
+    expect(await logEntries()).toEqual([]);
+  });
+
   it("set_organiser_tags: not_found, not_approved, and refuses null lists", async () => {
     const call = (owner: string, profileTags: string[] | null, customTags: string[] | null) =>
       api.db.query<{ result: string }>(`select private.set_organiser_tags($1, $2::text[], $3::text[]) as result`, [
@@ -426,6 +450,108 @@ describe("public.organisers: the tag columns' constraints and trigger", () => {
       await api.db.query(`drop function private.organiser_custom_tag_ok(text)`);
       await api.db.query(`alter function private.organiser_custom_tag_ok_saved(text) rename to organiser_custom_tag_ok`);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The API's rules and the database's agree
+// ---------------------------------------------------------------------------
+
+describe("parseCustomTag and private.organiser_custom_tag_ok agree", () => {
+  /** The words private.organiser_custom_tag_ok refuses, out of `words`, in one query. */
+  async function refusedByDb(words: readonly string[]): Promise<string[]> {
+    const rows = await api.db.query<{ w: string }>(
+      `select w from unnest($1::text[]) with ordinality as t(w, i) where not private.organiser_custom_tag_ok(w) order by i`,
+      [words],
+    );
+    return rows.map((r) => r.w);
+  }
+
+  /** `Ja<c>zz` and `<c><c>` for every code point in the ranges (no NUL or surrogates, which text can't hold). */
+  function sweep(ranges: [number, number][]): string[] {
+    const words: string[] = [];
+    for (const [from, to] of ranges) {
+      for (let cp = from; cp <= to; cp++) {
+        if (cp === 0 || (cp >= 0xd800 && cp <= 0xdfff)) continue;
+        const c = String.fromCodePoint(cp);
+        words.push(`Ja${c}zz`, `${c}${c}`);
+      }
+    }
+    return words;
+  }
+
+  /** Every code point the database's character deny-lists name, read from the migration (written there as \\uXXXX, \\UXXXXXXXX or the character itself). */
+  function dbDeniedCodePoints(): number[] {
+    const sql = readFileSync(
+      path.resolve(import.meta.dirname, "../../supabase/migrations/20261128000100_organiser_tags.sql"),
+      "utf8",
+    );
+    const fn = sql.slice(sql.indexOf("create function private.organiser_custom_tag_ok"), sql.indexOf("alter table public.organisers"));
+    const classes = [...fn.matchAll(/p_tag !~ '\[([^\]]+)\]'/g)].map((m) => m[1]);
+    expect(classes).toHaveLength(3);
+    const points: number[] = [];
+    for (const cls of classes) {
+      const atoms = [...cls.matchAll(/\\u([0-9A-F]{4})|\\U([0-9A-F]{8})|(-)|(.)/gu)].map((m) =>
+        m[3] ? "-" : m[1] || m[2] ? parseInt(m[1] ?? m[2], 16) : m[4].codePointAt(0)!,
+      );
+      for (let i = 0; i < atoms.length; i++) {
+        const from = atoms[i] as number;
+        if (atoms[i + 1] === "-") {
+          for (let cp = from; cp <= (atoms[i + 2] as number); cp++) points.push(cp);
+          i += 2;
+        } else {
+          points.push(from);
+        }
+      }
+    }
+    // And the backslash, checked on its own (strpos with chr(92)).
+    return [...points, 0x5c];
+  }
+
+  it("every own word the unit tests accept, as the API cleans it, passes the database's check", async () => {
+    const cleaned = ALL_ACCEPTED_CUSTOM_TAGS.map((w) => {
+      const parsed = parseCustomTag(w);
+      if (!parsed.ok) throw new Error(`${JSON.stringify(w)}: ${parsed.error}`);
+      return parsed.value;
+    });
+    expect(await refusedByDb(cleaned)).toEqual([]);
+  });
+
+  it("every character the API accepts in a word, the database accepts (the BMP, the SMP, the SIP and the tags block)", async () => {
+    const accepted = sweep([
+      [0x0001, 0x2ffff],
+      [0xe0000, 0xe01ff],
+    ]).flatMap((w) => {
+      const parsed = parseCustomTag(w);
+      return parsed.ok ? [parsed.value] : [];
+    });
+    expect(accepted.length).toBeGreaterThan(100_000);
+    const refused = await refusedByDb(accepted);
+    expect(refused.map((w) => [...w].map((c) => c.codePointAt(0)!.toString(16)).join(" "))).toEqual([]);
+  });
+
+  it("every character the database's deny-lists name, the API refuses (but the spaces it cleans away)", async () => {
+    const points = dbDeniedCodePoints();
+    expect(points.length).toBeGreaterThan(4000);
+    // Tab, line feed and carriage return: the API folds them into a space first, as the database never sees them.
+    const words = points.filter((cp) => ![0x09, 0x0a, 0x0d].includes(cp)).map((cp) => `Ja${String.fromCodePoint(cp)}zz`);
+    expect(await refusedByDb(words)).toEqual(words);
+    expect(words.filter((w) => parseCustomTag(w).ok)).toEqual([]);
+  });
+
+  it("the database refuses every assigned character that renders as nothing (Default_Ignorable_Code_Point), as the API does", async () => {
+    const ignorable: string[] = [];
+    for (let cp = 1; cp <= 0x10ffff; cp++) {
+      if (cp >= 0xd800 && cp <= 0xdfff) continue;
+      const c = String.fromCodePoint(cp);
+      if (/\p{Default_Ignorable_Code_Point}/u.test(c) && !/\p{Cn}/u.test(c)) ignorable.push(c);
+    }
+    for (const cp of [0x034f, 0x115f, 0x17b4, 0x17b5, 0x180b, 0x180e, 0x180f, 0x3164, 0xfe0f, 0xe0100]) {
+      expect(ignorable).toContain(String.fromCodePoint(cp));
+    }
+    const words = ignorable.map((c) => `Ja${c}zz`);
+    expect(await refusedByDb(words)).toEqual(words);
+    expect(words.filter((w) => parseCustomTag(w).ok)).toEqual([]);
   });
 });
 

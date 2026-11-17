@@ -170,9 +170,13 @@ function makesAClaim(value: string): boolean {
 
 // Characters nobody types on purpose in a word: control characters, every
 // invisible "format" character (zero-width spaces and joiners, bidi controls,
-// soft hyphen, BOM, tags), the line and paragraph separators, and the Hangul
-// fillers (letters, by Unicode, that draw nothing).
-const INVISIBLE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\u115F\u1160\u3164\uFFA0]/u;
+// soft hyphen, BOM, tags), the line and paragraph separators, and everything
+// else Unicode says renders as nothing (Default_Ignorable_Code_Point: the
+// Hangul fillers, the combining grapheme joiner, the Khmer inherent vowels,
+// the Mongolian variation selectors...), as display names
+// (lib/server/profile-input.ts). The variation selectors, which are also
+// default-ignorable, are left to EMOJI below, for its message.
+const INVISIBLE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]|(?![\uFE00-\uFE0F\u{E0100}-\u{E01EF}])\p{Default_Ignorable_Code_Point}/u;
 // Emoji and the pieces emoji sequences are built from: pictographs, the
 // variation selectors (VS16 turns a letter or digit into an emoji), and the
 // enclosing marks (the keycap U+20E3 turns "1" into an emoji).
@@ -180,8 +184,10 @@ const EMOJI = /[\p{Extended_Pictographic}\p{Regional_Indicator}\u{FE00}-\u{FE0F}
 // What a link or a handle needs (any width: fullwidth and ideographic forms too).
 const LINK_LIKE = /[.:/\\\u3002\uFF0E\uFF61\uFF0F\uFF1A\uFF3C\u2024\uFE52]/u;
 const HANDLE_LIKE = /[@#\uFF20\uFF03\uFE6B\uFE5F]/u;
-/** Everything an own word may be made of. Marks are checked separately (they must follow a letter). */
+/** Everything an own word may be made of. Marks are checked separately (they must follow a letter, and not be SYMBOL_MARKS). */
 const ALLOWED = /^[\p{L}\p{M}\p{Nd} &'\u2019-]+$/u;
+/** Combining marks for symbols (arrows, circles, the keycap): they go on symbols, not letters. */
+const SYMBOL_MARKS = /[\u20D0-\u20FF]/u;
 /** Whitespace folded to a single space: spaces of any width, tabs and line breaks. */
 const SPACES = /[\p{Zs}\t\n\r]+/gu;
 /** The most combining marks in a row (one letter with an accent and a tone mark, say). */
@@ -225,7 +231,7 @@ export function parseCustomTag(raw: unknown): CustomTagResult {
   if (EMOJI.test(value)) return { ok: false, error: "Emoji can't be used here." };
   if (LINK_LIKE.test(value)) return { ok: false, error: "Links can't be used here." };
   if (HANDLE_LIKE.test(value)) return { ok: false, error: "@ and # can't be used here." };
-  if (!ALLOWED.test(value) || misplacedMarks(value)) {
+  if (!ALLOWED.test(value) || SYMBOL_MARKS.test(value) || misplacedMarks(value)) {
     return { ok: false, error: "Use letters, numbers, spaces, & ' and - only." };
   }
   const length = Array.from(value).length;

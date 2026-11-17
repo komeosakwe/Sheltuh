@@ -14,6 +14,7 @@ import {
   tagsForEventCategories,
 } from "@/lib/api/organiser-tags";
 import { EVENT_CATEGORIES } from "@/lib/types";
+import { ACCEPTED_CUSTOM_TAGS } from "./fixtures/organiser-custom-tags";
 
 const ok = (value: string) => ({ ok: true, value });
 const refused = (raw: unknown) => {
@@ -67,7 +68,7 @@ describe("parseCustomTag", () => {
   });
 
   it("accepts letters of any script, digits (up to 4) and & ' ’ -", () => {
-    for (const word of ["Jazz", "DJ", "Rock 'n' roll", "Rock ’n’ roll", "Late-night", "Ngā toi", "日本のジャズ", "Class of 2024", "Unofficial", "Partnership", "Featuring friends", "Approval votes"]) {
+    for (const word of ACCEPTED_CUSTOM_TAGS.scripts) {
       expect([word, parseCustomTag(word)]).toEqual([word, ok(word.normalize("NFC"))]);
     }
   });
@@ -100,8 +101,19 @@ describe("parseCustomTag", () => {
     }
   });
 
-  it("refuses invisible, control and direction characters, and the Hangul fillers", () => {
-    for (const cp of [0x00, 0x07, 0x7f, 0x85, 0xad, 0x200b, 0x200c, 0x200d, 0x200e, 0x202e, 0x2060, 0x2066, 0xfeff, 0x2028, 0x2029, 0xe0041, 0x115f, 0x1160, 0x3164, 0xffa0]) {
+  it("refuses invisible, control and direction characters, and everything else that renders as nothing", () => {
+    for (const cp of [
+      0x00, 0x07, 0x7f, 0x85, 0xad, 0x200b, 0x200c, 0x200d, 0x200e, 0x202e, 0x2060, 0x2066, 0xfeff, 0x2028, 0x2029, 0xe0041,
+      // Hangul fillers (letters), the combining grapheme joiner, Khmer inherent vowels and Mongolian variation selectors (marks).
+      0x115f, 0x1160, 0x3164, 0xffa0, 0x034f, 0x17b4, 0x17b5, 0x180b, 0x180c, 0x180d, 0x180f,
+    ]) {
+      const word = `Ja${String.fromCodePoint(cp)}zz`;
+      expect([cp.toString(16), refused(word)]).toEqual([cp.toString(16), "refused"]);
+    }
+  });
+
+  it("refuses the combining marks for symbols, even on a letter", () => {
+    for (const cp of [0x20d0, 0x20d7, 0x20e1, 0x20e5, 0x20f0, 0x20ff]) {
       const word = `Ja${String.fromCodePoint(cp)}zz`;
       expect([cp.toString(16), refused(word)]).toEqual([cp.toString(16), "refused"]);
     }
@@ -168,18 +180,24 @@ describe("parseCustomTag", () => {
       expect([word, parseCustomTag(word)]).toEqual([word, { ok: false, error: "Don't mix Latin, Cyrillic or Greek letters in one word." }]);
     }
     // One script per word is fine, and so are different scripts in different words.
-    for (const word of ["Русский рок", "Ελληνικά", "Jazz джаз", "日本のジャズ"]) expect([word, parseCustomTag(word).ok]).toEqual([word, true]);
+    for (const word of ACCEPTED_CUSTOM_TAGS.oneScriptPerWord) expect([word, parseCustomTag(word).ok]).toEqual([word, true]);
   });
 
   it("whole words only: a claim inside a longer word is fine", () => {
-    for (const word of ["Unofficial", "Partnership", "Approvals", "Promotional", "Unverified gossip", "Holdout", "Gold outfits"]) {
+    for (const word of ACCEPTED_CUSTOM_TAGS.wholeWordsOnly) {
       expect([word, parseCustomTag(word).ok]).toEqual([word, true]);
     }
   });
 
   it("the lookalike comparison leaves ordinary words alone", () => {
-    for (const word of ["Illustration", "Film nights", "Hip hop", "Café", "Aboriginal art", "K-pop", "Modern art", "Lo-fi", "Soul food", "Indie folk", "Oil painting", "Billboard hits", "McDonald", "iPhone art", "DnB", "RnB", "Spoken word", "Ölfarben"]) {
+    for (const word of ACCEPTED_CUSTOM_TAGS.ordinary) {
       expect([word, parseCustomTag(word).ok]).toEqual([word, true]);
+    }
+  });
+
+  it("accepts every word in the shared list (the API–database parity test checks the same words)", () => {
+    for (const [group, words] of Object.entries(ACCEPTED_CUSTOM_TAGS)) {
+      for (const word of words) expect([group, word, parseCustomTag(word).ok]).toEqual([group, word, true]);
     }
   });
 
