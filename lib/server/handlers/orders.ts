@@ -12,6 +12,7 @@ import {
   checkoutFingerprint,
   idempotencyKey,
   peekCheckoutAttempt,
+  replayAccessSecret,
   requestClientKey,
   runPaidCheckout,
   settledAttemptResponse,
@@ -20,7 +21,6 @@ import {
 import { clientIp, clientKey, orderKey } from "../client-key";
 import { refuseUndeliverableEmail } from "../email-domain";
 import { HttpError, ok, okPrivate, type RateWindow, readJson, tooManyRequests, windowSeconds } from "../http";
-import { orderAccessSecret } from "../order-access";
 import { withOrderEmail } from "../order-email-view";
 import { parseBuyerName, parseCheckoutLineItems, parseSupportCents, refuseSupportOnFreeOrder } from "../order-input";
 import { parseCheckoutSeats } from "../seat-map-input";
@@ -919,7 +919,7 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
   // The attempt is bound to this client: a replay or retry from another client key is refused.
   const client = requestClientKey(req, deps);
   const peeked = await peekCheckoutAttempt(db, key, fingerprint, client.key);
-  const settled = peeked && settledAttemptResponse(peeked, orderAccessSecret(deps));
+  const settled = peeked && settledAttemptResponse(peeked, replayAccessSecret(deps, client));
   if (settled) return settled;
   await checkBuyerEmail(req, deps, buyerEmail);
 
@@ -1286,7 +1286,7 @@ async function createSeatedCheckout(
   });
   const client = requestClientKey(req, deps);
   const peeked = await peekCheckoutAttempt(db, key, fingerprint, client.key);
-  const settled = peeked && settledAttemptResponse(peeked, orderAccessSecret(deps));
+  const settled = peeked && settledAttemptResponse(peeked, replayAccessSecret(deps, client));
   if (settled) return settled;
 
   // A retry's own earlier order may still hold these seats: not "taken" (begin_checkout_attempt reuses or releases it).
@@ -1306,7 +1306,7 @@ async function createSeatedCheckout(
   if (gone.length > 0) {
     // A duplicate of a request that held these seats since our first look (a double click): its answer, not "taken".
     const now = await peekCheckoutAttempt(db, key, fingerprint, client.key);
-    const answer = now && settledAttemptResponse(now, orderAccessSecret(deps));
+    const answer = now && settledAttemptResponse(now, replayAccessSecret(deps, client));
     if (answer) return answer;
     throw seatError(409, SEATS_TAKEN, "seats", { code: "seats_unavailable", seatIds: gone });
   }

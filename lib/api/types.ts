@@ -755,7 +755,8 @@ export type CheckoutResult =
       /**
        * A paid (Stripe) checkout only, seated or not, in the answer to the
        * client that started it (the 201, and a replay of it to that same
-       * client): the order access token (64 hex characters). Keep it on this
+       * client, when the request carried a client IP: a replay bound to no
+       * client has none): the order access token (64 hex characters). Keep it on this
        * device (lib/order-access.ts) and send it as the `x-order-access`
        * header (ORDER_ACCESS_HEADER) when reading the order
        * (getOrderBySession) or changing its email (changeOrderEmail): it is

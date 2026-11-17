@@ -288,11 +288,21 @@ const CHECKOUT_OTHER_CLIENT = (): HttpError =>
   });
 
 /**
+ * The secret a replay's order access token is made with (settledAttemptResponse), or undefined: none. Only for a
+ * client with a key. Without one (no client IP, or no STRIPE_WEBHOOK_SECRET) the attempt is bound to no client, so
+ * its replay reaches anyone else without a key who has the Idempotency-Key: they get the order id and payment page
+ * again, as before, but never the token. The 201 of a new attempt always carries it.
+ */
+export function replayAccessSecret(deps: Deps, client: RequestClient): string | undefined {
+  return client.key ? orderAccessSecret(deps) : undefined;
+}
+
+/**
  * The answer for an attempt that's settled (anything but `retry`): the same
  * order and session again (200, `Idempotent-Replayed: true`, with the order
- * access token made with `accessSecret`: a replay only ever reaches the
- * client that started the attempt, `other_client` being a 409), or an error.
- * Undefined for `retry` (go ahead).
+ * access token made with `accessSecret`, replayAccessSecret's: a replay to a
+ * client with a key only ever reaches the client that started the attempt,
+ * `other_client` being a 409), or an error. Undefined for `retry` (go ahead).
  */
 export function settledAttemptResponse(
   row: Omit<AttemptRow, "state"> & { state: string },
@@ -661,7 +671,7 @@ export async function runPaidCheckout(deps: Deps, checkout: PaidCheckout): Promi
           retry_after_seconds: begun.retry_after_seconds,
           order_status: begun.attempt_order_status,
         },
-        orderAccessSecret(deps),
+        replayAccessSecret(deps, checkout.client),
       );
       if (settled) return settled;
       throw new Error(`Unexpected begin_checkout_attempt result: ${begun.result}`);
