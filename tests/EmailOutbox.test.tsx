@@ -15,9 +15,11 @@ vi.mock("@/lib/api/client", async (importOriginal) => ({
 }));
 const adminListEmailJobs = vi.fn();
 const adminResendEmailJob = vi.fn();
+const adminChangeOrderEmail = vi.fn();
 vi.mock("@/lib/api/admin", () => ({
   adminListEmailJobs: (...args: unknown[]) => adminListEmailJobs(...args),
   adminResendEmailJob: (...args: unknown[]) => adminResendEmailJob(...args),
+  adminChangeOrderEmail: (...args: unknown[]) => adminChangeOrderEmail(...args),
 }));
 
 beforeEach(() => {
@@ -25,6 +27,7 @@ beforeEach(() => {
   fakeUrl.replace.mockReset();
   adminListEmailJobs.mockReset();
   adminResendEmailJob.mockReset();
+  adminChangeOrderEmail.mockReset();
 });
 afterEach(cleanup);
 
@@ -156,5 +159,119 @@ describe("EmailOutbox", () => {
     expect(screen.getByRole("heading", { name: "Order #9E3B4C2D: Neon Static" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Order #8D2A3B1C: Neon Static" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "Order #7C1F2E0A: Neon Static" })).toBeNull();
+  });
+});
+
+describe("EmailOutbox: find an order, change its email", () => {
+  it("finds an order's ticket email by its reference (any status), and Clear goes back to the list", async () => {
+    adminListEmailJobs.mockResolvedValueOnce({ items: [] }).mockResolvedValueOnce({ items: [job({ status: "sent", lastError: undefined })] });
+    renderOutbox();
+    await screen.findByText("Nothing has failed");
+    const search = screen.getByRole("search", { name: "Find an order" });
+    const input = within(search).getByLabelText("Find an order by reference");
+    fireEvent.change(input, { target: { value: "7c1f2e0" } });
+    fireEvent.click(within(search).getByRole("button", { name: "Find" }));
+    expect(within(search).getByRole("alert")).toHaveTextContent("Enter the 8-character reference, like #7C1F2E0A.");
+    expect(input).toHaveAttribute("aria-invalid", "true");
+    expect(adminListEmailJobs).toHaveBeenCalledTimes(1);
+
+    fireEvent.change(input, { target: { value: " 7c1f2e0a " } });
+    fireEvent.click(within(search).getByRole("button", { name: "Find" }));
+    expect(await screen.findByRole("heading", { name: "Ticket email for order #7C1F2E0A" })).toBeInTheDocument();
+    expect(adminListEmailJobs).toHaveBeenLastCalledWith("failed", expect.any(Function), undefined, "#7C1F2E0A");
+    expect(screen.getByRole("heading", { name: "Order #7C1F2E0A: Neon Static" })).toBeInTheDocument();
+    // No status filter is selected while one order is shown.
+    for (const filter of within(screen.getByRole("group", { name: "Show emails" })).getAllByRole("button")) {
+      expect(filter).toHaveAttribute("aria-pressed", "false");
+    }
+
+    adminListEmailJobs.mockResolvedValueOnce({ items: [] });
+    fireEvent.click(within(search).getByRole("button", { name: "Clear" }));
+    expect(await screen.findByRole("heading", { name: "Failed ticket emails" })).toBeInTheDocument();
+    expect(input).toHaveValue("");
+    expect(input).toHaveFocus();
+  });
+
+  it("changes a paid order's email with a reason, then shows the change and says so", async () => {
+    adminListEmailJobs.mockResolvedValue({ items: [job()] });
+    adminChangeOrderEmail.mockResolvedValue(
+      job({
+        status: "pending",
+        attempts: 0,
+        lastError: undefined,
+        maskedEmail: "j***@example.com",
+        emailChanges: [
+          { changedBy: "admin", reason: "Buyer called to fix a typo", oldMaskedEmail: "m***@example.com", newMaskedEmail: "j***@example.com", changedAt: "2026-11-17T01:00:00.000Z" },
+          { changedBy: "buyer", oldMaskedEmail: "m***@gmail.con", newMaskedEmail: "m***@example.com", changedAt: "2026-11-16T01:00:00.000Z" },
+        ],
+      }),
+    );
+    renderOutbox();
+    const item = (await screen.findByRole("heading", { name: "Order #7C1F2E0A: Neon Static" })).closest("article")!;
+    const open = within(item).getByRole("button", { name: "Change email" });
+    expect(open).toHaveClass("min-h-11");
+    fireEvent.click(open);
+    const form = within(item).getByRole("form", { name: "Change email for order #7C1F2E0A" });
+    const email = within(form).getByLabelText("New email");
+    await waitFor(() => expect(email).toHaveFocus());
+    const reason = within(form).getByLabelText("Reason");
+    expect(reason).toHaveAccessibleDescription("What the buyer confirmed. Leave email addresses out.");
+
+    // Both are needed.
+    fireEvent.click(within(form).getByRole("button", { name: "Change and send" }));
+    expect(within(form).getByText("Enter the new email address.")).toBeInTheDocument();
+    expect(email).toHaveFocus();
+    fireEvent.change(email, { target: { value: "jo@example.com" } });
+    fireEvent.change(reason, { target: { value: "x" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Change and send" }));
+    expect(within(form).getByRole("alert")).toHaveTextContent("Say why, in a few words.");
+    expect(reason).toHaveFocus();
+    expect(adminChangeOrderEmail).not.toHaveBeenCalled();
+
+    fireEvent.change(reason, { target: { value: "  Buyer called to fix a typo " } });
+    fireEvent.click(within(form).getByRole("button", { name: "Change and send" }));
+    await waitFor(() =>
+      expect(adminChangeOrderEmail).toHaveBeenCalledWith("7", { email: "jo@example.com", reason: "Buyer called to fix a typo" }, expect.any(Function)),
+    );
+    expect(await screen.findByText("Email changed for order #7C1F2E0A. The tickets are being sent to the new address.")).toBeInTheDocument();
+    const updated = screen.getByRole("heading", { name: "Order #7C1F2E0A: Neon Static" }).closest("article")!;
+    expect(within(updated).queryByRole("form")).toBeNull();
+    expect(within(updated).getByText("j***@example.com")).toBeInTheDocument();
+    expect(within(updated).getByText("Email changes")).toBeInTheDocument();
+    expect(within(updated).getByText("m***@example.com → j***@example.com")).toBeInTheDocument();
+    expect(within(updated).getByText("Reason: Buyer called to fix a typo")).toBeInTheDocument();
+    expect(within(updated).getByText(/^By the buyer,/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Order #7C1F2E0A: Neon Static" })).toHaveFocus());
+  });
+
+  it("puts the API's refusals on the fields, and a busy order as a notice", async () => {
+    adminListEmailJobs.mockResolvedValue({ items: [job()] });
+    adminChangeOrderEmail
+      .mockRejectedValueOnce(new ApiError(400, "Please fix the highlighted fields.", { reason: "Leave email addresses out of the reason." }))
+      .mockRejectedValueOnce(new ApiError(409, "Your tickets are being sent right now. Try again in a moment.", undefined, { code: "email_change_busy" }));
+    renderOutbox();
+    const item = (await screen.findByRole("heading", { name: "Order #7C1F2E0A: Neon Static" })).closest("article")!;
+    fireEvent.click(within(item).getByRole("button", { name: "Change email" }));
+    const form = within(item).getByRole("form");
+    fireEvent.change(within(form).getByLabelText("New email"), { target: { value: "jo@example.com" } });
+    fireEvent.change(within(form).getByLabelText("Reason"), { target: { value: "Asked by jo@example.com" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Change and send" }));
+    expect(await within(form).findByRole("alert")).toHaveTextContent("Leave email addresses out of the reason.");
+    await waitFor(() => expect(within(form).getByLabelText("Reason")).toHaveFocus());
+
+    fireEvent.change(within(form).getByLabelText("Reason"), { target: { value: "Asked by phone" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Change and send" }));
+    expect(await within(form).findByRole("alert")).toHaveTextContent("Your tickets are being sent right now. Try again in a moment.");
+
+    // Cancel: the form goes, focus back on Change email.
+    fireEvent.click(within(form).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(within(item).getByRole("button", { name: "Change email" })).toHaveFocus());
+  });
+
+  it("offers no change for an order that isn't paid", async () => {
+    adminListEmailJobs.mockResolvedValue({ items: [job({ orderStatus: "refunded" })] });
+    renderOutbox();
+    const item = (await screen.findByRole("heading", { name: "Order #7C1F2E0A: Neon Static" })).closest("article")!;
+    expect(within(item).queryByRole("button", { name: "Change email" })).toBeNull();
   });
 });
