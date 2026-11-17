@@ -1015,10 +1015,10 @@ test.describe("/dashboard/[eventId]: photo focus at 375px", () => {
 
     const preview = page.locator("[data-banner-preview] img");
     await expect(preview).toHaveCSS("object-fit", "cover");
-    const box = await page.locator("[data-banner-preview] > div").boundingBox();
+    const box = await page.locator("[data-banner-preview] > div").first().boundingBox();
     expect((box?.width ?? 0) / (box?.height ?? 1)).toBeCloseTo(2.5, 1);
     const phone = page.locator("[data-banner-phone-preview] img");
-    const phoneBox = await page.locator("[data-banner-phone-preview] > div").boundingBox();
+    const phoneBox = await page.locator("[data-banner-phone-preview] > div").first().boundingBox();
     expect((phoneBox?.width ?? 0) / (phoneBox?.height ?? 1)).toBeCloseTo(0.8, 1);
     // The home's scrim where the words sit, on both previews.
     for (const frame of ["[data-banner-preview]", "[data-banner-phone-preview]"]) {
