@@ -1,22 +1,37 @@
 "use client";
 
-import { useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { UsersIcon } from "@/components/checkout/icons";
+import { DETAILS_NOTICE } from "@/lib/buyer-details";
 import { suggestEmail } from "@/lib/email-typos";
 import { dismissKeyboardOnEnter } from "@/lib/use-soft-keyboard";
 
-/** The field's hint: where the tickets go, and why the account's address matters. */
+/** The field's hint for a guest: where the tickets go. */
+export const BUYER_EMAIL_GUEST_HINT = "Tickets are sent here.";
+
+/** The field's hint when signed in (the account's address filled in): where the tickets go, and why that address matters. */
 export const BUYER_EMAIL_HINT = "Tickets are sent here. Use your account email to join Who’s Going.";
+
+/** How long typing has to pause before the "Did you mean …?" is worked out. */
+export const EMAIL_HINT_DELAY_MS = 500;
+
+/** Typed far enough to judge the domain: something after the "@" with a dot in it. */
+const DOMAIN_WITH_DOT = /@[^@\s]*\.[^@\s]*$/;
 
 /**
  * "Email for your tickets": every checkout (paid and free, general admission
  * and seated) and the confirmation page's change of it. The server checks the
  * address (docs/architecture.md, "Buyer email checks"); this field only helps
  * get it right first time:
- * - once the buyer leaves the field, a domain that looks mistyped
- *   (lib/email-typos.ts suggestEmail) gets a "Did you mean …?" with Use this.
- *   It never blocks: they can check out with what they typed.
+ * - a domain that looks mistyped (lib/email-typos.ts suggestEmail) gets a
+ *   "Did you mean …?" with Use this, worked out once typing pauses
+ *   (EMAIL_HINT_DELAY_MS) with a dot after the "@". It's there before the
+ *   buyer reaches the button below, so nothing moves under a click, and Tab
+ *   from the field goes to Use this (Tab, and Enter, work it out at once). A
+ *   click elsewhere drops a pending hint rather than show it mid-click. It
+ *   never blocks: they can check out with what they typed.
  * - `suggestion`: the server's corrected address (a 400 `email_typo` /
- *   `email_no_mail`), shown the same way until the address changes.
+ *   `email_no_mail`), shown straight away, until the address changes.
  * The suggestion is in a polite live region, so it's read out when it
  * appears; Use this puts it in the field and focus back on the field. Errors
  * are `role="alert"` and describe the field.
@@ -24,7 +39,13 @@ export const BUYER_EMAIL_HINT = "Tickets are sent here. Use your account email t
  * `look`: `panel` is the event page's ticket panel (its 12px radius, mid-grey
  * edge); `plain` the seat page's and the confirmation page's default field.
  * `onSignOut`: signed in, with the account's address filled in: "Not you?
- * Sign out" (this browser only), so someone else's account isn't booked with.
+ * Sign out" (this browser only), so someone else's account isn't booked
+ * with; the hint then says the account's address joins Who's Going.
+ * `detailsNotice`: the checkout's "Your name and email are shared with the
+ * organiser" under the field (the name field above leaves it out then).
+ * `submitOnEnter`: the field is in a form whose submit Enter should press
+ * (the keyboard's key says "Send"); otherwise Enter only closes a phone's
+ * keyboard ("Done").
  */
 export default function BuyerEmailField({
   id,
@@ -35,38 +56,89 @@ export default function BuyerEmailField({
   inputRef,
   look = "plain",
   label = "Email for your tickets",
-  hint = BUYER_EMAIL_HINT,
+  hint,
   onSignOut,
+  detailsNotice = false,
+  submitOnEnter = false,
 }: {
   id: string;
   value: string;
   onChange: (value: string) => void;
-  error: string | null;
+  /** What's wrong, said as an alert (text, or text with a link). */
+  error: ReactNode;
   /** The server's corrected address, if it sent one; the parent clears it when the address changes. */
   suggestion?: string | null;
   /** The input, for the parent's focus moves (and Use this's). */
   inputRef: RefObject<HTMLInputElement | null>;
   look?: "panel" | "plain";
   label?: string;
+  /** Under the field; by default BUYER_EMAIL_HINT signed in, BUYER_EMAIL_GUEST_HINT otherwise. Null: none. */
   hint?: string | null;
   onSignOut?: () => void;
+  detailsNotice?: boolean;
+  submitOnEnter?: boolean;
 }) {
-  // The address as it was when the buyer last left the field: the typo hint is for that, not for every keystroke.
-  const [leftWith, setLeftWith] = useState<string | null>(null);
+  // The address the typo hint is for: set once typing pauses (or on Tab / Enter), never on every keystroke.
+  const [settled, setSettled] = useState<string | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typed = value.trim();
-  const hinted = leftWith !== null && leftWith === value ? suggestEmail(typed) : null;
+  const hinted = settled !== null && settled === value ? suggestEmail(typed) : null;
   const offer = suggestion ?? hinted;
   const shown = offer && offer.toLowerCase() !== typed.toLowerCase() ? offer : null;
+  const hintText = hint === undefined ? (onSignOut ? BUYER_EMAIL_HINT : BUYER_EMAIL_GUEST_HINT) : hint;
 
   const hintId = `${id}-hint`;
   const errorId = `${id}-error`;
   const suggestionId = `${id}-suggestion`;
-  const describedBy = [hint ? hintId : null, error ? errorId : null, shown ? suggestionId : null].filter(Boolean).join(" ");
+  const noticeId = `${id}-notice`;
+  const describedBy = [
+    hintText ? hintId : null,
+    error ? errorId : null,
+    shown ? suggestionId : null,
+    detailsNotice ? noticeId : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  function cancelPending() {
+    if (timer.current === null) return;
+    clearTimeout(timer.current);
+    timer.current = null;
+  }
+
+  useEffect(() => cancelPending, []);
+
+  function settleSoon(next: string) {
+    cancelPending();
+    if (!DOMAIN_WITH_DOT.test(next)) return;
+    timer.current = setTimeout(() => {
+      timer.current = null;
+      setSettled(next);
+    }, EMAIL_HINT_DELAY_MS);
+  }
+
+  /** Works the hint out now (leaving by Tab, or Enter): it's in place before focus moves on. */
+  function settleNow() {
+    cancelPending();
+    if (DOMAIN_WITH_DOT.test(value)) setSettled(value);
+  }
 
   function takeSuggestion(next: string) {
+    cancelPending();
     onChange(next);
-    setLeftWith(next);
+    setSettled(next);
     inputRef.current?.focus();
+  }
+
+  function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Tab") {
+      settleNow();
+      return;
+    }
+    if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+    settleNow();
+    // In a form, Enter submits it and focus stays here; otherwise it closes a phone's keyboard.
+    if (!submitOnEnter) dismissKeyboardOnEnter(event);
   }
 
   return (
@@ -85,11 +157,15 @@ export default function BuyerEmailField({
         spellCheck={false}
         autoCapitalize="none"
         value={value}
-        onChange={(event) => onChange(event.target.value)}
-        onBlur={() => setLeftWith(value)}
-        // The keyboard's own key says "Done" and closes the keyboard on a phone (there's no form to submit).
-        enterKeyHint="done"
-        onKeyDown={dismissKeyboardOnEnter}
+        onChange={(event) => {
+          onChange(event.target.value);
+          settleSoon(event.target.value);
+        }}
+        // Leaving by a click: a hint still pending would appear under the pointer mid-click, so it's dropped.
+        onBlur={cancelPending}
+        // The keyboard's own key: "Send" in a form (Enter submits it), else "Done" (it closes the keyboard on a phone).
+        enterKeyHint={submitOnEnter ? "send" : "done"}
+        onKeyDown={onKeyDown}
         aria-invalid={error ? true : undefined}
         aria-describedby={describedBy || undefined}
         // 16px text so iOS doesn't zoom on focus, and a 48px target; the panel's look matches its name field.
@@ -99,9 +175,9 @@ export default function BuyerEmailField({
             : "min-h-12 px-3 py-2 text-base"
         }
       />
-      {hint && (
+      {hintText && (
         <p id={hintId} className="text-sm text-muted">
-          {hint}
+          {hintText}
         </p>
       )}
       {error && (
@@ -114,7 +190,7 @@ export default function BuyerEmailField({
         {shown && (
           <>
             <p id={suggestionId} className="min-w-0 text-sm text-foreground">
-              Did you mean <span className="font-semibold break-all">{shown}</span>?
+              Did you mean <span className="font-semibold wrap-anywhere">{shown}</span>?
             </p>
             <button
               type="button"
@@ -135,6 +211,12 @@ export default function BuyerEmailField({
         >
           Not you? Sign out
         </button>
+      )}
+      {detailsNotice && (
+        <p id={noticeId} className={look === "panel" ? "mt-2 flex items-start gap-2 text-sm text-muted" : "text-xs text-muted"}>
+          {look === "panel" && <UsersIcon className="mt-0.5 size-4 shrink-0" />}
+          <span>{DETAILS_NOTICE}</span>
+        </p>
       )}
     </div>
   );

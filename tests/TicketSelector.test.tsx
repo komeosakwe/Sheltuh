@@ -95,9 +95,9 @@ describe("TicketSelector (live)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Free tickets" }));
     expect(screen.getByRole("alert")).toHaveTextContent("Enter the email address to send your tickets to.");
     expect(email).toHaveAttribute("aria-invalid", "true");
-    // Both the hint and the error describe the field.
+    // The hint (a guest's: nothing about an account), the error and the details notice describe the field.
     expect(email).toHaveAccessibleDescription(
-      "Tickets are sent here. Use your account email to join Who’s Going. Enter the email address to send your tickets to.",
+      "Tickets are sent here. Enter the email address to send your tickets to. Your name and email are shared with the organiser of this event.",
     );
     expect(createCheckoutSession).not.toHaveBeenCalled();
   });
@@ -169,7 +169,7 @@ describe("TicketSelector (live, signed in)", () => {
     const email = screen.getByLabelText("Email for your tickets");
     expect(email).toHaveValue("mia@example.com");
     expect(email).toHaveAccessibleDescription(
-      "Tickets are sent here. Use your account email to join Who’s Going.",
+      "Tickets are sent here. Use your account email to join Who’s Going. Your name and email are shared with the organiser of this event.",
     );
     typeName();
     fireEvent.click(screen.getByRole("button", { name: "Free tickets" }));
@@ -481,14 +481,15 @@ describe("TicketSelector (the ticket email's checks)", () => {
     expect(createCheckoutSession).toHaveBeenLastCalledWith(expect.any(String), expect.any(Array), "fan@gmail.com", undefined, undefined, undefined, "Alex Doe");
   });
 
-  it("a hint for a likely typo shows when the buyer leaves the field, and never stops Checkout", () => {
+  it("a hint for a likely typo shows once typing pauses (no need to leave the field), and never stops Checkout", async () => {
     createCheckoutSession.mockReturnValue(new Promise(() => {}));
     render(<TicketSelector event={live("neon-static")} />);
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
     const email = screen.getByLabelText("Email for your tickets");
+    email.focus();
     fireEvent.change(email, { target: { value: "fan@hotmial.com" } });
-    fireEvent.blur(email);
-    expect(screen.getByText(/Did you mean/)).toHaveTextContent("Did you mean fan@hotmail.com?");
+    expect(await screen.findByText(/Did you mean/)).toHaveTextContent("Did you mean fan@hotmail.com?");
+    expect(email).toHaveFocus();
     typeName();
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
     expect(createCheckoutSession).toHaveBeenCalledWith(expect.any(String), expect.any(Array), "fan@hotmial.com", undefined, undefined, undefined, "Alex Doe");
@@ -677,7 +678,7 @@ describe("TicketSelector checkout focus and errors (WCAG 2.2)", () => {
     book.focus();
     fireEvent.click(book);
     await waitFor(() => expect(email).toHaveFocus());
-    expect(email).toHaveAccessibleDescription(/Enter the email address to send your tickets to\.$/);
+    expect(email).toHaveAccessibleDescription(/Enter the email address to send your tickets to\./);
     // The same error again still brings focus back.
     book.focus();
     fireEvent.click(book);
@@ -1137,7 +1138,7 @@ describe("TicketSelector (buyer name)", () => {
     return screen.getByLabelText("Your name");
   }
 
-  it("asks for a name on a paid and a free order, with the notice as its hint", () => {
+  it("asks for a name on a paid and a free order; the notice comes after the email, describing it", () => {
     for (const [slug, ticket] of [
       ["neon-static", "General admission"],
       ["brunswick-zine-fair", "Free entry"],
@@ -1147,7 +1148,13 @@ describe("TicketSelector (buyer name)", () => {
       expect(name).toBeRequired();
       expect(name).toHaveClass("min-h-12", "text-base");
       expect(name).toHaveValue("");
-      expect(name).toHaveAccessibleDescription("Your name and email are shared with the organiser of this event.");
+      // Said once, after both fields it's about.
+      expect(name).toHaveAccessibleDescription("");
+      const email = screen.getByLabelText("Email for your tickets");
+      expect(email).toHaveAccessibleDescription(/Your name and email are shared with the organiser of this event\.$/);
+      expect(screen.getAllByText("Your name and email are shared with the organiser of this event.")).toHaveLength(1);
+      const notice = screen.getByText("Your name and email are shared with the organiser of this event.");
+      expect(email.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       cleanup();
     }
   });

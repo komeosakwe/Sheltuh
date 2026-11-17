@@ -870,6 +870,7 @@ export default function SeatPicker({
             }}
             error={nameError}
             inputRef={nameRef}
+            notice={!needsEmail}
           />
         )}
 
@@ -886,6 +887,7 @@ export default function SeatPicker({
             suggestion={emailSuggestion}
             inputRef={emailRef}
             onSignOut={auth?.status === "signed-in" ? signOutHere : undefined}
+            detailsNotice
           />
         )}
 

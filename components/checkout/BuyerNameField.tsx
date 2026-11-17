@@ -11,6 +11,9 @@ import { dismissKeyboardOnEnter } from "@/lib/use-soft-keyboard";
  * `placeholderLabel`: the event page's ticket panel look: the field says "Your name" as its
  * placeholder, and the label is for screen readers only (a placeholder is never the only name:
  * the label stays), with a people icon at the notice.
+ *
+ * `notice` false: the email field below shows the notice instead (BuyerEmailField `detailsNotice`),
+ * so it reads once, after both fields it's about.
  */
 export default function BuyerNameField({
   id,
@@ -19,6 +22,7 @@ export default function BuyerNameField({
   error,
   inputRef,
   placeholderLabel = false,
+  notice = true,
 }: {
   id: string;
   value: string;
@@ -26,7 +30,11 @@ export default function BuyerNameField({
   error: string | null;
   inputRef?: Ref<HTMLInputElement>;
   placeholderLabel?: boolean;
+  notice?: boolean;
 }) {
+  const hintId = `${id}-hint`;
+  const errorId = `${id}-error`;
+  const describedBy = [notice ? hintId : null, error ? errorId : null].filter(Boolean).join(" ");
   return (
     <div className="flex flex-col gap-1">
       <label htmlFor={id} className={placeholderLabel ? "sr-only" : "eyebrow text-muted"}>
@@ -47,7 +55,7 @@ export default function BuyerNameField({
         onKeyDown={dismissKeyboardOnEnter}
         placeholder={placeholderLabel ? "Your name" : undefined}
         aria-invalid={error ? true : undefined}
-        aria-describedby={error ? `${id}-hint ${id}-error` : `${id}-hint`}
+        aria-describedby={describedBy || undefined}
         // 16px text so iOS doesn't zoom on focus, and a 48px target. The panel's look: a 12px
         // radius and a mid-grey 1px border (5:1, so the field's edge is still clear); the invalid
         // border is set here too, since a utility border would otherwise beat the base rule's.
@@ -57,12 +65,14 @@ export default function BuyerNameField({
             : "min-h-12 px-3 py-2 text-base"
         }
       />
-      <p id={`${id}-hint`} className={placeholderLabel ? "mt-2 flex items-start gap-2 text-sm text-muted" : "text-xs text-muted"}>
-        {placeholderLabel && <UsersIcon className="mt-0.5 size-4 shrink-0" />}
-        <span>{DETAILS_NOTICE}</span>
-      </p>
+      {notice && (
+        <p id={hintId} className={placeholderLabel ? "mt-2 flex items-start gap-2 text-sm text-muted" : "text-xs text-muted"}>
+          {placeholderLabel && <UsersIcon className="mt-0.5 size-4 shrink-0" />}
+          <span>{DETAILS_NOTICE}</span>
+        </p>
+      )}
       {error && (
-        <p id={`${id}-error`} role="alert" className="text-sm text-danger">
+        <p id={errorId} role="alert" className="text-sm text-danger">
           {error}
         </p>
       )}

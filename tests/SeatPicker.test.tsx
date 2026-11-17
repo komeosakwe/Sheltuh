@@ -281,7 +281,11 @@ describe("seat page: checkout (§5.11)", () => {
     const name = screen.getByLabelText("Your name");
     expect(name).toBeRequired();
     expect(name).toHaveAttribute("autocomplete", "name");
-    expect(name).toHaveAccessibleDescription("Your name and email are shared with the organiser of this event.");
+    // The notice is said once, after the email field (both fields it's about).
+    expect(name).toHaveAccessibleDescription("");
+    expect(screen.getByLabelText("Email for your tickets")).toHaveAccessibleDescription(
+      "Tickets are sent here. Your name and email are shared with the organiser of this event.",
+    );
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
     expect(createSeatedCheckout).not.toHaveBeenCalled();
     expect(screen.getByRole("alert")).toHaveTextContent("Enter your name.");

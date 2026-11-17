@@ -831,6 +831,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                     error={nameError}
                     inputRef={nameInputRef}
                     placeholderLabel
+                    notice={!needsEmail}
                   />
                 </div>
                 {needsEmail && (
@@ -848,6 +849,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                       inputRef={emailInputRef}
                       look="panel"
                       onSignOut={auth?.status === "signed-in" ? signOutHere : undefined}
+                      detailsNotice
                     />
                   </div>
                 )}
