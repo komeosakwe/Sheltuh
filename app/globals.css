@@ -708,15 +708,15 @@ h4 {
   }
 }
 /* banner-scrim (Round 2 Part 2): the featured banner's shade around its words, on the box that wraps
-   them (FeaturedCarousel [data-slide-scrim]). Clear at its top, 60% ink 4rem down (its top padding,
-   where the words start), 80% at the bottom. White text on 60% ink over a pure-white pixel is 5.7:1,
+   them (FeaturedCarousel [data-slide-scrim]). Clear at its top, 60% ink 6rem down (its top padding,
+   pt-24, where the words start), 80% at the bottom. White text on 60% ink over a pure-white pixel is 5.7:1,
    so every line holds 4.5:1 on any photo, at any title length or text size. Ink is the constant
    black in both themes. */
 @utility banner-scrim {
   background-image: linear-gradient(
     to top,
     color-mix(in srgb, var(--ink) 80%, transparent) 0%,
-    color-mix(in srgb, var(--ink) 60%, transparent) calc(100% - 4rem),
+    color-mix(in srgb, var(--ink) 60%, transparent) calc(100% - 6rem),
     transparent 100%
   );
 }

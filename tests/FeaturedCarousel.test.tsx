@@ -330,11 +330,11 @@ describe("FeaturedCarousel", () => {
     const content = slide.querySelector("[data-slide-content]") as HTMLElement;
     expect(content).not.toHaveAttribute("data-surface");
     expect(content.className).not.toMatch(/bg-/);
-    // No top padding of its own: the scrim's 4rem fade is above the words.
+    // No top padding of its own: the scrim's 6rem fade is above the words.
     expect(content).toHaveClass("px-6", "pb-22", "sm:pb-6", "md:px-8", "md:pb-8", "lg:px-12", "lg:pb-12", "md:max-w-md", "lg:max-w-xl", "xl:max-w-2xl");
     expect(content.className).not.toMatch(/(?:^|\s)(?:\w+:)?(?:p|pt|py)-/);
     const scrim = slide.querySelector("[data-slide-scrim]") as HTMLElement;
-    expect(scrim).toHaveClass("banner-scrim", "rounded-b-card", "pt-16");
+    expect(scrim).toHaveClass("banner-scrim", "rounded-b-card", "pt-24");
     // Full width: no max width of its own (the words' box has that).
     expect(scrim.className).not.toMatch(/max-w-/);
     expect(scrim.firstElementChild).toBe(content);
@@ -368,6 +368,8 @@ describe("FeaturedCarousel", () => {
     const wholeImg = whole.querySelector("img") as HTMLImageElement;
     expect(wholeImg).toHaveClass("object-contain");
     expect(wholeImg.className).not.toMatch(/object-\[/);
+    // On a phone's 4:5 slide the whole photo sits at the top, clear of the words; centred from 640px.
+    expect(wholeImg).toHaveClass("max-sm:object-top");
     expect(whole.querySelector("[data-art-backdrop]")).not.toBeNull();
     const focusImg = wholeFocus.querySelector("img") as HTMLImageElement;
     expect(focusImg).toHaveClass("object-contain");

@@ -37,12 +37,15 @@ const ROTATION =
  */
 const FOCUS_DEFAULTS = "object-[50%_50%] sm:object-[50%_40%] lg:object-[50%_35%]";
 
+/** The whole photo (bannerFit "whole"): at the top of a phone's tall 4:5 slide, clear of the words below it; centred from 640px. */
+export const WHOLE_PHOTO_POSITION = "max-sm:object-top";
+
 /**
  * The home's featured banner (the proposal's full-width banner, redesign PR 3; Round 2 §1.1): one
  * event at a time, its photo full bleed (4:5 below 640px, 2:1 to 1023px, 5:2 from 1024px; or, when the
  * event's banner fit is "whole", the whole photo centred on its blurred backdrop), with no
  * box: a soft shade from 35% of the way down, and a black scrim around the words (banner-scrim: clear
- * at its top, 60% ink 4rem down, where the words start, 80% at the bottom), so every line of them is
+ * at its top, 60% ink 6rem down, where the words start, 80% at the bottom), so every line of them is
  * on at least 60% ink whatever the photo, the title's length or the text size, and the photo above
  * them stays light (Round 2: §1.1's one gradient, clear to 35%, failed WCAG 1.4.3 on bright photos;
  * the owner's "60% opacity" note). The words: the category (no "Featured"
@@ -294,12 +297,13 @@ export default function FeaturedCarousel({
             >
               <div className="absolute inset-0 -z-10 overflow-hidden rounded-card">
                 {/* "Show the whole photo" (bannerFit "whole"): the photo contained on its blurred backdrop, so
-                    no focal defaults; otherwise cropped to fill, a portrait poster aside. */}
+                    no focal defaults, and at the top on a phone's 4:5 slide (not centred under the words);
+                    otherwise cropped to fill, a portrait poster aside. */}
                 <EventArt
                   poster={event.poster}
                   imageUrl={event.imageUrl}
                   imageFocus={event.imageFocus}
-                  imgClassName={event.bannerFit === "whole" || event.imageFocus ? undefined : FOCUS_DEFAULTS}
+                  imgClassName={event.bannerFit === "whole" ? WHOLE_PHOTO_POSITION : event.imageFocus ? undefined : FOCUS_DEFAULTS}
                   title={event.title}
                   fit={event.bannerFit === "whole" ? "contain" : "poster"}
                   priority={i === 0}
@@ -316,10 +320,10 @@ export default function FeaturedCarousel({
               {/* The scrim around the words (WCAG 1.4.3: 4.5:1 for the category and facts, 3:1 for the title,
                   checked by e2e/banner-contrast.demo.spec.ts against the brightest pixel behind each line on
                   every demo slide, one- and two-line titles, 320 to 1440px). Full width, in the flow, so it
-                  grows with the words (a long title, 200% text); its 4rem top padding is the fade, so the
+                  grows with the words (a long title, 200% text); its 6rem top padding is the fade, so the
                   words start where it reaches 60% ink. Like the words, not positioned, so the title's
                   stretched link covers the whole slide. */}
-              <div data-slide-scrim="" className="banner-scrim rounded-b-card pt-16">
+              <div data-slide-scrim="" className="banner-scrim rounded-b-card pt-24">
                 {/* Below 640px the bottom padding clears the controls (24 + 48 + 16), which would overlap the
                     ticket action; from 640px the slide is wide enough for the action to sit beside them,
                     bottoms aligned. No top padding: the scrim's is above. */}
@@ -337,7 +341,7 @@ export default function FeaturedCarousel({
                       {event.title}
                     </Link>
                   </h3>
-                  <p data-slide-facts="" className="body-m mt-3 tabular-nums">
+                  <p data-slide-facts="" className="body-m mt-3 font-normal tabular-nums">
                     {slideFacts(event, now)}
                   </p>
                   {cta && (

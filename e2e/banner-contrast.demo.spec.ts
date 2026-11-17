@@ -7,8 +7,8 @@ import { sampleEvents } from "@/lib/sample-events";
  * the file name ends demo.spec.ts), with every demo slide at every width from 320 to 1440px.
  *
  * The words sit on a scrim (FeaturedCarousel [data-slide-scrim], globals.css banner-scrim): clear at
- * its top and 60% ink 4rem down, where the words start. So:
- * (a) geometry: the category's top (the first line) is at least 4rem below the scrim's top;
+ * its top and 60% ink 6rem down, where the words start. So:
+ * (a) geometry: the category's top (the first line) is at least 6rem below the scrim's top;
  * (b) pixels: with the words, the ticket action and the controls hidden (the scrim and the photo
  *     stay), each slide is screenshotted and the brightest pixel behind each line of text is found.
  *     The words are white, so each line's contrast is against that pixel: at least 4.5:1 for the
@@ -21,7 +21,7 @@ import { sampleEvents } from "@/lib/sample-events";
 const SAMPLES_UPCOMING_AT = Math.min(...sampleEvents.map((e) => Date.parse(e.startsAt))) - 3600_000;
 
 const WIDTHS = [320, 390, 640, 768, 1024, 1200, 1280, 1440] as const;
-const FADE_PX = 64; // 4rem at the default 16px root size
+const FADE_PX = 96; // 6rem at the default 16px root size
 const LONG_TITLE = "A much longer event title that has to wrap onto a second line";
 
 type Kind = "category" | "title" | "facts";
@@ -176,7 +176,7 @@ for (const width of WIDTHS) {
           if (long) expect(measured.titleLines, `${name}: the forced title wraps`).toBe(2);
           // (a) The words start where the scrim has reached 60% ink.
           leastFade = Math.min(leastFade, measured.fadeAbove);
-          expect(measured.fadeAbove, `${name}: the category is 4rem below the scrim's top`).toBeGreaterThanOrEqual(FADE_PX - 0.5);
+          expect(measured.fadeAbove, `${name}: the category is 6rem below the scrim's top`).toBeGreaterThanOrEqual(FADE_PX - 0.5);
 
           // (b) Each line against the brightest pixel behind it.
           const image = await backdrop(page, slide);
