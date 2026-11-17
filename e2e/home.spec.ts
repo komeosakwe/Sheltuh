@@ -428,8 +428,9 @@ for (const { width, height, focus } of [
   });
 }
 
-// Round 2 Part 2: "Show the whole photo in the home banner" (bannerFit "whole"): the banner shows the whole photo,
-// centred on its blurred backdrop, with no focal default; the event's card still crops it to fill.
+// Round 2 Part 2: "Show the whole photo in the home banner" (bannerFit "whole"): the banner shows the whole photo
+// on its blurred backdrop (at the top of a phone's 4:5 slide, centred from 640px), with no focal default; the
+// event's card still crops it to fill.
 for (const { width, height } of [
   { width: 1440, height: 900 },
   { width: 390, height: 844 },
@@ -448,7 +449,7 @@ for (const { width, height } of [
         return { fit: style.objectFit, position: style.objectPosition, className: el.className };
       });
       expect(banner.fit).toBe("contain");
-      expect(banner.position).toBe("50% 50%");
+      expect(banner.position).toBe(width < 640 ? "50% 0%" : "50% 50%");
       expect(banner.className).not.toMatch(/object-\[/);
       await expect(slide.locator("[data-art-backdrop]")).toHaveCount(1);
       // The words keep their scrim, and nothing scrolls sideways.
