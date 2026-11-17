@@ -7,7 +7,7 @@ import { Button, buttonClass } from "@/components/ui/Button";
 import { fetchPrivateEventImage } from "@/lib/api/events";
 import type { GetToken } from "@/lib/api/client";
 import { ImageError, prepareEventImage } from "@/lib/image";
-import type { EventPoster, ImageFocus } from "@/lib/types";
+import type { BannerFit, EventPoster, ImageFocus } from "@/lib/types";
 
 interface Props {
   getToken: GetToken;
@@ -22,6 +22,9 @@ interface Props {
   /** Where the photo's subject is (null: the middle). Saved with the photo. */
   focus: ImageFocus | null;
   onFocusChange: (focus: ImageFocus | null) => void;
+  /** How the home page's featured banner shows the photo: cropped to fill (`crop`) or whole. Saved with the photo. */
+  bannerFit: BannerFit;
+  onBannerFitChange: (fit: BannerFit) => void;
   error?: string;
   /** The generated artwork the event shows until it has a photo (the same the public card shows). */
   poster: EventPoster;
@@ -44,6 +47,8 @@ export default function EventImageField({
   onRemovedChange,
   focus,
   onFocusChange,
+  bannerFit,
+  onBannerFitChange,
   error,
   poster,
   title,
@@ -194,6 +199,47 @@ export default function EventImageField({
           poster={poster}
           title={title.trim() || "Untitled event"}
         />
+      )}
+      {hasImage && (
+        <div data-banner-fit="" className="flex flex-col gap-3 border-t border-surface-border pt-4">
+          <p className="eyebrow text-muted">Home banner</p>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+            <div className="flex flex-col gap-1">
+              <label className="flex min-h-11 items-start gap-3 text-sm text-foreground">
+                <input
+                  id="event-banner-fit"
+                  type="checkbox"
+                  checked={bannerFit === "whole"}
+                  onChange={(e) => onBannerFitChange(e.target.checked ? "whole" : "crop")}
+                  aria-describedby="event-banner-fit-hint"
+                  className="mt-0.5 size-4 shrink-0"
+                />
+                Show the whole photo in the home banner
+              </label>
+              <p id="event-banner-fit-hint" className="max-w-sm text-xs text-muted">
+                For when the event is in the banner at the top of the home page. Otherwise the photo is cropped to fill it, keeping the focus in view.
+              </p>
+            </div>
+            {/* The banner as it shows from 1024px (5:2): whole on the photo's blurred backdrop, or cropped as the
+                banner crops it (FeaturedCarousel's wide focal default when there's no focus). */}
+            {shown && (
+              <div className="flex w-full flex-col gap-1 sm:w-64">
+                <div data-surface="ink" data-banner-preview="" className="overflow-hidden rounded-control">
+                  <EventArt
+                    poster={poster}
+                    imageUrl={shown}
+                    imageFocus={focus}
+                    imgClassName={bannerFit === "whole" || focus ? undefined : "object-[50%_35%]"}
+                    title={title.trim() || "Untitled event"}
+                    fit={bannerFit === "whole" ? "contain" : "poster"}
+                    className="aspect-[5/2] w-full"
+                  />
+                </div>
+                <span className="text-xs text-muted">Banner</span>
+              </div>
+            )}
+          </div>
+        </div>
       )}
       {(pickError || error) && (
         <p id="event-image-error" className="text-sm text-danger">

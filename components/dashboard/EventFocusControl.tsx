@@ -103,7 +103,7 @@ export default function EventFocusControl({
             <span className="text-xs text-muted">Pin</span>
           </div>
           <div className="flex flex-col gap-1">
-            <EventArt poster={poster} imageUrl={imageUrl} imageFocus={focus} title={title} className="aspect-[4/3] w-32 rounded-control" />
+            <EventArt poster={poster} imageUrl={imageUrl} imageFocus={focus} title={title} className="aspect-[2/1] w-32 rounded-control" />
             <span className="text-xs text-muted">Card</span>
           </div>
         </div>

@@ -76,7 +76,7 @@ import { fieldClass } from "@/components/ui/Field";
 import {
   adminCreateEvent,
   adminDeleteEventImage,
-  adminSetEventImageFocus,
+  adminSetEventImageDisplay,
   adminUpdateEvent,
   adminUploadEventImage,
 } from "@/lib/api/admin";
@@ -95,13 +95,21 @@ import {
   isRefundPolicyTightenedError,
   publishConflictCode,
   publishEvent,
-  setEventImageFocus,
+  setEventImageDisplay,
   updateEventDraft,
   uploadEventImage,
   type EventInput,
 } from "@/lib/api/events";
 import { isPlacesUnavailableError } from "@/lib/api/places";
-import type { AdminEventRecord, EventRecord, ImageFocus, PublishEventConflictCode, TicketTypeInput } from "@/lib/api/types";
+import type {
+  AdminEventRecord,
+  BannerFit,
+  EventRecord,
+  ImageDisplayInput,
+  ImageFocus,
+  PublishEventConflictCode,
+  TicketTypeInput,
+} from "@/lib/api/types";
 import { SessionExpiredError } from "@/lib/auth/AuthContext";
 import { useAccountOwner } from "@/lib/auth/useAccountOwner";
 import { eventClipsEnabled } from "@/lib/clips-flag";
@@ -374,6 +382,9 @@ export default function EventEditor(props: Props) {
   // Where the photo's subject is (null: the middle), and whether it's changed since the last save.
   const [imageFocus, setImageFocus] = useState<ImageFocus | null>(initial?.imageFocus ?? null);
   const [focusChanged, setFocusChanged] = useState(false);
+  // How the home banner shows the photo (crop to fill, or whole), and whether it's changed since the last save.
+  const [bannerFit, setBannerFit] = useState<BannerFit>(initial?.bannerFit ?? "crop");
+  const [fitChanged, setFitChanged] = useState(false);
   // Set once the draft exists, so a retry after a failed photo upload updates
   // it instead of creating a duplicate.
   const [createdId, setCreatedId] = useState<string | null>(null);
@@ -691,33 +702,52 @@ export default function EventEditor(props: Props) {
    * Applies a pending photo change to a saved event through `upload` or
    * `remove` (the organiser's routes or the admin's, which answer with the
    * same kind of record they're given); returns the latest record. A new
-   * photo goes up with its focus point; a moved focus on the saved photo is
-   * `moveFocus`.
+   * photo goes up with its focus point; then a changed focus (on the saved
+   * photo) and/or banner fit go in one `display` request. When that second
+   * request fails after an upload, `kept` gets the uploaded record (the photo
+   * is saved; the fit stays pending, sent again on the next save).
    */
   async function syncImage<R extends EventRecord>(
     record: R,
     upload: (eventId: string, image: Blob, getToken: GetToken, focus?: ImageFocus | null) => Promise<R>,
     remove: (eventId: string, getToken: GetToken) => Promise<R>,
-    moveFocus: (eventId: string, focus: ImageFocus | null, getToken: GetToken) => Promise<R>,
+    display: (eventId: string, change: ImageDisplayInput, getToken: GetToken) => Promise<R>,
+    kept: (record: R) => void,
   ): Promise<R> {
+    let latest = record;
+    let uploaded = false;
     if (imageFile) {
-      const updated = await upload(record.eventId, imageFile, saveToken, imageFocus);
+      latest = await upload(record.eventId, imageFile, saveToken, imageFocus);
+      uploaded = true;
       setImageFile(null);
       setFocusChanged(false);
-      return updated;
-    }
-    if (imageRemoved && record.imageUrl) {
+    } else if (imageRemoved && record.imageUrl) {
+      // The fit goes with the photo.
       const updated = await remove(record.eventId, saveToken);
       setImageRemoved(false);
       setFocusChanged(false);
+      setBannerFit("crop");
+      setFitChanged(false);
       return updated;
     }
-    if (focusChanged && record.imageUrl && !imageRemoved) {
-      const updated = await moveFocus(record.eventId, imageFocus, saveToken);
+    if (!latest.imageUrl || imageRemoved) return latest;
+    const change: ImageDisplayInput = {};
+    if (focusChanged && !uploaded) change.focus = imageFocus;
+    // A replaced photo keeps its fit, so after an upload only a fit that differs is sent.
+    if (fitChanged && (latest.bannerFit ?? "crop") !== bannerFit) change.bannerFit = bannerFit;
+    if (change.focus === undefined && change.bannerFit === undefined) {
+      if (fitChanged) setFitChanged(false);
+      return latest;
+    }
+    try {
+      const updated = await display(latest.eventId, change, saveToken);
       setFocusChanged(false);
+      setFitChanged(false);
       return updated;
+    } catch (err) {
+      if (uploaded) kept(latest);
+      throw err;
     }
-    return record;
   }
 
   function changeFocus(focus: ImageFocus | null) {
@@ -725,21 +755,33 @@ export default function EventEditor(props: Props) {
     setFocusChanged(true);
   }
 
-  /** Discarding a new pick brings back the saved photo, and with it its saved focus. */
+  function changeBannerFit(fit: BannerFit) {
+    setBannerFit(fit);
+    setFitChanged(true);
+  }
+
+  /** Discarding a new pick brings back the saved photo, and with it its saved focus and fit. */
   function changePending(image: Blob | null) {
     setImageFile(image);
     if (image === null) {
       setImageFocus(savedRecord?.imageFocus ?? null);
       setFocusChanged(false);
+      setBannerFit(savedRecord?.bannerFit ?? "crop");
+      setFitChanged(false);
     }
   }
 
-  /** Removing the saved photo drops its focus with it. */
+  /** Removing the saved photo drops its focus and fit with it. */
   function changeRemoved(removedNow: boolean) {
     setImageRemoved(removedNow);
     if (removedNow) {
       setImageFocus(null);
       setFocusChanged(false);
+      setBannerFit("crop");
+      setFitChanged(false);
+    } else if (imageRemoved) {
+      // A new pick after removing: it replaces the saved photo, which keeps its fit.
+      setBannerFit(savedRecord?.bannerFit ?? "crop");
     }
   }
 
@@ -789,7 +831,10 @@ export default function EventEditor(props: Props) {
         const note = reason.trim();
         let record = await adminSave(input);
         setPublish(false);
-        record = await syncImage(record, adminUploadEventImage, adminDeleteEventImage, (id, focus, token) => adminSetEventImageFocus(id, focus, token));
+        record = await syncImage(record, adminUploadEventImage, adminDeleteEventImage, (id, change, token) => adminSetEventImageDisplay(id, change, token), (kept) => {
+          setVersion(kept.updatedAt);
+          setSavedRecord(kept);
+        });
         // A photo change bumps the event's version too: the next save is made against it.
         setVersion(record.updatedAt);
         // So does a clip change: the admin routes answer with the event, whose version is the next.
@@ -821,7 +866,7 @@ export default function EventEditor(props: Props) {
           setCreatedId(record.eventId);
           track("organiser_event_created", {});
         }
-        record = await syncImage(record, uploadEventImage, deleteEventImage, (id, focus, token) => setEventImageFocus(id, focus, token));
+        record = await syncImage(record, uploadEventImage, deleteEventImage, (id, change, token) => setEventImageDisplay(id, change, token), setSavedRecord);
         const onSaved = props.onSaved;
         record = await syncClip(record, ORGANISER_CLIP_ROUTES, (kept) => {
           if (initial) onSaved(kept);
@@ -952,7 +997,7 @@ export default function EventEditor(props: Props) {
     }
     try {
       const saved = await updateEventDraft(initial.eventId, input, saveToken);
-      const withImage = await syncImage(saved, uploadEventImage, deleteEventImage, (id, focus, token) => setEventImageFocus(id, focus, token));
+      const withImage = await syncImage(saved, uploadEventImage, deleteEventImage, (id, change, token) => setEventImageDisplay(id, change, token), setSavedRecord);
       // Waits for a clip upload a save already started, and never publishes without the clip.
       setSavedRecord(await syncClip(withImage, ORGANISER_CLIP_ROUTES, props.onSaved));
       const record: PublishedEvent = await publishEvent(initial.eventId, saveToken);
@@ -1439,6 +1484,8 @@ export default function EventEditor(props: Props) {
               onRemovedChange={changeRemoved}
               focus={imageFocus}
               onFocusChange={changeFocus}
+              bannerFit={bannerFit}
+              onBannerFitChange={changeBannerFit}
               error={errors.image}
               poster={poster}
               title={title}
