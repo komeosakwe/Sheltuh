@@ -507,17 +507,21 @@ order's reference, then "Change email", with a reason), never in SQL: an
 `update orders set buyer_email = …` would leave no record and wouldn't send
 the tickets again.
 
-Before changing it, check that the person asking paid for the order: they
-give you the order's reference, and the payment's date, amount and card's
-last 4 digits (from their bank statement or card app), and you match all
-three against the order's payment in the Stripe dashboard (Payments,
-filtered to that date and amount; the payment's metadata `orderId` must
-start with `ord_` and the reference in lower case). Don't read any of them
-out to them first, and don't change the address on a reference alone:
-the old address's holder has the reference too (it's in the ticket email).
-Keep email addresses out of the reason (the API refuses one with an
-address in it): say what you checked, e.g. "Matched date, amount and card
-last 4 by phone". After a support change the buyer can't change the address
+Before changing it, check that the person asking paid for the order. The
+holder of the mistyped address has our ticket email (the reference, the
+amount and the date), and, if Stripe's customer receipts are on, Stripe's
+receipt too (the card's brand and last 4). So ask for something neither
+email contains as well: the card's expiry month and year. They give you the
+reference, the payment's date, amount and card's last 4, and the expiry;
+you match all of them against the order's payment in the Stripe dashboard
+(Payments, filtered to that date and amount; the payment's metadata
+`orderId` must start with `ord_` and the reference in lower case; the
+expiry is in the payment's card details). Don't read any of them out to
+them first, and don't change the address on a reference alone. This
+assumes Stripe's "Successful payments" customer emails are off (Settings →
+Customer emails; the owner to confirm before launch). Keep email addresses
+out of the reason (the API refuses one with an address in it): say what
+you checked, e.g. "Matched date, amount, last 4 and expiry by phone". After a support change the buyer can't change the address
 themselves any more, and their confirmation page no longer shows it; any
 further change is support's.
 

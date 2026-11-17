@@ -1597,15 +1597,20 @@ checkout email, paid or free, general admission or seated, and every new
 address of a change, in order:
 1. the format (`isPlainEmailAddress`): 400 `fieldErrors.buyerEmail` (a
    change: `fieldErrors.email`);
-2. a domain on the hand-picked typo list (`EMAIL_TYPO_DOMAINS`: gmial.com,
+2. a special-use name (`isSpecialUseDomain`: `.internal`, `.local`,
+   `.localhost`, `.test`, `.invalid`, `.example`, `home.arpa`, `.onion`,
+   and anything under them) can't receive email: 400 `email_no_mail`
+   before any lookup (so the host's resolver is never asked about them),
+   for support's change too;
+3. a domain on the hand-picked typo list (`EMAIL_TYPO_DOMAINS`: gmial.com,
    gmail.con, gmail.com.au, hotmial.com, bigpond.con …) is refused, 400
    `code: "email_typo"` with `suggestion` (the address with the domain
    corrected, the part before the `@` as typed), even if the domain has a
    mail server: a typo domain's mail server isn't the buyer's. Support's
    change skips this list (they've checked the address with the buyer);
-3. a known provider (`KNOWN_MAIL_DOMAINS`: Gmail, Outlook, Yahoo, iCloud,
+4. a known provider (`KNOWN_MAIL_DOMAINS`: Gmail, Outlook, Yahoo, iCloud,
    the Australian ISPs …) is accepted without DNS;
-4. anything else is looked up (`Deps.mailDomain`, `lib/server/mail-domain.ts`,
+5. anything else is looked up (`Deps.mailDomain`, `lib/server/mail-domain.ts`,
    Node's own resolver, no dependency): MX, or with no MX an A or AAAA
    record (RFC 5321's fallback), accepts; NXDOMAIN, a null MX (RFC 7505) or
    neither record is 400 `code: "email_no_mail"` (with a `suggestion` when
@@ -1621,7 +1626,8 @@ skipped and the address accepted. It fails open without a client IP or
 `STRIPE_WEBHOOK_SECRET`. A paid checkout's replay is answered before any of
 this. `EMAIL_DOMAIN_CHECKS=off` (server-only) leaves the format as the only
 check: the switch for a typo-list false positive or a DNS problem on the
-host. Only the domain is ever looked up; neither the address nor the domain
+host (and what the journey harness runs with: its buyers are
+`@journey.test`). Only the domain is ever looked up; neither the address nor the domain
 is logged. The 400's message never repeats the address.
 
 **Stripe.** A paid order's address prefills Stripe's form
@@ -1641,7 +1647,10 @@ turned into it. Only a paid checkout's own answer carries it
 replay from another client is a 409 with nothing). A replay to a request
 with no client key (no client IP, or no `STRIPE_WEBHOOK_SECRET`) has no
 token (`replayAccessSecret`): such an attempt is bound to no client, so its
-replay could reach anyone else without one who has the Idempotency-Key. The browser keeps it in
+replay could reach anyone else without one who has the Idempotency-Key. The
+same goes for a reused order's 201 (a retry of an attempt that failed, as
+after a 503): it's a replay of that attempt, so it carries the token only
+for a client with a key. The browser keeps it in
 localStorage, keyed by a fingerprint of the order id (`lib/order-access.ts`,
 the frontend's), and sends it in the `x-order-access` header, never in a
 URL. It's compared in constant time. No secret, no token (every change is
@@ -1649,16 +1658,25 @@ then a 404). Rotating the secret invalidates every token.
 
 **What the confirmation page sees** (`GET /orders/by-session/{id}`,
 `withOrderEmail` in `lib/server/order-email-view.ts`). With the token, for a
-paid card order: the full `email` and `emailChange` (`{allowed: true}`, or
-`{allowed: false, reason}` with `order_not_paid`, `changed_by_support`,
-`event_ended`, `ticket_scanned` or `email_already_changed`, from
-`private.order_email_change_block`). Once the latest change is support's,
+paid card order whose event hasn't ended: the full `email` and `emailChange`
+(`{allowed: true}`, or `{allowed: false, reason}` with `order_not_paid`,
+`changed_by_support`, `ticket_scanned` or `email_already_changed`, from
+`private.order_email_change_block`). Once the event has ended, the token
+shows what anyone sees (below), with `emailChange: {allowed: false,
+reason: "event_ended"}`: the token stays in that browser's storage for up
+to 180 days, on a device that may not stay the buyer's, and after the event
+there's nothing left to fix. Once the latest change is support's,
 the paying browser too gets neither the address nor the masked one, only
 `emailChange: {allowed: false, reason: "changed_by_support"}`: its token may
 be on a device the old address's holder still uses (often why support was
 asked). Without the token: the masked address as before, until the email
 has been changed (by anyone); after that, none (owner decision Q7), so the
-old address's holder doesn't learn the new one.
+old address's holder doesn't learn the new one. The browser forgets its
+token (`forgetOrderAccessIfFinal`, `lib/order-access.ts`) as soon as the
+server says `event_ended`, `ticket_scanned` or `changed_by_support`, in a
+read or a change's 409: none of them can ever be changed from there again.
+The change's own 200 is the same `CustomerOrder` as the read (`withWallet`
+included), so the page keeps its wallet buttons.
 
 **The buyer's change** (`POST /orders/by-session/{id}/email`,
 `lib/server/handlers/order-email.ts`). Once per order (decision 4: the
@@ -1694,12 +1712,16 @@ the event, after a scan, after the buyer's change) and to any address, an
 account's included (Q2), but the address must pass the format and DNS, and
 a reason is required and logged with the admin. The reason may not contain
 an email address (400 `fieldErrors.reason`, "Leave email addresses out of
-the reason"): it is kept in full and shown to every admin, while the log
-keeps addresses masked. 20 an hour per admin, taken only for a change made
+the reason"; tested on its NFKC form, so a full-width "＠" or "．" counts):
+it is kept in full and shown to every admin, while the log keeps addresses
+masked. The 200 is `{result, job}` (`AdminOrderEmailChangeResult`:
+`changed`, or `unchanged` for the same address). 20 an hour per admin, taken only for a change made
 and undone with it. A support change ends self-serve changes for good (see
 above). Support checks the caller paid for the order first (the runbook,
-`docs/supabase-setup.md`, "Buyer email changes": the payment's date, amount
-and card's last 4 against Stripe). The admin search finds an order by its
+`docs/supabase-setup.md`, "Buyer email changes": the payment's date, amount,
+card's last 4 and the card's expiry against Stripe; the expiry because the
+old address's holder has the ticket email, and may have Stripe's receipt).
+The admin search finds an order by its
 ticket email job, and sent jobs are purged after 90 days, so an order whose
 ticket email was sent more than 90 days ago can't be found or changed there
 ("Not built yet"). The previous address isn't told of a support change
@@ -4749,7 +4771,7 @@ without one. The UI keeps showing the API's words, which already say when
 | `PUT /admin/events/{eventId}/seat-map` `{template, reason}` · `DELETE …` `{reason}` | admin, any status, no orders. 200 `SeatMapRecord` / 204; 400; 404; 409 has orders (`fieldErrors.template`) or external |
 | `POST /orders/by-session/{orderId}/cancel` | public (the order id is the credential; only the client that made the order gets it: the checkout's 201, the payment page's URL and Stripe's `return_url`, or a pre-embedded hosted session's cancel URL): expires the Stripe session, then cancels the order and releases its seats; a paid order is never changed. 200 `{status: "released" \| "paid" \| "processing", eventTitle, eventSlug?}`; 404; 409 still being set up |
 | `POST /orders/confirm` `{token}` | public (the emailed token is the credential). 200 `{url}` (also when already confirmed, within 24 hours); 400 malformed; 404 unknown; 410 expired (confirmed or not); 409 sold out, allowance used, or a ticket type no longer free |
-| `GET /orders/by-session/{orderId}` | public (id is the credential). `CustomerOrder` only (see "Payment flow"), `private, no-store`; `wallet: {google, apple}` when the tickets can be added to a wallet (see "Wallet passes"). With the order's token in `x-order-access` (a paid order, the paying browser), also `email` and `emailChange`; without it, `maskedEmail` is left out once the order's email has been changed (see "Buyer email checks") |
+| `GET /orders/by-session/{orderId}` | public (id is the credential). `CustomerOrder` only (see "Payment flow"), `private, no-store`; `wallet: {google, apple}` when the tickets can be added to a wallet (see "Wallet passes"). With the order's token in `x-order-access` (a paid order, the paying browser), also `emailChange`, and `email` until the event ends; without it, `maskedEmail` is left out once the order's email has been changed (see "Buyer email checks") |
 | `POST /orders/by-session/{orderId}/email` `{email}` | public, the paying browser only: the order's token in `x-order-access` (and optionally the buyer's bearer token: their own confirmed address is allowed). 200 `OrderEmailChangeResult` `{result: "changed" \| "unchanged", order}`; 404 malformed (no query), unknown, not a card order, or a missing or wrong token (one body for all); 400 `fieldErrors.email`, or `code: "email_typo"` / `"email_no_mail"` with `suggestion`; 409 `order_not_paid`, `changed_by_support` ("Contact support to change this email again"), `event_ended`, `ticket_scanned`, `email_already_changed`, `email_has_account` ("Contact support to use this address"), `email_change_busy` (Retry-After 2); 429 `rate_limited` over 10 an hour from this client or 5 a day for this order. `private, no-store`. See "Buyer email checks" |
 | `GET /orders/by-session/{orderId}/wallet/google?ticket={n}` · `…/wallet/apple?ticket={n}` | public (id is the credential, as the ticket page; see "Wallet passes"). Google: 302 to `https://pay.google.com/gp/v/save/{jwt}`; Apple: 200 `application/vnd.apple.pkpass`. `private, no-store`. 404 malformed (no query), the wallet not configured (no query), unknown, not paid, the event not published, or no ticket `n`; 400 `fieldErrors.ticket`; 429 over 30 a minute from this client, or 60 a minute for this order |
 | `GET /orders/by-session/{orderId}/payment` | public (id is the credential), read-only. `OrderPaymentLookup` (see "Payment flow", step 2), `private, no-store`: `{status: "open", clientSecret, expiresAt, …summary}`, `{status: "processing", delayed}`, `{status: "done"}`, or `{status: "closed" \| "sold_out", eventTitle, eventSlug?, seated}` (`closed` also when the event is no longer published or has ended while the session is open); 404 malformed (no query), unknown or a guest's free booking; 409 still being set up; 429 over 30 reads a minute from this client, or 20 Stripe reads a minute for this order; 500 an open session without a client secret |
@@ -4760,7 +4782,7 @@ without one. The UI keeps showing the API's words, which already say when
 | `GET /admin/transfers?status&limit&cursor` · `POST /admin/transfers/{transferId}/action` `{action}` | admin. The delayed payouts queue and its retry / release / cancel (see "Delayed payouts"); 409 `code`: `transfer_in_progress`, `transfer_state_conflict`, `transfer_not_payable`, `transfer_exists_in_stripe`; 503 `transfer_stripe_unavailable` |
 | `GET /events/trending` | public: `{items: [{event, label, goingCount?}]}` (see "Trending"), at most 24, best first; `items: []` with fewer than 3. `cache-control: public, max-age=0, s-maxage=300, stale-while-revalidate=600` |
 | `GET /admin/emails?status&cursor` · `?reference` · `POST /admin/emails/{jobId}/resend` | admin. Status `failed` (default), `pending`, `sending`, `sent`; `reference` (an order's 8-character reference, with or without `#`, any case; else 400): that order's ticket email in any status. Each job has `emailChanges` (newest 5, masked). Resend: 404 unknown, 409 being sent, 429 resent in the last 5 minutes or over 20 an hour |
-| `POST /admin/emails/{jobId}/change-email` `{email, reason}` | admin. Moves the job's order to `email` and sends the tickets there now, any time and to any address (an account's included; the typo list skipped), logged with the admin and `reason` (3–500 characters, no email addresses). Ends the buyer's own changes. 200 `AdminEmailJob` (also for the same address: nothing changed); 400 `fieldErrors.email` / `fieldErrors.reason` or `code: "email_no_mail"`; 404 unknown job; 409 `order_not_card`, `order_not_paid`, `email_change_busy`; 429 over 20 an hour (only changes made count). See "Buyer email checks" |
+| `POST /admin/emails/{jobId}/change-email` `{email, reason}` | admin. Moves the job's order to `email` and sends the tickets there now, any time and to any address (an account's included; the typo list skipped), logged with the admin and `reason` (3–500 characters, no email addresses). Ends the buyer's own changes. 200 `{result, job}` (`AdminOrderEmailChangeResult`: `changed`, or `unchanged` for the same address, nothing done; `job` the `AdminEmailJob` as it is now); 400 `fieldErrors.email` / `fieldErrors.reason` or `code: "email_no_mail"`; 404 unknown job; 409 `order_not_card`, `order_not_paid`, `email_change_busy`; 429 over 20 an hour (only changes made count). See "Buyer email checks" |
 | `GET /admin/emails/health` | admin. `EmailOutboxHealth`: counts per kind and in total (due, overdue after 15 minutes, `oldestOverdueSeconds`, waiting, sending, expired leases, failed, failed in 7 days), `lastCronRun` (time and counts), `cronSecretConfigured`. No addresses, orders or tokens. `private, no-store`. No UI yet |
 | `POST /stripe/webhook` | Stripe (signature-verified) |
 | `GET /admin/payment-exceptions?status&cursor&limit` · `POST /admin/payment-exceptions/{exceptionId}/resolve` `{note}` | admin. `AdminPaymentException` (see "Refunds made in Stripe"): status `open` (default, oldest first) or `resolved` (newest resolution first); order by short reference only, no buyer data; `urgent` for a refund that didn't complete after its order was voided. Resolve: note 1–500 characters (400), 404 unknown, 409 already resolved. No UI yet |
