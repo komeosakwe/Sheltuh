@@ -4,7 +4,11 @@ import { adminRejectEvent, adminRejectOrganiser, adminUnpublishEvent } from "@/l
 import { submitEventForReview } from "@/lib/server/handlers/events";
 import { applyAsOrganiser, getMyOrganiser, resubmitOrganiser } from "@/lib/server/handlers/organisers";
 import { getPublicEventBySlug, PUBLIC_EVENTS_CACHE_CONTROL } from "@/lib/server/handlers/public-events";
-import { getPublicOrganiserProfile, PROFILE_EVENT_LIMIT } from "@/lib/server/handlers/public-organisers";
+import {
+  getPublicOrganiserProfile,
+  PROFILE_EVENT_LIMIT,
+  PROFILE_PAST_EVENT_LIMIT,
+} from "@/lib/server/handlers/public-organisers";
 import { TestApi } from "./helpers/api";
 import { application, approvedOrganiser, draftEvent, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
@@ -361,6 +365,7 @@ describe("GET /organisers/{organiserId}/profile", () => {
       "customTags",
       "description",
       "displayName",
+      "eventCount",
       "eventsHosted",
       "featuredVideo",
       "followerCount",
@@ -376,6 +381,7 @@ describe("GET /organisers/{organiserId}/profile", () => {
       featuredVideo: null,
       followerCount: null,
       eventsHosted: 0,
+      eventCount: 0,
       organiserId: organiser.organiserId,
       displayName: application.displayName,
       description: application.description,
@@ -473,6 +479,8 @@ describe("GET /organisers/{organiserId}/profile", () => {
     expect(res.status).toBe(200);
     expect(res.body.upcomingEvents.map((e: { title: string }) => e.title)).toEqual(["Live"]);
     expect(res.body.recentEvents).toEqual([]);
+    // Drafts, submissions, rejections, unpublished events and other organisers' events don't count.
+    expect(res.body.eventCount).toBe(1);
 
     const [event] = res.body.upcomingEvents;
     expect(Object.keys(event).sort()).toEqual(PUBLIC_EVENT_KEYS);
@@ -506,9 +514,11 @@ describe("GET /organisers/{organiserId}/profile", () => {
     const res = await profile(organiser.organiserId);
     expect(res.body.upcomingEvents.map((e: { eventId: string }) => e.eventId)).toEqual([sooner.eventId, later.eventId]);
     expect(res.body.recentEvents.map((e: { eventId: string }) => e.eventId)).toEqual([lastWeek.eventId, lastMonth.eventId]);
+    // eventCount counts both; eventsHosted (deprecated) only the past ones.
+    expect([res.body.eventCount, res.body.eventsHosted]).toEqual([4, 2]);
   });
 
-  it(`lists at most ${PROFILE_EVENT_LIMIT} events, upcoming ones first`, async () => {
+  it(`lists up to ${PROFILE_EVENT_LIMIT} upcoming events and, separately, the ${PROFILE_PAST_EVENT_LIMIT} most recent past ones`, async () => {
     const organiser = await approvedOrganiser(api, admin);
     // Straight into the database: going through review 26 times adds nothing here.
     const insertEvents = (count: number, past: boolean, prefix: string) =>
@@ -523,17 +533,37 @@ describe("GET /organisers/{organiserId}/profile", () => {
         [organiser.organiserId, count, past, prefix],
       );
 
+    // Past events no longer share the upcoming list's 24: they have their own 12 (an intended change).
     await insertEvents(20, false, "up");
-    await insertEvents(10, true, "past");
+    await insertEvents(15, true, "past");
     let res = await profile(organiser.organiserId);
     expect(res.body.upcomingEvents).toHaveLength(20);
-    expect(res.body.recentEvents).toHaveLength(PROFILE_EVENT_LIMIT - 20);
-    expect(res.body.recentEvents[0].title).toBe("past 1");
+    expect(res.body.recentEvents.map((e: { title: string }) => e.title)).toEqual(
+      Array.from({ length: PROFILE_PAST_EVENT_LIMIT }, (_, i) => `past ${i + 1}`),
+    );
+    expect(res.body.eventCount).toBe(35);
 
     await insertEvents(10, false, "more");
     res = await profile(organiser.organiserId);
     expect(res.body.upcomingEvents).toHaveLength(PROFILE_EVENT_LIMIT);
-    expect(res.body.recentEvents).toEqual([]);
+    expect(res.body.recentEvents).toHaveLength(PROFILE_PAST_EVENT_LIMIT);
+    // The count isn't capped by either list.
+    expect(res.body.eventCount).toBe(45);
+  });
+
+  it("reads the profile in three queries, however many events there are", async () => {
+    const organiser = await approvedOrganiser(api, admin);
+    await publishedEvent(api, organiser, admin, { title: "Live" });
+    let queries = 0;
+    const counting = new TestApi({
+      query: async (text, params) => {
+        queries += 1;
+        return api.db.query(text, params);
+      },
+    });
+    const res = await counting.call(getPublicOrganiserProfile, { params: { organiserId: organiser.organiserId } });
+    expect(res.status).toBe(200);
+    expect(queries).toBe(3);
   });
 
   it("the public event routes carry the organiserId and name that link to the profile", async () => {

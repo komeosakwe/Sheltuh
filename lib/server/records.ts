@@ -274,7 +274,10 @@ const PUBLIC_ORGANISER_SELECT = `
          -- organiser_follows_organiser_idx; only shown from FOLLOWER_COUNT_THRESHOLD.
          (select count(*)::int from public.organiser_follows f where f.organiser_id = o.id) as follower_count,
          (select count(*)::int from public.events e
-           where e.organiser_id = o.id and e.status = 'published' and e.ends_at <= now()) as events_hosted
+           where e.organiser_id = o.id and e.status = 'published' and e.ends_at <= now()) as events_hosted,
+         -- Every published event, past and upcoming (events_organiser_created_idx).
+         (select count(*)::int from public.events e
+           where e.organiser_id = o.id and e.status = 'published') as event_count
   from public.organisers o`;
 
 /**
@@ -322,6 +325,7 @@ export function toPublicOrganiserProfile(
     featuredVideo: featuredVideoOf(row) ?? null,
     followerCount: (row.follower_count as number) >= FOLLOWER_COUNT_THRESHOLD ? (row.follower_count as number) : null,
     eventsHosted: row.events_hosted as number,
+    eventCount: row.event_count as number,
     ...logoUrlOf(row),
     ...coverUrlsOf(row),
     upcomingEvents,

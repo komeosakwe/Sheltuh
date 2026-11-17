@@ -217,17 +217,22 @@ export interface PublicOrganiserProfile {
    * older fixtures stay valid.
    */
   followerCount?: number | null;
-  /** Published events that have ended ("Events hosted"). Always sent; optional so older fixtures stay valid. */
+  /**
+   * Published events that have ended ("Events hosted"). Always sent; optional so older fixtures stay valid.
+   * @deprecated Use eventCount; still sent until the profile page stops reading it.
+   */
   eventsHosted?: number;
+  /** Every published event, upcoming and past (the profile's "Events" count). Always sent; optional so older fixtures stay valid. */
+  eventCount?: number;
   /** The organiser's logo (512 px; public, versioned), only when they have one. See OrganiserRecord.logoUrl. */
   logoUrl?: string;
   /** The organiser's cover (2240 × 640; public, versioned), only when they have one. See OrganiserRecord.coverUrl. */
   coverUrl?: string;
   /** The cover at 1120 × 320, present exactly when `coverUrl` is. */
   coverSmallUrl?: string;
-  /** Published events that haven't ended, soonest first. */
+  /** Published events that haven't ended, soonest first: at most 24. */
   upcomingEvents: PublicEvent[];
-  /** Published events that have ended, most recent first. Together with upcomingEvents, at most 24. */
+  /** Published events that have ended, most recent first: at most 12, however many are upcoming. */
   recentEvents: PublicEvent[];
 }
 
