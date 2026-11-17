@@ -245,7 +245,7 @@ describe("the ticket panel's price and action (from 1024px)", () => {
     expect(within(panel).getByRole("link", { name: "Choose seats" })).toHaveAttribute("href", `/events/${seated.slug}/seats`);
   });
 
-  it("an external event: the organiser's price and the outbound link, orange; the tickets section's is black", () => {
+  it("an external event: the organiser's price and the outbound link, orange; no tickets section repeats them", () => {
     const external = sampleEvents.find((e) => e.ticketingMode === "external" && e.externalTicketUrl && e.externalPriceFromCents);
     if (!external) throw new Error("no external sample");
     const { container } = render(<EventDetailsView event={external} demo />);
@@ -253,9 +253,7 @@ describe("the ticket panel's price and action (from 1024px)", () => {
     if (!panel) throw new Error("no panel");
     expect(within(panel).getByText("Price set by the organiser.")).toBeInTheDocument();
     expect(within(panel).getByRole("link", { name: "Buy tickets (opens in a new tab)" })).toHaveClass("btn-signal");
-    const tickets = container.querySelector<HTMLElement>("#tickets");
-    if (!tickets) throw new Error("no tickets");
-    expect(within(tickets).getByRole("link", { name: "Buy tickets (opens in a new tab)" })).toHaveClass("btn-solid");
+    expect(container.querySelector("#tickets")).toBeNull();
   });
 
   it("sold out: Join waitlist; ended: no price or action, Save and Share stay", () => {

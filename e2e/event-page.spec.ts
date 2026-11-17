@@ -92,16 +92,18 @@ async function noSidewaysScroll(page: Page) {
 test.describe("external event (Humanitix) at 1440×900", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test("links out from the tickets section with the click beacon; the organiser's price, no selector or Who's Going", async ({ page }) => {
+  test("links out from the ticket panel with the click beacon; the organiser's price, no tickets section, selector or Who's Going", async ({ page }) => {
     const { outbound, going } = await mockApi(page);
     await page.goto("/events/thornbury-dub-session");
-    const tickets = page.locator("#tickets");
+    // The panel is the only place with the price and the link from 1024px: no tickets section repeats them (owner, 15 Nov 2026).
+    const tickets = page.locator("[data-ticket-panel]");
     const link = tickets.getByRole("link", { name: "Buy tickets (opens in a new tab)" });
     await expect(link).toBeVisible({ timeout: 30_000 });
     await expect(link).toHaveAttribute("href", "https://events.humanitix.com/thornbury-dub-session-demo");
     await expect(link).toHaveAttribute("target", "_blank");
     await expect(link).toHaveAttribute("rel", "noopener noreferrer");
     await expect(link).toHaveText("Buy tickets");
+    await expect(page.locator("#tickets")).toHaveCount(0);
     // The ticketing site is never named (owner, 31 Oct 2026): buyers go through our link.
     await expect(tickets).not.toContainText(/Humanitix|Sold by|Tickets on|organiser.s site/i);
     await expect(tickets).not.toContainText("Tickets coming soon");
@@ -159,7 +161,8 @@ test.describe("external event (free, organiser's site) at 390×844", () => {
     const cta = bar.getByRole("link", { name: "Buy tickets (opens in a new tab)" });
     await expect(cta).toHaveText("Buy tickets");
     await expect(cta).toHaveAttribute("href", "https://www.example.com/footscray-open-studios/rsvp");
-    await expect(page.locator("#tickets")).not.toContainText("Tickets coming soon");
+    await expect(page.locator("#tickets")).toHaveCount(0);
+    await expect(page.getByText("Tickets coming soon")).toHaveCount(0);
     const [popup] = await Promise.all([page.waitForEvent("popup"), cta.click()]);
     await popup.close();
     await expect.poll(() => outbound.length).toBe(1);
