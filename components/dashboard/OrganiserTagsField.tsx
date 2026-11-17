@@ -4,9 +4,10 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import InlineReauth, { signedInAgainMessage } from "@/components/auth/InlineReauth";
 import { Button } from "@/components/ui/Button";
 import { fieldClass } from "@/components/ui/Field";
-import FilterChip from "@/components/ui/FilterChip";
+import FilterChip, { CHIP_SIZING } from "@/components/ui/FilterChip";
 import { ApiError } from "@/lib/api/client";
 import {
+  cleanCustomTag,
   CUSTOM_TAG_MAX_LENGTH,
   CUSTOM_TAG_MIN_LENGTH,
   customTagKey,
@@ -38,11 +39,6 @@ const REANNOUNCE_DELAY_MS = 100;
 
 const ownWordId = (i: number) => `tag-own-${i}`;
 
-/** An own word as the API will read it: NFC, spaces folded, trimmed (as parseCustomTag cleans it). */
-function cleaned(value: string): string {
-  return value.normalize("NFC").replace(/[\p{Zs}\t\n\r]+/gu, " ").trim();
-}
-
 /**
  * The message for own word `i` as the organiser types, in the API's own
  * words: parseCustomTag's, then a repeat of an earlier own word or a list
@@ -50,7 +46,7 @@ function cleaned(value: string): string {
  * until the field has been left, so the first keystroke isn't scolded.
  */
 export function ownWordError(words: readonly Pick<OwnWord, "value" | "touched">[], i: number): string | null {
-  const value = cleaned(words[i].value);
+  const value = cleanCustomTag(words[i].value);
   if (!value) return null;
   const tooShortOnly = Array.from(value).length < CUSTOM_TAG_MIN_LENGTH && /^[\p{L}\p{Nd}]+$/u.test(value);
   if (tooShortOnly && !words[i].touched) return null;
@@ -110,9 +106,11 @@ export default function OrganiserTagsField({ organiser }: { organiser: Organiser
     element.focus();
   });
 
-  const filledWords = words.filter((w) => cleaned(w.value));
+  const filledWords = words.filter((w) => cleanCustomTag(w.value));
   const count = selected.length + filledWords.length;
   const atLimit = count >= MAX_PROFILE_TAGS;
+  // Only by typing into a row added earlier: the list and "Add" stop at the limit.
+  const tooMany = count > MAX_PROFILE_TAGS;
 
   function showStatus(message: string | null) {
     clearTimeout(statusTimer.current);
@@ -183,8 +181,9 @@ export default function OrganiserTagsField({ organiser }: { organiser: Organiser
       setSubmitError("Please fix the highlighted fields.");
       return;
     }
-    if (count > MAX_PROFILE_TAGS) {
-      setServerErrors({ rows: {}, own: TAG_SET_ERRORS.tooMany });
+    if (tooMany) {
+      // Already shown under the own words as they typed; said again now, and focus goes to the first own word.
+      setSubmitError(TAG_SET_ERRORS.tooMany);
       pendingFocus.current = ownWordId(0);
       return;
     }
@@ -196,11 +195,11 @@ export default function OrganiserTagsField({ organiser }: { organiser: Organiser
     }
 
     // Blank rows are dropped, not an error. Which row each sent word came from, for the API's errors.
-    const sentRows = checked.flatMap((w, i) => (cleaned(w.value) ? [i] : []));
+    const sentRows = checked.flatMap((w, i) => (cleanCustomTag(w.value) ? [i] : []));
     setSaving(true);
     try {
       const record = await setOrganiserTags(
-        { profileTags: selected, customTags: sentRows.map((i) => cleaned(checked[i].value)) },
+        { profileTags: selected, customTags: sentRows.map((i) => cleanCustomTag(checked[i].value)) },
         getOwnerToken,
       );
       // What was stored: list order, cleaned own words.
@@ -245,7 +244,7 @@ export default function OrganiserTagsField({ organiser }: { organiser: Organiser
     <form onSubmit={handleSubmit} noValidate>
       <fieldset
         id="categories"
-        className="flex flex-col gap-4 border-t border-foreground pt-5"
+        className="flex min-w-0 flex-col gap-4 border-t border-foreground pt-5"
         aria-describedby="tags-note tags-count"
       >
         <legend className="font-heading text-xl leading-6">Categories</legend>
@@ -264,7 +263,12 @@ export default function OrganiserTagsField({ organiser }: { organiser: Organiser
           )}
         </div>
 
-        <div role="group" aria-labelledby="tags-list-label" className="flex flex-col gap-2">
+        <div
+          role="group"
+          aria-labelledby="tags-list-label"
+          aria-describedby={serverErrors.list ? "tags-list-error" : undefined}
+          className="flex flex-col gap-2"
+        >
           <p id="tags-list-label" className="eyebrow text-muted">
             From the list
           </p>
@@ -281,14 +285,14 @@ export default function OrganiserTagsField({ organiser }: { organiser: Organiser
                     aria-pressed={false}
                     aria-disabled="true"
                     onClick={() => toggle(value)}
-                    className="label-button inline-flex h-12 shrink-0 cursor-not-allowed items-center gap-2 rounded-control border-control border-surface-border bg-background px-4 text-disabled"
+                    className={`label-button inline-flex ${CHIP_SIZING.wrap} cursor-not-allowed items-center gap-2 rounded-control border-control border-surface-border bg-background px-4 text-disabled`}
                   >
                     {label}
                   </button>
                 );
               }
               return (
-                <FilterChip key={value} id={`tag-chip-${value}`} pressed={pressed} onClick={() => toggle(value)}>
+                <FilterChip key={value} id={`tag-chip-${value}`} pressed={pressed} wrap onClick={() => toggle(value)}>
                   {label}
                 </FilterChip>
               );
@@ -304,7 +308,13 @@ export default function OrganiserTagsField({ organiser }: { organiser: Organiser
         <div
           role="group"
           aria-labelledby="tags-own-label"
-          aria-describedby="tags-own-hint"
+          aria-describedby={[
+            "tags-own-hint",
+            serverErrors.own && "tags-own-error",
+            tooMany && "tags-too-many",
+          ]
+            .filter(Boolean)
+            .join(" ")}
           className="flex flex-col gap-3"
         >
           <div className="flex flex-col gap-1">
@@ -319,13 +329,14 @@ export default function OrganiserTagsField({ organiser }: { organiser: Organiser
           {words.map((word, i) => {
             const id = ownWordId(i);
             const error = ownWordError(words, i) ?? serverErrors.rows[i] ?? null;
-            const length = Array.from(cleaned(word.value)).length;
+            const length = Array.from(cleanCustomTag(word.value)).length;
             return (
               <div key={word.key} className="flex flex-col gap-1">
                 <label htmlFor={id} className="text-sm font-medium text-foreground">
                   Own word {i + 1}
                 </label>
-                <div className="flex items-start gap-2">
+                {/* Remove goes under the input when there isn't room beside it (large text). */}
+                <div className="flex flex-wrap items-start gap-2">
                   <input
                     id={id}
                     type="text"
@@ -335,7 +346,7 @@ export default function OrganiserTagsField({ organiser }: { organiser: Organiser
                     onBlur={() => setWords((prev) => prev.map((w, j) => (j === i ? { ...w, touched: true } : w)))}
                     aria-invalid={error ? true : undefined}
                     aria-describedby={[`${id}-count`, error && `${id}-error`].filter(Boolean).join(" ")}
-                    className={`${fieldClass} min-h-12 w-full max-w-xs`}
+                    className={`${fieldClass} min-h-12 max-w-xs min-w-0 flex-1 basis-48 sm:min-h-12`}
                   />
                   <Button
                     variant="outline"
@@ -382,6 +393,10 @@ export default function OrganiserTagsField({ organiser }: { organiser: Organiser
               {serverErrors.own}
             </p>
           )}
+          {/* Always in the page, so it's announced as the count goes over; empty, it takes no room. */}
+          <p id="tags-too-many" aria-live="polite" className="text-sm text-danger empty:sr-only">
+            {tooMany ? TAG_SET_ERRORS.tooMany : ""}
+          </p>
         </div>
 
         {submitError && sessionExpired && (

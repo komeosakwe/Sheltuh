@@ -174,6 +174,68 @@ describe("OrganiserTagsField", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Check your categories.");
   });
 
+  it("links the API's list and own-words errors to their groups", async () => {
+    setOrganiserTags.mockRejectedValue(
+      new ApiError(400, "Check your categories.", {
+        profileTags: "Choose from the list.",
+        customTags: "Check your own words.",
+      }),
+    );
+    renderField({ ...RECORD, profileTags: ["art"], customTags: ["Late night"] });
+    const list = screen.getByRole("group", { name: "From the list" });
+    const own = screen.getByRole("group", { name: "In your own words (optional)" });
+    expect(list).not.toHaveAttribute("aria-describedby");
+    expect(own).toHaveAttribute("aria-describedby", "tags-own-hint");
+    save();
+    await waitFor(() => expect(list).toHaveAttribute("aria-describedby", "tags-list-error"));
+    expect(list).toHaveAccessibleDescription("Choose from the list.");
+    expect(own).toHaveAttribute("aria-describedby", "tags-own-hint tags-own-error");
+    expect(own).toHaveAccessibleDescription(/Check your own words\.$/);
+  });
+
+  it("over 5 (typing into a row added earlier): says so as it happens, under the own words, and again on Save", async () => {
+    renderField({ ...RECORD, profileTags: ["live-music", "art", "film"], customTags: ["Late night"] });
+    fireEvent.click(screen.getByRole("button", { name: "Add your own word" }));
+    fireEvent.click(chip("Dance"));
+    expect(screen.getByText("5 of 5 chosen")).toBeInTheDocument();
+    const own = screen.getByRole("group", { name: "In your own words (optional)" });
+    const tooMany = document.getElementById("tags-too-many");
+    expect(tooMany).toHaveAttribute("aria-live", "polite");
+    expect(tooMany).toBeEmptyDOMElement();
+    expect(own).toHaveAttribute("aria-describedby", "tags-own-hint");
+
+    fireEvent.change(screen.getByLabelText("Own word 2"), { target: { value: "Queer joy" } });
+    expect(screen.getByText("6 of 5 chosen")).toBeInTheDocument();
+    expect(tooMany).toHaveTextContent(TAG_SET_ERRORS.tooMany);
+    expect(own).toHaveAttribute("aria-describedby", "tags-own-hint tags-too-many");
+    expect(own).toHaveAccessibleDescription(new RegExp(`${TAG_SET_ERRORS.tooMany}$`));
+
+    save();
+    expect(await screen.findByRole("alert")).toHaveTextContent(TAG_SET_ERRORS.tooMany);
+    await waitFor(() => expect(screen.getByLabelText("Own word 1")).toHaveFocus());
+    expect(setOrganiserTags).not.toHaveBeenCalled();
+
+    // Back to 5: the message and the alert go.
+    fireEvent.click(chip("Dance"));
+    expect(tooMany).toBeEmptyDOMElement();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(own).toHaveAttribute("aria-describedby", "tags-own-hint");
+  });
+
+  it("lets everything wrap at large text: chips grow taller, Remove goes under its input, and nothing is wider than the fieldset", () => {
+    renderField({ ...RECORD, profileTags: ["live-music", "art", "film", "dance"], customTags: ["Late night"] });
+    expect(screen.getByRole("group", { name: "Categories" })).toHaveClass("min-w-0");
+    // Pressed, unpressed and (at 5) unavailable chips alike.
+    for (const label of ["Live music", "Comedy"]) {
+      expect(chip(label)).toHaveClass("h-auto", "min-h-12", "max-w-full", "whitespace-normal");
+      expect(chip(label)).not.toHaveClass("h-12", "shrink-0");
+    }
+    expect(chip("Comedy")).toHaveAttribute("aria-disabled", "true");
+    const input = screen.getByLabelText("Own word 1");
+    expect(input).toHaveClass("min-w-0", "flex-1", "basis-48", "min-h-12", "sm:min-h-12");
+    expect(input.parentElement).toHaveClass("flex", "flex-wrap");
+  });
+
   it("shows a 403 or 409 in the API's words, keeping what was chosen", async () => {
     setOrganiserTags.mockRejectedValue(new ApiError(409, "Your organiser status changed — refresh and try again."));
     renderField({ ...RECORD, profileTags: ["art"], customTags: [] });
