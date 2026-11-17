@@ -156,8 +156,9 @@ export default function OrganiserProfileView({
               holdPlace
               // Below sm it fills the row beside Share, but no narrower than 10rem: with large text, Share wraps
               // under it rather than crushing its label. From sm it's at least as wide as its widest label ("Sign
-              // in to follow", about 169px) and its loading placeholder (sm:w-44), so Share never moves.
-              buttonClassName="min-w-0 grow basis-40 sm:min-w-44 sm:flex-none"
+              // in to follow", about 169px) and its loading placeholder (sm:w-44), so Share never moves. Below sm
+              // its side padding is Share's 16, so "Sign in to follow" stays on one line beside Share at 320.
+              buttonClassName="min-w-0 grow basis-40 max-sm:px-4 sm:min-w-44 sm:flex-none"
               beside={
                 <ShareButton
                   path={organiserProfilePath(profile.organiserId)}

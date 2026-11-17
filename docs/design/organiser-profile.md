@@ -260,13 +260,14 @@ Stop reading `eventsHosted`; PR1 deprecates it.
 **Actions:**
 ```
 <FollowButton organiserId organiserName variant="signal" size="md" holdPlace
-  buttonClassName="min-w-0 grow basis-40 sm:min-w-44 sm:flex-none"
+  buttonClassName="min-w-0 grow basis-40 max-sm:px-4 sm:min-w-44 sm:flex-none"
   beside={<ShareButton path={`/organisers/${id}`} title={displayName} text={`${displayName} on Sheltüh`}
                        copyLabel="Link to this profile" copiedInLabel className="shrink-0" />} />
 ```
 - Follow and Share share one row at default text sizes (`FollowButton`'s `beside` row:
   `flex w-full flex-wrap items-center gap-2`). The notify checkbox follows 12px below, as built.
-- Share is always as wide as "Copied" (§5.4). Below 640, Follow takes the rest of the row, but never less than
+- Share is always as wide as "Copied" (§5.4), about 113. Below 640, Follow takes the rest of the row (about 162
+  at 320), with Share's 16px side padding so "Sign in to follow" stays on one line there, but never less than
   `basis-40` (10rem): with large text (200% at 390), Share wraps under Follow rather than crushing its label. From
   640 Follow is at least 176 (`sm:min-w-44`): wider than its widest label, "Sign in to follow" (about 169 at
   `md`), so it's the same width signed out, following or not, and while it loads.
