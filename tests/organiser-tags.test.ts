@@ -140,8 +140,45 @@ describe("parseCustomTag", () => {
     }
   });
 
+  it("refuses claim words spelt with lookalikes: I or 1 for l, 0 for o, rn for m, Cyrillic or Greek letters", () => {
+    for (const word of [
+      "OfficiaI",
+      "SoId out",
+      "SheItuh",
+      "0fficial",
+      "Verif1ed",
+      "Appr0ved",
+      "Adrnin",
+      "Sponsоred", // Cyrillic о
+      "ΟFFΙCΙΑL", // Greek Ο, Ι and Α
+      "Тrending", // Cyrillic Т
+    ]) {
+      expect([word, refused(word)]).toEqual([word, "refused"]);
+    }
+  });
+
+  it("refuses claim words run together with a change of case, and Sheltuh anywhere", () => {
+    for (const word of ["OfficialVenue", "VenueOfficial", "SoldOut", "StaffPick", "TeamSheltuh", "SheltuhPick", "Sheltühcrew", "My sheltuh"]) {
+      expect([word, refused(word)]).toEqual([word, "refused"]);
+    }
+  });
+
+  it("refuses a word mixing Latin, Cyrillic or Greek letters", () => {
+    for (const word of ["Jаzz" /* Cyrillic а */, "Rοck" /* Greek ο */]) {
+      expect([word, parseCustomTag(word)]).toEqual([word, { ok: false, error: "Don't mix Latin, Cyrillic or Greek letters in one word." }]);
+    }
+    // One script per word is fine, and so are different scripts in different words.
+    for (const word of ["Русский рок", "Ελληνικά", "Jazz джаз", "日本のジャズ"]) expect([word, parseCustomTag(word).ok]).toEqual([word, true]);
+  });
+
   it("whole words only: a claim inside a longer word is fine", () => {
     for (const word of ["Unofficial", "Partnership", "Approvals", "Promotional", "Unverified gossip", "Holdout", "Gold outfits"]) {
+      expect([word, parseCustomTag(word).ok]).toEqual([word, true]);
+    }
+  });
+
+  it("the lookalike comparison leaves ordinary words alone", () => {
+    for (const word of ["Illustration", "Film nights", "Hip hop", "Café", "Aboriginal art", "K-pop", "Modern art", "Lo-fi", "Soul food", "Indie folk", "Oil painting", "Billboard hits", "McDonald", "iPhone art", "DnB", "RnB", "Spoken word", "Ölfarben"]) {
       expect([word, parseCustomTag(word).ok]).toEqual([word, true]);
     }
   });

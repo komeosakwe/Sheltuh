@@ -1,3 +1,4 @@
+import { mixesScripts, skeleton } from "@/lib/lookalikes";
 import type { EventCategory } from "@/lib/types";
 
 /**
@@ -88,11 +89,14 @@ export function tagsForEventCategories(categories: readonly string[]): Organiser
  * Words that claim a status only Sheltüh (or nobody) can give, refused in an
  * organiser's own words: endorsement, verification, partnership, ranking or
  * availability ("Official", "Verified", "Sold out", "Sheltüh partner").
- * Matched after folding (case, accents, fullwidth and other compatibility
- * forms: "ÖFFICIAL", "ｏｆｆｉｃｉａｌ"), as whole words, and squashed across
- * the spaces or punctuation between words ("soldout", "sold-out",
- * "o f f i c i a l"). Each entry is written as it's matched: lower case,
- * ASCII, no spaces.
+ * Compared on the lookalike skeleton (skeleton(), lib/lookalikes.ts: case,
+ * accents, fullwidth and other compatibility forms, Cyrillic and Greek
+ * lookalikes, i/l/1 → l, 0 → o, rn → m: "ÖFFICIAL", "ｏｆｆｉｃｉａｌ",
+ * "OfficiaI", "Appr0ved"), as whole words, and squashed across the spaces or
+ * punctuation between words ("soldout", "sold-out", "o f f i c i a l") and
+ * the change of case inside one ("OfficialVenue"). "sheltuh" is refused
+ * anywhere at all ("TeamSheltuh", "SheltuhPick"), as in display names. Each
+ * entry is written as it's matched: lower case, ASCII, no spaces.
  */
 export const CLAIM_WORDS: readonly string[] = [
   "official",
@@ -122,8 +126,9 @@ export const CLAIM_WORDS: readonly string[] = [
   "toprated",
 ];
 
-const CLAIMS = new Set(CLAIM_WORDS);
-const LONGEST_CLAIM = Math.max(...CLAIM_WORDS.map((w) => w.length));
+const CLAIM_SKELETONS = new Set(CLAIM_WORDS.map(skeleton));
+/** Refused anywhere in an own word, not only as a whole word. */
+const RESERVED_SUBSTRING = skeleton("sheltuh");
 
 /**
  * `value` folded for comparison: compatibility forms decomposed (NFKD),
@@ -140,14 +145,24 @@ export function customTagKey(value: string): string {
 
 const LABEL_KEYS = new Set(ORGANISER_TAGS.map((t) => customTagKey(t.label)));
 
-/** Contains a claim word: a run of whole words that, joined, is one of CLAIM_WORDS. */
+/**
+ * Contains a claim word: a run of whole words that, joined, is one of
+ * CLAIM_WORDS on the skeleton. A lower-case letter followed by a capital
+ * starts a new word ("OfficialVenue", and "OfficiaI" with a capital I).
+ * Contains "sheltuh" anywhere, spaces and punctuation ignored.
+ */
 function makesAClaim(value: string): boolean {
-  const words = fold(value).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  if (skeleton(value.replace(/[^\p{L}\p{N}]/gu, "")).includes(RESERVED_SUBSTRING)) return true;
+  const words = value
+    .replace(/(\p{Ll})(\p{Lu})/gu, "$1 $2")
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean);
+  // Own words are at most CUSTOM_TAG_MAX_LENGTH characters, so this is at most a few hundred short strings.
   for (let i = 0; i < words.length; i++) {
     let joined = "";
-    for (let j = i; j < words.length && joined.length < LONGEST_CLAIM; j++) {
+    for (let j = i; j < words.length; j++) {
       joined += words[j];
-      if (CLAIMS.has(joined)) return true;
+      if (CLAIM_SKELETONS.has(skeleton(joined))) return true;
     }
   }
   return false;
@@ -195,7 +210,8 @@ function misplacedMarks(value: string): boolean {
  * folded to one, trimmed) and checked. Allowed: letters (any script), digits
  * (at most CUSTOM_TAG_MAX_DIGITS), single spaces and & ' ’ -, with combining
  * marks only on a letter; CUSTOM_TAG_MIN_LENGTH to CUSTOM_TAG_MAX_LENGTH
- * characters, at least one a letter; no claim words (CLAIM_WORDS). Refused
+ * characters, at least one a letter; no word mixing Latin, Cyrillic and
+ * Greek letters; no claim words (CLAIM_WORDS). Refused
  * with a message to show next to the field otherwise. Whether it repeats
  * another own word or a list label is the caller's check (customTagKey).
  */
@@ -219,6 +235,7 @@ export function parseCustomTag(raw: unknown): CustomTagResult {
   if ((value.match(/\p{Nd}/gu)?.length ?? 0) > CUSTOM_TAG_MAX_DIGITS) {
     return { ok: false, error: `Use ${CUSTOM_TAG_MAX_DIGITS} digits or fewer.` };
   }
+  if (mixesScripts(value)) return { ok: false, error: "Don't mix Latin, Cyrillic or Greek letters in one word." };
   if (makesAClaim(value)) return { ok: false, error: "That word makes a claim we can't check. Try another." };
   return { ok: true, value };
 }
