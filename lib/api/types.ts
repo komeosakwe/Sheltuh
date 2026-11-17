@@ -1225,7 +1225,8 @@ export interface AdminOrderEmailChange {
  * time, any address (an account's included), the typo list skipped (support
  * has checked the address with the buyer), but the address must receive
  * email (400 `email_no_mail`) and `reason` is required (3 to 500
- * characters; 400 `fieldErrors.reason`). Logged with the admin and reason.
+ * characters, and no email addresses in it: the log keeps addresses masked
+ * only; 400 `fieldErrors.reason`). Logged with the admin and reason.
  * 200 the AdminEmailJob (with `emailChanges`); the same address is a 200
  * with nothing changed. ApiError 404 unknown job; 409 `order_not_card`
  * (a free order) or `order_not_paid`, or `email_change_busy`; 429 over 20

@@ -391,6 +391,11 @@ describe("the admin's change (POST /admin/emails/{jobId}/change-email)", () => {
     const noReason = await adminChange(id, { email: NEW });
     expect([noReason.status, Object.keys(noReason.body.fieldErrors)]).toEqual([400, ["reason"]]);
     expect((await adminChange(id, { email: NEW, reason: "ok" })).body.fieldErrors).toEqual({ reason: "Must be at least 3 characters." });
+    // The reason is kept in full; the log keeps addresses masked only.
+    for (const reason of [`Buyer asked to move it from ${OLD}`, "Typo: fan.right@example.com was meant"]) {
+      const withAddress = await adminChange(id, { email: NEW, reason });
+      expect([withAddress.status, withAddress.body.fieldErrors]).toEqual([400, { reason: "Leave email addresses out of the reason." }]);
+    }
     api.mailDomainAnswers.set("nomail.example", "no_mail");
     expect((await adminChange(id, { email: "fan@nomail.example", reason: "Buyer called" })).body.code).toBe("email_no_mail");
     expect(await changes(orderId)).toEqual([]);

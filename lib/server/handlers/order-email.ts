@@ -47,6 +47,13 @@ export const ADMIN_EMAIL_CHANGE_LIMIT = { hits: 20, window: "1 hour" } as const;
 /** An admin's reason: what support confirmed with the buyer. */
 export const ADMIN_EMAIL_CHANGE_REASON = { min: 3, max: 500 } as const;
 
+/**
+ * Anything shaped like an email address (something@something.something): the
+ * reason is kept in full and shown to every admin, while the change log keeps
+ * the addresses themselves only masked, so a reason may not carry one.
+ */
+const EMAIL_LIKE = /[^\s@]+@[^\s@]+\.[^\s@]+/u;
+
 const CHANGE_BUSY = "You've tried to change this email a lot. Try again later.";
 const CONTACT_SUPPORT = `Contact ${SUPPORT_EMAIL} and we'll sort it out.`;
 
@@ -178,7 +185,9 @@ const JOB_ID = /^[1-9][0-9]{0,17}$/;
  * scan, after the buyer's own change) and to any address, an account's
  * included (owner decision Q2), but the address must pass its format and
  * DNS (the typo list is skipped: support has checked it with the buyer) and
- * the reason is required, and logged with the admin. 404 unknown job; 409
+ * the reason is required, and logged with the admin (400 `fieldErrors.reason`
+ * for one with an email address in it: the log keeps addresses masked only).
+ * 404 unknown job; 409
  * `order_not_card` / `order_not_paid` / `email_change_busy`; 429 over
  * ADMIN_EMAIL_CHANGE_LIMIT (only changes made count, in the same
  * transaction). The same address is a 200 with nothing changed.
@@ -196,6 +205,8 @@ export const adminChangeOrderEmail: Handler<{ jobId: string }> = async (req, { j
   });
   if (!errors.reason && Array.from(reason).length < ADMIN_EMAIL_CHANGE_REASON.min) {
     errors.reason = `Must be at least ${ADMIN_EMAIL_CHANGE_REASON.min} characters.`;
+  } else if (!errors.reason && EMAIL_LIKE.test(reason)) {
+    errors.reason = "Leave email addresses out of the reason.";
   }
   if (Object.keys(errors).length > 0) fail(errors);
   await refuseUndeliverableEmail(req, deps, email, "email", { typoList: false });
