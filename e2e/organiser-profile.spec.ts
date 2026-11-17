@@ -144,3 +144,121 @@ test.describe("organiser profile without a cover at 390px", () => {
     await noSidewaysScroll(page);
   });
 });
+
+/** Signed in as the profile's own organiser (approved, no logo yet), with a stored test session. */
+async function signedInAsOwner(page: Page) {
+  const now = Date.now();
+  const session = {
+    access_token: "e2e.token.x",
+    token_type: "bearer",
+    expires_in: 31_536_000,
+    expires_at: Math.floor(now / 1000) + 31_536_000,
+    refresh_token: "r",
+    user: {
+      id: "u1",
+      aud: "authenticated",
+      role: "authenticated",
+      email: "mia@example.com",
+      email_confirmed_at: new Date(now - 300 * 86_400_000).toISOString(),
+      app_metadata: { provider: "email" },
+      user_metadata: {},
+      created_at: new Date(now - 300 * 86_400_000).toISOString(),
+    },
+  };
+  // The storage key supabase-js derives from the placeholder URL (http://127.0.0.1:…/supabase-mock).
+  await page.addInitScript((s) => localStorage.setItem("sb-127-auth-token", JSON.stringify(s)), session);
+}
+
+/** The "Links" heading's top against the header's first line (the box in the logo slot, or the strap). */
+async function linksOffset(page: Page, firstLine: "slot" | "strap") {
+  const heading = page.getByRole("heading", { level: 2, name: "Links" });
+  await expect(heading).toBeVisible();
+  const headingBox = await heading.boundingBox();
+  const target =
+    firstLine === "slot"
+      ? page.locator("[data-organiser-logo-slot] > *")
+      : page.locator("main header").getByText("Organiser", { exact: true });
+  const targetBox = await target.boundingBox();
+  if (!headingBox || !targetBox) throw new Error("no Links heading or first line");
+  return Math.abs(headingBox.y - targetBox.y);
+}
+
+for (const width of [1024, 1440]) {
+  test.describe(`organiser profile links column at ${width}px`, () => {
+    test.use({ viewport: { width, height: 900 } });
+
+    const CASES: {
+      name: string;
+      profile: Partial<PublicOrganiserProfile>;
+      owner?: boolean;
+      logoFails?: boolean;
+      level: "slot" | "strap";
+      slotFilled: boolean;
+    }[] = [
+      { name: "cover and a logo: level with the strap under the logo", profile: {}, level: "strap", slotFilled: true },
+      {
+        name: "cover, logo that fails to load: level with the strap (the slot is empty)",
+        profile: {},
+        logoFails: true,
+        level: "strap",
+        slotFilled: false,
+      },
+      {
+        name: "cover, no logo, the owner sees Add logo: level with the strap under it",
+        profile: { logoUrl: undefined },
+        owner: true,
+        level: "strap",
+        slotFilled: true,
+      },
+      { name: "cover, no logo, anyone else: level with the strap", profile: { logoUrl: undefined }, level: "strap", slotFilled: false },
+      {
+        name: "no cover, a logo: level with the logo",
+        profile: { coverUrl: undefined, coverSmallUrl: undefined },
+        level: "slot",
+        slotFilled: true,
+      },
+      {
+        name: "no cover, no logo: level with the strap",
+        profile: { coverUrl: undefined, coverSmallUrl: undefined, logoUrl: undefined },
+        level: "strap",
+        slotFilled: false,
+      },
+    ];
+
+    for (const c of CASES) {
+      test(c.name, async ({ page }) => {
+        const profile = { ...PROFILE, ...c.profile };
+        if (c.owner) await signedInAsOwner(page);
+        await mockApi(page, profile);
+        // Registered after mockApi, so these are tried first.
+        if (c.logoFails) {
+          await page.route(`**/api/organisers/${ORG}/logo*`, (route) => route.fulfill({ status: 404, body: "" }));
+        }
+        if (c.owner) {
+          await page.route("**/api/organisers/me", (route) =>
+            route.fulfill({
+              json: {
+                ownerUserId: "u1",
+                organiserId: ORG,
+                displayName: PROFILE.displayName,
+                contactEmail: "hello@northside.example",
+                description: "",
+                categories: ["live-music"],
+                status: "approved",
+                createdAt: "2026-03-01T00:00:00.000Z",
+                updatedAt: "2026-03-01T00:00:00.000Z",
+              },
+            }),
+          );
+        }
+        await page.goto(`/organisers/${ORG}`);
+        await expect(page.getByRole("heading", { level: 1, name: PROFILE.displayName })).toBeVisible({ timeout: 30_000 });
+        if (c.owner) await expect(page.getByRole("link", { name: "Add logo" })).toBeVisible();
+        const slot = page.locator("[data-organiser-logo-slot]");
+        if (c.slotFilled) await expect(slot.locator("> *")).toHaveCount(1);
+        else await expect(slot.locator("> *")).toHaveCount(0);
+        expect(await linksOffset(page, c.level)).toBeLessThan(1.5);
+      });
+    }
+  });
+}
