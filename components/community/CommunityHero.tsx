@@ -14,7 +14,7 @@ const TILTS = ["-rotate-2", "rotate-1", "-rotate-1", "rotate-2"] as const;
  * top (decorative, white-framed and slightly tilted, as drawn, each photo once; it never moves), then the eyebrow,
  * the h1 FIND YOÜR / PEOPLE. in Display (read "Find your people."), and beside it from 1024px
  * the lede with "Explore scenes" (to Scenes by city, below) and "Join free" (sign up; not shown
- * to members).
+ * to members). The collage's photos load at once with blurred placeholders (Round 2).
  */
 export default function CommunityHero() {
   const [first, second] = COMMUNITY_TITLE_LINES;
@@ -36,7 +36,13 @@ export default function CommunityHero() {
                   alt=""
                   fill
                   sizes="(min-width: 1024px) 256px, (min-width: 768px) 214px, 150px"
-                  priority={r === 0 && i < 3}
+                  // All above the fold: loaded at once (not lazily), each blurred in its own colours
+                  // until it arrives, never a grey box. The first row's first three go first (in
+                  // place of the deprecated `priority`).
+                  loading="eager"
+                  fetchPriority={r === 0 && i < 3 ? "high" : undefined}
+                  placeholder="blur"
+                  blurDataURL={photo.blurDataURL}
                   className="object-cover"
                 />
               </div>
