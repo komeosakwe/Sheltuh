@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { ArrowRightIcon } from "@/components/home/icons";
 import { ButtonLink } from "@/components/ui/Button";
+import Flame from "@/components/ui/Flame";
 import WaitlistBlock from "@/components/waitlist/WaitlistBlock";
 import { isApiConfigured } from "@/lib/api/client";
 import { describeBookingFeeNote } from "@/lib/fees";
@@ -115,6 +116,7 @@ export default function SeatedTicketsPanel({
                     ticket.remaining !== undefined &&
                     ticket.remaining > 0 && (
                       <p className="mt-1 text-xs font-semibold">
+                        <Flame />
                         Only {ticket.remaining}{" "}
                         {ticket.seated
                           ? ticket.remaining === 1

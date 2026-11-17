@@ -1,6 +1,7 @@
 "use client";
 
 import CategoryTag from "@/components/ui/CategoryTag";
+import Flame from "@/components/ui/Flame";
 import { useMinuteNow } from "@/components/ui/useMinuteNow";
 import { soonLabel, type SoonFields, type SoonLabel } from "@/lib/soon";
 
@@ -8,15 +9,6 @@ import { soonLabel, type SoonFields, type SoonLabel } from "@/lib/soon";
 function useSoonLabel(event: SoonFields): SoonLabel | null {
   const now = useMinuteNow();
   return now === null ? null : soonLabel(event, new Date(now));
-}
-
-/** The flame: decorative, so only the words are read ("Tomorrow"). */
-function Flame() {
-  return (
-    <span aria-hidden="true" className="mr-1">
-      🔥
-    </span>
-  );
 }
 
 /**
