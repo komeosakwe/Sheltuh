@@ -115,11 +115,15 @@ export default function VerifyForm() {
     setFieldErrors({});
     setResending(true);
     setCheckShown(true);
+    // The address the code goes to: an edit made while the check runs mustn't change it.
+    const address = email.trim();
     try {
       const token = await humanCheck.getToken();
       // The form went while it waited: send nothing.
       if (token === HUMAN_CHECK_CANCELLED) return;
-      await auth.resendConfirmationCode(email.trim(), token);
+      await auth.resendConfirmationCode(address, token);
+      // Verify email then confirms with the address the new code went to.
+      setEmail(address);
       setResendMessage("New code sent.");
     } catch (err) {
       showServerError(err instanceof Error ? err.message : "Couldn't resend the code.", ["email"]);

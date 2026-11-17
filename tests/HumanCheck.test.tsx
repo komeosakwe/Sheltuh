@@ -477,6 +477,23 @@ describe("Turnstile on", () => {
     expect(turnstile.api.reset).toHaveBeenCalledWith("widget-1");
   });
 
+  it("verify: an email edited while the resend check runs doesn't change where the code went, or which address verifies it", async () => {
+    searchParams = new URLSearchParams({ email: "mia@example.com" });
+    const turnstile = fakeTurnstile();
+    const auth = renderWith(<VerifyForm />);
+    fireEvent.click(screen.getByRole("button", { name: "Resend code" }));
+    await loadScript(turnstile.api);
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "typo@example.com" } });
+    turnstile.pass("token-resend");
+    expect(await screen.findByText("New code sent.")).toBeInTheDocument();
+    expect(auth.resendConfirmationCode).toHaveBeenCalledWith("mia@example.com", "token-resend");
+    expect(screen.getByLabelText("Email")).toHaveValue("mia@example.com");
+
+    fireEvent.change(screen.getByLabelText("Verification code"), { target: { value: "123456" } });
+    fireEvent.click(screen.getByRole("button", { name: "Verify email" }));
+    await waitFor(() => expect(auth.confirmSignUp).toHaveBeenCalledWith("mia@example.com", "123456"));
+  });
+
   it("inline sign-in (expired session) passes the token, and resets after", async () => {
     const turnstile = fakeTurnstile();
     const onSignedIn = vi.fn();
