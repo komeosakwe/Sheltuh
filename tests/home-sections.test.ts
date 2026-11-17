@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  artistKey,
   FEATURED_MAX,
   formatWeekendRange,
   isOpenThisWeekend,
@@ -574,5 +575,28 @@ describe("This weekend: one card per artist (Round 2 B1)", () => {
     const d = kofi("d", 4, { organiserId: undefined, organiserName: "Kofi Live", title: "kofi stone" });
     const e = kofi("e", 5, { title: "Kofi Stone Live" });
     expect(withCarouselFull([a, b, c, d, e], [], now).weekend.items.map((ev) => ev.id)).toEqual(["a", "b", "c", "e"]);
+  });
+
+  it("never collapses on a blank: an emoji-only title is compared as entered, and no organiser is only itself", () => {
+    const party = kofi("party", 1, { title: "🎉🎉" });
+    const disco = kofi("disco", 2, { title: "🪩" });
+    const partyAgain = kofi("party-again", 3, { title: " 🎉🎉 " });
+    expect(artistKey(party)).not.toBe(artistKey(disco));
+    expect(artistKey(party)).toBe(artistKey(partyAgain));
+    expect(withCarouselFull([party, disco, partyAgain], [], now).weekend.items.map((ev) => ev.id)).toEqual(["party", "disco"]);
+
+    // Neither an organiser id nor a name (a record from elsewhere): never "name:undefined", never grouped with another.
+    const anonymous = (id: string, hourUtc: number) => {
+      const shown = kofi(id, hourUtc, { organiserId: undefined });
+      return { ...shown, organiserName: undefined } as unknown as SheltuhEvent;
+    };
+    const first = anonymous("anon-1", 4);
+    const second = anonymous("anon-2", 5);
+    expect(artistKey(first)).not.toContain("undefined");
+    expect(artistKey(first)).not.toBe(artistKey(second));
+    expect(artistKey(kofi("blank", 6, { organiserId: undefined, organiserName: "  " }))).not.toBe(
+      artistKey(kofi("blank-2", 7, { organiserId: undefined, organiserName: "" })),
+    );
+    expect(withCarouselFull([first, second], [], now).weekend.items.map((ev) => ev.id)).toEqual(["anon-1", "anon-2"]);
   });
 });

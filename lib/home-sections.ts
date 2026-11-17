@@ -210,10 +210,17 @@ function normaliseTitle(title: string): string {
 /**
  * Who an event is by, as far as the data can tell: its organiser (the id, or the name when there's
  * none) and its normalised title. There's no artist field, so the same act on two organisers'
- * listings counts twice, and one organiser's same-titled shows (a tour) count once.
+ * listings counts twice, and one organiser's same-titled shows (a tour) count once. Nothing ever
+ * collapses on a blank: a title with no letters or digits ("🎉🎉") is compared as entered, and an
+ * event with no organiser (neither id nor name) or no title at all is only ever itself.
  */
 export function artistKey(event: SheltuhEvent): string {
-  return `${event.organiserId ?? `name:${event.organiserName}`}\u0000${normaliseTitle(event.title)}`;
+  const self = `event:${event.id}`;
+  // The types say a name is always there, but a record from elsewhere may lack it.
+  const organiserName = (event.organiserName ?? "").trim();
+  const organiser = event.organiserId ?? (organiserName ? `name:${organiserName}` : self);
+  const title = normaliseTitle(event.title) || event.title.trim() || self;
+  return `${organiser}\u0000${title}`;
 }
 
 /** `events` keeping only the first of each artist (artistKey), in their order. */
