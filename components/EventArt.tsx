@@ -226,8 +226,12 @@ export default function EventArt({
    * image (3:2, 4:3, 16:9 photos) is cropped to fill, so photos are never pillarboxed. The box is
    * watched (ResizeObserver), so a box that turns portrait or landscape at a breakpoint (the banner's
    * 4:5 below 640px) re-decides without a reload.
+   *
+   * `contain` (the featured banner when its organiser or an admin chose "Show the whole photo"): the
+   * whole photo, always, centred on the blurred backdrop, whatever its shape or the box's. A focus
+   * only moves the backdrop.
    */
-  fit?: "cover" | "auto" | "poster";
+  fit?: "cover" | "auto" | "poster" | "contain";
 }) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const [containedUrl, setContainedUrl] = useState<string | null>(null);
@@ -238,7 +242,9 @@ export default function EventArt({
   const showImage = Boolean(imageUrl) && failedUrl !== imageUrl;
   const contain =
     showImage &&
-    ((fit === "auto" && containedUrl === imageUrl) || (fit === "poster" && portraitUrl === imageUrl && !boxPortrait));
+    (fit === "contain" ||
+      (fit === "auto" && containedUrl === imageUrl) ||
+      (fit === "poster" && portraitUrl === imageUrl && !boxPortrait));
   const position = imageFocus ? `${imageFocus.x}% ${imageFocus.y}%` : undefined;
 
   // `poster`: the box's shape can change with the viewport (the banner is 4:5 below 640px and 2:1 or
@@ -264,7 +270,7 @@ export default function EventArt({
    * whether it's a portrait poster is noted here; the box's shape is the observer's (above).
    */
   function fitLoaded(img: HTMLImageElement) {
-    if (fit === "cover" || !img.naturalWidth || !img.naturalHeight) return;
+    if (fit === "cover" || fit === "contain" || !img.naturalWidth || !img.naturalHeight) return;
     const portraitPoster = img.naturalHeight / img.naturalWidth >= PORTRAIT_POSTER;
     if (fit === "poster") {
       setPortraitUrl(portraitPoster ? (imageUrl ?? null) : null);

@@ -358,6 +358,26 @@ describe("FeaturedCarousel", () => {
     expect(focused.style.objectPosition).toBe("20% 70%");
   });
 
+  it("shows the whole photo (contained on its backdrop, no focal defaults) when the event's banner fit is whole", () => {
+    renderCarousel([
+      event("whole", { imageUrl: "/whole.jpg", bannerFit: "whole" }),
+      event("whole-focus", { imageUrl: "/whole-focus.jpg", bannerFit: "whole", imageFocus: { x: 20, y: 70 } }),
+      event("crop", { imageUrl: "/crop.jpg" }),
+    ]);
+    const [whole, wholeFocus, crop] = slides();
+    const wholeImg = whole.querySelector("img") as HTMLImageElement;
+    expect(wholeImg).toHaveClass("object-contain");
+    expect(wholeImg.className).not.toMatch(/object-\[/);
+    expect(whole.querySelector("[data-art-backdrop]")).not.toBeNull();
+    const focusImg = wholeFocus.querySelector("img") as HTMLImageElement;
+    expect(focusImg).toHaveClass("object-contain");
+    expect(focusImg.style.objectPosition).toBe("");
+    expect((wholeFocus.querySelector("[data-art-backdrop]") as HTMLElement).style.backgroundPosition).toBe("20% 70%");
+    const cropImg = crop.querySelector("img") as HTMLImageElement;
+    expect(cropImg).toHaveClass("object-cover", "object-[50%_50%]");
+    expect(crop.querySelector("[data-art-backdrop]")).toBeNull();
+  });
+
   it("a touch on it stops it (the visitor has taken over); a mouse press doesn't", async () => {
     stubMotion(true);
     renderCarousel();

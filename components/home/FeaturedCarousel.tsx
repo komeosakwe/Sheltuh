@@ -39,7 +39,8 @@ const FOCUS_DEFAULTS = "object-[50%_50%] sm:object-[50%_40%] lg:object-[50%_35%]
 
 /**
  * The home's featured banner (the proposal's full-width banner, redesign PR 3; Round 2 §1.1): one
- * event at a time, its photo full bleed (4:5 below 640px, 2:1 to 1023px, 5:2 from 1024px), with no
+ * event at a time, its photo full bleed (4:5 below 640px, 2:1 to 1023px, 5:2 from 1024px; or, when the
+ * event's banner fit is "whole", the whole photo centred on its blurred backdrop), with no
  * box: a soft shade from 35% of the way down, and a black scrim around the words (banner-scrim: clear
  * at its top, 60% ink 4rem down, where the words start, 80% at the bottom), so every line of them is
  * on at least 60% ink whatever the photo, the title's length or the text size, and the photo above
@@ -292,13 +293,15 @@ export default function FeaturedCarousel({
               className="group/slide relative isolate flex aspect-[4/5] w-full shrink-0 snap-start flex-col justify-end sm:aspect-[2/1] lg:aspect-[5/2]"
             >
               <div className="absolute inset-0 -z-10 overflow-hidden rounded-card">
+                {/* "Show the whole photo" (bannerFit "whole"): the photo contained on its blurred backdrop, so
+                    no focal defaults; otherwise cropped to fill, a portrait poster aside. */}
                 <EventArt
                   poster={event.poster}
                   imageUrl={event.imageUrl}
                   imageFocus={event.imageFocus}
-                  imgClassName={event.imageFocus ? undefined : FOCUS_DEFAULTS}
+                  imgClassName={event.bannerFit === "whole" || event.imageFocus ? undefined : FOCUS_DEFAULTS}
                   title={event.title}
-                  fit="poster"
+                  fit={event.bannerFit === "whole" ? "contain" : "poster"}
                   priority={i === 0}
                   className="size-full"
                 />

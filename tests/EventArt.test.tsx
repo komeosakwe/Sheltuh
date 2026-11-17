@@ -200,3 +200,44 @@ describe("EventArt fit=poster", () => {
     expect(img.style.objectPosition).toBe("");
   });
 });
+
+// Round 2 Part 2: "Show the whole photo in the home banner" (event_images.banner_fit = 'whole').
+describe("EventArt fit=contain", () => {
+  it("always shows the whole photo, centred on its blurred backdrop, before it has even loaded", () => {
+    const { container } = render(<EventArt poster={poster} title="x" imageUrl="/events/wide.jpg" fit="contain" />);
+    const img = container.querySelector("img") as HTMLImageElement;
+    expect(img).toHaveClass("object-contain");
+    expect(img).not.toHaveClass("object-cover");
+    expect(img.style.objectPosition).toBe("");
+    expect(container.querySelector("[data-art-backdrop]")).not.toBeNull();
+  });
+
+  it.each<[string, number, number]>([
+    ["landscape", 1600, 900],
+    ["portrait", 800, 1200],
+    ["square", 1000, 1000],
+  ])("keeps a %s photo whole once loaded", (_, width, height) => {
+    const { container } = render(<EventArt poster={poster} title="x" imageUrl="/events/p.jpg" fit="contain" />);
+    const img = container.querySelector("img") as HTMLImageElement;
+    Object.defineProperty(img, "naturalWidth", { value: width });
+    Object.defineProperty(img, "naturalHeight", { value: height });
+    fireEvent.load(img);
+    expect(img).toHaveClass("object-contain");
+  });
+
+  it("puts the photo's focus on the backdrop only", () => {
+    const { container } = render(
+      <EventArt poster={poster} title="x" imageUrl="/events/p.jpg" fit="contain" imageFocus={{ x: 30, y: 60 }} />,
+    );
+    expect((container.querySelector("img") as HTMLImageElement).style.objectPosition).toBe("");
+    expect((container.querySelector("[data-art-backdrop]") as HTMLElement).style.backgroundPosition).toBe("30% 60%");
+  });
+
+  it("still falls back to the poster art when the photo fails", () => {
+    const { container } = render(<EventArt poster={poster} title="x" imageUrl="/events/p.jpg" fit="contain" />);
+    fireEvent.error(container.querySelector("img") as HTMLImageElement);
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.querySelector("[data-art-backdrop]")).toBeNull();
+    expect(container.querySelector("svg")).not.toBeNull();
+  });
+});
