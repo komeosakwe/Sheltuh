@@ -32,7 +32,7 @@ export default function HomeHero() {
           </p>
         </div>
       </div>
-      <div className="mt-4 md:mt-6 lg:mt-0 lg:w-full lg:max-w-lg xl:max-w-xl">
+      <div className="mt-4 md:mt-6 lg:mt-0 lg:w-full lg:max-w-120 xl:max-w-xl">
         <HomeSearchBar />
       </div>
     </section>
