@@ -47,6 +47,7 @@ import {
   type VenueLocation,
 } from "@/lib/api/types";
 import { isFeaturedVideo, type FeaturedVideo } from "@/lib/api/featured-video";
+import { tagsForEventCategories, type OrganiserTag } from "@/lib/api/organiser-tags";
 import { admitsOf, withGroupPositions } from "@/lib/ticket-groups";
 import { ticketProviderName, type TicketingMode } from "@/lib/ticketing";
 import { DEFAULT_REFUND_POLICY, type RefundPolicy } from "@/lib/refund-policy";
@@ -127,7 +128,7 @@ const ORGANISER_COLUMNS = `o.id, o.owner_user_id, o.display_name, o.contact_emai
          o.rejection_reason, o.reviewed_by, o.reviewed_at, o.stripe_account_id,
          o.payouts_enabled, o.event_review_required, o.created_at, o.updated_at, o.featured_video_provider,
          o.featured_video_id, ${organiserLogoVersionOf("o.id")} as logo_version,
-         ${organiserCoverVersionOf("o.id")} as cover_version`;
+         ${organiserCoverVersionOf("o.id")} as cover_version, o.profile_tags, o.custom_tags`;
 
 export const ORGANISER_SELECT = `
   select ${ORGANISER_COLUMNS}
@@ -172,6 +173,8 @@ const EDIT_FIELDS: Record<string, OrganiserLogField> = {
   featured_video: "featuredVideo",
   logo: "logo",
   cover: "cover",
+  profile_tags: "profileTags",
+  custom_tags: "customTags",
   status: "status",
 };
 
@@ -242,6 +245,8 @@ export function toOrganiser(row: Row): OrganiserRecord {
     featuredVideo: featuredVideoOf(row),
     ...logoUrlOf(row),
     ...coverUrlsOf(row),
+    profileTags: (row.profile_tags as OrganiserTag[] | null) ?? null,
+    customTags: (row.custom_tags as string[] | null) ?? [],
   };
 }
 
@@ -262,7 +267,7 @@ const PUBLIC_ORGANISER_SELECT = `
   select o.id, o.display_name, o.description, o.categories::text[] as categories, o.website_url,
          o.instagram_handle, o.tiktok_handle, o.facebook_page, o.x_handle,
          o.spotify_path, o.soundcloud_handle, o.youtube_channel, o.linkedin_path,
-         o.featured_video_provider, o.featured_video_id,
+         o.featured_video_provider, o.featured_video_id, o.profile_tags, o.custom_tags,
          ${organiserLogoVersionOf("o.id")} as logo_version,
          ${organiserCoverVersionOf("o.id")} as cover_version,
          to_char(o.created_at at time zone 'Australia/Melbourne', 'YYYY-MM') as member_since,
@@ -308,6 +313,9 @@ export function toPublicOrganiserProfile(
     displayName: row.display_name as string,
     description: row.description as string,
     categories: row.categories as PublicOrganiserProfile["categories"],
+    // Until the organiser chooses, their reviewed event categories, mapped to the list.
+    profileTags: (row.profile_tags as OrganiserTag[] | null) ?? tagsForEventCategories(row.categories as string[]),
+    customTags: (row.custom_tags as string[] | null) ?? [],
     websiteUrl: opt(row.website_url),
     socialLinks: socialLinksOf(row),
     memberSince: row.member_since as string,

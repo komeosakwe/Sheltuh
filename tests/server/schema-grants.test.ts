@@ -463,6 +463,31 @@ describe("Data API lock-out", () => {
     expect(policies.n).toBe(0);
   });
 
+  it("the organiser tag functions and trigger exist, pin search_path and aren't client-executable", async () => {
+    const names = [
+      "admin_remove_organiser_custom_tags",
+      "organiser_custom_tag_ok",
+      "organisers_custom_tags_valid",
+      "set_organiser_tags",
+    ];
+    const rows = await db.query<{ fn: string; pinned: boolean; client: boolean }>(
+      `select p.proname as fn,
+              exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c = 'search_path=""') as pinned,
+              has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute')
+                or exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                            where a.grantee = 0 and a.privilege_type = 'EXECUTE') as client
+         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'private' and p.proname = any($1::text[]) order by 1`,
+      [names],
+    );
+    expect(rows).toEqual(names.map((fn) => ({ fn, pinned: true, client: false })));
+    const [trigger] = await db.query<{ n: number }>(
+      `select count(*)::int as n from pg_trigger
+        where tgname = 'organisers_custom_tags_valid' and tgrelid = 'public.organisers'::regclass and not tgisinternal`,
+    );
+    expect(trigger.n).toBe(1);
+  });
+
   it("the event clip functions and trigger exist, pin search_path and aren't client-executable", async () => {
     const names = ["delete_event_clip", "event_clips_touch_event", "lock_event_for_clip", "put_event_clip"];
     const rows = await db.query<{ fn: string; pinned: boolean; client: boolean }>(

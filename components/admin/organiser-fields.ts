@@ -18,6 +18,8 @@ export const ORGANISER_FIELD_LABELS: Record<OrganiserLogField, string> = {
   featuredVideo: "Featured video",
   logo: "Logo",
   cover: "Cover image",
+  profileTags: "Categories",
+  customTags: "Own words",
   status: "Status",
 };
 

@@ -323,6 +323,16 @@ function adminProfileRemoval(
 export const adminRemoveOrganiserCover = adminProfileRemoval("admin_remove_organiser_cover");
 
 /**
+ * POST /api/admin/organisers/[organiserId]/remove-tags — body { reason }.
+ * Clears the organiser's own-word profile chips (`customTags`), whatever
+ * their status (private.admin_remove_organiser_custom_tags); the chips from
+ * the list stay. Logged on the organiser's log as a profile edit by the admin
+ * with the reason. 200 with the organiser (nothing logged when there were
+ * none); 400 reason; 404 unknown.
+ */
+export const adminRemoveOrganiserTags = adminProfileRemoval("admin_remove_organiser_custom_tags");
+
+/**
  * POST /api/admin/organisers/[organiserId]/event-review — body {required,
  * reason}. Turns review of the organiser's events on (`required: true`: their
  * publishes go to the review queue instead of going live) or off

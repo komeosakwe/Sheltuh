@@ -358,6 +358,7 @@ describe("GET /organisers/{organiserId}/profile", () => {
     expect(res.status).toBe(200);
     expect(Object.keys(res.body).sort()).toEqual([
       "categories",
+      "customTags",
       "description",
       "displayName",
       "eventsHosted",
@@ -365,6 +366,7 @@ describe("GET /organisers/{organiserId}/profile", () => {
       "followerCount",
       "memberSince",
       "organiserId",
+      "profileTags",
       "recentEvents",
       "socialLinks",
       "upcomingEvents",
@@ -378,6 +380,9 @@ describe("GET /organisers/{organiserId}/profile", () => {
       displayName: application.displayName,
       description: application.description,
       categories: application.categories,
+      // Not chosen yet: the reviewed event categories, mapped to the list (tests/server/organiser-tags.test.ts).
+      profileTags: ["live-music"],
+      customTags: [],
       websiteUrl: application.websiteUrl,
       upcomingEvents: [],
       recentEvents: [],
