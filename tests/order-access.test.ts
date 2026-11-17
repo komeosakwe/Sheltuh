@@ -1,6 +1,14 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { keepCheckoutAccess, ORDER_ACCESS_LIMIT, ORDER_ACCESS_MAX_AGE_MS, orderAccessFor, rememberOrderAccess } from "@/lib/order-access";
+import {
+  forgetOrderAccess,
+  forgetOrderAccessIfFinal,
+  keepCheckoutAccess,
+  ORDER_ACCESS_LIMIT,
+  ORDER_ACCESS_MAX_AGE_MS,
+  orderAccessFor,
+  rememberOrderAccess,
+} from "@/lib/order-access";
 import { orderFingerprint } from "@/lib/order-fingerprint";
 
 // Live mode, for the API wrappers at the end.
@@ -60,6 +68,37 @@ describe("order access tokens on this device (lib/order-access.ts)", () => {
     // The next write drops it.
     rememberOrderAccess("ord_ffffffffffffffffffffffffffffffff", TOKEN, at + ORDER_ACCESS_MAX_AGE_MS + 1);
     expect(JSON.parse(localStorage.getItem(KEY) ?? "[]")).toHaveLength(1);
+  });
+
+  it("forgets one order's token (and any expired), leaving the others", () => {
+    const OTHER = "ord_ffffffffffffffffffffffffffffffff";
+    const start = Date.now();
+    rememberOrderAccess("ord_old", "1a".repeat(32), start - ORDER_ACCESS_MAX_AGE_MS - 1);
+    rememberOrderAccess(ORDER, TOKEN, start);
+    rememberOrderAccess(OTHER, "2b".repeat(32), start);
+    forgetOrderAccess(ORDER, start);
+    expect(orderAccessFor(ORDER, start)).toBeUndefined();
+    expect(orderAccessFor(OTHER, start)).toBe("2b".repeat(32));
+    expect(JSON.parse(localStorage.getItem(KEY) ?? "[]")).toHaveLength(1);
+    forgetOrderAccess(OTHER, start);
+    expect(localStorage.getItem(KEY)).toBeNull();
+    // Nothing to forget: nothing written.
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    forgetOrderAccess(ORDER, start);
+    expect(setItem).not.toHaveBeenCalled();
+  });
+
+  it("forgetOrderAccessIfFinal: only an ended event, a scanned ticket or support's change are final", () => {
+    for (const reason of ["event_ended", "ticket_scanned", "changed_by_support"] as const) {
+      rememberOrderAccess(ORDER, TOKEN);
+      forgetOrderAccessIfFinal(ORDER, { allowed: false, reason });
+      expect(orderAccessFor(ORDER), reason).toBeUndefined();
+    }
+    rememberOrderAccess(ORDER, TOKEN);
+    for (const change of [undefined, { allowed: true } as const, { allowed: false, reason: "email_already_changed" } as const, { allowed: false, reason: "order_not_paid" } as const]) {
+      forgetOrderAccessIfFinal(ORDER, change);
+      expect(orderAccessFor(ORDER)).toBe(TOKEN);
+    }
   });
 
   it("storage that throws is ignored: nothing kept, nothing thrown", () => {

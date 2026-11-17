@@ -27,7 +27,7 @@ import {
 } from "@/lib/checkout-pay";
 import { eventZone, formatAud, formatEventWhen } from "@/lib/format";
 import { REFUND_ACL_STATEMENT, refundTermsLine } from "@/lib/refund-policy";
-import { orderAccessFor } from "@/lib/order-access";
+import { forgetOrderAccessIfFinal, orderAccessFor } from "@/lib/order-access";
 import { placeName } from "@/lib/place";
 import { SUPPORT_REFUND_NOTE } from "@/lib/support";
 import { ticketNameWithGroup } from "@/lib/ticket-groups";
@@ -224,6 +224,8 @@ export default function CheckoutConfirmation() {
 
         const order = result;
         if (order.status === "paid") {
+          // The server says the token can't change anything any more: this device stops keeping it.
+          if (access) forgetOrderAccessIfFinal(sessionId as string, order.emailChange);
           setState({ status: "ready", order, access });
         } else if (order.status === "oversold_refund_required" || order.status === "refunded") {
           setState({ status: "oversold", order });
@@ -424,7 +426,10 @@ export default function CheckoutConfirmation() {
             sessionId={sessionId}
             order={order}
             access={state.access}
-            onOrder={(next) => setState({ status: "ready", order: next, access: state.access })}
+            onOrder={(next) => {
+              forgetOrderAccessIfFinal(sessionId, next.emailChange);
+              setState({ status: "ready", order: next, access: state.access });
+            }}
           />
         )}
       </div>

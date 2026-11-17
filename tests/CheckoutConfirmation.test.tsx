@@ -4,7 +4,7 @@ import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import CheckoutConfirmation from "@/components/CheckoutConfirmation";
 import { ApiError } from "@/lib/api/client";
-import { rememberOrderAccess } from "@/lib/order-access";
+import { orderAccessFor, rememberOrderAccess } from "@/lib/order-access";
 import type { CustomerOrder, OrderPaymentLookup } from "@/lib/api/types";
 import { REFUND_ACL_STATEMENT } from "@/lib/refund-policy";
 import { rememberPendingCheckout } from "@/lib/seating/pending-checkout";
@@ -815,14 +815,19 @@ describe("CheckoutConfirmation: the buyer's email (the paying browser's one chan
 
   it("sends this browser's token on the read, shows the full email, and changes it once", async () => {
     asPayingBrowser();
-    getOrderBySession.mockResolvedValue(PAYING);
+    // A listed event's order, with its wallet buttons: the change's answer keeps them (the server's withWallet).
+    const wallet = { ...PAYING, eventListed: true, wallet: { google: true, apple: false } } satisfies CustomerOrder;
+    getOrderBySession.mockResolvedValue(wallet);
     changeOrderEmail.mockResolvedValue({
       result: "changed",
-      order: { ...PAYING, email: "mia@gmail.com", emailChange: { allowed: false, reason: "email_already_changed" } },
+      order: { ...wallet, email: "mia@gmail.com", emailChange: { allowed: false, reason: "email_already_changed" } },
     });
     render(<CheckoutConfirmation />);
     const line = await screen.findByText((_c, el) => el?.tagName === "P" && el.textContent === "Tickets sent to mia@gmail.con.");
     expect(line).toBeInTheDocument();
+    // A long address wraps only where it must (not mid-word everywhere, as break-all did).
+    expect(within(line).getByText("mia@gmail.con")).toHaveClass("wrap-anywhere");
+    expect(within(line).getByText("mia@gmail.con")).not.toHaveClass("break-all");
     expect(getOrderBySession).toHaveBeenCalledWith("cs_test_1", TOKEN);
 
     const open = screen.getByRole("button", { name: "Wrong email? Change it" });
@@ -831,15 +836,30 @@ describe("CheckoutConfirmation: the buyer's email (the paying browser's one chan
     const field = screen.getByLabelText("New email for your tickets");
     await waitFor(() => expect(field).toHaveFocus());
     expect(field).toHaveValue("mia@gmail.con");
+    // In a form: the phone keyboard's key says Send, and Enter sends it (focus stays on the field meanwhile).
+    expect(field).toHaveAttribute("enterkeyhint", "send");
     fireEvent.change(field, { target: { value: " mia@gmail.com " } });
     fireEvent.click(screen.getByRole("button", { name: "Send tickets here" }));
 
     await waitFor(() => expect(changeOrderEmail).toHaveBeenCalledWith("cs_test_1", "mia@gmail.com", TOKEN, undefined));
-    expect(await screen.findByRole("status")).toHaveTextContent("Email changed. Your tickets are on their way to mia@gmail.com.");
-    expect(screen.getByText((_c, el) => el?.tagName === "P" && el.textContent === "Tickets sent to mia@gmail.com.")).toBeInTheDocument();
+    // One line, said once: what happened, where the tickets are going, and how to change it again.
+    const status = await screen.findByRole("status");
+    await waitFor(() =>
+      expect(status).toHaveTextContent(
+        "Email changed. Tickets are on their way to mia@gmail.com. To change it again, contact support@sheltuh.com.au.",
+      ),
+    );
+    expect(within(status).getByRole("link", { name: "support@sheltuh.com.au" })).toHaveAttribute("href", "mailto:support@sheltuh.com.au");
+    expect(screen.queryByText(/Tickets sent to/)).toBeNull();
+    expect(screen.queryByText(/You’ve already changed this email once/)).toBeNull();
+    expect(screen.getAllByText(/Email changed/)).toHaveLength(1);
     expect(screen.queryByRole("button", { name: "Wrong email? Change it" })).toBeNull();
-    const used = screen.getByText(/You’ve already changed this email once/);
-    expect(within(used).getByRole("link", { name: "support@sheltuh.com.au" })).toHaveAttribute("href", "mailto:support@sheltuh.com.au");
+    // Focus isn't lost with the form: it's on the box, whose short name doesn't repeat the status.
+    await waitFor(() => expect(screen.getByRole("group", { name: "Ticket email" })).toHaveFocus());
+    // The wallet buttons are still there after the change.
+    expect(screen.getByRole("link", { name: /^Add to Google Wallet/ })).toBeInTheDocument();
+    // The buyer's own change used up: the token stays (only an ended event, a scan or support's change drop it).
+    expect(orderAccessFor("cs_test_1")).toBe(TOKEN);
     // The token never reaches the page's text or the address bar.
     expect(document.body.innerHTML).not.toContain(TOKEN);
   });
@@ -850,6 +870,24 @@ describe("CheckoutConfirmation: the buyer's email (the paying browser's one chan
     render(<CheckoutConfirmation />);
     fireEvent.click(await screen.findByRole("button", { name: "Wrong email? Change it" }));
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByLabelText("New email for your tickets")).toBeNull();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Wrong email? Change it" })).toHaveFocus());
+    expect(changeOrderEmail).not.toHaveBeenCalled();
+  });
+
+  it("Escape cancels too, from the field or its buttons, and puts focus back on Change it", async () => {
+    asPayingBrowser();
+    getOrderBySession.mockResolvedValue(PAYING);
+    render(<CheckoutConfirmation />);
+    fireEvent.click(await screen.findByRole("button", { name: "Wrong email? Change it" }));
+    const field = screen.getByLabelText("New email for your tickets");
+    await waitFor(() => expect(field).toHaveFocus());
+    fireEvent.keyDown(field, { key: "Escape" });
+    expect(screen.queryByLabelText("New email for your tickets")).toBeNull();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Wrong email? Change it" })).toHaveFocus());
+
+    fireEvent.click(screen.getByRole("button", { name: "Wrong email? Change it" }));
+    fireEvent.keyDown(screen.getByRole("button", { name: "Send tickets here" }), { key: "Escape" });
     expect(screen.queryByLabelText("New email for your tickets")).toBeNull();
     await waitFor(() => expect(screen.getByRole("button", { name: "Wrong email? Change it" })).toHaveFocus());
     expect(changeOrderEmail).not.toHaveBeenCalled();
@@ -889,11 +927,14 @@ describe("CheckoutConfirmation: the buyer's email (the paying browser's one chan
     const field = screen.getByLabelText("New email for your tickets");
     fireEvent.change(field, { target: { value: "jo@example.com" } });
     fireEvent.click(screen.getByRole("button", { name: "Send tickets here" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Contact support@sheltuh.com.au to use this address.");
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Contact support@sheltuh.com.au to use this address.");
+    // Support's address is a link.
+    expect(within(alert).getByRole("link", { name: "support@sheltuh.com.au" })).toHaveAttribute("href", "mailto:support@sheltuh.com.au");
     expect(field).toHaveAccessibleDescription(/Contact support@sheltuh\.com\.au to use this address\./);
   });
 
-  it("blocked meanwhile (409 event_ended): the field closes and the line says why", async () => {
+  it("blocked meanwhile (409 event_ended): the field closes, the status says why (once), and the token is forgotten", async () => {
     asPayingBrowser();
     getOrderBySession.mockResolvedValue(PAYING);
     changeOrderEmail.mockRejectedValueOnce(new ApiError(409, "This event has ended…", undefined, { code: "event_ended" }));
@@ -901,9 +942,15 @@ describe("CheckoutConfirmation: the buyer's email (the paying browser's one chan
     fireEvent.click(await screen.findByRole("button", { name: "Wrong email? Change it" }));
     fireEvent.change(screen.getByLabelText("New email for your tickets"), { target: { value: "jo@example.com" } });
     fireEvent.click(screen.getByRole("button", { name: "Send tickets here" }));
-    expect(await screen.findByText(/This event has ended\. To change the email, contact/)).toBeInTheDocument();
+    const status = await screen.findByRole("status");
+    await waitFor(() =>
+      expect(status).toHaveTextContent("This event has ended. To change the email, contact support@sheltuh.com.au."),
+    );
+    expect(screen.getAllByText(/This event has ended/)).toHaveLength(1);
     expect(screen.queryByLabelText("New email for your tickets")).toBeNull();
     expect(screen.queryByRole("button", { name: "Wrong email? Change it" })).toBeNull();
+    await waitFor(() => expect(screen.getByRole("group", { name: "Ticket email" })).toHaveFocus());
+    expect(orderAccessFor("cs_test_1")).toBeUndefined();
   });
 
   it("a token the server doesn't accept (404): only support can help", async () => {
@@ -914,30 +961,46 @@ describe("CheckoutConfirmation: the buyer's email (the paying browser's one chan
     fireEvent.click(await screen.findByRole("button", { name: "Wrong email? Change it" }));
     fireEvent.change(screen.getByLabelText("New email for your tickets"), { target: { value: "jo@example.com" } });
     fireEvent.click(screen.getByRole("button", { name: "Send tickets here" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("We couldn’t change it from here. Contact support@sheltuh.com.au.");
+    const status = await screen.findByRole("status");
+    await waitFor(() => expect(status).toHaveTextContent("We couldn’t change it from here. Contact support@sheltuh.com.au."));
     expect(screen.queryByRole("button", { name: "Wrong email? Change it" })).toBeNull();
   });
 
   it.each([
-    ["email_already_changed", /You’ve already changed this email once\. To change it again, contact support@sheltuh\.com\.au\./],
-    ["event_ended", /This event has ended\. To change the email, contact support@sheltuh\.com\.au\./],
-    ["ticket_scanned", /A ticket has been scanned\. To change the email, contact support@sheltuh\.com\.au\./],
-  ] as const)("blocked (%s): the full email, why, and support's address; no Change it", async (reason, words) => {
+    ["email_already_changed", /You’ve already changed this email once\. To change it again, contact support@sheltuh\.com\.au\./, true],
+    ["ticket_scanned", /A ticket has been scanned\. To change the email, contact support@sheltuh\.com\.au\./, false],
+  ] as const)("blocked (%s): the full email, why, and support's address; no Change it", async (reason, words, keepsToken) => {
     asPayingBrowser();
     getOrderBySession.mockResolvedValue({ ...PAYING, emailChange: { allowed: false, reason } });
     render(<CheckoutConfirmation />);
     expect(await screen.findByText(paragraph(words))).toBeInTheDocument();
     expect(screen.getByText("mia@gmail.con")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Wrong email? Change it" })).toBeNull();
+    // A scan is final: this device stops keeping the token. The buyer's used change isn't (support may still help).
+    expect(orderAccessFor("cs_test_1")).toBe(keepsToken ? TOKEN : undefined);
   });
 
-  it("changed by support: no address at all, just how to change it again", async () => {
+  it("after the event (the server sends the masked address only): why, and support's address; the token is forgotten", async () => {
+    asPayingBrowser();
+    getOrderBySession.mockResolvedValue({ ...ORDER, emailChange: { allowed: false, reason: "event_ended" } });
+    render(<CheckoutConfirmation />);
+    expect(await screen.findByText("Tickets sent to m***@example.com.")).toBeInTheDocument();
+    expect(screen.getByText(paragraph(/^This event has ended\. To change the email, contact support@sheltuh\.com\.au\.$/))).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Wrong email? Change it" })).toBeNull();
+    expect(orderAccessFor("cs_test_1")).toBeUndefined();
+  });
+
+  it("changed by support: no address at all, just how to change it again; the token is forgotten", async () => {
     asPayingBrowser();
     getOrderBySession.mockResolvedValue({ ...ORDER, maskedEmail: undefined, emailChange: { allowed: false, reason: "changed_by_support" } });
     render(<CheckoutConfirmation />);
-    expect(await screen.findByText(paragraph(/^To change this email again, contact support@sheltuh\.com\.au\.$/))).toBeInTheDocument();
+    const words = await screen.findByText(
+      paragraph(/^Support has updated the email for this order\. To change it, contact support@sheltuh\.com\.au\.$/),
+    );
+    expect(within(words).getByRole("link", { name: "support@sheltuh.com.au" })).toHaveAttribute("href", "mailto:support@sheltuh.com.au");
     expect(screen.queryByText(/Tickets sent to/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Wrong email? Change it" })).toBeNull();
+    expect(orderAccessFor("cs_test_1")).toBeUndefined();
   });
 
   it("another device (no token): the masked email and support's address, no change", async () => {
@@ -949,11 +1012,12 @@ describe("CheckoutConfirmation: the buyer's email (the paying browser's one chan
     expect(getOrderBySession).toHaveBeenCalledWith("cs_test_1", undefined);
   });
 
-  it("once the email has changed, another device sees no address and no prompt", async () => {
+  it("once the email has changed, another device sees no address, but still how to reach support", async () => {
     getOrderBySession.mockResolvedValue({ ...ORDER, maskedEmail: undefined });
     render(<CheckoutConfirmation />);
     expect(await screen.findByText("ABC123")).toBeInTheDocument();
     expect(screen.queryByText(/Tickets sent to/)).toBeNull();
-    expect(screen.queryByText(/Wrong email/)).toBeNull();
+    expect(screen.getByText(/Wrong email\? Contact/)).toHaveTextContent("Wrong email? Contact support@sheltuh.com.au.");
+    expect(document.body.textContent).not.toMatch(/@example\.com/);
   });
 });
