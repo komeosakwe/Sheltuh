@@ -706,8 +706,9 @@ describe("LocationPicker — breakpoints", () => {
     const root = document.documentElement;
     const own = Object.getOwnPropertyDescriptor(root, "clientWidth");
     Object.defineProperty(root, "clientWidth", { configurable: true, get: () => 1009 });
+    const queries: string[] = [];
     window.matchMedia = ((query: string) => ({
-      matches: false,
+      matches: (queries.push(query), false),
       media: query,
       onchange: null,
       addEventListener: () => {},
@@ -720,6 +721,8 @@ describe("LocationPicker — breakpoints", () => {
       render(<SearchBar />);
       const panel = openPanel();
       expect(panel.style.width).toBe("360px");
+      // In rem, as Tailwind's lg is (64rem), so a larger default font size moves both together.
+      expect(queries).toContain("(width < 64rem)");
     } finally {
       Reflect.deleteProperty(window, "matchMedia");
       if (own) Object.defineProperty(root, "clientWidth", own);
