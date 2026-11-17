@@ -13,6 +13,8 @@ export function emailChangeBlockReason(block: string): OrderEmailChangeBlock | n
   switch (block) {
     case "not_paid":
       return "order_not_paid";
+    case "changed_by_support":
+      return "changed_by_support";
     case "ended":
       return "event_ended";
     case "scanned":
@@ -29,7 +31,11 @@ export function emailChangeBlockReason(block: string): OrderEmailChangeBlock | n
  * checks"), added to `order` (a settled order's CustomerOrder):
  * - the paying browser (the order's token in `x-order-access`), for a card
  *   order: the full address (`email`) and whether it may change it now
- *   (`emailChange`, from private.order_email_change_block);
+ *   (`emailChange`, from private.order_email_change_block); but once the
+ *   latest change is support's, neither the address nor the masked one, and
+ *   `emailChange: {allowed: false, reason: "changed_by_support"}`: the token
+ *   may be on a device the old address's holder still uses (the reason
+ *   support was asked), so it mustn't show where the tickets went;
  * - anyone else (the order id alone: the ticket email's link): the masked
  *   address only while the email has never been changed, and none once it
  *   has (owner decision Q7), so the old address's holder doesn't learn the
@@ -75,10 +81,18 @@ async function changeLogMissing(db: Db, err: unknown): Promise<boolean> {
 
 async function orderEmailFor(req: Request, deps: Deps, orderId: string, order: CustomerOrder): Promise<CustomerOrder> {
   if (hasOrderAccess(req, deps, orderId)) {
-    const [row] = await deps.db.query<{ buyer_email: string | null; block: string | null }>(
-      `select o.buyer_email, private.order_email_change_block(o.id) as block from public.orders o where o.id = $1`,
+    const [row] = await deps.db.query<{ buyer_email: string | null; block: string | null; last_changed_by: string | null }>(
+      `select o.buyer_email, private.order_email_change_block(o.id) as block,
+              (select c.changed_by from private.order_email_changes c
+                where c.order_id = o.id order by c.created_at desc, c.id desc limit 1) as last_changed_by
+         from public.orders o where o.id = $1`,
       [orderId],
     );
+    if (row?.last_changed_by === "admin") {
+      const withheld: CustomerOrder = { ...order, emailChange: { allowed: false, reason: "changed_by_support" } };
+      delete withheld.maskedEmail;
+      return withheld;
+    }
     if (row?.buyer_email) {
       const reason = row.block === null ? undefined : emailChangeBlockReason(row.block);
       if (reason !== null) {

@@ -899,7 +899,8 @@ export interface CustomerOrder {
    * record, and, once the order's email has been changed (by the buyer or
    * support), for anyone but the paying browser (an `x-order-access` header
    * with the order's token): the old address's holder has the order's link
-   * too, and mustn't learn the new address even masked.
+   * too, and mustn't learn the new address even masked. Once support has
+   * changed it, for the paying browser too (see `emailChange`).
    */
   maskedEmail?: string;
   /**
@@ -908,7 +909,12 @@ export interface CustomerOrder {
    * tickets are sent to, so the buyer can spot a typo. Unset for anyone else.
    */
   email?: string;
-  /** Only with `email`: whether the paying browser can change it now (changeOrderEmail). */
+  /**
+   * Only for the paying browser, with `email`: whether it can change it now
+   * (changeOrderEmail). Without `email` (and without `maskedEmail`) once
+   * support has changed the address: `{allowed: false, reason:
+   * "changed_by_support"}`.
+   */
   emailChange?: OrderEmailChange;
   subtotalCents: number;
   /** Booking fees the buyer paid (not any the organiser absorbed). */
@@ -975,10 +981,17 @@ export type CustomerOrderLookup = CustomerOrder | { status: "pending" };
  * Why the paying browser can't change the order's email now (each is also
  * the 409 `code` of changeOrderEmail): `order_not_paid` (not paid, or
  * refunded), `event_ended`, `ticket_scanned` (a ticket was admitted at the
- * door, even if that was undone) or `email_already_changed` (the one change
- * is used). Support can still change it (/admin/emails).
+ * door, even if that was undone), `email_already_changed` (the one change
+ * is used) or `changed_by_support` (support changed it: only support can
+ * change it again, and the order no longer shows its address, full or
+ * masked). Support can still change it (/admin/emails).
  */
-export type OrderEmailChangeBlock = "order_not_paid" | "event_ended" | "ticket_scanned" | "email_already_changed";
+export type OrderEmailChangeBlock =
+  | "order_not_paid"
+  | "event_ended"
+  | "ticket_scanned"
+  | "email_already_changed"
+  | "changed_by_support";
 
 /** CustomerOrder.emailChange. */
 export type OrderEmailChange = { allowed: true } | { allowed: false; reason: OrderEmailChangeBlock };

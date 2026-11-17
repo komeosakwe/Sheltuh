@@ -3,9 +3,10 @@
 -- A buyer who typed the wrong address can move their order to the right one
 -- once, from the browser that paid (the API checks the order access token;
 -- the database never sees it), until the event ends or a ticket is scanned.
--- Support (an admin) can change it at any time, with a reason. Either way the
--- ticket email is sent again, to the new address only; the QR codes don't
--- change (nothing is sent to, or revoked from, the old address).
+-- Support (an admin) can change it at any time, with a reason; after that
+-- the buyer can't change it themselves any more (only support can, again).
+-- Either way the ticket email is sent again, to the new address only; the QR
+-- codes don't change (nothing is sent to, or revoked from, the old address).
 --
 --   * private.order_email_changes: an append-only log of every change, with
 --     both addresses masked (m***@example.com, never in full), who made it
@@ -39,8 +40,9 @@
 -- authenticated, search_path pinned, none security definer.
 --
 -- Indexes: order_email_changes_order_idx (order_id, created_at desc, id desc)
--- serves the admin list's newest 5 changes per order and the orders cascade;
--- the partial unique index serves the "already changed" check. The block
+-- serves the admin list's newest 5 changes per order, the confirmation page's
+-- "latest change" read, the "changed by support" check and the orders
+-- cascade; the partial unique index serves the "already changed" check. The block
 -- function reads the order and event by primary key, the tickets by
 -- tickets_order_idx and their scans by ticket_check_ins_code_idx; the
 -- account check reads auth.users by lower(email), a scan, as the invites
@@ -123,6 +125,10 @@ $$;
 --   'not_card_order'  not a card checkout (a free order: its address was
 --                     confirmed by a link, or is the member's own)
 --   'not_paid'        not paid (pending, failed, refunded or being refunded)
+--   'changed_by_support' support (an admin) has changed it: from then on only
+--                     support can change it again, so the paying browser (whose
+--                     token may be on a device the old address's holder uses)
+--                     can't undo what support checked with the buyer
 --   'ended'           the event has ended (ends_at <= now(), the platform's
 --                     definition), or is gone
 --   'scanned'         one of its tickets was admitted at the door (even if
@@ -137,6 +143,8 @@ as $$
            when o.id is null then 'not_found'
            when o.total_cents <= 0 then 'not_card_order'
            when o.status <> 'paid' then 'not_paid'
+           when exists (select 1 from private.order_email_changes x
+                         where x.order_id = o.id and x.changed_by = 'admin') then 'changed_by_support'
            when e.ends_at is null or e.ends_at <= now() then 'ended'
            when exists (select 1
                           from public.tickets t
@@ -161,8 +169,9 @@ $$;
 --                     pending again (due now, a fresh set of attempts)
 --   'unchanged'       the same address, ignoring case: nothing written (a
 --                     buyer's one change isn't used up)
---   'not_found', 'not_card_order', 'not_paid', and for a buyer 'ended',
---   'scanned', 'already_changed' (also a lost race: the unique index),
+--   'not_found', 'not_card_order', 'not_paid', and for a buyer
+--   'changed_by_support', 'ended', 'scanned', 'already_changed' (also a lost
+--   race: the unique index),
 --   'account_email'   nothing written
 --   'busy'            the order's ticket email was queued at this instant
 --                     and a worker holds it: nothing written, try again

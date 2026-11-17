@@ -56,6 +56,8 @@ const REFUSALS: Record<OrderEmailChangeErrorCode, string> = {
   event_ended: `This event has ended, so the email can't be changed here. ${CONTACT_SUPPORT}`,
   ticket_scanned: `A ticket in this order has been scanned at the door, so the email can't be changed here. ${CONTACT_SUPPORT}`,
   email_already_changed: `This order's email has already been changed once. ${CONTACT_SUPPORT}`,
+  // Says nothing about the change itself (who asked, or to what).
+  changed_by_support: `Contact ${SUPPORT_EMAIL} to change this email again.`,
   email_has_account: `Contact ${SUPPORT_EMAIL} to use this address.`,
   email_change_busy: "Your tickets are being sent right now. Try again in a moment.",
 };

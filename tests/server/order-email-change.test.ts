@@ -430,6 +430,36 @@ describe("the admin's change (POST /admin/emails/{jobId}/change-email)", () => {
     expect(same.body.emailChanges).toHaveLength(2);
   });
 
+  it("ends self-serve: the paying browser can't change it again (409 changed_by_support) and sees no address, full or masked", async () => {
+    const SUPPORT_SET = "right.one@example.org";
+    for (const buyerFirst of [false, true]) {
+      const { orderId, access } = await paidOrder();
+      if (buyerFirst) expect((await change(orderId, { email: NEW }, { access })).status).toBe(200);
+      const res = await adminChange((await job(orderId)).id, { email: SUPPORT_SET, reason: "Buyer confirmed by phone" });
+      expect(res.status).toBe(200);
+
+      const mine = await view(orderId, access);
+      expect(mine.status).toBe(200);
+      expect(mine.body.emailChange).toEqual({ allowed: false, reason: "changed_by_support" });
+      expect(mine.body).not.toHaveProperty("email");
+      expect(mine.body).not.toHaveProperty("maskedEmail");
+      expect(JSON.stringify(mine.body)).not.toContain("example.org");
+      const theirs = await view(orderId);
+      expect(theirs.body).not.toHaveProperty("maskedEmail");
+      expect(theirs.body).not.toHaveProperty("emailChange");
+
+      const again = await change(orderId, { email: OLD }, { access });
+      expect([again.status, again.body.code]).toEqual([409, "changed_by_support"]);
+      expect(again.body.error).toBe("Contact support@sheltuh.com.au to change this email again.");
+      expect(JSON.stringify(again.body)).not.toContain("example.org");
+      expect(await orderRow(orderId)).toMatchObject({ buyer_email: SUPPORT_SET });
+      expect((await changes(orderId)).map((c) => c.changed_by)).toEqual(buyerFirst ? ["buyer", "admin"] : ["admin"]);
+      // Support still can.
+      expect((await adminChange((await job(orderId)).id, { email: OLD, reason: "Buyer asked again" })).status).toBe(200);
+      expect(await orderRow(orderId)).toMatchObject({ buyer_email: OLD });
+    }
+  });
+
   it("refuses a refunded order and a free booking (409); over 20 an hour, 429 with the change undone", async () => {
     const refunded = await paidOrder("refunded@example.com");
     await api.db.query(`update public.orders set status = 'refunded' where id = $1`, [refunded.orderId]);
@@ -515,6 +545,34 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("races (real Postgres only)", ()
       expect(results.map((r) => r.status).sort()).toEqual([200, 409]);
       expect(results.find((r) => r.status === 409)!.body.code).toBe("email_already_changed");
       expect(await changes(orderId)).toHaveLength(1);
+    } finally {
+      await Promise.all(conns.map((sql) => sql.end()));
+    }
+  });
+
+  it("a buyer's change racing support's: the buyer's lands first or is refused (changed_by_support), never after", async () => {
+    const { orderId, access } = await paidOrder();
+    const { id } = await job(orderId);
+    const conns = [1, 2].map(() => postgres(serverUrl as string, { max: 1, onnotice: () => {} }));
+    try {
+      const adminApi = connectedApi(conns[0]);
+      const adminToken = adminApi.tokenFor({ userId: admin.userId, emailVerified: true, isAdmin: true });
+      const [byAdmin, byBuyer] = await Promise.all([
+        adminApi.call(adminChangeOrderEmail, {
+          params: { jobId: id },
+          body: { email: "support.set@example.com", reason: "Buyer confirmed by phone" },
+          token: adminToken,
+        }),
+        connectedApi(conns[1]).call(changeOrderEmail, {
+          params: { sessionId: orderId },
+          body: { email: NEW },
+          headers: { [ORDER_ACCESS_HEADER]: access },
+        }),
+      ]);
+      expect(byAdmin.status).toBe(200);
+      expect(await orderRow(orderId)).toMatchObject({ buyer_email: "support.set@example.com" });
+      if (byBuyer.status === 200) expect((await changes(orderId)).map((c) => c.changed_by)).toEqual(["buyer", "admin"]);
+      else expect([byBuyer.status, byBuyer.body.code, (await changes(orderId)).length]).toEqual([409, "changed_by_support", 1]);
     } finally {
       await Promise.all(conns.map((sql) => sql.end()));
     }
