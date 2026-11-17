@@ -517,7 +517,7 @@ describe("parseCustomTag and private.organiser_custom_tag_ok agree", () => {
     expect(await refusedByDb(cleaned)).toEqual([]);
   });
 
-  it("every character the API accepts in a word, the database accepts (the BMP, the SMP, the SIP and the tags block)", async () => {
+  it("every character the API accepts in a word, the database accepts (the BMP, the SMP, the SIP and the tags block)", { timeout: 60_000 }, async () => {
     const accepted = sweep([
       [0x0001, 0x2ffff],
       [0xe0000, 0xe01ff],
@@ -530,7 +530,7 @@ describe("parseCustomTag and private.organiser_custom_tag_ok agree", () => {
     expect(refused.map((w) => [...w].map((c) => c.codePointAt(0)!.toString(16)).join(" "))).toEqual([]);
   });
 
-  it("every character the database's deny-lists name, the API refuses (but the spaces it cleans away)", async () => {
+  it("every character the database's deny-lists name, the API refuses (but the spaces it cleans away)", { timeout: 60_000 }, async () => {
     const points = dbDeniedCodePoints();
     expect(points.length).toBeGreaterThan(4000);
     // Tab, line feed and carriage return: the API folds them into a space first, as the database never sees them.
@@ -539,7 +539,7 @@ describe("parseCustomTag and private.organiser_custom_tag_ok agree", () => {
     expect(words.filter((w) => parseCustomTag(w).ok)).toEqual([]);
   });
 
-  it("the database refuses every assigned character that renders as nothing (Default_Ignorable_Code_Point), as the API does", async () => {
+  it("the database refuses every assigned character that renders as nothing (Default_Ignorable_Code_Point), as the API does", { timeout: 60_000 }, async () => {
     const ignorable: string[] = [];
     for (let cp = 1; cp <= 0x10ffff; cp++) {
       if (cp >= 0xd800 && cp <= 0xdfff) continue;

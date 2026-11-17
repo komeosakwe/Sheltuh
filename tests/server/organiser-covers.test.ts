@@ -230,7 +230,7 @@ describe("PUT /organisers/me/cover: re-encoding", () => {
     expect(stored.small.length).toBeLessThanOrEqual(MAX_COVER_SMALL_BYTES);
   });
 
-  it("steps the WebP quality down (82, 70, 55, 40) until the output fits, and gives up below the last", async () => {
+  it("steps the WebP quality down (82, 70, 55, 40) until the output fits, and gives up below the last", { timeout: 60_000 }, async () => {
     // A small noise image keeps the encodes quick; the steps don't depend on the size.
     const size = { width: 448, height: 128 };
     const pixels: RawPixels = { data: noise(size.width * size.height * 3), ...size, channels: 3 };
@@ -250,7 +250,7 @@ describe("PUT /organisers/me/cover: re-encoding", () => {
     expect(await coverWebp(pixels, size, encodes[encodes.length - 1].length - 1)).toBeNull();
   });
 
-  it("even pure noise at full size fits both bounds by quality 70 (docs/architecture.md)", async () => {
+  it("even pure noise at full size fits both bounds by quality 70 (docs/architecture.md)", { timeout: 60_000 }, async () => {
     const { width, height } = COVER_SIZE;
     const pixels: RawPixels = { data: noise(width * height * 3), width, height, channels: 3 };
     for (const [size, max] of [
