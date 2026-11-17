@@ -270,13 +270,13 @@ test.describe("Who's going? on the event page at 390×844", () => {
     await expect(card.getByRole("link", { name: "Kofi A.’s profile" })).toHaveAttribute("href", "/members/p1");
 
     // Below lg, under Save and Share (so they stay above the bar), then Hosted by (12px under them since Round 2), then
-    // this row (16px under it), inside the page's 16px margins.
+    // this row (12px under it, the column's gap: no extra margin since Round 2 Part 2), inside the page's 16px margins.
     const box = await card.boundingBox();
     const actions = await page.locator("[data-event-actions]").boundingBox();
     const organiser = await page.locator("[data-event-organiser]").boundingBox();
     if (!box || !actions || !organiser) throw new Error("not laid out");
     expect(Math.round(organiser.y - (actions.y + actions.height))).toBe(12);
-    expect(Math.round(box.y - (organiser.y + organiser.height))).toBe(16);
+    expect(Math.round(box.y - (organiser.y + organiser.height))).toBe(12);
     expect(Math.round(box.x)).toBe(16);
     expect(Math.round(box.width)).toBe(358);
 
