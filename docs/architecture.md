@@ -3092,7 +3092,10 @@ Admins create events themselves, for any organiser
   when it's narrow), transparency flattened onto white, converted to sRGB
   raw pixels, then encoded twice: 2240 × 640 (≤ 1 MB) and 1120 × 320
   (`small`, ≤ 256 KB), each stepping WebP quality 82 → 70 → 55 → 40 until it
-  fits (a 400 on `cover` if even 40 doesn't; even pure noise fits by 70).
+  fits (a 400 on `cover` if even 40 doesn't; even pure noise, the worst
+  case, fits by 70: measured with sharp 0.35, it already fits at 82, at
+  about 97% of the 1 MB bound; `tests/server/organiser-covers.test.ts`
+  checks both the steps and the claim).
   **Serving**: `GET /organisers/{id}/cover[?size=small]`, the logo's cache
   rules and windows (ETag `"<version>-<l|s>"`). **In payloads**: `coverUrl`
   and `coverSmallUrl` on the organiser's own record, the admin queue and the

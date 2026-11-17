@@ -17,12 +17,15 @@ import {
 import { applyAsOrganiser, getMyOrganiser } from "@/lib/server/handlers/organisers";
 import { getPublicOrganiserProfile } from "@/lib/server/handlers/public-organisers";
 import {
+  COVER_QUALITIES,
   COVER_SIZE,
   COVER_SMALL_SIZE,
   COVER_UPLOAD_RATE_LIMIT,
+  coverWebp,
   MAX_COVER_IMAGE_BYTES,
   MAX_COVER_SMALL_BYTES,
   MAX_COVER_UPLOAD_BYTES,
+  type RawPixels,
 } from "@/lib/server/organiser-cover";
 import { runHandler, type Handler } from "@/lib/server/route";
 import { SITE_URL, TestApi } from "./helpers/api";
@@ -115,6 +118,19 @@ const smallPng = () =>
   sharp({ create: { width: 64, height: 64, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 1 } } }).png().toBuffer();
 
 /** The RGB(A) of pixel (x, y) of an image. */
+/** `length` bytes of pure noise, the same every run (xorshift32): the hardest thing to compress. */
+function noise(length: number): Buffer {
+  const out = Buffer.alloc(length);
+  let x = 0x9e3779b9;
+  for (let i = 0; i < length; i++) {
+    x ^= x << 13;
+    x ^= x >>> 17;
+    x ^= x << 5;
+    out[i] = x & 0xff;
+  }
+  return out;
+}
+
 async function pixel(bytes: Buffer, x: number, y: number) {
   const { data, info } = await sharp(bytes).raw().toBuffer({ resolveWithObject: true });
   const at = (y * info.width + x) * info.channels;
@@ -202,7 +218,7 @@ describe("PUT /organisers/me/cover: re-encoding", () => {
     }
   });
 
-  it("keeps a very detailed photo within its size bounds by stepping the quality down", async () => {
+  it("keeps a very detailed photo within its size bounds", async () => {
     const { width, height } = COVER_SIZE;
     const noise = Buffer.alloc(width * height * 3);
     for (let i = 0; i < noise.length; i++) noise[i] = (i * 2654435761) >>> 24;
@@ -212,6 +228,41 @@ describe("PUT /organisers/me/cover: re-encoding", () => {
     const stored = (await storedCover(organiser.organiserId))!;
     expect(stored.image.length).toBeLessThanOrEqual(MAX_COVER_IMAGE_BYTES);
     expect(stored.small.length).toBeLessThanOrEqual(MAX_COVER_SMALL_BYTES);
+  });
+
+  it("steps the WebP quality down (82, 70, 55, 40) until the output fits, and gives up below the last", async () => {
+    // A small noise image keeps the encodes quick; the steps don't depend on the size.
+    const size = { width: 448, height: 128 };
+    const pixels: RawPixels = { data: noise(size.width * size.height * 3), ...size, channels: 3 };
+    const at = (quality: number) =>
+      sharp(pixels.data, { raw: { ...size, channels: 3 } })
+        .resize(size.width, size.height, { fit: "cover", position: "centre" })
+        .webp({ quality, effort: 4 })
+        .toBuffer();
+    const encodes = await Promise.all(COVER_QUALITIES.map(at));
+    // Each step really is smaller (lower quality) than the one before.
+    for (let i = 1; i < encodes.length; i++) expect(encodes[i].length).toBeLessThan(encodes[i - 1].length);
+    for (let i = 0; i < encodes.length; i++) {
+      // A bound just under the previous step's size: that step is skipped, this one is used.
+      const bound = i === 0 ? encodes[0].length : encodes[i - 1].length - 1;
+      expect([COVER_QUALITIES[i], (await coverWebp(pixels, size, bound))?.equals(encodes[i])]).toEqual([COVER_QUALITIES[i], true]);
+    }
+    expect(await coverWebp(pixels, size, encodes[encodes.length - 1].length - 1)).toBeNull();
+  });
+
+  it("even pure noise at full size fits both bounds by quality 70 (docs/architecture.md)", async () => {
+    const { width, height } = COVER_SIZE;
+    const pixels: RawPixels = { data: noise(width * height * 3), width, height, channels: 3 };
+    for (const [size, max] of [
+      [COVER_SIZE, MAX_COVER_IMAGE_BYTES],
+      [COVER_SMALL_SIZE, MAX_COVER_SMALL_BYTES],
+    ] as const) {
+      const at70 = await sharp(pixels.data, { raw: { width, height, channels: 3 } })
+        .resize(size.width, size.height, { fit: "cover", position: "centre" })
+        .webp({ quality: 70, effort: 4 })
+        .toBuffer();
+      expect([size, at70.length <= max]).toEqual([size, true]);
+    }
   });
 
   it.each([

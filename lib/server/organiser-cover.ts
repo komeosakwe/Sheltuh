@@ -58,10 +58,14 @@ export async function readCoverUpload(req: Request): Promise<Uint8Array> {
   return bytes;
 }
 
-type RawPixels = { data: Buffer; width: number; height: number; channels: 1 | 2 | 3 | 4 };
+export type RawPixels = { data: Buffer; width: number; height: number; channels: 1 | 2 | 3 | 4 };
 
-/** `pixels` scaled to `size` as a WebP of at most `maxBytes` (each of COVER_QUALITIES in turn), or null if none fits. */
-async function coverWebp(
+/**
+ * `pixels` scaled to `size` as a WebP of at most `maxBytes` (each of
+ * COVER_QUALITIES in turn, the first that fits), or null if none fits.
+ * Exported for its tests.
+ */
+export async function coverWebp(
   pixels: RawPixels,
   size: { width: number; height: number },
   maxBytes: number,
