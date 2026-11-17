@@ -63,6 +63,8 @@ function isKeyLikeRun(run: string): boolean {
   if (!(mixesClasses(run) || (run.length >= 40 && /[A-Z]/.test(run) && /[a-z]/.test(run)))) return false;
   if (run.includes("+")) return true;
   const pieces = run.split("/").map((piece) => piece.replace(/=+$/, ""));
+  // Every stretch a word ("/Applications/Configuration/Authentication"): a path, however long.
+  if (pieces.every((bare) => bare === "" || WORD_PIECE.test(bare))) return false;
   // A long run with few slashes: base64 has one about every 64 characters, a path one every 6–10.
   if (run.length >= 48 && run.length / pieces.length >= 10) return true;
   // Two or more scrambled stretches ("8cp8ozDXdA"): a path's segments are words, base64's aren't.

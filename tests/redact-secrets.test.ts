@@ -81,6 +81,9 @@ describe("redactSecrets", () => {
       "/home/kome/Secure/AppleSignIn/Production/AuthKey.p8",
       "/Users/kome/Projects/Sheltuh/Keys/Apple/Production2026/AuthKey.p8",
       "/var/lib/sheltuh/releases/Build2026/Assets/Fonts/Bootzy/Regular.woff2",
+      // Only words between the slashes, however long (CodeRabbit, PR 55).
+      "/Applications/Configuration/Authentication/Production/AuthKey.p8",
+      "/Users/alice/Projects/AppleDeveloperAuthentication/AuthKey.p8",
       "The key isn't a Stripe secret (sk_…) or restricted (rk_…) key.",
       "Expires 2027-04-22T00:00:00.000Z (180 days).",
       "Stripe refused the request: No such payment_method_domain: 'pmd_1PgGq2Lkd8xyz' (req_AbC123dEf456)",
