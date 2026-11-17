@@ -4,7 +4,8 @@ import { useId, useSyncExternalStore } from "react";
 import { SelectedDots } from "@/components/ui/FilterChip";
 import { getServerTheme, getTheme, setTheme, subscribeTheme, type Theme } from "@/lib/theme";
 
-const SEGMENT = "flex min-h-11 items-center gap-2 rounded-badge px-5 text-sm leading-5 font-semibold";
+/** 48px on phones and tablets, 40px from `lg` (the rules: icon-sized controls are 40 on desktop). */
+const SEGMENT = "flex min-h-12 items-center gap-2 rounded-badge px-4 text-sm leading-5 font-semibold lg:min-h-10";
 
 /**
  * Each segment's look comes from CSS (the `dark:` variant reads <html>'s
@@ -27,12 +28,10 @@ const OPTIONS: { theme: Theme; label: string; className: string; dots: string }[
 ];
 
 /**
- * The Light / Dark switch (docs/design/theme-white-dark.md §5.6): a group of
- * two toggle buttons named "Theme", the map's Map / List segmented control
- * in look. 44px tall at every width. Choosing applies at once and is kept in
- * this browser; choosing the current one does nothing. In the footer (all
- * widths) and the phone menu. `data-theme-switch` lets the menu stay open
- * when it's used.
+ * The Light / Dark switch (docs/design/theme-white-dark.md §5.6; the redesign proposal's
+ * footer): a "Theme" eyebrow over a group of two toggle buttons named "Theme", radius 8 with the
+ * 1.5px stroke. Choosing applies at once and is kept in this browser; choosing the current one
+ * does nothing. In the footer only (the rules' Navigation board: "Theme toggle: Footer only").
  */
 export default function ThemeSwitch({ className = "" }: { className?: string }) {
   const labelId = useId();
@@ -46,7 +45,7 @@ export default function ThemeSwitch({ className = "" }: { className?: string }) 
       <div
         role="group"
         aria-labelledby={labelId}
-        className="mt-2 inline-flex gap-1 rounded-control border border-foreground bg-card p-1"
+        className="mt-2 inline-flex gap-2 rounded-control border-control border-foreground bg-card p-2"
       >
         {OPTIONS.map((option) => (
           <button

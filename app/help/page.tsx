@@ -17,7 +17,8 @@ export default function HelpPage() {
           reach Sheltüh. Free tickets need no payment.
         </p>
       </ContentSection>
-      <ContentSection title="Where are my tickets?">
+      {/* /login's "Find my tickets" (components/auth/LoginLinks.tsx) links here. */}
+      <ContentSection id="where-are-my-tickets" title="Where are my tickets?">
         <p>
           They’re emailed to the address you used at checkout. Check spam, then email{" "}
           <a href="mailto:support@sheltuh.com.au">support@sheltuh.com.au</a> with the event name.

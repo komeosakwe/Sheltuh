@@ -60,8 +60,10 @@ describe("EventHost, in the demo", () => {
 
   it("names the host and the View profile link for screen readers", () => {
     const host = renderHost(sampleEvent("Static Collective"), true);
-    expect(within(host).getByText("Static Collective")).toBeInTheDocument();
+    expect(within(host).getByText("Static Collective", { selector: "p" })).toBeInTheDocument();
     expect(within(host).getByRole("link", { name: "View profile of Static Collective" })).toBeInTheDocument();
+    // Follow sits beside it (unavailable in the demo, and said so).
+    expect(within(host).getByRole("button", { name: "Follow Static Collective" })).toHaveAttribute("aria-disabled", "true");
   });
 
   it("shows only the links the sample organiser has", () => {
@@ -99,13 +101,16 @@ describe("EventHost, live", () => {
     expect(within(host).queryByText(/fictional organiser/)).toBeNull();
   });
 
-  it("with no links or bio, is just the name and View profile", () => {
+  it("with no links or bio, is just the name, Follow and View profile", () => {
     const host = renderHost(liveEvent(), false);
-    expect(within(host).getByText("Northside Noise")).toBeInTheDocument();
+    expect(within(host).getByText("Northside Noise", { selector: "p" })).toBeInTheDocument();
     expect(within(host).getAllByRole("link")).toHaveLength(1);
     expect(within(host).getByRole("link", { name: "View profile of Northside Noise" })).toBeInTheDocument();
+    expect(within(host).getByRole("button", { name: "Follow Northside Noise" })).toBeInTheDocument();
     expect(within(host).queryByRole("list")).toBeNull();
-    expect(host.querySelector("p:not(:first-child)")).toBeNull();
+    // No bio, and no followers or "Checked" line without the profile read.
+    expect(host.querySelector("p.body-s")).toBeNull();
+    expect(host.querySelector("p.mono-s")).toBeNull();
   });
 
   it("shows the logo when the event has one, and initials otherwise", () => {

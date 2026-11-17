@@ -35,6 +35,7 @@ export default function QuickBuyLink({
   fullWidthOnPhones = false,
   narrow = false,
   fill = false,
+  tall = false,
   now = new Date(),
 }: {
   event: SheltuhEvent;
@@ -43,6 +44,8 @@ export default function QuickBuyLink({
   narrow?: boolean;
   /** Fill the row at every width (the map card's button row). */
   fill?: boolean;
+  /** 48px at every width (Nearby's list rows), rather than 44px on phones and 40px from 640px. */
+  tall?: boolean;
   now?: Date;
 }) {
   const cta = cardCta(event, now);
@@ -59,7 +62,7 @@ export default function QuickBuyLink({
       <Link
         href={cta.href}
         // relative: its visually hidden name is positioned within the button, never the page.
-        className={buttonClass(cta.tone, "md", `relative min-h-11 sm:min-h-10 ${width}`)}
+        className={buttonClass(cta.tone, "md", `relative ${tall ? "min-h-12" : "min-h-11 sm:min-h-10"} ${width}`)}
       >
         {/* The whole name in one span: a leading space in a separate sr-only suffix can be dropped inside a flex link. */}
         <span className="sr-only">

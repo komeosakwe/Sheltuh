@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import DemoNotice from "@/components/DemoNotice";
-import { Button, ButtonLink } from "@/components/ui/Button";
+import { Button, ButtonLink, type ButtonSize } from "@/components/ui/Button";
 import ActionErrorNotice from "@/components/whos-going/ActionErrorNotice";
 import { SESSION_EXPIRED_MESSAGE } from "@/components/whos-going/shared";
 import { ApiError, isApiConfigured } from "@/lib/api/client";
@@ -32,7 +32,21 @@ function errorMessage(err: unknown): string {
  * back here. Nobody sees who follows whom. In the demo (no API): an
  * unavailable Follow, still focusable, described by a note, and no request.
  */
-export default function FollowButton({ organiserId, organiserName }: { organiserId: string; organiserName: string }) {
+export default function FollowButton({
+  organiserId,
+  organiserName,
+  returnTo = `/organisers/${encodeURIComponent(organiserId)}`,
+  size = "lg",
+  beside,
+}: {
+  organiserId: string;
+  organiserName: string;
+  /** Where signing in (and a session-expired notice) comes back to: the organiser's profile by default. */
+  returnTo?: string;
+  size?: ButtonSize;
+  /** Shown in a row beside the button (the event page's Organiser card: View profile), whatever its state. */
+  beside?: ReactNode;
+}) {
   const auth = useOptionalAuth();
   const signedIn = auth?.status === "signed-in";
   const getToken = signedIn ? auth.getAccessToken : undefined;
@@ -43,7 +57,18 @@ export default function FollowButton({ organiserId, organiserName }: { organiser
   const [error, setError] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const demoNoteId = useId();
-  const returnTo = `/organisers/${encodeURIComponent(organiserId)}`;
+  // Full width on phones on its own; beside something, as wide as its words.
+  const width = beside ? "" : "w-full sm:w-auto";
+  // The button, with `beside` next to it when there is one.
+  const row = (button: ReactNode) =>
+    beside ? (
+      <div className="flex w-full flex-wrap items-center gap-2">
+        {button}
+        {beside}
+      </div>
+    ) : (
+      button
+    );
 
   useEffect(() => {
     if (!getToken || !isApiConfigured) return;
@@ -70,11 +95,13 @@ export default function FollowButton({ organiserId, organiserName }: { organiser
     return (
       <div className="flex flex-col items-start gap-3">
         {/* aria-disabled, not disabled: it stays in the tab order, so the note is heard with it. */}
-        <Button variant="solid" size="lg" aria-disabled="true" aria-describedby={demoNoteId} className="w-full sm:w-auto">
-          <span>
-            Follow <span className="sr-only">{organiserName}</span>
-          </span>
-        </Button>
+        {row(
+          <Button variant="solid" size={size} aria-disabled="true" aria-describedby={demoNoteId} className={width}>
+            <span>
+              Follow <span className="sr-only">{organiserName}</span>
+            </span>
+          </Button>,
+        )}
         <div id={demoNoteId}>
           <DemoNotice>Not available in this demo.</DemoNotice>
         </div>
@@ -82,18 +109,18 @@ export default function FollowButton({ organiserId, organiserName }: { organiser
     );
   }
 
-  if (!auth || auth.status === "loading") return null;
+  if (!auth || auth.status === "loading") return beside ? row(null) : null;
 
   if (!signedIn || !getToken) {
-    return (
-      <ButtonLink href={withNext("/login", returnTo)} variant="outline" size="lg" className="w-full sm:w-auto">
+    return row(
+      <ButtonLink href={withNext("/login", returnTo)} variant="outline" size={size} className={width}>
         Sign in to follow
-      </ButtonLink>
+      </ButtonLink>,
     );
   }
 
   const load: Load = result?.organiserId === organiserId ? result.load : { status: "loading" };
-  if (load.status === "hidden") return null;
+  if (load.status === "hidden") return beside ? row(null) : null;
   const following = load.status === "ready" && load.follow.following;
 
   function settle(follow: FollowStatus) {
@@ -146,25 +173,27 @@ export default function FollowButton({ organiserId, organiserName }: { organiser
 
   return (
     <div className="flex flex-col items-start gap-3" aria-busy={load.status === "loading" ? true : undefined}>
-      <Button
-        variant={following ? "outline" : "solid"}
-        size="lg"
-        aria-pressed={following}
-        busy={busy === "follow" || load.status === "loading"}
-        onClick={toggle}
-        className="w-full sm:w-auto"
-      >
-        {/* A toggle keeps one name; aria-pressed says whether it's on. The space outside the hidden
-            suffix, so the name keeps it ("Follow Static Collective"). On: a check, not colour alone. */}
-        {following && (
-          <svg aria-hidden="true" viewBox="0 0 16 16" className="size-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M3 8.5l3.5 3.5L13 4.5" />
-          </svg>
-        )}
-        <span>
-          Follow <span className="sr-only">{organiserName}</span>
-        </span>
-      </Button>
+      {row(
+        <Button
+          variant={following ? "outline" : "solid"}
+          size={size}
+          aria-pressed={following}
+          busy={busy === "follow" || load.status === "loading"}
+          onClick={toggle}
+          className={width}
+        >
+          {/* A toggle keeps one name; aria-pressed says whether it's on. The space outside the hidden
+              suffix, so the name keeps it ("Follow Static Collective"). On: a check, not colour alone. */}
+          {following && (
+            <svg aria-hidden="true" viewBox="0 0 16 16" className="size-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M3 8.5l3.5 3.5L13 4.5" />
+            </svg>
+          )}
+          <span>
+            Follow <span className="sr-only">{organiserName}</span>
+          </span>
+        </Button>,
+      )}
       <label className="flex min-h-11 items-center gap-3 text-sm">
         <input
           type="checkbox"

@@ -86,3 +86,63 @@ export function nearestToFrame(origin: Coordinates, positions: readonly Coordina
   const chosen = close.length > 0 ? close : ranked.filter((entry) => entry.km <= NEAR_FRAME_FALLBACK_KM).slice(0, 1);
   return chosen.map((entry) => entry.position);
 }
+
+/**
+ * Nearby's "Within N km" (the audit's fix for "near you" listing events 1,376 km away): the list,
+ * the markers and the count keep only the events this close to the visitor or their chosen place.
+ * "all": every event, still nearest first.
+ */
+export const NEARBY_RADII_KM = [5, 10, 25, 50] as const;
+export type NearbyRadiusKm = (typeof NEARBY_RADII_KM)[number];
+export type NearbyRadius = NearbyRadiusKm | "all";
+/** The radius Nearby opens with (the proposal's "Within 25 km"). */
+export const DEFAULT_NEARBY_RADIUS: NearbyRadiusKm = 25;
+
+/** The `within` address parameter: "5", "10", "25", "50" or "all"; anything else is the default. */
+export function parseNearbyRadius(value: string | null | undefined): NearbyRadius {
+  if (value === "all") return "all";
+  const km = Number(value);
+  return (NEARBY_RADII_KM as readonly number[]).includes(km) ? (km as NearbyRadiusKm) : DEFAULT_NEARBY_RADIUS;
+}
+
+export interface RadiusSplit<T> {
+  /** Within the radius (its edge included), nearest first. */
+  inside: DistanceEntry<T>[];
+  /** Placed, but further than the radius, nearest first. */
+  outside: DistanceEntry<T>[];
+  /** No position to measure from, so neither near nor far. */
+  unplaced: DistanceEntry<T>[];
+}
+
+/**
+ * `entries` (sortNearestFirst's, so nearest first) split at `km`: an event exactly `km` away is
+ * inside. Order is kept within each part. Doesn't change the input.
+ */
+export function splitByRadius<T>(entries: readonly DistanceEntry<T>[], km: number): RadiusSplit<T> {
+  const split: RadiusSplit<T> = { inside: [], outside: [], unplaced: [] };
+  for (const entry of entries) {
+    if (entry.km === null) split.unplaced.push(entry);
+    else if (entry.km <= km) split.inside.push(entry);
+    else split.outside.push(entry);
+  }
+  return split;
+}
+
+/**
+ * The first `max` different place names among `entries`, in their order (nearest first for a
+ * split's `outside`): "Further away … — Fortitude Valley, Surry Hills, Northbridge." Names are
+ * compared case-insensitively; empty ones are skipped.
+ */
+export function nearestPlaceNames<T>(entries: readonly DistanceEntry<T>[], nameOf: (item: T) => string, max = 3): string[] {
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    const name = nameOf(entry.item).trim();
+    const key = name.toLowerCase();
+    if (!name || seen.has(key)) continue;
+    seen.add(key);
+    names.push(name);
+    if (names.length === max) break;
+  }
+  return names;
+}

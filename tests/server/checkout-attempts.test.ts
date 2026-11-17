@@ -575,8 +575,9 @@ describe("general admission paid checkout limits", () => {
     const over = await checkout(BASKET, { key: KEY, ip: IP });
     expect(over.status).toBe(429);
     expect(over.body.code).toBe("client_rate_limited");
-    // The per-10-minute limit's wording, not the per-minute one's.
+    // The per-10-minute limit's wording, not the per-minute one's, and its window.
     expect(over.body.error).toBe("You've started a lot of checkouts in the last few minutes. Wait a few minutes, then try again.");
+    expect(over.headers.get("retry-after")).toBe("600");
     expect(await orders()).toHaveLength(20);
     expect(await attempts()).toHaveLength(20); // the refused key wasn't recorded
     const hits = await api.db.query<{ bucket: string; hits: number }>(
@@ -600,6 +601,7 @@ describe("general admission paid checkout limits", () => {
     const over = await checkout(BASKET, { key: KEY, ip: IP });
     expect([over.status, over.body.code]).toEqual([429, "client_rate_limited"]);
     expect(over.body.error).toBe("You've started a lot of checkouts in the last minute. Wait a minute, then try again.");
+    expect(over.headers.get("retry-after")).toBe("60");
     // No attempt row, no order, no Stripe call, and no hit in any bucket for the refusal.
     expect(await attempts()).toHaveLength(10);
     expect(await orders()).toHaveLength(10);

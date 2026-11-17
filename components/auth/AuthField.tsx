@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState, type InputHTMLAttributes, type ReactNode, type Ref } from "react";
 
 /**
- * A labelled sign-in/sign-up field with its own error line. When the field is
+ * A labelled sign-in/sign-up field with its own error line: the rules' text
+ * input (radius 8, the 1.5px stroke, 48px; `compact` keeps its 1px edge). When the field is
  * invalid it's `aria-invalid`, and `aria-describedby` reads its error (or the
  * form's error, `invalidBy`, for a server error about it) before any hint.
  */
@@ -52,7 +53,7 @@ export default function AuthField({
       id={id}
       aria-invalid={error || invalidBy ? true : undefined}
       aria-describedby={describedBy || undefined}
-      className={`border border-foreground bg-transparent px-3 text-foreground ${compact ? "py-1.5 text-sm" : "py-2"} ${inputAside ? "min-h-11 w-full pr-12" : ""} ${className}`.trim()}
+      className={`rounded-control border-foreground bg-transparent text-foreground ${compact ? "border px-3 py-1.5 text-sm" : "min-h-12 border-control px-4 py-2"} ${inputAside ? `w-full pr-12 ${compact ? "min-h-11" : ""}` : ""} ${className}`.trim()}
       {...input}
     />
   );

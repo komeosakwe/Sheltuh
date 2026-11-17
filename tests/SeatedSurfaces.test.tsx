@@ -86,7 +86,7 @@ describe("seated panel tier rows (V6: the standard ticket row)", () => {
     const rows = container.querySelectorAll("ul > li");
     expect(rows.length).toBeGreaterThan(0);
     for (const row of rows) {
-      const lines = Array.from(row.querySelectorAll(":scope > div > p"));
+      const lines = Array.from(row.querySelectorAll(":scope > * > div > p"));
       // Name, then the price (never in a separate right-hand column).
       expect(lines[1]).toHaveClass("text-base", "font-semibold", "tabular-nums");
       expect(lines[1]).toHaveTextContent(/A\$|Free/);
@@ -97,6 +97,17 @@ describe("seated panel tier rows (V6: the standard ticket row)", () => {
       }
     }
     expect(within(container).queryByText(/ ticket \+ A\$[\d.]+ booking fee$/)).toBeNull();
+  });
+
+  it("a tier on sale is a link to the seat page (owner, 13 Nov: the colour key read as a checkbox)", () => {
+    render(<SeatedTicketsPanel event={seated} demo />);
+    const tierLinks = screen.getAllByRole("link").filter((link) => link.getAttribute("href") === `/events/${seated.slug}/seats`);
+    // Every on-sale tier, plus the "Choose your seats" button.
+    expect(tierLinks.length).toBeGreaterThan(1);
+    const onSale = seated.ticketTypes.filter((t) => !t.soldOut);
+    for (const tier of onSale) {
+      expect(tierLinks.some((link) => link.textContent?.includes(tier.name))).toBe(true);
+    }
   });
 });
 

@@ -4,7 +4,7 @@ import type { AustralianTimeZone } from "@/lib/time-zones";
 import { csvResponse } from "../csv";
 import type { Db } from "../db";
 import type { Deps } from "../deps";
-import { HttpError, okPrivate, readJson } from "../http";
+import { HttpError, okPrivate, readJson, secondsUntilUtcMidnight, tooManyRequests, windowSeconds } from "../http";
 import { orderReference } from "../order-reference";
 import { eventOrdersCsv } from "../orders-report";
 import { decodeCursor, isUuid, parseLimit, toPage } from "../pagination";
@@ -116,12 +116,15 @@ async function loadEvent(req: Request, deps: Deps, eventId: string) {
   return { caller, organiserId, event };
 }
 
+/** The day's budget of buyer details is used up: it starts again at the next UTC midnight (private.order_detail_views' day). */
+const dailyLimit = () => tooManyRequests(DAILY_LIMIT, secondsUntilUtcMidnight(), undefined, { code: "daily_limit" });
+
 async function takeReadLimit(db: Db, userId: string): Promise<void> {
   const [{ allowed }] = await db.query<{ allowed: boolean }>(
     `select private.take_rate_limit($1, 'event_orders', $2, $3::interval) as allowed`,
     [userId, EVENT_ORDERS_LIMITS.reads.hits, EVENT_ORDERS_LIMITS.reads.window],
   );
-  if (!allowed) throw new HttpError(429, RATE_LIMITED, undefined, { code: "rate_limited" });
+  if (!allowed) throw tooManyRequests(RATE_LIMITED, windowSeconds(EVENT_ORDERS_LIMITS.reads.window), undefined, { code: "rate_limited" });
 }
 
 /** The WHERE for the event's listed orders, and its parameters (from $1); a search adds the name/email/reference tests. */
@@ -195,7 +198,7 @@ async function listPage(
     `select private.take_order_detail_budget($1, $2, $3, $4, $5) as allowed`,
     [caller.userId, eventId, organiserId, page.items.length, EVENT_ORDERS_LIMITS.dailyRows],
   );
-  if (!allowed) throw new HttpError(429, DAILY_LIMIT, undefined, { code: "daily_limit" });
+  if (!allowed) throw dailyLimit();
 
   return okPrivate({
     event: { title: event.title, slug: event.slug, timeZone: event.time_zone, endsAt: iso(event.ends_at) },
@@ -275,8 +278,10 @@ export const getEventOrdersCsv: Handler<{ eventId: string }> = async (req, { eve
       EVENT_ORDERS_LIMITS.dailyRows,
     ],
   );
-  if (result === "rate_limited") throw new HttpError(429, EXPORT_RATE_LIMITED, undefined, { code: "rate_limited" });
-  if (result === "budget_exceeded") throw new HttpError(429, DAILY_LIMIT, undefined, { code: "daily_limit" });
+  if (result === "rate_limited") {
+    throw tooManyRequests(EXPORT_RATE_LIMITED, windowSeconds(EVENT_ORDERS_LIMITS.exports.window), undefined, { code: "rate_limited" });
+  }
+  if (result === "budget_exceeded") throw dailyLimit();
   if (result !== "recorded") throw new Error(`Unexpected record_order_export result: ${result}`);
 
   // Never more than the logged count, even if orders arrived since the count.

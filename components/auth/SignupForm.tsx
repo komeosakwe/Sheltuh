@@ -139,7 +139,7 @@ export default function SignupForm({ next }: { next?: string } = {}) {
 
       <LegalNote />
 
-      <Button type="submit" size="lg" busy={loading} className="w-full">
+      <Button type="submit" variant="signal" busy={loading} className="w-full">
         {loading ? "Creating account…" : "Sign up"}
       </Button>
 

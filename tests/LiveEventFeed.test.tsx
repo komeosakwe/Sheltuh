@@ -173,6 +173,41 @@ describe("LiveEventFeed — announcing results and keeping focus (WCAG 4.1.3, 2.
     await waitFor(() => expect(document.activeElement).toHaveAttribute("href", "/events/c"), { timeout: 3000 });
   });
 
+  it("still moves focus when Load more is pressed before the previous render's effects have run", async () => {
+    // React runs a non-urgent render's effects in a later task once the render has used up its
+    // ~5ms slice (a busy CI machine, a slow phone), so a press can land between the first page
+    // appearing and its effects running. Every clock read here costs 10ms, so React always yields
+    // there, and the press is made the moment the button is in the page, before those effects run.
+    listPublicEvents
+      .mockResolvedValueOnce({ items: [makeEvent("a"), makeEvent("b")], nextCursor: "cursor-1" })
+      .mockResolvedValueOnce({ items: [makeEvent("c"), makeEvent("d")], nextCursor: undefined });
+    const { container } = render(<LiveEventFeed categories={EVENT_CATEGORIES} />);
+    // Only from the first page's fetch to the press: the rest of the test runs on the real clock.
+    const now = performance.now.bind(performance);
+    let skew = 0;
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => now() + (skew += 10));
+    try {
+      const pressed = new Promise<void>((resolve) => {
+        const observer = new MutationObserver(() => {
+          const more = screen.queryByRole("button", { name: "Load more" });
+          if (!more) return;
+          observer.disconnect();
+          more.focus();
+          fireEvent.click(more);
+          clock.mockRestore();
+          resolve();
+        });
+        observer.observe(container, { childList: true, subtree: true });
+      });
+      await pressed;
+    } finally {
+      clock.mockRestore();
+    }
+    await waitFor(() => expect(screen.getByText("Event d")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: /Load more|Loading/ })).toBeNull();
+    await waitFor(() => expect(document.activeElement).toHaveAttribute("href", "/events/c"));
+  });
+
   it("puts a visually hidden h2 above the results, so the tiles' h3 titles sit under it", async () => {
     listPublicEvents.mockResolvedValueOnce({ items: [makeEvent("a")], nextCursor: undefined });
     render(<LiveEventFeed categories={EVENT_CATEGORIES} />);

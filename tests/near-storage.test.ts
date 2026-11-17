@@ -13,6 +13,8 @@ import {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  // Through the module, so a page-only copy left by a refused write goes too.
+  clearStoredNear();
   localStorage.clear();
 });
 
@@ -66,7 +68,7 @@ describe("near-storage", () => {
     expect(parseStoredNear(raw)).toBe(expected);
   });
 
-  it("copes when storage throws: reads are empty, writes say they failed", () => {
+  it("copes when storage throws: writes say they failed, but the page keeps the choice until it goes", () => {
     vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
       throw new Error("blocked");
     });
@@ -78,8 +80,34 @@ describe("near-storage", () => {
     });
     expect(readStoredNear()).toBe("");
     expect(readStoredNearState()).toBeNull();
-    expect(writeStoredNear("Fitzroy")).toBe(false);
+    expect(writeStoredNear("Fitzroy", "VIC")).toBe(false);
+    // Not saved, but what Where shows is what this page uses.
+    expect(readStoredNear()).toBe("Fitzroy");
+    expect(readStoredNearState()).toBe("VIC");
     expect(clearStoredNear()).toBe(false);
+    expect(readStoredNear()).toBe("");
+  });
+
+  it("a quota error on write: the page uses the new choice, not the older saved one", () => {
+    expect(writeStoredNear("Perth", "WA")).toBe(true);
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("quota");
+    });
+    expect(writeStoredNear("Fitzroy", "VIC")).toBe(false);
+    expect(readStoredNear()).toBe("Fitzroy");
+  });
+
+  it("another tab's saved choice replaces this page's unsaved one", () => {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("quota");
+    });
+    expect(writeStoredNear("Fitzroy")).toBe(false);
+    vi.restoreAllMocks();
+    localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Perth", state: "WA" }));
+    const unsubscribe = subscribeStoredNear(() => {});
+    window.dispatchEvent(new StorageEvent("storage", { key: NEAR_STORAGE_KEY }));
+    expect(readStoredNear()).toBe("Perth");
+    unsubscribe();
   });
 });
 
@@ -106,14 +134,15 @@ describe("subscribeStoredNear", () => {
     unsubscribe();
   });
 
-  it("isn't called when the write fails", () => {
+  it("is still called when the write fails, so the page follows the choice it shows", () => {
     const onChange = vi.fn();
     const unsubscribe = subscribeStoredNear(onChange);
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new Error("quota");
     });
     expect(writeStoredNear("Fitzroy")).toBe(false);
-    expect(onChange).not.toHaveBeenCalled();
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(readStoredNear()).toBe("Fitzroy");
     unsubscribe();
   });
 });

@@ -18,7 +18,7 @@ import { AuthProvider } from "@/lib/auth/AuthContext";
 import { APP_THEME_COLOR } from "@/lib/pwa/theme";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import { isVercelAnalyticsEnabled } from "@/lib/vercel-analytics";
-import { instrument, instrumentDots, plexMono } from "./fonts";
+import { bootzy, instrument, plexMono } from "./fonts";
 import "./globals.css";
 
 /**
@@ -44,9 +44,9 @@ export const metadata: Metadata = {
     ? "Sheltüh is a curated guide to live music, art, workshops and pop-ups across Australia — find what's on and get tickets."
     : "Sheltüh is a curated guide to live music, art, workshops and pop-ups across Australia. Local prototype with sample data — no real tickets are sold yet.",
   applicationName: "Sheltüh",
-  // Home-screen app on iOS (the manifest is app/manifest.ts). "default" keeps
-  // dark status-bar text over the white header; see docs/pwa.md.
-  appleWebApp: { title: "Sheltüh", statusBarStyle: "default" },
+  // Home-screen app on iOS (the manifest is app/manifest.ts). "black": a black status bar with
+  // white text, running into the black header (both themes); see docs/pwa.md.
+  appleWebApp: { title: "Sheltüh", statusBarStyle: "black" },
   // Site ownership check for Ticketmaster's affiliate programme (run on impact.com):
   // a public token, safe in the page.
   other: { "impact-site-verification": "95a574c6-fd1e-4531-b8e2-4b86a313eba5" },
@@ -69,7 +69,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang="en"
       data-scroll-behavior="smooth"
-      className={`${instrumentDots.variable} ${instrument.variable} ${plexMono.variable} h-full`}
+      className={`${bootzy.variable} ${instrument.variable} ${plexMono.variable} h-full`}
       suppressHydrationWarning
     >
       <head>

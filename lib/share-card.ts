@@ -64,7 +64,8 @@ const DOTTED: Record<string, string> = { a: "ä", e: "ë", i: "ï", o: "ö", u: 
 
 /**
  * The brand's two dots over every plain vowel ("Neon Static" → "Nëön Stätïc"),
- * as the site draws headings with Instrument Sans Dots (app/fonts/instrument-sans-dots).
+ * the share card's own look. The site itself no longer dots vowels (the redesign's rule is Ü in
+ * display headlines only); moving the share card to that rule is a follow-up.
  * For a card's pixels only: the image's alt text and every page keep the plain spelling.
  */
 export function dottedText(text: string): string {

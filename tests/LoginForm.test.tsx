@@ -61,7 +61,7 @@ async function signInWith(next: string | undefined) {
   );
   fireEvent.change(screen.getByLabelText("Email"), { target: { value: "mia@example.com" } });
   fireEvent.change(screen.getByLabelText("Password"), { target: { value: "hunter22" } });
-  fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   await waitFor(() => expect(push).toHaveBeenCalledTimes(1));
   expect(auth.signIn).toHaveBeenCalledWith("mia@example.com", "hunter22");
   return push.mock.calls[0][0];
@@ -105,13 +105,13 @@ describe("LoginForm: the no-password hint for Apple / Google accounts", () => {
   it("describes the password field with it when a provider is on, naming only the ones that are", () => {
     renderLogin("apple,google");
     const hint = screen.getByText(
-      "Signed up with Google or Apple? Use the Google or Apple button above.",
+      "Signed up with Google or Apple? Use the Google or Apple button below.",
     );
     expect(screen.getByLabelText("Password")).toHaveAttribute("aria-describedby", hint.id);
     cleanup();
 
     renderLogin("apple");
-    expect(screen.getByText("Signed up with Apple? Use the Apple button above.")).toBeInTheDocument();
+    expect(screen.getByText("Signed up with Apple? Use the Apple button below.")).toBeInTheDocument();
   });
 
   it("has no hint with no provider on", () => {
@@ -131,13 +131,13 @@ describe("LoginForm: a wrong email or password, with Apple / Google offered", ()
     );
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "mia@example.com" } });
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "wrong" } });
-    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   }
 
   it("says to use the button for an account made with one (it has no password), marking both fields as before", async () => {
     renderFailing("google,apple", "Invalid login credentials");
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "That email and password don’t match. If you signed up with Apple or Google, use that button above.",
+      "That email and password don’t match. If you signed up with Apple or Google, use that button below.",
     );
     expect(screen.getByLabelText("Email")).toHaveAttribute("aria-invalid", "true");
     expect(screen.getByLabelText("Password")).toHaveAttribute("aria-invalid", "true");
@@ -146,7 +146,7 @@ describe("LoginForm: a wrong email or password, with Apple / Google offered", ()
   it("names only the provider that's on", async () => {
     renderFailing("google", "Invalid login credentials");
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "That email and password don’t match. If you signed up with Google, use that button above.",
+      "That email and password don’t match. If you signed up with Google, use that button below.",
     );
   });
 

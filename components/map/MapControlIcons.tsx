@@ -124,3 +124,13 @@ export function NavigationIcon({ className = "size-4" }: IconProps) {
     </svg>
   );
 }
+
+/** Distance (the rules' icon set): a ring round a point. */
+export function DistanceIcon({ className }: IconProps) {
+  return (
+    <Outline className={className}>
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="3" />
+    </Outline>
+  );
+}

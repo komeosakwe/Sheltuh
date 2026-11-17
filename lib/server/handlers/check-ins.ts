@@ -14,7 +14,7 @@ import {
 import { parseTicketCode } from "@/lib/ticket-code";
 import { PLATFORM_TIME_ZONE } from "@/lib/time-zones";
 import { PG_CHECK_VIOLATION, pgConstraint, pgErrorCode, type Db } from "../db";
-import { HttpError, okPrivate, readJson } from "../http";
+import { HttpError, okPrivate, readJson, tooManyRequests, windowSeconds } from "../http";
 import { parseMessageText } from "../message-input";
 import { isUuid } from "../pagination";
 import type { Handler } from "../route";
@@ -187,7 +187,7 @@ export const checkInTicket: Handler<{ eventId: string }> = async (req, { eventId
     throw err;
   }
   if (row.result === "not_found") throw new HttpError(404, EVENT_NOT_FOUND);
-  if (row.result === "rate_limited") throw new HttpError(429, RATE_LIMITED);
+  if (row.result === "rate_limited") throw tooManyRequests(RATE_LIMITED, windowSeconds(CHECK_IN_LIMIT.window));
   if (row.result === "conflict") throw new HttpError(409, REQUEST_CONFLICT);
   return okPrivate(toCheckInResult(row));
 };
@@ -244,7 +244,7 @@ export const undoCheckIn: Handler<{ eventId: string; checkInId: string }> = asyn
     await refuseExternalEvent(deps.db, organiserId, eventId);
     throw new HttpError(404, "Check-in not found.");
   }
-  if (row.result === "rate_limited") throw new HttpError(429, RATE_LIMITED);
+  if (row.result === "rate_limited") throw tooManyRequests(RATE_LIMITED, windowSeconds(CHECK_IN_LIMIT.window));
   const result: UndoCheckInResult = {
     outcome: row.result,
     ...(row.result === "undone" ? { checkInId: row.check_in_id as string } : {}),

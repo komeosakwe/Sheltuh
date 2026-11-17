@@ -11,6 +11,7 @@ import {
 } from "@/lib/server/handlers/event-orders";
 import { confirmFreeOrder } from "@/lib/server/handlers/free-orders";
 import { createCheckout, stripeWebhook } from "@/lib/server/handlers/orders";
+import { secondsUntilUtcMidnight } from "@/lib/server/http";
 import { orderReference } from "@/lib/server/order-reference";
 import { runHandler } from "@/lib/server/route";
 import type { EventRecord } from "@/lib/server/types";
@@ -601,10 +602,23 @@ describe("the daily budget of buyer details", () => {
     expect(JSON.stringify(row)).not.toMatch(/Dee|dee@|Eve|eve@/);
   });
 
+  /** A daily_limit's Retry-After: the seconds to the next UTC midnight (the budget's day), as the clock read around the request. */
+  function expectUntilUtcMidnight(retryAfter: string | null, before: number, after: number) {
+    const seconds = Number(retryAfter);
+    expect(Number.isInteger(seconds)).toBe(true);
+    // Either side of a midnight that passed mid-request, it's one of the two.
+    expect(seconds).toBeGreaterThanOrEqual(Math.min(before, after));
+    expect(seconds).toBeLessThanOrEqual(Math.max(before, after));
+    expect(seconds).toBeLessThanOrEqual(86_400);
+  }
+
   it("a page that would pass the day's budget is a 429 daily_limit with no details and nothing counted", async () => {
     await setServed(EVENT_ORDERS_LIMITS.dailyRows - 1);
+    const before = secondsUntilUtcMidnight();
     const res = await list(organiser.token);
     expect([res.status, res.body.code]).toEqual([429, "daily_limit"]);
+    expectUntilUtcMidnight(res.headers.get("retry-after"), before, secondsUntilUtcMidnight());
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
     expect(JSON.stringify(res.body)).not.toMatch(/Dee|dee@|Eve|eve@/);
     expect(await served()).toMatchObject({ rows_served: EVENT_ORDERS_LIMITS.dailyRows - 1 });
     // The search is shared, and a page that fits still goes.
@@ -615,9 +629,11 @@ describe("the daily budget of buyer details", () => {
 
   it("the export is counted too, and refused when the day's budget can't take its rows: no file, no audit row", async () => {
     await setServed(EVENT_ORDERS_LIMITS.dailyRows - 1);
+    const before = secondsUntilUtcMidnight();
     const refused = await csv(organiser.token);
     expect(refused.status).toBe(429);
     expect(JSON.parse(refused.text).code).toBe("daily_limit");
+    expectUntilUtcMidnight(refused.headers.get("retry-after"), before, secondsUntilUtcMidnight());
     expect(refused.text).not.toMatch(/Dee|dee@|Eve|eve@/);
     expect(await api.db.query(`select 1 from private.order_detail_exports`)).toEqual([]);
 
@@ -681,6 +697,7 @@ describe("rate limits", () => {
     expect((await list(organiser.token)).status).toBe(200);
     const limited = await list(organiser.token);
     expect([limited.status, limited.body.code]).toEqual([429, "rate_limited"]);
+    expect(limited.headers.get("retry-after")).toBe("600"); // the 10-minute window
     expect(JSON.stringify(limited.body)).not.toContain("Buyer Name");
     expect((await csv(organiser.token)).status).toBe(429);
     const rival = await approvedOrganiser(api, admin, { displayName: "Rival", contactEmail: "rival@example.com" });
@@ -698,6 +715,7 @@ describe("rate limits", () => {
     expect(refused.status).toBe(429);
     expect(refused.text).not.toContain("Dee Lee");
     expect(JSON.parse(refused.text).code).toBe("rate_limited");
+    expect(refused.headers.get("retry-after")).toBe("3600"); // the hourly window
     const log = await api.db.query<{ event_id: string; organiser_id: string; actor_id: string; row_count: number }>(
       `select event_id, organiser_id, actor_id, row_count from private.order_detail_exports order by id`,
     );

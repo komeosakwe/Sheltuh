@@ -55,9 +55,13 @@ function Logo({ file, className }: { file: string; className: string }) {
 
 /**
  * Continue with Apple / Continue with Google (docs/design/social-sign-in.md
- * §3 to §5), above the email form on /login and /signup. Only the
- * providers NEXT_PUBLIC_AUTH_PROVIDERS lists, Apple first; nothing at all
- * in demo mode or with none listed.
+ * §3 to §5). Only the providers NEXT_PUBLIC_AUTH_PROVIDERS lists, Apple
+ * first; nothing at all in demo mode or with none listed.
+ *
+ * `placement`: "above" (the default; /signup and the invite) puts the pair,
+ * their privacy line and the "or" divider before the email form; "below"
+ * (/login, the redesign's sign-in mock) puts the "Or continue with" divider,
+ * then the pair and their privacy line, after it.
  *
  * A click leaves for the provider (AuthContext's signInWithProvider), which
  * comes back to /auth/callback with `next`. Until then both buttons are
@@ -73,18 +77,28 @@ function Logo({ file, className }: { file: string; className: string }) {
  *
  * Real buttons outside any form: they never submit the email form.
  */
-export default function OAuthButtons({ next }: { next?: string }) {
+/** Focus or visibility returning this soon after the tap is the tap itself, not a return. */
+export const BUSY_RETURN_GRACE_MS = 1500;
+/** Still on this page this long after a tap means the sign-in didn't leave (iOS's Apple sheet was
+ * closed, which tells the page nothing): the buttons work again. A real redirect is gone by then. */
+export const BUSY_TIMEOUT_MS = 4_000;
+
+export default function OAuthButtons({ next, placement = "above" }: { next?: string; placement?: "above" | "below" }) {
   const auth = useAuth();
   const providers = offeredOAuthProviders(auth.configured);
   const [status, setStatus] = useState<Status | null>(null);
   const [failed, setFailed] = useState<OAuthProvider | null>(null);
   const reannounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const busy = status?.kind === "busy";
+  // Which sign-in attempt owns the busy state and the failure alert. A recovery (below) or a new
+  // tap moves it on, so an earlier attempt that fails late can't touch a newer one's state.
+  const attempt = useRef(0);
+  const busyStatus = status?.kind === "busy" ? status : null;
 
   useEffect(() => {
     function onPageShow(event: PageTransitionEvent) {
       if (!event.persisted) return;
       clearTimeout(reannounce.current);
+      attempt.current += 1;
       setStatus(null);
     }
     window.addEventListener("pageshow", onPageShow);
@@ -95,12 +109,47 @@ export default function OAuthButtons({ next }: { next?: string }) {
     };
   }, []);
 
+  // A sign-in that never left the page (iOS shows Sign in with Apple as a sheet over it, and
+  // closing the sheet tells the page nothing) must not leave both buttons locked. Once the page
+  // is back in front after a moment, or after BUSY_TIMEOUT_MS at the latest, they work again.
+  useEffect(() => {
+    // Keyed on the busy status itself (a new object for every tap), not just whether something is
+    // busy, so switching provider restarts the grace period and the time-out for the new attempt.
+    if (busyStatus === null) return;
+    const startedAt = Date.now();
+    function release() {
+      if (Date.now() - startedAt < BUSY_RETURN_GRACE_MS) return;
+      attempt.current += 1;
+      setStatus(null);
+    }
+    function onVisibility() {
+      if (document.visibilityState === "visible") release();
+    }
+    window.addEventListener("focus", release);
+    document.addEventListener("visibilitychange", onVisibility);
+    const fallback = setTimeout(() => {
+      attempt.current += 1;
+      setStatus(null);
+    }, BUSY_TIMEOUT_MS);
+    return () => {
+      window.removeEventListener("focus", release);
+      document.removeEventListener("visibilitychange", onVisibility);
+      clearTimeout(fallback);
+    };
+  }, [busyStatus]);
+
   if (providers.length === 0) return null;
 
+  const busyWith = (provider: OAuthProvider) => status?.kind === "busy" && status.provider === provider;
+
   async function start(provider: OAuthProvider) {
-    if (busy) return;
+    // A second tap on the provider that's opening is ignored; the other provider always works.
+    if (status?.kind === "busy" && status.provider === provider) return;
     clearTimeout(reannounce.current);
     setFailed(null);
+    // Taken before the in-app branch too, so any tap retires a sign-in still pending for the other
+    // provider: its late failure can't clear what this tap shows.
+    const mine = ++attempt.current;
     if (provider === "google" && isInAppBrowser(navigator.userAgent)) {
       const inApp: Status = {
         kind: "in-app",
@@ -117,76 +166,104 @@ export default function OAuthButtons({ next }: { next?: string }) {
       await auth.signInWithProvider(provider, oauthReturnPath(next) ?? undefined);
       // The page is on its way to the provider: stay busy until it's gone.
     } catch {
+      // A newer attempt (or a recovery) has taken over: this late failure isn't news any more.
+      if (attempt.current !== mine) return;
       // What went wrong is the connection or the service, not anything to fix here.
       setStatus(null);
       setFailed(provider);
     }
   }
 
+  const pair = (
+    <div>
+      <div className="flex flex-col gap-3">
+        {providers.includes("apple") && (
+          <button
+            type="button"
+            aria-disabled={busyWith("apple") ? true : undefined}
+            onClick={() => void start("apple")}
+            className="btn-oauth btn-oauth-apple"
+          >
+            {/* White theme: the black button and white logo; Dark: the white button and black logo. */}
+            <Logo file={APPLE_ON_WHITE} className="h-12 w-auto shrink-0 dark:hidden" />
+            <Logo file={APPLE_ON_DARK} className="hidden h-12 w-auto shrink-0 dark:block" />
+            <span>Continue with Apple</span>
+          </button>
+        )}
+        {providers.includes("google") && (
+          <button
+            type="button"
+            aria-disabled={busyWith("google") ? true : undefined}
+            onClick={() => void start("google")}
+            className="btn-oauth btn-oauth-google"
+          >
+            {/* Google's G, centred in a square like Apple's 48px logo file (46px: inside Google's 1px border, so the button stays
+                48px), with the title beside it as on Apple's; the colours follow the theme. */}
+            <span aria-hidden="true" className="flex size-[2.875rem] shrink-0 items-center justify-center">
+              <Logo file={GOOGLE_G} className="size-6 shrink-0" />
+            </span>
+            <span>Continue with Google</span>
+          </button>
+        )}
+      </div>
+
+      {/* Always rendered, empty until there's something to say (its content brings its own spacing). */}
+      <div role="status" aria-atomic="true">
+        {status?.kind === "busy" && (
+          <div className="mt-8">
+            <DotsLoader label={`Opening ${OAUTH_PROVIDER_NAMES[status.provider]}`} />
+          </div>
+        )}
+        {status?.kind === "in-app" && (
+          <div className="mt-8">
+            <Notice>{inAppMessage(status.platform, status.apple)}</Notice>
+          </div>
+        )}
+      </div>
+      <div role="alert" aria-atomic="true">
+        {failed && (
+          <div className="mt-8">
+            <Notice tone="danger">
+              Couldn&rsquo;t open {OAUTH_PROVIDER_NAMES[failed]} sign-in. Check your connection and try again.
+            </Notice>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const legal = (
+    <LegalNote
+      lead={`Continuing with ${oauthProviderNames(providers, ["apple", "google"])} signs you in, or creates an account if you’re new. How we handle your details:`}
+    />
+  );
+
+  if (placement === "below") {
+    return (
+      <div className={`${roboto.variable} flex flex-col gap-6`}>
+        <Divider label="Or continue with" />
+        {pair}
+        {legal}
+      </div>
+    );
+  }
+
   return (
     <div className={`${roboto.variable} flex flex-col gap-8`}>
-      <div>
-        <div className="flex flex-col gap-3">
-          {providers.includes("apple") && (
-            <button
-              type="button"
-              aria-disabled={busy ? true : undefined}
-              onClick={() => void start("apple")}
-              className="btn-oauth btn-oauth-apple"
-            >
-              {/* White theme: the black button and white logo; Dark: the white button and black logo. */}
-              <Logo file={APPLE_ON_WHITE} className="h-12 w-auto shrink-0 dark:hidden" />
-              <Logo file={APPLE_ON_DARK} className="hidden h-12 w-auto shrink-0 dark:block" />
-              <span>Continue with Apple</span>
-            </button>
-          )}
-          {providers.includes("google") && (
-            <button
-              type="button"
-              aria-disabled={busy ? true : undefined}
-              onClick={() => void start("google")}
-              className="btn-oauth btn-oauth-google"
-            >
-              {/* Google's G (20px, per its guidelines) and the title as text; the pill's colours follow the theme. */}
-              <Logo file={GOOGLE_G} className="size-5 shrink-0" />
-              <span>Continue with Google</span>
-            </button>
-          )}
-        </div>
+      {pair}
+      {legal}
+      <Divider label="or" />
+    </div>
+  );
+}
 
-        {/* Always rendered, empty until there's something to say (its content brings its own spacing). */}
-        <div role="status" aria-atomic="true">
-          {status?.kind === "busy" && (
-            <div className="mt-8">
-              <DotsLoader label={`Opening ${OAUTH_PROVIDER_NAMES[status.provider]}`} />
-            </div>
-          )}
-          {status?.kind === "in-app" && (
-            <div className="mt-8">
-              <Notice>{inAppMessage(status.platform, status.apple)}</Notice>
-            </div>
-          )}
-        </div>
-        <div role="alert" aria-atomic="true">
-          {failed && (
-            <div className="mt-8">
-              <Notice tone="danger">
-                Couldn&rsquo;t open {OAUTH_PROVIDER_NAMES[failed]} sign-in. Check your connection and try again.
-              </Notice>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <LegalNote
-        lead={`Continuing with ${oauthProviderNames(providers, ["apple", "google"])} signs you in, or creates an account if you’re new. How we handle your details:`}
-      />
-
-      <div className="flex items-center gap-4">
-        <span aria-hidden="true" className="h-px flex-1 bg-surface-border" />
-        <span className="eyebrow text-muted">or</span>
-        <span aria-hidden="true" className="h-px flex-1 bg-surface-border" />
-      </div>
+/** A hairline either side of a short mono label: "or" above the email form, "Or continue with" below it. */
+function Divider({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-4">
+      <span aria-hidden="true" className="h-px flex-1 bg-surface-border" />
+      <span className="eyebrow text-muted">{label}</span>
+      <span aria-hidden="true" className="h-px flex-1 bg-surface-border" />
     </div>
   );
 }

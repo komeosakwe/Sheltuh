@@ -1,5 +1,5 @@
 import { requireAdmin, requireCaller, requireVerifiedCaller } from "../auth";
-import { HttpError, okPrivate, readJson } from "../http";
+import { HttpError, okPrivate, readJson, tooManyRequests, windowSeconds } from "../http";
 import { parseMessageText } from "../message-input";
 import { isUuid } from "../pagination";
 import {
@@ -93,7 +93,7 @@ export const getMemberProfile: Handler<{ profileId: string }> = async (req, { pr
     `select private.take_rate_limit($1, 'member_profiles', $2, $3::interval) as allowed`,
     [caller.userId, PROFILE_VIEW_RATE_LIMIT.hits, PROFILE_VIEW_RATE_LIMIT.window],
   );
-  if (!allowed) throw new HttpError(429, "Too many requests. Try again in a few minutes.");
+  if (!allowed) throw tooManyRequests("Too many requests. Try again in a few minutes.", windowSeconds(PROFILE_VIEW_RATE_LIMIT.window));
 
   // One statement: who it is (if visible), and the messaging state between them.
   // Messaging mirrors private.request_conversation: a shared open event both
@@ -155,7 +155,7 @@ export const getMemberAvatar: Handler<{ profileId: string }> = async (req, { pro
       `select private.take_rate_limit($1, 'avatar_views', $2, $3::interval) as allowed`,
       [caller.userId, AVATAR_VIEW_RATE_LIMIT.hits, AVATAR_VIEW_RATE_LIMIT.window],
     );
-    if (!allowed) throw new HttpError(429, "Too many requests. Try again in a few minutes.");
+    if (!allowed) throw tooManyRequests("Too many requests. Try again in a few minutes.", windowSeconds(AVATAR_VIEW_RATE_LIMIT.window));
   }
   const thumb = new URL(req.url).searchParams.get("size") === "thumb";
   const [row] = await db.query<{ data: Uint8Array; version: string }>(

@@ -219,14 +219,20 @@ export default function LiveEventFeed({
 
   function handleLoadMore() {
     requestIdRef.current += 1;
-    countBeforeMore.current = events.length;
     load(nextCursor, false);
   }
 
   // "Load more" keeps focus while it loads (busy, not disabled). When the last page takes the
   // button away with focus on it, focus goes to the first new event rather than the page.
+  // The count is taken here, from a render that's loading more, not in handleLoadMore: a press
+  // can land before an earlier render's effect has run, and that effect (loadingMore false)
+  // would otherwise take the count as the load having finished, and drop it.
   useEffect(() => {
-    if (countBeforeMore.current === null || loadingMore) return;
+    if (loadingMore) {
+      countBeforeMore.current ??= events.length;
+      return;
+    }
+    if (countBeforeMore.current === null) return;
     const before = countBeforeMore.current;
     countBeforeMore.current = null;
     if (loadMoreRef.current || (document.activeElement && document.activeElement !== document.body)) return;

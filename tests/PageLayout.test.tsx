@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import DottedLine from "@/components/brand/DottedLine";
+import BrandU from "@/components/brand/BrandU";
 import { Page, PageHeader } from "@/components/ui/Section";
 
 afterEach(cleanup);
@@ -35,15 +35,26 @@ describe("Page: the one centred container", () => {
   });
 });
 
-describe("Brand headline: a letter or two dotted, never the whole line", () => {
-  it("keeps the plain text and accessible name, dotting only the marked letter", () => {
-    render(
-      <PageHeader brand title={<DottedLine line="What’s ^on." />} />,
-    );
+// The redesign: a brand line is a display headline (display-l, Bootzy in capitals), and the
+// brand's Ü goes through BrandU, so the shown line is hidden and the plain sentence is read.
+describe("Brand headline: a display headline, read plainly", () => {
+  it("sets a brand line in display-l, with the plain text as its name", () => {
+    render(<PageHeader brand title="What’s on." />);
     const h1 = screen.getByRole("heading", { level: 1, name: "What’s on." });
-    expect(h1).toHaveClass("display-plain", "font-display");
+    expect(h1).toHaveClass("display-l");
+    expect(h1).not.toHaveClass("display-lg");
     expect(h1.textContent).toBe("What’s on.");
-    const dotted = h1.querySelectorAll("[data-dotted-letter]");
-    expect([...dotted].map((el) => el.textContent)).toEqual(["o"]);
+  });
+
+  it("shows a line with the brand's Ü but reads the plain sentence", () => {
+    render(<PageHeader brand title={<BrandU spoken="Sheltüh near you.">SHELTÜH NEAR YOÜ.</BrandU>} />);
+    const h1 = screen.getByRole("heading", { level: 1 });
+    expect(h1).toHaveAccessibleName("Sheltüh near you.");
+    expect(h1.querySelector('[aria-hidden="true"]')).toHaveTextContent("SHELTÜH NEAR YOÜ.");
+  });
+
+  it("keeps a page's ordinary h1 in display-lg (heading-h1's sizes, sentence case)", () => {
+    render(<PageHeader title="Your tickets" />);
+    expect(screen.getByRole("heading", { level: 1, name: "Your tickets" })).toHaveClass("display-lg");
   });
 });

@@ -5,8 +5,8 @@ import { sampleEvents } from "@/lib/sample-events";
 /**
  * /events and /map in a real browser (docs/design/brand-direction-one.md §7;
  * owner decisions 1 and 6, and the owner's requests of 21 Oct 2026): the
- * brand h1, image-first cards and list rows with the orange "Buy tickets",
- * the map first on phones, and no sideways scrolling. Live mode, with every
+ * brand h1, image-first cards and Nearby's list rows (the orange "Buy
+ * tickets" from 1024px), the list first on phones, and no sideways scrolling. Live mode, with every
  * /api/* request answered here from the demo sample events, re-timed to the
  * real clock so the spec never goes stale. Map tiles are refused (no network
  * in CI either); the page must still work without them.
@@ -64,7 +64,9 @@ for (const vp of VIEWPORTS) {
   test.describe(`discovery at ${vp.name}`, () => {
     test.use({ viewport: { width: vp.width, height: vp.height } });
 
-    test("/events: the brand h1, a grid of image-first cards, each with an orange Buy tickets", async ({ page }) => {
+    // The redesign's card (the rules' Cards board): one link to the event, its all-inclusive price an
+    // orange label inside it (never its own control). Ticket buttons stay on the event page and /map.
+    test("/events: the brand h1, a grid of image-first cards, each one link with an orange price label", async ({ page }) => {
       await mockApi(page);
       await page.goto("/events");
       await expect(page.getByRole("heading", { level: 1 })).toHaveText("What’s on.");
@@ -76,56 +78,60 @@ for (const vp of VIEWPORTS) {
       const columns = await grid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length);
       expect(columns).toBe(vp.phone ? 2 : 4);
 
-      // An external event's card says "Buy tickets" too (owner, 6 Nov 2026).
-      const quickBuys = grid.getByRole("link", { name: /^(?:Buy tickets|Free tickets) for / });
-      expect(await quickBuys.count()).toBeGreaterThanOrEqual(sampleEvents.length - 2);
-      const first = quickBuys.first();
-      await expect(first).toBeVisible();
-      await expect(first).toHaveAttribute("href", /^\/events\/[^/]+#tickets$/);
-      // Signal Orange with a black label, at least 44px tall on phones.
-      const style = await first.evaluate((el) => {
+      // One link per card, to its event, beside Save (signed out: "Sign in to save …"); no ticket buttons.
+      await expect(grid.getByRole("link", { name: /^(?:Buy tickets|Free tickets|Choose seats|Join waitlist) for / })).toHaveCount(0);
+      const first = grid.locator("[data-event-card]").first();
+      const title = (await first.locator("h3").textContent())?.trim() ?? "";
+      await expect(first.getByRole("link")).toHaveCount(2);
+      await expect(first.getByRole("link").nth(0)).toHaveAccessibleName(title);
+      await expect(first.getByRole("link").nth(0)).toHaveAttribute("href", /^\/events\/[^/#]+$/);
+      await expect(first.getByRole("link").nth(1)).toHaveAccessibleName(`Sign in to save ${title}`);
+      const prices = grid.locator("[data-price-tag='signal']");
+      expect(await prices.count()).toBeGreaterThanOrEqual(sampleEvents.length - 2);
+      // Signal Orange with a black label, radius 8, and not a tab stop.
+      const style = await prices.first().evaluate((el) => {
         const s = getComputedStyle(el);
-        return { bg: s.backgroundColor, color: s.color, height: el.getBoundingClientRect().height };
+        return { bg: s.backgroundColor, color: s.color, radius: s.borderTopLeftRadius, tab: (el as HTMLElement).tabIndex };
       });
-      expect(style.bg).toBe("rgb(255, 72, 0)");
-      expect(style.color).toBe("rgb(0, 0, 0)");
-      expect(style.height).toBeGreaterThanOrEqual(vp.phone ? 44 : 40);
+      expect(style).toEqual({ bg: "rgb(255, 72, 0)", color: "rgb(0, 0, 0)", radius: "8px", tab: -1 });
 
       await noSidewaysScroll(page);
     });
 
-    test("/map: the brand h1, map first on phones, list rows with Buy tickets", async ({ page }) => {
+    test("/map: Nearby, the brand h1, the list first on phones, list rows with their price (and Buy tickets from 1024px)", async ({ page }) => {
       await mockApi(page);
       await page.goto("/map");
+      await expect(page).toHaveTitle("Nearby — Sheltüh");
       const h1 = page.getByRole("heading", { level: 1 });
       await expect(h1).toHaveAccessibleName("Sheltüh near you.");
       await expect(h1).toContainText("near you.", { ignoreCase: true });
 
       const group = page.getByRole("group", { name: "Show events as" });
+      const rowBuy = page.getByRole("link", { name: /^(?:Buy tickets|Free tickets) for / }).first();
+      await expect(page.locator("[data-row-price]").first()).toHaveText(/^(From A\$[\d.,]+|Free|Free \+ paid|Sold out)$/);
       if (vp.phone) {
-        await expect(group.getByRole("button").first()).toHaveAccessibleName("Map");
-        await expect(group.getByRole("button", { name: "Map" })).toHaveAttribute("aria-pressed", "true");
+        await expect(group.getByRole("button").first()).toHaveAccessibleName("List");
+        await expect(group.getByRole("button", { name: "List" })).toHaveAttribute("aria-pressed", "true");
+        // The phone mock's row: no ticket button (the row opens the event).
+        await expect(rowBuy).toBeHidden();
+        await group.getByRole("button", { name: "Map" }).click();
+        await expect(page).toHaveURL(/[?&]view=map\b/);
         // The map leaves page to scroll by: at most 60% of the screen's height.
         const mapBox = await page.locator(".leaflet-container").first().boundingBox();
         expect(mapBox?.height ?? 0).toBeLessThanOrEqual(vp.height * 0.6 + 1);
-        await page.getByRole("button", { name: /^Show the list of \d+ events?$/ }).click();
-        await expect(group.getByRole("button", { name: "List" })).toHaveAttribute("aria-pressed", "true");
-        await expect(page).toHaveURL(/[?&]view=list\b/);
       } else {
         await expect(group).toBeHidden();
+        await expect(rowBuy).toBeVisible();
+        await expect(rowBuy).toHaveAttribute("href", /#tickets$/);
       }
-
-      const rowBuy = page.getByRole("link", { name: /^(?:Buy tickets|Free tickets) for / }).first();
-      await expect(rowBuy).toBeVisible();
-      await expect(rowBuy).toHaveAttribute("href", /#tickets$/);
       await noSidewaysScroll(page);
     });
 
-    test("/map?view=list opens the list", async ({ page }) => {
+    test("/map?view=map opens the map", async ({ page }) => {
       test.skip(!vp.phone, "the view switch is for phones; both show from 1024px");
       await mockApi(page);
-      await page.goto("/map?view=list");
-      await expect(page.getByRole("group", { name: "Show events as" }).getByRole("button", { name: "List" })).toHaveAttribute(
+      await page.goto("/map?view=map");
+      await expect(page.getByRole("group", { name: "Show events as" }).getByRole("button", { name: "Map" })).toHaveAttribute(
         "aria-pressed",
         "true",
       );
@@ -151,15 +157,18 @@ test.describe("discovery at 320×640", () => {
 test.describe("/map sheet and focus at 320×640", () => {
   test.use({ viewport: { width: 320, height: 640 } });
 
-  test("Locate focuses the sheet; a focused footer link scrolls clear of it; Dismiss returns focus", async ({ page }) => {
+  test("a marker opens the sheet; a focused footer link scrolls clear of it; Dismiss returns focus", async ({ page }) => {
     await mockApi(page);
-    await page.goto("/map?view=list");
-    const locate = page.getByRole("button", { name: /^Locate .* on the map$/ }).and(page.locator(":enabled")).first();
-    await locate.click();
+    await page.goto("/map?view=map");
+    // A phone's rows have no Locate (the owner's mocks): the map's own markers select (by keyboard,
+    // since with no tiles the map's notice lies over it).
+    const marker = page.locator(".leaflet-marker-pane button[data-event-id]").first();
+    await marker.focus();
+    await page.keyboard.press("Enter");
 
     const sheet = page.locator("[data-map-sheet]");
     await expect(sheet).toBeVisible();
-    await expect(sheet).toBeFocused();
+    await expect(sheet.getByRole("button", { name: "List" })).toBeVisible();
     const sheetTop = (await sheet.boundingBox())?.y ?? 0;
     expect(sheetTop).toBeGreaterThan(0);
 
@@ -191,7 +200,7 @@ test.describe("/map sheet and focus at 320×640", () => {
 
   test("with no map tiles, 'Show the list' switches to the list and focuses it", async ({ page }) => {
     await mockApi(page);
-    await page.goto("/map");
+    await page.goto("/map?view=map");
     await expect(page.getByText(/Map couldn.t load/)).toBeVisible({ timeout: 20_000 });
     await page.getByRole("button", { name: "Show the list", exact: true }).click();
     await expect(page.getByRole("region", { name: "Events list" })).toBeFocused();
@@ -203,7 +212,7 @@ test.describe("/map sheet and focus at 320×640", () => {
 
   test("'Show the list of N events' focuses the list, which doesn't scroll inside the page", async ({ page }) => {
     await mockApi(page);
-    await page.goto("/map");
+    await page.goto("/map?view=map");
     await page.getByRole("button", { name: /^Show the list of \d+ events?$/ }).click();
     const list = page.getByRole("region", { name: "Events list" });
     await expect(list).toBeFocused();

@@ -19,12 +19,10 @@ vi.mock("@/lib/api/client", async (importOriginal) => ({
 const loadHomeEvents = vi.fn<(now: Date) => Promise<SheltuhEvent[]>>();
 const loadHomeTrending = vi.fn<(now: Date) => Promise<TrendingItem[]>>();
 const loadHomeFollowing = vi.fn<(getToken: GetToken, now: Date) => Promise<SheltuhEvent[]>>();
-const loadHomeRecent = vi.fn<(now: Date) => Promise<SheltuhEvent[]>>();
 vi.mock("@/lib/home-events", () => ({
-  loadHomeEvents: (now: Date) => loadHomeEvents(now),
+  loadHomeFeed: async (now: Date) => ({ events: await loadHomeEvents(now), complete: true }),
   loadHomeTrending: (now: Date) => loadHomeTrending(now),
   loadHomeFollowing: (getToken: GetToken, now: Date) => loadHomeFollowing(getToken, now),
-  loadHomeRecent: (now: Date) => loadHomeRecent(now),
 }));
 
 function event(id: string, startsAt: string, overrides: Partial<SheltuhEvent> = {}): SheltuhEvent {
@@ -96,10 +94,10 @@ beforeEach(() => {
   apiConfigured = true;
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date(NOW));
-  loadHomeEvents.mockReset().mockResolvedValue([ENDED, SOON, SAT, SUN, FOLLOWED, ...T]);
+  // RECENT ended two days ago: it never enters the feed.
+  loadHomeEvents.mockReset().mockResolvedValue([ENDED, RECENT, SOON, SAT, SUN, FOLLOWED, ...T]);
   loadHomeTrending.mockReset().mockResolvedValue([]);
   loadHomeFollowing.mockReset().mockResolvedValue([]);
-  loadHomeRecent.mockReset().mockResolvedValue([RECENT]);
 });
 afterEach(() => {
   cleanup();
@@ -149,31 +147,32 @@ describe("the swipe feed", () => {
     expect(titles()).toEqual([]);
   });
 
-  it("lists This weekend, then Coming up, one article each, once each, upcoming only", async () => {
+  it("lists the home's sections in its order (no trending data: the carousel's Coming up, the soonest five), one article each, once each, upcoming only", async () => {
     renderFeed();
     await flush();
     // Ready: the status says how many, and the feed is no longer busy.
-    expect(screen.getByRole("status")).toHaveTextContent("7 events");
+    expect(screen.getByRole("status")).toHaveTextContent("5 events");
     expect(screen.getByRole("feed")).toHaveAttribute("aria-busy", "false");
-    // The weekend's events first, then what's coming (no trending data: Coming up, soonest first).
-    expect(titles()).toEqual(["Event sat", "Event sun", "Event soon", "Event followed", "Event t0", "Event t1", "Event t2"]);
+    // The carousel claims first: with no trending data it's Coming up, the soonest, so This weekend has none left.
+    expect(titles()).toEqual(["Event soon", "Event sat", "Event sun", "Event followed", "Event t0"]);
     expect(new Set(titles()).size).toBe(titles().length);
     // Not the ended event, nor "Recently on".
     expect(screen.queryByRole("article", { name: "Event ended" })).not.toBeInTheDocument();
     expect(screen.queryByRole("article", { name: "Event recent" })).not.toBeInTheDocument();
   });
 
-  it("puts a signed-in member's followed events after This weekend and before Popular right now, each once", async () => {
+  it("puts Popular right now first, then This weekend, then a signed-in member's followed events, each once", async () => {
     loadHomeFollowing.mockResolvedValue([FOLLOWED, SAT]);
     loadHomeTrending.mockResolvedValue([...T, SOON].map((e) => ({ event: e, signal: { kind: "popular" } })));
     renderFeed(true);
     await flush();
     expect(loadHomeFollowing).toHaveBeenCalledTimes(1);
-    // SAT is a weekend event, so the following list doesn't repeat it; the trending ones follow, in the server's order.
-    expect(titles()).toEqual(["Event sat", "Event sun", "Event followed", "Event t0", "Event t1", "Event t2", "Event soon"]);
+    // The trending ones in the server's order; SAT is This weekend's, so the following list doesn't repeat it.
+    expect(titles()).toEqual(["Event t0", "Event t1", "Event t2", "Event soon", "Event sat", "Event sun", "Event followed"]);
   });
 
   it("each screen: category, the title as an h2, date and time, place, price, View event and Save", async () => {
+    loadHomeTrending.mockResolvedValue(T.map((e) => ({ event: e, signal: { kind: "popular" } })));
     renderFeed();
     await flush();
     const screenOne = screen.getByRole("article", { name: "Event sat" });
@@ -205,9 +204,9 @@ describe("the swipe feed", () => {
     renderFeed();
     await flush();
     const articles = screen.getAllByRole("article");
-    expect(articles.map((a) => a.getAttribute("aria-posinset"))).toEqual(["1", "2", "3", "4", "5", "6", "7"]);
-    for (const a of articles) expect(a).toHaveAttribute("aria-setsize", "7");
-    expect(screen.getByRole("feed")).toContainElement(articles[6]);
+    expect(articles.map((a) => a.getAttribute("aria-posinset"))).toEqual(["1", "2", "3", "4", "5"]);
+    for (const a of articles) expect(a).toHaveAttribute("aria-setsize", "5");
+    expect(screen.getByRole("feed")).toContainElement(articles[4]);
     const end = document.querySelector<HTMLElement>("[data-swipe-end]");
     expect(end).toHaveClass("snap-start", "min-h-dvh");
     expect(within(end as HTMLElement).getByText("That’s everything")).toBeInTheDocument();
@@ -238,7 +237,7 @@ describe("the swipe feed", () => {
     await flush();
     const hints = document.querySelectorAll("[data-swipe-hint]");
     expect(hints).toHaveLength(1);
-    expect(screen.getByRole("article", { name: "Event sat" }).contains(hints[0])).toBe(true);
+    expect(screen.getByRole("article", { name: "Event soon" }).contains(hints[0])).toBe(true);
     expect(hints[0]).toHaveTextContent("Swipe up");
   });
 
@@ -298,7 +297,7 @@ describe("the swipe feed", () => {
       await flush();
       const observer = FakeObserver.all.at(-1);
       expect(observer?.options?.rootMargin).toBe("-50% 0px -50% 0px");
-      expect(observer?.watched).toHaveLength(7);
+      expect(observer?.watched).toHaveLength(5);
       observer?.cross(screen.getByRole("article", { name: "Event soon" }));
       expect(window.sessionStorage.getItem("sheltuh:swipe-position")).toBe("soon");
     });
@@ -332,7 +331,7 @@ describe("the swipe feed", () => {
       });
       renderFeed();
       await flush();
-      expect(titles()).toHaveLength(7);
+      expect(titles()).toHaveLength(5);
       expect(() => FakeObserver.all.at(-1)?.cross(screen.getByRole("article", { name: "Event sat" }))).not.toThrow();
       vi.restoreAllMocks();
     });

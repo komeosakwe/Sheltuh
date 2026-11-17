@@ -1,6 +1,6 @@
 import { requireCaller, requireVerifiedCaller } from "../auth";
 import type { Db } from "../db";
-import { createdPrivate, HttpError, noContentPrivate, okPrivate, readJson } from "../http";
+import { createdPrivate, HttpError, noContentPrivate, okPrivate, readJson, tooManyRequests, windowSeconds } from "../http";
 import { MEMBER_UNAVAILABLE, parseMessageId, parseSendMessage, parseStartConversation } from "../message-input";
 import { decodeCursor, isUuid, parseLimit, toPage } from "../pagination";
 import {
@@ -112,7 +112,12 @@ export const startConversation: Handler = async (req, _params, { db, verifyAcces
     case "exists":
       throw new HttpError(409, "You already have a conversation with this member. Find it in your messages.");
     case "rate_limited":
-      throw new HttpError(429, "You've sent a lot of new message requests. Try again tomorrow.");
+      // One answer for the sender's requests and messages allowances: the longer window. (The recipient's
+      // incoming one answers `unavailable`.)
+      throw tooManyRequests(
+        "You've sent a lot of new message requests. Try again tomorrow.",
+        Math.max(windowSeconds(REQUEST_RATE_LIMIT.window), windowSeconds(MESSAGE_RATE_LIMIT.window)),
+      );
     default:
       throw new Error(`Unexpected request_conversation result: ${result}`);
   }
@@ -184,7 +189,7 @@ export const sendMessage: Handler<{ conversationId: string }> = async (
     case "awaiting_reply":
       throw new HttpError(409, "Wait for a reply before sending another message.");
     case "rate_limited":
-      throw new HttpError(429, "You're sending messages too quickly. Try again later.");
+      throw tooManyRequests("You're sending messages too quickly. Try again later.", windowSeconds(MESSAGE_RATE_LIMIT.window));
     default:
       throw new Error(`Unexpected send_message result: ${result}`);
   }

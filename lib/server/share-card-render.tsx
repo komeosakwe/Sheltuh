@@ -23,9 +23,10 @@ import { cardText, cardTitleSize, dottedText, SHARE_CARD_SIZE } from "@/lib/shar
  * whole, at their own ratio, in one colour. Type is in the brand faces:
  * Instrument Sans SemiBold for titles and names, with the brand's two dots
  * over every vowel (dottedText: what the site's Instrument Sans Dots does by
- * remapping its character map), and IBM Plex Mono Medium for the date line,
- * as the site sets dates. Satori can't read the site's WOFF2 files, so the
- * same OFL faces are vendored as WOFF in app/fonts/og/ (licences beside them).
+ * remapping its character map), and plain Instrument Sans for the date line,
+ * as the site sets dates (owner decision, 13 Nov 2026: no more Plex Mono for
+ * dates). Satori can't read the site's WOFF2 files, so the same OFL face is
+ * vendored as WOFF in app/fonts/og/ (its licence beside it).
  */
 
 const { width: WIDTH, height: HEIGHT } = SHARE_CARD_SIZE;
@@ -56,18 +57,16 @@ function Mark({ mark, width, color }: { mark: BrandMark; width: number; color: s
 }
 
 const SANS = "Instrument Sans";
-const MONO = "IBM Plex Mono";
 
-type CardFont = { name: string; data: Buffer; weight: 500 | 600; style: "normal" };
+type CardFont = { name: string; data: Buffer; weight: 600; style: "normal" };
 let fonts: CardFont[] | null = null;
 
-/** The two faces, read once per server instance (process.cwd() is the app root, so the files are traced into the deployment). */
+/** The face, read once per server instance (process.cwd() is the app root, so the files are traced into the deployment). */
 function cardFonts(): CardFont[] {
   if (!fonts) {
     const dir = path.join(process.cwd(), "app", "fonts", "og");
     fonts = [
       { name: SANS, data: readFileSync(path.join(dir, "instrument-sans-latin-600-normal.woff")), weight: 600, style: "normal" },
-      { name: MONO, data: readFileSync(path.join(dir, "ibm-plex-mono-latin-500-normal.woff")), weight: 500, style: "normal" },
     ];
   }
   return fonts;
@@ -171,7 +170,7 @@ export function eventCard({ title, detail, photo }: EventCardContent): ImageResp
         }}
       >
         <Title text={text} size={cardTitleSize(text)} color={ink} />
-        <div style={{ display: "block", fontFamily: MONO, fontWeight: 500, fontSize: 28, lineHeight: 1.2, color: soft, lineClamp: 1, overflow: "hidden", textOverflow: "ellipsis" }}>
+        <div style={{ display: "block", fontFamily: SANS, fontWeight: 600, fontSize: 28, lineHeight: 1.2, color: soft, lineClamp: 1, overflow: "hidden", textOverflow: "ellipsis" }}>
           {detail}
         </div>
       </div>

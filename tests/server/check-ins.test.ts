@@ -690,6 +690,7 @@ describe("rate limit", () => {
     const res = await scan(organiser.token, codes[0]);
     expect(res.status).toBe(429);
     expect(res.headers.get("cache-control")).toBe("private, no-store");
+    expect(res.headers.get("retry-after")).toBe("300"); // the 5-minute window
     expect((await scan(organiser.token, UNKNOWN_CODE)).status).toBe(429);
     expect(await log()).toEqual([]);
     expect(await checkedInAt(codes[0])).toBeNull();

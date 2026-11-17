@@ -51,7 +51,7 @@ import { requireAdmin, requireCaller, type Caller } from "../auth";
 import { ClipStorageError, SIGNED_UPLOAD_URL_LIFETIME_MS, type ClipStorage } from "../clip-storage";
 import { pgErrorCode, type Db } from "../db";
 import type { Deps } from "../deps";
-import { createdPrivate, HttpError, okPrivate, readJson } from "../http";
+import { createdPrivate, HttpError, okPrivate, type RateWindow, readJson, tooManyRequests, windowSeconds } from "../http";
 import { parseMessageText } from "../message-input";
 import { clipProblemMessage, sanitiseClip } from "../mp4";
 import { isUuid } from "../pagination";
@@ -120,7 +120,8 @@ export function finalClipPath(eventId: string, uploadId: string): string {
 
 const unavailable = () => new HttpError(503, CLIP_MESSAGES.unavailable, { clip: CLIP_MESSAGES.unavailable });
 const expired = () => new HttpError(410, CLIP_MESSAGES.uploadExpired, { clip: CLIP_MESSAGES.uploadExpired });
-const rateLimited = () => new HttpError(429, CLIP_MESSAGES.rateLimited, { clip: CLIP_MESSAGES.rateLimited });
+const rateLimited = (limit: { window: RateWindow }) =>
+  tooManyRequests(CLIP_MESSAGES.rateLimited, windowSeconds(limit.window), { clip: CLIP_MESSAGES.rateLimited });
 
 /**
  * The uploads switch, enforced here as well as in the browser: on only when
@@ -334,7 +335,7 @@ async function issueUploadUrl(actor: Actor, req: Request, deps: Deps): Promise<R
   parseUploadRequest(await readJson(req));
   const storage = requireStorage(deps);
   if (!(await takeRateLimit(deps.db, actor.caller.userId, "event_clip_uploads", CLIP_UPLOAD_RATE_LIMIT))) {
-    throw rateLimited();
+    throw rateLimited(CLIP_UPLOAD_RATE_LIMIT);
   }
 
   const uploadId = crypto.randomUUID();
@@ -545,7 +546,7 @@ async function attachClip(actor: Actor, req: Request, deps: Deps): Promise<Respo
 
   requireStorage(deps);
   if (!(await takeRateLimit(db, actor.caller.userId, "event_clip_attaches", CLIP_ATTACH_RATE_LIMIT))) {
-    throw rateLimited();
+    throw rateLimited(CLIP_ATTACH_RATE_LIMIT);
   }
   if (!(await claimUpload(db, actor, uploadId))) throw expired();
 

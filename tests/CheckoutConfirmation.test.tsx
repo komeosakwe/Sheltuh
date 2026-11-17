@@ -83,7 +83,10 @@ describe("CheckoutConfirmation", () => {
     getOrderBySession.mockResolvedValue(ORDER);
     render(<CheckoutConfirmation />);
     expect(await screen.findByText("Tickets sent to m***@example.com.")).toBeInTheDocument();
-    expect(screen.getByText("Order reference #7C1F2E0A")).toBeInTheDocument();
+    expect(screen.getByText(/^Order reference/)).toHaveTextContent(/^Order reference #7C1F2E0A$/);
+    // A machine code: the reference stays in mono (owner decision, 13 Nov 2026), in the strap and the line.
+    for (const ref of screen.getAllByText("#7C1F2E0A")) expect(ref).toHaveClass("font-mono");
+    expect(screen.getAllByText("#7C1F2E0A")).toHaveLength(2);
     expect(screen.getByText("ABC123")).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/mia@/);
   });

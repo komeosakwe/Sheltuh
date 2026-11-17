@@ -1,7 +1,7 @@
 import { requireCaller, requireVerifiedCaller } from "../auth";
 import { encodeAvatar, readAvatarUpload } from "../avatar";
 import type { Db } from "../db";
-import { HttpError, noContentPrivate, okPrivate, readJson } from "../http";
+import { HttpError, noContentPrivate, okPrivate, readJson, tooManyRequests, windowSeconds } from "../http";
 import { parseProfilePatch } from "../member-profile-input";
 import { parseProfileInput } from "../profile-input";
 import { PROFILE_COLUMNS, toProfile } from "../records";
@@ -163,7 +163,7 @@ export const putMyAvatar: Handler = async (req, _params, { db, verifyAccessToken
     `select private.take_rate_limit($1, 'avatar_uploads', $2, $3::interval) as allowed`,
     [caller.userId, AVATAR_UPLOAD_RATE_LIMIT.hits, AVATAR_UPLOAD_RATE_LIMIT.window],
   );
-  if (!allowed) throw new HttpError(429, "You've changed your photo a lot today. Try again tomorrow.");
+  if (!allowed) throw tooManyRequests("You've changed your photo a lot today. Try again tomorrow.", windowSeconds(AVATAR_UPLOAD_RATE_LIMIT.window));
 
   const { image, thumb } = await encodeAvatar(await readAvatarUpload(req));
 

@@ -69,7 +69,16 @@ export function PinIcon({ className = "h-3 w-3" }: { className?: string }) {
   );
 }
 
-/** "Opens elsewhere" (an arrow out of a box): outbound ticket links, Get directions. */
+/** A plain ↗ arrow: the event page's "Get directions" under the venue (the owner's event reference, 13 Nov 2026). */
+export function ArrowUpRightIcon({ className = "size-4 shrink-0" }: { className?: string }) {
+  return (
+    <svg {...common} strokeWidth={2} className={className}>
+      <path d="M7 17 17 7M8 7h9v9" />
+    </svg>
+  );
+}
+
+/** "Opens elsewhere" (an arrow out of a box): outbound ticket links, the Location section's map links. */
 export function ExternalIcon({ className = "size-4 shrink-0" }: { className?: string }) {
   return (
     <svg {...common} strokeWidth={1.75} className={className}>
