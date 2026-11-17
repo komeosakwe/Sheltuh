@@ -5,6 +5,7 @@ import type { EventCategory, ImageFocus } from "@/lib/types";
 import { ApiError, apiFetch, type GetToken } from "./client";
 import type {
   EventRecord,
+  ImageDisplayInput,
   Paginated,
   PublishEventConflictCode,
   PublishEventResponse,
@@ -211,10 +212,20 @@ export function focusQuery(focus?: ImageFocus | null): string {
   return focus ? `?fx=${focus.x}&fy=${focus.y}` : "";
 }
 
+/**
+ * Changes how the event's saved photo is shown: its focus point (null clears
+ * it) and/or the home banner's fit, in one request; an absent key keeps the
+ * stored value. Draft or rejected events only. ApiError 409 when it has no
+ * photo or is locked; 400 `fieldErrors.imageFocus` / `bannerFit`.
+ */
+export async function setEventImageDisplay(eventId: string, display: ImageDisplayInput, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<EventRecord>(`/events/${eventId}/image`, { method: "PATCH", body: display, token });
+}
+
 /** Moves (or, with null, clears) the focus point of the event's saved photo. ApiError 409 when it has no photo or is locked. */
 export async function setEventImageFocus(eventId: string, focus: ImageFocus | null, getToken: GetToken) {
-  const token = await getToken();
-  return apiFetch<EventRecord>(`/events/${eventId}/image`, { method: "PATCH", body: { focus }, token });
+  return setEventImageDisplay(eventId, { focus }, getToken);
 }
 
 export async function deleteEventImage(eventId: string, getToken: GetToken) {

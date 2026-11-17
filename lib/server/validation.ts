@@ -3,6 +3,7 @@ import { groupTicketsEnabled } from "@/lib/group-tickets-flag";
 import { MAX_GROUP_SIZE } from "@/lib/ticket-groups";
 import { URL_DISALLOWED } from "@/lib/ticketing";
 import { localToUtcIso, PLATFORM_TIME_ZONE } from "@/lib/time-zones";
+import type { BannerFit } from "@/lib/types";
 import { isPlainEmailAddress, MAX_EMAIL_LENGTH } from "./email-address";
 import { HttpError } from "./http";
 import { EVENT_CATEGORIES, type EventCategory, type FeePolicy, type TicketTypeInput } from "./types";
@@ -345,15 +346,52 @@ export function parseImageFocus(x: unknown, y: unknown): { x: number; y: number 
   return { x: fx, y: fy };
 }
 
+/** A body's `focus` value: `{ x, y }` (integers 0..100) or null (clear); undefined when it's anything else. */
+function focusValue(focus: unknown): { x: number; y: number } | null | undefined {
+  if (focus === null) return null;
+  if (typeof focus !== "object" || Array.isArray(focus)) return undefined;
+  const { x, y } = focus as Record<string, unknown>;
+  const fx = focusCoordinate(x);
+  const fy = focusCoordinate(y);
+  return fx === null || fy === null ? undefined : { x: fx, y: fy };
+}
+
 /** The focus in a request body: `{ focus: { x, y } }` or `{ focus: null }` (clear). A missing `focus` is a 400. */
 export function parseFocusBody(body: Record<string, unknown>): { x: number; y: number } | null {
-  if (!("focus" in body)) fail({ imageFocus: FOCUS_MESSAGE });
-  const focus = body.focus;
-  if (focus === null) return null;
-  if (typeof focus !== "object" || Array.isArray(focus)) fail({ imageFocus: FOCUS_MESSAGE });
-  const { x, y } = focus as Record<string, unknown>;
-  if (x === undefined || x === null || y === undefined || y === null) fail({ imageFocus: FOCUS_MESSAGE });
-  return parseImageFocus(x, y);
+  const focus = "focus" in body ? focusValue(body.focus) : undefined;
+  if (focus === undefined) fail({ imageFocus: FOCUS_MESSAGE });
+  return focus;
+}
+
+const BANNER_FIT_MESSAGE = 'The banner fit must be "crop" or "whole".';
+
+/** What a PATCH of a saved photo's display changes: the focus only when `setFocus`, the fit only when not null. */
+export interface ImageDisplayUpdate {
+  setFocus: boolean;
+  focus: { x: number; y: number } | null;
+  bannerFit: BannerFit | null;
+}
+
+/**
+ * The body of PATCH /events/{id}/image (and the admin's):
+ * `{ focus?: { x, y } | null, bannerFit?: "crop" | "whole" }`, at least one
+ * key; an absent key keeps the stored value. Neither key, or a bad focus, is a
+ * 400 with `fieldErrors.imageFocus` (as the focus-only body always was); a
+ * bad fit, `fieldErrors.bannerFit`. Mirrors event_images_focus_check and
+ * event_images_banner_fit_check.
+ */
+export function parseImageDisplayBody(body: Record<string, unknown>): ImageDisplayUpdate {
+  const setFocus = "focus" in body;
+  const hasFit = "bannerFit" in body;
+  if (!setFocus && !hasFit) fail({ imageFocus: FOCUS_MESSAGE });
+  const errors: Record<string, string> = {};
+  const focus = setFocus ? focusValue(body.focus) : null;
+  if (focus === undefined) errors.imageFocus = FOCUS_MESSAGE;
+  const fit = body.bannerFit;
+  const bannerFit = fit === "crop" || fit === "whole" ? fit : null;
+  if (hasFit && bannerFit === null) errors.bannerFit = BANNER_FIT_MESSAGE;
+  if (Object.keys(errors).length > 0) fail(errors);
+  return { setFocus, focus: focus ?? null, bannerFit };
 }
 
 /** The focus in an upload's query string (`?fx=&fy=`, plain digits); absent means none. */

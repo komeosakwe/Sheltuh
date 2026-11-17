@@ -20,6 +20,7 @@ import type {
   EmailJobStatus,
   EventRecord,
   EventStatus,
+  ImageDisplayInput,
   InviteStatus,
   OrganiserStatus,
   Paginated,
@@ -339,14 +340,24 @@ export async function adminUploadEventImage(eventId: string, image: Blob, getTok
   });
 }
 
-/** Moves (or, with null, clears) the focus point of any event's saved photo (logged `edited`). */
-export async function adminSetEventImageFocus(eventId: string, focus: ImageFocus | null, getToken: GetToken) {
+/**
+ * Changes how any event's saved photo is shown, any status: its focus point
+ * (null clears it) and/or the home banner's fit, in one step; an absent key
+ * keeps the stored value. Logged `edited` (nothing when nothing changes).
+ * ApiError 409 when it has no photo.
+ */
+export async function adminSetEventImageDisplay(eventId: string, display: ImageDisplayInput, getToken: GetToken) {
   const token = await getToken();
   return apiFetch<AdminEventRecord>(`/admin/events/${encodeURIComponent(eventId)}/image`, {
     method: "PATCH",
-    body: { focus },
+    body: display,
     token,
   });
+}
+
+/** Moves (or, with null, clears) the focus point of any event's saved photo (logged `edited`). */
+export async function adminSetEventImageFocus(eventId: string, focus: ImageFocus | null, getToken: GetToken) {
+  return adminSetEventImageDisplay(eventId, { focus }, getToken);
 }
 
 /** Removes any event's photo (logged `edited` if it had one). */

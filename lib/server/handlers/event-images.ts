@@ -3,7 +3,7 @@ import { HttpError, ok, readJson } from "../http";
 import { isUuid } from "../pagination";
 import type { Handler } from "../route";
 import { requireEvent, requireOwnEvent } from "./event-queries";
-import { parseFocusBody, parseFocusQuery } from "../validation";
+import { parseFocusQuery, parseImageDisplayBody } from "../validation";
 import { findOrganiserByOwner, requireApprovedOrganiser } from "./organiser-guard";
 
 /** Mirrors the event_images check constraint. The client downsizes well below this. */
@@ -117,30 +117,37 @@ export const putEventImage: Handler<{ eventId: string }> = async (req, { eventId
 };
 
 /**
- * PATCH /api/events/[eventId]/image — `{ "focus": { "x", "y" } | null }`: moves
- * (or clears) the focus point of the saved photo, without touching its bytes
- * or version. Draft or rejected events only (409), and only with a photo (409).
+ * PATCH /api/events/[eventId]/image — `{ "focus"?: { "x", "y" } | null,
+ * "bannerFit"?: "crop" | "whole" }` (at least one; parseImageDisplayBody):
+ * moves (or clears) the focus point and/or sets how the home banner shows the
+ * saved photo, in one write, without touching its bytes or version. An absent
+ * key keeps the stored value. Draft or rejected events only (409: on a
+ * published event only an admin may change either), and only with a photo (409).
  */
 export const patchEventImageFocus: Handler<{ eventId: string }> = async (req, { eventId }, { db, verifyAccessToken }) => {
   const caller = await requireCaller(req, verifyAccessToken);
   const organiser = await requireApprovedOrganiser(db, caller);
   const event = await requireOwnEvent(db, organiser.organiserId, eventId);
-  const focus = parseFocusBody(await readJson(req));
+  const display = parseImageDisplayBody(await readJson(req));
   if (event.status !== "draft" && event.status !== "rejected") {
     throw new HttpError(409, EDIT_LOCKED_MESSAGE);
   }
   // The event row first (for no key update), then the image: see putEventImage.
+  // Focus and fit change together or not at all (one statement).
   const updated = await db.query(
     `with e as (
        select e.id from public.events e
         where e.id = $1 and e.organiser_id = $2 and e.status in ('draft', 'rejected')
           for no key update
      )
-     update public.event_images i set focus_x = $3::smallint, focus_y = $4::smallint
+     update public.event_images i
+        set focus_x = case when $3::boolean then $4::smallint else i.focus_x end,
+            focus_y = case when $3::boolean then $5::smallint else i.focus_y end,
+            banner_fit = coalesce($6::text, i.banner_fit)
        from e
       where i.event_id = e.id
       returning i.event_id`,
-    [eventId, organiser.organiserId, focus?.x ?? null, focus?.y ?? null],
+    [eventId, organiser.organiserId, display.setFocus, display.focus?.x ?? null, display.focus?.y ?? null, display.bannerFit],
   );
   if (updated.length === 0) {
     const current = await requireEvent(db, eventId);
