@@ -53,6 +53,22 @@ describe("redactSecrets", () => {
     }
   });
 
+  // Random .p8 lines that slipped through about 1 in 2,000 times (PR 54's CI): pinned so it isn't luck.
+  it("removes base64 lines whose stretches between slashes are digit-free or short", () => {
+    for (const line of [
+      // The 41-character stretch has no digit (the line from the CI failure).
+      "oqEs1JX/w0/fyn87kallcx/tSCWhRANCAARUQJPtGlelcFQtzwGCGabyxIxifhws",
+      // Five slashes, no stretch of 16 or more.
+      "Ab3dEfGh9jKl/Mn0pQrStUv2/Wx4zAbCdEf6/GhIjKl8MnOp/QrSt1UvWxYz/AbCd",
+      // A 56-character last line, seven slashes, as dense as a path: its stretches aren't words.
+      "21P3YQIwci/8cp8ozDXdA/N0/LR2noP/UHFExb9At65/8LRAOQ3cizr8",
+      // No digit anywhere in 64 characters.
+      "ZtIDXTVMWhBCMrEgfeucWbcSoFMUwdROsCkuY/KSRDzeoSpndNtWbfWCPcjoDsf/",
+    ]) {
+      expect(redactSecrets(`Couldn't read ${line}.`), line).toBe(`Couldn't read ${REDACTED}.`);
+    }
+  });
+
   it("leaves ordinary output alone: hostnames, Stripe IDs, file paths, usage and messages", () => {
     for (const text of [
       "app.sheltuh.com.au (pmd_1PgGq2Lkd8xyzAbCdEfGhIjK, test mode)",
@@ -61,6 +77,13 @@ describe("redactSecrets", () => {
       "Couldn't read /Users/kome/Library/Mobile Documents/com~apple~CloudDocs/secure/AuthKey_ABCDE12345.p8.",
       "/home/kome/Secure/Keys2026/AppleSignIn/Production/AuthKey_ABCDE12345.p8",
       "C:/Users/Kome/OneDrive/Documents/Sheltuh/Secrets2026/AuthKey_ABCDE12345.p8",
+      // Long letters-only and digit-ending paths stay readable under the extra base64 rules.
+      "/home/kome/Secure/AppleSignIn/Production/AuthKey.p8",
+      "/Users/kome/Projects/Sheltuh/Keys/Apple/Production2026/AuthKey.p8",
+      "/var/lib/sheltuh/releases/Build2026/Assets/Fonts/Bootzy/Regular.woff2",
+      // Only words between the slashes, however long (CodeRabbit, PR 55).
+      "/Applications/Configuration/Authentication/Production/AuthKey.p8",
+      "/Users/alice/Projects/AppleDeveloperAuthentication/AuthKey.p8",
       "The key isn't a Stripe secret (sk_…) or restricted (rk_…) key.",
       "Expires 2027-04-22T00:00:00.000Z (180 days).",
       "Stripe refused the request: No such payment_method_domain: 'pmd_1PgGq2Lkd8xyz' (req_AbC123dEf456)",
