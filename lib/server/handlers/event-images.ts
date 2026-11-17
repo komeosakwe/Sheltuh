@@ -1,11 +1,11 @@
 import { requireCaller } from "../auth";
-import { HttpError, ok, readJson } from "../http";
+import { HttpError, ok, readJson, tooManyRequests, windowSeconds } from "../http";
 import { isUuid } from "../pagination";
 import type { Handler } from "../route";
 import { requireEvent, requireOwnEvent } from "./event-queries";
 import { parseFocusBody, parseFocusQuery } from "../validation";
 import { findOrganiserByOwner, requireApprovedOrganiser } from "./organiser-guard";
-import { encodeEventImage, type EncodedEventImage } from "../event-image";
+import { encodeEventImage, EVENT_IMAGE_UPLOAD_RATE_LIMIT, type EncodedEventImage } from "../event-image";
 import { MAX_EVENT_IMAGE_BYTES, readCappedBytes, sniffImageType } from "../image-upload";
 
 // Moved to a leaf module (so the re-encoders can share them without an import
@@ -44,7 +44,9 @@ export async function readEventImage(req: Request): Promise<EncodedEventImage> {
  * readEventImage re-encodes them (no metadata); only while the event is a
  * draft or rejected. `fx` / `fy` (whole percentages 0..100, both or
  * neither; 400 otherwise) set the photo's focus point; none means no focus, so
- * replacing a photo resets it.
+ * replacing a photo resets it. EVENT_IMAGE_UPLOAD_RATE_LIMIT uploads a day per
+ * organiser account (429 with Retry-After, before the body is read: each
+ * upload is up to two full-resolution encodes in the shared decode slots).
  */
 export const putEventImage: Handler<{ eventId: string }> = async (req, { eventId }, { db, verifyAccessToken }) => {
   const caller = await requireCaller(req, verifyAccessToken);
@@ -55,6 +57,18 @@ export const putEventImage: Handler<{ eventId: string }> = async (req, { eventId
   }
 
   const focus = parseFocusQuery(req.url);
+
+  const [{ allowed }] = await db.query<{ allowed: boolean }>(
+    `select private.take_rate_limit($1, 'event_image_uploads', $2, $3::interval) as allowed`,
+    [caller.userId, EVENT_IMAGE_UPLOAD_RATE_LIMIT.hits, EVENT_IMAGE_UPLOAD_RATE_LIMIT.window],
+  );
+  if (!allowed) {
+    throw tooManyRequests(
+      "You've uploaded a lot of event photos today. Try again tomorrow.",
+      windowSeconds(EVENT_IMAGE_UPLOAD_RATE_LIMIT.window),
+    );
+  }
+
   const { bytes, contentType } = await readEventImage(req);
 
   // Ownership and "still a draft/rejected" are re-checked inside the write

@@ -29,6 +29,22 @@ export const EVENT_IMAGE_JPEG_QUALITY = 85;
 /** WebP quality on re-encode: the member photo's. */
 export const EVENT_IMAGE_WEBP_QUALITY = 82;
 
+/**
+ * The longest one encode (decode included) may run, in seconds, before sharp
+ * stops it (a 400, like any file that doesn't decode): one pathological file
+ * can't hold a shared decode slot for long. A legitimate photo of up to 24
+ * megapixels takes a few seconds at most. An upload may run two (its own
+ * format, then WebP), each with its own limit.
+ */
+export const EVENT_IMAGE_ENCODE_TIMEOUT_SECONDS = 10;
+
+/**
+ * Event photo uploads per organiser account per window (each one is up to two
+ * full-resolution encodes in the shared decode slots). Bucket
+ * `event_image_uploads`. The organiser's PUT only; an admin's isn't limited.
+ */
+export const EVENT_IMAGE_UPLOAD_RATE_LIMIT = { hits: 50, window: "24 hours" } as const;
+
 export interface EncodedEventImage {
   bytes: Buffer;
   contentType: ImageType;
@@ -45,7 +61,8 @@ const notAnImage = () =>
  * MAX_EVENT_IMAGE_BYTES (a re-encode can be bigger than a tightly optimised
  * upload), as WebP, which keeps any transparency; if that's over too, 413.
  * A file that doesn't decode (truncated, corrupt, another loader, over the
- * pixel limit) is a 400 on `image`; a full decode queue a 503.
+ * pixel limit, or over EVENT_IMAGE_ENCODE_TIMEOUT_SECONDS) is a 400 on
+ * `image`; a full decode queue a 503.
  */
 export function encodeEventImage(input: Uint8Array): Promise<EncodedEventImage> {
   return inEncodeSlot(async () => {
@@ -56,7 +73,9 @@ export function encodeEventImage(input: Uint8Array): Promise<EncodedEventImage> 
         // Applies the EXIF orientation to the pixels (the tag itself isn't kept).
         .rotate()
         // Into sRGB, so the photo looks right without its embedded ICC profile.
-        .toColourspace("srgb");
+        .toColourspace("srgb")
+        // Stops a pathological file holding a shared decode slot (rejects: the 400 below).
+        .timeout({ seconds: EVENT_IMAGE_ENCODE_TIMEOUT_SECONDS });
       // No keepMetadata/withMetadata/keepExif/keepIccProfile/keepXmp: nothing is written but pixels.
       const encoded =
         as === "jpeg"

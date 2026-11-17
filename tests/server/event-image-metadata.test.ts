@@ -1,9 +1,10 @@
 import { deflateSync } from "node:zlib";
 import sharp from "sharp";
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { adminPutEventImage } from "@/lib/server/handlers/admin-authoring";
 import { getEventImage, MAX_EVENT_IMAGE_BYTES, putEventImage } from "@/lib/server/handlers/event-images";
-import { encodeEventImage } from "@/lib/server/event-image";
+import { AVATAR_ENCODE_CONCURRENCY } from "@/lib/server/avatar";
+import { encodeEventImage, EVENT_IMAGE_ENCODE_TIMEOUT_SECONDS, MAX_EVENT_IMAGE_INPUT_PIXELS } from "@/lib/server/event-image";
 import { crc32 } from "@/lib/server/png";
 import { runHandler, type Handler } from "@/lib/server/route";
 import { SITE_URL, TestApi } from "./helpers/api";
@@ -12,9 +13,12 @@ import {
   CAMERA_MAKE,
   CAMERA_SERIAL,
   GPS_SECONDS,
+  jpegWithIptcCommentAndTrailer,
   orientedJpegWithGps,
+  PLACE_TEXT,
   pngChunks,
   pngWithGps,
+  pngWithTextChunks,
   SPLIT_PHOTO,
   tiffWithGps,
   webpChunks,
@@ -35,6 +39,10 @@ beforeAll(async () => {
   const testDb = await createTestDb();
   reset = testDb.reset;
   api = new TestApi(testDb.db);
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 beforeEach(async () => {
@@ -80,7 +88,17 @@ function jpegMarkers(bytes: Buffer): number[] {
 
 /** None of the upload's identifying bytes is anywhere in `bytes`. */
 function expectNoLeak(bytes: Buffer) {
-  for (const needle of [Buffer.from("Exif"), Buffer.from(CAMERA_MAKE), Buffer.from(CAMERA_SERIAL), GPS_SECONDS, Buffer.from("Fitzroy")]) {
+  for (const needle of [
+    Buffer.from("Exif"),
+    Buffer.from(CAMERA_MAKE),
+    Buffer.from(CAMERA_SERIAL),
+    GPS_SECONDS,
+    Buffer.from("Fitzroy"),
+    Buffer.from("Photoshop"),
+    Buffer.from("8BIM"),
+    Buffer.from("iTXt"),
+    Buffer.from("zTXt"),
+  ]) {
     expect(bytes.includes(needle), needle.toString("latin1")).toBe(false);
   }
 }
@@ -185,6 +203,63 @@ describe("event photo uploads strip location and camera metadata", () => {
     await expectNoMetadata(bytes);
   });
 
+  it("drops IPTC (APP13), JPEG comments, data after EOI and PNG iTXt/zTXt", async () => {
+    // The trailer is a whole PNG with iTXt and zTXt: an appended file, as some editors and polyglots leave.
+    const textPng = await pngWithTextChunks();
+    const jpeg = await jpegWithIptcCommentAndTrailer(textPng);
+    // The fixtures really carry them, where a decoder sees them.
+    expect(jpegMarkers(jpeg)).toEqual(expect.arrayContaining([0xed, 0xfe]));
+    expect((await sharp(jpeg).metadata()).iptc).toBeDefined();
+    expect(jpeg.subarray(jpeg.length - textPng.length).equals(textPng)).toBe(true);
+    expect(pngChunks(textPng)).toEqual(expect.arrayContaining(["iTXt", "zTXt"]));
+    expect((await sharp(textPng).metadata()).comments).toEqual([
+      { keyword: "Description", text: PLACE_TEXT },
+      { keyword: "Comment", text: `Camera ${CAMERA_SERIAL}` },
+    ]);
+
+    const draft = await draftEvent(api, organiser);
+    expect((await upload(putEventImage, draft.eventId, jpeg, organiser.token)).status).toBe(200);
+    const fromJpeg = await stored(draft.eventId);
+    expect(fromJpeg.contentType).toBe("image/jpeg");
+    for (const marker of jpegMarkers(fromJpeg.bytes)) expect([0xe0, 0xdb, 0xc0, 0xc2, 0xc4, 0xdd, 0xda]).toContain(marker);
+    // Nothing after EOI: the first FF D9 is the last two bytes (entropy-coded data can't contain one).
+    expect(fromJpeg.bytes.indexOf(Buffer.from([0xff, 0xd9]))).toBe(fromJpeg.bytes.length - 2);
+    expect(fromJpeg.bytes.includes(Buffer.from([0x89, 0x50, 0x4e, 0x47]))).toBe(false);
+    await expectNoMetadata(fromJpeg.bytes);
+
+    expect((await upload(putEventImage, draft.eventId, textPng, organiser.token)).status).toBe(200);
+    const fromPng = await stored(draft.eventId);
+    expect(fromPng.contentType).toBe("image/png");
+    for (const chunk of pngChunks(fromPng.bytes)) expect(["IHDR", "PLTE", "tRNS", "pHYs", "IDAT", "IEND"]).toContain(chunk);
+    expect(fromPng.bytes.includes(deflatedSerial())).toBe(false);
+    await expectNoMetadata(fromPng.bytes);
+  });
+
+  // Real encodes of 24- and 25-megapixel images: more than the default 5 s under a loaded full run.
+  it(`refuses a photo over ${MAX_EVENT_IMAGE_INPUT_PIXELS / 1_000_000} megapixels from its header (400, nothing stored), however small the file`, { timeout: 30_000 }, async () => {
+    const draft = await draftEvent(api, organiser);
+    // 5000 × 5000 = 25 megapixels of one colour: a tiny file claiming a big canvas, under
+    // sharp's own default limit (about 268 megapixels), so only our limit refuses it.
+    const big = await sharp({ create: { width: 5000, height: 5000, channels: 3, background: { r: 1, g: 2, b: 3 } } })
+      .png({ compressionLevel: 9 })
+      .toBuffer();
+    expect(big.length).toBeLessThan(MAX_EVENT_IMAGE_BYTES);
+    for (const [handler, token] of [
+      [putEventImage, organiser.token],
+      [adminPutEventImage, admin.token],
+    ] as const) {
+      const res = await upload(handler, draft.eventId, big, token);
+      expect(res.status).toBe(400);
+      expect(Object.keys(res.body.fieldErrors)).toEqual(["image"]);
+    }
+    expect(await api.db.query(`select 1 from public.event_images where event_id = $1`, [draft.eventId])).toEqual([]);
+    // Exactly at the limit (4000 × 6000) decodes.
+    const fits = await sharp({ create: { width: 4000, height: 6000, channels: 3, background: { r: 1, g: 2, b: 3 } } })
+      .jpeg()
+      .toBuffer();
+    expect((await upload(putEventImage, draft.eventId, fits, organiser.token)).status).toBe(200);
+  });
+
   it("refuses what doesn't decode as the format it claims (polyglots, corrupt files, pixel bombs): 400, nothing stored", async () => {
     const draft = await draftEvent(api, organiser);
     const svgBody = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>';
@@ -226,6 +301,30 @@ describe("encodeEventImage", () => {
     expect(RED(await pixel(bytes, redAt[0], redAt[1]))).toBe(true);
     expect(BLUE(await pixel(bytes, blueAt[0], blueAt[1]))).toBe(true);
     await expectNoMetadata(bytes);
+  });
+
+  // Two real encodes of a 1.2-megapixel photo: more than the default 5 s under a loaded full run.
+  it(`stops every encode after ${EVENT_IMAGE_ENCODE_TIMEOUT_SECONDS} seconds; a timed-out one is a 400, and its slot is freed`, { timeout: 30_000 }, async () => {
+    const timeouts = vi.spyOn(sharp.prototype, "timeout");
+    // The own-format encode and the WebP fallback both carry the limit (noisyPalettePng needs the fallback).
+    await encodeEventImage(noisyPalettePng(1100));
+    expect(timeouts).toHaveBeenCalledTimes(2);
+    for (const [options] of timeouts.mock.calls) expect(options).toEqual({ seconds: EVENT_IMAGE_ENCODE_TIMEOUT_SECONDS });
+
+    // What sharp does when the limit is hit: toBuffer rejects ("timeout: N% complete").
+    // A real one would need a file that takes over 10 s to encode, so this fakes the rejection.
+    const draft = await draftEvent(api, organiser);
+    const photo = await orientedJpegWithGps();
+    vi.spyOn(sharp.prototype, "toBuffer").mockRejectedValueOnce(new Error("timeout: 42% complete"));
+    const res = await upload(putEventImage, draft.eventId, photo, organiser.token);
+    expect(res.status).toBe(400);
+    expect(Object.keys(res.body.fieldErrors)).toEqual(["image"]);
+    expect(await api.db.query(`select 1 from public.event_images where event_id = $1`, [draft.eventId])).toEqual([]);
+    // Its slot was given back: as many encodes as the slots and queue hold all go through (a lost slot would make one a 503).
+    const all = AVATAR_ENCODE_CONCURRENCY.running + AVATAR_ENCODE_CONCURRENCY.waiting;
+    const results = await Promise.allSettled(Array.from({ length: all }, () => encodeEventImage(photo)));
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(all);
+    expect((await upload(putEventImage, draft.eventId, photo, organiser.token)).status).toBe(200);
   });
 
   // Real encodes of a 1.2-megapixel photo (three of them): more than the default 5 s under a loaded full run.
@@ -286,4 +385,9 @@ function noisyPalettePng(side: number): Buffer {
     pngChunk("IDAT", deflateSync(rows, { level: 1 })),
     pngChunk("IEND", Buffer.alloc(0)),
   ]);
+}
+
+/** The zTXt fixture's serial as deflated in the upload: absent from what's stored. */
+function deflatedSerial(): Buffer {
+  return deflateSync(Buffer.from(`Camera ${CAMERA_SERIAL}`, "latin1"));
 }

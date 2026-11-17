@@ -1,3 +1,4 @@
+import { deflateSync } from "node:zlib";
 import sharp from "sharp";
 import { expect } from "vitest";
 import { crc32, encodePng } from "@/lib/server/png";
@@ -174,6 +175,64 @@ export async function pngWithGps(): Promise<Buffer> {
     pngChunk("eXIf", tiffWithGps({ serial: true })),
     pngChunk("tEXt", Buffer.from(`Comment\0Taken at ${CAMERA_MAKE}, Fitzroy`, "latin1")),
     base.subarray(ihdrEnd),
+  ]);
+}
+
+/** Where the fixtures below say where a photo was taken. */
+export const PLACE_TEXT = "Taken in Fitzroy";
+
+/**
+ * A 40 × 30 PNG with transparency carrying the PNG text chunks pngWithGps
+ * doesn't: `iTXt` (international, uncompressed: PLACE_TEXT) and `zTXt`
+ * (deflated: the camera's serial), both before IDAT.
+ */
+export async function pngWithTextChunks(): Promise<Buffer> {
+  const base = await sharp({ create: { width: 40, height: 30, channels: 4, background: { r: 0, g: 64, b: 255, alpha: 0.5 } } })
+    .png()
+    .toBuffer();
+  const ihdrEnd = 8 + 12 + 13;
+  // keyword \0, compression flag 0, method 0, language "en" \0, translated keyword \0, text
+  const itxt = Buffer.concat([Buffer.from("Description\0\0\0en\0Description\0", "latin1"), Buffer.from(PLACE_TEXT, "utf8")]);
+  // keyword \0, method 0, deflated text
+  const ztxt = Buffer.concat([Buffer.from("Comment\0\0", "latin1"), deflateSync(Buffer.from(`Camera ${CAMERA_SERIAL}`, "latin1"))]);
+  return Buffer.concat([base.subarray(0, ihdrEnd), pngChunk("iTXt", itxt), pngChunk("zTXt", ztxt), base.subarray(ihdrEnd)]);
+}
+
+/** A JPEG marker segment: marker, length (counting itself), data. */
+function jpegSegment(marker: number, data: Buffer): Buffer {
+  const header = Buffer.alloc(4);
+  header.writeUInt16BE(marker, 0);
+  header.writeUInt16BE(data.length + 2, 2);
+  return Buffer.concat([header, data]);
+}
+
+/** A Photoshop APP13 payload holding one IPTC-IIM record: 2:120 (caption) PLACE_TEXT. */
+function iptcApp13(): Buffer {
+  const caption = Buffer.from(PLACE_TEXT, "latin1");
+  const iim = Buffer.concat([Buffer.from([0x1c, 0x02, 0x78, caption.length >> 8, caption.length & 0xff]), caption]);
+  const resource = Buffer.alloc(12);
+  resource.write("8BIM", 0, "latin1");
+  resource.writeUInt16BE(0x0404, 4); // IPTC-NAA
+  resource.writeUInt16BE(0, 6); // empty name, padded
+  resource.writeUInt32BE(iim.length, 8);
+  return Buffer.concat([Buffer.from("Photoshop 3.0\0", "latin1"), resource, iim, Buffer.alloc(iim.length & 1)]);
+}
+
+/**
+ * A 40 × 30 JPEG carrying what the EXIF fixtures don't: an APP13 IPTC record
+ * (PLACE_TEXT), a COM comment segment (the camera's serial), and `trailer`
+ * appended after its EOI marker (data a decoder ignores, e.g. another file).
+ */
+export async function jpegWithIptcCommentAndTrailer(trailer: Buffer): Promise<Buffer> {
+  const base = await sharp({ create: { width: 40, height: 30, channels: 3, background: { r: 32, g: 64, b: 128 } } })
+    .jpeg()
+    .toBuffer();
+  return Buffer.concat([
+    base.subarray(0, 2),
+    jpegSegment(0xffed, iptcApp13()),
+    jpegSegment(0xfffe, Buffer.from(`Shot on ${CAMERA_MAKE} ${CAMERA_SERIAL}`, "latin1")),
+    base.subarray(2),
+    trailer,
   ]);
 }
 

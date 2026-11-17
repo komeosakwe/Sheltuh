@@ -9,6 +9,9 @@ import {
 } from "@/lib/server/handlers/event-images";
 import { submitEventForReview } from "@/lib/server/handlers/events";
 import { adminApproveEvent } from "@/lib/server/handlers/admin";
+import { adminPutEventImage } from "@/lib/server/handlers/admin-authoring";
+import { EVENT_IMAGE_UPLOAD_RATE_LIMIT } from "@/lib/server/event-image";
+import { windowSeconds } from "@/lib/server/http";
 import { runHandler } from "@/lib/server/route";
 import type { Db } from "@/lib/server/db";
 import { TestApi } from "./helpers/api";
@@ -238,6 +241,45 @@ describe("event images", () => {
     expect(res.status).toBe(409);
     const [{ n }] = await api.db.query<{ n: string }>(`select count(*)::text as n from public.event_images`);
     expect(n).toBe("0");
+  });
+
+  it(`allows ${EVENT_IMAGE_UPLOAD_RATE_LIMIT.hits} uploads a day per organiser account: the next is a 429 with Retry-After, and nothing is written`, async () => {
+    const first = await draftEvent(api, organiser);
+    const second = await draftEvent(api, organiser);
+    // All but one of the day's uploads already used.
+    await api.db.query(
+      `insert into private.rate_limits (user_id, bucket, window_started_at, hits) values ($1, 'event_image_uploads', now(), $2)`,
+      [organiser.userId, EVENT_IMAGE_UPLOAD_RATE_LIMIT.hits - 1],
+    );
+    expect((await put(first.eventId, PNG)).status).toBe(200);
+    const before = await storedBytes(first.eventId);
+
+    // Over the limit: refused whichever event it's for, with nothing stored or replaced.
+    for (const eventId of [second.eventId, first.eventId]) {
+      const res = await put(eventId, testPng(1));
+      expect(res.status).toBe(429);
+      expect(res.headers.get("retry-after")).toBe(String(windowSeconds(EVENT_IMAGE_UPLOAD_RATE_LIMIT.window)));
+    }
+    expect(await api.db.query(`select 1 from public.event_images where event_id = $1`, [second.eventId])).toEqual([]);
+    expect(await storedBytes(first.eventId)).toEqual(before);
+  });
+
+  it("doesn't limit an admin's uploads, even on an organiser whose allowance is used up", async () => {
+    const draft = await draftEvent(api, organiser);
+    for (const userId of [organiser.userId, admin.userId]) {
+      await api.db.query(
+        `insert into private.rate_limits (user_id, bucket, window_started_at, hits) values ($1, 'event_image_uploads', now(), $2)`,
+        [userId, EVENT_IMAGE_UPLOAD_RATE_LIMIT.hits],
+      );
+    }
+    expect((await put(draft.eventId, PNG)).status).toBe(429);
+    const res = await api.send(
+      adminPutEventImage,
+      new Request(SITE, { method: "PUT", headers: { authorization: `Bearer ${admin.token}` }, body: PNG }),
+      { eventId: draft.eventId },
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.imageUrl).toBeDefined();
   });
 
   it("won't delete an image from an event locked meanwhile", async () => {
