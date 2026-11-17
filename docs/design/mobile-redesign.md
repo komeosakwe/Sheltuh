@@ -418,7 +418,7 @@ div.group/card.relative.flex.min-w-0.flex-col[data-event-card][data-variant]   (
 | # | State (real data) | Condition | Price line (`CardPrice`) | CTA label | Target | Tone |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | Ended | `Date.parse(endsAt ?? startsAt) <= now` | **"Ended"** (600, `text-muted`; new) | none | — | — |
-| 2 | External, free | `ticketingMode === "external" && externalFree` | "Free" + muted "Tickets on {provider}" | "Get free tickets" (**was "Buy tickets"**) | `/events/{slug}#tickets` (the page holds the outbound link and its beacon; cards never link out) | signal |
+| 2 | External, free | `ticketingMode === "external" && externalFree` | "Free" + muted "Tickets on {provider}" | "Get free tickets" (**was "Buy tickets"**) | `/events/{slug}` (the page's panel and phone buy bar hold the outbound link and its beacon, with no tickets section while on sale: owner, 15 Nov 2026; cards never link out) | signal |
 | 3 | External, paid | `ticketingMode === "external"` | "Tickets on {provider}" (600) | **"Get tickets"** (was "Buy tickets"; A9: nothing is bought on Sheltüh) | same | signal |
 | 4 | No tiers yet | `ticketTypes.length === 0` | "Tickets coming soon" (600) | none | — | — |
 | 5 | Sold out, waitlist open | `isSoldOut(event)` and not ended | "Sold out" (600, black) | "Join waitlist" | `/events/{slug}#tickets` (the WaitlistBlock), also for seated events | **outline** (`buttonClass("outline","md")`, black on cream): a waitlist isn't a purchase, so it doesn't share the orange |
