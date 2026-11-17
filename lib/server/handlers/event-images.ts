@@ -1,5 +1,5 @@
 import { requireCaller } from "../auth";
-import { HttpError, ok, readJson } from "../http";
+import { HttpError, okPrivate, readJson } from "../http";
 import { isUuid } from "../pagination";
 import type { Handler } from "../route";
 import { requireEvent, requireOwnEvent } from "./event-queries";
@@ -113,7 +113,7 @@ export const putEventImage: Handler<{ eventId: string }> = async (req, { eventId
     [eventId, contentType, bytes, organiser.organiserId, focus?.x ?? null, focus?.y ?? null],
   );
   if (written.length === 0) throw new HttpError(409, EDIT_LOCKED_MESSAGE);
-  return ok(await requireEvent(db, eventId));
+  return okPrivate(await requireEvent(db, eventId));
 };
 
 /**
@@ -154,7 +154,7 @@ export const patchEventImageFocus: Handler<{ eventId: string }> = async (req, { 
     if (current.status !== "draft" && current.status !== "rejected") throw new HttpError(409, EDIT_LOCKED_MESSAGE);
     throw new HttpError(409, "Add a photo first.");
   }
-  return ok(await requireEvent(db, eventId));
+  return okPrivate(await requireEvent(db, eventId));
 };
 
 /** DELETE /api/events/[eventId]/image */
@@ -182,7 +182,7 @@ export const deleteEventImage: Handler<{ eventId: string }> = async (req, { even
     const current = await requireEvent(db, eventId);
     if (current.status !== "draft" && current.status !== "rejected") throw new HttpError(409, EDIT_LOCKED_MESSAGE);
   }
-  return ok(await requireEvent(db, eventId));
+  return okPrivate(await requireEvent(db, eventId));
 };
 
 /**
