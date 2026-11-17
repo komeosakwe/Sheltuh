@@ -120,6 +120,15 @@ describe("venueLines", () => {
     expect(venueLines({ suburb: "", venueName: "", venueAddress: "" })).toEqual({ first: "", second: "", named: false });
   });
 
+  it("counts the suburb as named only as a whole comma-separated part, never inside a word or a street", () => {
+    // "Kew" is in "Kewney", and "Carlton" is the street's name: neither address names the suburb.
+    expect(venueLines({ suburb: "Kew", state: "VIC", venueName: "", venueAddress: "5 Kewney Ave" })).toEqual({ first: "5 Kewney Ave", second: "Kew, VIC", named: false });
+    expect(venueLines({ suburb: "Carlton", state: "VIC", venueName: "", venueAddress: "12 Carlton St" })).toEqual({ first: "12 Carlton St", second: "Carlton, VIC", named: false });
+    expect(venueLines({ suburb: "Carlton", state: "VIC", venueName: "", venueAddress: "12 Carlton St, Carlton" }).second).toBe("");
+    expect(venueLines({ suburb: "St Kilda", state: "VIC", venueName: "", venueAddress: "1 Acland St, St Kilda Victoria 3182, Australia" }).second).toBe("");
+    expect(venueLines({ suburb: "Kew", state: "VIC", venueName: "", venueAddress: "5 Kewney Ave, Kew East VIC 3102" }).second).toBe("Kew, VIC");
+  });
+
   it("keeps the state another state shares a name with ('Richmond, NSW')", () => {
     expect(venueLines({ suburb: "Richmond NSW", state: "NSW", venueName: "", venueAddress: "1 March St" }).second).toBe("Richmond, NSW");
   });

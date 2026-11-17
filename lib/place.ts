@@ -158,8 +158,8 @@ export interface VenueFields extends PlaceFields {
 /**
  * The venue as two lines (the event page's Where group, Round 2): its name, then its street address (or, without
  * one, "Suburb, STATE"). With no real name (none, or the name is only the street line, "170 Russell Street" over
- * "170 Russell St") the address leads instead, then "Suburb, STATE" unless the address already names the suburb,
- * so the address is never said twice. `second` is empty when there's nothing more to say; `named`: `first` is the
+ * "170 Russell St") the address leads instead, then "Suburb, STATE" unless the address already names the suburb
+ * as one of its comma-separated parts (addressNamesSuburb), so the address is never said twice. `second` is empty when there's nothing more to say; `named`: `first` is the
  * venue's name.
  */
 export function venueLines(venue: VenueFields): { first: string; second: string; named: boolean } {
@@ -169,6 +169,25 @@ export function venueLines(venue: VenueFields): { first: string; second: string;
   if (name && !(address && sameStreetLine(name, address))) return { first: name, second: address || place, named: true };
   if (!address) return { first: place, second: "", named: false };
   const suburb = placeNameParts(venue.suburb, venue.state)?.suburb ?? "";
-  const namesSuburb = suburb !== "" && address.toLowerCase().includes(suburb.toLowerCase());
-  return { first: address, second: namesSuburb ? "" : place, named: false };
+  return { first: address, second: addressNamesSuburb(address, suburb) ? "" : place, named: false };
+}
+
+/** The words a comma-separated part of an address may end with after its suburb: a state's code or name. */
+const STATE_WORDS = [...STATE_CODES, ...Object.values(STATE_NAMES)].map((word) => word.toLowerCase());
+
+/**
+ * Whether `address` names `suburb` as one of its comma-separated parts, alone or followed by a state and/or
+ * postcode ("71 Johnston St, Collingwood VIC 3066"). Never a part of a word or a street ("5 Kewney Ave" doesn't
+ * name Kew; "12 Carlton St" doesn't name Carlton).
+ */
+function addressNamesSuburb(address: string, suburb: string): boolean {
+  const wanted = suburb.trim().replace(/\s+/g, " ").toLowerCase();
+  if (wanted === "") return false;
+  return address.split(",").some((part) => {
+    let words = part.trim().replace(/\s+/g, " ").toLowerCase();
+    words = words.replace(/\s*\b\d{4}$/, "");
+    const state = STATE_WORDS.find((word) => words.endsWith(` ${word}`));
+    if (state) words = words.slice(0, -(state.length + 1));
+    return words === wanted;
+  });
 }
