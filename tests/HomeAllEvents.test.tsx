@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import HomeAllEvents, { ALL_EVENTS_PAGE, ALL_EVENTS_PAGE_PHONE, HOME_GRID } from "@/components/home/HomeAllEvents";
+import HomeAllEvents, { ALL_EVENTS_PAGE, ALL_EVENTS_PAGE_MD, ALL_EVENTS_PAGE_PHONE, HOME_GRID } from "@/components/home/HomeAllEvents";
 import { NO_HOME_FILTERS, type HomeFilters } from "@/lib/home-filters";
 import type { SheltuhEvent } from "@/lib/types";
 
@@ -134,19 +134,66 @@ describe("HomeAllEvents", () => {
     expect(titles()).toEqual(EVENTS.slice(0, ALL_EVENTS_PAGE).map((e) => e.title));
   });
 
-  it(`on a phone, the first ${ALL_EVENTS_PAGE_PHONE}`, () => {
+  /** A viewport `width` px wide: each max-width query matches when the width is at most its rem. */
+  function stubWidth(width: number) {
     vi.stubGlobal(
       "matchMedia",
-      vi.fn().mockImplementation((query: string) => ({
-        matches: query.includes("max-width"),
-        media: query,
-        addEventListener: () => {},
-        removeEventListener: () => {},
-      })),
+      vi.fn().mockImplementation((query: string) => {
+        const max = /max-width:\s*([\d.]+)rem/.exec(query);
+        return {
+          matches: max ? width <= Number(max[1]) * 16 : false,
+          media: query,
+          addEventListener: () => {},
+          removeEventListener: () => {},
+        };
+      }),
     );
+  }
+
+  it(`on a phone, the first ${ALL_EVENTS_PAGE_PHONE}`, () => {
+    stubWidth(390);
     render(<Harness />);
     expect(titles()).toHaveLength(ALL_EVENTS_PAGE_PHONE);
     expect(seeAll()).toHaveLength(2);
+  });
+
+  // Whole rows of HOME_GRID: one column below 768px, two from 768px, three from 1024px, four from 1280px.
+  it.each([
+    [320, ALL_EVENTS_PAGE_PHONE],
+    [700, ALL_EVENTS_PAGE_PHONE],
+    [768, ALL_EVENTS_PAGE_MD],
+    [1024, ALL_EVENTS_PAGE_MD],
+    [1279, ALL_EVENTS_PAGE_MD],
+    [1280, ALL_EVENTS_PAGE],
+    [1440, ALL_EVENTS_PAGE],
+  ])("at %ipx, %i cards: whole rows", (width, cards) => {
+    stubWidth(width);
+    render(<Harness />);
+    expect(titles()).toHaveLength(cards);
+    const columns = width >= 1280 ? 4 : width >= 1024 ? 3 : width >= 768 ? 2 : 1;
+    expect(cards % columns).toBe(0);
+  });
+
+  it("See all events carries the Category and Free filters /events reads, and names the category at the bottom", () => {
+    render(<Harness />);
+    const section = screen.getByRole("region", { name: "All events" });
+    const head = () => within(section).getAllByRole("link", { name: "See all events" })[0];
+    const bottom = () => section.querySelector("[data-all-events-more]");
+    fireEvent.change(screen.getByRole("combobox", { name: "Category" }), { target: { value: "art" } });
+    expect(head()).toHaveAttribute("href", "/events?category=art");
+    expect(bottom()).toHaveAttribute("href", "/events?category=art");
+    expect(bottom()).toHaveAccessibleName("See all art events");
+    // Under A$25 and the dates have no /events equivalent: left out.
+    fireEvent.change(screen.getByRole("combobox", { name: "Price" }), { target: { value: "under25" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Date" }), { target: { value: "weekend" } });
+    expect(head()).toHaveAttribute("href", "/events?category=art");
+    fireEvent.change(screen.getByRole("combobox", { name: "Date" }), { target: { value: "all" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Price" }), { target: { value: "all" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Category" }), { target: { value: "live-music" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Price" }), { target: { value: "free" } });
+    expect(head()).toHaveAttribute("href", "/events?category=live-music&pricing=free");
+    fireEvent.change(screen.getByRole("combobox", { name: "Category" }), { target: { value: "all" } });
+    expect(head()).toHaveAttribute("href", "/events?pricing=free");
   });
 
   it("filters by price (Free, Under A$25 all-inclusive), category and date (Tonight, This weekend), announces the count, and resets", async () => {
@@ -216,10 +263,10 @@ describe("HomeAllEvents", () => {
     expect(within(section).getByText("The full list has more events, and some of them may match.")).toBeInTheDocument();
     await announced();
     expect(status()).toHaveTextContent(/^0 of the loaded events match$/);
-    // The full list from the empty state (and the head's): one beside Reset filters, no second at the bottom.
-    const links = within(section).getAllByRole("link", { name: "See all events" });
-    expect(links).toHaveLength(2);
-    for (const link of links) expect(link).toHaveAttribute("href", "/events");
+    // The full list, with the category on, from the empty state (and the head's): one beside Reset filters, no second at the bottom.
+    const links = within(section).getAllByRole("link", { name: /^See all (?:pop-up )?events$/ });
+    expect(links.map((link) => link.textContent)).toEqual(["See all", "See all pop-up events"].map((t) => expect.stringContaining(t)));
+    for (const link of links) expect(link).toHaveAttribute("href", "/events?category=pop-up");
     expect(within(section).getAllByRole("button", { name: "Reset filters" })).toHaveLength(2);
   });
 
@@ -227,9 +274,11 @@ describe("HomeAllEvents", () => {
     render(<Harness />);
     fireEvent.change(screen.getByRole("combobox", { name: "Category" }), { target: { value: "art" } });
     expect(titles()).toEqual(LATER.slice(0, ALL_EVENTS_PAGE).map((e) => e.title));
-    expect(seeAll()).toHaveLength(2);
+    const bottom = () => screen.getByRole("region", { name: "All events" }).querySelector("[data-all-events-more]");
+    expect(bottom()).toHaveAccessibleName("See all art events");
     fireEvent.change(screen.getByRole("combobox", { name: "Category" }), { target: { value: "theatre" } });
     expect(titles()).toEqual([SAT.title]);
+    expect(bottom()).toBeNull();
     expect(seeAll()).toHaveLength(1);
   });
 

@@ -572,6 +572,17 @@ test.describe("the category chips and All events", () => {
     const section = page.getByRole("region", { name: "All events" });
     const grid = page.getByRole("list", { name: "All events", exact: true });
     await expect(grid.locator("[data-event-card]")).toHaveCount(8);
+    // Whole rows at every width: two of four from 1280px, two of three from 1024px, three of two from 768px, four in one column below.
+    for (const [width, cards] of [
+      [1024, 6],
+      [768, 6],
+      [700, 4],
+      [390, 4],
+      [1440, 8],
+    ] as const) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect(grid.locator("[data-event-card]")).toHaveCount(cards);
+    }
     await expect(section.getByRole("button", { name: /Show more/ })).toHaveCount(0);
     const bottom = section.locator("[data-all-events-more]");
     await expect(bottom).toHaveAccessibleName("See all events");

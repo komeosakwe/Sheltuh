@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import EventCard from "@/components/ui/EventCard";
 import FilterDropdown from "@/components/ui/FilterDropdown";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/Section";
-import { useIsPhone } from "@/components/ui/useIsPhone";
 import {
   hasHomeFilters,
   HOME_DATE_OPTIONS,
@@ -16,6 +15,7 @@ import {
   type HomeDateFilter,
   type HomeFilters,
   type HomePriceFilter,
+  seeAllEventsLink,
 } from "@/lib/home-filters";
 import type { TrendingSignal } from "@/lib/home-sections";
 import { EVENT_CATEGORIES, type SheltuhEvent } from "@/lib/types";
@@ -31,10 +31,39 @@ import { ArrowRightIcon } from "./icons";
  */
 export const HOME_GRID = "grid grid-cols-1 gap-x-4 gap-y-8 md:grid-cols-2 md:gap-x-6 lg:grid-cols-3 lg:gap-x-8 xl:grid-cols-4";
 
-/** Cards shown: two rows of four… */
+/** Cards shown, always whole rows of HOME_GRID: two rows of four from 1280px… */
 export const ALL_EVENTS_PAGE = 8;
-/** …and four on a phone's single column (the owner's 390 mock). */
+/** …two rows of three from 1024px, and three rows of two from 768px… */
+export const ALL_EVENTS_PAGE_MD = 6;
+/** …and four in the single column below 768px (the owner's 390 mock). */
 export const ALL_EVENTS_PAGE_PHONE = 4;
+
+/** Below HOME_GRID's two columns (md, 768px), and below its four (xl, 1280px). */
+const SINGLE_COLUMN_QUERY = "(max-width: 47.99rem)";
+const BELOW_FOUR_COLUMNS_QUERY = "(max-width: 79.99rem)";
+
+function subscribePageSize(onChange: () => void) {
+  if (typeof window.matchMedia !== "function") return () => {};
+  const queries = [SINGLE_COLUMN_QUERY, BELOW_FOUR_COLUMNS_QUERY].map((query) => window.matchMedia(query));
+  for (const mql of queries) mql.addEventListener("change", onChange);
+  return () => {
+    for (const mql of queries) mql.removeEventListener("change", onChange);
+  };
+}
+/** Without matchMedia (jsdom), the widest page. */
+function pageSizeSnapshot(): number {
+  if (typeof window.matchMedia !== "function") return ALL_EVENTS_PAGE;
+  if (window.matchMedia(SINGLE_COLUMN_QUERY).matches) return ALL_EVENTS_PAGE_PHONE;
+  if (window.matchMedia(BELOW_FOUR_COLUMNS_QUERY).matches) return ALL_EVENTS_PAGE_MD;
+  return ALL_EVENTS_PAGE;
+}
+/** The server (and hydration) render the widest page; the real size follows straight after. */
+const serverPageSize = () => ALL_EVENTS_PAGE;
+
+/** How many cards fill whole rows of HOME_GRID at the current width, kept current as it resizes. */
+function useAllEventsPageSize(): number {
+  return useSyncExternalStore(subscribePageSize, pageSizeSnapshot, serverPageSize);
+}
 
 const NO_MATCH = "No events match your filters";
 /** When the home didn't load every event: only what's loaded can be said not to match. */
@@ -47,10 +76,11 @@ const ANNOUNCE_DELAY_MS = 100;
  * (the saved suburb's state first), as a grid of the one EventCard, with the filters the loaded
  * events can answer: Price, Category and Date (FilterDropdown; Distance, Accessibility and Sort
  * are deferred). The category chips above set the same filters (`filters` lives in the parent).
- * It shows ALL_EVENTS_PAGE cards (ALL_EVENTS_PAGE_PHONE on a phone), with no paging (Round 2: no
- * "Show more events"): "See all events →" leads to the full list (/events), in the head and, when
- * more match than are shown or the home didn't load every event, at the bottom too, where Show
- * more was. The note gives the count only when it's the whole number (`complete`: the API returns
+ * It shows whole rows of cards (8 from 1280px, 6 from 768px, 4 below), with no paging (Round 2: no
+ * "Show more events"): "See all events →" leads to the full list (/events, with the Category and
+ * Free filters it shares: seeAllEventsLink), in the head and, when more match than are shown or the
+ * home didn't load every event, at the bottom too, where Show more was ("See all live music events"
+ * with a category on). The note gives the count only when it's the whole number (`complete`: the API returns
  * no total), and says "Across Australia" only when no state is saved (`stateSaved`: the list is
  * then that state's first, so it isn't simply Australia-wide). A filter change is announced ("5
  * events match"); with no match, the empty state.
@@ -86,7 +116,7 @@ export default function HomeAllEvents({
   className?: string;
 }) {
   const titleId = `${id}-title`;
-  const pageSize = useIsPhone() ? ALL_EVENTS_PAGE_PHONE : ALL_EVENTS_PAGE;
+  const pageSize = useAllEventsPageSize();
   // A filter change is announced: the status is cleared first, then set a moment later, so the
   // same count twice in a row is still read out.
   const [announcement, setAnnouncement] = useState("");
@@ -115,6 +145,7 @@ export default function HomeAllEvents({
   // The way to the rest, at the bottom: more match than are shown, or the home didn't load every
   // event (the empty state has its own).
   const more = matches.length > visible.length || (!complete && matches.length > 0);
+  const seeAll = seeAllEventsLink(filters);
 
   /** Clears every filter and moves focus to the section's heading (the button it was on may go). */
   function reset() {
@@ -124,7 +155,7 @@ export default function HomeAllEvents({
 
   return (
     <section id={id} aria-labelledby={titleId} data-home-section="" className={className}>
-      <HomeSectionHead id={titleId} title="All events" note={note} link={{ href: "/events", label: "See all events" }} />
+      <HomeSectionHead id={titleId} title="All events" note={note} link={{ href: seeAll.href, label: "See all events" }} />
       {/* One sideways row on phones (a filter sheet is Batch 2), wrapping from 640px. */}
       <form
         aria-label="Filter events"
@@ -189,8 +220,8 @@ export default function HomeAllEvents({
               <div className="flex flex-wrap gap-4">
                 <Button onClick={reset}>Reset filters</Button>
                 {!complete && (
-                  <ButtonLink href="/events" variant="outline">
-                    See all events
+                  <ButtonLink href={seeAll.href} variant="outline">
+                    {seeAll.label}
                   </ButtonLink>
                 )}
               </div>
@@ -209,9 +240,9 @@ export default function HomeAllEvents({
         </ul>
       )}
       {more && (
-        <div className="mt-12 flex justify-center">
-          <ButtonLink href="/events" variant="outline" data-all-events-more="">
-            See all events
+        <div className="mt-8 flex justify-center lg:mt-12">
+          <ButtonLink href={seeAll.href} variant="outline" data-all-events-more="">
+            {seeAll.label}
             <ArrowRightIcon className="size-4 shrink-0" />
           </ButtonLink>
         </div>
