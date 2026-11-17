@@ -39,9 +39,12 @@ const FOCUS_DEFAULTS = "object-[50%_50%] sm:object-[50%_40%] lg:object-[50%_35%]
 
 /**
  * The home's featured banner (the proposal's full-width banner, redesign PR 3; Round 2 §1.1): one
- * event at a time, its photo full bleed (4:5 below 640px, 2:1 to 1023px, 5:2 from 1024px) under a
- * black gradient (60% ink by a fifth to a third of the way down, 80–85% at the bottom: §1.1's clear
- * to 35% failed WCAG 1.4.3 on bright photos), with no box: the category (no "Featured"
+ * event at a time, its photo full bleed (4:5 below 640px, 2:1 to 1023px, 5:2 from 1024px), with no
+ * box: a soft shade from 35% of the way down, and a black scrim around the words (banner-scrim: clear
+ * at its top, 60% ink 4rem down, where the words start, 80% at the bottom), so every line of them is
+ * on at least 60% ink whatever the photo, the title's length or the text size, and the photo above
+ * them stays light (Round 2: §1.1's one gradient, clear to 35%, failed WCAG 1.4.3 on bright photos;
+ * the owner's "60% opacity" note). The words: the category (no "Featured"
  * until promoted listings exist, owner decision), the title in title-banner (Bootzy, as entered),
  * "date · venue" and the event's own ticket action (Buy tickets, Free tickets, Choose seats or Join
  * waitlist, as its card would say; none when there's nothing to buy yet), M below 1440px and L from
@@ -300,51 +303,55 @@ export default function FeaturedCarousel({
                   className="size-full"
                 />
               </div>
-              {/* The shade, for the words' contrast (WCAG 1.4.3: 4.5:1 for the category and facts, 3:1 for the
-                  title, measured against the brightest pixel behind each line on every demo slide, with one-
-                  and two-line titles, from 320 to 1440px). The words can start a quarter of the way down a
-                  4:5 slide at 320px and a third of the way down a 2:1 one, so 60% ink is reached by then:
-                  below 640px 60% at 20% and 85% at the bottom; to 767px clear to 5%, 60% at 30%, 85%; from
-                  768px clear to 10%, 60% at 35%, 80% at the bottom. */}
+              {/* A soft base shade only: clear for the top 35%, 30% ink at the bottom. The words' contrast is the
+                  scrim's (below), so the photo above them stays light. */}
               <div
                 aria-hidden="true"
                 data-slide-shade=""
-                className="absolute inset-0 -z-10 rounded-card bg-linear-to-b from-transparent via-ink/60 via-20% to-ink/85 sm:from-5% sm:via-30% md:from-10% md:via-35% md:to-ink/80"
+                className="absolute inset-0 -z-10 rounded-card bg-linear-to-b from-transparent from-35% to-ink/30"
               />
-              {/* Not positioned, so the title's stretched link covers the whole slide. Below 640px the
-                  bottom padding clears the controls (24 + 48 + 16), which would overlap the ticket action;
-                  from 640px the slide is wide enough for the action to sit beside them, bottoms aligned. */}
-              <div data-slide-content="" className="flex flex-col p-6 pb-22 sm:pb-6 md:max-w-md md:p-8 lg:max-w-xl lg:p-12 xl:max-w-2xl">
-                <p className="mono-s text-foreground">{categoryLabel(event)}</p>
-                {/* The clamp is on the link, not the h3: its overflow would clip the link's focus ring. The
-                    link stays unpositioned, so its ::after still stretches over the slide (unclipped: the
-                    slide, not the link, is its containing block); w-fit, so the ring hugs the words. */}
-                <h3 className="title-banner mt-2">
-                  <Link
-                    href={href}
-                    data-banner-link=""
-                    className="line-clamp-2 w-fit break-words underline decoration-transparent underline-offset-4 group-hover/slide:decoration-current focus-visible:decoration-current after:absolute after:inset-0 after:z-0 after:rounded-card after:content-[''] motion-safe:transition-colors motion-safe:duration-200"
-                  >
-                    {event.title}
-                  </Link>
-                </h3>
-                <p data-slide-facts="" className="body-m mt-3 tabular-nums">
-                  {slideFacts(event, now)}
-                </p>
-                {cta && (
-                  // A sibling of the title's link, raised above its stretch. Named with the event (each slide
-                  // has one), its visible words first (WCAG 2.5.3). M (48) below 1440px, L (56) from it.
-                  <ButtonLink
-                    href={cta.href}
-                    variant={cta.tone === "signal" ? "signal" : "outline"}
-                    size="md"
-                    aria-label={`${cta.label}: ${event.title}`}
-                    className="relative z-10 mt-4 self-start min-[90rem]:min-h-14 min-[90rem]:px-8"
-                  >
-                    {cta.label}
-                    <ArrowRightIcon className="size-4 shrink-0" />
-                  </ButtonLink>
-                )}
+              {/* The scrim around the words (WCAG 1.4.3: 4.5:1 for the category and facts, 3:1 for the title,
+                  checked by e2e/banner-contrast.demo.spec.ts against the brightest pixel behind each line on
+                  every demo slide, one- and two-line titles, 320 to 1440px). Full width, in the flow, so it
+                  grows with the words (a long title, 200% text); its 4rem top padding is the fade, so the
+                  words start where it reaches 60% ink. Like the words, not positioned, so the title's
+                  stretched link covers the whole slide. */}
+              <div data-slide-scrim="" className="banner-scrim rounded-b-card pt-16">
+                {/* Below 640px the bottom padding clears the controls (24 + 48 + 16), which would overlap the
+                    ticket action; from 640px the slide is wide enough for the action to sit beside them,
+                    bottoms aligned. No top padding: the scrim's is above. */}
+                <div data-slide-content="" className="flex flex-col px-6 pb-22 sm:pb-6 md:max-w-md md:px-8 md:pb-8 lg:max-w-xl lg:px-12 lg:pb-12 xl:max-w-2xl">
+                  <p className="mono-s text-foreground">{categoryLabel(event)}</p>
+                  {/* The clamp is on the link, not the h3: its overflow would clip the link's focus ring. The
+                      link stays unpositioned, so its ::after still stretches over the slide (unclipped: the
+                      slide, not the link, is its containing block); w-fit, so the ring hugs the words. */}
+                  <h3 className="title-banner mt-2">
+                    <Link
+                      href={href}
+                      data-banner-link=""
+                      className="line-clamp-2 w-fit break-words underline decoration-transparent underline-offset-4 group-hover/slide:decoration-current focus-visible:decoration-current after:absolute after:inset-0 after:z-0 after:rounded-card after:content-[''] motion-safe:transition-colors motion-safe:duration-200"
+                    >
+                      {event.title}
+                    </Link>
+                  </h3>
+                  <p data-slide-facts="" className="body-m mt-3 tabular-nums">
+                    {slideFacts(event, now)}
+                  </p>
+                  {cta && (
+                    // A sibling of the title's link, raised above its stretch. Named with the event (each slide
+                    // has one), its visible words first (WCAG 2.5.3). M (48) below 1440px, L (56) from it.
+                    <ButtonLink
+                      href={cta.href}
+                      variant={cta.tone === "signal" ? "signal" : "outline"}
+                      size="md"
+                      aria-label={`${cta.label}: ${event.title}`}
+                      className="relative z-10 mt-4 self-start min-[90rem]:min-h-14 min-[90rem]:px-8"
+                    >
+                      {cta.label}
+                      <ArrowRightIcon className="size-4 shrink-0" />
+                    </ButtonLink>
+                  )}
+                </div>
               </div>
             </div>
           );

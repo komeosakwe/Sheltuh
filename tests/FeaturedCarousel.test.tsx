@@ -126,9 +126,11 @@ describe("FeaturedCarousel", () => {
     expect(link).toHaveAttribute("href", "/events/paid");
     expect(link).toHaveAttribute("data-banner-link");
     expect(link).toHaveClass("after:absolute", "after:inset-0", "after:z-0", "after:rounded-card", "after:content-['']");
-    // The stretch reaches the slide: nothing between the link and the slide is positioned.
+    // The stretch reaches the slide: nothing between the link and the slide is positioned (the words' box, nor the scrim around it).
     const content = paid.querySelector("[data-slide-content]") as HTMLElement;
     expect(content.className).not.toMatch(/(?:^|\s)(relative|absolute|fixed|sticky)(?:\s|$)/);
+    const scrim = paid.querySelector("[data-slide-scrim]") as HTMLElement;
+    expect(scrim.className).not.toMatch(/(?:^|\s)(relative|absolute|fixed|sticky)(?:\s|$)/);
     expect(paid).toHaveClass("relative", "isolate");
     const buy = within(paid).getByRole("link", { name: "Buy tickets: Event paid" });
     expect(link.contains(buy)).toBe(false);
@@ -314,11 +316,13 @@ describe("FeaturedCarousel", () => {
     expect(slide).not.toHaveClass("overflow-hidden");
     const content = slide.querySelector("[data-slide-content]") as HTMLElement;
     expect(content).not.toHaveClass("absolute");
+    expect(slide.querySelector("[data-slide-scrim]")).not.toHaveClass("absolute");
     expect(slide.querySelector(".absolute.inset-0.overflow-hidden img, .absolute.inset-0.overflow-hidden svg")).not.toBeNull();
   });
 
-  // Round 2 §1.1: no box. The ink scope on the slide (black under the photo), one gradient over it, and the words straight on it.
-  it("has no text box: the slide is the ink scope, under a clear-to-black gradient, with 24/32/48px padding and stepped widths", () => {
+  // Round 2 §1.1: no box. The ink scope on the slide (black under the photo), a soft shade over it, and the words straight on
+  // a scrim that fades in around them (Round 2 Part 2: the photo above the words lighter; every line on 60% ink or more).
+  it("has no text box: the slide is the ink scope, a soft shade, then a full-width scrim around the words with 24/32/48px padding and stepped widths", () => {
     renderCarousel();
     const slide = slides()[0];
     expect(slide).toHaveAttribute("data-surface", "ink");
@@ -326,17 +330,24 @@ describe("FeaturedCarousel", () => {
     const content = slide.querySelector("[data-slide-content]") as HTMLElement;
     expect(content).not.toHaveAttribute("data-surface");
     expect(content.className).not.toMatch(/bg-/);
-    expect(content).toHaveClass("p-6", "pb-22", "sm:pb-6", "md:p-8", "lg:p-12", "md:max-w-md", "lg:max-w-xl", "xl:max-w-2xl");
+    // No top padding of its own: the scrim's 4rem fade is above the words.
+    expect(content).toHaveClass("px-6", "pb-22", "sm:pb-6", "md:px-8", "md:pb-8", "lg:px-12", "lg:pb-12", "md:max-w-md", "lg:max-w-xl", "xl:max-w-2xl");
+    expect(content.className).not.toMatch(/(?:^|\s)(?:\w+:)?(?:p|pt|py)-/);
+    const scrim = slide.querySelector("[data-slide-scrim]") as HTMLElement;
+    expect(scrim).toHaveClass("banner-scrim", "rounded-b-card", "pt-16");
+    // Full width: no max width of its own (the words' box has that).
+    expect(scrim.className).not.toMatch(/max-w-/);
+    expect(scrim.firstElementChild).toBe(content);
     const shade = slide.querySelector("[data-slide-shade]") as HTMLElement;
     expect(shade).toHaveAttribute("aria-hidden", "true");
-    // Darker than §1.1's clear-to-35% (which failed WCAG 1.4.3 on bright photos), more so below 768px.
-    expect(shade).toHaveClass("absolute", "inset-0", "-z-10", "bg-linear-to-b", "from-transparent", "via-ink/60", "via-20%", "to-ink/85");
-    expect(shade).toHaveClass("sm:from-5%", "sm:via-30%", "md:from-10%", "md:via-35%", "md:to-ink/80");
-    // The photo, then the shade over it, then the words.
+    // Light: clear for the top 35%, at most 30% ink at the bottom.
+    expect(shade).toHaveClass("absolute", "inset-0", "-z-10", "bg-linear-to-b", "from-transparent", "from-35%", "to-ink/30");
+    expect(shade.className).not.toMatch(/via-|ink\/(?:[4-9]\d|100)/);
+    // The photo, then the shade over it, then the scrim with the words.
     const art = slide.firstElementChild as HTMLElement;
     expect(art).toHaveClass("absolute", "inset-0", "-z-10", "overflow-hidden");
     expect(art.nextElementSibling).toBe(shade);
-    expect(shade.nextElementSibling).toBe(content);
+    expect(shade.nextElementSibling).toBe(scrim);
   });
 
   it("biases the photo's crop upward on wider slides when the event has no focal point; an imageFocus still wins", () => {
