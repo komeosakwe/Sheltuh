@@ -19,12 +19,12 @@ export default function CommunityPage() {
       <CommunityEventsProvider>
         <div className="page-container pb-16 md:pb-24">
           {/* The two panels are as tall as each other (grid rows stretch). */}
-          <div className="mt-12 grid gap-6 md:mt-16 lg:mt-24 lg:grid-cols-12 lg:gap-8">
+          <div className="mt-10 grid gap-6 md:mt-12 lg:mt-16 lg:grid-cols-12 lg:gap-8">
             <LocalDiscovery className="min-w-0 lg:col-span-7" />
             <WhoSeesYou className="lg:col-span-5" />
           </div>
-          <ScenesByCity className="mt-16 lg:mt-24" />
-          <JoinBanner className="mt-16 lg:mt-24" />
+          <ScenesByCity className="mt-10 md:mt-12 lg:mt-16" />
+          <JoinBanner className="mt-10 md:mt-12 lg:mt-16" />
         </div>
       </CommunityEventsProvider>
     </>

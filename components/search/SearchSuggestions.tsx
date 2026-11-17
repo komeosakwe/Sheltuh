@@ -40,7 +40,7 @@ export default function SearchSuggestions({
     <div
       hidden={!open}
       data-search-suggestions=""
-      className="w-full rounded-card border border-surface-border bg-card p-2 text-left text-foreground shadow-soft md:absolute md:top-full md:left-0 md:z-30 md:mt-2 md:max-w-md"
+      className="w-full rounded-card border border-surface-border bg-card p-2 text-left text-foreground shadow-soft lg:absolute lg:top-full lg:left-0 lg:z-30 lg:mt-2 lg:max-w-md"
     >
       <div id={id} role="listbox" aria-label="Search suggestions" className="flex flex-col gap-2">
         {groups.map((group) => {

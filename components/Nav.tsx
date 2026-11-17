@@ -67,12 +67,19 @@ function MenuIcon({ open }: { open: boolean }) {
 
 /**
  * Site header (the proposal, and the rules' Navigation board): black in both themes (an ink
- * section, so everything inside re-skins; in Dark it meets the black page over a 1px rule), 64px
- * below `lg` and 96px from it (--header-h).
+ * section, so everything inside re-skins; in Dark it meets the black page over a 1px rule), 56px
+ * below `lg` and 72px from it (--header-h; Round 2 §1.2).
  *
  * From `lg` it's one row: the wordmark; Discover, Nearby and Community; then the account area
  * (components/AuthNavLinks.tsx). No search field (owner decision: search lives in the home's
  * hero, /search and Nearby), no heart and no "Create profile".
+ *
+ * From 1280px the row tightens to 64px once the page has scrolled (Round 2 §1.2): a sentinel at the
+ * document's top (an IntersectionObserver, no scroll listener) sets `data-scrolled` on the header.
+ * --header-h stays 72px, so scroll padding and sticky offsets never under-measure it. The header
+ * takes an 8px bottom margin as its row loses 8px, so its place in the flow stays 72px: nothing below
+ * it moves, and scroll anchoring never nudges the page (back at the top, scrollY is 0, not 8). Both
+ * ease together, only for people who don't prefer reduced motion.
  *
  * Below `lg` (phones and tablets): the ü logo, a search icon link (not on the home, whose hero
  * has the page's search) and Menu, 48px targets. Menu opens a black drawer under the bar, a
@@ -84,7 +91,9 @@ export default function Nav() {
   const pathname = usePathname();
   const menuRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const sentinelRef = useRef<HTMLSpanElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
   const unreadCount = useUnread()?.count ?? 0;
   const inThread = /^\/messages\/(?!blocked$)[^/]+$/.test(pathname);
   // At the door the header scrolls away at every width, so it doesn't sit lit above the scanner.
@@ -134,6 +143,19 @@ export default function Nav() {
     };
   }, []);
 
+  // Scrolled once the 16px sentinel at the document's top has left the viewport. No observer (old
+  // browsers, jsdom): the header just keeps its full height.
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver((entries) => {
+      const entry = entries[entries.length - 1];
+      if (entry) setScrolled(!entry.isIntersecting);
+    });
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, []);
+
   // A completed navigation always closes the menu. hidePopover() is a no-op
   // when it's already closed; the optional call covers DOMs without the API.
   // Only on a change: on mount it would close a menu tapped open before
@@ -166,77 +188,81 @@ export default function Nav() {
     // it's 0 on desktop and in iOS's black status-bar style.
     // In Dark the black header meets the black page over a 1px rule, drawn inside it (after:) so
     // the header stays exactly --header-h tall.
-    <header
-      data-surface="ink"
-      className={`${atDoor ? "relative" : inThread ? "relative lg:sticky" : "sticky"} top-0 z-30 pt-[env(safe-area-inset-top)] after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:hidden after:h-px after:bg-surface-border dark:after:block`}
-    >
-      {/* Compact bar (phones and tablets). */}
-      <div
-        data-compact-header=""
-        className="page-container flex h-16 items-center justify-between lg:hidden"
+    <>
+      {/* The scroll sentinel: 16px at the very top of the document (absolute, so it takes no room). */}
+      <span ref={sentinelRef} aria-hidden="true" data-header-sentinel="" className="pointer-events-none absolute top-0 left-0 h-4 w-px" />
+      <header
+        data-surface="ink"
+        data-scrolled={scrolled ? "" : undefined}
+        className={`group/header ${atDoor ? "relative" : inThread ? "relative lg:sticky" : "sticky"} top-0 z-30 pt-[env(safe-area-inset-top)] xl:data-scrolled:mb-2 motion-safe:transition-[margin] motion-safe:duration-200 motion-safe:ease-out after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:hidden after:h-px after:bg-surface-border dark:after:block`}
       >
-        {/* The ü logo, 32px tall (the rules' Mobile (390) spec); the link carries the name. */}
-        <HomeLogoLink
-          className="-ml-2 flex size-12 items-center justify-center rounded-control"
-          onActivate={closeMenu}
+        {/* Compact bar (phones and tablets). */}
+        <div
+          data-compact-header=""
+          className="page-container flex h-14 items-center justify-between lg:hidden"
         >
-          <UMark className="h-8 w-auto" />
-        </HomeLogoLink>
-        <div className="-mr-2 flex items-center">
-          {/* Not on the home: its hero holds the page's one search. */}
-          {pathname !== "/" && (
-            <Link
-              href="/search"
-              aria-label="Search"
-              aria-current={pathname === "/search" ? "page" : undefined}
-              className="flex size-12 items-center justify-center rounded-control"
-            >
-              <svg
-                aria-hidden="true"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                className="size-6"
-              >
-                <circle cx="11" cy="11" r="7" />
-                <path d="m20 20-3.5-3.5" />
-              </svg>
-            </Link>
-          )}
-          <button
-            ref={menuButtonRef}
-            type="button"
-            popoverTarget={MENU_ID}
-            className="relative flex size-12 items-center justify-center rounded-control"
+          {/* The ü logo, 32px tall (the rules' Mobile (390) spec); the link carries the name. */}
+          <HomeLogoLink
+            className="-ml-2 flex size-12 items-center justify-center rounded-control"
+            onActivate={closeMenu}
           >
-            <MenuIcon open={menuOpen} />
-            <span className="sr-only">{menuOpen ? "Close" : "Menu"}</span>
-            {/* The Messages count lives inside the menu; this says there's something in there. */}
-            {unreadCount > 0 && (
-              <>
-                <span
+            <UMark className="h-8 w-auto" />
+          </HomeLogoLink>
+          <div className="-mr-2 flex items-center">
+            {/* Not on the home: its hero holds the page's one search. */}
+            {pathname !== "/" && (
+              <Link
+                href="/search"
+                aria-label="Search"
+                aria-current={pathname === "/search" ? "page" : undefined}
+                className="flex size-12 items-center justify-center rounded-control"
+              >
+                <svg
                   aria-hidden="true"
-                  data-menu-unread=""
-                  className="absolute top-1 right-0 inline-flex h-5 min-w-5 items-center justify-center rounded-badge bg-signal px-1 text-xs leading-5 font-semibold text-signal-foreground tabular-nums"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  className="size-6"
                 >
-                  {unreadCount > 99 ? "99+" : unreadCount}
-                </span>
-                <span className="sr-only">
-                  , {unreadCount} unread{" "}
-                  {unreadCount === 1 ? "message" : "messages"}
-                </span>
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="m20 20-3.5-3.5" />
+                </svg>
+              </Link>
+            )}
+            <button
+              ref={menuButtonRef}
+              type="button"
+              popoverTarget={MENU_ID}
+              className="relative flex size-12 items-center justify-center rounded-control"
+            >
+              <MenuIcon open={menuOpen} />
+              <span className="sr-only">{menuOpen ? "Close" : "Menu"}</span>
+              {/* The Messages count lives inside the menu; this says there's something in there. */}
+              {unreadCount > 0 && (
+                <>
+                  <span
+                    aria-hidden="true"
+                    data-menu-unread=""
+                    className="absolute top-1 right-0 inline-flex h-5 min-w-5 items-center justify-center rounded-badge bg-signal px-1 text-xs leading-5 font-semibold text-signal-foreground tabular-nums"
+                  >
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
+                  <span className="sr-only">
+                    , {unreadCount} unread{" "}
+                    {unreadCount === 1 ? "message" : "messages"}
+                  </span>
               </>
             )}
           </button>
         </div>
       </div>
 
-      {/* Desktop row: 96px (the proposal). */}
+      {/* Desktop row: 72px (Round 2 §1.2), 64px from 1280px once the page has scrolled. */}
       {/* Full width (owner, 13 Nov): the logo hugs the left and the actions the right on any screen, 64px in
           from 1280px (the mock's margin at 1440), rather than stopping at the page column on wide screens. */}
-      <div className="hidden h-24 w-full items-center gap-8 px-8 lg:flex xl:px-16">
+      <div className="hidden h-18 w-full items-center gap-8 px-8 lg:flex xl:px-16 xl:group-data-scrolled/header:h-16 motion-safe:transition-[height] motion-safe:duration-200 motion-safe:ease-out">
         <HomeLogoLink className="flex items-center py-2" onActivate={closeMenu}>
           <Wordmark className="h-5 w-auto" />
         </HomeLogoLink>
@@ -293,5 +319,6 @@ export default function Nav() {
         </nav>
       </div>
     </header>
+    </>
   );
 }

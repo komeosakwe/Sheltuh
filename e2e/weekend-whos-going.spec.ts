@@ -228,7 +228,7 @@ test.describe("This weekend at 390×844", () => {
 // The card's width at each (the rules' Layout board): a 288px row card on phones, the grid's column above.
 for (const [width, cardWidth] of [
   [320, 288],
-  [1280, 280],
+  [1280, 264],
   [1440, 304],
 ] as const) {
   test.describe(`This weekend and Who's going? at ${width}px`, () => {

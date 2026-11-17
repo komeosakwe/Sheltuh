@@ -21,8 +21,8 @@ const serverNull = () => null;
 
 /**
  * "Local discovery" (the proposal's panel, redesign PR 3): its title and line, then the soonest
- * upcoming events as a sideways row of the one EventCard (256px each, so a card's foot stays on
- * one line), the saved suburb's state first (read in the browser, never sent; as the home), and
+ * upcoming events as a sideways row of the one EventCard on cream (`surface="cream"`, Round 2 §1.5:
+ * outlined white cards, 272px each, so a card's foot stays on one line), the saved suburb's state first (read in the browser, never sent; as the home), and
  * "See events on Nearby". A cream panel (--hover), as tall as the panel beside it. While loading, placeholders; on failure, the error with Try again; with
  * nothing upcoming, a line saying so.
  */
@@ -36,7 +36,7 @@ export default function LocalDiscovery({ className = "" }: { className?: string 
 
   return (
     <section aria-labelledby="community-local" className={`flex flex-col rounded-card bg-hover p-6 md:p-8 lg:p-12 ${className}`.trim()}>
-      <h2 id="community-local" className="heading-h1">
+      <h2 id="community-local" className="heading-section-l">
         {LOCAL_DISCOVERY.title}
       </h2>
       <p className={PANEL_LINE}>{LOCAL_DISCOVERY.body}</p>
@@ -47,7 +47,7 @@ export default function LocalDiscovery({ className = "" }: { className?: string 
       {state.status === "loading" && (
         <div aria-hidden="true" className="mt-6 flex gap-6 overflow-hidden">
           {Array.from({ length: 3 }, (_, i) => (
-            <EventCardPlaceholder key={i} className="w-64 shrink-0" />
+            <EventCardPlaceholder key={i} className="w-68 shrink-0" />
           ))}
         </div>
       )}
@@ -72,8 +72,9 @@ export default function LocalDiscovery({ className = "" }: { className?: string 
             className="no-scrollbar flex snap-x snap-mandatory gap-6 overflow-x-auto overscroll-x-contain scroll-px-6 px-6 py-4 md:scroll-px-8 md:px-8 lg:scroll-px-12 lg:px-12"
           >
             {events.map((event) => (
-              <li key={event.id} className="flex w-64 shrink-0 snap-start">
-                <EventCard event={event} mode={mode} now={state.now} />
+              // 272px, so the card stays at least 16rem inside its stroke and its foot keeps to one line.
+              <li key={event.id} className="flex w-68 shrink-0 snap-start">
+                <EventCard event={event} mode={mode} now={state.now} surface="cream" />
               </li>
             ))}
           </ul>

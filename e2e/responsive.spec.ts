@@ -175,11 +175,11 @@ for (const width of [390, 1024]) {
   });
 }
 
-for (const width of [375, 390, 768, 1280, 1440]) {
+for (const width of [375, 390, 768, 1024, 1200, 1280, 1440]) {
   test.describe(`home hero at ${width}px`, () => {
     test.use({ viewport: { width, height: 800 } });
 
-    test("the h1, the proposal's one-line lede, then the search (beside them from 1280px), the page's only search, and no links", async ({ page }) => {
+    test("the h1, the proposal's one-line lede, then the search (beside them from 1024px), the page's only search, and no links", async ({ page }) => {
       await mockApi(page);
       await page.goto("/");
       const hero = page.getByRole("region", { name: "Find your next thing." });
@@ -196,16 +196,16 @@ for (const width of [375, 390, 768, 1280, 1440]) {
       expect(ledeBox.y).toBeGreaterThan(h1Box.y + h1Box.height - 1);
       // The lede is one line.
       expect(await lede.evaluate((p) => Math.round(p.getBoundingClientRect().height / parseFloat(getComputedStyle(p).lineHeight)))).toBe(1);
-      if (width >= 1280) {
-        // One row, as drawn: the search beside the headline.
+      if (width >= 1024) {
+        // One row from 1024px (Round 2 §1.2): the search beside the headline, no empty band at 1200.
         expect(searchBox.x).toBeGreaterThan(h1Box.x + h1Box.width);
         expect(searchBox.y).toBeLessThan(ledeBox.y + ledeBox.height);
       } else {
         expect(searchBox.y).toBeGreaterThan(ledeBox.y + ledeBox.height - 1);
       }
-      // The hero's one orange button is the search submit; below 768px it's inside the search sheet.
+      // The hero's one orange button is the search submit; below 1024px it's inside the search sheet (Round 2 §1.2).
       await expect(hero.locator(".btn-signal")).toHaveCount(1);
-      if (width < 768) {
+      if (width < 1024) {
         await expect(hero.locator("[data-search-trigger]")).toHaveAccessibleName("Search events");
         await expect(hero.locator(".btn-signal")).toBeHidden();
       } else {
@@ -215,7 +215,7 @@ for (const width of [375, 390, 768, 1280, 1440]) {
       // One search on the home: no header field (desktop) or search icon (phones).
       await expect(page.getByRole("search")).toHaveCount(1);
       await expect(page.locator("header a[href='/search']")).toHaveCount(0);
-      await expect(hero.getByRole("search").locator("svg:visible")).toHaveCount(width >= 768 ? 4 : 1);
+      await expect(hero.getByRole("search").locator("svg:visible")).toHaveCount(width >= 1024 ? 4 : 1);
       // No photos in the hero any more (the collage and the phone tile are gone).
       await expect(hero.locator("img, [data-hero-collage], [data-hero-thumb]")).toHaveCount(0);
       // FIND YOÜR / NEXT THING. is two lines at most at 100% text size (one where it fits).
@@ -248,23 +248,25 @@ test.describe("home at 375px, without scrolling", () => {
   });
 });
 
-// This weekend (redesign PR 3): the one EventCard in a sideways row on phones, the grid from 640px.
-for (const width of [375, 640, 1024]) {
+// This weekend (Round 2 §1.2): the one EventCard in a sideways swipe row below 1024px (288px cards on phones,
+// two per view from 768px), the grid from 1024px.
+for (const width of [375, 640, 768, 1024]) {
   test.describe(`This weekend at ${width}px`, () => {
     test.use({ viewport: { width, height: 844 } });
 
-    test(width < 640 ? "a sideways row of 288px cards from the page's edge, the next one peeking in, and a still page" : "a grid of cards, no sideways scrolling", async ({ page }) => {
+    test(width < 1024 ? "a sideways row of cards from the page's edge, the next one peeking in, and a still page" : "a grid of cards, no sideways scrolling", async ({ page }) => {
       await mockApi(page);
       await page.goto("/");
       const list = page.getByRole("list", { name: "This weekend" });
       await expect(list.locator("[data-event-card]").first()).toBeVisible({ timeout: 30_000 });
       const style = await list.evaluate((ul) => ({ display: getComputedStyle(ul).display, overflowX: getComputedStyle(ul).overflowX }));
-      if (width < 640) {
+      if (width < 1024) {
         expect(style).toEqual({ display: "flex", overflowX: "auto" });
         const first = await list.locator("li").first().boundingBox();
         if (!first) throw new Error("not laid out");
-        expect(first.width).toBe(288);
-        expect(first.x).toBe(16);
+        // Phones: 288px. From 768px: two per view in the 704px column, 24px apart.
+        expect(first.width).toBe(width < 768 ? 288 : 340);
+        expect(first.x).toBe(width < 768 ? 16 : 32);
         // The page itself never moves sideways, even with the row scrolled to its end.
         await list.evaluate((ul) => ul.scrollTo({ left: ul.scrollWidth, behavior: "instant" }));
       } else {
@@ -279,7 +281,7 @@ test.describe("home first screen at 390×844", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
   // The owner's 390 mock: the hero, the search, then the featured carousel's first slide, whole.
-  test("shows the search, then the carousel's first slide with its title and actions", async ({ page }) => {
+  test("shows the search, then the carousel's first slide with its title and its ticket action", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
     await expect(page.locator("[data-home-section]").first()).toBeVisible({ timeout: 30_000 });
@@ -294,7 +296,8 @@ test.describe("home first screen at 390×844", () => {
     const slide = page.locator("[data-featured-carousel] [data-slide][data-current]");
     await inView(slide);
     await inView(slide.getByRole("heading", { level: 3 }));
-    await inView(slide.getByRole("link", { name: /^Details: / }));
+    // Round 2 §1.1: the ticket action is the slide's one button (the whole slide opens the event).
+    await inView(slide.locator("[data-slide-content] .btn").first());
   });
 
   test("the category chips scroll inside their own container, 48px tall, and the page doesn't move sideways", async ({ page }) => {
@@ -313,6 +316,29 @@ test.describe("home first screen at 390×844", () => {
     await expect(row.getByRole("button", { name: "Free" })).toHaveAttribute("aria-pressed", "false");
   });
 });
+
+// Round 2 §1.2: the chips scroll below 1280px (the 1024–1279 band included) and are one row of seven from 1280px.
+for (const width of [1024, 1200, 1280]) {
+  test.describe(`the category chips at ${width}px`, () => {
+    test.use({ viewport: { width, height: 800 } });
+
+    test(width < 1280 ? "are a sideways scroller, never wrapping onto a second row" : "are one row of seven equal columns", async ({ page }) => {
+      await mockApi(page);
+      await page.goto("/");
+      const row = page.getByRole("group", { name: "Browse by category" }).getByRole("list");
+      await expect(row).toBeVisible({ timeout: 30_000 });
+      const layout = await row.evaluate((ul) => ({
+        display: getComputedStyle(ul).display,
+        overflowX: getComputedStyle(ul).overflowX,
+        tops: new Set(Array.from(ul.children).map((li) => Math.round(li.getBoundingClientRect().top))).size,
+      }));
+      expect(layout.tops).toBe(1);
+      if (width < 1280) expect(layout).toMatchObject({ display: "flex", overflowX: "auto" });
+      else expect(layout).toMatchObject({ display: "grid", overflowX: "visible" });
+      expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(0);
+    });
+  });
+}
 
 test.describe("footer on a phone (375px)", () => {
   test.use({ viewport: { width: 375, height: 812 } });

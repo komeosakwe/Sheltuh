@@ -22,9 +22,9 @@ export const HOME_CATEGORIES: { label: string; category: EventCategory; icon: Ca
  * so the two always agree), and they narrow every event listing below them: This weekend, From
  * organisers you follow and All events. Toggle buttons (`aria-pressed`, FilterChip), so the
  * choice is announced, not shown by colour alone. A category chip pressed again goes back to all
- * categories; "All" clears the category and Free. Below 1024px the row scrolls sideways inside
- * its own container (bleeding to the page's edges, so the page never does); from 1024px it wraps,
- * and from 1280px the seven chips are seven equal columns. A labelled group with no heading: the chips say what they are.
+ * categories; "All" clears the category and Free. Below 1280px the row scrolls sideways inside
+ * its own container (bleeding to the page's edges, so the page never does; Round 2 §1.2), and from
+ * 1280px the seven chips are one row of seven equal columns. A labelled group with no heading: the chips say what they are.
  */
 export default function CategoryRow({
   filters,
@@ -42,8 +42,8 @@ export default function CategoryRow({
   const all = filters.category === "all" && !free;
   return (
     <div role="group" aria-label="Browse by category" className={className}>
-      <ScrollHint className="-mx-4 md:-mx-8 lg:mx-0" fadeClassName="lg:hidden">
-        <ul className="no-scrollbar flex gap-2 overflow-x-auto overscroll-x-contain px-4 py-1 md:gap-4 md:px-8 lg:flex-wrap lg:overflow-visible lg:px-0 xl:grid xl:grid-cols-7">
+      <ScrollHint className="-mx-4 md:-mx-8 xl:mx-0" fadeClassName="xl:hidden">
+        <ul className="no-scrollbar flex gap-2 overflow-x-auto overscroll-x-contain px-4 py-1 md:gap-4 md:px-8 xl:flex-wrap xl:overflow-visible xl:px-0 xl:grid xl:grid-cols-7">
           <li className="flex shrink-0 xl:min-w-0">
             <FilterChip
               pressed={all}
