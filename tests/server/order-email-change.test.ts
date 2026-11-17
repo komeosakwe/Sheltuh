@@ -338,6 +338,34 @@ describe("GET /orders/by-session/{id} and the email", () => {
   });
 });
 
+describe("a deploy ahead of its migration", () => {
+  it("the confirmation page falls back to the masked email (warned once); other database errors still fail it", async () => {
+    const { orderId, access } = await paidOrder();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    let failWith = "42P01";
+    // The test database as one without the migration: the change log and its functions don't exist.
+    const db: Db = {
+      query: async (text, params) => {
+        if (text.includes("to_regclass('private.order_email_changes')")) return [{ missing: failWith === "42P01" }] as never;
+        if (text.includes("order_email_change")) throw Object.assign(new Error("does not exist"), { code: failWith });
+        return api.db.query(text, params);
+      },
+    };
+    const before = new TestApi(db);
+    for (const headers of [undefined, { [ORDER_ACCESS_HEADER]: access }]) {
+      const res = await before.call(getOrderBySession, { params: { sessionId: orderId }, headers });
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ status: "paid", maskedEmail: maskEmail(OLD) });
+      expect(res.body).not.toHaveProperty("email");
+    }
+    expect(warn).toHaveBeenCalledTimes(1);
+    failWith = "57014"; // a statement timeout: not a missing migration
+    expect((await before.call(getOrderBySession, { params: { sessionId: orderId } })).status).toBe(500);
+    expect(error).toHaveBeenCalled();
+  });
+});
+
 describe("the admin's change (POST /admin/emails/{jobId}/change-email)", () => {
   /** As `admin` unless another token (or null: none) is given. */
   const adminChange = (jobId: string, body: unknown, token: string | null = admin.token) =>

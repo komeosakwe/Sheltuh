@@ -1,3 +1,4 @@
+import { PG_UNDEFINED_FUNCTION, PG_UNDEFINED_TABLE, pgErrorCode, type Db } from "./db";
 import type { Deps } from "./deps";
 import { hasOrderAccess } from "./order-access";
 import type { CustomerOrder, OrderEmailChange, OrderEmailChangeBlock } from "./types";
@@ -36,6 +37,43 @@ export function emailChangeBlockReason(block: string): OrderEmailChangeBlock | n
  * One indexed query either way.
  */
 export async function withOrderEmail(req: Request, deps: Deps, orderId: string, order: CustomerOrder): Promise<CustomerOrder> {
+  try {
+    return await orderEmailFor(req, deps, orderId, order);
+  } catch (err) {
+    // The confirmation page is read straight after payment: never fail it for a deploy that's ahead of its migration.
+    if (await changeLogMissing(deps.db, err)) return order;
+    throw err;
+  }
+}
+
+let warnedMissing = false;
+
+/**
+ * Whether `err` is the change log or its functions not existing yet (this
+ * code deployed before 20261127000000_order_email_changes.sql), asked of the
+ * catalogue; warned about once. The page then shows what it did before:
+ * the masked address, and no change.
+ */
+async function changeLogMissing(db: Db, err: unknown): Promise<boolean> {
+  const code = pgErrorCode(err);
+  if (code !== PG_UNDEFINED_TABLE && code !== PG_UNDEFINED_FUNCTION) return false;
+  try {
+    const [row] = await db.query<{ missing: boolean }>(
+      `select (to_regclass('private.order_email_changes') is null
+               or to_regprocedure('private.order_email_change_block(text)') is null) as missing`,
+    );
+    if (row?.missing !== true) return false;
+  } catch {
+    return false;
+  }
+  if (!warnedMissing) {
+    warnedMissing = true;
+    console.warn("Buyer email changes: migration 20261127000000_order_email_changes.sql isn't applied; order pages show the masked email only until it is.");
+  }
+  return true;
+}
+
+async function orderEmailFor(req: Request, deps: Deps, orderId: string, order: CustomerOrder): Promise<CustomerOrder> {
   if (hasOrderAccess(req, deps, orderId)) {
     const [row] = await deps.db.query<{ buyer_email: string | null; block: string | null }>(
       `select o.buyer_email, private.order_email_change_block(o.id) as block from public.orders o where o.id = $1`,
