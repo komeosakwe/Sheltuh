@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import EventCard from "@/components/ui/EventCard";
 import FilterDropdown from "@/components/ui/FilterDropdown";
+import { HOME_GRID } from "@/components/ui/grids";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/Section";
 import { useIsPhone } from "@/components/ui/useIsPhone";
@@ -20,10 +21,6 @@ import {
 import type { TrendingSignal } from "@/lib/home-sections";
 import { EVENT_CATEGORIES, type SheltuhEvent } from "@/lib/types";
 import HomeSectionHead from "./HomeSectionHead";
-import { HOME_GRID } from "@/components/ui/grids";
-
-/** The home's card grid (components/ui/grids.ts), re-exported where it started. */
-export { HOME_GRID };
 
 /** Cards shown at first, and how many more each "Show more events" adds: two rows of four… */
 export const ALL_EVENTS_PAGE = 8;

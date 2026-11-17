@@ -3,7 +3,7 @@ import { tagsForEventCategories } from "@/lib/api/organiser-tags";
 import type { OrganiserSocialLinks } from "@/lib/api/types";
 import { isUpcomingEvent } from "@/lib/data";
 import { toMelbourneDateTimeInputParts } from "@/lib/format";
-import type { OrganiserProfileDetails } from "@/lib/organiser-profile";
+import { PROFILE_PAST_EVENT_LIMIT, type OrganiserProfileDetails } from "@/lib/organiser-profile";
 import { sampleEvents } from "@/lib/sample-events";
 import type { SheltuhEvent } from "@/lib/types";
 
@@ -95,9 +95,6 @@ const SAMPLE_OWN_WORDS: Readonly<Record<string, readonly string[]>> = {
   "paper-moon-studio": ["Risograph"],
 };
 
-/** The most past events a profile lists (the API's cap: PROFILE_PAST_EVENT_LIMIT). */
-const PAST_EVENT_LIMIT = 12;
-
 function eventsByOrganiser(): Map<string, SheltuhEvent[]> {
   const groups = new Map<string, SheltuhEvent[]>();
   for (const event of sampleEvents) {
@@ -124,7 +121,7 @@ function melbourneMonth(iso: string): string {
 /**
  * A demo organiser's profile, built from their sample events the way the API
  * builds a live one: upcoming soonest first, past most recent first (at
- * most 12), the event count covering both. Chips: their events' categories
+ * most PROFILE_PAST_EVENT_LIMIT), the event count covering both. Chips: their events' categories
  * mapped to the list, then any made-up own words; a cover for a few. Member
  * since: the month of their first event, or this month if that's still to
  * come. No followers or video. Null for an id that isn't one of the demo's
@@ -163,7 +160,7 @@ export function getSampleOrganiser(organiserId: string, now: Date = new Date()):
       eventCount: events.length,
     },
     upcoming,
-    past: past.slice(0, PAST_EVENT_LIMIT),
+    past: past.slice(0, PROFILE_PAST_EVENT_LIMIT),
   };
 }
 

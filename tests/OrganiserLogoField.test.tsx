@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import OrganiserLogoField, { logoErrorMessage, logoFileError } from "@/components/dashboard/OrganiserLogoField";
+import OrganiserLogoField from "@/components/dashboard/OrganiserLogoField";
+import { logoErrorMessage, logoFileError } from "@/components/dashboard/organiser-image-upload";
 import { SESSION_EXPIRED_MESSAGE } from "@/components/whos-going/shared";
 import { ApiError } from "@/lib/api/client";
 import type { OrganiserRecord } from "@/lib/api/types";

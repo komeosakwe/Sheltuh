@@ -10,7 +10,6 @@ import type { OrganiserRecord } from "@/lib/api/types";
 import { prepareEventImage } from "@/lib/image";
 import { LOGO_TYPES, logoErrorMessage, logoFileError } from "./organiser-image-upload";
 
-export { LOGO_TYPES, logoErrorMessage, logoFileError } from "./organiser-image-upload";
 
 const RETURN_TO = "/dashboard/profile";
 

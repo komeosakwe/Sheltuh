@@ -8,11 +8,18 @@ import type { OrganiserSocialLinks, PublicOrganiserProfile } from "@/lib/api/typ
  */
 export type OrganiserProfileDetails = Omit<PublicOrganiserProfile, "upcomingEvents" | "recentEvents">;
 
-/** Longest bio the API accepts (organisers.description). */
 /** The dashboard Profile page's logo field (its id is `logo`), for every "Add logo" link. */
 export const ADD_LOGO_HREF = "/dashboard/profile#logo";
 
+/** Longest bio the API accepts (organisers.description). */
 export const MAX_BIO_LENGTH = 2000;
+
+/**
+ * The most past events a profile lists (the most recent): the API's cap
+ * (lib/server/handlers/public-organisers.ts), the demo's
+ * (lib/sample-organisers.ts) and the page's.
+ */
+export const PROFILE_PAST_EVENT_LIMIT = 12;
 
 export type SocialNetwork = keyof OrganiserSocialLinks;
 

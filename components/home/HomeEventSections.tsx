@@ -4,13 +4,14 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import DotsMark from "@/components/brand/DotsMark";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import EventCard, { EventCardPlaceholder } from "@/components/ui/EventCard";
+import { HOME_GRID } from "@/components/ui/grids";
 import { Notice } from "@/components/ui/Section";
 import { matchesHomeFilters, NO_HOME_FILTERS, type HomeFilters } from "@/lib/home-filters";
 import { formatWeekendRange, popularEvents, popularTitle, type HomeSections, type TrendingSignal } from "@/lib/home-sections";
 import type { SheltuhEvent } from "@/lib/types";
 import CategoryRow from "./CategoryRow";
 import FeaturedCarousel from "./FeaturedCarousel";
-import HomeAllEvents, { HOME_GRID } from "./HomeAllEvents";
+import HomeAllEvents from "./HomeAllEvents";
 import { useHomeEvents } from "./HomeEventsProvider";
 import HomeSectionHead from "./HomeSectionHead";
 

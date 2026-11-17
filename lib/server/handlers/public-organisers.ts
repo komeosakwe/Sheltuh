@@ -1,3 +1,4 @@
+import { PROFILE_PAST_EVENT_LIMIT } from "@/lib/organiser-profile";
 import { HttpError, okPublic } from "../http";
 import { isUuid } from "../pagination";
 import { EVENT_SELECT, findPublicOrganiserRow, toPublicEventFromRow, toPublicOrganiserProfile } from "../records";
@@ -6,8 +7,6 @@ import { PUBLIC_EVENTS_CACHE_CONTROL } from "./public-events";
 
 /** Most upcoming events a profile lists (lib/similar-events.ts ORGANISER_PROFILE_EVENT_LIMIT says "24+ upcoming"). */
 export const PROFILE_EVENT_LIMIT = 24;
-/** Most past events a profile lists (the most recent), however many are upcoming. */
-export const PROFILE_PAST_EVENT_LIMIT = 12;
 
 const NOT_FOUND = "Organiser not found.";
 
@@ -17,7 +16,8 @@ const NOT_FOUND = "Organiser not found.";
  * or not a uuid) is the same 404. Only public columns are read
  * (findPublicOrganiserRow), events are published ones in the public event
  * shape (up to PROFILE_EVENT_LIMIT upcoming and, separately, the
- * PROFILE_PAST_EVENT_LIMIT most recent past ones; three indexed queries in
+ * PROFILE_PAST_EVENT_LIMIT most recent past ones, shared with the page in
+ * lib/organiser-profile.ts; three indexed queries in
  * all), and nothing depends on who's asking, so a 200 is shared at the CDN
  * like the feed (PUBLIC_EVENTS_CACHE_CONTROL: up to about 3 minutes stale,
  * an organiser's own edits included). Errors are `private, no-store`.

@@ -4,11 +4,8 @@ import { adminRejectEvent, adminRejectOrganiser, adminUnpublishEvent } from "@/l
 import { submitEventForReview } from "@/lib/server/handlers/events";
 import { applyAsOrganiser, getMyOrganiser, resubmitOrganiser } from "@/lib/server/handlers/organisers";
 import { getPublicEventBySlug, PUBLIC_EVENTS_CACHE_CONTROL } from "@/lib/server/handlers/public-events";
-import {
-  getPublicOrganiserProfile,
-  PROFILE_EVENT_LIMIT,
-  PROFILE_PAST_EVENT_LIMIT,
-} from "@/lib/server/handlers/public-organisers";
+import { getPublicOrganiserProfile, PROFILE_EVENT_LIMIT } from "@/lib/server/handlers/public-organisers";
+import { PROFILE_PAST_EVENT_LIMIT } from "@/lib/organiser-profile";
 import { TestApi } from "./helpers/api";
 import { application, approvedOrganiser, draftEvent, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";

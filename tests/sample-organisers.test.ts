@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { isTagLabel, parseCustomTag } from "@/lib/api/organiser-tags";
+import { PROFILE_PAST_EVENT_LIMIT } from "@/lib/organiser-profile";
 import { sampleEvents } from "@/lib/sample-events";
 import {
   getSampleOrganiser,
@@ -109,11 +110,11 @@ describe("getSampleOrganiser", () => {
     });
   });
 
-  it("lists at most 12 past events, while counting them all", () => {
+  it(`lists at most ${PROFILE_PAST_EVENT_LIMIT} past events (the API's cap), while counting them all`, () => {
     const far = new Date("2099-01-01T00:00:00.000Z");
     for (const name of new Set(sampleEvents.map((event) => event.organiserName))) {
       const sample = getSampleOrganiser(sampleOrganiserId(name), far);
-      expect(sample?.past.length).toBeLessThanOrEqual(12);
+      expect(sample?.past.length).toBeLessThanOrEqual(PROFILE_PAST_EVENT_LIMIT);
       expect(sample?.profile.eventCount).toBe(sampleEvents.filter((e) => e.organiserName === name).length);
     }
   });
