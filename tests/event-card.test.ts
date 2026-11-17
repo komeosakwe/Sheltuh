@@ -215,4 +215,44 @@ describe("cardDateLabel in the event's own zone", () => {
     expect(cardDateLabel(melbourne, BEFORE)).toEqual(cardDateLabel(event(), BEFORE));
     expect(startLabel(melbourne)).toEqual({ date: "Sat 24 Oct", time: "7:30 pm", zone: "" });
   });
+  // Round 2 (owner decision R0): one rule, the city only when its clock differs from Melbourne's at the start.
+  describe("names the city only when its clock differs from Melbourne's at the start (R0)", () => {
+    // Sat 24 Oct 2026 (Melbourne's daylight saving): 7:30 pm AEDT.
+    it("Sydney, Canberra and Hobart: the same clock as Melbourne, so no city", () => {
+      for (const [state, timeZone] of [
+        ["NSW", "Australia/Sydney"],
+        ["ACT", "Australia/Sydney"],
+        ["TAS", "Australia/Hobart"],
+      ] as const) {
+        const e = event({ state, timeZone });
+        expect(startLabel(e)).toEqual({ date: "Sat 24 Oct", time: "7:30 pm", zone: "" });
+        expect(startDateTimeLine(e)).toBe("Sat 24 Oct, 7:30 pm");
+        expect(cardDateLabel(e, new Date("2026-10-24T09:00:00.000Z"))).toEqual({ running: "Now on · until 10:30 pm" });
+      }
+    });
+
+    it("Brisbane: named in Melbourne's summer (an hour behind), not in winter (the same clock)", () => {
+      const summer = event({ state: "QLD", timeZone: "Australia/Brisbane" });
+      expect(startLabel(summer)).toEqual({ date: "Sat 24 Oct", time: "6:30 pm", zone: "Brisbane time" });
+      // Sat 13 Jun 2026, 7:30 pm AEST in both.
+      const winter = event({ state: "QLD", timeZone: "Australia/Brisbane", startsAt: "2026-06-13T09:30:00.000Z", endsAt: undefined });
+      expect(startLabel(winter)).toEqual({ date: "Sat 13 June", time: "7:30 pm", zone: "" });
+    });
+
+    it("Perth, Darwin and Adelaide: always named (Adelaide's half hour too)", () => {
+      expect(startLabel(perth).zone).toBe("Perth time");
+      expect(startLabel(adelaide).zone).toBe("Adelaide time");
+      expect(startLabel(event({ state: "NT", timeZone: "Australia/Darwin" })).zone).toBe("Darwin time");
+      const adelaideWinter = event({ state: "SA", timeZone: "Australia/Adelaide", startsAt: "2026-06-13T09:30:00.000Z", endsAt: undefined });
+      expect(startLabel(adelaideWinter)).toEqual({ date: "Sat 13 June", time: "7:00 pm", zone: "Adelaide time" });
+    });
+
+    it("decided at the start instant: one event names its city on every time it shows, or on none", () => {
+      // Sat 4 Apr 2026, 7:00 pm in Brisbane (8:00 pm AEDT in Melbourne) to 5:00 am Sun, after Melbourne's clocks went
+      // back at 3:00 am AEDT: by the end the two clocks read the same, but the start's rule holds.
+      const e = event({ state: "QLD", timeZone: "Australia/Brisbane", startsAt: "2026-04-04T09:00:00.000Z", endsAt: "2026-04-04T19:00:00.000Z" });
+      expect(startLabel(e).zone).toBe("Brisbane time");
+      expect(cardDateLabel(e, new Date("2026-04-04T17:00:00.000Z"))).toEqual({ running: "Now on · until 5:00 am Brisbane time" });
+    });
+  });
 });
