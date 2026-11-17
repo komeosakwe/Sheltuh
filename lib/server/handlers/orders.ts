@@ -18,6 +18,7 @@ import {
   stripeErrorLabel,
 } from "../checkout-attempts";
 import { clientIp, clientKey, orderKey } from "../client-key";
+import { refuseUndeliverableEmail } from "../email-domain";
 import { HttpError, ok, okPrivate, type RateWindow, readJson, tooManyRequests, windowSeconds } from "../http";
 import { parseBuyerName, parseCheckoutLineItems, parseSupportCents, refuseSupportOnFreeOrder } from "../order-input";
 import { parseCheckoutSeats } from "../seat-map-input";
@@ -638,7 +639,10 @@ async function recordPaymentRefund(deps: Deps, eventId: string, charge: Stripe.C
   return row.result;
 }
 
-/** A buyer email is required for free orders (nothing else delivers the tickets) and optional otherwise. */
+/**
+ * A buyer email is required for free orders (nothing else delivers the tickets) and optional otherwise. The
+ * format only: checkBuyerEmail adds the typo list and DNS once the request is past its replay check.
+ */
 function parseBuyerEmail(body: Record<string, unknown>, required: true): string;
 function parseBuyerEmail(body: Record<string, unknown>, required: false): string | null;
 function parseBuyerEmail(body: Record<string, unknown>, required: boolean): string | null {
@@ -647,6 +651,16 @@ function parseBuyerEmail(body: Record<string, unknown>, required: boolean): stri
   const email = requireEmail(body.buyerEmail, "buyerEmail", errors);
   if (Object.keys(errors).length > 0) fail(errors);
   return email;
+}
+
+/**
+ * The buyer email checks beyond the format (../email-domain.ts: the typo list, then DNS), for paid and free
+ * checkouts alike: 400 `fieldErrors.buyerEmail` with `code` (`email_typo` / `email_no_mail`) and any
+ * `suggestion`. Run after a paid checkout's replay check, so a replay never depends on DNS, and before
+ * anything is written. Nothing to check without an email (a paid checkout may still leave it to Stripe).
+ */
+async function checkBuyerEmail(req: Request, deps: Deps, email: string | null): Promise<void> {
+  if (email) await refuseUndeliverableEmail(req, deps, email, "buyerEmail");
 }
 
 /** A platform-managed organiser's event has no paid Sheltüh tickets (only free ones, or external ticketing). */
@@ -873,6 +887,7 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
   // Free: tickets straight away for a member's own verified email, an emailed confirmation link for anyone else.
   if (isFree) {
     const buyerEmail = parseBuyerEmail(body, true);
+    await checkBuyerEmail(req, deps, buyerEmail);
     await assertFreeTicketsPerOrder(deps, lineItems);
     await assertAvailable(db, eventId, lineItems);
     return refuseIfClosed(() =>
@@ -904,6 +919,7 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
   const peeked = await peekCheckoutAttempt(db, key, fingerprint, client.key);
   const settled = peeked && settledAttemptResponse(peeked);
   if (settled) return settled;
+  await checkBuyerEmail(req, deps, buyerEmail);
 
   // Free lines in a paid order: the same per-order cap. The Stripe payment identifies the buyer, so there's
   // no emailed confirmation or per-person allowance (those count wholly free orders only).
@@ -1291,6 +1307,7 @@ async function createSeatedCheckout(
 
   if (totals.totalCents === 0) {
     const buyerEmail = parseBuyerEmail(body, true);
+    await checkBuyerEmail(req, deps, buyerEmail);
     await assertFreeTicketsPerOrder(deps, lineItems);
     await assertAvailable(db, event.eventId, lineItems);
     return refuseIfClosed(() =>
@@ -1299,6 +1316,7 @@ async function createSeatedCheckout(
   }
 
   const buyerEmail = parseBuyerEmail(body, false);
+  await checkBuyerEmail(req, deps, buyerEmail);
   await assertFreeTicketsPerOrder(deps, lineItems);
   await assertAvailable(db, event.eventId, lineItems);
   const organiser = await findOrganiserById(db, event.organiserId);

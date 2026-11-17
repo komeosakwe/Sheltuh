@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { clientKey } from "@/lib/server/client-key";
 import { CHECKOUT_ATTEMPT, CHECKOUT_LIMITS, checkoutFingerprint, STRIPE_SESSION_REQUEST } from "@/lib/server/checkout-attempts";
+import { EMAIL_DOMAIN_LOOKUP_LIMIT } from "@/lib/server/email-domain";
 import { drainEmailOutbox } from "@/lib/server/email-outbox";
 import {
   CHECKOUT_RATE_LIMITS,
@@ -580,9 +581,12 @@ describe("general admission paid checkout limits", () => {
     expect(over.headers.get("retry-after")).toBe("600");
     expect(await orders()).toHaveLength(20);
     expect(await attempts()).toHaveLength(20); // the refused key wasn't recorded
+    // The buyer email's domain was looked up for each new checkout and the refused one (it's checked before
+    // the limits, on its own allowance: lib/server/email-domain.ts), never for the replay.
+    expect(api.mailDomainLookups).toHaveLength(21);
     const hits = await api.db.query<{ bucket: string; hits: number }>(
-      `select bucket, hits from private.client_rate_limits where client_key = $1 order by bucket`,
-      [clientKey(IP, WEBHOOK_SECRET)],
+      `select bucket, hits from private.client_rate_limits where client_key = $1 and bucket <> $2 order by bucket`,
+      [clientKey(IP, WEBHOOK_SECRET), EMAIL_DOMAIN_LOOKUP_LIMIT.bucket],
     );
     expect(hits).toEqual([
       { bucket: "checkouts", hits: 20 },
@@ -602,13 +606,15 @@ describe("general admission paid checkout limits", () => {
     expect([over.status, over.body.code]).toEqual([429, "client_rate_limited"]);
     expect(over.body.error).toBe("You've started a lot of checkouts in the last minute. Wait a minute, then try again.");
     expect(over.headers.get("retry-after")).toBe("60");
-    // No attempt row, no order, no Stripe call, and no hit in any bucket for the refusal.
+    // No attempt row, no order, no Stripe call, and no hit in any checkout bucket for the refusal.
     expect(await attempts()).toHaveLength(10);
     expect(await orders()).toHaveLength(10);
     expect(createCalls()).toHaveLength(10);
+    // Only the email's DNS lookup counted for the refused one, on its own allowance (lib/server/email-domain.ts).
+    expect(api.mailDomainLookups).toHaveLength(11);
     const hits = await api.db.query<{ bucket: string; hits: number }>(
-      `select bucket, hits from private.client_rate_limits where client_key = $1 order by bucket`,
-      [clientKey(IP, WEBHOOK_SECRET)],
+      `select bucket, hits from private.client_rate_limits where client_key = $1 and bucket <> $2 order by bucket`,
+      [clientKey(IP, WEBHOOK_SECRET), EMAIL_DOMAIN_LOOKUP_LIMIT.bucket],
     );
     expect(hits).toEqual([
       { bucket: "checkouts", hits: 10 },

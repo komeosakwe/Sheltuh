@@ -6,6 +6,7 @@ import { ClipStorageError, type ClipStorage } from "@/lib/server/clip-storage";
 import type { Db } from "@/lib/server/db";
 import type { Deps } from "@/lib/server/deps";
 import type { EmailMessage } from "@/lib/server/email";
+import type { MailDomainAnswer } from "@/lib/server/mail-domain";
 import { PlacesUnavailableError, type GooglePlace, type PlaceSuggestion, type Places } from "@/lib/server/places";
 import type { AppleWalletConfig, GoogleWalletConfig } from "@/lib/server/wallet/config";
 import { runHandler, type Handler } from "@/lib/server/route";
@@ -461,6 +462,15 @@ export class TestApi {
   appleWallet: AppleWalletConfig | undefined;
   /** Google Places; undefined to simulate GOOGLE_MAPS_API_KEY being unset. */
   places: FakePlaces | undefined = new FakePlaces();
+  /** EMAIL_DOMAIN_CHECKS as Deps reports it: on unless a test turns it off. */
+  emailDomainChecks = true;
+  /**
+   * What the fake DNS says about a domain (Deps.mailDomain): `accepts` for
+   * every domain not listed here, so test addresses (@example.com) pass.
+   */
+  readonly mailDomainAnswers = new Map<string, MailDomainAnswer>();
+  /** Every domain looked up, in order. */
+  readonly mailDomainLookups: string[] = [];
   private readonly callers = new Map<string, Caller>();
 
   constructor(readonly db: Db) {
@@ -488,6 +498,11 @@ export class TestApi {
       googleWallet: () => this.googleWallet,
       appleWallet: async () => this.appleWallet,
       places: () => this.places,
+      emailDomainChecks: () => this.emailDomainChecks,
+      mailDomain: async (domain) => {
+        this.mailDomainLookups.push(domain);
+        return this.mailDomainAnswers.get(domain) ?? "accepts";
+      },
     };
   }
 

@@ -114,6 +114,8 @@ export async function startJourney(): Promise<Journey> {
     EMAIL_FROM: "Sheltüh <tickets@sheltuh.test>",
     CRON_SECRET: cronSecret,
     OPS_ALERT_EMAIL: "ops@sheltuh.test",
+    // Journeys use @journey.test addresses, which have no DNS: only the format is checked.
+    EMAIL_DOMAIN_CHECKS: "off",
   });
   await app.start();
   // Stripe redirect URLs and email links name the app's own origin.
