@@ -132,7 +132,7 @@ describe("organiser profile: Follow and Share", () => {
     expect(placeholder?.parentElement).toHaveClass("flex-wrap");
     cleanup();
     view(profile(), fakeAuthValue({ status: "signed-out" }));
-    expect(screen.getByRole("link", { name: "Sign in to follow" })).toHaveClass("min-w-0", "grow", "basis-40", "sm:flex-none");
+    expect(screen.getByRole("link", { name: "Sign in to follow" })).toHaveClass("min-w-0", "grow", "basis-40", "sm:min-w-44", "sm:flex-none");
   });
 });
 

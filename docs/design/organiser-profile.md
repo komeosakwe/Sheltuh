@@ -260,7 +260,7 @@ Stop reading `eventsHosted`; PR1 deprecates it.
 **Actions:**
 ```
 <FollowButton organiserId organiserName variant="signal" size="md" holdPlace
-  buttonClassName="min-w-0 grow basis-40 sm:min-w-32 sm:flex-none"
+  buttonClassName="min-w-0 grow basis-40 sm:min-w-44 sm:flex-none"
   beside={<ShareButton path={`/organisers/${id}`} title={displayName} text={`${displayName} on Sheltüh`}
                        copyLabel="Link to this profile" copiedInLabel className="shrink-0" />} />
 ```
@@ -268,7 +268,8 @@ Stop reading `eventsHosted`; PR1 deprecates it.
   `flex w-full flex-wrap items-center gap-2`). The notify checkbox follows 12px below, as built.
 - Share is always as wide as "Copied" (§5.4). Below 640, Follow takes the rest of the row, but never less than
   `basis-40` (10rem): with large text (200% at 390), Share wraps under Follow rather than crushing its label. From
-  640 Follow is as wide as its label, at least 128.
+  640 Follow is at least 176 (`sm:min-w-44`): wider than its widest label, "Sign in to follow" (about 169 at
+  `md`), so it's the same width signed out, following or not, and while it loads.
 - `holdPlace`: while the session loads, Follow's slot holds a placeholder as wide as its widest label (§5.3).
 - `copyLabel` is "Link to this profile"; the shared URL is the profile's path on this origin
   (`absoluteUrl` in `lib/share-metadata.ts`), never the address bar's query or fragment.
@@ -361,8 +362,9 @@ parent doesn't mount it then).
 - **Auth loading shift.** While auth is loading the component renders `row(null)`, so Share sits alone and then
   moves right when Follow appears. With **`holdPlace`** (an explicit prop, not tied to the variant) it renders an
   `aria-hidden` placeholder `h-12 w-32 sm:w-44 rounded-control bg-surface` plus `buttonClassName` in Follow's slot
-  instead (U11). From 640 it's as wide as the widest label, "Sign in to follow" at `md`, so Share doesn't move when
-  that arrives; below 640 `buttonClassName` makes it fill the row, as the button will.
+  instead (U11). From 640 it's 176, the profile's Follow minimum (`sm:min-w-44`, past the widest label, "Sign in
+  to follow" at about 169), so Share doesn't move when the button arrives; below 640 `buttonClassName` makes it
+  fill the row, as the button will.
 - **`returnTo`** defaults to `organiserProfilePath(organiserId)`.
 
 ### 5.4 `components/ShareButton.tsx` (additive)
