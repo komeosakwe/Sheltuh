@@ -241,7 +241,7 @@ test.describe("the featured carousel at 1280px", () => {
     const hit = (x: number, y: number) =>
       page.evaluate(([px, py]) => {
         const el = document.elementFromPoint(px, py);
-        return el?.closest("a, button")?.getAttribute("data-banner-link") !== null ? "title" : (el?.closest("a, button")?.getAttribute("aria-label") ?? "none");
+        return el?.closest("a, button")?.hasAttribute("data-banner-link") === true ? "title" : (el?.closest("a, button")?.getAttribute("aria-label") ?? "none");
       }, [x, y] as const);
     expect(await hit(box.x + 24, box.y + 24)).toBe("title");
     expect(await hit(factsBox.x + 4, factsBox.y + factsBox.height / 2)).toBe("title");
