@@ -372,6 +372,34 @@ describe("FeaturedCarousel", () => {
     expect(screen.getByRole("button", { name: "Play carousel" })).toBeInTheDocument();
   });
 
+  // PR 54 CI: a smooth glide on a busy runner paused past the rest timer, and the rest of it read as a swipe.
+  it("its own glide stays its own through a pause mid-way; only a scroll after it arrives stops it", async () => {
+    stubMotion(true);
+    renderCarousel();
+    const el = track();
+    Object.defineProperty(el, "clientWidth", { configurable: true, value: 640 });
+    let left = 0;
+    Object.defineProperty(el, "scrollLeft", { configurable: true, get: () => left });
+    await act(() => vi.advanceTimersByTimeAsync(CAROUSEL_INTERVAL_MS));
+    expect(scrollTo).toHaveBeenLastCalledWith({ left: 640, behavior: "smooth" });
+    left = 300;
+    fireEvent.scroll(el);
+    // The glide stalls longer than the rest timer, then carries on.
+    await act(() => vi.advanceTimersByTimeAsync(200));
+    left = 500;
+    fireEvent.scroll(el);
+    expect(screen.getByRole("button", { name: "Pause carousel" })).toBeInTheDocument();
+    left = 640;
+    fireEvent.scroll(el);
+    await act(() => vi.advanceTimersByTimeAsync(200));
+    expect(screen.getByRole("button", { name: "Pause carousel" })).toBeInTheDocument();
+    expect(current()).toBe(1);
+    // Arrived: now a scroll is the visitor's.
+    left = 700;
+    fireEvent.scroll(el);
+    expect(screen.getByRole("button", { name: "Play carousel" })).toBeInTheDocument();
+  });
+
   it("new slides start again from the first", () => {
     stubMotion(false);
     const { rerender } = renderCarousel();

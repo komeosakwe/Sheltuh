@@ -18,6 +18,10 @@ export const CAROUSEL_INTERVAL_MS = 6000;
 export const CAROUSEL_MAX = FEATURED_MAX;
 /** A scroll that has had no event for this long has ended (engines without `scrollend`). */
 const SCROLL_REST_MS = 150;
+/** The carousel's own scroll has arrived within this much of its target (FeaturedCarousel ownScrollRef)… */
+const OWN_SCROLL_SLACK_PX = 8;
+/** …or once it has been going this long, so a glide that stops short can't keep a swipe from counting. */
+const OWN_SCROLL_MAX_MS = 1000;
 
 /**
  * Pause/Play over the photo: white with a black edge in both themes, 48px below 768px and 40px from it.
@@ -90,8 +94,13 @@ export default function FeaturedCarousel({
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const indexRef = useRef(0);
-  /** The carousel is scrolling the track itself (goTo): a scroll then isn't the visitor's. */
-  const ownScrollRef = useRef(false);
+  /**
+   * Where the carousel is scrolling the track itself (goTo, or back to the first slide), in px, and since when; null when
+   * it isn't. Its scroll isn't the visitor's until it gets there: a smooth glide on a busy device can
+   * pause longer than SCROLL_REST_MS, and the rest of it mustn't read as a swipe. Within OWN_SCROLL_SLACK_PX
+   * (slides can be fractional pixels wide) or after OWN_SCROLL_MAX_MS it counts as arrived either way.
+   */
+  const ownScrollRef = useRef<{ left: number; since: number } | null>(null);
   // New slides (the saved suburb changed the order, or a reload): start again from the first.
   const idsKey = slides.map((event) => event.id).join("|");
   const [shownIds, setShownIds] = useState(idsKey);
@@ -104,7 +113,10 @@ export default function FeaturedCarousel({
   }, [index]);
   useEffect(() => {
     const track = trackRef.current;
-    if (track && typeof track.scrollTo === "function" && track.scrollLeft !== 0) track.scrollTo({ left: 0, behavior: "auto" });
+    if (track && typeof track.scrollTo === "function" && track.scrollLeft !== 0) {
+      ownScrollRef.current = { left: 0, since: Date.now() };
+      track.scrollTo({ left: 0, behavior: "auto" });
+    }
   }, [idsKey]);
 
   const moving = motionOk && playing && count > 1;
@@ -116,7 +128,7 @@ export default function FeaturedCarousel({
     indexRef.current = target;
     const track = trackRef.current;
     if (track && typeof track.scrollTo === "function") {
-      ownScrollRef.current = true;
+      ownScrollRef.current = { left: target * track.clientWidth, since: Date.now() };
       track.scrollTo({ left: target * track.clientWidth, behavior: motionOk ? "smooth" : "auto" });
     }
   }
@@ -130,7 +142,10 @@ export default function FeaturedCarousel({
     if (!track) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const settle = () => {
-      ownScrollRef.current = false;
+      const own = ownScrollRef.current;
+      // Still on its way to the carousel's own target: not settled yet (the next scroll event re-arms).
+      if (own && Math.abs(track.scrollLeft - own.left) > OWN_SCROLL_SLACK_PX && Date.now() - own.since < OWN_SCROLL_MAX_MS) return;
+      ownScrollRef.current = null;
       if (track.clientWidth <= 0) return;
       const nearest = Math.min(count - 1, Math.max(0, Math.round(track.scrollLeft / track.clientWidth)));
       if (nearest !== indexRef.current) {
@@ -139,7 +154,9 @@ export default function FeaturedCarousel({
       }
     };
     const onScroll = () => {
-      if (!ownScrollRef.current) setPlaying(false);
+      const own = ownScrollRef.current;
+      if (own && Date.now() - own.since >= OWN_SCROLL_MAX_MS) ownScrollRef.current = null;
+      if (ownScrollRef.current === null) setPlaying(false);
       if (timer !== undefined) clearTimeout(timer);
       timer = setTimeout(settle, SCROLL_REST_MS);
     };
