@@ -730,6 +730,9 @@ export interface OrderRecord {
   updatedAt: string;
 }
 
+/** The request header that carries an order access token (CheckoutResult.orderAccess). */
+export const ORDER_ACCESS_HEADER = "x-order-access";
+
 /** Most tickets one free order can have (POST …/checkout is a 400 beyond it). */
 export const MAX_FREE_TICKETS_PER_ORDER = 4;
 
@@ -749,6 +752,17 @@ export const MAX_FREE_TICKETS_PER_ORDER = 4;
 export type CheckoutResult =
   | {
       url: string;
+      /**
+       * A paid (Stripe) checkout only, seated or not, in the answer to the
+       * client that started it (the 201, and a replay of it to that same
+       * client): the order access token (64 hex characters). Keep it on this
+       * device (lib/order-access.ts) and send it as the `x-order-access`
+       * header (ORDER_ACCESS_HEADER) when reading the order
+       * (getOrderBySession) or changing its email (changeOrderEmail): it is
+       * what tells the paying browser from anyone holding the order id. Never
+       * put it in a URL or log it. Absent when the server can't issue one.
+       */
+      orderAccess?: string;
       /**
        * A seated paid checkout only: when the seats' hold ends (ISO 8601).
        * The checkout's pay deadline is a few minutes before

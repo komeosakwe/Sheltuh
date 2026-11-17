@@ -5,6 +5,7 @@ import { clientKey } from "@/lib/server/client-key";
 import { CHECKOUT_ATTEMPT, CHECKOUT_LIMITS, checkoutFingerprint, STRIPE_SESSION_REQUEST } from "@/lib/server/checkout-attempts";
 import { EMAIL_DOMAIN_LOOKUP_LIMIT } from "@/lib/server/email-domain";
 import { drainEmailOutbox } from "@/lib/server/email-outbox";
+import { orderAccessToken } from "@/lib/server/order-access";
 import {
   CHECKOUT_RATE_LIMITS,
   cancelPendingOrder,
@@ -170,7 +171,12 @@ describe("the same Idempotency-Key and basket", () => {
     const first = await checkout();
     expect(first.status).toBe(201);
     expect(first.headers.get("cache-control")).toBe("private, no-store");
-    expect(first.body).toEqual({ url: payPage(first.body.orderId as string), orderId: first.body.orderId });
+    expect(first.body).toEqual({
+      url: payPage(first.body.orderId as string),
+      orderId: first.body.orderId,
+      // The order access token, for this client only (lib/server/order-access.ts).
+      orderAccess: orderAccessToken(first.body.orderId as string, WEBHOOK_SECRET),
+    });
 
     const again = await checkout({ ...BASKET, buyerEmail: " fan@example.com " }); // the same email, normalised
     expect(again.status).toBe(200);
@@ -230,6 +236,9 @@ describe("the same Idempotency-Key and basket", () => {
       expect(text).not.toContain("_secret_");
       expect(res.body).not.toHaveProperty("url");
       expect(res.body).not.toHaveProperty("orderId");
+      // Nor the order access token: it goes only to the client that started the checkout.
+      expect(text).not.toContain(first.body.orderAccess as string);
+      expect(res.body).not.toHaveProperty("orderAccess");
     }
     expect(createCalls()).toHaveLength(1);
     expect(await api.db.query(`select * from private.checkout_attempts`)).toEqual([before]);
@@ -443,7 +452,7 @@ describe("Stripe failures and retries", () => {
 
     const retry = await checkout();
     expect(retry.status).toBe(201);
-    expect(retry.body).toEqual({ url: payPage(kept.id), orderId: kept.id });
+    expect(retry.body).toEqual({ url: payPage(kept.id), orderId: kept.id, orderAccess: orderAccessToken(kept.id, WEBHOOK_SECRET) });
     expect(stripe.made()).toBe(1); // Stripe made one session in all
     expect(await orders()).toEqual([{ id: kept.id, status: "pending", stripe_checkout_session_id: "cs_test_1" }]);
     // The same order, so the same idempotency key and the very same parameters.
@@ -764,7 +773,7 @@ describe("seated checkout", () => {
     expect(early.body.code).toBe("checkout_in_progress");
     open();
     const done = (await Promise.all(results)).find((r) => r.status === 201)!;
-    expect(Object.keys(done.body).sort()).toEqual(["holdExpiresAt", "orderId", "url"]);
+    expect(Object.keys(done.body).sort()).toEqual(["holdExpiresAt", "orderAccess", "orderId", "url"]);
     expect(createCalls()).toHaveLength(1);
     expect((await orders(seated.eventId)).map((o) => o.id)).toEqual([done.body.orderId]);
     expect(await seatStates(api, seated.eventId)).toMatchObject({ A1: `held:${done.body.orderId}`, A2: `held:${done.body.orderId}` });

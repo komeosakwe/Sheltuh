@@ -22,6 +22,7 @@ import { refuseUndeliverableEmail } from "../email-domain";
 import { HttpError, ok, okPrivate, type RateWindow, readJson, tooManyRequests, windowSeconds } from "../http";
 import { parseBuyerName, parseCheckoutLineItems, parseSupportCents, refuseSupportOnFreeOrder } from "../order-input";
 import { parseCheckoutSeats } from "../seat-map-input";
+import { orderAccessSecret } from "../order-access";
 import { ORDER_ID_PATTERN, orderReference } from "../order-reference";
 import { payoutsSchemaMissing } from "../payout-schema";
 import { CUSTOMER_ORDER_SELECT, eventPlaceOf, ORDER_SELECT, toCustomerOrder, toOrder } from "../records";
@@ -917,7 +918,7 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
   // The attempt is bound to this client: a replay or retry from another client key is refused.
   const client = requestClientKey(req, deps);
   const peeked = await peekCheckoutAttempt(db, key, fingerprint, client.key);
-  const settled = peeked && settledAttemptResponse(peeked);
+  const settled = peeked && settledAttemptResponse(peeked, orderAccessSecret(deps));
   if (settled) return settled;
   await checkBuyerEmail(req, deps, buyerEmail);
 
@@ -1126,7 +1127,10 @@ export const stripeWebhook: Handler = async (req, _params, deps) => {
     return received;
   }
   const { status, alertQueued } = await fulfilOrder(deps.db, order, {
-    buyerEmail: session.customer_details?.email,
+    // Our address wins: the one the buyer typed on our page was checked (format, typo list, DNS) and is what
+    // Stripe's form was prefilled with (customer_email). Stripe's is used only when the order has none (an
+    // older client that left the email to Stripe).
+    buyerEmail: order.buyerEmail ? null : session.customer_details?.email,
     paymentIntentId,
   });
   // A partial refund recorded before the payment opened a payment exception and queued its alert.
@@ -1275,7 +1279,7 @@ async function createSeatedCheckout(
   });
   const client = requestClientKey(req, deps);
   const peeked = await peekCheckoutAttempt(db, key, fingerprint, client.key);
-  const settled = peeked && settledAttemptResponse(peeked);
+  const settled = peeked && settledAttemptResponse(peeked, orderAccessSecret(deps));
   if (settled) return settled;
 
   // A retry's own earlier order may still hold these seats: not "taken" (begin_checkout_attempt reuses or releases it).
@@ -1295,7 +1299,7 @@ async function createSeatedCheckout(
   if (gone.length > 0) {
     // A duplicate of a request that held these seats since our first look (a double click): its answer, not "taken".
     const now = await peekCheckoutAttempt(db, key, fingerprint, client.key);
-    const answer = now && settledAttemptResponse(now);
+    const answer = now && settledAttemptResponse(now, orderAccessSecret(deps));
     if (answer) return answer;
     throw seatError(409, SEATS_TAKEN, "seats", { code: "seats_unavailable", seatIds: gone });
   }

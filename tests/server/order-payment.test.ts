@@ -1,6 +1,8 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { clientKey, orderKey } from "@/lib/server/client-key";
+import { EMAIL_DOMAIN_LOOKUP_LIMIT } from "@/lib/server/email-domain";
+import { orderAccessToken } from "@/lib/server/order-access";
 import {
   BUYER_STRIPE_REQUEST,
   CHECKOUT_RATE_LIMITS,
@@ -119,9 +121,11 @@ async function dbSnapshot() {
 }
 
 /** The rate-limit counters the checkout and payment routes keep (keys are HMACs: never an IP or an order id). */
+/** The checkout and payment page counters (not the buyer email's DNS lookups: lib/server/email-domain.ts). */
 async function limitCounters() {
   return api.db.query<{ client_key: string; bucket: string; hits: number }>(
-    `select client_key, bucket, hits from private.client_rate_limits order by bucket, client_key`,
+    `select client_key, bucket, hits from private.client_rate_limits where bucket <> $1 order by bucket, client_key`,
+    [EMAIL_DOMAIN_LOOKUP_LIMIT.bucket],
   );
 }
 
@@ -168,7 +172,7 @@ describe("the embedded Checkout Session", () => {
     expect(params.expires_at).toBeGreaterThanOrEqual(Math.floor(before / 1000) + 33 * 60 - 1);
     expect(params.expires_at).toBeLessThanOrEqual(Math.floor(after / 1000) + 33 * 60);
     // POST /checkout keeps its shape; only url's meaning changed (our page). No client secret in it.
-    expect(res.body).toStrictEqual({ url: `/checkout/pay?order=${orderId}`, orderId });
+    expect(res.body).toStrictEqual({ url: `/checkout/pay?order=${orderId}`, orderId, orderAccess: orderAccessToken(orderId, WEBHOOK_SECRET) });
     expect(JSON.stringify(res.body)).not.toContain("secret");
     const [order] = await api.db.query(`select status::text as status, stripe_checkout_session_id from public.orders`);
     expect(order).toEqual({ status: "pending", stripe_checkout_session_id: "cs_test_1" });
@@ -214,7 +218,7 @@ describe("the embedded Checkout Session", () => {
     });
     expect(params.expires_at * 1000 - before).toBeGreaterThan(30 * 60_000);
     expect(params.expires_at * 1000 - before).toBeLessThanOrEqual(SEAT_HOLD_LIMITS.stripeSessionMinutes * 60_000 + 1000);
-    expect(Object.keys(res.body).sort()).toEqual(["holdExpiresAt", "orderId", "url"]);
+    expect(Object.keys(res.body).sort()).toEqual(["holdExpiresAt", "orderAccess", "orderId", "url"]);
     expect(res.body.url).toBe(`/checkout/pay?order=${orderId}`);
   });
 

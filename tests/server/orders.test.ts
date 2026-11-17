@@ -3,7 +3,8 @@ import { adminUnpublishEvent } from "@/lib/server/handlers/admin";
 import { updateEventDraft } from "@/lib/server/handlers/events";
 import { createCheckout, getOrderBySession, orderTotals, stripeWebhook } from "@/lib/server/handlers/orders";
 import { orderReference } from "@/lib/server/order-reference";
-import { expectSessionPaymentOptions, sessionAmount, stripeWebhookRequest, TestApi } from "./helpers/api";
+import { orderAccessToken } from "@/lib/server/order-access";
+import { expectSessionPaymentOptions, sessionAmount, stripeWebhookRequest, TestApi, WEBHOOK_SECRET } from "./helpers/api";
 import { approvedOrganiser, disablePayouts, enablePayouts, eventInput, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 
@@ -207,7 +208,7 @@ describe("paid checkout", () => {
     const orderId = params.client_reference_id;
     expect(orderId).toMatch(/^ord_[0-9a-f]{32}$/);
     // Our payment page, never Stripe's: the client secret is read from GET …/payment.
-    expect(res.body).toStrictEqual({ url: `/checkout/pay?order=${orderId}`, orderId });
+    expect(res.body).toStrictEqual({ url: `/checkout/pay?order=${orderId}`, orderId, orderAccess: orderAccessToken(orderId, WEBHOOK_SECRET) });
     expect(params.payment_intent_data).toEqual({
       application_fee_amount: 990,
       transfer_data: { destination: "acct_test_1" },

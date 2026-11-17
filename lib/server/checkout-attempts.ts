@@ -9,6 +9,7 @@ import type { Db } from "./db";
 import type { Deps } from "./deps";
 import { sendOpsAlertsSoon } from "./email-outbox";
 import { HttpError, PRIVATE_NO_STORE, createdPrivate } from "./http";
+import { orderAccessSecret, orderAccessToken } from "./order-access";
 import { orderReference } from "./order-reference";
 import { payoutsSchemaMissing } from "./payout-schema";
 import type { CheckoutResult, EventRecord, OrderLineItem, TicketSeat } from "./types";
@@ -235,8 +236,17 @@ export async function peekCheckoutAttempt(db: Db, key: string, fingerprint: stri
   return row;
 }
 
-function checkoutResult(url: string, orderId: string, holdExpiresAt: string | Date | null): CheckoutResult {
-  return holdExpiresAt ? { url, holdExpiresAt: new Date(holdExpiresAt).toISOString(), orderId } : { url, orderId };
+/**
+ * The answer to the client that started a paid checkout (the 201, or a replay to that client): with the order
+ * access token (./order-access.ts) when `accessSecret` is set.
+ */
+function checkoutResult(url: string, orderId: string, holdExpiresAt: string | Date | null, accessSecret: string | undefined): CheckoutResult {
+  return {
+    url,
+    ...(holdExpiresAt ? { holdExpiresAt: new Date(holdExpiresAt).toISOString() } : {}),
+    orderId,
+    ...(accessSecret ? { orderAccess: orderAccessToken(orderId, accessSecret) } : {}),
+  };
 }
 
 function inProgress(retryAfterSeconds: number | null): HttpError {
@@ -279,14 +289,19 @@ const CHECKOUT_OTHER_CLIENT = (): HttpError =>
 
 /**
  * The answer for an attempt that's settled (anything but `retry`): the same
- * order and session again (200, `Idempotent-Replayed: true`), or an error.
+ * order and session again (200, `Idempotent-Replayed: true`, with the order
+ * access token made with `accessSecret`: a replay only ever reaches the
+ * client that started the attempt, `other_client` being a 409), or an error.
  * Undefined for `retry` (go ahead).
  */
-export function settledAttemptResponse(row: Omit<AttemptRow, "state"> & { state: string }): Response | undefined {
+export function settledAttemptResponse(
+  row: Omit<AttemptRow, "state"> & { state: string },
+  accessSecret: string | undefined,
+): Response | undefined {
   switch (row.state) {
     case "replay": {
       if (!row.session_url || !row.order_id) throw new Error("A replayed checkout attempt has no order or session.");
-      return Response.json(checkoutResult(row.session_url, row.order_id, row.hold_expires_at), {
+      return Response.json(checkoutResult(row.session_url, row.order_id, row.hold_expires_at, accessSecret), {
         status: 200,
         headers: { ...PRIVATE_NO_STORE, "idempotent-replayed": "true" },
       });
@@ -637,14 +652,17 @@ export async function runPaidCheckout(deps: Deps, checkout: PaidCheckout): Promi
     case "client_all_limit":
       throw checkout.limitError("window");
     default: {
-      const settled = settledAttemptResponse({
-        state: begun.result,
-        order_id: begun.attempt_order_id,
-        session_url: begun.attempt_session_url,
-        hold_expires_at: begun.attempt_hold_expires_at,
-        retry_after_seconds: begun.retry_after_seconds,
-        order_status: begun.attempt_order_status,
-      });
+      const settled = settledAttemptResponse(
+        {
+          state: begun.result,
+          order_id: begun.attempt_order_id,
+          session_url: begun.attempt_session_url,
+          hold_expires_at: begun.attempt_hold_expires_at,
+          retry_after_seconds: begun.retry_after_seconds,
+          order_status: begun.attempt_order_status,
+        },
+        orderAccessSecret(deps),
+      );
       if (settled) return settled;
       throw new Error(`Unexpected begin_checkout_attempt result: ${begun.result}`);
     }
@@ -753,5 +771,8 @@ export async function runPaidCheckout(deps: Deps, checkout: PaidCheckout): Promi
   if (finished.result !== "open") throw inProgress(null);
   // The order id goes back only to the client that made the order (it's in the payment page's URL and Stripe's
   // return URL anyway), so the page can cancel it if the buyer goes Back: never cached.
-  return createdPrivate(checkoutResult(url, orderId, checkout.kind === "seated" ? order.hold_expires_at : null));
+  // With the order access token: only this answer (and a replay to this client) ever carries it.
+  return createdPrivate(
+    checkoutResult(url, orderId, checkout.kind === "seated" ? order.hold_expires_at : null, orderAccessSecret(deps)),
+  );
 }
