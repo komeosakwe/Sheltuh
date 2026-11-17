@@ -167,6 +167,7 @@ describe("Data API lock-out", () => {
       { table_name: "onboarding_emails", rls: true },
       { table_name: "order_detail_exports", rls: true },
       { table_name: "order_detail_views", rls: true },
+      { table_name: "order_email_changes", rls: true },
       { table_name: "order_transfers", rls: true },
       { table_name: "organiser_event_announcements", rls: true },
       { table_name: "organiser_follow_tokens", rls: true },
@@ -738,6 +739,45 @@ describe("Data API lock-out", () => {
     );
     expect(kinds[0].def).toContain("event_reminder");
     expect(kinds[0].def).toContain("holder_message");
+  });
+
+  it("the order email change functions and trigger exist, pin search_path, aren't security definer or client-executable; the log has RLS, no policies and no grants", async () => {
+    const names = [
+      "admin_change_order_email",
+      "buyer_change_order_email",
+      "change_order_email",
+      "mask_email",
+      "order_email_change_block",
+      "order_email_changes_append_only",
+    ];
+    expect(await privateFunctions(names)).toEqual(locked(names));
+    const definers = await db.query(
+      `select p.proname from pg_proc p where p.pronamespace = to_regnamespace('private') and p.proname = any($1::text[]) and p.prosecdef`,
+      [names],
+    );
+    expect(definers).toEqual([]);
+    const [table] = await db.query<{ rls: boolean; policies: number; grants: number }>(
+      `select c.relrowsecurity as rls, (select count(*)::int from pg_policy p where p.polrelid = c.oid) as policies,
+              (select count(*)::int from information_schema.role_table_grants g
+                where g.table_schema = 'private' and g.table_name = c.relname and g.grantee in ('anon', 'authenticated', 'PUBLIC')) as grants
+         from pg_class c where c.oid = to_regclass('private.order_email_changes')`,
+    );
+    expect(table).toEqual({ rls: true, policies: 0, grants: 0 });
+    // The masked addresses only: never a column that could hold a full address or a token.
+    const [log] = await db.query<{ columns: string[] }>(
+      `select array_agg(column_name::text order by ordinal_position) as columns
+         from information_schema.columns where table_schema = 'private' and table_name = 'order_email_changes'`,
+    );
+    expect(log.columns).toEqual([
+      "id",
+      "order_id",
+      "changed_by",
+      "admin_id",
+      "reason",
+      "old_email_masked",
+      "new_email_masked",
+      "created_at",
+    ]);
   });
 
   it("every `public` and `private` function pins its search_path", async () => {
