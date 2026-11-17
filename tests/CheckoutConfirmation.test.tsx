@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import CheckoutConfirmation from "@/components/CheckoutConfirmation";
 import { ApiError } from "@/lib/api/client";
+import { rememberOrderAccess } from "@/lib/order-access";
 import type { CustomerOrder, OrderPaymentLookup } from "@/lib/api/types";
 import { REFUND_ACL_STATEMENT } from "@/lib/refund-policy";
 import { rememberPendingCheckout } from "@/lib/seating/pending-checkout";
@@ -18,6 +19,7 @@ vi.mock("next/navigation", () => ({
 }));
 const getOrderBySession = vi.fn();
 const getOrderPayment = vi.fn();
+const changeOrderEmail = vi.fn();
 // The writes the page must never make (it only reads).
 const writes = { createCheckoutSession: vi.fn(), confirmFreeOrder: vi.fn(), cancelPendingOrder: vi.fn() };
 vi.mock("@/lib/api/orders", async (importOriginal) => ({
@@ -25,6 +27,7 @@ vi.mock("@/lib/api/orders", async (importOriginal) => ({
   walletPassUrl: (await importOriginal<typeof import("@/lib/api/orders")>()).walletPassUrl,
   getOrderBySession: (...args: unknown[]) => getOrderBySession(...args),
   getOrderPayment: (...args: unknown[]) => getOrderPayment(...args),
+  changeOrderEmail: (...args: unknown[]) => changeOrderEmail(...args),
   createCheckoutSession: (...args: unknown[]) => writes.createCheckoutSession(...args),
   confirmFreeOrder: (...args: unknown[]) => writes.confirmFreeOrder(...args),
 }));
@@ -36,8 +39,10 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
   sessionStorage.clear();
+  localStorage.clear();
   getOrderBySession.mockReset();
   getOrderPayment.mockReset();
+  changeOrderEmail.mockReset();
   for (const fn of Object.values(writes)) fn.mockReset();
 });
 
@@ -76,7 +81,8 @@ describe("CheckoutConfirmation", () => {
     );
     expect(screen.getByRole("link", { name: "Back to the event" })).toHaveAttribute("href", "/events/neon-static");
     expect(screen.getByRole("link", { name: "Back to Sheltüh" })).toHaveAttribute("href", "/");
-    expect(getOrderBySession).toHaveBeenCalledWith("cs_test_1");
+    // This browser has no order access token for it: none is sent.
+    expect(getOrderBySession).toHaveBeenCalledWith("cs_test_1", undefined);
   });
 
   it("shows the masked email and the order reference, never a full address", async () => {
@@ -793,3 +799,161 @@ describe("CheckoutConfirmation: group tickets", () => {
   });
 });
 
+
+describe("CheckoutConfirmation: the buyer's email (the paying browser's one change)", () => {
+  const TOKEN = "ab".repeat(32);
+  const PAYING: CustomerOrder = { ...ORDER, maskedEmail: undefined, email: "mia@gmail.con", emailChange: { allowed: true } };
+
+  function asPayingBrowser() {
+    rememberOrderAccess("cs_test_1", TOKEN);
+  }
+
+  /** A paragraph whose whole text (its support link included) matches `words`. */
+  function paragraph(words: RegExp) {
+    return (_content: string, el: Element | null) => el?.tagName === "P" && words.test(el.textContent ?? "");
+  }
+
+  it("sends this browser's token on the read, shows the full email, and changes it once", async () => {
+    asPayingBrowser();
+    getOrderBySession.mockResolvedValue(PAYING);
+    changeOrderEmail.mockResolvedValue({
+      result: "changed",
+      order: { ...PAYING, email: "mia@gmail.com", emailChange: { allowed: false, reason: "email_already_changed" } },
+    });
+    render(<CheckoutConfirmation />);
+    const line = await screen.findByText((_c, el) => el?.tagName === "P" && el.textContent === "Tickets sent to mia@gmail.con.");
+    expect(line).toBeInTheDocument();
+    expect(getOrderBySession).toHaveBeenCalledWith("cs_test_1", TOKEN);
+
+    const open = screen.getByRole("button", { name: "Wrong email? Change it" });
+    expect(open).toHaveClass("min-h-11");
+    fireEvent.click(open);
+    const field = screen.getByLabelText("New email for your tickets");
+    await waitFor(() => expect(field).toHaveFocus());
+    expect(field).toHaveValue("mia@gmail.con");
+    fireEvent.change(field, { target: { value: " mia@gmail.com " } });
+    fireEvent.click(screen.getByRole("button", { name: "Send tickets here" }));
+
+    await waitFor(() => expect(changeOrderEmail).toHaveBeenCalledWith("cs_test_1", "mia@gmail.com", TOKEN, undefined));
+    expect(await screen.findByRole("status")).toHaveTextContent("Email changed. Your tickets are on their way to mia@gmail.com.");
+    expect(screen.getByText((_c, el) => el?.tagName === "P" && el.textContent === "Tickets sent to mia@gmail.com.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Wrong email? Change it" })).toBeNull();
+    const used = screen.getByText(/You’ve already changed this email once/);
+    expect(within(used).getByRole("link", { name: "support@sheltuh.com.au" })).toHaveAttribute("href", "mailto:support@sheltuh.com.au");
+    // The token never reaches the page's text or the address bar.
+    expect(document.body.innerHTML).not.toContain(TOKEN);
+  });
+
+  it("Cancel closes the field and puts focus back on Change it", async () => {
+    asPayingBrowser();
+    getOrderBySession.mockResolvedValue(PAYING);
+    render(<CheckoutConfirmation />);
+    fireEvent.click(await screen.findByRole("button", { name: "Wrong email? Change it" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByLabelText("New email for your tickets")).toBeNull();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Wrong email? Change it" })).toHaveFocus());
+    expect(changeOrderEmail).not.toHaveBeenCalled();
+  });
+
+  it("a refused address: the error on the field, and the server's suggestion one press away", async () => {
+    asPayingBrowser();
+    getOrderBySession.mockResolvedValue(PAYING);
+    changeOrderEmail.mockRejectedValueOnce(
+      new ApiError(400, "That email address looks mistyped. Check the part after the @.", { email: "That email address looks mistyped. Check the part after the @." }, {
+        code: "email_typo",
+        suggestion: "mia@hotmail.com",
+      }),
+    );
+    render(<CheckoutConfirmation />);
+    fireEvent.click(await screen.findByRole("button", { name: "Wrong email? Change it" }));
+    const field = screen.getByLabelText("New email for your tickets");
+    fireEvent.change(field, { target: { value: "mia@hotmial.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send tickets here" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("That email address looks mistyped.");
+    expect(field).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText("mia@hotmail.com").closest("p")).toHaveTextContent("Did you mean mia@hotmail.com?");
+    fireEvent.click(screen.getByRole("button", { name: "Use this" }));
+    expect(field).toHaveValue("mia@hotmail.com");
+    expect(field).toHaveFocus();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("an address with an account: 'contact support', said on the field", async () => {
+    asPayingBrowser();
+    getOrderBySession.mockResolvedValue(PAYING);
+    changeOrderEmail.mockRejectedValueOnce(
+      new ApiError(409, "Contact support@sheltuh.com.au to use this address.", undefined, { code: "email_has_account" }),
+    );
+    render(<CheckoutConfirmation />);
+    fireEvent.click(await screen.findByRole("button", { name: "Wrong email? Change it" }));
+    const field = screen.getByLabelText("New email for your tickets");
+    fireEvent.change(field, { target: { value: "jo@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send tickets here" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Contact support@sheltuh.com.au to use this address.");
+    expect(field).toHaveAccessibleDescription(/Contact support@sheltuh\.com\.au to use this address\./);
+  });
+
+  it("blocked meanwhile (409 event_ended): the field closes and the line says why", async () => {
+    asPayingBrowser();
+    getOrderBySession.mockResolvedValue(PAYING);
+    changeOrderEmail.mockRejectedValueOnce(new ApiError(409, "This event has ended…", undefined, { code: "event_ended" }));
+    render(<CheckoutConfirmation />);
+    fireEvent.click(await screen.findByRole("button", { name: "Wrong email? Change it" }));
+    fireEvent.change(screen.getByLabelText("New email for your tickets"), { target: { value: "jo@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send tickets here" }));
+    expect(await screen.findByText(/This event has ended\. To change the email, contact/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("New email for your tickets")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Wrong email? Change it" })).toBeNull();
+  });
+
+  it("a token the server doesn't accept (404): only support can help", async () => {
+    asPayingBrowser();
+    getOrderBySession.mockResolvedValue(PAYING);
+    changeOrderEmail.mockRejectedValueOnce(new ApiError(404, "Order not found."));
+    render(<CheckoutConfirmation />);
+    fireEvent.click(await screen.findByRole("button", { name: "Wrong email? Change it" }));
+    fireEvent.change(screen.getByLabelText("New email for your tickets"), { target: { value: "jo@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send tickets here" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("We couldn’t change it from here. Contact support@sheltuh.com.au.");
+    expect(screen.queryByRole("button", { name: "Wrong email? Change it" })).toBeNull();
+  });
+
+  it.each([
+    ["email_already_changed", /You’ve already changed this email once\. To change it again, contact support@sheltuh\.com\.au\./],
+    ["event_ended", /This event has ended\. To change the email, contact support@sheltuh\.com\.au\./],
+    ["ticket_scanned", /A ticket has been scanned\. To change the email, contact support@sheltuh\.com\.au\./],
+  ] as const)("blocked (%s): the full email, why, and support's address; no Change it", async (reason, words) => {
+    asPayingBrowser();
+    getOrderBySession.mockResolvedValue({ ...PAYING, emailChange: { allowed: false, reason } });
+    render(<CheckoutConfirmation />);
+    expect(await screen.findByText(paragraph(words))).toBeInTheDocument();
+    expect(screen.getByText("mia@gmail.con")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Wrong email? Change it" })).toBeNull();
+  });
+
+  it("changed by support: no address at all, just how to change it again", async () => {
+    asPayingBrowser();
+    getOrderBySession.mockResolvedValue({ ...ORDER, maskedEmail: undefined, emailChange: { allowed: false, reason: "changed_by_support" } });
+    render(<CheckoutConfirmation />);
+    expect(await screen.findByText(paragraph(/^To change this email again, contact support@sheltuh\.com\.au\.$/))).toBeInTheDocument();
+    expect(screen.queryByText(/Tickets sent to/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Wrong email? Change it" })).toBeNull();
+  });
+
+  it("another device (no token): the masked email and support's address, no change", async () => {
+    getOrderBySession.mockResolvedValue(ORDER);
+    render(<CheckoutConfirmation />);
+    expect(await screen.findByText("Tickets sent to m***@example.com.")).toBeInTheDocument();
+    expect(screen.getByText(/Wrong email\? Contact/)).toHaveTextContent("Wrong email? Contact support@sheltuh.com.au.");
+    expect(screen.queryByRole("button", { name: "Wrong email? Change it" })).toBeNull();
+    expect(getOrderBySession).toHaveBeenCalledWith("cs_test_1", undefined);
+  });
+
+  it("once the email has changed, another device sees no address and no prompt", async () => {
+    getOrderBySession.mockResolvedValue({ ...ORDER, maskedEmail: undefined });
+    render(<CheckoutConfirmation />);
+    expect(await screen.findByText("ABC123")).toBeInTheDocument();
+    expect(screen.queryByText(/Tickets sent to/)).toBeNull();
+    expect(screen.queryByText(/Wrong email/)).toBeNull();
+  });
+});

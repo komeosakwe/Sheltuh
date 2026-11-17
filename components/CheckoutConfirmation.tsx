@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode, type Ref } from "react";
+import OrderEmail from "@/components/checkout/OrderEmail";
 import { SupportSummaryLine } from "@/components/checkout/SupportSheltuh";
 import TicketStub from "@/components/tickets/TicketStub";
 import WalletButtons from "@/components/tickets/WalletButtons";
@@ -26,6 +27,7 @@ import {
 } from "@/lib/checkout-pay";
 import { eventZone, formatAud, formatEventWhen } from "@/lib/format";
 import { REFUND_ACL_STATEMENT, refundTermsLine } from "@/lib/refund-policy";
+import { orderAccessFor } from "@/lib/order-access";
 import { placeName } from "@/lib/place";
 import { SUPPORT_REFUND_NOTE } from "@/lib/support";
 import { ticketNameWithGroup } from "@/lib/ticket-groups";
@@ -36,7 +38,8 @@ import type { CustomerOrder, StateCode } from "@/lib/api/types";
 export type LoadState =
   | { status: "loading" }
   | { status: "confirming" } // paid on Stripe's side, waiting on our webhook to land
-  | { status: "ready"; order: CustomerOrder }
+  // `access`: this browser's order access token, when it paid for the order (lib/order-access.ts).
+  | { status: "ready"; order: CustomerOrder; access?: string }
   | { status: "oversold"; order: CustomerOrder }
   | { status: "not-found" }
   | { status: "error"; message: string }
@@ -145,6 +148,10 @@ export default function CheckoutConfirmation() {
       };
     }
 
+    // This browser's order access token, if it paid for the order (lib/order-access.ts): sent on every read, so
+    // the answer carries the full email and whether it can be changed.
+    const access = orderAccessFor(sessionId);
+
     // What Stripe says about this checkout (read-only, asked once): "processing" when it has the payment.
     let stripeHasPayment = false;
     // Closed with reason `unconfirmed`: the server couldn't ask Stripe. Polling carries on (a payment Stripe
@@ -190,7 +197,7 @@ export default function CheckoutConfirmation() {
 
     async function poll() {
       try {
-        const result = await getOrderBySession(sessionId as string);
+        const result = await getOrderBySession(sessionId as string, access);
         if (cancelled) return;
 
         if (result.status === "pending") {
@@ -217,7 +224,7 @@ export default function CheckoutConfirmation() {
 
         const order = result;
         if (order.status === "paid") {
-          setState({ status: "ready", order });
+          setState({ status: "ready", order, access });
         } else if (order.status === "oversold_refund_required" || order.status === "refunded") {
           setState({ status: "oversold", order });
         } else {
@@ -412,8 +419,13 @@ export default function CheckoutConfirmation() {
         {/* The reference is a machine code (owner decision, 13 Nov 2026): the one mono in the strap, so 0 and O read apart. */}
         <Strap label="Order confirmed" note={<span className="font-mono">{order.reference}</span>} />
         <h1 className="display-md break-words">{order.eventTitle}</h1>
-        {order.maskedEmail && (
-          <p className="text-sm text-muted">Tickets sent to {order.maskedEmail}.</p>
+        {sessionId && (
+          <OrderEmail
+            sessionId={sessionId}
+            order={order}
+            access={state.access}
+            onOrder={(next) => setState({ status: "ready", order: next, access: state.access })}
+          />
         )}
       </div>
 
