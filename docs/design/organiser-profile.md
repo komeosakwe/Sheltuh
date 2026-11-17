@@ -129,8 +129,17 @@ replaces today's `mx-auto max-w-6xl px-5 sm:px-8`. Change `LiveOrganiserProfile`
 - The header goes in columns 1–7, row 1 (`lg:col-span-7`).
 - The bio goes in columns 1–7, row 2 (`lg:col-span-7 lg:row-start-2`).
 - Links go in columns 9–12, rows 1–2 (`lg:col-span-4 lg:col-start-9 lg:row-span-2 lg:row-start-1 lg:self-start`).
-  Their top padding matches the strap's offset only when the logo overlaps a cover: `lg:pt-22 xl:pt-26` (88 / 104
-  = the overlap + 24). Otherwise it's `lg:pt-0`.
+  Their top padding puts the "Links" heading level with the header's first line, and follows what the logo slot
+  actually holds (`[data-organiser-logo-slot]`, empty when there's no logo, the logo failed to load, or the
+  viewer isn't the owner who'd see "Add logo"), never just whether `logoUrl` is set:
+  - With a cover and a box in the slot (a logo that loaded, or the owner's "Add logo", the same size): the strap
+    under the overlapping box, `lg:pt-22 xl:pt-26` (88 / 104 = the overlap + 24).
+  - With a cover and an empty slot: the strap alone, `lg:pt-8` (32).
+  - Without a cover: the logo, the prompt or the strap, 16 either way (`lg:pt-4`).
+
+  It's CSS alone, so it holds when the image fails after the page is drawn: the grid is `group/intro`, and the
+  links take `lg:pt-8` plus `lg:group-has-[[data-organiser-logo-slot]:not(:empty)]/intro:pt-22` (and `xl:` 26),
+  the same emptiness the strap's own spacing follows (`peer-empty`).
 
 The reading order is the left column, then the right, which matches the DOM. Items 6–9 are full width.
 
@@ -151,10 +160,9 @@ The reading order is the left column, then the right, which matches the DOM. Ite
 At 320: content is 288, the cover is 288 × 176 (1.64:1), and the logo is 96. There must be no sideways scroll at
 any width.
 
-**Upcoming grid:** use `HOME_GRID` (`components/home/HomeAllEvents.tsx`: 1 / 2 / 3 / 4 columns). That's the
-Round 2 grid ("1 per row" on phones). Today the profile uses `RESULTS_GRID`, which is 2 columns on phones and gives
-a 171px card at 390. See U3. Move the constant to a shared module (for example `components/ui/grids.ts`) rather
-than importing from `home/`. Implementer's call.
+**Upcoming grid:** use `HOME_GRID` (`components/ui/grids.ts`: 1 / 2 / 3 / 4 columns), shared with the home. That's
+the Round 2 grid ("1 per row" on phones). Before, the profile used `RESULTS_GRID`, which is 2 columns on phones and
+gave a 171px card at 390. See U3.
 
 ## 4. Imagery
 
@@ -251,17 +259,19 @@ Stop reading `eventsHosted`; PR1 deprecates it.
 
 **Actions:**
 ```
-<FollowButton organiserId organiserName variant="signal" size="md"
-  buttonClassName="min-w-0 flex-1 sm:flex-none sm:min-w-32"
+<FollowButton organiserId organiserName variant="signal" size="md" holdPlace
+  buttonClassName="min-w-0 grow basis-40 sm:min-w-32 sm:flex-none"
   beside={<ShareButton path={`/organisers/${id}`} title={displayName} text={`${displayName} on Sheltüh`}
                        copyLabel="Link to this profile" copiedInLabel className="shrink-0" />} />
 ```
-- Follow and Share are on one row at every width (`FollowButton`'s existing `beside` row:
+- Follow and Share share one row at default text sizes (`FollowButton`'s `beside` row:
   `flex w-full flex-wrap items-center gap-2`). The notify checkbox follows 12px below, as built.
-- Share is about 103px wide (estimated from Instrument Sans metrics; check in visual QA). Follow takes the rest:
-  about 247 at 390 and about 177 at 320.
-- A long label ("Sign in to follow") may wrap to two lines inside the button, which then grows from 48px. Share
-  never drops to a new row.
+- Share is always as wide as "Copied" (§5.4). Below 640, Follow takes the rest of the row, but never less than
+  `basis-40` (10rem): with large text (200% at 390), Share wraps under Follow rather than crushing its label. From
+  640 Follow is as wide as its label, at least 128.
+- `holdPlace`: while the session loads, Follow's slot holds a placeholder as wide as its widest label (§5.3).
+- `copyLabel` is "Link to this profile"; the shared URL is the profile's path on this origin
+  (`absoluteUrl` in `lib/share-metadata.ts`), never the address bar's query or fragment.
 
 **Chips:** `<ul aria-label="Categories" className="flex flex-wrap gap-2">`.
 - `profileTags` come first, in list order, as their `ORGANISER_TAGS` labels. `customTags` follow, in saved order,
@@ -290,7 +300,8 @@ Leave the section out when there are no links.
 - It renders only when `featuredVideo` is set.
 
 **Past events:** `SectionHead id="organiser-past" title="Past events"` followed by `<ul className="border-t border-surface-border">`
-with up to 12 rows (the API caps them; the view also slices `past.slice(0, 12)` so the demo matches). Each row:
+with up to `PROFILE_PAST_EVENT_LIMIT` (12, `lib/organiser-profile.ts`) rows: the API, the demo
+(`lib/sample-organisers.ts`) and the view all cut to that one constant. Each row:
 
 ```
 li  group/row relative grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-4 items-baseline
@@ -300,7 +311,7 @@ li  group/row relative grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-4 items-basel
     has-[a:focus-visible]:outline-2 has-[a:focus-visible]:-outline-offset-2 has-[a:focus-visible]:outline-foreground
     motion-safe:transition-colors motion-safe:duration-200
   time  mono-m text-muted max-md:row-span-2   dateTime={startsAt}   formatDayWithYear(startsAt, now, eventZone(tz))
-  a     body-m font-semibold line-clamp-2 break-words underline-offset-4 decoration-transparent
+  a     data-card-link  body-m font-semibold line-clamp-2 break-words underline-offset-4 decoration-transparent
         group-hover/row:underline group-hover/row:decoration-current focus-visible:underline
         focus-visible:outline-none after:absolute after:inset-0 after:content-['']
         href=/events/{slug}   {event.title}
@@ -310,8 +321,8 @@ li  group/row relative grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-4 items-basel
 - The DOM order is date, title, place.
 - On phones the date column is 88px. It wraps "Fri 25 Sep 2025" as "Fri 25 Sep / 2025" at the space and spans two
   rows, with the title over the place on the right. From 768 it's three columns on one line.
-- The title link is the row's one stretched link. The global focus ring is dropped on it, because the row draws a
-  2px inset `outline-foreground` (the `SceneEventRow` pattern).
+- The title link is the row's one stretched link. The global focus ring is dropped on it (`data-card-link`, as
+  `SceneEventRow`'s, via `globals.css`), because the row draws a 2px inset `outline-foreground`: one ring, not two.
 - Rows are at least 68px tall on phones (title over place, 44, plus 24 of padding) and 56px from 768 (one line,
   24, plus 32 of padding). Every row is a ≥44px target.
 - An empty list leaves the section out.
@@ -348,8 +359,11 @@ parent doesn't mount it then).
   - Busy (a status load or a toggle): `aria-disabled`, which gives the grey `--surface` fill with a `--muted` label.
   - Following: outline. Hover gives a black fill with a white label.
 - **Auth loading shift.** While auth is loading the component renders `row(null)`, so Share sits alone and then
-  moves right when Follow appears. Recommended: when `variant="signal"`, render an `aria-hidden` placeholder
-  `h-12 w-32 rounded-control bg-surface` in Follow's slot during auth loading (U11).
+  moves right when Follow appears. With **`holdPlace`** (an explicit prop, not tied to the variant) it renders an
+  `aria-hidden` placeholder `h-12 w-32 sm:w-44 rounded-control bg-surface` plus `buttonClassName` in Follow's slot
+  instead (U11). From 640 it's as wide as the widest label, "Sign in to follow" at `md`, so Share doesn't move when
+  that arrives; below 640 `buttonClassName` makes it fill the row, as the button will.
+- **`returnTo`** defaults to `organiserProfilePath(organiserId)`.
 
 ### 5.4 `components/ShareButton.tsx` (additive)
 
@@ -357,9 +371,10 @@ parent doesn't mount it then).
   `aria-label` stays `Share {title}`.
 - **`copyLabel?: string`** sets the popover's field label (default "Link to this event").
 - **`copiedInLabel?: boolean`.** After a successful copy, the visible label reads "Copied" for `COPIED_FOR_MS`,
-  with a check icon in place of the share icon. The `role="status"` text becomes `sr-only` (it still says "Link
-  copied"). This keeps the Follow + Share row from widening by about 80px for 4 seconds, which at 320 would push
-  Follow's label out of its box. The event page doesn't pass it, so it's unchanged.
+  with a check icon in place of the share icon, and the button's name is "Copied. Share {title}" meanwhile (WCAG
+  2.5.3: the name starts with what's shown). The `role="status"` text becomes `sr-only` (it still says "Link
+  copied"). Both labels sit in one grid cell, the one not showing `invisible`, so the button is always as wide as
+  "Copied" and the Follow + Share row never changes width. The event page doesn't pass it, so it's unchanged.
 
 **States:**
 - Secondary look (`secondaryActionClass`, 48px). Hover gives a black fill with a white label. Focus gets the global
@@ -371,15 +386,18 @@ parent doesn't mount it then).
 - **Order:** social links in `SOCIAL_NETWORKS` order (Instagram first), then the website last. This also changes
   the event page's Organiser card, which shares the component (plan Q6).
 - **Focus twin:** add `group-focus-visible:underline` beside the existing `group-hover:underline` on the label.
+- **Only http(s):** a social link, like the website, is rendered only when it's an `http:` or `https:` URL
+  (`websiteHostname`); anything else is left out, so a bad value can never become a `javascript:` link.
 - Everything else is unchanged: rows of at least 44px, a new-tab arrow, and the full `aria-label`.
 
 ### 5.6 `components/ui/CategoryTag.tsx` (additive)
 
-Add `size?: "sm" | "md"`. The default `sm` is today's tag: `h-6 px-2 label-tag`, 24px at 12/16. `md` is
-`h-8 px-3 body-s font-medium` (32px, 14/20, 500). Everything else is the same: the tint from `data-tag`, radius 8,
-no outline, no hover, and `truncate`. Use `md` only for the profile chips. The longest list label ("Poetry &
-spoken word") and 24-character own words fit at 320 without truncating. Record the size in
-`docs/design-system.md`.
+Add `size?: "sm" | "md"`. The default `sm` is today's tag: `h-6 px-2 label-tag`, 24px at 12/16, on one line with
+`truncate`. `md` is `min-h-8 h-auto py-1 px-3 body-s font-medium` (at least 32px, 14/20, 500) with
+`whitespace-normal` and no `truncate`: at large text a chip wraps onto more lines and grows taller rather than
+being cut short. Everything else is the same: the tint from `data-tag`, radius 8, no outline, no hover. Use `md`
+only for the profile chips. The longest list label ("Poetry & spoken word") and 24-character own words fit at 320
+on one line at the default text size. Recorded in `docs/design-system.md`.
 
 ### 5.7 `components/dashboard/PublicProfilePanel.tsx`
 
@@ -391,7 +409,9 @@ spoken word") and 24-character own words fit at 320 without truncating. Record t
 
 ### 5.8 `components/dashboard/OrganiserCoverField.tsx` (new; mirrors `OrganiserLogoField`)
 
-**Anatomy** (root `id="cover"`, `data-organiser-cover-field`, `flex flex-col gap-3`, `aria-busy` while busy):
+**Anatomy** (root `id="cover"`, `data-organiser-cover-field`, `flex flex-col gap-3`). Items 1–6 and 8 sit in an
+inner `data-organiser-cover-body` that's `aria-busy` while busy; the status line (7) is outside it, so its
+"Uploading…" and "Removing…" are announced.
 
 1. **Title:** `<p id="organiser-cover-title" className="eyebrow text-muted">Cover photo (optional)</p>`.
 
@@ -411,14 +431,14 @@ spoken word") and 24-character own words fit at 320 without truncating. Record t
      busy, `aria-labelledby="organiser-cover-title organiser-cover-pick"` and
      `aria-describedby="organiser-cover-hint"`.
    - Its `<label>` is styled `buttonClass("outline","md")` with the `peer-focus-visible` ring, exactly as the logo
-     field. It reads "Choose a cover photo", or "Change cover photo" once there is one.
+     field. It reads "Choose a cover photo", or "Change cover photo" once there is one. Full width below 640
+     (`max-sm:w-full`), as is Remove.
    - "Remove cover photo" (`Button outline md`, busy "Removing…") shows when a cover exists and nothing is
      uploading. After removal, focus returns to the input.
 
-4. **Hint:** `<p id="organiser-cover-hint" className="max-w-xl text-xs text-muted">`. The text: "JPEG, PNG or WebP,
-   saved when you choose it. It's public, at the top of your profile. We crop it to a wide 7:2 strip; 2240 × 640
-   px or larger looks sharpest. Phones show the middle (the clear area above), and your logo covers part of the
-   bottom-left corner. Camera and location data is removed. Only upload a photo you have the rights to use."
+4. **Hint:** `<p id="organiser-cover-hint" className="max-w-xl text-xs text-muted">`. The rules, then the rights:
+   "JPEG, PNG or WebP, cropped to a wide 7:2 strip. 2240 × 640 px or larger looks sharpest; phones show the clear
+   middle. Only upload a photo you have the rights to use."
 
 5. **Uploading:** `DotsLoader label="Uploading"`.
 
@@ -452,6 +472,7 @@ the frame is too wide.
 - The root is a `<form noValidate>` that holds a
   `<fieldset id="categories" className="flex flex-col gap-4 border-t border-foreground pt-5" aria-describedby="tags-note tags-count">`.
 - Its `<legend className="font-heading text-xl leading-6">Categories</legend>` matches the Social links fieldset.
+- The fieldset is `min-w-0`, so nothing in it can make it wider than the page.
 
 1. **Note:** `<p id="tags-note" className="text-sm text-muted">`. The text: "Up to 5, shown on your profile under
    your name. Choose from the list, and add up to 2 in your own words."
@@ -461,7 +482,10 @@ the frame is too wide.
 
 3. **List group:** `<div role="group" aria-labelledby="tags-list-label">`.
    - The label is `<p id="tags-list-label" className="eyebrow text-muted">From the list</p>`.
-   - Below it, `flex flex-wrap gap-2`, with the 18 `FilterChip`s in `ORGANISER_TAGS` order.
+   - Below it, `flex flex-wrap gap-2`, with the 18 `FilterChip`s in `ORGANISER_TAGS` order, each `wrap`
+     (`h-auto min-h-12 max-w-full whitespace-normal`): at large text a label wraps and the chip grows taller,
+     never wider than the row. The unavailable chips at the limit (4) are sized the same.
+   - After a 400 with `fieldErrors.profileTags`, the group is `aria-describedby="tags-list-error"`.
    - Each chip is 48px with the 1.5px stroke. Pressed chips are black with a white label and the two orange dots.
      Unpressed chips turn cream on hover. Every chip has `aria-pressed`.
 
@@ -470,13 +494,16 @@ the frame is too wide.
    toggle. It sets the status to "That's 5. Unselect one to choose another." (`role="status"`), so the limit is
    said, not only shown in grey.
 
-5. **Own words group:** `<div role="group" aria-labelledby="tags-own-label" aria-describedby="tags-own-hint">`.
+5. **Own words group:** `<div role="group" aria-labelledby="tags-own-label" aria-describedby="tags-own-hint">`, plus
+   `tags-own-error` after a 400 with `fieldErrors.customTags`, and `tags-too-many` while there are more than 5.
    - The label is "In your own words (optional)" (eyebrow muted).
    - The hint (`text-xs text-muted`) states the rules from `lib/api/organiser-tags.ts`. Draft: "2 to 24
      characters: letters, numbers, spaces, & ' and -. No links, @, #, emoji or claims like "official"." The final
      words follow the owner's rule decisions (plan Q3).
-   - **One row per own word:** `flex items-start gap-2`.
-     - Input `id="tag-own-{i}"`, `fieldClass`, `min-h-12 w-full max-w-xs` (320). Its visible label
+   - **One row per own word:** `flex flex-wrap items-start gap-2`, so Remove goes under the input when there isn't
+     room beside it.
+     - Input `id="tag-own-{i}"`, `fieldClass`, `min-h-12 sm:min-h-12 min-w-0 flex-1 basis-48 max-w-xs` (48px at
+       every width, up to 320 wide). Its visible label
        (`text-sm font-medium`) is "Own word {i+1}".
      - Remove is `Button outline md` "Remove", with `aria-label` "Remove own word {i+1}". After removal, focus goes
        to the "Add" button, or to the previous input.
@@ -504,6 +531,9 @@ the frame is too wide.
    - **On a 400:** `fieldErrors.profileTags` shows under the list group and `customTags.<i>` under its input. Focus
      goes to the first one.
    - **On a 403 or 409:** the API's words in `role="alert"`.
+   - **More than 5** (only by typing into a row added earlier: the list and "Add" stop at 5): `TAG_SET_ERRORS.tooMany`
+     shows as it happens under the own words (`<p id="tags-too-many" aria-live="polite">`, linked from the group),
+     and on Save it's the `role="alert"` message too, focus goes to the first own word and nothing is sent.
    - **On an expired session:** the same `InlineReauth` recovery as `PublicProfileForm`. Nothing typed is lost.
 
 8. **Initial state** when `profileTags` is null (not chosen yet):
@@ -547,7 +577,7 @@ buttons are `outline sm min-h-11`. The reason box and confirm buttons are as bui
 - Formatting:
   - `cover` uses `formatLoggedLogo` ("Uploaded Fri 25 Sep, 8:05 pm").
   - `profileTags` maps the ", "-joined slugs to labels (an unknown slug stays as stored).
-  - `customTags` stays as stored.
+  - `customTags`: each word in curly quotes, joined with ", " (“Late night”, “Queer joy”), as the row above.
 
 ## 6. Accessibility
 
