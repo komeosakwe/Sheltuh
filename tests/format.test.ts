@@ -13,6 +13,7 @@ import {
   formatTimeAgo,
   formatTimeZoneLabel,
   eventZone,
+  sameClockAsPlatform,
   zoneSuffix,
   toDateTimeInputParts,
   toMelbourneDateTimeInputParts,
@@ -302,6 +303,15 @@ describe("an event's compact line names a zone other than Melbourne's (zoneSuffi
     // Without one (emails, wallet passes, link previews, orders, admin): as before.
     expect(zoneSuffix("Australia/Sydney", "NSW")).toBe(" Sydney time");
     expect(formatEventWhen(summer, undefined, "Australia/Sydney", "NSW")).toBe("Thu 15 Jan, 10:30 pm Sydney time");
+  });
+
+  // Lord Howe Island is UTC+11 in summer (as Melbourne's AEDT) but UTC+10:30 in winter (Melbourne's AEST is +10).
+  it("Lord Howe Island: the same clock as Melbourne in summer (no suffix), half an hour ahead in winter (named)", () => {
+    const winter = "2026-06-13T09:30:00.000Z";
+    expect(sameClockAsPlatform("Australia/Lord_Howe", summer)).toBe(true);
+    expect(sameClockAsPlatform("Australia/Lord_Howe", winter)).toBe(false);
+    expect(zoneSuffix("Australia/Lord_Howe", "NSW", summer)).toBe("");
+    expect(zoneSuffix("Australia/Lord_Howe", "NSW", winter)).toBe(" Lord Howe Island time");
   });
 
   it("Melbourne (or no zone): nothing added, the line exactly as before", () => {
