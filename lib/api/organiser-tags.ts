@@ -52,19 +52,25 @@ export const CUSTOM_TAG_MAX_LENGTH = 24;
 export const CUSTOM_TAG_MAX_DIGITS = 4;
 
 const TAG_ORDER = new Map<string, number>(ORGANISER_TAGS.map((t, i) => [t.value, i]));
+const TAG_LABELS = new Map<string, string>(ORGANISER_TAGS.map((t) => [t.value, t.label]));
 
 export function isOrganiserTag(value: unknown): value is OrganiserTag {
   return typeof value === "string" && TAG_ORDER.has(value);
 }
 
-/** The label of a list item ("Live music"). */
+/** The label of a list item ("Live music"); a value that isn't one (only possible past the type) as it is. */
 export function organiserTagLabel(tag: OrganiserTag): string {
-  return ORGANISER_TAGS[TAG_ORDER.get(tag)!].label;
+  return TAG_LABELS.get(tag) ?? tag;
+}
+
+/** A list item's place in the list; a value that isn't one (only possible past the type) after them all. */
+function tagPosition(tag: OrganiserTag): number {
+  return TAG_ORDER.get(tag) ?? ORGANISER_TAGS.length;
 }
 
 /** List items without duplicates, in list order. */
 export function inTagOrder(tags: readonly OrganiserTag[]): OrganiserTag[] {
-  return [...new Set(tags)].sort((a, b) => TAG_ORDER.get(a)! - TAG_ORDER.get(b)!);
+  return [...new Set(tags)].sort((a, b) => tagPosition(a) - tagPosition(b));
 }
 
 /** Each reviewed event category's list item. */

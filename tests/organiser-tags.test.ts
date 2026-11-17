@@ -12,6 +12,7 @@ import {
   organiserTagLabel,
   parseCustomTag,
   tagsForEventCategories,
+  type OrganiserTag,
 } from "@/lib/api/organiser-tags";
 import { EVENT_CATEGORIES } from "@/lib/types";
 import { ACCEPTED_CUSTOM_TAGS } from "./fixtures/organiser-custom-tags";
@@ -39,6 +40,13 @@ describe("ORGANISER_TAGS", () => {
     for (const value of ["Live music", "jazz", "", 1, null, "toString", "__proto__"]) expect(isOrganiserTag(value)).toBe(false);
     expect(organiserTagLabel("poetry-spoken-word")).toBe("Poetry & spoken word");
     expect(inTagOrder(["community", "art", "live-music", "art"])).toEqual(["live-music", "art", "community"]);
+  });
+
+  it("a value that isn't a list item (data from before a change to the list, say) doesn't throw", () => {
+    // Past the type, as a stored slug the list no longer has would be.
+    const stale = "jazz" as OrganiserTag;
+    expect(organiserTagLabel(stale)).toBe("jazz");
+    expect(inTagOrder([stale, "community", "art"])).toEqual(["art", "community", stale]);
   });
 });
 
