@@ -444,22 +444,24 @@ describe("selectHomeSections: the saved suburb's state first (owner decision D5)
     ]);
   });
 
-  it("with Western Australia: its events first, each part still soonest first (a stable reorder)", () => {
-    expect(withCarouselFull(events, [], now, [], "WA").weekend.items.map((e) => e.id)).toEqual([
-      "wa-1",
-      "wa-2",
-      "vic-1",
-      "vic-2",
-    ]);
+  it("This weekend with Western Australia: only its events, soonest first (Round 2 B1: filtered, not reordered)", () => {
+    expect(withCarouselFull(events, [], now, [], "WA").weekend.items.map((e) => e.id)).toEqual(["wa-1", "wa-2"]);
   });
 
   it("an event without a state counts as Victorian", () => {
-    expect(withCarouselFull(events, [], now, [], "VIC").weekend.items.map((e) => e.id)).toEqual([
-      "vic-1",
-      "vic-2",
-      "wa-1",
-      "wa-2",
-    ]);
+    expect(withCarouselFull(events, [], now, [], "VIC").weekend.items.map((e) => e.id)).toEqual(["vic-1", "vic-2"]);
+  });
+
+  it("This weekend hides when the saved state has nothing on, rather than showing other states'", () => {
+    const sections = withCarouselFull(events, [], now, [], "NSW");
+    expect(sections.weekend.status).toBe("hidden");
+    expect(sections.weekend.items).toEqual([]);
+  });
+
+  it("other states' weekend events stay free for the sections below", () => {
+    const followed = withCarouselFull(events, [], now, [wa1, vic1], "VIC");
+    expect(followed.weekend.items.map((e) => e.id)).toEqual(["vic-1", "vic-2"]);
+    expect(followed.following.map((e) => e.id)).toEqual(["wa-1"]);
   });
 
   it("applies to every section before it takes its share: following, Popular and Coming up", () => {
@@ -529,5 +531,48 @@ describe("isOpenThisWeekend: This weekend's rule, shared by the section and the 
     const section = withCarouselFull(events, [], NOW).weekend.items.map((e) => e.id).sort();
     expect(events.filter((e) => isOpenThisWeekend(e, NOW)).map((e) => e.id).sort()).toEqual(section);
     expect(section).toEqual(["exhibition", "fri-1700", "perth-sun", "sun-late"]);
+  });
+});
+
+describe("This weekend: one card per artist (Round 2 B1)", () => {
+  // Thu 22 Oct 2026, noon AEDT: before the weekend.
+  const now = at("2026-10-22T01:00:00.000Z");
+  const sat = (hourUtc: number) => `2026-10-24T${String(hourUtc).padStart(2, "0")}:00:00.000Z`;
+  const kofi = (id: string, hourUtc: number, opts: Partial<SheltuhEvent> = {}) =>
+    event(id, sat(hourUtc), { title: "Kofi Stone", organiserId: "org-k", organiserName: "Kofi Live", ...opts });
+
+  it("keeps the soonest of an artist's shows, Melbourne and Sydney alike, when no state is saved", () => {
+    const melbourne = kofi("kofi-mel", 1);
+    const sydney = kofi("kofi-syd", 2, { state: "NSW", title: "KOFI STONE", timeZone: "Australia/Sydney" });
+    const other = event("other", sat(3));
+    expect(withCarouselFull([sydney, melbourne, other], [], now).weekend.items.map((e) => e.id)).toEqual([
+      "kofi-mel",
+      "other",
+    ]);
+  });
+
+  it("filters to the saved state first, so that state's show is the one kept", () => {
+    const melbourne = kofi("kofi-mel", 1);
+    const sydney = kofi("kofi-syd", 2, { state: "NSW", timeZone: "Australia/Sydney" });
+    expect(withCarouselFull([melbourne, sydney], [], now, [], "NSW").weekend.items.map((e) => e.id)).toEqual(["kofi-syd"]);
+  });
+
+  it("groups before the cut to six, so the row fills with distinct artists, and never pads it", () => {
+    const shows = [1, 2, 3, 4, 5, 6].map((h) => kofi(`kofi-${h}`, h));
+    const others = [7, 8].map((h) => event(`other-${h}`, sat(h)));
+    expect(withCarouselFull([...shows, ...others], [], now).weekend.items.map((e) => e.id)).toEqual([
+      "kofi-1",
+      "other-7",
+      "other-8",
+    ]);
+  });
+
+  it("matches titles loosely, but organisers exactly (by id, or by name without one)", () => {
+    const a = kofi("a", 1, { title: "Kofí  Stone!" });
+    const b = kofi("b", 2, { organiserId: "org-other" });
+    const c = kofi("c", 3, { organiserId: undefined, organiserName: "Kofi Live" });
+    const d = kofi("d", 4, { organiserId: undefined, organiserName: "Kofi Live", title: "kofi stone" });
+    const e = kofi("e", 5, { title: "Kofi Stone Live" });
+    expect(withCarouselFull([a, b, c, d, e], [], now).weekend.items.map((ev) => ev.id)).toEqual(["a", "b", "c", "e"]);
   });
 });
