@@ -476,13 +476,15 @@ test.describe("the category chips and All events", () => {
     await expect(price).toHaveValue("all");
   });
 
-  test("Show more events adds the next cards and moves focus to the first new one", async ({ page }) => {
+  test("All events shows its first eight, with no Show more: See all events at the bottom leads to the full list", async ({ page }) => {
     await openHome(page);
+    const section = page.getByRole("region", { name: "All events" });
     const grid = page.getByRole("list", { name: "All events", exact: true });
     await expect(grid.locator("[data-event-card]")).toHaveCount(8);
-    await page.getByRole("button", { name: "Show more events" }).click();
-    await expect(grid.locator("[data-event-card]").nth(8).locator("[data-card-link]")).toBeFocused();
-    expect(await grid.locator("[data-event-card]").count()).toBeGreaterThan(8);
+    await expect(section.getByRole("button", { name: /Show more/ })).toHaveCount(0);
+    const bottom = section.locator("[data-all-events-more]");
+    await expect(bottom).toHaveAccessibleName("See all events");
+    await expect(bottom).toHaveAttribute("href", "/events");
   });
 });
 
