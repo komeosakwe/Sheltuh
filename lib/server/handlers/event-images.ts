@@ -5,61 +5,25 @@ import type { Handler } from "../route";
 import { requireEvent, requireOwnEvent } from "./event-queries";
 import { parseFocusBody, parseFocusQuery } from "../validation";
 import { findOrganiserByOwner, requireApprovedOrganiser } from "./organiser-guard";
+import { encodeEventImage, type EncodedEventImage } from "../event-image";
+import { MAX_EVENT_IMAGE_BYTES, readCappedBytes, sniffImageType } from "../image-upload";
 
-/** Mirrors the event_images check constraint. The client downsizes well below this. */
-export const MAX_EVENT_IMAGE_BYTES = 2 * 1024 * 1024;
-
-type ImageType = "image/jpeg" | "image/png" | "image/webp";
-
-/** Identifies the format from the file's own bytes — the declared Content-Type isn't trusted. */
-export function sniffImageType(bytes: Uint8Array): ImageType | null {
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
-  if (bytes.length >= 8 && [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a].every((b, i) => bytes[i] === b)) {
-    return "image/png";
-  }
-  if (
-    bytes.length >= 12 &&
-    String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" &&
-    String.fromCharCode(...bytes.slice(8, 12)) === "WEBP"
-  ) {
-    return "image/webp";
-  }
-  return null;
-}
+// Moved to a leaf module (so the re-encoders can share them without an import
+// cycle); re-exported here, where they used to live.
+export { MAX_EVENT_IMAGE_BYTES, readCappedBytes, sniffImageType };
 
 const EDIT_LOCKED_MESSAGE = "This event can't be edited while it's pending review or published.";
 
-/** Reads a request body, returning null as soon as it exceeds `max` bytes. Also used for profile photos (lib/server/avatar.ts). */
-export async function readCappedBytes(req: Request, max: number): Promise<Uint8Array | null> {
-  if (!req.body) return new Uint8Array(0);
-  const reader = req.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.length;
-    if (total > max) {
-      await reader.cancel();
-      return null;
-    }
-    chunks.push(value);
-  }
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    out.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return out;
-}
-
 /**
- * The uploaded image: raw bytes of at most MAX_EVENT_IMAGE_BYTES (413
- * otherwise), whose own bytes are a JPEG, PNG or WebP (400 otherwise).
- * Shared with the admin's upload (admin-authoring.ts).
+ * The uploaded image, ready to store: raw bytes of at most
+ * MAX_EVENT_IMAGE_BYTES (413 otherwise), whose own bytes are a JPEG, PNG or
+ * WebP (400 otherwise), then re-encoded server-side by encodeEventImage
+ * (lib/server/event-image.ts): EXIF orientation applied, and no metadata
+ * (EXIF, GPS, camera, ICC, XMP) kept. The upload itself is never returned, so
+ * it can't be stored as sent. Shared with the admin's upload
+ * (admin-authoring.ts).
  */
-export async function readEventImage(req: Request): Promise<{ bytes: Uint8Array; contentType: ImageType }> {
+export async function readEventImage(req: Request): Promise<EncodedEventImage> {
   const tooLarge = () =>
     new HttpError(413, "That image is too large.", { image: "Use an image under 2 MB." });
   const declared = Number(req.headers.get("content-length"));
@@ -69,16 +33,16 @@ export async function readEventImage(req: Request): Promise<{ bytes: Uint8Array;
   const bytes = await readCappedBytes(req, MAX_EVENT_IMAGE_BYTES);
   if (!bytes) throw tooLarge();
 
-  const contentType = sniffImageType(bytes);
-  if (!contentType) {
+  if (!sniffImageType(bytes)) {
     throw new HttpError(400, "That file isn't a supported image.", { image: "Upload a JPEG, PNG or WebP image." });
   }
-  return { bytes, contentType };
+  return encodeEventImage(bytes);
 }
 
 /**
- * PUT /api/events/[eventId]/image[?fx=&fy=] — raw image bytes; only while the
- * event is a draft or rejected. `fx` / `fy` (whole percentages 0..100, both or
+ * PUT /api/events/[eventId]/image[?fx=&fy=] — raw image bytes, stored only as
+ * readEventImage re-encodes them (no metadata); only while the event is a
+ * draft or rejected. `fx` / `fy` (whole percentages 0..100, both or
  * neither; 400 otherwise) set the photo's focus point; none means no focus, so
  * replacing a photo resets it.
  */
