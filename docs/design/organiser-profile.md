@@ -522,7 +522,7 @@ and "Own words" don't break.
 
 **Rows** (in this order):
 1. Rename the existing "Categories" to **"Event categories"** (the reviewed ones, unchanged).
-2. **"Categories"** (profile chips): `profileTags` labels joined with ", ". When it's null, show
+2. **"Profile categories"** (profile chips): `profileTags` labels joined with ", ". When it's null, show
    `<span className="text-muted italic">Not chosen yet (their profile shows their event categories)</span>`.
 3. **"Own words"**: each word in curly quotes, joined with ", " (“Late-night”, “Queer joy”), so stray spaces are
    visible. Use `break-words`. When there are none, show the italic muted "None".
@@ -542,7 +542,7 @@ buttons are `outline sm min-h-11`. The reason box and confirm buttons are as bui
   own words." / "Couldn't remove the own words. Try again."
 
 **Edit log (`organiser-fields.ts`):**
-- Labels: `cover` "Cover photo", `profileTags` "Categories", `customTags` "Own words".
+- Labels: `cover` "Cover photo", `profileTags` "Profile categories", `customTags` "Own words".
 - Order: … `featuredVideo`, `logo`, `cover`, `profileTags`, `customTags`, `status`.
 - Formatting:
   - `cover` uses `formatLoggedLogo` ("Uploaded Fri 25 Sep, 8:05 pm").
