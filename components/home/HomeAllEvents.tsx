@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import EventCard from "@/components/ui/EventCard";
 import FilterDropdown from "@/components/ui/FilterDropdown";
 import { Button, ButtonLink } from "@/components/ui/Button";
@@ -20,6 +20,7 @@ import {
 import type { TrendingSignal } from "@/lib/home-sections";
 import { EVENT_CATEGORIES, type SheltuhEvent } from "@/lib/types";
 import HomeSectionHead from "./HomeSectionHead";
+import { ArrowRightIcon } from "./icons";
 
 /**
  * The home's card grid (the rules' Layout board, Round 2 §1.2): one column below 768px, two from
@@ -30,7 +31,7 @@ import HomeSectionHead from "./HomeSectionHead";
  */
 export const HOME_GRID = "grid grid-cols-1 gap-x-4 gap-y-8 md:grid-cols-2 md:gap-x-6 lg:grid-cols-3 lg:gap-x-8 xl:grid-cols-4";
 
-/** Cards shown at first, and how many more each "Show more events" adds: two rows of four… */
+/** Cards shown: two rows of four… */
 export const ALL_EVENTS_PAGE = 8;
 /** …and four on a phone's single column (the owner's 390 mock). */
 export const ALL_EVENTS_PAGE_PHONE = 4;
@@ -46,12 +47,13 @@ const ANNOUNCE_DELAY_MS = 100;
  * (the saved suburb's state first), as a grid of the one EventCard, with the filters the loaded
  * events can answer: Price, Category and Date (FilterDropdown; Distance, Accessibility and Sort
  * are deferred). The category chips above set the same filters (`filters` lives in the parent).
- * It shows ALL_EVENTS_PAGE cards (ALL_EVENTS_PAGE_PHONE on a phone), then "Show more events" adds as many again, moving focus to the
- * first new card's link so a keyboard user carries on from there. The home loads up to its own
- * limit, so "See all events" always leads to the full list (/events), in the head and, once
- * everything loaded is shown without it being every event, at the bottom too. The note gives the
- * count only when it's the whole number (`complete`: the API returns no total), else "Across
- * Australia". A filter change is announced ("5 events match"); with no match, the empty state.
+ * It shows ALL_EVENTS_PAGE cards (ALL_EVENTS_PAGE_PHONE on a phone), with no paging (Round 2: no
+ * "Show more events"): "See all events →" leads to the full list (/events), in the head and, when
+ * more match than are shown or the home didn't load every event, at the bottom too, where Show
+ * more was. The note gives the count only when it's the whole number (`complete`: the API returns
+ * no total), and says "Across Australia" only when no state is saved (`stateSaved`: the list is
+ * then that state's first, so it isn't simply Australia-wide). A filter change is announced ("5
+ * events match"); with no match, the empty state.
  * Neither claims more than the loaded events when they aren't every event ("2 of the loaded events
  * match"; the empty state then says so and links to the full list).
  * Reset filters (either) clears them and moves focus to the section's heading. The filters are
@@ -62,6 +64,7 @@ export default function HomeAllEvents({
   events,
   signals = {},
   complete,
+  stateSaved = false,
   mode,
   now,
   filters,
@@ -74,6 +77,8 @@ export default function HomeAllEvents({
   /** The trending signals the page has, by event id: a card's real going count comes only from these. */
   signals?: Readonly<Record<string, TrendingSignal>>;
   complete: boolean;
+  /** The visitor has a saved suburb with a state, so the list isn't simply "Across Australia". */
+  stateSaved?: boolean;
   mode: "demo" | "live";
   now: Date;
   filters: HomeFilters;
@@ -81,19 +86,14 @@ export default function HomeAllEvents({
   className?: string;
 }) {
   const titleId = `${id}-title`;
-  const listRef = useRef<HTMLUListElement>(null);
   const pageSize = useIsPhone() ? ALL_EVENTS_PAGE_PHONE : ALL_EVENTS_PAGE;
-  const [pages, setPages] = useState(1);
-  /** After Show more: the index of the first new card, whose link takes focus once it's rendered. */
-  const focusFrom = useRef<number | null>(null);
-  // A filter change starts the list again from the first page, and is announced: the status is
-  // cleared first, then set a moment later, so the same count twice in a row is still read out.
+  // A filter change is announced: the status is cleared first, then set a moment later, so the
+  // same count twice in a row is still read out.
   const [announcement, setAnnouncement] = useState("");
   const [changes, setChanges] = useState(0);
   const [lastFilters, setLastFilters] = useState(filters);
   if (lastFilters !== filters) {
     setLastFilters(filters);
-    setPages(1);
     setAnnouncement("");
     setChanges((n) => n + 1);
   }
@@ -108,26 +108,18 @@ export default function HomeAllEvents({
     const timer = setTimeout(() => setAnnouncement(matchMessage), ANNOUNCE_DELAY_MS);
     return () => clearTimeout(timer);
   }, [changes, matchMessage]);
-  const visible = matches.slice(0, pages * pageSize);
+  const visible = matches.slice(0, pageSize);
   const filtered = hasHomeFilters(filters);
-  const note = complete ? `${matches.length} upcoming · Across Australia` : "Across Australia";
-
-  useEffect(() => {
-    const index = focusFrom.current;
-    if (index === null) return;
-    focusFrom.current = null;
-    listRef.current?.children[index]?.querySelector<HTMLElement>("[data-card-link]")?.focus();
-  }, [pages]);
+  const where = stateSaved ? [] : ["Across Australia"];
+  const note = [...(complete ? [`${matches.length} upcoming`] : []), ...where].join(" · ") || undefined;
+  // The way to the rest, at the bottom: more match than are shown, or the home didn't load every
+  // event (the empty state has its own).
+  const more = matches.length > visible.length || (!complete && matches.length > 0);
 
   /** Clears every filter and moves focus to the section's heading (the button it was on may go). */
   function reset() {
     onFiltersChange(NO_HOME_FILTERS);
     document.getElementById(titleId)?.focus();
-  }
-
-  function showMore() {
-    focusFrom.current = visible.length;
-    setPages((n) => n + 1);
   }
 
   return (
@@ -208,7 +200,7 @@ export default function HomeAllEvents({
           </EmptyState>
         </div>
       ) : (
-        <ul ref={listRef} aria-labelledby={titleId} className={`mt-8 ${HOME_GRID}`}>
+        <ul aria-labelledby={titleId} className={`mt-8 ${HOME_GRID}`}>
           {visible.map((event) => (
             <li key={event.id} className="flex min-w-0">
               <EventCard event={event} mode={mode} signal={signals[event.id]} now={now} />
@@ -216,23 +208,13 @@ export default function HomeAllEvents({
           ))}
         </ul>
       )}
-      {matches.length > visible.length ? (
+      {more && (
         <div className="mt-12 flex justify-center">
-          <Button variant="outline" onClick={showMore}>
-            Show more events
-          </Button>
+          <ButtonLink href="/events" variant="outline" data-all-events-more="">
+            See all events
+            <ArrowRightIcon className="size-4 shrink-0" />
+          </ButtonLink>
         </div>
-      ) : (
-        // Everything loaded is shown, but the home didn't load every event: the way to the rest
-        // (the empty state has its own).
-        !complete &&
-        matches.length > 0 && (
-          <div className="mt-12 flex justify-center">
-            <ButtonLink href="/events" variant="outline">
-              See all events
-            </ButtonLink>
-          </div>
-        )
       )}
     </section>
   );
