@@ -1,6 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   checkEmailDomain,
+  isSpecialUseDomain,
   EMAIL_DOMAIN_LOOKUP_LIMIT,
   EMAIL_NO_MAIL_MESSAGE,
   refuseUndeliverableEmail,
@@ -134,19 +135,45 @@ describe("checkEmailDomain / refuseUndeliverableEmail", () => {
 
   it("refuses a domain that can't receive email (with a suggestion when one is near), and accepts an unknown answer", async () => {
     api.mailDomainAnswers.set("gmaik.com", "no_mail");
-    api.mailDomainAnswers.set("nomail.example", "no_mail");
-    api.mailDomainAnswers.set("slow.example", "unknown");
+    api.mailDomainAnswers.set("nomail.example.net", "no_mail");
+    api.mailDomainAnswers.set("slow.example.net", "unknown");
     expect(await checkEmailDomain(request(), api.deps, "fan@gmaik.com")).toEqual({ code: "email_no_mail", suggestion: "fan@gmail.com" });
-    expect(await checkEmailDomain(request(), api.deps, "fan@nomail.example")).toEqual({ code: "email_no_mail" });
-    expect(await checkEmailDomain(request(), api.deps, "fan@slow.example")).toBeNull();
+    expect(await checkEmailDomain(request(), api.deps, "fan@nomail.example.net")).toEqual({ code: "email_no_mail" });
+    expect(await checkEmailDomain(request(), api.deps, "fan@slow.example.net")).toBeNull();
 
-    const refused = await refuseUndeliverableEmail(request(), api.deps, "fan@nomail.example", "email").catch((e: unknown) => e);
+    const refused = await refuseUndeliverableEmail(request(), api.deps, "fan@nomail.example.net", "email").catch((e: unknown) => e);
     expect(refused).toBeInstanceOf(HttpError);
     expect((refused as HttpError).statusCode).toBe(400);
     expect((refused as HttpError).fieldErrors).toEqual({ email: EMAIL_NO_MAIL_MESSAGE });
     expect((refused as HttpError).details).toEqual({ code: "email_no_mail" });
     // The message never repeats the address.
     expect((refused as HttpError).message).not.toContain("nomail");
+  });
+
+  it("refuses special-use names as email_no_mail before any lookup or allowance; real domains that merely look alike are looked up", async () => {
+    for (const domain of [
+      "shop.internal",
+      "printer.local",
+      "localhost",
+      "app.localhost",
+      "journey.test",
+      "x.invalid",
+      "mail.example",
+      "router.home.arpa",
+      "hidden1234.onion",
+      "MAIL.TEST",
+    ]) {
+      expect(await checkEmailDomain(request("203.0.113.30"), api.deps, `fan@${domain}`), domain).toEqual({ code: "email_no_mail" });
+      expect(isSpecialUseDomain(domain.toLowerCase()), domain).toBe(true);
+    }
+    expect(api.mailDomainLookups).toEqual([]);
+    expect(await api.db.query(`select 1 from private.client_rate_limits where bucket = $1`, [EMAIL_DOMAIN_LOOKUP_LIMIT.bucket])).toEqual([]);
+    // Only the label matters, not a look-alike: example.com, a .test-ish name and an .arpa that isn't home.arpa are real names.
+    for (const domain of ["example.com", "test.com", "mytest.com.au", "local.org", "examples.net", "in-addr.arpa"]) {
+      expect(isSpecialUseDomain(domain), domain).toBe(false);
+    }
+    // Support's change is refused the same way.
+    expect(await checkEmailDomain(request(), api.deps, "fan@inbox.test", { typoList: false })).toEqual({ code: "email_no_mail" });
   });
 
   it("admins skip the typo list but not DNS", async () => {
@@ -160,20 +187,22 @@ describe("checkEmailDomain / refuseUndeliverableEmail", () => {
 
   it("EMAIL_DOMAIN_CHECKS=off: the format is the only check", async () => {
     api.emailDomainChecks = false;
-    api.mailDomainAnswers.set("nomail.example", "no_mail");
+    api.mailDomainAnswers.set("nomail.example.net", "no_mail");
     expect(await checkEmailDomain(request(), api.deps, "fan@gmial.com")).toBeNull();
-    expect(await checkEmailDomain(request(), api.deps, "fan@nomail.example")).toBeNull();
+    // The journey harness's buyers (journey/harness: @journey.test, with the switch off) still check out.
+    expect(await checkEmailDomain(request(), api.deps, "buyer-1@journey.test")).toBeNull();
+    expect(await checkEmailDomain(request(), api.deps, "fan@nomail.example.net")).toBeNull();
     expect(api.mailDomainLookups).toEqual([]);
   });
 
   it("over the client's lookup allowance the lookup is skipped and the address accepted (fail open); other clients still look up", async () => {
-    api.mailDomainAnswers.set("nomail.example", "no_mail");
+    api.mailDomainAnswers.set("nomail.example.net", "no_mail");
     for (let i = 0; i < EMAIL_DOMAIN_LOOKUP_LIMIT.hits; i += 1) {
-      expect(await checkEmailDomain(request("203.0.113.9"), api.deps, `fan${i}@nomail.example`)).toEqual({ code: "email_no_mail" });
+      expect(await checkEmailDomain(request("203.0.113.9"), api.deps, `fan${i}@nomail.example.net`)).toEqual({ code: "email_no_mail" });
     }
-    expect(await checkEmailDomain(request("203.0.113.9"), api.deps, "late@nomail.example")).toBeNull();
+    expect(await checkEmailDomain(request("203.0.113.9"), api.deps, "late@nomail.example.net")).toBeNull();
     expect(api.mailDomainLookups).toHaveLength(EMAIL_DOMAIN_LOOKUP_LIMIT.hits);
-    expect(await checkEmailDomain(request("198.51.100.4"), api.deps, "other@nomail.example")).toEqual({ code: "email_no_mail" });
+    expect(await checkEmailDomain(request("198.51.100.4"), api.deps, "other@nomail.example.net")).toEqual({ code: "email_no_mail" });
     // Known providers and typos never use the allowance.
     expect(await checkEmailDomain(request("203.0.113.9"), api.deps, "fan@gmial.com")).toEqual({ code: "email_typo", suggestion: "fan@gmail.com" });
     const [row] = await api.db.query<{ hits: number }>(

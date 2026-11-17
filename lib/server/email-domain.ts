@@ -1,19 +1,21 @@
 import { emailDomainOf, isKnownMailDomain, suggestEmail, typoCorrection } from "@/lib/email-typos";
-import { clientIp, clientKey } from "./client-key";
+import { type KeyedLimit, takeClientLimit } from "./client-limits";
 import type { Deps } from "./deps";
-import { HttpError, type RateWindow } from "./http";
+import { HttpError } from "./http";
 
 /**
  * Buyer email checks beyond the format (docs/architecture.md, "Buyer email
  * checks"), for every checkout email (paid and free, general admission and
  * seated) and every new address of an email change. In order, after the
  * format (isPlainEmailAddress) has passed:
- * 1. a domain on the hand-picked typo list (lib/email-typos.ts) is refused,
+ * 1. a special-use domain (isSpecialUseDomain: .test, .local, .onion …)
+ *    can't receive email: refused, before any lookup;
+ * 2. a domain on the hand-picked typo list (lib/email-typos.ts) is refused,
  *    with the correction, even if it has a mail server (a typo domain's mail
  *    server isn't the buyer's). Admins skip this (`typoList: false`): support
  *    has checked the address with the buyer.
- * 2. a provider known to be right (KNOWN_MAIL_DOMAINS) is accepted as is;
- * 3. anything else is looked up in DNS (Deps.mailDomain): a domain that can't
+ * 3. a provider known to be right (KNOWN_MAIL_DOMAINS) is accepted as is;
+ * 4. anything else is looked up in DNS (Deps.mailDomain): a domain that can't
  *    receive email is refused; a lookup that doesn't answer is accepted.
  * All of it is off with EMAIL_DOMAIN_CHECKS=off (Deps.emailDomainChecks): the
  * format is then the only check. Only the domain is ever looked up; neither
@@ -28,11 +30,7 @@ import { HttpError, type RateWindow } from "./http";
  * (fail open, like a lookup that doesn't answer); so too without a client IP
  * or STRIPE_WEBHOOK_SECRET.
  */
-export const EMAIL_DOMAIN_LOOKUP_LIMIT = { bucket: "email_domain_lookups", hits: 30, window: "10 minutes" } as const satisfies {
-  bucket: string;
-  hits: number;
-  window: RateWindow;
-};
+export const EMAIL_DOMAIN_LOOKUP_LIMIT = { bucket: "email_domain_lookups", hits: 30, window: "10 minutes" } as const satisfies KeyedLimit;
 
 /** Why an address was refused: `email_typo` (on the typo list) or `email_no_mail` (its domain can't receive email). */
 export type EmailDomainRefusal = { code: "email_typo" | "email_no_mail"; suggestion?: string };
@@ -41,21 +39,33 @@ export type EmailDomainRefusal = { code: "email_typo" | "email_no_mail"; suggest
 export const EMAIL_TYPO_MESSAGE = "That email address looks mistyped. Check the part after the @.";
 export const EMAIL_NO_MAIL_MESSAGE = "That email address can't receive email. Check the part after the @.";
 
-/** One hit on the client's lookup allowance: false when it's used up. True (fails open) without a client IP or the secret. */
+/**
+ * One hit on the client's lookup allowance: false when it's used up. True
+ * (fails open, silently: the checkout's own limits already say so) without a
+ * client IP or the secret.
+ */
 async function takeLookupAllowance(req: Request, deps: Deps): Promise<boolean> {
-  const ip = clientIp(req);
-  if (!ip) return true;
-  let secret: string;
+  let secret: string | undefined;
   try {
     secret = deps.stripeWebhookSecret();
   } catch {
-    return true;
+    secret = undefined;
   }
-  const [row] = await deps.db.query<{ allowed: boolean }>(
-    `select private.take_client_rate_limit($1, $2, $3, $4::interval) as allowed`,
-    [clientKey(ip, secret), EMAIL_DOMAIN_LOOKUP_LIMIT.bucket, EMAIL_DOMAIN_LOOKUP_LIMIT.hits, EMAIL_DOMAIN_LOOKUP_LIMIT.window],
-  );
-  return row.allowed;
+  return takeClientLimit(req, deps, secret, EMAIL_DOMAIN_LOOKUP_LIMIT, null);
+}
+
+/**
+ * Special-use names (RFC 6761, RFC 6762, RFC 7686, RFC 8375, and ICANN's
+ * .internal): no public mail server can be behind them, so an address there
+ * is refused as `email_no_mail` without a lookup (which would otherwise ask
+ * the host's resolver, and so possibly its private network, about them).
+ */
+const SPECIAL_USE_SUFFIXES = ["internal", "local", "localhost", "test", "invalid", "example", "home.arpa", "onion"] as const;
+
+/** Whether `domain` (lower case, no trailing dot) is a special-use name or under one. */
+export function isSpecialUseDomain(domain: string): boolean {
+  const name = domain.toLowerCase().replace(/\.+$/, "");
+  return SPECIAL_USE_SUFFIXES.some((suffix) => name === suffix || name.endsWith(`.${suffix}`));
 }
 
 function withDomain(email: string, domain: string): string {
@@ -75,6 +85,7 @@ export async function checkEmailDomain(
   if (!deps.emailDomainChecks()) return null;
   const domain = emailDomainOf(email);
   if (!domain) return null;
+  if (isSpecialUseDomain(domain)) return { code: "email_no_mail" };
   if (options.typoList !== false) {
     const meant = typoCorrection(domain);
     if (meant) return { code: "email_typo", suggestion: withDomain(email, meant) };

@@ -30,16 +30,24 @@ export function emailChangeBlockReason(block: string): OrderEmailChangeBlock | n
  * The order's email as `req` may see it (docs/architecture.md, "Buyer email
  * checks"), added to `order` (a settled order's CustomerOrder):
  * - the paying browser (the order's token in `x-order-access`), for a card
- *   order: the full address (`email`) and whether it may change it now
- *   (`emailChange`, from private.order_email_change_block); but once the
- *   latest change is support's, neither the address nor the masked one, and
- *   `emailChange: {allowed: false, reason: "changed_by_support"}`: the token
- *   may be on a device the old address's holder still uses (the reason
- *   support was asked), so it mustn't show where the tickets went;
+ *   order, until its event ends: the full address (`email`) and whether it
+ *   may change it now (`emailChange`, from private.order_email_change_block);
+ * - the paying browser once the event has ended: what anyone sees (below),
+ *   with `emailChange: {allowed: false, reason: "event_ended"}`. The token
+ *   lives on in that browser's storage for months, on a device that may not
+ *   stay the buyer's; after the event there's nothing left to fix, so it no
+ *   longer shows the address in full;
+ * - the paying browser once the latest change is support's: neither the
+ *   address nor the masked one, and `emailChange: {allowed: false, reason:
+ *   "changed_by_support"}`: the token may be on a device the old address's
+ *   holder still uses (the reason support was asked), so it mustn't show
+ *   where the tickets went;
  * - anyone else (the order id alone: the ticket email's link): the masked
  *   address only while the email has never been changed, and none once it
  *   has (owner decision Q7), so the old address's holder doesn't learn the
  *   new one, even masked.
+ * The browser forgets its token once told `event_ended`, `ticket_scanned`
+ * or `changed_by_support` (lib/order-access.ts): none of them can change.
  * One indexed query either way.
  */
 export async function withOrderEmail(req: Request, deps: Deps, orderId: string, order: CustomerOrder): Promise<CustomerOrder> {
@@ -81,10 +89,16 @@ async function changeLogMissing(db: Db, err: unknown): Promise<boolean> {
 
 async function orderEmailFor(req: Request, deps: Deps, orderId: string, order: CustomerOrder): Promise<CustomerOrder> {
   if (hasOrderAccess(req, deps, orderId)) {
-    const [row] = await deps.db.query<{ buyer_email: string | null; block: string | null; last_changed_by: string | null }>(
+    const [row] = await deps.db.query<{
+      buyer_email: string | null;
+      block: string | null;
+      last_changed_by: string | null;
+      ended: boolean;
+    }>(
       `select o.buyer_email, private.order_email_change_block(o.id) as block,
               (select c.changed_by from private.order_email_changes c
-                where c.order_id = o.id order by c.created_at desc, c.id desc limit 1) as last_changed_by
+                where c.order_id = o.id order by c.created_at desc, c.id desc limit 1) as last_changed_by,
+              coalesce((select e.ends_at <= now() from public.events e where e.id = o.event_id), true) as ended
          from public.orders o where o.id = $1`,
       [orderId],
     );
@@ -92,6 +106,10 @@ async function orderEmailFor(req: Request, deps: Deps, orderId: string, order: C
       const withheld: CustomerOrder = { ...order, emailChange: { allowed: false, reason: "changed_by_support" } };
       delete withheld.maskedEmail;
       return withheld;
+    }
+    // A card order (the block function says nothing for any other) whose event is over: as anyone sees it.
+    if (row?.ended && row.block !== null && emailChangeBlockReason(row.block) !== null) {
+      return { ...asAnyoneSees(order, row.last_changed_by !== null), emailChange: { allowed: false, reason: "event_ended" } };
     }
     if (row?.buyer_email) {
       const reason = row.block === null ? undefined : emailChangeBlockReason(row.block);
@@ -105,7 +123,12 @@ async function orderEmailFor(req: Request, deps: Deps, orderId: string, order: C
     `select exists (select 1 from private.order_email_changes c where c.order_id = $1) as changed`,
     [orderId],
   );
-  if (!changed?.changed) return order;
+  return asAnyoneSees(order, changed?.changed === true);
+}
+
+/** The order as anyone holding its id sees it: the masked address until its email has been `changed`, none after. */
+function asAnyoneSees(order: CustomerOrder, changed: boolean): CustomerOrder {
+  if (!changed) return order;
   const hidden = { ...order };
   delete hidden.maskedEmail;
   return hidden;

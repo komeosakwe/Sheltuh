@@ -18,9 +18,10 @@ import {
   settledAttemptResponse,
   stripeErrorLabel,
 } from "../checkout-attempts";
-import { clientIp, clientKey, orderKey } from "../client-key";
+import { orderKey } from "../client-key";
+import { rateLimitSecret, takeClientLimit, takeKeyedLimit } from "../client-limits";
 import { refuseUndeliverableEmail } from "../email-domain";
-import { HttpError, ok, okPrivate, type RateWindow, readJson, tooManyRequests, windowSeconds } from "../http";
+import { HttpError, ok, okPrivate, readJson, tooManyRequests, windowSeconds } from "../http";
 import { withOrderEmail } from "../order-email-view";
 import { parseBuyerName, parseCheckoutLineItems, parseSupportCents, refuseSupportOnFreeOrder } from "../order-input";
 import { parseCheckoutSeats } from "../seat-map-input";
@@ -766,48 +767,8 @@ export const CHECKOUT_RATE_LIMITS = {
   paymentPerOrder: { bucket: "order_payment:order", hits: 20, window: "1 minute" },
 } as const;
 
-/** A fixed-window limit on private.take_client_rate_limit: CHECKOUT_RATE_LIMITS, and the wallet passes' (./wallet.ts). */
-export type KeyedLimit = { readonly bucket: string; readonly hits: number; readonly window: RateWindow };
-
 const CHECKOUTS_BUSY = "You've started a lot of checkouts in the last minute. Wait a minute, then try again.";
 const PAYMENT_BUSY = "This checkout has been loaded a lot in the last minute. Wait a minute, then reload the page.";
-
-/** One hit on a keyed fixed-window counter: whether it's within the limit. */
-async function takeKeyedLimit(db: Db, key: string, limit: KeyedLimit): Promise<boolean> {
-  const [row] = await db.query<{ allowed: boolean }>(
-    `select private.take_client_rate_limit($1, $2, $3, $4::interval) as allowed`,
-    [key, limit.bucket, limit.hits, limit.window],
-  );
-  return row.allowed;
-}
-
-/**
- * The secret rate-limit keys are salted with, or undefined when it isn't
- * configured (logged, naming only the limits skipped): the caller fails open.
- */
-export function rateLimitSecret(deps: Deps, skipped: string): string | undefined {
-  try {
-    return deps.stripeWebhookSecret();
-  } catch {
-    console.error(`STRIPE_WEBHOOK_SECRET isn't set: ${skipped}.`);
-    return undefined;
-  }
-}
-
-/**
- * One hit on the request's client's counter for `limit`: false when it's
- * over. True (fails open) without `secret`, or without a usable client IP,
- * logged without any request detail.
- */
-export async function takeClientLimit(req: Request, deps: Deps, secret: string | undefined, limit: KeyedLimit, what: string) {
-  if (!secret) return true;
-  const ip = clientIp(req);
-  if (!ip) {
-    console.warn(`${what} without a client IP header: the per-client limit was skipped.`);
-    return true;
-  }
-  return takeKeyedLimit(deps.db, clientKey(ip, secret), limit);
-}
 
 /**
  * POST /api/events/[eventId]/checkout — public guest checkout. A paid order
@@ -1019,26 +980,35 @@ export function walletEligible(lookup: CustomerOrderLookup): lookup is CustomerO
 }
 
 /**
+ * `order` with `wallet` (which wallets' passes are on, from the server's own
+ * configuration: Deps.googleWallet / appleWallet) when its tickets can go in
+ * a wallet (walletEligible); as it is otherwise. Every answer that's the
+ * confirmation page's order (getOrderBySession, and an email change's,
+ * ./order-email.ts) goes through it, so the page never loses its wallet
+ * buttons, nor offers one the server would refuse.
+ */
+export async function withWallet(deps: Deps, order: CustomerOrder): Promise<CustomerOrder> {
+  if (!walletEligible(order)) return order;
+  return { ...order, wallet: { google: !!deps.googleWallet(), apple: !!(await deps.appleWallet()) } };
+}
+
+/**
  * GET /api/orders/by-session/[sessionId] — public. The unguessable order id
  * from the confirmation page's URL is the credential (guest checkout has no
  * account), so the response is only what that page shows (CustomerOrder),
  * never cached anywhere. A pending order reveals nothing but its status.
  * The paying browser (the order's token in `x-order-access`, from the
- * checkout's answer) also gets the full `email` and `emailChange`; anyone
+ * checkout's answer) also gets `emailChange`, and the full `email` until
+ * the event ends; anyone
  * else gets the masked email only until the email is changed, and none after
  * (withOrderEmail, ../order-email-view.ts).
- * For an order whose tickets can go in a wallet (walletEligible), `wallet`
- * says which wallets' passes are on, from the server's own configuration
- * (Deps.googleWallet / appleWallet), so the page never offers a button the
- * server would refuse.
+ * For an order whose tickets can go in a wallet, `wallet` says which
+ * wallets' passes are on (withWallet).
  */
 export const getOrderBySession: Handler<{ sessionId: string }> = async (req, { sessionId }, deps) => {
   const lookup = await lookupCustomerOrder(deps.db, sessionId);
   if (lookup.status === "pending") return okPrivate(lookup);
-  const seen = await withOrderEmail(req, deps, sessionId, lookup);
-  if (!walletEligible(seen)) return okPrivate(seen);
-  const order: CustomerOrder = { ...seen, wallet: { google: !!deps.googleWallet(), apple: !!(await deps.appleWallet()) } };
-  return okPrivate(order);
+  return okPrivate(await withWallet(deps, await withOrderEmail(req, deps, sessionId, lookup)));
 };
 
 /**

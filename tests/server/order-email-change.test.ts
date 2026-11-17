@@ -18,6 +18,8 @@ import { orderReference } from "@/lib/server/order-reference";
 import { embeddedSession, sessionAmount, stripeWebhookRequest, TestApi, WEBHOOK_SECRET } from "./helpers/api";
 import { approvedOrganiser, enablePayouts, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
+import { googleWalletEnv } from "./helpers/wallet";
+import { googleWalletConfigFromEnv, type GoogleWalletConfig } from "@/lib/server/wallet/config";
 
 // Changing a paid order's email: the paying browser's one change and support's
 // (supabase/migrations/20261127000000_order_email_changes.sql, lib/server/handlers/order-email.ts).
@@ -29,7 +31,7 @@ let admin: { token: string; userId: string };
 let organiser: { token: string; userId: string; organiserId: string };
 let eventId: string;
 
-const OLD = "fan@gmial-typo.example";
+const OLD = "fan@gmial-typo.example.net";
 const NEW = "Fan.Right@example.com";
 
 beforeAll(async () => {
@@ -155,7 +157,7 @@ describe("the buyer's change (POST /orders/by-session/{id}/email)", () => {
     });
     expect(await orderRow(orderId)).toEqual({ buyer_email: NEW, tickets_emailed: false });
     expect(await changes(orderId)).toEqual([
-      { changed_by: "buyer", admin_id: null, reason: null, old_email_masked: "f***@gmial-typo.example", new_email_masked: "F***@example.com" },
+      { changed_by: "buyer", admin_id: null, reason: null, old_email_masked: "f***@gmial-typo.example.net", new_email_masked: "F***@example.com" },
     ]);
     expect(await job(orderId)).toMatchObject({ status: "pending", attempts: 0, lease_token: null, sent: false });
 
@@ -203,7 +205,7 @@ describe("the buyer's change (POST /orders/by-session/{id}/email)", () => {
 
   it("400 for the format, a listed typo and a domain that can't receive email (with the suggestion)", async () => {
     const { orderId, access } = await paidOrder();
-    api.mailDomainAnswers.set("nomail.example", "no_mail");
+    api.mailDomainAnswers.set("nomail.example.net", "no_mail");
     const format = await change(orderId, { email: "fan@" }, { access });
     expect([format.status, format.body.fieldErrors]).toEqual([400, { email: "Enter a valid email address." }]);
     const typo = await change(orderId, { email: "fan@hotmial.com" }, { access });
@@ -213,7 +215,7 @@ describe("the buyer's change (POST /orders/by-session/{id}/email)", () => {
       code: "email_typo",
       suggestion: "fan@hotmail.com",
     });
-    const noMail = await change(orderId, { email: "fan@nomail.example" }, { access });
+    const noMail = await change(orderId, { email: "fan@nomail.example.net" }, { access });
     expect([noMail.status, noMail.body.code, noMail.body.fieldErrors]).toEqual([400, "email_no_mail", { email: EMAIL_NO_MAIL_MESSAGE }]);
     expect(await changes(orderId)).toEqual([]);
   });
@@ -241,7 +243,11 @@ describe("the buyer's change (POST /orders/by-session/{id}/email)", () => {
   it("refused once the event has ended, a ticket was scanned (even if undone) or the order was refunded", async () => {
     const ended = await paidOrder("ended@example.com");
     await api.db.query(`update public.events set starts_at = now() - interval '3 hours', ends_at = now() - interval '1 hour' where id = $1`, [eventId]);
-    expect((await view(ended.orderId, ended.access)).body.emailChange).toEqual({ allowed: false, reason: "event_ended" });
+    const afterwards = await view(ended.orderId, ended.access);
+    expect(afterwards.body.emailChange).toEqual({ allowed: false, reason: "event_ended" });
+    // Once the event is over the paying browser sees what anyone sees: the masked address, never the full one.
+    expect(afterwards.body).not.toHaveProperty("email");
+    expect(afterwards.body.maskedEmail).toBe(maskEmail("ended@example.com"));
     expect((await change(ended.orderId, { email: NEW }, { access: ended.access })).body.code).toBe("event_ended");
     await api.db.query(`update public.events set starts_at = now() + interval '7 days', ends_at = now() + interval '7 days 3 hours' where id = $1`, [eventId]);
 
@@ -347,6 +353,33 @@ describe("GET /orders/by-session/{id} and the email", () => {
   });
 });
 
+describe("the paying browser after the event", () => {
+  it("a changed order's token shows neither address once the event has ended, and says event_ended", async () => {
+    const { orderId, access } = await paidOrder();
+    expect((await change(orderId, { email: NEW }, { access })).status).toBe(200);
+    expect((await view(orderId, access)).body).toMatchObject({ email: NEW });
+    await api.db.query(`update public.events set starts_at = now() - interval '3 hours', ends_at = now() - interval '1 hour' where id = $1`, [eventId]);
+    const mine = await view(orderId, access);
+    expect(mine.status).toBe(200);
+    expect(mine.body.emailChange).toEqual({ allowed: false, reason: "event_ended" });
+    expect(mine.body).not.toHaveProperty("email");
+    expect(mine.body).not.toHaveProperty("maskedEmail");
+    expect(JSON.stringify(mine.body)).not.toContain("example.com");
+  });
+});
+
+describe("the change's answer is the confirmation page's order", () => {
+  it("with the wallet buttons GET gives (withWallet)", async () => {
+    api.googleWallet = (googleWalletConfigFromEnv(googleWalletEnv().env) as { config: GoogleWalletConfig }).config;
+    const { orderId, access } = await paidOrder();
+    const res = await change(orderId, { email: NEW }, { access });
+    expect(res.status).toBe(200);
+    expect(res.body.order.wallet).toEqual({ google: true, apple: false });
+    expect(res.body.order.wallet).toEqual((await view(orderId, access)).body.wallet);
+    expect(res.body.order).toEqual((await view(orderId, access)).body);
+  });
+});
+
 describe("a deploy ahead of its migration", () => {
   it("the confirmation page falls back to the masked email (warned once); other database errors still fail it", async () => {
     const { orderId, access } = await paidOrder();
@@ -392,12 +425,17 @@ describe("the admin's change (POST /admin/emails/{jobId}/change-email)", () => {
     expect([noReason.status, Object.keys(noReason.body.fieldErrors)]).toEqual([400, ["reason"]]);
     expect((await adminChange(id, { email: NEW, reason: "ok" })).body.fieldErrors).toEqual({ reason: "Must be at least 3 characters." });
     // The reason is kept in full; the log keeps addresses masked only.
-    for (const reason of [`Buyer asked to move it from ${OLD}`, "Typo: fan.right@example.com was meant"]) {
+    // Full-width "＠" and "．" too (NFKC): the reason is tested as it would read.
+    for (const reason of [`Buyer asked to move it from ${OLD}`, "Typo: fan.right@example.com was meant", "Meant fan.right＠example．com"]) {
       const withAddress = await adminChange(id, { email: NEW, reason });
       expect([withAddress.status, withAddress.body.fieldErrors]).toEqual([400, { reason: "Leave email addresses out of the reason." }]);
     }
-    api.mailDomainAnswers.set("nomail.example", "no_mail");
-    expect((await adminChange(id, { email: "fan@nomail.example", reason: "Buyer called" })).body.code).toBe("email_no_mail");
+    api.mailDomainAnswers.set("nomail.example.net", "no_mail");
+    expect((await adminChange(id, { email: "fan@nomail.example.net", reason: "Buyer called" })).body.code).toBe("email_no_mail");
+    // A special-use name can't receive email: refused without a lookup, for support too.
+    const lookups = api.mailDomainLookups.length;
+    expect((await adminChange(id, { email: "fan@mail.internal", reason: "Buyer called" })).body.code).toBe("email_no_mail");
+    expect(api.mailDomainLookups).toHaveLength(lookups);
     expect(await changes(orderId)).toEqual([]);
   });
 
@@ -414,25 +452,26 @@ describe("the admin's change (POST /admin/emails/{jobId}/change-email)", () => {
 
     const res = await adminChange(id, { email: "member@gmial.com", reason: "Buyer confirmed by phone" });
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({
+    expect(res.body.result).toBe("changed");
+    expect(res.body.job).toMatchObject({
       jobId: id,
       status: "pending",
       maskedEmail: "m***@gmial.com",
       orderReference: orderReference(orderId),
       emailChanges: [
         { changedBy: "admin", reason: "Buyer confirmed by phone", oldMaskedEmail: "f***@example.com", newMaskedEmail: "m***@gmial.com" },
-        { changedBy: "buyer", oldMaskedEmail: "f***@gmial-typo.example", newMaskedEmail: "f***@example.com" },
+        { changedBy: "buyer", oldMaskedEmail: "f***@gmial-typo.example.net", newMaskedEmail: "f***@example.com" },
       ],
     });
-    expect(res.body.emailChanges[1]).not.toHaveProperty("reason");
+    expect(res.body.job.emailChanges[1]).not.toHaveProperty("reason");
     expect(JSON.stringify(res.body)).not.toContain("member@gmial.com");
     expect((await changes(orderId)).at(-1)).toMatchObject({ changed_by: "admin", admin_id: admin.userId });
     await api.runDeferred();
     expect(api.sendEmail.mock.calls.map(([message]) => message.to)).toEqual(["member@gmial.com"]);
 
     const same = await adminChange(id, { email: "MEMBER@gmial.com", reason: "Again" });
-    expect(same.status).toBe(200);
-    expect(same.body.emailChanges).toHaveLength(2);
+    expect([same.status, same.body.result]).toEqual([200, "unchanged"]);
+    expect(same.body.job.emailChanges).toHaveLength(2);
   });
 
   it("ends self-serve: the paying browser can't change it again (409 changed_by_support) and sees no address, full or masked", async () => {

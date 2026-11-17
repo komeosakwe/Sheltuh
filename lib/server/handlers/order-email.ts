@@ -1,6 +1,8 @@
 import { SUPPORT_EMAIL } from "@/lib/contact";
+import { ADMIN_EMAIL_CHANGE_REASON } from "@/lib/api/types";
 import { requireAdmin } from "../auth";
 import { orderKey } from "../client-key";
+import { type KeyedLimit, rateLimitSecret, takeClientLimit, takeKeyedLimit } from "../client-limits";
 import type { Deps } from "../deps";
 import { refuseUndeliverableEmail } from "../email-domain";
 import { sendTicketEmailSoon } from "../email-outbox";
@@ -11,10 +13,10 @@ import { emailChangeBlockReason, withOrderEmail } from "../order-email-view";
 import { ORDER_ID_PATTERN, orderReference } from "../order-reference";
 import { ADMIN_EMAIL_JOB_SELECT, toAdminEmailJob } from "../records";
 import type { Handler } from "../route";
-import type { CustomerOrder, OrderEmailChangeErrorCode, OrderEmailChangeResult } from "../types";
+import type { AdminOrderEmailChangeResult, CustomerOrder, OrderEmailChangeErrorCode, OrderEmailChangeResult } from "../types";
 import { fail, requireEmail } from "../validation";
 import { optionalCaller } from "./free-orders";
-import { type KeyedLimit, lookupCustomerOrder, ORDER_NOT_FOUND, rateLimitSecret, takeClientLimit } from "./orders";
+import { lookupCustomerOrder, ORDER_NOT_FOUND, withWallet } from "./orders";
 
 /**
  * Changing a paid order's email (docs/architecture.md, "Buyer email checks";
@@ -44,13 +46,14 @@ export const ORDER_EMAIL_CHANGE_LIMITS = {
 /** An admin's changes per hour (private.take_rate_limit, bucket 'order_email_changes'). */
 export const ADMIN_EMAIL_CHANGE_LIMIT = { hits: 20, window: "1 hour" } as const;
 
-/** An admin's reason: what support confirmed with the buyer. */
-export const ADMIN_EMAIL_CHANGE_REASON = { min: 3, max: 500 } as const;
+/** An admin's reason: what support confirmed with the buyer (its length shared with the admin form). */
+export { ADMIN_EMAIL_CHANGE_REASON };
 
 /**
  * Anything shaped like an email address (something@something.something): the
  * reason is kept in full and shown to every admin, while the change log keeps
- * the addresses themselves only masked, so a reason may not carry one.
+ * the addresses themselves only masked, so a reason may not carry one. Tested
+ * against the reason's NFKC form, so a full-width "＠" or "．" counts too.
  */
 const EMAIL_LIKE = /[^\s@]+@[^\s@]+\.[^\s@]+/u;
 
@@ -79,15 +82,6 @@ function refusal(code: OrderEmailChangeErrorCode): HttpError {
   );
 }
 
-async function takeOrderLimit(deps: Deps, orderId: string, secret: string): Promise<boolean> {
-  const limit = ORDER_EMAIL_CHANGE_LIMITS.perOrder;
-  const [row] = await deps.db.query<{ allowed: boolean }>(
-    `select private.take_client_rate_limit($1, $2, $3, $4::interval) as allowed`,
-    [orderKey(orderId, secret), limit.bucket, limit.hits, limit.window],
-  );
-  return row.allowed;
-}
-
 /** One plain address from `body[field]` (400 `fieldErrors[field]` otherwise). */
 function parseEmail(body: Record<string, unknown>, field: string): string {
   const errors: Record<string, string> = {};
@@ -96,12 +90,12 @@ function parseEmail(body: Record<string, unknown>, field: string): string {
   return email;
 }
 
-/** The order as the paying browser sees it (getOrderBySession with its token). */
+/** The order as the paying browser sees it: exactly getOrderBySession's answer with its token (wallet included). */
 async function paidOrderView(req: Request, deps: Deps, orderId: string): Promise<CustomerOrder> {
   const lookup = await lookupCustomerOrder(deps.db, orderId);
   // Never pending here: only a paid order's email can change.
   if (lookup.status === "pending") throw new HttpError(404, ORDER_NOT_FOUND);
-  return withOrderEmail(req, deps, orderId, lookup);
+  return withWallet(deps, await withOrderEmail(req, deps, orderId, lookup));
 }
 
 /**
@@ -128,7 +122,7 @@ export const changeOrderEmail: Handler<{ sessionId: string }> = async (req, { se
     throw tooManyRequests(CHANGE_BUSY, windowSeconds(perClient.window), undefined, { code: "rate_limited" });
   }
   if (!hasOrderAccess(req, deps, sessionId)) throw new HttpError(404, ORDER_NOT_FOUND);
-  if (secret && !(await takeOrderLimit(deps, sessionId, secret))) {
+  if (secret && !(await takeKeyedLimit(deps.db, orderKey(sessionId, secret), ORDER_EMAIL_CHANGE_LIMITS.perOrder))) {
     throw tooManyRequests(CHANGE_BUSY, windowSeconds(ORDER_EMAIL_CHANGE_LIMITS.perOrder.window), undefined, { code: "rate_limited" });
   }
 
@@ -186,11 +180,13 @@ const JOB_ID = /^[1-9][0-9]{0,17}$/;
  * included (owner decision Q2), but the address must pass its format and
  * DNS (the typo list is skipped: support has checked it with the buyer) and
  * the reason is required, and logged with the admin (400 `fieldErrors.reason`
- * for one with an email address in it: the log keeps addresses masked only).
+ * for one with an email address in it, full-width "＠" included: the log
+ * keeps addresses masked only). 200 AdminOrderEmailChangeResult: `changed`
+ * or `unchanged` (the same address: nothing done), with the job as it is now.
  * 404 unknown job; 409
  * `order_not_card` / `order_not_paid` / `email_change_busy`; 429 over
  * ADMIN_EMAIL_CHANGE_LIMIT (only changes made count, in the same
- * transaction). The same address is a 200 with nothing changed.
+ * transaction).
  */
 export const adminChangeOrderEmail: Handler<{ jobId: string }> = async (req, { jobId }, deps) => {
   const admin = await requireAdmin(req, deps.verifyAccessToken);
@@ -205,7 +201,7 @@ export const adminChangeOrderEmail: Handler<{ jobId: string }> = async (req, { j
   });
   if (!errors.reason && Array.from(reason).length < ADMIN_EMAIL_CHANGE_REASON.min) {
     errors.reason = `Must be at least ${ADMIN_EMAIL_CHANGE_REASON.min} characters.`;
-  } else if (!errors.reason && EMAIL_LIKE.test(reason)) {
+  } else if (!errors.reason && EMAIL_LIKE.test(reason.normalize("NFKC"))) {
     errors.reason = "Leave email addresses out of the reason.";
   }
   if (Object.keys(errors).length > 0) fail(errors);
@@ -238,5 +234,9 @@ export const adminChangeOrderEmail: Handler<{ jobId: string }> = async (req, { j
       throw new Error(`Unexpected admin_change_order_email result: ${row.result}`);
   }
   const [job] = await deps.db.query(`${ADMIN_EMAIL_JOB_SELECT} where j.id = $1::bigint`, [jobId]);
-  return okPrivate(toAdminEmailJob(job));
+  const result: AdminOrderEmailChangeResult = {
+    result: row.result === "changed" ? "changed" : "unchanged",
+    job: toAdminEmailJob(job),
+  };
+  return okPrivate(result);
 };

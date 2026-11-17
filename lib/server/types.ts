@@ -11,6 +11,7 @@ export type {
   AdminCreateOrganiserInput,
   AdminEmailJob,
   AdminOrderEmailChange,
+  AdminOrderEmailChangeResult,
   OrderEmailChange,
   OrderEmailChangeBlock,
   OrderEmailChangeErrorCode,

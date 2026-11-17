@@ -1226,15 +1226,29 @@ export interface AdminOrderEmailChange {
  * has checked the address with the buyer), but the address must receive
  * email (400 `email_no_mail`) and `reason` is required (3 to 500
  * characters, and no email addresses in it: the log keeps addresses masked
- * only; 400 `fieldErrors.reason`). Logged with the admin and reason.
- * 200 the AdminEmailJob (with `emailChanges`); the same address is a 200
- * with nothing changed. ApiError 404 unknown job; 409 `order_not_card`
- * (a free order) or `order_not_paid`, or `email_change_busy`; 429 over 20
- * changes an hour per admin.
+ * only, full-width "＠" included; 400 `fieldErrors.reason`). Logged with
+ * the admin and reason. 200 AdminOrderEmailChangeResult. ApiError 404
+ * unknown job; 409 `order_not_card` (a free order) or `order_not_paid`, or
+ * `email_change_busy`; 429 over 20 changes an hour per admin.
  */
 export interface AdminChangeOrderEmailInput {
   email: string;
+  /** ADMIN_EMAIL_CHANGE_REASON.min to .max characters (after trimming). */
   reason: string;
+}
+
+/** The length of AdminChangeOrderEmailInput.reason, in characters: the API's check and the admin form's. */
+export const ADMIN_EMAIL_CHANGE_REASON = { min: 3, max: 500 } as const;
+
+/**
+ * The 200 of POST /api/admin/emails/{jobId}/change-email: `changed` (the
+ * ticket email is on its way to the new address, and the change is in
+ * `job.emailChanges`) or `unchanged` (the same address, ignoring case:
+ * nothing done), with the job as it is now (AdminEmailJob).
+ */
+export interface AdminOrderEmailChangeResult {
+  result: "changed" | "unchanged";
+  job: AdminEmailJob;
 }
 
 /** Every kind of outbox job (private.email_outbox's kind check). */

@@ -39,7 +39,7 @@ beforeEach(async () => {
     n += 1;
     return embeddedSession(`cs_test_${n}`);
   });
-  api.mailDomainAnswers.set("nomail.example", "no_mail");
+  api.mailDomainAnswers.set("nomail.example.net", "no_mail");
 });
 
 const checkout = (eventId: string, body: Record<string, unknown>, options: { token?: string; key?: string } = {}) =>
@@ -81,17 +81,26 @@ describe("checkout email checks", () => {
   });
 
   it("a paid checkout to a domain that can't receive email: 400 email_no_mail, nothing written", async () => {
-    const res = await checkout(event.eventId, { ...PAID, buyerEmail: "fan@nomail.example" });
+    const res = await checkout(event.eventId, { ...PAID, buyerEmail: "fan@nomail.example.net" });
     expect([res.status, res.body.code, res.body.fieldErrors]).toEqual([400, "email_no_mail", { buyerEmail: EMAIL_NO_MAIL_MESSAGE }]);
     expect(res.body).not.toHaveProperty("suggestion");
+    await nothingWritten();
+  });
+
+  it("a checkout to a special-use name (.test, .local, .onion …): 400 email_no_mail without any DNS lookup, nothing written", async () => {
+    for (const buyerEmail of ["fan@inbox.test", "fan@nas.local", "fan@abcdefgh.onion"]) {
+      const res = await checkout(event.eventId, { ...PAID, buyerEmail });
+      expect([res.status, res.body.code, res.body.fieldErrors], buyerEmail).toEqual([400, "email_no_mail", { buyerEmail: EMAIL_NO_MAIL_MESSAGE }]);
+    }
+    expect(api.mailDomainLookups).toEqual([]);
     await nothingWritten();
   });
 
   it("free bookings get the same checks (guest and member alike), before any refusal is counted", async () => {
     const guest = await checkout(event.eventId, { ...FREE, buyerEmail: "fan@hotmial.com" });
     expect([guest.status, guest.body.code, guest.body.suggestion]).toEqual([400, "email_typo", "fan@hotmail.com"]);
-    const member = await api.signUp({ email: "member@nomail.example" });
-    const own = await checkout(event.eventId, { ...FREE, buyerEmail: "member@nomail.example" }, { token: member.token });
+    const member = await api.signUp({ email: "member@nomail.example.net" });
+    const own = await checkout(event.eventId, { ...FREE, buyerEmail: "member@nomail.example.net" }, { token: member.token });
     expect([own.status, own.body.code]).toEqual([400, "email_no_mail"]);
     await nothingWritten();
   });
@@ -115,14 +124,14 @@ describe("checkout email checks", () => {
 
   it("a replay is answered before the checks: it never depends on DNS", async () => {
     const key = crypto.randomUUID();
-    const body = { ...PAID, buyerEmail: "fan@slow.example" };
+    const body = { ...PAID, buyerEmail: "fan@slow.example.net" };
     expect((await checkout(event.eventId, body, { key })).status).toBe(201);
-    expect(api.mailDomainLookups).toEqual(["slow.example"]);
+    expect(api.mailDomainLookups).toEqual(["slow.example.net"]);
     // Had DNS changed its mind since, the replay would still be the same order.
-    api.mailDomainAnswers.set("slow.example", "no_mail");
+    api.mailDomainAnswers.set("slow.example.net", "no_mail");
     const again = await checkout(event.eventId, body, { key });
     expect(again.status).toBe(200);
-    expect(api.mailDomainLookups).toEqual(["slow.example"]);
+    expect(api.mailDomainLookups).toEqual(["slow.example.net"]);
   });
 
   describe("seated", () => {
