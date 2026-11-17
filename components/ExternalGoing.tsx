@@ -77,7 +77,7 @@ export default function ExternalGoing({
       <Panel title="Who's going" titleId="external-going-title" variant="plain">
         <div className="flex flex-col items-start gap-3">
           {count >= GOING_COUNT_MIN && <p className="text-base leading-6 font-semibold">{count} going (sample)</p>}
-          <Button size="lg" disabled className="w-full sm:w-auto">
+          <Button size="md" disabled className="w-full sm:w-auto">
             I&rsquo;m going
           </Button>
           <DemoNotice>Sample count.</DemoNotice>
@@ -118,12 +118,12 @@ export default function ExternalGoing({
         {showCount && <p className="text-base leading-6 font-semibold">{summary.count} going</p>}
         {error && <ActionErrorNotice message={error} returnTo={`/events/${event.slug}`} />}
         {authStatus === "signed-out" && (
-          <ButtonLink variant="outline" size="lg" href={withNext("/login", `/events/${event.slug}`)} className={pillClass}>
+          <ButtonLink variant="outline" size="md" href={withNext("/login", `/events/${event.slug}`)} className={pillClass}>
             I&rsquo;m going
           </ButtonLink>
         )}
         {authStatus === "signed-in" && (
-          <Button variant="outline" size="lg" busy={busy} onClick={toggle} className={pillClass}>
+          <Button variant="outline" size="md" busy={busy} onClick={toggle} className={pillClass}>
             {going ? "Going ✓" : "I’m going"}
           </Button>
         )}

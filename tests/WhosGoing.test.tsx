@@ -200,7 +200,9 @@ describe("Who's Going — demo", () => {
     const add = within(region).getByRole("button", { name: "Add yourself" });
     expect(add).toBeDisabled();
     // The shared button and its disabled style (brand-direction-one.md §6.1), not a one-off.
-    expect(add).toHaveClass("btn", "btn-lg");
+    expect(add).toHaveClass("btn");
+    // Secondary M, 48px (Round 2), as the live buttons.
+    expect(add.className).not.toMatch(/btn-(sm|lg)/);
     expect(within(region).getByRole("note")).toHaveTextContent("Sample names.");
     const card = summaryCard();
     if (!card) throw new Error("no Who's going? card");
@@ -407,6 +409,9 @@ describe("Who's Going — signed in", () => {
       const region = await panel();
       const add = within(region).getByRole("button", { name: "Add yourself" });
       expect(add).toHaveAttribute("aria-expanded", "false");
+      // The rules' Secondary M (48px, the button label at every width; Round 2: no 12px label from lg).
+      expect(add).toHaveClass("btn", "btn-outline");
+      expect(add.className).not.toMatch(/btn-(sm|lg)|text-xs/);
       fireEvent.click(add);
       expect(add).toHaveAttribute("aria-expanded", "true");
       expect(add).toHaveAttribute("aria-controls", "wg-form");

@@ -439,7 +439,7 @@ export default function EventDetailsView({
                       // otherwise). Named in full: it starts with the visible words, holds the address, and says
                       // where it goes and that it opens a new tab. A 44px target on phones that takes only its
                       // 24px line in the column (the address above it isn't pressable, and the 12px gap below
-                      // keeps it clear of the organiser row); 24px with a pointer.
+                      // keeps it clear of the row below); 24px with a pointer.
                       <a
                         href={directions}
                         target="_blank"
@@ -456,9 +456,36 @@ export default function EventDetailsView({
                 )}
               </div>
             </dl>
+            {/* The ticket panel: sticky under the header from lg while the details scroll by, boxed when it has a price
+                and action (none once the event has ended, or before anything's on sale), and last in the column there
+                (after Who's going, as in the mock). Below lg its price and action are the buy bar's, so it's just the
+                secondary row, straight after the facts so Save and Share stay above the bar. */}
+            <div
+              data-ticket-panel=""
+              className={`flex flex-col gap-4 lg:order-last lg:mt-2 ${panelBuy ? "lg:rounded-card lg:border lg:border-foreground lg:p-6" : ""} ${preview ? "" : "lg:sticky lg:top-[calc(var(--header-h)+2rem)]"}`}
+            >
+              {panelBuy && (
+                <div className="max-lg:hidden">
+                  <h2 className="sr-only">Price and tickets</h2>
+                  {panelBuy}
+                </div>
+              )}
+              {/* The one secondary row: Save (the page's only Save), Share and Add to calendar, a third each. Top-aligned,
+                  so Share's "Link copied" under it pushes the page down rather than covering anything. */}
+              {/* A container, so the row can follow the text size (components/ui/Button.tsx actionRowClass). */}
+              <div className="@container">
+                <div data-event-actions="" className={actionRowGridClass}>
+                  <SaveButton event={saveTarget} variant="action" />
+                  <ShareButton slug={event.slug} title={event.title} text={shareText} fill />
+                  {!missing?.when && <AddToCalendar event={event} look="button" />}
+                </div>
+              </div>
+            </div>
             {/* Who's hosting (the owner's event reference): their mark, "Hosted by {name}", and View organiser → to their
                 profile at the right, or under the name where the row is too narrow for both. (Their upcoming count is
-                gone from here: beside the link it crowded the row.) */}
+                gone from here: beside the link it crowded the row.) After the ticket panel in the DOM (Round 2): below
+                lg that puts it under Save, Share and Calendar, just above Who's going; from lg the panel is order-last,
+                so it still shows straight under the facts. */}
             <div data-event-organiser="" className="flex items-center gap-3">
               {/* Their profile mark: their logo in the avatar square, or their initials (no logo, the demo, or it didn't
                   load). Decorative and out of the tab order: View organiser is the link. */}
@@ -492,31 +519,6 @@ export default function EventDetailsView({
                     <ArrowRightIcon className="size-4 shrink-0 motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-hover/link:translate-x-0.5" />
                   </Link>
                 )}
-              </div>
-            </div>
-            {/* The ticket panel: sticky under the header from lg while the details scroll by, boxed when it has a price
-                and action (none once the event has ended, or before anything's on sale), and last in the column there
-                (after Who's going, as in the mock). Below lg its price and action are the buy bar's, so it's just the
-                secondary row, straight after the facts so Save and Share stay above the bar. */}
-            <div
-              data-ticket-panel=""
-              className={`flex flex-col gap-4 lg:order-last lg:mt-2 ${panelBuy ? "lg:rounded-card lg:border lg:border-foreground lg:p-6" : ""} ${preview ? "" : "lg:sticky lg:top-[calc(var(--header-h)+2rem)]"}`}
-            >
-              {panelBuy && (
-                <div className="max-lg:hidden">
-                  <h2 className="sr-only">Price and tickets</h2>
-                  {panelBuy}
-                </div>
-              )}
-              {/* The one secondary row: Save (the page's only Save), Share and Add to calendar, a third each. Top-aligned,
-                  so Share's "Link copied" under it pushes the page down rather than covering anything. */}
-              {/* A container, so the row can follow the text size (components/ui/Button.tsx actionRowClass). */}
-              <div className="@container">
-                <div data-event-actions="" className={actionRowGridClass}>
-                  <SaveButton event={saveTarget} variant="action" />
-                  <ShareButton slug={event.slug} title={event.title} text={shareText} fill />
-                  {!missing?.when && <AddToCalendar event={event} look="button" />}
-                </div>
               </div>
             </div>
             {/* Who's going (the owner's event mock): the count, a few faces and I'm going (or See who's going, View

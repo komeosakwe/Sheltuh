@@ -239,13 +239,13 @@ for (const vp of [
 // Owner request (26 Oct 2026): on a phone, Save and Share are on the first screen too, above the buy bar, with a
 // two-line title (the redesign's title is 32px on phones, so the longest sample title still takes two lines).
 // Since the owner's event reference (13 Nov 2026) the details are two icon groups (the venue with its address and
-// Get directions on lines of their own) and "Hosted by" has its own row above the actions, so this holds on a
-// full-height phone (390×844, 375×812, and 370×812 where a slightly wider font wraps one more line), but no longer
-// on a 664–667px viewport (a phone less its browser chrome), where the row starts at the bar's top edge: the title,
-// date and venue are still on that first screen ("first screen at 375×667" above). Reported to the owner.
+// Get directions on lines of their own). "Hosted by" had its own row above the actions, which pushed them under the
+// bar on a 667px-tall phone (an iPhone SE); since Round 2 it comes after them below 1024px, so this holds there too,
+// as on a full-height phone (390×844, 375×812, and 370×812 where a slightly wider font wraps one more line).
 for (const vp of [
   { width: 390, height: 844 },
   { width: 375, height: 812 },
+  { width: 375, height: 667 },
   { width: 370, height: 812 },
 ]) {
   test.describe(`Save and Share on the first screen at ${vp.width}×${vp.height}`, () => {
@@ -315,8 +315,13 @@ test.describe("Save and Share on the first screen with a going count, at 390×84
     }
     const actionsBox = await actions.boundingBox();
     const rowBox = await row.boundingBox();
-    if (!actionsBox || !rowBox) throw new Error("not laid out");
-    expect(rowBox.y).toBeGreaterThanOrEqual(actionsBox.y + actionsBox.height);
+    // Round 2: below 1024px Hosted by comes after the actions, and Who's going after it.
+    const organiserBox = await page.locator("[data-event-organiser]").boundingBox();
+    if (!actionsBox || !rowBox || !organiserBox) throw new Error("not laid out");
+    expect(organiserBox.y).toBeGreaterThanOrEqual(actionsBox.y + actionsBox.height);
+    expect(rowBox.y).toBeGreaterThanOrEqual(organiserBox.y + organiserBox.height);
+    // Its button is the rules' Secondary M: 48px.
+    expect((await row.getByRole("link").last().boundingBox())?.height).toBe(48);
     await noSidewaysScroll(page);
   });
 });
