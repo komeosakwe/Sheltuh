@@ -9,6 +9,11 @@ describe("organiser log fields", () => {
     for (const field of ["cover", "profileTags", "customTags"] as const) expect(ORGANISER_FIELD_ORDER).toContain(field);
   });
 
+  it("names the profile chips apart from the reviewed event categories", () => {
+    expect(ORGANISER_FIELD_LABELS.profileTags).toBe("Profile categories");
+    expect(ORGANISER_FIELD_LABELS.customTags).toBe("Own words");
+  });
+
   it("shows a cover's version as when it was uploaded, and chips as logged", () => {
     expect(formatOrganiserFieldValue("cover", "1761200000000")).toMatch(/^Uploaded /);
     expect(formatOrganiserFieldValue("cover", "not a version")).toBe("not a version");
