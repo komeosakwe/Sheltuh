@@ -36,7 +36,9 @@ describe("HomeHero (the proposal, redesign PR 3)", () => {
     render(<HomeHero />);
     const h1 = screen.getByRole("heading", { level: 1 });
     expect(h1).toHaveAccessibleName("Find your next thing.");
-    expect(h1).toHaveClass("font-display", "uppercase", "text-[2.625rem]", "md:display-m");
+    // Round 2 §1.3: display-hero (Bootzy capitals, 40/48, 48/56 from 768px, 56/64 from 1280px), no one-off sizes.
+    expect(h1).toHaveClass("display-hero");
+    expect(h1.className).not.toMatch(/text-\[|leading-\[|display-m/);
     const shown = h1.querySelector('[aria-hidden="true"]') as HTMLElement;
     expect(Array.from(shown.children).map((line) => line.textContent)).toEqual(["Find yoür", "next thing."]);
     for (const line of shown.children) expect(line).toHaveClass("lg:block");
@@ -55,10 +57,9 @@ describe("HomeHero (the proposal, redesign PR 3)", () => {
     const { container } = render(<HomeHero />);
     const lede = container.querySelector("[data-home-lede]");
     expect(lede).toHaveTextContent(/^Curated creative events\. See who’s going\.$/);
-    expect(lede).toHaveClass("text-muted");
-    // Medium at every width: no body-l at any breakpoint, whose weight 400 would win from 768px.
-    expect(lede).toHaveClass("font-medium");
-    expect(lede?.className).not.toMatch(/(^|\s)(md:|lg:)?body-l(\s|$)/);
+    // Round 2 §1.3: body-m (16/24) at every width, Medium through the secondary-text rule (muted body-m).
+    expect(lede).toHaveClass("body-m", "text-muted");
+    expect(lede?.className).not.toMatch(/(^|\s)(md:|lg:)?(body-l|text-lg|font-normal)(\s|$)|text-\[/);
     // The lede follows the h1 in reading order.
     const h1 = screen.getByRole("heading", { level: 1 });
     expect(h1.compareDocumentPosition(lede as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -91,13 +92,17 @@ describe("HomeHero (the proposal, redesign PR 3)", () => {
     stubMotion(false);
     const { container } = render(<HomeHero />);
     const badge = container.querySelector("[data-hero-badge]");
-    expect(badge).toHaveClass("hidden", "lg:flex", "size-20");
+    // Round 2 §1.2: 72px from 1024px, 80px from 1280px; hidden below 1024px (B3).
+    expect(badge).toHaveClass("hidden", "lg:flex", "size-18", "xl:size-20");
     const h1 = screen.getByRole("heading", { level: 1 });
     expect((badge?.compareDocumentPosition(h1) ?? 0) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const search = screen.getByRole("search", { name: "Search events" });
     expect(h1.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // One row from 1280px: the text block and the search side by side.
-    expect(container.querySelector("section")).toHaveClass("xl:flex", "xl:items-center", "xl:justify-between");
+    // One row from 1024px (Round 2 §1.2): the text block and the search side by side, the search 480px (so the lede stays one line at 1024)
+    // wide at 1024–1279px ("Search events" whole beside Where) and 576px from 1280px.
+    expect(container.querySelector("section")).toHaveClass("lg:flex", "lg:items-center", "lg:justify-between", "lg:gap-8");
+    expect(search.parentElement).toHaveClass("lg:mt-0", "lg:w-full", "lg:max-w-120", "xl:max-w-xl");
+    expect(search.parentElement?.className).not.toContain("lg:max-w-2xl");
   });
 
   it("where motion is fine, the badge is the hero's one Pause control; under reduced motion it holds still and isn't one", () => {
@@ -182,22 +187,25 @@ describe("CategoryRow: the category chips (the proposal, redesign PR 3)", () => 
     expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("is one row that scrolls sideways inside its own container below 1024px (bleeding to the page edges), wraps from 1024px, and is seven equal columns from 1280px", () => {
+  it("is one row that scrolls sideways inside its own container below 1280px (bleeding to the page edges, Round 2 §1.2), and is seven equal columns from 1280px", () => {
     render(<Chips />);
     const list = screen.getByRole("list");
-    expect(list).toHaveClass("flex", "overflow-x-auto", "px-4", "md:px-8", "lg:flex-wrap", "lg:overflow-visible", "lg:px-0", "xl:grid", "xl:grid-cols-7");
-    expect(list.parentElement).toHaveClass("-mx-4", "md:-mx-8", "lg:mx-0");
+    expect(list).toHaveClass("flex", "overflow-x-auto", "px-4", "md:px-8", "xl:flex-wrap", "xl:overflow-visible", "xl:px-0", "xl:grid", "xl:grid-cols-7");
+    expect(list.className).not.toMatch(/(?:^|\s)lg:/);
+    expect(list.parentElement).toHaveClass("-mx-4", "md:-mx-8", "xl:mx-0");
+    expect(list.parentElement?.className).not.toContain("lg:mx-0");
     for (const chip of screen.getAllByRole("button")) expect(chip).toHaveClass("xl:w-full", "xl:justify-center");
   });
 });
 
 describe("HomeSectionHead", () => {
-  it("is a Heading/H1-size h2 with the two decorative dots, an optional mono note and a link that stays on the title's row (\"See all\" on phones)", () => {
+  it("is a section-title h2 (heading-section-l, Round 2 §1.3) with the two decorative dots, an optional mono note and a link that stays on the title's row (\"See all\" on phones)", () => {
     render(<HomeSectionHead id="w" title="This weekend" note="Fri 13 – Sun 15 Nov" link={{ href: "/map?time=weekend", label: "See all this weekend" }} />);
     const h2 = screen.getByRole("heading", { level: 2, name: "This weekend" });
     expect(h2).toHaveAttribute("id", "w");
     expect(h2).toHaveAttribute("tabindex", "-1");
-    expect(h2).toHaveClass("heading-h1");
+    expect(h2).toHaveClass("heading-section-l");
+    expect(h2).not.toHaveClass("heading-h1");
     expect(h2.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
     const note = screen.getByText("Fri 13 – Sun 15 Nov");
     expect(note).toHaveClass("mono-s", "text-muted");
@@ -283,7 +291,8 @@ describe("GuideCard and CreatorsCard", () => {
     const { container } = render(<CreatorsCard />);
     expect(screen.getByText("For organisers")).toHaveClass("eyebrow");
     expect(screen.getByRole("region", { name: "Bring your event to life" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 2, name: "Bring your event to life" })).toHaveClass("heading-h1");
+    // Round 2 §1.2–1.3: the section-title size, balanced so "life" never sits alone on a line.
+    expect(screen.getByRole("heading", { level: 2, name: "Bring your event to life" })).toHaveClass("heading-section-l", "text-balance");
     expect(screen.getByText(CREATORS_LINE)).toBeInTheDocument();
     expect(CREATORS_LINE).toBe("Every organiser checked by a person · Only the good stuff");
     const photo = container.querySelector("[aria-hidden='true'] .aspect-\\[2\\/1\\]");
@@ -295,6 +304,16 @@ describe("GuideCard and CreatorsCard", () => {
     expect(cta).toHaveClass("btn-outline");
     expect(container.querySelector("[data-surface='ink']")).not.toBeNull();
     expect(container.querySelector(".btn-signal")).toBeNull();
+  });
+
+  it("Bring your event to life reads words, photo, button at every width: DOM order is visual order (Round 2 §0)", () => {
+    const { container } = render(<CreatorsCard />);
+    const heading = screen.getByRole("heading", { level: 2, name: "Bring your event to life" });
+    const photo = container.querySelector("[aria-hidden='true'] .aspect-\\[2\\/1\\]")?.parentElement as HTMLElement;
+    const cta = screen.getByRole("link", { name: "List your event" });
+    expect(heading.compareDocumentPosition(photo) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(photo.compareDocumentPosition(cta) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    for (const el of container.querySelectorAll("*")) expect(el.className.toString()).not.toMatch(/(?:^|\s)(?:\w+:)*order-/);
   });
 });
 

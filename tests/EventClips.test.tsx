@@ -148,8 +148,8 @@ describe("the Play button (§5.1)", () => {
     expect(at("Save Glasshouse Sessions")).toBe(2);
     // The frame repeats the image's box, at its bottom-right, and passes taps through elsewhere.
     const frame = container.querySelector("[data-clip-frame]") as HTMLElement;
-    // Both variants' images are 4:3 now (the rules' card anatomy).
-    expect(frame).toHaveClass("pointer-events-none", "absolute", "aspect-[4/3]");
+    // The card's image is 2:1 now (Round 2 §1.5), and the frame repeats it.
+    expect(frame).toHaveClass("pointer-events-none", "absolute", "aspect-[2/1]");
     // At the image's bottom-right, 8px in (visual QA, PR 1), clear of the date chip and Save.
     expect(button).toHaveClass("pointer-events-auto", "absolute", "bottom-2", "right-2", "min-h-11", "min-w-11");
     // One ring only: the page's own focus outline is dropped (!important beats the unlayered rule).

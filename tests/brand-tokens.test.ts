@@ -318,8 +318,14 @@ describe("buttons (the rules' Buttons board)", () => {
     expect(rule("  .btn-lg")).not.toMatch(/font-size|line-height/);
   });
 
-  it("keeps the primary's orange edge on hover and press (black fill, orange label)", () => {
+  it("keeps the primary's orange edge on hover, keyboard focus and press (black fill, orange label)", () => {
     expect(css).toMatch(/\.btn-signal:hover:not\(:disabled, \[aria-disabled="true"\]\) \{\s*background: var\(--ink\);\s*border-color: var\(--signal\);\s*color: var\(--signal\);/);
+    // Round 2: hover is never the only way to see it. Focus-visible sits outside the (hover: hover) query.
+    const focus = css.match(/\n  \.btn-signal:focus-visible:not\(:disabled, \[aria-disabled="true"\]\) \{\s*background: var\(--ink\);\s*border-color: var\(--signal\);\s*color: var\(--signal\);/);
+    expect(focus).not.toBeNull();
+    const hoverQuery = css.indexOf("@media (hover: hover) {\n    .btn-solid:hover");
+    const hoverQueryEnd = css.indexOf("\n  }\n", hoverQuery);
+    expect(focus?.index ?? -1).toBeGreaterThan(hoverQueryEnd);
     expect(css).toMatch(/\.btn-signal:active:not\(:disabled, \[aria-disabled="true"\]\) \{\s*background: var\(--ink\);\s*border-color: var\(--signal\);\s*color: var\(--signal\);/);
   });
 
@@ -353,8 +359,10 @@ describe("current page in the nav", () => {
       return css.slice(start, css.indexOf("\n@utility ", start + 1));
     };
     const button = block("nav-button");
-    // The rules' Navigation board: Label/Nav 18 medium, 24px sides, 40px, the stroke, radius 8.
-    expect(button).toContain("font-size: 1.125rem;");
+    // The rules' Navigation board, Round 2 §1.3: Label/Nav 16 medium, 24px sides, 40px, the stroke, radius 8.
+    expect(button).toContain("font-size: 1rem;");
+    expect(button).toContain("line-height: 1.5rem;");
+    expect(button).not.toContain("1.125rem");
     expect(button).toContain("font-weight: 500;");
     expect(button).toContain("padding-inline: 1.5rem;");
     expect(button).toContain("min-height: 2.5rem;");
@@ -380,9 +388,16 @@ describe("current page in the nav", () => {
     expect(css.match(/--umlaut-line: none;/g)).toHaveLength(3);
   });
 
-  it("the desktop header is 96px from lg, 64px below", () => {
-    expect(css).toMatch(/--header-h: 4rem;/);
-    expect(css).toMatch(/@media \(width >= 64rem\) \{\s*:root \{\s*--header-h: 6rem;/);
+  it("the desktop header is 72px from lg, 56px below (Round 2 §1.2)", () => {
+    expect(css).toMatch(/--header-h: 3\.5rem;/);
+    expect(css).toMatch(/@media \(width >= 64rem\) \{\s*:root \{\s*--header-h: 4\.5rem;/);
+  });
+
+  it("sets the nav labels at 16/24 medium (Round 2 §1.3)", () => {
+    const start = css.indexOf("@utility label-nav {");
+    const body = css.slice(start, css.indexOf("\n@utility ", start + 1));
+    expect(body).toContain("font-weight: 500;");
+    expect(body).toMatch(/font-size: 1rem;\s*line-height: 1\.5rem;/);
   });
 });
 
@@ -420,6 +435,42 @@ describe("the type scale (the rules' Type board)", () => {
         `font-size: ${size};\\s*line-height: ${leading};\\s*@media \\(width >= 48rem\\) \\{\\s*font-size: ${desktopSize};\\s*line-height: ${desktopLeading};`,
       ),
     );
+  });
+
+  // Round 2 §1: the hero's brand line, the banner's event title and the home's section titles.
+  it.each([
+    ["display-hero", ["2.5rem", "3rem"], ["3rem", "3.5rem"], ["3.5rem", "4rem"]],
+    ["title-banner", ["1.75rem", "2rem"], ["2rem", "2.5rem"], ["2.5rem", "3rem"]],
+  ])("%s steps 768px and 1280px", (name, phone, tablet, desktop) => {
+    expect(utility(name)).toMatch(
+      new RegExp(
+        `font-size: ${phone[0]};\\s*line-height: ${phone[1]};\\s*@media \\(width >= 48rem\\) \\{\\s*font-size: ${tablet[0]};\\s*line-height: ${tablet[1]};\\s*\\}\\s*@media \\(width >= 80rem\\) \\{\\s*font-size: ${desktop[0]};\\s*line-height: ${desktop[1]};`,
+      ),
+    );
+    expect(utility(name)).toContain("font-family: var(--face-display);");
+    expect(utility(name)).toContain("font-synthesis-weight: none;");
+  });
+
+  it("keeps the hero's brand line in capitals and shows the banner's event title as entered", () => {
+    expect(utility("display-hero")).toContain("text-transform: uppercase;");
+    expect(utility("title-banner")).toContain("text-transform: none;");
+    expect(utility("event-title")).toContain("text-transform: none;");
+    expect(utility("event-title")).not.toContain("uppercase");
+  });
+
+  it("sets heading-section-l in Instrument Sans 700 at 24/32, 32/40 from 768px", () => {
+    const body = utility("heading-section-l");
+    expect(body).toContain("font-family: var(--face-sans);");
+    expect(body).toContain("font-weight: 700;");
+    expect(body).toContain("letter-spacing: -0.015em;");
+    expect(body).toMatch(/font-size: 1\.5rem;\s*line-height: 2rem;\s*@media \(width >= 48rem\) \{\s*font-size: 2rem;\s*line-height: 2\.5rem;/);
+    expect(body).not.toContain("uppercase");
+  });
+
+  it("gives the page column 64px margins from 1280px (Round 2 §1.2)", () => {
+    const body = utility("page-container");
+    expect(body).toMatch(/--page-margin: 1rem;\s*@media \(width >= 48rem\) \{\s*--page-margin: 2rem;\s*\}\s*@media \(width >= 80rem\) \{\s*--page-margin: 4rem;/);
+    expect(body).not.toContain("90rem");
   });
 
   it("sets the display styles (and title-lg, an event's title) in Bootzy capitals at 400 with no synthesised bold", () => {

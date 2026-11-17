@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import EventArt from "@/components/EventArt";
 import type { EventPoster } from "@/lib/types";
 
@@ -124,5 +124,79 @@ describe("EventArt photo focus", () => {
     expect(img.style.objectPosition).toBe("");
     const backdrop = container.querySelector("[data-art-backdrop]") as HTMLElement;
     expect(backdrop.style.backgroundPosition).toBe("10% 90%");
+  });
+});
+
+// Round 2 review: at the cards' 2:1 and the banner's 5:2, `auto` pillarboxed every ordinary photo.
+// `poster` contains only a portrait poster in a box that isn't portrait, and re-decides when the box
+// changes shape (the banner is 4:5 below 640px).
+describe("EventArt fit=poster", () => {
+  type Size = { width: number; height: number };
+  let report: ((size: Size) => void) | undefined;
+
+  function stubObserver(initial: Size) {
+    class FakeResizeObserver {
+      constructor(private readonly callback: ResizeObserverCallback) {}
+      observe(target: Element) {
+        report = (size) =>
+          act(() => {
+            this.callback([{ target, contentRect: size } as unknown as ResizeObserverEntry], this as unknown as ResizeObserver);
+          });
+        report(initial);
+      }
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal("ResizeObserver", FakeResizeObserver);
+  }
+
+  function load(img: HTMLImageElement, width: number, height: number) {
+    Object.defineProperty(img, "naturalWidth", { value: width });
+    Object.defineProperty(img, "naturalHeight", { value: height });
+    fireEvent.load(img);
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    report = undefined;
+  });
+
+  it.each<[string, number, number]>([
+    ["3:2", 1500, 1000],
+    ["4:3", 1200, 900],
+    ["16:9", 1600, 900],
+    ["square", 1000, 1000],
+  ])("covers a %s photo in a 5:2 box (no pillarbox, no backdrop)", (_, width, height) => {
+    stubObserver({ width: 1000, height: 400 });
+    const { container } = render(<EventArt poster={poster} title="x" imageUrl="/events/photo.jpg" fit="poster" />);
+    const img = container.querySelector("img") as HTMLImageElement;
+    load(img, width, height);
+    expect(img).toHaveClass("object-cover");
+    expect(container.querySelector("[data-art-backdrop]")).toBeNull();
+  });
+
+  it("shows a portrait poster whole in a landscape box, and crops it when the box turns portrait, and back", () => {
+    stubObserver({ width: 1000, height: 400 });
+    const { container } = render(<EventArt poster={poster} title="x" imageUrl="/events/tall.jpg" fit="poster" />);
+    const img = container.querySelector("img") as HTMLImageElement;
+    load(img, 800, 1131);
+    expect(img).toHaveClass("object-contain");
+    expect(container.querySelector("[data-art-backdrop]")).not.toBeNull();
+    report?.({ width: 390, height: 488 });
+    expect(img).toHaveClass("object-cover");
+    expect(container.querySelector("[data-art-backdrop]")).toBeNull();
+    report?.({ width: 700, height: 350 });
+    expect(img).toHaveClass("object-contain");
+  });
+
+  it("keeps per-breakpoint focal classes on a cropped photo (no inline position to override them)", () => {
+    stubObserver({ width: 1000, height: 400 });
+    const { container } = render(
+      <EventArt poster={poster} title="x" imageUrl="/events/photo.jpg" fit="poster" imgClassName="object-[50%_50%] sm:object-[50%_40%]" />,
+    );
+    const img = container.querySelector("img") as HTMLImageElement;
+    load(img, 1500, 1000);
+    expect(img).toHaveClass("object-cover", "object-[50%_50%]", "sm:object-[50%_40%]");
+    expect(img.style.objectPosition).toBe("");
   });
 });

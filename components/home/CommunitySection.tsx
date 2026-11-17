@@ -61,7 +61,7 @@ function Faces() {
 
 /**
  * "Find your people." (the proposal, redesign PR 3): the home's community section. An eyebrow,
- * the dotted Heading/H1-size h2, the proposal's lede and "Explore communities" (→ /community),
+ * the dotted section-title h2, the proposal's lede and "Explore communities" (→ /community),
  * then the compact orange "See who's going." band: its one line (the proposal's first half: no
  * communities to follow yet), the illustrative faces, a real example when the page has one (a
  * live thresholded count or the demo's sample count, with a footnote saying which) and one black
@@ -99,19 +99,19 @@ export default function CommunitySection({ className = "" }: { className?: strin
       id="find-your-people"
       aria-labelledby="home-people"
       tabIndex={-1}
-      // Phones: the head, the band, then Explore communities full width (the owner's 390 mock). From
-      // 640px Explore communities sits on the head's row, at its right.
+      // Phones: the head, Explore communities full width, the band, then the cards: DOM order is visual
+      // order at every width (Round 2 §0). From 640px Explore communities sits on the head's row, at its right.
       className={`grid grid-cols-1 gap-y-6 focus:outline-none sm:grid-cols-[1fr_auto] sm:items-end sm:gap-x-8 md:gap-y-8 lg:gap-y-12 ${className}`.trim()}
     >
       <div className="min-w-0">
         <p className="eyebrow text-muted">Community</p>
-        <h2 id="home-people" className="mt-2 heading-h1 flex items-center gap-3">
+        <h2 id="home-people" className="mt-2 heading-section-l flex items-center gap-3">
           <DotsMark size="sm" className="text-signal" />
           Find your people.
         </h2>
         <p className="mt-2 body-l text-muted">The people and creative scenes behind the events.</p>
       </div>
-      <ButtonLink href="/community" variant="solid" className="w-full max-sm:order-last sm:w-auto">
+      <ButtonLink href="/community" variant="solid" className="w-full sm:w-auto">
         Explore communities
         <ArrowRightIcon className="size-4 shrink-0" />
       </ButtonLink>
@@ -123,7 +123,7 @@ export default function CommunitySection({ className = "" }: { className?: strin
         className="flex flex-col gap-6 rounded-card p-6 sm:col-span-2 md:p-8 lg:flex-row lg:items-center lg:justify-between lg:gap-8 lg:px-12"
       >
         <div className="min-w-0">
-          <h3 className="heading-h1">See who’s going.</h3>
+          <h3 className="heading-section-l">See who’s going.</h3>
           <p className="mt-2 body-s font-semibold">{COMMUNITY_BAND_LINE}</p>
           {example && (
             <div className="mt-4">

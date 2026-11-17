@@ -42,14 +42,14 @@ function Icon({ kind }: { kind: PointIcon }) {
  * (--hover), as Local discovery's. Text only: opting in happens on an event's page, with a ticket.
  *
  * Its content is set large to fill the panel (owner, "make this bigger", 13 Nov 2026): from 1024px
- * the panel is as tall as Local discovery beside it (the grid row stretches), so the heading and
- * line step up a size, the points' card grows to take the height left (its points spread evenly,
+ * the panel is as tall as Local discovery beside it (the grid row stretches), so the line steps up a
+ * size (the heading stays a section title, Round 2 §1.3), the points' card grows to take the height left (its points spread evenly,
  * body-l with 24px icons) and the link is body-l. Phones keep the compact sizes.
  */
 export default function WhoSeesYou({ className = "" }: { className?: string }) {
   return (
     <section aria-labelledby="community-who" className={`flex flex-col rounded-card bg-hover p-6 md:p-8 lg:p-12 ${className}`.trim()}>
-      <h2 id="community-who" className="heading-h1 lg:text-5xl lg:leading-tight">
+      <h2 id="community-who" className="heading-section-l">
         {WHO_SEES_YOU.title}
       </h2>
       <p className={`${PANEL_LINE} lg:mt-4 lg:text-2xl lg:leading-8`}>{WHO_SEES_YOU.body}</p>

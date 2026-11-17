@@ -68,6 +68,13 @@ describe("CommunitySection: the head and the band", () => {
     const explore = screen.getByRole("link", { name: "Explore communities" });
     expect(explore).toHaveAttribute("href", "/community");
     expect(explore).toHaveClass("btn-solid");
+    // Round 2: the section-title size, and Explore communities right after the head at every width
+    // (no order-* reshuffle on phones), so DOM order is visual order.
+    expect(h2).toHaveClass("heading-section-l");
+    expect(explore.className).not.toMatch(/order-/);
+    expect(h2.compareDocumentPosition(explore) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(explore.compareDocumentPosition(band(container)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(band(container)).getByRole("heading", { level: 3 })).toHaveClass("heading-section-l");
     // No Fashion / Art / Music cards with invented counts or Follow buttons.
     expect(container).not.toHaveTextContent(/friends going|Follow|members/i);
   });

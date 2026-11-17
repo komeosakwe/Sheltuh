@@ -42,7 +42,7 @@ export function PreviewPanel({ event, missing }: PreviewProps) {
     <aside
       aria-label="Event page preview"
       id="event-preview"
-      className={`hidden xl:sticky xl:top-24 xl:block xl:shrink-0 ${shownPanel ? "xl:w-88" : ""}`}
+      className={`hidden xl:sticky xl:top-(--header-h) xl:block xl:shrink-0 ${shownPanel ? "xl:w-88" : ""}`}
     >
       <div className="flex items-center justify-between gap-3 pb-3">
         {shownPanel && <p className="eyebrow text-muted">Preview</p>}

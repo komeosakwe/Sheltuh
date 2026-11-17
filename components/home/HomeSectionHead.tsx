@@ -4,7 +4,7 @@ import { ArrowRightIcon } from "./icons";
 
 /**
  * A home (and /community) section's head (the proposal, redesign PR 3): the two orange dots, a
- * Heading/H1-size title (40/48; 32/40 on phones) in sentence case, an optional mono note beside
+ * section title (heading-section-l, Round 2 §1.3: 32/40; 24/32 on phones) in sentence case, an optional mono note beside
  * it with real context only (the weekend's dates, a count that's the whole number), and an
  * optional link on the right ("See all events →"), 48px above the content from 1024px. On a phone
  * the link stays on the title's row, as "See all" (named in full for screen readers: its visible
@@ -32,7 +32,7 @@ export default function HomeSectionHead({
   return (
     <div className={`mb-6 flex items-start justify-between gap-4 md:mb-8 lg:mb-12 ${className}`.trim()}>
       <div className="flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-1">
-        <h2 id={id} tabIndex={-1} data-home-focus="" className="heading-h1 flex min-w-0 items-center gap-3 break-words">
+        <h2 id={id} tabIndex={-1} data-home-focus="" className="heading-section-l flex min-w-0 items-center gap-3 break-words">
           <DotsMark size="sm" className="shrink-0 text-signal" />
           {title}
         </h2>
