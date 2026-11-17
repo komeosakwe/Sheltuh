@@ -113,7 +113,7 @@ describe("the desktop ticket panel", () => {
     expect(within(panel()).getByRole("status")).toBeEmptyDOMElement();
   });
 
-  it("after a choice: the total and the ticket count, and Review order (outline) to the name, then to Checkout", () => {
+  it("after a choice: the total and the ticket count, and Review order (outline) to the name, the email, then to Checkout", () => {
     render(<EventDetailsView event={live("neon-static")} demo={false} />);
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
@@ -124,6 +124,10 @@ describe("the desktop ticket panel", () => {
     expect(review).toHaveClass("btn-outline");
     fireEvent.click(review);
     expect(screen.getByLabelText("Your name")).toHaveFocus();
+    // A paid order asks for the ticket email too: Review order goes there next.
+    typeName("Mia Tran", null);
+    fireEvent.click(review);
+    expect(screen.getByLabelText("Email for your tickets")).toHaveFocus();
     typeName("Mia Tran");
     fireEvent.click(review);
     const checkout = screen.getByRole("button", { name: "Checkout" });

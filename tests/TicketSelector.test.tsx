@@ -8,7 +8,7 @@ import { sampleEvents } from "@/lib/sample-events";
 import { setTrackingRef } from "@/lib/tracking-ref";
 import type { SheltuhEvent } from "@/lib/types";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
-import { typeName } from "./test-utils/buyerName";
+import { TEST_BUYER_EMAIL, typeName } from "./test-utils/buyerName";
 import { priceLine, addTicket } from "./test-utils/ticketCards";
 
 // Live mode: checkout is only offered when the API is configured.
@@ -187,7 +187,7 @@ describe("TicketSelector (live, signed in)", () => {
     );
   });
 
-  it("offers a way out of the account for a paid order: Not you? Sign out (this browser only), said and with focus on the name", () => {
+  it("offers a way out of the account for a paid order: Not you? Sign out (this browser only), said and with focus on the email", () => {
     const value = fakeAuthValue({ email: "mia@example.com" });
     render(
       <FakeAuthProvider value={value}>
@@ -195,14 +195,15 @@ describe("TicketSelector (live, signed in)", () => {
       </FakeAuthProvider>,
     );
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
-    const out = screen.getByRole("button", { name: "Not you? Sign out and book as a guest" });
+    const out = screen.getByRole("button", { name: "Not you? Sign out" });
     expect(out).toHaveClass("min-h-11");
     fireEvent.click(out);
     expect(value.signOut).toHaveBeenCalledWith("local");
-    // The panel's one status says what happens next, and focus lands on the name field (not lost with the button).
+    // The panel's one status says what happens next, and focus lands on the email field (not lost with the button).
     const status = screen.getAllByRole("status").find((el) => el.classList.contains("sr-only"));
-    expect(status).toHaveTextContent("Signed out. Stripe will ask for your email.");
-    expect(screen.getByLabelText("Your name")).toHaveFocus();
+    expect(status).toHaveTextContent("Signed out. Enter the email for your tickets.");
+    expect(document.body.textContent).not.toMatch(/Stripe will ask/);
+    expect(screen.getByLabelText("Email for your tickets")).toHaveFocus();
   });
 
   it("lets the buyer replace the prefilled email, including clearing it", () => {
@@ -211,21 +212,22 @@ describe("TicketSelector (live, signed in)", () => {
     const email = screen.getByLabelText("Email for your tickets");
     fireEvent.change(email, { target: { value: "" } });
     expect(email).toHaveValue("");
-    typeName();
+    typeName("Alex Doe", null);
     fireEvent.click(screen.getByRole("button", { name: "Free tickets" }));
     expect(screen.getByRole("alert")).toHaveTextContent("Enter the email address to send your tickets to.");
     expect(createCheckoutSession).not.toHaveBeenCalled();
   });
 
-  it("books paid tickets with the account email, and says so before Checkout", () => {
+  it("books paid tickets with the account email, prefilled in the field before Checkout", () => {
     createCheckoutSession.mockReturnValue(new Promise(() => {}));
     renderSignedIn("neon-static");
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
-    const hint = screen.getByText((_c, el) => el?.tagName === "P" && el.textContent?.startsWith("Booking as mia@example.com") === true);
-    expect(within(hint).getByText("mia@example.com")).toHaveClass("underline");
+    const email = screen.getByLabelText("Email for your tickets");
+    expect(email).toHaveValue("mia@example.com");
+    expect(screen.queryByText(/Booking as/)).toBeNull();
     const checkout = screen.getByRole("button", { name: "Checkout" });
-    // The hint is read before the button, not after it.
-    expect(hint.compareDocumentPosition(checkout) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The field is before the button, not after it.
+    expect(email.compareDocumentPosition(checkout) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     typeName();
     fireEvent.click(checkout);
     expect(createCheckoutSession).toHaveBeenCalledWith(
@@ -249,14 +251,22 @@ describe("TicketSelector (live, no auth)", () => {
     expect(screen.queryByText(/Booking as/)).toBeNull();
   });
 
-  it("sends no email with a signed-out paid order (Stripe collects it)", () => {
+  it("asks a signed-out paid order for its email too, and sends it trimmed (no account token)", () => {
     createCheckoutSession.mockReturnValue(new Promise(() => {}));
     render(<TicketSelector event={live("neon-static")} />);
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
     expect(screen.queryByText(/Booking as/)).toBeNull();
-    typeName();
+    expect(screen.queryByRole("button", { name: "Not you? Sign out" })).toBeNull();
+    const email = screen.getByLabelText("Email for your tickets");
+    expect(email).toHaveValue("");
+    typeName("Alex Doe", null);
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
-    expect(createCheckoutSession).toHaveBeenCalledWith(expect.any(String), expect.any(Array), undefined, undefined, undefined, undefined, "Alex Doe");
+    expect(createCheckoutSession).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter the email address to send your tickets to.");
+    fireEvent.change(email, { target: { value: "  fan@example.com " } });
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    expect(createCheckoutSession).toHaveBeenCalledWith(expect.any(String), expect.any(Array), "fan@example.com", undefined, undefined, undefined, "Alex Doe");
   });
 });
 
@@ -445,6 +455,53 @@ describe("TicketSelector (free tickets)", () => {
   });
 });
 
+describe("TicketSelector (the ticket email's checks)", () => {
+  it("a paid checkout refused for a mistyped domain: the error on the field, the server's suggestion, then it goes through", async () => {
+    const message = "That email address looks mistyped. Check the part after the @.";
+    createCheckoutSession
+      .mockRejectedValueOnce(
+        new ApiError(400, message, { buyerEmail: message }, { error: message, fieldErrors: { buyerEmail: message }, code: "email_typo", suggestion: "fan@gmail.com" }),
+      )
+      .mockReturnValueOnce(new Promise(() => {}));
+    render(<TicketSelector event={live("neon-static")} />);
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
+    const email = screen.getByLabelText("Email for your tickets");
+    fireEvent.change(email, { target: { value: "fan@gmail.con" } });
+    typeName();
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
+    // Only the field's own alert: the panel doesn't repeat it.
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    await waitFor(() => expect(email).toHaveFocus());
+    expect(screen.getByText(/Did you mean/)).toHaveTextContent("Did you mean fan@gmail.com?");
+    fireEvent.click(screen.getByRole("button", { name: "Use this" }));
+    expect(email).toHaveValue("fan@gmail.com");
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    expect(createCheckoutSession).toHaveBeenLastCalledWith(expect.any(String), expect.any(Array), "fan@gmail.com", undefined, undefined, undefined, "Alex Doe");
+  });
+
+  it("a hint for a likely typo shows when the buyer leaves the field, and never stops Checkout", () => {
+    createCheckoutSession.mockReturnValue(new Promise(() => {}));
+    render(<TicketSelector event={live("neon-static")} />);
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
+    const email = screen.getByLabelText("Email for your tickets");
+    fireEvent.change(email, { target: { value: "fan@hotmial.com" } });
+    fireEvent.blur(email);
+    expect(screen.getByText(/Did you mean/)).toHaveTextContent("Did you mean fan@hotmail.com?");
+    typeName();
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    expect(createCheckoutSession).toHaveBeenCalledWith(expect.any(String), expect.any(Array), "fan@hotmial.com", undefined, undefined, undefined, "Alex Doe");
+  });
+
+  it("no longer says Stripe will ask for the email", () => {
+    render(<TicketSelector event={live("neon-static")} />);
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
+    expect(document.body.textContent).not.toMatch(/Stripe will ask/);
+    expect(screen.getByText("You’ll pay on the next page, via Stripe.")).toBeInTheDocument();
+  });
+});
+
 describe("TicketSelector (tracking-link attribution)", () => {
   it("sends the tracking code remembered for this event, and only this event's", () => {
     createCheckoutSession.mockReturnValue(new Promise(() => {}));
@@ -455,7 +512,7 @@ describe("TicketSelector (tracking-link attribution)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
     typeName();
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
-    expect(createCheckoutSession).toHaveBeenCalledWith(event.id, expect.any(Array), undefined, "abcd2345", undefined, undefined, "Alex Doe");
+    expect(createCheckoutSession).toHaveBeenCalledWith(event.id, expect.any(Array), TEST_BUYER_EMAIL, "abcd2345", undefined, undefined, "Alex Doe");
   });
 });
 
@@ -616,7 +673,7 @@ describe("TicketSelector checkout focus and errors (WCAG 2.2)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Free entry" }));
     const email = screen.getByLabelText("Email for your tickets");
     const book = screen.getByRole("button", { name: "Free tickets" });
-    typeName();
+    typeName("Alex Doe", null);
     book.focus();
     fireEvent.click(book);
     await waitFor(() => expect(email).toHaveFocus());
@@ -1011,7 +1068,7 @@ describe("TicketSelector: group tickets", () => {
     expect(createCheckoutSession).toHaveBeenCalledWith(
       expect.any(String),
       [{ ticketTypeId: "group", quantity: 2 }],
-      undefined,
+      TEST_BUYER_EMAIL,
       undefined,
       undefined,
       undefined,
@@ -1072,9 +1129,11 @@ describe("TicketSelector: group tickets", () => {
 });
 
 describe("TicketSelector (buyer name)", () => {
+  /** One ticket chosen; a paid one's email typed in (every checkout asks for one), so the name is what's checked. */
   function chooseOne(slug = "neon-static", ticket = "General admission") {
     render(<TicketSelector event={live(slug)} />);
     fireEvent.click(screen.getByRole("button", { name: `Increase quantity for ${ticket}` }));
+    if (slug === "neon-static") fireEvent.change(screen.getByLabelText("Email for your tickets"), { target: { value: TEST_BUYER_EMAIL } });
     return screen.getByLabelText("Your name");
   }
 

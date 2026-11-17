@@ -9,6 +9,7 @@ import { encodeAvailability } from "@/lib/seating/availability";
 import type { SeatMapTemplate } from "@/lib/seating/template";
 import type { SheltuhEvent } from "@/lib/types";
 import { typeName } from "./test-utils/buyerName";
+import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 
 const { createSeatedCheckout, getSeatAvailability, cancelPendingOrder } = vi.hoisted(() => ({
   createSeatedCheckout: vi.fn(),
@@ -286,6 +287,7 @@ describe("seat page: checkout (§5.11)", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Enter your name.");
     await waitFor(() => expect(name).toHaveFocus());
     fireEvent.change(name, { target: { value: " Alex Doe " } });
+    fireEvent.change(screen.getByLabelText("Email for your tickets"), { target: { value: "alex@example.com" } });
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
     await waitFor(() => expect(createSeatedCheckout).toHaveBeenCalledTimes(1));
     expect(createSeatedCheckout.mock.calls[0][1].buyerName).toBe("Alex Doe");
@@ -389,6 +391,67 @@ const availability = (unavailable: number[], version = sample.version) => ({
   unavailable: encodeAvailability(sample.seatCount, unavailable),
 });
 const everySeat = Array.from({ length: sample.seatCount }, (_, i) => i);
+
+describe("seat page: the ticket email (every checkout, paid seats too)", () => {
+  const live: SheltuhEvent = { ...event, organiserId: "org-1" };
+
+  function choosePaidSeat() {
+    showList();
+    fireEvent.click(within(row("North, Row A")).getByRole("checkbox", { name: /^Seat 1, / }));
+  }
+
+  it("asks a paid order for its email, stops without one, and sends it trimmed with the seats", async () => {
+    createSeatedCheckout.mockReturnValue(new Promise(() => {}));
+    renderPicker({ event: live, mode: "live" });
+    choosePaidSeat();
+    const email = screen.getByLabelText("Email for your tickets");
+    expect(email).toHaveValue("");
+    typeName("Alex Doe", null);
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    expect(createSeatedCheckout).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter the email address to send your tickets to.");
+    await waitFor(() => expect(email).toHaveFocus());
+    fireEvent.change(email, { target: { value: " fan@example.com " } });
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    await waitFor(() => expect(createSeatedCheckout).toHaveBeenCalledTimes(1));
+    expect(createSeatedCheckout.mock.calls[0][1].buyerEmail).toBe("fan@example.com");
+    // A paid order goes without the account token (only a free one can be issued straight away).
+    expect(createSeatedCheckout.mock.calls[0][2]).toBeUndefined();
+  });
+
+  it("puts the server's refusal on the field, with its suggestion", async () => {
+    const message = "That email address can't receive email. Check the part after the @.";
+    createSeatedCheckout.mockRejectedValueOnce(
+      new ApiError(400, message, { buyerEmail: message }, { error: message, code: "email_no_mail", suggestion: "fan@outlook.com" }),
+    );
+    renderPicker({ event: live, mode: "live" });
+    choosePaidSeat();
+    const email = screen.getByLabelText("Email for your tickets");
+    fireEvent.change(email, { target: { value: "fan@outlok.co" } });
+    typeName();
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
+    await waitFor(() => expect(email).toHaveFocus());
+    expect(email).toHaveAttribute("aria-invalid", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Use this" }));
+    expect(email).toHaveValue("fan@outlook.com");
+  });
+
+  it("signed in: the account's email is filled in, with Not you? Sign out (this browser only)", async () => {
+    const value = fakeAuthValue({ email: "mia@example.com" });
+    render(
+      <FakeAuthProvider value={value}>
+        <SeatPicker event={live} map={map} mode="live" initialUnavailable={sample.unavailable} />
+      </FakeAuthProvider>,
+    );
+    choosePaidSeat();
+    expect(screen.getByLabelText("Email for your tickets")).toHaveValue("mia@example.com");
+    fireEvent.click(screen.getByRole("button", { name: "Not you? Sign out" }));
+    expect(value.signOut).toHaveBeenCalledWith("local");
+    expect(status()).toHaveTextContent("Signed out. Enter the email for your tickets.");
+    await waitFor(() => expect(screen.getByLabelText("Email for your tickets")).toHaveFocus());
+  });
+});
 
 describe("seat page: availability polling (§5.2)", () => {
   const live: SheltuhEvent = { ...event, organiserId: "org-1" };

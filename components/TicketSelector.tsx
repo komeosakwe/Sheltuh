@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Notice } from "@/components/ui/Section";
 import { useSetBuyBar } from "@/components/checkout/BuyBar";
 import { InfoIcon, LockIcon } from "@/components/checkout/icons";
+import BuyerEmailField from "@/components/checkout/BuyerEmailField";
 import BuyerNameField from "@/components/checkout/BuyerNameField";
 import SupportSheltuh, { SupportSummaryLine } from "@/components/checkout/SupportSheltuh";
 import WaitlistBlock from "@/components/waitlist/WaitlistBlock";
@@ -14,6 +15,7 @@ import { rememberCheckoutStarted, track } from "@/lib/analytics";
 import { createCheckoutSession } from "@/lib/api/orders";
 import { MAX_FREE_TICKETS_PER_ORDER } from "@/lib/api/types";
 import { buyerNameError } from "@/lib/buyer-details";
+import { buyerEmailError, emailSuggestionOf } from "@/lib/buyer-email";
 import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
 import { calculateOrderSummary, describeBookingFee, describeBookingFeeNote, sumOrderSummaries } from "@/lib/fees";
 import { formatAud, formatAudExact } from "@/lib/format";
@@ -31,7 +33,6 @@ import {
 } from "@/lib/support-choice";
 import { isSupportSheltuhEnabled } from "@/lib/support";
 import { getTrackingRef } from "@/lib/tracking-ref";
-import { dismissKeyboardOnEnter } from "@/lib/use-soft-keyboard";
 import type { SheltuhEvent, TicketType } from "@/lib/types";
 
 const NAME_FIELD_ID = "buyer-name";
@@ -42,7 +43,6 @@ const NAME_FIELD_ID = "buyer-name";
  */
 const quantityButtonClass =
   "flex size-stepper shrink-0 items-center justify-center bg-card text-xl leading-none text-foreground motion-safe:transition-colors hover:bg-surface aria-disabled:cursor-not-allowed aria-disabled:text-muted aria-disabled:hover:bg-card";
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** What a quantity of `ticket` is called to a screen reader: "3", or for a group ticket "2 groups, 8 tickets". */
 function quantityWords(ticket: TicketType, quantity: number): string {
@@ -75,14 +75,16 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   // The Booking fees (i): its short explanation, shown under the row once asked for.
   const [feeOpen, setFeeOpen] = useState(false);
   const idPrefix = useId();
-  // Signed in: the account's email is the default, since a ticket booked
-  // with it is also what lets them add themselves to Who's Going. Whatever
-  // they type replaces it. (Read optionally: this also renders without auth.)
+  // Every checkout's ticket email (paid and free). Signed in: the account's email is the default, since a ticket
+  // booked with it is also what lets them add themselves to Who's Going. Whatever they type replaces it. (Read
+  // optionally: this also renders without auth.)
   const auth = useOptionalAuth();
   const accountEmail = auth?.status === "signed-in" ? auth.email : undefined;
   const [typedEmail, setTypedEmail] = useState<string | null>(null);
   const buyerEmail = typedEmail ?? accountEmail ?? "";
   const [emailError, setEmailError] = useState<string | null>(null);
+  // The server's "Did you mean …?" for a refused address (400 email_typo / email_no_mail), until it changes.
+  const [emailSuggestion, setEmailSuggestion] = useState<string | null>(null);
   // The name shared with the organiser (lib/buyer-details.ts): every checkout, paid or free. Not prefilled.
   const [buyerName, setBuyerName] = useState("");
   const [nameError, setNameError] = useState<string | null>(null);
@@ -280,9 +282,10 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   // Every ticket on sale free: no payment step, but an emailed confirmation link.
   const allFree = pricedTicketTypes({ ...event, ticketTypes }).every((t) => t.priceCents === 0);
   const buyerPaysAFee = ticketTypes.some((t) => t.priceCents > 0 && t.feePolicy === "buyer-pays");
-  // Paid orders give Stripe an email at checkout; free ones skip Stripe, so
-  // this is the only way their tickets can reach the buyer.
-  const needsEmail = canCheckout && hasAnyTickets && orderTotal.totalCents === 0;
+  // Every order asks for the ticket email (owner decision): a paid one's is checked here and prefilled into
+  // Stripe's form, and a free one's is the only way its tickets reach the buyer.
+  const needsEmail = canCheckout && hasAnyTickets;
+  const freeOrder = hasAnyTickets && orderTotal.totalCents === 0;
   // Before anything is chosen there's no total to go by: the event's own
   // tickets decide whether this is a free booking.
   const freeBooking = hasAnyTickets ? orderTotal.totalCents === 0 : allFree;
@@ -291,6 +294,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
     if (!event.organiserId || submitting.current) return;
     setError(null);
     setEmailError(null);
+    setEmailSuggestion(null);
     setNameError(null);
     setSupportServerError(null);
     const nameProblem = buyerNameError(buyerName);
@@ -299,8 +303,9 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
       nameInputRef.current?.focus();
       return;
     }
-    if (needsEmail && !EMAIL_REGEX.test(buyerEmail.trim())) {
-      showEmailError("Enter the email address to send your tickets to.");
+    const emailProblem = needsEmail ? buyerEmailError(buyerEmail) : null;
+    if (emailProblem) {
+      showEmailError(emailProblem);
       return;
     }
     // An Other amount that can't be sent: say why, by its field, rather than checking out without it.
@@ -317,10 +322,8 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
       const lineItems = lineSummaries
         .filter((line) => line.quantity > 0)
         .map((line) => ({ ticketTypeId: line.ticket.id, quantity: line.quantity }));
-      // Free orders send the email typed (or prefilled) above. Paid orders
-      // send the account email when signed in, so Stripe prefills it and the
-      // tickets are booked with the email that Who's Going matches on.
-      const email = needsEmail ? buyerEmail.trim() : accountEmail;
+      // The email typed (or prefilled from the account) above, paid or free: Stripe's form is prefilled with it.
+      const email = buyerEmail.trim();
       // The tracking link they arrived through, if any (attribution only).
       // A free order sends the account's token when signed in: booked with
       // the account's own verified email, the API can issue the tickets
@@ -330,7 +333,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
         lineItems,
         email,
         getTrackingRef(event.id),
-        needsEmail && auth?.status === "signed-in" ? auth.getAccessToken : undefined,
+        freeOrder && auth?.status === "signed-in" ? auth.getAccessToken : undefined,
         // Paid orders only, and only when there is some (lib/api/orders.ts leaves 0 out). Part
         // of the checkout attempt's basket, so a changed amount gets a new idempotency key.
         supportCents > 0 ? supportCents : undefined,
@@ -350,7 +353,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
         // Coming Back to this page resets it (the pageshow listener above).
         return;
       }
-      setSentTo(email ?? "");
+      setSentTo(email);
       submitting.current = false;
       setLoading(false);
     } catch (err) {
@@ -365,7 +368,10 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
           setNameError(nameMessage);
           nameInputRef.current?.focus();
         }
-        if (emailMessage) showEmailError(emailMessage);
+        if (emailMessage) {
+          setEmailSuggestion(emailSuggestionOf(err));
+          showEmailError(emailMessage);
+        }
         if (supportByChips && supportMessage) setSupportServerError(supportMessage);
         const otherMessages = [...Object.values(others), supportByChips ? undefined : supportMessage].filter(Boolean).join(" ");
         if (otherMessages || (!nameMessage && !emailMessage && !supportByChips)) setError(otherMessages || err.message);
@@ -407,13 +413,13 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
     chooseRef.current();
   }, []);
 
-  // The desktop ticket panel's Review order: focus goes to the first field still to fill in (the name, a free
-  // order's email, an Other amount that can't be sent), else to Checkout. Nothing is checked out from there.
+  // The desktop ticket panel's Review order: focus goes to the first field still to fill in (the name, the
+  // email, an Other amount that can't be sent), else to Checkout. Nothing is checked out from there.
   const checkoutButtonRef = useRef<HTMLButtonElement>(null);
   function reviewOrder() {
     if (buyerNameError(buyerName)) {
       nameInputRef.current?.focus();
-    } else if (needsEmail && !EMAIL_REGEX.test(buyerEmail.trim())) {
+    } else if (needsEmail && buyerEmailError(buyerEmail)) {
       emailInputRef.current?.focus();
     } else if (offerSupport && supportErrorOf(support)) {
       supportInputRef.current?.focus();
@@ -504,11 +510,12 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   ) : null;
 
   // "Not you?": ends this browser's session only (as "wrong account" does elsewhere). The selection stays and the
-  // order goes the guest way, with Stripe asking for the email: said, and focus goes to the name field.
+  // order goes the guest way: the account's address leaves the field (unless they'd typed their own), said, and
+  // focus goes to the email field.
   function signOutHere() {
     auth?.signOut("local");
-    announce("Signed out. Stripe will ask for your email.");
-    nameInputRef.current?.focus();
+    announce("Signed out. Enter the email for your tickets.");
+    emailInputRef.current?.focus();
   }
 
   // One tier selected, as singles: "(2 × A$24.00)" says what the Tickets line is made of.
@@ -827,52 +834,22 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                   />
                 </div>
                 {needsEmail && (
-                  <div className="mt-4 flex flex-col gap-1">
-                    <label htmlFor="buyer-email" className="text-sm font-semibold">
-                      Email for your tickets
-                    </label>
-                    <input
-                      ref={emailInputRef}
+                  <div className="mt-4">
+                    <BuyerEmailField
                       id="buyer-email"
-                      type="email"
-                      autoComplete="email"
-                      name="email"
-                      inputMode="email"
-                      required
                       value={buyerEmail}
-                      onChange={(e) => setTypedEmail(e.target.value)}
-                      enterKeyHint="done"
-                      onKeyDown={dismissKeyboardOnEnter}
-                      aria-invalid={emailError ? true : undefined}
-                      aria-describedby={emailError ? "buyer-email-hint buyer-email-error" : "buyer-email-hint"}
-                      // 16px text so iOS doesn't zoom on focus, and a 48px target; the same look as the name field.
-                      className="min-h-12 rounded-card border-muted bg-card px-4 py-2 text-base aria-invalid:border-danger"
+                      onChange={(value) => {
+                        setTypedEmail(value);
+                        setEmailError(null);
+                        setEmailSuggestion(null);
+                      }}
+                      error={emailError}
+                      suggestion={emailSuggestion}
+                      inputRef={emailInputRef}
+                      look="panel"
+                      onSignOut={auth?.status === "signed-in" ? signOutHere : undefined}
                     />
-                    <p id="buyer-email-hint" className="text-sm text-muted">
-                      Tickets are sent here. Use your account email to join Who&rsquo;s Going.
-                    </p>
-                    {emailError && (
-                      <p id="buyer-email-error" role="alert" className="text-sm text-danger">
-                        {emailError}
-                      </p>
-                    )}
                   </div>
-                )}
-                {orderTotal.totalCents > 0 && accountEmail && (
-                  <p className="mt-3 flex flex-wrap items-center gap-x-3 text-base text-muted">
-                    <span className="break-all">
-                      Booking as <span className="text-foreground underline underline-offset-4">{accountEmail}</span>
-                    </span>
-                    {auth?.status === "signed-in" && (
-                      <button
-                        type="button"
-                        onClick={signOutHere}
-                        className="inline-flex min-h-11 items-center text-sm text-muted underline underline-offset-4"
-                      >
-                        Not you? Sign out and book as a guest
-                      </button>
-                    )}
-                  </p>
                 )}
               </div>
               {/* Right above Checkout, for paid orders only (the owner's placement). */}
