@@ -66,13 +66,17 @@ declare global {
   }
 }
 
+/** How long the script may take to load before it counts as failed (a request that hangs never fires load or error). */
+export const TURNSTILE_LOAD_TIMEOUT_MS = 30_000;
+
 let pending: { promise: Promise<TurnstileApi>; script: HTMLScriptElement } | null = null;
 
 /**
  * Cloudflare's script, added to the page once (a second call while it loads
  * waits for the same one; once loaded, `window.turnstile` is used). Rejects
- * if it can't load (offline, blocked by a content blocker); the failed script
- * is removed, so a later call tries again.
+ * if it can't load (offline, blocked by a content blocker) or hasn't within
+ * TURNSTILE_LOAD_TIMEOUT_MS; the failed script is removed, so a later call
+ * tries again.
  */
 export function loadTurnstile(): Promise<TurnstileApi> {
   if (window.turnstile) return Promise.resolve(window.turnstile);
@@ -82,12 +86,15 @@ export function loadTurnstile(): Promise<TurnstileApi> {
   script.async = true;
   const promise = new Promise<TurnstileApi>((resolve, reject) => {
     const fail = () => {
+      clearTimeout(deadline);
       if (pending?.script === script) pending = null;
       script.remove();
       reject(new Error("Cloudflare Turnstile couldn't be loaded."));
     };
+    const deadline = setTimeout(fail, TURNSTILE_LOAD_TIMEOUT_MS);
     script.addEventListener("load", () => {
       if (!window.turnstile) return fail();
+      clearTimeout(deadline);
       if (pending?.script === script) pending = null;
       resolve(window.turnstile);
     });

@@ -1,6 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { isCaptchaFailure, loadTurnstile, TURNSTILE_SCRIPT_URL, turnstileSiteKey, type TurnstileApi } from "@/lib/auth/turnstile";
+import {
+  isCaptchaFailure,
+  loadTurnstile,
+  TURNSTILE_LOAD_TIMEOUT_MS,
+  TURNSTILE_SCRIPT_URL,
+  turnstileSiteKey,
+  type TurnstileApi,
+} from "@/lib/auth/turnstile";
 
 const api: TurnstileApi = { render: () => "w1", reset: () => {}, remove: () => {} };
 
@@ -9,6 +16,7 @@ function scripts(): HTMLScriptElement[] {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllEnvs();
   Reflect.deleteProperty(window, "turnstile");
   for (const script of scripts()) script.remove();
@@ -46,6 +54,34 @@ describe("loadTurnstile", () => {
     await expect(attempt).rejects.toThrow("Cloudflare Turnstile couldn't be loaded.");
     expect(scripts()).toEqual([]);
     void loadTurnstile().catch(() => {});
+    expect(scripts()).toHaveLength(1);
+  });
+
+  it("rejects when the script neither loads nor fails in time, removes it, and a later call tries again", async () => {
+    vi.useFakeTimers();
+    const attempt = loadTurnstile();
+    const settled = vi.fn();
+    attempt.then(settled, settled);
+    await vi.advanceTimersByTimeAsync(TURNSTILE_LOAD_TIMEOUT_MS - 1);
+    expect(settled).not.toHaveBeenCalled();
+    expect(scripts()).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(attempt).rejects.toThrow("Cloudflare Turnstile couldn't be loaded.");
+    expect(scripts()).toEqual([]);
+    const retry = loadTurnstile();
+    expect(scripts()).toHaveLength(1);
+    window.turnstile = api;
+    scripts()[0].dispatchEvent(new Event("load"));
+    await expect(retry).resolves.toBe(api);
+  });
+
+  it("a script that loads in time isn't failed later by the deadline", async () => {
+    vi.useFakeTimers();
+    const attempt = loadTurnstile();
+    window.turnstile = api;
+    scripts()[0].dispatchEvent(new Event("load"));
+    await expect(attempt).resolves.toBe(api);
+    expect(vi.getTimerCount()).toBe(0);
     expect(scripts()).toHaveLength(1);
   });
 
