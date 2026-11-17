@@ -246,7 +246,9 @@ test.describe("organiser page at 390×844", () => {
             memberSince: "2026-03",
             featuredVideo: { provider: "youtube", id: "dQw4w9WgXcQ" },
             followerCount: 128,
-            eventsHosted: 14,
+            eventCount: 14,
+            profileTags: ["live-music"],
+            customTags: ["Late night"],
             upcomingEvents: [asPublic("neon-static", 9)],
             recentEvents: [],
           },
@@ -266,7 +268,8 @@ test.describe("organiser page at 390×844", () => {
 
     await page.goto(`/organisers/${ORG}`);
     await expect(page.getByRole("heading", { level: 1, name: "Northside Noise" })).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText("Events organised")).toBeVisible();
+    await expect(page.getByText("14 events")).toBeVisible();
+    await expect(page.getByText("128 followers")).toBeVisible();
     await expect(page.locator("iframe")).toHaveCount(0);
     expect(videoRequests.filter((u) => !u.includes("i.ytimg.com"))).toEqual([]);
     await shot(page, "organiser-390");
