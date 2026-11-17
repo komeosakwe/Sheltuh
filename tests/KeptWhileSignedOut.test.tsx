@@ -39,6 +39,8 @@ function CountMount({ name }: { name: keyof typeof mounts }) {
 vi.mock("@/components/dashboard/EventEditor", () => ({ default: () => <CountMount name="editor" /> }));
 vi.mock("@/components/dashboard/PublicProfileForm", () => ({ default: () => <CountMount name="profile" /> }));
 vi.mock("@/components/dashboard/OrganiserLogoField", () => ({ default: () => null }));
+vi.mock("@/components/dashboard/OrganiserCoverField", () => ({ default: () => null }));
+vi.mock("@/components/dashboard/OrganiserTagsField", () => ({ default: () => null }));
 
 const APPROVED = { organiserId: "org-1", status: "approved" } as const;
 const SIGNED_IN: Partial<AuthContextValue> = { status: "signed-in", userId: "user-a", email: "a@example.com" };

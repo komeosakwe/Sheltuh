@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { DotsLoader } from "@/components/brand/DotsMark";
-import { LOGO_TYPES, logoErrorMessage, logoFileError } from "@/components/dashboard/OrganiserLogoField";
+import { LOGO_TYPES, logoErrorMessage, logoFileError } from "@/components/dashboard/organiser-image-upload";
 import { Button, buttonClass } from "@/components/ui/Button";
 import { Notice } from "@/components/ui/Section";
 import ActionErrorNotice from "@/components/whos-going/ActionErrorNotice";
