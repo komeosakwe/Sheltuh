@@ -355,11 +355,6 @@ export async function adminSetEventImageDisplay(eventId: string, display: ImageD
   });
 }
 
-/** Moves (or, with null, clears) the focus point of any event's saved photo (logged `edited`). */
-export async function adminSetEventImageFocus(eventId: string, focus: ImageFocus | null, getToken: GetToken) {
-  return adminSetEventImageDisplay(eventId, { focus }, getToken);
-}
-
 /** Removes any event's photo (logged `edited` if it had one). */
 export async function adminDeleteEventImage(eventId: string, getToken: GetToken) {
   const token = await getToken();

@@ -204,7 +204,7 @@ export async function getMyEvent(eventId: string, getToken: GetToken) {
 /** Uploads (or replaces) the event's photo. Returns the updated event, whose `imageUrl` is the new version. */
 export async function uploadEventImage(eventId: string, image: Blob, getToken: GetToken, focus?: ImageFocus | null) {
   const token = await getToken();
-  return apiFetch<EventRecord>(`/events/${eventId}/image${focusQuery(focus)}`, { method: "PUT", body: image, token });
+  return apiFetch<EventRecord>(`/events/${encodeURIComponent(eventId)}/image${focusQuery(focus)}`, { method: "PUT", body: image, token });
 }
 
 /** `?fx=&fy=` for an upload's focus point (none: no query, so the photo has no focus). */
@@ -220,17 +220,12 @@ export function focusQuery(focus?: ImageFocus | null): string {
  */
 export async function setEventImageDisplay(eventId: string, display: ImageDisplayInput, getToken: GetToken) {
   const token = await getToken();
-  return apiFetch<EventRecord>(`/events/${eventId}/image`, { method: "PATCH", body: display, token });
-}
-
-/** Moves (or, with null, clears) the focus point of the event's saved photo. ApiError 409 when it has no photo or is locked. */
-export async function setEventImageFocus(eventId: string, focus: ImageFocus | null, getToken: GetToken) {
-  return setEventImageDisplay(eventId, { focus }, getToken);
+  return apiFetch<EventRecord>(`/events/${encodeURIComponent(eventId)}/image`, { method: "PATCH", body: display, token });
 }
 
 export async function deleteEventImage(eventId: string, getToken: GetToken) {
   const token = await getToken();
-  return apiFetch<EventRecord>(`/events/${eventId}/image`, { method: "DELETE", token });
+  return apiFetch<EventRecord>(`/events/${encodeURIComponent(eventId)}/image`, { method: "DELETE", token });
 }
 
 /**

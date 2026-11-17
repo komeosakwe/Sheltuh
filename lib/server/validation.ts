@@ -356,13 +356,6 @@ function focusValue(focus: unknown): { x: number; y: number } | null | undefined
   return fx === null || fy === null ? undefined : { x: fx, y: fy };
 }
 
-/** The focus in a request body: `{ focus: { x, y } }` or `{ focus: null }` (clear). A missing `focus` is a 400. */
-export function parseFocusBody(body: Record<string, unknown>): { x: number; y: number } | null {
-  const focus = "focus" in body ? focusValue(body.focus) : undefined;
-  if (focus === undefined) fail({ imageFocus: FOCUS_MESSAGE });
-  return focus;
-}
-
 const BANNER_FIT_MESSAGE = 'The banner fit must be "crop" or "whole".';
 
 /** What a PATCH of a saved photo's display changes: the focus only when `setFocus`, the fit only when not null. */

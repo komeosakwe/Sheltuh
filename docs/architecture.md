@@ -2833,8 +2833,7 @@ featured banner crops the photo or shows it whole.
   (`private.admin_set_event_image_display`, logged `edited` with
   `changes.bannerFit` `{old, new}`, nothing when unchanged). Like a focus
   change, it bumps the event's `updated_at` and leaves the photo's `?v=` alone.
-  Client: `setEventImageDisplay` / `adminSetEventImageDisplay` (`lib/api`;
-  `setEventImageFocus` / `adminSetEventImageFocus` wrap them).
+  Client: `setEventImageDisplay` / `adminSetEventImageDisplay` (`lib/api`).
 - **Reads.** `imageFocus: {x, y}` is on the event (absent without one), and
   `bannerFit: "whole"` only when whole (absent means `crop`, and always
   without a photo), including the public shape (list, slug, trending): neither
