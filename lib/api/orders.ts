@@ -1,6 +1,13 @@
 import { runCheckoutAttempt } from "./checkout-attempt";
 import { apiFetch, type GetToken } from "./client";
-import type { CheckoutResult, ConfirmFreeOrderResult, CustomerOrderLookup, OrderPaymentLookup } from "./types";
+import {
+  ORDER_ACCESS_HEADER,
+  type CheckoutResult,
+  type ConfirmFreeOrderResult,
+  type CustomerOrderLookup,
+  type OrderEmailChangeResult,
+  type OrderPaymentLookup,
+} from "./types";
 
 /** The wallets a ticket can be added to (CustomerOrder.wallet). */
 export type WalletProvider = "google" | "apple";
@@ -111,9 +118,45 @@ export async function confirmFreeOrder(token: string) {
  * A still-pending order (webhook hasn't landed yet) comes back with only
  * `status` set — no tickets, no totals. ApiError 404 for an unknown or
  * malformed id.
+ *
+ * `orderAccess`: the order's token from the checkout's answer
+ * (CheckoutResult.orderAccess), when this browser has it. It goes in the
+ * `x-order-access` header (never the URL), and the answer then also carries
+ * the full `email` and `emailChange`. Without it (any other device, or the
+ * ticket email's link), the masked email only, and none once the email has
+ * been changed.
  */
-export async function getOrderBySession(sessionId: string) {
-  return apiFetch<CustomerOrderLookup>(`/orders/by-session/${encodeURIComponent(sessionId)}`);
+export async function getOrderBySession(sessionId: string, orderAccess?: string) {
+  return apiFetch<CustomerOrderLookup>(`/orders/by-session/${encodeURIComponent(sessionId)}`, {
+    ...(orderAccess ? { headers: { [ORDER_ACCESS_HEADER]: orderAccess } } : {}),
+  });
+}
+
+/**
+ * Public, for the paying browser only — the buyer's one change of a paid
+ * order's email (OrderEmailChangeResult), with the order's token
+ * (`orderAccess`, sent as the `x-order-access` header, never in the URL).
+ * `getToken`: pass it when signed in, so the order can be moved to the
+ * account's own confirmed address (a token that can't be had is left off).
+ * ApiError: 404 unknown order or wrong token; 400 `fieldErrors.email`, or
+ * `code` `email_typo` / `email_no_mail` with an optional `suggestion` (read
+ * from `err.body`); 409 OrderEmailChangeErrorCode; 429 `rate_limited`.
+ */
+export async function changeOrderEmail(sessionId: string, email: string, orderAccess: string, getToken?: GetToken) {
+  let token: string | undefined;
+  if (getToken) {
+    try {
+      token = await getToken();
+    } catch {
+      token = undefined;
+    }
+  }
+  return apiFetch<OrderEmailChangeResult>(`/orders/by-session/${encodeURIComponent(sessionId)}/email`, {
+    method: "POST",
+    body: { email },
+    token,
+    headers: { [ORDER_ACCESS_HEADER]: orderAccess },
+  });
 }
 
 /**

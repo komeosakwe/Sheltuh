@@ -937,13 +937,25 @@ export function toCustomerOrder(row: Row): CustomerOrder {
   };
 }
 
-/** Admin view of a ticket-email job; append `where …`. Reads the order only for its reference, title and masked email. */
+/**
+ * Admin view of a ticket-email job; append `where …`. Reads the order only
+ * for its reference, title and masked email, and its newest 5 email changes
+ * (masked already in the database) by order_email_changes_order_idx.
+ */
 export const ADMIN_EMAIL_JOB_SELECT = `
   select j.id::text as id, j.kind, j.status, j.attempts, j.next_attempt_at, j.last_error,
          j.created_at, j.sent_at, j.last_resend_at,
-         o.id as order_id, o.status::text as order_status, o.event_title, o.buyer_email
+         o.id as order_id, o.status::text as order_status, o.event_title, o.buyer_email,
+         (select json_agg(json_strip_nulls(json_build_object(
+                   'changedBy', c.changed_by, 'reason', c.reason, 'oldMaskedEmail', c.old_email_masked,
+                   'newMaskedEmail', c.new_email_masked, 'changedAt', c.created_at))
+                 order by c.created_at desc, c.id desc)
+            from (select x.* from private.order_email_changes x
+                   where x.order_id = o.id order by x.created_at desc, x.id desc limit 5) c) as email_changes
     from private.email_outbox j
     join public.orders o on o.id = j.order_id`;
+
+type EmailChangeRow = { changedBy: "buyer" | "admin"; reason?: string; oldMaskedEmail?: string; newMaskedEmail: string; changedAt: string };
 
 export function toAdminEmailJob(row: Row): AdminEmailJob {
   const email = opt<string>(row.buyer_email);
@@ -962,6 +974,17 @@ export function toAdminEmailJob(row: Row): AdminEmailJob {
     orderStatus: row.order_status as AdminEmailJob["orderStatus"],
     eventTitle: row.event_title as string,
     maskedEmail: email ? maskEmail(email) : undefined,
+    ...(Array.isArray(row.email_changes) && row.email_changes.length > 0
+      ? {
+          emailChanges: (row.email_changes as EmailChangeRow[]).map((c) => ({
+            changedBy: c.changedBy,
+            ...(c.reason ? { reason: c.reason } : {}),
+            ...(c.oldMaskedEmail ? { oldMaskedEmail: c.oldMaskedEmail } : {}),
+            newMaskedEmail: c.newMaskedEmail,
+            changedAt: iso(c.changedAt),
+          })),
+        }
+      : {}),
   };
 }
 

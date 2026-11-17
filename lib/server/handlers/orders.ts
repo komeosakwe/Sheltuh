@@ -23,6 +23,7 @@ import { HttpError, ok, okPrivate, type RateWindow, readJson, tooManyRequests, w
 import { parseBuyerName, parseCheckoutLineItems, parseSupportCents, refuseSupportOnFreeOrder } from "../order-input";
 import { parseCheckoutSeats } from "../seat-map-input";
 import { orderAccessSecret } from "../order-access";
+import { withOrderEmail } from "../order-email-view";
 import { ORDER_ID_PATTERN, orderReference } from "../order-reference";
 import { payoutsSchemaMissing } from "../payout-schema";
 import { CUSTOMER_ORDER_SELECT, eventPlaceOf, ORDER_SELECT, toCustomerOrder, toOrder } from "../records";
@@ -1022,15 +1023,21 @@ export function walletEligible(lookup: CustomerOrderLookup): lookup is CustomerO
  * from the confirmation page's URL is the credential (guest checkout has no
  * account), so the response is only what that page shows (CustomerOrder),
  * never cached anywhere. A pending order reveals nothing but its status.
+ * The paying browser (the order's token in `x-order-access`, from the
+ * checkout's answer) also gets the full `email` and `emailChange`; anyone
+ * else gets the masked email only until the email is changed, and none after
+ * (withOrderEmail, ../order-email-view.ts).
  * For an order whose tickets can go in a wallet (walletEligible), `wallet`
  * says which wallets' passes are on, from the server's own configuration
  * (Deps.googleWallet / appleWallet), so the page never offers a button the
  * server would refuse.
  */
-export const getOrderBySession: Handler<{ sessionId: string }> = async (_req, { sessionId }, deps) => {
+export const getOrderBySession: Handler<{ sessionId: string }> = async (req, { sessionId }, deps) => {
   const lookup = await lookupCustomerOrder(deps.db, sessionId);
-  if (!walletEligible(lookup)) return okPrivate(lookup);
-  const order: CustomerOrder = { ...lookup, wallet: { google: !!deps.googleWallet(), apple: !!(await deps.appleWallet()) } };
+  if (lookup.status === "pending") return okPrivate(lookup);
+  const seen = await withOrderEmail(req, deps, sessionId, lookup);
+  if (!walletEligible(seen)) return okPrivate(seen);
+  const order: CustomerOrder = { ...seen, wallet: { google: !!deps.googleWallet(), apple: !!(await deps.appleWallet()) } };
   return okPrivate(order);
 };
 

@@ -4,6 +4,7 @@ import type { ImageFocus } from "@/lib/types";
 import type {
   AdminCreateInviteInput,
   AdminCreateOrganiserInput,
+  AdminChangeOrderEmailInput,
   AdminEmailJob,
   AdminInviteRecord,
   AdminInviteSendResult,
@@ -372,11 +373,32 @@ export async function adminResolveReport(reportId: string, input: ResolveReportI
   });
 }
 
-/** Ticket emails in one status, newest first (default view: `failed`). */
-export async function adminListEmailJobs(status: EmailJobStatus, getToken: GetToken, cursor?: string) {
+/**
+ * Ticket emails in one status, newest first (default view: `failed`). With
+ * `reference` (an order's short reference, "#7C1F2E0A" or "7c1f2e0a"): that
+ * order's ticket email in any status instead (`status` is ignored). ApiError
+ * 400 for a reference that isn't 8 hex characters.
+ */
+export async function adminListEmailJobs(status: EmailJobStatus, getToken: GetToken, cursor?: string, reference?: string) {
   const token = await getToken();
-  const qs = new URLSearchParams({ status, ...(cursor ? { cursor } : {}) });
+  const qs = new URLSearchParams({ status, ...(cursor ? { cursor } : {}), ...(reference ? { reference } : {}) });
   return apiFetch<Paginated<AdminEmailJob>>(`/admin/emails?${qs}`, { token });
+}
+
+/**
+ * Moves a ticket email's order to another address, with a reason, and sends
+ * the tickets there now (AdminChangeOrderEmailInput). Resolves to the job
+ * (with `emailChanges`). ApiError 400 `fieldErrors.email` / `fieldErrors.reason`
+ * or `code: "email_no_mail"`; 404 unknown job; 409 `order_not_card`,
+ * `order_not_paid` or `email_change_busy`; 429 over 20 changes an hour.
+ */
+export async function adminChangeOrderEmail(jobId: string, input: AdminChangeOrderEmailInput, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<AdminEmailJob>(`/admin/emails/${encodeURIComponent(jobId)}/change-email`, {
+    method: "POST",
+    body: input,
+    token,
+  });
 }
 
 /**
