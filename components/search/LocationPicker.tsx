@@ -233,7 +233,13 @@ export default function LocationPicker({
   useEffect(() => {
     const popover = popoverRef.current;
     if (!popover) return;
-    const isSheet = () => document.documentElement.clientWidth < SHEET_BELOW[mode];
+    // The same test as the CSS (max-lg: / max-md: are `width < …`): a media query counts the vertical
+    // scrollbar, clientWidth doesn't, so at 1024px with a scrollbar clientWidth alone would say "sheet"
+    // while the CSS lays out the inline bar. clientWidth stays the fallback where matchMedia is missing.
+    const isSheet = () =>
+      typeof window.matchMedia === "function"
+        ? window.matchMedia(`(width < ${SHEET_BELOW[mode]}px)`).matches
+        : document.documentElement.clientWidth < SHEET_BELOW[mode];
     function place() {
       const button = buttonRef.current;
       const bar = button?.closest("[data-search-bar]");

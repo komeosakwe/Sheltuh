@@ -699,6 +699,33 @@ describe("LocationPicker — breakpoints", () => {
       expect(within(panel).getByRole("button", { name: "Close", hidden: true }).parentElement).toHaveClass("md:hidden");
     });
   });
+
+  // CodeRabbit (PR 54): at a 1024px window with a 15px scrollbar, clientWidth is 1009 but the CSS (a media
+  // query, which counts the scrollbar) lays out the inline bar, so the list must be placed as the menu.
+  it("in the search bar at 1024px with a scrollbar, it follows the media query: placed as the 360px menu", () => {
+    const root = document.documentElement;
+    const own = Object.getOwnPropertyDescriptor(root, "clientWidth");
+    Object.defineProperty(root, "clientWidth", { configurable: true, get: () => 1009 });
+    window.matchMedia = ((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia;
+    try {
+      render(<SearchBar />);
+      const panel = openPanel();
+      expect(panel.style.width).toBe("360px");
+    } finally {
+      Reflect.deleteProperty(window, "matchMedia");
+      if (own) Object.defineProperty(root, "clientWidth", own);
+      else Reflect.deleteProperty(root, "clientWidth");
+    }
+  });
 });
 
 // CodeRabbit (PR 43): on Nearby nothing sends the typed words later, so they mustn't outlive the menu.
