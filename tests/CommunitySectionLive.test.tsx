@@ -149,19 +149,29 @@ describe("CommunitySection's scene cards in live mode", () => {
     const art = container.querySelector<HTMLElement>("[data-community-scene='art']");
     const music = container.querySelector<HTMLElement>("[data-community-scene='live-music']");
     const popups = container.querySelector<HTMLElement>("[data-community-scene='pop-up']");
-    if (!art || !music || !popups) throw new Error("no scene cards");
+    if (!art || !music) throw new Error("no scene cards");
     expect(art.querySelector("[data-scene-going]")).toHaveTextContent("17 going this week");
     expect(art.querySelector("[data-scene-meta]")).toHaveTextContent("3 events this month");
     // Popular without a count: no number.
     expect(music.querySelector("[data-scene-going]")).toBeNull();
     expect(music.querySelector("[data-scene-meta]")).toHaveTextContent("1 event this month");
-    // No pop-up events at all: the icon tile, no count, and says so.
-    expect(popups.querySelector("[data-scene-fallback]")).not.toBeNull();
-    expect(popups.querySelector("[data-scene-going]")).toBeNull();
-    expect(popups.querySelector("[data-scene-meta]")).toHaveTextContent("No upcoming events");
+    // No pop-up events at all: no card (Round 2 B3: no empty communities on the home).
+    expect(popups).toBeNull();
+    expect(container.querySelectorAll("[data-community-scene]")).toHaveLength(2);
+    expect(container.querySelector("[data-scene-fallback]")).toBeNull();
+    expect(container).not.toHaveTextContent("No upcoming events");
     expect(container.querySelector("[data-scenes-note]")).toBeNull();
     expect(container).not.toHaveTextContent(SCENES_DEMO_NOTE);
     expect(container.querySelector("#find-your-people")).not.toHaveTextContent(/friends|members|follow/i);
+  });
+
+  it("with no scene's events loaded: no scene list at all, and no note", async () => {
+    loadHomeEvents.mockReset().mockResolvedValue([event("theatre", "2026-10-22T08:00:00.000Z", "theatre")]);
+    loadHomeTrending.mockReset().mockResolvedValue([]);
+    const { container } = await renderLive();
+    expect(container.querySelector("[data-community-band]")).not.toBeNull();
+    expect(container.querySelector("[data-community-scenes]")).toBeNull();
+    expect(container.querySelector("[data-scenes-note]")).toBeNull();
   });
 
   it("leaves the event counts out when the loaded events may not be all of them", async () => {
@@ -169,7 +179,7 @@ describe("CommunitySection's scene cards in live mode", () => {
     loadHomeEvents.mockReset().mockResolvedValue(W);
     loadHomeTrending.mockReset().mockResolvedValue([]);
     const { container } = await renderLive();
-    expect(container.querySelectorAll("[data-community-scene]")).toHaveLength(3);
+    expect(container.querySelectorAll("[data-community-scene]")).toHaveLength(2);
     expect(container.querySelector("[data-scene-meta]")).toBeNull();
     expect(container.querySelector("[data-scene-going]")).toBeNull();
   });

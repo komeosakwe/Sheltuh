@@ -36,6 +36,10 @@ const NO_DATA: SceneData = { lead: null, going: null, meta: null };
  * labelled list of list items. Phones and tablets: a sideways snap row of 288px cards bleeding to
  * the page's edges (the home's row pattern, so the page never scrolls sideways); from 1024px,
  * three equal columns.
+ *
+ * Once the home's events have loaded, only the scenes with an upcoming event show (Round 2 B3: no
+ * empty communities on the home); with none, nothing at all (no list, no note). While they load,
+ * and when they failed (nothing says a scene is empty), all three show, on neutral tiles.
  */
 export default function SceneCards({ className = "" }: { className?: string }) {
   const home = useOptionalHomeEvents();
@@ -50,7 +54,9 @@ export default function SceneCards({ className = "" }: { className?: string }) {
         : NO_DATA;
     return { ...scene, label: category?.label ?? scene.category, icon: category?.icon ?? "all", data };
   });
-  const sample = scenes.some(({ data }) => data.going?.sample);
+  const shown = ready ? scenes.filter(({ data }) => data.lead !== null) : scenes;
+  const sample = shown.some(({ data }) => data.going?.sample);
+  if (shown.length === 0) return null;
 
   return (
     <div className={`min-w-0 ${className}`.trim()}>
@@ -59,7 +65,7 @@ export default function SceneCards({ className = "" }: { className?: string }) {
         data-community-scenes=""
         className="no-scrollbar -mx-4 flex snap-x snap-mandatory gap-4 overflow-x-auto overscroll-x-contain scroll-px-4 px-4 py-2 md:-mx-8 md:scroll-px-8 md:px-8 lg:mx-0 lg:grid lg:grid-cols-3 lg:overflow-visible lg:px-0 lg:py-0"
       >
-        {scenes.map(({ category, label, icon, line, data }) => (
+        {shown.map(({ category, label, icon, line, data }) => (
           <li key={category} data-community-scene={category} className="group/scene relative flex w-72 shrink-0 snap-start flex-col lg:w-auto lg:min-w-0">
             <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 pt-4">
               <h3 className="heading-h3 underline-offset-4 group-hover/scene:underline">{label}</h3>
