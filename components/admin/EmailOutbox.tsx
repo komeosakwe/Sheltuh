@@ -7,7 +7,13 @@ import { SelectedDots } from "@/components/ui/FilterChip";
 import { EmptyState, Notice } from "@/components/ui/Section";
 import { adminChangeOrderEmail, adminListEmailJobs, adminResendEmailJob } from "@/lib/api/admin";
 import { ApiError } from "@/lib/api/client";
-import type { AdminEmailJob, AdminOrderEmailChange, EmailJobStatus } from "@/lib/api/types";
+import {
+  ADMIN_EMAIL_CHANGE_REASON,
+  type AdminEmailJob,
+  type AdminOrderEmailChange,
+  type AdminOrderEmailChangeResult,
+  type EmailJobStatus,
+} from "@/lib/api/types";
 import { buyerEmailError } from "@/lib/buyer-email";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useAdminSummary } from "@/components/admin/AdminSummaryProvider";
@@ -31,9 +37,8 @@ type LoadState =
 /** An order's short reference as typed: 8 hex characters, with or without "#" (the API takes either). */
 const REFERENCE = /^#?([0-9a-f]{8})$/i;
 
-/** The reason's length, as the API checks it (ADMIN_EMAIL_CHANGE_REASON). */
-const REASON_MIN = 3;
-const REASON_MAX = 500;
+/** The reason's length, as the API checks it. */
+const { min: REASON_MIN, max: REASON_MAX } = ADMIN_EMAIL_CHANGE_REASON;
 
 function errorText(err: unknown, fallback: string) {
   return err instanceof ApiError && err.status >= 400 && err.status < 500 ? err.message : fallback;
@@ -79,7 +84,12 @@ export default function EmailOutbox() {
     let cancelled = false;
     (reference ? adminListEmailJobs(status, getToken, undefined, reference) : adminListEmailJobs(status, getToken)).then(
       (page) => {
-        if (!cancelled) setResult({ key, state: { status: "ready", items: page.items, nextCursor: page.nextCursor } });
+        if (cancelled) return;
+        setResult({ key, state: { status: "ready", items: page.items, nextCursor: page.nextCursor } });
+        // Find's answer, said once it's in (the list's heading already names the order).
+        if (reference) {
+          setAnnouncement(page.items.length > 0 ? `Found order ${reference}.` : `No ticket email for order ${reference}.`);
+        }
       },
       (err: unknown) => {
         if (!cancelled) setResult({ key, state: { status: "error", message: errorText(err, "Couldn’t load emails.") } });
@@ -91,27 +101,27 @@ export default function EmailOutbox() {
   }, [status, reference, getToken, key]);
 
   /**
-   * After a resend: a job still in this view is updated in place; one whose
-   * new status belongs to another view (a failed email is now retrying)
-   * leaves the list, and focus moves to the next email (or the previous one,
-   * or the list heading when none are left).
+   * A job the API has just answered with (after a resend or an email change):
+   * still in this view (one order's, found by reference, stays whatever its
+   * status; a status list keeps the jobs with its status), it's updated in
+   * place and `said`, with focus on `focusInPlace` if given; otherwise (a
+   * failed email is now retrying) it leaves the list, `said` with where it's
+   * gone, and focus moves to the next email (or the previous one, or the list
+   * heading when none are left).
    */
-  function resent(job: AdminEmailJob) {
+  function jobUpdated(job: AdminEmailJob, said: string, focusInPlace?: string) {
     adminSummary?.refresh(); // The hub's and sub-nav's failed count.
-    const label = STATUSES.find((s) => s.value === job.status)?.label ?? job.status;
-    // One order's email (found by reference) stays, whatever its status now.
     if (reference || job.status === status) {
       setResult((current) =>
         current && current.key === key && current.state.status === "ready"
-          ? {
-              key,
-              state: { ...current.state, items: current.state.items.map((j) => (j.jobId === job.jobId ? job : j)) },
-            }
+          ? { key, state: { ...current.state, items: current.state.items.map((j) => (j.jobId === job.jobId ? job : j)) } }
           : current,
       );
-      setAnnouncement(`Resending the email for order ${job.orderReference}.`);
+      if (focusInPlace) focusAfterRemoval.current = focusInPlace;
+      setAnnouncement(said);
       return;
     }
+    const label = STATUSES.find((s) => s.value === job.status)?.label ?? job.status;
     if (state.status === "ready") {
       const index = state.items.findIndex((j) => j.jobId === job.jobId);
       const neighbour = state.items[index + 1] ?? state.items[index - 1];
@@ -122,29 +132,24 @@ export default function EmailOutbox() {
         ? { key, state: { ...current.state, items: current.state.items.filter((j) => j.jobId !== job.jobId) } }
         : current,
     );
-    setAnnouncement(`Resending the email for order ${job.orderReference}. It’s moved to ${label}.`);
+    setAnnouncement(`${said} It’s moved to ${label}.`);
+  }
+
+  function resent(job: AdminEmailJob) {
+    jobUpdated(job, `Resending the email for order ${job.orderReference}.`);
   }
 
   /**
-   * After an email change: the job (with its history) in place, and said; focus on its heading (the form, which had
-   * it, is gone). `changed` false: it was already that address, so nothing changed.
+   * After an email change: the job (with its history) as the API has it now, and said; focus on its heading (the
+   * form, which had it, is gone), or the next email's when it has left this status's list.
    */
-  function emailChanged(job: AdminEmailJob, changed: boolean) {
-    adminSummary?.refresh();
-    replaceJob(job);
-    focusAfterRemoval.current = jobHeadingId(job);
-    setAnnouncement(
-      changed
+  function emailChanged({ result, job }: AdminOrderEmailChangeResult) {
+    jobUpdated(
+      job,
+      result === "changed"
         ? `Email changed for order ${job.orderReference}. The tickets are being sent to the new address.`
         : `That’s already the email for order ${job.orderReference}. Nothing changed.`,
-    );
-  }
-
-  function replaceJob(job: AdminEmailJob) {
-    setResult((current) =>
-      current && current.key === key && current.state.status === "ready"
-        ? { key, state: { ...current.state, items: current.state.items.map((j) => (j.jobId === job.jobId ? job : j)) } }
-        : current,
+      jobHeadingId(job),
     );
   }
 
@@ -158,7 +163,10 @@ export default function EmailOutbox() {
     }
     setReferenceError(null);
     setAnnouncement("");
-    setReference(`#${match[1].toUpperCase()}`);
+    const next = `#${match[1].toUpperCase()}`;
+    // The same order again: look it up again (it may have changed), and say so again.
+    if (next === reference) setAttempt((n) => n + 1);
+    else setReference(next);
   }
 
   function clearReference() {
@@ -174,7 +182,10 @@ export default function EmailOutbox() {
     setLoadingMore(true);
     setMoreError(null);
     try {
-      const page = await adminListEmailJobs(status, getToken, state.nextCursor);
+      // The same list it continues: a status's, or one order's (found by reference).
+      const page = reference
+        ? await adminListEmailJobs(status, getToken, state.nextCursor, reference)
+        : await adminListEmailJobs(status, getToken, state.nextCursor);
       const known = new Set(state.items.map((j) => j.jobId));
       // Only onto the list it was loaded for: another filter may be showing by now.
       setResult((current) =>
@@ -227,7 +238,7 @@ export default function EmailOutbox() {
       </div>
 
       <form role="search" aria-label="Find an order" noValidate onSubmit={findOrder} className="flex flex-wrap items-end gap-2">
-        <div className="flex min-w-0 flex-1 basis-56 flex-col gap-1">
+        <div className="flex w-full max-w-xs min-w-0 flex-col gap-1">
           <label htmlFor="email-order-reference" className="eyebrow text-muted">
             Find an order by reference
           </label>
@@ -333,7 +344,7 @@ function EmailJobItem({
   job: AdminEmailJob;
   getToken: () => Promise<string>;
   onResent: (job: AdminEmailJob) => void;
-  onEmailChanged: (job: AdminEmailJob, changed: boolean) => void;
+  onEmailChanged: (outcome: AdminOrderEmailChangeResult) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -412,7 +423,7 @@ function EmailJobItem({
             getToken={getToken}
             onDone={(outcome) => {
               setChanging(false);
-              if (outcome) onEmailChanged(outcome.job, outcome.changed);
+              if (outcome) onEmailChanged(outcome);
               else refocusChange.current = true;
             }}
           />
@@ -454,7 +465,7 @@ function EmailJobItem({
 function EmailChangeHistory({ changes }: { changes: AdminOrderEmailChange[] }) {
   return (
     <div className="flex flex-col gap-1">
-      <p className="text-sm font-semibold">Email changes</p>
+      <h4 className="text-sm font-semibold">Email changes</h4>
       <ul className="flex flex-col gap-2 text-sm">
         {changes.map((change, index) => (
           <li key={`${change.changedAt}-${index}`} className="border-l-2 border-surface-border pl-3">
@@ -476,7 +487,7 @@ function EmailChangeHistory({ changes }: { changes: AdminOrderEmailChange[] }) {
  * Support moves the order to another address and the tickets are sent there
  * now: any time, any address (checked for mail, not against the typo list:
  * support has confirmed it with the buyer), with a reason that's logged.
- * `onDone({job, changed})` once the API has answered (`changed` false for the
+ * `onDone({result, job})` once the API has answered (`unchanged` for the
  * same address: nothing was done); `onDone(null)` on Cancel.
  */
 function ChangeEmailForm({
@@ -486,7 +497,7 @@ function ChangeEmailForm({
 }: {
   job: AdminEmailJob;
   getToken: () => Promise<string>;
-  onDone: (outcome: { job: AdminEmailJob; changed: boolean } | null) => void;
+  onDone: (outcome: AdminOrderEmailChangeResult | null) => void;
 }) {
   const id = useId();
   const emailId = `${id}-email`;
@@ -528,10 +539,7 @@ function ChangeEmailForm({
     }
     setBusy(true);
     try {
-      const updated = await adminChangeOrderEmail(job.jobId, { email: email.trim(), reason: trimmed }, getToken);
-      // The same address is a 200 with nothing logged: the newest change is the one there was before.
-      const changed = (updated.emailChanges?.[0]?.changedAt ?? null) !== (job.emailChanges?.[0]?.changedAt ?? null);
-      onDone({ job: updated, changed });
+      onDone(await adminChangeOrderEmail(job.jobId, { email: email.trim(), reason: trimmed }, getToken));
     } catch (err) {
       setBusy(false);
       if (err instanceof ApiError && err.fieldErrors && (err.fieldErrors.email || err.fieldErrors.reason)) {
@@ -546,7 +554,13 @@ function ChangeEmailForm({
   }
 
   return (
-    <form noValidate onSubmit={submit} aria-label={`Change email for order ${job.orderReference}`} className="flex max-w-md flex-col gap-3">
+    <form
+      noValidate
+      onSubmit={submit}
+      aria-label={`Change email for order ${job.orderReference}`}
+      // A hairline sets the form apart from the order's details and history above it.
+      className="mt-2 flex max-w-md flex-col gap-3 border-t border-surface-border pt-4"
+    >
       <div className="flex flex-col gap-1">
         <label htmlFor={emailId} className="eyebrow text-muted">
           New email

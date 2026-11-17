@@ -6,6 +6,7 @@ import type {
   AdminCreateOrganiserInput,
   AdminChangeOrderEmailInput,
   AdminEmailJob,
+  AdminOrderEmailChangeResult,
   AdminInviteRecord,
   AdminInviteSendResult,
   AdminMemberProfile,
@@ -387,14 +388,15 @@ export async function adminListEmailJobs(status: EmailJobStatus, getToken: GetTo
 
 /**
  * Moves a ticket email's order to another address, with a reason, and sends
- * the tickets there now (AdminChangeOrderEmailInput). Resolves to the job
+ * the tickets there now (AdminChangeOrderEmailInput). Resolves to
+ * AdminOrderEmailChangeResult: whether it changed, and the job as it is now
  * (with `emailChanges`). ApiError 400 `fieldErrors.email` / `fieldErrors.reason`
  * or `code: "email_no_mail"`; 404 unknown job; 409 `order_not_card`,
  * `order_not_paid` or `email_change_busy`; 429 over 20 changes an hour.
  */
 export async function adminChangeOrderEmail(jobId: string, input: AdminChangeOrderEmailInput, getToken: GetToken) {
   const token = await getToken();
-  return apiFetch<AdminEmailJob>(`/admin/emails/${encodeURIComponent(jobId)}/change-email`, {
+  return apiFetch<AdminOrderEmailChangeResult>(`/admin/emails/${encodeURIComponent(jobId)}/change-email`, {
     method: "POST",
     body: input,
     token,

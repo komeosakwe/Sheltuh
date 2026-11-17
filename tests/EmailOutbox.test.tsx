@@ -179,11 +179,27 @@ describe("EmailOutbox: find an order, change its email", () => {
     fireEvent.click(within(search).getByRole("button", { name: "Find" }));
     expect(await screen.findByRole("heading", { name: "Ticket email for order #7C1F2E0A" })).toBeInTheDocument();
     expect(adminListEmailJobs).toHaveBeenLastCalledWith("failed", expect.any(Function), undefined, "#7C1F2E0A");
+    // Said once the answer is in (the search's button keeps focus).
+    expect(await screen.findByRole("status")).toHaveTextContent("Found order #7C1F2E0A.");
+    // The field is a reference's width, not the page's.
+    expect(input.parentElement).toHaveClass("max-w-xs");
     expect(screen.getByRole("heading", { name: "Order #7C1F2E0A: Neon Static" })).toBeInTheDocument();
     // No status filter is selected while one order is shown.
     for (const filter of within(screen.getByRole("group", { name: "Show emails" })).getAllByRole("button")) {
       expect(filter).toHaveAttribute("aria-pressed", "false");
     }
+
+    // An order with no ticket email: said too. The same reference again looks it up again.
+    adminListEmailJobs.mockResolvedValueOnce({ items: [] });
+    fireEvent.change(input, { target: { value: "#0000beef" } });
+    fireEvent.click(within(search).getByRole("button", { name: "Find" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("No ticket email for order #0000BEEF."));
+    expect(screen.getByText("No ticket email for order #0000BEEF")).toBeInTheDocument();
+    const calls = adminListEmailJobs.mock.calls.length;
+    adminListEmailJobs.mockResolvedValueOnce({ items: [] });
+    fireEvent.click(within(search).getByRole("button", { name: "Find" }));
+    await waitFor(() => expect(adminListEmailJobs).toHaveBeenCalledTimes(calls + 1));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("No ticket email for order #0000BEEF."));
 
     adminListEmailJobs.mockResolvedValueOnce({ items: [] });
     fireEvent.click(within(search).getByRole("button", { name: "Clear" }));
@@ -194,9 +210,10 @@ describe("EmailOutbox: find an order, change its email", () => {
 
   it("changes a paid order's email with a reason, then shows the change and says so", async () => {
     adminListEmailJobs.mockResolvedValue({ items: [job()] });
-    adminChangeOrderEmail.mockResolvedValue(
-      job({
-        status: "pending",
+    adminChangeOrderEmail.mockResolvedValue({
+      result: "changed",
+      job: job({
+        status: "failed",
         attempts: 0,
         lastError: undefined,
         maskedEmail: "j***@example.com",
@@ -205,7 +222,7 @@ describe("EmailOutbox: find an order, change its email", () => {
           { changedBy: "buyer", oldMaskedEmail: "m***@gmail.con", newMaskedEmail: "m***@example.com", changedAt: "2026-11-16T01:00:00.000Z" },
         ],
       }),
-    );
+    });
     renderOutbox();
     const item = (await screen.findByRole("heading", { name: "Order #7C1F2E0A: Neon Static" })).closest("article")!;
     const open = within(item).getByRole("button", { name: "Change email" });
@@ -237,11 +254,53 @@ describe("EmailOutbox: find an order, change its email", () => {
     const updated = screen.getByRole("heading", { name: "Order #7C1F2E0A: Neon Static" }).closest("article")!;
     expect(within(updated).queryByRole("form")).toBeNull();
     expect(within(updated).getByText("j***@example.com")).toBeInTheDocument();
-    expect(within(updated).getByText("Email changes")).toBeInTheDocument();
+    expect(within(updated).getByRole("heading", { level: 4, name: "Email changes" })).toBeInTheDocument();
     expect(within(updated).getByText("m***@example.com → j***@example.com")).toBeInTheDocument();
     expect(within(updated).getByText("Reason: Buyer called to fix a typo")).toBeInTheDocument();
     expect(within(updated).getByText(/^By the buyer,/)).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("heading", { name: "Order #7C1F2E0A: Neon Static" })).toHaveFocus());
+  });
+
+  it("a changed email that has left this status's list goes, focus on the next one; the same address says nothing changed", async () => {
+    adminListEmailJobs.mockResolvedValue({ items: [job(), job({ jobId: "8", orderReference: "#8D2A3B1C" })] });
+    // The failed job is pending again once its order's email changes: it belongs to Retrying automatically now.
+    adminChangeOrderEmail.mockResolvedValueOnce({ result: "changed", job: job({ status: "pending", attempts: 0, maskedEmail: "j***@example.com" }) });
+    renderOutbox();
+    const item = (await screen.findByRole("heading", { name: "Order #7C1F2E0A: Neon Static" })).closest("article")!;
+    fireEvent.click(within(item).getByRole("button", { name: "Change email" }));
+    const form = within(item).getByRole("form");
+    expect(form).toHaveClass("border-t");
+    fireEvent.change(within(form).getByLabelText("New email"), { target: { value: "jo@example.com" } });
+    fireEvent.change(within(form).getByLabelText("Reason"), { target: { value: "Buyer phoned" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Change and send" }));
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Order #7C1F2E0A: Neon Static" })).toBeNull());
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Email changed for order #7C1F2E0A. The tickets are being sent to the new address. It’s moved to Retrying automatically.",
+    );
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Order #8D2A3B1C: Neon Static" })).toHaveFocus());
+
+    // The same address (result unchanged, whatever the history says): nothing changed, and it stays.
+    adminChangeOrderEmail.mockResolvedValueOnce({ result: "unchanged", job: job({ jobId: "8", orderReference: "#8D2A3B1C" }) });
+    const other = screen.getByRole("heading", { name: "Order #8D2A3B1C: Neon Static" }).closest("article")!;
+    fireEvent.click(within(other).getByRole("button", { name: "Change email" }));
+    fireEvent.change(within(other).getByLabelText("New email"), { target: { value: "m@example.com" } });
+    fireEvent.change(within(other).getByLabelText("Reason"), { target: { value: "Buyer phoned" } });
+    fireEvent.click(within(other).getByRole("button", { name: "Change and send" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("That’s already the email for order #8D2A3B1C. Nothing changed."));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Order #8D2A3B1C: Neon Static" })).toHaveFocus());
+  });
+
+  it("Load more on a found order's list keeps to that order", async () => {
+    adminListEmailJobs.mockImplementation(async (_status: string, _getToken: unknown, cursor?: string, reference?: string) =>
+      reference && !cursor ? { items: [job()], nextCursor: "c1" } : { items: [] },
+    );
+    renderOutbox();
+    await screen.findByText("Nothing has failed");
+    const search = screen.getByRole("search", { name: "Find an order" });
+    fireEvent.change(within(search).getByLabelText("Find an order by reference"), { target: { value: "7c1f2e0a" } });
+    fireEvent.click(within(search).getByRole("button", { name: "Find" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Load more" }));
+    await waitFor(() => expect(adminListEmailJobs).toHaveBeenLastCalledWith("failed", expect.any(Function), "c1", "#7C1F2E0A"));
   });
 
   it("puts the API's refusals on the fields, and a busy order as a notice", async () => {
