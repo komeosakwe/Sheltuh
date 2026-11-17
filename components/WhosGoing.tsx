@@ -310,7 +310,7 @@ export default function WhosGoing() {
         {state.status === "error" && (
           <div className="flex flex-col items-start gap-3">
             <Notice tone="danger">{LOAD_ERROR}</Notice>
-            <Button variant="outline" size="sm" className="min-h-11" onClick={tryAgain}>
+            <Button variant="outline" size="md" onClick={tryAgain}>
               Try again
             </Button>
           </div>
@@ -367,10 +367,11 @@ export default function WhosGoing() {
         {listShown && (
           <Button
             variant="outline"
+            size="md"
             aria-expanded={listOpen}
             aria-controls={listOpen ? "wg-list" : undefined}
             onClick={toggleList}
-            className={`min-h-11 w-full gap-2 sm:w-auto ${countShown || others ? "mt-4" : ""}`.trim()}
+            className={`w-full gap-2 sm:w-auto ${countShown || others ? "mt-4" : ""}`.trim()}
           >
             See who&rsquo;s going
             <ChevronIcon open={listOpen} />
@@ -416,7 +417,7 @@ export default function WhosGoing() {
         {signedIn?.namesRateLimited && (
           <div className="flex flex-col items-start gap-3">
             <p className="text-sm">{RATE_LIMITED}</p>
-            <Button variant="outline" size="sm" className="min-h-11" onClick={tryAgain}>
+            <Button variant="outline" size="md" onClick={tryAgain}>
               Try again
             </Button>
           </div>

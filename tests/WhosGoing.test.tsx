@@ -265,7 +265,11 @@ describe("Who's Going — loading and errors", () => {
     expect(summaryCard()).toBeNull();
 
     api.getGoingSummary.mockResolvedValueOnce(summary(4));
-    fireEvent.click(within(region).getByRole("button", { name: "Try again" }));
+    // The standard Secondary M (48px), not a small button stretched to 44.
+    const retry = within(region).getByRole("button", { name: "Try again" });
+    expect(retry).toHaveClass("btn", "btn-outline");
+    expect(retry.className).not.toMatch(/btn-sm|min-h-11/);
+    fireEvent.click(retry);
     await waitFor(() => expect(within(region).getByText("4").closest("p")).toHaveTextContent("4 going"));
     expect(api.getGoingSummary).toHaveBeenCalledTimes(2);
     expect(liveRegion(region)).toBeEmptyDOMElement();
@@ -394,6 +398,7 @@ describe("Who's Going — signed in", () => {
     expect(within(region).getByRole("button", { name: "Show me as going" })).toBeInTheDocument();
 
     api.listGoingAttendees.mockResolvedValue({ items: people(4) });
+    expect(within(region).getByRole("button", { name: "Try again" }).className).not.toMatch(/btn-sm|min-h-11/);
     fireEvent.click(within(region).getByRole("button", { name: "Try again" }));
     await waitFor(() => expect(within(region).getByRole("button", { name: "See who’s going" })).toBeInTheDocument());
     openList(region);
