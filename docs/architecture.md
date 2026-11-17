@@ -78,9 +78,10 @@ iframe served by Stripe), with the publishable key
 
 | Table | Key | Notes |
 |---|---|---|
-| `organisers` | `id` | `owner_user_id` is unique, one application per account. It's null for platform-managed organisers (events Sheltüh lists on someone's behalf, and seed data), which admins create (`POST /admin/organisers`), which sell no paid Sheltüh tickets, and whose events only admins check in (see "Admin authoring" and "Check-in"); their `contact_email` should be a Sheltüh alias, never a person's own address (`docs/supabase-setup.md`); check constraint `organisers_platform_no_payouts`: such an organiser has no Stripe account and no payouts. `status`: pending → approved / rejected. Also holds the Stripe Connect account id and `payouts_enabled`. Optional social handles (`instagram_handle`, `tiktok_handle`, `facebook_page`, `x_handle`), stored without `@` and pattern-checked by the database, and four path-style links (`spotify_path`, `soundcloud_handle`, `youtube_channel`, `linkedin_path`; `20261121000000_organiser_more_socials.sql`, see "Organiser profiles"); `website_url` must be http(s), at most 2048 characters (check constraint; the API only takes new `https://` addresses, see "Organiser profiles"). An admin takedown sets `rejected` (see "Organiser profiles"). `featured_video_provider` (`youtube` or `vimeo`) and `featured_video_id`: the featured video, provider and id only, never a URL (check constraint `organisers_featured_video_check`: both or neither, id pattern per provider). `event_review_required` (default false; `20261111000000_event_publish_now.sql`): an admin's switch that sends every publish of this organiser's events to the review queue (see "Publishing events"), changed only through `private.set_event_review_required` and logged in `organiser_profile_edits`. |
+| `organisers` | `id` | `owner_user_id` is unique, one application per account. It's null for platform-managed organisers (events Sheltüh lists on someone's behalf, and seed data), which admins create (`POST /admin/organisers`), which sell no paid Sheltüh tickets, and whose events only admins check in (see "Admin authoring" and "Check-in"); their `contact_email` should be a Sheltüh alias, never a person's own address (`docs/supabase-setup.md`); check constraint `organisers_platform_no_payouts`: such an organiser has no Stripe account and no payouts. `status`: pending → approved / rejected. Also holds the Stripe Connect account id and `payouts_enabled`. Optional social handles (`instagram_handle`, `tiktok_handle`, `facebook_page`, `x_handle`), stored without `@` and pattern-checked by the database, and four path-style links (`spotify_path`, `soundcloud_handle`, `youtube_channel`, `linkedin_path`; `20261121000000_organiser_more_socials.sql`, see "Organiser profiles"); `website_url` must be http(s), at most 2048 characters (check constraint; the API only takes new `https://` addresses, see "Organiser profiles"). An admin takedown sets `rejected` (see "Organiser profiles"). `featured_video_provider` (`youtube` or `vimeo`) and `featured_video_id`: the featured video, provider and id only, never a URL (check constraint `organisers_featured_video_check`: both or neither, id pattern per provider). `event_review_required` (default false; `20261111000000_event_publish_now.sql`): an admin's switch that sends every publish of this organiser's events to the review queue (see "Publishing events"), changed only through `private.set_event_review_required` and logged in `organiser_profile_edits`. `profile_tags` (nullable) and `custom_tags` (default `{}`; `20261128000100_organiser_tags.sql`): the chips on the public profile, separate from the reviewed `categories` (see "Organiser profiles", "Categories"); check constraints `organisers_profile_tags_check` (at most 5, from the 18 slugs) and `organisers_custom_tags_check` (at most 2, at most 5 in all, none while `profile_tags` is null), and trigger `organisers_custom_tags_valid` (each newly added own word passes `private.organiser_custom_tag_ok`; no repeats). |
 | `private.organiser_profile_edits` | `id` (identity) | Append-only log per organiser: each profile edit made without review (`profile_edit`: old and new value of each changed field, by the owner, or by an admin with a reason: removing the featured video, logged as `featured_video` `"provider:id"`, or the logo, logged as `logo` with its version), each admin takedown (`suspended`, with the admin and reason; a takedown must have a reason), the organiser's creation by an accepted admin invite or an organiser link, or a link's approval of their pending application (`invite_accepted`, by the new owner: `status` null or pending → approved; see "Account invites" and "Organiser links"), and an admin's review switch (a `profile_edit` by the admin with a reason, `event_review_required` `"on"` / `"off"`; see "Publishing events"). A trigger refuses updates (except the `actor_id` foreign key's own set-null when that account is deleted). Admins see the newest 20 per organiser. Kept while the organiser exists; deleted with it. |
 | `private.organiser_logos` | `organiser_id` | An organiser's logo as the server re-encoded it: `image` (512 × 512 WebP, ≤ 512 KB) and `thumb` (96 × 96 WebP, ≤ 64 KB), the whole logo fitted on white, no transparency, no metadata. `updated_at` is its version (milliseconds since the epoch, in its URL and the log); every write moves it on by at least a millisecond. Deleted with the organiser (see "Organiser profiles"). |
+| `private.organiser_covers` | `organiser_id` | An organiser's cover image as the server re-encoded it (`20261128000000_organiser_covers.sql`): `image` (2240 × 640 WebP, ≤ 1 MB) and `small` (1120 × 320 WebP, ≤ 256 KB), centre-cropped to 7:2, transparency flattened onto white, no metadata. `updated_at` is its version, as the logo's. Deleted with the organiser (see "Organiser profiles", "Cover"). |
 | `events` | `id` | Belongs to an organiser. Globally unique `slug`. `status`: draft → pending_review → published / rejected, or, for an approved organiser's own publish, draft / rejected → published directly (see "Publishing events"); unpublish returns it to draft. `rejection_reason`: the admin's reason on a rejection, an unpublish (optional) or a takedown, shown to the organiser; any later status change through `transition_event` replaces it (a publish or submit clears it). `is_free` (true only when the event has ticket types and all are free; for an external event, `external_free`) is kept up to date by `replace_ticket_types` for the feed's free filter. `whos_going_enabled` (default true) is an admin-only kill switch for that event's Who's Going, set in SQL (`docs/supabase-setup.md`). `ticketing_mode` (`sheltuh`, the default, or `external`), `external_ticket_url`, `external_free` and `external_price_from_cents`: see "External ticketing". Check constraints: an external event has a link, a Sheltüh-ticketed one has no link and isn't `external_free`, and an external event's `is_free` equals `external_free`. The trigger `events_external_ticket_url_valid` checks a link against `private.external_ticket_url_ok` when it's inserted or changed (only then, so tightening the rules never blocks a later status change; see "External ticketing"). `updated_at` changes on every update of the row, a photo change included (trigger `event_images_touch_event`). Triggers refuse ticket types and orders for an external event, and switching an event with ticket types to external. `state` (default `VIC`) and `time_zone` (default `Australia/Melbourne`): the event's state or territory and the IANA zone its times are in; check constraint `events_place_check` allows only the zones `ZONES_BY_STATE` lists for the state (see "Events: state and time zone"). The venue's location (`20261111000100_event_venue_location.sql`; see "Venue location"): `location_source` (`legacy`, the default and every earlier event; `places`; `manual_pin`), `venue_place_id` (a Google place id, the only Google Places data stored) and `venue_lat` / `venue_lng` (the organiser's own pin, never Google's coordinates); checks `events_venue_pin_pair`, `events_venue_pin_bounds` (`AUSTRALIA_BOUNDS`), `events_venue_place_id_shape` and `events_location_source_check` (`legacy`: neither; `places`: a place id, pin optional; `manual_pin`: a pin and no place id). No index: nothing filters or sorts on them. |
 | `ticket_types` | `(event_id, id)` | `id` is stable across draft edits. A trigger refuses a price above 0 for a platform-managed organiser's event (`ticket_types_platform_free_only`). `quantity_sold` only ever goes up in `fulfil_order`, and down only in `record_payment_refund` (a paid order refunded in full). `seated`: the tier has seats on the event's seat map; its `quantity_available` is then always its unblocked seats (trigger `ticket_types_seated_capacity`, whatever is written; see "Reserved seating"). `opens_after_previous`: the tier waits for the one above it (by `position`) to sell out; `sold_out_at`: when `quantity_sold` first reached `quantity_available`, set by trigger `ticket_types_sold_out_at` and never cleared (see "Sequential ticket releases"). |
 | `event_seat_maps` | `event_id` | An event's optional seat map (see "Reserved seating"): `layout` (the validated template, `lib/seating/template.ts`), `seat_count` (1–10,000) and `version` (from the sequence `private.seat_map_versions`: never reused, not even after a delete). Every write bumps the event's `updated_at` (`event_seat_maps_touch_event`). Refused for an external event (`event_seat_maps_sheltuh_only`). Deleted with the event. |
@@ -218,6 +219,10 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
 | `put_organiser_logo` | An approved organiser's logo (`PUT /organisers/me/logo`, already re-encoded): locks the organiser row (for no key update), checks it's still approved (`not_approved` → 409: nothing written), writes the logo, bumps the organiser's `updated_at` and logs a `profile_edit` by the owner (`logo`, old and new version), in one step. Returns `updated`, `not_approved` or `not_found`. |
 | `delete_organiser_logo` | The organiser removes their logo, any status: locks the organiser row, deletes it, bumps `updated_at` and logs it. Returns `deleted`, `unchanged` (none: nothing written) or `not_found`. |
 | `admin_remove_organiser_logo` | An admin removes an organiser's logo (any status), with a reason: as `delete_organiser_logo`, logged as a `profile_edit` by the admin with the reason (`byStaff`). Returns `removed`, `unchanged` (none: nothing logged) or `not_found`. |
+| `put_organiser_cover` · `delete_organiser_cover` · `admin_remove_organiser_cover` | The cover image's writes (`PUT` / `DELETE /organisers/me/cover`, `POST /admin/organisers/{id}/remove-cover`), exactly as the three logo functions: the organiser row locked (for no key update) before the cover row, approval re-checked for an upload (`not_approved` → 409: nothing written), `updated_at` bumped, a `profile_edit` logged with old and new version (`cover`; by the admin, with the reason, for a removal). Return `updated` / `deleted` / `removed`, `unchanged` (no cover: nothing written) or `not_found`. |
+| `set_organiser_tags` | An approved organiser's profile chips (`PUT /organisers/me/tags`, already checked by the API): locks the organiser row (for no key update), checks it's approved (`not_approved` → 409), writes only the columns that really change (`profile_tags`, `custom_tags`) and logs a `profile_edit` with their old and new values joined with ", ", in one step. A no-op writes nothing. Returns `updated`, `unchanged`, `not_approved` or `not_found`. |
+| `admin_remove_organiser_custom_tags` | An admin clears an organiser's own words (any status; the list items stay), with a reason, logged as a `profile_edit` by the admin (`byStaff`). Returns `removed`, `unchanged` (none: nothing logged) or `not_found`. |
+| `organiser_custom_tag_ok` | Immutable: one own word passes the database's structural floor (2–24 characters, trimmed, no double spaces, none of `@ # . / : \ < >` or their fullwidth forms, no control, format, separator or Hangul filler characters, no emoji building blocks). Called by the trigger `organisers_custom_tags_valid` for newly added words only, so tightening it never blocks an unrelated update. The API's `parseCustomTag` is stricter. |
 | `member_profile_visible` | The one rule for seeing a member profile (stable SQL): the member behind a `profileId` if the viewer has a profile, neither is suspended, neither blocks the other, and the profile is visible or the viewer's own; else null. Used by every read and write by `profileId`; the API also requires a verified email. |
 | `file_profile_report` | A report about a profile: key-share-locks the profile; only one the reporter can see now (`member_profile_visible`) or a member they've blocked (else `not_found`, the unknown-id answer); an open profile report by the same reporter about the same member is returned as it is (`already_open`, no allowance used; two at once: the unique index makes the second find the first); then the reports rate limit, the photo copied once per distinct image (`report_photos`, upserted so a concurrent purge skips it), and the insert (`target_type` `profile`). Returns `filed`, `already_open`, `not_found`, `self` or `rate_limited`. |
 | `create_block_by_profile` | `create_block` for a profile the blocker can see now (`member_profile_visible`); same snapshot, rate limit and results. |
@@ -3075,6 +3080,66 @@ Admins create events themselves, for any organiser
   logo beside the name (`components/organisers/OrganiserLogo.tsx`: initials,
   or nothing on the profile, when there's none or it fails to load); the
   admin queue shows it with "Remove logo…". The demo has no logos.
+- **Cover** (`lib/server/handlers/organiser-covers.ts`, `lib/server/organiser-cover.ts`,
+  `supabase/migrations/20261128000000_organiser_covers.sql`): the wide banner
+  at the top of the public profile, built exactly like the logo (upload,
+  log, serving, moderation, privacy) with these differences. At most 4 MB
+  (413; under Vercel's ~4.5 MB request body limit; `proxy.ts` doesn't match
+  these routes), 20 uploads a day (bucket `organiser_cover_uploads`, separate
+  from the logo's), errors on `cover`. The upload is decoded once (the shared
+  `decoder` and decode slots in `lib/server/avatar.ts`), centre-cropped to
+  fill 7:2 at 2240 × 640 (a smaller upload is enlarged; the dashboard warns
+  when it's narrow), transparency flattened onto white, converted to sRGB
+  raw pixels, then encoded twice: 2240 × 640 (≤ 1 MB) and 1120 × 320
+  (`small`, ≤ 256 KB), each stepping WebP quality 82 → 70 → 55 → 40 until it
+  fits (a 400 on `cover` if even 40 doesn't; even pure noise fits by 70).
+  **Serving**: `GET /organisers/{id}/cover[?size=small]`, the logo's cache
+  rules and windows (ETag `"<version>-<l|s>"`). **In payloads**: `coverUrl`
+  and `coverSmallUrl` on the organiser's own record, the admin queue and the
+  public profile, absent with no cover (not on events). **Moderation**:
+  `POST /admin/organisers/{id}/remove-cover` with a reason; `DELETE
+  /organisers/me/cover` at any status. Only the organiser's own account
+  uploads one: platform-managed organisers have no cover (owner decision).
+- **Categories** (profile chips; `lib/api/organiser-tags.ts`,
+  `lib/server/handlers/organiser-tags.ts`,
+  `supabase/migrations/20261128000100_organiser_tags.sql`). Not the reviewed
+  `categories` (5 event categories, chosen in the application and fixed at
+  approval): an approved organiser chooses up to 5 chips from a list of 18
+  (`ORGANISER_TAGS`: live music, DJ & club nights, festivals, art,
+  exhibitions, theatre, comedy, dance, film, fashion, photography, design,
+  poetry & spoken word, workshops, pop-ups & markets, food & drink, wellness,
+  community), up to 2 of them in their own words, with no review.
+  `PUT /organisers/me/tags {profileTags, customTags}` sends the whole set
+  (both required, `[]` for none): list items are deduplicated and sorted
+  into list order; own words are cleaned (NFC, any run of spaces one space,
+  trimmed) and checked by `parseCustomTag`, which the dashboard runs too:
+  letters of any script, digits (`\p{Nd}`, at most 4, so no phone
+  numbers), single spaces and `& ' ’ -`, combining marks only on a letter
+  and at most 2 in a row, 2–24 characters with at least one letter; no
+  control, invisible or Hangul filler characters, emoji, variation
+  selectors or enclosing marks (the keycap and VS16 tricks), nothing a link
+  or handle needs (`. : / \ @ #` in any width), no repeat of another own
+  word or a list label (compared folded: case, accents, compatibility forms,
+  punctuation), and no claim word (`CLAIM_WORDS`: official, verified,
+  certified, accredited, endorsed, approved, authorised, sponsored,
+  promoted, featured, partner, Sheltüh, admin, moderator, trending, sold
+  out, staff pick, editor's pick/choice, top rated), matched folded, as whole
+  words and squashed across spaces or punctuation ("soldout", "o f f i c i a
+  l"). 400 with `fieldErrors` on `profileTags`, `customTags` or
+  `customTags.<i>`; 403 not approved (before the body is read); 409 if the
+  status changed before the write. Every change is logged with old and new
+  values (`profileTags`, `customTags`); an admin clears the own words with a
+  reason (`POST /admin/organisers/{id}/remove-tags`, `byStaff`). The
+  database re-checks the slugs, counts and a structural deny-list (see
+  "Tables"). Until the organiser chooses (`profileTags` null on their
+  record), the public profile shows their reviewed event categories mapped
+  to the list (`tagsForEventCategories`: workshop → workshops, pop-up →
+  pop-ups & markets, the rest by name); an empty choice shows none. Own
+  words are only ever rendered as text, never in a link. **Accepted risk**:
+  look-alike letters from another script ("οfficial" with a Greek ο) get
+  past the claim words; scripts aren't restricted, so the log, admin
+  removal and takedown are the controls. No rate limit on saves (each is
+  one logged row; the admin queue shows the newest 20 entries).
 - **Host card on the event page** (`GET /events/slug/{slug}` only): the
   public event carries `organiserWebsiteUrl`, `organiserSocialLinks` (the
   same server-built URLs as the profile's `socialLinks`, only when at least
@@ -3088,13 +3153,17 @@ Admins create events themselves, for any organiser
   `toPublicEventFromRow` without them.
 - **Public profile** (`GET /organisers/{id}/profile`): only approved
   organisers. Only `organiserId`, `displayName`, `description`,
-  `categories`, `websiteUrl`, `socialLinks`, `memberSince` (Melbourne
+  `categories`, `profileTags` and `customTags` (see "Categories"),
+  `websiteUrl`, `socialLinks`, `memberSince` (Melbourne
   `YYYY-MM` of the application), `featuredVideo` (`{provider, id}` or null),
-  `logoUrl` (only with a logo),
-  `followerCount` (only from 10 followers, else null: see "Following
-  organisers"), `eventsHosted` (published events that have ended) and their
-  published events in the feed's public shape: `upcomingEvents` (not yet ended, soonest first), then
-  `recentEvents` (ended, most recent first), 24 in all. The organiser query
+  `logoUrl` (only with a logo), `coverUrl` and `coverSmallUrl` (only with a
+  cover), `followerCount` (only from 10 followers, else null: see "Following
+  organisers"), `eventCount` (every published event, upcoming and past),
+  `eventsHosted` (published events that have ended; deprecated, still sent
+  until the profile page reads `eventCount`) and their
+  published events in the feed's public shape: `upcomingEvents` (not yet
+  ended, soonest first, at most 24) and, separately, `recentEvents` (ended,
+  most recent first, at most 12 however many are upcoming). The organiser query
   reads no private column (contact email, owner, Stripe, payouts, review). Not
   personalised, so it's sent without `private, no-store`, like the event feed.
   Like the other public reads, it isn't rate-limited (no IPs or cookies):
@@ -4386,6 +4455,11 @@ without one. The UI keeps showing the API's words, which already say when
 | `PUT /organisers/me/logo` (raw JPEG/PNG/WebP) · `DELETE /organisers/me/logo` | PUT: an approved organiser (403 otherwise, before the body is read); 200 the organiser record (`logoUrl`), `private, no-store`; 400 `fieldErrors.logo` (not a supported image, or over 24 megapixels); 409 no longer approved by the time it's written; 413 over 2 MB; 429 over 20 a day; 503 too many images being decoded on the instance. DELETE: signed in, any status; 200 the record without `logoUrl` (idempotent); 404 no organiser |
 | `GET /organisers/{organiserId}/logo[?size=thumb][&v=…]` | public while the organiser is approved: at the current `v` `public, max-age=3600, s-maxage=3600`, otherwise `private, max-age=3600` (the current logo whatever `v` says); otherwise an admin or the owner with a bearer token (`private, no-store`). WebP 512 px (96 px thumbnail), `x-content-type-options: nosniff`, ETag (304). 404 for anything else: unknown, no logo, not approved without the right token, not a uuid |
 | `POST /admin/organisers/{organiserId}/remove-logo` `{reason}` | admin. 200 `AdminOrganiserRecord` (unchanged, nothing logged, without a logo); 400 `fieldErrors.reason` (1–500 characters, cleaned like a message); 403; 404 |
+| `PUT /organisers/me/cover` (raw JPEG/PNG/WebP) · `DELETE /organisers/me/cover` | As the logo's: PUT an approved organiser (403 otherwise, before the body is read); 200 the organiser record (`coverUrl`, `coverSmallUrl`), `private, no-store`; 400 `fieldErrors.cover` (not a supported image, over 24 megapixels, or too detailed to fit); 409 no longer approved by the time it's written; 413 over 4 MB; 429 over 20 a day; 503 too many images being decoded. DELETE: signed in, any status; 200 the record without them (idempotent); 404 no organiser |
+| `GET /organisers/{organiserId}/cover[?size=small][&v=…]` | As the logo's: public while approved (current `v`: `public, max-age=3600, s-maxage=3600`; otherwise `private, max-age=3600`), else an admin or the owner with a bearer token (`private, no-store`). WebP 2240 × 640 (1120 × 320 small), `nosniff`, ETag (304). 404 for anything else |
+| `POST /admin/organisers/{organiserId}/remove-cover` `{reason}` | admin. As remove-logo |
+| `PUT /organisers/me/tags` `{profileTags, customTags}` | an approved organiser (403 otherwise, before the body is read). 200 the organiser record (`profileTags` in list order, `customTags` cleaned; unchanged and nothing logged if it already was so), `private, no-store`; 400 `fieldErrors.profileTags`, `.customTags` or `["customTags.<i>"]`; 409 status changed (see "Organiser profiles", "Categories") |
+| `POST /admin/organisers/{organiserId}/remove-tags` `{reason}` | admin. Clears the own words (`customTags`) only. 200 `AdminOrganiserRecord` (unchanged, nothing logged, without any); 400 `fieldErrors.reason`; 403; 404 |
 | `PUT /profiles/me` | verified email, not suspended (403). Creating needs `adultConfirmed: true` (an explicit `false` is a 400); a rename (no `adultConfirmed`) with no profile is a 404. Display names are checked in `lib/server/profile-input.ts`: no control, invisible or default-ignorable characters (U+FE0E/FE0F allowed), at least one letter or digit, at most 4 combining marks per character, no links, emails or @handles, no Latin/Cyrillic/Greek mix within a word, and no reserved names, compared on a lookalike skeleton |
 | `GET /conversations?cursor` | verified member: own conversations, newest activity first |
 | `POST /conversations` `{attendeeId, body}` \| `{profileId, body}` | verified member going to the same open event. 201; 400 invalid/links/self, 403 not going or suspended, 404 member unavailable (also: blocked either way, a pair whose conversation was deleted, or the recipient over their incoming cap), 409 conversation exists, 429 |
@@ -4496,7 +4570,7 @@ the same URL that someone ran that search moments ago.
 | Event `GET /events/slug/{slug}` (event and seat pages) | `public, max-age=0, s-maxage=15, stale-while-revalidate=45` | about 1 minute (the seat page's reload after a map change adds `?seatMapVersion={v}`, a new cache key, so it never gets a copy from before the change) |
 | Trending | `public, max-age=0, s-maxage=300, stale-while-revalidate=600` | 15 minutes (plus the snapshot's own age; see "Trending") |
 | Seat availability | `public, max-age=0, s-maxage=5` | 5 seconds |
-| Event image, organiser logo (current `v` only) | `public, max-age=3600, s-maxage=3600`, ETag (304) | about an hour (two at most, if the CDN dropped `Age`) |
+| Event image, organiser logo and cover (current `v` only) | `public, max-age=3600, s-maxage=3600`, ETag (304) | about an hour (two at most, if the CDN dropped `Age`) |
 | Seat map (current `v` only) | `public, max-age=31536000, s-maxage=3600, immutable` | about an hour at the CDN; a year in a browser that already has it (a new map is a new URL) |
 | Calendar `.ics` | `public, max-age=300, s-maxage=300` | 5 minutes (plus a browser's 5) |
 
@@ -4512,8 +4586,8 @@ What that means:
 - **Takedowns.** An unpublished event, a suspended organiser's events and
   profile, or an admin's edit can still be served from the CDN for up to
   about 3 minutes in the feed and on a profile, about 1 minute on the event
-  page (checkout refuses at once), and about an hour for an image, a logo
-  or a seat map at the CDN. `max-age` equals `s-maxage` for images and
+  page (checkout refuses at once), and about an hour for an image, a logo,
+  a cover or a seat map at the CDN (an admin's cover removal included). `max-age` equals `s-maxage` for images and
   logos on purpose: a browser counts the CDN copy's `Age` against `max-age`
   (RFC 9111), so a copy is never stale on arrival and the whole chain still
   ends an hour after the function answered. A browser that already loaded
@@ -4641,6 +4715,19 @@ What that means:
   `tests/WalletButtons.test.tsx`.
 - `components/tickets/TicketQr.tsx` / `lib/ticket-qr.ts`: the ticket QR,
   as inline SVG on `/checkout/success` and as a PNG in the ticket email.
+- Organiser profile cover and categories: covers in
+  `supabase/migrations/20261128000000_organiser_covers.sql`,
+  `lib/server/organiser-cover.ts` (re-encoding, sharing `decoder` and
+  `inEncodeSlot` from `lib/server/avatar.ts`),
+  `lib/server/handlers/organiser-covers.ts` and `adminRemoveOrganiserCover`
+  in `lib/server/handlers/admin.ts`; categories in
+  `supabase/migrations/20261128000100_organiser_tags.sql`,
+  `lib/api/organiser-tags.ts` (the list and rules, shared with the
+  dashboard), `lib/server/handlers/organiser-tags.ts` and
+  `adminRemoveOrganiserTags`; client wrappers in `lib/api/organisers.ts`
+  and `lib/api/admin.ts`. Tests: `tests/server/organiser-covers.test.ts`,
+  `tests/server/organiser-tags.test.ts`, `tests/organiser-tags.test.ts`,
+  `tests/organiser-cover-url.test.ts`.
 - Link previews: `lib/share-metadata.ts` builds title, description,
   canonical, Open Graph and Twitter/X metadata from public fields only;
   `lib/server/share-metadata.ts` is live mode's server-side read for
