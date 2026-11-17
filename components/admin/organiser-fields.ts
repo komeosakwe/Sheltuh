@@ -66,6 +66,18 @@ export function formatLoggedProfileTags(value: string): string {
 }
 
 /**
+ * Logged own words ("Late night, Queer joy": an own word can't hold a comma)
+ * each in curly quotes, as the row above the log shows them ("“Late night”,
+ * “Queer joy”"), so a stray space is visible.
+ */
+export function formatLoggedCustomTags(value: string): string {
+  return value
+    .split(", ")
+    .map((word) => `“${word}”`)
+    .join(", ");
+}
+
+/**
  * The words for a logged value that has no text of its own, or null when it
  * has some: profile chips not chosen yet (null: their profile shows their
  * event categories) or chosen as none (""); nothing at all for any field (null).
@@ -95,8 +107,8 @@ const STATUS_LABELS: Record<string, string> = {
  * ("@name", "facebook.com/page"), statuses in words ("Approved"; a takedown's
  * "rejected" reads "Suspended"), a video as its link ("YouTube: https://…"),
  * a logo or cover as when it was uploaded ("Uploaded Fri 25 Sep, 8:05 pm"),
- * profile chips from the list as their labels ("Live music, Art"), anything
- * else as stored (own words, joined with ", ").
+ * profile chips from the list as their labels ("Live music, Art"), own words
+ * in quotes ("“Late night”, “Queer joy”"), anything else as stored.
  */
 export function formatOrganiserFieldValue(
   field: OrganiserLogField,
@@ -110,6 +122,7 @@ export function formatOrganiserFieldValue(
   if (field === "featuredVideo") return formatLoggedVideo(value);
   if (field === "logo" || field === "cover") return formatLoggedLogo(value);
   if (field === "profileTags") return formatLoggedProfileTags(value);
+  if (field === "customTags") return formatLoggedCustomTags(value);
   if (!isSocialHandleField(field)) return value;
   const prefix = SOCIAL_HANDLE_FIELDS.find((f) => f.field === field)?.prefix ?? "";
   return `${prefix}${value}`;

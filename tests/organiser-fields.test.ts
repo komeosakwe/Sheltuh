@@ -26,7 +26,9 @@ describe("organiser log fields", () => {
     expect(formatOrganiserFieldValue("profileTags", "live-music, poetry-spoken-word")).toBe("Live music, Poetry & spoken word");
     // A slug this build doesn't know stays as stored.
     expect(formatOrganiserFieldValue("profileTags", "art, ghost-tag")).toBe("Art, ghost-tag");
-    expect(formatOrganiserFieldValue("customTags", "Drum & bass")).toBe("Drum & bass");
+    // Own words in quotes, as the row above the log shows them, so a stray space shows.
+    expect(formatOrganiserFieldValue("customTags", "Drum & bass")).toBe("“Drum & bass”");
+    expect(formatOrganiserFieldValue("customTags", "Late night , Queer joy")).toBe("“Late night ”, “Queer joy”");
   });
 
   it("says 'not chosen' and 'none chosen' for profile chips, and (none) for anything else unset", () => {

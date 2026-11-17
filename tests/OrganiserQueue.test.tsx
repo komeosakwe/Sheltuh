@@ -1069,7 +1069,8 @@ describe("Admin organisers: cover and profile categories", () => {
     const log = within(articleOf("Org a1")).getByText(/Recent changes \(2\)/).closest("details") as HTMLElement;
     expect(log).toHaveTextContent("Before: Not chosen yet (their profile showed their event categories)");
     expect(log).toHaveTextContent("After: Live music, Pop-ups & markets");
-    expect(log).toHaveTextContent("After: Late night");
+    // Own words quoted, as the row above shows them.
+    expect(log).toHaveTextContent("After: “Late night”");
     expect(log).toHaveTextContent("Before: ArtAfter: None chosen");
   });
 });
