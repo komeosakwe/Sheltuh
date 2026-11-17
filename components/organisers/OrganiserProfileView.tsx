@@ -19,6 +19,7 @@ import { eventZone, formatDayWithYear } from "@/lib/format";
 import {
   formatMemberSince,
   organiserProfilePath,
+  PROFILE_PAST_EVENT_LIMIT,
   reportOrganiserHref,
   type OrganiserProfileDetails,
 } from "@/lib/organiser-profile";
@@ -27,9 +28,6 @@ import { siteOrigin } from "@/lib/share-metadata";
 import type { SheltuhEvent } from "@/lib/types";
 
 const countFormatter = new Intl.NumberFormat("en-AU");
-
-/** The most past events listed (the API sends at most this many; the demo's are cut to match). */
-export const PAST_EVENTS_SHOWN = 12;
 
 /** The gap above each section below the header (Round 2 §1.4): 40 / 48 / 64. */
 const SECTION_GAP = "mt-10 md:mt-12 lg:mt-16";
@@ -92,7 +90,7 @@ export default function OrganiserProfileView({
 
       {/* From 1024px: header and bio in columns 1–7, the links in 9–12 beside both. The second row takes any
           extra height the links need, so the bio stays right under the header. */}
-      <div className="lg:grid lg:grid-cols-12 lg:grid-rows-[auto_1fr] lg:gap-x-8">
+      <div className="group/intro lg:grid lg:grid-cols-12 lg:grid-rows-[auto_1fr] lg:gap-x-8">
         <header className="flex flex-col lg:col-span-7">
           {/* The logo (or, for its organiser alone, "Add logo") over the cover's bottom-left corner, cut out of
               it by a ring of the page colour; in the flow without a cover. Empty (no logo, or one that failed),
@@ -155,7 +153,10 @@ export default function OrganiserProfileView({
               organiserName={profile.displayName}
               variant="signal"
               size="md"
-              buttonClassName="min-w-0 flex-1 sm:min-w-32 sm:flex-none"
+              holdPlace
+              // Below sm it fills the row beside Share, but no narrower than 10rem: with large text, Share wraps
+              // under it rather than crushing its label.
+              buttonClassName="min-w-0 grow basis-40 sm:min-w-32 sm:flex-none"
               beside={
                 <ShareButton
                   path={organiserProfilePath(profile.organiserId)}
@@ -192,9 +193,13 @@ export default function OrganiserProfileView({
           <section
             aria-labelledby="organiser-links"
             className={`mt-8 flex flex-col gap-3 md:max-w-xl lg:col-span-4 lg:col-start-9 lg:row-span-2 lg:row-start-1 lg:mt-0 lg:max-w-none lg:self-start ${
-              // Level with the header's first line: the strap when the logo sits over a cover (the overlap + 24)
-              // or when there's a cover and no logo (32); the logo or strap without a cover (16).
-              hasCover ? (profile.logoUrl ? "lg:pt-22 xl:pt-26" : "lg:pt-8") : "lg:pt-4"
+              // Level with the header's first line, keyed on what the logo slot actually holds (a logo that
+              // loaded, or the owner's "Add logo"; empty otherwise): with a cover, the strap under the overlapping
+              // logo (the overlap + 24) or, the slot empty, the strap alone (32); without a cover, the logo or
+              // the strap (16 either way).
+              hasCover
+                ? "lg:pt-8 lg:group-has-[[data-organiser-logo-slot]:not(:empty)]/intro:pt-22 xl:group-has-[[data-organiser-logo-slot]:not(:empty)]/intro:pt-26"
+                : "lg:pt-4"
             }`}
           >
             <h2 id="organiser-links" className="eyebrow text-muted">
@@ -238,7 +243,7 @@ export default function OrganiserProfileView({
         <section aria-labelledby="organiser-past" className={SECTION_GAP}>
           <SectionHead id="organiser-past" title="Past events" />
           <ul className="border-t border-surface-border">
-            {past.slice(0, PAST_EVENTS_SHOWN).map((event) => (
+            {past.slice(0, PROFILE_PAST_EVENT_LIMIT).map((event) => (
               <PastEventRow key={event.id} event={event} now={now} />
             ))}
           </ul>
@@ -271,8 +276,10 @@ function PastEventRow({ event, now }: { event: SheltuhEvent; now: Date }) {
       <time dateTime={event.startsAt} className="mono-m text-muted max-md:row-span-2">
         {formatDayWithYear(event.startsAt, now, eventZone(event.timeZone))}
       </time>
+      {/* data-card-link: the row draws the focus ring, so the link's own is dropped (globals.css). */}
       <Link
         href={`/events/${event.slug}`}
+        data-card-link=""
         className="body-m line-clamp-2 font-semibold break-words underline decoration-transparent underline-offset-4 group-hover/row:decoration-current after:absolute after:inset-0 after:content-[''] focus-visible:decoration-current focus-visible:outline-none"
       >
         {event.title}

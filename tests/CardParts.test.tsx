@@ -111,6 +111,23 @@ describe("CategoryTag", () => {
     expect(tag).not.toHaveAttribute("tabindex");
     expect(tag).toHaveClass("label-tag", "h-6", "rounded-badge", "px-2");
     expect(tag.className).not.toMatch(/\bborder\b|hover:|outline/);
+    // sm stays on one line, cut short if it must.
+    expect(tag).toHaveClass("whitespace-nowrap");
+    expect(screen.getByText("Live music")).toHaveClass("truncate");
+  });
+
+  it("md (the profile's chips): at least 32px, and wraps onto more lines at large text rather than truncating", () => {
+    render(
+      <CategoryTag tone="neutral" size="md">
+        Poetry &amp; spoken word
+      </CategoryTag>,
+    );
+    const label = screen.getByText("Poetry & spoken word");
+    const tag = label.parentElement as HTMLElement;
+    expect(tag).toHaveAttribute("data-tag", "neutral");
+    expect(tag).toHaveClass("body-s", "min-h-8", "h-auto", "py-1", "px-3", "whitespace-normal", "rounded-badge");
+    expect(tag).not.toHaveClass("h-8", "whitespace-nowrap", "label-tag");
+    expect(label).not.toHaveClass("truncate");
   });
 });
 

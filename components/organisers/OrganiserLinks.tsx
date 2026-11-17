@@ -22,6 +22,7 @@ interface LinkItem {
  * text label ("Instagram: @name") and a visible new-tab arrow, which the
  * aria-label also says in words. The website is organiser-supplied, so it's
  * nofollow ugc; social URLs are built by the server from validated handles.
+ * Anything that isn't an http(s) URL is left out, social or website.
  * Renders nothing when there are no links. `layout="grid"` (the event page's
  * Organiser card) sets them two to a row from 640px, one per row below.
  */
@@ -37,7 +38,9 @@ export default function OrganiserLinks({
   const items: LinkItem[] = [];
   for (const { network, label } of SOCIAL_NETWORKS) {
     const href = socialLinks[network];
-    if (!href) continue;
+    // Only an http(s) address is ever a link, as the website below (the server builds these, but a bad value
+    // that got through must not become a javascript: link).
+    if (!href || !websiteHostname(href)) continue;
     const handle = socialHandleFromUrl(href);
     items.push({
       key: network,

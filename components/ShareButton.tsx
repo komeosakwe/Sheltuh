@@ -4,6 +4,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { actionRowClass, actionRowLabelClass, buttonClass, secondaryActionClass } from "@/components/ui/Button";
 import { PHONE_QUERY } from "@/components/ui/useIsPhone";
 import { publicEventUrl } from "@/lib/event-url";
+import { absoluteUrl } from "@/lib/share-metadata";
 
 const COPIED_FOR_MS = 4000;
 /** The popover's gap below the button on phones, matching `sm:mt-2`. */
@@ -42,8 +43,7 @@ type ShareTarget = { slug: string; path?: never } | { path: string; slug?: never
 /** The address shared: the origin and the page's path alone, never a query string or fragment. */
 function shareUrl(target: ShareTarget, origin: string): string {
   if (target.slug !== undefined) return publicEventUrl(target.slug, origin);
-  const path = (target.path ?? "/").split(/[?#]/, 1)[0];
-  return `${origin.replace(/\/+$/, "")}${path.startsWith("/") ? "" : "/"}${path}`;
+  return absoluteUrl((target.path ?? "/").split(/[?#]/, 1)[0], origin);
 }
 
 function isAbort(err: unknown): boolean {
@@ -72,8 +72,9 @@ export default function ShareButton({
   /** The copy-by-hand popover's field label. */
   copyLabel?: string;
   /**
-   * After a copy, the button itself reads "Copied" (with a check) for a few seconds and "Link copied" is said
-   * but not shown, so a row the button shares (the organiser profile's Follow and Share) never gets wider.
+   * After a copy, the button itself reads "Copied" (with a check) for a few seconds, and is named "Copied. Share
+   * {title}" meanwhile; "Link copied" is said but not shown. The button is always as wide as "Copied", so a row it
+   * shares (the organiser profile's Follow and Share) never changes.
    */
   copiedInLabel?: boolean;
   /**
@@ -224,14 +225,27 @@ export default function ShareButton({
         ref={buttonRef}
         type="button"
         onClick={share}
-        aria-label={`Share ${title}`}
+        // While "Copied" shows, the name starts with it too (WCAG 2.5.3, label in name), then says what it does.
+        aria-label={copied ? `Copied. Share ${title}` : `Share ${title}`}
         aria-expanded={open ? true : undefined}
         aria-controls={open ? popoverId : undefined}
         className={fill ? actionRowClass : secondaryActionClass}
       >
         {copied ? <CopiedIcon /> : <ShareIcon />}
-        {/* The name "Share {title}" starts with what's shown (bar the few seconds "Copied" is). */}
-        <span className={fill ? actionRowLabelClass : undefined}>{copied ? "Copied" : "Share"}</span>
+        {copiedInLabel ? (
+          // Both labels in one grid cell, the one not showing invisible, so the button is always as wide as
+          // the wider ("Copied") and the row it shares never shifts.
+          <span className="grid justify-items-center">
+            <span data-share-label="share" className={`col-start-1 row-start-1 ${copied ? "invisible" : ""}`.trim()}>
+              Share
+            </span>
+            <span data-share-label="copied" className={`col-start-1 row-start-1 ${copied ? "" : "invisible"}`.trim()}>
+              Copied
+            </span>
+          </span>
+        ) : (
+          <span className={fill ? actionRowLabelClass : undefined}>Share</span>
+        )}
       </button>
       {/* Beside the button, and always in the page so the change is announced. */}
       {/* Filling a row: under the button, in the flow, so it pushes the page down rather than covering anything. */}

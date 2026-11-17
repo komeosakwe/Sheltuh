@@ -97,15 +97,31 @@ describe("FollowButton", () => {
     expect(pressed).not.toHaveClass("btn-signal");
   });
 
-  it("variant signal, while the session loads: a placeholder holds Follow's place beside what's next to it", () => {
+  it("holdPlace, while the session loads: a placeholder as wide as 'Sign in to follow' holds Follow's place beside what's next to it", () => {
     const { container } = withAuth(
-      <FollowButton organiserId={ORG} organiserName="N" variant="signal" beside={<button type="button">Share</button>} />,
+      <FollowButton
+        organiserId={ORG}
+        organiserName="N"
+        holdPlace
+        buttonClassName="grow"
+        beside={<button type="button">Share</button>}
+      />,
       fakeAuthValue({ status: "loading" }),
     );
     const placeholder = container.querySelector("[data-follow-placeholder]");
     expect(placeholder).toHaveAttribute("aria-hidden", "true");
+    expect(placeholder).toHaveClass("h-12", "sm:w-44", "grow");
     expect(placeholder?.nextElementSibling).toHaveTextContent("Share");
     expect(screen.queryByRole("button", { name: /Follow/ })).toBeNull();
+  });
+
+  it("without holdPlace, no placeholder while the session loads, whatever the variant", () => {
+    const { container } = withAuth(
+      <FollowButton organiserId={ORG} organiserName="N" variant="signal" beside={<button type="button">Share</button>} />,
+      fakeAuthValue({ status: "loading" }),
+    );
+    expect(container.querySelector("[data-follow-placeholder]")).toBeNull();
+    expect(screen.getByRole("button", { name: "Share" })).toBeInTheDocument();
   });
 
   it("follows with the email choice (unticked until chosen: consent), as a pressed toggle, and announces it", async () => {

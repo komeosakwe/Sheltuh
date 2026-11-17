@@ -5,6 +5,7 @@ import OrganiserProfilePage, { generateMetadata } from "@/app/organisers/[organi
 import { ApiError } from "@/lib/api/client";
 import type { PublicEvent } from "@/lib/api/public-events";
 import type { PublicOrganiserProfile } from "@/lib/api/types";
+import { PROFILE_PAST_EVENT_LIMIT } from "@/lib/organiser-profile";
 
 // Live by default; the demo test flips it.
 let apiConfigured = true;
@@ -238,8 +239,8 @@ describe("/organisers/[organiserId] (live)", () => {
     ]);
   });
 
-  it("lists at most 12 past events, as rows of date, title and place", async () => {
-    const recentEvents = Array.from({ length: 14 }, (_, i) =>
+  it(`lists at most ${PROFILE_PAST_EVENT_LIMIT} past events, as rows of date, title and place`, async () => {
+    const recentEvents = Array.from({ length: PROFILE_PAST_EVENT_LIMIT + 2 }, (_, i) =>
       publicEvent(`past-${i}`, { startsAt: "2025-08-01T09:00:00.000Z", endsAt: "2025-08-01T12:00:00.000Z" }),
     );
     getOrganiserProfile.mockResolvedValue(profile({ recentEvents }));
@@ -247,11 +248,14 @@ describe("/organisers/[organiserId] (live)", () => {
     const past = (await screen.findByRole("heading", { level: 2, name: "Past events" })).closest("section");
     if (!past) throw new Error("past section not rendered");
     const rows = within(past).getAllByRole("listitem");
-    expect(rows).toHaveLength(12);
+    expect(rows).toHaveLength(PROFILE_PAST_EVENT_LIMIT);
     const [date, title, place] = [...rows[0].children];
     expect(date.tagName).toBe("TIME");
     expect(date).toHaveAttribute("datetime", "2025-08-01T09:00:00.000Z");
     expect(title).toHaveAttribute("href", "/events/past-0");
+    // The row draws the focus ring; data-card-link drops the link's own (globals.css), so there's one ring, not two.
+    expect(title).toHaveAttribute("data-card-link", "");
+    expect(rows[0].className).toContain("has-[a:focus-visible]:outline-2");
     expect(place).toHaveTextContent("The Tote · Collingwood");
   });
 
@@ -295,6 +299,8 @@ describe("/organisers/[organiserId] (live)", () => {
     });
     expect(container.querySelector("[data-organiser-logo]")).toBeNull();
     expect(screen.queryByText("NN")).toBeNull(); // no initials stand-in
+    // The slot is left empty, which is what the strap's spacing and the links column's padding follow.
+    expect(container.querySelector("[data-organiser-logo-slot]")).toBeEmptyDOMElement();
     cleanup();
 
     getOrganiserProfile.mockResolvedValue(profile());
@@ -332,6 +338,24 @@ describe("/organisers/[organiserId] (live)", () => {
       expect(link).toHaveAttribute("target", "_blank");
       expect(link).toHaveAttribute("rel", "noopener noreferrer");
     }
+  });
+
+  it("links only http(s) addresses: a social or website value that isn't one is left out", async () => {
+    getOrganiserProfile.mockResolvedValue(
+      profile({
+        websiteUrl: "javascript:alert(1)",
+        socialLinks: {
+          instagram: "javascript:alert(1)",
+          tiktok: "data:text/html,hi",
+          x: "https://x.com/nsnoise",
+        },
+      }),
+    );
+    await renderPage();
+    await screen.findByRole("heading", { level: 1 });
+    const links = within(screen.getByRole("region", { name: "Links" })).getAllByRole("link");
+    expect(links.map((link) => link.getAttribute("href"))).toEqual(["https://x.com/nsnoise"]);
+    expect(document.querySelector('a[href^="javascript:"], a[href^="data:"]')).toBeNull();
   });
 
   it("shows only the links the organiser has set, and no links section without any", async () => {

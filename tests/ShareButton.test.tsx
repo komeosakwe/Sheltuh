@@ -246,17 +246,27 @@ describe("ShareButton with a path (an organiser's profile)", () => {
     vi.useFakeTimers();
     const writeText = vi.fn().mockResolvedValue(undefined);
     setNavigator({ clipboard: { writeText } });
-    render(<ShareButton path="/organisers/org-1" title="Northside Noise" copiedInLabel />);
+    const { container } = render(<ShareButton path="/organisers/org-1" title="Northside Noise" copiedInLabel />);
     const button = screen.getByRole("button", { name: "Share Northside Noise" });
+    const label = (which: "share" | "copied") => container.querySelector(`[data-share-label="${which}"]`);
+    // Both labels share one grid cell, so the button is as wide as "Copied" before and after.
+    expect(label("share")).not.toHaveClass("invisible");
+    expect(label("copied")).toHaveClass("invisible");
+    expect(label("share")?.parentElement).toBe(label("copied")?.parentElement);
+    expect(label("share")?.parentElement).toHaveClass("grid");
     await act(async () => fireEvent.click(button));
     expect(writeText).toHaveBeenCalledWith(PROFILE);
-    expect(button).toHaveTextContent("Copied");
+    expect(label("copied")).not.toHaveClass("invisible");
+    expect(label("share")).toHaveClass("invisible");
+    // The name starts with what's shown (WCAG 2.5.3).
+    expect(button).toHaveAccessibleName("Copied. Share Northside Noise");
     const status = screen.getByRole("status");
     expect(status).toHaveTextContent("Link copied");
     expect(status).toHaveClass("sr-only");
     act(() => vi.advanceTimersByTime(4000));
-    expect(button).toHaveTextContent("Share");
-    expect(button).not.toHaveTextContent("Copied");
+    expect(button).toHaveAccessibleName("Share Northside Noise");
+    expect(label("share")).not.toHaveClass("invisible");
+    expect(label("copied")).toHaveClass("invisible");
   });
 
   it("without copiedInLabel the label stays Share and Link copied shows beside it (the event page)", async () => {
@@ -266,6 +276,8 @@ describe("ShareButton with a path (an organiser's profile)", () => {
     const button = screen.getByRole("button", { name: "Share Neon Static" });
     await act(async () => fireEvent.click(button));
     expect(button).toHaveTextContent("Share");
+    expect(button).not.toHaveTextContent("Copied");
+    expect(button).toHaveAccessibleName("Share Neon Static");
     expect(screen.getByRole("status")).not.toHaveClass("sr-only");
   });
 });

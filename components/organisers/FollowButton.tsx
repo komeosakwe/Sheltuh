@@ -11,6 +11,7 @@ import { track } from "@/lib/analytics";
 import type { FollowStatus } from "@/lib/api/types";
 import { SessionExpiredError } from "@/lib/auth/AuthContext";
 import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
+import { organiserProfilePath } from "@/lib/organiser-profile";
 import { withNext } from "@/lib/safe-next-path";
 
 type Load = { status: "loading" } | { status: "ready"; follow: FollowStatus } | { status: "hidden" };
@@ -35,16 +36,19 @@ function errorMessage(err: unknown): string {
  * `variant` is the not-following look: `solid` (black; the event page's
  * Organiser card) or `signal` (orange; the organiser's own profile, its one
  * primary action), which "Sign in to follow" takes too. Following is always
- * the outline with a check.
+ * the outline with a check. `holdPlace` (with `beside`): while the session
+ * loads, an empty box as wide as the widest label holds the button's place,
+ * so what's beside it doesn't move when the button arrives.
  */
 export default function FollowButton({
   organiserId,
   organiserName,
-  returnTo = `/organisers/${encodeURIComponent(organiserId)}`,
+  returnTo = organiserProfilePath(organiserId),
   size = "lg",
   variant = "solid",
   buttonClassName = "",
   beside,
+  holdPlace = false,
 }: {
   organiserId: string;
   organiserName: string;
@@ -57,6 +61,8 @@ export default function FollowButton({
   buttonClassName?: string;
   /** Shown in a row beside the button (the event page's Organiser card: View profile), whatever its state. */
   beside?: ReactNode;
+  /** While the session loads, hold the button's place beside `beside` (the profile's Follow and Share). */
+  holdPlace?: boolean;
 }) {
   const auth = useOptionalAuth();
   const signedIn = auth?.status === "signed-in";
@@ -122,10 +128,15 @@ export default function FollowButton({
 
   if (!auth || auth.status === "loading") {
     if (!beside) return null;
-    // On the profile, hold Follow's place while the session loads, so Share beside it doesn't jump.
+    // Hold the button's place while the session loads, so what's beside it doesn't jump: as wide as the
+    // widest label, "Sign in to follow" (about 170px at md), from sm; below sm the button fills the row anyway.
     return row(
-      variant === "signal" ? (
-        <span aria-hidden="true" data-follow-placeholder="" className={`h-12 w-32 rounded-control bg-surface ${buttonClassName}`.trim()} />
+      holdPlace ? (
+        <span
+          aria-hidden="true"
+          data-follow-placeholder=""
+          className={`h-12 w-32 rounded-control bg-surface sm:w-44 ${buttonClassName}`.trim()}
+        />
       ) : null,
     );
   }
