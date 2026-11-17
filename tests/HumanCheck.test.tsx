@@ -429,6 +429,25 @@ describe("Turnstile on", () => {
     expect(turnstile.api.remove).toHaveBeenCalledWith("widget-1");
   });
 
+  it("password reset: an email edited while the check runs doesn't change where the code went, or which address confirms it", async () => {
+    const turnstile = fakeTurnstile();
+    const auth = renderWith(<ForgotPasswordForm />);
+    await loadScript(turnstile.api);
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "mia@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send reset code" }));
+    await waitFor(() => expect(status()).toHaveTextContent("Checking you’re human…"));
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "typo@example.com" } });
+    turnstile.pass("token-reset");
+    await screen.findByLabelText("Reset code");
+    expect(auth.forgotPassword).toHaveBeenCalledWith("mia@example.com", "token-reset");
+    expect(screen.getByText("Code sent to mia@example.com.")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Reset code"), { target: { value: "123456" } });
+    fireEvent.change(screen.getByLabelText("New password"), { target: { value: "Hunter22x" } });
+    fireEvent.click(screen.getByRole("button", { name: "Reset password" }));
+    await waitFor(() => expect(auth.confirmForgotPassword).toHaveBeenCalledWith("mia@example.com", "123456", "Hunter22x"));
+  });
+
   it("verify: nothing from Cloudflare until Resend code is pressed; Verify email (not guarded) never loads it", async () => {
     searchParams = new URLSearchParams({ email: "mia@example.com" });
     const auth = renderWith(<VerifyForm />);

@@ -79,12 +79,16 @@ export default function ForgotPasswordForm({ next }: { next?: string } = {}) {
     if (loading) return;
     reset();
     if (invalid({ email: emailError(email) }, ["email"])) return;
+    // The address as submitted: the field stays editable while the human check runs.
+    const address = email.trim();
     setLoading(true);
     try {
       const token = await humanCheck.getToken();
       // The form went while it waited: send nothing.
       if (token === HUMAN_CHECK_CANCELLED) return;
-      await auth.forgotPassword(email.trim(), token);
+      await auth.forgotPassword(address, token);
+      // The confirm step says, and confirms, the address the code went to (not one typed since).
+      setEmail(address);
       setFieldErrors({});
       setStep("confirm");
     } catch (err) {
