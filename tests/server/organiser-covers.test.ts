@@ -606,6 +606,46 @@ describe("GET /organisers/{id}/cover", () => {
     }
   });
 
+  it("a list, a weak tag or `*` naming the current cover is a 304 too (RFC 9110 §13.1.2); anything else gets it", async () => {
+    await upload(organiser.token, await smallPng());
+    const { version } = (await storedCover(organiser.organiserId))!;
+
+    for (const [query, header, etag] of [
+      ["", `"1-l", "${version}-l"`, `"${version}-l"`],
+      ["", `"${version}-s", W/"${version}-l"`, `"${version}-l"`],
+      ["", `W/"${version}-l"`, `"${version}-l"`],
+      ["", "*", `"${version}-l"`],
+      ["?size=small", `"${version}-l", "${version}-s"`, `"${version}-s"`],
+      ["?size=small", "*", `"${version}-s"`],
+    ]) {
+      const res = await getCover(organiser.organiserId, { query, headers: { "if-none-match": header } });
+      expect([query, header, res.status, res.headers.get("etag")]).toEqual([query, header, 304, etag]);
+      expect((await res.arrayBuffer()).byteLength).toBe(0);
+    }
+    // The 304 carries the cache header of the 200 it stands for.
+    const versioned = await getCover(organiser.organiserId, { query: `?v=${version}`, headers: { "if-none-match": "*" } });
+    expect([versioned.status, versioned.headers.get("cache-control")]).toEqual([304, COVER_CACHE]);
+
+    // No listed tag is this size's at the current version, or the header isn't one we read: the image.
+    for (const [query, header] of [
+      ["", `"1-l", "${version}-s", "${version}-f"`],
+      ["?size=small", `"${version}-l", W/"1-s"`],
+      ["", `"${version}-l" "1-l"`],
+      ["", `*, "${version}-l"`],
+      ["", Array.from({ length: 32 }, (_, i) => `"${i}-l"`).concat(`"${version}-l"`).join(",")],
+    ]) {
+      const res = await getCover(organiser.organiserId, { query, headers: { "if-none-match": header } });
+      expect([query, header, res.status]).toEqual([query, header, 200]);
+      expect((await res.arrayBuffer()).byteLength).toBeGreaterThan(0);
+    }
+  });
+
+  it("`*` without a cover is the usual 404", async () => {
+    for (const organiserId of [crypto.randomUUID(), organiser.organiserId]) {
+      expect((await getCover(organiserId, { headers: { "if-none-match": "*" } })).status).toBe(404);
+    }
+  });
+
   it("is a 404 for unknown organisers and organisers without a cover", async () => {
     for (const organiserId of [crypto.randomUUID(), organiser.organiserId]) {
       const res = await getCover(organiserId);
@@ -638,8 +678,13 @@ describe("GET /organisers/{id}/cover", () => {
       {},
       { token: "forged" },
       { token: stranger.token },
-      // A matching ETag is no way round it.
+      // A matching ETag is no way round it, nor a list, a weak tag or `*`.
       { headers: { "if-none-match": `"${version}-l"` } },
+      { headers: { "if-none-match": `"1-l", "${version}-l"` } },
+      { headers: { "if-none-match": `W/"${version}-l"` } },
+      { headers: { "if-none-match": "*" } },
+      { token: stranger.token, headers: { "if-none-match": "*" } },
+      { token: stranger.token, headers: { "if-none-match": `"1-l", W/"${version}-l"` } },
     ]) {
       const res = await getCover(organiser.organiserId, options);
       expect(res.status).toBe(404);
@@ -650,6 +695,15 @@ describe("GET /organisers/{id}/cover", () => {
       expect(res.status).toBe(200);
       expect(res.headers.get("cache-control")).toBe("private, no-store");
       expect((await sharp(Buffer.from(await res.arrayBuffer())).metadata()).width).toBe(COVER_SMALL_SIZE.width);
+      // Allowed to see it, they may revalidate it, `*` included.
+      for (const header of ["*", `"1-l", W/"${version}-l"`]) {
+        const notModified = await getCover(organiser.organiserId, { token, headers: { "if-none-match": header } });
+        expect([header, notModified.status, notModified.headers.get("cache-control")]).toEqual([
+          header,
+          304,
+          "private, no-store",
+        ]);
+      }
     }
   });
 });

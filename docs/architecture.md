@@ -3057,7 +3057,9 @@ Admins create events themselves, for any organiser
   `immutable`, so a takedown stops being served within about an hour); any
   other `v`, or none, still gets the current logo but `private,
   max-age=3600`, never shared. ETag `"<version>-<f|t>"` and 304, with the
-  same cache header as the 200. Otherwise only an
+  same cache header as the 200 (If-None-Match as the event image's: a list,
+  weak tags and `*`, via `lib/server/if-none-match.ts`, only after the access
+  check). Otherwise only an
   admin or the owner with a bearer token, `private, no-store`; anyone else
   (no token included) gets the same 404 as an unknown organiser, and a
   non-uuid id is a 404 without a query. The image is only read from the
@@ -4445,7 +4447,7 @@ without one. The UI keeps showing the API's words, which already say when
 | `POST /places/autocomplete` `{input, sessionToken}` · `POST /places/details` `{placeId, sessionToken}` | approved organiser or admin (401, 403); `private, no-store` (see "Venue location"). Autocomplete: `input` 2–120 characters after control characters are removed; `sessionToken` `^[A-Za-z0-9_-]{8,36}$`, one per search. 200 `{suggestions: [{placeId, primaryText, secondaryText}]}` (at most 5, in Australia and its external territories). Details (ends the search's session): 200 `{placeId, formattedAddress, streetAddress, locality, state, postcode, googleMapsUrl}`, never a position. 400 fieldErrors (`input`, `sessionToken`, `placeId`: malformed, unknown to Google, or not in Australia); 429 per account (autocomplete 100 an hour and 400 a day; details, shared with event saves' place checks, 30 an hour and 120 a day); 503 `code: "places_unavailable"` (no key, Google unreachable, over quota, a bad key or disabled API, over 5 s, or the platform's cap for Google's day used: autocomplete 1,800, details 450). Bodies at most 4 KB. Nothing about the search is logged |
 | `GET /organisers/me/events` · `GET /organisers/me/events/{id}` | organiser (own events), `private, no-store` |
 | `PUT /events/{id}/image[?fx=&fy=]` · `PATCH /events/{id}/image` (`{focus}`) · `DELETE /events/{id}/image` | organiser (own events, while draft or rejected). Admins: `…/admin/events/{id}/image`. See "Photo focus" |
-| `GET /events/{id}/image?v=` | public once published: at the current `v` (as `imageUrl` gives it) `public, max-age=3600, s-maxage=3600`, with any other `v` or none the same image but `private, max-age=3600` (never shared: a guessed future version can't be cached ahead of a replacement); before that, the owning organiser or an admin, `private, no-store`. ETag `"<version>"` and Last-Modified; a matching `If-None-Match` is a 304 with the same headers (after the same access check, and without reading the bytes) |
+| `GET /events/{id}/image?v=` | public once published: at the current `v` (as `imageUrl` gives it) `public, max-age=3600, s-maxage=3600`, with any other `v` or none the same image but `private, max-age=3600` (never shared: a guessed future version can't be cached ahead of a replacement); before that, the owning organiser or an admin, `private, no-store`. ETag `"<version>"` and Last-Modified; a matching `If-None-Match` (RFC 9110 §13.1.2: any tag of a list, weak or strong, or `*`; parsed by `lib/server/if-none-match.ts`, which ignores headers over 1 KB or 32 tags) is a 304 with the same headers (after the same access check, and without reading the bytes) |
 | `GET /events/{id}/going` | public (published only): `{count, closed, countHidden}`. No cache header (not CDN-cached, so the count keeps up with the names list) |
 | `GET /events/{id}/going/attendees?cursor` | verified email with a profile that isn't suspended (403 otherwise); published only; 429 when rate-limited |
 | `GET /events/{id}/going/me` · `DELETE /events/{id}/going/me` | signed in (own opt-in) |
