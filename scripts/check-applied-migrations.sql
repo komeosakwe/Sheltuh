@@ -245,6 +245,11 @@ select version, file, coalesce(applied, false) as applied
       and exists (select 1 from fn where proname = 'take_order_detail_budget')
       and exists (select 1 from pg_trigger where tgname = 'orders_details_immutable' and not tgisinternal)
       and exists (select 1 from fn where proname = 'record_order_export')
-      and exists (select 1 from fn where proname = 'hold_seats' and 'p_buyer_name' = any(proargnames)))
+      and exists (select 1 from fn where proname = 'hold_seats' and 'p_buyer_name' = any(proargnames))),
+    ('20261128000000', 'organiser_covers',
+      to_regclass('private.organiser_covers') is not null
+      and exists (select 1 from fn where proname = 'put_organiser_cover')
+      and exists (select 1 from fn where proname = 'delete_organiser_cover')
+      and exists (select 1 from fn where proname = 'admin_remove_organiser_cover'))
   ) as m(version, file, applied)
  order by version;

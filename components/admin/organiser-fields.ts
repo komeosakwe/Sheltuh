@@ -17,6 +17,7 @@ export const ORGANISER_FIELD_LABELS: Record<OrganiserLogField, string> = {
   linkedinPath: "LinkedIn",
   featuredVideo: "Featured video",
   logo: "Logo",
+  cover: "Cover image",
   status: "Status",
 };
 

@@ -281,6 +281,48 @@ export const adminRemoveOrganiserLogo: Handler<{ organiserId: string }> = async 
 };
 
 /**
+ * An admin's removal of part of an organiser's profile, with a reason: one of
+ * the private.admin_remove_organiser_* functions, which take (organiser,
+ * admin, reason), work at any status, log a `profile_edit` by the admin and
+ * return 'removed', 'unchanged' (nothing to remove: nothing logged) or
+ * 'not_found'. 200 with the organiser; 400 `fieldErrors.reason` (1–500
+ * characters, cleaned like a message); 404 unknown.
+ */
+function adminProfileRemoval(
+  fn: "admin_remove_organiser_cover" | "admin_remove_organiser_custom_tags",
+): Handler<{ organiserId: string }> {
+  return async (req, { organiserId }, deps) => {
+    const admin = await requireAdmin(req, deps.verifyAccessToken);
+    const body = await readJson(req);
+    const errors: Record<string, string> = {};
+    const reason = parseMessageText(body.reason, "reason", errors, {
+      allowLinks: true,
+      label: "Reasons",
+      maxLength: MAX_SUSPEND_REASON_LENGTH,
+    });
+    if (Object.keys(errors).length > 0) fail(errors);
+    if (!isUuid(organiserId)) throw new HttpError(404, ORGANISER_NOT_FOUND);
+
+    // `fn` is one of the two names above, never input.
+    const [row] = await deps.db.query<{ result: "removed" | "unchanged" | "not_found" }>(
+      `select private.${fn}($1, $2, $3) as result`,
+      [organiserId, admin.userId, reason],
+    );
+    if (row.result === "not_found") throw new HttpError(404, ORGANISER_NOT_FOUND);
+    return okPrivate((await findAdminOrganiser(deps.db, organiserId))!);
+  };
+}
+
+/**
+ * POST /api/admin/organisers/[organiserId]/remove-cover — body { reason }.
+ * Removes the organiser's cover image, whatever their status
+ * (private.admin_remove_organiser_cover), logged on the organiser's log as a
+ * profile edit by the admin with the reason. 200 with the organiser (nothing
+ * logged when there was no cover); 400 reason; 404 unknown.
+ */
+export const adminRemoveOrganiserCover = adminProfileRemoval("admin_remove_organiser_cover");
+
+/**
  * POST /api/admin/organisers/[organiserId]/event-review — body {required,
  * reason}. Turns review of the organiser's events on (`required: true`: their
  * publishes go to the review queue instead of going live) or off

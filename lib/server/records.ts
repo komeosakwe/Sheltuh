@@ -95,13 +95,39 @@ function logoUrlOf(row: Row): { logoUrl?: string } {
   return version === undefined ? {} : { logoUrl: organiserLogoUrls(row.id as string, version).logoUrl };
 }
 
+/**
+ * SQL: the organiser `organiserIdSql`'s cover version (as organiserLogoVersionOf),
+ * or null with no cover. private.organiser_covers' primary key.
+ */
+function organiserCoverVersionOf(organiserIdSql: string): string {
+  return `(select floor(extract(epoch from cv.updated_at) * 1000)::bigint::text
+             from private.organiser_covers cv where cv.organiser_id = ${organiserIdSql})`;
+}
+
+/**
+ * An organiser cover's URLs (2240 × 640 and 1120 × 320). `v` only busts
+ * caches: the route serves the current cover whatever it says.
+ */
+export function organiserCoverUrls(organiserId: string, version: string): { coverUrl: string; coverSmallUrl: string } {
+  const base = `/api/organisers/${organiserId}/cover`;
+  const v = encodeURIComponent(version);
+  return { coverUrl: `${base}?v=${v}`, coverSmallUrl: `${base}?size=small&v=${v}` };
+}
+
+/** The `coverUrl` and `coverSmallUrl` fields for a row with `id` and `cover_version`: absent with no cover. */
+function coverUrlsOf(row: Row): { coverUrl?: string; coverSmallUrl?: string } {
+  const version = opt<string>(row.cover_version);
+  return version === undefined ? {} : organiserCoverUrls(row.id as string, version);
+}
+
 const ORGANISER_COLUMNS = `o.id, o.owner_user_id, o.display_name, o.contact_email, o.description,
          o.categories::text[] as categories, o.website_url,
          o.instagram_handle, o.tiktok_handle, o.facebook_page, o.x_handle,
          o.spotify_path, o.soundcloud_handle, o.youtube_channel, o.linkedin_path, o.status::text as status,
          o.rejection_reason, o.reviewed_by, o.reviewed_at, o.stripe_account_id,
          o.payouts_enabled, o.event_review_required, o.created_at, o.updated_at, o.featured_video_provider,
-         o.featured_video_id, ${organiserLogoVersionOf("o.id")} as logo_version`;
+         o.featured_video_id, ${organiserLogoVersionOf("o.id")} as logo_version,
+         ${organiserCoverVersionOf("o.id")} as cover_version`;
 
 export const ORGANISER_SELECT = `
   select ${ORGANISER_COLUMNS}
@@ -145,6 +171,7 @@ const EDIT_FIELDS: Record<string, OrganiserLogField> = {
   linkedin_path: "linkedinPath",
   featured_video: "featuredVideo",
   logo: "logo",
+  cover: "cover",
   status: "status",
 };
 
@@ -214,6 +241,7 @@ export function toOrganiser(row: Row): OrganiserRecord {
     updatedAt: iso(row.updated_at),
     featuredVideo: featuredVideoOf(row),
     ...logoUrlOf(row),
+    ...coverUrlsOf(row),
   };
 }
 
@@ -236,6 +264,7 @@ const PUBLIC_ORGANISER_SELECT = `
          o.spotify_path, o.soundcloud_handle, o.youtube_channel, o.linkedin_path,
          o.featured_video_provider, o.featured_video_id,
          ${organiserLogoVersionOf("o.id")} as logo_version,
+         ${organiserCoverVersionOf("o.id")} as cover_version,
          to_char(o.created_at at time zone 'Australia/Melbourne', 'YYYY-MM') as member_since,
          -- organiser_follows_organiser_idx; only shown from FOLLOWER_COUNT_THRESHOLD.
          (select count(*)::int from public.organiser_follows f where f.organiser_id = o.id) as follower_count,
@@ -286,6 +315,7 @@ export function toPublicOrganiserProfile(
     followerCount: (row.follower_count as number) >= FOLLOWER_COUNT_THRESHOLD ? (row.follower_count as number) : null,
     eventsHosted: row.events_hosted as number,
     ...logoUrlOf(row),
+    ...coverUrlsOf(row),
     upcomingEvents,
     recentEvents,
   };

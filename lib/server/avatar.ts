@@ -47,6 +47,7 @@ export interface EncodedAvatar {
 const UNSUPPORTED_HINTS = {
   avatar: "Upload a JPEG, PNG or WebP photo.",
   logo: "Upload a JPEG, PNG or WebP image.",
+  cover: "Upload a JPEG, PNG or WebP image.",
 } as const;
 
 export type SquareImageField = keyof typeof UNSUPPORTED_HINTS;
@@ -78,7 +79,7 @@ let running = 0;
 const waiting: (() => void)[] = [];
 
 /** Runs `work` in one of AVATAR_ENCODE_CONCURRENCY's slots, waiting for one if needed; 503 when the queue is full. */
-async function inEncodeSlot<T>(work: () => Promise<T>): Promise<T> {
+export async function inEncodeSlot<T>(work: () => Promise<T>): Promise<T> {
   if (running < AVATAR_ENCODE_CONCURRENCY.running) {
     running += 1;
   } else {
@@ -108,6 +109,22 @@ export interface SquareImageOptions {
   fit: "cover" | "contain";
   /** `contain` only: the colour behind the image (CSS-style, e.g. "#ffffff"). */
   background?: string;
+}
+
+/**
+ * The upload's decoder, after a header-only read confirms libvips chose its
+ * own JPEG, PNG or WebP loader (it picks one from the bytes, independently of
+ * our sniff), so a polyglot can't reach another decoder (SVG, PDF, TIFF…).
+ * First frame only, at most MAX_AVATAR_INPUT_PIXELS (refused from the
+ * header), EXIF orientation applied to the pixels (the tag itself isn't kept).
+ * Call it inside inEncodeSlot. Used by organiser covers (organiser-cover.ts).
+ */
+export async function decoder(input: Uint8Array, field: SquareImageField): Promise<ReturnType<typeof sharp>> {
+  const format = await sharp(input, { failOn: "error" })
+    .metadata()
+    .then((m) => m.format, () => undefined);
+  if (format !== "jpeg" && format !== "png" && format !== "webp") throw unsupportedImage(field);
+  return sharp(input, { limitInputPixels: MAX_AVATAR_INPUT_PIXELS, failOn: "error", pages: 1 }).rotate();
 }
 
 /**
