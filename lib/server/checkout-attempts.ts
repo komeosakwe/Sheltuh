@@ -781,8 +781,11 @@ export async function runPaidCheckout(deps: Deps, checkout: PaidCheckout): Promi
   if (finished.result !== "open") throw inProgress(null);
   // The order id goes back only to the client that made the order (it's in the payment page's URL and Stripe's
   // return URL anyway), so the page can cancel it if the buyer goes Back: never cached.
-  // With the order access token: only this answer (and a replay to this client) ever carries it.
+  // With the order access token: only this answer (and a replay to this client) ever carries it. A reused order
+  // (a retry of an attempt that failed, with the same Idempotency-Key) is a replay too: one bound to no client
+  // (no client key) can be retried by anyone else without one, so it gets the token only as a replay would.
+  const accessSecret = begun.reused ? replayAccessSecret(deps, checkout.client) : orderAccessSecret(deps);
   return createdPrivate(
-    checkoutResult(url, orderId, checkout.kind === "seated" ? order.hold_expires_at : null, orderAccessSecret(deps)),
+    checkoutResult(url, orderId, checkout.kind === "seated" ? order.hold_expires_at : null, accessSecret),
   );
 }

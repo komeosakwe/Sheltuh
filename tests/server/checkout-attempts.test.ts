@@ -472,7 +472,8 @@ describe("Stripe failures and retries", () => {
 
     const retry = await checkout();
     expect(retry.status).toBe(201);
-    expect(retry.body).toEqual({ url: payPage(kept.id), orderId: kept.id, orderAccess: orderAccessToken(kept.id, WEBHOOK_SECRET) });
+    // A reused order is a replay: bound to no client (no client IP), so whoever retries it gets no order access token.
+    expect(retry.body).toEqual({ url: payPage(kept.id), orderId: kept.id });
     expect(stripe.made()).toBe(1); // Stripe made one session in all
     expect(await orders()).toEqual([{ id: kept.id, status: "pending", stripe_checkout_session_id: "cs_test_1" }]);
     // The same order, so the same idempotency key and the very same parameters.
@@ -484,6 +485,25 @@ describe("Stripe failures and retries", () => {
     const before = Date.now();
     expect(params1.expires_at * 1000 - before).toBeGreaterThan((GA_CHECKOUT_SESSION_MINUTES - 1) * 60_000);
     expect(params1.expires_at * 1000 - before).toBeLessThanOrEqual(GA_CHECKOUT_SESSION_MINUTES * 60_000);
+  });
+
+  it("a reused order's 201 carries the order access token only for a client with a key, as a replay does", async () => {
+    // With a client IP: the attempt is this client's, so its retry gets the token.
+    stripe.failNext("lost");
+    expect((await checkout(BASKET, { ip: IP })).status).toBe(503);
+    const mine = await checkout(BASKET, { ip: IP });
+    expect(mine.status).toBe(201);
+    expect(mine.body.orderAccess).toBe(orderAccessToken(mine.body.orderId as string, WEBHOOK_SECRET));
+
+    // Without one (another key, no client IP): the first try and its retry could come from anyone; no token.
+    const OTHER_KEY = crypto.randomUUID();
+    stripe.failNext("lost");
+    expect((await checkout(BASKET, { key: OTHER_KEY })).status).toBe(503);
+    const anyone = await checkout(BASKET, { key: OTHER_KEY });
+    expect(anyone.status).toBe(201);
+    expect(anyone.body.orderId).not.toBe(mine.body.orderId);
+    expect(anyone.body).not.toHaveProperty("orderAccess");
+    expect(JSON.stringify(anyone.body)).not.toContain(orderAccessToken(anyone.body.orderId as string, WEBHOOK_SECRET));
   });
 
   it("Stripe unreachable (nothing made): the retry makes the session for the same order", async () => {
