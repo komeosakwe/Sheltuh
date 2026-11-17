@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bareSuburb, eventPlaceName, placeName, placeNameParts, placeQuery, STATE_NAMES } from "@/lib/place";
+import { bareSuburb, eventPlaceName, placeName, placeNameParts, placeQuery, sameStreetLine, STATE_NAMES, venueLines } from "@/lib/place";
 import { STATE_CODES } from "@/lib/time-zones";
 
 describe("placeNameParts (a line that cuts the suburb short, never the state)", () => {
@@ -59,5 +59,68 @@ describe("placeQuery: the text that finds an event's suburb", () => {
     expect(placeQuery({ suburb: "Richmond" })).toBe("Richmond");
     expect(placeQuery({ suburb: "Richmond", state: null })).toBe("Richmond");
     expect(placeQuery({ suburb: "", state: "VIC" })).toBe("");
+  });
+});
+
+// Round 2: "170 Russell Street / 170 Russell St" (a Google address pick filled the venue name with the street line).
+describe("sameStreetLine", () => {
+  it.each<[string, string]>([
+    ["170 Russell Street", "170 Russell St"],
+    ["170 Russell St.", "170 RUSSELL STREET"],
+    ["170 Russell Street", "170 Russell St, Melbourne VIC 3000"],
+    ["12-14 Smith Street, Fitzroy", "12-14 Smith St"],
+    ["5 Glenferrie Road", "5 Glenferrie Rd"],
+    ["1/23 High Street", "1/23 High St"],
+    ["3 Acland Avenue", "3 Acland Av"],
+  ])("%s is the street line of %s", (name, address) => {
+    expect(sameStreetLine(name, address)).toBe(true);
+  });
+
+  it.each<[string, string]>([
+    ["Brunswick Street Print Hall", "Brunswick St"],
+    ["Brunswick Street Print Hall", "12 Brunswick St"],
+    ["Brunswick", "Brunswick St"],
+    ["The Tote", "71 Johnston St"],
+    ["Street Art Hall", "Street Art Hall Lane"],
+    ["170 Russell Street", "17 Russell St"],
+    ["", "170 Russell St"],
+    ["170 Russell Street", ""],
+  ])("%s is not the street line of %s", (name, address) => {
+    expect(sameStreetLine(name, address)).toBe(false);
+  });
+});
+
+describe("venueLines", () => {
+  const base = { suburb: "Collingwood", state: "VIC" as const };
+
+  it("a named venue: its name, then its address (or, without one, its place)", () => {
+    expect(venueLines({ ...base, venueName: "The Tote", venueAddress: "71 Johnston St" })).toEqual({ first: "The Tote", second: "71 Johnston St", named: true });
+    expect(venueLines({ ...base, venueName: "The Tote", venueAddress: " " })).toEqual({ first: "The Tote", second: "Collingwood, VIC", named: true });
+  });
+
+  it("a name that's only the street line: the address, then the place; never the address twice", () => {
+    expect(venueLines({ suburb: "Melbourne", state: "VIC", venueName: "170 Russell Street", venueAddress: "170 Russell St" })).toEqual({
+      first: "170 Russell St",
+      second: "Melbourne, VIC",
+      named: false,
+    });
+  });
+
+  it("no name: the address, then the place unless the address already names the suburb", () => {
+    expect(venueLines({ ...base, venueName: "", venueAddress: "71 Johnston St" })).toEqual({ first: "71 Johnston St", second: "Collingwood, VIC", named: false });
+    expect(venueLines({ ...base, venueName: "", venueAddress: "71 Johnston St, Collingwood VIC 3066" })).toEqual({
+      first: "71 Johnston St, Collingwood VIC 3066",
+      second: "",
+      named: false,
+    });
+  });
+
+  it("nothing but a place: the place alone; nothing at all: empty", () => {
+    expect(venueLines({ ...base, venueName: "", venueAddress: "" })).toEqual({ first: "Collingwood, VIC", second: "", named: false });
+    expect(venueLines({ suburb: "", venueName: "", venueAddress: "" })).toEqual({ first: "", second: "", named: false });
+  });
+
+  it("keeps the state another state shares a name with ('Richmond, NSW')", () => {
+    expect(venueLines({ suburb: "Richmond NSW", state: "NSW", venueName: "", venueAddress: "1 March St" }).second).toBe("Richmond, NSW");
   });
 });

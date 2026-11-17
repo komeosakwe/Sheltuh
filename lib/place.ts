@@ -86,3 +86,89 @@ export function placeQuery(place: PlaceFields): string {
   if (!place.state || !suburb) return suburb;
   return trailingState(suburb) === place.state ? suburb : `${suburb} ${place.state}`;
 }
+
+/** Street types as Google and organisers write them, each to one short form, so "Street" and "St" compare equal. */
+const STREET_TYPES: Readonly<Record<string, string>> = {
+  street: "st",
+  st: "st",
+  road: "rd",
+  rd: "rd",
+  avenue: "ave",
+  ave: "ave",
+  av: "ave",
+  boulevard: "blvd",
+  blvd: "blvd",
+  drive: "dr",
+  dr: "dr",
+  lane: "ln",
+  ln: "ln",
+  place: "pl",
+  pl: "pl",
+  parade: "pde",
+  pde: "pde",
+  terrace: "tce",
+  tce: "tce",
+  crescent: "cres",
+  cres: "cres",
+  court: "ct",
+  ct: "ct",
+  highway: "hwy",
+  hwy: "hwy",
+  square: "sq",
+  sq: "sq",
+  esplanade: "esp",
+  esp: "esp",
+  grove: "gr",
+  gr: "gr",
+  close: "cl",
+  cl: "cl",
+  circuit: "cct",
+  cct: "cct",
+};
+
+/** One comma-separated part of an address, compared loosely: lower case, no punctuation, street types shortened. */
+function streetKey(part: string): string {
+  return part
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s/-]/gu, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word, i) => (i > 0 ? (STREET_TYPES[word] ?? word) : word))
+    .join(" ");
+}
+
+/**
+ * Whether `name` is just the street line of `address` ("170 Russell Street" and "170 Russell St", or "170 Russell
+ * St, Melbourne VIC 3000"): what a Google *address* pick puts in the venue name. Only the whole first part of each
+ * is compared (lower case, no punctuation, street types shortened), never a part of a word or of a name, so "Brunswick
+ * Street Print Hall" never matches "Brunswick St". False when either is empty.
+ */
+export function sameStreetLine(name: string, address: string): boolean {
+  const a = streetKey(name.split(",")[0] ?? "");
+  const b = streetKey(address.split(",")[0] ?? "");
+  return a !== "" && a === b;
+}
+
+/** What venueLines needs: the venue's name and street address as entered, and its place. */
+export interface VenueFields extends PlaceFields {
+  venueName: string;
+  venueAddress: string;
+}
+
+/**
+ * The venue as two lines (the event page's Where group, Round 2): its name, then its street address (or, without
+ * one, "Suburb, STATE"). With no real name (none, or the name is only the street line, "170 Russell Street" over
+ * "170 Russell St") the address leads instead, then "Suburb, STATE" unless the address already names the suburb,
+ * so the address is never said twice. `second` is empty when there's nothing more to say; `named`: `first` is the
+ * venue's name.
+ */
+export function venueLines(venue: VenueFields): { first: string; second: string; named: boolean } {
+  const name = venue.venueName.trim();
+  const address = venue.venueAddress.trim();
+  const place = placeName(venue.suburb, venue.state);
+  if (name && !(address && sameStreetLine(name, address))) return { first: name, second: address || place, named: true };
+  if (!address) return { first: place, second: "", named: false };
+  const suburb = placeNameParts(venue.suburb, venue.state)?.suburb ?? "";
+  const namesSuburb = suburb !== "" && address.toLowerCase().includes(suburb.toLowerCase());
+  return { first: address, second: namesSuburb ? "" : place, named: false };
+}

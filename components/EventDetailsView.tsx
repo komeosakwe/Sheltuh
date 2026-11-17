@@ -36,7 +36,7 @@ import { SUPPORT_EMAIL } from "@/lib/contact";
 import { isSafeTicketUrl, reportEventHref } from "@/lib/event-url";
 import { eventZone, formatEventDateShort, formatEventDateTimeRange, formatEventTime, formatTimeZoneLabel, zoneSuffix } from "@/lib/format";
 import { directionsHref } from "@/lib/maps";
-import { placeName } from "@/lib/place";
+import { venueLines } from "@/lib/place";
 import { externalPriceFromLabel, formatFeedPriceParts, isSoldOut, startingPrice } from "@/lib/pricing";
 import { goesToSeatPage, quickBuyLabel } from "@/lib/quick-buy";
 import { soonFields, type SoonFields } from "@/lib/soon";
@@ -275,13 +275,11 @@ export default function EventDetailsView({
   const saveTarget = { id: event.id, title: event.title, slug: event.slug };
   const organiserHref = organiserProfileHref(event);
   const directions = directionsHref(event);
-  const address = [event.venueName, event.venueAddress].filter(Boolean).join(", ");
-  // The venue group's two lines: the venue's name, then its full street address (or, without one, its suburb, as the
-  // Location section does). A venue with no name leads with the address.
-  const venueName = event.venueName.trim();
-  const fullAddress = event.venueAddress.trim() || placeName(event.suburb, event.state);
-  const venueLine = venueName || fullAddress;
-  const addressLine = venueName ? fullAddress : "";
+  // The venue group's two lines (lib/place.ts venueLines): the venue's name, then its street address (or, without
+  // one, its suburb, as the Location section does). A venue with no name, or whose name is only its street line
+  // (a Google address pick, Round 2), leads with the address, then the suburb: never the address twice.
+  const { first: venueLine, second: addressLine } = venueLines(event);
+  const address = [venueLine, addressLine].filter(Boolean).join(", ");
   const outboundLink = (className: string) => (
     <ExternalTicketLink eventId={event.id} url={ticketUrl} className={className} preview={Boolean(preview)} />
   );

@@ -204,6 +204,18 @@ describe("EventLocation", () => {
     );
   });
 
+  it("says the address once when the venue's name is only its street line (a Google address pick, Round 2)", () => {
+    const event: SheltuhEvent = { ...sample("neon-static"), venueName: "71 Johnston Street", venueAddress: "71 Johnston St" };
+    render(<EventLocation event={event} />);
+    expect(screen.queryByText("71 Johnston Street")).toBeNull();
+    // Not bold: it isn't a venue name.
+    expect(screen.getByText("71 Johnston St")).not.toHaveClass("font-semibold");
+    expect(screen.getByText("Collingwood, VIC")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: GOOGLE_MAPS })).toHaveAccessibleName(
+      "Google Maps: directions to 71 Johnston St, Collingwood, VIC (opens in a new tab)",
+    );
+  });
+
   it("isn't there at all with no venue, address or suburb", () => {
     const event: SheltuhEvent = { ...sample("neon-static"), venueName: " ", venueAddress: "", suburb: "" };
     render(<EventLocation event={event} />);
