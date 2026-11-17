@@ -17,9 +17,12 @@
  *     line, or to the end of the text if that's missing).
  *   - Long base64 runs, which is what a .p8 key's body looks like without its
  *     BEGIN/END lines. In printed text: 32+ base64 characters mixing upper-
- *     and lower-case letters and digits, with a "+" or a 16+ character mixed
- *     stretch between slashes (so most file paths print as they are; one
- *     that's caught only loses that part of the path). As an argument: the
+ *     and lower-case letters and digits, with a "+", a 16+ character mixed
+ *     stretch between slashes, a 24+ character upper- and lower-case one, or
+ *     (48+ characters long) 10+ characters per slash on average, or two or
+ *     more 4+ character stretches that aren't word-shaped (so most file
+ *     paths print as they are; one that's caught only loses that part of the
+ *     path). As an argument: the
  *     whole value (after `--flag=`, if any) is 32+ base64 characters, line
  *     breaks allowed, mixing upper- and lower-case letters and digits. A file
  *     path rarely matches that (it almost always has a "." or "_"), so real
@@ -52,13 +55,24 @@ function mixesClasses(text: string): boolean {
   return /[A-Z]/.test(text) && /[a-z]/.test(text) && /[0-9]/.test(text);
 }
 
+/** A path segment's shape: a word or CamelCase words, maybe with digits after ("Keys2026", "OneDrive", "home"). */
+const WORD_PIECE = /^[A-Za-z][a-z]*(?:[A-Z][a-z]+)*[0-9]*$/;
+
 function isKeyLikeRun(run: string): boolean {
-  if (!mixesClasses(run)) return false;
+  // 40+ characters of random base64 can lack a digit (about 1 in 50,000 at 64), so only short runs need one.
+  if (!(mixesClasses(run) || (run.length >= 40 && /[A-Z]/.test(run) && /[a-z]/.test(run)))) return false;
   if (run.includes("+")) return true;
-  return run.split("/").some((piece) => {
-    const bare = piece.replace(/=+$/, "");
-    return bare.length >= 16 && mixesClasses(bare);
-  });
+  const pieces = run.split("/").map((piece) => piece.replace(/=+$/, ""));
+  // A long run with few slashes: base64 has one about every 64 characters, a path one every 6–10.
+  if (run.length >= 48 && run.length / pieces.length >= 10) return true;
+  // Two or more scrambled stretches ("8cp8ozDXdA"): a path's segments are words, base64's aren't.
+  if (pieces.filter((bare) => bare.length >= 4 && !WORD_PIECE.test(bare)).length >= 2) return true;
+  return pieces.some(
+    (bare) =>
+      (bare.length >= 16 && mixesClasses(bare)) ||
+      // Random base64 that happens to have no digit in this stretch (about 1 in 1,000 at 41 characters).
+      (bare.length >= 24 && /[A-Z]/.test(bare) && /[a-z]/.test(bare)),
+  );
 }
 
 /** `text` with anything key-shaped replaced by [redacted]. */
