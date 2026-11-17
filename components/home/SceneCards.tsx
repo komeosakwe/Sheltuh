@@ -35,7 +35,7 @@ const NO_DATA: SceneData = { lead: null, going: null, meta: null };
  * `::after` stretches over the card, so the whole card opens the listing with one tab stop. A
  * labelled list of list items. Phones and tablets: a sideways snap row of 288px cards bleeding to
  * the page's edges (the home's row pattern, so the page never scrolls sideways); from 1024px,
- * three equal columns.
+ * three equal columns (two when exactly two scenes show, so no column is left empty).
  *
  * Once the home's events have loaded, only the scenes with an upcoming event show (Round 2 B3: no
  * empty communities on the home); with none, nothing at all (no list, no note). While they load,
@@ -63,7 +63,7 @@ export default function SceneCards({ className = "" }: { className?: string }) {
       <ul
         aria-label={SCENES_LIST_NAME}
         data-community-scenes=""
-        className="no-scrollbar -mx-4 flex snap-x snap-mandatory gap-4 overflow-x-auto overscroll-x-contain scroll-px-4 px-4 py-2 md:-mx-8 md:scroll-px-8 md:px-8 lg:mx-0 lg:grid lg:grid-cols-3 lg:overflow-visible lg:px-0 lg:py-0"
+        className={`no-scrollbar -mx-4 flex snap-x snap-mandatory gap-4 overflow-x-auto overscroll-x-contain scroll-px-4 px-4 py-2 md:-mx-8 md:scroll-px-8 md:px-8 lg:mx-0 lg:grid ${shown.length === 2 ? "lg:grid-cols-2" : "lg:grid-cols-3"} lg:overflow-visible lg:px-0 lg:py-0`}
       >
         {shown.map(({ category, label, icon, line, data }) => (
           <li key={category} data-community-scene={category} className="group/scene relative flex w-72 shrink-0 snap-start flex-col lg:w-auto lg:min-w-0">

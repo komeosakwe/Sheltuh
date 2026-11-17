@@ -521,7 +521,7 @@ export default function EventDetailsView({
             </div>
             {/* Who's going (the owner's event mock): the count, a few faces and I'm going (or See who's going, View
                 attendees), to the panel further down. Nothing while there's no count to show and nothing to do. */}
-            {!preview && <WhosGoingCard className="mt-1" />}
+            {!preview && <WhosGoingCard />}
           </div>
 
           <div className="flex min-w-0 flex-col gap-10 max-lg:pt-4 lg:col-span-7 lg:row-start-2 lg:gap-12 xl:col-span-8">

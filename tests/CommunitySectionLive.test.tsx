@@ -158,6 +158,10 @@ describe("CommunitySection's scene cards in live mode", () => {
     // No pop-up events at all: no card (Round 2 B3: no empty communities on the home).
     expect(popups).toBeNull();
     expect(container.querySelectorAll("[data-community-scene]")).toHaveLength(2);
+    // Two scenes: two columns from 1024px, so no third column sits empty.
+    const list = container.querySelector("[data-community-scenes]");
+    expect(list).toHaveClass("lg:grid-cols-2");
+    expect(list).not.toHaveClass("lg:grid-cols-3");
     expect(container.querySelector("[data-scene-fallback]")).toBeNull();
     expect(container).not.toHaveTextContent("No upcoming events");
     expect(container.querySelector("[data-scenes-note]")).toBeNull();

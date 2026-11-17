@@ -180,6 +180,7 @@ describe("CommunitySection: the scene cards", () => {
     const { container } = render(<CommunitySection />);
     const { items } = sceneCards();
     expect(items).toHaveLength(3);
+    expect(container.querySelector("[data-community-scenes]")).toHaveClass("lg:grid-cols-3");
     items.forEach((item, i) => {
       const scene = SCENES[i];
       expect(within(item).getByRole("heading", { level: 3 })).toHaveTextContent(scene.name);
