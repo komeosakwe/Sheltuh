@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import OrganiserCoverField from "@/components/dashboard/OrganiserCoverField";
 import OrganiserLogoField from "@/components/dashboard/OrganiserLogoField";
+import OrganiserTagsField from "@/components/dashboard/OrganiserTagsField";
 import PublicProfileForm from "@/components/dashboard/PublicProfileForm";
 import { ButtonLink } from "@/components/ui/Button";
 import type { GetToken } from "@/lib/api/client";
@@ -17,7 +19,8 @@ const RETURN_TO = "/dashboard/profile";
 
 /**
  * The dashboard's public profile editor: available once the organiser is
- * approved (the logo too: the API refuses one before then). Never in the
+ * approved (the cover, logo and categories too: the API refuses them before
+ * then). Never in the
  * demo, which has no accounts.
  */
 export default function PublicProfilePanel() {
@@ -99,13 +102,16 @@ function ProfileEditor({ organiser, getToken }: { organiser: OrganiserRecord; ge
     <div className="flex flex-col gap-8">
       <div className="flex flex-col items-start gap-4 border-t border-foreground pt-5">
         <p className="text-sm text-muted">
-          Changes go live straight away. To change your name, contact email or categories, contact us.
+          Changes go live straight away. To change your name, contact email or event categories, contact us.
         </p>
         <ButtonLink href={profileHref} variant="outline" size="lg">
           View public profile
         </ButtonLink>
       </div>
+      {/* In the public profile's order: cover, logo, categories, then the rest. */}
+      <OrganiserCoverField organiser={organiser} getToken={getToken} />
       <OrganiserLogoField organiser={organiser} getToken={getToken} />
+      <OrganiserTagsField organiser={organiser} />
       <PublicProfileForm organiser={organiser} />
     </div>
   );

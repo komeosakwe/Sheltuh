@@ -252,6 +252,20 @@ export function parseCustomTag(raw: unknown): CustomTagResult {
   return { ok: true, value };
 }
 
+/**
+ * The API's words for the checks across the whole set (parseOrganiserTags in
+ * lib/server/handlers/organiser-tags.ts), here so the dashboard form says
+ * exactly the same as it checks while the organiser types.
+ */
+export const TAG_SET_ERRORS = {
+  /** An own word repeating an earlier one (compared by customTagKey). */
+  duplicate: "You've already added this one.",
+  /** An own word that's one of the list's labels (isTagLabel). */
+  isLabel: "That's in the list: choose it there instead.",
+  /** More than MAX_PROFILE_TAGS chips in all. */
+  tooMany: `Choose up to ${MAX_PROFILE_TAGS} in all, your own words included.`,
+} as const;
+
 /** Whether an own word (already parsed) is one of the list's labels ("Live music"): choose that from the list instead. */
 export function isTagLabel(value: string): boolean {
   return LABEL_KEYS.has(customTagKey(value));
