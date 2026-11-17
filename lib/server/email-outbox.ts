@@ -817,12 +817,17 @@ async function recordHolderMessageSkip(deps: Deps, recipientId: string, reason: 
   }
 }
 
+/** A holder message's skip reason once its order's email changed after it was queued (and the old address holds no other paid order). */
+export const RECIPIENT_CHANGED = "the order's email changed after the message was queued";
+
 /**
  * Sends one organiser message to one ticket holder. Everything is read now:
  * skipped (and recorded on the recipient), not retried, if an admin stopped
  * the message, the holder asked the organiser to stop messaging them, they
  * have no paid order for the event any more, the event was unpublished, the
- * organiser isn't approved, or the address isn't a plain one. Already sent
+ * organiser isn't approved, the address isn't a plain one, or the order's
+ * email was changed since it was queued (RECIPIENT_CHANGED: sent to neither
+ * address, unless the old one holds another paid order for the event). Already sent
  * (a worker that died before recording it) is a success, not a second email.
  * Over the platform's daily allowance the job waits an hour, without using an
  * attempt. Never throws, and never puts an address or the text in an error.
@@ -847,11 +852,14 @@ async function deliverHolderMessage(deps: Deps, jobId: string): Promise<Outcome>
       /** The event's artwork path, as EventRecord.imageUrl has it (lib/server/records.ts), or null. */
       event_image_url: string | null;
       recipient_hash: string;
+      /** Whether the order's address is still the one the message was queued for (false once its email was changed). */
+      same_recipient: boolean;
       suppressed: boolean;
     }>(
       `select r.id as recipient_id, m.id as message_id, r.sent_at is not null as sent, m.subject, m.body,
               m.cancelled_at is not null as cancelled, e.title as event_title, e.status::text as event_status,
               e.id as event_id, r.recipient_hash,
+              coalesce(private.email_recipient_hash(o.buyer_email) = r.recipient_hash, false) as same_recipient,
               (select '/api/events/' || e.id::text || '/image?v=' || floor(extract(epoch from i.updated_at))::bigint::text
                  from public.event_images i where i.event_id = e.id) as event_image_url,
               exists (select 1 from private.holder_message_suppressions s
@@ -886,6 +894,14 @@ async function deliverHolderMessage(deps: Deps, jobId: string): Promise<Outcome>
     if (row.event_status !== "published") return refuse("the event isn't published any more");
     if (row.organiser_status !== "approved") return refuse("the organiser isn't approved any more");
     if (!buyerEmail || !isPlainEmailAddress(buyerEmail)) return refuse("the order has no usable email address");
+    // The order's email was changed since the message was queued (docs/architecture.md, "Buyer email checks"):
+    // the message was for the address it had then, so never the new one; the old one only if it still holds
+    // another paid order for the event.
+    if (row.order_status === "paid" && !row.same_recipient) {
+      const other = await otherPaidOrder(deps, row.event_id, row.recipient_hash);
+      if (!other || !isPlainEmailAddress(other.buyer_email)) return refuse(RECIPIENT_CHANGED);
+      buyerEmail = other.buyer_email;
+    }
     const [{ allowed }] = await deps.db.query<{ allowed: boolean }>(
       `select private.take_platform_rate_limit($1, $2, interval '1 day') as allowed`,
       [HOLDER_MESSAGES_DAILY.bucket, HOLDER_MESSAGES_DAILY.limit],
