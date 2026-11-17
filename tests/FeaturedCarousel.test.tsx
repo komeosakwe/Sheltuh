@@ -400,6 +400,26 @@ describe("FeaturedCarousel", () => {
     expect(screen.getByRole("button", { name: "Play carousel" })).toBeInTheDocument();
   });
 
+  it("a swipe that cuts its own glide short is the visitor's: once the glide's window ends it stops on the slide swiped to", async () => {
+    stubMotion(true);
+    renderCarousel();
+    const el = track();
+    Object.defineProperty(el, "clientWidth", { configurable: true, value: 640 });
+    let left = 0;
+    Object.defineProperty(el, "scrollLeft", { configurable: true, get: () => left });
+    await act(() => vi.advanceTimersByTimeAsync(CAROUSEL_INTERVAL_MS));
+    expect(scrollTo).toHaveBeenLastCalledWith({ left: 640, behavior: "smooth" });
+    // The visitor drags it back to the first slide mid-glide; the scroll ends there and nothing else scrolls.
+    left = 200;
+    fireEvent.scroll(el);
+    left = 0;
+    fireEvent.scroll(el);
+    fireEvent(el, new Event("scrollend"));
+    await act(() => vi.advanceTimersByTimeAsync(1100));
+    expect(screen.getByRole("button", { name: "Play carousel" })).toBeInTheDocument();
+    expect(current()).toBe(0);
+  });
+
   it("new slides start again from the first", () => {
     stubMotion(false);
     const { rerender } = renderCarousel();

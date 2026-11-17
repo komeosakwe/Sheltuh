@@ -143,8 +143,18 @@ export default function FeaturedCarousel({
     let timer: ReturnType<typeof setTimeout> | undefined;
     const settle = () => {
       const own = ownScrollRef.current;
-      // Still on its way to the carousel's own target: not settled yet (the next scroll event re-arms).
-      if (own && Math.abs(track.scrollLeft - own.left) > OWN_SCROLL_SLACK_PX && Date.now() - own.since < OWN_SCROLL_MAX_MS) return;
+      if (own && Math.abs(track.scrollLeft - own.left) > OWN_SCROLL_SLACK_PX) {
+        const left = own.since + OWN_SCROLL_MAX_MS - Date.now();
+        // Still on its way to the carousel's own target: not settled yet. Look again when its window ends,
+        // in case nothing scrolls after this (a swipe that cut it short has already had its scrollend).
+        if (left > 0) {
+          if (timer !== undefined) clearTimeout(timer);
+          timer = setTimeout(settle, left);
+          return;
+        }
+        // Its window is over and it isn't where the carousel sent it: the visitor took over.
+        setPlaying(false);
+      }
       ownScrollRef.current = null;
       if (track.clientWidth <= 0) return;
       const nearest = Math.min(count - 1, Math.max(0, Math.round(track.scrollLeft / track.clientWidth)));
