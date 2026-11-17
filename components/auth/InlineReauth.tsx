@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { sameAccount, type AccountRef } from "@/lib/auth/account";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { oauthProviderNames, offeredOAuthProviders } from "@/lib/auth/oauth";
-import { useHumanCheck } from "@/lib/auth/useHumanCheck";
+import { HUMAN_CHECK_CANCELLED, useHumanCheck } from "@/lib/auth/useHumanCheck";
 import { isIosHomeScreenApp } from "@/lib/pwa/install";
 import { withNext } from "@/lib/safe-next-path";
 
@@ -159,7 +159,10 @@ export default function InlineReauth({ expectedAccount, onSignedIn }: Props) {
     setLoading(true);
     passwordAttempt.current = true;
     try {
-      await auth.signIn(email, password, await humanCheck.getToken());
+      const token = await humanCheck.getToken();
+      // The form went while it waited: send nothing.
+      if (token === HUMAN_CHECK_CANCELLED) return;
+      await auth.signIn(email, password, token);
       if (expectedAccount && lockedEmail !== undefined && !sameAccount({ email }, { email: lockedEmail })) {
         // Signed in here, as the wrong account: this browser only, never the account's other devices.
         auth.signOut("local");

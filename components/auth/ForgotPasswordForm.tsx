@@ -9,7 +9,7 @@ import PasswordField from "@/components/auth/PasswordField";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { emailError, passwordError } from "@/lib/auth/password-rules";
-import { useHumanCheck } from "@/lib/auth/useHumanCheck";
+import { HUMAN_CHECK_CANCELLED, useHumanCheck } from "@/lib/auth/useHumanCheck";
 import { withNext } from "@/lib/safe-next-path";
 
 const FORM_ERROR_ID = "reset-error";
@@ -81,7 +81,10 @@ export default function ForgotPasswordForm({ next }: { next?: string } = {}) {
     if (invalid({ email: emailError(email) }, ["email"])) return;
     setLoading(true);
     try {
-      await auth.forgotPassword(email.trim(), await humanCheck.getToken());
+      const token = await humanCheck.getToken();
+      // The form went while it waited: send nothing.
+      if (token === HUMAN_CHECK_CANCELLED) return;
+      await auth.forgotPassword(email.trim(), token);
       setFieldErrors({});
       setStep("confirm");
     } catch (err) {

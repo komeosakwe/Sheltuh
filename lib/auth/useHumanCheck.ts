@@ -15,7 +15,13 @@ export const HUMAN_CHECK_WAIT_MS = 15_000;
 /** The widget's problem, said under it: it failed or timed out, the script didn't load, or the browser can't run it. */
 export type HumanCheckProblem = "failed" | "load-failed" | "unsupported";
 
-type WakeReason = "token" | "problem" | "interactive";
+type WakeReason = "token" | "problem" | "interactive" | "cancelled";
+
+/**
+ * What getToken resolves to when its form went (unmounted) while it waited:
+ * the submit it was for must stop, sending nothing (not even without a token).
+ */
+export const HUMAN_CHECK_CANCELLED = Symbol("human check cancelled");
 
 export interface HumanCheck {
   /** NEXT_PUBLIC_TURNSTILE_SITE_KEY is set. Off: getToken resolves undefined at once and nothing is loaded. */
@@ -26,9 +32,10 @@ export interface HumanCheck {
    * still checking (HUMAN_CHECK_WAIT_MS, longer while the widget asks for a
    * tap). Resolves undefined, never rejects, when it's off or no token can be
    * had: the request is then sent without one and Supabase decides (it
-   * refuses it only when its CAPTCHA protection is on).
+   * refuses it only when its CAPTCHA protection is on). Resolves
+   * HUMAN_CHECK_CANCELLED if the form goes while it waits: send nothing.
    */
-  getToken: () => Promise<string | undefined>;
+  getToken: () => Promise<string | undefined | typeof HUMAN_CHECK_CANCELLED>;
   /** Tokens are single use: call after every attempt that may have used one (success or failure). */
   reset: () => void;
   /** For <HumanCheckField>. */
@@ -150,8 +157,8 @@ export function useHumanCheck(action: HumanCheckAction): HumanCheck {
     };
   }, [siteKey, container, theme, action, loadAttempt, report, wake, setInteractiveNow]);
 
-  // A wait still running when the form goes (its step changed): it gets no token.
-  useEffect(() => () => wake("problem"), [wake]);
+  // A wait still running when the form goes: cancelled, so its submit stops rather than going on without a token.
+  useEffect(() => () => wake("cancelled"), [wake]);
 
   const reset = useCallback(() => {
     token.current = null;
@@ -168,7 +175,7 @@ export function useHumanCheck(action: HumanCheckAction): HumanCheck {
     return value;
   }, []);
 
-  const getToken = useCallback((): Promise<string | undefined> => {
+  const getToken = useCallback((): Promise<string | undefined | typeof HUMAN_CHECK_CANCELLED> => {
     if (!siteKey) return Promise.resolve(undefined);
     if (token.current) return Promise.resolve(takeToken());
     if (problemNow.current === "unsupported") return Promise.resolve(undefined);
@@ -177,7 +184,7 @@ export function useHumanCheck(action: HumanCheckAction): HumanCheck {
     setWaiting(true);
     return new Promise((resolve) => {
       let timer: ReturnType<typeof setTimeout> | undefined;
-      const finish = (value: string | undefined) => {
+      const finish = (value: string | undefined | typeof HUMAN_CHECK_CANCELLED) => {
         clearTimeout(timer);
         waiters.current.delete(waiter);
         if (waiters.current.size === 0) setWaiting(false);
@@ -194,6 +201,7 @@ export function useHumanCheck(action: HumanCheckAction): HumanCheck {
           const value = takeToken();
           if (value) finish(value);
         } else if (reason === "problem") finish(undefined);
+        else if (reason === "cancelled") finish(HUMAN_CHECK_CANCELLED);
         else arm();
       };
       waiters.current.add(waiter);

@@ -8,7 +8,7 @@ import HumanCheckField from "@/components/auth/HumanCheckField";
 import { Button } from "@/components/ui/Button";
 import { track } from "@/lib/analytics";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { useHumanCheck } from "@/lib/auth/useHumanCheck";
+import { HUMAN_CHECK_CANCELLED, useHumanCheck } from "@/lib/auth/useHumanCheck";
 import { DEFAULT_AFTER_SIGN_IN, safeNextPath, withNext } from "@/lib/safe-next-path";
 
 const FORM_ERROR_ID = "verify-error";
@@ -116,7 +116,10 @@ export default function VerifyForm() {
     setResending(true);
     setCheckShown(true);
     try {
-      await auth.resendConfirmationCode(email.trim(), await humanCheck.getToken());
+      const token = await humanCheck.getToken();
+      // The form went while it waited: send nothing.
+      if (token === HUMAN_CHECK_CANCELLED) return;
+      await auth.resendConfirmationCode(email.trim(), token);
       setResendMessage("New code sent.");
     } catch (err) {
       showServerError(err instanceof Error ? err.message : "Couldn't resend the code.", ["email"]);

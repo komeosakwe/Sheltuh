@@ -17,7 +17,7 @@ import {
   type TurnstileApi,
   type TurnstileRenderOptions,
 } from "@/lib/auth/turnstile";
-import { HUMAN_CHECK_WAIT_MS, useHumanCheck, type HumanCheck } from "@/lib/auth/useHumanCheck";
+import { HUMAN_CHECK_CANCELLED, HUMAN_CHECK_WAIT_MS, useHumanCheck, type HumanCheck } from "@/lib/auth/useHumanCheck";
 import { applyTheme } from "@/lib/theme";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 
@@ -474,7 +474,7 @@ describe("Turnstile on", () => {
 
   it("a token is handed out once: a second request waits for Turnstile's next one", async () => {
     const turnstile = fakeTurnstile();
-    const seen: (string | undefined)[] = [];
+    const seen: Awaited<ReturnType<HumanCheck["getToken"]>>[] = [];
     let check: HumanCheck | undefined;
     function Harness() {
       check = useHumanCheck("sign-in");
@@ -500,6 +500,82 @@ describe("Turnstile on", () => {
       await second;
     });
     expect(seen).toEqual(["token-once", "token-next"]);
+  });
+
+  it("a wait still running when the form goes resolves HUMAN_CHECK_CANCELLED, not undefined", async () => {
+    const turnstile = fakeTurnstile();
+    let check: HumanCheck | undefined;
+    function Harness() {
+      check = useHumanCheck("sign-in");
+      return <HumanCheckField check={check} />;
+    }
+    render(<Harness />);
+    await loadScript(turnstile.api);
+    let waited: Promise<unknown> | undefined;
+    act(() => {
+      waited = check?.getToken();
+    });
+    await waitFor(() => expect(status()).toHaveTextContent("Checking you’re human…"));
+    cleanup();
+    await expect(waited).resolves.toBe(HUMAN_CHECK_CANCELLED);
+  });
+
+  it.each([
+    {
+      name: "sign-in",
+      ui: () => <LoginForm />,
+      fill: fillLogin,
+      submit: "Continue",
+      sent: (auth: AuthContextValue) => auth.signIn,
+    },
+    {
+      name: "sign-up",
+      ui: () => <SignupForm />,
+      fill: () => {
+        fireEvent.change(screen.getByLabelText("Email"), { target: { value: "mia@example.com" } });
+        fireEvent.change(screen.getByLabelText("Password"), { target: { value: "Hunter22x" } });
+      },
+      submit: "Sign up",
+      sent: (auth: AuthContextValue) => auth.signUp,
+    },
+    {
+      name: "password reset",
+      ui: () => <ForgotPasswordForm />,
+      fill: () => fireEvent.change(screen.getByLabelText("Email"), { target: { value: "mia@example.com" } }),
+      submit: "Send reset code",
+      sent: (auth: AuthContextValue) => auth.forgotPassword,
+    },
+    {
+      name: "verify (Resend code)",
+      ui: () => {
+        searchParams = new URLSearchParams({ email: "mia@example.com" });
+        return <VerifyForm />;
+      },
+      fill: () => {},
+      submit: "Resend code",
+      sent: (auth: AuthContextValue) => auth.resendConfirmationCode,
+    },
+    {
+      name: "inline sign-in",
+      ui: () => <InlineReauth onSignedIn={() => {}} />,
+      fill: () => {
+        fireEvent.change(screen.getByLabelText("Email"), { target: { value: "me@example.com" } });
+        fireEvent.change(screen.getByLabelText("Password"), { target: { value: "hunter2" } });
+      },
+      submit: "Sign in",
+      sent: (auth: AuthContextValue) => auth.signIn,
+    },
+  ])("$name: a submit still waiting for a token when its form goes sends nothing", async ({ ui, fill, submit, sent }) => {
+    const turnstile = fakeTurnstile();
+    const auth = renderWith(ui());
+    fill();
+    fireEvent.click(screen.getByRole("button", { name: submit }));
+    await waitFor(() => expect(scripts()).toHaveLength(1));
+    await loadScript(turnstile.api);
+    await waitFor(() => expect(status()).toHaveTextContent("Checking you’re human…"));
+    cleanup();
+    await act(async () => {});
+    expect(sent(auth)).not.toHaveBeenCalled();
   });
 
   it("the widget is removed when its form goes", async () => {

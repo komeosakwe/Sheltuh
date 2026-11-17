@@ -10,7 +10,7 @@ import PasswordField from "@/components/auth/PasswordField";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { emailError, passwordError } from "@/lib/auth/password-rules";
-import { useHumanCheck } from "@/lib/auth/useHumanCheck";
+import { HUMAN_CHECK_CANCELLED, useHumanCheck } from "@/lib/auth/useHumanCheck";
 import { withNext } from "@/lib/safe-next-path";
 
 const FORM_ERROR_ID = "signup-error";
@@ -80,7 +80,10 @@ export default function SignupForm({ next }: { next?: string } = {}) {
 
     setLoading(true);
     try {
-      await auth.signUp(email.trim(), password, await humanCheck.getToken());
+      const token = await humanCheck.getToken();
+      // The form went while it waited: send nothing.
+      if (token === HUMAN_CHECK_CANCELLED) return;
+      await auth.signUp(email.trim(), password, token);
       router.push(withNext("/verify", next, { email: email.trim() }));
     } catch (err) {
       const message = err instanceof Error ? err.message : "Couldn't sign up.";
