@@ -68,7 +68,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261122000000_order_buyer_details.sql`. Never
+      newest, currently `20261129000000_event_banner_fit.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -481,6 +481,22 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           keeps working (the argument defaults to null). It redefines none of the
           functions files 45 to 50 redefine. Not reversible without losing the
           names once orders carry them.
+      52. `20261129000000_event_banner_fit.sql` (how the home page's featured
+          banner shows an event's photo, docs/architecture.md "Photo focus":
+          `event_images.banner_fit`, text not null default `crop`, check
+          constraint `event_images_banner_fit_check` (`crop` or `whole`), and
+          the new `private.admin_set_event_image_display`). search_path
+          pinned, execute revoked from clients, no new table, grant or index.
+          **Apply it before deploying the app**: the new app selects
+          `banner_fit` in every event read, so on the old schema every event
+          page, list and the home fail. The previous app keeps working against
+          it (it never reads or writes the column; its photos get `crop`, as
+          now, and it keeps calling `admin_set_event_image_focus`, which is
+          unchanged), so it can be applied ahead of the deploy. Needs no new
+          environment variable. Not destructive. Reversible after deploying an
+          app that doesn't select the column: drop
+          `admin_set_event_image_display`, then the constraint and the column
+          (every `whole` setting is lost).
 
       **Files 33 to 37 can be applied ahead of this deploy, with the
       previous app still live.** "The previous app" here is the build of
