@@ -90,7 +90,7 @@ iframe served by Stripe), with the publishable key
 | `orders` | `id` (`ord_…`) | Priced snapshot of the line items and totals. `status`: pending → paid / failed / oversold_refund_required; oversold_refund_required → refunded (our automatic refund); paid → refunded (refunded in full in Stripe: Stripe's `refunded`, or at least `total_cents` refunded; see "Refunds made in Stripe"); pending → failed also when a paid session's amount or currency wasn't the order's (`private.fail_mismatched_order`, which also records the payment intent; the payment is then refunded). `amount_refunded_cents` (≥ 0, default 0) is Stripe's cumulative refunded amount, recorded only for paid orders (a partial refund leaves the order paid, whatever its amount; a refunded order with `amount_refunded_cents` below `total_cents` was voided by the tickets-only rule of `20261110000200_support_ticket_refund.sql`, before `20261111000300_refund_no_inference.sql` removed it). Indexed on `stripe_payment_intent_id` (partial, not null) for the refund webhook, and on `(event_id, created_at)` (partial, `paid`) for the trending refresh's 14-day read. `tickets_emailed_at` records the ticket email (cleared when the order's email is changed, until the email to the new address is sent). `buyer_email` changes after payment only through `change_order_email` (see "Buyer email checks"). `tracking_code` is the event tracking link the checkout came through (checked against the event's links when the order is created; null otherwise). `seat_ids` (1–10): a seated order's seats, set when it's made and never changed (what fulfilment and refunds act on). `support_cents` (0 to 50000, default 0; `20261110000100_order_support.sql`): Support Sheltüh, what the buyer added for the platform (see "Support Sheltüh"); only on an order with a paid ticket (`orders_support_paid_only`), and in `total_cents` (`orders_support_in_total`: total = subtotal + buyer fee + support when there is some), never in `subtotal_cents`, `buyer_fee_cents` or `application_fee_cents` (the booking fee). `payout_method` (`destination` default, or `transfer`; `orders_payout_method_check`; `20261119000000_delayed_payouts.sql`): how the organiser's share is paid. `destination`: a destination charge, paid out with the payment (every order made before delayed payouts, and while `DELAYED_PAYOUTS` is off). `transfer`: charged on the platform and transferred after the event (see "Delayed payouts"). Chosen once, while the order is `pending` (`orders_payout_method_frozen` refuses any later change), and every Stripe call about the order follows it. Partial index `orders_transfer_paid_idx` on `(event_id)` for paid `transfer` orders. `buyer_name` (1–80 characters, trimmed, no control, invisible or line-separator characters, written as escapes only so pasting the migration can't lose them; the zero-width joiners U+200C/U+200D are allowed there and by the API only between letters: `orders_buyer_name_check`) and `details_notice_at` are set together or not at all (`orders_details_notice_pair`): the name the buyer typed at checkout, and when it was made, which the database stamps itself (the `orders_details_notice` trigger: `now()` on insert when there is a name; a client can't set it), proof the checkout's notice "Your name and email are shared with the organiser of this event." had been shown (`20261122000000_order_buyer_details.sql`; see "Organiser orders"). Once set they can only be cleared, both together (the `orders_details_immutable` trigger: the withdrawal runbook). Null for every order made before it and for any made without a name. Never in `ORDER_SELECT` or `CustomerOrder`: only the Orders view reads them. |
 | `private.order_detail_exports` | `id` (identity) | The audit log of the Orders view's CSV exports (see "Organiser orders"): event, organiser, the exporting account (`actor_id`, set null if the account goes) and row count, with the time. No buyer data. Written by `record_order_export`. RLS on, no grants. Kept (it is the record of who took the data). |
 | `private.order_detail_views` | `(actor_id, event_id, day)` | The audit of the Orders view's page reads, as an aggregate: per account, event and UTC day, `rows_served` (rows of buyer details returned by the list, search and export together) and `requests`, with the organiser. It is also the daily budget's counter (see "Organiser orders"). No buyer data; `actor_id` is a plain uuid (part of the key). Written by `take_order_detail_budget`. RLS on, no grants. Kept. |
-| `private.order_email_changes` | `id` (identity) | Append-only log of every change of a paid order's email (`20261127000000_order_email_changes.sql`; see "Buyer email checks"): the order, `changed_by` (`buyer`: the paying browser's own change; `admin`: support's, with `admin_id`, set null if that account goes, and a 3–500 character `reason`; checks `order_email_changes_reason` and `order_email_changes_buyer_no_admin`), both addresses masked by `private.mask_email` (`old_email_masked`, null if there was none, and `new_email_masked`: never an address in full), and `created_at`. The partial unique index `order_email_changes_one_buyer_change` (`order_id` where `changed_by = 'buyer'`) is the one-change-per-order rule. A trigger refuses updates (except the `admin_id` foreign key's own set-null). `order_email_changes_order_idx` (order, newest first) serves the admin list's newest 5 per order. Deleted with the order. RLS on, no grants. |
+| `private.order_email_changes` | `id` (identity) | Append-only log of every change of a paid order's email (`20261127000000_order_email_changes.sql`; see "Buyer email checks"): the order, `changed_by` (`buyer`: the paying browser's own change; `admin`: support's, with `admin_id`, set null if that account goes, and a 3–500 character `reason`; checks `order_email_changes_reason` and `order_email_changes_buyer_no_admin`), both addresses masked by `private.mask_email` (`old_email_masked`, null if there was none, and `new_email_masked`: never an address in full), and `created_at`. The partial unique index `order_email_changes_one_buyer_change` (`order_id` where `changed_by = 'buyer'`) is the one-change-per-order rule. A trigger refuses updates (except the `admin_id` foreign key's own set-null). `order_email_changes_order_idx` (order, newest first) serves the admin list's newest 5 per order, the confirmation page's latest-change read and the "changed by support" check. Deleted with the order. RLS on, no grants. |
 | `tickets` | `code` | One row per admitted person. Rows are kept when their order is refunded, but only a `paid` order's tickets are valid: check-in checks the order's status. `checked_in_at`: when the ticket was admitted at the door (null until then, and again after an undo; cleared 25 months after the event ends). Indexed on `(event_id, ticket_type_id)` for the check-in counts. `seat_id`: its seat (reserved seating); the foreign key `ticket_seats_sold_fkey` (event, seat, order, ticket type) → `event_seats (event_id, id, sold_order_id, ticket_type_id)` means a ticket can only name a seat sold to its own order in its own tier, and `tickets_seat_key` one ticket per seat. A full refund clears it (the order's `seat_ids` keeps the history). `wallet_serial` (uuid, random, unique `tickets_wallet_serial_key`; `20261109000500_ticket_wallet_serial.sql`): the id of the ticket's wallet pass, read only by the wallet routes (see "Wallet passes"). |
 | `ticket_check_ins` | `id` (identity) | The check-in log (see "Check-in"): one row per scan or undo, with a random `public_id` (uuid, unique: the only id the API shows, as `checkInId`; the sequential `id` stays internal, so ids don't reveal platform-wide scan volume), the event scanned for, the ticket `code` (null for an `invalid` scan: what was scanned is never stored), the acting account (the organiser's, or the admin's for a platform-managed organiser's event), the client's `request_id` (unique per event: the idempotency key), the `result` and, for an undo only, its `reason` (3–200 characters). Check constraints tie `invalid` to a null code and `undone` to a reason. Deleted with the event or the ticket, and by `purge_analytics` 25 months after the event ends. No buyer data. |
 | `private.platform_rate_limits` | `bucket` | Platform-wide fixed-window counters (`take_platform_rate_limit`): the hourly and 24-hour confirmation-email caps, the self-publish cap, and the Google Places caps per Google day (`places_*_day:<date>`, see "Venue location"). Idle rows purged daily. |
@@ -208,7 +208,7 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
 | `join_with_organiser_invite_link` | A signed-in, verified caller's join, by token hash (see "Organiser links"): locks the link; `unavailable` when there's none, or it's used by another account, cancelled or expired, or its creator is no longer an admin (`account_invite_inviter_is_admin`; then it's marked cancelled, `cancelled_by` null); `already_joined` (the organiser) for the account that used it. Then locks the caller's organiser row: approved → `already_organiser`; rejected (taken down included), or pending with a `suspended` entry on its log (taken down, then resubmitted) → `rejected`; both with the link left active; pending otherwise → approved as submitted (`reviewed_by` the link's creator); none → a new approved organiser (the typed name and categories, the caller's verified email as `contact_email`, an empty bio), `details_required` without them, `conflict` when an application committed meanwhile (`on conflict (owner_user_id) do nothing`). Logs `invite_accepted` (status null or pending → approved), marks the link used and queues the admins' `organiser_joined` email (`on conflict` on the per-organiser active-job index: nothing if a job for it is already waiting or being sent), in the same transaction. |
 | `claim_outbox_jobs`, `finish_email_job`, `resend_email_job`, `admin_resend_email_job` | The email outbox: lease due jobs of any kind (optionally one order's, or one kind) with `skip locked` (an expired lease is taken again; one that expired on the 6th attempt fails), record an outcome only for the current lease holder, and an admin resend of a ticket email (not while leased, not twice in 5 minutes; a waitlist email is `not_found`). `admin_resend_email_job` takes a hit on the admin's hourly allowance only when the resend is queued, in the same transaction (over it: `rate_limited`, nothing changed). `claim_email_jobs`, the earlier form, now claims ticket emails only and is kept for the deploy window (see "Not built yet"). |
 | `mask_email` | Immutable: `mia@example.com` → `m***@example.com` (the first character, then the domain from the last `@`; `***` without one), `maskEmail`'s (`lib/server/email-address.ts`) rule exactly (`tests/server/order-email-change.test.ts` checks they agree). What the email change log stores. |
-| `order_email_change_block` | Stable: the one definition of why the paying browser can't change an order's email now, or null when it can (see "Buyer email checks"): `not_found`, `not_card_order` (`total_cents` 0), `not_paid` (any status but `paid`), `ended` (`ends_at <= now()`, or no event), `scanned` (any `admitted` row in `ticket_check_ins` for one of its tickets, even if undone since), `already_changed` (a `buyer` row in `order_email_changes`). Read by `GET /orders/by-session/{id}` for the paying browser and again under the locks by the change. |
+| `order_email_change_block` | Stable: the one definition of why the paying browser can't change an order's email now, or null when it can (see "Buyer email checks"): `not_found`, `not_card_order` (`total_cents` 0), `not_paid` (any status but `paid`), `changed_by_support` (any `admin` row in `order_email_changes`: only support changes it from then on), `ended` (`ends_at <= now()`, or no event), `scanned` (any `admitted` row in `ticket_check_ins` for one of its tickets, even if undone since), `already_changed` (a `buyer` row in `order_email_changes`). Read by `GET /orders/by-session/{id}` for the paying browser and again under the locks by the change. |
 | `change_order_email`, `buyer_change_order_email`, `admin_change_order_email` | A paid order's email change in one step (`20261127000000_order_email_changes.sql`; see "Buyer email checks"). Locks the order's `ticket_email` outbox job, then the order (both `for update`: `finish_email_job`'s order, so a change and the email worker can't deadlock; a job queued after the first look is taken only if free, else `busy`); then `not_found`, `not_card_order`, `not_paid`; for the buyer, `order_email_change_block` and an address with a confirmed, undeleted account other than `p_caller_id` (`account_email`); the same address ignoring case is `unchanged` (nothing written). Otherwise sets `buyer_email`, clears `tickets_emailed_at`, logs both addresses masked, and makes the ticket email pending again (due now, attempts 0, lease, error and `sent_at` cleared; a missing job, purged after 90 days, is inserted): a worker mid-send loses its lease, so its finish is `lease_lost`. A lost race on the one-change index is `already_changed`, undone. A malformed address raises 22023. `admin_change_order_email` finds the order by its ticket email job (`not_found`), skips the buyer's checks, needs a reason, and takes a hit on the admin's `order_email_changes` allowance (`take_rate_limit`, 20 an hour) only for a change made, last, in a subtransaction (`rate_limited` undoes the change). Returns `changed`, `unchanged` or the refusal (and the admin form, the order id). Not security definer; search_path pinned. |
 | `email_outbox_health(p_overdue_after)` | Per outbox kind: due, overdue (due, or leased by a worker that died, for longer than `p_overdue_after`), the oldest overdue job's age in seconds, waiting, sending, expired leases, failed and failed in the last 7 days. Sent jobs aren't read. Counts only; `GET /api/admin/emails/health` and the SQL editor (`20261109000300_email_outbox_health.sql`). |
 | `waitlist_join_state` | Whether an event's waitlist takes joins: `open` (published, Sheltüh-ticketed, not ended, has ticket types and every one is sold out), else `not_found` (missing or not published), `external`, `ended` or `not_sold_out`. |
@@ -386,7 +386,8 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
      `private, no-store`, with `url` our payment page, `/checkout/pay?order={orderId}`
      (relative). The client secret isn't in it: the payment page reads it.
      `orderAccess` is the order access token (see "Buyer email checks"),
-     also in a replay to the same client, never to another.
+     also in a replay to the same client (only when the request had a client
+     key: a replay bound to no client has none), never to another.
    - Free orders skip Stripe: see "Free tickets" below.
 2. The buyer pays on our payment page, `/checkout/pay?order={orderId}`, in
    Stripe's embedded Checkout form: an iframe served by Stripe, mounted with
@@ -1637,7 +1638,10 @@ too. The token is HMAC-SHA256 of the order id under its own label
 client and order keys are: nothing is stored, and neither stored key can be
 turned into it. Only a paid checkout's own answer carries it
 (`CheckoutResult.orderAccess`: the 201, and a replay to the same client; a
-replay from another client is a 409 with nothing). The browser keeps it in
+replay from another client is a 409 with nothing). A replay to a request
+with no client key (no client IP, or no `STRIPE_WEBHOOK_SECRET`) has no
+token (`replayAccessSecret`): such an attempt is bound to no client, so its
+replay could reach anyone else without one who has the Idempotency-Key. The browser keeps it in
 localStorage, keyed by a fingerprint of the order id (`lib/order-access.ts`,
 the frontend's), and sends it in the `x-order-access` header, never in a
 URL. It's compared in constant time. No secret, no token (every change is
@@ -1646,17 +1650,23 @@ then a 404). Rotating the secret invalidates every token.
 **What the confirmation page sees** (`GET /orders/by-session/{id}`,
 `withOrderEmail` in `lib/server/order-email-view.ts`). With the token, for a
 paid card order: the full `email` and `emailChange` (`{allowed: true}`, or
-`{allowed: false, reason}` with `order_not_paid`, `event_ended`,
-`ticket_scanned` or `email_already_changed`, from
-`private.order_email_change_block`). Without it: the masked address as
-before, until the email has been changed (by anyone); after that, none
-(owner decision Q7), so the old address's holder doesn't learn the new one.
+`{allowed: false, reason}` with `order_not_paid`, `changed_by_support`,
+`event_ended`, `ticket_scanned` or `email_already_changed`, from
+`private.order_email_change_block`). Once the latest change is support's,
+the paying browser too gets neither the address nor the masked one, only
+`emailChange: {allowed: false, reason: "changed_by_support"}`: its token may
+be on a device the old address's holder still uses (often why support was
+asked). Without the token: the masked address as before, until the email
+has been changed (by anyone); after that, none (owner decision Q7), so the
+old address's holder doesn't learn the new one.
 
 **The buyer's change** (`POST /orders/by-session/{id}/email`,
 `lib/server/handlers/order-email.ts`). Once per order (decision 4: the
-partial unique index), only for a paid card order, before the event ends
-and before any of its tickets has been admitted at the door (an undone
-admission still counts). In order: the id's shape (404, no query); one hit
+partial unique index), only for a paid card order, before the event ends,
+before any of its tickets has been admitted at the door (an undone
+admission still counts), and never after a support change (409
+`changed_by_support`, "Contact support to change this email again": only
+support changes it from then on). In order: the id's shape (404, no query); one hit
 on the client's allowance (`order_email_change`, 10 an hour, 429); the
 token, else 404 with the same body as an unknown order; one hit on the
 order's allowance (`order_email_change:order`, 5 a day, keyed on an HMAC of
@@ -1671,19 +1681,34 @@ verified email is the new address, and the database refuses any other
 account). The same address ignoring case is `unchanged`: nothing written,
 the change still available. A change makes the ticket email pending again
 (due now, fresh attempts) and sends it straight after the answer, to the new
-address only; nothing is sent to the old address, and the QR codes and
-ticket codes don't change (decision 8). The log keeps both addresses masked.
+address only. Nothing more is sent to the old address, except a send
+already in flight when the change commits: a worker that has handed the
+ticket email (or a reminder or organiser message read before the change)
+to the mail provider can't take it back; its finish is `lease_lost` and the
+ticket email goes again, to the new address. The QR codes and ticket codes
+don't change (decision 8). The log keeps both addresses masked.
 
 **Support's change** (`POST /admin/emails/{jobId}/change-email`, at
 `/admin/emails`, where an order is found by its reference). Any time (after
 the event, after a scan, after the buyer's change) and to any address, an
 account's included (Q2), but the address must pass the format and DNS, and
-a reason is required and logged with the admin. 20 an hour per admin, taken
-only for a change made and undone with it.
+a reason is required and logged with the admin. The reason may not contain
+an email address (400 `fieldErrors.reason`, "Leave email addresses out of
+the reason"): it is kept in full and shown to every admin, while the log
+keeps addresses masked. 20 an hour per admin, taken only for a change made
+and undone with it. A support change ends self-serve changes for good (see
+above). Support checks the caller paid for the order first (the runbook,
+`docs/supabase-setup.md`, "Buyer email changes": the payment's date, amount
+and card's last 4 against Stripe). The admin search finds an order by its
+ticket email job, and sent jobs are purged after 90 days, so an order whose
+ticket email was sent more than 90 days ago can't be found or changed there
+("Not built yet"). The previous address isn't told of a support change
+(owner decision; an open item below).
 
 **What follows the new address by itself.** Everything that emails or
 matches a buyer reads `orders.buyer_email` when it runs: resends, the
-day-before reminder, organiser messages to ticket holders, the organiser's
+day-before reminder, organiser messages to ticket holders (but one queued
+before the change isn't sent to the new address: below), the organiser's
 Orders view and its export, and Who's Going (`set_going` matches a paid
 order's email, so the new address's account can opt in). No index or other
 table holds the address.
@@ -1714,8 +1739,13 @@ and the device that paid keeps a token for the order in its browser storage.
   is a new pattern; not now.
 - **Account-existence oracle.** The 409 `email_has_account` says that some
   confirmed account has the address (the wording doesn't, but the code
-  does). Bounded by 5 attempts a day per order and 10 an hour per client,
-  and each order is a real card purchase.
+  does), and a refusal doesn't use up the order's one change. The per-order
+  limit is a one-day window that renews, so one card purchase can test 5
+  addresses a day, every day, for as long as its order stays changeable
+  (until the event ends, a ticket is scanned, or the change is used), and
+  more purchases test more; 10 an hour per client also applies. Accepted:
+  each order is a real card purchase, and the answer is only "some account
+  has it".
 - **DNS on the host** is unverified for latency and availability on Vercel.
   It fails open, and `EMAIL_DOMAIN_CHECKS=off` turns it off. A domain the
   buyer chooses makes our resolver query that domain's DNS servers (only the
@@ -1726,8 +1756,20 @@ and the device that paid keeps a token for the order in its browser storage.
 - **Stripe may let the buyer edit the prefilled email** (unverified, sandbox
   checklist item 12); our address wins either way.
 - **Jobs queued before a change keep the old address's recipient hash**: a
-  rare duplicate day-before reminder, and an organiser message queued before
-  the change can reach a new address that had stopped that organiser.
+  rare duplicate day-before reminder. An organiser message queued before the
+  change is sent to neither address (`deliverHolderMessage` compares the
+  order's address's hash with the recipient's: skipped as "the order's
+  email changed after the message was queued"), unless the old address
+  still holds another paid order for the event, which it then goes to. A
+  message sent after the change reaches the new address as usual.
+- **The previous address isn't told of a support change** (owner decision:
+  no notice email). Its holder learns of it only from the confirmation page
+  no longer showing the address. Open item if support changes turn out to be
+  abused.
+- **One secret for many keys.** The order access token is derived from
+  `STRIPE_WEBHOOK_SECRET`, as the client and order keys are; a separate
+  `ORDER_ACCESS_SECRET` (rotated on its own, without touching the webhook)
+  isn't built. Open item.
 - **A Who's Going opt-in made by the old address's account isn't withdrawn**,
   as with refunds today.
 - **Two scans**: the account check reads `auth.users` by `lower(email)` (as
@@ -4708,7 +4750,7 @@ without one. The UI keeps showing the API's words, which already say when
 | `POST /orders/by-session/{orderId}/cancel` | public (the order id is the credential; only the client that made the order gets it: the checkout's 201, the payment page's URL and Stripe's `return_url`, or a pre-embedded hosted session's cancel URL): expires the Stripe session, then cancels the order and releases its seats; a paid order is never changed. 200 `{status: "released" \| "paid" \| "processing", eventTitle, eventSlug?}`; 404; 409 still being set up |
 | `POST /orders/confirm` `{token}` | public (the emailed token is the credential). 200 `{url}` (also when already confirmed, within 24 hours); 400 malformed; 404 unknown; 410 expired (confirmed or not); 409 sold out, allowance used, or a ticket type no longer free |
 | `GET /orders/by-session/{orderId}` | public (id is the credential). `CustomerOrder` only (see "Payment flow"), `private, no-store`; `wallet: {google, apple}` when the tickets can be added to a wallet (see "Wallet passes"). With the order's token in `x-order-access` (a paid order, the paying browser), also `email` and `emailChange`; without it, `maskedEmail` is left out once the order's email has been changed (see "Buyer email checks") |
-| `POST /orders/by-session/{orderId}/email` `{email}` | public, the paying browser only: the order's token in `x-order-access` (and optionally the buyer's bearer token: their own confirmed address is allowed). 200 `OrderEmailChangeResult` `{result: "changed" \| "unchanged", order}`; 404 malformed (no query), unknown, not a card order, or a missing or wrong token (one body for all); 400 `fieldErrors.email`, or `code: "email_typo"` / `"email_no_mail"` with `suggestion`; 409 `order_not_paid`, `event_ended`, `ticket_scanned`, `email_already_changed`, `email_has_account` ("Contact support to use this address"), `email_change_busy` (Retry-After 2); 429 `rate_limited` over 10 an hour from this client or 5 a day for this order. `private, no-store`. See "Buyer email checks" |
+| `POST /orders/by-session/{orderId}/email` `{email}` | public, the paying browser only: the order's token in `x-order-access` (and optionally the buyer's bearer token: their own confirmed address is allowed). 200 `OrderEmailChangeResult` `{result: "changed" \| "unchanged", order}`; 404 malformed (no query), unknown, not a card order, or a missing or wrong token (one body for all); 400 `fieldErrors.email`, or `code: "email_typo"` / `"email_no_mail"` with `suggestion`; 409 `order_not_paid`, `changed_by_support` ("Contact support to change this email again"), `event_ended`, `ticket_scanned`, `email_already_changed`, `email_has_account` ("Contact support to use this address"), `email_change_busy` (Retry-After 2); 429 `rate_limited` over 10 an hour from this client or 5 a day for this order. `private, no-store`. See "Buyer email checks" |
 | `GET /orders/by-session/{orderId}/wallet/google?ticket={n}` · `…/wallet/apple?ticket={n}` | public (id is the credential, as the ticket page; see "Wallet passes"). Google: 302 to `https://pay.google.com/gp/v/save/{jwt}`; Apple: 200 `application/vnd.apple.pkpass`. `private, no-store`. 404 malformed (no query), the wallet not configured (no query), unknown, not paid, the event not published, or no ticket `n`; 400 `fieldErrors.ticket`; 429 over 30 a minute from this client, or 60 a minute for this order |
 | `GET /orders/by-session/{orderId}/payment` | public (id is the credential), read-only. `OrderPaymentLookup` (see "Payment flow", step 2), `private, no-store`: `{status: "open", clientSecret, expiresAt, …summary}`, `{status: "processing", delayed}`, `{status: "done"}`, or `{status: "closed" \| "sold_out", eventTitle, eventSlug?, seated}` (`closed` also when the event is no longer published or has ended while the session is open); 404 malformed (no query), unknown or a guest's free booking; 409 still being set up; 429 over 30 reads a minute from this client, or 20 Stripe reads a minute for this order; 500 an open session without a client secret |
 | `GET /cron/email-outbox` | Vercel Cron, and on Hobby Supabase Cron + `pg_net` (`Authorization: Bearer $CRON_SECRET`, 401 otherwise): sends due outbox jobs (ops alerts first, then tickets, waitlist, followers, admin review emails, then the admins' `event_published` and `organiser_joined` emails, then event reminders, messages to ticket holders and the welcome emails), first queueing member welcomes (`queue_member_welcomes`) and event reminders (`queue_event_reminders`), records the run, then refreshes Trending and sweeps stale clip objects (see "Trending"), returns counts `{claimed, sent, retrying, failed}`. Daily at 21:00 UTC |
@@ -4718,7 +4760,7 @@ without one. The UI keeps showing the API's words, which already say when
 | `GET /admin/transfers?status&limit&cursor` · `POST /admin/transfers/{transferId}/action` `{action}` | admin. The delayed payouts queue and its retry / release / cancel (see "Delayed payouts"); 409 `code`: `transfer_in_progress`, `transfer_state_conflict`, `transfer_not_payable`, `transfer_exists_in_stripe`; 503 `transfer_stripe_unavailable` |
 | `GET /events/trending` | public: `{items: [{event, label, goingCount?}]}` (see "Trending"), at most 24, best first; `items: []` with fewer than 3. `cache-control: public, max-age=0, s-maxage=300, stale-while-revalidate=600` |
 | `GET /admin/emails?status&cursor` · `?reference` · `POST /admin/emails/{jobId}/resend` | admin. Status `failed` (default), `pending`, `sending`, `sent`; `reference` (an order's 8-character reference, with or without `#`, any case; else 400): that order's ticket email in any status. Each job has `emailChanges` (newest 5, masked). Resend: 404 unknown, 409 being sent, 429 resent in the last 5 minutes or over 20 an hour |
-| `POST /admin/emails/{jobId}/change-email` `{email, reason}` | admin. Moves the job's order to `email` and sends the tickets there now, any time and to any address (an account's included; the typo list skipped), logged with the admin and `reason` (3–500 characters). 200 `AdminEmailJob` (also for the same address: nothing changed); 400 `fieldErrors.email` / `fieldErrors.reason` or `code: "email_no_mail"`; 404 unknown job; 409 `order_not_card`, `order_not_paid`, `email_change_busy`; 429 over 20 an hour (only changes made count). See "Buyer email checks" |
+| `POST /admin/emails/{jobId}/change-email` `{email, reason}` | admin. Moves the job's order to `email` and sends the tickets there now, any time and to any address (an account's included; the typo list skipped), logged with the admin and `reason` (3–500 characters, no email addresses). Ends the buyer's own changes. 200 `AdminEmailJob` (also for the same address: nothing changed); 400 `fieldErrors.email` / `fieldErrors.reason` or `code: "email_no_mail"`; 404 unknown job; 409 `order_not_card`, `order_not_paid`, `email_change_busy`; 429 over 20 an hour (only changes made count). See "Buyer email checks" |
 | `GET /admin/emails/health` | admin. `EmailOutboxHealth`: counts per kind and in total (due, overdue after 15 minutes, `oldestOverdueSeconds`, waiting, sending, expired leases, failed, failed in 7 days), `lastCronRun` (time and counts), `cronSecretConfigured`. No addresses, orders or tokens. `private, no-store`. No UI yet |
 | `POST /stripe/webhook` | Stripe (signature-verified) |
 | `GET /admin/payment-exceptions?status&cursor&limit` · `POST /admin/payment-exceptions/{exceptionId}/resolve` `{note}` | admin. `AdminPaymentException` (see "Refunds made in Stripe"): status `open` (default, oldest first) or `resolved` (newest resolution first); order by short reference only, no buyer data; `urgent` for a refund that didn't complete after its order was voided. Resolve: note 1–500 characters (400), 404 unknown, 409 already resolved. No UI yet |
@@ -6345,7 +6387,12 @@ ad pixels: it is PostHog (above) with campaign tags on links.
   shared email field and hint on the ticket panel and seat page, the
   confirmation page's "Wrong email? Change it", `/admin/emails`' find by
   reference and change form, and keeping the token, `lib/order-access.ts`)
-  and the Privacy Policy wording come after the API.
+  and the Privacy Policy wording come after the API. Support can't find or
+  change an order whose ticket email was sent more than 90 days ago: the
+  admin search goes through the ticket email job, which the purge deletes
+  then (`admin_change_order_email` is `not_found`). Open items: a notice to
+  the previous address on a support change (the owner decided against it
+  for now), and a separate `ORDER_ACCESS_SECRET` for the order access token.
 - Account invites, later: inviting someone to take over a platform-managed
   organiser (the owner decided against it for the first version: it's a
   one-way ownership transfer, moving door check-in to the new owner), and

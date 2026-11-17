@@ -505,7 +505,28 @@ email checks") logs every change of a paid order's email, both addresses
 masked. Support changes an order's email from `/admin/emails` (find it by the
 order's reference, then "Change email", with a reason), never in SQL: an
 `update orders set buyer_email = …` would leave no record and wouldn't send
-the tickets again. An order's changes (no full addresses in this table):
+the tickets again.
+
+Before changing it, check that the person asking paid for the order: they
+give you the order's reference, and the payment's date, amount and card's
+last 4 digits (from their bank statement or card app), and you match all
+three against the order's payment in the Stripe dashboard (Payments,
+filtered to that date and amount; the payment's metadata `orderId` must
+start with `ord_` and the reference in lower case). Don't read any of them
+out to them first, and don't change the address on a reference alone:
+the old address's holder has the reference too (it's in the ticket email).
+Keep email addresses out of the reason (the API refuses one with an
+address in it): say what you checked, e.g. "Matched date, amount and card
+last 4 by phone". After a support change the buyer can't change the address
+themselves any more, and their confirmation page no longer shows it; any
+further change is support's.
+
+The admin search finds an order through its ticket email, and sent emails
+are purged after 90 days (see "Free-ticket and email outbox retention"):
+an order whose ticket email was sent more than 90 days ago can't be found
+or changed from `/admin/emails` (docs/architecture.md, "Not built yet").
+
+An order's changes (no full addresses in this table):
 
 ```sql
 select c.created_at, c.changed_by, c.old_email_masked, c.new_email_masked, c.reason, u.email as admin
