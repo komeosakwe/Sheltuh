@@ -145,7 +145,7 @@ export default function VerifyForm() {
       </p>
 
       <div className="flex flex-wrap items-center gap-4">
-        <Button type="submit" size="lg" busy={loading} className="w-full">
+        <Button type="submit" busy={loading} className="w-full">
           {loading ? "Verifying…" : "Verify email"}
         </Button>
         <button

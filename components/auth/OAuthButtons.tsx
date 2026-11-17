@@ -176,7 +176,7 @@ export default function OAuthButtons({ next, placement = "above" }: { next?: str
 
   const pair = (
     <div>
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-4">
         {providers.includes("apple") && (
           <button
             type="button"

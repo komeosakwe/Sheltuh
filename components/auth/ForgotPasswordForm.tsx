@@ -131,7 +131,7 @@ export default function ForgotPasswordForm({ next }: { next?: string } = {}) {
           invalidBy={invalidBy("email")}
         />
         {formError}
-        <Button type="submit" size="lg" busy={loading} className="w-full">
+        <Button type="submit" busy={loading} className="w-full">
           {loading ? "Sending…" : "Send reset code"}
         </Button>
         <p className="text-sm text-muted">
@@ -180,7 +180,7 @@ export default function ForgotPasswordForm({ next }: { next?: string } = {}) {
         rules
       />
       {formError}
-      <Button type="submit" size="lg" busy={loading} className="w-full">
+      <Button type="submit" busy={loading} className="w-full">
         {loading ? "Resetting…" : "Reset password"}
       </Button>
     </form>
