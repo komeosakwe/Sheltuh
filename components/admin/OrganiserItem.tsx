@@ -8,17 +8,21 @@ import {
   adminApproveOrganiser,
   adminRejectOrganiser,
   adminRemoveFeaturedVideo,
+  adminRemoveOrganiserCover,
   adminRemoveOrganiserLogo,
+  adminRemoveOrganiserTags,
   adminSetEventReviewRequired,
 } from "@/lib/api/admin";
 import { ApiError, type GetToken } from "@/lib/api/client";
 import { featuredVideoPageUrl } from "@/lib/api/featured-video";
+import { organiserTagLabel } from "@/lib/api/organiser-tags";
 import type { AdminOrganiserRecord } from "@/lib/api/types";
 import { SessionExpiredError } from "@/lib/auth/session-token";
 import { formatDayTime } from "@/lib/format";
 import { validateMessage } from "@/lib/message-text";
 import { SOCIAL_HANDLE_FIELDS, websiteHostname } from "@/lib/organiser-profile";
 import { EVENT_CATEGORIES } from "@/lib/types";
+import AdminOrganiserCover from "./AdminOrganiserCover";
 import AdminOrganiserLogo from "./AdminOrganiserLogo";
 import AdminSessionExpired from "./AdminSessionExpired";
 import OrganiserEditLog from "./OrganiserEditLog";
@@ -70,9 +74,9 @@ function categoryLabel(value: string) {
  * (or for) their public profile as plain text, their recent profile changes,
  * and the actions for their status: Approve / Reject while pending, Suspend…
  * once approved (the dialog itself is the queue's). Rejected organisers say
- * whether they were rejected or suspended, when, and why. A featured video
- * or a logo can be removed, with a reason, whatever their status (`onUpdated`
- * gets the record without it).
+ * whether they were rejected or suspended, when, and why. A featured video,
+ * logo, cover photo or their own-word chips can be removed, with a reason,
+ * whatever their status (`onUpdated` gets the record without it).
  */
 export default function OrganiserItem({
   item,
@@ -85,7 +89,7 @@ export default function OrganiserItem({
 }: {
   item: AdminOrganiserRecord;
   getToken: GetToken;
-  /** The record changed in place (its featured video or logo removed); `message` is announced. */
+  /** The record changed in place (its featured video, logo, cover or own words removed); `message` is announced. */
   onUpdated?: (item: AdminOrganiserRecord, message: string) => void;
   /** It left this list (approved or rejected here, or already reviewed); `message` is announced. */
   onRemoved: (item: AdminOrganiserRecord, message: string) => void;
@@ -129,10 +133,33 @@ export default function OrganiserItem({
         <p className="text-sm break-words whitespace-pre-wrap">{item.description}</p>
 
         {/* Label above value on phones; from sm, labels in a column with their values aligned beside them. */}
-        <dl className="flex flex-col gap-2 text-sm sm:grid sm:grid-cols-[6rem_1fr] sm:gap-x-3 sm:gap-y-1">
+        <dl className="flex flex-col gap-2 text-sm sm:grid sm:grid-cols-[8rem_1fr] sm:gap-x-3 sm:gap-y-1">
           <div className={ROW_CLASS}>
-            <dt className="text-muted">Categories</dt>
+            <dt className="text-muted">Event categories</dt>
             <dd className="min-w-0 break-words">{item.categories.map(categoryLabel).join(", ")}</dd>
+          </div>
+          <div className={ROW_CLASS}>
+            <dt className="text-muted">{ORGANISER_FIELD_LABELS.profileTags}</dt>
+            <dd className="min-w-0 break-words">
+              {item.profileTags == null ? (
+                <span className="text-muted italic">Not chosen yet (their profile shows their event categories)</span>
+              ) : item.profileTags.length === 0 ? (
+                <span className="text-muted italic">None chosen</span>
+              ) : (
+                item.profileTags.map(organiserTagLabel).join(", ")
+              )}
+            </dd>
+          </div>
+          <div className={ROW_CLASS}>
+            <dt className="text-muted">{ORGANISER_FIELD_LABELS.customTags}</dt>
+            <dd className="min-w-0 break-words">
+              {item.customTags && item.customTags.length > 0 ? (
+                // In curly quotes, so stray spaces show.
+                item.customTags.map((word) => `“${word}”`).join(", ")
+              ) : (
+                <span className="text-muted italic">None</span>
+              )}
+            </dd>
           </div>
           <WebsiteRow url={item.websiteUrl} />
           {SOCIAL_HANDLE_FIELDS.map(({ field }) => {
@@ -180,12 +207,30 @@ export default function OrganiserItem({
               )}
             </dd>
           </div>
+          <div className={ROW_CLASS}>
+            <dt className="text-muted">{ORGANISER_FIELD_LABELS.cover}</dt>
+            <dd className="flex min-w-0 flex-col items-start">
+              {item.coverUrl ? (
+                <AdminOrganiserCover
+                  coverUrl={item.coverSmallUrl ?? item.coverUrl}
+                  organiserName={item.displayName}
+                  getToken={getToken}
+                />
+              ) : (
+                <span className="text-muted italic">None</span>
+              )}
+            </dd>
+          </div>
         </dl>
 
-        {onUpdated && (item.featuredVideo || item.logoUrl) && (
+        {onUpdated && (item.featuredVideo || item.logoUrl || item.coverUrl || (item.customTags?.length ?? 0) > 0) && (
           <div className="flex flex-col items-start gap-3">
             {item.featuredVideo && <RemoveContent kind="video" item={item} getToken={getToken} onUpdated={onUpdated} />}
             {item.logoUrl && <RemoveContent kind="logo" item={item} getToken={getToken} onUpdated={onUpdated} />}
+            {item.coverUrl && <RemoveContent kind="cover" item={item} getToken={getToken} onUpdated={onUpdated} />}
+            {(item.customTags?.length ?? 0) > 0 && (
+              <RemoveContent kind="customTags" item={item} getToken={getToken} onUpdated={onUpdated} />
+            )}
           </div>
         )}
 
@@ -497,10 +542,26 @@ const REMOVABLE = {
     failed: "Couldn’t remove the logo. Try again.",
     request: (id: string, reason: string, getToken: GetToken) => adminRemoveOrganiserLogo(id, reason, getToken),
   },
+  cover: {
+    open: "Remove cover…",
+    confirm: "Remove cover",
+    question: (name: string) => `Remove ${name}’s cover photo?`,
+    done: (name: string) => `Removed ${name}’s cover photo.`,
+    failed: "Couldn’t remove the cover photo. Try again.",
+    request: (id: string, reason: string, getToken: GetToken) => adminRemoveOrganiserCover(id, reason, getToken),
+  },
+  customTags: {
+    open: "Remove own words…",
+    confirm: "Remove own words",
+    question: (name: string) => `Remove ${name}’s own words?`,
+    done: (name: string) => `Removed ${name}’s own words.`,
+    failed: "Couldn’t remove the own words. Try again.",
+    request: (id: string, reason: string, getToken: GetToken) => adminRemoveOrganiserTags(id, reason, getToken),
+  },
 } as const;
 
 /**
- * "Remove video…" / "Remove logo…": a reason (required, up to 500
+ * "Remove video…" / "Remove logo…" / "Remove cover…" / "Remove own words…": a reason (required, up to 500
  * characters, as for a suspension; logged on the organiser's log as an edit
  * by the Sheltüh team; the organiser isn't emailed), then Remove. The public
  * profile (and, for a logo, their event pages) stop showing it at once.

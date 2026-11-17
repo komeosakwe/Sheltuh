@@ -18,6 +18,8 @@ const adminApproveOrganiser = vi.fn();
 const adminRejectOrganiser = vi.fn();
 const adminSuspendOrganiser = vi.fn();
 const adminRemoveOrganiserLogo = vi.fn();
+const adminRemoveOrganiserCover = vi.fn();
+const adminRemoveOrganiserTags = vi.fn();
 const adminSetEventReviewRequired = vi.fn();
 vi.mock("@/lib/api/admin", () => ({
   adminSetEventReviewRequired: (...args: unknown[]) => adminSetEventReviewRequired(...args),
@@ -27,10 +29,14 @@ vi.mock("@/lib/api/admin", () => ({
   adminSuspendOrganiser: (...args: unknown[]) => adminSuspendOrganiser(...args),
   adminRemoveFeaturedVideo: vi.fn(),
   adminRemoveOrganiserLogo: (...args: unknown[]) => adminRemoveOrganiserLogo(...args),
+  adminRemoveOrganiserCover: (...args: unknown[]) => adminRemoveOrganiserCover(...args),
+  adminRemoveOrganiserTags: (...args: unknown[]) => adminRemoveOrganiserTags(...args),
 }));
 const fetchOrganiserLogo = vi.fn();
+const fetchOrganiserCover = vi.fn();
 vi.mock("@/lib/api/organisers", () => ({
   fetchOrganiserLogo: (...args: unknown[]) => fetchOrganiserLogo(...args),
+  fetchOrganiserCover: (...args: unknown[]) => fetchOrganiserCover(...args),
 }));
 
 // jsdom has no modal dialogs: give <dialog> what a browser would.
@@ -52,9 +58,13 @@ beforeEach(() => {
   adminRejectOrganiser.mockReset();
   adminSuspendOrganiser.mockReset();
   adminRemoveOrganiserLogo.mockReset();
+  adminRemoveOrganiserCover.mockReset();
+  adminRemoveOrganiserTags.mockReset();
   adminSetEventReviewRequired.mockReset();
   fetchOrganiserLogo.mockReset();
   fetchOrganiserLogo.mockResolvedValue(new Blob(["logo"], { type: "image/webp" }));
+  fetchOrganiserCover.mockReset();
+  fetchOrganiserCover.mockResolvedValue(new Blob(["cover"], { type: "image/webp" }));
   Object.assign(URL, { createObjectURL: vi.fn(() => "blob:logo"), revokeObjectURL: vi.fn() });
 });
 afterEach(cleanup);
@@ -952,6 +962,115 @@ describe("Admin organisers: logo", () => {
     fireEvent.click(within(article).getByRole("button", { name: "Remove logo" }));
     expect(await within(article).findByRole("alert")).toHaveTextContent("Couldn’t remove the logo. Try again.");
     expect(within(article).getByRole("img", { name: "Org a1’s logo" })).toBeInTheDocument();
+  });
+});
+
+describe("Admin organisers: cover and profile categories", () => {
+  const COVER_URL = "/api/organisers/a1/cover?v=1730000000000";
+  const COVER_SMALL_URL = "/api/organisers/a1/cover?size=small&v=1730000000000";
+
+  function row(article: HTMLElement, label: string): HTMLElement {
+    const dd = within(article).getAllByText(label, { selector: "dt" })[0].nextElementSibling;
+    if (!(dd instanceof HTMLElement)) throw new Error(`no ${label} row`);
+    return dd;
+  }
+
+  it("names the reviewed event categories apart from the profile's, and shows own words in quotes", async () => {
+    listing("approved", [
+      organiser("a1", { profileTags: ["live-music", "poetry-spoken-word"], customTags: ["Late night ", "Queer joy"] }),
+      organiser("a2", { profileTags: null, customTags: [] }),
+      organiser("a3", { profileTags: [], customTags: [] }),
+    ]);
+    await showApproved();
+    const a1 = articleOf("Org a1");
+    expect(row(a1, "Event categories")).toHaveTextContent("Live music");
+    expect(row(a1, "Profile categories")).toHaveTextContent("Live music, Poetry & spoken word");
+    expect(row(a1, "Own words").textContent).toBe("“Late night ”, “Queer joy”");
+    expect(row(articleOf("Org a2"), "Profile categories")).toHaveTextContent(
+      "Not chosen yet (their profile shows their event categories)",
+    );
+    expect(row(articleOf("Org a2"), "Own words")).toHaveTextContent("None");
+    expect(row(articleOf("Org a3"), "Profile categories")).toHaveTextContent("None chosen");
+    expect(within(articleOf("Org a2")).queryByRole("button", { name: "Remove own words…" })).toBeNull();
+  });
+
+  it("shows the small cover (fetched with the admin's token), or None, and says when it can't be loaded", async () => {
+    listing("approved", [organiser("a1", { coverUrl: COVER_URL, coverSmallUrl: COVER_SMALL_URL }), organiser("a2")]);
+    await showApproved();
+    const cover = await within(articleOf("Org a1")).findByRole("img", { name: "Org a1’s cover photo" });
+    expect(cover).toHaveAttribute("src", "blob:logo");
+    expect(fetchOrganiserCover).toHaveBeenCalledWith(COVER_SMALL_URL, expect.any(Function), expect.any(AbortSignal));
+    expect(row(articleOf("Org a1"), "Cover photo")).toContainElement(cover);
+    expect(row(articleOf("Org a2"), "Cover photo")).toHaveTextContent("None");
+    expect(within(articleOf("Org a2")).queryByRole("button", { name: "Remove cover…" })).toBeNull();
+  });
+
+  it("says when the cover can't be loaded", async () => {
+    fetchOrganiserCover.mockRejectedValue(new ApiError(404, "Not found."));
+    listing("approved", [organiser("a1", { coverUrl: COVER_URL, coverSmallUrl: COVER_SMALL_URL })]);
+    await showApproved();
+    expect(await within(articleOf("Org a1")).findByText("Couldn’t load the cover photo.")).toBeInTheDocument();
+  });
+
+  it("Remove cover… removes it with a reason, says so and shows None", async () => {
+    adminRemoveOrganiserCover.mockResolvedValue(organiser("a1"));
+    listing("approved", [organiser("a1", { coverUrl: COVER_URL, coverSmallUrl: COVER_SMALL_URL })]);
+    await showApproved();
+    const article = articleOf("Org a1");
+    fireEvent.click(within(article).getByRole("button", { name: "Remove cover…" }));
+    const group = within(article).getByRole("group", { name: "Remove Org a1’s cover photo?" });
+    fireEvent.change(within(group).getByLabelText("Reason (kept on their log)"), { target: { value: "Not theirs." } });
+    fireEvent.click(within(group).getByRole("button", { name: "Remove cover" }));
+    await waitFor(() => expect(adminRemoveOrganiserCover).toHaveBeenCalledWith("a1", "Not theirs.", expect.any(Function)));
+    await waitFor(() => expect(actionStatus()).toHaveTextContent("Removed Org a1’s cover photo."));
+    expect(row(articleOf("Org a1"), "Cover photo")).toHaveTextContent("None");
+  });
+
+  it("Remove own words… clears them with a reason; a failure is shown in place", async () => {
+    adminRemoveOrganiserTags.mockRejectedValueOnce(new ApiError(500, "Boom.")).mockResolvedValueOnce(
+      organiser("a1", { profileTags: ["art"], customTags: [] }),
+    );
+    listing("approved", [organiser("a1", { profileTags: ["art"], customTags: ["Late night"] })]);
+    await showApproved();
+    const article = articleOf("Org a1");
+    fireEvent.click(within(article).getByRole("button", { name: "Remove own words…" }));
+    const group = within(article).getByRole("group", { name: "Remove Org a1’s own words?" });
+    fireEvent.change(within(group).getByLabelText("Reason (kept on their log)"), { target: { value: "A claim." } });
+    fireEvent.click(within(group).getByRole("button", { name: "Remove own words" }));
+    expect(await within(article).findByRole("alert")).toHaveTextContent("Couldn’t remove the own words. Try again.");
+    fireEvent.click(within(group).getByRole("button", { name: "Remove own words" }));
+    await waitFor(() => expect(actionStatus()).toHaveTextContent("Removed Org a1’s own words."));
+    expect(adminRemoveOrganiserTags).toHaveBeenLastCalledWith("a1", "A claim.", expect.any(Function));
+    expect(row(articleOf("Org a1"), "Own words")).toHaveTextContent("None");
+    expect(row(articleOf("Org a1"), "Profile categories")).toHaveTextContent("Art");
+  });
+
+  it("logs chips as labels, and tells 'not chosen' from 'chose none'", async () => {
+    listing("approved", [
+      organiser("a1", {
+        recentEdits: [
+          {
+            kind: "profile_edit",
+            at: "2026-10-21T00:00:00.000Z",
+            changes: {
+              profileTags: { old: null, new: "live-music, pop-ups-markets" },
+              customTags: { old: null, new: "Late night" },
+            },
+          },
+          {
+            kind: "profile_edit",
+            at: "2026-10-22T00:00:00.000Z",
+            changes: { profileTags: { old: "art", new: "" } },
+          },
+        ],
+      }),
+    ]);
+    await showApproved();
+    const log = within(articleOf("Org a1")).getByText(/Recent changes \(2\)/).closest("details") as HTMLElement;
+    expect(log).toHaveTextContent("Before: Not chosen yet (their profile showed their event categories)");
+    expect(log).toHaveTextContent("After: Live music, Pop-ups & markets");
+    expect(log).toHaveTextContent("After: Late night");
+    expect(log).toHaveTextContent("Before: ArtAfter: None chosen");
   });
 });
 
