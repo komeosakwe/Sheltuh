@@ -104,7 +104,7 @@ export default function VerifyForm() {
   const invalidBy = (field: AuthErrorField) => (errorFields.includes(field) ? FORM_ERROR_ID : undefined);
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-5" noValidate>
+    <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
       <AuthField
         ref={emailRef}
         id="email"

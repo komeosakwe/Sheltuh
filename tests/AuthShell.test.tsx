@@ -78,9 +78,25 @@ describe("/login (the sign-in mock)", () => {
     expect(screen.getByLabelText("Email")).toHaveAttribute("placeholder", "you@example.com");
   });
 
-  it("the h1 is heading-xl (40/48, 56/64 from 1024px)", async () => {
-    await renderLogin();
-    expect(screen.getByRole("heading", { level: 1 })).toHaveClass("heading-xl");
+  it("the card fits its content (Round 2): 480px at most, 40px padding from 1024px (32px above and below under it), the h1 24/32 then 32/40, groups 24px apart", async () => {
+    const { container } = await renderLogin();
+    const card = container.querySelector("[data-auth-card]");
+    expect(card).toHaveClass("max-w-120", "py-8", "lg:p-10");
+    expect(card?.className).not.toMatch(/\bmd:max-w-|\bh-\d|\bmin-h-/);
+    expect(screen.getByRole("heading", { level: 1 })).toHaveClass("heading-section-l");
+    expect(screen.getByRole("heading", { level: 1 })).not.toHaveClass("heading-xl");
+    // The page's own groups (form, social, links): 24px apart, 24px below the heading.
+    const groups = card?.lastElementChild;
+    expect(groups).toHaveClass("mt-6", "flex", "flex-col", "gap-6");
+    // Fields: the label 14/20 Medium, 8px above its field; 16px between fields and Continue.
+    const label = container.querySelector("label[for='email']");
+    expect(label).toHaveClass("body-s", "font-medium");
+    expect(label?.parentElement).toHaveClass("gap-2");
+    expect(label?.closest("form")).toHaveClass("gap-4");
+    // Continue: M 48 with the 16 SemiBold label (.btn); Apple's and Google's keep their vendor rules.
+    expect(screen.getByRole("button", { name: "Continue" })).not.toHaveClass("btn-sm", "btn-lg");
+    expect(screen.getByRole("button", { name: "Continue with Google" })).toHaveClass("btn-oauth", "btn-oauth-google");
+    expect(screen.getByRole("button", { name: "Continue with Apple" })).toHaveClass("btn-oauth", "btn-oauth-apple");
   });
 
   it("Continue is the page's one orange action, its arrow decorative", async () => {
@@ -125,9 +141,14 @@ describe("the other account pages share the frame", () => {
     const { container } = render(
       <FakeAuthProvider value={fakeAuthValue(signedOut)}>{await page()}</FakeAuthProvider>,
     );
-    expect(screen.getByRole("heading", { level: 1, name: title })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: title })).toHaveClass("heading-section-l");
     expect(screen.getByText("Account")).toBeInTheDocument();
     expect(photoSrc(container)).toContain(AUTH_PHOTO);
+    // The same fitted card, and its fields' 14/20 labels 8px above them, 16px apart.
+    expect(container.querySelector("[data-auth-card]")).toHaveClass("max-w-120", "py-8", "lg:p-10");
+    const label = container.querySelector("form label");
+    expect(label).toHaveClass("body-s", "font-medium");
+    expect(label?.closest("form")).toHaveClass("gap-4");
   });
 
   it("/signup's Sign up is the same orange M button as /login's Continue", async () => {

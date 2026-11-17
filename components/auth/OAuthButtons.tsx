@@ -210,19 +210,19 @@ export default function OAuthButtons({ next, placement = "above" }: { next?: str
       {/* Always rendered, empty until there's something to say (its content brings its own spacing). */}
       <div role="status" aria-atomic="true">
         {status?.kind === "busy" && (
-          <div className="mt-8">
+          <div className="mt-6">
             <DotsLoader label={`Opening ${OAUTH_PROVIDER_NAMES[status.provider]}`} />
           </div>
         )}
         {status?.kind === "in-app" && (
-          <div className="mt-8">
+          <div className="mt-6">
             <Notice>{inAppMessage(status.platform, status.apple)}</Notice>
           </div>
         )}
       </div>
       <div role="alert" aria-atomic="true">
         {failed && (
-          <div className="mt-8">
+          <div className="mt-6">
             <Notice tone="danger">
               Couldn&rsquo;t open {OAUTH_PROVIDER_NAMES[failed]} sign-in. Check your connection and try again.
             </Notice>
@@ -249,7 +249,7 @@ export default function OAuthButtons({ next, placement = "above" }: { next?: str
   }
 
   return (
-    <div className={`${roboto.variable} flex flex-col gap-8`}>
+    <div className={`${roboto.variable} flex flex-col gap-6`}>
       {pair}
       {legal}
       <Divider label="or" />

@@ -99,7 +99,7 @@ export default function LoginForm({ next }: { next?: string } = {}) {
   const invalidBy = (field: AuthErrorField) => (errorFields.includes(field) ? FORM_ERROR_ID : undefined);
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-5" noValidate>
+    <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
       <AuthField
         ref={emailRef}
         id="email"
@@ -129,7 +129,7 @@ export default function LoginForm({ next }: { next?: string } = {}) {
         hint={providers.length > 0 ? noPasswordHint(oauthProviderNames(providers, ["google", "apple"])) : undefined}
         labelAside={
           <Link
-            // 44px to tap, but laid out at its 16px line (-my-3.5), so the label sits 4px above its field.
+            // 44px to tap, but laid out at 16px (-my-3.5), within the label's line, so the label sits 8px above its field.
             href={withNext("/forgot-password", next)}
             className="-my-3.5 inline-flex min-h-11 items-center text-sm text-accent underline underline-offset-2"
           >

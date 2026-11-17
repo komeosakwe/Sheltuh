@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState, type InputHTMLAttributes, typ
 
 /**
  * A labelled sign-in/sign-up field with its own error line: the rules' text
- * input (radius 8, the 1.5px stroke, 48px; `compact` keeps its 1px edge). When the field is
+ * input (radius 8, the 1.5px stroke, 48px; `compact` keeps its 1px edge). The label is 14/20
+ * Medium, 8px above its field (Round 2, Sign in); `compact` keeps the small label. When the field is
  * invalid it's `aria-invalid`, and `aria-describedby` reads its error (or the
  * form's error, `invalidBy`, for a server error about it) before any hint.
  */
@@ -43,7 +44,7 @@ export default function AuthField({
   const hintId = `${id}-hint`;
   const describedBy = [error ? errorId : null, invalidBy ?? null, hint ? hintId : null, extraDescribedBy ?? null].filter(Boolean).join(" ");
   const labelEl = (
-    <label htmlFor={id} className="eyebrow text-muted">
+    <label htmlFor={id} className={`${compact ? "eyebrow" : "body-s font-medium"} text-muted`}>
       {label}
     </label>
   );
@@ -58,7 +59,7 @@ export default function AuthField({
     />
   );
   return (
-    <div className="flex flex-col gap-1">
+    <div className={`flex flex-col ${compact ? "gap-1" : "gap-2"}`}>
       {labelAside ? (
         <div className="flex items-center justify-between gap-3">
           {labelEl}
