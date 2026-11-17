@@ -3,6 +3,7 @@
  * The map's shape and validator: lib/seating/template.ts; the availability
  * bitmap: lib/seating/availability.ts; seat wording: lib/seating/format.ts.
  */
+import { keepCheckoutAccess } from "@/lib/order-access";
 import { runCheckoutAttempt } from "./checkout-attempt";
 import { ApiError, apiFetch, type GetToken } from "./client";
 import type {
@@ -92,7 +93,7 @@ export interface SeatedCheckoutInput extends CheckoutBuyerDetails {
   seats: CheckoutSeatsInput;
   /** General admission tiers of a mixed event (not seated tiers; they don't count towards the 10 seats). */
   lineItems?: CheckoutLineItemInput[];
-  /** Required when the order is free. */
+  /** Where the tickets are sent (checked as for createCheckoutSession). Required when the order is free; the seat page sends it for paid orders too. */
   buyerEmail?: string;
   trackingCode?: string;
   /** Support Sheltüh (lib/support.ts), as for createCheckoutSession: paid orders only, sent only when above 0. */
@@ -112,7 +113,8 @@ export interface SeatedCheckoutInput extends CheckoutBuyerDetails {
  * payments aren't available (nothing was held). Sent with an
  * `Idempotency-Key` like createCheckoutSession (lib/api/checkout-attempt.ts):
  * a double click or a retry never holds the seats twice; the attempt's own
- * codes are in seatErrorDetails(err).code.
+ * codes are in seatErrorDetails(err).code. A paid checkout's `orderAccess`
+ * is kept on this device as it answers (lib/order-access.ts).
  */
 export async function createSeatedCheckout(eventId: string, input: SeatedCheckoutInput, getToken?: GetToken) {
   const body = {
@@ -123,7 +125,7 @@ export async function createSeatedCheckout(eventId: string, input: SeatedCheckou
     ...(input.trackingCode ? { trackingCode: input.trackingCode } : {}),
     ...(input.supportCents && input.supportCents > 0 ? { supportCents: input.supportCents } : {}),
   };
-  return runCheckoutAttempt(eventId, body, async (key) =>
+  const result = await runCheckoutAttempt(eventId, body, async (key) =>
     apiFetch<CheckoutResult>(`/events/${eventId}/checkout`, {
       method: "POST",
       body,
@@ -131,6 +133,8 @@ export async function createSeatedCheckout(eventId: string, input: SeatedCheckou
       headers: { "idempotency-key": key },
     }),
   );
+  // A paid checkout's order access token stays on this device (lib/order-access.ts), for the confirmation page.
+  return keepCheckoutAccess(result);
 }
 
 /**

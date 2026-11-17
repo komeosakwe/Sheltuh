@@ -9,6 +9,7 @@ import {
   sanitizePostHogEvent,
   type PrivacySignals,
 } from "@/lib/analytics-privacy";
+import { orderFingerprint } from "@/lib/order-fingerprint";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { parseTrackingRef } from "@/lib/tracking-ref";
 import type { CustomerOrder } from "@/lib/api/types";
@@ -198,14 +199,7 @@ const COMPLETED_LIMIT = 50;
 const completedThisPage = new Set<string>();
 
 /** A short fingerprint of `orderId`, so the order id itself isn't kept anywhere. */
-function fingerprint(orderId: string): string {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < orderId.length; i += 1) {
-    hash ^= orderId.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return hash.toString(16);
-}
+const fingerprint = orderFingerprint;
 
 function readStarted(): string[] {
   try {
