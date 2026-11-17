@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import EventEditor from "@/components/dashboard/EventEditor";
+import EventEditor, { VENUE_NAME_HINT } from "@/components/dashboard/EventEditor";
 import { PLACE_UNLINKED_NOTE } from "@/components/dashboard/VenueLocationField";
 import { MOVE_PIN_FIRST, PIN_ZOOM_EXACT } from "@/components/dashboard/VenuePinMap";
 import { ApiError } from "@/lib/api/client";
@@ -236,6 +236,61 @@ describe("EventEditor — picking a Google place", () => {
     expect(screen.getByLabelText("Venue name")).toHaveValue("");
     expect(screen.getByLabelText("Venue address")).toHaveValue("170 Russell St");
     expect(screen.getByLabelText("Suburb or town")).toHaveValue("Melbourne, VIC");
+  });
+
+  /** The address-only pick (170 Russell Street), after Change when a place is linked already. */
+  async function pickAnAddress(change: boolean) {
+    api.autocompletePlaces.mockResolvedValue({
+      suggestions: [{ placeId: "ChIJrussell000000000", primaryText: "170 Russell Street", secondaryText: "Melbourne VIC, Australia" }],
+    });
+    api.getPlaceDetails.mockResolvedValue({
+      ...TOTE_DETAILS,
+      placeId: "ChIJrussell000000000",
+      formattedAddress: "170 Russell St, Melbourne VIC 3000",
+      streetAddress: "170 Russell St",
+      locality: "Melbourne",
+    });
+    if (change) fireEvent.click(screen.getByRole("button", { name: /^Change/ }));
+    fireEvent.focus(searchBox());
+    fireEvent.change(searchBox(), { target: { value: "170 Russell" } });
+    fireEvent.click(await screen.findByRole("option", { name: /170 Russell Street/ }));
+    await screen.findByText(/170 Russell Street, Melbourne VIC/);
+  }
+
+  it("an address pick says under the empty Venue name that Google found no name (described by it, polite), until they type", async () => {
+    renderEditor(null);
+    const name = screen.getByLabelText("Venue name");
+    expect(name).not.toHaveAccessibleDescription(VENUE_NAME_HINT);
+    await pickAnAddress(false);
+    expect(name).toHaveValue("");
+    expect(name).toHaveAccessibleDescription(VENUE_NAME_HINT);
+    expect(screen.getByText(VENUE_NAME_HINT)).toHaveAttribute("aria-live", "polite");
+    fireEvent.change(name, { target: { value: "The Forum" } });
+    expect(name).not.toHaveAccessibleDescription(VENUE_NAME_HINT);
+    expect(screen.queryByText(VENUE_NAME_HINT)).toBeNull();
+  });
+
+  it("an address pick never wipes a venue name the organiser typed, and says nothing then", async () => {
+    renderEditor(null);
+    const name = screen.getByLabelText("Venue name");
+    fireEvent.change(name, { target: { value: "The Forum" } });
+    await pickAnAddress(false);
+    expect(name).toHaveValue("The Forum");
+    expect(screen.getByLabelText("Venue address")).toHaveValue("170 Russell St");
+    expect(screen.queryByText(VENUE_NAME_HINT)).toBeNull();
+    expect(name).not.toHaveAccessibleDescription(VENUE_NAME_HINT);
+  });
+
+  it("a venue pick after an address pick fills the name and drops the hint", async () => {
+    renderEditor(null);
+    await pickAnAddress(false);
+    expect(screen.getByText(VENUE_NAME_HINT)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Change/ }));
+    api.autocompletePlaces.mockResolvedValue({ suggestions: [TOTE] });
+    api.getPlaceDetails.mockResolvedValue(TOTE_DETAILS);
+    await pickTheTote();
+    expect(screen.getByLabelText("Venue name")).toHaveValue("The Tote Hotel");
+    expect(screen.queryByText(VENUE_NAME_HINT)).toBeNull();
   });
 
   it("a saved event's own fields stay as they are", async () => {

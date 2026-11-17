@@ -133,6 +133,10 @@ import { EVENT_CATEGORIES, type Coordinates } from "@/lib/types";
 /** A card's title when it's a child's legend (seating, refunds, where tickets are sold): the same as EditorCard's h3. */
 const SECTION_TITLE = "font-heading text-lg leading-6 text-foreground";
 
+/** Under Venue name after a Google pick that was an address, not a venue (handlePicked). */
+export const VENUE_NAME_HINT = "Google found an address, not a venue name. Add the venue’s name.";
+const VENUE_NAME_HINT_ID = "venueName-hint";
+
 interface OrganiserProps {
   getToken: GetToken;
   mode?: "organiser";
@@ -345,6 +349,8 @@ export default function EventEditor(props: Props) {
   // What picking a Google place last filled each field with: a field is filled again only while it's
   // empty or still says that, never over what the organiser typed.
   const [prefilled, setPrefilled] = useState<{ venueName?: string; venueAddress?: string; suburb?: string }>({});
+  // A Google pick that was an address, not a venue, left the venue name empty: say so under it until they type.
+  const [venueNameHint, setVenueNameHint] = useState(false);
   const [ticketTypes, setTicketTypes] = useState<TicketTypeInput[]>(
     initial?.ticketTypes && initial.ticketTypes.length > 0 ? initial.ticketTypes : [newTicketType()],
   );
@@ -705,7 +711,8 @@ export default function EventEditor(props: Props) {
    * photo goes up with its focus point; then a changed focus (on the saved
    * photo) and/or banner fit go in one `display` request. When that second
    * request fails after an upload, `kept` gets the uploaded record (the photo
-   * is saved; the fit stays pending, sent again on the next save).
+   * is saved; the fit stays pending, sent again on the next save), to keep it
+   * here and tell the page of an existing event, as syncClip's `kept` does.
    */
   async function syncImage<R extends EventRecord>(
     record: R,
@@ -831,14 +838,15 @@ export default function EventEditor(props: Props) {
         const note = reason.trim();
         let record = await adminSave(input);
         setPublish(false);
+        const onSaved = props.onSaved;
         record = await syncImage(record, adminUploadEventImage, adminDeleteEventImage, (id, change, token) => adminSetEventImageDisplay(id, change, token), (kept) => {
           setVersion(kept.updatedAt);
           setSavedRecord(kept);
+          if (initial) onSaved(kept);
         });
         // A photo change bumps the event's version too: the next save is made against it.
         setVersion(record.updatedAt);
         // So does a clip change: the admin routes answer with the event, whose version is the next.
-        const onSaved = props.onSaved;
         record = await syncClip(record, adminClipRoutes(note), (kept) => {
           // The save is in the event's log with this note now.
           setReason("");
@@ -866,8 +874,11 @@ export default function EventEditor(props: Props) {
           setCreatedId(record.eventId);
           track("organiser_event_created", {});
         }
-        record = await syncImage(record, uploadEventImage, deleteEventImage, (id, change, token) => setEventImageDisplay(id, change, token), setSavedRecord);
         const onSaved = props.onSaved;
+        record = await syncImage(record, uploadEventImage, deleteEventImage, (id, change, token) => setEventImageDisplay(id, change, token), (kept) => {
+          setSavedRecord(kept);
+          if (initial) onSaved(kept);
+        });
         record = await syncClip(record, ORGANISER_CLIP_ROUTES, (kept) => {
           if (initial) onSaved(kept);
         });
@@ -910,17 +921,20 @@ export default function EventEditor(props: Props) {
    * what an earlier pick filled in (never over what the organiser typed).
    * An address rather than a venue ("170 Russell Street") has no name to
    * give: the venue name is left for the organiser (Round 2: the page said
-   * the address twice).
+   * the address twice), with a hint under it while it's empty; a name they
+   * typed stays.
    */
   function handlePicked({ suggestion, details }: PickedPlace) {
     const fillable = (value: string, last: string | undefined) => !value.trim() || value === last;
     const next = { ...prefilled };
     const addressOnly = Boolean(details.streetAddress && sameStreetLine(suggestion.primaryText, details.streetAddress));
+    let name = venueName;
     if (suggestion.primaryText && fillable(venueName, prefilled.venueName)) {
-      const name = addressOnly ? "" : suggestion.primaryText;
+      name = addressOnly ? "" : suggestion.primaryText;
       setVenueName(name);
       next.venueName = name;
     }
+    setVenueNameHint(addressOnly && !name.trim());
     if (details.streetAddress && fillable(venueAddress, prefilled.venueAddress)) {
       setVenueAddress(details.streetAddress);
       next.venueAddress = details.streetAddress;
@@ -1002,7 +1016,10 @@ export default function EventEditor(props: Props) {
     }
     try {
       const saved = await updateEventDraft(initial.eventId, input, saveToken);
-      const withImage = await syncImage(saved, uploadEventImage, deleteEventImage, (id, change, token) => setEventImageDisplay(id, change, token), setSavedRecord);
+      const withImage = await syncImage(saved, uploadEventImage, deleteEventImage, (id, change, token) => setEventImageDisplay(id, change, token), (kept) => {
+        setSavedRecord(kept);
+        props.onSaved(kept);
+      });
       // Waits for a clip upload a save already started, and never publishes without the clip.
       setSavedRecord(await syncClip(withImage, ORGANISER_CLIP_ROUTES, props.onSaved));
       const record: PublishedEvent = await publishEvent(initial.eventId, saveToken);
@@ -1588,10 +1605,18 @@ export default function EventEditor(props: Props) {
                   id="venueName"
                   value={venueName}
                   {...invalidProps("venueName")}
-                  onChange={(e) => setVenueName(e.target.value)}
+                  aria-describedby={[errors.venueName ? errorId("venueName") : "", venueNameHint ? VENUE_NAME_HINT_ID : ""].filter(Boolean).join(" ") || undefined}
+                  onChange={(e) => {
+                    setVenueName(e.target.value);
+                    setVenueNameHint(false);
+                  }}
                   className={fieldClass}
                 />
                 {fieldError("venueName")}
+                {/* Said as it appears (a pick is made elsewhere in the card), and read with the field after. */}
+                <p id={VENUE_NAME_HINT_ID} aria-live="polite" className="text-xs text-muted empty:hidden">
+                  {venueNameHint ? VENUE_NAME_HINT : ""}
+                </p>
               </div>
               <div className="flex flex-col gap-1 sm:col-span-1">
                 <label htmlFor="venueAddress" className="eyebrow text-muted">
