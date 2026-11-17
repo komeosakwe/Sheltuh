@@ -96,13 +96,18 @@ test("the cards' meta line is Instrument Sans as written, never in capitals; so 
   await expect(card).toBeVisible();
   await page.evaluate(() => document.fonts.ready);
   const meta = card.locator("[data-card-meta]");
-  // Shown and read as written (owner decision, 13 Nov 2026): never SAT 16 JAN · 5PM.
-  await expect(meta).toHaveText("Sat 16 Jan · 5pm · Carlton, VIC");
-  expect(await meta.innerText()).toBe("Sat 16 Jan · 5pm · Carlton, VIC");
-  expect(await meta.evaluate((el) => getComputedStyle(el).fontFamily)).toMatch(/^"Instrument Sans", /);
-  expect(await meta.evaluate((el) => getComputedStyle(el).textTransform)).toBe("none");
-  expect(await meta.evaluate((el) => getComputedStyle(el).fontWeight)).toBe("400");
-  expect(await meta.evaluate((el) => getComputedStyle(el).fontVariantNumeric)).toBe("tabular-nums");
+  const where = card.locator("[data-card-where]");
+  // Shown and read as written (owner decision, 13 Nov 2026): never SAT 16 JAN · 5PM. Two lines (Round 2 §1.5):
+  // when, then location · venue.
+  await expect(meta).toHaveText("Sat 16 Jan · 5pm");
+  expect(await meta.innerText()).toBe("Sat 16 Jan · 5pm");
+  await expect(where).toHaveText("Carlton, VIC · The Conservatory");
+  for (const line of [meta, where]) {
+    expect(await line.evaluate((el) => getComputedStyle(el).fontFamily)).toMatch(/^"Instrument Sans", /);
+    expect(await line.evaluate((el) => getComputedStyle(el).textTransform)).toBe("none");
+    expect(await line.evaluate((el) => getComputedStyle(el).fontWeight)).toBe("400");
+    expect(await line.evaluate((el) => getComputedStyle(el).fontVariantNumeric)).toBe("tabular-nums");
+  }
   expect(await card.locator("h3").evaluate((el) => getComputedStyle(el).fontFamily)).toMatch(/^"Instrument Sans", /);
   // The price is a label inside the card's one link, never its own tab stop.
   const price = card.locator("[data-price-tag]");

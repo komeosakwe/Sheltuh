@@ -74,7 +74,7 @@
   --display-tracking: 0;
   /* The control stroke (the rules' Shape board): chips, filters, inputs and secondary buttons. */
   --stroke-control: 1.5px;
-  --header-h: 4rem; /* 64px: the phone and tablet header (the rules' Mobile spec); 96px from lg, below */
+  --header-h: 3.5rem; /* 56px: the phone and tablet header (Round 2 §1.2); 72px from lg, below */
   /* The header's nav dots (the rules' Navigation board): two 6px squares, 20px across. */
   --umlaut-mask-nav: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 6'%3E%3Crect width='6' height='6' rx='1'/%3E%3Crect x='14' width='6' height='6' rx='1'/%3E%3C/svg%3E");
   --buybar-h: 4rem; /* 64px sticky event-page buy bar, < lg (before the safe area) */
@@ -93,7 +93,7 @@
 
 @media (width >= 64rem) {
   :root {
-    --header-h: 6rem; /* 96px: the desktop header (the proposal) */
+    --header-h: 4.5rem; /* 72px: the desktop header (Round 2 §1.2). It stays 72 when the XL row shrinks to 64 on scroll, so scroll padding never under-measures. */
   }
 }
 
@@ -592,7 +592,7 @@ h4 {
 @utility label-nav {
   font-family: var(--face-sans);
   font-weight: 500;
-  font-size: 1.125rem;
+  font-size: 1rem;
   line-height: 1.5rem;
 }
 @utility label-button {
@@ -668,6 +668,57 @@ h4 {
   }
 }
 
+/* Round 2 (docs/design/round-2-global.md §1). display-hero: the home hero's brand line, Bootzy capitals
+   at 40/48, 48/56 from 768px and 56/64 from 1280px. title-banner: an event's title on the featured
+   banner, Bootzy as entered (never upper-cased: it's data) at 28/32, 32/40 and 40/48.
+   heading-section-l: the home and /community section titles, Instrument Sans 700 at 24/32 and 32/40
+   from 768px. */
+@utility display-hero {
+  font-family: var(--face-display);
+  font-weight: var(--display-weight);
+  letter-spacing: var(--display-tracking);
+  font-synthesis-weight: none;
+  text-transform: uppercase;
+  font-size: 2.5rem;
+  line-height: 3rem;
+  @media (width >= 48rem) {
+    font-size: 3rem;
+    line-height: 3.5rem;
+  }
+  @media (width >= 80rem) {
+    font-size: 3.5rem;
+    line-height: 4rem;
+  }
+}
+@utility title-banner {
+  font-family: var(--face-display);
+  font-weight: var(--display-weight);
+  letter-spacing: var(--display-tracking);
+  font-synthesis-weight: none;
+  text-transform: none;
+  font-size: 1.75rem;
+  line-height: 2rem;
+  @media (width >= 48rem) {
+    font-size: 2rem;
+    line-height: 2.5rem;
+  }
+  @media (width >= 80rem) {
+    font-size: 2.5rem;
+    line-height: 3rem;
+  }
+}
+@utility heading-section-l {
+  font-family: var(--face-sans);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  font-size: 1.5rem;
+  line-height: 2rem;
+  @media (width >= 48rem) {
+    font-size: 2rem;
+    line-height: 2.5rem;
+  }
+}
+
 /* Eyebrows, straps, field labels: Instrument Sans 500 at 12px, so they still read as labels, in
    sentence case with normal tracking (owner decision, 13 Nov 2026: no more mono capitals). The
    text is written as it should read ("Fan support", "Where"); nothing upper-cases it. */
@@ -696,7 +747,7 @@ h4 {
 }
 
 /* The page's content column (the rules' Layout board): 1312px of content, with margins of 16px
-   on phones, 32px from 768px and 64px from 1440px. */
+   on phones, 32px from 768px and 64px from 1280px (Round 2 §1.2). */
 @utility page-container {
   width: 100%;
   max-width: calc(82rem + 2 * var(--page-margin));
@@ -706,7 +757,7 @@ h4 {
   @media (width >= 48rem) {
     --page-margin: 2rem;
   }
-  @media (width >= 90rem) {
+  @media (width >= 80rem) {
     --page-margin: 4rem;
   }
 }
@@ -789,7 +840,7 @@ h4 {
 }
 
 /* The header's nav button ("For organisers"), with `umlaut`: 40px, the 1.5px stroke, radius 8,
-   Label/Nav 18 medium, 24px sides. Its dots sit 8px above the button, not on the label; hover
+   Label/Nav 16 medium (Round 2 §1.3), 24px sides. Its dots sit 8px above the button, not on the label; hover
    adds the --hover fill, and the current page fills it in the text colour (no underline: the
    fill carries the state). In the black header in both themes. */
 @utility nav-button {
@@ -807,7 +858,7 @@ h4 {
   border-radius: var(--radius-control);
   font-family: var(--face-sans);
   font-weight: 500;
-  font-size: 1.125rem;
+  font-size: 1rem;
   line-height: 1.5rem;
   color: var(--foreground);
   @media (hover: hover) {
@@ -1302,6 +1353,13 @@ h4 {
       color: var(--danger-foreground);
     }
   }
+  /* Keyboard focus looks like hover too (Round 2: every hover state has a focus-visible equivalent),
+     on top of the global focus ring. */
+  .btn-signal:focus-visible:not(:disabled, [aria-disabled="true"]) {
+    background: var(--ink);
+    border-color: var(--signal);
+    color: var(--signal);
+  }
   /* Pressed looks like hover (no dark-orange state, no movement). */
   .btn-signal:active:not(:disabled, [aria-disabled="true"]) {
     background: var(--ink);
@@ -1403,13 +1461,14 @@ h4 {
 }
 
 /* The event page (redesign PR 4, the owner's event mock): the title in display type, 32/40 up to 1024px and
-   40/48 beside the photo, and the date chip's day on the photo from 1024px. */
+   40/48 beside the photo, and the date chip's day on the photo from 1024px. The title shows as entered
+   (Round 2 §1.7: names are never upper-cased by CSS). */
 @utility event-title {
   font-family: var(--face-display);
   font-weight: var(--display-weight);
   letter-spacing: var(--display-tracking);
   font-synthesis-weight: none;
-  text-transform: uppercase;
+  text-transform: none;
   font-size: 2rem;
   line-height: 2.5rem;
   @media (width >= 64rem) {

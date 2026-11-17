@@ -259,9 +259,10 @@ for (const vp of [
       expect(await page.evaluate(() => window.scrollY)).toBe(0);
 
       // The case it's for: a two-line title, and the venue's full group (its name, the address under it and Get
-      // directions under that: the owner's event reference, 13 Nov 2026).
+      // directions under that: the owner's event reference, 13 Nov 2026). The title shows as entered (Round 2
+      // §1.7: no CSS capitals), which is narrower: one line at 390, still two at 375 and 370.
       const lines = (el: HTMLElement) => Math.round(el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight));
-      expect(await h1.evaluate(lines)).toBe(2);
+      expect(await h1.evaluate(lines)).toBe(vp.width >= 390 ? 1 : 2);
       const address = page.locator("[data-event-facts] [data-directions]");
       await expect(page.locator("[data-event-facts] [data-venue-address]")).toBeVisible();
 

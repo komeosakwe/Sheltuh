@@ -65,8 +65,8 @@ describe("HomeAllEvents", () => {
     expect(within(form).getByRole("combobox", { name: "Category" })).toHaveValue("all");
     expect(within(form).getByRole("combobox", { name: "Date" })).toHaveValue("all");
     expect(screen.queryByRole("combobox", { name: /Sort|Distance|Accessibility/ })).toBeNull();
-    // One column, two from 640px, three from 1024px, four from 1280px: never narrower than the card's one-line foot.
-    expect(HOME_GRID).toBe("grid grid-cols-1 gap-x-4 gap-y-8 sm:grid-cols-2 md:gap-x-6 lg:grid-cols-3 lg:gap-x-8 xl:grid-cols-4");
+    // One column below 768px (Round 2 §1.2), two from 768px, three from 1024px, four from 1280px: never narrower than the card's one-line foot.
+    expect(HOME_GRID).toBe("grid grid-cols-1 gap-x-4 gap-y-8 md:grid-cols-2 md:gap-x-6 lg:grid-cols-3 lg:gap-x-8 xl:grid-cols-4");
     expect(screen.getByRole("list", { name: "All events" })).toHaveClass(...HOME_GRID.split(" "));
     // Nothing is announced until a filter changes.
     expect(status()).toHaveTextContent("");

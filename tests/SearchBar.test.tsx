@@ -57,36 +57,38 @@ describe("SearchBar", () => {
   });
 
   // The rules' Search board (desktop): "Search events" + Where (+ When, deferred) + an orange Search.
-  it("from md, one bar with radius 8 and the stroke, 8px inside: the words, Where, then the orange Search", () => {
+  // Round 2 §1.2: the inline bar from lg (1024px); below it, the sheet.
+  it("from lg, one bar with radius 8 and the stroke, 8px inside: the words, Where, then the orange Search", () => {
     render(<SearchBar />);
     const form = screen.getByRole("search", { name: "Search events" });
     const bar = form.querySelector("[data-search-bar]");
-    expect(bar).toHaveClass("md:flex-row", "md:rounded-control", "md:border-control", "md:border-foreground", "md:bg-card", "md:p-2", "md:gap-2");
-    expect(bar?.className).not.toMatch(/\bp-1\b|\bgap-1\b|rounded-full/);
-    // The same element is the phone's sheet and, from md, just the bar's wrapper.
-    expect(sheet()).toHaveClass("md:contents");
+    expect(bar).toHaveClass("lg:flex-row", "lg:rounded-control", "lg:border-control", "lg:border-foreground", "lg:bg-card", "lg:p-2", "lg:gap-2");
+    expect(bar?.className).not.toMatch(/\bp-1\b|\bgap-1\b|rounded-full|(?:^|\s)md:/);
+    // The same element is the phone's and tablet's sheet and, from lg, just the bar's wrapper.
+    expect(sheet()).toHaveClass("lg:contents");
+    expect(sheet().className).not.toMatch(/(?:^|\s)md:/);
     const location = within(form).getByRole("button", { name: "Where: Your suburb" });
     const submit = within(form).getByRole("button", { name: "Search" });
     // Keyboard order: words → Where → Search.
     expect(screen.getByRole("combobox", { name: "Search events" }).compareDocumentPosition(location) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(location.compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(submit).toHaveAttribute("type", "submit");
-    expect(submit).toHaveClass("btn", "btn-signal", "md:min-h-12");
+    expect(submit).toHaveClass("btn", "btn-signal", "lg:min-h-12");
     // No When field yet: /search reads only q and near.
     expect(within(form).queryByText(/^when$/i)).toBeNull();
     // 48px targets; 16px text so iOS doesn't zoom; a long query ends in "…".
     expect(screen.getByRole("combobox", { name: "Search events" })).toHaveClass("h-12", "text-base", "text-ellipsis");
     expect(location).toHaveClass("min-h-12");
-    // From md, focus rings inside the bar are drawn inset, so they don't cross its stroke.
-    for (const control of [screen.getByRole("combobox", { name: "Search events" }), location, submit]) expect(control).toHaveClass("md:focus-visible:-outline-offset-2!");
+    // From lg, focus rings inside the bar are drawn inset, so they don't cross its stroke.
+    for (const control of [screen.getByRole("combobox", { name: "Search events" }), location, submit]) expect(control).toHaveClass("lg:focus-visible:-outline-offset-2!");
   });
 
-  // The rules' Layout board: below md the search bar is one field that opens a full-screen sheet.
-  it("below md, one field opens the full-screen sheet: a native popover, a dialog only while open, focusing the words", () => {
+  // The rules' Layout board, Round 2 §1.2: below lg (phones and tablets) the search bar is one field that opens a full-screen sheet.
+  it("below lg, one field opens the full-screen sheet: a native popover, a dialog only while open, focusing the words", () => {
     render(<SearchBar />);
     const trigger = document.querySelector<HTMLElement>("[data-search-trigger]");
     if (!trigger) throw new Error("no trigger");
-    expect(trigger).toHaveClass("md:hidden", "min-h-12");
+    expect(trigger).toHaveClass("lg:hidden", "min-h-12");
     expect(trigger).toHaveAttribute("type", "button");
     expect(trigger).toHaveAccessibleName("Search events");
     expect(trigger).toHaveAttribute("popovertarget", sheet().id);
@@ -100,7 +102,7 @@ describe("SearchBar", () => {
     const close = within(sheet()).getByRole("button", { name: "Close" });
     expect(close).toHaveAttribute("popovertargetaction", "hide");
     expect(close).toHaveClass("size-12");
-    expect(close.parentElement).toHaveClass("md:hidden");
+    expect(close.parentElement).toHaveClass("lg:hidden");
     toggle(sheet(), "closed");
     expect(sheet()).not.toHaveAttribute("role");
   });
@@ -126,6 +128,33 @@ describe("SearchBar", () => {
     fireEvent.focusOut(input, { relatedTarget: outside });
     expect(hidePopover).toHaveBeenCalledTimes(2);
     outside.remove();
+  });
+
+  // Round 2 §1.2: the sheet runs to 1023px, so it closes only once the window is widened to lg (64rem), where it's the inline bar.
+  it("closes an open sheet when the window is widened to 64rem (lg), not before", () => {
+    let onChange: (() => void) | undefined;
+    const query = { matches: false, media: "", addEventListener: (_: string, fn: () => void) => (onChange = fn), removeEventListener: () => {} };
+    const matchMedia = vi.fn((media: string) => Object.assign(query, { media }));
+    vi.stubGlobal("matchMedia", matchMedia);
+    render(<SearchBar />);
+    expect(matchMedia).toHaveBeenCalledWith("(width >= 64rem)");
+    expect(matchMedia).not.toHaveBeenCalledWith("(width >= 48rem)");
+    const el = sheet();
+    const hidePopover = vi.fn();
+    Object.assign(el, { hidePopover, matches: (q: string) => q === ":popover-open" || Element.prototype.matches.call(el, q) });
+    toggle(el, "open");
+    onChange?.();
+    expect(hidePopover).not.toHaveBeenCalled();
+    query.matches = true;
+    onChange?.();
+    expect(hidePopover).toHaveBeenCalledTimes(1);
+  });
+
+  it("puts /search's “Press Search” hint under the bar from lg, and under Where in the sheet below it", () => {
+    render(<SearchBar near="Fitzroy" appliedNear="" />);
+    const hint = document.querySelector("[data-near-hint]");
+    expect(hint).toHaveClass("lg:absolute", "lg:top-full", "lg:left-4", "lg:mt-2");
+    expect(hint?.className).not.toMatch(/(?:^|\s)md:/);
   });
 
   it("shows no “Press Search” hint outside /search (no appliedNear)", () => {
@@ -274,10 +303,10 @@ describe("SearchBar suggestions", () => {
     expect(field()).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("lies over the page from md (nothing moves) and sits under Search in the phone's sheet", () => {
+  it("lies over the page from lg (nothing moves) and sits under Search in the phone's and tablet's sheet", () => {
     render(<SearchBar />);
     const panel = list().closest("[data-search-suggestions]");
-    expect(panel).toHaveClass("md:absolute", "md:top-full", "rounded-card", "shadow-soft", "bg-card");
+    expect(panel).toHaveClass("lg:absolute", "lg:top-full", "rounded-card", "shadow-soft", "bg-card");
     // Last in the bar: in the sheet it follows Search, so opening it moves nothing above it.
     expect(panel?.parentElement?.lastElementChild).toBe(panel);
   });

@@ -51,6 +51,25 @@ describe("SceneEventRow", () => {
     expect(row.className).toContain("has-[[data-card-link]:focus-visible]:outline-2");
   });
 
+  // Round 2: every hover state has a keyboard twin. Hover fills the row and underlines the title; so does
+  // keyboard focus on the title's link. Locate's hover fill shows for focus too.
+  it("fills and underlines for keyboard focus as it does for hover, and Locate fills on focus as on hover", () => {
+    const { container } = renderRow();
+    const row = container.querySelector("[data-scene-row]") as HTMLElement;
+    expect(row).toHaveClass("hover:bg-surface", "has-[[data-card-link]:focus-visible]:bg-surface");
+    const link = screen.getByRole("link", { name: event.title });
+    expect(link).toHaveClass("group-hover/row:underline", "focus-visible:underline");
+    expect(screen.getByRole("button", { name: `Locate ${event.title} on the map` })).toHaveClass("hover:bg-hover", "focus-visible:bg-hover");
+  });
+
+  it("keeps the date and time line (the owner's amendment), in Instrument Sans, never upper-cased", () => {
+    const { container } = renderRow();
+    const meta = container.querySelector("[data-scene-row] .meta") as HTMLElement;
+    expect(meta).toHaveClass("meta", "lg:mono-m");
+    expect(meta.className).not.toMatch(/font-mono|uppercase/);
+    expect(meta).toHaveTextContent(/\d{1,2}:\d{2} [ap]m/);
+  });
+
   it("keeps Locate above the link, 56px from lg (the mocks leave it off below), and calls back with the button", () => {
     const onLocate = vi.fn();
     renderRow({ onLocate });

@@ -379,7 +379,7 @@ export default function EventDetailsView({
                 </CategoryTag>
               )}
             </div>
-            {/* Display type in capitals, a step under the home's (globals.css event-title): 32px up to 1024px (a long
+            {/* Display type as entered, a step under the home's (globals.css event-title): 32px up to 1024px (a long
                 title in two lines at 390), 40px beside the photo (the mock's). */}
             <h1 className="event-title break-words">
               {missing?.title ? <Placeholder>Untitled event</Placeholder> : event.title}
@@ -500,7 +500,7 @@ export default function EventDetailsView({
                 secondary row, straight after the facts so Save and Share stay above the bar. */}
             <div
               data-ticket-panel=""
-              className={`flex flex-col gap-4 lg:order-last lg:mt-2 ${panelBuy ? "lg:rounded-card lg:border lg:border-foreground lg:p-6" : ""} ${preview ? "" : "lg:sticky lg:top-32"}`}
+              className={`flex flex-col gap-4 lg:order-last lg:mt-2 ${panelBuy ? "lg:rounded-card lg:border lg:border-foreground lg:p-6" : ""} ${preview ? "" : "lg:sticky lg:top-[calc(var(--header-h)+2rem)]"}`}
             >
               {panelBuy && (
                 <div className="max-lg:hidden">

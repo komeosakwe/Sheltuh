@@ -640,6 +640,97 @@ function closePanel(panel: HTMLElement) {
   });
 }
 
+// Round 2 §1.2: the search bar's Where is a segment of the inline bar from lg (the sheet's field below it);
+// Nearby's standalone picker and the shared menu keep their own breakpoints.
+describe("LocationPicker — breakpoints", () => {
+  it("in the search bar, Where becomes a bar segment from lg; standalone, it's the field at every width", () => {
+    render(<SearchBar />);
+    const inBar = screen.getByRole("button", { name: /^Where: / });
+    expect(inBar).toHaveClass("lg:w-auto", "lg:max-w-2/5", "lg:border-transparent", "lg:px-3", "lg:focus-visible:-outline-offset-2!");
+    expect(inBar.className).not.toMatch(/(?:^|\s)md:/);
+    cleanup();
+    render(<LocationPicker standalone />);
+    const standalone = screen.getByRole("button", { name: /^Where: / });
+    expect(standalone).toHaveClass("lg:min-h-18", "lg:px-6");
+    expect(standalone.className).not.toMatch(/w-auto|border-transparent/);
+    // Standalone (Nearby), the menu is still a bottom sheet below md only.
+    const panel = document.querySelector("[data-location-panel]");
+    expect(panel).toHaveClass("max-md:bottom-0", "max-md:rounded-t-sheet");
+    expect(panel?.className).not.toMatch(/max-lg:/);
+  });
+
+  // Round 2 review: the search sheet runs below lg, so at 768–1023px Where's list opened as a detached
+  // 360px menu under the sheet's Search button. In the search bar it's a bottom sheet below lg.
+  describe("at 800px", () => {
+    let restoreWidth: (() => void) | undefined;
+    beforeEach(() => {
+      const root = document.documentElement;
+      const own = Object.getOwnPropertyDescriptor(root, "clientWidth");
+      Object.defineProperty(root, "clientWidth", { configurable: true, get: () => 800 });
+      restoreWidth = () => {
+        if (own) Object.defineProperty(root, "clientWidth", own);
+        else Reflect.deleteProperty(root, "clientWidth");
+      };
+    });
+    afterEach(() => restoreWidth?.());
+
+    it("in the search bar (the sheet), the list is a bottom sheet: sheet classes below lg, its handle and Close shown, no menu placement", () => {
+      render(<SearchBar />);
+      const panel = openPanel();
+      expect(panel).toHaveClass("max-lg:inset-x-0", "max-lg:bottom-0", "max-lg:w-full", "max-lg:rounded-t-sheet", "max-lg:backdrop:bg-ink/40");
+      expect(panel.className).not.toMatch(/max-md:/);
+      const close = within(panel).getByRole("button", { name: "Close", hidden: true });
+      expect(close.parentElement).toHaveClass("lg:hidden");
+      expect(close.parentElement?.className).not.toMatch(/(?:^|\s)md:hidden/);
+      // Not placed as a 360px menu under the bar.
+      expect(panel.style.width).toBe("");
+      expect(panel.style.top).toBe("");
+    });
+
+    it("standalone (Nearby), it's still the 360px menu under the field from md", () => {
+      // In Nearby's filter row, which is its [data-search-bar] (components/SceneMapFilterBar.tsx).
+      render(
+        <div data-search-bar="">
+          <LocationPicker standalone />
+        </div>,
+      );
+      const panel = openPanel();
+      expect(panel.style.width).toBe("360px");
+      expect(within(panel).getByRole("button", { name: "Close", hidden: true }).parentElement).toHaveClass("md:hidden");
+    });
+  });
+
+  // CodeRabbit (PR 54): at a 1024px window with a 15px scrollbar, clientWidth is 1009 but the CSS (a media
+  // query, which counts the scrollbar) lays out the inline bar, so the list must be placed as the menu.
+  it("in the search bar at 1024px with a scrollbar, it follows the media query: placed as the 360px menu", () => {
+    const root = document.documentElement;
+    const own = Object.getOwnPropertyDescriptor(root, "clientWidth");
+    Object.defineProperty(root, "clientWidth", { configurable: true, get: () => 1009 });
+    const queries: string[] = [];
+    window.matchMedia = ((query: string) => ({
+      matches: (queries.push(query), false),
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia;
+    try {
+      render(<SearchBar />);
+      const panel = openPanel();
+      expect(panel.style.width).toBe("360px");
+      // In rem, as Tailwind's lg is (64rem), so a larger default font size moves both together.
+      expect(queries).toContain("(width < 64rem)");
+    } finally {
+      Reflect.deleteProperty(window, "matchMedia");
+      if (own) Object.defineProperty(root, "clientWidth", own);
+      else Reflect.deleteProperty(root, "clientWidth");
+    }
+  });
+});
+
 // CodeRabbit (PR 43): on Nearby nothing sends the typed words later, so they mustn't outlive the menu.
 describe("LocationPicker — standalone (Nearby): closing without applying", () => {
   it("drops a typed suburb and shows the place in use again; the search bar keeps it for Search", () => {

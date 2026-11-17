@@ -31,7 +31,9 @@ function rowPrice(event: SheltuhEvent): string {
  * tickets" (48px) and Locate top right (56px), selecting the event on the map. The phone and
  * tablet mocks leave both off: the row opens the event, and the Map view shows where it is.
  * Independent controls, never nested in the link. Selected: a muted fill, a black edge and the
- * word "Selected", never colour alone.
+ * word "Selected", never colour alone. Every hover has a keyboard twin (Round 2): keyboard focus on
+ * the title's link fills and underlines the row as hover does, and Locate fills on focus as on hover.
+ * The date and time stay (the owner's amendment), in Instrument Sans.
  */
 export default function SceneEventRow({ event, selected, onLocate, hasLocation, distance, detailsHref }: SceneEventRowProps) {
   const start = startLabel(event);
@@ -39,7 +41,7 @@ export default function SceneEventRow({ event, selected, onLocate, hasLocation, 
     <div
       data-scene-row=""
       className={`group/row relative grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-4 border-b border-l-2 border-b-surface-border py-4 pr-0 pl-2 last:border-b-0 lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:p-6 has-[[data-card-link]:focus-visible]:outline-2 has-[[data-card-link]:focus-visible]:-outline-offset-2 has-[[data-card-link]:focus-visible]:outline-foreground has-[[data-card-link]:active]:bg-surface-border lg:p-6 ${
-        selected ? "border-l-foreground bg-surface" : "border-l-transparent hover:bg-surface"
+        selected ? "border-l-foreground bg-surface" : "border-l-transparent hover:bg-surface has-[[data-card-link]:focus-visible]:bg-surface"
       }`}
     >
       <EventArt
@@ -72,7 +74,7 @@ export default function SceneEventRow({ event, selected, onLocate, hasLocation, 
           <Link
             href={detailsHref}
             data-card-link=""
-            className="block text-foreground underline-offset-4 group-hover/row:underline after:absolute after:inset-0 after:z-0 after:content-['']"
+            className="block text-foreground underline-offset-4 group-hover/row:underline focus-visible:underline after:absolute after:inset-0 after:z-0 after:content-['']"
           >
             {event.title}
           </Link>
@@ -107,7 +109,7 @@ export default function SceneEventRow({ event, selected, onLocate, hasLocation, 
         aria-label={`Locate ${event.title} on the map`}
         title="Locate on map"
         className={`relative z-10 hidden size-14 shrink-0 items-center justify-center rounded-control border-control lg:flex disabled:cursor-not-allowed disabled:border-surface-border disabled:bg-surface disabled:text-muted ${
-          selected ? "border-foreground bg-foreground text-background" : "border-foreground bg-background text-foreground hover:bg-hover"
+          selected ? "border-foreground bg-foreground text-background" : "border-foreground bg-background text-foreground hover:bg-hover focus-visible:bg-hover"
         }`}
       >
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" className="size-6">
