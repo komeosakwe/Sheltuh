@@ -52,8 +52,18 @@ function fixtures(now: number): PublicEvent[] {
  * `trending`: serve the trending list (the last few events, labelled
  * "popular"); otherwise it's a 404 and the carousel is Coming up.
  */
-async function mockApi(page: Page, { trending = false, going, lead }: { trending?: boolean; going?: number; lead?: string } = {}) {
-  const events = fixtures(Date.now()).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+type MockOptions = {
+  trending?: boolean;
+  going?: number;
+  lead?: string;
+  /** Changes to some events, by slug (a state, a banner fit). */
+  edits?: Record<string, Partial<PublicEvent>>;
+};
+
+async function mockApi(page: Page, { trending = false, going, lead, edits = {} }: MockOptions = {}) {
+  const events = fixtures(Date.now())
+    .map((event) => ({ ...event, ...edits[event.slug] }))
+    .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
   await page.route("**/api/**", (route) => {
     const url = new URL(route.request().url());
     if (url.pathname === "/api/events") {
@@ -75,7 +85,7 @@ async function mockApi(page: Page, { trending = false, going, lead }: { trending
   });
 }
 
-async function openHome(page: Page, options?: { trending?: boolean; going?: number; lead?: string }) {
+async function openHome(page: Page, options?: MockOptions) {
   await mockApi(page, options);
   await page.goto("/");
   await expect(page.locator("[data-home-section]").first()).toBeVisible();
@@ -418,6 +428,87 @@ for (const { width, height, focus } of [
   });
 }
 
+// Round 2 Part 2: "Show the whole photo in the home banner" (bannerFit "whole"): the banner shows the whole photo,
+// centred on its blurred backdrop, with no focal default; the event's card still crops it to fill.
+for (const { width, height } of [
+  { width: 1440, height: 900 },
+  { width: 390, height: 844 },
+]) {
+  test.describe(`a whole-photo banner at ${width}px`, () => {
+    test.use({ viewport: { width, height } });
+
+    test("contains the photo on its blurred backdrop; the card still covers", async ({ page }) => {
+      await openHome(page, { trending: true, lead: "neon-static", edits: { "neon-static": { bannerFit: "whole" } } });
+      const slide = page.locator("[data-featured-carousel] [data-slide][data-current]");
+      await expect(slide.getByRole("link", { name: "Neon Static", exact: true })).toBeAttached();
+      const img = slide.locator("img");
+      const banner = await img.evaluate(async (el: HTMLImageElement) => {
+        if (!el.complete) await new Promise((resolve) => el.addEventListener("load", resolve, { once: true }));
+        const style = getComputedStyle(el);
+        return { fit: style.objectFit, position: style.objectPosition, className: el.className };
+      });
+      expect(banner.fit).toBe("contain");
+      expect(banner.position).toBe("50% 50%");
+      expect(banner.className).not.toMatch(/object-\[/);
+      await expect(slide.locator("[data-art-backdrop]")).toHaveCount(1);
+      // The words keep their scrim, and nothing scrolls sideways.
+      await expect(slide.locator("[data-slide-scrim]")).toBeVisible();
+      await page.screenshot({ path: test.info().outputPath(`whole-banner-${width}.png`) });
+
+      const card = page.locator("[data-event-card]:has(a[href='/events/neon-static'])").first();
+      await card.scrollIntoViewIfNeeded();
+      expect(await card.locator("[data-card-media] img").evaluate((el) => getComputedStyle(el).objectFit)).toBe("cover");
+      expect(await noSidewaysScroll(page)).toBeLessThanOrEqual(0);
+    });
+  });
+}
+
+// Round 2 Part 2: with a saved suburb (browser-only, `sheltuh:near:v1`), This weekend shows only its state's events
+// (the owner's amendment: filter by location before artist grouping), and All events stops saying "Across Australia".
+test.describe("This weekend with a saved suburb", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+  const [nsw, vic] = sampleEvents;
+  const edits = { [nsw.slug]: { state: "NSW" as const, suburb: "Newtown" } };
+
+  /** Saves `saved` as the visitor's suburb before the page loads, then opens the home. */
+  async function openSaved(page: Page, saved: { suburb: string; state?: string } | null) {
+    if (saved) {
+      await page.addInitScript((value) => window.localStorage.setItem("sheltuh:near:v1", value), JSON.stringify(saved));
+    }
+    await openHome(page, { edits });
+    // The saved state is read after hydration: wait for the list the home settles on.
+    await expect(page.getByRole("list", { name: "All events", exact: true })).toBeVisible();
+  }
+
+  test("none saved: both weekend events, Australia-wide", async ({ page }) => {
+    await openSaved(page, null);
+    // (During the weekend itself the other fixtures, starting soon, may be in it too: all of them Victorian.)
+    await expect(page.getByRole("list", { name: "This weekend", exact: true }).getByText(nsw.title)).toBeVisible();
+    expect(await titlesIn(page, "This weekend")).toEqual(expect.arrayContaining([nsw.title, vic.title]));
+    await expect(page.getByRole("region", { name: "All events" })).toContainText("Across Australia");
+  });
+
+  test("a saved NSW suburb: only the NSW event, and no Across Australia", async ({ page }) => {
+    await openSaved(page, { suburb: "Newtown", state: "NSW" });
+    await expect(page.getByRole("list", { name: "This weekend", exact: true }).locator("[data-event-card]")).toHaveCount(1);
+    expect(await titlesIn(page, "This weekend")).toEqual([nsw.title]);
+    await expect(page.getByRole("region", { name: "All events" })).not.toContainText("Across Australia");
+  });
+
+  test("a saved VIC suburb (an entry saved before states were: 'Fitzroy VIC'): only the VIC event", async ({ page }) => {
+    await openSaved(page, { suburb: "Fitzroy VIC" });
+    await expect(page.getByRole("list", { name: "This weekend", exact: true }).getByText(vic.title)).toBeVisible();
+    const titles = await titlesIn(page, "This weekend");
+    expect(titles).not.toContain(nsw.title);
+    expect(titles).toContain(vic.title);
+  });
+
+  test("a saved state with no weekend events: the section hides", async ({ page }) => {
+    await openSaved(page, { suburb: "Perth", state: "WA" });
+    await expect(page.getByRole("heading", { name: "This weekend" })).toHaveCount(0);
+  });
+});
+
 // Round 2 §1.1: 4:5 below 640px; the words grow the slide rather than being cut off, and Buy tickets stays clear of the controls.
 for (const width of [320, 390]) {
   test.describe(`the featured carousel at ${width}px`, () => {
@@ -574,7 +665,10 @@ for (const width of [390, 768, 1280]) {
       await expect(page.locator("[data-rail-layout], [data-rail-clone], [data-what-else], [data-variant='weekend']")).toHaveCount(0);
       // Each event section's link onward, named for where it goes.
       await expect(page.getByRole("region", { name: "This weekend" }).getByRole("link", { name: "See all this weekend" })).toHaveAttribute("href", "/map?time=weekend&within=all");
-      await expect(page.getByRole("region", { name: "All events" }).getByRole("link", { name: "See all events" })).toHaveAttribute("href", "/events");
+      // All events has two, the head's and the bottom's (Round 2: in place of Show more), both to /events.
+      const seeAll = page.getByRole("region", { name: "All events" }).getByRole("link", { name: "See all events" });
+      await expect(seeAll).toHaveCount(2);
+      for (const link of await seeAll.all()) await expect(link).toHaveAttribute("href", "/events");
       // Find your people: Explore communities to /community, then the band, with no invented counts.
       const people = page.locator("#find-your-people");
       await expect(people.getByRole("link", { name: "Explore communities" })).toHaveAttribute("href", "/community");
