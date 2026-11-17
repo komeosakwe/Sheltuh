@@ -132,7 +132,7 @@ for (const viewport of [
   test.describe(`the ticket email at ${viewport.width}px`, () => {
     test.use({ viewport, ...(viewport.width < 1024 ? { hasTouch: true } : {}) });
 
-    test("Did you mean …? on leaving the field, the server's refusal with its suggestion, then the paying browser's one change", async ({ page }) => {
+    test("Did you mean …? once typing pauses, the server's refusal with its suggestion, then the paying browser's one change", async ({ page }) => {
       const seen = await mockBuyerApi(page);
       await page.goto(`/events/${sample!.slug}`);
       const tickets = page.locator("#tickets");
@@ -143,10 +143,13 @@ for (const viewport of [
       await expect(email).toBeVisible();
       await expect(tickets).not.toContainText("Stripe will ask");
 
-      // A known typo: the hint when the buyer leaves the field; Use this puts it in.
+      // A known typo: the hint once typing pauses, while focus is still in the field; Use this puts it in.
       await email.fill("alex@gmial.com");
-      await email.blur();
       await expect(tickets.getByText(/Did you mean/)).toHaveText("Did you mean alex@gmail.com?");
+      await expect(email).toBeFocused();
+      // Next in the Tab order: Use this, right after the field.
+      await email.press("Tab");
+      await expect(tickets.getByRole("button", { name: "Use this" })).toBeFocused();
       const use = tickets.getByRole("button", { name: "Use this" });
       const box = (await use.boundingBox())!;
       expect(box.height).toBeGreaterThanOrEqual(44);
@@ -177,22 +180,56 @@ for (const viewport of [
       expect(seen.orderReads.every((read) => read.access === TOKEN && !read.url.includes(TOKEN))).toBe(true);
       expect(page.url()).not.toContain(TOKEN);
 
-      await page.getByRole("button", { name: "Wrong email? Change it" }).click();
+      // Escape closes the form, focus back on Change it.
+      const open = page.getByRole("button", { name: "Wrong email? Change it" });
+      await open.click();
       const field = page.getByLabel("New email for your tickets");
       await expect(field).toBeFocused();
+      await field.press("Escape");
+      await expect(field).toHaveCount(0);
+      await expect(open).toBeFocused();
+
+      await open.click();
+      await expect(field).toBeFocused();
       await expect(field).toHaveValue("alex@outlook.com");
+      await expect(field).toHaveAttribute("enterkeyhint", "send");
       await field.fill("alex.doe@outlook.com");
-      await page.getByRole("button", { name: "Send tickets here" }).click();
+      // Enter sends it (a phone's Send key too): no tap on the button needed.
+      await field.press("Enter");
       await expect(page.getByRole("status").filter({ hasText: "Email changed" })).toHaveText(
-        "Email changed. Your tickets are on their way to alex.doe@outlook.com.",
+        "Email changed. Tickets are on their way to alex.doe@outlook.com. To change it again, contact support@sheltuh.com.au.",
       );
-      await expect(page.getByText("Tickets sent to alex.doe@outlook.com.")).toBeVisible();
-      await expect(page.getByText(/You’ve already changed this email once/)).toContainText("support@sheltuh.com.au");
+      await expect(page.getByRole("group", { name: "Ticket email" })).toBeFocused();
+      await expect(page.getByText(/Tickets sent to/)).toHaveCount(0);
+      await expect(page.getByText(/You’ve already changed this email once/)).toHaveCount(0);
       await expect(page.getByRole("button", { name: "Wrong email? Change it" })).toHaveCount(0);
       expect(seen.changes).toEqual([
         { url: expect.not.stringContaining(TOKEN), access: TOKEN, body: { email: "alex.doe@outlook.com" } },
       ]);
       await noSidewaysScroll(page);
+    });
+  });
+}
+
+for (const viewport of [
+  { width: 1440, height: 900 },
+  { width: 390, height: 844 },
+]) {
+  test.describe(`a typo, then Checkout straight away, at ${viewport.width}px`, () => {
+    test.use({ viewport, ...(viewport.width < 1024 ? { hasTouch: true } : {}) });
+
+    test("the click lands: nothing moves under it, and the checkout is sent with what was typed", async ({ page }) => {
+      const seen = await mockBuyerApi(page);
+      await page.goto(`/events/${sample!.slug}`);
+      const tickets = page.locator("#tickets");
+      await tickets.getByRole("button", { name: "Increase quantity for General admission" }).click({ timeout: 30_000 });
+      await tickets.getByLabel("Your name").fill("Alex Doe");
+      const email = tickets.getByLabel("Email for your tickets");
+      // Typed key by key, then straight to Checkout: no blur trick, no pause for the hint.
+      await email.pressSequentially("alex@gmial.com", { delay: 20 });
+      await tickets.getByRole("button", { name: "Checkout" }).click();
+      await expect(page).toHaveURL(`/checkout/success?session_id=${ORDER_ID}`, { timeout: 30_000 });
+      expect(seen.checkouts.map((c) => c.buyerEmail)).toEqual(["alex@gmial.com"]);
     });
   });
 }
@@ -277,16 +314,19 @@ async function mockAdmin(page: Page) {
     if (path === "/api/admin/emails/41/change-email" && request.method() === "POST") {
       seen.changes.push({ body: request.postDataJSON(), authorization: request.headers()["authorization"] });
       return route.fulfill({
-        json: adminJob({
-          status: "pending",
-          attempts: 0,
-          sentAt: undefined,
-          maskedEmail: "j***@example.com",
-          emailChanges: [
-            { changedBy: "admin", reason: "Buyer phoned to fix a typo", oldMaskedEmail: "a***@outlook.com", newMaskedEmail: "j***@example.com", changedAt: new Date(now).toISOString() },
-            ...adminJob().emailChanges,
-          ],
-        }),
+        json: {
+          result: "changed",
+          job: adminJob({
+            status: "pending",
+            attempts: 0,
+            sentAt: undefined,
+            maskedEmail: "j***@example.com",
+            emailChanges: [
+              { changedBy: "admin", reason: "Buyer phoned to fix a typo", oldMaskedEmail: "a***@outlook.com", newMaskedEmail: "j***@example.com", changedAt: new Date(now).toISOString() },
+              ...adminJob().emailChanges,
+            ],
+          }),
+        },
       });
     }
     if (path === "/api/organisers/me") return route.fulfill({ status: 404, json: { error: "No organiser." } });
@@ -309,10 +349,12 @@ test.describe("support changes an order's email at 1440×900", () => {
     await search.getByLabel("Find an order by reference").fill("beefcafe");
     await search.getByRole("button", { name: "Find" }).click();
     await expect(page.getByRole("heading", { name: "Ticket email for order #BEEFCAFE" })).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "Found order" })).toHaveText("Found order #BEEFCAFE.");
     expect(seen.lists.at(-1)).toContain("reference=%23BEEFCAFE");
 
     const item = page.getByRole("article", { name: `Order #BEEFCAFE: ${sample!.title}` });
     await expect(item.getByText("By the buyer", { exact: false })).toBeVisible();
+    await expect(item.getByRole("heading", { level: 4, name: "Email changes" })).toBeVisible();
     await item.getByRole("button", { name: "Change email" }).click();
     const form = item.getByRole("form", { name: "Change email for order #BEEFCAFE" });
     await expect(form.getByLabel("New email")).toBeFocused();
