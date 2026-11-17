@@ -192,8 +192,9 @@ export default function OrganiserProfileView({
           <section
             aria-labelledby="organiser-links"
             className={`mt-8 flex flex-col gap-3 md:max-w-xl lg:col-span-4 lg:col-start-9 lg:row-span-2 lg:row-start-1 lg:mt-0 lg:max-w-none lg:self-start ${
-              // Level with the strap when the logo sits over a cover (the overlap + 24).
-              hasCover && profile.logoUrl ? "lg:pt-22 xl:pt-26" : ""
+              // Level with the header's first line: the strap when the logo sits over a cover (the overlap + 24)
+              // or when there's a cover and no logo (32); the logo or strap without a cover (16).
+              hasCover ? (profile.logoUrl ? "lg:pt-22 xl:pt-26" : "lg:pt-8") : "lg:pt-4"
             }`}
           >
             <h2 id="organiser-links" className="eyebrow text-muted">
