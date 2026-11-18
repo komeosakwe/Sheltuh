@@ -9,8 +9,10 @@
  *
  * - Dry run (the default): reads every row of public.event_images, one at a
  *   time, decides whether it carries metadata (its own byte structure, plus
- *   what sharp reports) and whether it would re-encode, and prints a summary.
- *   Writes nothing.
+ *   what sharp reports) and whether it would re-encode (and in which format:
+ *   a copy over 2 MB in its own format is stored as WebP, as an upload is),
+ *   and prints a summary. A row without metadata is reported clean only once
+ *   its pixels decode. Writes nothing.
  * - --apply: re-encodes only the rows with metadata, with encodeEventImage
  *   (exactly what an upload goes through today), one row at a time, each in
  *   one UPDATE statement (its own transaction), which:
@@ -57,7 +59,12 @@
 import { createHash } from "node:crypto";
 import sharp, { type Metadata } from "sharp";
 import type { Db } from "../lib/server/db";
-import { encodeEventImage, type EncodedEventImage } from "../lib/server/event-image";
+import {
+  encodeEventImage,
+  EVENT_IMAGE_ENCODE_TIMEOUT_SECONDS,
+  MAX_EVENT_IMAGE_INPUT_PIXELS,
+  type EncodedEventImage,
+} from "../lib/server/event-image";
 import { HttpError } from "../lib/server/http";
 import { MAX_EVENT_IMAGE_BYTES } from "../lib/server/image-upload";
 import { echoable, looksSecret, redactSecrets, ROTATE_ADVICE, showArg } from "./redact-secrets";
@@ -339,6 +346,8 @@ export interface RowOutcome {
   bytes: number;
   /** The re-encoded size (would_clean, cleaned). */
   newBytes?: number;
+  /** The re-encoded format (would_clean, cleaned): not always `format`, as a copy over 2 MB in its own format is stored as WebP. */
+  newFormat?: ImageFormat;
   /** Why it failed or was skipped. */
   reason?: string;
 }
@@ -366,10 +375,12 @@ export interface BackfillOptions {
   encode?: (input: Uint8Array) => Promise<EncodedEventImage>;
 }
 
+const DOESNT_DECODE = "doesn't decode (corrupt, over 24 megapixels, or too slow)";
+
 /** Why a re-encode failed, in words (never the error's own text, which could quote input). */
 function encodeFailure(err: unknown): string {
   if (err instanceof HttpError && err.statusCode === 413) return "over 2 MB even as WebP once re-encoded";
-  if (err instanceof HttpError && err.statusCode === 400) return "doesn't decode (corrupt, over 24 megapixels, or too slow)";
+  if (err instanceof HttpError && err.statusCode === 400) return DOESNT_DECODE;
   if (err instanceof HttpError && err.statusCode === 503) return "the decode queue was full";
   return "couldn't be re-encoded";
 }
@@ -380,15 +391,20 @@ function kb(bytes: number): string {
   return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
+/** " as WebP" when the re-encoded copy changes format (over 2 MB in its own), else nothing. */
+function formatChange(row: RowOutcome): string {
+  return row.newFormat && row.newFormat !== row.format ? ` as ${row.newFormat === "webp" ? "WebP" : row.newFormat.toUpperCase()}` : "";
+}
+
 /** One printed line for a row (rows already clean aren't printed). */
 export function describeRow(row: RowOutcome): string {
   const found = row.kinds.length > 0 ? row.kinds.map((k) => KIND_LABELS[k]).join(", ") : "nothing";
   const head = `  ${row.event}  ${row.status.padEnd(14)} ${(row.format ?? "?").padEnd(4)}  ${kb(row.bytes).padStart(7)}`;
   switch (row.result) {
     case "would_clean":
-      return `${head}  metadata: ${found}; would re-encode (${kb(row.newBytes ?? 0)})`;
+      return `${head}  metadata: ${found}; would re-encode${formatChange(row)} (${kb(row.newBytes ?? 0)})`;
     case "cleaned":
-      return `${head}  metadata: ${found}; re-encoded (${kb(row.newBytes ?? 0)}), new version`;
+      return `${head}  metadata: ${found}; re-encoded${formatChange(row)} (${kb(row.newBytes ?? 0)}), new version`;
     case "skipped":
       return `${head}  metadata: ${found}; skipped: ${row.reason}`;
     case "failed":
@@ -400,6 +416,25 @@ export function describeRow(row: RowOutcome): string {
 
 function sha256(bytes: Uint8Array): Buffer {
   return createHash("sha256").update(bytes).digest();
+}
+
+/**
+ * Whether every pixel decodes, within an upload's limits (24 megapixels, the
+ * encode timeout, first frame only): a photo is only reported clean once it
+ * has. Its structure and header (scanImageMetadata) can be whole while its
+ * compressed data (a PNG's IDAT, a WebP's VP8 bitstream) is corrupt, and
+ * sharp's metadata() never decodes pixels. Nothing is written.
+ */
+async function pixelsDecode(input: Uint8Array): Promise<boolean> {
+  try {
+    await sharp(input, { limitInputPixels: MAX_EVENT_IMAGE_INPUT_PIXELS, failOn: "error", pages: 1 })
+      .timeout({ seconds: EVENT_IMAGE_ENCODE_TIMEOUT_SECONDS })
+      .raw()
+      .toBuffer();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -452,7 +487,15 @@ export async function backfillEventImageMetadata(db: Db, options: BackfillOption
     outcome.format = scan.format;
     outcome.kinds = scan.kinds;
     if (scan.kinds.length === 0) {
-      summary.clean += 1;
+      // Clean only if its pixels decode too (left untouched either way: nothing to strip).
+      if (await pixelsDecode(data)) {
+        summary.clean += 1;
+      } else {
+        outcome.result = "failed";
+        outcome.reason = DOESNT_DECODE;
+        summary.failed += 1;
+        print(describeRow(outcome));
+      }
       continue;
     }
     summary.withMetadata += 1;
@@ -478,6 +521,7 @@ export async function backfillEventImageMetadata(db: Db, options: BackfillOption
       continue;
     }
     outcome.newBytes = encoded.bytes.length;
+    outcome.newFormat = check.format;
 
     if (!apply) {
       outcome.result = "would_clean";
@@ -536,7 +580,9 @@ export function describeSummary(summary: BackfillSummary): string[] {
   lines.push("");
   if (summary.failed > 0) {
     lines.push("Some photos couldn't be checked or cleaned (listed above as FAILED). They were left exactly as they are.");
-    lines.push("Replace each one through the admin event editor (or ask the organiser), then run this again.");
+    lines.push(
+      "Replace each one through the admin event editor (the organiser can only replace it while the event is a draft or rejected), then run this again.",
+    );
   }
   if (!summary.apply) {
     lines.push(
@@ -585,15 +631,39 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   if (argv.some(looksSecret)) return { ok: false, errors: [ROTATE_ADVICE] };
   if (argv.some(looksLikeConnectionString)) return { ok: false, errors: [CONNECTION_STRING_ADVICE] };
   let apply = false;
+  let help = false;
   const errors: string[] = [];
   for (const arg of argv) {
-    if (arg === "--help" || arg === "-h") return { ok: true, action: "help" };
-    if (arg === "--apply") apply = true;
+    if (arg === "--help" || arg === "-h") help = true;
+    else if (arg === "--apply") apply = true;
     // Only ever echoed through showArg: quoted when short and not key-like, otherwise described.
     else errors.push(echoable(arg) ? `Unknown argument ${showArg(arg)}.` : `Unknown argument: ${showArg(arg)}.`);
   }
+  // Help only once every argument is known: `--aply --help` is still refused (exit 2), not taken as a request for help.
   if (errors.length > 0) return { ok: false, errors: [...new Set(errors)] };
-  return { ok: true, action: apply ? "apply" : "dry-run" };
+  return { ok: true, action: help ? "help" : apply ? "apply" : "dry-run" };
+}
+
+export const DATABASE_URL_INCOMPLETE =
+  `${DATABASE_URL_ENV} must be a full connection string naming the database's host and database ` +
+  "(postgresql://user:password@host:port/postgres), so it can't fall back to PGHOST, PGDATABASE or another default. " +
+  "Copy the URI again from Supabase → Project Settings → Database. It isn't shown here, and nothing was run.";
+
+/**
+ * Whether a connection string names its own host and database: a postgres://
+ * or postgresql:// URI with a host and a database name in its path. Without
+ * either, postgres.js would fill it from PGHOST / PGDATABASE (or the user
+ * name, or localhost), so --apply could run against whatever those name.
+ * One host only (a Supabase URI, direct or pooler, always is).
+ */
+export function namesHostAndDatabase(databaseUrl: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(databaseUrl);
+  } catch {
+    return false;
+  }
+  return (url.protocol === "postgres:" || url.protocol === "postgresql:") && url.hostname !== "" && url.pathname.length > 1;
 }
 
 /** `text` with the connection string, its password and anything key-shaped removed. */
@@ -641,6 +711,10 @@ export async function main(deps: MainDeps): Promise<number> {
   }
   if (!databaseUrl) {
     printError(`Missing ${DATABASE_URL_ENV}: the database's connection string (Supabase → Project Settings → Database). See docs/supabase-setup.md.`);
+    return 2;
+  }
+  if (!namesHostAndDatabase(databaseUrl)) {
+    printError(DATABASE_URL_INCOMPLETE);
     return 2;
   }
 

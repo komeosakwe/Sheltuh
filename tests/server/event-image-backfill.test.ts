@@ -2,12 +2,14 @@ import postgres from "postgres";
 import sharp from "sharp";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { getEventImage, putEventImage } from "@/lib/server/handlers/event-images";
+import { getPublicEventBySlug } from "@/lib/server/handlers/public-events";
 import { encodeEventImage } from "@/lib/server/event-image";
 import { crc32 } from "@/lib/server/png";
 import { runHandler } from "@/lib/server/route";
 import {
   backfillEventImageMetadata,
   CONNECTION_STRING_ADVICE,
+  DATABASE_URL_INCOMPLETE,
   main,
   scanImageMetadata,
   type MainDeps,
@@ -147,6 +149,29 @@ async function overLimitPng(): Promise<Buffer> {
   return Buffer.concat([png.subarray(0, 33), chunk, png.subarray(33)]);
 }
 
+/**
+ * A PNG with no metadata whose chunks and header are all whole (valid lengths and CRCs, so its structure
+ * and sharp's metadata() read fine) but whose IDAT holds compressed data that doesn't inflate.
+ */
+async function pngWithCorruptIdat(): Promise<Buffer> {
+  const png = await sharp({ create: { width: 64, height: 64, channels: 3, background: "#336699" } }).png().toBuffer();
+  let at = 8;
+  while (png.toString("latin1", at + 4, at + 8) !== "IDAT") at += 12 + png.readUInt32BE(at);
+  const length = png.readUInt32BE(at);
+  const out = Buffer.from(png);
+  // Past the 2-byte zlib header, flip the deflate data; then a valid CRC again.
+  for (let k = at + 10; k < at + 8 + length; k++) out[k] ^= 0xa5;
+  out.writeUInt32BE(crc32(out.subarray(at + 4, at + 8 + length)), at + 8 + length);
+  return out;
+}
+
+/** The imageUrl of a published event's public record (GET /api/events/slug/{slug}). */
+async function publicImageUrl(slug: string): Promise<string | undefined> {
+  const res = await api.call(getPublicEventBySlug, { params: { slug } });
+  expect(res.status).toBe(200);
+  return res.body.imageUrl;
+}
+
 /** None of the fixtures' identifying bytes is left. */
 function expectNoLeak(bytes: Buffer) {
   for (const needle of [Buffer.from("Exif"), Buffer.from(CAMERA_MAKE), Buffer.from(CAMERA_SERIAL), GPS_SECONDS, Buffer.from("Fitzroy")]) {
@@ -271,6 +296,8 @@ describe("backfillEventImageMetadata", () => {
     for (const [eventId, bytes, type] of inputs) await storeRaw(eventId, bytes, type, { focus: { x: 12, y: 88 } });
     const before = await Promise.all(events.map((e) => stored(e.eventId)));
     const etagsBefore = await Promise.all(events.map((e) => imageUrl(e.eventId)));
+    const publicUrlBefore = await publicImageUrl(events[1].slug);
+    expect(publicUrlBefore).toBe(`/api/events/${events[1].eventId}/image?v=${before[1].version}`);
     const logBefore = await moderationLogCount();
 
     const summary = await backfillEventImageMetadata(api.db, { apply: true });
@@ -295,23 +322,31 @@ describe("backfillEventImageMetadata", () => {
     // The sideways phone photo was turned the right way up (80 × 120), as an upload is.
     const jpeg = await sharp((await stored(events[0].eventId)).data).metadata();
     expect([jpeg.width, jpeg.height]).toEqual([80, 120]);
-    // The public event record points at the new version.
-    const [{ image_url }] = await api.db.query<{ image_url: string }>(
-      `select '/api/events/' || event_id || '/image?v=' || floor(extract(epoch from updated_at))::bigint as image_url
-         from public.event_images where event_id = $1`,
-      [events[1].eventId],
-    );
-    expect(image_url).toBe(`/api/events/${events[1].eventId}/image?v=${(await stored(events[1].eventId)).version}`);
+    // The public event record (as the site reads it) points at the new version.
+    const publicUrlAfter = await publicImageUrl(events[1].slug);
+    expect(publicUrlAfter).toBe(`/api/events/${events[1].eventId}/image?v=${(await stored(events[1].eventId)).version}`);
+    expect(publicUrlAfter).not.toBe(publicUrlBefore);
     // A system clean-up, not someone's edit: nothing logged.
     expect(await moderationLogCount()).toBe(logBefore);
   });
 
-  it("moves the version on even when the photo was written in the same second", async () => {
+  it("moves the version on by exactly a second when the stored version isn't behind the database clock", async () => {
+    // Ahead of the database's now() (by an hour, whatever the time it takes to run): now() alone would move the
+    // version back, and an update that only wrote now() fails here however long the re-encode takes.
+    const [{ ahead }] = await api.db.query<{ ahead: string }>(
+      `select (date_trunc('second', now()) + interval '1 hour 250 milliseconds')::text as ahead`,
+    );
     const event = await draftEvent(api, organiser, FREE);
-    await storeRaw(event.eventId, await jpegWithCameraOnly(), "image/jpeg", { updatedAt: new Date().toISOString() });
+    await storeRaw(event.eventId, await jpegWithCameraOnly(), "image/jpeg", { updatedAt: ahead });
     const before = await stored(event.eventId);
     expect((await backfillEventImageMetadata(api.db, { apply: true })).cleaned).toBe(1);
-    expect(Number((await stored(event.eventId)).version)).toBeGreaterThan(Number(before.version));
+    const after = await stored(event.eventId);
+    expect(Number(after.version)).toBe(Number(before.version) + 1);
+    const [{ moved }] = await api.db.query<{ moved: boolean }>(`select $1::timestamptz = $2::timestamptz + interval '1 second' as moved`, [
+      after.imageUpdatedAt,
+      before.imageUpdatedAt,
+    ]);
+    expect(moved).toBe(true);
   });
 
   it("keeps banner_fit where the column exists (#61's schema), and a null focus null", async () => {
@@ -369,6 +404,57 @@ describe("backfillEventImageMetadata", () => {
     expect(dry.out.join("\n")).toMatch(/Failed \(untouched\): +2/);
   });
 
+  it("reports a photo without metadata whose pixels don't decode (a corrupt IDAT) as failed, not clean, and leaves it untouched", async () => {
+    const [corrupt, fine] = await Promise.all([0, 1].map(() => publishedEvent(api, organiser, admin, FREE)));
+    const broken = await pngWithCorruptIdat();
+    // Its structure and header read fine, and it carries no metadata: only decoding its pixels finds it.
+    expect(await scanImageMetadata(broken)).toEqual({ ok: true, format: "png", kinds: [] });
+    await storeRaw(corrupt.eventId, broken, "image/png");
+    const clean = await encodeEventImage(testPng(4));
+    await storeRaw(fine.eventId, clean.bytes, clean.contentType);
+    const before = await Promise.all([corrupt, fine].map((e) => stored(e.eventId)));
+
+    for (const apply of [false, true]) {
+      const lines: string[] = [];
+      const summary = await backfillEventImageMetadata(api.db, { apply, print: (line) => lines.push(line) });
+      expect(summary).toMatchObject({ total: 2, clean: 1, withMetadata: 0, failed: 1, wouldClean: 0, cleaned: 0 });
+      expect(summary.rows.find((r) => r.event === corrupt.eventId.slice(0, 8))).toMatchObject({ result: "failed", format: "png", kinds: [] });
+      expect(lines).toEqual([expect.stringMatching(new RegExp(`${corrupt.eventId.slice(0, 8)} .*FAILED, left untouched: doesn't decode`))]);
+      // Both left exactly as they were (bytes, version, the event's version).
+      expect(await Promise.all([corrupt, fine].map((e) => stored(e.eventId)))).toEqual(before);
+    }
+    const deps = mainDeps({ argv: ["--apply"] });
+    expect(await main(deps)).toBe(1);
+    expect(deps.out.join("\n")).toMatch(/Failed \(untouched\): +1/);
+  });
+
+  it("says when a re-encoded copy changes format (over 2 MB in its own format, so WebP), in the dry run and with --apply", async () => {
+    const event = await publishedEvent(api, organiser, admin, FREE);
+    await storeRaw(event.eventId, await jpegWithGps(), "image/jpeg");
+    // What encodeEventImage does for a copy over 2 MB in its own format (a real one: event-image-metadata.test.ts).
+    const asWebp = async (input: Uint8Array) => ({
+      bytes: await sharp(input).rotate().webp({ quality: 82 }).toBuffer(),
+      contentType: "image/webp" as const,
+    });
+
+    const dry: string[] = [];
+    const dryRun = await backfillEventImageMetadata(api.db, { encode: asWebp, print: (line) => dry.push(line) });
+    expect(dryRun.rows[0]).toMatchObject({ result: "would_clean", format: "jpeg", newFormat: "webp" });
+    expect(dry).toEqual([expect.stringMatching(/ jpeg .*; would re-encode as WebP \(\d+ KB\)$/)]);
+
+    const applied: string[] = [];
+    expect(await backfillEventImageMetadata(api.db, { apply: true, encode: asWebp, print: (line) => applied.push(line) })).toMatchObject({ cleaned: 1 });
+    expect(applied).toEqual([expect.stringMatching(/ jpeg .*; re-encoded as WebP \(\d+ KB\), new version$/)]);
+    expect((await stored(event.eventId)).contentType).toBe("image/webp");
+
+    // A copy in the same format says nothing about format.
+    const other = await publishedEvent(api, organiser, admin, FREE);
+    await storeRaw(other.eventId, await jpegWithGps(), "image/jpeg");
+    const same: string[] = [];
+    await backfillEventImageMetadata(api.db, { print: (line) => same.push(line) });
+    expect(same).toEqual([expect.stringMatching(/; would re-encode \(\d+ KB\)$/)]);
+  });
+
   it("skips a photo the organiser replaced while it was being re-encoded, and keeps theirs", async () => {
     const event = await draftEvent(api, organiser, FREE);
     await storeRaw(event.eventId, await jpegWithGps(), "image/jpeg");
@@ -412,12 +498,22 @@ describe("backfillEventImageMetadata", () => {
     const theirs = await encodeEventImage(testPng(9));
     const two = postgres(serverUrl!, { max: 1, onnotice: () => {} });
     const watcher = postgres(serverUrl!, { max: 1, onnotice: () => {} });
-    /** The tables someone is waiting on a row of (a waiter holds a `tuple` lock on the row it waits for). */
+    const [{ pid: writerPid }] = await two.unsafe<{ pid: number }[]>(`select pg_backend_pid() as pid`);
+    /**
+     * The tables whose row the backfill's write waits on: the backend blocked by this test's writer
+     * (pg_blocking_pids) that is running the backfill's UPDATE, and the relation of the `tuple` lock that
+     * backend holds (a waiter holds one on the row it waits for). Nothing else in the database counts.
+     */
     async function waitingOn(): Promise<string[]> {
       for (let i = 0; i < 500; i++) {
         const rows = await watcher.unsafe<{ relname: string }[]>(
-          `select c.relname::text as relname from pg_locks l join pg_class c on c.oid = l.relation
-            where l.locktype = 'tuple' and l.database = (select oid from pg_database where datname = current_database())`,
+          `select c.relname::text as relname
+             from pg_stat_activity a
+             join pg_locks l on l.pid = a.pid and l.locktype = 'tuple'
+             join pg_class c on c.oid = l.relation
+            where $1::int = any(pg_blocking_pids(a.pid))
+              and a.query like '%update public.event_images i%sha256(i.data) = $3::bytea%'`,
+          [writerPid],
         );
         if (rows.length > 0) return rows.map((r) => r.relname);
         await new Promise((r) => setTimeout(r, 20));
@@ -436,11 +532,20 @@ describe("backfillEventImageMetadata", () => {
             event.eventId,
             theirs.bytes,
           ]);
-          // Committed only once the backfill's write is waiting, noting what it waits on.
-          released = waitingOn().then(async (tables) => {
-            await two.unsafe("commit");
-            return tables;
-          });
+          // Committed only once the backfill's write is waiting, noting what it waits on. If watching fails,
+          // the writer is rolled back straight away (so the backfill isn't left blocked) and the error rethrown.
+          released = waitingOn().then(
+            async (tables) => {
+              await two.unsafe("commit");
+              return tables;
+            },
+            async (err: unknown) => {
+              await two.unsafe("rollback").catch(() => {});
+              throw err;
+            },
+          );
+          // Handled here so it isn't reported unhandled while the backfill runs; awaited (and rethrown) below.
+          released.catch(() => {});
           return encodeEventImage(input);
         },
       });
@@ -516,11 +621,57 @@ describe("main", () => {
     expect(key.err[0]).toBe(ROTATE_ADVICE);
   });
 
+  it("honours --help only once every argument is known", async () => {
+    const help = mainDeps({ argv: ["--help"] });
+    expect(await main(help)).toBe(0);
+    expect(help.out.join("\n")).toMatch(/^Usage:/);
+    expect(help.connects).toBe(0);
+    expect(await main(mainDeps({ argv: ["--apply", "-h"] }))).toBe(0);
+
+    for (const argv of [["--aply", "--help"], ["--help", "--aply"], ["-h", "--dry"]]) {
+      const deps = mainDeps({ argv });
+      expect(await main(deps), argv.join(" ")).toBe(2);
+      expect(deps.err[0]).toMatch(/^Unknown argument "--(aply|dry)"\.$/);
+      expect(deps.connects).toBe(0);
+    }
+  });
+
   it("needs DATABASE_URL", async () => {
     const deps = mainDeps({ env: {} });
     expect(await main(deps)).toBe(2);
     expect(deps.err[0]).toMatch(/^Missing DATABASE_URL/);
     expect(deps.connects).toBe(0);
+  });
+
+  it("refuses a DATABASE_URL that doesn't name its host and database (no PGHOST / PGDATABASE fallback), without echoing it", async () => {
+    for (const url of [
+      "postgresql:///postgres",
+      "postgresql://postgres:Sup3r-Secret-Pw@/postgres",
+      "postgresql://postgres:Sup3r-Secret-Pw@db.secrethost.supabase.co:5432",
+      "postgresql://postgres:Sup3r-Secret-Pw@db.secrethost.supabase.co:5432/",
+      "postgresql://postgres:Sup3r-Secret-Pw@db.secrethost.supabase.co:5432?sslmode=require",
+      "host=db.secrethost.supabase.co dbname=postgres password=Sup3r-Secret-Pw",
+      "https://db.secrethost.supabase.co/postgres",
+    ]) {
+      const deps = mainDeps({ argv: ["--apply"], env: { DATABASE_URL: url } });
+      expect(await main(deps), url).toBe(2);
+      expect(deps.err[0]).toBe(DATABASE_URL_INCOMPLETE);
+      expect(deps.err[0]).toMatch(/^DATABASE_URL /);
+      expect(deps.connects).toBe(0);
+      const printed = [...deps.out, ...deps.err].join("\n");
+      expect(printed).not.toContain("Sup3r-Secret-Pw");
+      expect(printed).not.toContain("secrethost");
+    }
+    // Supabase's URIs (direct, session and transaction pooler) name both, and run.
+    for (const url of [
+      "postgresql://postgres:Sup3r-Secret-Pw@db.abcdefgh.supabase.co:5432/postgres",
+      "postgresql://postgres.abcdefgh:Sup3r-Secret-Pw@aws-0-ap-southeast-2.pooler.supabase.com:5432/postgres",
+      "postgres://postgres.abcdefgh:Sup3r-Secret-Pw@aws-0-ap-southeast-2.pooler.supabase.com:6543/postgres?sslmode=require",
+    ]) {
+      const deps = mainDeps({ env: { DATABASE_URL: url } });
+      expect(await main(deps), url).toBe(0);
+      expect(deps.connects).toBe(1);
+    }
   });
 
   it("a database error stops the run (exit 1) with the connection string and password redacted from its message", async () => {

@@ -39,9 +39,13 @@ main({
   print: (line) => console.log(line),
   printError: (line) => console.error(line),
 })
-  .then((code) => process.exit(code))
+  // exitCode, not exit(): Node then exits once the report has been written out (to a pipe or a slow terminal
+  // too, which process.exit() could cut short). main() has closed the database connection by then.
+  .then((code) => {
+    process.exitCode = code;
+  })
   .catch(() => {
     // main() catches and redacts every error itself; this is only a last resort, so it prints no details.
     console.error("The event photo backfill failed unexpectedly.");
-    process.exit(1);
+    process.exitCode = 1;
   });

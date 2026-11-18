@@ -793,8 +793,14 @@ still carry it. `scripts/backfill-event-image-metadata.ts` re-encodes those
 photos the same way an upload is re-encoded today. Run it once, from your own
 computer, after the re-encoding release is deployed.
 
-It changes only the stored photo file: the pixels look the same, and the
-format, focus point and banner fit stay as they are. Nobody else's edit is
+It changes only the stored photo file. The focus point and banner fit stay
+as they are, and the photo looks the same, but re-encoding isn't lossless: a
+JPEG or WebP is compressed again, and a phone photo stored sideways is turned
+the right way up, as an upload is today. The format usually stays the same,
+but a PNG or JPEG that comes out over 2 MB in its own format is stored as
+WebP instead (as an upload is). The dry run shows each photo's current
+format, and adds `as WebP` to the line of any photo whose format would
+change. Nobody else's edit is
 overwritten, because a photo replaced while the script runs is skipped. Each
 cleaned photo gets a new version, so pages link to the clean file straight
 away; an old copy already cached by the CDN or a browser expires within about
@@ -838,10 +844,13 @@ change, but read the dry run's output before you use `--apply`.
    history, text or comments). Then it prints a summary: photos checked, how
    many have metadata (by kind), how many are already clean, how many would
    be re-encoded, and how many **FAILED**. A failed photo couldn't be read,
-   or wouldn't re-encode within the upload limits (24 megapixels, 2 MB). It
-   is never changed. Replace it through the admin event editor (or ask the
-   organiser to replace it). The script exits with code 1 when any photo
-   failed, and 0 otherwise.
+   or its pixels didn't decode, or it wouldn't re-encode within the upload
+   limits (24 megapixels, 2 MB). It is never changed. Replace it through
+   the admin event editor, which works at any status; for a published (or
+   pending review) event that's the only way, because the organiser can't
+   replace the photo then. Asking the organiser to replace it is an option
+   only while the event is a draft or rejected. The script exits with code
+   1 when any photo failed, and 0 otherwise.
 4. **Apply**, once the dry run looks right:
 
    ```sh
