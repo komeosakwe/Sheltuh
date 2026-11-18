@@ -41,6 +41,31 @@ screenshots are compressed webp, so exact hex sampling isn't reliable.
 **Before building:** open the original Figma frames, eyedrop every colour in §3.1, and check every number marked
 ≈. Where Figma differs, Figma wins. Record the corrected value in this file in the same PR.
 
+**Corrected in the build (18 Nov), measured from the images.** The Figma frames weren't available, so the build
+re-measured `154.webp` and `155.webp` pixel by pixel (both brought to 600 / 375px wide, ink rows and columns
+compared against Chromium renders of the email). Where a value below differed by more than ±1px, the image won
+and the email uses the measured value:
+
+| What | Spec value | Built (desktop / mobile) | Measured from |
+| --- | --- | --- | --- |
+| Ticket border | 8px | **12px** (both) | 11–12px of orange each side at 600 and 375 |
+| Ticket side padding | 28 / 20 | **24 / 16** | The content edge stays at 68 / 44px (464 / 287 wide) |
+| Headline | 22/28, −0.01em | **24/30 / 23/28**, no tracking | Width 311px and ink height 24px at 600 |
+| Ticket title | 30/36, −0.01em | **32/38 / 23/28**, no tracking | Width 201px, ink 25px |
+| Stub labels / values | 10/12 / 16/24 | **11/12 / 17/24** (values 14/20 on a phone) | Ink heights; columns start **160px** apart (100 on a phone), TICKET takes the rest |
+| Backup code / door note | 16/20 / 12/16 | **18/24 / 13/16** (both widths) | Ink heights |
+| Page top | 36 / 32 | **34 / 33** | Wordmark at 33–34px |
+| Order label → headline | 8 | **12 / 9** | |
+| Header row → image → title → venue | 20 / 24 / 8 | **20 / 27 (25) / 10 (8)** | |
+| Venue → perforation → stub | 36 / 32 (28 / 24) | **24 / 19 (16)**, measured to the row; the notch row is 24 tall, the dashes in its middle | Dashes at 604, labels at 636 (600 wide) |
+| Info rows | 28 between rows | Lines 2 and 3 4px and 3px below the line before; **23** between rows; **32** after the last | Rows 102px apart |
+| Summary | 32 before / after, 16 heading → rows, 16 → refund | **24 / 24, 12, 12** | |
+| "Going with friends?" box | 8 / 16 / 24 | **7 / 14**, chips' 8px bottom margin + 14 | Box 155px tall |
+| Need a hand → divider → footer | 40 / 32 | **32 / 24**; tagline 14, mono line 7 | Divider at 2053.5 |
+
+Everything else is as specified. The QR area is taller than drawn by design (P2): its 4-module white margin is
+32px above and below the modules (28 on a phone), against ≈24 above and ≈12 below in the images.
+
 ## 1. The designer's notes (requirements)
 
 1. **References.** The ticket's shape comes from colour-block ticket cards: an inset image, a big title, an info
@@ -76,9 +101,11 @@ screenshots are compressed webp, so exact hex sampling isn't reliable.
 | D4 | The fourth share chip | "Copy link" | **"Share page"**, in the same chip style and position, linking to the event's public page, where the share and copy controls work | Owner, 18 Nov (approved). Email can't run the JavaScript that a copy button needs. |
 | D5 | Mobile footer lines | "You're getting this email…" is **clipped** at both edges in `155.webp` | Wraps inside the column | A mock artefact: text must never be cut off. |
 | D6 | Mobile ticket type | `155.webp` shows "2nd release" | **"Second release"**: the ticket type's name as entered, unabbreviated, at every width | Owner, 18 Nov. The desktop image already shows it. |
+| D7 | Wallet buttons | Black buttons with a generic wallet glyph | **Black text buttons** in the vendors' exact wording ("Add to Apple Wallet", "Add to Google Wallet"), 48px tall, 207 / 215px wide on desktop and halves on a phone, no glyph | The official badge artwork isn't in the repo. Apple's badge download needs Apple's licence terms accepted, which isn't done on the owner's behalf; Google's brand page can't be reached from the build environment. Swap in the official SVG/PNG artwork per `docs/wallet-setup.md` ("Official badges"); the glyph is left out because it imitates Apple Wallet's icon. |
+| D8 | Very large orders | – | Past a 90KB HTML budget, the first tickets get full cards and the rest are **listed** (number, type, seat, code) under them, pointing at the ticket page for their QR codes | Gmail clips HTML over 102KB, and a full card is about 6KB. The largest order checkout allows is 20 types × 20 people = 400 codes; with both wallets on, orders of up to 9 tickets are all cards (8 tickets: about 79KB), and the 400-code order shows 6 cards and lists the rest at 87KB. The plain-text part always lists every code. |
+| P1–P3 | (below) | | **Built** | Owner, 18 Nov: approved all three. |
 
-**Proposed accessibility deviations.** These aren't built unless the owner agrees (Q1). Until then, the image
-wins.
+**Accessibility deviations, approved by the owner on 18 Nov (Q1) and built.**
 
 | # | What | Image | Proposal | Why |
 | --- | --- | --- | --- | --- |
@@ -254,9 +281,9 @@ Add both as functions beside `formatTicketTime`. Today's strings change only in 
 - The wallet badges for ticket *n* sit under card *n*, then a 32px gap before the next card.
 - The buttons, info rows, summary, share box and footer appear **once**, after the last card. With N > 1, the
   button reads "View your tickets →".
-- **Size budget.** Gmail clips HTML over 102KB (inline attachments don't count), and each card is about 4KB of
-  markup. Test with the largest order checkout allows. If it goes over 90KB, shorten the inline styles: shared
-  classes, with inline fallbacks.
+- **Size budget.** Gmail clips HTML over 102KB (inline attachments don't count), and each card is about 6KB of
+  markup (7KB with its wallet buttons). Test with the largest order checkout allows. Past 90KB
+  (`TICKET_EMAIL_HTML_BUDGET`), the first tickets keep full cards and the rest are listed with their codes (D8).
 
 ### 5.5 Buttons row
 
@@ -265,7 +292,8 @@ Add both as functions beside `formatTicketTime`. Today's strings change only in 
   - Height **56px** on desktop (`padding:18px 16px`, with the same `mso-padding-alt`), 48px on mobile.
   - Width (536−12)/2 = 262 on desktop, (343−8)/2 = 167.5 on mobile.
   - Links to `ticketPageLink`.
-- **"Manage order"**: white, 1.5px `#000` stroke, the same size. Its destination is Q2.
+- **"Manage order"**: white, 1.5px `#000` stroke, the same size. It links to the order's existing ticket page,
+  `ticketPageLink`, the link the email has always carried (Q2, owner, 18 Nov).
 - Today's text fallback ("Button not working? Open your ticket here.") stays **only in the plain-text part**. The
   image has no fallback line.
 
@@ -342,8 +370,8 @@ today).
   `{refundTermsLine} You can still get a refund if the event is cancelled or significantly changed, as the
   Australian Consumer Law requires.`
   - The image's first sentence is today's `no_change_of_mind` line.
-  - The second sentence **differs from the shared `REFUND_ACL_STATEMENT`** ("You're always entitled to a refund
-    if…"). See Q3.
+  - The second sentence is the site's shared `REFUND_ACL_STATEMENT` ("You're always entitled to a refund if…"),
+    not the image's wording (Q3, owner, 18 Nov: one wording everywhere).
   - Shown only when today's `ticketEmailRefundPolicy` rule passes. With Support Sheltüh, today's
     `SUPPORT_REFUND_NOTE` follows it.
 
@@ -405,7 +433,9 @@ lists all four links.
 1. **Error correction: level H** (about 30% recovery), set in `ticketQrMatrix` (today it's Q). At H, the
    13-character alphanumeric payload needs **version 2 (25×25)**, because version 1-H holds only 10 characters.
 2. **Logo area:**
-   - A centred square of **7×7 modules** (7.8% of the symbol's area) is cleared to light.
+   - A centred square of **7×7 modules** (7.8% of the symbol's area) is cleared to light. On version 2 it's
+     also the largest centred square that clears every function pattern: 9×9 already reaches the format
+     information at (8, 8) and the alignment pattern at (16, 16).
    - Inside it, a **1-module white pad** surrounds a **5×5-module** box that holds the ü mark.
    - The owner's ceiling is about 20% of the code. On version 2, never exceed **9×9 modules (13%)**.
    - In the centre, the 7×7 square (modules 9–15) misses the finder patterns, the timing patterns (row and column
@@ -416,6 +446,11 @@ lists all four links.
 4. **Part of the image, never an overlay** (an email client could drop an overlay):
    - Email PNG: composited on the server with `sharp` (already a dependency). Render the matrix (today's
      `encodePng`), rasterise `sheltuh-u.svg` to 5 modules × 16px, then composite it at the centre.
+     *As built:* `scripts/render-ticket-qr-mark.ts` rasterises the ü with sharp once (80×80, thresholded at half
+     coverage) into `lib/server/ticket-qr-mark.ts`, and `lib/server/qr-image.ts` composites it into the 1-bit
+     PNG synchronously, so `buildTicketEmail` stays synchronous (sharp has no synchronous API) and every pixel
+     stays pure black or white. The decode suite re-rasterises the SVG with sharp and checks the stored bitmap
+     still matches.
    - Page SVG: draw the cleared matrix plus the mark as a `<path>` in a nested `<svg>` at the centre.
 5. **Sizes.** A version 2 symbol is 33 modules wide including the quiet zone.
 
@@ -559,7 +594,8 @@ it doesn't depend on the redesign.
 - The official wallet badges.
 - Cards, badges, buttons, info rows with calendar links, the summary with line items, the share box (WhatsApp ·
   Messages · Email · Share page), the footer, and the plain-text part, all per §4–§9.
-- Defaults until Q1–Q3 are answered: P1–P3 not applied, "Manage order" → the ticket page, the ACL wording as drawn.
+- The owner's answers to Q1–Q3 (18 Nov) are applied: P1–P3 built, "Manage order" → the ticket page, the shared
+  ACL wording.
 
 *Accept (all required):*
 - **Visual one-to-one.**
@@ -631,21 +667,35 @@ follow-up can bring the free confirmation's ticket block onto this card.
 - No legal line in the footer (D1).
 - QR codes stay inline, with the centre ü (§6).
 
-**Still open:**
-1. **Q1: three small accessibility fixes (P1–P3).**
-   - A darker orange for the two small orange texts: #D03E00, 4.8:1, instead of 3.4:1.
-   - The standard white margin under the QR.
-   - No underline on the "Add to calendar:" label.
+**Answered on 18 Nov (applied in the build):**
+1. **Q1: the three accessibility fixes (P1–P3).** Approved: the darker orange (#D03E00) for the small orange
+   text (large orange stays as drawn), the QR's white margin kept, no underline on the "Add to calendar:" label.
+2. **Q2: "Manage order".** Links to the existing order page the email already uses (`ticketPageLink`,
+   `/checkout/success?session_id=…`). Point it at the signed-in My ticket page's Manage order once that exists
+   (`my-ticket.md`).
+3. **Q3: refund wording.** The site's shared Australian Consumer Law wording (`REFUND_ACL_STATEMENT`), not the
+   image's sentence.
 
-   Do you approve them? *Recommend:* yes to all three. The changes are barely visible, and they make the email pass
-   WCAG AA and scan reliably.
-2. **Q2: where should "Manage order" go?** There's no order-management page. The ticket page shows the tickets,
-   and refunds are requested on /refunds. *Recommend:* link to the ticket page's order details for now
-   (`/checkout/success?session_id=…#order`). Point it at the signed-in My ticket page's Manage order once that
-   exists (`my-ticket.md`).
-3. **Q3: refund wording.** The image says "You can still get a refund if the event is cancelled or significantly
-   changed, as the Australian Consumer Law requires." Everywhere else, the site says "You're always entitled to a
-   refund if…". Should the new wording be used in the email only, or site-wide? *Recommend:* one wording
-   everywhere, because legal copy shouldn't vary. Use the image's.
-4. **Q4: the admin campaign QR.** It isn't a ticket. Should it also get the centre ü? *Recommend:* yes, with the
-   same level-H rules and the same decode test, so the brand mark is consistent.
+**Still open:**
+4. **Q4: the admin campaign QR.** It isn't a ticket, so it isn't changed: no centre ü (the owner's rule covers
+   ticket QRs, and the build applies it to every one: the email and the confirmation/ticket page).
+   *Recommend:* keep it plain. If the owner wants the mark there too, reuse `ticketQrSymbol`'s rules
+   (level H, 7×7 clear) and add it to the decode suite.
+
+## 13. Build record (18 Nov)
+
+**Visual check.** The fixture in §10 E2 (with a neutral, self-made 2:1 placeholder for the event image) was
+rendered in headless Chromium with the web fonts loaded, at 600px (in a 700px window) and 375px, device scale 2,
+and compared with `154.webp` / `155.webp` brought to the same widths. Rows were aligned with a monotonic
+row-to-row mapping (sections may shift; nothing may reorder), and the event image, QR, wallet buttons, the
+fourth chip and (at 375) the ticket type were masked. pixelmatch, threshold 0.1, anti-aliasing excluded:
+
+| Width | Differing pixels outside the masks | With a 1px shift tolerance (diagnostic) |
+| --- | --- | --- |
+| 600 | 3.84% | 1.34% |
+| 375 | 6.02% | 2.45% |
+
+The target (≤1.5%, no region over 24×24) isn't met. What remains is almost all text edges: Chromium's and the
+design tool's rasterising of the same faces differs by sub-pixel amounts, the images are compressed webp, and
+the 375 image is scaled ×1.103. The remaining larger regions are the deliberate deviations (P2's taller QR area,
+D4–D8) and 1px differences at the card's frame. Real clients (§10 E2's matrix) haven't been checked.
