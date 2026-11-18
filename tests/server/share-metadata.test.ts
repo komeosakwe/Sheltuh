@@ -31,6 +31,7 @@ import {
 } from "@/lib/share-metadata";
 import { SITE_URL, TestApi } from "./helpers/api";
 import { application, approvedOrganiser, draftEvent, publishedEvent, setUpPayouts, signUpAdmin } from "./helpers/fixtures";
+import { testPng } from "./helpers/images";
 import { createTestDb } from "./helpers/test-db";
 
 /** Demo or live, as the pages decide it (lib/api/client's isApiConfigured), and the live pages' deps. */
@@ -71,7 +72,7 @@ beforeEach(async () => {
 const deps = () => api.deps;
 const eventMeta = (slug: string, d: () => Pick<Deps, "db" | "siteUrl"> = deps) => liveEventMetadata(slug, d);
 
-const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+const PNG = testPng();
 
 async function withImage(eventId: string) {
   const res = await api.send(
@@ -138,7 +139,11 @@ describe("live event metadata (generateMetadata on /events/[slug])", () => {
     expect(metadata.twitter).not.toHaveProperty("images");
 
     const cover = await findPublicEventCover(api.db, draft.slug);
-    expect(Array.from(cover!.bytes)).toEqual(Array.from(PNG));
+    // The photo as stored (uploads are re-encoded, so not the uploaded bytes themselves).
+    const [storedImage] = await api.db.query<{ data: Uint8Array }>(`select data from public.event_images where event_id = $1`, [
+      draft.eventId,
+    ]);
+    expect(Array.from(cover!.bytes)).toEqual(Array.from(storedImage.data));
     expect(cover!.focus).toBeNull();
 
     // The share fields carry the photo's versioned address (the card's cache key), the same one the public event shape gives the page.
@@ -413,8 +418,13 @@ describe("the event's preview card (app/events/[slug]/opengraph-image.tsx)", () 
   it("a cover that can't be decoded: the card without it, not an error", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
-      // A valid JPEG header with nothing after it: accepted as an upload, but not drawable.
-      const event = await publishWithPhoto(Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]));
+      // A valid JPEG header with nothing after it. Uploads are re-encoded now, so one like this is
+      // refused (400); a photo stored before that wasn't checked, so the card still has to cope.
+      const event = await publishWithPhoto(Buffer.from(PNG));
+      await api.db.query(`update public.event_images set data = $2::bytea where event_id = $1`, [
+        event.eventId,
+        Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]),
+      ]);
       const res = await cardFor(event.slug);
       expect(res.status).toBe(200);
       expect(res.headers.get("content-type")).toBe("image/png");

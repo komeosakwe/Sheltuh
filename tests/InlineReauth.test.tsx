@@ -32,7 +32,7 @@ describe("InlineReauth — the account guard behind session-expiry recovery", ()
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
     await waitFor(() => expect(onSignedIn).toHaveBeenCalledTimes(1));
-    expect(signIn).toHaveBeenCalledWith("me@example.com", "hunter2");
+    expect(signIn).toHaveBeenCalledWith("me@example.com", "hunter2", undefined);
   });
 
   it("locks the email field to the expected account and accepts a matching sign-in", async () => {

@@ -285,7 +285,7 @@ describe("Thread — sending", () => {
     expect(screen.getByLabelText("Email")).toHaveAttribute("readonly");
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "hunter2" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
-    await waitFor(() => expect(signIn).toHaveBeenCalledWith("mia@example.com", "hunter2"));
+    await waitFor(() => expect(signIn).toHaveBeenCalledWith("mia@example.com", "hunter2", undefined));
     await waitFor(() => expect(screen.queryByText(/Your session has expired/)).toBeNull());
     expect(composer()).toHaveValue("Hi again");
     await waitFor(() => expect(composer()).toHaveFocus());

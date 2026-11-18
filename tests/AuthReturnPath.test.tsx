@@ -92,7 +92,7 @@ describe("SignupForm", () => {
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "Hunter22x" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
     await waitFor(() => expect(push).toHaveBeenCalledTimes(1));
-    expect(auth.signUp).toHaveBeenCalledWith("mia@example.com", "Hunter22x");
+    expect(auth.signUp).toHaveBeenCalledWith("mia@example.com", "Hunter22x", undefined);
     expect(push).toHaveBeenCalledWith(`/verify?email=mia%40example.com&next=${ENCODED}`);
   });
 });
