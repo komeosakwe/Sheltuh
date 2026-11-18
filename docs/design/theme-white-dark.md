@@ -14,7 +14,7 @@ Owner request (verbatim): "make it white all around with option to go white and 
 | D4 | **The choice persists per browser** (`localStorage`) and is applied **before first paint** by an inline script that sets `data-theme="dark"` on `<html>` (§5.4). |
 | D5 | **Emails stay light only** (`color-scheme: light only`). They just become white. |
 | D6 | **The door check-in (`[data-door]`, `DOOR_THEME_COLOR`) is unchanged.** |
-| D7 | **Ink sections stay black in both themes.** In Dark they gain a 1px white rule where they meet the page. **Signal sections stay orange with black text in both themes.** |
+| D7 | **Ink sections stay black in both themes.** In Dark they gain a 1px white rule where they meet the page. **Signal sections stay orange with black text in both themes.** *Amended 18 Nov 2026 (owner, `navigation-search.md` Q1):* the site header's desktop row (from 1024px) is no longer ink: it follows the theme, white in Light and black in Dark, over a 1px `--surface-border` rule in both. The phone bar and its drawer stay ink, and `theme-color` stays black. |
 | D8 | **The token name `--cream` is retired.** A new never-re-scoped constant, `--paper: #ffffff`, sits beside `--ink`. "Cream" survives only as a **poster-art colourway** (`#fffae7` in `lib/sample-events.ts`, `components/home/home-content.ts` and `lib/live/assign-poster.ts`). Those stay as they are: the owner approved screenshots that had cream posters, they're art rather than foundation, and changing them would need stored live posters normalised. |
 | D9 | **Dark = the ink section's palette applied to the whole page**, with white instead of cream and a lighter `--surface`. It adds no new brand colours. |
 

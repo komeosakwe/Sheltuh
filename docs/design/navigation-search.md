@@ -150,7 +150,7 @@ Each subsection compares what's in the repo now with the board, then says what c
 
 | Part | Current | Figma | Change |
 | --- | --- | --- | --- |
-| Surface | Black in both themes (`data-surface="ink"`, D7 in theme-white-dark.md), with a 1px rule in Dark | **Light** frame white with a 1px grey bottom rule; **Dark** frame black | **Open: owner Q1.** Until it's answered, keep ink. |
+| Surface | Black in both themes (`data-surface="ink"`, D7 in theme-white-dark.md), with a 1px rule in Dark | **Light** frame white with a 1px grey bottom rule; **Dark** frame black | **Owner Q1 (18 Nov): follow the theme.** Built as below. |
 | Height | 72 (64 once scrolled at XL) | ≈96 | Keep 72 (Round 2). |
 | Wordmark | `Wordmark h-5` in the text colour | black on Light, white on Dark | Matches. |
 | Gaps | logo→nav 32, items 32, actions 32 (`gap-8`) | ≈32 each | Matches. |
@@ -164,7 +164,7 @@ Each subsection compares what's in the repo now with the board, then says what c
 | Loading auth | "…" (`label-nav text-muted`) | not drawn | Keep. |
 | Demo | Sign in (with its "not configured" title) and For organisers | – | Keep. There's never an avatar menu in demo. |
 
-**If Q1 says "follow the theme",** change from `lg` only:
+**Q1 said "follow the theme"** (18 Nov), so from `lg` only:
 - Remove `data-surface="ink"` from the desktop row's wrapper. The compact bar and drawer stay ink, because the
   board draws "Header / Mobile" black.
 - Give the header `bg-background` and a 1px `--surface-border` bottom rule (the existing `after:` rule, now shown
@@ -199,7 +199,7 @@ Each subsection compares what's in the repo now with the board, then says what c
 | Identity | avatar (40px round, §4.1), name, line 2 | `flex items-center gap-3 px-2 py-3`. Name: `body-m font-semibold truncate`, from `displayName`, else the email. Line 2: `meta text-muted truncate`. The board's "@latte · 2 upcoming" can't be built: **there's no @handle in the data** (only an optional Instagram handle, which is a different identity and isn't shown). So line 2 is the email when a display name exists, otherwise nothing. Once B1 lands, it becomes "{n} upcoming" (n ≥ 1; nothing at 0). This row isn't a link. |
 | divider | | `my-2 h-px bg-surface-border` |
 | Profile | → `/members/{profileId}` when `profileVisible`, else `/account#member-profile` | row (below) |
-| My tickets | count on the right | **Hidden until B1.** There's no member tickets list; tickets are emailed. |
+| My tickets | count on the right | **Owner Q2 (18 Nov):** shown now, linking to today's tickets page (Help's "Where are my tickets?", `/help#where-are-my-tickets`, as /login's "Find my tickets") until the My tickets list (B1) lands. No count until B1. |
 | Saved | → `/saved`. Count: `useFavourites().count`, when `status === "ready"` and above 0 | count `meta text-muted tabular-nums`, a plain number (as drawn), with sr-only ", {n} saved" |
 | Messages | → `/messages`, `CountBadge tone="signal"` from `useUnread()` | as on the header chip; sr ", {n} unread" |
 | Your events | → `/dashboard` | organisers and applicants only (`useOrganiser`, as /account decides) |
@@ -247,7 +247,7 @@ div mt-auto flex flex-col                                   (no border-t)
                    "View profile"  meta text-muted
   ul
     li border-t border-surface-border → Link flex min-h-16 items-center justify-between label-nav
-       My tickets   (hidden until B1)
+       My tickets   → /help#where-are-my-tickets until B1 (owner Q2), no count
        Saved        + count (meta text-muted tabular-nums, sr ", n saved")
        Messages     + CountBadge tone="signal" (keep: the board omits it, but it's how phones see new messages)
        Your events  (as now)
@@ -500,6 +500,31 @@ there. What's specific to this page:
 - Without the photos: Melbourne's photo stays for every city.
 - No photo without a `public/events/README.md` entry.
 
+### 5.16 Increments 1 and 2 as built (measured against the boards, 18 Nov 2026)
+
+Re-measured from the "Menu drawer / Mobile" and "Navigation" boards at their frame scale; these replace the values
+above where they differ.
+- **Drawer places:** the list's top padding is `pt-13` (52), not `pt-10`: the board's first line sits 64px under
+  the bar (the places matched the board to the pixel after this). The current place's dots are the brand's soft
+  dots (DotsMark), **24×8** (two 8px dots 8px apart), not 20×8 rounded squares.
+- **Drawer rows:** the hairline-to-hairline pitch is 64, but the label sits **12px under its hairline** (not
+  centred): each row is a 64px link with `pt-3`. For organisers follows the last row directly (no `mt-6`: the
+  row's own space below the label is the gap). Your events shows only for organisers and applicants (as /account
+  decides), so a member sees exactly the board's three rows.
+- **Avatar menu:** the panel is **272px** (`w-68`; the board measures 274), not 288. Rows are **44px** (the board
+  draws 40; 44 is the target minimum), with the label 16px in (`px-4`). The identity row is `py-4 gap-4`, the
+  first divider `mb-2`. Saved's count is a **small pill** (cream on white, white on a hovered row; `--surface` in
+  Dark), as drawn, not a plain number.
+- **Log out:** labelled "Log out" and orange, as drawn (owner: one-to-one with the boards), in `--signal-text`
+  (#d03e00 Light, 4.8:1 on white; #ff6a33 Dark), because `--signal` is 3.4:1 on white and fails as small text.
+- **Avatar menu placement** is CSS only (`top-20 right-8 xl:right-16`, `xl:group-data-scrolled/header:top-18`), as
+  the avatar is always the row's last item: the same result as measuring on `beforetoggle`, right before
+  hydration too. With the header following the theme (Q1), the panel stays inside the desktop row (it takes the
+  page theme there), so its focus order needs no popover-invoker rule.
+- **Kept from the spec where the board differs:** the Light panel keeps its 1.5px foreground stroke (the board
+  draws none, but a white panel on a white page with no shadow would be invisible); the initials avatar instead of
+  the board's cream placeholder circle; the unread badge on the bar's Menu/Close and the counts in the drawer.
+
 ## 6. Motion
 
 | What | Why | How | Reduced motion |
@@ -664,6 +689,22 @@ Nearby's filters (a follow-up can adopt the sheet), the event page, checkout, th
 theme toggle lives (footer only, unchanged).
 
 ## 10. Open questions for the owner
+
+**Answered by the owner on 18 Nov 2026** (each as recommended, except Q1):
+- **Q1, header in Light:** the desktop header **follows the theme** (white in Light, black in Dark, as both Figma
+  variants show). The phone bar and drawer stay black. Built in increment 1 (§5.1); `theme-white-dark.md` D7 is
+  amended.
+- **Q2, My tickets:** "My tickets" links to today's tickets page for now (Help's "Where are my tickets?"). A My
+  tickets list page comes later with the My ticket work (B1).
+- **Q3, email-first sign-in:** sign-in stays on one page (email and password). Increment 9 has nothing to build.
+- **Q5, Community dark page:** later (increment 10).
+- **Q6, recent searches:** yes, stored on the device only (§5.5), with the Privacy Policy line.
+- **Distance (B4):** the distance filter is computed on the device from the saved suburb, and is never sent to the
+  server. B4 is dropped; distance stays client-side (`lib/map-near.ts`), as §5.8 already proposes.
+- Q4 (a) price bands and (c) Pick dates aren't answered yet; (b) follows from the distance answer only in that it's
+  client-side.
+
+The questions as asked:
 
 1. **Q1, header in Light.** The board draws a white desktop header in Light. Today it's black in both themes
    (D7). Should the desktop header follow the theme? *Recommend:* keep it black. It's the brand's frame, and the
