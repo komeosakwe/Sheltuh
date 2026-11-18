@@ -1,5 +1,5 @@
 import sharp from "sharp";
-import { decoder, inEncodeSlot, unsupportedImage } from "./avatar";
+import { bothSettled, decoder, inEncodeSlot, unsupportedImage } from "./avatar";
 import { HttpError } from "./http";
 import { readCappedBytes, sniffImageType } from "./image-upload";
 
@@ -110,10 +110,11 @@ export async function encodeCover(input: Uint8Array): Promise<EncodedCover> {
       height: decoded.info.height,
       channels: decoded.info.channels,
     };
-    const [image, small] = await Promise.all([
+    // Both encodes settle before the slot is handed on, even if one fails early.
+    const [image, small] = await bothSettled(
       coverWebp(pixels, COVER_SIZE, MAX_COVER_IMAGE_BYTES),
       coverWebp(pixels, COVER_SMALL_SIZE, MAX_COVER_SMALL_BYTES),
-    ]);
+    );
     if (!image || !small) {
       throw new HttpError(400, "That image is too detailed to use as a cover.", {
         cover: "Try a different photo, or a less detailed one.",

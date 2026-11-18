@@ -328,6 +328,35 @@ describe("PUT /organisers/me/cover: re-encoding", () => {
     expect(await storedCover(organiser.organiserId)).toBeUndefined();
   });
 
+  it("is still a 413 (not a 500) when cancelling the rest of an oversize stream fails", async () => {
+    const chunk = new Uint8Array(1024 * 1024);
+    chunk.set([0xff, 0xd8, 0xff]);
+    let cancelled = false;
+    // Never closes, and rejects the cancel readCappedBytes makes once it's past the cap.
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(chunk);
+      },
+      cancel() {
+        cancelled = true;
+        return Promise.reject(new Error("the connection is already gone"));
+      },
+    });
+    const init: RequestInit & { duplex: "half" } = {
+      method: "PUT",
+      headers: { authorization: `Bearer ${organiser.token}` },
+      body,
+      duplex: "half", // Node's fetch needs this for streamed request bodies
+    };
+    const req = new Request(`${SITE_URL}/api/test`, init);
+    expect(req.headers.get("content-length")).toBeNull();
+    const res = await api.send(putMyOrganiserCover, req);
+    expect(cancelled).toBe(true);
+    expect(res.status).toBe(413);
+    expect(Object.keys(res.body.fieldErrors)).toEqual(["cover"]);
+    expect(await storedCover(organiser.organiserId)).toBeUndefined();
+  }, 10_000);
+
   it(`refuses an image over ${MAX_AVATAR_INPUT_PIXELS / 1_000_000} megapixels from its header (400)`, async () => {
     const big = await sharp({ create: { width: 5000, height: 5000, channels: 3, background: { r: 1, g: 2, b: 3 } } })
       .png({ compressionLevel: 9 })
