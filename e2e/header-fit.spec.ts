@@ -2,8 +2,8 @@ import { expect, test, type Page } from "@playwright/test";
 import type { AdminSummary } from "@/lib/api/types";
 
 /**
- * The black desktop header (redesign PR 2, the proposal and the rules' Navigation
- * board) is one 72px row (Round 2 §1.2) at every desktop width, in Light and Dark (Dark's rule is
+ * The desktop header (redesign PR 2, the proposal and the rules' Navigation
+ * board; white in Light and black in Dark, owner Q1 of navigation-search.md) is one 72px row (Round 2 §1.2) at every desktop width, in Light and Dark (Dark's rule is
  * drawn inside it), whoever is signed in: signed out, Sign in and the For
  * organisers button; signed in, For organisers, the Messages chip with its count
  * and the avatar (plus Admin and its badge for admins), with no sideways scroll
@@ -122,16 +122,18 @@ for (const width of [1024, 1280, 1440, 1920]) {
           await expect(header.getByRole("search")).toHaveCount(0);
           // No heart on the desktop row: Saved is on /account (and in the phone menu).
           await expect(signedInPage.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Saved" })).toHaveCount(0);
-          // The avatar: a solid 40px square with the initial and a caret.
-          const avatar = signedInPage.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Account" });
+          // The avatar: a solid 40px square with the initial and a caret (the button that opens the avatar menu),
+          // in the text colour: black in Light, white in Dark.
+          const avatar = signedInPage.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: "Account" });
           await expect(avatar).toBeVisible();
           const avatarBox = await avatar.boundingBox();
           expect(Math.round(avatarBox?.height ?? 0)).toBe(40);
           expect(Math.round(avatarBox?.width ?? 0)).toBeGreaterThanOrEqual(40);
-          expect(await avatar.evaluate((el) => [getComputedStyle(el).backgroundColor, getComputedStyle(el).color])).toEqual([
-            "rgb(255, 255, 255)",
-            "rgb(0, 0, 0)",
-          ]);
+          expect(avatarBox && avatarBox.y >= 0 && avatarBox.y + avatarBox.height <= 72, who).toBe(true);
+          expect(Math.round((avatarBox?.x ?? 0) + (avatarBox?.width ?? 0)), who).toBeLessThanOrEqual(width);
+          expect(await avatar.evaluate((el) => [getComputedStyle(el).backgroundColor, getComputedStyle(el).color])).toEqual(
+            theme === "light" ? ["rgb(0, 0, 0)", "rgb(255, 255, 255)"] : ["rgb(255, 255, 255)", "rgb(0, 0, 0)"],
+          );
           await signedInPage.close();
         }
       });
@@ -172,19 +174,28 @@ for (const width of [1024, 1440]) {
 test.describe("desktop header at 1440px, signed in", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test("is black in Light and Dark, and the Messages count is orange with a black number", async ({ page }) => {
+  test("is white in Light and black in Dark (Q1), and the Messages count is orange with a black number", async ({ page }) => {
     for (const theme of ["light", "dark"] as const) {
       const themed = await page.context().newPage();
       if (theme === "dark") await themed.addInitScript(() => localStorage.setItem("sheltuh:theme", "dark"));
       await as(themed, "member");
       await measure(themed, "member");
-      expect(await themed.locator("header").first().evaluate((el) => getComputedStyle(el).backgroundColor), theme).toBe("rgb(0, 0, 0)");
+      const header = themed.locator("header").first();
+      expect(await header.evaluate((el) => getComputedStyle(el).backgroundColor), theme).toBe(theme === "light" ? "rgb(255, 255, 255)" : "rgb(0, 0, 0)");
+      // The 1px rule under it, in both themes from lg.
+      expect(await header.evaluate((el) => [getComputedStyle(el, "::after").display, getComputedStyle(el, "::after").backgroundColor]), theme).toEqual([
+        "block",
+        theme === "light" ? "rgb(229, 227, 222)" : "rgb(51, 51, 51)",
+      ]);
+      // The signed-in For organisers is the outlined nav button (navigation-search.md §5.1).
+      const organisers = themed.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "For organisers" });
+      expect(await organisers.evaluate((el) => [Math.round(el.getBoundingClientRect().height), getComputedStyle(el).borderTopStyle]), theme).toEqual([40, "solid"]);
       // The Messages chip: 32px, 14px, a muted outline.
       const chip = themed.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: READY.member });
       expect(await chip.evaluate((el) => [Math.round(el.getBoundingClientRect().height), getComputedStyle(el).fontSize, getComputedStyle(el).borderTopColor])).toEqual([
         32,
         "14px",
-        "rgb(51, 51, 51)",
+        theme === "light" ? "rgb(229, 227, 222)" : "rgb(51, 51, 51)",
       ]);
       const badge = themed.getByRole("navigation", { name: "Primary" }).locator("[data-unread-badge]");
       expect(await badge.evaluate((el) => [getComputedStyle(el).backgroundColor, getComputedStyle(el).color]), theme).toEqual([
@@ -202,12 +213,12 @@ test.describe("desktop header at 1440px, signed in", () => {
     const primary = page.getByRole("navigation", { name: "Primary" });
     for (const name of ["Discover", "Nearby", "Community", "For organisers", READY.member, "Account"]) {
       await page.keyboard.press("Tab");
-      const link = primary.getByRole("link", { name });
-      await expect(link).toBeFocused();
-      // The global ring: 2px, white inside the black header (never orange).
-      expect(await link.evaluate((el) => [getComputedStyle(el).outlineStyle, getComputedStyle(el).outlineColor])).toEqual([
+      const control = name === "Account" ? primary.getByRole("button", { name }) : primary.getByRole("link", { name });
+      await expect(control).toBeFocused();
+      // The global ring: 2px, black on the white Light header (never orange).
+      expect(await control.evaluate((el) => [getComputedStyle(el).outlineStyle, getComputedStyle(el).outlineColor])).toEqual([
         "solid",
-        "rgb(255, 255, 255)",
+        "rgb(0, 0, 0)",
       ]);
     }
   });
