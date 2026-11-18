@@ -111,8 +111,10 @@ async function paidOrderView(req: Request, deps: Deps, orderId: string): Promise
  * email is the new address may move the order to it (owner decision Q1);
  * any other address with a confirmed account is a 409 `email_has_account`,
  * worded to say only "contact support". After a change, the ticket email
- * goes to the new address straight after the answer (the old address is
- * sent nothing). Nothing about the order or either address is logged.
+ * goes to the new address straight after the answer (nothing new goes to
+ * the old address; one already with the mail provider can't be recalled:
+ * stillToSend in lib/server/email-outbox.ts). Nothing about the order or
+ * either address is logged.
  */
 export const changeOrderEmail: Handler<{ sessionId: string }> = async (req, { sessionId }, deps) => {
   if (!ORDER_ID_PATTERN.test(sessionId)) throw new HttpError(404, ORDER_NOT_FOUND);
@@ -182,8 +184,10 @@ const JOB_ID = /^[1-9][0-9]{0,17}$/;
  * the reason is required, and logged with the admin (400 `fieldErrors.reason`
  * for one with an email address in it, full-width "＠" included: the log
  * keeps addresses masked only). 200 AdminOrderEmailChangeResult: `changed`
- * or `unchanged` (the same address: nothing done), with the job as it is now.
- * 404 unknown job; 409
+ * or `unchanged` (the same address: nothing done), with the order's ticket
+ * email job as it is now (read again by the order: a new job, with another id,
+ * if the purge removed the old one meanwhile). 404 unknown job (also an
+ * `unchanged` whose job has gone since); 409
  * `order_not_card` / `order_not_paid` / `email_change_busy`; 429 over
  * ADMIN_EMAIL_CHANGE_LIMIT (only changes made count, in the same
  * transaction).
@@ -233,7 +237,17 @@ export const adminChangeOrderEmail: Handler<{ jobId: string }> = async (req, { j
     default:
       throw new Error(`Unexpected admin_change_order_email result: ${row.result}`);
   }
-  const [job] = await deps.db.query(`${ADMIN_EMAIL_JOB_SELECT} where j.id = $1::bigint`, [jobId]);
+  // The order's ticket email as it is now, found by the order (one per order: email_outbox_order_kind_key), not by
+  // `jobId`: the purge of sent jobs may have removed that one meanwhile, and the change then queued a new one.
+  const [job] = await deps.db.query(`${ADMIN_EMAIL_JOB_SELECT} where j.order_id = $1 and j.kind = 'ticket_email'`, [
+    row.order_id,
+  ]);
+  if (!job) {
+    // Unchanged: nothing was done, and the email has gone since (purged): as an unknown job.
+    if (row.result !== "changed") throw new HttpError(404, JOB_NOT_FOUND);
+    // A change queues (or re-queues) it in its own transaction, and only sent jobs are purged: never expected.
+    throw new Error("No ticket email job after an admin email change");
+  }
   const result: AdminOrderEmailChangeResult = {
     result: row.result === "changed" ? "changed" : "unchanged",
     job: toAdminEmailJob(job),

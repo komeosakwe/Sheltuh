@@ -481,6 +481,27 @@ describe("TicketSelector (the ticket email's checks)", () => {
     expect(createCheckoutSession).toHaveBeenLastCalledWith(expect.any(String), expect.any(Array), "fan@gmail.com", undefined, undefined, undefined, "Alex Doe");
   });
 
+  it("a refusal that arrives after the buyer has edited the address isn't put on the new one", async () => {
+    const message = "That email address looks mistyped. Check the part after the @.";
+    let refuse!: (err: unknown) => void;
+    createCheckoutSession.mockReturnValueOnce(new Promise((_, reject) => (refuse = reject)));
+    render(<TicketSelector event={live("neon-static")} />);
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
+    const email = screen.getByLabelText("Email for your tickets");
+    fireEvent.change(email, { target: { value: "mia@gmial.com" } });
+    typeName();
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    // While it's being sent, the buyer types someone else's address.
+    fireEvent.change(email, { target: { value: "alex@example.com" } });
+    refuse(new ApiError(400, message, { buyerEmail: message }, { error: message, fieldErrors: { buyerEmail: message }, code: "email_typo", suggestion: "mia@gmail.com" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Checkout" })).not.toHaveAttribute("aria-disabled", "true"));
+    expect(screen.queryByText(/Did you mean/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Use this" })).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(email).not.toHaveAttribute("aria-invalid");
+    expect(email).toHaveValue("alex@example.com");
+  });
+
   it("a hint for a likely typo shows once typing pauses (no need to leave the field), and never stops Checkout", async () => {
     createCheckoutSession.mockReturnValue(new Promise(() => {}));
     render(<TicketSelector event={live("neon-static")} />);

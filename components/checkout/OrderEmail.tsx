@@ -5,8 +5,8 @@ import BuyerEmailField from "@/components/checkout/BuyerEmailField";
 import { Button } from "@/components/ui/Button";
 import { Notice } from "@/components/ui/Section";
 import { ApiError } from "@/lib/api/client";
-import { changeOrderEmail } from "@/lib/api/orders";
-import type { CustomerOrder, OrderEmailChangeBlock } from "@/lib/api/types";
+import { changeOrderEmail, getOrderBySession } from "@/lib/api/orders";
+import type { CustomerOrder, OrderEmailChange, OrderEmailChangeBlock } from "@/lib/api/types";
 import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
 import { buyerEmailError, emailSuggestionOf } from "@/lib/buyer-email";
 import { SUPPORT_EMAIL } from "@/lib/contact";
@@ -89,10 +89,16 @@ function OutcomeText({ outcome }: { outcome: Outcome }) {
  * - anyone else (the ticket email's link, another device): the masked address,
  *   or none once the email has been changed (the server sends neither), and
  *   "Wrong email? Contact" support's address.
- * After a change, or a refusal that closes the form, the outcome takes the
- * place of the usual lines, in a status region (read out once: focus goes to
- * the box, which reads as its short name only).
- * `onOrder`: the order as the server has it after a change.
+ * After a change, or a refusal that closes the form, the outcome is said in a
+ * status region (read out once: focus goes to the box, which reads as its
+ * short name only); a change's outcome names the address, so it takes the
+ * place of the usual line. Once sent, the form can't be cancelled (Cancel and
+ * Escape do nothing until the answer: the change may still go through), and
+ * an answer about the address applies only while the field still holds what
+ * was sent. A refusal that says the order has moved on (a 409: refunded, the
+ * one change already used, perhaps by an earlier try whose answer was lost)
+ * reads the order again, so the page shows it as it is now.
+ * `onOrder`: the order as the server has it after a change (or that read).
  */
 export default function OrderEmail({
   sessionId,
@@ -115,6 +121,10 @@ export default function OrderEmail({
   // Said once a change has gone through, found nothing to change, or was refused for good.
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // While a change is being sent (set before the request, so a second Enter or an Escape can't slip in first).
+  const pending = useRef(false);
+  // The field's latest value, for an answer that arrives after the buyer has typed on.
+  const latestDraft = useRef("");
   const openRef = useRef<HTMLButtonElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   // Where focus goes after the next render: the field (opened), Change it (cancelled), or the box (done).
@@ -135,6 +145,7 @@ export default function OrderEmail({
   const blocked = change && !change.allowed ? change.reason : null;
 
   function open() {
+    latestDraft.current = order.email ?? "";
     setDraft(order.email ?? "");
     setFieldError(null);
     setSuggestion(null);
@@ -145,12 +156,23 @@ export default function OrderEmail({
   }
 
   function cancel() {
+    if (pending.current) return;
     setEditing(false);
     focusNext.current = "open";
   }
 
+  /** The order as the server has it now (the same read as the page's), or null if that can't be had. */
+  async function currentOrder(): Promise<CustomerOrder | null> {
+    try {
+      const result = await getOrderBySession(sessionId, access);
+      return result.status === "pending" ? null : result;
+    } catch {
+      return null;
+    }
+  }
+
   async function submit() {
-    if (busy || !access) return;
+    if (pending.current || !access) return;
     setFormError(null);
     setSuggestion(null);
     const problem = buyerEmailError(draft);
@@ -159,11 +181,15 @@ export default function OrderEmail({
       inputRef.current?.focus();
       return;
     }
+    const sent = draft.trim();
+    // Field feedback is about `sent`: kept only while the field still says it.
+    const stillSent = () => latestDraft.current.trim() === sent;
+    pending.current = true;
     setBusy(true);
     try {
       const result = await changeOrderEmail(
         sessionId,
-        draft.trim(),
+        sent,
         access,
         auth?.status === "signed-in" ? auth.getAccessToken : undefined,
       );
@@ -174,20 +200,35 @@ export default function OrderEmail({
     } catch (err) {
       const code = err instanceof ApiError ? err.body?.code : undefined;
       if (err instanceof ApiError && err.status === 400 && err.fieldErrors?.email) {
-        setFieldError(err.fieldErrors.email);
-        setSuggestion(emailSuggestionOf(err));
-        inputRef.current?.focus();
+        // About the address sent: dropped if the buyer has typed another since (Send checks that one).
+        if (stillSent()) {
+          setFieldError(err.fieldErrors.email);
+          setSuggestion(emailSuggestionOf(err));
+          inputRef.current?.focus();
+        }
       } else if (err instanceof ApiError && code === "email_has_account") {
         // The server's words ("Contact support@… to use this address."), with the address as a link.
-        setFieldError(
-          <>
-            Contact <SupportLink /> to use this address.
-          </>,
-        );
-        inputRef.current?.focus();
+        if (stillSent()) {
+          setFieldError(
+            <>
+              Contact <SupportLink /> to use this address.
+            </>,
+          );
+          inputRef.current?.focus();
+        }
       } else if (err instanceof ApiError && err.status === 409 && isBlock(code)) {
-        // It can't be changed here after all (the event ended, a ticket was scanned…): the status says why.
-        onOrder({ ...order, emailChange: { allowed: false, reason: code } });
+        // It can't be changed here after all (refunded, the change already used, the event ended…): the status
+        // says why, and the order is read again so the page shows it as it is (a refund's own page; where an
+        // earlier try that did go through sent the tickets). Without that read, the order as it was, blocked.
+        const blockedChange: OrderEmailChange = { allowed: false, reason: code };
+        const now = await currentOrder();
+        // The refusal itself is the last word on whether it can change (and on keeping the token): the read's is
+        // used only when it also says no.
+        onOrder(
+          now
+            ? { ...now, emailChange: now.emailChange?.allowed === false ? now.emailChange : blockedChange }
+            : { ...order, emailChange: blockedChange },
+        );
         setEditing(false);
         setOutcome({ kind: "blocked", reason: code });
         focusNext.current = "box";
@@ -200,12 +241,13 @@ export default function OrderEmail({
         setFormError(err instanceof ApiError && err.status >= 400 && err.status < 500 ? err.message : "Couldn’t change the email. Try again.");
       }
     } finally {
+      pending.current = false;
       setBusy(false);
     }
   }
 
-  // While an outcome is said, it's the one line (it names the address itself).
-  const line = outcome ? null : order.email ? (
+  // A change's outcome names the address itself, so it's the one line then; a refusal's doesn't, so the line stays.
+  const line = outcome && (outcome.kind === "changed" || outcome.kind === "unchanged") ? null : order.email ? (
     <p className="text-sm text-muted">
       Tickets sent to <Address email={order.email} />.
     </p>
@@ -237,7 +279,7 @@ export default function OrderEmail({
             void submit();
           }}
           onKeyDown={(event) => {
-            // Escape closes the form (an IME's own Escape, mid-composition, stays the IME's).
+            // Escape closes the form (an IME's own Escape, mid-composition, stays the IME's); not once it's sent.
             if (event.key !== "Escape" || event.nativeEvent.isComposing) return;
             event.preventDefault();
             cancel();
@@ -249,6 +291,7 @@ export default function OrderEmail({
             hint="We’ll send your tickets there. You can change it once."
             value={draft}
             onChange={(value) => {
+              latestDraft.current = value;
               setDraft(value);
               setFieldError(null);
               setSuggestion(null);
@@ -267,7 +310,8 @@ export default function OrderEmail({
             <Button type="submit" variant="solid" busy={busy}>
               {busy ? "Sending…" : "Send tickets here"}
             </Button>
-            <Button variant="outline" onClick={cancel}>
+            {/* Not while it's being sent: the change may still go through (and use up the one change). */}
+            <Button variant="outline" onClick={cancel} disabled={busy}>
               Cancel
             </Button>
           </div>

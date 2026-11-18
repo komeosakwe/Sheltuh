@@ -14,8 +14,10 @@ vi.mock("next/link", async (importOriginal) => {
   const { default: RealLink } = await importOriginal<typeof import("next/link")>();
   return { default: (props: ComponentProps<typeof RealLink>) => <RealLink {...props} data-next-link="" /> };
 });
+// The page's session_id: a test can move the tab to another order (and re-render).
+let sessionParam = "cs_test_1";
 vi.mock("next/navigation", () => ({
-  useSearchParams: () => new URLSearchParams({ session_id: "cs_test_1" }),
+  useSearchParams: () => new URLSearchParams({ session_id: sessionParam }),
 }));
 const getOrderBySession = vi.fn();
 const getOrderPayment = vi.fn();
@@ -37,6 +39,7 @@ vi.mock("@/lib/api/seating", () => ({
 
 afterEach(() => {
   cleanup();
+  sessionParam = "cs_test_1";
   vi.useRealTimers();
   sessionStorage.clear();
   localStorage.clear();
@@ -1001,6 +1004,115 @@ describe("CheckoutConfirmation: the buyer's email (the paying browser's one chan
     expect(screen.queryByText(/Tickets sent to/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Wrong email? Change it" })).toBeNull();
     expect(orderAccessFor("cs_test_1")).toBeUndefined();
+  });
+
+  it("once sent, Cancel and Escape do nothing until the answer; after a failure both work again", async () => {
+    asPayingBrowser();
+    getOrderBySession.mockResolvedValue(PAYING);
+    let fail!: (err: unknown) => void;
+    changeOrderEmail.mockReturnValueOnce(new Promise((_, reject) => (fail = reject)));
+    render(<CheckoutConfirmation />);
+    fireEvent.click(await screen.findByRole("button", { name: "Wrong email? Change it" }));
+    const field = screen.getByLabelText("New email for your tickets");
+    fireEvent.change(field, { target: { value: "mia@gmail.com" } });
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Send tickets here" }));
+    await waitFor(() => expect(changeOrderEmail).toHaveBeenCalledTimes(1));
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    expect(cancel).toBeDisabled();
+    fireEvent.click(cancel);
+    fireEvent.keyDown(field, { key: "Escape" });
+    expect(screen.getByLabelText("New email for your tickets")).toBeInTheDocument();
+    // A second Enter while it's being sent doesn't send it again.
+    fireEvent.submit(field.closest("form") as HTMLFormElement);
+    expect(changeOrderEmail).toHaveBeenCalledTimes(1);
+
+    await act(async () => fail(new TypeError("Failed to fetch")));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn’t change the email. Try again.");
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled();
+    fireEvent.keyDown(screen.getByLabelText("New email for your tickets"), { key: "Escape" });
+    expect(screen.queryByLabelText("New email for your tickets")).toBeNull();
+  });
+
+  it("a refusal of the address that arrives after the buyer has typed another isn't put on the new one", async () => {
+    asPayingBrowser();
+    getOrderBySession.mockResolvedValue(PAYING);
+    let refuse!: (err: unknown) => void;
+    changeOrderEmail.mockReturnValueOnce(new Promise((_, reject) => (refuse = reject)));
+    render(<CheckoutConfirmation />);
+    fireEvent.click(await screen.findByRole("button", { name: "Wrong email? Change it" }));
+    const field = screen.getByLabelText("New email for your tickets");
+    fireEvent.change(field, { target: { value: "mia@hotmial.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send tickets here" }));
+    await waitFor(() => expect(changeOrderEmail).toHaveBeenCalledTimes(1));
+    fireEvent.change(field, { target: { value: "alex@example.com" } });
+    const message = "That email address looks mistyped. Check the part after the @.";
+    await act(async () => refuse(new ApiError(400, message, { email: message }, { code: "email_typo", suggestion: "mia@hotmail.com" })));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText(/Did you mean/)).toBeNull();
+    expect(field).not.toHaveAttribute("aria-invalid");
+    expect(field).toHaveValue("alex@example.com");
+  });
+
+  it("already changed (an earlier try went through, its answer lost): reads the order again and shows where the tickets went", async () => {
+    asPayingBrowser();
+    getOrderBySession.mockResolvedValueOnce(PAYING).mockResolvedValueOnce({
+      ...PAYING,
+      email: "mia@gmail.com",
+      emailChange: { allowed: false, reason: "email_already_changed" },
+    });
+    changeOrderEmail.mockRejectedValueOnce(new ApiError(409, "This order's email has already been changed once.", undefined, { code: "email_already_changed" }));
+    render(<CheckoutConfirmation />);
+    fireEvent.click(await screen.findByRole("button", { name: "Wrong email? Change it" }));
+    fireEvent.change(screen.getByLabelText("New email for your tickets"), { target: { value: "mia@gmail.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send tickets here" }));
+    const status = await screen.findByRole("status");
+    await waitFor(() => expect(status).toHaveTextContent(/You’ve already changed this email once/));
+    // A read, never another change.
+    expect(getOrderBySession).toHaveBeenLastCalledWith("cs_test_1", TOKEN);
+    expect(changeOrderEmail).toHaveBeenCalledTimes(1);
+    expect(screen.getByText((_c, el) => el?.tagName === "P" && el.textContent === "Tickets sent to mia@gmail.com.")).toBeInTheDocument();
+    expect(orderAccessFor("cs_test_1")).toBe(TOKEN);
+  });
+
+  it("refunded while the change was being sent (409 order_not_paid): the refund's page, not the void tickets", async () => {
+    asPayingBrowser();
+    getOrderBySession
+      .mockResolvedValueOnce(PAYING)
+      .mockResolvedValueOnce({ ...ORDER, status: "refunded", refundReason: "refunded", tickets: [] });
+    changeOrderEmail.mockRejectedValueOnce(new ApiError(409, "This order isn't paid…", undefined, { code: "order_not_paid" }));
+    render(<CheckoutConfirmation />);
+    fireEvent.click(await screen.findByRole("button", { name: "Wrong email? Change it" }));
+    fireEvent.change(screen.getByLabelText("New email for your tickets"), { target: { value: "mia@gmail.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send tickets here" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "This order has been refunded" })).toBeInTheDocument();
+    expect(screen.queryByText("ABC123")).toBeNull();
+  });
+
+  it("another order in the same tab: a fresh form, and a late answer for the first order isn't shown on the second", async () => {
+    asPayingBrowser();
+    rememberOrderAccess("cs_test_2", "cd".repeat(32));
+    const SECOND: CustomerOrder = { ...PAYING, reference: "#B0B0B0B0", eventTitle: "Second Show", email: "second@example.com" };
+    getOrderBySession.mockImplementation(async (id: string) => (id === "cs_test_2" ? SECOND : PAYING));
+    let answer!: (result: unknown) => void;
+    changeOrderEmail.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
+    const { rerender } = render(<CheckoutConfirmation />);
+    fireEvent.click(await screen.findByRole("button", { name: "Wrong email? Change it" }));
+    fireEvent.change(screen.getByLabelText("New email for your tickets"), { target: { value: "mia@gmail.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send tickets here" }));
+    await waitFor(() => expect(changeOrderEmail).toHaveBeenCalledTimes(1));
+
+    sessionParam = "cs_test_2";
+    rerender(<CheckoutConfirmation />);
+    expect(await screen.findByRole("heading", { level: 1, name: "Second Show" })).toBeInTheDocument();
+    // The first order's form (and what was typed in it) didn't come along.
+    expect(screen.queryByLabelText("New email for your tickets")).toBeNull();
+    await act(async () =>
+      answer({ result: "changed", order: { ...PAYING, email: "mia@gmail.com", emailChange: { allowed: false, reason: "email_already_changed" } } }),
+    );
+    expect(screen.getByRole("heading", { level: 1, name: "Second Show" })).toBeInTheDocument();
+    expect(screen.getByText((_c, el) => el?.tagName === "P" && el.textContent === "Tickets sent to second@example.com.")).toBeInTheDocument();
+    expect(screen.queryByText(/mia@gmail\.com/)).toBeNull();
   });
 
   it("another device (no token): the masked email and support's address, no change", async () => {

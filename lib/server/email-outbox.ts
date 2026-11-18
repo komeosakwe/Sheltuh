@@ -168,8 +168,33 @@ type Outcome =
       deferSeconds?: number;
     };
 
-/** Builds and sends one order's ticket email. Never throws. */
-async function deliverTicketEmail(deps: Deps, orderId: string): Promise<Outcome> {
+/**
+ * Whether `job` is still this worker's to send (its lease held and in date)
+ * and its order still paid with `to` as its address: read straight before the
+ * mail provider is called. An email change (private.change_order_email) takes
+ * the job's lease and changes the address in one transaction, so a worker
+ * that read the old address before that committed finds out here and sends
+ * nothing; the job, pending again, then goes to the new address. What's left
+ * is the moment between this read and the provider accepting the message: a
+ * change committed then can't stop it (the in-flight case, as for a message
+ * the provider already has). One primary-key read of each.
+ */
+async function stillToSend(deps: Deps, job: ClaimedJob, to: string): Promise<boolean> {
+  const [row] = await deps.db.query<{ ok: boolean }>(
+    `select exists (
+       select 1 from private.email_outbox j join public.orders o on o.id = j.order_id
+        where j.id = $1::bigint and j.status = 'sending' and j.lease_token = $2::uuid
+          and j.lease_expires_at > clock_timestamp() and o.status = 'paid' and o.buyer_email = $3) as ok`,
+    [String(job.job_id), job.job_lease_token, to],
+  );
+  return row?.ok === true;
+}
+
+/** Said (and logged) when stillToSend says no: no address, no order id. */
+export const TICKET_EMAIL_TAKEN_BACK = "the job was taken back or the order's email changed before sending; not sent";
+
+/** Builds and sends one order's ticket email (`job`'s), only while stillToSend. Never throws. */
+async function deliverTicketEmail(deps: Deps, job: ClaimedJob, orderId: string): Promise<Outcome> {
   try {
     const [row] = await deps.db.query(`${ORDER_SELECT} where o.id = $1`, [orderId]);
     const order = row ? toOrder(row) : undefined;
@@ -180,7 +205,10 @@ async function deliverTicketEmail(deps: Deps, orderId: string): Promise<Outcome>
     if (!event) return { sent: false, error: "the event no longer exists", permanent: true };
     // Which wallets' passes are on, for the per-ticket "Add to … Wallet" links (neither call throws: off is undefined).
     const wallet = { google: !!deps.googleWallet(), apple: !!(await deps.appleWallet()) };
-    await deps.sendEmail(buildTicketEmail(order, event, deps.siteUrl(), new Date(), wallet));
+    const message = buildTicketEmail(order, event, deps.siteUrl(), new Date(), wallet);
+    // Retried later if it's still due: the job is pending again after a change, and goes to the new address then.
+    if (!(await stillToSend(deps, job, message.to))) return { sent: false, error: TICKET_EMAIL_TAKEN_BACK, permanent: false };
+    await deps.sendEmail(message);
     return { sent: true };
   } catch (err) {
     return { sent: false, error: redactForLog(err instanceof Error ? err.message : "unknown error"), permanent: false };
@@ -954,7 +982,7 @@ function deliver(deps: Deps, job: ClaimedJob, leaseEndsAt: number): Promise<Outc
   if (job.job_kind === "organiser_new_events" && job.job_follow_id) {
     return deliverFollowerEmail(deps, job.job_follow_id);
   }
-  if (job.job_kind === "ticket_email" && job.job_order_id) return deliverTicketEmail(deps, job.job_order_id);
+  if (job.job_kind === "ticket_email" && job.job_order_id) return deliverTicketEmail(deps, job, job.job_order_id);
   return Promise.resolve({ sent: false, error: "unknown job", permanent: true });
 }
 

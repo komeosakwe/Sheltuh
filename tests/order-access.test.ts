@@ -9,7 +9,8 @@ import {
   orderAccessFor,
   rememberOrderAccess,
 } from "@/lib/order-access";
-import { orderFingerprint } from "@/lib/order-fingerprint";
+import { orderAccessKey, orderFingerprint, sha256Hex } from "@/lib/order-fingerprint";
+import { createHash } from "node:crypto";
 
 // Live mode, for the API wrappers at the end.
 vi.mock("@/lib/supabase/config", () => ({ isSupabaseConfigured: true }));
@@ -25,13 +26,14 @@ afterEach(() => {
 });
 
 describe("order access tokens on this device (lib/order-access.ts)", () => {
-  it("keeps a token under a fingerprint of the order, never the order id itself", () => {
+  it("keeps a token under a full SHA-256 of the order, never the order id itself", () => {
     rememberOrderAccess(ORDER, TOKEN);
     expect(orderAccessFor(ORDER)).toBe(TOKEN);
     const stored = localStorage.getItem(KEY) ?? "";
     expect(stored).not.toContain(ORDER);
     expect(stored).not.toContain(ORDER.slice(4));
-    expect(JSON.parse(stored)).toEqual([{ f: orderFingerprint(ORDER), t: TOKEN, at: expect.any(Number) }]);
+    expect(JSON.parse(stored)).toEqual([{ f: orderAccessKey(ORDER), t: TOKEN, at: expect.any(Number) }]);
+    expect(orderAccessKey(ORDER)).toMatch(/^[0-9a-f]{64}$/);
     expect(orderAccessFor("ord_ffffffffffffffffffffffffffffffff")).toBeUndefined();
   });
 
@@ -41,8 +43,37 @@ describe("order access tokens on this device (lib/order-access.ts)", () => {
     expect(localStorage.getItem(KEY)).toBeNull();
     localStorage.setItem(KEY, "{oops");
     expect(orderAccessFor(ORDER)).toBeUndefined();
-    localStorage.setItem(KEY, JSON.stringify([{ f: orderFingerprint(ORDER), t: "short", at: Date.now() }, 7, null]));
+    localStorage.setItem(KEY, JSON.stringify([{ f: orderAccessKey(ORDER), t: "short", at: Date.now() }, 7, null]));
     expect(orderAccessFor(ORDER)).toBeUndefined();
+  });
+
+  it("two orders whose short (analytics) fingerprints collide keep their own tokens", () => {
+    // Both 5f82ebd6 under 32-bit FNV-1a (orderFingerprint): one used to replace the other's token.
+    const first = "ord_000000000000000000000000000418cc";
+    const second = "ord_000000000000000000000000000bec18";
+    expect(orderFingerprint(first)).toBe(orderFingerprint(second));
+    rememberOrderAccess(first, "1a".repeat(32));
+    rememberOrderAccess(second, "2b".repeat(32));
+    expect(orderAccessFor(first)).toBe("1a".repeat(32));
+    expect(orderAccessFor(second)).toBe("2b".repeat(32));
+  });
+
+  it("orderAccessKey's SHA-256 is SHA-256", () => {
+    for (const text of ["", "abc", "a".repeat(55), "a".repeat(56), "a".repeat(64), "a".repeat(200), "ünï 😀", ORDER]) {
+      expect(sha256Hex(text)).toBe(createHash("sha256").update(text, "utf8").digest("hex"));
+    }
+    expect(orderAccessKey(ORDER)).toBe(sha256Hex(`sheltuh/order-access-key/v1:${ORDER}`));
+  });
+
+  it("a save merges with what another tab saved since this tab last read", () => {
+    rememberOrderAccess(ORDER, TOKEN);
+    // Another tab's save, straight into storage.
+    const other = "ord_ffffffffffffffffffffffffffffffff";
+    const stored = JSON.parse(localStorage.getItem(KEY) ?? "[]") as unknown[];
+    localStorage.setItem(KEY, JSON.stringify([...stored, { f: orderAccessKey(other), t: "2b".repeat(32), at: Date.now() }]));
+    rememberOrderAccess("ord_0000000000000000000000000000000a", "3c".repeat(32));
+    expect(orderAccessFor(ORDER)).toBe(TOKEN);
+    expect(orderAccessFor(other)).toBe("2b".repeat(32));
   });
 
   it("replaces an order's older token, and keeps only the newest 20", () => {

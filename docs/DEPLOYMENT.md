@@ -606,8 +606,15 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       (it was written as `20261127000000` and renamed so it doesn't sort
       before them; no project ran the old name).
       It's additive (a new private table and six functions; no existing
-      table, column or function changes) and reversible (drop the functions,
-      then the table, discarding the change log). After deploying, in test
+      table, column or function changes). To roll back, roll the code back
+      and **leave the migration in place**: the previous release never reads
+      it. Dropping the table is destructive once any email has changed: the
+      log is what keeps a buyer to one change, keeps the paying browser out
+      after a support change and hides a changed address from the order's
+      link, so a re-applied empty log would undo all three for those orders.
+      If it must go, export `private.order_email_changes` first and put the
+      rows back after re-applying, before the code that changes emails runs
+      again (the order of the drops is in the migration's header). After deploying, in test
       mode: a checkout with `fan@gmial.com` is refused with "Did you mean
       fan@gmail.com?"; a paid checkout's confirmation page shows the full
       address on the paying browser only; one change re-sends the tickets to

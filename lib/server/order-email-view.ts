@@ -37,11 +37,12 @@ export function emailChangeBlockReason(block: string): OrderEmailChangeBlock | n
  *   lives on in that browser's storage for months, on a device that may not
  *   stay the buyer's; after the event there's nothing left to fix, so it no
  *   longer shows the address in full;
- * - the paying browser once the latest change is support's: neither the
- *   address nor the masked one, and `emailChange: {allowed: false, reason:
- *   "changed_by_support"}`: the token may be on a device the old address's
- *   holder still uses (the reason support was asked), so it mustn't show
- *   where the tickets went;
+ * - the paying browser once support has changed the email (any admin entry
+ *   in the log, not just the latest: two changes' `created_at` needn't follow
+ *   the order they were made in): neither the address nor the masked one, and
+ *   `emailChange: {allowed: false, reason: "changed_by_support"}`: the token
+ *   may be on a device the old address's holder still uses (the reason
+ *   support was asked), so it mustn't show where the tickets went;
  * - anyone else (the order id alone: the ticket email's link): the masked
  *   address only while the email has never been changed, and none once it
  *   has (owner decision Q7), so the old address's holder doesn't learn the
@@ -92,24 +93,26 @@ async function orderEmailFor(req: Request, deps: Deps, orderId: string, order: C
     const [row] = await deps.db.query<{
       buyer_email: string | null;
       block: string | null;
-      last_changed_by: string | null;
+      changed: boolean;
+      changed_by_support: boolean;
       ended: boolean;
     }>(
       `select o.buyer_email, private.order_email_change_block(o.id) as block,
-              (select c.changed_by from private.order_email_changes c
-                where c.order_id = o.id order by c.created_at desc, c.id desc limit 1) as last_changed_by,
+              exists (select 1 from private.order_email_changes c where c.order_id = o.id) as changed,
+              exists (select 1 from private.order_email_changes c
+                       where c.order_id = o.id and c.changed_by = 'admin') as changed_by_support,
               coalesce((select e.ends_at <= now() from public.events e where e.id = o.event_id), true) as ended
          from public.orders o where o.id = $1`,
       [orderId],
     );
-    if (row?.last_changed_by === "admin") {
+    if (row?.changed_by_support) {
       const withheld: CustomerOrder = { ...order, emailChange: { allowed: false, reason: "changed_by_support" } };
       delete withheld.maskedEmail;
       return withheld;
     }
     // A card order (the block function says nothing for any other) whose event is over: as anyone sees it.
     if (row?.ended && row.block !== null && emailChangeBlockReason(row.block) !== null) {
-      return { ...asAnyoneSees(order, row.last_changed_by !== null), emailChange: { allowed: false, reason: "event_ended" } };
+      return { ...asAnyoneSees(order, row.changed), emailChange: { allowed: false, reason: "event_ended" } };
     }
     if (row?.buyer_email) {
       const reason = row.block === null ? undefined : emailChangeBlockReason(row.block);

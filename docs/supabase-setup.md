@@ -587,7 +587,14 @@ you match all of them against the order's payment in the Stripe dashboard
 (Payments, filtered to that date and amount; the payment's metadata
 `orderId` must start with `ord_` and the reference in lower case; the
 expiry is in the payment's card details). Don't read any of them out to
-them first, and don't change the address on a reference alone. This
+them first, and don't change the address on a reference alone. The
+reference is only the order id's first 8 characters, and `/admin/emails`
+never shows the full id (it's the order page's credential): if the search
+finds more than one ticket email for the reference, don't pick one. Stop and
+escalate to the owner, who looks the order up by the payment's full
+metadata `orderId` in the SQL editor (its event title, and its ticket
+email's queued time and status in `private.email_outbox`) and says which of
+the listed emails is that order's; change only that one. This
 assumes Stripe's "Successful payments" customer emails are off (Settings →
 Customer emails; the owner to confirm before launch). Keep email addresses
 out of the reason (the API refuses one with an address in it): say what
@@ -600,12 +607,14 @@ are purged after 90 days (see "Free-ticket and email outbox retention"):
 an order whose ticket email was sent more than 90 days ago can't be found
 or changed from `/admin/emails` (docs/architecture.md, "Not built yet").
 
-An order's changes (no full addresses in this table):
+An order's changes (no full addresses in this table), by the full order id
+from the verified Stripe payment's metadata `orderId` (`ord_` and 32
+characters; never the reference, which may match more than one order):
 
 ```sql
 select c.created_at, c.changed_by, c.old_email_masked, c.new_email_masked, c.reason, u.email as admin
 from private.order_email_changes c left join auth.users u on u.id = c.admin_id
-where c.order_id like 'ord_' || lower('<8-character reference>') || '%' order by c.id;
+where c.order_id = '<the payment metadata orderId>' order by c.created_at, c.id;
 ```
 
 ### Platform-managed organisers

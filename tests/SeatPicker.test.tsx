@@ -441,6 +441,26 @@ describe("seat page: the ticket email (every checkout, paid seats too)", () => {
     expect(email).toHaveValue("fan@outlook.com");
   });
 
+  it("a refusal that arrives after the buyer has corrected the address isn't put on the corrected one", async () => {
+    const message = "That email address can't receive email. Check the part after the @.";
+    let refuse!: (err: unknown) => void;
+    createSeatedCheckout.mockReturnValueOnce(new Promise((_, reject) => (refuse = reject)));
+    renderPicker({ event: live, mode: "live" });
+    choosePaidSeat();
+    const email = screen.getByLabelText("Email for your tickets");
+    fireEvent.change(email, { target: { value: "alex@outlok.co" } });
+    typeName();
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    await waitFor(() => expect(createSeatedCheckout).toHaveBeenCalledTimes(1));
+    fireEvent.change(email, { target: { value: "alex@outlook.com" } });
+    refuse(new ApiError(400, message, { buyerEmail: message }, { error: message, code: "email_no_mail", suggestion: "alex@outlook.com.au" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Checkout" })).not.toHaveAttribute("aria-disabled", "true"));
+    expect(screen.queryByText(/Did you mean/)).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(email).not.toHaveAttribute("aria-invalid");
+    expect(email).toHaveValue("alex@outlook.com");
+  });
+
   it("signed in: the account's email is filled in, with Not you? Sign out (this browser only)", async () => {
     const value = fakeAuthValue({ email: "mia@example.com" });
     render(

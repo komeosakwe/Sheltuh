@@ -1021,7 +1021,9 @@ export type BuyerEmailErrorCode = "email_typo" | "email_no_mail";
  * token in the `x-order-access` header (and, optionally, the signed-in
  * buyer's bearer token: moving the order to their own confirmed account
  * email is allowed). 200: `changed` (the ticket email is on its way to the
- * new address; the old one is sent nothing, and the QR codes are unchanged)
+ * new address and nothing new is sent to the old one, though an email already
+ * handed to the mail provider for it can't be recalled; the QR codes are
+ * unchanged)
  * or `unchanged` (the same address, ignoring case: nothing done, and the one
  * change is still there). `order` is the CustomerOrder as the paying browser
  * sees it. ApiError: 404 a malformed or unknown order, or a missing or wrong

@@ -41,7 +41,7 @@
 --
 -- Indexes: order_email_changes_order_idx (order_id, created_at desc, id desc)
 -- serves the admin list's newest 5 changes per order, the confirmation page's
--- "latest change" read, the "changed by support" check and the orders
+-- "changed at all" and "changed by support" checks and the orders
 -- cascade; the partial unique index serves the "already changed" check. The block
 -- function reads the order and event by primary key, the tickets by
 -- tickets_order_idx and their scans by ticket_check_ins_code_idx; the
@@ -50,12 +50,19 @@
 --
 -- No existing table, column, index or function is changed.
 --
--- Reversible, not destructive: drop functions private.admin_change_order_email,
--- private.buyer_change_order_email, private.change_order_email,
--- private.order_email_change_block, private.mask_email and
--- private.order_email_changes_append_only, then table
--- private.order_email_changes (discarding the change log). The addresses
--- already changed stay as they are on the orders.
+-- Not destructive on the way in (nothing existing changes). The way out:
+-- roll the code back and leave this in place (the previous release never
+-- reads it). Dropping it is destructive once any order's email has changed:
+-- the log is what keeps a buyer to one change, keeps the paying browser out
+-- after support's change, and hides a changed address from the order's
+-- link, so a re-applied empty log would undo all three for those orders.
+-- Only before any change, or with the log's rows exported first and put
+-- back before the code that changes emails runs again: drop functions
+-- private.admin_change_order_email, private.buyer_change_order_email,
+-- private.change_order_email, private.order_email_change_block and
+-- private.mask_email, then table private.order_email_changes (its trigger
+-- goes with it), then function private.order_email_changes_append_only. The
+-- addresses already changed stay as they are on the orders.
 
 create table private.order_email_changes (
   id bigint generated always as identity primary key,
@@ -68,7 +75,9 @@ create table private.order_email_changes (
   -- private.mask_email of the addresses: never the address itself. The old one is null if there was none.
   old_email_masked text check (char_length(old_email_masked) <= 260),
   new_email_masked text not null check (char_length(new_email_masked) <= 260),
-  created_at timestamptz not null default now(),
+  -- When the change was written (under the order's lock), not when its transaction began (now()): so changes to
+  -- one order sort in the order they were made in, whichever transaction started first.
+  created_at timestamptz not null default clock_timestamp(),
   constraint order_email_changes_reason check ((changed_by = 'admin') = (reason is not null)),
   constraint order_email_changes_buyer_no_admin check (changed_by = 'admin' or admin_id is null)
 );

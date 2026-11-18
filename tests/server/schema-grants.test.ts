@@ -758,8 +758,9 @@ describe("Data API lock-out", () => {
     expect(definers).toEqual([]);
     const [table] = await db.query<{ rls: boolean; policies: number; grants: number }>(
       `select c.relrowsecurity as rls, (select count(*)::int from pg_policy p where p.polrelid = c.oid) as policies,
-              (select count(*)::int from information_schema.role_table_grants g
-                where g.table_schema = 'private' and g.table_name = c.relname and g.grantee in ('anon', 'authenticated', 'PUBLIC')) as grants
+              -- The table's ACL itself (grantee 0 is PUBLIC, which role_table_grants can leave out).
+              (select count(*)::int from aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+                where a.grantee = 0 or a.grantee in ('anon'::regrole, 'authenticated'::regrole)) as grants
          from pg_class c where c.oid = to_regclass('private.order_email_changes')`,
     );
     expect(table).toEqual({ rls: true, policies: 0, grants: 0 });

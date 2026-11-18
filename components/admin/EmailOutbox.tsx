@@ -62,7 +62,19 @@ export default function EmailOutbox() {
   const [typedReference, setTypedReference] = useState("");
   const [referenceError, setReferenceError] = useState<string | null>(null);
   const referenceInputRef = useRef<HTMLInputElement>(null);
-  const key = `${reference ?? status}#${attempt}`;
+  // Each time a list is shown (a status, or an order found by reference), a new generation, even when it's one
+  // shown before (A, then B, then A again, however the URL or the form got there): an answer started for an
+  // earlier showing (a change, a resend, Load more) then never updates, announces in or moves focus in this one.
+  const view = reference ?? status;
+  const [shown, setShown] = useState({ view, generation: 0 });
+  if (shown.view !== view) setShown({ view, generation: shown.generation + 1 });
+  const generation = shown.view === view ? shown.generation : shown.generation + 1;
+  const key = `${view}#${generation}#${attempt}`;
+  // The key on screen now, for an answer to check against the key it was started under.
+  const currentKey = useRef(key);
+  useEffect(() => {
+    currentKey.current = key;
+  });
   const [result, setResult] = useState<{ key: string; state: LoadState } | null>(null);
   const state: LoadState = result?.key === key ? result.state : { status: "loading" };
   const [loadingMore, setLoadingMore] = useState(false);
@@ -111,6 +123,9 @@ export default function EmailOutbox() {
    */
   function jobUpdated(job: AdminEmailJob, said: string, focusInPlace?: string) {
     adminSummary?.refresh(); // The hub's and sub-nav's failed count.
+    // Started under a list that's no longer the one shown (even if it's the same one shown again): its loaded
+    // answer is newer, so this one doesn't touch it, say anything or move focus.
+    if (currentKey.current !== key) return;
     if (reference || job.status === status) {
       setResult((current) =>
         current && current.key === key && current.state.status === "ready"
@@ -570,6 +585,7 @@ function ChangeEmailForm({
           id={emailId}
           type="email"
           inputMode="email"
+          required
           autoComplete="off"
           spellCheck={false}
           autoCapitalize="none"
@@ -596,7 +612,9 @@ function ChangeEmailForm({
           ref={reasonRef}
           id={reasonId}
           rows={3}
-          maxLength={REASON_MAX}
+          // No maxLength: it counts UTF-16 units, so an emoji would stop typing short of REASON_MAX characters;
+          // the length is checked on Change and send, in characters as the API counts them.
+          required
           value={reason}
           onChange={(e) => {
             setReason(e.target.value);
@@ -625,7 +643,8 @@ function ChangeEmailForm({
         <Button type="submit" variant="solid" size="sm" className="min-h-11" busy={busy}>
           {busy ? "Changing…" : "Change and send"}
         </Button>
-        <Button variant="outline" size="sm" className="min-h-11" onClick={() => onDone(null)}>
+        {/* Not while it's being sent: the change may still go through, and its answer belongs in this form. */}
+        <Button variant="outline" size="sm" className="min-h-11" disabled={busy} onClick={() => onDone(null)}>
           Cancel
         </Button>
       </div>

@@ -225,9 +225,15 @@ for (const viewport of [
       await tickets.getByRole("button", { name: "Increase quantity for General admission" }).click({ timeout: 30_000 });
       await tickets.getByLabel("Your name").fill("Alex Doe");
       const email = tickets.getByLabel("Email for your tickets");
+      const checkout = tickets.getByRole("button", { name: "Checkout" });
+      await checkout.scrollIntoViewIfNeeded();
       // Typed key by key, then straight to Checkout: no blur trick, no pause for the hint.
       await email.pressSequentially("alex@gmial.com", { delay: 20 });
-      await tickets.getByRole("button", { name: "Checkout" }).click();
+      // Where Checkout is the moment typing stops (well inside the hint's 500 ms), clicked at that point: a
+      // locator's click would wait for the button to stop moving and follow it, passing even if the hint moved it.
+      const box = await checkout.boundingBox();
+      expect(box).not.toBeNull();
+      await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
       await expect(page).toHaveURL(`/checkout/success?session_id=${ORDER_ID}`, { timeout: 30_000 });
       expect(seen.checkouts.map((c) => c.buyerEmail)).toEqual(["alex@gmial.com"]);
     });

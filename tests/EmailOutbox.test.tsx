@@ -327,6 +327,85 @@ describe("EmailOutbox: find an order, change its email", () => {
     await waitFor(() => expect(within(item).getByRole("button", { name: "Change email" })).toHaveFocus());
   });
 
+  it("Cancel can't close the form while the change is being sent; it can again after a failure", async () => {
+    adminListEmailJobs.mockResolvedValue({ items: [job()] });
+    let fail!: (err: unknown) => void;
+    adminChangeOrderEmail.mockReturnValueOnce(new Promise((_, reject) => (fail = reject)));
+    renderOutbox();
+    const item = (await screen.findByRole("heading", { name: "Order #7C1F2E0A: Neon Static" })).closest("article")!;
+    fireEvent.click(within(item).getByRole("button", { name: "Change email" }));
+    const form = within(item).getByRole("form");
+    expect(within(form).getByRole("button", { name: "Cancel" })).toBeEnabled();
+    fireEvent.change(within(form).getByLabelText("New email"), { target: { value: "jo@example.com" } });
+    fireEvent.change(within(form).getByLabelText("Reason"), { target: { value: "Buyer phoned" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Change and send" }));
+    await waitFor(() => expect(adminChangeOrderEmail).toHaveBeenCalledTimes(1));
+    const cancel = within(form).getByRole("button", { name: "Cancel" });
+    expect(cancel).toBeDisabled();
+    fireEvent.click(cancel);
+    expect(within(item).getByRole("form")).toBe(form);
+
+    fail(new ApiError(409, "Your tickets are being sent right now. Try again in a moment.", undefined, { code: "email_change_busy" }));
+    expect(await within(form).findByRole("alert")).toHaveTextContent("Your tickets are being sent right now.");
+    expect(within(form).getByRole("button", { name: "Cancel" })).toBeEnabled();
+  });
+
+  it("both fields say they're required; the reason has no native cap, so 500 characters with an emoji fit", async () => {
+    adminListEmailJobs.mockResolvedValue({ items: [job()] });
+    adminChangeOrderEmail.mockReturnValue(new Promise(() => {}));
+    renderOutbox();
+    const item = (await screen.findByRole("heading", { name: "Order #7C1F2E0A: Neon Static" })).closest("article")!;
+    fireEvent.click(within(item).getByRole("button", { name: "Change email" }));
+    const form = within(item).getByRole("form");
+    const reason = within(form).getByLabelText("Reason");
+    expect(within(form).getByLabelText("New email")).toBeRequired();
+    expect(reason).toBeRequired();
+    expect(reason).not.toHaveAttribute("maxlength");
+    // 499 letters and an emoji: 500 characters (as the API counts), 501 UTF-16 units.
+    const full = `${"a".repeat(499)}😀`;
+    fireEvent.change(within(form).getByLabelText("New email"), { target: { value: "jo@example.com" } });
+    fireEvent.change(reason, { target: { value: full } });
+    fireEvent.click(within(form).getByRole("button", { name: "Change and send" }));
+    await waitFor(() => expect(adminChangeOrderEmail).toHaveBeenCalledWith("7", { email: "jo@example.com", reason: full }, expect.any(Function)));
+  });
+
+  it("a change answered after the list was left and shown again doesn't overwrite the fresher list", async () => {
+    adminListEmailJobs.mockResolvedValue({ items: [job()] });
+    let answer!: (result: unknown) => void;
+    adminChangeOrderEmail.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
+    renderOutbox();
+    const search = screen.getByRole("search", { name: "Find an order" });
+    const input = within(search).getByLabelText("Find an order by reference");
+    fireEvent.change(input, { target: { value: "7c1f2e0a" } });
+    fireEvent.click(within(search).getByRole("button", { name: "Find" }));
+    await screen.findByRole("heading", { name: "Ticket email for order #7C1F2E0A" });
+    const item = (await screen.findByRole("heading", { name: "Order #7C1F2E0A: Neon Static" })).closest("article")!;
+    fireEvent.click(within(item).getByRole("button", { name: "Change email" }));
+    fireEvent.change(within(item).getByLabelText("New email"), { target: { value: "jo@example.com" } });
+    fireEvent.change(within(item).getByLabelText("Reason"), { target: { value: "Buyer phoned" } });
+    fireEvent.click(within(item).getByRole("button", { name: "Change and send" }));
+    await waitFor(() => expect(adminChangeOrderEmail).toHaveBeenCalledTimes(1));
+
+    // Another order, then back to this one: its fresh lookup says the new email has been sent.
+    adminListEmailJobs.mockResolvedValueOnce({ items: [job({ jobId: "8", orderReference: "#8D2A3B1C" })] });
+    fireEvent.change(input, { target: { value: "8d2a3b1c" } });
+    fireEvent.click(within(search).getByRole("button", { name: "Find" }));
+    await screen.findByRole("heading", { name: "Order #8D2A3B1C: Neon Static" });
+    adminListEmailJobs.mockResolvedValueOnce({ items: [job({ status: "sent", attempts: 1, lastError: undefined, maskedEmail: "j***@example.com", sentAt: "2026-11-18T01:00:00.000Z" })] });
+    fireEvent.change(input, { target: { value: "7c1f2e0a" } });
+    fireEvent.click(within(search).getByRole("button", { name: "Find" }));
+    const fresh = (await screen.findByRole("heading", { name: "Order #7C1F2E0A: Neon Static" })).closest("article")!;
+    await waitFor(() => expect(within(fresh).getByText("Sent")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Found order #7C1F2E0A."));
+
+    // The first change's answer (its job as it was then: pending) arrives late.
+    answer({ result: "changed", job: job({ status: "pending", attempts: 0, lastError: undefined, maskedEmail: "j***@example.com" }) });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const after = screen.getByRole("heading", { name: "Order #7C1F2E0A: Neon Static" }).closest("article")!;
+    expect(within(after).getByText("Sent")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Found order #7C1F2E0A.");
+  });
+
   it("offers no change for an order that isn't paid", async () => {
     adminListEmailJobs.mockResolvedValue({ items: [job({ orderStatus: "refunded" })] });
     renderOutbox();

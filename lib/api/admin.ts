@@ -378,11 +378,12 @@ export async function adminResolveReport(reportId: string, input: ResolveReportI
  * Ticket emails in one status, newest first (default view: `failed`). With
  * `reference` (an order's short reference, "#7C1F2E0A" or "7c1f2e0a"): that
  * order's ticket email in any status instead (`status` is ignored). ApiError
- * 400 for a reference that isn't 8 hex characters.
+ * 400 for a reference that isn't 8 hex characters (an empty one included:
+ * only `undefined` leaves it out).
  */
 export async function adminListEmailJobs(status: EmailJobStatus, getToken: GetToken, cursor?: string, reference?: string) {
   const token = await getToken();
-  const qs = new URLSearchParams({ status, ...(cursor ? { cursor } : {}), ...(reference ? { reference } : {}) });
+  const qs = new URLSearchParams({ status, ...(cursor ? { cursor } : {}), ...(reference !== undefined ? { reference } : {}) });
   return apiFetch<Paginated<AdminEmailJob>>(`/admin/emails?${qs}`, { token });
 }
 

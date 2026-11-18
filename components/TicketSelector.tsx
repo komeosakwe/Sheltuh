@@ -85,6 +85,10 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   const [emailError, setEmailError] = useState<string | null>(null);
   // The server's "Did you mean …?" for a refused address (400 email_typo / email_no_mail), until it changes.
   const [emailSuggestion, setEmailSuggestion] = useState<string | null>(null);
+  // Bumped on every edit of the address (and on sign-out, which can change it): a checkout's refusal of the
+  // address is shown only if this is still what it was when that checkout was sent, so a late answer about an
+  // address the buyer has since replaced can't mark the new one wrong, or offer to put the old one's fix back.
+  const emailRevision = useRef(0);
   // The name shared with the organiser (lib/buyer-details.ts): every checkout, paid or free. Not prefilled.
   const [buyerName, setBuyerName] = useState("");
   const [nameError, setNameError] = useState<string | null>(null);
@@ -308,6 +312,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
       showEmailError(emailProblem);
       return;
     }
+    const sentRevision = emailRevision.current;
     // An Other amount that can't be sent: say why, by its field, rather than checking out without it.
     if (offerSupport && supportErrorOf(support)) {
       setRevealSupportError(true);
@@ -368,7 +373,8 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
           setNameError(nameMessage);
           nameInputRef.current?.focus();
         }
-        if (emailMessage) {
+        // About the address as it was sent: dropped if the buyer has edited it since (they're checking it again).
+        if (emailMessage && emailRevision.current === sentRevision) {
           setEmailSuggestion(emailSuggestionOf(err));
           showEmailError(emailMessage);
         }
@@ -514,6 +520,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   // focus goes to the email field.
   function signOutHere() {
     auth?.signOut("local");
+    emailRevision.current += 1;
     announce("Signed out. Enter the email for your tickets.");
     emailInputRef.current?.focus();
   }
@@ -840,6 +847,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                       id="buyer-email"
                       value={buyerEmail}
                       onChange={(value) => {
+                        emailRevision.current += 1;
                         setTypedEmail(value);
                         setEmailError(null);
                         setEmailSuggestion(null);

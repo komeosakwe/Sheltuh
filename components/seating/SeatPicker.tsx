@@ -202,6 +202,9 @@ export default function SeatPicker({
   const [emailError, setEmailError] = useState<string | null>(null);
   // The server's "Did you mean …?" for a refused address (400 email_typo / email_no_mail), until it changes.
   const [emailSuggestion, setEmailSuggestion] = useState<string | null>(null);
+  // Bumped on every edit of the address (and on sign-out): a checkout's refusal of the address is shown only if
+  // this is unchanged since it was sent, so a late answer can't mark a corrected address wrong or undo it.
+  const emailRevision = useRef(0);
   // The name shared with the organiser (lib/buyer-details.ts): every checkout, paid or free. Not prefilled.
   const [buyerName, setBuyerName] = useState("");
   const [nameError, setNameError] = useState<string | null>(null);
@@ -598,6 +601,7 @@ export default function SeatPicker({
       pendingFocus.current = { kind: "email" };
       return;
     }
+    const sentRevision = emailRevision.current;
     // An Other amount that can't be sent: say why, by its field, rather than checking out without it.
     if (offerSupport && supportErrorOf(support)) {
       setRevealSupportError(true);
@@ -682,6 +686,8 @@ export default function SeatPicker({
         pendingFocus.current = { kind: "name" };
         return;
       } else if (err instanceof ApiError && err.fieldErrors?.buyerEmail) {
+        // About the address as it was sent: dropped if the buyer has edited it since (they're checking it again).
+        if (emailRevision.current !== sentRevision) return;
         setEmailError(err.fieldErrors.buyerEmail);
         setEmailSuggestion(emailSuggestionOf(err));
         if (!sheetOpen) setSheetOpen(true);
@@ -705,6 +711,7 @@ export default function SeatPicker({
   // account's address leaves the field (unless they'd typed their own), said, and focus goes to the field.
   function signOutHere() {
     auth?.signOut("local");
+    emailRevision.current += 1;
     announce("Signed out. Enter the email for your tickets.");
     pendingFocus.current = { kind: "email" };
   }
@@ -879,6 +886,7 @@ export default function SeatPicker({
             id={`${idPrefix}-email`}
             value={buyerEmail}
             onChange={(value) => {
+              emailRevision.current += 1;
               setTypedEmail(value);
               setEmailError(null);
               setEmailSuggestion(null);

@@ -116,6 +116,9 @@ export default function CheckoutConfirmation() {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const pollCount = useRef(0);
   const headingRef = useRef<HTMLHeadingElement>(null);
+  // The order this page is showing now (set by the load below): an email change's answer for another order,
+  // one the page has since moved on from (another session_id in the same tab), isn't shown.
+  const shownSession = useRef(sessionId);
 
   // Settled (paid, refunded or oversold, or Stripe has the payment): going Back to the seat page mustn't
   // try to release this order's seats. Not before: a checkout that's still open (payment not
@@ -136,6 +139,7 @@ export default function CheckoutConfirmation() {
 
   useEffect(() => {
     let cancelled = false;
+    shownSession.current = sessionId;
 
     if (!sessionId) {
       // Deferred via queueMicrotask so the effect body itself never calls
@@ -423,12 +427,19 @@ export default function CheckoutConfirmation() {
         <h1 className="display-md break-words">{order.eventTitle}</h1>
         {sessionId && (
           <OrderEmail
+            // A fresh form for each order: nothing typed for one is sent for another.
+            key={sessionId}
             sessionId={sessionId}
             order={order}
             access={state.access}
             onOrder={(next) => {
+              // The token is this order's: forgotten when final, whatever the page shows by now.
               forgetOrderAccessIfFinal(sessionId, next.emailChange);
-              setState({ status: "ready", order: next, access: state.access });
+              if (shownSession.current !== sessionId) return;
+              // As the load does: paid stays here; refunded (say, while the change was being sent) gets its own page.
+              if (next.status === "paid") setState({ status: "ready", order: next, access: state.access });
+              else if (next.status === "oversold_refund_required" || next.status === "refunded") setState({ status: "oversold", order: next });
+              else setState({ status: "error", message: "This order couldn't be completed." });
             }}
           />
         )}

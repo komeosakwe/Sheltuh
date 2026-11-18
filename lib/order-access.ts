@@ -1,4 +1,4 @@
-import { orderFingerprint } from "@/lib/order-fingerprint";
+import { orderAccessKey } from "@/lib/order-fingerprint";
 import type { CheckoutResult, OrderEmailChange, OrderEmailChangeBlock } from "@/lib/api/types";
 
 /**
@@ -9,10 +9,17 @@ import type { CheckoutResult, OrderEmailChange, OrderEmailChangeBlock } from "@/
  * offers the one change of it.
  *
  * localStorage, under `sheltuh:order-access:v1`: `{f, t, at}` per order,
- * where `f` is a short fingerprint of the order id (never the id itself),
- * `t` the token and `at` when it was kept (ms). The newest 20, for up to
- * 180 days. Storage that can't be read or written is ignored: the page then
- * shows what any other device sees, and the buyer contacts support.
+ * where `f` is orderAccessKey of the order id (a full SHA-256: never the id
+ * itself, and never shared by two orders), `t` the token and `at` when it was
+ * kept (ms). The newest 20, for up to 180 days. Storage that can't be read or
+ * written is ignored: the page then shows what any other device sees, and
+ * the buyer contacts support.
+ *
+ * Other tabs: every save and removal reads the list again and writes it in
+ * the same synchronous step (no await in between), so another tab's entry
+ * is only lost if that tab writes in the microseconds between this read and
+ * write (localStorage has no lock across tabs). That's accepted: the buyer
+ * who loses one still has the ticket page, and support for the change.
  */
 const STORAGE_KEY = "sheltuh:order-access:v1";
 export const ORDER_ACCESS_LIMIT = 20;
@@ -71,7 +78,8 @@ export function rememberOrderAccess(orderId: string, token: string, now: number 
   if (!orderId || !TOKEN_PATTERN.test(token)) return;
   const store = storage();
   if (!store) return;
-  const f = orderFingerprint(orderId);
+  const f = orderAccessKey(orderId);
+  // Read straight before the write (another tab may have saved since): merged, not overwritten.
   const entries = readEntries(store, now).filter((entry) => entry.f !== f);
   writeEntries(store, [...entries, { f, t: token, at: now }].slice(-ORDER_ACCESS_LIMIT));
 }
@@ -85,8 +93,8 @@ export function orderAccessFor(orderId: string, now: number = Date.now()): strin
   const store = storage();
   if (!store || !orderId) return undefined;
   const entries = readEntries(store, now);
-  const f = orderFingerprint(orderId);
-  // Newest first: the latest checkout's token wins (a fingerprint collision is the older order's loss).
+  const f = orderAccessKey(orderId);
+  // Newest first (only one is ever kept per order).
   const found = [...entries].reverse().find((entry) => entry.f === f);
   return found?.t;
 }
@@ -100,7 +108,8 @@ export function orderAccessFor(orderId: string, now: number = Date.now()): strin
 export function forgetOrderAccess(orderId: string, now: number = Date.now()): void {
   const store = storage();
   if (!store || !orderId) return;
-  const f = orderFingerprint(orderId);
+  const f = orderAccessKey(orderId);
+  // Read straight before the write, as rememberOrderAccess: another tab's newer entries are kept.
   const entries = readEntries(store, now);
   const kept = entries.filter((entry) => entry.f !== f);
   // Nothing to forget and nothing expired: leave storage as it is.
