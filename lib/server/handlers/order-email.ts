@@ -20,7 +20,7 @@ import { lookupCustomerOrder, ORDER_NOT_FOUND, withWallet } from "./orders";
 
 /**
  * Changing a paid order's email (docs/architecture.md, "Buyer email checks";
- * supabase/migrations/20261127000000_order_email_changes.sql): the paying
+ * supabase/migrations/20261130000000_order_email_changes.sql): the paying
  * browser's one change, and support's.
  */
 

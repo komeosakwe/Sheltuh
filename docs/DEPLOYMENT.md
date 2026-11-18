@@ -596,11 +596,15 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       session expired. Apply `20261124000000_checkout_expiry_missing.sql`
       with it (also additive: the sweeper's cap on sessions Stripe says don't
       exist).
-- [ ] **Buyer email checks** (`20261127000000_order_email_changes.sql`,
+- [ ] **Buyer email checks** (`20261130000000_order_email_changes.sql`,
       docs/architecture.md "Buyer email checks"). Apply the migration
       **before** the code deploys: until it's there, email changes and
       `/admin/emails` fail (the confirmation page falls back to the masked
       email, with a warning logged once).
+      It sorts after `20261128000000`, `20261128000100` (organiser profile)
+      and `20261129000000` (event banner fit), which production already has
+      (it was written as `20261127000000` and renamed so it doesn't sort
+      before them; no project ran the old name).
       It's additive (a new private table and six functions; no existing
       table, column or function changes) and reversible (drop the functions,
       then the table, discarding the change log). After deploying, in test

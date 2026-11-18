@@ -570,7 +570,7 @@ by the order's own address.
 
 ### Buyer email changes
 
-`20261127000000_order_email_changes.sql` (docs/architecture.md, "Buyer
+`20261130000000_order_email_changes.sql` (docs/architecture.md, "Buyer
 email checks") logs every change of a paid order's email, both addresses
 masked. Support changes an order's email from `/admin/emails` (find it by the
 order's reference, then "Change email", with a reason), never in SQL: an

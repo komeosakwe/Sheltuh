@@ -22,7 +22,7 @@ import { googleWalletEnv } from "./helpers/wallet";
 import { googleWalletConfigFromEnv, type GoogleWalletConfig } from "@/lib/server/wallet/config";
 
 // Changing a paid order's email: the paying browser's one change and support's
-// (supabase/migrations/20261127000000_order_email_changes.sql, lib/server/handlers/order-email.ts).
+// (supabase/migrations/20261130000000_order_email_changes.sql, lib/server/handlers/order-email.ts).
 
 let api: TestApi;
 let reset: () => Promise<void>;

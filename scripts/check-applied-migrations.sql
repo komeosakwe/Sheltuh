@@ -255,7 +255,7 @@ select version, file, coalesce(applied, false) as applied
       exists (select 1 from fn where proname = 'finish_checkout_expiry' and 'p_max_missing' = any(proargnames))
       and exists (select 1 from pg_constraint where conname = 'checkout_expiry_checks_last_outcome_check'
                    and pg_get_constraintdef(oid) like '%missing%')),
-    ('20261127000000', 'order_email_changes',
+    ('20261130000000', 'order_email_changes',
       to_regclass('private.order_email_changes') is not null
       and to_regclass('private.order_email_changes_one_buyer_change') is not null
       and exists (select 1 from fn where proname = 'mask_email')

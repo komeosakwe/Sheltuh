@@ -64,7 +64,7 @@ let warnedMissing = false;
 
 /**
  * Whether `err` is the change log or its functions not existing yet (this
- * code deployed before 20261127000000_order_email_changes.sql), asked of the
+ * code deployed before 20261130000000_order_email_changes.sql), asked of the
  * catalogue; warned about once. The page then shows what it did before:
  * the masked address, and no change.
  */
@@ -82,7 +82,7 @@ async function changeLogMissing(db: Db, err: unknown): Promise<boolean> {
   }
   if (!warnedMissing) {
     warnedMissing = true;
-    console.warn("Buyer email changes: migration 20261127000000_order_email_changes.sql isn't applied; order pages show the masked email only until it is.");
+    console.warn("Buyer email changes: migration 20261130000000_order_email_changes.sql isn't applied; order pages show the masked email only until it is.");
   }
   return true;
 }
