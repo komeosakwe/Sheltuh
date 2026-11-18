@@ -609,6 +609,15 @@ h4 {
   font-size: 0.75rem;
   line-height: 1rem;
 }
+/* The phone drawer's three places (docs/design/navigation-search.md §2, the "Menu drawer / Mobile"
+   board): Instrument Sans Bold 40/48 at every width, as written (sentence case), never Bootzy. */
+@utility label-menu {
+  font-family: var(--face-sans);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  font-size: 2.5rem;
+  line-height: 3rem;
+}
 /* Mono/M and Mono/S keep the Type board's names, but no longer its face (owner decision,
    13 Nov 2026): Instrument Sans 400 as written, in sentence case and normal tracking, with
    tabular figures so dates, times and counts still line up. Machine codes use font-mono. */
@@ -789,6 +798,8 @@ h4 {
      2px underline in the text colour, so it doesn't rest on colour and small marks only. */
   /* "true": the section you're in, e.g. Discover on an event's page. */
   /* aria-selected: the seat page's Map / List tabs (docs/design/seating.md §5.4). */
+  /* data-current: the header's avatar while the page is one of its menu's (navigation-search.md §5.2). */
+  &[data-current],
   &[aria-selected="true"],
   &[aria-current="page"],
   &[aria-current="true"] {
@@ -797,6 +808,7 @@ h4 {
     text-decoration-thickness: 2px;
     text-underline-offset: var(--umlaut-offset, 4px);
   }
+  &[data-current]::before,
   &[aria-selected="true"]::before,
   &[aria-current="page"]::before,
   &[aria-current="true"]::before {
@@ -934,6 +946,41 @@ h4 {
   --umlaut-x: 0;
   &::before {
     top: 0.25rem;
+  }
+}
+
+/* The phone drawer's places (navigation-search.md §2, §5.3): the pair left of the word, at the
+   start of the link's 40px left padding (16px from the screen's edge) and centred on the line;
+   no underline, so the dots' shape carries the state (aria-current stays). As the "Menu drawer /
+   Mobile" board draws them: the brand's soft dots (DotsMark), 8px, 24px across. */
+@utility umlaut-side {
+  --umlaut-w: 24px;
+  --umlaut-h: 8px;
+  --umlaut-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 8'%3E%3Crect width='8' height='8' rx='2.5'/%3E%3Crect x='16' width='8' height='8' rx='2.5'/%3E%3C/svg%3E");
+  --umlaut-left: 0;
+  --umlaut-x: 0;
+  --umlaut-top: calc(50% - 4px);
+  --umlaut-line: none;
+}
+
+/* The phone drawer and the avatar menu fade in (navigation-search.md §6): opacity 0 to 1 over
+   150ms, also on the way out (display and overlay stay until it ends). Only for people who don't
+   prefer reduced motion: for them it appears at once. Where :popover-open isn't supported the
+   rules are dropped, so nothing is ever left transparent. */
+@utility popover-fade {
+  @media (prefers-reduced-motion: no-preference) {
+    transition-property: opacity, display, overlay;
+    transition-duration: 150ms;
+    transition-timing-function: ease-out;
+    transition-behavior: allow-discrete;
+    &:not(:popover-open) {
+      opacity: 0;
+    }
+    @starting-style {
+      &:popover-open {
+        opacity: 0;
+      }
+    }
   }
 }
 

@@ -384,8 +384,9 @@ describe("current page in the nav", () => {
     expect(item).toContain("--umlaut-w: 20px;");
     expect(item).toContain("--umlaut-h: 6px;");
     expect(item).toContain("--umlaut-offset: 12px;");
-    // Only the header's button, chip and avatar fill instead of underlining.
-    expect(css.match(/--umlaut-line: none;/g)).toHaveLength(3);
+    // Only the header's button, chip and avatar fill instead of underlining, and the phone drawer's
+    // places (umlaut-side, navigation-search.md §5.3) show the dots alone.
+    expect(css.match(/--umlaut-line: none;/g)).toHaveLength(4);
   });
 
   it("the desktop header is 72px from lg, 56px below (Round 2 §1.2)", () => {
