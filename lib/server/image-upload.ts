@@ -43,7 +43,8 @@ export async function readCappedBytes(req: Request, max: number): Promise<Uint8A
     if (done) break;
     total += value.length;
     if (total > max) {
-      await reader.cancel().catch(() => undefined);
+      // Best effort and not awaited: a source whose cleanup rejects or never settles mustn't hold up the 413.
+      void reader.cancel().catch(() => undefined);
       return null;
     }
     chunks.push(value);

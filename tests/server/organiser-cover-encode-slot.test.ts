@@ -49,7 +49,7 @@ describe("encodeCover's decode slot", () => {
       .png()
       .toBuffer();
 
-    let finishLarge!: (out: Buffer) => void;
+    let finishLarge: ((out: Buffer) => void) | undefined;
     let smallFailed!: () => void;
     const smallHasFailed = new Promise<void>((resolve) => (smallFailed = resolve));
     encodes.raw = (width) => {
@@ -59,30 +59,36 @@ describe("encodeCover's decode slot", () => {
       return Promise.reject(new Error("small encode failed"));
     };
 
-    // The cover takes one slot, a blocker the other; a third job queues for a turn.
-    let coverSettled = false;
-    const cover = encodeCover(png).finally(() => (coverSettled = true));
-    cover.catch(() => undefined);
-    let releaseBlocker!: () => void;
-    const blocker = inEncodeSlot(() => new Promise<void>((resolve) => (releaseBlocker = resolve)));
-    let queuedStarted = false;
-    const queued = inEncodeSlot(async () => {
-      queuedStarted = true;
-    });
+    let releaseBlocker: (() => void) | undefined;
+    try {
+      // The cover takes one slot, a blocker the other; a third job queues for a turn.
+      let coverSettled = false;
+      const cover = encodeCover(png).finally(() => (coverSettled = true));
+      cover.catch(() => undefined);
+      const blocker = inEncodeSlot(() => new Promise<void>((resolve) => (releaseBlocker = resolve)));
+      let queuedStarted = false;
+      const queued = inEncodeSlot(async () => {
+        queuedStarted = true;
+      });
 
-    await smallHasFailed;
-    await settle();
-    // The small encode has failed, the large one is still running: the slot is still held.
-    expect(coverSettled).toBe(false);
-    expect(queuedStarted).toBe(false);
+      await smallHasFailed;
+      await settle();
+      // The small encode has failed, the large one is still running: the slot is still held.
+      expect(coverSettled).toBe(false);
+      expect(queuedStarted).toBe(false);
 
-    finishLarge(Buffer.from("webp"));
-    await expect(cover).rejects.toThrow("small encode failed");
-    await queued;
-    expect(queuedStarted).toBe(true);
+      finishLarge?.(Buffer.from("webp"));
+      await expect(cover).rejects.toThrow("small encode failed");
+      await queued;
+      expect(queuedStarted).toBe(true);
 
-    releaseBlocker();
-    await blocker;
-    encodes.raw = undefined;
+      releaseBlocker?.();
+      await blocker;
+    } finally {
+      // Even when an assertion fails, release the test's pending work so no slot stays held.
+      finishLarge?.(Buffer.from("webp"));
+      releaseBlocker?.();
+      encodes.raw = undefined;
+    }
   });
 });
