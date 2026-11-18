@@ -222,7 +222,7 @@ describe("InviteForm", () => {
     expect(within(form).getByLabelText("Their email")).toHaveValue("mia@example.com");
     expect(within(form).getByLabelText("Organiser name")).toHaveValue("Neon Collective");
     signInAgain(form);
-    await waitFor(() => expect(auth.signIn).toHaveBeenCalledWith("admin@example.com", "pw"));
+    await waitFor(() => expect(auth.signIn).toHaveBeenCalledWith("admin@example.com", "pw", undefined));
     const send = within(form).getByRole("button", { name: "Send invite" });
     await waitFor(() => expect(send).toHaveFocus());
     expect(within(form).queryByLabelText("Password")).toBeNull();

@@ -107,7 +107,8 @@ test.describe("/checkout/pay Content Security Policy (Report-Only)", () => {
       "default-src 'self'",
       "'strict-dynamic'",
       "https://js.stripe.com",
-      "frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com https://checkout.stripe.com",
+      // Cloudflare Turnstile: the policy outlives a client-side navigation to /login's human check (lib/csp.ts).
+      "frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com https://checkout.stripe.com https://challenges.cloudflare.com",
       "connect-src 'self'",
       "object-src 'none'",
       "base-uri 'none'",
@@ -116,6 +117,7 @@ test.describe("/checkout/pay Content Security Policy (Report-Only)", () => {
       expect(policy).toContain(part);
     }
     expect(policy).toMatch(/script-src [^;]*'sha256-[A-Za-z0-9+/=]+'/);
+    expect(policy).toMatch(/script-src [^;]*https:\/\/challenges\.cloudflare\.com/);
 
     // Next put this request's nonce on its scripts (the page renders per request).
     const html = (await response?.text()) ?? "";
@@ -170,7 +172,18 @@ test.describe("/checkout/pay Content Security Policy (Report-Only)", () => {
 });
 
 test.describe("other pages don't get the payment page's policy", () => {
-  for (const path of ["/", "/events/neon-static", `/checkout/success?session_id=${ORDER_ID}`, "/checkout/confirm"]) {
+  // The email auth pages too: with Cloudflare Turnstile on (NEXT_PUBLIC_TURNSTILE_SITE_KEY), its script and
+  // iframe (https://challenges.cloudflare.com) load there, and this policy doesn't restrict either.
+  for (const path of [
+    "/",
+    "/events/neon-static",
+    `/checkout/success?session_id=${ORDER_ID}`,
+    "/checkout/confirm",
+    "/login",
+    "/signup",
+    "/forgot-password",
+    "/verify",
+  ]) {
     test(`${path}: only the site-wide frame-ancestors policy`, async ({ page }) => {
       await mockApi(page);
       const response = await page.request.get(path, { maxRedirects: 0 });

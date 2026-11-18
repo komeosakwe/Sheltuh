@@ -197,7 +197,7 @@ describe("Message someone on Who's Going", () => {
     expect(screen.queryByRole("link", { name: "Sign in" })).toBeNull();
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
-    await waitFor(() => expect(signIn).toHaveBeenCalledWith("sam@example.com", "pw"));
+    await waitFor(() => expect(signIn).toHaveBeenCalledWith("sam@example.com", "pw", undefined));
     await waitFor(() => expect(screen.queryByText(/Your session has expired/)).toBeNull());
     expect(box()).toHaveValue("Hi there");
     fireEvent.click(screen.getByRole("button", { name: "Send request" }));

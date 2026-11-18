@@ -4,12 +4,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState, type FormEvent } from "react";
 import AuthField, { fieldsForAuthError, useFocusAfterRender, type AuthErrorField } from "@/components/auth/AuthField";
+import HumanCheckField from "@/components/auth/HumanCheckField";
 import PasswordField from "@/components/auth/PasswordField";
 import { ArrowRightIcon } from "@/components/home/icons";
 import { Button } from "@/components/ui/Button";
 import { track } from "@/lib/analytics";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { oauthProviderNames, offeredOAuthProviders } from "@/lib/auth/oauth";
+import { HUMAN_CHECK_CANCELLED, useHumanCheck } from "@/lib/auth/useHumanCheck";
 import { DEFAULT_AFTER_SIGN_IN, safeNextPath, withNext } from "@/lib/safe-next-path";
 
 const FORM_ERROR_ID = "login-error";
@@ -51,6 +53,7 @@ export default function LoginForm({ next }: { next?: string } = {}) {
   const passwordRef = useRef<HTMLInputElement>(null);
   const focusAfterRender = useFocusAfterRender();
   const providers = offeredOAuthProviders(auth.configured);
+  const humanCheck = useHumanCheck("sign-in");
 
   if (!auth.configured) {
     return (
@@ -76,7 +79,10 @@ export default function LoginForm({ next }: { next?: string } = {}) {
     }
     setLoading(true);
     try {
-      await auth.signIn(email.trim(), password);
+      const token = await humanCheck.getToken();
+      // The form went while it waited: send nothing.
+      if (token === HUMAN_CHECK_CANCELLED) return;
+      await auth.signIn(email.trim(), password, token);
       track("signed_in", { signin_method: "password" });
       router.push(safeNextPath(next) ?? DEFAULT_AFTER_SIGN_IN);
     } catch (err) {
@@ -92,6 +98,8 @@ export default function LoginForm({ next }: { next?: string } = {}) {
       if (fields.includes("email")) focusAfterRender(emailRef.current);
       else if (fields.includes("password")) focusAfterRender(passwordRef.current);
     } finally {
+      // The token is used up either way.
+      humanCheck.reset();
       setLoading(false);
     }
   }
@@ -162,6 +170,7 @@ export default function LoginForm({ next }: { next?: string } = {}) {
           </>
         )}
       </Button>
+      <HumanCheckField check={humanCheck} />
     </form>
   );
 }

@@ -4,10 +4,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState, type FormEvent } from "react";
 import AuthField, { fieldsForAuthError, useFocusAfterRender, type AuthErrorField } from "@/components/auth/AuthField";
+import HumanCheckField from "@/components/auth/HumanCheckField";
 import PasswordField from "@/components/auth/PasswordField";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { emailError, passwordError } from "@/lib/auth/password-rules";
+import { HUMAN_CHECK_CANCELLED, useHumanCheck } from "@/lib/auth/useHumanCheck";
 import { withNext } from "@/lib/safe-next-path";
 
 const FORM_ERROR_ID = "reset-error";
@@ -34,6 +36,8 @@ export default function ForgotPasswordForm({ next }: { next?: string } = {}) {
   const codeRef = useRef<HTMLInputElement>(null);
   const newPasswordRef = useRef<HTMLInputElement>(null);
   const focusAfterRender = useFocusAfterRender();
+  // Only the request is guarded: confirming the code (verifyOtp) isn't.
+  const humanCheck = useHumanCheck("reset-password");
 
   if (!auth.configured) {
     return (
@@ -75,14 +79,23 @@ export default function ForgotPasswordForm({ next }: { next?: string } = {}) {
     if (loading) return;
     reset();
     if (invalid({ email: emailError(email) }, ["email"])) return;
+    // The address as submitted: the field stays editable while the human check runs.
+    const address = email.trim();
     setLoading(true);
     try {
-      await auth.forgotPassword(email.trim());
+      const token = await humanCheck.getToken();
+      // The form went while it waited: send nothing.
+      if (token === HUMAN_CHECK_CANCELLED) return;
+      await auth.forgotPassword(address, token);
+      // The confirm step says, and confirms, the address the code went to (not one typed since).
+      setEmail(address);
       setFieldErrors({});
       setStep("confirm");
     } catch (err) {
       showServerError(err instanceof Error ? err.message : "Couldn't send a reset code.", ["email"]);
     } finally {
+      // The token is used up either way.
+      humanCheck.reset();
       setLoading(false);
     }
   }
@@ -134,6 +147,7 @@ export default function ForgotPasswordForm({ next }: { next?: string } = {}) {
         <Button type="submit" busy={loading} className="w-full">
           {loading ? "Sending…" : "Send reset code"}
         </Button>
+        <HumanCheckField check={humanCheck} />
         <p className="text-sm text-muted">
           <Link href={withNext("/login", next)} className="text-accent underline underline-offset-2">
             Back to sign in
