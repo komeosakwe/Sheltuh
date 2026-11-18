@@ -7,6 +7,7 @@ import { ApiError } from "@/lib/api/client";
 import type { OrganiserRecord } from "@/lib/api/types";
 import { SessionExpiredError } from "@/lib/auth/session-token";
 import { ImageError } from "@/lib/image";
+import { callsTokenFirst, fakeAuthValue, FakeAuthProvider, switchableSession } from "./test-utils/fakeAuth";
 
 const uploadOrganiserCover = vi.fn();
 const deleteOrganiserCover = vi.fn();
@@ -47,11 +48,27 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-const getToken = vi.fn().mockResolvedValue("t");
 const withCover: OrganiserRecord = { ...RECORD, coverUrl: COVER_URL, coverSmallUrl: COVER_SMALL_URL };
+const OWNER = { userId: "user-1", email: "org@example.com" };
+const OTHER = { userId: "user-2", email: "other@example.com" };
 
-function renderField(record: OrganiserRecord = RECORD) {
-  return render(<OrganiserCoverField organiser={record} getToken={getToken} />);
+/** Mounted signed in as OWNER; the session can change under it (session.become) or be re-rendered as another account. */
+function renderField(record: OrganiserRecord = RECORD, session = switchableSession(OWNER)) {
+  const tree = (account: typeof OWNER) => (
+    <FakeAuthProvider value={fakeAuthValue({ status: "signed-in", ...account, ...session.auth })}>
+      <OrganiserCoverField organiser={record} />
+    </FakeAuthProvider>
+  );
+  const view = render(tree(OWNER));
+  return { ...view, renderAs: (account: typeof OWNER) => view.rerender(tree(account)) };
+}
+
+/** The token the given API mock's last call would send: its last argument is the token getter. */
+function sentToken(mock: ReturnType<typeof vi.fn>): Promise<string> {
+  const args = mock.mock.lastCall ?? [];
+  const getToken = args[args.length - 1];
+  if (typeof getToken !== "function") throw new Error("No token getter passed");
+  return (getToken as () => Promise<string>)();
 }
 
 function picker(): HTMLElement {
@@ -125,7 +142,8 @@ describe("OrganiserCoverField", () => {
     expect(busyRegion).toHaveAttribute("data-organiser-cover-body");
     expect(container.querySelector("[data-organiser-cover-field]")).toContainElement(busyRegion as HTMLElement);
     for (const status of screen.getAllByRole("status")) expect(busyRegion).not.toContainElement(status);
-    await waitFor(() => expect(uploadOrganiserCover).toHaveBeenCalledWith(PREPARED, getToken));
+    await waitFor(() => expect(uploadOrganiserCover).toHaveBeenCalledWith(PREPARED, expect.any(Function)));
+    await expect(sentToken(uploadOrganiserCover)).resolves.toBe("user-1-token");
     expect(prepareCoverImage).toHaveBeenCalledWith(file);
     expect(picker()).toHaveAttribute("aria-disabled", "true");
     pick(jpeg());
@@ -161,7 +179,8 @@ describe("OrganiserCoverField", () => {
     renderField(withCover);
     fireEvent.click(screen.getByRole("button", { name: "Remove cover photo" }));
     await waitFor(() => expect(statusText()).toContain("Cover photo removed."));
-    expect(deleteOrganiserCover).toHaveBeenCalledWith(getToken);
+    expect(deleteOrganiserCover).toHaveBeenCalledWith(expect.any(Function));
+    await expect(sentToken(deleteOrganiserCover)).resolves.toBe("user-1-token");
     expect(screen.getByText("No cover photo yet")).toBeInTheDocument();
     expect(picker()).toHaveFocus();
   });
@@ -189,5 +208,56 @@ describe("OrganiserCoverField", () => {
     renderField();
     pick(jpeg());
     expect(await screen.findByText(new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))).toBeInTheDocument();
+  });
+
+  describe("only ever as the account it was opened as", () => {
+    it("someone else signed in mid-upload (another tab, while the photo was being cropped): refused, never sent as them", async () => {
+      const session = switchableSession(OWNER);
+      const tokens: string[] = [];
+      prepareCoverImage.mockImplementation(async () => {
+        session.become(OTHER); // After the pick, before the upload asks for its token.
+        return { image: PREPARED, width: 2800 };
+      });
+      uploadOrganiserCover.mockImplementation(async (_image: Blob, getToken: () => Promise<string>) => {
+        tokens.push(await getToken());
+        return withCover;
+      });
+      renderField(RECORD, session);
+      pick(jpeg());
+      expect(await screen.findByRole("alert")).toHaveTextContent(SESSION_EXPIRED_MESSAGE);
+      expect(tokens).toEqual([]);
+      expect(session.auth.getAccessTokenFor).toHaveBeenCalledWith({ userId: OWNER.userId, email: OWNER.email });
+      expect(screen.getByText("No cover photo yet")).toBeInTheDocument();
+      expect(statusText()).toBe("");
+    });
+
+    it("someone else signed in mid-removal: refused, never sent as them", async () => {
+      const session = switchableSession(OWNER);
+      deleteOrganiserCover.mockImplementation((...args: unknown[]) => {
+        session.become(OTHER);
+        return callsTokenFirst(RECORD)(...args);
+      });
+      renderField(withCover, session);
+      fireEvent.click(screen.getByRole("button", { name: "Remove cover photo" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent(SESSION_EXPIRED_MESSAGE);
+      expect(screen.getByRole("img", { name: "Your cover photo" })).toBeInTheDocument();
+      expect(statusText()).toBe("");
+    });
+
+    it("already signed in as someone else when a photo is chosen or Remove pressed: refused without cropping or sending", () => {
+      const session = switchableSession(OWNER);
+      const { renderAs } = renderField(withCover, session);
+      session.become(OTHER);
+      renderAs(OTHER);
+      pick(jpeg());
+      expect(screen.getByRole("alert")).toHaveTextContent(SESSION_EXPIRED_MESSAGE);
+      expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/login?next=%2Fdashboard%2Fprofile");
+      fireEvent.click(screen.getByRole("button", { name: "Remove cover photo" }));
+      expect(screen.getByRole("alert")).toHaveTextContent(SESSION_EXPIRED_MESSAGE);
+      expect(prepareCoverImage).not.toHaveBeenCalled();
+      expect(uploadOrganiserCover).not.toHaveBeenCalled();
+      expect(deleteOrganiserCover).not.toHaveBeenCalled();
+      expect(session.auth.getAccessTokenFor).not.toHaveBeenCalled();
+    });
   });
 });

@@ -6,9 +6,11 @@ import { LOGO_TYPES, logoErrorMessage, logoFileError } from "@/components/dashbo
 import { Button, buttonClass } from "@/components/ui/Button";
 import { Notice } from "@/components/ui/Section";
 import ActionErrorNotice from "@/components/whos-going/ActionErrorNotice";
-import { ApiError, type GetToken } from "@/lib/api/client";
+import { SESSION_EXPIRED_MESSAGE } from "@/components/whos-going/shared";
+import { ApiError } from "@/lib/api/client";
 import { deleteOrganiserCover, uploadOrganiserCover } from "@/lib/api/organisers";
 import type { OrganiserRecord } from "@/lib/api/types";
+import { useAccountOwner } from "@/lib/auth/useAccountOwner";
 import { COVER_WIDTH_PX, prepareCoverImage } from "@/lib/image";
 
 const RETURN_TO = "/dashboard/profile";
@@ -53,14 +55,12 @@ type Busy = { kind: "upload"; preview: string } | { kind: "remove" } | null;
  * picker styled as a button and Remove. The chosen image is cropped in the
  * browser as the server will (lib/image.ts prepareCoverImage); if its crop is
  * narrower than 2240 px, a note after saving says it's been enlarged.
+ * Requests are made only as the account that was signed in when it mounted
+ * (useAccountOwner): if someone else has signed in since (another tab), the
+ * upload or removal is refused, never sent as them.
  */
-export default function OrganiserCoverField({
-  organiser,
-  getToken,
-}: {
-  organiser: OrganiserRecord;
-  getToken: GetToken;
-}) {
+export default function OrganiserCoverField({ organiser }: { organiser: OrganiserRecord }) {
+  const { otherAccount, getOwnerToken } = useAccountOwner();
   const inputRef = useRef<HTMLInputElement>(null);
   const [cover, setCover] = useState({ url: organiser.coverUrl, smallUrl: organiser.coverSmallUrl });
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
@@ -87,11 +87,16 @@ export default function OrganiserCoverField({
       setError(invalid);
       return;
     }
+    if (otherAccount) {
+      // Signed in as someone else now (another tab): refused, never sent as them.
+      setError(SESSION_EXPIRED_MESSAGE);
+      return;
+    }
     setBusy({ kind: "upload", preview: URL.createObjectURL(file) });
     setStatus("Uploading your cover photo…");
     try {
       const prepared = await prepareCoverImage(file);
-      const updated = await uploadOrganiserCover(prepared.image, getToken);
+      const updated = await uploadOrganiserCover(prepared.image, getOwnerToken);
       setCover({ url: updated.coverUrl, smallUrl: updated.coverSmallUrl });
       const narrow = prepared.width !== null && prepared.width < COVER_WIDTH_PX ? prepared.width : null;
       setNarrowWidth(narrow);
@@ -112,10 +117,16 @@ export default function OrganiserCoverField({
     if (busy) return;
     setError(null);
     setNarrowWidth(null);
+    setStatus("");
+    if (otherAccount) {
+      // Signed in as someone else now (another tab): refused, never sent as them.
+      setError(SESSION_EXPIRED_MESSAGE);
+      return;
+    }
     setBusy({ kind: "remove" });
     setStatus("Removing your cover photo…");
     try {
-      const updated = await deleteOrganiserCover(getToken);
+      const updated = await deleteOrganiserCover(getOwnerToken);
       setCover({ url: updated.coverUrl, smallUrl: updated.coverSmallUrl });
       setStatus("Cover photo removed.");
       // The Remove button has gone: focus goes back to the picker.

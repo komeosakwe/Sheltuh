@@ -6,7 +6,6 @@ import OrganiserLogoField from "@/components/dashboard/OrganiserLogoField";
 import OrganiserTagsField from "@/components/dashboard/OrganiserTagsField";
 import PublicProfileForm from "@/components/dashboard/PublicProfileForm";
 import { ButtonLink } from "@/components/ui/Button";
-import type { GetToken } from "@/lib/api/client";
 import type { OrganiserRecord } from "@/lib/api/types";
 import { accountKey } from "@/lib/auth/account";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -44,7 +43,7 @@ export default function PublicProfilePanel() {
     );
   }
 
-  if (editing?.value) return <ProfileEditor key={editing.account} organiser={editing.value} getToken={auth.getAccessToken} />;
+  if (editing?.value) return <ProfileEditor key={editing.account} organiser={editing.value} />;
 
   if (auth.status === "loading" || loading) {
     return (
@@ -91,11 +90,11 @@ export default function PublicProfilePanel() {
     );
   }
 
-  return <ProfileEditor key={accountKey(auth) ?? ""} organiser={organiser} getToken={auth.getAccessToken} />;
+  return <ProfileEditor key={accountKey(auth) ?? ""} organiser={organiser} />;
 }
 
 /** One component wherever it's shown from, so the form is never remounted (losing edits). */
-function ProfileEditor({ organiser, getToken }: { organiser: OrganiserRecord; getToken: GetToken }) {
+function ProfileEditor({ organiser }: { organiser: OrganiserRecord }) {
   const profileHref = `/organisers/${encodeURIComponent(organiser.organiserId)}`;
 
   return (
@@ -109,8 +108,8 @@ function ProfileEditor({ organiser, getToken }: { organiser: OrganiserRecord; ge
         </ButtonLink>
       </div>
       {/* In the public profile's order: cover, logo, categories, then the rest. */}
-      <OrganiserCoverField organiser={organiser} getToken={getToken} />
-      <OrganiserLogoField organiser={organiser} getToken={getToken} />
+      <OrganiserCoverField organiser={organiser} />
+      <OrganiserLogoField organiser={organiser} />
       <OrganiserTagsField organiser={organiser} />
       <PublicProfileForm organiser={organiser} />
     </div>
