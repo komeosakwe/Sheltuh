@@ -127,7 +127,7 @@ test.describe("phone drawer at 390px", () => {
     await expect(identity).toHaveAttribute("href", "/members/p-latte");
     await expect(site.getByRole("link", { name: SAVED })).toBeVisible({ timeout: 30_000 });
     for (const name of ["My tickets", SAVED, MESSAGES]) {
-      expect(Math.round((await site.getByRole("link", { name }).boundingBox())?.height ?? 0), name).toBe(64);
+      expect(Math.round((await site.getByRole("link", { name }).boundingBox())?.height ?? 0), String(name)).toBe(64);
     }
     await expect(site.getByRole("link", { name: "Your events" })).toHaveCount(0);
     expect(Math.round((await site.getByRole("link", { name: "For organisers" }).boundingBox())?.height ?? 0)).toBe(56);
