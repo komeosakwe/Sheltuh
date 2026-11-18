@@ -441,7 +441,7 @@ inner `data-organiser-cover-body` that's `aria-busy` while busy; the status line
 
 4. **Hint:** `<p id="organiser-cover-hint" className="max-w-xl text-xs text-muted">`. The rules, then the rights:
    "JPEG, PNG or WebP, cropped to a wide 7:2 strip. 2240 × 640 px or larger looks sharpest; phones show the clear
-   middle. Only upload a photo you have the rights to use."
+   middle. Camera and location data is removed. Only upload a photo you have the rights to use."
 
 5. **Uploading:** `DotsLoader label="Uploading"`.
 

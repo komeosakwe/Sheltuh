@@ -212,7 +212,7 @@ export default function OrganiserCoverField({
         </div>
         <p id="organiser-cover-hint" className="max-w-xl text-xs text-muted">
           JPEG, PNG or WebP, cropped to a wide 7:2 strip. 2240 &times; 640 px or larger looks sharpest; phones show the
-          clear middle. Only upload a photo you have the rights to use.
+          clear middle. Camera and location data is removed. Only upload a photo you have the rights to use.
         </p>
         {busy?.kind === "upload" && <DotsLoader label="Uploading" />}
         {narrowWidth !== null && <Notice tone="info">{narrowCoverWarning(narrowWidth)}</Notice>}

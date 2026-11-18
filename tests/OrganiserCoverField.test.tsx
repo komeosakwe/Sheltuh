@@ -83,7 +83,7 @@ describe("OrganiserCoverField", () => {
     expect(input).toHaveAccessibleName("Cover photo (optional) Choose a cover photo");
     // The rules, then the rights, and nothing else.
     expect(input).toHaveAccessibleDescription(
-      "JPEG, PNG or WebP, cropped to a wide 7:2 strip. 2240 × 640 px or larger looks sharpest; phones show the clear middle. Only upload a photo you have the rights to use.",
+      "JPEG, PNG or WebP, cropped to a wide 7:2 strip. 2240 × 640 px or larger looks sharpest; phones show the clear middle. Camera and location data is removed. Only upload a photo you have the rights to use.",
     );
     // A full-width button on phones.
     expect(screen.getByText("Choose a cover photo")).toHaveClass("max-sm:w-full");
