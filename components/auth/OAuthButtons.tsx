@@ -61,7 +61,9 @@ function Logo({ file, className }: { file: string; className: string }) {
  * `placement`: "above" (the default; /signup and the invite) puts the pair,
  * their privacy line and the "or" divider before the email form; "below"
  * (/login, the redesign's sign-in mock) puts the "Or continue with" divider,
- * then the pair and their privacy line, after it.
+ * then the pair and their privacy line, after it. `legal={false}` leaves their
+ * privacy line out, for a page that says AgreeNote once (/login, /signup).
+ * 16px apart on phones, 24px from 640px.
  *
  * A click leaves for the provider (AuthContext's signInWithProvider), which
  * comes back to /auth/callback with `next`. Until then both buttons are
@@ -83,7 +85,16 @@ export const BUSY_RETURN_GRACE_MS = 1500;
  * closed, which tells the page nothing): the buttons work again. A real redirect is gone by then. */
 export const BUSY_TIMEOUT_MS = 4_000;
 
-export default function OAuthButtons({ next, placement = "above" }: { next?: string; placement?: "above" | "below" }) {
+export default function OAuthButtons({
+  next,
+  placement = "above",
+  legal = true,
+}: {
+  next?: string;
+  placement?: "above" | "below";
+  /** False: no line of their own under the buttons (the page says AgreeNote once, /login and /signup). */
+  legal?: boolean;
+}) {
   const auth = useAuth();
   const providers = offeredOAuthProviders(auth.configured);
   const [status, setStatus] = useState<Status | null>(null);
@@ -232,7 +243,7 @@ export default function OAuthButtons({ next, placement = "above" }: { next?: str
     </div>
   );
 
-  const legal = (
+  const legalNote = legal && (
     <LegalNote
       lead={`Continuing with ${oauthProviderNames(providers, ["apple", "google"])} signs you in, or creates an account if you’re new. How we handle your details:`}
     />
@@ -240,18 +251,18 @@ export default function OAuthButtons({ next, placement = "above" }: { next?: str
 
   if (placement === "below") {
     return (
-      <div className={`${roboto.variable} flex flex-col gap-6`}>
+      <div className={`${roboto.variable} flex flex-col gap-4 sm:gap-6`}>
         <Divider label="Or continue with" />
         {pair}
-        {legal}
+        {legalNote}
       </div>
     );
   }
 
   return (
-    <div className={`${roboto.variable} flex flex-col gap-6`}>
+    <div className={`${roboto.variable} flex flex-col gap-4 sm:gap-6`}>
       {pair}
-      {legal}
+      {legalNote}
       <Divider label="or" />
     </div>
   );

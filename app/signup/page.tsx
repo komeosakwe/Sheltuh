@@ -10,9 +10,9 @@ export default async function SignupPage({ searchParams }: PageProps<"/signup">)
   const next = Array.isArray(raw) ? raw[0] : raw;
   return (
     <AuthShell title="Create an account">
-      {/* Apple and Google (when enabled), their privacy line and the "or" divider. */}
-      <OAuthButtons next={next} />
-      {/* The privacy line is inside the form, above Sign up. */}
+      {/* Apple and Google (when enabled) and the "or" divider: their labels say what they do. */}
+      <OAuthButtons next={next} legal={false} />
+      {/* The page's one privacy line is inside the form, under Sign up. */}
       <SignupForm next={next} />
     </AuthShell>
   );

@@ -51,10 +51,12 @@ describe("/login (the sign-in mock)", () => {
     const wordmark = container.querySelector("svg[aria-hidden='true']");
     expect(wordmark).not.toBeNull();
     expect(follows(wordmark as Element, h1)).toBe(true);
+    // Round 2: not on phones (the header shows the mark), so Apple and Google fit the first screen.
+    expect(wordmark).toHaveClass("hidden", "sm:block");
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
   });
 
-  it("in the mock's order: email, Continue, Or continue with, the buttons, their line, then Create an account and Find my tickets", async () => {
+  it("in the mock's order: email, Continue, Or continue with, the buttons, the one privacy line, then Create an account and Find my tickets", async () => {
     await renderLogin();
     const order = [
       screen.getByRole("heading", { level: 1 }),
@@ -63,7 +65,7 @@ describe("/login (the sign-in mock)", () => {
       screen.getByText("Or continue with"),
       screen.getByRole("button", { name: "Continue with Apple" }),
       screen.getByRole("button", { name: "Continue with Google" }),
-      screen.getByText(/^Continuing with Apple or Google signs you in/),
+      screen.getByText(/^By continuing you agree to the/),
       screen.getByRole("link", { name: "Create an account" }),
       screen.getByRole("link", { name: "Find my tickets" }),
     ];
@@ -81,13 +83,14 @@ describe("/login (the sign-in mock)", () => {
   it("the card fits its content (Round 2): 480px at most, 40px padding from 1024px (32px above and below under it), the h1 24/32 then 32/40, groups 24px apart", async () => {
     const { container } = await renderLogin();
     const card = container.querySelector("[data-auth-card]");
-    expect(card).toHaveClass("max-w-120", "py-8", "lg:p-10");
+    // Phones (Round 2, the owner's iPhone screenshot): 24px above and below, groups 20px apart.
+    expect(card).toHaveClass("max-w-120", "py-6", "sm:py-8", "lg:p-10");
     expect(card?.className).not.toMatch(/\bmd:max-w-|\bh-\d|\bmin-h-/);
     expect(screen.getByRole("heading", { level: 1 })).toHaveClass("heading-section-l");
     expect(screen.getByRole("heading", { level: 1 })).not.toHaveClass("heading-xl");
     // The page's own groups (form, social, links): 24px apart, 24px below the heading.
     const groups = card?.lastElementChild;
-    expect(groups).toHaveClass("mt-6", "flex", "flex-col", "gap-6");
+    expect(groups).toHaveClass("mt-5", "sm:mt-6", "flex", "flex-col", "gap-5", "sm:gap-6");
     // Fields: the label 14/20 Medium, 8px above its field; 16px between fields and Continue.
     const label = (screen.getByLabelText("Email") as HTMLInputElement).labels?.[0];
     expect(label).toHaveClass("body-s", "font-medium");
@@ -147,7 +150,7 @@ describe("the other account pages share the frame", () => {
     expect(screen.getByText("Account")).toBeInTheDocument();
     expect(photoSrc(container)).toContain(AUTH_PHOTO);
     // The same fitted card, and its fields' 14/20 labels 8px above them, 16px apart.
-    expect(container.querySelector("[data-auth-card]")).toHaveClass("max-w-120", "py-8", "lg:p-10");
+    expect(container.querySelector("[data-auth-card]")).toHaveClass("max-w-120", "py-6", "sm:py-8", "lg:p-10");
     // A field whose label stands alone (no "Forgot password?" row beside it): its wrapper is the 8px gap.
     const label = Array.from(container.querySelectorAll("form label")).find((el) => !el.parentElement?.classList.contains("justify-between"));
     expect(label).toHaveClass("body-s", "font-medium");
