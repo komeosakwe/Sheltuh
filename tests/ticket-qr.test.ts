@@ -1,38 +1,55 @@
 import { describe, expect, it } from "vitest";
-import { QR_QUIET_ZONE_MODULES, ticketQrLabel, ticketQrMatrix, ticketQrSvgPath } from "@/lib/ticket-qr";
+import {
+  centredSquare,
+  clearSquare,
+  QR_LOGO_CLEAR_MODULES,
+  QR_LOGO_MARK_MODULES,
+  QR_LOGO_MAX_MODULES,
+  QR_QUIET_ZONE_MODULES,
+  qrFunctionModules,
+  squareHitsFunctionPatterns,
+  ticketQrLabel,
+  ticketQrMatrix,
+  ticketQrSvgPath,
+  ticketQrSymbol,
+} from "@/lib/ticket-qr";
 
 /*
- * There's no QR decoder among the project's dependencies, so these tests
- * check the symbol against the QR standard (ISO/IEC 18004) structurally, and
- * pin one known-good matrix. That golden matrix, and over a thousand random
- * codes, were decoded to `SH1:<code>` at level Q by two independent decoders
- * (jsQR and ZXing) in a one-off script when the encoder was vendored
- * (lib/qr/qrcodegen.ts). If the golden test fails, the encoder's output has
- * changed: re-verify it with a decoder before updating it.
+ * These tests check the symbol against the QR standard (ISO/IEC 18004)
+ * structurally, and pin one known-good matrix. That golden matrix (level H,
+ * version 2, since the centre ü: docs/design/ticket-email.md §6) decodes to
+ * `SH1:7KQM-2HXD` with ZXing, and tests/ticket-qr-decode.test.ts decodes
+ * every image the email and the ticket page draw. If the golden test fails,
+ * the encoder's output has changed: re-verify it with a decoder before
+ * updating it.
  */
 
 const GOLDEN_7KQM_2HXD = [
-  "#######.##.##.#######",
-  "#.....#.#####.#.....#",
-  "#.###.#.##.##.#.###.#",
-  "#.###.#.#.#...#.###.#",
-  "#.###.#.##.#..#.###.#",
-  "#.....#..#....#.....#",
-  "#######.#.#.#.#######",
-  "........###..........",
-  ".##.#.##..##..#.#####",
-  "..##....##.###.###...",
-  "#.#..##.##.###.##.##.",
-  "####.....##.#.#.###.#",
-  ".....##.#..#..####.#.",
-  "........####....##.#.",
-  "#######.#.###...#..#.",
-  "#.....#.....###.#..##",
-  "#.###.#.#..#..#######",
-  "#.###.#..#.#.#.#.#.#.",
-  "#.###.#.#..#..####..#",
-  "#.....#.##.###....###",
-  "#######..#.#..###...#",
+  "#######...##.#.##.#######",
+  "#.....#...#.....#.#.....#",
+  "#.###.#...#.#...#.#.###.#",
+  "#.###.#..####.##..#.###.#",
+  "#.###.#.#.##.#.##.#.###.#",
+  "#.....#..#.##.#...#.....#",
+  "#######.#.#.#.#.#.#######",
+  "........##..##.##........",
+  "..##..###.#########.#....",
+  "##..#.....#....##.#.##.#.",
+  "...##.#.#.##..##.#....###",
+  ".#...#.##..#.###.....##..",
+  ".###..#######..##.#.....#",
+  "..####.#...##.#..#.#.....",
+  ".#..#.#.##..#.#..##.##.##",
+  "#.##.#..#....###......##.",
+  "..#...##..##.#..#####.#.#",
+  "........#..#.#..#...###..",
+  "#######.##.#.#.##.#.#..#.",
+  "#.....#....##.###...##.##",
+  "#.###.#..#....#######.##.",
+  "#.###.#.######.###..#...#",
+  "#.###.#.######.###.#####.",
+  "#.....#......####...#.#.#",
+  "#######..#.###.#.###..#.#",
 ];
 
 const toRows = (m: boolean[][]) => m.map((row) => row.map((d) => (d ? "#" : ".")).join(""));
@@ -96,26 +113,30 @@ describe("ticketQrMatrix", () => {
   });
 
   it.each(["7KQM-2HXD", "AAAA-AAAA", "9999-9999", "ZZZZ-2222", "ABCD-EFGH"])(
-    "%s: a version 1 symbol (21 × 21) with finders, timing and level Q format information",
+    "%s: a version 2 symbol (25 × 25) with finders, timing, the alignment pattern and level H format information",
     (code) => {
       const m = ticketQrMatrix(code)!;
-      expect(m).toHaveLength(21);
-      for (const row of m) expect(row).toHaveLength(21);
+      expect(m).toHaveLength(25);
+      for (const row of m) expect(row).toHaveLength(25);
       expect(hasFinder(m, 0, 0)).toBe(true);
-      expect(hasFinder(m, 14, 0)).toBe(true);
-      expect(hasFinder(m, 0, 14)).toBe(true);
-      for (let i = 8; i <= 12; i++) {
+      expect(hasFinder(m, 18, 0)).toBe(true);
+      expect(hasFinder(m, 0, 18)).toBe(true);
+      for (let i = 8; i <= 16; i++) {
         expect(m[6][i]).toBe(i % 2 === 0); // timing patterns
         expect(m[i][6]).toBe(i % 2 === 0);
       }
-      expect(m[13][8]).toBe(true); // the always-dark module (4V + 9, 8)
+      // Version 2's alignment pattern, centred at (18, 18): dark ring, light ring, dark centre.
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) expect(m[18 + dy][18 + dx]).toBe(Math.max(Math.abs(dx), Math.abs(dy)) !== 1);
+      }
+      expect(m[17][8]).toBe(true); // the always-dark module (8, 4V + 9)
 
       const raw = formatBitsTopLeft(m);
       expect(formatBitsSecond(m)).toBe(raw);
       const format = raw ^ 0x5412;
       const data5 = format >>> 10;
       expect(bchFormat(data5)).toBe(format); // a valid codeword, not noise
-      expect(data5 >>> 3).toBe(0b11); // error correction level Q
+      expect(data5 >>> 3).toBe(0b10); // error correction level H
     },
   );
 
@@ -148,17 +169,68 @@ describe("ticketQrMatrix", () => {
   });
 });
 
+describe("ticketQrSymbol (the centre ü's cleared area)", () => {
+  it("clears the centre 7 × 7 modules (rows and columns 9 to 15) and keeps every other module", () => {
+    const plain = ticketQrMatrix("7KQM-2HXD")!;
+    const symbol = ticketQrSymbol("7KQM-2HXD")!;
+    expect([QR_LOGO_CLEAR_MODULES, QR_LOGO_MARK_MODULES, QR_LOGO_MAX_MODULES]).toEqual([7, 5, 9]);
+    expect(symbol.logo).toEqual({ start: 9, size: 7 });
+    expect(symbol.mark).toEqual({ start: 10, size: 5 }); // a 1-module light pad all round
+    for (let y = 0; y < 25; y++) {
+      for (let x = 0; x < 25; x++) {
+        const inLogo = x >= 9 && x <= 15 && y >= 9 && y <= 15;
+        expect(symbol.matrix[y][x]).toBe(inLogo ? false : plain[y][x]);
+      }
+    }
+    // 49 of 625 modules: 7.8% of the symbol, well under the 13% ceiling (9 × 9).
+    expect((7 * 7) / (25 * 25)).toBeCloseTo(0.078, 3);
+  });
+
+  it("never touches a function pattern: finders, separators, timing, the alignment pattern or format information", () => {
+    const fn = qrFunctionModules(25);
+    // Spot checks of the function-pattern map itself.
+    for (const [x, y] of [[0, 0], [7, 7], [24, 0], [17, 7], [0, 24], [7, 17], [12, 6], [6, 12], [16, 16], [20, 20], [8, 3], [3, 8], [8, 17], [20, 8]]) {
+      expect(fn[y][x], `${x},${y}`).toBe(true);
+    }
+    for (const [x, y] of [[9, 9], [15, 15], [12, 12], [15, 9], [9, 15], [21, 21], [10, 22]]) expect(fn[y][x], `${x},${y}`).toBe(false);
+    expect(squareHitsFunctionPatterns(25, ticketQrSymbol("7KQM-2HXD")!.logo)).toBe(false);
+    // 7 × 7 is the largest centred square that does: 9 × 9 (the ceiling) already reaches the format
+    // information at (8, 8) and the alignment pattern at (16, 16); 13 × 13 the timing patterns too.
+    expect(squareHitsFunctionPatterns(25, centredSquare(25, 9))).toBe(true);
+    expect(squareHitsFunctionPatterns(25, centredSquare(25, 13))).toBe(true);
+  });
+
+  it("clearSquare copies; the plain matrix is untouched", () => {
+    const plain = ticketQrMatrix("ABCD-EFGH")!;
+    const before = toRows(plain);
+    const cleared = clearSquare(plain, { start: 9, size: 7 });
+    expect(toRows(plain)).toEqual(before);
+    expect(cleared[12].slice(9, 16).every((dark) => !dark)).toBe(true);
+  });
+
+  it("is null for a code that isn't a real one", () => {
+    expect(ticketQrSymbol("7kqm-2hxd")).toBeNull();
+    expect(ticketQrSymbol("")).toBeNull();
+  });
+
+  it("centredSquare refuses a side that can't be centred exactly", () => {
+    expect(() => centredSquare(25, 8)).toThrow(RangeError);
+    expect(() => centredSquare(25, 27)).toThrow(RangeError);
+    expect(() => qrFunctionModules(24)).toThrow(RangeError);
+  });
+});
+
 describe("ticketQrSvgPath", () => {
   it("draws exactly the dark modules, offset by a 4-module quiet zone, on whole units", () => {
     const m = ticketQrMatrix("7KQM-2HXD")!;
     const { d, size } = ticketQrSvgPath(m);
     expect(QR_QUIET_ZONE_MODULES).toBe(4);
-    expect(size).toBe(29);
+    expect(size).toBe(33);
     expect(d).toMatch(/^M4 4h7v1h-7z/); // top-left finder's first row
     const grid = rasterise(d, size);
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
-        const inside = y >= 4 && y < 25 && x >= 4 && x < 25;
+        const inside = y >= 4 && y < 29 && x >= 4 && x < 29;
         expect(grid[y][x]).toBe(inside ? m[y - 4][x - 4] : false);
       }
     }

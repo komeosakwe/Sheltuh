@@ -40,9 +40,9 @@ async function stubApi(page: Page, order: unknown) {
 }
 
 const VIEWPORTS = [
-  { name: "320px phone", width: 320, height: 568, plate: 203 },
-  { name: "375px phone", width: 375, height: 667, plate: 232 },
-  { name: "desktop", width: 1280, height: 800, plate: 232 },
+  { name: "320px phone", width: 320, height: 568, plate: 231 },
+  { name: "375px phone", width: 375, height: 667, plate: 264 },
+  { name: "desktop", width: 1280, height: 800, plate: 264 },
 ];
 
 for (const vp of VIEWPORTS) {
@@ -70,8 +70,13 @@ for (const vp of VIEWPORTS) {
       expect(box?.height).toBeCloseTo(vp.plate, 0);
       // Black modules on a white plate, whatever the page colours.
       expect(await qr.locator("rect").getAttribute("fill")).toBe("#ffffff");
-      expect(await qr.locator("path").getAttribute("fill")).toBe("#000000");
-      expect(await qr.locator("path").evaluate((el) => getComputedStyle(el).fill)).toBe("rgb(0, 0, 0)");
+      // The modules and the centre ü (docs/design/ticket-email.md §6), both black.
+      const modules = qr.locator('path[data-qr="modules"]');
+      expect(await modules.getAttribute("fill")).toBe("#000000");
+      expect(await modules.evaluate((el) => getComputedStyle(el).fill)).toBe("rgb(0, 0, 0)");
+      const mark = qr.locator('svg[data-qr="mark"] path');
+      await expect(mark).toHaveCount(1);
+      expect(await mark.evaluate((el) => getComputedStyle(el).fill)).toBe("rgb(0, 0, 0)");
       expect(await qr.locator("rect").evaluate((el) => getComputedStyle(el).fill)).toBe("rgb(255, 255, 255)");
     }
     await expect(page.getByText("Turn your brightness up at the door.")).toHaveCount(2);

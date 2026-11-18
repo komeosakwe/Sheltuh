@@ -628,9 +628,13 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
      (`EMAIL_FOOTER_IMAGE_URL`, https://sheltuh.com.au/sheltuh_email_signature_logo.png) is the only
      remote image: the same for everyone, no order data. Each
      ticket whose code matches `TICKET_CODE_PATTERN` gets a QR code
-     (`SH1:` + code, level Q, version 1: `lib/ticket-qr.ts` over the vendored
-     encoder `lib/qr/qrcodegen.ts`) as a 1-bit PNG (`lib/server/png.ts`, about
-     300 bytes, 348 px shown at 174 px) attached inline (`cid:`, a
+     (`SH1:` + code, level H, version 2, the centre 7 × 7 modules cleared for
+     the brand's ü: `ticketQrSymbol` in `lib/ticket-qr.ts` over the vendored
+     encoder `lib/qr/qrcodegen.ts`, the same symbol the ticket page's
+     `TicketQr` draws; docs/design/ticket-email.md §6) as a 1-bit PNG with
+     the ü composited in (`lib/server/qr-image.ts`, 528 px shown at 264 px;
+     `tests/ticket-qr-decode.test.tsx` decodes it with ZXing at every shown
+     size) attached inline (`cid:`, a
      multipart/related part, `EmailMessage.inlineImages`, named
      `ticket-<n>-qr.png`, never after the code), so it shows even where
      remote images are blocked. Alt text names the ticket and points at the
@@ -5904,8 +5908,9 @@ QR carrying exactly the existing payload (`ticketQrPayload`: `SH1:` + code;
 none for a code that isn't canonical, as the email) with the code as its
 alternate text, and the order's short reference. Nothing about the buyer:
 no email, name or order id. Both wallets draw their own QR from the
-payload, so the symbol may differ from the email's (level Q) but scans to
-the same text, which check-in already accepts. Ivory background, black
+payload, so the symbol differs from the email's (level H with the centre
+ü; the wallets can't carry a logo) but scans to the same text, which
+check-in already accepts. Ivory background, black
 text, Signal Orange only as a fill (`lib/server/wallet/brand.ts`); images in
 `public/wallet/` (`scripts/render-wallet-images.ts`).
 

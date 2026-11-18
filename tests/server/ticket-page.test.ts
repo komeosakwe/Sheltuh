@@ -4,7 +4,7 @@ import { checkInTicket, undoCheckIn } from "@/lib/server/handlers/check-ins";
 import { confirmFreeOrder } from "@/lib/server/handlers/free-orders";
 import { createCheckout, getOrderBySession, stripeWebhook } from "@/lib/server/handlers/orders";
 import type { EmailMessage } from "@/lib/server/email";
-import { encodePng } from "@/lib/server/png";
+import { ticketQrPng } from "@/lib/server/qr-image";
 import { orderReference, ticketPageLink } from "@/lib/server/ticket-email";
 import type { EventRecord } from "@/lib/server/types";
 import { TICKET_CODE_PATTERN } from "@/lib/ticket-code";
@@ -141,8 +141,8 @@ async function expectDistinctTicketsAndQrs(orderId: string, count: number) {
   expect(qrs).toHaveLength(count);
   for (const [i, code] of codes.entries()) {
     // The email's QR for ticket n is ticket n's code, in the same order as the page.
-    // 16 px a module, 4-module quiet zone (lib/server/ticket-email.ts).
-    expect(qrs[i].content.equals(encodePng(ticketQrMatrix(code)!, 16, 4))).toBe(true);
+    // 16 px a module, 4-module quiet zone, the centre ü (lib/server/qr-image.ts).
+    expect(qrs[i].content.equals(ticketQrPng(code)!.png)).toBe(true);
     expect(email.html).toContain(`>${code}</td>`);
     expect(email.text).toContain(`Entry code: ${code}`);
   }

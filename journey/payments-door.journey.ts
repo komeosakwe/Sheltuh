@@ -2,10 +2,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { calculateBookingFeeCents } from "@/lib/fees";
 import { WORDMARK_CID } from "@/lib/server/email-layout";
 import { ticketQrPayload } from "@/lib/ticket-code";
-import { ticketQrMatrix } from "@/lib/ticket-qr";
 import { buyTickets, checkout, organiserWithPayouts, pay, publishedEvent, scan, sendAndLoseResponse, type Organiser } from "./harness/flows";
 import { journeyEnabled, startJourney, type Journey, type User } from "./harness";
-import { parseMail, qrModulesFromPng } from "./harness/smtp-sink";
+import { decodeQrImage } from "../tests/test-utils/qr-decode";
+import { parseMail } from "./harness/smtp-sink";
 
 /*
  * Payments and the door, end to end over HTTP (docs/testing.md, layer b):
@@ -98,13 +98,15 @@ describe.skipIf(!journeyEnabled)("payments and the door (journey harness)", () =
       expect(html).toContain(code);
       expect(text).toContain(code);
     }
-    // Each inline QR, read back from its pixels, is exactly the QR of one issued code (the success page draws
-    // the same matrix, lib/ticket-qr.ts): one per ticket, none for anything else.
-    const decoded = images.map((img) => {
-      expect(html).toContain(`cid:${img.contentId}`);
-      return JSON.stringify(qrModulesFromPng(img.body));
-    });
-    expect(decoded.sort()).toEqual(codes.map((c) => JSON.stringify(ticketQrMatrix(c))).sort());
+    // Each inline QR, as delivered, decodes (ZXing, centre ü and all) to exactly one issued code's payload
+    // (the success page draws the same symbol, lib/ticket-qr.ts): one per ticket, none for anything else.
+    const decoded = await Promise.all(
+      images.map(async (img) => {
+        expect(html).toContain(`cid:${img.contentId}`);
+        return (await decodeQrImage(img.body)).join(",");
+      }),
+    );
+    expect(decoded.sort()).toEqual(codes.map((c) => ticketQrPayload(c)).sort());
 
     // A redelivery issues nothing more and sends no second email.
     expect((await j.webhook(completed)).status).toBe(200);

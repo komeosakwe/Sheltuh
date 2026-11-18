@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { mailOptions } from "@/lib/server/email";
 import { EMAIL_COLOURS, EMAIL_FOOTER_IMAGE_HEIGHT, EMAIL_FOOTER_IMAGE_WIDTH, emailFooterImageUrl } from "@/lib/server/email-layout";
 import { EMAIL_WORDMARK } from "@/lib/server/email-wordmark";
-import { encodePng } from "@/lib/server/png";
+import { ticketQrPng } from "@/lib/server/qr-image";
 import {
   buildTicketEmail,
   eventImageEmailUrl,
@@ -22,7 +22,6 @@ import {
   walletPassLink,
 } from "@/lib/server/ticket-email";
 import type { EventRecord, OrderRecord } from "@/lib/server/types";
-import { ticketQrMatrix } from "@/lib/ticket-qr";
 
 const event = {
   title: "Paint & <Sip>",
@@ -675,17 +674,17 @@ describe("buildTicketEmail", () => {
       expect(ticketQrAlt(code)).toBe(`QR code for ticket ${code}. If it doesn't show, use the backup code below.`);
       // Alt text styled to be readable in the image's box when images are blocked.
       expect(tag).toMatch(/font-size:13px;line-height:18px;color:#000000/);
-      // 29 modules x 8px = 232px, shrinking only when the screen is narrower; on a white cell, no overlay.
-      expect(tag).toContain('width="232" height="232"');
-      expect(tag).toContain("width:232px;max-width:100%;height:auto");
+      // 33 modules x 8px = 264px, shrinking only when the screen is narrower; on a white cell, no overlay.
+      expect(tag).toContain('width="264" height="264"');
+      expect(tag).toContain("width:264px;max-width:100%;height:auto");
       expect(email.html).toMatch(new RegExp(`<td align="center" bgcolor="#ffffff" style="padding:24px 16px 0 16px;background-color:#ffffff">${tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}</td>`));
       expect(images[i].contentType).toBe("image/png");
       // Numbered, never named after the code (the code is the ticket; file names leak into previews and downloads).
       expect(images[i].filename).toBe(`ticket-${i + 1}-qr.png`);
       expect(images[i].filename).not.toContain(code);
-      // The PNG is this ticket's own QR (encodePng's pixels are tested in png.test.ts).
-      expect(images[i].content.equals(encodePng(ticketQrMatrix(code)!, 16, 4))).toBe(true);
-      expect(images[i].content.length).toBeLessThan(1024);
+      // The PNG is this ticket's own QR with the centre ü (decoded in tests/ticket-qr-decode.test.tsx).
+      expect(images[i].content.equals(ticketQrPng(code)!.png)).toBe(true);
+      expect(images[i].content.length).toBeLessThan(2048);
     }
   });
 
@@ -731,7 +730,7 @@ describe("buildTicketEmail", () => {
     expect(new Set(images.map((i) => i.content.toString("base64"))).size).toBe(4);
     expect(new Set(images.map((i) => i.cid)).size).toBe(4);
     for (const [i, code] of codes.entries()) {
-      expect(images[i].content.equals(encodePng(ticketQrMatrix(code)!, 16, 4))).toBe(true);
+      expect(images[i].content.equals(ticketQrPng(code)!.png)).toBe(true);
       expect(email.html).toContain(`alt="QR code for ticket ${code}.`);
     }
     expect(email.html.split(CARD)).toHaveLength(5);

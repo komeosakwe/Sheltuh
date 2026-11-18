@@ -7,7 +7,7 @@ import { DEFAULT_REFUND_POLICY, REFUND_ACL_STATEMENT, refundTermsLine } from "@/
 import { formatSeatLine, speakSeatLine } from "@/lib/seating/format";
 import { SUPPORT_LABEL, SUPPORT_REFUND_NOTE } from "@/lib/support";
 import { ticketNameWithGroup } from "@/lib/ticket-groups";
-import { QR_QUIET_ZONE_MODULES, ticketQrLabel, ticketQrMatrix } from "@/lib/ticket-qr";
+import { ticketQrLabel } from "@/lib/ticket-qr";
 import { cachedDateTimeFormat, PLATFORM_TIME_ZONE, zoneLabel, type StateCode } from "@/lib/time-zones";
 import { subjectLine, type EmailMessage, type InlineImage } from "./email";
 import {
@@ -26,7 +26,7 @@ import {
   wordmarkImage,
 } from "./email-layout";
 import { orderReference } from "./order-reference";
-import { encodePng } from "./png";
+import { ticketQrPng } from "./qr-image";
 import type { EventRecord, OrderRecord, TicketSeat, WalletAvailability } from "./types";
 
 /**
@@ -76,12 +76,12 @@ import type { EventRecord, OrderRecord, TicketSeat, WalletAvailability } from ".
 const MELBOURNE_TZ = PLATFORM_TIME_ZONE;
 
 /**
- * QR size: 21 modules plus a 4-module quiet zone each side = 29 modules,
- * shown 8 px a module (232 px; it shrinks only when the screen is narrower).
- * The PNG has 16 px a module, so it's pixel-exact at 2x and sharp at 3x.
+ * QR size: 25 modules (version 2, level H, with the centre ü) plus a 4-module
+ * quiet zone each side = 33 modules, shown 8 px a module (264 px; it shrinks
+ * only when the screen is narrower). The PNG has 16 px a module
+ * (lib/server/qr-image.ts), so it's pixel-exact at 2x and sharp at 3x.
  */
 const QR_DISPLAY_PX_PER_MODULE = 8;
-const QR_PNG_PX_PER_MODULE = 16;
 
 /** The event image's shown width: the column's full 600px (scaled down with it on a phone). */
 const EVENT_IMAGE_WIDTH = 600;
@@ -312,19 +312,19 @@ export function ticketQrAlt(code: string): string {
   return `${ticketQrLabel(code)}. If it doesn't show, use the backup code below.`;
 }
 
-/** The ticket's QR as an inline PNG, or null when the code isn't a real one. */
+/** The ticket's QR (with the centre ü, lib/server/qr-image.ts) as an inline PNG, or null when the code isn't a real one. */
 function ticketQr(code: string, index: number): TicketQr | null {
-  const matrix = ticketQrMatrix(code);
-  if (!matrix) return null;
+  const qr = ticketQrPng(code);
+  if (!qr) return null;
   return {
     image: {
       cid: `ticket-qr-${index + 1}@sheltuh.com.au`,
       contentType: "image/png",
-      content: encodePng(matrix, QR_PNG_PX_PER_MODULE, QR_QUIET_ZONE_MODULES),
+      content: qr.png,
       // Not the code: attachment names show up in mail previews, file lists and downloads, and the code is the ticket.
       filename: `ticket-${index + 1}-qr.png`,
     },
-    px: (matrix.length + QR_QUIET_ZONE_MODULES * 2) * QR_DISPLAY_PX_PER_MODULE,
+    px: qr.modules * QR_DISPLAY_PX_PER_MODULE,
     alt: ticketQrAlt(code),
   };
 }

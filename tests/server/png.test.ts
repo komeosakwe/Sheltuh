@@ -1,6 +1,6 @@
 import { crc32 as zlibCrc32, inflateSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
-import { crc32, encodePng, MAX_PNG_SIDE } from "@/lib/server/png";
+import { crc32, encodeBitmapPng, encodePng, MAX_PNG_SIDE } from "@/lib/server/png";
 import { ticketQrMatrix } from "@/lib/ticket-qr";
 
 interface Chunk {
@@ -69,13 +69,13 @@ describe("encodePng", () => {
     const scale = 12;
     const quiet = 4;
     const { width, height, dark } = readPixels(encodePng(matrix, scale, quiet));
-    expect(width).toBe((21 + 2 * quiet) * scale); // 348
+    expect(width).toBe((25 + 2 * quiet) * scale); // 396 (version 2)
     expect(height).toBe(width);
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         const my = Math.floor(y / scale) - quiet;
         const mx = Math.floor(x / scale) - quiet;
-        const want = my >= 0 && my < 21 && mx >= 0 && mx < 21 ? matrix[my][mx] : false;
+        const want = my >= 0 && my < 25 && mx >= 0 && mx < 25 ? matrix[my][mx] : false;
         if (dark[y][x] !== want) throw new Error(`pixel ${x},${y} should be ${want ? "black" : "white"}`);
       }
     }
@@ -110,5 +110,35 @@ describe("encodePng", () => {
     ["an image over the size cap", [[true]], MAX_PNG_SIDE + 1, 0],
   ])("refuses %s", (_, matrix, scale, quiet) => {
     expect(() => encodePng(matrix as boolean[][], scale as number, quiet as number)).toThrow(RangeError);
+  });
+});
+
+describe("encodeBitmapPng", () => {
+  it("draws each pixel as isDark says, as a well-formed 1-bit PNG", () => {
+    const isDark = (x: number, y: number) => (x * 7 + y * 3) % 5 === 0;
+    const png = encodeBitmapPng(11, 6, isDark);
+    for (const c of readChunks(png)) expect(c.crc).toBe(zlibCrc32(c.covered));
+    const { width, height, dark } = readPixels(png);
+    expect([width, height]).toEqual([11, 6]);
+    for (let y = 0; y < 6; y++) for (let x = 0; x < 11; x++) expect(dark[y][x]).toBe(isDark(x, y));
+  });
+
+  it("is what encodePng makes for the same pixels (encodePng is built on it)", () => {
+    const matrix = ticketQrMatrix("ABCD-EFGH")!;
+    const viaMatrix = encodePng(matrix, 4, 2);
+    const side = (25 + 4) * 4;
+    const viaPixels = encodeBitmapPng(side, side, (x, y) => {
+      const [mx, my] = [Math.floor(x / 4) - 2, Math.floor(y / 4) - 2];
+      return mx >= 0 && my >= 0 && mx < 25 && my < 25 && matrix[my][mx];
+    });
+    expect(viaPixels.equals(viaMatrix)).toBe(true);
+  });
+
+  it.each([
+    ["a zero width", 0, 1],
+    ["a fractional height", 1, 1.5],
+    ["an image over the size cap", MAX_PNG_SIDE + 1, 1],
+  ])("refuses %s", (_, width, height) => {
+    expect(() => encodeBitmapPng(width, height, () => false)).toThrow(RangeError);
   });
 });

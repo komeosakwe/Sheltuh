@@ -1,9 +1,9 @@
 import { deflateSync } from "node:zlib";
 
 /**
- * A minimal PNG encoder for black-and-white module grids (ticket QR codes in
- * the ticket email, lib/server/ticket-email.ts). Server only: it uses
- * node:zlib.
+ * A minimal PNG encoder for black-and-white images: module grids (encodePng)
+ * and pixel bitmaps (encodeBitmapPng; the ticket QR with its centre mark,
+ * lib/server/qr-image.ts). Server only: it uses node:zlib.
  *
  * Output is 1-bit greyscale (colour type 0, bit depth 1): every pixel is pure
  * black or pure white, nothing in between, so there's no antialiasing for a
@@ -59,6 +59,23 @@ export function encodePng(matrix: boolean[][], scale: number, quietZone: number)
   if (!Number.isInteger(quietZone) || quietZone < 0) throw new RangeError("Quiet zone must be a whole number from 0.");
   const width = (cols + quietZone * 2) * scale;
   const height = (rows + quietZone * 2) * scale;
+  return encodeBitmapPng(width, height, (px, py) => {
+    const my = Math.floor(py / scale) - quietZone;
+    const mx = Math.floor(px / scale) - quietZone;
+    return my >= 0 && my < rows && mx >= 0 && mx < cols && matrix[my][mx] === true;
+  });
+}
+
+/**
+ * A 1-bit black-and-white PNG `width` × `height` pixels, `isDark(x, y)` for
+ * each pixel (the ticket QR with its centre mark, lib/server/qr-image.ts).
+ * Throws a RangeError for a size that isn't a whole number from 1 or is wider
+ * than MAX_PNG_SIDE.
+ */
+export function encodeBitmapPng(width: number, height: number, isDark: (x: number, y: number) => boolean): Buffer {
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) {
+    throw new RangeError("The image must be at least 1 x 1 pixels.");
+  }
   if (width > MAX_PNG_SIDE || height > MAX_PNG_SIDE) throw new RangeError("Image too large.");
 
   // Scanlines: a filter byte (0, none), then 8 pixels a byte, most significant
@@ -66,13 +83,9 @@ export function encodePng(matrix: boolean[][], scale: number, quietZone: number)
   const stride = 1 + Math.ceil(width / 8);
   const raw = Buffer.alloc(stride * height);
   for (let py = 0; py < height; py++) {
-    const my = Math.floor(py / scale) - quietZone;
-    const row = my >= 0 && my < rows ? matrix[my] : null;
     const offset = py * stride + 1;
     for (let px = 0; px < width; px++) {
-      const mx = Math.floor(px / scale) - quietZone;
-      const dark = row !== null && mx >= 0 && mx < cols && row[mx] === true;
-      if (!dark) raw[offset + (px >> 3)] |= 0x80 >> (px & 7);
+      if (!isDark(px, py)) raw[offset + (px >> 3)] |= 0x80 >> (px & 7);
     }
   }
 
