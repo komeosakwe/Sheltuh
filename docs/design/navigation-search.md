@@ -505,8 +505,8 @@ there. What's specific to this page:
 Re-measured from the "Menu drawer / Mobile" and "Navigation" boards at their frame scale; these replace the values
 above where they differ.
 - **Drawer places:** the list's top padding is `pt-13` (52), not `pt-10`: the board's first line sits 64px under
-  the bar (the places matched the board to the pixel after this). The current place's dots are the brand's soft
-  dots (DotsMark), **24×8** (two 8px dots 8px apart), not 20×8 rounded squares.
+  the bar (the places matched the board to the pixel after this). The current place's dots are **round, 24×8**
+  (two 8px circles 8px apart), not 20×8 rounded squares: the board's pixels show circles.
 - **Drawer rows:** the hairline-to-hairline pitch is 64, but the label sits **12px under its hairline** (not
   centred): each row is a 64px link with `pt-3`. For organisers follows the last row directly (no `mt-6`: the
   row's own space below the label is the gap). Your events shows only for organisers and applicants (as /account

@@ -952,11 +952,11 @@ h4 {
 /* The phone drawer's places (navigation-search.md §2, §5.3): the pair left of the word, at the
    start of the link's 40px left padding (16px from the screen's edge) and centred on the line;
    no underline, so the dots' shape carries the state (aria-current stays). As the "Menu drawer /
-   Mobile" board draws them: the brand's soft dots (DotsMark), 8px, 24px across. */
+   Mobile" board draws them: two round 8px dots, 24px across (the header's are 6px squares). */
 @utility umlaut-side {
   --umlaut-w: 24px;
   --umlaut-h: 8px;
-  --umlaut-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 8'%3E%3Crect width='8' height='8' rx='2.5'/%3E%3Crect x='16' width='8' height='8' rx='2.5'/%3E%3C/svg%3E");
+  --umlaut-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 8'%3E%3Ccircle cx='4' cy='4' r='4'/%3E%3Ccircle cx='20' cy='4' r='4'/%3E%3C/svg%3E");
   --umlaut-left: 0;
   --umlaut-x: 0;
   --umlaut-top: calc(50% - 4px);
