@@ -1,7 +1,7 @@
 import sharp from "sharp";
 import { decoder, inEncodeSlot, unsupportedImage } from "./avatar";
 import { HttpError } from "./http";
-import { readCappedBytes, sniffImageType } from "./handlers/event-images";
+import { readCappedBytes, sniffImageType } from "./image-upload";
 
 /**
  * Organiser cover images (docs/architecture.md, "Organiser profiles"): the

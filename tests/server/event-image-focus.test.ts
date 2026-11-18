@@ -7,11 +7,12 @@ import { getPublicEventBySlug, listPublicEvents } from "@/lib/server/handlers/pu
 import type { Handler } from "@/lib/server/route";
 import { SITE_URL, TestApi } from "./helpers/api";
 import { approvedOrganiser, draftEvent, publishedEvent, setUpPayouts, signUpAdmin } from "./helpers/fixtures";
+import { testPng } from "./helpers/images";
 import { createTestDb } from "./helpers/test-db";
 
 /** Photo focus (docs/architecture.md, "Photo focus"; supabase/migrations/20261115000000_event_image_focus.sql). */
 
-const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+const PNG = testPng();
 
 let api: TestApi;
 let reset: () => Promise<void>;

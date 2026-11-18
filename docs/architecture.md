@@ -55,8 +55,11 @@ iframe served by Stripe), with the publishable key
   organisers and admins only, rate-limited; see "Venue location"). The
   browser itself loads only keyless or public-key resources: Stripe.js on
   the payment page (above), map tiles (Mapbox Streets with a public token,
-  else Esri: `docs/maps.md`), and a featured video's player
-  once it's clicked. No Google Maps script loads on our pages, and no
+  else Esri: `docs/maps.md`), a featured video's player
+  once it's clicked, and, when `NEXT_PUBLIC_TURNSTILE_SITE_KEY` is set,
+  Cloudflare Turnstile's script and frame on the email sign-in, sign-up,
+  password reset and "Resend code" forms (public site key; the secret is
+  only in Supabase; see "Human check"). No Google Maps script loads on our pages, and no
   Google Places content is shown on our maps, which stay Leaflet.
 - **The database enforces the rules that matter most.** Whatever the
   application code does:
@@ -86,7 +89,7 @@ iframe served by Stripe), with the publishable key
 | `ticket_types` | `(event_id, id)` | `id` is stable across draft edits. A trigger refuses a price above 0 for a platform-managed organiser's event (`ticket_types_platform_free_only`). `quantity_sold` only ever goes up in `fulfil_order`, and down only in `record_payment_refund` (a paid order refunded in full). `seated`: the tier has seats on the event's seat map; its `quantity_available` is then always its unblocked seats (trigger `ticket_types_seated_capacity`, whatever is written; see "Reserved seating"). `opens_after_previous`: the tier waits for the one above it (by `position`) to sell out; `sold_out_at`: when `quantity_sold` first reached `quantity_available`, set by trigger `ticket_types_sold_out_at` and never cleared (see "Sequential ticket releases"). |
 | `event_seat_maps` | `event_id` | An event's optional seat map (see "Reserved seating"): `layout` (the validated template, `lib/seating/template.ts`), `seat_count` (1–10,000) and `version` (from the sequence `private.seat_map_versions`: never reused, not even after a delete). Every write bumps the event's `updated_at` (`event_seat_maps_touch_event`). Refused for an external event (`event_seat_maps_sheltuh_only`). Deleted with the event. |
 | `event_seats` | `(event_id, id)` | The map's seats, derived from the layout in the same step (`write_seat_map`): `position` (map order: the availability bit), section, row (may be empty) and seat labels, `ticket_type_id` (no-action foreign key `event_seats_ticket_type_fkey`: a tier with seats can't be removed), `kind` (standard, wheelchair, companion), `blocked`; `hold_order_id` / `hold_expires_at` (a pending order's hold) and `sold_order_id`. Checks: never held and sold at once (`event_seats_one_owner`), never held or sold while blocked (`event_seats_blocked_unsold`). Deleted with the map. |
-| `event_images` | `event_id` | Optional organiser photo (≤2 MB, JPEG/PNG/WebP) stored as `bytea` — no Storage bucket or extra secret. Public via `GET /api/events/[id]/image` once published (versioned URL, shared at the CDN for an hour at the current version, ETag and 304; see "CDN windows"); before that only the owner/admins with a token. Every write (insert, update, delete) bumps the event's `updated_at` in the same transaction (`event_images_touch_event`), so a photo change is a new version of the event (see "Admin authoring"); writers lock the event row (for no key update) before the image row. Move to Storage/CDN if volume grows. `focus_x` / `focus_y` (`20261115000000_event_image_focus.sql`; smallint 0..100, both null or both set, check constraint `event_images_focus_check`): where the photo's subject is, so cropped renderings centre on it (see "Photo focus"). No index: nothing filters on it. |
+| `event_images` | `event_id` | Optional organiser photo (≤2 MB, JPEG/PNG/WebP) stored as `bytea` — no Storage bucket or extra secret. Never stored as uploaded: both writers (`PUT /events/{id}/image` and the admin's) go through `readEventImage`, which re-encodes it server-side with sharp (`lib/server/event-image.ts`): the EXIF orientation applied to the pixels, then written with **no metadata** (no EXIF, GPS, camera or serial number, ICC, XMP, IPTC or PNG text), at its own size and in its own format (as WebP if that would be over 2 MB; 413 if that is too). The same loader check against polyglots, 24-megapixel limit (first frame only; 400) and decode slots (`AVATAR_ENCODE_CONCURRENCY`, 503) as member photos; each encode is stopped after 10 seconds (`EVENT_IMAGE_ENCODE_TIMEOUT_SECONDS`; 400). The organiser's uploads are limited to 50 a day per account (429 with `Retry-After`, bucket `event_image_uploads`, before the body is read); an admin's aren't. Rows written before this re-encoding was added (November 2026) may still hold the upload's metadata until the photo is replaced or backfilled: the organiser can replace it only while the event is a draft or rejected, so on a published event only an admin can (`PUT /admin/events/{id}/image`). Public via `GET /api/events/[id]/image` once published (versioned URL, shared at the CDN for an hour at the current version, ETag and 304; see "CDN windows"); before that only the owner/admins with a token. Every write (insert, update, delete) bumps the event's `updated_at` in the same transaction (`event_images_touch_event`), so a photo change is a new version of the event (see "Admin authoring"); writers lock the event row (for no key update) before the image row. Move to Storage/CDN if volume grows. `focus_x` / `focus_y` (`20261115000000_event_image_focus.sql`; smallint 0..100, both null or both set, check constraint `event_images_focus_check`): where the photo's subject is, so cropped renderings centre on it (see "Photo focus"). No index: nothing filters on it. |
 | `event_moderation_log` | `id` | Append-only: submitted / approved / rejected / unpublished / ticketing_changed / created / edited / curated, by whom, and why. `approved` means "went live": an admin's approval or publish, or an approved organiser's own publish (`private.publish_event`, logged by the organiser's own account), so every reader of "approved before" treats the two alike (see "Publishing events"). Partial index `event_moderation_log_approved_idx (created_at, event_id) where action = 'approved'` serves the admins' "recently published" list and the admin home's count. `details` (jsonb object, null for the other actions): for `ticketing_changed`, the old and new value of each ticketing field the admin changed (full ticket links: see "External ticketing"); for `edited`, the old and new value of each other field an admin changed (see "Admin authoring"); for `curated`, the old and new `boost` and `excluded` (see "Trending"). Shown to the event's organiser and to admins (`moderationLog[].changes`), never publicly, except `curated` entries, which only admins see (`GET /admin/events/{id}/curation`). `by` is the actor's account id for admins; the organiser's view shows `"Sheltüh team"` (`SHELTUH_TEAM_ACTOR`) for anyone but the organiser's own account. No update trigger: personal information in `details` or `reason` is redacted in place (`docs/supabase-setup.md`, APP 11/13). |
 | `orders` | `id` (`ord_…`) | Priced snapshot of the line items and totals. `status`: pending → paid / failed / oversold_refund_required; oversold_refund_required → refunded (our automatic refund); paid → refunded (refunded in full in Stripe: Stripe's `refunded`, or at least `total_cents` refunded; see "Refunds made in Stripe"); pending → failed also when a paid session's amount or currency wasn't the order's (`private.fail_mismatched_order`, which also records the payment intent; the payment is then refunded). `amount_refunded_cents` (≥ 0, default 0) is Stripe's cumulative refunded amount, recorded only for paid orders (a partial refund leaves the order paid, whatever its amount; a refunded order with `amount_refunded_cents` below `total_cents` was voided by the tickets-only rule of `20261110000200_support_ticket_refund.sql`, before `20261111000300_refund_no_inference.sql` removed it). Indexed on `stripe_payment_intent_id` (partial, not null) for the refund webhook, and on `(event_id, created_at)` (partial, `paid`) for the trending refresh's 14-day read. `tickets_emailed_at` records the ticket email. `tracking_code` is the event tracking link the checkout came through (checked against the event's links when the order is created; null otherwise). `seat_ids` (1–10): a seated order's seats, set when it's made and never changed (what fulfilment and refunds act on). `support_cents` (0 to 50000, default 0; `20261110000100_order_support.sql`): Support Sheltüh, what the buyer added for the platform (see "Support Sheltüh"); only on an order with a paid ticket (`orders_support_paid_only`), and in `total_cents` (`orders_support_in_total`: total = subtotal + buyer fee + support when there is some), never in `subtotal_cents`, `buyer_fee_cents` or `application_fee_cents` (the booking fee). `payout_method` (`destination` default, or `transfer`; `orders_payout_method_check`; `20261119000000_delayed_payouts.sql`): how the organiser's share is paid. `destination`: a destination charge, paid out with the payment (every order made before delayed payouts, and while `DELAYED_PAYOUTS` is off). `transfer`: charged on the platform and transferred after the event (see "Delayed payouts"). Chosen once, while the order is `pending` (`orders_payout_method_frozen` refuses any later change), and every Stripe call about the order follows it. Partial index `orders_transfer_paid_idx` on `(event_id)` for paid `transfer` orders. `buyer_name` (1–80 characters, trimmed, no control, invisible or line-separator characters, written as escapes only so pasting the migration can't lose them; the zero-width joiners U+200C/U+200D are allowed there and by the API only between letters: `orders_buyer_name_check`) and `details_notice_at` are set together or not at all (`orders_details_notice_pair`): the name the buyer typed at checkout, and when it was made, which the database stamps itself (the `orders_details_notice` trigger: `now()` on insert when there is a name; a client can't set it), proof the checkout's notice "Your name and email are shared with the organiser of this event." had been shown (`20261122000000_order_buyer_details.sql`; see "Organiser orders"). Once set they can only be cleared, both together (the `orders_details_immutable` trigger: the withdrawal runbook). Null for every order made before it and for any made without a name. Never in `ORDER_SELECT` or `CustomerOrder`: only the Orders view reads them. |
 | `private.order_detail_exports` | `id` (identity) | The audit log of the Orders view's CSV exports (see "Organiser orders"): event, organiser, the exporting account (`actor_id`, set null if the account goes) and row count, with the time. No buyer data. Written by `record_order_export`. RLS on, no grants. Kept (it is the record of who took the data). |
@@ -2074,6 +2077,17 @@ Clickable Who's Going names (owner request, 21 Oct 2026;
   vulnerability would still be reachable; keep sharp updated. A photo over
   24 megapixels (some phones' full-resolution mode) has to be downsized
   first.
+- **Event photos are decoded on the server too.** Organiser logos follow
+  the member photo's bounds (2 MB, 20 a day per account; see "Organiser
+  profiles"). Event photos: 2 MB, 24 megapixels, first frame, three sniffed
+  formats, in the same 2 slots per instance; up to two full-resolution
+  encodes per upload (its own format, then WebP if that's over 2 MB), each
+  stopped after 10 seconds; 50 uploads a day per organiser account (bucket
+  `event_image_uploads`), approved organisers only, while the event is a
+  draft or rejected. An admin's uploads aren't limited. The same libvips
+  exposure applies; 50 uploads can still keep one instance's slots busy for
+  a while, so a burst from one account can make others' uploads wait or
+  get a 503.
 - **A hidden profile can't be reported.** A member who hides their profile
   after someone saw it can't be reported by profile any more (unless the
   reporter blocked them); reports by conversation or attendee still work.
@@ -4446,7 +4460,7 @@ without one. The UI keeps showing the API's words, which already say when
 | `GET /admin/holder-messages?eventId&cursor&limit` · `GET /admin/holder-messages/{messageId}` · `POST /admin/holder-messages/{messageId}/cancel` | admin. The list has no text; the detail has the text and counts (`sentCount`, `skippedCount`); cancel stops what hasn't gone out (200 also when already stopped). 400 bad `eventId`; 404 unknown or malformed id |
 | `POST /places/autocomplete` `{input, sessionToken}` · `POST /places/details` `{placeId, sessionToken}` | approved organiser or admin (401, 403); `private, no-store` (see "Venue location"). Autocomplete: `input` 2–120 characters after control characters are removed; `sessionToken` `^[A-Za-z0-9_-]{8,36}$`, one per search. 200 `{suggestions: [{placeId, primaryText, secondaryText}]}` (at most 5, in Australia and its external territories). Details (ends the search's session): 200 `{placeId, formattedAddress, streetAddress, locality, state, postcode, googleMapsUrl}`, never a position. 400 fieldErrors (`input`, `sessionToken`, `placeId`: malformed, unknown to Google, or not in Australia); 429 per account (autocomplete 100 an hour and 400 a day; details, shared with event saves' place checks, 30 an hour and 120 a day); 503 `code: "places_unavailable"` (no key, Google unreachable, over quota, a bad key or disabled API, over 5 s, or the platform's cap for Google's day used: autocomplete 1,800, details 450). Bodies at most 4 KB. Nothing about the search is logged |
 | `GET /organisers/me/events` · `GET /organisers/me/events/{id}` | organiser (own events), `private, no-store` |
-| `PUT /events/{id}/image[?fx=&fy=]` · `PATCH /events/{id}/image` (`{focus}`) · `DELETE /events/{id}/image` | organiser (own events, while draft or rejected). Admins: `…/admin/events/{id}/image`. See "Photo focus" |
+| `PUT /events/{id}/image[?fx=&fy=]` · `PATCH /events/{id}/image` (`{focus}`) · `DELETE /events/{id}/image` | organiser (own events, while draft or rejected). The photo is re-encoded with no metadata before it's stored (see `event_images`): 400 if it doesn't decode (or takes over 10 seconds), 413 over 2 MB, 429 (PUT) over 50 uploads a day per account (`Retry-After`), 503 when the decode queue is full. Admins: `…/admin/events/{id}/image`. See "Photo focus" |
 | `GET /events/{id}/image?v=` | public once published: at the current `v` (as `imageUrl` gives it) `public, max-age=3600, s-maxage=3600`, with any other `v` or none the same image but `private, max-age=3600` (never shared: a guessed future version can't be cached ahead of a replacement); before that, the owning organiser or an admin, `private, no-store`. ETag `"<version>"` and Last-Modified; a matching `If-None-Match` (RFC 9110 §13.1.2: any tag of a list, weak or strong, or `*`; parsed by `lib/server/if-none-match.ts`, which ignores headers over 1 KB or 32 tags) is a 304 with the same headers (after the same access check, and without reading the bytes) |
 | `GET /events/{id}/going` | public (published only): `{count, closed, countHidden}`. No cache header (not CDN-cached, so the count keeps up with the names list) |
 | `GET /events/{id}/going/attendees?cursor` | verified email with a profile that isn't suspended (403 otherwise); published only; 429 when rate-limited |
@@ -4508,7 +4522,7 @@ without one. The UI keeps showing the API's words, which already say when
 | `POST /organiser-links/view` `{token}` | public (the token is the credential), private, no-store; read-only. 200 `{expiresAt}`; 404 `code: "unavailable"` for a malformed, unknown, used, expired or cancelled link, or one whose creator is no longer an admin (one message for all: "This link has expired or was already used — ask Sheltüh for a new one."); 429 over 60 an hour per client (every request counts) |
 | `POST /organiser-links/join` `{token, displayName?, categories?}` | verified email (any address). 200 `{organiserId, displayName}` (idempotent for the account that used the link); 400 fieldErrors `displayName` / `categories` (the application's rules, plus no control or invisible characters in the name, no name only Sheltüh may use, and at most 5 categories as sent, repeats dropped; required when the account has no organiser, ignored for a pending application); 401; 403 unverified; 404 `code: "unavailable"` (as view); 409 `code` `already_organiser` / `rejected` (rejected, taken down, or pending again after a takedown; the link stays unused) or `conflict` (an application arrived at the same moment); 429 over 10 an hour per account or 30 per client (every attempt counts) |
 | `GET /admin/events/{id}` · `POST /admin/events` · `PATCH /admin/events/{id}` | admin (see "Admin authoring"). `AdminEventRecord`. The event body's `state` and `timeZone` as the organiser's (see "Events: state and time zone"; PATCH without them keeps the stored place). The body's optional `location` as the organiser's (400 / 503 as there; an admin's publish needs none). POST: the event body plus `organiserId`, `publish?`; 201; 400 fieldErrors (`organiserId` unknown; `ticketTypes` paid for a platform-managed organiser); 409 organiser not approved. PATCH: the event body with `ticketingMode` required, `expectedUpdatedAt`, `publish?`, `reason?` (≤500); 200 (unchanged if nothing changes); 400 fieldErrors (incl. `reason` to change an approved event's mode or link); 404; 409 stale version (`fieldErrors.expectedUpdatedAt`), orders on a switch to external, sold ticket types, or organiser not approved when publishing |
-| `PUT /admin/events/{id}/image` · `DELETE /admin/events/{id}/image` | admin, any status. As the organiser's (413, 400), logged `edited`; 404 |
+| `PUT /admin/events/{id}/image` · `DELETE /admin/events/{id}/image` | admin, any status. As the organiser's (413, 400, 503; re-encoded with no metadata, see `event_images`), but with no daily limit, logged `edited`; 404 |
 | `GET /admin/events/{id}/curation` · `PUT …/curation` `{boost, excluded, reason}` | admin, any status (see "Trending"). `{eventId, boost, excluded, updatedAt, log}` (newest 20 changes). PUT: 200 (unchanged, nothing logged, if nothing changes; logged `curated` otherwise); 400 fieldErrors (`boost` a number from 0.5 to 2, rounded to 2 places; `excluded` a boolean; `reason` 1–500 characters); 404 |
 | `PATCH /admin/events/{id}/ticketing` `{ticketingMode, externalTicketUrl?, externalFree?, externalPriceFromCents?, reason}` | admin. Any status. 200 with the event (logged as `ticketing_changed`; unchanged, and nothing logged, if nothing would change); 400 fields (`ticketingMode` is required) or reason (1–500 characters); 404; 409 switching to external an event with orders |
 
@@ -4668,6 +4682,11 @@ What that means:
   `tests/server/organiser-links.test.ts`, `tests/OrganiserLinksAdmin.test.tsx`,
   `tests/OrganiserJoinFlow.test.tsx`, `e2e/organiser-links.spec.ts`.
 - `lib/auth/AuthContext.tsx`: Supabase Auth in the browser.
+- Human check (see that section): `lib/auth/turnstile.ts` (the site key,
+  the script loader, the captcha-failure copy), `lib/auth/useHumanCheck.ts`,
+  `components/auth/HumanCheckField.tsx`; tests `tests/HumanCheck.test.tsx`,
+  `tests/AuthContextCaptcha.test.tsx`, `tests/turnstile.test.ts`,
+  `e2e/turnstile.spec.ts`.
 - Sign in with Google and Apple (see that section): `lib/supabase/browser.ts`
   (`flowType: "pkce"`, `detectSessionInUrl: false`); `lib/auth/oauth.ts`
   (the provider flag, the callback URL and safe `next`, callback parsing,
@@ -5604,6 +5623,85 @@ sign-up and password reset on the real project after deploying.
   Going, the organiser logo) use the session's token when they're made; an
   admin action already in flight at the moment another admin signs in
   could go as them (the admin pages remount as soon as React hears of it).
+
+## Human check
+
+Cloudflare Turnstile guards the email forms against bots: password sign-in
+(`LoginForm`, and `InlineReauth`, the "sign in again" box on an expired
+session), sign-up (`SignupForm`), "Send reset code" (`ForgotPasswordForm`)
+and "Resend code" (`VerifyForm`). Those are the four Supabase Auth calls
+its CAPTCHA protection guards that this app makes (`signInWithPassword`,
+`signUp`, `resetPasswordForEmail`, `resend`); confirming an emailed code
+(`verifyOtp`), setting a password (`updateUser`), token refresh, sign-out
+and Google/Apple sign-in aren't guarded, and get no token. **Browser-only,
+like Google and Apple sign-in**: no route, handler, migration or secret in
+this app. The widget's token goes to Supabase as `captchaToken`
+(`AuthContext`), and Supabase verifies it with Cloudflare using the secret
+key set in its dashboard.
+
+**Off by default.** Only with `NEXT_PUBLIC_TURNSTILE_SITE_KEY`
+(`lib/auth/turnstile.ts` `turnstileSiteKey`; baked in at build time). Off,
+or in demo mode (the forms aren't shown), nothing is loaded or rendered and
+the Supabase calls are exactly as before (no `options`). Setup order and the
+lock-out warning: `supabase-setup.md`, "Human check on email sign-in".
+
+- **Loading.** Cloudflare's `api.js?render=explicit`, added once
+  (`loadTurnstile`) when a guarded form is on the page, never from our
+  origin. Its iframe is Cloudflare's. On `/verify` it's added only once
+  "Resend code" is pressed (confirming the code isn't guarded), and the
+  page takes the `?email=` it was sent with out of the address bar once it's
+  in the field. Pages served on their own have no script policy, just
+  `frame-ancestors 'none'`, which doesn't restrict the script or the
+  iframe (`e2e/checkout-csp.spec.ts`). `/checkout/pay` has one (`proxy.ts`,
+  `lib/csp.ts`), and a policy stays with its document: after a client-side
+  navigation from there to `/login` (or to a page with an expired-session
+  sign-in box) the payment page's policy still applies. So it allows
+  `https://challenges.cloudflare.com` (`TURNSTILE_ORIGIN`) in `script-src`
+  and `frame-src`, and any future site-wide policy must too.
+- **The widget** (`useHumanCheck`, `HumanCheckField`, under the submit
+  button): managed mode, `appearance: "interaction-only"` (invisible unless
+  Cloudflare wants a tap), the site's Light or Dark theme (rendered again on
+  a change), `flexible` width, or `compact` below Turnstile's 300px minimum
+  (a 320px phone). Each form passes an `action` (`sign-in`, `sign-up`,
+  `reset-password`, `resend-code`, `reauth`) for Cloudflare's analytics.
+  Its container is a labelled group, and a `role="status"` line says
+  "Checking you're human…", asks for the tap, or names a problem. A line
+  says "Protected by Cloudflare Turnstile" and links Cloudflare's privacy
+  notice (new tab).
+- **Tokens are single use.** A submit takes the current token, or waits for
+  one (`HUMAN_CHECK_WAIT_MS`, 15s; no deadline while the widget is asking
+  for a tap). After every attempt that got past the form's own checks,
+  success or failure, the widget is reset for a fresh token. Expired tokens
+  refresh by themselves.
+- **Never blocks on its own.** If no token can be had (the script is
+  blocked, Cloudflare errors, the browser is unsupported, the wait runs
+  out), the request goes without one and Supabase decides. That keeps email
+  sign-in working between deploying the key and turning on Supabase's
+  setting, and leaves enforcement to the server. Supabase's refusal
+  (`captcha_failed`) becomes `HumanCheckError`, "Couldn't confirm you're
+  human. Try again.", which marks no field (`fieldsForAuthError`); the next
+  submit retries the check (and reloads a script that failed).
+- **Privacy.** Cloudflare collects browser and device signals on those
+  pages. The Privacy Policy must list Cloudflare as a service provider
+  (owner's legal to-do, `DEPLOYMENT.md`).
+
+### Accepted limits (human check)
+
+- **Not covered end to end with a key.** The e2e dev server runs without a
+  site key (as production does until the owner adds one), so e2e checks the
+  off state. The widget, its token in each Supabase request body and its
+  failure handling are covered in jsdom with a stand-in `window.turnstile`
+  and the real supabase-js client (`tests/HumanCheck.test.tsx`,
+  `tests/AuthContextCaptcha.test.tsx`). Cloudflare's real widget is first
+  exercised on the deployed site (`supabase-setup.md`, step 2).
+- **A third-party script on the password pages.** With the key set,
+  Cloudflare's `api.js` runs in our origin on the pages where people type
+  their password, as Stripe.js does on the payment page: a compromised
+  Cloudflare script could read what's typed. Accepted for the bot
+  protection, from a provider already trusted with the site's DNS. It's
+  never self-hosted or proxied (Cloudflare requires the live URL), and it
+  loads only on the guarded forms (and on `/verify` only after "Resend
+  code"), never site-wide.
 
 ## Wallet passes
 
