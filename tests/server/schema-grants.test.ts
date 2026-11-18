@@ -143,6 +143,7 @@ describe("Data API lock-out", () => {
       { table_name: "account_invites", rls: true },
       { table_name: "analytics_settings", rls: true },
       { table_name: "checkout_attempts", rls: true },
+      { table_name: "checkout_expiry_checks", rls: true },
       { table_name: "client_rate_limits", rls: true },
       { table_name: "conversation_pairs", rls: true },
       { table_name: "cron_runs", rls: true },
@@ -613,6 +614,21 @@ describe("Data API lock-out", () => {
       `select count(*)::int as n from pg_policy p where p.polrelid = 'private.checkout_attempts'::regclass`,
     );
     expect(policies.n).toBe(0);
+  });
+
+  it("the checkout pay deadline's functions exist, pin search_path, aren't security definer or client-executable; checkout_expiry_checks has no policies", async () => {
+    const names = ["claim_overdue_checkouts", "finish_checkout_expiry"];
+    expect(await privateFunctions(names)).toEqual(locked(names));
+    const definers = await db.query(
+      `select p.proname from pg_proc p where p.pronamespace = to_regnamespace('private') and p.proname = any($1::text[]) and p.prosecdef`,
+      [names],
+    );
+    expect(definers).toEqual([]);
+    const [table] = await db.query<{ rls: boolean; policies: number }>(
+      `select c.relrowsecurity as rls, (select count(*)::int from pg_policy p where p.polrelid = c.oid) as policies
+         from pg_class c where c.oid = to_regclass('private.checkout_expiry_checks')`,
+    );
+    expect(table).toEqual({ rls: true, policies: 0 });
   });
 
   it("the external going functions exist, pin search_path and aren't client-executable; external_event_going has no policies", async () => {

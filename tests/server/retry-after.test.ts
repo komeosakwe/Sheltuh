@@ -59,7 +59,8 @@ describe("windowSeconds", () => {
     expect(windowSeconds(CHECKOUT_LIMITS.window)).toBe(600);
     expect(windowSeconds(SEAT_HOLD_LIMITS.perClient.window)).toBe(600);
     expect(windowSeconds(SEAT_HOLD_LIMITS.attempts.window)).toBe(600);
-    expect(windowSeconds(SEAT_HOLD_LIMITS.hold)).toBe(35 * 60);
+    // Five past the 15-minute pay deadline (SEAT_HOLD).
+    expect(windowSeconds(SEAT_HOLD_LIMITS.hold)).toBe(20 * 60);
     expect(windowSeconds(EVENT_ORDERS_LIMITS.reads.window)).toBe(600);
     expect(windowSeconds(EVENT_ORDERS_LIMITS.exports.window)).toBe(3_600);
     expect(windowSeconds(RESEND_RATE_LIMIT.window)).toBe(3_600);
