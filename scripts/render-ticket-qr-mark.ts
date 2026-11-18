@@ -10,7 +10,7 @@
  * Writes lib/server/ticket-qr-mark.ts (the bits as base64), which the email
  * reads: it's bundled with the server code, and the email's QR is composited
  * synchronously when the email is built (lib/server/qr-image.ts), with no
- * file read or image library at send time. tests/ticket-qr-decode.test.ts
+ * file read or image library at send time. tests/ticket-qr-decode.test.tsxx
  * re-rasterises the SVG with sharp and checks the two still match. Rerun this
  * only when the ü or the QR's pixel size changes. Nothing is fetched.
  */

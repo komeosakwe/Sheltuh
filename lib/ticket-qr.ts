@@ -11,7 +11,7 @@
  * code survive the cleared centre. The payload is 13 characters of QR's
  * alphanumeric set; version 1-H holds only 10, so it's always a version 2
  * symbol: 25 × 25 modules. The encoder is Nayuki's (lib/qr/qrcodegen.ts);
- * tests/ticket-qr-decode.test.ts decodes every image with ZXing.
+ * tests/ticket-qr-decode.test.tsx decodes every image with ZXing.
  */
 import { qrcodegen } from "@/lib/qr/qrcodegen";
 import { TICKET_CODE_PATTERN, ticketQrPayload } from "@/lib/ticket-code";
