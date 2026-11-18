@@ -763,9 +763,9 @@ for (const vp of [
         await expect(item.getByRole("heading", { level: 3 })).toHaveText(scene.name);
         await expect(item.getByRole("link")).toHaveCount(1);
         await expect(item.getByRole("link", { name: `See events: ${scene.name}` })).toHaveAttribute("href", `/events?category=${scene.category}`);
-        // The fixtures have events in all three: each shows its lead event's art, never the fallback tile.
+        // The fixtures have events with photos in all three: each shows its lead event's photo, not its filler.
         await expect(item.locator("[data-scene-media] [aria-hidden='true']").first()).toBeVisible();
-        await expect(item.locator("[data-scene-fallback]")).toHaveCount(0);
+        await expect(item.locator("[data-scene-filler]")).toHaveCount(0);
         // Every upcoming event was served (no next cursor), so the event count is the whole number.
         await expect(item.locator("[data-scene-meta]")).toHaveText(/^(\d+ events? this month|\d+ upcoming)$/);
       }
@@ -799,6 +799,50 @@ for (const vp of [
       await expect(link).toBeFocused();
       expect(await link.evaluate((el) => getComputedStyle(el).outlineStyle)).not.toBe("none");
       expect((await link.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(40);
+      expect(await noSidewaysScroll(page)).toBeLessThanOrEqual(0);
+    });
+  });
+}
+
+// Owner request (Round 2): a scene with no upcoming events still shows, on its own filler photo (never a grey tile),
+// saying "No upcoming events", with See events; the three columns stay.
+for (const vp of [
+  { width: 1440, height: 900 },
+  { width: 390, height: 844 },
+]) {
+  test.describe(`Find your people with an empty scene at ${vp.width}px`, () => {
+    test.use({ viewport: vp });
+
+    test("Pop-ups with no events: its filler photo, No upcoming events and See events; the others their own photos", async ({ page }) => {
+      const events = fixtures(Date.now())
+        .filter((event) => event.category !== "pop-up")
+        .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+      await page.route("**/api/**", (route) =>
+        new URL(route.request().url()).pathname === "/api/events"
+          ? route.fulfill({ json: { items: events, nextCursor: undefined } })
+          : route.fulfill({ status: 404, json: { error: "not mocked in e2e" } }),
+      );
+      await page.goto("/");
+      const list = page.getByRole("list", { name: "Scenes", exact: true });
+      await list.scrollIntoViewIfNeeded();
+      const items = list.getByRole("listitem");
+      await expect(items).toHaveCount(3);
+      const popups = items.nth(2);
+      await expect(popups.locator("[data-scene-meta]")).toHaveText("No upcoming events", { timeout: 30_000 });
+      await expect(popups.getByRole("link", { name: "See events: Pop-ups" })).toHaveAttribute("href", "/events?category=pop-up");
+      const filler = popups.locator("[data-scene-filler] img");
+      await expect(filler).toHaveAttribute("alt", "");
+      await filler.scrollIntoViewIfNeeded();
+      await expect.poll(() => filler.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0), { message: "the filler loads" }).toBe(true);
+      expect(decodeURIComponent((await filler.getAttribute("src")) ?? "")).toContain("/events/vintage-market-stall.jpg");
+      expect(await filler.evaluate((el) => getComputedStyle(el).objectFit)).toBe("cover");
+      // Filling the same 4:3 box a lead photo does.
+      const [media, other] = await Promise.all([popups.locator("[data-scene-media]").boundingBox(), items.nth(0).locator("[data-scene-media]").boundingBox()]);
+      if (!media || !other) throw new Error("scene photos not laid out");
+      expect(media.width / media.height).toBeCloseTo(4 / 3, 1);
+      expect(Math.abs(media.width - other.width)).toBeLessThan(1);
+      for (const i of [0, 1]) await expect(items.nth(i).locator("[data-scene-filler]")).toHaveCount(0);
+      if (vp.width >= 1024) await expect(list).toHaveClass(/\blg:grid-cols-3\b/);
       expect(await noSidewaysScroll(page)).toBeLessThanOrEqual(0);
     });
   });

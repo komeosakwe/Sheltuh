@@ -1,3 +1,4 @@
+import { COMMUNITY_COLLAGE } from "@/components/community/community-content";
 import type { EventCategory, EventPoster } from "@/lib/types";
 
 /**
@@ -61,13 +62,28 @@ export const HOME_CREATORS: HomeArt = {
  */
 export const COMMUNITY_SAMPLE_FACES: readonly string[] = [1, 2, 3, 4, 5].map((n) => `/home/people/person-${n}.webp`);
 
+/** A scene card's filler photo: a licensed photo (public/events/README.md) and its blurred placeholder. */
+export interface SceneFiller {
+  src: string;
+  blurDataURL: string;
+}
+
+/** A /community collage photo (its licensed file and blurred placeholder), by file. */
+function collagePhoto(src: string): SceneFiller {
+  const photo = COMMUNITY_COLLAGE.flat().find((item) => item.src === src);
+  if (!photo) throw new Error(`${src} isn't a collage photo`);
+  return { src: photo.src, blurDataURL: photo.blurDataURL };
+}
+
 /**
  * Find your people's three scene cards (components/home/SceneCards.tsx), in order: the owner's
  * mockup's Music, Art and Fashion as the real categories Live music, Art and Pop-ups, each with
- * its short line. Names and icons come from the category row (HOME_CATEGORIES).
+ * its short line. Names come from the category row (HOME_CATEGORIES). `filler`: the photo a card
+ * shows whenever it has no lead event photo (no upcoming event, a lead without a photo, loading or
+ * failed), so a card is never a grey tile (owner request, Round 2).
  */
-export const COMMUNITY_SCENES: readonly { category: EventCategory; line: string }[] = [
-  { category: "live-music", line: "Join the moment" },
-  { category: "art", line: "Find your crowd" },
-  { category: "pop-up", line: "Meet the scene" },
+export const COMMUNITY_SCENES: readonly { category: EventCategory; line: string; filler: SceneFiller }[] = [
+  { category: "live-music", line: "Join the moment", filler: collagePhoto("/events/record-shop-dj.jpg") },
+  { category: "art", line: "Find your crowd", filler: collagePhoto("/events/gallery-opening.jpg") },
+  { category: "pop-up", line: "Meet the scene", filler: collagePhoto("/events/vintage-market-stall.jpg") },
 ];

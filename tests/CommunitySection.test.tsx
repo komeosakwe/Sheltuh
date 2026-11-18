@@ -163,9 +163,9 @@ describe("CommunitySection: the band's example (demo)", () => {
 });
 
 const SCENES = [
-  { name: "Live music", href: "/events?category=live-music", line: "Join the moment" },
-  { name: "Art", href: "/events?category=art", line: "Find your crowd" },
-  { name: "Pop-ups", href: "/events?category=pop-up", line: "Meet the scene" },
+  { name: "Live music", href: "/events?category=live-music", line: "Join the moment", filler: "/events/record-shop-dj.jpg" },
+  { name: "Art", href: "/events?category=art", line: "Find your crowd", filler: "/events/gallery-opening.jpg" },
+  { name: "Pop-ups", href: "/events?category=pop-up", line: "Meet the scene", filler: "/events/vintage-market-stall.jpg" },
 ];
 
 /** The scene cards' list items, by scene name. */
@@ -176,7 +176,7 @@ function sceneCards() {
 }
 
 describe("CommunitySection: the scene cards", () => {
-  it("without the home's events: the three scenes, each a heading, one 'See events' link to its listing, the line, a neutral tile and no numbers", () => {
+  it("without the home's events: the three scenes, each a heading, one 'See events' link to its listing, the line, its filler photo and no numbers", () => {
     const { container } = render(<CommunitySection />);
     const { items } = sceneCards();
     expect(items).toHaveLength(3);
@@ -191,11 +191,16 @@ describe("CommunitySection: the scene cards", () => {
       expect(links[0]).toHaveAttribute("href", scene.href);
       expect(links[0]).toHaveClass("btn-outline", "btn-sm");
       expect(within(item).getByText(scene.line)).toHaveClass("text-muted");
-      // No event to show: the category's icon on a neutral tile, decorative; no stock photo.
-      const fallback = item.querySelector("[data-scene-fallback]");
-      expect(fallback).toHaveAttribute("aria-hidden", "true");
-      expect(fallback?.querySelector("svg")).not.toBeNull();
-      expect(item.querySelector("img")).toBeNull();
+      // No event to show: the scene's filler photo (owner request, Round 2: never a grey tile), decorative, cropped
+      // to fill the 4:3 box on its blurred placeholder.
+      const filler = item.querySelector("[data-scene-filler]");
+      expect(filler).toHaveAttribute("aria-hidden", "true");
+      const img = filler?.querySelector("img");
+      expect(decodeURIComponent(img?.getAttribute("src") ?? "")).toContain(scene.filler);
+      expect(img).toHaveAttribute("alt", "");
+      expect(img).toHaveClass("object-cover");
+      expect(img?.getAttribute("style") ?? "").toMatch(/background-image:.*data:image\/webp;base64,/);
+      expect(item.querySelector("[data-scene-media]")).toHaveClass("aspect-[4/3]");
       expect(item.querySelector("[data-scene-going]")).toBeNull();
       expect(item.querySelector("[data-scene-meta]")).toBeNull();
     });
