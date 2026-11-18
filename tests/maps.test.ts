@@ -67,6 +67,36 @@ describe("directionsHref with a linked place or the organiser's pin (owner decis
   });
 });
 
+// CodeRabbit (PR #61): the text goes where the event page says the venue is (lib/place.ts venueLines).
+describe("the text without a real venue name: the address and the place it's in", () => {
+  const decoded = (href: string | null) => decodeURIComponent(href ?? "");
+  const STREET_LINE = { venueName: "71 Johnston Street", venueAddress: "71 Johnston St", suburb: "Collingwood", state: "VIC" as const };
+
+  it("a name that's only the street line, or none: Google and Apple both get the address with its suburb and state", () => {
+    for (const target of [STREET_LINE, { ...STREET_LINE, venueName: "" }]) {
+      expect(decoded(directionsHref(target))).toBe("https://www.google.com/maps/dir/?api=1&destination=71 Johnston St, Collingwood, VIC");
+      expect(decoded(appleMapsHref(target))).toBe("https://maps.apple.com/?daddr=71 Johnston St, Collingwood, VIC");
+    }
+    expect(decoded(googlePlaceHref({ ...STREET_LINE, venuePlaceId: PLACE_ID }))).toBe(
+      `https://www.google.com/maps/search/?api=1&query=71 Johnston St, Collingwood, VIC&query_place_id=${PLACE_ID}`,
+    );
+  });
+
+  it("never says the place twice, and keeps a shared name's state", () => {
+    expect(decoded(appleMapsHref({ ...STREET_LINE, venueAddress: "71 Johnston St, Collingwood VIC 3066" }))).toBe(
+      "https://maps.apple.com/?daddr=71 Johnston St, Collingwood VIC 3066",
+    );
+    const richmond = { venueName: "", venueAddress: "1 March St, Richmond VIC 3121", suburb: "Richmond NSW", state: "NSW" as const };
+    expect(decoded(directionsHref(richmond))).toBe("https://www.google.com/maps/dir/?api=1&destination=1 March St, Richmond VIC 3121, Richmond, NSW");
+  });
+
+  it("a named venue keeps its name and address for Google; Apple gets the address with its place", () => {
+    const tote = { venueName: "The Tote", venueAddress: "71 Johnston St", suburb: "Collingwood", state: "VIC" as const };
+    expect(decoded(directionsHref(tote))).toBe("https://www.google.com/maps/dir/?api=1&destination=The Tote, 71 Johnston St");
+    expect(decoded(appleMapsHref(tote))).toBe("https://maps.apple.com/?daddr=71 Johnston St, Collingwood, VIC");
+  });
+});
+
 describe("appleMapsHref", () => {
   it("is directions to the street address as written, encoded", () => {
     expect(appleMapsHref(TOTE)).toBe("https://maps.apple.com/?daddr=71%20Johnston%20St%2C%20Collingwood%20VIC%203066");

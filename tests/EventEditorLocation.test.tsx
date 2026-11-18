@@ -261,6 +261,13 @@ describe("EventEditor — picking a Google place", () => {
     renderEditor(null);
     const name = screen.getByLabelText("Venue name");
     expect(name).not.toHaveAccessibleDescription(VENUE_NAME_HINT);
+    // The live region is there, empty, before the pick (only visually hidden, never display: none), so the
+    // hint that fills it is announced.
+    const hint = document.getElementById("venueName-hint");
+    expect(hint).toBeEmptyDOMElement();
+    expect(hint).toHaveAttribute("aria-live", "polite");
+    expect(hint).toHaveClass("empty:sr-only");
+    expect(hint).not.toHaveClass("empty:hidden");
     await pickAnAddress(false);
     expect(name).toHaveValue("");
     expect(name).toHaveAccessibleDescription(VENUE_NAME_HINT);

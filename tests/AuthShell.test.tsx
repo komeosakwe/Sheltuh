@@ -89,12 +89,14 @@ describe("/login (the sign-in mock)", () => {
     const groups = card?.lastElementChild;
     expect(groups).toHaveClass("mt-6", "flex", "flex-col", "gap-6");
     // Fields: the label 14/20 Medium, 8px above its field; 16px between fields and Continue.
-    const label = container.querySelector("label[for='email']");
+    const label = (screen.getByLabelText("Email") as HTMLInputElement).labels?.[0];
     expect(label).toHaveClass("body-s", "font-medium");
     expect(label?.parentElement).toHaveClass("gap-2");
     expect(label?.closest("form")).toHaveClass("gap-4");
-    // Continue: M 48 with the 16 SemiBold label (.btn); Apple's and Google's keep their vendor rules.
-    expect(screen.getByRole("button", { name: "Continue" })).not.toHaveClass("btn-sm", "btn-lg");
+    // Continue: M 48 with the 16 SemiBold label (.btn), neither size class; Apple's and Google's keep their vendor rules.
+    const submit = screen.getByRole("button", { name: "Continue" });
+    expect(submit).not.toHaveClass("btn-sm");
+    expect(submit).not.toHaveClass("btn-lg");
     expect(screen.getByRole("button", { name: "Continue with Google" })).toHaveClass("btn-oauth", "btn-oauth-google");
     expect(screen.getByRole("button", { name: "Continue with Apple" })).toHaveClass("btn-oauth", "btn-oauth-apple");
   });
@@ -146,8 +148,10 @@ describe("the other account pages share the frame", () => {
     expect(photoSrc(container)).toContain(AUTH_PHOTO);
     // The same fitted card, and its fields' 14/20 labels 8px above them, 16px apart.
     expect(container.querySelector("[data-auth-card]")).toHaveClass("max-w-120", "py-8", "lg:p-10");
-    const label = container.querySelector("form label");
+    // A field whose label stands alone (no "Forgot password?" row beside it): its wrapper is the 8px gap.
+    const label = Array.from(container.querySelectorAll("form label")).find((el) => !el.parentElement?.classList.contains("justify-between"));
     expect(label).toHaveClass("body-s", "font-medium");
+    expect(label?.parentElement).toHaveClass("flex", "flex-col", "gap-2");
     expect(label?.closest("form")).toHaveClass("gap-4");
   });
 

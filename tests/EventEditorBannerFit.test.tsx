@@ -133,6 +133,15 @@ describe("EventEditor banner fit", () => {
     expect(scrims[0]).toHaveClass("h-2/3");
     expect(scrims[1]).toHaveClass("h-3/4");
 
+    // Both previews' photo loads while cropped; ticking the box then shows its backdrop at once (EventArt keeps a
+    // photo loaded under another fit as loaded; the backdrop only waits for a photo that hasn't).
+    for (const img of [preview(), phonePreview()]) {
+      if (!img) throw new Error("no preview photo");
+      Object.defineProperty(img, "naturalWidth", { value: 1600 });
+      Object.defineProperty(img, "naturalHeight", { value: 900 });
+      fireEvent.load(img);
+    }
+    expect(document.querySelector("[data-art-backdrop]")).toBeNull();
     fireEvent.click(box);
     expect(box).toBeChecked();
     expect(preview()).toHaveClass("object-contain");

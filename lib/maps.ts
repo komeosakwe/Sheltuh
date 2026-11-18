@@ -1,4 +1,5 @@
 import { isInAustralia } from "@/lib/geo";
+import { addressNamesPlace, placeName, sameStreetLine } from "@/lib/place";
 import type { Coordinates, SheltuhEvent } from "@/lib/types";
 
 /**
@@ -10,13 +11,30 @@ import type { Coordinates, SheltuhEvent } from "@/lib/types";
  * text fields alone.
  */
 export type VenueLinkTarget = Pick<SheltuhEvent, "venueName" | "venueAddress" | "suburb"> &
-  Partial<Pick<SheltuhEvent, "venuePlaceId" | "venuePinned" | "coordinates">>;
+  Partial<Pick<SheltuhEvent, "state" | "venuePlaceId" | "venuePinned" | "coordinates">>;
 
-/** The venue's name and its street address (or suburb): "The Tote, 71 Johnston St, Collingwood VIC 3066". */
-function destinationText(target: Pick<VenueLinkTarget, "venueName" | "venueAddress" | "suburb">): string {
+type VenueText = Pick<VenueLinkTarget, "venueName" | "venueAddress" | "suburb" | "state">;
+
+/**
+ * The street address, then the place ("Collingwood, VIC") unless the address already names it with the same state
+ * (lib/place.ts addressNamesPlace): the address as the event page shows it. Empty without an address.
+ */
+function addressWithPlace(target: VenueText): string {
+  const address = target.venueAddress.trim();
+  if (!address || !target.suburb.trim() || addressNamesPlace(address, target.suburb, target.state)) return address;
+  return `${address}, ${placeName(target.suburb, target.state)}`;
+}
+
+/**
+ * What the text finds, as the event page shows the venue (lib/place.ts venueLines): the venue's name and its street
+ * address (or suburb), "The Tote, 71 Johnston St". A name that's only the street line (a Google address pick), or
+ * none: the address and the place it's in, "71 Johnston St, Collingwood, VIC" (or the suburb alone).
+ */
+function destinationText(target: VenueText): string {
   const name = target.venueName.trim();
-  const where = target.venueAddress.trim() || target.suburb.trim();
-  return [name, where].filter(Boolean).join(", ");
+  const address = target.venueAddress.trim();
+  if (name && !(address && sameStreetLine(name, address))) return [name, address || target.suburb.trim()].filter(Boolean).join(", ");
+  return addressWithPlace(target) || target.suburb.trim();
 }
 
 /**
@@ -53,7 +71,8 @@ function placeIdOf(target: Pick<VenueLinkTarget, "venuePlaceId">): string | null
  *   `destination_place_id` (Google requires the text alongside the id, and
  *   it still finds the address if the id ever goes stale);
  * - the organiser's pin: `destination=lat,lng`;
- * - otherwise the venue's name and street address (or suburb).
+ * - otherwise the venue's name and street address (or suburb), or with no
+ *   real name, the address and its place (destinationText).
  *
  * Null when there's nothing to route to.
  */
@@ -75,8 +94,8 @@ export function directionsHref(target: VenueLinkTarget): string | null {
  * iPhone, iPad and Mac, and Apple Maps on the web elsewhere). It never uses
  * the Google place id. With the organiser's pin it's that spot, labelled
  * with the venue's name (`ll` and `q`). Otherwise it's directions to the
- * street address as written (`daddr`), or to the venue's name and suburb
- * without one. Null when there's nothing to go to.
+ * street address as written, with its place unless it names it (`daddr`),
+ * or to the venue's name and suburb without one. Null when there's nothing to go to.
  */
 export function appleMapsHref(target: VenueLinkTarget): string | null {
   const pin = venuePin(target);
@@ -84,8 +103,7 @@ export function appleMapsHref(target: VenueLinkTarget): string | null {
     const label = target.venueName.trim() || destinationText(target);
     return `https://maps.apple.com/?ll=${latLng(pin)}${label ? `&q=${encodeURIComponent(label)}` : ""}`;
   }
-  const address =
-    target.venueAddress.trim() || [target.venueName.trim(), target.suburb.trim()].filter(Boolean).join(", ");
+  const address = addressWithPlace(target) || [target.venueName.trim(), target.suburb.trim()].filter(Boolean).join(", ");
   return address ? `https://maps.apple.com/?daddr=${encodeURIComponent(address)}` : null;
 }
 
@@ -96,7 +114,7 @@ export function appleMapsHref(target: VenueLinkTarget): string | null {
  * without a place id, or without any text for `query`.
  */
 export function googlePlaceHref(
-  target: Pick<VenueLinkTarget, "venueName" | "venueAddress" | "suburb" | "venuePlaceId">,
+  target: Pick<VenueLinkTarget, "venueName" | "venueAddress" | "suburb" | "state" | "venuePlaceId">,
 ): string | null {
   const placeId = placeIdOf(target);
   const text = destinationText(target);

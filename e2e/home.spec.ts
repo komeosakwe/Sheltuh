@@ -399,16 +399,19 @@ for (const { width, height, focus } of [
   { width: 390, height: 844, focus: "50% 50%" },
 ]) {
   test.describe(`a 3:2 photo at ${width}px`, () => {
-    test.use({ viewport: { width, height } });
+    // Reduced motion: the carousel never advances by itself, so [data-current] stays this slide throughout.
+    test.use({ viewport: { width, height }, reducedMotion: "reduce" });
 
     test("covers its box in a card and in the banner, with no blurred backdrop", async ({ page }) => {
       await openHome(page, { trending: true, lead: "neon-static" });
-      const fitOf = (img: Locator) =>
-        img.evaluate(async (el: HTMLImageElement) => {
-          if (!el.complete) await new Promise((resolve) => el.addEventListener("load", resolve, { once: true }));
+      const fitOf = async (img: Locator) => {
+        // Loaded (a failed photo fails here, not at the test's timeout).
+        await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0), { message: "the photo loads" }).toBe(true);
+        return img.evaluate((el: HTMLImageElement) => {
           const style = getComputedStyle(el);
           return { ratio: el.naturalWidth / el.naturalHeight, fit: style.objectFit, position: style.objectPosition };
         });
+      };
 
       const slide = page.locator("[data-featured-carousel] [data-slide][data-current]");
       await expect(slide.getByRole("link", { name: "Neon Static", exact: true })).toBeAttached();
@@ -436,15 +439,17 @@ for (const { width, height } of [
   { width: 390, height: 844 },
 ]) {
   test.describe(`a whole-photo banner at ${width}px`, () => {
-    test.use({ viewport: { width, height } });
+    // Reduced motion: the carousel never advances by itself, so [data-current] stays this slide throughout.
+    test.use({ viewport: { width, height }, reducedMotion: "reduce" });
 
     test("contains the photo on its blurred backdrop; the card still covers", async ({ page }) => {
       await openHome(page, { trending: true, lead: "neon-static", edits: { "neon-static": { bannerFit: "whole" } } });
       const slide = page.locator("[data-featured-carousel] [data-slide][data-current]");
       await expect(slide.getByRole("link", { name: "Neon Static", exact: true })).toBeAttached();
       const img = slide.locator("img");
-      const banner = await img.evaluate(async (el: HTMLImageElement) => {
-        if (!el.complete) await new Promise((resolve) => el.addEventListener("load", resolve, { once: true }));
+      // Loaded (a failed photo fails here, not at the test's timeout).
+      await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0), { message: "the photo loads" }).toBe(true);
+      const banner = await img.evaluate((el: HTMLImageElement) => {
         const style = getComputedStyle(el);
         return { fit: style.objectFit, position: style.objectPosition, className: el.className };
       });

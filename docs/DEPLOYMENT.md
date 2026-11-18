@@ -496,7 +496,11 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           environment variable. Not destructive. Reversible after deploying an
           app that doesn't select the column: drop
           `admin_set_event_image_display`, then the constraint and the column
-          (every `whole` setting is lost).
+          (every `whole` setting is lost). If `npx supabase db push` applied
+          it (it's listed in `supabase_migrations.schema_migrations`), then
+          also run `npx supabase migration repair --status reverted
+          20261129000000` against the same database, so the next push applies
+          it again; applied in the SQL editor only, there's no entry to repair.
 
       **Files 33 to 37 can be applied ahead of this deploy, with the
       previous app still live.** "The previous app" here is the build of

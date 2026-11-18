@@ -159,7 +159,8 @@ export interface VenueFields extends PlaceFields {
  * The venue as two lines (the event page's Where group, Round 2): its name, then its street address (or, without
  * one, "Suburb, STATE"). With no real name (none, or the name is only the street line, "170 Russell Street" over
  * "170 Russell St") the address leads instead, then "Suburb, STATE" unless the address already names the suburb
- * as one of its comma-separated parts (addressNamesSuburb), so the address is never said twice. `second` is empty when there's nothing more to say; `named`: `first` is the
+ * as one of its comma-separated parts with the same state (addressNamesPlace), so the address is never said twice.
+ * `second` is empty when there's nothing more to say; `named`: `first` is the
  * venue's name.
  */
 export function venueLines(venue: VenueFields): { first: string; second: string; named: boolean } {
@@ -168,26 +169,33 @@ export function venueLines(venue: VenueFields): { first: string; second: string;
   const place = placeName(venue.suburb, venue.state);
   if (name && !(address && sameStreetLine(name, address))) return { first: name, second: address || place, named: true };
   if (!address) return { first: place, second: "", named: false };
-  const suburb = placeNameParts(venue.suburb, venue.state)?.suburb ?? "";
-  return { first: address, second: addressNamesSuburb(address, suburb) ? "" : place, named: false };
+  return { first: address, second: addressNamesPlace(address, venue.suburb, venue.state) ? "" : place, named: false };
 }
 
-/** The words a comma-separated part of an address may end with after its suburb: a state's code or name. */
-const STATE_WORDS = [...STATE_CODES, ...Object.values(STATE_NAMES)].map((word) => word.toLowerCase());
+/** Each state's code and name, lower case, to its code: the words a part of an address may end with after its suburb. */
+const STATE_WORDS: ReadonlyArray<readonly [string, StateCode]> = STATE_CODES.flatMap((code) => [
+  [code.toLowerCase(), code] as const,
+  [STATE_NAMES[code].toLowerCase(), code] as const,
+]);
 
 /**
- * Whether `address` names `suburb` as one of its comma-separated parts, alone or followed by a state and/or
- * postcode ("71 Johnston St, Collingwood VIC 3066"). Never a part of a word or a street ("5 Kewney Ave" doesn't
- * name Kew; "12 Carlton St" doesn't name Carlton).
+ * Whether `address` names the place (placeNameParts: its suburb and state) as one of its comma-separated parts, the
+ * suburb alone or followed by a state and/or postcode ("71 Johnston St, Collingwood VIC 3066"). A part that names a
+ * state names the place only with the place's own state ("Richmond VIC 3121" isn't Richmond, NSW). Never a part of a
+ * word or a street ("5 Kewney Ave" doesn't name Kew; "12 Carlton St" doesn't name Carlton). False for an empty suburb.
  */
-function addressNamesSuburb(address: string, suburb: string): boolean {
-  const wanted = suburb.trim().replace(/\s+/g, " ").toLowerCase();
-  if (wanted === "") return false;
+export function addressNamesPlace(address: string, suburb: string, state?: StateCode | null): boolean {
+  const place = placeNameParts(suburb, state);
+  if (!place) return false;
+  const wanted = place.suburb.replace(/\s+/g, " ").toLowerCase();
   return address.split(",").some((part) => {
     let words = part.trim().replace(/\s+/g, " ").toLowerCase();
     words = words.replace(/\s*\b\d{4}$/, "");
-    const state = STATE_WORDS.find((word) => words.endsWith(` ${word}`));
-    if (state) words = words.slice(0, -(state.length + 1));
+    const named = STATE_WORDS.find(([word]) => words.endsWith(` ${word}`));
+    if (named) {
+      if (named[1] !== place.state) return false;
+      words = words.slice(0, -(named[0].length + 1));
+    }
     return words === wanted;
   });
 }

@@ -132,4 +132,17 @@ describe("venueLines", () => {
   it("keeps the state another state shares a name with ('Richmond, NSW')", () => {
     expect(venueLines({ suburb: "Richmond NSW", state: "NSW", venueName: "", venueAddress: "1 March St" }).second).toBe("Richmond, NSW");
   });
+
+  // CodeRabbit (PR #61): an address naming the suburb in another state doesn't name the event's place.
+  it("counts the suburb as named only with the event's own state, when the address names one", () => {
+    const nsw = { suburb: "Richmond NSW", state: "NSW" as const, venueName: "" };
+    expect(venueLines({ ...nsw, venueAddress: "1 March St, Richmond VIC 3121" }).second).toBe("Richmond, NSW");
+    expect(venueLines({ ...nsw, venueAddress: "1 March St, Richmond Victoria 3121" }).second).toBe("Richmond, NSW");
+    expect(venueLines({ ...nsw, venueAddress: "1 March St, Richmond NSW 2753" }).second).toBe("");
+    expect(venueLines({ ...nsw, venueAddress: "1 March St, Richmond New South Wales" }).second).toBe("");
+    expect(venueLines({ ...nsw, venueAddress: "1 March St, Richmond 2753" }).second).toBe("");
+    // No state on the event: Victorian, as everywhere.
+    expect(venueLines({ suburb: "Richmond", venueName: "", venueAddress: "1 Swan St, Richmond NSW 2753" }).second).toBe("Richmond, VIC");
+    expect(venueLines({ suburb: "Richmond", venueName: "", venueAddress: "1 Swan St, Richmond VIC 3121" }).second).toBe("");
+  });
 });

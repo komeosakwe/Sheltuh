@@ -66,13 +66,17 @@ async function showSlide(page: Page, index: number) {
       return s && t ? Math.abs(s.x - t.x) : Infinity;
     })
     .toBeLessThanOrEqual(1);
-  await slide.evaluate(async (el) => {
-    await Promise.all(
-      Array.from(el.querySelectorAll("img")).map((img) =>
-        img.complete && img.naturalWidth > 0 ? Promise.resolve() : new Promise((resolve) => img.addEventListener("load", resolve, { once: true })),
-      ),
-    );
-  });
+  // Its photo loaded, when its sample has one (bounded: a broken photo, which EventArt swaps for the poster art, is
+  // reported as broken rather than waited on to the timeout); a sample with no photo shows its poster art.
+  const title = ((await slide.locator("[data-banner-link]").textContent()) ?? "").trim();
+  const sample = sampleEvents.find((event) => event.title === title);
+  if (sample?.imageUrl) {
+    await expect
+      .poll(() => slide.evaluate((el) => Array.from(el.querySelectorAll("img")).some((img) => img.complete && img.naturalWidth > 0)), {
+        message: `${title}: its photo loads (not broken, not swapped for the poster art)`,
+      })
+      .toBe(true);
+  }
   return slide;
 }
 
@@ -172,7 +176,13 @@ for (const width of WIDTHS) {
             }, LONG_TITLE);
           }
           await slide.scrollIntoViewIfNeeded();
+          // The banner's fonts in, so the lines measured are the lines screenshotted.
+          await page.evaluate(() => document.fonts.ready);
           const measured = await measure(slide);
+          // Every kind of words has a line to measure (an emptied facts row mustn't pass as Infinity:1).
+          for (const kind of Object.keys(MIN) as Kind[]) {
+            expect(measured.lines.filter((line) => line.kind === kind).length, `${name}: ${kind} has a line`).toBeGreaterThan(0);
+          }
           if (long) expect(measured.titleLines, `${name}: the forced title wraps`).toBe(2);
           // (a) The words start where the scrim has reached 60% ink.
           leastFade = Math.min(leastFade, measured.fadeAbove);

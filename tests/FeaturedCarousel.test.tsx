@@ -365,6 +365,14 @@ describe("FeaturedCarousel", () => {
       event("crop", { imageUrl: "/crop.jpg" }),
     ]);
     const [whole, wholeFocus, crop] = slides();
+    // The backdrop waits for its photo to load (EventArt: a lazy slide's photo isn't fetched early by it).
+    expect(whole.querySelector("[data-art-backdrop]")).toBeNull();
+    for (const slide of [whole, wholeFocus, crop]) {
+      const img = slide.querySelector("img") as HTMLImageElement;
+      Object.defineProperty(img, "naturalWidth", { value: 1600 });
+      Object.defineProperty(img, "naturalHeight", { value: 900 });
+      fireEvent.load(img);
+    }
     const wholeImg = whole.querySelector("img") as HTMLImageElement;
     expect(wholeImg).toHaveClass("object-contain");
     expect(wholeImg.className).not.toMatch(/object-\[/);

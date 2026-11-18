@@ -235,6 +235,8 @@ export default function EventArt({
 }) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const [containedUrl, setContainedUrl] = useState<string | null>(null);
+  /** The photo that has loaded: `contain`'s CSS backdrop (which `loading="lazy"` doesn't cover) waits for it. */
+  const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
   /** `poster`: the loaded image that's a portrait poster, and whether the box is portrait now. */
   const [portraitUrl, setPortraitUrl] = useState<string | null>(null);
   const [boxPortrait, setBoxPortrait] = useState(false);
@@ -270,6 +272,8 @@ export default function EventArt({
    * whether it's a portrait poster is noted here; the box's shape is the observer's (above).
    */
   function fitLoaded(img: HTMLImageElement) {
+    // Whatever the fit now: a photo loaded under another fit (the editor's preview, before "whole") is loaded still.
+    if (img.naturalWidth) setLoadedUrl(imageUrl ?? null);
     if (fit === "cover" || fit === "contain" || !img.naturalWidth || !img.naturalHeight) return;
     const portraitPoster = img.naturalHeight / img.naturalWidth >= PORTRAIT_POSTER;
     if (fit === "poster") {
@@ -293,8 +297,10 @@ export default function EventArt({
       style={{ backgroundColor: contain ? "var(--ink)" : showImage ? "var(--surface)" : poster.background }}
     >
       {/* A poster shown whole (contain) sits on a blurred, enlarged copy of itself rather than flat
-          black, so the letterboxing reads as the poster's own colours. Decorative (the box is aria-hidden). */}
-      {contain && imageUrl && (
+          black, so the letterboxing reads as the poster's own colours. Decorative (the box is aria-hidden).
+          `contain` (always whole): only once the photo has loaded, so a lazy photo off screen (a later banner
+          slide) isn't fetched early by its backdrop; the photo itself is contained from the first paint. */}
+      {contain && imageUrl && (fit !== "contain" || loadedUrl === imageUrl) && (
         <div
           data-art-backdrop=""
           className="absolute inset-0 scale-125 bg-cover bg-center opacity-60 blur-2xl"

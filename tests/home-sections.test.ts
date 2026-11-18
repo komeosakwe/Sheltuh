@@ -574,7 +574,19 @@ describe("This weekend: one card per artist (Round 2 B1)", () => {
     const c = kofi("c", 3, { organiserId: undefined, organiserName: "Kofi Live" });
     const d = kofi("d", 4, { organiserId: undefined, organiserName: "Kofi Live", title: "kofi stone" });
     const e = kofi("e", 5, { title: "Kofi Stone Live" });
-    expect(withCarouselFull([a, b, c, d, e], [], now).weekend.items.map((ev) => ev.id)).toEqual(["a", "b", "c", "e"]);
+    // The same organiser's plain "Kofi Stone", later: the accented one's act.
+    const f = kofi("f", 6);
+    expect(withCarouselFull([a, b, c, d, e, f], [], now).weekend.items.map((ev) => ev.id)).toEqual(["a", "b", "c", "e"]);
+  });
+
+  // CodeRabbit (PR #61): only a Latin letter's accents are dropped; another script's marks can be whole vowels.
+  it("keeps other scripts' vowel signs: राम and रोम are two acts", () => {
+    const ram = kofi("ram", 1, { title: "राम" });
+    const rom = kofi("rom", 2, { title: "रोम" });
+    const ramAgain = kofi("ram-again", 3, { title: " राम! " });
+    expect(artistKey(ram)).not.toBe(artistKey(rom));
+    expect(artistKey(ram)).toBe(artistKey(ramAgain));
+    expect(withCarouselFull([ram, rom, ramAgain], [], now).weekend.items.map((ev) => ev.id)).toEqual(["ram", "rom"]);
   });
 
   it("never collapses on a blank: an emoji-only title is compared as entered, and no organiser is only itself", () => {

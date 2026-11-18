@@ -1614,7 +1614,7 @@ export default function EventEditor(props: Props) {
                 />
                 {fieldError("venueName")}
                 {/* Said as it appears (a pick is made elsewhere in the card), and read with the field after. */}
-                <p id={VENUE_NAME_HINT_ID} aria-live="polite" className="text-xs text-muted empty:hidden">
+                <p id={VENUE_NAME_HINT_ID} aria-live="polite" className="text-xs text-muted empty:sr-only">
                   {venueNameHint ? VENUE_NAME_HINT : ""}
                 </p>
               </div>

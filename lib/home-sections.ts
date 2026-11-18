@@ -195,15 +195,16 @@ const itself = (event: SheltuhEvent) => event;
 const eventState = (event: SheltuhEvent): StateCode => event.state ?? "VIC";
 
 /**
- * A title compared loosely: letters and digits only (accents dropped), lower case, single spaces.
- * "Kofi Stone", "KOFI STONE" and "Kofí  Stone!" are one title.
+ * A title compared loosely: letters and digits only (a Latin letter's accents dropped), lower case, single spaces.
+ * "Kofi Stone", "KOFI STONE" and "Kofí  Stone!" are one title. Other scripts keep their marks, which can be whole
+ * vowels: "राम" and "रोम" are two.
  */
 function normaliseTitle(title: string): string {
   return title
     .normalize("NFKD")
-    .replace(/\p{M}/gu, "")
+    .replace(/(\p{Script=Latin})\p{M}+/gu, "$1")
     .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/[^\p{L}\p{M}\p{N}]+/gu, " ")
     .trim();
 }
 
