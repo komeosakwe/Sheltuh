@@ -90,6 +90,24 @@ describe("the text without a real venue name: the address and the place it's in"
     expect(decoded(directionsHref(richmond))).toBe("https://www.google.com/maps/dir/?api=1&destination=1 March St, Richmond VIC 3121, Richmond, NSW");
   });
 
+  // CodeRabbit (PR #61, round 3): no street address, no pin: the suburb with its state, as the event page says it.
+  it("without a street address, says the suburb with its state when the event has one", () => {
+    const richmond = { venueName: "", venueAddress: "", suburb: "Richmond NSW", state: "NSW" as const };
+    expect(decoded(directionsHref(richmond))).toBe("https://www.google.com/maps/dir/?api=1&destination=Richmond, NSW");
+    expect(decoded(appleMapsHref(richmond))).toBe("https://maps.apple.com/?daddr=Richmond, NSW");
+    const backRoom = { ...richmond, venueName: "Back room" };
+    expect(decoded(directionsHref(backRoom))).toBe("https://www.google.com/maps/dir/?api=1&destination=Back room, Richmond, NSW");
+    expect(decoded(appleMapsHref(backRoom))).toBe("https://maps.apple.com/?daddr=Back room, Richmond, NSW");
+  });
+
+  // CodeRabbit (PR #61, round 3): "170 Russell Street, Rooftop" is a name, not the street line.
+  it("keeps a name that adds its own qualifier after the street line", () => {
+    const rooftop = { venueName: "170 Russell Street, Rooftop", venueAddress: "170 Russell St", suburb: "Melbourne", state: "VIC" as const };
+    expect(decoded(directionsHref(rooftop))).toBe("https://www.google.com/maps/dir/?api=1&destination=170 Russell Street, Rooftop, 170 Russell St");
+    const located = { ...rooftop, venueName: "170 Russell Street, Melbourne VIC 3000" };
+    expect(decoded(directionsHref(located))).toBe("https://www.google.com/maps/dir/?api=1&destination=170 Russell St, Melbourne, VIC");
+  });
+
   it("a named venue keeps its name and address for Google; Apple gets the address with its place", () => {
     const tote = { venueName: "The Tote", venueAddress: "71 Johnston St", suburb: "Collingwood", state: "VIC" as const };
     expect(decoded(directionsHref(tote))).toBe("https://www.google.com/maps/dir/?api=1&destination=The Tote, 71 Johnston St");

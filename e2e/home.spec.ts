@@ -58,10 +58,15 @@ type MockOptions = {
   lead?: string;
   /** Changes to some events, by slug (a state, a banner fit). */
   edits?: Record<string, Partial<PublicEvent>>;
+  /**
+   * The instant the fixtures are timed from, and the browser's clock fixed at it (openHome), so both pick the same
+   * weekend even when the run crosses Melbourne's Monday midnight. Absent: the real clock, the browser's own.
+   */
+  now?: number;
 };
 
-async function mockApi(page: Page, { trending = false, going, lead, edits = {} }: MockOptions = {}) {
-  const events = fixtures(Date.now())
+async function mockApi(page: Page, { trending = false, going, lead, edits = {}, now }: MockOptions = {}) {
+  const events = fixtures(now ?? Date.now())
     .map((event) => ({ ...event, ...edits[event.slug] }))
     .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
   await page.route("**/api/**", (route) => {
@@ -86,6 +91,7 @@ async function mockApi(page: Page, { trending = false, going, lead, edits = {} }
 }
 
 async function openHome(page: Page, options?: MockOptions) {
+  if (options?.now !== undefined) await page.clock.setFixedTime(options.now);
   await mockApi(page, options);
   await page.goto("/");
   await expect(page.locator("[data-home-section]").first()).toBeVisible();
@@ -481,7 +487,8 @@ test.describe("This weekend with a saved suburb", () => {
     if (saved) {
       await page.addInitScript((value) => window.localStorage.setItem("sheltuh:near:v1", value), JSON.stringify(saved));
     }
-    await openHome(page, { edits });
+    // The fixtures and the page on one instant: the weekend they're timed into is the one the page shows.
+    await openHome(page, { edits, now: Date.now() });
     // The saved state is read after hydration: wait for the list the home settles on.
     await expect(page.getByRole("list", { name: "All events", exact: true })).toBeVisible();
   }

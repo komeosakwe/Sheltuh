@@ -391,6 +391,12 @@ export default function EventEditor(props: Props) {
   // How the home banner shows the photo (crop to fill, or whole), and whether it's changed since the last save.
   const [bannerFit, setBannerFit] = useState<BannerFit>(initial?.bannerFit ?? "crop");
   const [fitChanged, setFitChanged] = useState(false);
+  // The focus and fit as now chosen, for a save that ends after they were changed again (syncImage): a save marks
+  // them saved only if they're still what it sent.
+  const chosenDisplay = useRef({ imageFocus, bannerFit });
+  useEffect(() => {
+    chosenDisplay.current = { imageFocus, bannerFit };
+  }, [imageFocus, bannerFit]);
   // Set once the draft exists, so a retry after a failed photo upload updates
   // it instead of creating a duplicate.
   const [createdId, setCreatedId] = useState<string | null>(null);
@@ -713,6 +719,8 @@ export default function EventEditor(props: Props) {
    * request fails after an upload, `kept` gets the uploaded record (the photo
    * is saved; the fit stays pending, sent again on the next save), to keep it
    * here and tell the page of an existing event, as syncClip's `kept` does.
+   * A focus or fit changed again while this runs stays pending (it isn't what
+   * this save sent), so the next save sends it.
    */
   async function syncImage<R extends EventRecord>(
     record: R,
@@ -723,11 +731,14 @@ export default function EventEditor(props: Props) {
   ): Promise<R> {
     let latest = record;
     let uploaded = false;
+    // Still as this save sent it (the same focus object, the same fit), or changed again since.
+    const focusSent = () => chosenDisplay.current.imageFocus === imageFocus;
+    const fitSaved = (saved: BannerFit) => chosenDisplay.current.bannerFit === saved;
     if (imageFile) {
       latest = await upload(record.eventId, imageFile, saveToken, imageFocus);
       uploaded = true;
       setImageFile(null);
-      setFocusChanged(false);
+      if (focusSent()) setFocusChanged(false);
     } else if (imageRemoved && record.imageUrl) {
       // The fit goes with the photo.
       const updated = await remove(record.eventId, saveToken);
@@ -743,13 +754,13 @@ export default function EventEditor(props: Props) {
     // A replaced photo keeps its fit, so after an upload only a fit that differs is sent.
     if (fitChanged && (latest.bannerFit ?? "crop") !== bannerFit) change.bannerFit = bannerFit;
     if (change.focus === undefined && change.bannerFit === undefined) {
-      if (fitChanged) setFitChanged(false);
+      if (fitChanged && fitSaved(latest.bannerFit ?? "crop")) setFitChanged(false);
       return latest;
     }
     try {
       const updated = await display(latest.eventId, change, saveToken);
-      setFocusChanged(false);
-      setFitChanged(false);
+      if (focusSent()) setFocusChanged(false);
+      if (fitSaved(change.bannerFit ?? latest.bannerFit ?? "crop")) setFitChanged(false);
       return updated;
     } catch (err) {
       if (uploaded) kept(latest);

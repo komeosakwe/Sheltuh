@@ -500,7 +500,10 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           it (it's listed in `supabase_migrations.schema_migrations`), then
           also run `npx supabase migration repair --status reverted
           20261129000000` against the same database, so the next push applies
-          it again; applied in the SQL editor only, there's no entry to repair.
+          it again; then run `npx supabase db push --dry-run` against that
+          same database and confirm it lists
+          `20261129000000_event_banner_fit.sql` as pending before applying it
+          again. Applied in the SQL editor only, there's no entry to repair.
 
       **Files 33 to 37 can be applied ahead of this deploy, with the
       previous app still live.** "The previous app" here is the build of

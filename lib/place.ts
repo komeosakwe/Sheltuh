@@ -138,15 +138,20 @@ function streetKey(part: string): string {
 }
 
 /**
- * Whether `name` is just the street line of `address` ("170 Russell Street" and "170 Russell St", or "170 Russell
- * St, Melbourne VIC 3000"): what a Google *address* pick puts in the venue name. Only the whole first part of each
- * is compared (lower case, no punctuation, street types shortened), never a part of a word or of a name, so "Brunswick
- * Street Print Hall" never matches "Brunswick St". False when either is empty.
+ * Whether `name` is just the street line of `address` ("170 Russell Street" and "170 Russell St"): what a Google
+ * *address* pick puts in the venue name. The first comma-separated part of each is compared whole (lower case, no
+ * punctuation, street types shortened), never a part of a word or of a name, so "Brunswick Street Print Hall" never
+ * matches "Brunswick St". Anything after a comma in the name must be only `place`, the event's locality ("170 Russell
+ * Street, Melbourne VIC 3000" for Melbourne, VIC: localityOnly); anything else is the organiser's own qualifier
+ * ("170 Russell Street, Rooftop"), so the name is a real one. False when either is empty.
  */
-export function sameStreetLine(name: string, address: string): boolean {
-  const a = streetKey(name.split(",")[0] ?? "");
+export function sameStreetLine(name: string, address: string, place?: PlaceFields): boolean {
+  const [street = "", ...rest] = name.split(",");
+  const a = streetKey(street);
   const b = streetKey(address.split(",")[0] ?? "");
-  return a !== "" && a === b;
+  if (a === "" || a !== b) return false;
+  const suffix = rest.join(",").trim();
+  return suffix === "" || (place !== undefined && localityOnly(suffix, place.suburb, place.state));
 }
 
 /** What venueLines needs: the venue's name and street address as entered, and its place. */
@@ -167,7 +172,7 @@ export function venueLines(venue: VenueFields): { first: string; second: string;
   const name = venue.venueName.trim();
   const address = venue.venueAddress.trim();
   const place = placeName(venue.suburb, venue.state);
-  if (name && !(address && sameStreetLine(name, address))) return { first: name, second: address || place, named: true };
+  if (name && !(address && sameStreetLine(name, address, venue))) return { first: name, second: address || place, named: true };
   if (!address) return { first: place, second: "", named: false };
   return { first: address, second: addressNamesPlace(address, venue.suburb, venue.state) ? "" : place, named: false };
 }
@@ -178,24 +183,55 @@ const STATE_WORDS: ReadonlyArray<readonly [string, StateCode]> = STATE_CODES.fla
   [STATE_NAMES[code].toLowerCase(), code] as const,
 ]);
 
+/** One comma-separated part of an address, loosely: its words before any state (and postcode), and that state. */
+interface AddressPart {
+  words: string;
+  state: StateCode | null;
+}
+
+/** "Collingwood VIC 3066" → { words: "collingwood", state: "VIC" }; "VIC 3121" → { words: "", state: "VIC" }; "3121" → { words: "", state: null }. */
+function addressPart(part: string): AddressPart {
+  const words = part.trim().replace(/\s+/g, " ").toLowerCase().replace(/\s*\b\d{4}$/, "");
+  const named = STATE_WORDS.find(([word]) => words === word || words.endsWith(` ${word}`));
+  if (!named) return { words, state: null };
+  return { words: words.slice(0, -named[0].length).trim(), state: named[1] };
+}
+
+/**
+ * Whether `parts[i]` names the place: the suburb, then (in that part or, for a bare suburb, in the next part, "1 Swan
+ * St, Richmond, VIC 3121") no state or the place's own state.
+ */
+function partNamesPlace(parts: readonly AddressPart[], i: number, place: { suburb: string; state: StateCode }): boolean {
+  const part = parts[i];
+  if (part.words !== place.suburb.replace(/\s+/g, " ").toLowerCase()) return false;
+  const next = parts[i + 1];
+  const state = part.state ?? (next && next.words === "" ? next.state : null);
+  return !state || state === place.state;
+}
+
 /**
  * Whether `address` names the place (placeNameParts: its suburb and state) as one of its comma-separated parts, the
- * suburb alone or followed by a state and/or postcode ("71 Johnston St, Collingwood VIC 3066"). A part that names a
- * state names the place only with the place's own state ("Richmond VIC 3121" isn't Richmond, NSW). Never a part of a
- * word or a street ("5 Kewney Ave" doesn't name Kew; "12 Carlton St" doesn't name Carlton). False for an empty suburb.
+ * suburb alone or followed by a state and/or postcode ("71 Johnston St, Collingwood VIC 3066"). A state after the
+ * suburb, in its part or as the next part on its own, names the place only if it's the place's own state ("Richmond
+ * VIC 3121" and "Richmond, VIC 3121" aren't Richmond, NSW). Never a part of a word or a street ("5 Kewney Ave" doesn't
+ * name Kew; "12 Carlton St" doesn't name Carlton). False for an empty suburb.
  */
 export function addressNamesPlace(address: string, suburb: string, state?: StateCode | null): boolean {
   const place = placeNameParts(suburb, state);
   if (!place) return false;
-  const wanted = place.suburb.replace(/\s+/g, " ").toLowerCase();
-  return address.split(",").some((part) => {
-    let words = part.trim().replace(/\s+/g, " ").toLowerCase();
-    words = words.replace(/\s*\b\d{4}$/, "");
-    const named = STATE_WORDS.find(([word]) => words.endsWith(` ${word}`));
-    if (named) {
-      if (named[1] !== place.state) return false;
-      words = words.slice(0, -(named[0].length + 1));
-    }
-    return words === wanted;
-  });
+  const parts = address.split(",").map(addressPart);
+  return parts.some((_, i) => partNamesPlace(parts, i, place));
+}
+
+/**
+ * Whether `text` is only the place (comma-separated parts that name it, as addressNamesPlace, or are only its state,
+ * a postcode or "Australia"), and names it: "Melbourne VIC 3000", "Melbourne, Victoria, Australia" for Melbourne,
+ * VIC; never "Rooftop" or "Rooftop, Melbourne".
+ */
+function localityOnly(text: string, suburb: string, state?: StateCode | null): boolean {
+  const place = placeNameParts(suburb, state);
+  if (!place) return false;
+  const parts = text.split(",").map(addressPart);
+  const extra = (part: AddressPart) => (part.words === "" && (!part.state || part.state === place.state)) || (!part.state && part.words === "australia");
+  return parts.some((_, i) => partNamesPlace(parts, i, place)) && parts.every((part, i) => extra(part) || partNamesPlace(parts, i, place));
 }

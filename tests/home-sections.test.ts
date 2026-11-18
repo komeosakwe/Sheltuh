@@ -589,6 +589,16 @@ describe("This weekend: one card per artist (Round 2 B1)", () => {
     expect(withCarouselFull([ram, rom, ramAgain], [], now).weekend.items.map((ev) => ev.id)).toEqual(["ram", "rom"]);
   });
 
+  // CodeRabbit (PR #61, round 3): "☀️" and "✈️" both normalise to the shared U+FE0F, a mark, not a letter.
+  it("keeps emoji-only titles with a variation selector apart: ☀️ and ✈️ are two acts", () => {
+    const sun = kofi("sun", 1, { title: "\u2600\uFE0F" });
+    const plane = kofi("plane", 2, { title: "\u2708\uFE0F" });
+    const sunAgain = kofi("sun-again", 3, { title: " \u2600\uFE0F " });
+    expect(artistKey(sun)).not.toBe(artistKey(plane));
+    expect(artistKey(sun)).toBe(artistKey(sunAgain));
+    expect(withCarouselFull([sun, plane, sunAgain], [], now).weekend.items.map((ev) => ev.id)).toEqual(["sun", "plane"]);
+  });
+
   it("never collapses on a blank: an emoji-only title is compared as entered, and no organiser is only itself", () => {
     const party = kofi("party", 1, { title: "🎉🎉" });
     const disco = kofi("disco", 2, { title: "🪩" });

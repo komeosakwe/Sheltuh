@@ -229,7 +229,12 @@ describe("EventArt fit=contain", () => {
     Object.defineProperty(img, "naturalWidth", { value: width });
     Object.defineProperty(img, "naturalHeight", { value: height });
     fireEvent.load(img);
-    expect(img).toHaveClass("object-contain");
+    // The photo mounted now (never a node the load replaced), whole and never cropped.
+    const shown = container.querySelectorAll("img");
+    expect(shown).toHaveLength(1);
+    expect(shown[0]).toBe(img);
+    expect(shown[0]).toHaveClass("object-contain");
+    expect(shown[0]).not.toHaveClass("object-cover");
   });
 
   it("puts the photo's focus on the backdrop only", () => {

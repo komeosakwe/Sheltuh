@@ -68,12 +68,38 @@ describe("sameStreetLine", () => {
     ["170 Russell Street", "170 Russell St"],
     ["170 Russell St.", "170 RUSSELL STREET"],
     ["170 Russell Street", "170 Russell St, Melbourne VIC 3000"],
-    ["12-14 Smith Street, Fitzroy", "12-14 Smith St"],
+
     ["5 Glenferrie Road", "5 Glenferrie Rd"],
     ["1/23 High Street", "1/23 High St"],
     ["3 Acland Avenue", "3 Acland Av"],
   ])("%s is the street line of %s", (name, address) => {
     expect(sameStreetLine(name, address)).toBe(true);
+  });
+
+  // CodeRabbit (PR #61, round 3): after a comma, only the event's own locality is dropped; anything else is the name's.
+  it.each<[string, string]>([
+    ["12-14 Smith Street, Fitzroy", "12-14 Smith St"],
+    ["12-14 Smith Street, Fitzroy VIC 3065", "12-14 Smith St"],
+    ["12-14 Smith Street, Fitzroy, Victoria, Australia", "12-14 Smith St, Fitzroy VIC 3065"],
+    ["12-14 Smith Street, Fitzroy, VIC 3065", "12-14 Smith St"],
+  ])("%s is the street line of %s in Fitzroy, VIC", (name, address) => {
+    expect(sameStreetLine(name, address, { suburb: "Fitzroy", state: "VIC" })).toBe(true);
+  });
+
+  it.each<[string, string]>([
+    ["170 Russell Street, Rooftop", "170 Russell St"],
+    ["170 Russell Street, Rooftop", "170 Russell St, Fitzroy VIC 3065"],
+    ["170 Russell Street, Rooftop, Fitzroy", "170 Russell St"],
+    ["170 Russell Street, Collingwood", "170 Russell St"],
+    ["170 Russell Street, Fitzroy NSW", "170 Russell St"],
+    ["170 Russell Street, Fitzroy, NSW 2000", "170 Russell St"],
+    ["170 Russell Street, VIC 3065", "170 Russell St"],
+  ])("%s keeps its own words over %s in Fitzroy, VIC", (name, address) => {
+    expect(sameStreetLine(name, address, { suburb: "Fitzroy", state: "VIC" })).toBe(false);
+  });
+
+  it("without the event's place, any comma suffix keeps the name", () => {
+    expect(sameStreetLine("12-14 Smith Street, Fitzroy", "12-14 Smith St")).toBe(false);
   });
 
   it.each<[string, string]>([
@@ -96,6 +122,19 @@ describe("venueLines", () => {
   it("a named venue: its name, then its address (or, without one, its place)", () => {
     expect(venueLines({ ...base, venueName: "The Tote", venueAddress: "71 Johnston St" })).toEqual({ first: "The Tote", second: "71 Johnston St", named: true });
     expect(venueLines({ ...base, venueName: "The Tote", venueAddress: " " })).toEqual({ first: "The Tote", second: "Collingwood, VIC", named: true });
+  });
+
+  it("a name with its own qualifier after the street line is the name ('170 Russell Street, Rooftop')", () => {
+    expect(venueLines({ suburb: "Melbourne", state: "VIC", venueName: "170 Russell Street, Rooftop", venueAddress: "170 Russell St" })).toEqual({
+      first: "170 Russell Street, Rooftop",
+      second: "170 Russell St",
+      named: true,
+    });
+    expect(venueLines({ suburb: "Melbourne", state: "VIC", venueName: "170 Russell Street, Melbourne", venueAddress: "170 Russell St" })).toEqual({
+      first: "170 Russell St",
+      second: "Melbourne, VIC",
+      named: false,
+    });
   });
 
   it("a name that's only the street line: the address, then the place; never the address twice", () => {
@@ -144,5 +183,16 @@ describe("venueLines", () => {
     // No state on the event: Victorian, as everywhere.
     expect(venueLines({ suburb: "Richmond", venueName: "", venueAddress: "1 Swan St, Richmond NSW 2753" }).second).toBe("Richmond, VIC");
     expect(venueLines({ suburb: "Richmond", venueName: "", venueAddress: "1 Swan St, Richmond VIC 3121" }).second).toBe("");
+  });
+
+  // CodeRabbit (PR #61, round 3): the state can follow a bare suburb as its own part ("Richmond, VIC 3121").
+  it("reads a state in the part after a bare suburb", () => {
+    const nsw = { suburb: "Richmond NSW", state: "NSW" as const, venueName: "" };
+    expect(venueLines({ ...nsw, venueAddress: "1 Swan St, Richmond, VIC 3121" }).second).toBe("Richmond, NSW");
+    expect(venueLines({ ...nsw, venueAddress: "1 Swan St, Richmond, Victoria, Australia" }).second).toBe("Richmond, NSW");
+    expect(venueLines({ ...nsw, venueAddress: "1 March St, Richmond, NSW 2753" }).second).toBe("");
+    expect(venueLines({ ...nsw, venueAddress: "1 March St, Richmond, 2753" }).second).toBe("");
+    expect(venueLines({ ...nsw, venueAddress: "1 March St, Richmond, Australia" }).second).toBe("");
+    expect(venueLines({ ...nsw, venueAddress: "1 March St, Richmond" }).second).toBe("");
   });
 });

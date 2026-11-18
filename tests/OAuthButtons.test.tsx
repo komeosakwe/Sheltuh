@@ -426,8 +426,9 @@ describe("OAuthButtons on /login and /signup", () => {
     expect(screen.getAllByRole("link", { name: "Terms of Use" })).toHaveLength(1);
     expect(screen.queryByText(/^Continuing with/)).toBeNull();
     const line = screen.getByText(/^By continuing you agree to the/);
-    expect(screen.getByRole("button", { name: "Sign up" }).compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(google().compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    for (const before of [screen.getByRole("button", { name: "Sign up" }), apple(), google()]) {
+      expect(before.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
   });
 
   it("/login (the sign-in mock): the email form and Continue, then \"Or continue with\", the buttons and the page's one privacy line, carrying ?next=", async () => {
@@ -460,6 +461,10 @@ describe("OAuthButtons on /login and /signup", () => {
   it("/login says the privacy line once, with the buttons or without", async () => {
     for (const flag of ["google,apple", ""]) {
       await renderPage("login", undefined, flag);
+      // Each layout is the one meant: both buttons with the flag, neither without.
+      for (const name of ["Continue with Apple", "Continue with Google"]) {
+        expect(screen.queryAllByRole("button", { name })).toHaveLength(flag ? 1 : 0);
+      }
       expect(screen.getAllByRole("link", { name: "Privacy Policy" })).toHaveLength(1);
       expect(screen.getAllByRole("link", { name: "Terms of Use" })).toHaveLength(1);
       expect(screen.getByText(/^By continuing you agree to the/)).toBeInTheDocument();

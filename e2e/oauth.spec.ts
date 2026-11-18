@@ -197,10 +197,11 @@ test("a callback URL whose next was tampered with lands on /events, not the othe
   expect(origin(page)).toBe(new URL(baseURL ?? "").origin);
 });
 
-// Round 2 (the owner's iPhone screenshots): on an iPhone with Safari's bars (390×664), /login's Continue with Apple
-// and Google are whole in the first screen with nothing scrolled, under the email form and Continue (the same
-// order); /signup's Sign up is too, with the page's one privacy line under it.
-test.describe("at 390×664 (iPhone Safari)", () => {
+// Round 2 (the owner's iPhone screenshots): at the viewport an iPhone with Safari's bars leaves (390×664), /login's
+// Continue with Apple and Google are whole in the first screen with nothing scrolled, under the email form and
+// Continue (the same order); /signup's Sign up is too, with the page's one privacy line under it. The geometry at
+// that viewport, in the suite's Chromium (not Safari itself: CI installs Chromium only).
+test.describe("at 390×664 (phone viewport)", () => {
   test.use({ viewport: { width: 390, height: 664 } });
 
   test("/login: the email form, Continue, then Apple and Google, all in the first screen", async ({ page }) => {
@@ -227,8 +228,11 @@ test.describe("at 390×664 (iPhone Safari)", () => {
     await mockAuth(page);
     await page.goto("/signup");
     await expect(googleButton(page)).toBeVisible({ timeout: 60_000 });
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
     const signUp = await page.getByRole("button", { name: "Sign up", exact: true }).boundingBox();
     if (!signUp) throw new Error("not laid out");
+    // Whole: neither edge outside the first screen.
+    expect(signUp.y).toBeGreaterThanOrEqual(0);
     expect(signUp.y + signUp.height).toBeLessThanOrEqual(664);
     await expect(page.locator("#main").getByRole("link", { name: "Privacy Policy" })).toHaveCount(1);
     await expect(page.locator("#main").getByRole("link", { name: "Terms of Use" })).toHaveCount(1);

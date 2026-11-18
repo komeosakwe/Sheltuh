@@ -217,21 +217,7 @@ describe("EventEditor — picking a Google place", () => {
     await pickTheTote();
     expect(screen.getByLabelText("Venue name")).toHaveValue("The Tote Hotel");
 
-    api.autocompletePlaces.mockResolvedValue({
-      suggestions: [{ placeId: "ChIJrussell000000000", primaryText: "170 Russell Street", secondaryText: "Melbourne VIC, Australia" }],
-    });
-    api.getPlaceDetails.mockResolvedValue({
-      ...TOTE_DETAILS,
-      placeId: "ChIJrussell000000000",
-      formattedAddress: "170 Russell St, Melbourne VIC 3000",
-      streetAddress: "170 Russell St",
-      locality: "Melbourne",
-    });
-    fireEvent.click(screen.getByRole("button", { name: /^Change/ }));
-    fireEvent.focus(searchBox());
-    fireEvent.change(searchBox(), { target: { value: "170 Russell" } });
-    fireEvent.click(await screen.findByRole("option", { name: /170 Russell Street/ }));
-    await screen.findByText(/170 Russell Street, Melbourne VIC/);
+    await pickAnAddress(true);
     // Not the street line twice: the name is empty, the address filled.
     expect(screen.getByLabelText("Venue name")).toHaveValue("");
     expect(screen.getByLabelText("Venue address")).toHaveValue("170 Russell St");
@@ -282,6 +268,37 @@ describe("EventEditor — picking a Google place", () => {
     const name = screen.getByLabelText("Venue name");
     fireEvent.change(name, { target: { value: "The Forum" } });
     await pickAnAddress(false);
+    expect(name).toHaveValue("The Forum");
+    expect(screen.getByLabelText("Venue address")).toHaveValue("170 Russell St");
+    expect(screen.queryByText(VENUE_NAME_HINT)).toBeNull();
+    expect(name).not.toHaveAccessibleDescription(VENUE_NAME_HINT);
+  });
+
+  // CodeRabbit (PR #61, round 3): the pick's details arrive after the name was typed; the editor that gets them is the
+  // current one, so the name typed meanwhile stays (no hint).
+  it("an address pick never wipes a venue name typed while its address was loading", async () => {
+    renderEditor(null);
+    let answer: (details: PlaceDetails) => void = () => {};
+    api.autocompletePlaces.mockResolvedValue({
+      suggestions: [{ placeId: "ChIJrussell000000000", primaryText: "170 Russell Street", secondaryText: "Melbourne VIC, Australia" }],
+    });
+    api.getPlaceDetails.mockImplementation(() => new Promise<PlaceDetails>((resolve) => (answer = resolve)));
+    fireEvent.focus(searchBox());
+    fireEvent.change(searchBox(), { target: { value: "170 Russell" } });
+    fireEvent.click(await screen.findByRole("option", { name: /170 Russell Street/ }));
+    await waitFor(() => expect(api.getPlaceDetails).toHaveBeenCalledTimes(1));
+    const name = screen.getByLabelText("Venue name");
+    fireEvent.change(name, { target: { value: "The Forum" } });
+    await act(async () => {
+      answer({
+        ...TOTE_DETAILS,
+        placeId: "ChIJrussell000000000",
+        formattedAddress: "170 Russell St, Melbourne VIC 3000",
+        streetAddress: "170 Russell St",
+        locality: "Melbourne",
+      });
+    });
+    await screen.findByText(/170 Russell Street, Melbourne VIC/);
     expect(name).toHaveValue("The Forum");
     expect(screen.getByLabelText("Venue address")).toHaveValue("170 Russell St");
     expect(screen.queryByText(VENUE_NAME_HINT)).toBeNull();

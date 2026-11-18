@@ -92,11 +92,12 @@ export default function VenuePlaceSearch({ getToken, onPick, onManual, error, er
   const session = useRef<string | null>(null);
   const searchAbort = useRef<AbortController | null>(null);
   const detailsAbort = useRef<AbortController | null>(null);
-  // The latest props, for the effects (they mustn't re-run because the editor re-rendered).
-  const latest = useRef({ getToken, onManual });
+  // The latest props, for the effects (they mustn't re-run because the editor re-rendered) and for a pick
+  // whose details arrive after the editor changed (a name typed meanwhile must be what onPick sees).
+  const latest = useRef({ getToken, onManual, onPick });
   useEffect(() => {
-    latest.current = { getToken, onManual };
-  }, [getToken, onManual]);
+    latest.current = { getToken, onManual, onPick };
+  }, [getToken, onManual, onPick]);
 
   const text = query.trim();
   const longEnough = text.length >= PLACE_SEARCH_MIN_CHARS;
@@ -179,11 +180,11 @@ export default function VenuePlaceSearch({ getToken, onPick, onManual, error, er
     try {
       const details = await getPlaceDetails(suggestion.placeId, token, getToken, controller.signal);
       if (controller.signal.aborted) return;
-      onPick({ suggestion, details });
+      latest.current.onPick({ suggestion, details });
     } catch (err) {
       if (controller.signal.aborted || isAbort(err)) return;
       if (isPlacesUnavailableError(err)) {
-        onManual("unavailable");
+        latest.current.onManual("unavailable");
         return;
       }
       setProblem(`Couldn’t get that place’s address: ${errorText(err)}`);

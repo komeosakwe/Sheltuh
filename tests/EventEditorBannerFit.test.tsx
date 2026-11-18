@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventEditor from "@/components/dashboard/EventEditor";
 import type { AdminEventRecord, EventRecord } from "@/lib/api/types";
@@ -172,10 +172,12 @@ describe("EventEditor banner fit", () => {
   it("saving a changed fit sends only the fit, once, with no re-upload", async () => {
     updateEventDraft.mockResolvedValue(EVENT);
     setEventImageDisplay.mockResolvedValue({ ...EVENT, bannerFit: "whole" });
-    renderEditor();
+    const { onSaved } = renderEditor();
     fireEvent.click(await checkbox());
     save();
-    await waitFor(() => expect(setEventImageDisplay).toHaveBeenCalledWith("evt-1", { bannerFit: "whole" }, expect.any(Function)));
+    // The save is over (the page has the fit's record) before nothing more is checked for.
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith({ ...EVENT, bannerFit: "whole" }));
+    expect(setEventImageDisplay).toHaveBeenCalledWith("evt-1", { bannerFit: "whole" }, expect.any(Function));
     expect(setEventImageDisplay).toHaveBeenCalledTimes(1);
     expect(uploadEventImage).not.toHaveBeenCalled();
   });
@@ -183,24 +185,23 @@ describe("EventEditor banner fit", () => {
   it("a moved focus and a changed fit go in one request", async () => {
     updateEventDraft.mockResolvedValue({ ...EVENT, bannerFit: "whole" });
     setEventImageDisplay.mockResolvedValue({ ...EVENT, imageFocus: { x: 35, y: 40 } });
-    renderEditor({ ...EVENT, bannerFit: "whole" });
+    const { onSaved } = renderEditor({ ...EVENT, bannerFit: "whole" });
     fireEvent.click(await checkbox());
     fireEvent.keyDown(screen.getByRole("slider", { name: "Focus" }), { key: "ArrowRight" });
     save();
-    await waitFor(() =>
-      expect(setEventImageDisplay).toHaveBeenCalledWith("evt-1", { focus: { x: 35, y: 40 }, bannerFit: "crop" }, expect.any(Function)),
-    );
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith({ ...EVENT, imageFocus: { x: 35, y: 40 } }));
+    expect(setEventImageDisplay).toHaveBeenCalledWith("evt-1", { focus: { x: 35, y: 40 }, bannerFit: "crop" }, expect.any(Function));
     expect(setEventImageDisplay).toHaveBeenCalledTimes(1);
   });
 
   it("doesn't touch the photo when nothing about it changed (or the fit was put back)", async () => {
     updateEventDraft.mockResolvedValue(EVENT);
-    renderEditor();
+    const { onSaved } = renderEditor();
     const box = await checkbox();
     fireEvent.click(box);
     fireEvent.click(box);
     save();
-    await waitFor(() => expect(updateEventDraft).toHaveBeenCalled());
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(EVENT));
     expect(setEventImageDisplay).not.toHaveBeenCalled();
     expect(uploadEventImage).not.toHaveBeenCalled();
   });
@@ -211,12 +212,15 @@ describe("EventEditor banner fit", () => {
     updateEventDraft.mockResolvedValue(EVENT);
     uploadEventImage.mockResolvedValue({ ...EVENT, imageFocus: undefined, imageUrl: "/api/events/evt-1/image?v=2" });
     setEventImageDisplay.mockResolvedValue({ ...EVENT, imageUrl: "/api/events/evt-1/image?v=2", bannerFit: "whole" });
-    renderEditor();
+    const { onSaved } = renderEditor();
     pickPhoto();
     await waitFor(() => expect(screen.getByRole("button", { name: "Discard new photo" })).toBeInTheDocument());
     fireEvent.click(await checkbox());
     save();
-    await waitFor(() => expect(setEventImageDisplay).toHaveBeenCalledWith("evt-1", { bannerFit: "whole" }, expect.any(Function)));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith({ ...EVENT, imageUrl: "/api/events/evt-1/image?v=2", bannerFit: "whole" }));
+    expect(setEventImageDisplay).toHaveBeenCalledWith("evt-1", { bannerFit: "whole" }, expect.any(Function));
+    expect(setEventImageDisplay).toHaveBeenCalledTimes(1);
+    expect(uploadEventImage).toHaveBeenCalledTimes(1);
     expect(uploadEventImage).toHaveBeenCalledWith("evt-1", picked, expect.any(Function), null);
     expect(uploadEventImage.mock.invocationCallOrder[0]).toBeLessThan(setEventImageDisplay.mock.invocationCallOrder[0]);
   });
@@ -224,15 +228,16 @@ describe("EventEditor banner fit", () => {
   it("after an upload that already carries the chosen fit, sends nothing more", async () => {
     prepareEventImage.mockResolvedValue(new Blob(["x"], { type: "image/jpeg" }));
     updateEventDraft.mockResolvedValue({ ...EVENT, bannerFit: "whole" });
-    uploadEventImage.mockResolvedValue({ ...EVENT, bannerFit: "whole" });
-    renderEditor({ ...EVENT, bannerFit: "whole" });
+    const uploaded = { ...EVENT, imageUrl: "/api/events/evt-1/image?v=2", bannerFit: "whole" as const };
+    uploadEventImage.mockResolvedValue(uploaded);
+    const { onSaved } = renderEditor({ ...EVENT, bannerFit: "whole" });
     pickPhoto();
     const box = await checkbox();
     fireEvent.click(box);
     fireEvent.click(box);
     save();
-    await waitFor(() => expect(uploadEventImage).toHaveBeenCalled());
-    await waitFor(() => expect(screen.getByRole("button", { name: "Save draft" })).not.toHaveAttribute("aria-disabled", "true"));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(uploaded));
+    expect(uploadEventImage).toHaveBeenCalledTimes(1);
     expect(setEventImageDisplay).not.toHaveBeenCalled();
   });
 
@@ -256,20 +261,74 @@ describe("EventEditor banner fit", () => {
 
     await waitFor(() => expect(screen.getByRole("button", { name: "Save draft" })).not.toHaveAttribute("aria-disabled", "true"));
     save();
-    await waitFor(() => expect(setEventImageDisplay).toHaveBeenCalledTimes(2));
+    // The retry's answer reaches the page: the uploaded photo, now whole.
+    await waitFor(() => expect(onSaved).toHaveBeenLastCalledWith({ ...uploaded, bannerFit: "whole" }));
+    expect(setEventImageDisplay).toHaveBeenCalledTimes(2);
     expect(setEventImageDisplay.mock.calls[1][1]).toEqual({ bannerFit: "whole" });
     expect(uploadEventImage).toHaveBeenCalledTimes(1);
+  });
+
+  // CodeRabbit (PR #61, round 3): the earlier save's answer mustn't mark a newer choice as saved.
+  it("a fit changed again while its save is under way is sent on the next save", async () => {
+    updateEventDraft.mockResolvedValueOnce(EVENT).mockResolvedValueOnce({ ...EVENT, bannerFit: "whole" });
+    let answer: (record: EventRecord) => void = () => {};
+    setEventImageDisplay
+      .mockImplementationOnce(() => new Promise<EventRecord>((resolve) => (answer = resolve)))
+      .mockResolvedValueOnce({ ...EVENT, bannerFit: "crop" });
+    const { onSaved } = renderEditor();
+    const box = await checkbox();
+    fireEvent.click(box);
+    save();
+    await waitFor(() => expect(setEventImageDisplay).toHaveBeenCalledTimes(1));
+    expect(setEventImageDisplay.mock.calls[0][1]).toEqual({ bannerFit: "whole" });
+    // Unticked while the first save's fit is on its way.
+    fireEvent.click(box);
+    expect(box).not.toBeChecked();
+    await act(async () => answer({ ...EVENT, bannerFit: "whole" }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith({ ...EVENT, bannerFit: "whole" }));
+    expect(box).not.toBeChecked();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save draft" })).not.toHaveAttribute("aria-disabled", "true"));
+    save();
+    await waitFor(() => expect(onSaved).toHaveBeenLastCalledWith({ ...EVENT, bannerFit: "crop" }));
+    expect(setEventImageDisplay).toHaveBeenCalledTimes(2);
+    expect(setEventImageDisplay.mock.calls[1][1]).toEqual({ bannerFit: "crop" });
+  });
+
+  it("a focus moved again while its save is under way is sent on the next save", async () => {
+    updateEventDraft.mockResolvedValueOnce(EVENT).mockResolvedValueOnce({ ...EVENT, imageFocus: { x: 35, y: 40 } });
+    let answer: (record: EventRecord) => void = () => {};
+    setEventImageDisplay
+      .mockImplementationOnce(() => new Promise<EventRecord>((resolve) => (answer = resolve)))
+      .mockResolvedValueOnce({ ...EVENT, imageFocus: { x: 40, y: 40 } });
+    const { onSaved } = renderEditor();
+    await checkbox();
+    const slider = screen.getByRole("slider", { name: "Focus" });
+    fireEvent.keyDown(slider, { key: "ArrowRight" });
+    save();
+    await waitFor(() => expect(setEventImageDisplay).toHaveBeenCalledTimes(1));
+    expect(setEventImageDisplay.mock.calls[0][1]).toEqual({ focus: { x: 35, y: 40 } });
+    fireEvent.keyDown(slider, { key: "ArrowRight" });
+    await act(async () => answer({ ...EVENT, imageFocus: { x: 35, y: 40 } }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith({ ...EVENT, imageFocus: { x: 35, y: 40 } }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save draft" })).not.toHaveAttribute("aria-disabled", "true"));
+    save();
+    await waitFor(() => expect(onSaved).toHaveBeenLastCalledWith({ ...EVENT, imageFocus: { x: 40, y: 40 } }));
+    expect(setEventImageDisplay).toHaveBeenCalledTimes(2);
+    expect(setEventImageDisplay.mock.calls[1][1]).toEqual({ focus: { x: 40, y: 40 } });
   });
 
   it("removing the photo removes the option and its fit: only the delete is sent", async () => {
     updateEventDraft.mockResolvedValue({ ...EVENT, bannerFit: "whole" });
     deleteEventImage.mockResolvedValue({ ...EVENT, imageUrl: undefined, imageFocus: undefined });
-    renderEditor({ ...EVENT, bannerFit: "whole" });
+    const { onSaved } = renderEditor({ ...EVENT, bannerFit: "whole" });
     await checkbox();
     fireEvent.click(screen.getByRole("button", { name: "Remove photo" }));
     await waitFor(() => expect(screen.queryByRole("checkbox", { name: LABEL })).toBeNull());
     save();
-    await waitFor(() => expect(deleteEventImage).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith({ ...EVENT, imageUrl: undefined, imageFocus: undefined }));
+    expect(deleteEventImage).toHaveBeenCalledTimes(1);
     expect(setEventImageDisplay).not.toHaveBeenCalled();
   });
 
@@ -336,19 +395,23 @@ describe("Admin EventEditor banner fit", () => {
 
   it("an admin can set it on a published event, through the admin route, and the next save uses its version", async () => {
     adminUpdateEvent.mockResolvedValue({ ...ADMIN_EVENT, updatedAt: "2026-01-02T00:00:00.000Z" });
-    adminSetEventImageDisplay.mockResolvedValue({ ...ADMIN_EVENT, bannerFit: "whole", updatedAt: "2026-01-03T00:00:00.000Z" });
+    const displayed: AdminEventRecord = { ...ADMIN_EVENT, bannerFit: "whole", updatedAt: "2026-01-03T00:00:00.000Z" };
+    adminSetEventImageDisplay.mockResolvedValue(displayed);
+    const onSaved = vi.fn();
     render(
       <FakeAuthProvider value={fakeAuthValue({ email: "admin@sheltuh.example", isAdmin: true })}>
-        <EventEditor mode="admin" initial={ADMIN_EVENT} getToken={vi.fn().mockResolvedValue("token")} onSaved={vi.fn()} />
+        <EventEditor mode="admin" initial={ADMIN_EVENT} getToken={vi.fn().mockResolvedValue("token")} onSaved={onSaved} />
       </FakeAuthProvider>,
     );
     fireEvent.click(await checkbox());
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-    await waitFor(() => expect(adminSetEventImageDisplay).toHaveBeenCalledWith("evt-1", { bannerFit: "whole" }, expect.any(Function)));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(displayed));
+    expect(adminSetEventImageDisplay).toHaveBeenCalledWith("evt-1", { bannerFit: "whole" }, expect.any(Function));
 
     await waitFor(() => expect(screen.getByRole("button", { name: "Save changes" })).not.toHaveAttribute("aria-disabled", "true"));
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-    await waitFor(() => expect(adminUpdateEvent).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(2));
+    expect(adminUpdateEvent).toHaveBeenCalledTimes(2);
     expect(adminUpdateEvent.mock.calls[1][1].expectedUpdatedAt).toBe("2026-01-03T00:00:00.000Z");
     expect(adminSetEventImageDisplay).toHaveBeenCalledTimes(1);
   });
@@ -377,7 +440,9 @@ describe("Admin EventEditor banner fit", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(adminUpdateEvent).toHaveBeenCalledTimes(2));
     expect(adminUpdateEvent.mock.calls[1][1].expectedUpdatedAt).toBe("2026-01-04T00:00:00.000Z");
-    await waitFor(() => expect(adminSetEventImageDisplay).toHaveBeenCalledTimes(2));
+    // The retry's answer reaches the page: the uploaded photo, now whole, at its new version.
+    await waitFor(() => expect(onSaved).toHaveBeenLastCalledWith({ ...uploaded, bannerFit: "whole", updatedAt: "2026-01-05T00:00:00.000Z" }));
+    expect(adminSetEventImageDisplay).toHaveBeenCalledTimes(2);
     expect(adminSetEventImageDisplay.mock.calls[1][1]).toEqual({ bannerFit: "whole" });
     expect(adminUploadEventImage).toHaveBeenCalledTimes(1);
   });

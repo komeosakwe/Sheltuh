@@ -26,15 +26,24 @@ function addressWithPlace(target: VenueText): string {
 }
 
 /**
+ * The place without a street address: "Richmond, NSW" (lib/place.ts placeName) when the event names its state, so the
+ * map doesn't guess which Richmond; else the suburb as written (the ticket email, an older event). Empty without a suburb.
+ */
+function placeOnly(target: VenueText): string {
+  const suburb = target.suburb.trim();
+  return suburb && target.state ? placeName(suburb, target.state) : suburb;
+}
+
+/**
  * What the text finds, as the event page shows the venue (lib/place.ts venueLines): the venue's name and its street
- * address (or suburb), "The Tote, 71 Johnston St". A name that's only the street line (a Google address pick), or
- * none: the address and the place it's in, "71 Johnston St, Collingwood, VIC" (or the suburb alone).
+ * address (or, without one, its place: placeOnly), "The Tote, 71 Johnston St". A name that's only the street line (a Google address pick), or
+ * none: the address and the place it's in, "71 Johnston St, Collingwood, VIC" (or the place alone).
  */
 function destinationText(target: VenueText): string {
   const name = target.venueName.trim();
   const address = target.venueAddress.trim();
-  if (name && !(address && sameStreetLine(name, address))) return [name, address || target.suburb.trim()].filter(Boolean).join(", ");
-  return addressWithPlace(target) || target.suburb.trim();
+  if (name && !(address && sameStreetLine(name, address, target))) return [name, address || placeOnly(target)].filter(Boolean).join(", ");
+  return addressWithPlace(target) || placeOnly(target);
 }
 
 /**
@@ -71,7 +80,7 @@ function placeIdOf(target: Pick<VenueLinkTarget, "venuePlaceId">): string | null
  *   `destination_place_id` (Google requires the text alongside the id, and
  *   it still finds the address if the id ever goes stale);
  * - the organiser's pin: `destination=lat,lng`;
- * - otherwise the venue's name and street address (or suburb), or with no
+ * - otherwise the venue's name and street address (or place), or with no
  *   real name, the address and its place (destinationText).
  *
  * Null when there's nothing to route to.
@@ -95,7 +104,7 @@ export function directionsHref(target: VenueLinkTarget): string | null {
  * the Google place id. With the organiser's pin it's that spot, labelled
  * with the venue's name (`ll` and `q`). Otherwise it's directions to the
  * street address as written, with its place unless it names it (`daddr`),
- * or to the venue's name and suburb without one. Null when there's nothing to go to.
+ * or to the venue's name and place (placeOnly) without one. Null when there's nothing to go to.
  */
 export function appleMapsHref(target: VenueLinkTarget): string | null {
   const pin = venuePin(target);
@@ -103,7 +112,7 @@ export function appleMapsHref(target: VenueLinkTarget): string | null {
     const label = target.venueName.trim() || destinationText(target);
     return `https://maps.apple.com/?ll=${latLng(pin)}${label ? `&q=${encodeURIComponent(label)}` : ""}`;
   }
-  const address = addressWithPlace(target) || [target.venueName.trim(), target.suburb.trim()].filter(Boolean).join(", ");
+  const address = addressWithPlace(target) || [target.venueName.trim(), placeOnly(target)].filter(Boolean).join(", ");
   return address ? `https://maps.apple.com/?daddr=${encodeURIComponent(address)}` : null;
 }
 

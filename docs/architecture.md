@@ -3004,8 +3004,11 @@ featured banner crops the photo or shows it whole.
   photo, logged `edited`, nothing logged when unchanged). The organiser's
   writes lock the event row before the image row, as every photo writer does.
 - **Banner fit.** `event_images.banner_fit` (`20261129000000_event_banner_fit.sql`):
-  `crop` (the default) fills the 5:2 banner, cropped around the focus;
-  `whole` shows the whole photo, centred, on the blurred backdrop. It's a
+  `crop` (the default) is the banner's default behaviour (EventArt `fit="poster"`):
+  an ordinary photo fills the 5:2 banner, cropped around the focus, but a
+  portrait poster (at least 1.2 times as tall as it is wide) in a banner that
+  isn't portrait is still shown whole on the blurred backdrop; `whole` shows
+  every photo whole, centred, on the blurred backdrop. It's a
   choice about the banner, not about one photo's content, so replacing the
   photo keeps it (neither upload names the column) while deleting the photo
   drops it (a new photo starts at `crop`). The same `PATCH …/image` sets it:
