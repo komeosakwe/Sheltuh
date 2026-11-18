@@ -4663,7 +4663,11 @@ or as tested elsewhere.
   `require` encrypts without checking the certificate (as libpq's
   `sslmode=require`): it stops eavesdropping, not an active attacker in the
   middle; `DATABASE_CA_CERT` closes that (`docs/DEPLOYMENT.md`). The owner
-  also turns on Supabase's "Enforce SSL" (`docs/DEPLOYMENT.md`).
+  also turns on Supabase's "Enforce SSL" (`docs/DEPLOYMENT.md`). The
+  owner-run photo backfill (`scripts/backfill-event-image-metadata.ts`) is
+  stricter than the app: off this machine it requires `DATABASE_CA_CERT` and
+  connects only with that full verification (exit 2 without it), and its
+  `DATABASE_URL` must name exactly one host and a database.
 - **CDN.** A function's response is shared at Vercel's CDN through
   `s-maxage` (`max-age` is for the browser); that Vercel keeps them, and
   never anything `private`, is checked on the first deploy

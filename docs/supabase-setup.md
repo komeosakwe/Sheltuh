@@ -801,10 +801,17 @@ but a PNG or JPEG that comes out over 2 MB in its own format is stored as
 WebP instead (as an upload is). The dry run shows each photo's current
 format, and adds `as WebP` to the line of any photo whose format would
 change. Nobody else's edit is
-overwritten, because a photo replaced while the script runs is skipped. Each
-cleaned photo gets a new version, so pages link to the clean file straight
-away; an old copy already cached by the CDN or a browser expires within about
-an hour. The event's own version also moves on, so if an admin has that event
+overwritten, because a photo replaced while the script runs is skipped. An
+animated photo (an animated WebP or PNG) is never re-encoded, because the
+copy would keep only its first frame: it's reported as failed (see step 4).
+Each cleaned photo gets a new version. Event records read fresh from the
+database link to the clean file straight away, but a cached record can still
+give the old `imageUrl` for a while: an event's page for about a minute, and
+the event feed for about three minutes (their CDN windows,
+`lib/server/handlers/public-events.ts`). So a page still showing the old link
+just after `--apply` hasn't failed. Separately, an old copy of the photo file
+itself, already cached by the CDN or a browser under its old URL, expires
+within about an hour. The event's own version also moves on, so if an admin has that event
 open in the editor, saving asks them to reload. Nothing is added to the
 event's moderation log. You don't need a backup for this metadata-only
 change, but read the dry run's output before you use `--apply`.
@@ -814,24 +821,42 @@ change, but read the dry run's output before you use `--apply`.
    pooler** URI (the Transaction pooler works too), and put the database
    password in place of `[YOUR-PASSWORD]`. Use the live project's string,
    not the one in `.env.local` (which may point at a dev database). The
-   script requires TLS for any remote host.
-2. **In a checkout of `main` that includes the script** (`npm ci` first, if
-   `node_modules` is missing), set the string for this terminal only. Paste it
-   at the prompt, so it doesn't end up in your shell history:
+   string must name its host and database, and only one host.
+2. **Download the CA certificate.** On the same page (Project Settings →
+   Database → SSL Configuration), click **Download certificate**, and note
+   where the `.crt` file was saved. The script needs it for any database
+   that isn't on your own computer: it uses the certificate to check that the
+   server really is your Supabase database (its certificate chains to that CA
+   and names the host) before it sends the password. Without
+   `DATABASE_CA_CERT` it refuses to run (exit code 2). It's a public
+   certificate, not a secret, but the script never prints it.
+3. **In a checkout of `main` that includes the script** (`npm ci` first, if
+   `node_modules` is missing), set both for this terminal only. Paste the
+   connection string at the prompt, so it doesn't end up in your shell
+   history, and put the path of the downloaded file in place of
+   `path/to/the-downloaded.crt`:
 
    Git Bash / macOS / Linux:
 
    ```sh
    read -rs DATABASE_URL && export DATABASE_URL
+   export DATABASE_CA_CERT="$(cat path/to/the-downloaded.crt)"
    ```
 
    PowerShell:
 
    ```powershell
    $env:DATABASE_URL = Read-Host "Connection string"
+   $env:DATABASE_CA_CERT = Get-Content -Raw "path\to\the-downloaded.crt"
    ```
 
-3. **Dry run** (the default: it reads every photo and changes nothing):
+   If a run stops with a certificate error (for example `self-signed
+   certificate in certificate chain`, or a host name that doesn't match),
+   nothing was read or changed. Check that the certificate came from the
+   same project as the connection string. Don't work around it by leaving
+   `DATABASE_CA_CERT` out, because the script won't connect without it.
+
+4. **Dry run** (the default: it reads every photo and changes nothing):
 
    ```sh
    npx tsx scripts/backfill-event-image-metadata.ts
@@ -845,13 +870,16 @@ change, but read the dry run's output before you use `--apply`.
    many have metadata (by kind), how many are already clean, how many would
    be re-encoded, and how many **FAILED**. A failed photo couldn't be read,
    or its pixels didn't decode, or it wouldn't re-encode within the upload
-   limits (24 megapixels, 2 MB). It is never changed. Replace it through
+   limits (24 megapixels, 2 MB), or it's animated (its line says so: a
+   re-encoded copy would keep only the first frame). It is never changed. Replace it through
    the admin event editor, which works at any status; for a published (or
    pending review) event that's the only way, because the organiser can't
    replace the photo then. Asking the organiser to replace it is an option
-   only while the event is a draft or rejected. The script exits with code
-   1 when any photo failed, and 0 otherwise.
-4. **Apply**, once the dry run looks right:
+   only while the event is a draft or rejected. (Any replacement, an
+   animated one included, is stored as a still photo: uploads keep only the
+   first frame.) The script exits with code 1 when any photo failed, 2 when
+   a setting is missing or wrong (nothing is read then), and 0 otherwise.
+5. **Apply**, once the dry run looks right:
 
    ```sh
    npx tsx scripts/backfill-event-image-metadata.ts --apply
@@ -861,11 +889,12 @@ change, but read the dry run's output before you use `--apply`.
    transaction, so stopping it partway leaves every photo either cleaned or
    untouched. If any are reported as `skipped`, someone replaced them while
    the script was running. Run `--apply` again to check the new ones.
-5. **Check it's done.** Run the dry run again. It should report
+6. **Check it's done.** Run the dry run again. It should report
    `With metadata: 0` (failed photos aside). Running `--apply` again is
    harmless and does nothing.
-6. Clear the variable (`unset DATABASE_URL`, or in PowerShell
-   `Remove-Item Env:DATABASE_URL`), or close the terminal.
+7. Clear the variables (`unset DATABASE_URL DATABASE_CA_CERT`, or in
+   PowerShell `Remove-Item Env:DATABASE_URL, Env:DATABASE_CA_CERT`), or
+   close the terminal.
 
 The script never prints the connection string, a full event id, a URL or
 any image data, and refuses arguments it doesn't know. Give the connection

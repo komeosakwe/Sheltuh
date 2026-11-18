@@ -53,12 +53,21 @@
  * connection string and its password removed, and arguments are only echoed
  * through showArg.
  *
- * Kept free of process/env/network so tests/server/event-image-backfill.test.ts
- * runs it against the test database directly.
+ * Connection: DATABASE_URL must name its host and database, and exactly one
+ * host; a host off this computer is only reached with full certificate
+ * verification against DATABASE_CA_CERT (the Supabase CA), never with
+ * unverified TLS, so the password can't go to an impostor
+ * (databaseSettingsProblem, connectBackfillDatabase). Neither value is ever
+ * printed.
+ *
+ * Kept free of process (env and the database are passed in) so
+ * tests/server/event-image-backfill.test.ts runs it against the test database
+ * directly.
  */
 import { createHash } from "node:crypto";
+import postgres from "postgres";
 import sharp, { type Metadata } from "sharp";
-import type { Db } from "../lib/server/db";
+import { connectPostgres, forcedDatabaseTls, type Db } from "../lib/server/db";
 import {
   encodeEventImage,
   EVENT_IMAGE_ENCODE_TIMEOUT_SECONDS,
@@ -86,8 +95,14 @@ export const METADATA_KINDS: readonly MetadataKind[] = ["gps", "camera", "other"
 export type ImageFormat = "jpeg" | "png" | "webp";
 
 export type MetadataScan =
-  | { ok: true; format: ImageFormat; kinds: MetadataKind[] }
+  /** `animated`: more than one frame (a WebP's ANIM/ANMF chunks, a PNG's acTL, or sharp reports pages). */
+  | { ok: true; format: ImageFormat; kinds: MetadataKind[]; animated?: true }
   | { ok: false; reason: string };
+
+/** What a structure walk noticed besides metadata. */
+interface ScanFlags {
+  animated: boolean;
+}
 
 // EXIF tags (TIFF IFD0 and the Exif sub-IFD) that identify the camera or its owner.
 const EXIF_POINTER = 0x8769;
@@ -243,7 +258,7 @@ const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0
 /** PNG chunks that are pixels or how to show them: anything else (eXIf, tEXt, iTXt, zTXt, iCCP, tIME, private chunks) is metadata. */
 const PNG_IMAGE_CHUNKS = new Set(["IHDR", "PLTE", "IDAT", "IEND", "tRNS", "pHYs", "gAMA", "cHRM", "sRGB", "sBIT", "bKGD"]);
 
-function scanPng(b: Buffer, kinds: Set<MetadataKind>): boolean {
+function scanPng(b: Buffer, kinds: Set<MetadataKind>, flags: ScanFlags): boolean {
   if (!b.subarray(0, 8).equals(PNG_SIGNATURE)) return false;
   for (let i = 8; ; ) {
     if (i + 12 > b.length) return false; // no IEND
@@ -256,6 +271,7 @@ function scanPng(b: Buffer, kinds: Set<MetadataKind>): boolean {
       if (end < b.length) kinds.add("other");
       return true;
     }
+    if (type === "acTL") flags.animated = true; // APNG: still counted as other below
     if (type === "eXIf") addAll(kinds, exifKinds(data));
     else if (type === "iTXt" && startsWith(data, "XML:com.adobe.xmp\0")) addAll(kinds, xmpKinds(data));
     else if (!PNG_IMAGE_CHUNKS.has(type)) kinds.add("other");
@@ -266,7 +282,7 @@ function scanPng(b: Buffer, kinds: Set<MetadataKind>): boolean {
 /** WebP chunks that are pixels or the extended header: EXIF, XMP, ICCP, animation and unknown chunks count as metadata. */
 const WEBP_IMAGE_CHUNKS = new Set(["VP8 ", "VP8L", "VP8X", "ALPH"]);
 
-function scanWebp(b: Buffer, kinds: Set<MetadataKind>): boolean {
+function scanWebp(b: Buffer, kinds: Set<MetadataKind>, flags: ScanFlags): boolean {
   if (b.length < 12 || b.toString("latin1", 0, 4) !== "RIFF" || b.toString("latin1", 8, 12) !== "WEBP") return false;
   const riffEnd = 8 + b.readUInt32LE(4);
   if (riffEnd > b.length || riffEnd < 12) return false;
@@ -277,6 +293,7 @@ function scanWebp(b: Buffer, kinds: Set<MetadataKind>): boolean {
     const end = i + 8 + size;
     if (end > riffEnd) return false;
     const data = b.subarray(i + 8, end);
+    if (type === "ANIM" || type === "ANMF") flags.animated = true; // still counted as other below
     if (type === "EXIF") addAll(kinds, exifKinds(data));
     else if (type === "XMP ") addAll(kinds, xmpKinds(data));
     else if (!WEBP_IMAGE_CHUNKS.has(type)) kinds.add("other");
@@ -304,7 +321,9 @@ export async function scanImageMetadata(input: Uint8Array): Promise<MetadataScan
           ? "webp"
           : null;
   if (!format) return { ok: false, reason: "isn't a JPEG, PNG or WebP" };
-  const readable = format === "jpeg" ? scanJpeg(bytes, kinds) : format === "png" ? scanPng(bytes, kinds) : scanWebp(bytes, kinds);
+  const flags: ScanFlags = { animated: false };
+  const readable =
+    format === "jpeg" ? scanJpeg(bytes, kinds) : format === "png" ? scanPng(bytes, kinds, flags) : scanWebp(bytes, kinds, flags);
   if (!readable) return { ok: false, reason: `isn't a complete ${format.toUpperCase()} file` };
 
   let meta: Metadata;
@@ -317,7 +336,9 @@ export async function scanImageMetadata(input: Uint8Array): Promise<MetadataScan
   if (meta.exif) addAll(kinds, exifKinds(meta.exif));
   if (meta.xmp) addAll(kinds, xmpKinds(meta.xmp));
   if (meta.icc || meta.iptc || meta.orientation !== undefined || (meta.comments?.length ?? 0) > 0) kinds.add("other");
-  return { ok: true, format, kinds: METADATA_KINDS.filter((kind) => kinds.has(kind)) };
+  if ((meta.pages ?? 1) > 1) flags.animated = true;
+  const found = METADATA_KINDS.filter((kind) => kinds.has(kind));
+  return flags.animated ? { ok: true, format, kinds: found, animated: true } : { ok: true, format, kinds: found };
 }
 
 // ---------------------------------------------------------------------------
@@ -355,7 +376,7 @@ export interface RowOutcome {
 export interface BackfillSummary {
   apply: boolean;
   total: number;
-  /** Rows found with metadata (would_clean, cleaned, skipped, and failed rows that decoded). */
+  /** Rows found with metadata (would_clean, cleaned, skipped, and failed rows that decoded, animated ones aside). */
   withMetadata: number;
   byKind: Record<MetadataKind, number>;
   clean: number;
@@ -376,6 +397,8 @@ export interface BackfillOptions {
 }
 
 const DOESNT_DECODE = "doesn't decode (corrupt, over 24 megapixels, or too slow)";
+const ANIMATED =
+  "animated: re-encoding keeps only the first frame, so it isn't re-encoded; replace it by hand (the admin event editor) if a still photo will do";
 
 /** Why a re-encode failed, in words (never the error's own text, which could quote input). */
 function encodeFailure(err: unknown): string {
@@ -486,6 +509,15 @@ export async function backfillEventImageMetadata(db: Db, options: BackfillOption
     }
     outcome.format = scan.format;
     outcome.kinds = scan.kinds;
+    if (scan.animated) {
+      // encodeEventImage reads the first frame only (as every upload does), so a copy would silently drop the
+      // animation: never written, in either mode, and not counted under "with metadata".
+      outcome.result = "failed";
+      outcome.reason = ANIMATED;
+      summary.failed += 1;
+      print(describeRow(outcome));
+      continue;
+    }
     if (scan.kinds.length === 0) {
       // Clean only if its pixels decode too (left untouched either way: nothing to strip).
       if (await pixelsDecode(data)) {
@@ -611,7 +643,8 @@ export const USAGE = [
   `  ${DATABASE_URL_ENV}=… npx tsx scripts/backfill-event-image-metadata.ts            dry run: report, change nothing`,
   `  ${DATABASE_URL_ENV}=… npx tsx scripts/backfill-event-image-metadata.ts --apply    re-encode the photos with metadata`,
   "",
-  `The database's connection string comes from ${DATABASE_URL_ENV} only (never an argument).`,
+  `The database's connection string comes from ${DATABASE_URL_ENV} only (never an argument), and for a database that`,
+  "isn't on this computer, the Supabase CA certificate (PEM) from DATABASE_CA_CERT, so the server is verified.",
   "Exits non-zero if any photo couldn't be checked or cleaned. See docs/supabase-setup.md.",
 ].join("\n");
 
@@ -649,12 +682,24 @@ export const DATABASE_URL_INCOMPLETE =
   "(postgresql://user:password@host:port/postgres), so it can't fall back to PGHOST, PGDATABASE or another default. " +
   "Copy the URI again from Supabase → Project Settings → Database. It isn't shown here, and nothing was run.";
 
+export const DATABASE_URL_ONE_HOST =
+  `${DATABASE_URL_ENV} must name exactly one host: a list of hosts (a comma in the host part) lets the database driver try ` +
+  "the next one when the first doesn't answer, so --apply could write somewhere else. " +
+  "Copy the URI again from Supabase → Project Settings → Database. It isn't shown here, and nothing was run.";
+
+export const DATABASE_CA_CERT_ENV = "DATABASE_CA_CERT";
+
+export const DATABASE_CA_CERT_REQUIRED =
+  `${DATABASE_CA_CERT_ENV} is needed for a database that isn't on this computer: the Supabase CA certificate (PEM), ` +
+  "so the script checks it's talking to your database (certificate and host name) before it sends the password. " +
+  "Download it from Supabase → Project Settings → Database → SSL Configuration → Download certificate, " +
+  "and set it as described in docs/supabase-setup.md. Nothing was run.";
+
 /**
  * Whether a connection string names its own host and database: a postgres://
  * or postgresql:// URI with a host and a database name in its path. Without
  * either, postgres.js would fill it from PGHOST / PGDATABASE (or the user
  * name, or localhost), so --apply could run against whatever those name.
- * One host only (a Supabase URI, direct or pooler, always is).
  */
 export function namesHostAndDatabase(databaseUrl: string): boolean {
   let url: URL;
@@ -664,6 +709,81 @@ export function namesHostAndDatabase(databaseUrl: string): boolean {
     return false;
   }
   return (url.protocol === "postgres:" || url.protocol === "postgresql:") && url.hostname !== "" && url.pathname.length > 1;
+}
+
+/**
+ * The hosts (and unix socket path, if any) postgres.js itself will connect to
+ * for this URL, read the way it reads it (it splits the host part on commas,
+ * after percent-decoding it). Creating a client doesn't connect: nothing is
+ * sent. Undefined if postgres.js can't read the URL.
+ */
+function resolvedTarget(databaseUrl: string): { host: string[]; path: string | false } | undefined {
+  try {
+    const { host, path } = postgres(databaseUrl, { max: 1, onnotice: () => {} }).options;
+    return { host, path: path || false };
+  } catch {
+    return undefined;
+  }
+}
+
+/** On this computer (localhost, 127.0.0.1, ::1 or a unix socket): the app's own rule (lib/server/db.ts), which needs no TLS there. */
+function isLocalTarget(target: { host: string[]; path: string | false }): boolean {
+  return forcedDatabaseTls({ ...target, ssl: false }) === undefined;
+}
+
+/**
+ * Why DATABASE_URL (with DATABASE_CA_CERT) can't be used, or undefined when
+ * it can: it must name its host and database, exactly one host (as
+ * postgres.js resolves it), and a host off this computer needs the CA
+ * certificate, so the connection verifies the server before the password is
+ * sent. Only presence is checked here; connectBackfillDatabase reads the PEM.
+ */
+export function databaseSettingsProblem(databaseUrl: string, env: Record<string, string | undefined>): string | undefined {
+  const target = resolvedTarget(databaseUrl);
+  // A host list first: with ports (h1:5432,h2:5432) it isn't a URL the other check can read either.
+  if (target && target.host.length > 1) return DATABASE_URL_ONE_HOST;
+  if (!namesHostAndDatabase(databaseUrl) || !target || target.host.length !== 1 || target.host[0] === "") return DATABASE_URL_INCOMPLETE;
+  if (!isLocalTarget(target) && !env[DATABASE_CA_CERT_ENV]?.trim()) return DATABASE_CA_CERT_REQUIRED;
+  return undefined;
+}
+
+/** TLS that checks the server: a CA to chain to, and unauthorised certificates refused (the host name is checked too, as by default). */
+function isVerifyingTls(ssl: unknown): ssl is { ca: string; rejectUnauthorized: true } {
+  if (typeof ssl !== "object" || ssl === null) return false;
+  const { ca, rejectUnauthorized } = ssl as { ca?: unknown; rejectUnauthorized?: unknown };
+  return typeof ca === "string" && ca.length > 0 && rejectUnauthorized === true;
+}
+
+/**
+ * The backfill's database connection (opened on the first query): one
+ * connection, no prepared statements (works through Supabase's pooler too),
+ * notices not printed. Through connectPostgres, so the app's TLS rule
+ * applies, and with DATABASE_CA_CERT a host off this computer gets full
+ * verification (the certificate must chain to that CA and name the host;
+ * postgres.js sends the host as the TLS server name). Unlike the app, the
+ * backfill never settles for unverified TLS ("require") off this computer:
+ * it throws instead, before anything is sent. Throws too, naming only the
+ * variable, when DATABASE_CA_CERT isn't a PEM certificate. `tls` is the
+ * setting the connection will use (for the tests).
+ */
+export function connectBackfillDatabase(
+  databaseUrl: string,
+  env: Record<string, string | undefined>,
+): { db: Db; end: () => Promise<void>; tls: unknown } {
+  const sql = connectPostgres(databaseUrl, { prepare: false, max: 1, connect_timeout: 15, onnotice: () => {} }, env);
+  const { host, path, ssl } = sql.options;
+  if (!isLocalTarget({ host, path: path || false }) && !isVerifyingTls(ssl)) {
+    throw new Error(`the database isn't on this computer, and without ${DATABASE_CA_CERT_ENV} its certificate can't be checked`);
+  }
+  return {
+    db: {
+      async query<T>(text: string, params: unknown[] = []) {
+        return (await sql.unsafe(text, params as postgres.ParameterOrJSON<never>[])) as unknown as T[];
+      },
+    },
+    end: () => sql.end({ timeout: 5 }),
+    tls: ssl,
+  };
 }
 
 /** `text` with the connection string, its password and anything key-shaped removed. */
@@ -685,14 +805,14 @@ export function redactConnection(text: string, databaseUrl: string | undefined):
 export interface MainDeps {
   argv: readonly string[];
   env: Record<string, string | undefined>;
-  /** Opens the database (not connecting until the first query); `end` closes it. */
-  connect: (databaseUrl: string) => { db: Db; end: () => Promise<void> };
+  /** Opens the database (not connecting until the first query; may throw, e.g. for a bad CA certificate); `end` closes it. */
+  connect: (databaseUrl: string, env: Record<string, string | undefined>) => { db: Db; end: () => Promise<void> };
   print: (line: string) => void;
   printError: (line: string) => void;
   encode?: (input: Uint8Array) => Promise<EncodedEventImage>;
 }
 
-/** The whole run; returns the exit code (0 nothing failed, 1 a photo failed or the run did, 2 bad arguments). */
+/** The whole run; returns the exit code (0 nothing failed, 1 a photo failed or the run did, 2 bad arguments or settings). */
 export async function main(deps: MainDeps): Promise<number> {
   const databaseUrl = deps.env[DATABASE_URL_ENV]?.trim() || undefined;
   const print = (line: string) => deps.print(redactConnection(line, databaseUrl));
@@ -713,8 +833,9 @@ export async function main(deps: MainDeps): Promise<number> {
     printError(`Missing ${DATABASE_URL_ENV}: the database's connection string (Supabase → Project Settings → Database). See docs/supabase-setup.md.`);
     return 2;
   }
-  if (!namesHostAndDatabase(databaseUrl)) {
-    printError(DATABASE_URL_INCOMPLETE);
+  const problem = databaseSettingsProblem(databaseUrl, deps.env);
+  if (problem) {
+    printError(problem);
     return 2;
   }
 
@@ -725,9 +846,17 @@ export async function main(deps: MainDeps): Promise<number> {
       : "Event photo metadata backfill: DRY RUN. Nothing will be changed.",
   );
   print("Photos that aren't already clean (event id's first 8 characters, status, format, size, what was found):");
-  const { db, end } = deps.connect(databaseUrl);
+  let connection: { db: Db; end: () => Promise<void> } | undefined;
   try {
-    const summary = await backfillEventImageMetadata(db, { apply, print, encode: deps.encode });
+    try {
+      connection = deps.connect(databaseUrl, deps.env);
+    } catch (err) {
+      // Setting it up failed (a bad DATABASE_CA_CERT, say): nothing was sent. Redacted, never the stack.
+      const message = err instanceof Error ? err.message : "unknown error";
+      printError(`The backfill couldn't set up the database connection: ${message}. Nothing was read or changed.`);
+      return 2;
+    }
+    const summary = await backfillEventImageMetadata(connection.db, { apply, print, encode: deps.encode });
     for (const line of describeSummary(summary)) print(line);
     return summary.failed > 0 ? 1 : 0;
   } catch (err) {
@@ -737,6 +866,7 @@ export async function main(deps: MainDeps): Promise<number> {
     if (apply) printError("Photos already re-encoded stay re-encoded (each was its own transaction); running it again carries on.");
     return 1;
   } finally {
-    await end().catch(() => {});
+    // Only a connection that was set up is closed.
+    if (connection) await connection.end().catch(() => {});
   }
 }

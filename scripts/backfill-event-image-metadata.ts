@@ -5,10 +5,11 @@
  * exactly as an upload is today (encodeEventImage). Owner-run, from your own
  * computer, against the database whose connection string you give it.
  *
- * Usage (the connection string from Supabase → Project Settings → Database;
- * never pass it as an argument):
- *   DATABASE_URL='postgresql://…' npx tsx scripts/backfill-event-image-metadata.ts           # dry run
- *   DATABASE_URL='postgresql://…' npx tsx scripts/backfill-event-image-metadata.ts --apply   # re-encode
+ * Usage (the connection string from Supabase → Project Settings → Database,
+ * and that page's CA certificate, PEM, under SSL Configuration; never pass
+ * either as an argument):
+ *   DATABASE_URL=… DATABASE_CA_CERT=… npx tsx scripts/backfill-event-image-metadata.ts           # dry run
+ *   DATABASE_URL=… DATABASE_CA_CERT=… npx tsx scripts/backfill-event-image-metadata.ts --apply   # re-encode
  *
  * The dry run changes nothing. Exits non-zero if any photo couldn't be read
  * or re-encoded (those are left untouched). Safe to run again: a second
@@ -16,26 +17,14 @@
  * stored before re-encoding". All the logic, and its tests, live in
  * scripts/event-image-backfill.ts and tests/server/event-image-backfill.test.ts.
  */
-import type postgres from "postgres";
-import { connectPostgres } from "../lib/server/db";
-import { main } from "./event-image-backfill";
+import { connectBackfillDatabase, main } from "./event-image-backfill";
 
 main({
   argv: process.argv.slice(2),
   env: process.env,
-  connect: (databaseUrl) => {
-    // Same TLS rule as the app (lib/server/db.ts): any host off this machine is always reached over TLS.
-    // One connection, no prepared statements (works through Supabase's pooler too), notices not printed.
-    const sql = connectPostgres(databaseUrl, { prepare: false, max: 1, connect_timeout: 15, onnotice: () => {} });
-    return {
-      db: {
-        async query<T>(text: string, params: unknown[] = []) {
-          return (await sql.unsafe(text, params as postgres.ParameterOrJSON<never>[])) as unknown as T[];
-        },
-      },
-      end: () => sql.end({ timeout: 5 }),
-    };
-  },
+  // The app's TLS rule (lib/server/db.ts), and stricter: a host off this computer only with full certificate
+  // verification against DATABASE_CA_CERT. One connection, no prepared statements, notices not printed.
+  connect: connectBackfillDatabase,
   print: (line) => console.log(line),
   printError: (line) => console.error(line),
 })
