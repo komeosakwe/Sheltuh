@@ -258,8 +258,8 @@ export default function PrivacyPage() {
             browser&rsquo;s storage. Web addresses are cut down before they&rsquo;re sent, so links
             with a private code or token in them are never recorded. It reaches PostHog through our
             own address, and your cookies and the page you came from aren&rsquo;t passed on. If the
-            site breaks in your browser, PostHog also gets an error report (the kind of error and
-            where in our code it happened) so we can fix it. Before it&rsquo;s sent, we remove the
+            site breaks in your browser, PostHog also gets an error report (the kind of error, its
+            message and where in the page&rsquo;s code it happened) so we can fix it. Before it&rsquo;s sent, we remove the
             details we can recognise in it, such as email addresses, web address parameters, quoted
             text, codes and long numbers. The data is kept by PostHog in the European Union.
           </li>

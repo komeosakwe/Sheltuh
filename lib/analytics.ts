@@ -30,7 +30,8 @@ import type { TicketingMode } from "@/lib/ticketing";
  * user id (never an email, name or phone number), and the address of every
  * event is cleaned first (lib/analytics-privacy.ts). Properties are internal
  * slugs, uuids, counts and flags: never an order id, ticket code, token,
- * email or search words.
+ * email or search words. Error reports are the exception: their message is
+ * free text, redacted on a best-effort basis (redactErrorMessage).
  */
 
 /** Every custom event and exactly the properties it carries. */

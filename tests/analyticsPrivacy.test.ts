@@ -355,6 +355,10 @@ describe("error reports", () => {
     expect(redactErrorMessage("GET /admin/orders?x=1 failed")).toBe("GET [address] failed");
     // Numbers are replaced only with 7 or more digits, and never a date.
     expect(redactErrorMessage("got 10 - 20, rows 10 20 30 at 2026-11-18T10:22:33")).toBe("got 10 - 20, rows 10 20 30 at 2026-11-18T10:22:33");
+    // Percent-encoding can lengthen an address after the cut: still bounded and quick.
+    const started = performance.now();
+    expect(redactErrorMessage(`https://a/${"€".repeat(1985)} x`).length).toBeLessThanOrEqual(501);
+    expect(performance.now() - started).toBeLessThan(200);
     // A cut through an email address drops the partial word.
     expect(redactErrorMessage(`${"x ".repeat(999)}mia@example.com`)).not.toContain("mia@");
     // The error's own wording, chunk names and short numbers stay.
@@ -413,6 +417,38 @@ describe("error reports", () => {
       },
     });
     expect(sanitizeExceptionList([{ type: "mia@example.com" }])).toEqual([{ type: "Error" }]);
+    // Something thrown that isn't an Error (PostHog marks it synthetic): its value is never kept.
+    const synthetic = (value: string) => sanitizeExceptionList([{ type: "Error", value, mechanism: { synthetic: true } }])[0].value;
+    expect(synthetic("Alice Nguyen")).toBe("[redacted]");
+    expect(synthetic("Script error.")).toBe("Script error.");
+    expect(synthetic("'Object' captured as exception with keys: code, status")).toBe("'[redacted]' captured as exception with keys: code, status");
+    expect(synthetic("Non-Error promise rejection captured with value: Alice")).toBe("Non-Error promise rejection captured with value: [redacted]");
+    // An error's name can be anything on an object: only class-shaped names, and never an order reference.
+    for (const type of ["Alice", "ord_0123456789abcdef", "TypeErrorX y"]) expect(sanitizeExceptionList([{ type }])[0].type).toBe("Error");
+    for (const type of ["TypeError", "ChunkLoadError", "DOMException", "ApiError"]) expect(sanitizeExceptionList([{ type }])[0].type).toBe(type);
+    // Frames parsed out of message text (no script address) are dropped, and token-like or spaced function names too.
+    const [parsed] = sanitizeExceptionList([
+      {
+        type: "Error",
+        stacktrace: {
+          type: "raw",
+          frames: [
+            { platform: "web:javascript", function: "Alice Nguyen, 12 Smith St ", filename: "/fitzroy" },
+            { platform: "web:javascript", function: "cs_test_a1B2c3D4e5F6g7H8_secret", filename: `${ORIGIN}/_next/static/chunks/a.js` },
+            { platform: "web:javascript", function: "Alice Nguyen", filename: `${ORIGIN}/_next/static/chunks/a.js` },
+            { platform: "web:javascript", function: "async fetchOrder", filename: `${ORIGIN}/_next/static/chunks/a.js` },
+          ],
+        },
+      },
+    ]);
+    expect(parsed.stacktrace).toEqual({
+      type: "raw",
+      frames: [
+        { platform: "web:javascript", filename: `${ORIGIN}/_next/static/chunks/a.js` },
+        { platform: "web:javascript", filename: `${ORIGIN}/_next/static/chunks/a.js` },
+        { platform: "web:javascript", function: "async fetchOrder", filename: `${ORIGIN}/_next/static/chunks/a.js` },
+      ],
+    });
     expect(sanitizeExceptionList("nope")).toEqual([]);
     expect(sanitizeExceptionList(Array.from({ length: 9 }, () => ({ type: "Error" })))).toHaveLength(5);
   });

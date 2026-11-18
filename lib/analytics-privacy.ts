@@ -347,10 +347,10 @@ const MAX_EXCEPTIONS = 5;
 const MAX_FRAMES = 60;
 const MAX_MESSAGE = 500;
 
-/** An error's class name (TypeError, ChunkLoadError, DOMException…): code, not data. */
-const ERROR_TYPE = /^[A-Za-z_$][\w$.]{0,100}$/;
-/** A function name from a stack frame (`Object.load`, `async Promise.all (index 0)`, `<anonymous>`, `Array.map [as foo]`, `handleClick/<`). */
-const FUNCTION_NAME = /^[\w$.<> [\]/(),]{1,200}$/;
+/** An error's class name (TypeError, ChunkLoadError, DOMException…): only class-shaped names, since an object's `name` can be anything. */
+const ERROR_TYPE = /^(?:[A-Z][\w$]{0,60}(?:Error|Exception|Rejection|Event)|Error|DOMException)$/;
+/** A function name from a stack frame (`Object.load`, `async fetchOrder`, `<anonymous>`, `Array.map [as foo]`, `handleClick/<`): identifier shapes only. */
+const FUNCTION_NAME = /^(?:async |new )?[\w$.<>[\]/]{1,120}(?: \[as [\w$]{1,60}\])?$/;
 /** Where a frame's code ran when it isn't an address. */
 const FRAME_PLACES: ReadonlySet<string> = new Set(["<anonymous>", "native", "[native code]"]);
 const PLATFORMS: ReadonlySet<string> = new Set(["web:javascript", "node:javascript", "hermes"]);
@@ -360,7 +360,7 @@ const CHUNK_ID = /^[\w-]{1,100}$/;
 const MESSAGE_URL = /\bhttps?:\/\/[^\s"'`<>]+/gi;
 /** A site path with a query or fragment (`/api/profiles/search?q=…`), after a space or bracket. */
 const MESSAGE_PATH = /(^|[\s(])(\/[^\s"'`<>?#]*[?#][^\s"'`<>]*)/g;
-const MESSAGE_EMAIL = /[^\s@"'`<>()[\]]+@[^\s@"'`<>()[\]]+\.[^\s@"'`<>()[\]]+/g;
+const MESSAGE_EMAIL = /[^\s@"'`<>()[\]]{1,64}@[^\s@"'`<>()[\]]{1,253}\.[^\s@"'`<>()[\]]{1,63}/g;
 /**
  * Quoted text: in an error message this is usually a value (JSON.parse echoes its input, a failed
  * check echoes what it got). Greedy, from the first quote of a kind to the last, so quotes nested in
@@ -400,6 +400,7 @@ export function redactErrorMessage(raw: string): string {
   const text = raw.length > MAX_MESSAGE * 4 ? raw.slice(0, MAX_MESSAGE * 4).replace(/\S*$/, "") : raw;
   let redacted = text
     .replace(QUOTE_SLOT, "")
+    .replace(MESSAGE_EMAIL, "[email]")
     .replace(MESSAGE_URL, (url) => {
       const trimmed = url.replace(/[).,;:!?]+$/, "");
       const cleaned = isExcludedUrl(trimmed) ? "[address]" : sanitizeUrl(trimmed, { campaign: false }) || "[address]";
@@ -407,8 +408,9 @@ export function redactErrorMessage(raw: string): string {
     })
     .replace(MESSAGE_PATH, (_match, lead: string, path: string) =>
       `${lead}${isExcludedUrl(path) ? "[address]" : sanitizeUrl(path, { campaign: false }) || "[address]"}`,
-    )
-    .replace(MESSAGE_EMAIL, "[email]");
+    );
+  // Cleaning an address can lengthen it (percent-encoding): cut again before the remaining patterns.
+  if (redacted.length > MAX_MESSAGE * 4) redacted = redacted.slice(0, MAX_MESSAGE * 4).replace(/\S*$/, "");
   // Each quotation becomes a slot (its quote marks kept aside), so the open-quote check below sees only unpaired marks.
   const quotes: string[] = [];
   redacted = redacted.replace(MESSAGE_QUOTED, (quoted: string, lead: string | undefined) => {
@@ -435,6 +437,8 @@ export function redactErrorMessage(raw: string): string {
 function frameFile(value: unknown): string | null {
   if (typeof value !== "string") return null;
   if (FRAME_PLACES.has(value)) return value;
+  // A real frame's file is a script's absolute address. Anything else was parsed out of message text.
+  if (!/^https?:\/\//i.test(value)) return null;
   return sanitizeUrl(value, { campaign: false }) || null;
 }
 
@@ -443,10 +447,15 @@ function cleanFrame(frame: unknown): Bag | null {
   const out: Bag = {};
   if (typeof frame.platform === "string" && PLATFORMS.has(frame.platform)) out.platform = frame.platform;
   const filename = frameFile(frame.filename);
-  if (filename) out.filename = filename;
   const absPath = frameFile(frame.abs_path);
+  // No script address: a "frame" made from a line of the message (Chromium's stack starts with it).
+  if (!filename && !absPath) return null;
+  if (filename) out.filename = filename;
   if (absPath) out.abs_path = absPath;
-  if (typeof frame.function === "string" && FUNCTION_NAME.test(frame.function)) out.function = scrubText(frame.function);
+  const name = frame.function;
+  // Identifier shapes only, and none that looks like an order reference or a token (a long run with a digit).
+  const tokenLike = typeof name === "string" && (name.match(/[\w$]{20,}/g) ?? []).some((run) => /\d/.test(run));
+  if (typeof name === "string" && FUNCTION_NAME.test(name) && !ORDER_REFERENCE_TEST.test(name) && !tokenLike) out.function = name;
   for (const key of ["lineno", "colno"] as const) {
     if (typeof frame[key] === "number" && Number.isFinite(frame[key])) out[key] = frame[key];
   }
@@ -492,14 +501,30 @@ function exceptionTouchesAdmin(list: unknown): boolean {
  * name, its message (redactErrorMessage), how it was caught, and its stack frames' file (cleaned),
  * function, line and column. Source lines, variables and anything PostHog adds later are left out.
  */
+/** PostHog's wording for an object thrown with no message: only its keys (code), not their values. */
+const KEYS_ONLY = / captured as exception with keys: [\w$, ]{0,500}$/;
+
+/**
+ * The message of something thrown or rejected that isn't an Error (PostHog marks it `synthetic`): a
+ * string, or an object's `message`, is whatever the code put there, so it isn't kept. Kept: the
+ * browser's "Script error." (a cross-origin script), PostHog's keys-only wording, and its prefixes.
+ */
+function syntheticValue(value: string): string {
+  if (value === "Script error.") return value;
+  if (KEYS_ONLY.test(value) || RAW_VALUE_PREFIXES.some((prefix) => value.startsWith(prefix))) return redactErrorMessage(value);
+  return "[redacted]";
+}
+
 export function sanitizeExceptionList(list: unknown): Bag[] {
   if (!Array.isArray(list)) return [];
   return list.slice(0, MAX_EXCEPTIONS).filter(isBag).map((exception) => {
     const out: Bag = {
       type: typeof exception.type === "string" && ERROR_TYPE.test(exception.type) ? exception.type : "Error",
     };
-    if (typeof exception.value === "string") out.value = redactErrorMessage(exception.value);
     const mechanism = cleanMechanism(exception.mechanism);
+    if (typeof exception.value === "string") {
+      out.value = mechanism?.synthetic === true ? syntheticValue(exception.value) : redactErrorMessage(exception.value);
+    }
     if (mechanism) out.mechanism = mechanism;
     const frames = framesOf(exception)
       .slice(-MAX_FRAMES)
@@ -530,7 +555,10 @@ export function sanitizePostHogEvent<T extends CaptureLike>(event: T | null): T 
   if (isExcludedPath(pageOf(properties))) return null;
   if (exceptionTouchesAdmin(properties[EXCEPTION_LIST])) return null;
   // An error report with nothing left to report isn't sent.
-  if (EXCEPTION_LIST in properties && sanitizeExceptionList(properties[EXCEPTION_LIST]).length === 0) return null;
+  if (EXCEPTION_LIST in properties) {
+    const list = properties[EXCEPTION_LIST];
+    if (!Array.isArray(list) || !list.slice(0, MAX_EXCEPTIONS).some(isBag)) return null;
+  }
   const dropPrevious = previousWasExcluded([event.properties, event.$set, event.$set_once]);
   const cleaned: T = { ...event };
   if (event.properties) cleaned.properties = cleanBag(event.properties, dropPrevious);

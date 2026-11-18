@@ -5786,7 +5786,14 @@ switched on**, and none of it runs in demo mode, in tests or on `/admin`.
   name written into a message without quotes can't be recognised, which is why
   the Privacy Policy says "the details we can recognise"),
   how it was caught, and each frame's file (cleaned), function, line, column,
-  `in_app` and `chunk_id`. Source lines, variables and every other
+  `in_app` and `chunk_id`. Hardening (security review, 18 Nov 2026): a value
+  PostHog marks `synthetic` (a thrown string, an object's `message`) becomes
+  `[redacted]` except "Script error." and PostHog's keys-only and prefix
+  wordings; the type is kept only when class-shaped (`…Error`, `…Exception`,
+  `DOMException`); a frame with no absolute script address (one parsed out of
+  message text) is dropped, and function names are kept only in identifier
+  shapes with no order reference or long digit-bearing run; the email pattern
+  is bounded and the text is cut again after addresses are cleaned. Source lines, variables and every other
   `$exception_*` property are dropped; `$exception_level` is kept only as one
   of PostHog's levels. A report from an `/admin` page, or with a frame whose
   file is an `/admin` address, is dropped. Stacks are minified (no source maps
