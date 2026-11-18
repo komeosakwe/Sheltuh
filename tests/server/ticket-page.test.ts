@@ -143,7 +143,7 @@ async function expectDistinctTicketsAndQrs(orderId: string, count: number) {
     // The email's QR for ticket n is ticket n's code, in the same order as the page.
     // 16 px a module, 4-module quiet zone, the centre ü (lib/server/qr-image.ts).
     expect(qrs[i].content.equals(ticketQrPng(code)!.png)).toBe(true);
-    expect(email.html).toContain(`>${code}</td>`);
+    expect(email.html).toContain(`>${code}</p>`);
     expect(email.text).toContain(`Entry code: ${code}`);
   }
   return codes;
@@ -307,7 +307,7 @@ describe("ticket links keep working", () => {
     const link = `${SITE_URL}/checkout/success?session_id=${orderId}`;
     expect(returnUrl).toBe(link);
     expect(ticketPageLink(SITE_URL, orderId)).toBe(link);
-    expect(email.html).toContain(`<a href="${link}"`);
+    expect(email.html).toContain(`href="${link}"`);
     expect(email.text).toContain(`View your tickets: ${link}`);
     // The link's session_id opens the same tickets as before.
     const sessionId = new URL(link).searchParams.get("session_id") as string;
@@ -318,7 +318,7 @@ describe("ticket links keep working", () => {
     for (const order of [await memberFreeOrder(2), await guestFreeOrder(2)]) {
       const email = await ticketEmail(order.orderId);
       expect(order.url).toBe(ticketPageLink(SITE_URL, order.orderId));
-      expect(email.html).toContain(`<a href="${order.url}"`);
+      expect(email.html).toContain(`href="${order.url}"`);
       expect((await page(order.orderId)).tickets).toHaveLength(2);
     }
   });

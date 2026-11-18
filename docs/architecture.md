@@ -607,26 +607,41 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
    - Errors are stored and logged with addresses redacted, and logs name an
      order by its short reference (`#7C1F2E0A`), never its id.
    - The email (`lib/server/ticket-email.ts`) is rebuilt from the order on
-     every attempt, images included, so the outbox stores no content. It's
-     on the shared layout (below): the official uppercase wordmark above the
-     card, "You're in.", the event's date, time, venue and address, a card
-     per ticket (number and type, seat for reserved seating, QR, backup
-     code), a "View your ticket(s)" button (black on Signal Orange) to
-     `/checkout/success` for the order (the same link as ever), the order
-     reference and total, support, and a decorative brand banner. For an
-     event that's no longer published (unpublished, back in draft or review,
-     rejected) the date, time, venue and address are replaced by "This event
-     is no longer listed. Contact support@…" (the ticket page's rule, and
-     the public routes' `status = 'published'`); the tickets still go out,
-     and a resend follows the event's status at the time. The wordmark is a
-     PNG (black on opaque white, 212×48 shown at 106×24, theme-white-dark.md
-     §5.12, about 3 KB) rendered from `public/brand/sheltuh-wordmark.svg`
-     (`scripts/render-email-wordmark.ts`: `public/brand/sheltuh-wordmark-email.png`,
-     embedded as base64 in `lib/server/email-wordmark.ts`) and attached
-     inline (`cid:`) like the QR codes, so it shows where Outlook blocks
-     remote images; alt text "SHELTÜH". The banner
-     (`EMAIL_FOOTER_IMAGE_URL`, https://sheltuh.com.au/sheltuh_email_signature_logo.png) is the only
-     remote image: the same for everyone, no order data. Each
+     every attempt, images included, so the outbox stores no content. It
+     has its own layout (`lib/server/email-ticket-layout.ts`,
+     docs/design/ticket-email.md: white, Instrument Sans and IBM Plex Mono
+     self-hosted under `public/fonts/` with Arial / Courier New fallbacks,
+     light only): the wordmark, "ORDER #…" and "You're in. Here's your
+     ticket.", one full ticket card per issued code (an orange-framed card:
+     corner stripes, "ADMIT ONE · SHELTÜH", the event's image, title and
+     venue line, a perforation with a notch each side, DATE / TIME / TICKET,
+     the seat, the QR, the backup code, "Show this at the door · ticket n of
+     N") with that ticket's wallet buttons under it, "View your ticket(s) →"
+     and "Manage order" (both `/checkout/success` for the order, the same
+     link as ever), when / where / event info rows (Google, Apple `.ics` and
+     Outlook calendar links: `lib/calendar.ts`), the order summary (each
+     line's all-inclusive amount from `lib/fees.ts`, left out if the lines
+     don't add up to the total), the refund policy with `REFUND_ACL_STATEMENT`,
+     "Going with friends?" (WhatsApp, Messages, Email, Share page), support,
+     and a footer with no legal line. For an event that's no longer
+     published (unpublished, back in draft or review, rejected) the image,
+     venue line, date, time, address, links and wallet buttons are replaced
+     by "This event is no longer listed. Contact support@…" (the ticket
+     page's rule, and the public routes' `status = 'published'`); the
+     tickets still go out, and a resend follows the event's status at the
+     time. The wordmark is a PNG (black on white, 212×48 shown at 106×24 and
+     88×20, `public/email/ticket/wordmark.png`, embedded as base64 in
+     `lib/server/email-ticket-wordmark.ts`, both written by
+     `scripts/render-ticket-email-assets.ts`) attached inline (`cid:`) like
+     the QR codes, so it shows where Outlook blocks remote images; alt text
+     "Sheltüh". The remote images are decorative and on the site's own
+     origin, the same for everyone with no order data: the stripes, notches
+     and icons in `public/email/ticket/`, and the event's own image. Gmail
+     clips HTML over 102 KB: when every ticket's card would take the HTML
+     past 90 KB (`TICKET_EMAIL_HTML_BUDGET`; the largest order checkout
+     allows is 400 people), the first tickets get cards and the rest are
+     listed by number, type and code, pointing at the ticket page for their
+     QR codes; the plain-text part always lists every code. Each
      ticket whose code matches `TICKET_CODE_PATTERN` gets a QR code
      (`SH1:` + code, level H, version 2, the centre 7 × 7 modules cleared for
      the brand's ü: `ticketQrSymbol` in `lib/ticket-qr.ts` over the vendored
@@ -646,8 +661,8 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
      over a thousand codes, as matrices, PNGs and rendered email, with two
      independent decoders (jsQR, ZXing) outside the repo; the tests check the
      symbol's structure against the standard and pin a decoder-verified
-     matrix. Email clients themselves aren't tested. Every transactional
-     email (tickets, free-ticket confirmation, waitlist, follower) is built
+     matrix. Email clients themselves aren't tested. The other transactional
+     emails (free-ticket confirmation, waitlist, follower, review, invite) are built
      on one layout, `lib/server/email-layout.ts` (Brand Direction One:
      white page, white card with a black hairline, black text, Signal Orange only on the one
      button, with black text on it; the button keeps its size in Outlook
@@ -5841,7 +5856,8 @@ shows `WalletButtons` for each ticket, under the ticket stubs, when
 the route with the ticket's number, kept from the API's order even where
 seated tickets are listed by seat. The ticket email
 (`lib/server/ticket-email.ts`) puts "Add to Apple Wallet" / "Add to Google
-Wallet" text links in each ticket's panel, under its code, and after its
+Wallet" buttons under each ticket's card (black text buttons until the
+official badge artwork is added: docs/wallet-setup.md), and after its
 entry code in the plain text (`ticketWalletLinks`, `walletPassLink`): only
 for a paid order of a published event (the routes' own rule) and only for
 the wallets that are on, which the outbox reads on every attempt

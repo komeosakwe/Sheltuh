@@ -487,7 +487,7 @@ describe("the ticket email's wallet links (lib/server/ticket-email.ts, ticketWal
       .slice(1)
       .map((block) => {
         const number = Number(/^(\d+) of /.exec(block)![1]);
-        const code = /^Entry code: (\S+)$/m.exec(block)![1];
+        const code = /Entry code: ([A-Z0-9-]+)/.exec(block)![1];
         const links = Object.fromEntries([...block.matchAll(/^(Add to (?:Apple|Google) Wallet): (\S+)$/gm)].map((m) => [m[1], m[2]]));
         return { number, code, links };
       });

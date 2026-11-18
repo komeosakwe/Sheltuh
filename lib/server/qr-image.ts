@@ -16,9 +16,12 @@ import { TICKET_QR_MARK } from "./ticket-qr-mark";
  * lib/server/png.ts), so there's no grey edge for a scanner to misread; the
  * PNG is drawn at 2x the size it's shown at, so the mark looks smooth.
  *
- * tests/ticket-qr-decode.test.ts decodes these images with ZXing at every
+ * tests/ticket-qr-decode.test.tsx decodes these images with ZXing at every
  * size they're shown at.
  */
+
+/** A ticket QR's width in modules: version 2 (25) plus the 4-module quiet zone each side. */
+export const TICKET_QR_MODULES = 25 + QR_QUIET_ZONE_MODULES * 2;
 
 /** Pixels a module in the PNG: 33 modules x 16 = 528 px, shown at 264 (8 px) or 231 (7 px). */
 export const TICKET_QR_PNG_PX_PER_MODULE = 16;
@@ -50,6 +53,7 @@ export function ticketQrPng(code: string): TicketQrPng | null {
   const scale = TICKET_QR_PNG_PX_PER_MODULE;
   const quiet = QR_QUIET_ZONE_MODULES;
   const modules = matrix.length + quiet * 2;
+  if (modules !== TICKET_QR_MODULES) throw new Error("A ticket QR is always version 2.");
   const side = modules * scale;
   const markFrom = (mark.start + quiet) * scale;
   const markTo = markFrom + TICKET_QR_MARK.side;
