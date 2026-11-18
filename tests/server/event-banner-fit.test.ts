@@ -10,6 +10,7 @@ import type { Handler } from "@/lib/server/route";
 import { SITE_URL, TestApi } from "./helpers/api";
 import { approvedOrganiser, draftEvent, publishedEvent, setUpPayouts, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
+import { testPng } from "./helpers/images";
 
 /**
  * The home banner's photo fit (docs/architecture.md, "Photo focus", its banner
@@ -17,7 +18,7 @@ import { createTestDb } from "./helpers/test-db";
  * focus-only behaviour of the same routes is tests/server/event-image-focus.test.ts.
  */
 
-const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+const PNG = testPng();
 
 let api: TestApi;
 let reset: () => Promise<void>;
