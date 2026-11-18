@@ -63,7 +63,7 @@ describe("ApplicationForm — session-expiry recovery preserves the form (organi
     // submit this applicant's typed details under itself.
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "hunter2" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
-    await waitFor(() => expect(signIn).toHaveBeenCalledWith("owner@example.com", "hunter2"));
+    await waitFor(() => expect(signIn).toHaveBeenCalledWith("owner@example.com", "hunter2", undefined));
     expect(signOut).not.toHaveBeenCalled(); // same account — accepted
 
     // Fields are still exactly as typed; nothing navigated away.

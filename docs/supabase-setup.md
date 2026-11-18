@@ -76,6 +76,76 @@ email, rather than click a link. Supabase sends links by default, so:
   its include to your existing SPF record** rather than creating a second
   `v=spf1` record.
 
+### Human check on email sign-in (optional, Cloudflare Turnstile)
+
+Cloudflare Turnstile, a CAPTCHA that is usually invisible, on the email
+forms: sign in (`/login` and the "signed out, sign in again" box), sign up,
+"Send reset code" and "Resend code" (design in `docs/architecture.md`,
+"Human check"). The site gets a token from Cloudflare and passes it to
+Supabase, and **Supabase** checks it with Cloudflare. The secret key goes
+only into Supabase, never into Vercel or `.env*`. Google and Apple sign-in
+aren't affected. Turnstile's free plan covers this.
+
+**The order matters.** Once Supabase's CAPTCHA protection is on, it refuses
+every guarded request without a valid token. Turn it on before the site
+sends tokens and **nobody can sign in, sign up, reset a password or get a
+new code by email** until it's turned off again.
+
+1. **Cloudflare dashboard → Turnstile → Add widget.** Name it "Sheltüh
+   sign-in". Hostnames: `sheltuh.com.au`, plus any other hostname people
+   sign in on (e.g. `www.sheltuh.com.au`, or a Vercel preview's fixed
+   branch hostname if previews should keep email sign-in, below). Widget
+   mode **Managed**. Leave pre-clearance off. Create it, then copy the
+   **site key** (public) and the **secret key** (keep it in your password
+   manager).
+2. **Vercel → Project → Settings → Environment Variables:**
+   `NEXT_PUBLIC_TURNSTILE_SITE_KEY` = the site key, for **Production**, then
+   **redeploy** (it's baked in at build time). Check that `/login`,
+   `/signup` and `/forgot-password` now say "Protected by Cloudflare
+   Turnstile", and that signing in still works: until step 3 Supabase
+   ignores the token.
+3. **Only then: Supabase → Authentication → Attack Protection → Enable
+   CAPTCHA protection** (older dashboards: Authentication → Settings → Bot
+   and Abuse Protection). Provider **Turnstile by Cloudflare**, paste the
+   **secret key**, save. Ideally do steps 1 to 3 first on a **test**
+   Supabase project with Cloudflare's test keys (below), then for real.
+   Straight after turning it on, on the live site, check each of these
+   once:
+   - sign up, then enter the emailed code;
+   - "Resend code" on the verify page;
+   - sign in with email and password;
+   - forgot password: ask for a code, then enter it with a new password;
+   - accept an account invite (`/invite` link from `/admin/invites`);
+   - sign in with Google and/or Apple, if they're on;
+   - leave a signed-in tab open for over an hour, then use it (the session
+     refreshes; refresh isn't guarded, so it should just work).
+
+   If any of these fails, turn Supabase's CAPTCHA protection off again
+   first, then investigate.
+
+**Keys and hostnames, never mixed up.**
+- **Never put Cloudflare's always-pass test secret
+  (`1x0000000000000000000000000000000AA`) in the production Supabase
+  project:** it accepts any token, which turns the protection off while
+  looking on.
+- In the widget's hostname list, use **exact hostnames** only
+  (`sheltuh.com.au`, `www.sheltuh.com.au`, a specific preview hostname).
+  **Never a shared parent domain such as `vercel.app`**: that lets anyone's
+  site on it use the widget.
+
+**Previews and local development.** Previews share the production Supabase
+project (`.env.example`), so after step 3, a preview built without the site
+key can't do email sign-in. Either also set the key for Preview and add the
+preview's hostname to the widget, or accept that. Against a test Supabase
+project, use Cloudflare's test keys: site key `1x00000000000000000000AA`
+(always passes) in `.env.local`, and test secret
+`1x0000000000000000000000000000000AA` in that project's CAPTCHA setting.
+The real secret refuses test-key tokens, so local development against the
+production project fails once step 3 is done.
+
+**To turn it off:** reverse the order. Turn off Supabase's CAPTCHA
+protection first, then remove the variable and redeploy.
+
 ### Sign in with Google and Apple (optional)
 
 "Continue with Google" and "Continue with Apple" on `/login` and `/signup`

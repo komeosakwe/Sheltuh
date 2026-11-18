@@ -55,8 +55,11 @@ iframe served by Stripe), with the publishable key
   organisers and admins only, rate-limited; see "Venue location"). The
   browser itself loads only keyless or public-key resources: Stripe.js on
   the payment page (above), map tiles (Mapbox Streets with a public token,
-  else Esri: `docs/maps.md`), and a featured video's player
-  once it's clicked. No Google Maps script loads on our pages, and no
+  else Esri: `docs/maps.md`), a featured video's player
+  once it's clicked, and, when `NEXT_PUBLIC_TURNSTILE_SITE_KEY` is set,
+  Cloudflare Turnstile's script and frame on the email sign-in, sign-up,
+  password reset and "Resend code" forms (public site key; the secret is
+  only in Supabase; see "Human check"). No Google Maps script loads on our pages, and no
   Google Places content is shown on our maps, which stay Leaflet.
 - **The database enforces the rules that matter most.** Whatever the
   application code does:
@@ -4590,6 +4593,11 @@ What that means:
   `tests/server/organiser-links.test.ts`, `tests/OrganiserLinksAdmin.test.tsx`,
   `tests/OrganiserJoinFlow.test.tsx`, `e2e/organiser-links.spec.ts`.
 - `lib/auth/AuthContext.tsx`: Supabase Auth in the browser.
+- Human check (see that section): `lib/auth/turnstile.ts` (the site key,
+  the script loader, the captcha-failure copy), `lib/auth/useHumanCheck.ts`,
+  `components/auth/HumanCheckField.tsx`; tests `tests/HumanCheck.test.tsx`,
+  `tests/AuthContextCaptcha.test.tsx`, `tests/turnstile.test.ts`,
+  `e2e/turnstile.spec.ts`.
 - Sign in with Google and Apple (see that section): `lib/supabase/browser.ts`
   (`flowType: "pkce"`, `detectSessionInUrl: false`); `lib/auth/oauth.ts`
   (the provider flag, the callback URL and safe `next`, callback parsing,
@@ -5513,6 +5521,85 @@ sign-up and password reset on the real project after deploying.
   Going, the organiser logo) use the session's token when they're made; an
   admin action already in flight at the moment another admin signs in
   could go as them (the admin pages remount as soon as React hears of it).
+
+## Human check
+
+Cloudflare Turnstile guards the email forms against bots: password sign-in
+(`LoginForm`, and `InlineReauth`, the "sign in again" box on an expired
+session), sign-up (`SignupForm`), "Send reset code" (`ForgotPasswordForm`)
+and "Resend code" (`VerifyForm`). Those are the four Supabase Auth calls
+its CAPTCHA protection guards that this app makes (`signInWithPassword`,
+`signUp`, `resetPasswordForEmail`, `resend`); confirming an emailed code
+(`verifyOtp`), setting a password (`updateUser`), token refresh, sign-out
+and Google/Apple sign-in aren't guarded, and get no token. **Browser-only,
+like Google and Apple sign-in**: no route, handler, migration or secret in
+this app. The widget's token goes to Supabase as `captchaToken`
+(`AuthContext`), and Supabase verifies it with Cloudflare using the secret
+key set in its dashboard.
+
+**Off by default.** Only with `NEXT_PUBLIC_TURNSTILE_SITE_KEY`
+(`lib/auth/turnstile.ts` `turnstileSiteKey`; baked in at build time). Off,
+or in demo mode (the forms aren't shown), nothing is loaded or rendered and
+the Supabase calls are exactly as before (no `options`). Setup order and the
+lock-out warning: `supabase-setup.md`, "Human check on email sign-in".
+
+- **Loading.** Cloudflare's `api.js?render=explicit`, added once
+  (`loadTurnstile`) when a guarded form is on the page, never from our
+  origin. Its iframe is Cloudflare's. On `/verify` it's added only once
+  "Resend code" is pressed (confirming the code isn't guarded), and the
+  page takes the `?email=` it was sent with out of the address bar once it's
+  in the field. Pages served on their own have no script policy, just
+  `frame-ancestors 'none'`, which doesn't restrict the script or the
+  iframe (`e2e/checkout-csp.spec.ts`). `/checkout/pay` has one (`proxy.ts`,
+  `lib/csp.ts`), and a policy stays with its document: after a client-side
+  navigation from there to `/login` (or to a page with an expired-session
+  sign-in box) the payment page's policy still applies. So it allows
+  `https://challenges.cloudflare.com` (`TURNSTILE_ORIGIN`) in `script-src`
+  and `frame-src`, and any future site-wide policy must too.
+- **The widget** (`useHumanCheck`, `HumanCheckField`, under the submit
+  button): managed mode, `appearance: "interaction-only"` (invisible unless
+  Cloudflare wants a tap), the site's Light or Dark theme (rendered again on
+  a change), `flexible` width, or `compact` below Turnstile's 300px minimum
+  (a 320px phone). Each form passes an `action` (`sign-in`, `sign-up`,
+  `reset-password`, `resend-code`, `reauth`) for Cloudflare's analytics.
+  Its container is a labelled group, and a `role="status"` line says
+  "Checking you're human…", asks for the tap, or names a problem. A line
+  says "Protected by Cloudflare Turnstile" and links Cloudflare's privacy
+  notice (new tab).
+- **Tokens are single use.** A submit takes the current token, or waits for
+  one (`HUMAN_CHECK_WAIT_MS`, 15s; no deadline while the widget is asking
+  for a tap). After every attempt that got past the form's own checks,
+  success or failure, the widget is reset for a fresh token. Expired tokens
+  refresh by themselves.
+- **Never blocks on its own.** If no token can be had (the script is
+  blocked, Cloudflare errors, the browser is unsupported, the wait runs
+  out), the request goes without one and Supabase decides. That keeps email
+  sign-in working between deploying the key and turning on Supabase's
+  setting, and leaves enforcement to the server. Supabase's refusal
+  (`captcha_failed`) becomes `HumanCheckError`, "Couldn't confirm you're
+  human. Try again.", which marks no field (`fieldsForAuthError`); the next
+  submit retries the check (and reloads a script that failed).
+- **Privacy.** Cloudflare collects browser and device signals on those
+  pages. The Privacy Policy must list Cloudflare as a service provider
+  (owner's legal to-do, `DEPLOYMENT.md`).
+
+### Accepted limits (human check)
+
+- **Not covered end to end with a key.** The e2e dev server runs without a
+  site key (as production does until the owner adds one), so e2e checks the
+  off state. The widget, its token in each Supabase request body and its
+  failure handling are covered in jsdom with a stand-in `window.turnstile`
+  and the real supabase-js client (`tests/HumanCheck.test.tsx`,
+  `tests/AuthContextCaptcha.test.tsx`). Cloudflare's real widget is first
+  exercised on the deployed site (`supabase-setup.md`, step 2).
+- **A third-party script on the password pages.** With the key set,
+  Cloudflare's `api.js` runs in our origin on the pages where people type
+  their password, as Stripe.js does on the payment page: a compromised
+  Cloudflare script could read what's typed. Accepted for the bot
+  protection, from a provider already trusted with the site's DNS. It's
+  never self-hosted or proxied (Cloudflare requires the live URL), and it
+  loads only on the guarded forms (and on `/verify` only after "Resend
+  code"), never site-wide.
 
 ## Wallet passes
 

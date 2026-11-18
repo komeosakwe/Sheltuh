@@ -93,12 +93,13 @@ describe("proxy.ts: the payment page's policy", () => {
     expect(policy).toBe(
       [
         "default-src 'self'",
-        `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' ${THEME_HASH} https://js.stripe.com https://*.js.stripe.com`,
+        `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' ${THEME_HASH} https://js.stripe.com https://*.js.stripe.com https://challenges.cloudflare.com`,
         "style-src 'self' 'unsafe-inline'",
         "img-src 'self' data: blob: https://*.stripe.com",
         "font-src 'self'",
         "connect-src 'self' https://abcd.supabase.co https://api.stripe.com https://checkout.stripe.com",
-        "frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com https://checkout.stripe.com",
+        // Cloudflare Turnstile too: the policy outlives a client-side navigation to /login (lib/csp.ts).
+        "frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com https://checkout.stripe.com https://challenges.cloudflare.com",
         "worker-src 'self'",
         "manifest-src 'self'",
         "object-src 'none'",

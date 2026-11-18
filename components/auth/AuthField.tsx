@@ -113,13 +113,13 @@ export type AuthErrorField = "email" | "password" | "code";
 
 /**
  * Supabase Auth's messages name what's wrong ("Invalid login credentials",
- * "Token has expired or is invalid", "Password should be…"). A connection or
- * rate-limit failure is about no field. `fallback` is the form's own guess
- * for anything else.
+ * "Token has expired or is invalid", "Password should be…"). A connection,
+ * rate-limit or human-check (CAPTCHA) failure is about no field. `fallback`
+ * is the form's own guess for anything else.
  */
 export function fieldsForAuthError(message: string, fallback: AuthErrorField[]): AuthErrorField[] {
   const text = message.toLowerCase();
-  if (/fetch|network|timed? ?out|rate limit|too many|configured/.test(text)) return [];
+  if (/fetch|network|timed? ?out|rate limit|too many|configured|captcha|human/.test(text)) return [];
   if (/credential/.test(text)) return ["email", "password"];
   if (/password/.test(text)) return ["password"];
   if (/token|otp|code/.test(text)) return ["code"];
