@@ -197,7 +197,8 @@ test.describe("desktop header at 1440px, signed in", () => {
         "14px",
         theme === "light" ? "rgb(229, 227, 222)" : "rgb(51, 51, 51)",
       ]);
-      const badge = themed.getByRole("navigation", { name: "Primary" }).locator("[data-unread-badge]");
+      // The chip's own badge (the avatar menu's Messages row has one too, in its closed popover).
+      const badge = chip.locator("[data-unread-badge]");
       expect(await badge.evaluate((el) => [getComputedStyle(el).backgroundColor, getComputedStyle(el).color]), theme).toEqual([
         "rgb(255, 72, 0)",
         "rgb(0, 0, 0)",
