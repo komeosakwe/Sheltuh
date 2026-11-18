@@ -358,8 +358,14 @@ const MECHANISM_TYPE = /^[a-z_]{1,40}$/;
 const CHUNK_ID = /^[\w-]{1,100}$/;
 
 const MESSAGE_URL = /\bhttps?:\/\/[^\s"'`<>]+/gi;
-/** A site path with a query or fragment (`/api/profiles/search?q=…`), wherever it starts: after a space, a bracket or punctuation (`failed:/search?near=…`). */
-const MESSAGE_PATH = /(^|[^\w/.~%-])(\/[^\s"'`<>?#]*[?#][^\s"'`<>]*)/g;
+/** A site path (`/api/profiles/search?q=…`), wherever it starts: after a space, a bracket or punctuation (`failed:/search?near=…`). */
+const MESSAGE_PATH = /(^|[^\w/.~%-])(\/(?!\/)[^\s"'`<>]+)/g;
+/** A path segment kept in an address inside a message: lower-case route words, file names and our placeholders. Anything else (a name, an encoded value) becomes […]. */
+const MESSAGE_PATH_SEGMENT = /^(?:[a-z0-9_.-]{1,60}|\[[A-Za-z]+\])$/;
+/** An escaped quote mark (\" \' \`): not the end of a quotation. Swapped for a marker while quotations are matched. */
+const ESCAPED_QUOTE = /\\(["'`])/g;
+const ESCAPE_MARKERS: Record<string, string> = { '"': "\u0003", "'": "\u0004", "`": "\u0005" };
+const ESCAPE_MARKER = /[\u0003\u0004\u0005]/g;
 const MESSAGE_EMAIL = /[^\s@"'`<>()[\]]{1,64}@[^\s@"'`<>()[\]]{1,253}\.[^\s@"'`<>()[\]]{1,63}/g;
 /**
  * Quoted text: in an error message this is usually a value (JSON.parse echoes its input, a failed
@@ -392,6 +398,24 @@ const RAW_VALUE_PREFIXES = ["Non-Error promise rejection captured with value: ",
  * undefined (reading '[redacted]')"), cut to MAX_MESSAGE characters. Best effort: a name or other
  * detail written into a message without quotes can't be recognised.
  */
+/**
+ * An address found in an error message: /admin replaced whole; otherwise cleaned as a page address is
+ * (no query or fragment, ids as placeholders) and, since a message can hold any path, each path segment
+ * that isn't a lower-case route word or file name replaced by […].
+ */
+function messageAddress(raw: string): string {
+  if (isExcludedUrl(raw)) return "[address]";
+  const cleaned = sanitizeUrl(raw, { campaign: false });
+  if (!cleaned) return "[address]";
+  const origin = /^https?:\/\/[^/]+/i.exec(cleaned)?.[0] ?? "";
+  const path = cleaned
+    .slice(origin.length)
+    .split("/")
+    .map((segment) => (segment === "" || MESSAGE_PATH_SEGMENT.test(segment) ? segment : "[…]"))
+    .join("/");
+  return origin + path;
+}
+
 export function redactErrorMessage(raw: string): string {
   const prefix = RAW_VALUE_PREFIXES.find((start) => raw.startsWith(start));
   if (prefix) return `${prefix}[redacted]`;
@@ -400,19 +424,21 @@ export function redactErrorMessage(raw: string): string {
   const text = raw.length > MAX_MESSAGE * 4 ? raw.slice(0, MAX_MESSAGE * 4).replace(/\S*$/, "") : raw;
   let redacted = text
     .replace(QUOTE_SLOT, "")
+    .replace(ESCAPE_MARKER, "")
     .replace(MESSAGE_EMAIL, "[email]")
     .replace(MESSAGE_URL, (url) => {
       const trimmed = url.replace(/[).,;:!?]+$/, "");
-      const cleaned = isExcludedUrl(trimmed) ? "[address]" : sanitizeUrl(trimmed, { campaign: false }) || "[address]";
-      return cleaned + url.slice(trimmed.length);
+      return messageAddress(trimmed) + url.slice(trimmed.length);
     })
-    .replace(MESSAGE_PATH, (_match, lead: string, path: string) =>
-      `${lead}${isExcludedUrl(path) ? "[address]" : sanitizeUrl(path, { campaign: false }) || "[address]"}`,
-    );
+    .replace(MESSAGE_PATH, (_match, lead: string, path: string) => {
+      const trimmed = path.replace(/[).,;:!?]+$/, "");
+      return `${lead}${messageAddress(trimmed)}${path.slice(trimmed.length)}`;
+    });
   // Cleaning an address can lengthen it (percent-encoding): cut again before the remaining patterns.
   if (redacted.length > MAX_MESSAGE * 4) redacted = redacted.slice(0, MAX_MESSAGE * 4).replace(/\S*$/, "");
   // Each quotation becomes a slot (its quote marks kept aside), so the open-quote check below sees only unpaired marks.
   const quotes: string[] = [];
+  redacted = redacted.replace(ESCAPED_QUOTE, (_match, mark: string) => ESCAPE_MARKERS[mark]);
   redacted = redacted.replace(MESSAGE_QUOTED, (quoted: string, lead: string | undefined) => {
     const body = quoted.slice((lead ?? "").length);
     quotes.push(`${body[0]}[redacted]${body[body.length - 1]}`);
@@ -425,6 +451,7 @@ export function redactErrorMessage(raw: string): string {
   }
   redacted = redacted
     .replace(QUOTE_SLOT, () => quotes.shift() ?? "")
+    .replace(ESCAPE_MARKER, (marker) => `\\${Object.keys(ESCAPE_MARKERS).find((mark) => ESCAPE_MARKERS[mark] === marker) ?? ""}`)
     .replace(ORDER_REFERENCE, "[redacted]")
     .replace(MESSAGE_UUID, "[id]")
     .replace(MESSAGE_TICKET_CODE, "[code]")

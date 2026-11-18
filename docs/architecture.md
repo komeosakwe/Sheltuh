@@ -5779,7 +5779,8 @@ switched on**, and none of it runs in demo mode, in tests or on `/admin`.
   errors are off. `before_send` rebuilds `$exception_list` from the fields it
   needs only (`sanitizeExceptionList`): the error's class name, its message
   through `redactErrorMessage` (web addresses and site paths cleaned like page
-  addresses, `/admin` addresses replaced, and emails, quoted text (greedy, so
+  addresses, with any path segment that isn't a lower-case route word or file
+  name replaced by `[…]`; an escaped quote (`\"`) never ends a quotation, `/admin` addresses replaced, and emails, quoted text (greedy, so
   nested quotes are covered; an apostrophe is not a quote; a quote left open
   redacts the rest), `ord_…`, uuids, ticket codes, tokens and runs of 7+ digits
   (not dates) replaced by placeholders; 500 characters at most; PostHog's

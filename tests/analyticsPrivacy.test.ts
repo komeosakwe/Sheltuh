@@ -360,6 +360,14 @@ describe("error reports", () => {
     // A site path after punctuation loses its query too.
     expect(redactErrorMessage("Request failed:/search?near=Fitzroy")).toBe("Request failed:/search");
     expect(redactErrorMessage("url=/api/profiles/search?q=alice,next")).toBe("url=/api/profiles/search");
+    // A name in a path segment (not a lower-case route word) is replaced, with or without a query.
+    expect(redactErrorMessage("Request failed:/search/by-name/Alice%20Nguyen?view=compact")).toBe("Request failed:/search/by-name/[…]");
+    expect(redactErrorMessage(`GET ${ORIGIN}/api/people/Alice failed`)).toBe(`GET ${ORIGIN}/api/people/[…] failed`);
+    expect(redactErrorMessage("GET /api/events/here-now/checkout failed")).toBe("GET /api/events/here-now/checkout failed");
+    // An escaped quote doesn't end a quotation: an unterminated one is redacted to the end.
+    expect(redactErrorMessage('Invalid field "Alice\n\\" Nguyen')).toBe('Invalid field "[redacted]');
+    expect(redactErrorMessage('bad JSON "{\\"name\\":\\"Alice\\"}" here')).toBe('bad JSON "[redacted]" here');
+    expect(redactErrorMessage('path C:\\temp is fine')).toBe('path C:\\temp is fine');
     // A quoted value with a line break in it.
     expect(redactErrorMessage('Invalid field "name": "Alice\nNguyen"')).toBe('Invalid field "[redacted]"');
     expect(redactErrorMessage("bad value 'Alice\nNguyen' given")).toBe("bad value '[redacted]' given");
