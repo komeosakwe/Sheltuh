@@ -173,7 +173,11 @@ export function toIsoUtcSeconds(date: Date): string {
 /**
  * Outlook on the web's "new event" page (outlook.live.com: personal Microsoft
  * accounts; a work account's Outlook opens the `.ics` instead), prefilled with
- * UTC times. Null when the event's start can't be read.
+ * UTC times, through Microsoft's documented compose deeplink
+ * (`/calendar/0/deeplink/compose?path=/calendar/action/compose&rru=addevent`),
+ * the link the ticket email's designer named. The one helper for the site's
+ * Add to calendar and the ticket email, so the two always match. Null when
+ * the event's start can't be read.
  */
 export function outlookCalendarUrl(event: CalendarEvent, url: string): string | null {
   const times = calendarTimes(event);
@@ -187,5 +191,5 @@ export function outlookCalendarUrl(event: CalendarEvent, url: string): string | 
   ];
   // encodeURIComponent, not URLSearchParams: a space must be %20, never "+".
   const query = params.map(([key, value]) => `${key}=${encodeURIComponent(value)}`).join("&");
-  return `https://outlook.live.com/calendar/0/action/compose?${query}`;
+  return `https://outlook.live.com/calendar/0/deeplink/compose?path=/calendar/action/compose&rru=addevent&${query}`;
 }

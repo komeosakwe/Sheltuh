@@ -522,7 +522,7 @@ div.relative.flex.flex-col                                   (grid cell / rail i
    - `URL` (the configured site URL; in the demo, the request's origin) and `DESCRIPTION`: the first sentence, then the URL
    - Escape `,` `;` `\` and newlines, and fold lines at 75 octets.
 2. **"Google Calendar"** opens `https://calendar.google.com/calendar/render?action=TEMPLATE&text=…&dates={start}/{end}&details=…&location=…` with `target="_blank" rel="noopener noreferrer"`, and an accessible name ending "(opens in a new tab)".
-3. **"Outlook"** opens `https://outlook.live.com/calendar/0/action/compose?subject=…&startdt=…&enddt=…&location=…&body=…` (ISO UTC times), in a new tab like Google.
+3. **"Outlook"** opens `https://outlook.live.com/calendar/0/deeplink/compose?path=/calendar/action/compose&rru=addevent&subject=…&startdt=…&enddt=…&location=…&body=…` (ISO UTC times; Microsoft's compose deeplink, shared with the ticket email: `ticket-email.md` §5.7), in a new tab like Google.
 4. **"Download .ics (other apps)"**: the same URL, with `download="{slug}.ics"`.
 
 *Order:* Apple, Google, Outlook, Download; on Android (user agent contains "Android") Google comes first. Read in the browser when the menu opens, so it never affects the server render.
