@@ -358,16 +358,16 @@ const MECHANISM_TYPE = /^[a-z_]{1,40}$/;
 const CHUNK_ID = /^[\w-]{1,100}$/;
 
 const MESSAGE_URL = /\bhttps?:\/\/[^\s"'`<>]+/gi;
-/** A site path with a query or fragment (`/api/profiles/search?q=…`), after a space or bracket. */
-const MESSAGE_PATH = /(^|[\s(])(\/[^\s"'`<>?#]*[?#][^\s"'`<>]*)/g;
+/** A site path with a query or fragment (`/api/profiles/search?q=…`), wherever it starts: after a space, a bracket or punctuation (`failed:/search?near=…`). */
+const MESSAGE_PATH = /(^|[^\w/.~%-])(\/[^\s"'`<>?#]*[?#][^\s"'`<>]*)/g;
 const MESSAGE_EMAIL = /[^\s@"'`<>()[\]]{1,64}@[^\s@"'`<>()[\]]{1,253}\.[^\s@"'`<>()[\]]{1,63}/g;
 /**
  * Quoted text: in an error message this is usually a value (JSON.parse echoes its input, a failed
- * check echoes what it got). Greedy, from the first quote of a kind to the last, so quotes nested in
- * quotes (a JSON fragment) are covered too. A single quote counts only where it can open or close a
- * quotation, not as the apostrophe in "couldn't".
+ * check echoes what it got). Greedy, from the first quote of a kind to the last (across line breaks),
+ * so quotes nested in quotes (a JSON fragment) and values with a newline in them are covered too. A
+ * single quote counts only where it can open or close a quotation, not as the apostrophe in "couldn't".
  */
-const MESSAGE_QUOTED = /"[^\n]*"|`[^\n]*`|“[^\n]*”|‘[^\n]*’|(^|[^\p{L}\p{N}])'[^\n]*'(?![\p{L}\p{N}])/gu;
+const MESSAGE_QUOTED = /"[^]*"|`[^]*`|“[^]*”|‘[^]*’|(^|[^\p{L}\p{N}])'[^]*'(?![\p{L}\p{N}])/gu;
 /** A quote left open once the pairs are gone: everything after it is treated as quoted. */
 const MESSAGE_OPEN_QUOTE = /["`“‘]|(?:^|[^\p{L}\p{N}])'/u;
 const QUOTE_SLOT = /\u0001/g;

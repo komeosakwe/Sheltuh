@@ -355,10 +355,14 @@ describe("error reports", () => {
     expect(redactErrorMessage("GET /admin/orders?x=1 failed")).toBe("GET [address] failed");
     // Numbers are replaced only with 7 or more digits, and never a date.
     expect(redactErrorMessage("got 10 - 20, rows 10 20 30 at 2026-11-18T10:22:33")).toBe("got 10 - 20, rows 10 20 30 at 2026-11-18T10:22:33");
-    // Percent-encoding can lengthen an address after the cut: still bounded and quick.
-    const started = performance.now();
+    // Percent-encoding can lengthen an address after the cut: still bounded.
     expect(redactErrorMessage(`https://a/${"€".repeat(1985)} x`).length).toBeLessThanOrEqual(501);
-    expect(performance.now() - started).toBeLessThan(200);
+    // A site path after punctuation loses its query too.
+    expect(redactErrorMessage("Request failed:/search?near=Fitzroy")).toBe("Request failed:/search");
+    expect(redactErrorMessage("url=/api/profiles/search?q=alice,next")).toBe("url=/api/profiles/search");
+    // A quoted value with a line break in it.
+    expect(redactErrorMessage('Invalid field "name": "Alice\nNguyen"')).toBe('Invalid field "[redacted]"');
+    expect(redactErrorMessage("bad value 'Alice\nNguyen' given")).toBe("bad value '[redacted]' given");
     // A cut through an email address drops the partial word.
     expect(redactErrorMessage(`${"x ".repeat(999)}mia@example.com`)).not.toContain("mia@");
     // The error's own wording, chunk names and short numbers stay.

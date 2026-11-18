@@ -280,6 +280,12 @@ describe("the real posthog-js through page views and a capture", () => {
     const error = new TypeError(
       `Couldn't load ${order} for mia@example.com ("Alice Nguyen") from https://sheltuh.com.au/checkout/success?session_id=${order}&token=tok_9f8e7d6c5b4a39281706 member ${MEMBER}`,
     );
+    // A browser's stack: the message line first (with the data in it), then frames at script addresses.
+    error.stack = [
+      `TypeError: ${error.message}`,
+      `    at loadOrder (https://sheltuh.com.au/_next/static/chunks/app-1a2b.js?dpl=dpl_secret#x:10:4)`,
+      `    at https://sheltuh.com.au/checkout/success?session_id=${order}:2:8`,
+    ].join("\n");
     window.onerror?.(error.message, `https://sheltuh.com.au/checkout/success?session_id=${order}#frag`, 1, 1, error);
     await vi.waitFor(() => expect(sent.some((event) => event.event === "$exception")).toBe(true), { timeout: 5000 });
 
@@ -290,7 +296,14 @@ describe("the real posthog-js through page views and a capture", () => {
     expect(list[0].type).toBe("TypeError");
     expect(list[0].value).toContain("Couldn't load [redacted] for [email]");
     expect(list[0].value).toContain("https://sheltuh.com.au/checkout/success member [id]");
-    for (const frame of list[0].stacktrace?.frames ?? []) {
+    const frames = list[0].stacktrace?.frames ?? [];
+    expect(frames).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ filename: "https://sheltuh.com.au/_next/static/chunks/app-1a2b.js", function: "loadOrder", lineno: 10, colno: 4 }),
+        expect.objectContaining({ filename: "https://sheltuh.com.au/checkout/success", lineno: 2, colno: 8 }),
+      ]),
+    );
+    for (const frame of frames) {
       expect(Object.keys(frame).every((key) => ["platform", "filename", "abs_path", "function", "lineno", "colno", "in_app", "chunk_id"].includes(key))).toBe(true);
     }
     for (const key of Object.keys(report.properties).filter((name) => name.startsWith("$exception_"))) {

@@ -5771,8 +5771,10 @@ switched on**, and none of it runs in demo mode, in tests or on `/admin`.
   `capture_unhandled_rejections`; **never** `capture_console_errors`, which
   would send whatever is logged). PostHog's error-catching extension is bundled
   (`import("posthog-js/dist/exception-autocapture")` beside the SDK), since
-  external loading is off; if it fails to load, error reports stay off and the
-  rest of analytics still starts. A `$exception` whose cleaned list is empty is
+  external loading is off. It loads beside the SDK and never holds it up (a
+  stalled chunk mustn't delay a purchase event): once it is in,
+  `startExceptionAutocapture` (re)starts capture; if it never loads, error
+  reports stay off and the rest of analytics works. A `$exception` whose cleaned list is empty is
   not sent. Breadcrumbs (`exception_steps`) and browser-extension
   errors are off. `before_send` rebuilds `$exception_list` from the fields it
   needs only (`sanitizeExceptionList`): the error's class name, its message
