@@ -5725,7 +5725,8 @@ switched on**, and none of it runs in demo mode, in tests or on `/admin`.
   Supabase project, so their visits would otherwise count.
 - **Start-up.** `instrumentation-client.ts` calls `initAnalytics()`
   (`lib/analytics.ts`) before hydration. `posthog-js` is a dynamic import, so
-  it is in no bundle that runs without the key. Events queue on the load
+  it is in no bundle that runs without the key (nor is the error-catching
+  extension, imported beside it). Events queue on the load
   promise, so they go out in order. A failed load (ad blocker) leaves
   analytics off and never breaks the page.
 - **First-party proxy** (`proxy.ts`, `/ingest`). `api_host` is `/ingest`. The
@@ -5770,12 +5771,20 @@ switched on**, and none of it runs in demo mode, in tests or on `/admin`.
   `capture_unhandled_rejections`; **never** `capture_console_errors`, which
   would send whatever is logged). PostHog's error-catching extension is bundled
   (`import("posthog-js/dist/exception-autocapture")` beside the SDK), since
-  external loading is off. Breadcrumbs (`exception_steps`) and browser-extension
+  external loading is off; if it fails to load, error reports stay off and the
+  rest of analytics still starts. A `$exception` whose cleaned list is empty is
+  not sent. Breadcrumbs (`exception_steps`) and browser-extension
   errors are off. `before_send` rebuilds `$exception_list` from the fields it
   needs only (`sanitizeExceptionList`): the error's class name, its message
-  through `redactErrorMessage` (web addresses cleaned like page addresses,
-  `/admin` addresses replaced, and emails, quoted text, `ord_…`, uuids,
-  tokens and 7+ digit numbers replaced by placeholders; 500 characters at most),
+  through `redactErrorMessage` (web addresses and site paths cleaned like page
+  addresses, `/admin` addresses replaced, and emails, quoted text (greedy, so
+  nested quotes are covered; an apostrophe is not a quote; a quote left open
+  redacts the rest), `ord_…`, uuids, ticket codes, tokens and runs of 7+ digits
+  (not dates) replaced by placeholders; 500 characters at most; PostHog's
+  "Non-Error promise rejection captured with value: …" and "Primitive value
+  captured as exception: …" keep only their prefix). This is best effort: a
+  name written into a message without quotes can't be recognised, which is why
+  the Privacy Policy says "the details we can recognise"),
   how it was caught, and each frame's file (cleaned), function, line, column,
   `in_app` and `chunk_id`. Source lines, variables and every other
   `$exception_*` property are dropped; `$exception_level` is kept only as one
@@ -5890,7 +5899,15 @@ presses the emailed free-booking link (`FreeOrderConfirm`),
 in the same step it hands the event to PostHog (a failed load keeps it, so it can
 be tried again). Opening the page from an email elsewhere, or after the tab is
 closed, is not counted: a purchase finished in a different tab than it started
-(the card-payment redirect stays in one tab) is the one gap.
+(the card-payment redirect stays in one tab) is the one gap. It is captured with
+`send_instantly` (not batched): from 9 to 14 Nov 2026 production recorded 3
+`order_completed` against 31 paid orders while `checkout_started` matched the
+orders (60 vs 59), and a real-browser reproduction found no code fault. The
+likely loss is PostHog's 3-second batch: `checkout_started` always leaves by
+beacon (a navigation follows), but buyers close the success page or the in-app
+browser within seconds. Note for tests: posthog-js sends nothing from headless
+Chromium (`navigator.webdriver`, `HeadlessChrome`), so a real-PostHog e2e check
+must override those.
 
 Tests: `tests/analyticsPrivacy.test.ts` (sanitiser, DNT/GPC),
 `tests/analyticsRealPostHog.test.ts` (the real posthog-js),

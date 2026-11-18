@@ -137,6 +137,23 @@ describe("analytics is on", () => {
     expect(config.property_denylist).toEqual(expect.arrayContaining(["gclid", "fbclid", "mc_eid"]));
   });
 
+  it("still starts PostHog when its error-catching extension can't load (error reports just stay off)", async () => {
+    vi.doMock("posthog-js/dist/exception-autocapture", () => {
+      throw new Error("chunk failed to load");
+    });
+    try {
+      const a = await load();
+      a.initAnalytics();
+      await settle();
+      expect(posthog.init).toHaveBeenCalledTimes(1);
+      a.track("map_near_me_used", {});
+      await settle();
+      expect(posthog.capture).toHaveBeenCalledWith("map_near_me_used", {});
+    } finally {
+      vi.doMock("posthog-js/dist/exception-autocapture", () => ({ default: {} }));
+    }
+  });
+
   it("hands PostHog a before_send that drops /admin and cleans addresses", async () => {
     const a = await load();
     a.initAnalytics();
@@ -284,7 +301,7 @@ describe("order_completed is for the visit that checked out", () => {
     a.trackOrderCompleted("ord_abc", ORDER_PROPERTIES);
     await settle();
     expect(posthog.capture).toHaveBeenCalledTimes(1);
-    expect(posthog.capture).toHaveBeenCalledWith("order_completed", ORDER_PROPERTIES);
+    expect(posthog.capture).toHaveBeenCalledWith("order_completed", ORDER_PROPERTIES, { send_instantly: true });
     expect(JSON.parse(sessionStorage.getItem(STARTED) ?? "[]")).toEqual([]);
   });
 

@@ -321,4 +321,20 @@ describe("the real posthog-js through page views and a capture", () => {
     expect(sent.some((event) => event.event === "$exception")).toBe(false);
     expect(JSON.stringify(sent)).not.toContain("admin page broke");
   });
+  it("sends order_completed at once, without waiting for the batch (buyers often leave right after)", async () => {
+    const order = "ord_fedcba9876543210fedcba9876543210";
+    setUrl("/events/here-now");
+    vi.resetModules();
+    const analytics = await import("@/lib/analytics");
+    analytics.initAnalytics();
+    const { default: posthog } = await import("posthog-js");
+    await vi.waitFor(() => expect(posthog.__loaded).toBe(true));
+    document.dispatchEvent(new Event("DOMContentLoaded"));
+    window.dispatchEvent(new Event("load"));
+    analytics.rememberCheckoutStarted({ url: `/checkout/pay?order=${order}`, orderId: order });
+    setUrl(`/checkout/success?session_id=${order}`);
+    analytics.trackOrderCompleted(order, { event_slug: "here-now", value_aud: 32.3, ticket_count: 1, has_support: false, free: false });
+    // Well inside PostHog's 3-second batch window.
+    await vi.waitFor(() => expect(sent.some((event) => event.event === "order_completed")).toBe(true), { timeout: 1000 });
+  });
 });

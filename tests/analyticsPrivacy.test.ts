@@ -337,6 +337,26 @@ describe("error reports", () => {
     expect(redactErrorMessage(`member ${member} missing`)).toBe("member [id] missing");
     expect(redactErrorMessage("bad jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.c2lnbmF0dXJl")).toBe("bad jwt [redacted]");
     expect(redactErrorMessage("call 0412 345 678 or +61412345678")).toBe("call [number] or [number]");
+    // An apostrophe isn't a quote, and quotes nested in quotes are covered whole.
+    expect(redactErrorMessage("Couldn't find member 'Alice Nguyen'")).toBe("Couldn't find member '[redacted]'");
+    expect(redactErrorMessage("'Error' captured as exception with message: 'Couldn't find Alice Nguyen'")).toBe("'[redacted]'");
+    expect(redactErrorMessage("it's broken and they're sad")).toBe("it's broken and they're sad");
+    expect(redactErrorMessage(`bad body "{"name":"Alice Nguyen","email":"x"}" sent`)).toBe(`bad body "[redacted]" sent`);
+    // A quote left open: the rest is treated as quoted.
+    expect(redactErrorMessage(`expected "Alice Nguyen to be set`)).toBe(`expected "[redacted]`);
+    expect(redactErrorMessage("got 'Alice Nguyen")).toBe("got '[redacted]");
+    // Something thrown or rejected that isn't an Error: PostHog writes the value itself into the message.
+    expect(redactErrorMessage("Non-Error promise rejection captured with value: Alice Nguyen")).toBe(
+      "Non-Error promise rejection captured with value: [redacted]",
+    );
+    expect(redactErrorMessage("Primitive value captured as exception: Alice Nguyen")).toBe("Primitive value captured as exception: [redacted]");
+    expect(redactErrorMessage("ticket 7KQM-2HXD invalid")).toBe("ticket [code] invalid");
+    expect(redactErrorMessage("GET /api/profiles/search?q=alice%20nguyen failed")).toBe("GET /api/profiles/search failed");
+    expect(redactErrorMessage("GET /admin/orders?x=1 failed")).toBe("GET [address] failed");
+    // Numbers are replaced only with 7 or more digits, and never a date.
+    expect(redactErrorMessage("got 10 - 20, rows 10 20 30 at 2026-11-18T10:22:33")).toBe("got 10 - 20, rows 10 20 30 at 2026-11-18T10:22:33");
+    // A cut through an email address drops the partial word.
+    expect(redactErrorMessage(`${"x ".repeat(999)}mia@example.com`)).not.toContain("mia@");
     // The error's own wording, chunk names and short numbers stay.
     expect(redactErrorMessage("Loading chunk 123 failed.")).toBe("Loading chunk 123 failed.");
     expect(redactErrorMessage("x".repeat(5000)).length).toBeLessThanOrEqual(501);
@@ -427,6 +447,7 @@ describe("error reports", () => {
       },
     };
     expect(sanitizePostHogEvent(fromAdmin)).toBeNull();
+    expect(sanitizePostHogEvent({ event: "$exception", properties: { $pathname: "/", $exception_list: "junk" } })).toBeNull();
   });
 });
 

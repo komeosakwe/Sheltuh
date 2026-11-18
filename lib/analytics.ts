@@ -103,8 +103,9 @@ export function initAnalytics(): void {
   if (!config) return;
   if (browserOptedOut()) return;
   // Error reports need PostHog's error-catching extension. It is bundled here (it registers itself on
-  // window as it loads) because PostHog may not fetch scripts at run time (below).
-  client = Promise.all([import("posthog-js"), import("posthog-js/dist/exception-autocapture")]).then(([{ default: posthog }]) => {
+  // window as it loads) because PostHog may not fetch scripts at run time (below). If it can't load,
+  // error reports stay off and everything else still works.
+  client = Promise.all([import("posthog-js"), import("posthog-js/dist/exception-autocapture").catch(() => null)]).then(([{ default: posthog }]) => {
     posthog.init(config.key, {
       // The first-party proxy (next.config.ts rewrites /ingest to PostHog), so ad blockers don't skew the numbers.
       api_host: INGEST_PATH,
@@ -298,7 +299,9 @@ export function trackOrderCompleted(orderId: string, properties: AnalyticsEvents
       writeStarted(ids.filter((item) => item !== id));
       return;
     }
-    posthog.capture("order_completed", properties);
+    // Sent at once, not batched: buyers often close the page (or the in-app browser) seconds after
+    // the confirmation shows, and a batched event is lost if that happens before PostHog's flush.
+    posthog.capture("order_completed", properties, { send_instantly: true });
     markCompleted(id);
     writeStarted(ids.filter((item) => item !== id));
   });

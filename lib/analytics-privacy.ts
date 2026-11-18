@@ -349,8 +349,8 @@ const MAX_MESSAGE = 500;
 
 /** An error's class name (TypeError, ChunkLoadError, DOMException…): code, not data. */
 const ERROR_TYPE = /^[A-Za-z_$][\w$.]{0,100}$/;
-/** A function name from a stack frame (`Object.load`, `async fetchOrder`, `<anonymous>`, `Array.map [as foo]`). */
-const FUNCTION_NAME = /^[\w$.<> [\]]{1,200}$/;
+/** A function name from a stack frame (`Object.load`, `async Promise.all (index 0)`, `<anonymous>`, `Array.map [as foo]`, `handleClick/<`). */
+const FUNCTION_NAME = /^[\w$.<> [\]/(),]{1,200}$/;
 /** Where a frame's code ran when it isn't an address. */
 const FRAME_PLACES: ReadonlySet<string> = new Set(["<anonymous>", "native", "[native code]"]);
 const PLATFORMS: ReadonlySet<string> = new Set(["web:javascript", "node:javascript", "hermes"]);
@@ -358,35 +358,76 @@ const MECHANISM_TYPE = /^[a-z_]{1,40}$/;
 const CHUNK_ID = /^[\w-]{1,100}$/;
 
 const MESSAGE_URL = /\bhttps?:\/\/[^\s"'`<>]+/gi;
+/** A site path with a query or fragment (`/api/profiles/search?q=…`), after a space or bracket. */
+const MESSAGE_PATH = /(^|[\s(])(\/[^\s"'`<>?#]*[?#][^\s"'`<>]*)/g;
 const MESSAGE_EMAIL = /[^\s@"'`<>()[\]]+@[^\s@"'`<>()[\]]+\.[^\s@"'`<>()[\]]+/g;
-/** Quoted text: in an error message this is usually a value (JSON.parse echoes its input, a failed check echoes what it got). */
-const MESSAGE_QUOTED = /"[^"\n]*"|'[^'\n]*'|`[^`\n]*`|“[^”\n]*”|‘[^’\n]*’/g;
+/**
+ * Quoted text: in an error message this is usually a value (JSON.parse echoes its input, a failed
+ * check echoes what it got). Greedy, from the first quote of a kind to the last, so quotes nested in
+ * quotes (a JSON fragment) are covered too. A single quote counts only where it can open or close a
+ * quotation, not as the apostrophe in "couldn't".
+ */
+const MESSAGE_QUOTED = /"[^\n]*"|`[^\n]*`|“[^\n]*”|‘[^\n]*’|(^|[^\p{L}\p{N}])'[^\n]*'(?![\p{L}\p{N}])/gu;
+/** A quote left open once the pairs are gone: everything after it is treated as quoted. */
+const MESSAGE_OPEN_QUOTE = /["`“‘]|(?:^|[^\p{L}\p{N}])'/u;
+const QUOTE_SLOT = /\u0001/g;
 const MESSAGE_UUID = /\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/gi;
+/** A ticket code (`7KQM-2HXD`). */
+const MESSAGE_TICKET_CODE = /\b[A-Z0-9]{4}-[A-Z0-9]{4}\b/g;
 /** A token: a long run of letters, digits and token punctuation that has a digit in it (hex, base64, JWTs, secrets). */
 const MESSAGE_TOKEN = /[A-Za-z0-9_+/=.-]{20,}/g;
-/** A phone or card number: 7 or more digits, perhaps spaced. */
-const MESSAGE_NUMBER = /\+?\d(?:[\d\s-]{5,}\d)/g;
+/** A run that may be a phone or card number; replaced only when it holds 7 or more digits and isn't a date. */
+const MESSAGE_NUMBER = /\+?\d[\d\s-]{5,}\d/g;
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+/**
+ * PostHog's own wording for something thrown or rejected that isn't an Error (@posthog/core's coercers):
+ * what follows is the value itself, which can be any data, so it is never kept.
+ */
+const RAW_VALUE_PREFIXES = ["Non-Error promise rejection captured with value: ", "Primitive value captured as exception: "] as const;
 
 /**
- * An error message as PostHog may keep it: web addresses cleaned as page addresses are, and email
- * addresses, quoted text, order references, uuids, tokens and long numbers replaced by placeholders.
- * What is left is the error's own wording ("Cannot read properties of undefined (reading [redacted])"),
- * cut to MAX_MESSAGE characters.
+ * An error message as PostHog may keep it: web addresses and site paths cleaned as page addresses
+ * are, and email addresses, quoted text, order references, uuids, ticket codes, tokens and long numbers
+ * replaced by placeholders. What is left is the error's own wording ("Cannot read properties of
+ * undefined (reading '[redacted]')"), cut to MAX_MESSAGE characters. Best effort: a name or other
+ * detail written into a message without quotes can't be recognised.
  */
 export function redactErrorMessage(raw: string): string {
-  const text = raw.slice(0, MAX_MESSAGE * 4);
-  const redacted = text
+  const prefix = RAW_VALUE_PREFIXES.find((start) => raw.startsWith(start));
+  if (prefix) return `${prefix}[redacted]`;
+  // Cut long input first (the patterns stay cheap), and drop the word the cut went through, so a
+  // half address or token can't slip past the patterns.
+  const text = raw.length > MAX_MESSAGE * 4 ? raw.slice(0, MAX_MESSAGE * 4).replace(/\S*$/, "") : raw;
+  let redacted = text
+    .replace(QUOTE_SLOT, "")
     .replace(MESSAGE_URL, (url) => {
       const trimmed = url.replace(/[).,;:!?]+$/, "");
       const cleaned = isExcludedUrl(trimmed) ? "[address]" : sanitizeUrl(trimmed, { campaign: false }) || "[address]";
       return cleaned + url.slice(trimmed.length);
     })
-    .replace(MESSAGE_EMAIL, "[email]")
-    .replace(MESSAGE_QUOTED, (quoted) => `${quoted[0]}[redacted]${quoted[quoted.length - 1]}`)
+    .replace(MESSAGE_PATH, (_match, lead: string, path: string) =>
+      `${lead}${isExcludedUrl(path) ? "[address]" : sanitizeUrl(path, { campaign: false }) || "[address]"}`,
+    )
+    .replace(MESSAGE_EMAIL, "[email]");
+  // Each quotation becomes a slot (its quote marks kept aside), so the open-quote check below sees only unpaired marks.
+  const quotes: string[] = [];
+  redacted = redacted.replace(MESSAGE_QUOTED, (quoted: string, lead: string | undefined) => {
+    const body = quoted.slice((lead ?? "").length);
+    quotes.push(`${body[0]}[redacted]${body[body.length - 1]}`);
+    return `${lead ?? ""}\u0001`;
+  });
+  const open = MESSAGE_OPEN_QUOTE.exec(redacted);
+  if (open) {
+    const quoteAt = open.index + open[0].length - 1;
+    redacted = `${redacted.slice(0, quoteAt + 1)}[redacted]`;
+  }
+  redacted = redacted
+    .replace(QUOTE_SLOT, () => quotes.shift() ?? "")
     .replace(ORDER_REFERENCE, "[redacted]")
     .replace(MESSAGE_UUID, "[id]")
+    .replace(MESSAGE_TICKET_CODE, "[code]")
     .replace(MESSAGE_TOKEN, (run) => (/\d/.test(run) && !run.startsWith("/") ? "[redacted]" : run))
-    .replace(MESSAGE_NUMBER, "[number]");
+    .replace(MESSAGE_NUMBER, (run) => (ISO_DATE.test(run) || (run.match(/\d/g)?.length ?? 0) < 7 ? run : "[number]"));
   return redacted.length > MAX_MESSAGE ? `${redacted.slice(0, MAX_MESSAGE)}…` : redacted;
 }
 
@@ -488,6 +529,8 @@ export function sanitizePostHogEvent<T extends CaptureLike>(event: T | null): T 
   const properties = event.properties ?? {};
   if (isExcludedPath(pageOf(properties))) return null;
   if (exceptionTouchesAdmin(properties[EXCEPTION_LIST])) return null;
+  // An error report with nothing left to report isn't sent.
+  if (EXCEPTION_LIST in properties && sanitizeExceptionList(properties[EXCEPTION_LIST]).length === 0) return null;
   const dropPrevious = previousWasExcluded([event.properties, event.$set, event.$set_once]);
   const cleaned: T = { ...event };
   if (event.properties) cleaned.properties = cleanBag(event.properties, dropPrevious);
