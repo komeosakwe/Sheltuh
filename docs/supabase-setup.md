@@ -784,6 +784,86 @@ there means disabling that trigger inside the same transaction, updating the
 one row, and enabling it again before `commit`. Do it only for a request you
 have recorded.
 
+### Event photos stored before re-encoding (one-off metadata backfill)
+
+Since November 2026 every event photo is re-encoded on upload, which strips
+the GPS location, camera make, model and serial number, and other metadata
+(`docs/architecture.md`, `event_images`). Photos uploaded before that may
+still carry it. `scripts/backfill-event-image-metadata.ts` re-encodes those
+photos the same way an upload is re-encoded today. Run it once, from your own
+computer, after the re-encoding release is deployed.
+
+It changes only the stored photo file: the pixels look the same, and the
+format, focus point and banner fit stay as they are. Nobody else's edit is
+overwritten, because a photo replaced while the script runs is skipped. Each
+cleaned photo gets a new version, so pages link to the clean file straight
+away; an old copy already cached by the CDN or a browser expires within about
+an hour. The event's own version also moves on, so if an admin has that event
+open in the editor, saving asks them to reload. Nothing is added to the
+event's moderation log. You don't need a backup for this metadata-only
+change, but read the dry run's output before you use `--apply`.
+
+1. **Get the connection string.** In Supabase, open Project Settings →
+   Database (or the **Connect** button at the top), copy the **Session
+   pooler** URI (the Transaction pooler works too), and put the database
+   password in place of `[YOUR-PASSWORD]`. Use the live project's string,
+   not the one in `.env.local` (which may point at a dev database). The
+   script requires TLS for any remote host.
+2. **In a checkout of `main` that includes the script** (`npm ci` first, if
+   `node_modules` is missing), set the string for this terminal only. Paste it
+   at the prompt, so it doesn't end up in your shell history:
+
+   Git Bash / macOS / Linux:
+
+   ```sh
+   read -rs DATABASE_URL && export DATABASE_URL
+   ```
+
+   PowerShell:
+
+   ```powershell
+   $env:DATABASE_URL = Read-Host "Connection string"
+   ```
+
+3. **Dry run** (the default: it reads every photo and changes nothing):
+
+   ```sh
+   npx tsx scripts/backfill-event-image-metadata.ts
+   ```
+
+   It prints one line for each photo that isn't already clean: the first 8
+   characters of the event's id, the event's status, the format, the size,
+   and what was found (`GPS`, `camera` for make, model, serial or lens, and
+   `other` for the rest, such as the time taken, colour profile, editing
+   history, text or comments). Then it prints a summary: photos checked, how
+   many have metadata (by kind), how many are already clean, how many would
+   be re-encoded, and how many **FAILED**. A failed photo couldn't be read,
+   or wouldn't re-encode within the upload limits (24 megapixels, 2 MB). It
+   is never changed. Replace it through the admin event editor (or ask the
+   organiser to replace it). The script exits with code 1 when any photo
+   failed, and 0 otherwise.
+4. **Apply**, once the dry run looks right:
+
+   ```sh
+   npx tsx scripts/backfill-event-image-metadata.ts --apply
+   ```
+
+   The photos are re-encoded one at a time, and each is saved in its own
+   transaction, so stopping it partway leaves every photo either cleaned or
+   untouched. If any are reported as `skipped`, someone replaced them while
+   the script was running. Run `--apply` again to check the new ones.
+5. **Check it's done.** Run the dry run again. It should report
+   `With metadata: 0` (failed photos aside). Running `--apply` again is
+   harmless and does nothing.
+6. Clear the variable (`unset DATABASE_URL`, or in PowerShell
+   `Remove-Item Env:DATABASE_URL`), or close the terminal.
+
+The script never prints the connection string, a full event id, a URL or
+any image data, and refuses arguments it doesn't know. Give the connection
+string only as `DATABASE_URL`: if it's passed as an argument, the script
+refuses it without printing it, and you should reset the database password,
+because the string may now be in your shell history.
+
 ### Free-ticket and email outbox retention (daily job)
 
 Guest free orders that were never confirmed are deleted a week after their
