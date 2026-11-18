@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import {
   HeaderAccount,
   MenuAccount,
@@ -11,9 +11,16 @@ import {
 import UMark from "@/components/brand/UMark";
 import Wordmark from "@/components/brand/Wordmark";
 import HomeLogoLink from "@/components/HomeLogoLink";
-import { useUnread } from "@/components/messages/UnreadProvider";
+import { useNavAccount } from "@/components/nav/useNavAccount";
 
 const MENU_ID = "site-menu";
+
+/**
+ * The phone bar's logo: the orange SHELTÜH wordmark of the "Header / Mobile" and "Menu drawer /
+ * Mobile" boards (navigation-search.md §5.3), which are newer than the Mobile (390) spec's ü mark.
+ * Pending Latte's confirmation (§9.2 Q2): "umark" puts the ü back.
+ */
+const COMPACT_LOGO: "wordmark" | "umark" = "wordmark";
 
 /** Whether a popover is showing; false where the selector isn't supported (jsdom, old browsers). */
 function isPopoverOpen(element: HTMLElement): boolean {
@@ -66,13 +73,14 @@ function MenuIcon({ open }: { open: boolean }) {
 }
 
 /**
- * Site header (the proposal, and the rules' Navigation board): black in both themes (an ink
- * section, so everything inside re-skins; in Dark it meets the black page over a 1px rule), 56px
- * below `lg` and 72px from it (--header-h; Round 2 §1.2).
+ * Site header (the proposal, the rules' Navigation board and navigation-search.md §5.1), 56px
+ * below `lg` and 72px from it (--header-h; Round 2 §1.2). Below `lg` the bar and its drawer are
+ * black in both themes (ink sections, as the "Header / Mobile" board draws them). From `lg` the
+ * row follows the theme (owner, 18 Nov 2026, Q1): white in Light, black in Dark, over a 1px rule.
  *
  * From `lg` it's one row: the wordmark; Discover, Nearby and Community; then the account area
- * (components/AuthNavLinks.tsx). No search field (owner decision: search lives in the home's
- * hero, /search and Nearby), no heart and no "Create profile".
+ * (components/AuthNavLinks.tsx), whose avatar opens the avatar menu. No search field (owner
+ * decision: search lives in the home's hero, /search and Nearby), no heart and no "Create profile".
  *
  * From 1280px the row tightens to 64px once the page has scrolled (Round 2 §1.2): a sentinel at the
  * document's top (an IntersectionObserver, no scroll listener) sets `data-scrolled` on the header.
@@ -81,20 +89,23 @@ function MenuIcon({ open }: { open: boolean }) {
  * it moves, and scroll anchoring never nudges the page (back at the top, scrollY is 0, not 8). Both
  * ease together, only for people who don't prefer reduced motion.
  *
- * Below `lg` (phones and tablets): the ü logo, a search icon link (not on the home, whose hero
- * has the page's search) and Menu, 48px targets. Menu opens a black drawer under the bar, a
- * native popover (Escape and outside taps close it, focus returns to Menu): the three places in
- * Display/M with the orange dots on the current one, then the account links and Sign in / For
- * organisers as buttons. The theme switch is in the footer only.
+ * Below `lg` (phones and tablets): the orange wordmark, a search icon link (not on the home, whose
+ * hero has the page's search, nor while the drawer is open) and Menu, 48px targets. Menu opens a
+ * black drawer under the bar, a native popover (Escape and outside taps close it, focus returns
+ * to Menu; while it's open the page behind is inert and Tab cycles through the bar and the drawer):
+ * the three places in Label/Menu (40px bold) with the orange dots left of the current one, then
+ * the account (navigation-search.md §5.3). The theme switch is in the footer only.
  */
 export default function Nav() {
   const pathname = usePathname();
   const menuRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const compactBarRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLSpanElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
-  const unreadCount = useUnread()?.count ?? 0;
+  const account = useNavAccount();
+  const unreadCount = account.unreadCount ?? 0;
   const inThread = /^\/messages\/(?!blocked$)[^/]+$/.test(pathname);
   // At the door the header scrolls away at every width, so it doesn't sit lit above the scanner.
   const atDoor = /^\/dashboard\/[^/]+\/check-in$/.test(pathname);
@@ -171,6 +182,33 @@ export default function Nav() {
     menuRef.current?.hidePopover?.();
   }
 
+  // While the drawer is open, Tab and Shift+Tab cycle through the bar (logo, Close) and the
+  // drawer, never past them (the page behind is inert anyway). Escape closes it with focus back
+  // on Menu: the browser does that for a popover too, and this makes it the same everywhere.
+  function handleHeaderKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if (!menuOpen) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      menuRef.current?.hidePopover?.();
+      menuButtonRef.current?.focus();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const items = [compactBarRef.current, menuRef.current].flatMap((scope) =>
+      scope ? Array.from(scope.querySelectorAll<HTMLElement>("a[href], button:not([disabled])")) : [],
+    );
+    const first = items[0];
+    const last = items[items.length - 1];
+    if (!first || !last) return;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
   // Links and actions close the menu (a link to the page already showing doesn't navigate).
   // The page is live again at once (the toggle event that also does it comes a task later), so
   // focus can move into it straight away.
@@ -186,31 +224,41 @@ export default function Nav() {
     // (and what the keyboard leaves of it) to the messages and the composer.
     // The top padding keeps it below a status bar or notch (viewport-fit=cover);
     // it's 0 on desktop and in iOS's black status-bar style.
-    // In Dark the black header meets the black page over a 1px rule, drawn inside it (after:) so
-    // the header stays exactly --header-h tall.
+    // Where black meets black (Dark), and from lg in Light too (the white row over the white
+    // page), a 1px rule, drawn inside the header (after:) so it stays exactly --header-h tall.
     <>
       {/* The scroll sentinel: 16px at the very top of the document (absolute, so it takes no room). */}
       <span ref={sentinelRef} aria-hidden="true" data-header-sentinel="" className="pointer-events-none absolute top-0 left-0 h-4 w-px" />
       <header
-        data-surface="ink"
         data-scrolled={scrolled ? "" : undefined}
-        className={`group/header ${atDoor ? "relative" : inThread ? "relative lg:sticky" : "sticky"} top-0 z-30 pt-[env(safe-area-inset-top)] xl:data-scrolled:mb-2 motion-safe:transition-[margin] motion-safe:duration-200 motion-safe:ease-out after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:hidden after:h-px after:bg-surface-border dark:after:block`}
+        onKeyDown={handleHeaderKeyDown}
+        className={`group/header ${atDoor ? "relative" : inThread ? "relative lg:sticky" : "sticky"} top-0 z-30 bg-ink pt-[env(safe-area-inset-top)] text-foreground lg:bg-background xl:data-scrolled:mb-2 motion-safe:transition-[margin] motion-safe:duration-200 motion-safe:ease-out after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:hidden after:h-px after:bg-surface-border dark:after:block lg:after:block`}
       >
-        {/* Compact bar (phones and tablets). */}
+        {/* Compact bar (phones and tablets): black in both themes. */}
         <div
+          ref={compactBarRef}
+          data-surface="ink"
           data-compact-header=""
           className="page-container flex h-14 items-center justify-between lg:hidden"
         >
-          {/* The ü logo, 32px tall (the rules' Mobile (390) spec); the link carries the name. */}
-          <HomeLogoLink
-            className="-ml-2 flex size-12 items-center justify-center rounded-control"
-            onActivate={closeMenu}
-          >
-            <UMark className="h-8 w-auto" />
-          </HomeLogoLink>
+          {/* The orange wordmark, 20px tall, 16px in (the "Header / Mobile" board); the link carries the name. */}
+          {COMPACT_LOGO === "wordmark" ? (
+            // min-w-0 / max-w-full: with 200% text at 320px it shrinks to fit beside Search and Menu.
+            <HomeLogoLink className="-ml-2 flex h-12 min-w-0 items-center rounded-control px-2" onActivate={closeMenu}>
+              <Wordmark className="h-5 w-auto max-w-full text-signal" />
+            </HomeLogoLink>
+          ) : (
+            <HomeLogoLink
+              className="-ml-2 flex size-12 items-center justify-center rounded-control"
+              onActivate={closeMenu}
+            >
+              <UMark className="h-8 w-auto" />
+            </HomeLogoLink>
+          )}
           <div className="-mr-2 flex items-center">
-            {/* Not on the home: its hero holds the page's one search. */}
-            {pathname !== "/" && (
+            {/* Not on the home: its hero holds the page's one search. Not while the drawer is
+                open either (the board draws only the wordmark and Close). */}
+            {pathname !== "/" && !menuOpen && (
               <Link
                 href="/search"
                 aria-label="Search"
@@ -278,44 +326,45 @@ export default function Nav() {
             </Link>
           ))}
           <div className="ml-auto flex items-center gap-8">
-            <HeaderAccount />
+            <HeaderAccount account={account} />
           </div>
         </nav>
       </div>
 
-      {/* Phone menu: a black drawer filling the screen under the bar. No display class on this
-          root: it would override the popover's closed `display: none` and the menu could never
-          close. It's fixed to the viewport, so it clears the top inset and a landscape notch
-          itself (all 0 unless the device has them). */}
+      {/* Phone menu: a black drawer filling the screen under the bar, with no rule between them.
+          No display class on this root: it would override the popover's closed `display: none`
+          and the menu could never close. It's fixed to the viewport, so it clears the top inset
+          and a landscape notch itself (all 0 unless the device has them). */}
       <div
         id={MENU_ID}
         ref={menuRef}
         popover="auto"
-        className="inset-x-0 top-[calc(var(--header-h)+env(safe-area-inset-top))] bottom-auto m-0 h-[calc(100dvh-var(--header-h)-env(safe-area-inset-top))] w-full max-w-none overflow-y-auto overscroll-contain border-0 border-t border-surface-border bg-background py-0 pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] text-foreground lg:hidden"
+        data-surface="ink"
+        className="popover-fade inset-x-0 top-[calc(var(--header-h)+env(safe-area-inset-top))] bottom-auto m-0 h-[calc(100dvh-var(--header-h)-env(safe-area-inset-top))] w-full max-w-none overflow-y-auto overscroll-contain border-0 bg-background py-0 pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] text-foreground lg:hidden"
       >
         <nav
           // Its own name: the desktop row's nav is "Primary", and two landmarks shouldn't share one.
           aria-label="Site menu"
           onClick={closeMenuOnAction}
-          className="page-container flex min-h-full flex-col pt-6 pb-[calc(2rem+env(safe-area-inset-bottom))]"
+          className="page-container flex min-h-full flex-col pb-[calc(2rem+env(safe-area-inset-bottom))]"
         >
-          <ul className="flex flex-col gap-2">
+          {/* The three places on a 72px pitch, the first word's line 64px under the bar (as the
+              board), the words 40px in from the margin (56 from the screen's edge), the current
+              one's dots in that gap. */}
+          <ul className="flex flex-col pt-13">
             {PRIMARY_LINKS.map((link) => (
               <li key={link.href}>
                 <Link
                   href={link.href}
                   aria-current={current(link.href)}
-                  // The current page gets the orange dots over its first letter.
-                  className="display-m umlaut umlaut-lg block pt-4 pb-2"
+                  className="label-menu umlaut umlaut-side block py-3 pl-10 break-words"
                 >
                   {link.label}
                 </Link>
               </li>
             ))}
           </ul>
-          <div className="mt-auto flex flex-col gap-4 border-t border-surface-border pt-6">
-            <MenuAccount />
-          </div>
+          <MenuAccount account={account} />
         </nav>
       </div>
     </header>

@@ -58,14 +58,15 @@ describe("Unread badge", () => {
     const { container } = renderNav();
     await advance(0);
     const links = messagesLinks();
-    expect(links).toHaveLength(2);
+    // The desktop chip, the avatar menu's row and the phone menu's row.
+    expect(links).toHaveLength(3);
     for (const link of links) {
       expect(link).toHaveAttribute("href", "/messages");
       expect(link).toHaveAccessibleName("Messages, 3 unread");
       expect(link.querySelector("[data-unread-badge]")).toHaveTextContent("3");
     }
-    // The desktop header's Messages chip and the phone menu's row both carry it in orange with a black
-    // number (the rules' Navigation board, 6.18:1).
+    // The desktop header's Messages chip, the avatar menu's and the phone menu's rows all carry it in
+    // orange with a black number (the rules' Navigation board, 6.18:1).
     for (const link of links) expect(link.querySelector("[data-unread-badge]")).toHaveClass("bg-signal", "text-signal-foreground");
     // Background changes aren't announced.
     expect(container.querySelector("[aria-live], [role='status'], [role='alert']")).toBeNull();

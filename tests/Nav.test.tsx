@@ -64,19 +64,28 @@ describe("Nav — phone menu", () => {
     expect(within(compactBar(container)).getByRole("link", { name: "Search" })).toHaveAttribute("href", "/search");
   });
 
-  it("offers the three places, then Sign in and For organisers as buttons, when signed out", () => {
+  it("offers the three places, then Sign in (orange) and For organisers (outlined) as 56px buttons, when signed out", () => {
     const { menu } = renderNav(fakeAuthValue({ status: "signed-out", configured: true }));
     expect(linkHrefs(menu)).toEqual([...PLACES, ["Sign in", "/login"], ["For organisers", "/organisers/apply"]]);
-    // The rules' Mobile spec: "Sign in / For organisers at bottom as buttons".
-    expect(within(menu).getByRole("link", { name: "Sign in", hidden: true })).toHaveClass("btn", "btn-lg", "w-full");
+    // The "Menu drawer / Mobile" board (navigation-search.md §5.3): Sign in orange, no rule above the pair.
+    const signIn = within(menu).getByRole("link", { name: "Sign in", hidden: true });
+    expect(signIn).toHaveClass("btn", "btn-signal", "btn-lg", "w-full");
+    expect(signIn).not.toHaveClass("btn-solid");
     expect(within(menu).getByRole("link", { name: "For organisers", hidden: true })).toHaveClass("btn", "btn-outline", "btn-lg", "w-full");
+    expect(signIn.parentElement).toHaveClass("mt-auto", "gap-4");
+    expect(signIn.parentElement?.className).not.toMatch(/border-t/);
   });
 
-  it("sets the three places in Display/M with the umlaut", () => {
+  it("sets the three places in Label/Menu (40px Instrument Sans Bold) on a 72px pitch, the dots left of the word", () => {
     const { menu } = renderNav(fakeAuthValue({ status: "signed-out" }));
     for (const [name] of PLACES) {
-      expect(within(menu).getByRole("link", { name, hidden: true })).toHaveClass("display-m", "umlaut", "umlaut-lg");
+      const link = within(menu).getByRole("link", { name, hidden: true });
+      expect(link).toHaveClass("label-menu", "umlaut", "umlaut-side", "py-3", "pl-10");
+      expect(link).not.toHaveClass("display-m");
     }
+    expect(within(menu).getByRole("link", { name: "Discover", hidden: true }).closest("ul")?.className).not.toMatch(/gap-/);
+    // No rule between the bar and the drawer.
+    expect(menu.className).not.toMatch(/border-t/);
   });
 
   it("offers Sign in in demo mode (accounts not configured)", () => {
@@ -84,18 +93,29 @@ describe("Nav — phone menu", () => {
     expect(within(menu).getByRole("link", { name: "Sign in", hidden: true })).toHaveAttribute("href", "/login");
   });
 
-  it("offers Admin, Messages, Saved, Your events and Account to a signed-in admin (Sign out is on /account)", () => {
+  it("signed in (an admin): who's signed in, then My tickets, Saved, Messages, Your events and Admin, then For organisers", () => {
     const { menu } = renderNav(fakeAuthValue({ isAdmin: true }));
     expect(linkHrefs(menu)).toEqual([
       ...PLACES,
-      ["Admin", "/admin"],
-      ["Messages", "/messages"],
+      // The profile isn't loaded in this test (no API): its email and the place to edit the profile.
+      ["organiser@example.com, view profile", "/account#member-profile"],
+      ["My tickets", "/help#where-are-my-tickets"],
       ["Saved", "/saved"],
+      ["Messages", "/messages"],
       ["Your events", "/dashboard"],
-      ["Account", "/account"],
+      ["Admin", "/admin"],
       ["For organisers", "/organisers/apply"],
     ]);
-    expect(within(menu).queryByRole("button", { name: "Sign out", hidden: true })).toBeNull();
+    // No Account row (the identity link replaces it) and no sign out (it's on /account).
+    expect(within(menu).queryByRole("link", { name: "Account", hidden: true })).toBeNull();
+    expect(within(menu).queryByRole("button", { name: /Sign out|Log out/, hidden: true })).toBeNull();
+    // 64px rows with a hairline above each, and For organisers outlined.
+    for (const name of ["My tickets", "Saved", "Messages"]) {
+      const row = within(menu).getByRole("link", { name, hidden: true });
+      expect(row).toHaveClass("min-h-16", "label-nav");
+      expect(row.parentElement).toHaveClass("border-t", "border-surface-border");
+    }
+    expect(within(menu).getByRole("link", { name: "For organisers", hidden: true })).toHaveClass("btn", "btn-outline", "btn-lg", "w-full");
   });
 
   it("hides Admin from a signed-in organiser", () => {
@@ -190,7 +210,7 @@ describe("Nav — phone menu", () => {
     const { menu } = renderNav(fakeAuthValue());
     const hidePopover = vi.fn();
     menu.hidePopover = hidePopover;
-    for (const name of ["Account", "Community"]) {
+    for (const name of ["Saved", "Community"]) {
       hidePopover.mockClear();
       const link = within(menu).getByRole("link", { name, hidden: true });
       // Keep jsdom from attempting the navigation; the click still bubbles to the menu.
@@ -239,21 +259,22 @@ describe("Nav — phone menu", () => {
 });
 
 describe("Nav — desktop row", () => {
-  it("signed in: For organisers, Admin, Messages and the avatar (Account); Saved and Your events are on /account", () => {
+  it("signed in: the For organisers nav button, Admin, Messages and the avatar button (Account), which opens the avatar menu", () => {
     renderNav(fakeAuthValue({ isAdmin: true }));
     const [desktopNav] = screen.getAllByRole("navigation", { name: "Primary" });
-    expect(linkHrefs(desktopNav)).toEqual([
-      ...PLACES,
-      ["For organisers", "/organisers/apply"],
-      ["Admin", "/admin"],
-      ["Messages", "/messages"],
-      ["Account", "/account"],
-    ]);
-    expect(within(desktopNav).queryByRole("button", { name: "Sign out" })).toBeNull();
-    // The rules' signed-in header: For organisers as a nav item, Messages as the small muted chip.
-    expect(within(desktopNav).getByRole("link", { name: "For organisers" })).not.toHaveClass("nav-button");
-    expect(within(desktopNav).getByRole("link", { name: "For organisers" })).toHaveClass("umlaut", "umlaut-nav");
+    // The row's own links (the avatar menu's are in the closed popover).
+    const rowLinks = within(desktopNav)
+      .getAllByRole("link")
+      .map((link) => [link.textContent, link.getAttribute("href")]);
+    expect(rowLinks).toEqual([...PLACES, ["For organisers", "/organisers/apply"], ["Admin", "/admin"], ["Messages", "/messages"]]);
+    // navigation-search.md §5.1: For organisers is the outlined nav button signed in too.
+    expect(within(desktopNav).getByRole("link", { name: "For organisers" })).toHaveClass("umlaut", "nav-button");
     expect(within(desktopNav).getByRole("link", { name: "Messages" })).toHaveClass("umlaut", "nav-chip");
+    const avatar = within(desktopNav).getByRole("button", { name: "Account" });
+    expect(avatar).toHaveAttribute("popovertarget", "account-menu");
+    expect(avatar).toHaveAttribute("aria-controls", "account-menu");
+    expect(avatar).toHaveAttribute("aria-expanded", "false");
+    expect(within(desktopNav).queryByRole("link", { name: "Account" })).toBeNull();
   });
 
   it("signed out: Sign in, then the For organisers nav button", () => {
@@ -273,25 +294,29 @@ describe("Nav — desktop row", () => {
     expect(within(desktopNav).getByRole("link", { name: "Discover" })).toHaveAttribute("aria-current", "page");
   });
 
-  it("the avatar is a solid square with the account's initial and a caret, hidden from screen readers: the link is named Account", () => {
+  it("the avatar is a solid square with the account's initial and a caret, hidden from screen readers: the button is named Account", () => {
     renderNav(fakeAuthValue({ email: "latte@example.com" }));
     const [desktopNav] = screen.getAllByRole("navigation", { name: "Primary" });
-    const avatar = within(desktopNav).getByRole("link", { name: "Account" });
-    expect(avatar).toHaveAttribute("href", "/account");
+    const avatar = within(desktopNav).getByRole("button", { name: "Account" });
+    expect(avatar).toHaveAttribute("type", "button");
     expect(avatar).toHaveTextContent(/^L$/);
     expect(avatar.querySelector("span[aria-hidden='true']")).toHaveTextContent("L");
-    // The caret (the avatar menu is Batch 2; for now it's the link).
+    // The caret.
     expect(avatar.querySelectorAll("svg[aria-hidden='true']")).toHaveLength(1);
     expect(avatar).toHaveClass("umlaut", "nav-avatar");
   });
 
-  it("marks Account as the current page on /account (desktop and menu), and For organisers on the apply page", () => {
+  it("keeps the avatar's dots on a page from its menu (Settings on /account), and marks For organisers on the apply page", () => {
     pathname = "/account";
     renderNav(fakeAuthValue());
-    const accountLinks = screen.getAllByRole("link", { name: "Account", hidden: true });
-    expect(accountLinks).toHaveLength(2);
-    for (const link of accountLinks) expect(link).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("link", { name: "Your events", hidden: true })).not.toHaveAttribute("aria-current");
+    const [desktopNav] = screen.getAllByRole("navigation", { name: "Primary" });
+    expect(within(desktopNav).getByRole("button", { name: "Account" })).toHaveAttribute("data-current", "");
+    expect(screen.getByRole("link", { name: "Settings", hidden: true })).toHaveAttribute("aria-current", "page");
+    for (const link of screen.getAllByRole("link", { name: "Your events", hidden: true })) expect(link).not.toHaveAttribute("aria-current");
+    cleanup();
+    pathname = "/events";
+    renderNav(fakeAuthValue());
+    expect(screen.getAllByRole("navigation", { name: "Primary" })[0].querySelector("[data-header-avatar]")).not.toHaveAttribute("data-current");
     cleanup();
     pathname = "/organisers/apply";
     renderNav(fakeAuthValue({ status: "signed-out" }));
@@ -343,12 +368,18 @@ describe("Nav — what left the header", () => {
 });
 
 describe("Nav — header", () => {
-  it("is a black ink section in both themes, 56px below lg and 72px from it, with a 1px rule only in Dark, drawn inside it", () => {
-    const { container } = renderNav(fakeAuthValue({ status: "signed-out" }));
+  it("is black below lg in both themes (the bar and drawer are ink), follows the theme from lg (Q1), 56px / 72px, with its 1px rule drawn inside it", () => {
+    const { container, menu } = renderNav(fakeAuthValue({ status: "signed-out" }));
     const header = container.querySelector("header");
-    expect(header).toHaveAttribute("data-surface", "ink");
-    // The rule is an ::after inside the header, so it never adds to --header-h.
-    expect(header).toHaveClass("after:absolute", "after:bottom-0", "after:h-px", "after:hidden", "dark:after:block");
+    // Owner, 18 Nov 2026 (Q1): the desktop row is white in Light and black in Dark; the phone bar and drawer stay black.
+    expect(header).not.toHaveAttribute("data-surface");
+    expect(header).toHaveClass("bg-ink", "lg:bg-background");
+    expect(compactBar(container)).toHaveAttribute("data-surface", "ink");
+    expect(menu).toHaveAttribute("data-surface", "ink");
+    const [primary] = screen.getAllByRole("navigation", { name: "Primary" });
+    expect(primary.closest("[data-surface]")).toBeNull();
+    // The rule is an ::after inside the header, so it never adds to --header-h: Dark only below lg, always from lg.
+    expect(header).toHaveClass("after:absolute", "after:bottom-0", "after:h-px", "after:hidden", "dark:after:block", "lg:after:block");
     expect(header?.className).not.toMatch(/(?:^|\s)(?:dark:)?border-b\b/);
     expect(compactBar(container)).toHaveClass("h-14");
     const [desktopNav] = screen.getAllByRole("navigation", { name: "Primary" });
@@ -407,12 +438,14 @@ describe("Nav — header", () => {
     }
   });
 
-  it("gives the phone bar's controls 48px targets and the ü logo", () => {
+  it("gives the phone bar's controls 48px targets and the orange wordmark, 20px tall (the Header / Mobile board)", () => {
     pathname = "/events";
     const { container } = renderNav(fakeAuthValue({ status: "signed-out" }));
     const bar = compactBar(container);
-    for (const control of bar.querySelectorAll("a[href], button")) expect(control).toHaveClass("size-12");
-    expect(within(bar).getByRole("link", { name: "Sheltüh home" }).querySelector("svg")).toHaveClass("h-8");
+    const logo = within(bar).getByRole("link", { name: "Sheltüh home" });
+    expect(logo).toHaveClass("h-12");
+    expect(logo.querySelector("svg")).toHaveClass("h-5", "text-signal");
+    for (const control of bar.querySelectorAll("button, a[href]:not([aria-label='Sheltüh home'])")) expect(control).toHaveClass("size-12");
   });
 
   it("stays put (not sticky) on phones in a conversation, so the keyboard leaves room for the messages", () => {
