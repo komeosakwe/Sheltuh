@@ -263,4 +263,62 @@ describe("the real posthog-js through page views and a capture", () => {
     }
     expect(document.cookie).toBe("");
   });
+  it("reports an uncaught error with its message, addresses and stack cleaned, and nothing from console.error", async () => {
+    const order = "ord_0123456789abcdef0123456789abcdef";
+    setUrl(`/checkout/success?session_id=${order}`);
+    vi.resetModules();
+    const analytics = await import("@/lib/analytics");
+    analytics.initAnalytics();
+    const { default: posthog } = await import("posthog-js");
+    await vi.waitFor(() => expect(posthog.__loaded).toBe(true));
+    document.dispatchEvent(new Event("DOMContentLoaded"));
+    window.dispatchEvent(new Event("load"));
+    // Exception capture wraps window.onerror once it starts.
+    await vi.waitFor(() => expect(typeof window.onerror).toBe("function"));
+
+    console.error(`logged: ${order} mia@example.com`);
+    const error = new TypeError(
+      `Couldn't load ${order} for mia@example.com ("Alice Nguyen") from https://sheltuh.com.au/checkout/success?session_id=${order}&token=tok_9f8e7d6c5b4a39281706 member ${MEMBER}`,
+    );
+    window.onerror?.(error.message, `https://sheltuh.com.au/checkout/success?session_id=${order}#frag`, 1, 1, error);
+    await vi.waitFor(() => expect(sent.some((event) => event.event === "$exception")).toBe(true), { timeout: 5000 });
+
+    const exceptions = sent.filter((event) => event.event === "$exception");
+    expect(exceptions).toHaveLength(1);
+    const [report] = exceptions;
+    const list = report.properties.$exception_list as { type: string; value: string; stacktrace?: { frames: Record<string, unknown>[] } }[];
+    expect(list[0].type).toBe("TypeError");
+    expect(list[0].value).toContain("Couldn't load [redacted] for [email]");
+    expect(list[0].value).toContain("https://sheltuh.com.au/checkout/success member [id]");
+    for (const frame of list[0].stacktrace?.frames ?? []) {
+      expect(Object.keys(frame).every((key) => ["platform", "filename", "abs_path", "function", "lineno", "colno", "in_app", "chunk_id"].includes(key))).toBe(true);
+    }
+    for (const key of Object.keys(report.properties).filter((name) => name.startsWith("$exception_"))) {
+      expect(["$exception_list", "$exception_level"]).toContain(key);
+    }
+    const payload = JSON.stringify(sent);
+    for (const secret of ["ord_0123", "mia@example.com", "Alice Nguyen", "tok_9f8e7d6c5b4a39281706", MEMBER, "logged:"]) {
+      expect(payload, `payload contains ${secret}`).not.toContain(secret);
+    }
+  });
+
+  it("sends no error report from an /admin page", async () => {
+    setUrl("/admin/events/9f3c/edit");
+    vi.resetModules();
+    const analytics = await import("@/lib/analytics");
+    analytics.initAnalytics();
+    const { default: posthog } = await import("posthog-js");
+    await vi.waitFor(() => expect(posthog.__loaded).toBe(true));
+    document.dispatchEvent(new Event("DOMContentLoaded"));
+    window.dispatchEvent(new Event("load"));
+    await vi.waitFor(() => expect(typeof window.onerror).toBe("function"));
+    const error = new Error("admin page broke");
+    window.onerror?.(error.message, "https://sheltuh.com.au/admin/events/9f3c/edit", 1, 1, error);
+    // A public page's event after it, so the queue is known to have gone out.
+    setUrl("/");
+    analytics.trackPageview("/");
+    await vi.waitFor(() => expect(sent.some((event) => event.event === "$pageview")).toBe(true), { timeout: 5000 });
+    expect(sent.some((event) => event.event === "$exception")).toBe(false);
+    expect(JSON.stringify(sent)).not.toContain("admin page broke");
+  });
 });

@@ -20,6 +20,8 @@
  *  - Ids of people (a member profile, a conversation) and ticket codes in an
  *    address are replaced by a placeholder, and an order reference (`ord_…`) is
  *    removed from anything that is sent.
+ *  - An error report (PostHog's `$exception`) keeps only its error's class name, a redacted message
+ *    and its stack frames' locations (sanitizeExceptionList).
  */
 import { CAMPAIGN_VALUE_MAX, campaignValue } from "@/lib/campaign-links";
 
@@ -280,6 +282,12 @@ function cleanBag(bag: Bag, dropPrevious: boolean): Bag {
   const out: Bag = {};
   for (const [name, value] of Object.entries(bag)) {
     if (DROPPED_PROPERTIES.has(name) || isDeniedProperty(name)) continue;
+    if (name.startsWith(EXCEPTION_PREFIX)) {
+      // An error report: only its cleaned list and level are kept (breadcrumbs and the rest go).
+      if (name === EXCEPTION_LIST) out[name] = sanitizeExceptionList(value);
+      else if (name === EXCEPTION_LEVEL && typeof value === "string" && EXCEPTION_LEVELS.has(value)) out[name] = value;
+      continue;
+    }
     if (CAMPAIGN_PROPERTY.test(name) && typeof value === "string") {
       // A campaign value that isn't the shape our own links have is a crafted link: not kept (campaignParamValue).
       const kept = campaignParamValue(value);
@@ -324,6 +332,143 @@ function pageOf(properties: Bag): string {
   return typeof url === "string" ? pathOf(url) : "";
 }
 
+// ---------------------------------------------------------------------------
+// Error reports (PostHog's `$exception` events)
+// ---------------------------------------------------------------------------
+
+/** The error report properties kept: the cleaned list of errors and its level. Any other `$exception_*` (breadcrumbs above all) is dropped. */
+const EXCEPTION_LIST = "$exception_list";
+const EXCEPTION_LEVEL = "$exception_level";
+const EXCEPTION_LEVELS: ReadonlySet<string> = new Set(["fatal", "error", "warning", "log", "info", "debug"]);
+const EXCEPTION_PREFIX = "$exception_";
+
+/** At most this many errors (a cause chain) and frames per error are kept. */
+const MAX_EXCEPTIONS = 5;
+const MAX_FRAMES = 60;
+const MAX_MESSAGE = 500;
+
+/** An error's class name (TypeError, ChunkLoadError, DOMException…): code, not data. */
+const ERROR_TYPE = /^[A-Za-z_$][\w$.]{0,100}$/;
+/** A function name from a stack frame (`Object.load`, `async fetchOrder`, `<anonymous>`, `Array.map [as foo]`). */
+const FUNCTION_NAME = /^[\w$.<> [\]]{1,200}$/;
+/** Where a frame's code ran when it isn't an address. */
+const FRAME_PLACES: ReadonlySet<string> = new Set(["<anonymous>", "native", "[native code]"]);
+const PLATFORMS: ReadonlySet<string> = new Set(["web:javascript", "node:javascript", "hermes"]);
+const MECHANISM_TYPE = /^[a-z_]{1,40}$/;
+const CHUNK_ID = /^[\w-]{1,100}$/;
+
+const MESSAGE_URL = /\bhttps?:\/\/[^\s"'`<>]+/gi;
+const MESSAGE_EMAIL = /[^\s@"'`<>()[\]]+@[^\s@"'`<>()[\]]+\.[^\s@"'`<>()[\]]+/g;
+/** Quoted text: in an error message this is usually a value (JSON.parse echoes its input, a failed check echoes what it got). */
+const MESSAGE_QUOTED = /"[^"\n]*"|'[^'\n]*'|`[^`\n]*`|“[^”\n]*”|‘[^’\n]*’/g;
+const MESSAGE_UUID = /\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/gi;
+/** A token: a long run of letters, digits and token punctuation that has a digit in it (hex, base64, JWTs, secrets). */
+const MESSAGE_TOKEN = /[A-Za-z0-9_+/=.-]{20,}/g;
+/** A phone or card number: 7 or more digits, perhaps spaced. */
+const MESSAGE_NUMBER = /\+?\d(?:[\d\s-]{5,}\d)/g;
+
+/**
+ * An error message as PostHog may keep it: web addresses cleaned as page addresses are, and email
+ * addresses, quoted text, order references, uuids, tokens and long numbers replaced by placeholders.
+ * What is left is the error's own wording ("Cannot read properties of undefined (reading [redacted])"),
+ * cut to MAX_MESSAGE characters.
+ */
+export function redactErrorMessage(raw: string): string {
+  const text = raw.slice(0, MAX_MESSAGE * 4);
+  const redacted = text
+    .replace(MESSAGE_URL, (url) => {
+      const trimmed = url.replace(/[).,;:!?]+$/, "");
+      const cleaned = isExcludedUrl(trimmed) ? "[address]" : sanitizeUrl(trimmed, { campaign: false }) || "[address]";
+      return cleaned + url.slice(trimmed.length);
+    })
+    .replace(MESSAGE_EMAIL, "[email]")
+    .replace(MESSAGE_QUOTED, (quoted) => `${quoted[0]}[redacted]${quoted[quoted.length - 1]}`)
+    .replace(ORDER_REFERENCE, "[redacted]")
+    .replace(MESSAGE_UUID, "[id]")
+    .replace(MESSAGE_TOKEN, (run) => (/\d/.test(run) && !run.startsWith("/") ? "[redacted]" : run))
+    .replace(MESSAGE_NUMBER, "[number]");
+  return redacted.length > MAX_MESSAGE ? `${redacted.slice(0, MAX_MESSAGE)}…` : redacted;
+}
+
+/** A frame's file: an address cleaned like a page's (no query or fragment), or a fixed marker; null to leave it out. */
+function frameFile(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  if (FRAME_PLACES.has(value)) return value;
+  return sanitizeUrl(value, { campaign: false }) || null;
+}
+
+function cleanFrame(frame: unknown): Bag | null {
+  if (!isBag(frame)) return null;
+  const out: Bag = {};
+  if (typeof frame.platform === "string" && PLATFORMS.has(frame.platform)) out.platform = frame.platform;
+  const filename = frameFile(frame.filename);
+  if (filename) out.filename = filename;
+  const absPath = frameFile(frame.abs_path);
+  if (absPath) out.abs_path = absPath;
+  if (typeof frame.function === "string" && FUNCTION_NAME.test(frame.function)) out.function = scrubText(frame.function);
+  for (const key of ["lineno", "colno"] as const) {
+    if (typeof frame[key] === "number" && Number.isFinite(frame[key])) out[key] = frame[key];
+  }
+  if (typeof frame.in_app === "boolean") out.in_app = frame.in_app;
+  if (typeof frame.chunk_id === "string" && CHUNK_ID.test(frame.chunk_id)) out.chunk_id = frame.chunk_id;
+  // Never kept: source lines around the frame (context_line, pre_/post_context), variables (vars), module.
+  return out;
+}
+
+function cleanMechanism(mechanism: unknown): Bag | undefined {
+  if (!isBag(mechanism)) return undefined;
+  const out: Bag = {};
+  if (typeof mechanism.handled === "boolean") out.handled = mechanism.handled;
+  if (typeof mechanism.synthetic === "boolean") out.synthetic = mechanism.synthetic;
+  if (typeof mechanism.type === "string" && MECHANISM_TYPE.test(mechanism.type)) out.type = mechanism.type;
+  for (const key of ["exception_id", "parent_id"] as const) {
+    if (typeof mechanism[key] === "number" && Number.isFinite(mechanism[key])) out[key] = mechanism[key];
+  }
+  return out;
+}
+
+function framesOf(exception: Bag): unknown[] {
+  const stacktrace = exception.stacktrace;
+  return isBag(stacktrace) && Array.isArray(stacktrace.frames) ? stacktrace.frames : [];
+}
+
+/** Whether any frame of the error ran from an /admin page (an inline script's file is the page's address). */
+function exceptionTouchesAdmin(list: unknown): boolean {
+  if (!Array.isArray(list)) return false;
+  return list.some(
+    (exception) =>
+      isBag(exception) &&
+      framesOf(exception).some(
+        (frame) =>
+          isBag(frame) &&
+          [frame.filename, frame.abs_path].some((file) => typeof file === "string" && isExcludedUrl(file)),
+      ),
+  );
+}
+
+/**
+ * PostHog's `$exception_list`, rebuilt from the fields it needs and nothing else: each error's class
+ * name, its message (redactErrorMessage), how it was caught, and its stack frames' file (cleaned),
+ * function, line and column. Source lines, variables and anything PostHog adds later are left out.
+ */
+export function sanitizeExceptionList(list: unknown): Bag[] {
+  if (!Array.isArray(list)) return [];
+  return list.slice(0, MAX_EXCEPTIONS).filter(isBag).map((exception) => {
+    const out: Bag = {
+      type: typeof exception.type === "string" && ERROR_TYPE.test(exception.type) ? exception.type : "Error",
+    };
+    if (typeof exception.value === "string") out.value = redactErrorMessage(exception.value);
+    const mechanism = cleanMechanism(exception.mechanism);
+    if (mechanism) out.mechanism = mechanism;
+    const frames = framesOf(exception)
+      .slice(-MAX_FRAMES)
+      .map(cleanFrame)
+      .filter((frame): frame is Bag => frame !== null);
+    if (frames.length > 0) out.stacktrace = { type: "raw", frames };
+    return out;
+  });
+}
+
 /** The parts of a PostHog capture (its CaptureResult) the rules touch. */
 interface CaptureLike {
   properties?: Bag;
@@ -342,6 +487,7 @@ export function sanitizePostHogEvent<T extends CaptureLike>(event: T | null): T 
   if (!event) return null;
   const properties = event.properties ?? {};
   if (isExcludedPath(pageOf(properties))) return null;
+  if (exceptionTouchesAdmin(properties[EXCEPTION_LIST])) return null;
   const dropPrevious = previousWasExcluded([event.properties, event.$set, event.$set_once]);
   const cleaned: T = { ...event };
   if (event.properties) cleaned.properties = cleanBag(event.properties, dropPrevious);

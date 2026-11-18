@@ -25,7 +25,8 @@ import type { TicketingMode } from "@/lib/ticketing";
  * does nothing and posthog-js isn't even downloaded.
  *
  * Everything sent is chosen here: no autocapture, no session recording, no
- * heatmaps, no input values. People are identified only by their Supabase
+ * heatmaps, no input values. Uncaught errors are reported, cleaned first
+ * (sanitizeExceptionList). People are identified only by their Supabase
  * user id (never an email, name or phone number), and the address of every
  * event is cleaned first (lib/analytics-privacy.ts). Properties are internal
  * slugs, uuids, counts and flags: never an order id, ticket code, token,
@@ -101,7 +102,9 @@ export function initAnalytics(): void {
   const config = analyticsConfig();
   if (!config) return;
   if (browserOptedOut()) return;
-  client = import("posthog-js").then(({ default: posthog }) => {
+  // Error reports need PostHog's error-catching extension. It is bundled here (it registers itself on
+  // window as it loads) because PostHog may not fetch scripts at run time (below).
+  client = Promise.all([import("posthog-js"), import("posthog-js/dist/exception-autocapture")]).then(([{ default: posthog }]) => {
     posthog.init(config.key, {
       // The first-party proxy (next.config.ts rewrites /ingest to PostHog), so ad blockers don't skew the numbers.
       api_host: INGEST_PATH,
@@ -115,7 +118,15 @@ export function initAnalytics(): void {
       rageclick: false,
       capture_dead_clicks: false,
       capture_heatmaps: false,
-      capture_exceptions: false,
+      // Error reports: uncaught errors and unhandled promise rejections only, never console.error
+      // (which can carry anything logged). Their message, stack and addresses are cleaned by
+      // before_send (sanitizeExceptionList); no breadcrumbs are kept.
+      capture_exceptions: {
+        capture_unhandled_errors: true,
+        capture_unhandled_rejections: true,
+        capture_console_errors: false,
+      },
+      error_tracking: { captureExtensionExceptions: false, exception_steps: { enabled: false } },
       capture_performance: false,
       disable_session_recording: true,
       disable_surveys: true,

@@ -257,8 +257,10 @@ export default function PrivacyPage() {
             or the words you search for, and it sets no cookies: a random ID is kept in your
             browser&rsquo;s storage. Web addresses are cut down before they&rsquo;re sent, so links
             with a private code or token in them are never recorded. It reaches PostHog through our
-            own address, and your cookies and the page you came from aren&rsquo;t passed on. The data
-            is kept by PostHog in the European Union.
+            own address, and your cookies and the page you came from aren&rsquo;t passed on. If the
+            site breaks in your browser, PostHog also gets an error report (the kind of error and
+            where in our code it happened) so we can fix it; email addresses, names, codes and other
+            details are removed from it first. The data is kept by PostHog in the European Union.
           </li>
           <li>
             <strong>Vercel Web Analytics and Speed Insights</strong> (our host) count page views and

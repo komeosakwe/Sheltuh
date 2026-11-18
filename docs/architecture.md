@@ -5764,8 +5764,27 @@ switched on**, and none of it runs in demo mode, in tests or on `/admin`.
   `resetIdentity()` calls `reset(true)` (new anonymous id **and** device id; only
   if someone was identified; it waits out the "loading" state so a page load is
   not mistaken for a sign-out). No `$set` person properties are sent by us.
+- **Error reports** (owner decision, 18 Nov 2026). Uncaught errors and
+  unhandled promise rejections are sent as PostHog `$exception` events
+  (`capture_exceptions` with `capture_unhandled_errors` and
+  `capture_unhandled_rejections`; **never** `capture_console_errors`, which
+  would send whatever is logged). PostHog's error-catching extension is bundled
+  (`import("posthog-js/dist/exception-autocapture")` beside the SDK), since
+  external loading is off. Breadcrumbs (`exception_steps`) and browser-extension
+  errors are off. `before_send` rebuilds `$exception_list` from the fields it
+  needs only (`sanitizeExceptionList`): the error's class name, its message
+  through `redactErrorMessage` (web addresses cleaned like page addresses,
+  `/admin` addresses replaced, and emails, quoted text, `ord_…`, uuids,
+  tokens and 7+ digit numbers replaced by placeholders; 500 characters at most),
+  how it was caught, and each frame's file (cleaned), function, line, column,
+  `in_app` and `chunk_id`. Source lines, variables and every other
+  `$exception_*` property are dropped; `$exception_level` is kept only as one
+  of PostHog's levels. A report from an `/admin` page, or with a frame whose
+  file is an `/admin` address, is dropped. Stacks are minified (no source maps
+  are uploaded). Tests: `tests/analyticsPrivacy.test.ts` ("error reports") and
+  the real SDK in `tests/analyticsRealPostHog.test.ts`.
 - **What is never captured.** Autocapture, rageclick, dead clicks, heatmaps,
-  exception capture, performance capture, session recording, surveys and
+  console errors, error breadcrumbs, performance capture, session recording, surveys and
   feature-flag calls are all off; `mask_all_text` and
   `mask_all_element_attributes` are on in case any is ever enabled in the
   PostHog UI (the local config wins over remote settings). Persistence is

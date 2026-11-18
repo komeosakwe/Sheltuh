@@ -5,6 +5,8 @@ import {
   campaignParamValue,
   isExcludedPath,
   isExcludedUrl,
+  redactErrorMessage,
+  sanitizeExceptionList,
   sanitizePathname,
   sanitizePostHogEvent,
   sanitizeUrl,
@@ -315,6 +317,116 @@ describe("sanitizePostHogEvent", () => {
   it("still reports organiser dashboard pages", () => {
     const cleaned = sanitizePostHogEvent({ event: "$pageview", properties: { $pathname: "/dashboard/analytics", $current_url: `${ORIGIN}/dashboard/analytics?x=1` } });
     expect(cleaned?.properties?.$current_url).toBe(`${ORIGIN}/dashboard/analytics`);
+  });
+});
+
+describe("error reports", () => {
+  const order = "ord_0123456789abcdef0123456789abcdef";
+  const member = "6f1c2b9e-1111-4222-8333-944455556666";
+
+  it("redacts what an error message can carry: addresses' queries, emails, quoted values, ids, tokens and numbers", () => {
+    expect(redactErrorMessage("Cannot read properties of undefined (reading 'name')")).toBe(
+      "Cannot read properties of undefined (reading '[redacted]')",
+    );
+    expect(redactErrorMessage(`Unexpected token 'A', "Alice Nguyen" is not valid JSON`)).toBe(
+      `Unexpected token '[redacted]', "[redacted]" is not valid JSON`,
+    );
+    expect(redactErrorMessage(`GET ${ORIGIN}/checkout/success?session_id=${order}#t failed`)).toBe(`GET ${ORIGIN}/checkout/success failed`);
+    expect(redactErrorMessage(`fetch ${ORIGIN}/admin/orders/x failed`)).toBe("fetch [address] failed");
+    expect(redactErrorMessage(`no ticket for mia@example.com on ${order}`)).toBe("no ticket for [email] on [redacted]");
+    expect(redactErrorMessage(`member ${member} missing`)).toBe("member [id] missing");
+    expect(redactErrorMessage("bad jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.c2lnbmF0dXJl")).toBe("bad jwt [redacted]");
+    expect(redactErrorMessage("call 0412 345 678 or +61412345678")).toBe("call [number] or [number]");
+    // The error's own wording, chunk names and short numbers stay.
+    expect(redactErrorMessage("Loading chunk 123 failed.")).toBe("Loading chunk 123 failed.");
+    expect(redactErrorMessage("x".repeat(5000)).length).toBeLessThanOrEqual(501);
+  });
+
+  it("rebuilds the exception list from type, message, mechanism and frame locations only", () => {
+    const [cleaned] = sanitizeExceptionList([
+      {
+        type: "TypeError",
+        value: `failed for ${order}`,
+        module: "secret-module",
+        mechanism: { handled: false, synthetic: false, type: "onerror", source: "x", data: { email: "mia@example.com" } },
+        stacktrace: {
+          type: "raw",
+          frames: [
+            {
+              platform: "web:javascript",
+              filename: `${ORIGIN}/checkout/success?session_id=${order}`,
+              abs_path: `${ORIGIN}/_next/static/chunks/app.js?dpl=abc#x`,
+              function: "Object.load",
+              lineno: 10,
+              colno: 4,
+              in_app: true,
+              chunk_id: "app-chunk_1",
+              context_line: "const email = 'mia@example.com'",
+              pre_context: ["secret"],
+              vars: { token: "secret" },
+            },
+            { platform: "web:javascript", filename: "<anonymous>", function: "evil name with 'quotes'" },
+          ],
+        },
+      },
+      "not an exception",
+    ]);
+    expect(cleaned).toEqual({
+      type: "TypeError",
+      value: "failed for [redacted]",
+      mechanism: { handled: false, synthetic: false, type: "onerror" },
+      stacktrace: {
+        type: "raw",
+        frames: [
+          {
+            platform: "web:javascript",
+            filename: `${ORIGIN}/checkout/success`,
+            abs_path: `${ORIGIN}/_next/static/chunks/app.js`,
+            function: "Object.load",
+            lineno: 10,
+            colno: 4,
+            in_app: true,
+            chunk_id: "app-chunk_1",
+          },
+          { platform: "web:javascript", filename: "<anonymous>" },
+        ],
+      },
+    });
+    expect(sanitizeExceptionList([{ type: "mia@example.com" }])).toEqual([{ type: "Error" }]);
+    expect(sanitizeExceptionList("nope")).toEqual([]);
+    expect(sanitizeExceptionList(Array.from({ length: 9 }, () => ({ type: "Error" })))).toHaveLength(5);
+  });
+
+  it("keeps only the cleaned list and level of an $exception event, and drops one whose stack ran on /admin", () => {
+    const event = {
+      event: "$exception",
+      properties: {
+        $pathname: "/events/here-now",
+        $current_url: `${ORIGIN}/events/here-now?token=x`,
+        $exception_list: [{ type: "Error", value: `oops ${order}` }],
+        $exception_level: "error",
+        $exception_steps: [{ $message: "typed mia@example.com" }],
+        $exception_personURL: "https://eu.posthog.com/person/x",
+      },
+    };
+    const cleaned = sanitizePostHogEvent(event);
+    expect(cleaned?.properties).toEqual({
+      $pathname: "/events/here-now",
+      $current_url: `${ORIGIN}/events/here-now`,
+      $exception_list: [{ type: "Error", value: "oops [redacted]" }],
+      $exception_level: "error",
+    });
+    expect(sanitizePostHogEvent({ ...event, properties: { ...event.properties, $exception_level: "<script>" } })?.properties).not.toHaveProperty(
+      "$exception_level",
+    );
+    const fromAdmin = {
+      event: "$exception",
+      properties: {
+        $pathname: "/",
+        $exception_list: [{ type: "Error", stacktrace: { type: "raw", frames: [{ filename: `${ORIGIN}/admin/events/1` }] } }],
+      },
+    };
+    expect(sanitizePostHogEvent(fromAdmin)).toBeNull();
   });
 });
 

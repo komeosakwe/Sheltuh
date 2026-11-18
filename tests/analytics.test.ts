@@ -12,6 +12,8 @@ const posthog = {
   _isIdentified: vi.fn(() => true),
 };
 vi.mock("posthog-js", () => ({ default: posthog }));
+// The error-catching extension registers itself on window as it loads; tests/analyticsRealPostHog.test.ts loads the real one.
+vi.mock("posthog-js/dist/exception-autocapture", () => ({ default: {} }));
 
 let supabaseConfigured = true;
 vi.mock("@/lib/supabase/config", () => ({
@@ -122,7 +124,9 @@ describe("analytics is on", () => {
       disable_session_recording: true,
       capture_heatmaps: false,
       capture_dead_clicks: false,
-      capture_exceptions: false,
+      // Uncaught errors and rejections only: console.error can carry anything logged.
+      capture_exceptions: { capture_unhandled_errors: true, capture_unhandled_rejections: true, capture_console_errors: false },
+      error_tracking: { captureExtensionExceptions: false, exception_steps: { enabled: false } },
       disable_surveys: true,
       disable_external_dependency_loading: true,
       mask_all_text: true,
