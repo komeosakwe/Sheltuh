@@ -149,6 +149,7 @@ const PUBLIC_GETS = new Set([
   "getTrendingEvents",
   "getEventImage",
   "getOrganiserLogo",
+  "getOrganiserCover",
   "getSeatMap",
   "getSeatAvailability",
   "getEventClip",

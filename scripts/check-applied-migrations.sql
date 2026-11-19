@@ -255,6 +255,18 @@ select version, file, coalesce(applied, false) as applied
       exists (select 1 from fn where proname = 'finish_checkout_expiry' and 'p_max_missing' = any(proargnames))
       and exists (select 1 from pg_constraint where conname = 'checkout_expiry_checks_last_outcome_check'
                    and pg_get_constraintdef(oid) like '%missing%')),
+    ('20261128000000', 'organiser_covers',
+      to_regclass('private.organiser_covers') is not null
+      and exists (select 1 from fn where proname = 'put_organiser_cover')
+      and exists (select 1 from fn where proname = 'delete_organiser_cover')
+      and exists (select 1 from fn where proname = 'admin_remove_organiser_cover')),
+    ('20261128000100', 'organiser_tags',
+      exists (select 1 from col where attrelid = to_regclass('public.organisers') and attname = 'profile_tags')
+      and exists (select 1 from col where attrelid = to_regclass('public.organisers') and attname = 'custom_tags')
+      and exists (select 1 from fn where proname = 'organiser_custom_tag_ok')
+      and exists (select 1 from fn where proname = 'set_organiser_tags')
+      and exists (select 1 from fn where proname = 'admin_remove_organiser_custom_tags')
+      and exists (select 1 from pg_trigger where tgname = 'organisers_custom_tags_valid' and not tgisinternal)),
     ('20261130000000', 'order_email_changes',
       to_regclass('private.order_email_changes') is not null
       and to_regclass('private.order_email_changes_one_buyer_change') is not null

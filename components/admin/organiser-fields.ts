@@ -17,6 +17,9 @@ export const ORGANISER_FIELD_LABELS: Record<OrganiserLogField, string> = {
   linkedinPath: "LinkedIn",
   featuredVideo: "Featured video",
   logo: "Logo",
+  cover: "Cover image",
+  profileTags: "Profile categories",
+  customTags: "Own words",
   status: "Status",
 };
 
@@ -27,6 +30,9 @@ export const ORGANISER_FIELD_ORDER: readonly OrganiserLogField[] = [
   ...SOCIAL_HANDLE_FIELDS.map((f) => f.field),
   "featuredVideo",
   "logo",
+  "cover",
+  "profileTags",
+  "customTags",
   "status",
 ];
 
@@ -64,8 +70,9 @@ const STATUS_LABELS: Record<string, string> = {
  * A stored value as it reads on the profile: handles with their prefix
  * ("@name", "facebook.com/page"), statuses in words ("Approved"; a takedown's
  * "rejected" reads "Suspended"), a video as its link ("YouTube: https://…"),
- * a logo as when it was uploaded ("Uploaded Fri 25 Sep, 8:05 pm"), anything
- * else as stored.
+ * a logo or cover as when it was uploaded ("Uploaded Fri 25 Sep, 8:05 pm"),
+ * anything else as stored (profile chips as the API logs them: slugs or own
+ * words, joined with ", ").
  */
 export function formatOrganiserFieldValue(
   field: OrganiserLogField,
@@ -77,7 +84,7 @@ export function formatOrganiserFieldValue(
     return STATUS_LABELS[value] ?? value;
   }
   if (field === "featuredVideo") return formatLoggedVideo(value);
-  if (field === "logo") return formatLoggedLogo(value);
+  if (field === "logo" || field === "cover") return formatLoggedLogo(value);
   if (!isSocialHandleField(field)) return value;
   const prefix = SOCIAL_HANDLE_FIELDS.find((f) => f.field === field)?.prefix ?? "";
   return `${prefix}${value}`;
