@@ -18,7 +18,8 @@ for (const vp of [
 
     test("Esri tiles and credit only, and no map style control", async ({ page }) => {
       const requested = await mockMapNetwork(page);
-      await page.goto("/map");
+      // A phone opens on the list (the rules' Layout board): ask for the map.
+      await page.goto("/map?view=map");
 
       await expect(page.locator(".leaflet-tile-loaded").first()).toBeVisible({ timeout: 20_000 });
       await expect(page.getByText(/Map couldn.t load/)).toHaveCount(0);
@@ -53,26 +54,22 @@ test.describe("/map is Australia-wide (owner plan S9) at 1440×900", () => {
       await expect(page.getByRole("button", { name: `Locate ${title} on the map` })).toBeEnabled();
     }
     await expect(page.getByText(/can.t be placed on the map yet/)).toHaveCount(0);
-    // The location filter: All of Australia, then the suburbs by state.
-    const location = page.getByRole("combobox", { name: "Location" });
-    await expect(location.locator("option").first()).toHaveText("All of Australia");
-    await expect(location.locator("optgroup")).toHaveCount(4);
-    expect(await location.locator("optgroup").evaluateAll((groups) => groups.map((g) => (g as HTMLOptGroupElement).label))).toEqual([
-      "New South Wales",
-      "Queensland",
-      "Victoria",
-      "Western Australia",
-    ]);
+    // No place chosen: every event, no radius, and Where (the one location control) asks for one.
+    await expect(page.getByRole("button", { name: "Where: Your suburb" })).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "Location" })).toHaveCount(0);
+    await expect(page.getByRole("combobox", { name: "Distance" })).toHaveCount(0);
   });
 
-  test("with a saved suburb, opens on the events near it (owner decision D5), the rest still listed", async ({ page }) => {
+  test("with a saved suburb, opens on the events near it (owner decision D5), the rest further away, one press from the list", async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem("sheltuh:near:v1", JSON.stringify({ suburb: "Perth" })));
     await mockMapNetwork(page);
     await page.goto("/map");
     await expect(page.locator(".leaflet-tile-loaded").first()).toBeVisible({ timeout: 20_000 });
     await expect(pin(page, "evt-northbridge-late-sketch")).toHaveCount(1, { timeout: 20_000 });
-    // Melbourne is far outside Perth's view: not drawn.
+    // Melbourne is far outside Perth's 25 km: not drawn, not listed, but counted further away.
     await expect(pin(page, "evt-neon-static")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Locate Neon Static on the map" })).toHaveCount(0);
+    await page.locator("[data-further-away]").getByRole("button", { name: "Show all of Australia" }).click();
     await expect(page.getByRole("button", { name: "Locate Neon Static on the map" })).toBeEnabled();
   });
 

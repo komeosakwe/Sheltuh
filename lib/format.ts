@@ -72,6 +72,22 @@ export function formatEventTime(isoLike: string, timeZone: string = PLATFORM_TIM
 }
 
 /**
+ * The card's compact time, as the redesign's cards draw it: "5pm", "7:30pm", "12am", in the
+ * zone (Melbourne by default), shown as written (never in capitals). Whole hours drop ":00",
+ * and there's no space before am/pm.
+ */
+export function formatEventTimeCompact(isoLike: string, timeZone: string = PLATFORM_TIME_ZONE): string {
+  return formatEventTime(isoLike, timeZone)
+    .replace(/[\s\u202f]+/g, "")
+    .replace(/:00(?=[ap]m$)/, "");
+}
+
+/** e.g. "Fri" — the short weekday in the zone (Melbourne by default), as in formatEventDateShort. */
+export function formatEventWeekday(isoLike: string, timeZone: string = PLATFORM_TIME_ZONE): string {
+  return formattersFor(timeZone).weekday.format(new Date(isoLike));
+}
+
+/**
  * A day, in the zone (Melbourne by default): "Sat 26 Sep", with the year
  * when it isn't `now`'s year there ("Fri 25 Sep 2025").
  */
@@ -152,10 +168,11 @@ export function formatEventDateTimeRange(
 }
 
 /**
- * The home's date badge, in the zone's local time (Melbourne by default):
- * `{ range: "3", month: "OCT" }` for one day (an end on the same local date
- * counts as one day), `{ range: "19–25", month: "OCT" }` for a span within a
- * month, and `{ range: "30 OCT–2", month: "NOV" }` for a span across months.
+ * The date chip's day and month, in the zone's local time (Melbourne by
+ * default), in sentence case as written (owner decision, 13 Nov 2026):
+ * `{ range: "3", month: "Oct" }` for one day (an end on the same local date
+ * counts as one day), `{ range: "19–25", month: "Oct" }` for a span within a
+ * month, and `{ range: "30 Oct–2", month: "Nov" }` for a span across months.
  */
 export function formatDateBadge(
   isoLike: string,
@@ -166,7 +183,7 @@ export function formatDateBadge(
   const start = new Date(isoLike);
   const startKey = dateKey.format(start);
   const startDay = String(Number(startKey.slice(8, 10)));
-  const startMonth = badgeMonth.format(start).toUpperCase();
+  const startMonth = badgeMonth.format(start);
   if (!endIsoLike) return { range: startDay, month: startMonth };
 
   const end = new Date(endIsoLike);
@@ -174,7 +191,7 @@ export function formatDateBadge(
   if (endKey <= startKey) return { range: startDay, month: startMonth };
   const endDay = String(Number(endKey.slice(8, 10)));
   if (endKey.slice(0, 7) === startKey.slice(0, 7)) return { range: `${startDay}–${endDay}`, month: startMonth };
-  return { range: `${startDay} ${startMonth}–${endDay}`, month: badgeMonth.format(end).toUpperCase() };
+  return { range: `${startDay} ${startMonth}–${endDay}`, month: badgeMonth.format(end) };
 }
 
 /**

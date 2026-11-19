@@ -93,19 +93,21 @@ test.describe("the sticky buy bar at 390×844", () => {
     await page.goto(`/events/${sample!.slug}`);
     const tickets = page.locator("#tickets");
     const bar = page.locator("[data-buy-bar]");
-    await expect(tickets.getByRole("heading", { name: "Select your tickets" })).toBeVisible({ timeout: 30_000 });
-    // Nothing chosen: the bar keeps the event price (one release is on sale) and is the way to the tickets.
-    await expect(bar).toContainText("A$37.60");
+    await expect(tickets.getByRole("heading", { name: "Choose your tickets" })).toBeVisible({ timeout: 30_000 });
+    // Nothing chosen: the bar shows the starting price (one release is on sale) and is the way to the tickets.
+    await expect(bar.locator("[data-bar-amount]")).toHaveText("From A$37.60");
+    await expect(bar.locator("[data-bar-note]")).toHaveText("incl. booking fee");
     await expect(bar.getByRole("button")).toHaveCount(0);
-    await expect(bar.getByRole("link", { name: "Buy tickets" })).toBeVisible();
+    await expect(bar.getByRole("link", { name: "Choose tickets" })).toBeVisible();
 
     const soldOut = tickets.getByRole("listitem").filter({ hasText: "First release" });
     await expect(soldOut).toContainText("Sold out");
     await expect(soldOut.getByRole("button")).toHaveCount(0);
 
     await tickets.getByRole("button", { name: "Increase quantity for Second release" }).click();
-    await expect(bar).toContainText("A$37.60");
-    await expect(bar).toContainText("incl. booking fee");
+    // Chosen: the order's total, said to be one.
+    await expect(bar.locator("[data-bar-amount]")).toHaveText("A$37.60");
+    await expect(bar.locator("[data-bar-note]")).toHaveText("Total · incl. booking fee");
     await expect(tickets.getByText("Total").locator("xpath=following-sibling::dd")).toHaveText("A$37.60");
 
     // Both the bar's Buy tickets and the panel's Checkout are there on a phone (owner request); they press one handler.
@@ -241,8 +243,8 @@ test.describe("the bar before anything is chosen, at 390×844", () => {
     await mockApi(page);
     await page.goto(`/events/${sample!.slug}`);
     const tickets = page.locator("#tickets");
-    await expect(tickets.getByRole("heading", { name: "Select your tickets" })).toBeVisible({ timeout: 30_000 });
-    await page.locator("[data-buy-bar]").getByRole("link", { name: "Buy tickets" }).click();
+    await expect(tickets.getByRole("heading", { name: "Choose your tickets" })).toBeVisible({ timeout: 30_000 });
+    await page.locator("[data-buy-bar]").getByRole("link", { name: "Choose tickets" }).click();
     await expect(tickets.getByRole("button", { name: "Increase quantity for Second release" })).toBeFocused();
     // Focus did not land under the bar.
     const bar = (await page.locator("[data-buy-bar]").boundingBox())!;
@@ -257,6 +259,41 @@ test.describe("the bar before anything is chosen, at 390×844", () => {
 
 test.describe("desktop keeps the panel's Checkout and has no buy bar", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
+
+  test("the ticket panel never checks out: Buy tickets → focuses the tickets heading, then Review order the name, then Checkout", async ({ page }) => {
+    await mockApi(page);
+    await page.goto(`/events/${sample!.slug}`);
+    const panel = page.locator("[data-buy-panel]");
+    const buy = panel.getByRole("link", { name: "Buy tickets" });
+    await expect(buy).toBeVisible({ timeout: 30_000 });
+    // Before a choice: the all-inclusive From price and the one orange action.
+    await expect(panel).toContainText("incl. booking fee");
+    await buy.click();
+    const heading = page.locator("#tickets").getByRole("heading", { level: 2, name: "Choose your tickets" });
+    await expect(heading).toBeFocused();
+    await expect(heading).toBeInViewport();
+    // A visible ring, though a pointer pressed the link.
+    expect(await heading.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe("solid");
+    // One ticket type on sale (the first sold out, the third waiting for the second): no choice to explain.
+    await expect(panel.getByRole("status")).toBeEmpty();
+
+    // A choice: the panel says the total and the count, and offers Review order (outline), not a checkout.
+    const tickets = page.locator("#tickets");
+    await tickets.getByRole("button", { name: "Increase quantity for Second release" }).click();
+    await tickets.getByRole("button", { name: "Increase quantity for Second release" }).click();
+    await expect(panel).toContainText(/Total A\$[\d.]+ · 2 tickets/);
+    await expect(panel.locator(".btn-signal")).toHaveCount(0);
+    const review = panel.getByRole("button", { name: "Review order" });
+    // Sticky: still in view after the jump down to the tickets.
+    await expect(review).toBeInViewport();
+    await review.click();
+    await expect(tickets.getByLabel("Your name")).toBeFocused();
+    await tickets.getByLabel("Your name").fill("Mia Tran");
+    await review.click();
+    const checkout = tickets.getByRole("button", { name: "Checkout" });
+    await expect(checkout).toBeFocused();
+    await expect(checkout).toBeInViewport();
+  });
 
   test("one Checkout, in the panel, enabled once a ticket is chosen", async ({ page }) => {
     await mockApi(page);

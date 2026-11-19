@@ -46,12 +46,12 @@ export function LocationCardText({
 
 /** The location card's look, around its status (the words) and its buttons. */
 export const LOCATION_CARD_CLASS =
-  "pointer-events-auto relative w-50 max-w-full rounded-2xl bg-panel py-2.5 pr-7 pl-11.5 shadow-float";
+  "pointer-events-auto relative w-50 max-w-full rounded-control border-control border-foreground bg-background py-2.5 pr-7 pl-11.5";
 
 /** The card's orange arrow on its pale circle. */
 export function LocationCardIcon() {
   return (
-    <span aria-hidden="true" className="absolute top-2.75 left-3 flex size-6 items-center justify-center rounded-full bg-tint">
+    <span aria-hidden="true" className="absolute top-2.75 left-3 flex size-6 items-center justify-center rounded-full bg-surface">
       <NavigationIcon className="size-3.5 text-signal" />
     </span>
   );
@@ -64,7 +64,7 @@ export function LocationCardClose({ onDismiss }: { onDismiss: () => void }) {
       type="button"
       onClick={onDismiss}
       aria-label="Dismiss location message"
-      className="absolute top-0 right-0 flex size-8 items-center justify-center rounded-2xl text-foreground"
+      className="absolute top-0 right-0 flex size-8 items-center justify-center rounded-control text-foreground"
     >
       <CloseIcon className="size-3.5" />
     </button>

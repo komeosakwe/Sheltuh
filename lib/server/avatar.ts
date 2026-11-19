@@ -5,14 +5,15 @@ import {
   MEMBER_PHOTO_THUMB_SIZE,
 } from "@/lib/member-photo-rules";
 import { HttpError } from "./http";
-import { readCappedBytes, sniffImageType } from "./handlers/event-images";
+import { readCappedBytes, sniffImageType } from "./image-upload";
 
 /**
  * Member profile photos (docs/architecture.md, "Member profiles"), the
  * square re-encoder they share with organiser logos (organiser-logo.ts), and
  * member photos (encodeMemberPhoto; "Member photos"), which share the same
  * decode slots (AVATAR_ENCODE_CONCURRENCY) so a burst of either queues
- * behind the other. The upload
+ * behind the other; event photos use the decode slots and loader check too
+ * (event-image.ts). The upload
  * is never stored as sent: it's decoded and re-encoded here, server-side, to
  * a square WebP (AVATAR_SIZE) and a thumbnail (AVATAR_THUMB_SIZE). sharp
  * writes no metadata unless asked to, so the output carries no EXIF (camera,
@@ -93,8 +94,12 @@ async function readImageUpload(req: Request, max: number, field: SquareImageFiel
 let running = 0;
 const waiting: (() => void)[] = [];
 
-/** Runs `work` in one of AVATAR_ENCODE_CONCURRENCY's slots, waiting for one if needed; 503 when the queue is full. */
-async function inEncodeSlot<T>(work: () => Promise<T>): Promise<T> {
+/**
+ * Runs `work` in one of AVATAR_ENCODE_CONCURRENCY's slots, waiting for one if
+ * needed; 503 when the queue is full. Shared by every upload that's decoded
+ * (member photos, organiser logos, event photos).
+ */
+export async function inEncodeSlot<T>(work: () => Promise<T>): Promise<T> {
   if (running < AVATAR_ENCODE_CONCURRENCY.running) {
     running += 1;
   } else {
@@ -111,6 +116,20 @@ async function inEncodeSlot<T>(work: () => Promise<T>): Promise<T> {
     if (next) next();
     else running -= 1;
   }
+}
+
+/**
+ * The loader libvips itself picks for these bytes (it chooses from the bytes,
+ * independently of our sniff), from a header-only read: `jpeg`, `png` or
+ * `webp`, or null for anything else or nothing readable. Checked before any
+ * decode, so a polyglot (an image signature followed by SVG, PDF, TIFF…)
+ * can't reach another decoder.
+ */
+export async function loaderFormat(input: Uint8Array): Promise<"jpeg" | "png" | "webp" | null> {
+  const format = await sharp(input, { failOn: "error" })
+    .metadata()
+    .then((m) => m.format, () => undefined);
+  return format === "jpeg" || format === "png" || format === "webp" ? format : null;
 }
 
 export interface SquareImageOptions {
@@ -134,10 +153,7 @@ export interface SquareImageOptions {
  * header), EXIF orientation applied to the pixels (the tag itself isn't kept).
  */
 async function decoder(input: Uint8Array, field: SquareImageField): Promise<ReturnType<typeof sharp>> {
-  const format = await sharp(input, { failOn: "error" })
-    .metadata()
-    .then((m) => m.format, () => undefined);
-  if (format !== "jpeg" && format !== "png" && format !== "webp") throw unsupportedImage(field);
+  if (!(await loaderFormat(input))) throw unsupportedImage(field);
   return sharp(input, { limitInputPixels: MAX_AVATAR_INPUT_PIXELS, failOn: "error", pages: 1 }).rotate();
 }
 

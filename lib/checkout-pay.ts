@@ -62,8 +62,9 @@ export function checkoutSoldOutLabel(seated: boolean): string {
 }
 
 /**
- * A closed checkout: its time ran out (or it was cancelled), or the event can't be booked right now
- * (unpublished or ended). The API doesn't say which, so the words cover both.
+ * A closed checkout without a more particular reason: on the payment page, reason `ended` (cancelled,
+ * failed, or Stripe closed it early) or none (an older response); on the return page, any closed answer
+ * (its API doesn't say why). The words cover every case.
  */
 export function checkoutClosedBody(seated: boolean): string {
   return seated
@@ -73,3 +74,30 @@ export function checkoutClosedBody(seated: boolean): string {
 
 /** A closed checkout's way out: the event's page, which says whether it can be booked (seated or not). */
 export const CHECKOUT_CLOSED_LABEL = "Back to the event";
+
+/** The checkout's pay window ran out (closed reason `time_up`, or the payment page's own countdown reached zero). */
+export const CHECKOUT_TIME_UP_TITLE = "Time’s up";
+
+/** Time's up: nothing was bought or charged, and (seated) the server releases the seats at the deadline. */
+export function checkoutTimeUpBody(seated: boolean): string {
+  return seated
+    ? "Your order wasn’t placed and you haven’t been charged. Your seats have been released."
+    : "Your order wasn’t placed and you haven’t been charged.";
+}
+
+/** Time's up: back to the event's tickets (its page's #tickets section, seated or not); home without an event. */
+export function checkoutStartAgainTarget(context: CheckoutOrderContext): CheckoutLinkTarget {
+  return context.eventSlug
+    ? { href: `${eventPathFor(context.eventSlug)}#tickets`, label: "Start again" }
+    : checkoutBackTarget(context);
+}
+
+/** Closed reason `unavailable`: the event can't be booked right now (unpublished, its organiser suspended, or ended). */
+export const CHECKOUT_UNAVAILABLE_BODY = "This event isn’t taking bookings right now. You haven’t been charged.";
+
+/**
+ * Closed reason `unconfirmed`: the pay window is over but the server couldn't ask Stripe whether the buyer paid in
+ * its last seconds. Never "you haven't been charged": the tickets may be on their way by email.
+ */
+export const CHECKOUT_UNCONFIRMED_TITLE = "We couldn’t confirm your payment";
+export const CHECKOUT_UNCONFIRMED_BODY = "Check your email for tickets before trying again.";

@@ -7,7 +7,7 @@ import type { EmailMessage } from "../email";
 import { redactForLog } from "../email-address";
 import { sendTicketEmailSoon } from "../email-outbox";
 import { buildFreeConfirmationEmail, freeOrderConfirmLink } from "../free-confirmation-email";
-import { HttpError, PRIVATE_NO_STORE, readJson } from "../http";
+import { HttpError, PRIVATE_NO_STORE, readJson, tooManyRequests, windowSeconds } from "../http";
 import { orderReference } from "../order-reference";
 import type { Handler } from "../route";
 import { issueTickets } from "../ticket-issuance";
@@ -152,7 +152,7 @@ export async function createFreeOrder(req: Request, deps: Deps, input: FreeOrder
       case "person_event_limit":
         throw new HttpError(409, PERSON_LIMIT);
       case "member_daily_limit":
-        throw new HttpError(429, "You've booked a lot of free tickets today. Try again tomorrow.");
+        throw tooManyRequests("You've booked a lot of free tickets today. Try again tomorrow.", windowSeconds(FREE_LIMITS.memberDaily.window));
       case "sold_out":
         throw new HttpError(409, SOLD_OUT);
       case "seats_unavailable":

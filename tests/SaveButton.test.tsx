@@ -204,24 +204,41 @@ describe("SaveButton — live", () => {
     expect(bar()).toBeNull();
   });
 
-  it("the event page's action keeps its visible 'Save' label inside the name, as a quiet unbordered 44px control", async () => {
+  // The rules' Secondary button: the 1.5px foreground stroke, black with a white label on hover, 48px.
+  it("the event page's action keeps its visible 'Save' label inside the name, as a 48px Secondary button", async () => {
     const button = await readyHeart([], undefined, "action");
     expect(button).toHaveTextContent("Save");
     expect(button).toHaveAccessibleName("Save Night Market");
-    expect(button).toHaveClass("min-h-11", "bg-surface");
-    // No border class (hover:bg-surface-border is a fill) and not the boxed .btn.
-    expect(button.className.split(/\s+/)).not.toContain("border");
+    expect(button).toHaveClass("min-h-12", "border-control", "border-foreground", "rounded-control", "hover:bg-foreground", "hover:text-background");
+    // Not the grey fill any more, and not the .btn component (it has its own icon row).
+    expect(button).not.toHaveClass("bg-surface");
     expect(button.className).not.toMatch(/(?:^|\s)btn(?:-|\s|$)/);
+  });
+
+  // The rules' card anatomy: "stays a heart, outline → filled orange" (a non-text mark, 3.4:1 on white).
+  it("fills the heart orange once saved, on a card and on the event page", async () => {
+    for (const variant of ["overlay", "action"] as const) {
+      const button = await readyHeart(["evt-1"], undefined, variant);
+      const icon = button.querySelector("svg");
+      expect(icon).toHaveAttribute("fill", "currentColor");
+      expect(icon).toHaveClass("text-signal");
+      cleanup();
+    }
+    const unsaved = await readyHeart([], undefined, "overlay");
+    expect(unsaved.querySelector("svg")).not.toHaveClass("text-signal");
   });
 });
 
 describe("SaveButton — focus on a photo (overlay)", () => {
-  it("rings the 36px mark, black on a white gap, instead of the outline that can vanish into dark art; never orange; the page's outline is dropped (!important beats the unlayered rule), so there's one ring", async () => {
+  it("rings the 32px mark, black on a white gap, instead of the outline that can vanish into dark art; never orange; the page's outline is dropped (!important beats the unlayered rule), so there's one ring", async () => {
     const button = await readyHeart();
     const mark = button.firstElementChild as HTMLElement;
     expect(button).toHaveClass("group/save", "focus-visible:outline-none!");
+    // A 48px target on phones and 40px from 768px (the rules' icon button), around a white 32px mark.
+    expect(button).toHaveClass("size-12", "md:size-10");
+    expect(mark).toHaveClass("bg-paper", "text-ink", "rounded-control");
     expect(mark).toHaveClass(
-      "size-9",
+      "size-8",
       "group-focus-visible/save:ring-2",
       "group-focus-visible/save:ring-ink",
       "group-focus-visible/save:ring-offset-2",

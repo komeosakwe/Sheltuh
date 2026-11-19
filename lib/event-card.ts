@@ -1,4 +1,13 @@
-import { eventZone, formatEventDateKey, formatEventDateShort, formatEventTime, zoneSuffix } from "./format";
+import {
+  eventZone,
+  formatDateBadge,
+  formatEventDateKey,
+  formatEventDateShort,
+  formatEventTime,
+  formatEventTimeCompact,
+  formatEventWeekday,
+  zoneSuffix,
+} from "./format";
 import type { TrendingSignal } from "./home-sections";
 import { isSoldOut, pricedTicketTypes } from "./pricing";
 import { quickBuyHref, quickBuyLabel, type QuickBuyLabel } from "./quick-buy";
@@ -101,6 +110,53 @@ export function cardDateLabel(event: SheltuhEvent, now: Date): CardDateLabel {
     };
   }
   return startLabel(event);
+}
+
+/** The featured banner slide's facts line (Round 2 §1.1): "Sat 21 Nov · Northcote Theatre", or "Now on · until … · venue". */
+export function slideFacts(event: SheltuhEvent, now: Date): string {
+  const date = cardDateLabel(event, now);
+  const venue = event.venueName.trim() || eventPlaceName(event);
+  return ["running" in date ? date.running : date.date, venue].filter(Boolean).join(" · ");
+}
+
+/**
+ * The card's one meta line (the redesign's event card), as parts joined by " · ": the start's
+ * date, its compact time with any zone but Melbourne's ("5pm", "4pm Perth time"), then "Suburb,
+ * STATE" (owner decision D4), or the venue when there's no suburb. An event under way has "Now on
+ * · until …" in place of the date and time. Shown as written, in Instrument Sans (owner decision,
+ * 13 Nov 2026): "Sat 14 Nov · 5pm · Coburg, VIC". Parts that don't exist are left out.
+ */
+export function cardMetaParts(event: SheltuhEvent, now: Date): string[] {
+  const place = eventPlaceName(event) || event.venueName.trim();
+  return [...cardWhenParts(event, now), place].filter(Boolean);
+}
+
+/**
+ * The event card's first meta line (Round 2 §1.5), as parts joined by " · ": the start's date and its
+ * compact time with any zone but Melbourne's (["Sat 14 Nov", "5pm"], ["Sun 18 Oct", "4pm Perth time"]),
+ * or ["Now on · until …"] for an event under way. The owner's amendment keeps the date and time on cards.
+ */
+export function cardWhenParts(event: SheltuhEvent, now: Date): string[] {
+  const date = cardDateLabel(event, now);
+  if ("running" in date) return [date.running];
+  return [date.date, [formatEventTimeCompact(event.startsAt, eventZone(event.timeZone)), date.zone].filter(Boolean).join(" ")].filter(
+    Boolean,
+  );
+}
+
+/**
+ * The event card's second meta line (Round 2 §1.5): where it is, location then venue, as entered
+ * ("Northcote, VIC · Northcote Theatre"). Whichever exists alone when the other doesn't; "" when neither.
+ */
+export function cardWhereLabel(event: SheltuhEvent): string {
+  return [eventPlaceName(event), event.venueName.trim()].filter(Boolean).join(" · ");
+}
+
+/** The card's date chip: `{ weekday: "Sat", day: "14", month: "Nov" }`, the start in the event's own zone. */
+export function cardDateChip(event: EventStartFields): { weekday: string; day: string; month: string } {
+  const zone = eventZone(event.timeZone);
+  const { range, month } = formatDateBadge(event.startsAt, undefined, zone);
+  return { weekday: formatEventWeekday(event.startsAt, zone), day: range, month };
 }
 
 /** Whether `event` has ended by `now` (an event with no end time ends when it starts). */

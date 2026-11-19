@@ -159,7 +159,7 @@ export default function PrivacyPage() {
         </p>
         <ul>
           <li>
-            If you choose &ldquo;Use my current location&rdquo;, your browser asks you first. If you
+            If you choose &ldquo;Use my location&rdquo;, your browser asks you first. If you
             allow it, your device&rsquo;s position is used only in your browser, to find the nearest
             suburb we know, and is then thrown away. It isn&rsquo;t sent to us, stored, or put in a
             web address.
@@ -170,9 +170,11 @@ export default function PrivacyPage() {
             ask again on the map until your next browser session.
           </li>
           <li>
-            You can type a suburb instead. Either way, only the suburb&rsquo;s name is kept: on this
-            device, in your browser&rsquo;s storage, so the search bar remembers it; and in the
-            address of the search results page (for example /search?near=Fitzroy).
+            You can type a suburb instead, or pick one from the list (the one you used last, or a
+            city we suggest); a place you pick is remembered straight away. Either way, only the
+            suburb&rsquo;s name is kept: on this device, in your browser&rsquo;s storage, so the
+            search bar remembers it; and in the address of the search results page (for example
+            /search?near=Fitzroy).
           </li>
           <li>
             Like any address you visit, that one reaches our website and our hosting
@@ -187,7 +189,7 @@ export default function PrivacyPage() {
           </li>
         </ul>
         <p>
-          To forget the suburb, choose &ldquo;Anywhere in Australia&rdquo; under the search
+          To forget the suburb, choose &ldquo;All of Australia&rdquo; under the search
           bar&rsquo;s location (or search with the location left empty), or clear this
           site&rsquo;s data in your browser. Search results pages you&rsquo;ve visited, suburb and
           all, stay in your browser&rsquo;s history until you clear it there. You can turn
@@ -255,8 +257,11 @@ export default function PrivacyPage() {
             or the words you search for, and it sets no cookies: a random ID is kept in your
             browser&rsquo;s storage. Web addresses are cut down before they&rsquo;re sent, so links
             with a private code or token in them are never recorded. It reaches PostHog through our
-            own address, and your cookies and the page you came from aren&rsquo;t passed on. The data
-            is kept by PostHog in the European Union.
+            own address, and your cookies and the page you came from aren&rsquo;t passed on. If the
+            site breaks in your browser, PostHog also gets an error report (the kind of error, its
+            message and where in the page&rsquo;s code it happened) so we can fix it. Before it&rsquo;s sent, we remove the
+            details we can recognise in it, such as email addresses, web address parameters, quoted
+            text, codes and long numbers. The data is kept by PostHog in the European Union.
           </li>
           <li>
             <strong>Vercel Web Analytics and Speed Insights</strong> (our host) count page views and

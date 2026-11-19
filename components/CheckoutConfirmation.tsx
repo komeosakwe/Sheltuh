@@ -14,6 +14,8 @@ import { ApiError } from "@/lib/api/client";
 import { getOrderBySession, getOrderPayment } from "@/lib/api/orders";
 import {
   CHECKOUT_CLOSED_LABEL,
+  CHECKOUT_UNCONFIRMED_BODY,
+  CHECKOUT_UNCONFIRMED_TITLE,
   checkoutClosedBody,
   checkoutEndedAction,
   checkoutSoldOutBody,
@@ -50,6 +52,9 @@ export type LoadState =
   // Stripe has the payment but it's taking a while to clear: the tickets follow by email.
   | { status: "processing" }
   | { status: "closed"; context: CheckoutOrderContext }
+  // The checkout's time ran out and the server couldn't ask Stripe whether it was paid (closed, reason
+  // `unconfirmed`), and the order still wasn't paid after polling: the tickets may still come by email.
+  | { status: "unconfirmed"; context: CheckoutOrderContext }
   | { status: "sold-out"; context: CheckoutOrderContext };
 
 /** Each ticket with its number in the API's (and the email's) order, seated ones sorted by seat. */
@@ -84,6 +89,8 @@ export function confirmationTitle(state: LoadState): string | null {
       return "Payment processing — Sheltüh";
     case "closed":
       return "Checkout closed — Sheltüh";
+    case "unconfirmed":
+      return "Payment not confirmed — Sheltüh";
     case "sold-out":
       return "Sold out — Sheltüh";
   }
@@ -140,6 +147,9 @@ export default function CheckoutConfirmation() {
 
     // What Stripe says about this checkout (read-only, asked once): "processing" when it has the payment.
     let stripeHasPayment = false;
+    // Closed with reason `unconfirmed`: the server couldn't ask Stripe. Polling carries on (a payment Stripe
+    // took still reaches the order); if it never does, the page says it couldn't confirm, never "not charged".
+    let unconfirmed: CheckoutOrderContext | null = null;
 
     /**
      * Still pending after a couple of polls: has the buyer paid at all? Coming back from a payment
@@ -157,6 +167,10 @@ export default function CheckoutConfirmation() {
         }
         if (payment.status === "done") return false;
         const context: CheckoutOrderContext = { eventSlug: payment.eventSlug, seated: payment.seated };
+        if (payment.status === "closed" && payment.reason === "unconfirmed") {
+          unconfirmed = context;
+          return false;
+        }
         if (payment.status === "open") {
           setState({
             status: "payment-open",
@@ -187,7 +201,9 @@ export default function CheckoutConfirmation() {
             setState(
               stripeHasPayment
                 ? { status: "processing" }
-                : {
+                : unconfirmed
+                  ? { status: "unconfirmed", context: unconfirmed }
+                  : {
                     status: "error",
                     message: "Your payment is taking longer than usual to confirm. Refresh this page in a minute, or check your email.",
                   },
@@ -336,6 +352,23 @@ export default function CheckoutConfirmation() {
     );
   }
 
+  if (state.status === "unconfirmed") {
+    const action = checkoutEndedAction({ ...state.context, seated: false }, CHECKOUT_CLOSED_LABEL);
+    return (
+      <StateMessage
+        headingRef={headingRef}
+        title={CHECKOUT_UNCONFIRMED_TITLE}
+        actions={
+          <Link href={action.href} className={`${linkClass} text-sm`}>
+            {action.label}
+          </Link>
+        }
+      >
+        <p className="max-w-md text-sm text-muted">{CHECKOUT_UNCONFIRMED_BODY}</p>
+      </StateMessage>
+    );
+  }
+
   if (state.status === "sold-out") {
     const action = checkoutEndedAction(state.context, checkoutSoldOutLabel(state.context.seated));
     return (
@@ -376,7 +409,8 @@ export default function CheckoutConfirmation() {
   return (
     <div className="flex flex-col gap-8 py-10 sm:py-14">
       <div className="flex flex-col gap-3">
-        <Strap label="Order confirmed" note={order.reference} />
+        {/* The reference is a machine code (owner decision, 13 Nov 2026): the one mono in the strap, so 0 and O read apart. */}
+        <Strap label="Order confirmed" note={<span className="font-mono">{order.reference}</span>} />
         <h1 className="display-md break-words">{order.eventTitle}</h1>
         {order.maskedEmail && (
           <p className="text-sm text-muted">Tickets sent to {order.maskedEmail}.</p>
@@ -436,7 +470,9 @@ export default function CheckoutConfirmation() {
         <div className="flex flex-col gap-1 text-xs text-muted">
           <p>Screenshot your codes in case signal drops at the venue.</p>
           <p>Each code works once. Don&rsquo;t share it.</p>
-          <p>Order reference {order.reference}</p>
+          <p>
+            Order reference <span className="font-mono">{order.reference}</span>
+          </p>
         </div>
       </section>
 

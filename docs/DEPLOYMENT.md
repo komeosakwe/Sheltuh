@@ -68,7 +68,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261122000000_order_buyer_details.sql`. Never
+      newest, currently `20261125000000_profile_photos.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -481,6 +481,21 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           keeps working (the argument defaults to null). It redefines none of the
           functions files 45 to 50 redefine. Not reversible without losing the
           names once orders carry them.
+      52. `20261123000000_checkout_pay_deadline.sql` (the 15-minute card
+          checkout pay deadline and its sweeper: `private.checkout_expiry_checks`,
+          `claim_overdue_checkouts`, `finish_checkout_expiry` and the partial
+          index `orders_pending_card_created_idx`). Additive. Apply it before
+          the app; see "Checkout pay deadline" below.
+      53. `20261124000000_checkout_expiry_missing.sql` (the sweeper's cap on
+          sessions Stripe says don't exist: `finish_checkout_expiry` gains
+          `p_max_missing`, and `checkout_expiry_checks` a `missing` outcome).
+          Additive. Apply it with 52.
+      54. `20261125000000_profile_photos.sql` (member photos, docs/architecture.md
+          "Member photos": `private.profile_photos`, its cap trigger
+          `profile_photos_cap` and `private.add_profile_photo`). Additive; the
+          API adds photos only while `NEXT_PUBLIC_MEMBER_PHOTOS` is `1`, so apply
+          it before the app that sets the flag (see `.env.example`). Reversible,
+          with data loss: drop the trigger, both functions and the table.
 
       **Files 33 to 37 can be applied ahead of this deploy, with the
       previous app still live.** "The previous app" here is the build of
@@ -572,20 +587,66 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       The 21 files before these are on `main`. Whether production has them
       all is also unverified: the check above covers every file.
 - [ ] **`CRON_SECRET`** in Vercel (Production): a long random string
-      (`openssl rand -hex 32`). Without it `/api/cron/email-outbox` and
-      `/api/cron/payouts` refuse every call: failed ticket emails are never
-      retried, Trending stays empty (the email run refreshes it) and, with
-      `DELAYED_PAYOUTS=1`, organisers are never paid.
+      (`openssl rand -hex 32`). Without it `/api/cron/email-outbox`,
+      `/api/cron/payouts` and `/api/cron/checkout-expiry` refuse every call:
+      failed ticket emails are never retried, Trending stays empty (the email
+      run refreshes it), with `DELAYED_PAYOUTS=1` organisers are never paid,
+      and abandoned checkouts' seats stay held until their hold lapses (20
+      minutes) instead of being released at the 15-minute pay deadline.
+- [ ] **Checkout pay deadline** (`20261123000000_checkout_pay_deadline.sql`,
+      docs/architecture.md "Checkout pay deadline"). A card checkout can be
+      paid for 15 minutes from when it starts; then the payment page closes
+      it and `/api/cron/checkout-expiry` (every 2 minutes, in `vercel.json`)
+      sweeps up the rest. **Needs Vercel Pro**: Hobby refuses a deploy with a
+      cron more often than daily, so don't deploy this commit to a Hobby
+      project. Apply the migration **before** the code deploys: until it's
+      there the sweeper's every run fails (500, nothing changed; the payment
+      page still closes checkouts on read, and Stripe's own 31/33-minute
+      expiry and the 20-minute seat hold still apply). It's additive (a new
+      private table, two functions, one partial index on `orders`). Then
+      check Vercel → Settings → Cron Jobs lists the new job, and its runs
+      answer 200 with counts (`claimed`, `released`, …). Test mode first:
+      start a checkout, leave the payment page open, and at 15 minutes it
+      should say the checkout has closed; Stripe's dashboard should show the
+      session expired. Apply `20261124000000_checkout_expiry_missing.sql`
+      with it (also additive: the sweeper's cap on sessions Stripe says don't
+      exist).
+- [ ] **Before go-live: Stripe test-mode check of the pay deadline**
+      (unverified so far: what Stripe does when we expire a session whose
+      payment is under way). In test mode, on the embedded checkout:
+      1. Pay with the 3DS card **4000 0027 6000 3184** and leave its
+         authentication challenge open past the 15-minute deadline (or, to
+         save time, expire the session yourself while the challenge is open:
+         `stripe checkout sessions expire cs_test_…`, or the API).
+      2. Then complete the challenge.
+      3. Confirm one of these, and nothing else: Stripe refused the expire
+         (the payment page then says "We couldn't confirm your payment", and
+         the order is paid by the webhook with tickets emailed); or the
+         session expired and its PaymentIntent was cancelled (the challenge
+         fails, nothing is charged, the order is `failed`, seats freed); or
+         the payment still succeeded, `checkout.session.completed` arrived,
+         and the order was refunded in full automatically (Stripe dashboard:
+         a refund with metadata reason `paid_after_order_failed`; no tickets).
+         A charge with neither tickets nor a refund is a blocker.
+      4. Repeat for every delayed payment method switched on in the
+         Dashboard (if any): its session completes unpaid, so the sweeper
+         must leave it (`complete` in the cron's counts) and the order is
+         settled by `async_payment_succeeded` or `async_payment_failed`.
+      Also check the cron's `staleComplete` stays 0 and the logs have no
+      `gave_up=` warning (a session Stripe says doesn't exist: usually the
+      wrong Stripe key or mode on the deploy).
 - [ ] **Cron schedules.** See [`schedules.md`](schedules.md) for every
       timed job (Vercel and Supabase), its time in Melbourne, and how to run
-      it more often. `vercel.json` runs both crons once a day, the Hobby
-      plan's limit: `/api/cron/email-outbox` at 21:00 UTC (8:00 am AEDT,
+      it more often. `vercel.json` runs `/api/cron/checkout-expiry` every 2
+      minutes (Vercel Pro only: see "Checkout pay deadline" above), and the
+      other two once a day, the Hobby plan's old limit:
+      `/api/cron/email-outbox` at 21:00 UTC (8:00 am AEDT,
       7:00 am AEST, so the day-before reminders arrive in the morning), which
       also refreshes Trending after its drain, and `/api/cron/payouts` at
       21:30 UTC (8:30 am AEDT, 7:30 am AEST), which sends the organisers'
       shares that are due. (`/api/cron/trending` is no longer scheduled: the
       payouts job took its slot; it still works when called.) Moving to
-      **Vercel Pro** changes nothing by itself: edit `vercel.json`
+      **Vercel Pro** changes nothing else by itself: edit `vercel.json`
       (`*/5 * * * *` for `/api/cron/email-outbox`, which refreshes Trending
       every run, or add `/api/cron/trending` at `*/15 * * * *` as a third
       cron) and redeploy. On Hobby, Supabase Cron can run the trending
@@ -714,6 +775,21 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
     is deleted 90 days after it was accepted, withdrawn or expired. Review
     the invite email's wording alongside the Privacy Policy and, once
     drafted, link the Organiser Agreement from it.
+  - Human check (Cloudflare Turnstile; `architecture.md`, "Human check"):
+    once `NEXT_PUBLIC_TURNSTILE_SITE_KEY` is set, Cloudflare's script runs
+    on the email sign-in, sign-up, password reset and verify pages (and the
+    "signed out, sign in again" box) and collects browser and device signals
+    to tell people from bots. **List Cloudflare as a service provider
+    (processor) in the Privacy Policy**, with what it collects and why, and
+    link its Turnstile privacy notice. Not drafted yet: owner's legal to-do.
+    The forms already say "Protected by Cloudflare Turnstile" with that link.
+- [ ] **Human check on email sign-in** (optional; Cloudflare Turnstile; off
+      until the key is set; `supabase-setup.md` §1, "Human check on email
+      sign-in", and `architecture.md`, "Human check"). **In this order**:
+      the Cloudflare widget, then the Vercel key and a redeploy, and only
+      then Supabase's CAPTCHA setting. Turning Supabase's on first locks
+      everyone out of email sign-in, sign-up, password reset and "Resend
+      code".
 - [ ] **Google and Apple sign-in** (optional; off until the flag is set;
       `supabase-setup.md` §1, "Sign in with Google and Apple", and
       `architecture.md`, same section). In order:
@@ -926,6 +1002,18 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
 ## Vercel
 
+**Which branches build.** `vercel.json`'s `ignoreCommand` builds Production
+(`main`) and one preview branch only; every other branch push is skipped, so
+build minutes don't grow with each working branch. If Vercel's system
+variables are missing (`VERCEL_ENV` empty), everything builds: it fails open,
+so Production can never be skipped by mistake. The preview branch is
+`PREVIEW_BRANCH` (a Vercel environment variable, Preview scope, plain text:
+a branch name, e.g. `claude/member-photos`), else `claude/redesign-batch1`.
+Change it there, then redeploy that branch (or push to it). It only takes effect
+on branches whose `vercel.json` has the `ignoreCommand`, i.e. after this reaches
+`main`; until then, the same command can go in Vercel → Project → Settings →
+Git → Ignored Build Step. GitHub Actions CI is unaffected.
+
 1. [ ] Environment variables (Production and Preview), from `.env.example`:
        `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`,
        `NEXT_PUBLIC_SITE_URL`, `DATABASE_URL` (transaction pooler, port 6543,
@@ -1018,8 +1106,10 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        serves many requests at once and shares its database pool (5
        connections) between them; without it, every concurrent request is
        its own instance with its own connections to the pooler.
-4. [ ] Pro plan once you sell tickets (Hobby is non-commercial). The plan
-       change alone doesn't touch the cron schedules: edit `vercel.json` and
+4. [ ] Pro plan once you sell tickets (Hobby is non-commercial), and now
+       required anyway: `vercel.json` schedules `/api/cron/checkout-expiry`
+       every 2 minutes, which Hobby refuses to deploy. The plan change alone
+       doesn't touch the other cron schedules: edit `vercel.json` and
        redeploy as in "Cron schedules" above.
 5. [ ] Domain: attach `sheltuh.com.au` (see PROJECT_CONTEXT for the Cloudflare
        notes). Keep its Cloudflare record **DNS only** (grey cloud): a

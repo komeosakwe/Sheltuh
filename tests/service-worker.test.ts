@@ -239,6 +239,7 @@ describe("sw.js lifecycle", () => {
       v2: "c20b664a0d237dab12f770de9fb809fb777139111d631863bed63706cb189b9f",
       v3: "73d8ffb247c633ccc57723f6c86969c11bea29fe2120e65010c216ed25c989bf",
       v4: "ca5a33ca1e8dd1e70461a8069d9d52397269cc86f424041d5439e190225bfec1",
+      v5: "a8b4068e4f666760c8f3ce05df29db0d054543f80cf0c755be7cee1ed269061c",
     };
     const offline = readFileSync(path.resolve(import.meta.dirname, "../public/offline.html"), "utf8").replace(/\r\n/g, "\n");
     const worker = loadWorker();

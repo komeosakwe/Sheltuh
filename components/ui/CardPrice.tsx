@@ -1,5 +1,6 @@
+import PriceTag from "@/components/ui/PriceTag";
 import { hasEnded } from "@/lib/event-card";
-import { formatFeedPriceParts, isSoldOut, NO_TICKETS_LABEL, SOLD_OUT_LABEL } from "@/lib/pricing";
+import { formatCardPriceLabel, formatFeedPriceParts, isSoldOut, NO_TICKETS_LABEL, SOLD_OUT_LABEL } from "@/lib/pricing";
 import type { SheltuhEvent } from "@/lib/types";
 
 /**
@@ -10,19 +11,39 @@ import type { SheltuhEvent } from "@/lib/types";
  * "Free". Every tier sold out: "Sold out", in the price's
  * weight and black (words, never a colour or badge alone). With `now`, an
  * event that has ended by then is "Ended" and nothing else.
+ *
+ * `variant="tag"`: the event card's orange price label (PriceTag), the
+ * amount alone (formatCardPriceLabel): the same all-inclusive minimum ("From
+ * A$37.60", "Free", "Free + paid" when a paid ticket is on sale beside a free
+ * one, an external event's "From A$89" or "Buy tickets"), without the note. A
+ * card says "Sold out" and "Ended" in its tags instead, so the tag renders
+ * nothing for those; "Tickets coming soon" is a quiet neutral label.
  */
 export default function CardPrice({
   event,
   className = "",
   amountClassName = "font-semibold",
   now,
+  variant = "line",
 }: {
   event: SheltuhEvent;
   className?: string;
   /** The amount's weight and size (the This weekend card's is bold and a step larger than its note). */
   amountClassName?: string;
   now?: Date;
+  variant?: "line" | "tag";
 }) {
+  if (variant === "tag") {
+    if ((now && hasEnded(event, now)) || isSoldOut(event)) return null;
+    const amount = formatCardPriceLabel(event);
+    return amount ? (
+      <PriceTag className={className}>{amount}</PriceTag>
+    ) : (
+      <PriceTag tone="neutral" className={className}>
+        {NO_TICKETS_LABEL}
+      </PriceTag>
+    );
+  }
   if (now && hasEnded(event, now)) {
     return (
       <p className={`${amountClassName} text-muted ${className}`.trim()}>

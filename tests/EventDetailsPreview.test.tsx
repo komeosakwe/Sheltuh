@@ -151,9 +151,11 @@ describe("EventDetailsView preview", () => {
     expect(screen.getByText("Opens after First release")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Increase quantity for Second release" })).toBeNull();
     expect(screen.getByRole("button", { name: "Increase quantity for First release" })).toBeInTheDocument();
-    // The cheaper second ticket isn't on sale yet: one price on sale, so no "From", and not A$20.
-    expect(screen.queryByText(/From A\$/)).toBeNull();
+    // The cheaper second ticket isn't on sale yet: the starting price is the one on sale, never A$20's. (The bar says
+    // "From" before a choice even for one price, so a starting price never reads as a total.)
+    expect(document.querySelector("[data-buy-bar] [data-bar-amount]")).toHaveTextContent(/^From A\$32\.30$/);
     expect(document.querySelector("[data-buy-bar]")).not.toHaveTextContent("A$21");
+    expect(screen.queryByText(/From A\$21/)).toBeNull();
     expect(screen.getAllByText(/A\$32\.30/).length).toBeGreaterThan(0);
   });
 
@@ -210,6 +212,21 @@ describe("EventDetailsView preview", () => {
     }
     expect(screen.getByText("Tickets coming soon.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Add to calendar/ })).toBeNull();
+  });
+
+  // CodeRabbit (PR 43): a ticketed draft without a date used to show its stand-in start (1 Jan 2099) in the buy bar.
+  it("a ticketed draft without a date: the buy bar has its price but no date line; with a date, the date line", () => {
+    const { container } = previewOf({ ...DRAFT, start: { date: "", time: "" }, end: { date: "", time: "" } });
+    const bar = container.querySelector("[data-buy-bar]");
+    expect(bar).not.toBeNull();
+    expect(bar).toHaveTextContent("A$32.30");
+    expect(bar?.querySelector(".mono-s")).toBeNull();
+    expect(bar).not.toHaveTextContent(/2099|Jan/);
+    expect(screen.getByText("Date and time to be added")).toBeInTheDocument();
+    cleanup();
+
+    const dated = previewOf(DRAFT).container.querySelector("[data-buy-bar]");
+    expect(dated?.querySelector(".mono-s")).toHaveTextContent("Sat 10 Oct · 8:00 pm");
   });
 
   it("an external ticket link counts no click", () => {

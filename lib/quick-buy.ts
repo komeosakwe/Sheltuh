@@ -13,9 +13,9 @@ export type QuickBuyLabel = "Buy tickets" | "Free tickets" | "Join waitlist" | "
  * demo mode too (its event page explains nothing is bookable). An external
  * event says "Buy tickets" too (owner, 6 Nov 2026: every ticket button reads
  * "Buy tickets"; "Free tickets" when its organiser says entry is free:
- * docs/design/mobile-redesign.md §6.2.3) and still goes to the event page,
- * whose ticket section (like its phone buy bar) is the "Buy tickets" link out, with its click beacon; the card itself
- * never links out. Sold out (every tier, from the server's `soldOut`): "Join
+ * docs/design/mobile-redesign.md §6.2.3) and still goes to the event page
+ * (its top, not #tickets: the panel and the phone buy bar are the "Buy tickets" link out, with its click beacon;
+ * owner, 15 Nov 2026); the card itself never links out. Sold out (every tier, from the server's `soldOut`): "Join
  * waitlist", to the same section, where the waitlist block is (§6.5, §6.11).
  * A seated event (reserved seating) still on sale: "Choose seats", straight
  * to its seat page (quickBuyHref).
@@ -43,5 +43,8 @@ export function goesToSeatPage(event: SheltuhEvent): boolean {
  * section (a sold-out seated event's waitlist is there).
  */
 export function quickBuyHref(event: SheltuhEvent): string {
+  // An external event's page has no ticket section while on sale: its "Buy tickets" is at the top (the panel, or the
+  // phone buy bar), so the card goes to the page itself.
+  if (event.ticketingMode === "external") return `/events/${event.slug}`;
   return goesToSeatPage(event) ? `/events/${event.slug}/seats` : `/events/${event.slug}#tickets`;
 }

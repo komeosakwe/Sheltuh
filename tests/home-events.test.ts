@@ -14,11 +14,13 @@ vi.mock("@/lib/api/trending", () => ({
   getTrendingEvents: (...args: unknown[]) => getTrendingEvents(...args),
 }));
 
-const { loadHomeEvents, loadHomeRecent, loadHomeTrending, HOME_RECENT_LIMIT, HOME_EVENT_LIMIT, HOME_WEEKEND_TOP_UP_LIMIT, HOME_WEEKEND_TOP_UP_MAX_PAGES } =
+const { loadHomeFeed, loadHomeTrending, HOME_EVENT_LIMIT, HOME_WEEKEND_TOP_UP_LIMIT, HOME_WEEKEND_TOP_UP_MAX_PAGES } =
   await import("@/lib/home-events");
 
 // Wed 21 Oct 2026, 12:00 AEDT. This weekend ends Sun 25 Oct 23:59:59.999 AEDT (12:59:59.999Z).
 const NOW = new Date("2026-10-21T01:00:00.000Z");
+/** loadHomeFeed's events. */
+const loadHomeEvents = async (now: Date) => (await loadHomeFeed(now)).events;
 
 function item(id: string, startsAt = "2026-12-01T09:00:00.000Z", endsAt = "2026-12-01T12:00:00.000Z"): PublicEvent {
   return {
@@ -44,7 +46,7 @@ beforeEach(() => {
 });
 afterEach(() => vi.clearAllMocks());
 
-describe("loadHomeEvents (live)", () => {
+describe("loadHomeFeed (live): the events", () => {
   it("makes one request for upcoming events, with a limit, when the page reaches past the weekend", async () => {
     listPublicEvents.mockResolvedValue({ items: [item("a", "2026-10-22T08:00:00.000Z"), item("b")], nextCursor: "c1" });
     const events = await loadHomeEvents(NOW);
@@ -179,25 +181,17 @@ describe("loadHomeEvents (live)", () => {
   });
 });
 
-describe("loadHomeRecent (live)", () => {
-  it("asks for the ended-in-14-days events only, a rail's worth, and orders them most recently ended first", async () => {
-    listPublicEvents.mockResolvedValue({
-      items: [
-        item("a", "2026-10-18T08:00:00.000Z", "2026-10-18T11:00:00.000Z"),
-        item("b", "2026-10-20T08:00:00.000Z", "2026-10-20T11:00:00.000Z"),
-        item("old", "2026-09-01T08:00:00.000Z", "2026-09-01T11:00:00.000Z"),
-        item("later"),
-      ],
-    });
-    const events = await loadHomeRecent(NOW);
-    expect(listPublicEvents).toHaveBeenCalledTimes(1);
-    expect(listPublicEvents).toHaveBeenCalledWith({ upcoming: true, recent: "only", limit: HOME_RECENT_LIMIT });
-    expect(events.map((e) => e.id)).toEqual(["b", "a"]);
+describe("loadHomeFeed (live): whether every upcoming event was loaded", () => {
+  it("complete when the last page read had no next cursor", async () => {
+    listPublicEvents.mockResolvedValue({ items: [item("a", "2026-10-22T08:00:00.000Z")], nextCursor: undefined });
+    expect(await loadHomeFeed(NOW)).toMatchObject({ complete: true });
   });
 
-  it("rejects when the request fails (the provider hides only the rail)", async () => {
-    listPublicEvents.mockRejectedValue(new Error("down"));
-    await expect(loadHomeRecent(NOW)).rejects.toThrow("down");
+  it("not complete when more pages were left unread (the API returns no total, so no count is shown)", async () => {
+    listPublicEvents.mockResolvedValue({ items: [item("a", "2026-10-22T08:00:00.000Z"), item("b")], nextCursor: "c1" });
+    const feed = await loadHomeFeed(NOW);
+    expect(feed.complete).toBe(false);
+    expect(feed.events.map((e) => e.id)).toEqual(["a", "b"]);
   });
 });
 

@@ -83,7 +83,10 @@ describe("CheckoutConfirmation", () => {
     getOrderBySession.mockResolvedValue(ORDER);
     render(<CheckoutConfirmation />);
     expect(await screen.findByText("Tickets sent to m***@example.com.")).toBeInTheDocument();
-    expect(screen.getByText("Order reference #7C1F2E0A")).toBeInTheDocument();
+    expect(screen.getByText(/^Order reference/)).toHaveTextContent(/^Order reference #7C1F2E0A$/);
+    // A machine code: the reference stays in mono (owner decision, 13 Nov 2026), in the strap and the line.
+    for (const ref of screen.getAllByText("#7C1F2E0A")) expect(ref).toHaveClass("font-mono");
+    expect(screen.getAllByText("#7C1F2E0A")).toHaveLength(2);
     expect(screen.getByText("ABC123")).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/mia@/);
   });
@@ -536,6 +539,37 @@ describe("CheckoutConfirmation: back from Stripe without a confirmed order (chec
       ),
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Back to the event" })).toHaveAttribute("href", "/events/neon-static");
+  });
+
+  it("unconfirmed (the server couldn't ask Stripe): keeps polling, and the paid order still shows if the webhook lands", async () => {
+    getOrderPayment.mockResolvedValue({ status: "closed", reason: "unconfirmed", eventTitle: "Neon Static", eventSlug: "neon-static", seated: true });
+    getOrderBySession
+      .mockResolvedValueOnce({ status: "pending" })
+      .mockResolvedValueOnce({ status: "pending" })
+      .mockResolvedValueOnce({ status: "pending" })
+      .mockResolvedValue(ORDER);
+    vi.useFakeTimers();
+    render(<CheckoutConfirmation />);
+    for (let i = 0; i < 4; i++) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(i === 0 ? 0 : 2000);
+      });
+    }
+    expect(getOrderPayment).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("ABC123")).toBeInTheDocument();
+  });
+
+  it("unconfirmed and never paid: says it couldn't confirm the payment (never 'not charged'), with the way back to the event", async () => {
+    getOrderPayment.mockResolvedValue({ status: "closed", reason: "unconfirmed", eventTitle: "Neon Static", eventSlug: "neon-static", seated: true });
+    await renderPending(12);
+    expect(screen.getByRole("heading", { level: 1, name: "We couldn’t confirm your payment" })).toHaveFocus();
+    expect(screen.getByText("Check your email for tickets before trying again.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Back to the event" })).toHaveAttribute("href", "/events/neon-static");
+    expect(document.body.textContent).not.toMatch(/haven’t been charged/);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(getOrderBySession).toHaveBeenCalledTimes(12);
+    expect(document.title).toBe("Payment not confirmed — Sheltüh");
+    noWrites();
   });
 
   it("sold out, seated: choose other seats", async () => {

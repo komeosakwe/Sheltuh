@@ -2,7 +2,7 @@ import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import manifest from "@/app/manifest";
-import { APP_THEME_COLOR } from "@/lib/pwa/theme";
+import { APP_BACKGROUND_COLOR, APP_THEME_COLOR } from "@/lib/pwa/theme";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const ORIGIN = "https://app.sheltuh.com.au";
@@ -42,13 +42,16 @@ describe("web app manifest", () => {
     }
   });
 
-  it("uses the paper colour from the design tokens for theme and background", () => {
+  it("uses the black header's colour for the theme and the paper colour for the splash, from the design tokens", () => {
     const css = readFileSync(path.join(ROOT, "app/globals.css"), "utf8");
     const paper = css.match(/--background:\s*(#[0-9a-f]{6})/i)?.[1];
+    const ink = css.slice(css.indexOf('[data-surface="ink"] {')).match(/--background:\s*(#[0-9a-f]{6})/i)?.[1];
     expect(paper).toBeDefined();
-    expect(APP_THEME_COLOR.toLowerCase()).toBe(paper?.toLowerCase());
+    expect(ink).toBeDefined();
+    expect(APP_THEME_COLOR.toLowerCase()).toBe(ink?.toLowerCase());
+    expect(APP_BACKGROUND_COLOR.toLowerCase()).toBe(paper?.toLowerCase());
     expect(m.theme_color).toBe(APP_THEME_COLOR);
-    expect(m.background_color).toBe(APP_THEME_COLOR);
+    expect(m.background_color).toBe(APP_BACKGROUND_COLOR);
   });
 
   it("declares a 192px and a 512px icon, plus a separate maskable 512px icon", () => {

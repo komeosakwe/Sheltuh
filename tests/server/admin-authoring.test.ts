@@ -22,6 +22,7 @@ import type { Handler } from "@/lib/server/route";
 import type { AdminEventRecord } from "@/lib/server/types";
 import { SITE_URL, TestApi } from "./helpers/api";
 import { application, approvedOrganiser, draftEvent, eventInput, insertOrder, publishedEvent, setUpPayouts, signUpAdmin } from "./helpers/fixtures";
+import { testPng } from "./helpers/images";
 import { createTestDb } from "./helpers/test-db";
 
 /**
@@ -30,7 +31,7 @@ import { createTestDb } from "./helpers/test-db";
  */
 
 const HUMANITIX = "https://events.humanitix.com/neon-static";
-const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+const PNG = testPng();
 const FREE_TICKETS = [
   { id: "free", name: "Free entry", priceCents: 0, feePolicy: "buyer-pays", quantityAvailable: 50 },
 ];
@@ -557,7 +558,7 @@ describe("admin photos", () => {
   });
 
   it("an organiser's photo swap after the admin opened the event makes the admin's publish stale (409): nothing published", async () => {
-    const png = (tag: number) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, tag, tag, tag, tag]);
+    const png = (variant: number) => testPng(variant);
     const draft = await draftEvent(api, organiser);
     const organiserImage = (method: "PUT" | "DELETE", body?: BodyInit) =>
       sendImage(method === "PUT" ? putEventImage : deleteEventImage, draft.eventId, method, body, organiser.token);

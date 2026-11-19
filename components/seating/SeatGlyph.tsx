@@ -115,7 +115,7 @@ function CompanionMark({ className }: { className: string }) {
       dominantBaseline="central"
       textAnchor="middle"
       fontSize="12"
-      className={`font-mono font-medium ${className}`}
+      className={`font-medium ${className}`}
       data-glyph="companion"
     >
       C
@@ -246,7 +246,7 @@ export default function SeatGlyph({
           dominantBaseline="central"
           textAnchor="middle"
           fontSize={numberSize}
-          className={`font-mono font-medium tabular-nums ${inkClass}`}
+          className={`font-medium tabular-nums ${inkClass}`}
         >
           {label}
         </text>

@@ -209,6 +209,8 @@ Sizes are base (320–639) / `sm` 640 / `lg` 1024; leading is in px.
 
 This applies site-wide (section h2s, empty-state titles), which is what the brief asks for: one consistent, smaller heading step. It moved from P2 to P1 because the P0 screenshots showed the section heads too loud on phones. `display-xl` had no user once the hero switched: **deleted in P2** (`tests/brand-tokens.test.ts` now checks it stays gone).
 
+> **Owner decision, 13 Nov 2026: IBM Plex Mono is retired as a text face.** Everything below that says Plex Mono (categories, dates, labels, notes, footer headings) is now Instrument Sans in sentence case with normal tracking; mono stays only for machine codes (ticket codes, order references, the door's code entry). See `brand-direction-one.md` §3.
+
 **Mono selectively (P2, done):** Plex Mono stays on categories, dates and times, field and row labels (`dt`, "Order summary"), section notes, footer group headings and the © line. It came off:
 - every back link: `components/ui/BackLink.tsx` is the one back link (Instrument `text-sm leading-5 font-semibold underline`, 44px tall, "←" decorative). The event page uses it with its existing words, "Back to all events" (to `/`, unchanged, as tests pin it); dashboards, admin and the door console share its `backLinkClass`;
 - the footer legal links (`text-sm`, sentence case, underlined);
@@ -416,7 +418,7 @@ div.group/card.relative.flex.min-w-0.flex-col[data-event-card][data-variant]   (
 | # | State (real data) | Condition | Price line (`CardPrice`) | CTA label | Target | Tone |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | Ended | `Date.parse(endsAt ?? startsAt) <= now` | **"Ended"** (600, `text-muted`; new) | none | — | — |
-| 2 | External, free | `ticketingMode === "external" && externalFree` | "Free" + muted "Tickets on {provider}" | "Get free tickets" (**was "Buy tickets"**) | `/events/{slug}#tickets` (the page holds the outbound link and its beacon; cards never link out) | signal |
+| 2 | External, free | `ticketingMode === "external" && externalFree` | "Free" + muted "Tickets on {provider}" | "Get free tickets" (**was "Buy tickets"**) | `/events/{slug}` (the page's panel and phone buy bar hold the outbound link and its beacon, with no tickets section while on sale: owner, 15 Nov 2026; cards never link out) | signal |
 | 3 | External, paid | `ticketingMode === "external"` | "Tickets on {provider}" (600) | **"Get tickets"** (was "Buy tickets"; A9: nothing is bought on Sheltüh) | same | signal |
 | 4 | No tiers yet | `ticketTypes.length === 0` | "Tickets coming soon" (600) | none | — | — |
 | 5 | Sold out, waitlist open | `isSoldOut(event)` and not ended | "Sold out" (600, black) | "Join waitlist" | `/events/{slug}#tickets` (the WaitlistBlock), also for seated events | **outline** (`buttonClass("outline","md")`, black on cream): a waitlist isn't a purchase, so it doesn't share the orange |

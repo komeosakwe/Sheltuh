@@ -58,7 +58,7 @@ describe("usage analytics events from the forms", () => {
     renderWith(<LoginForm />, overrides);
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "mia@example.com" } });
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "correct horse" } });
-    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   }
 
   it("signed_in is sent once when the password sign-in works, with the method and nothing about the person", async () => {
@@ -95,7 +95,7 @@ describe("usage analytics events from the forms", () => {
 describe("LoginForm", () => {
   it("checks for an empty email and password before calling Supabase, and focuses the first", async () => {
     const auth = renderWith(<LoginForm />);
-    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
     const email = screen.getByLabelText("Email");
     const password = screen.getByLabelText("Password");
@@ -108,7 +108,7 @@ describe("LoginForm", () => {
 
     // Fixing the email leaves only the password: focus goes there.
     fireEvent.change(email, { target: { value: "mia@example.com" } });
-    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     await waitFor(() => expect(document.activeElement).toBe(password));
     expect(email).not.toHaveAttribute("aria-invalid");
     expect(auth.signIn).not.toHaveBeenCalled();
@@ -120,7 +120,7 @@ describe("LoginForm", () => {
     const password = screen.getByLabelText("Password");
     fireEvent.change(email, { target: { value: "mia@example.com" } });
     fireEvent.change(password, { target: { value: "wrong" } });
-    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Invalid login credentials");
     for (const field of [email, password]) {
@@ -134,16 +134,16 @@ describe("LoginForm", () => {
     renderWith(<LoginForm />, { signIn: vi.fn().mockRejectedValue(new Error("Failed to fetch")) });
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "mia@example.com" } });
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "hunter22" } });
-    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Failed to fetch");
     expect(screen.getByLabelText("Email")).not.toHaveAttribute("aria-invalid");
   });
 
-  it("Sign in is busy while it works, not disabled, so it keeps focus, and a second press does nothing", async () => {
+  it("Continue is busy while it works, not disabled, so it keeps focus, and a second press does nothing", async () => {
     const auth = renderWith(<LoginForm />, { signIn: vi.fn(pending) });
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "mia@example.com" } });
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "hunter22" } });
-    const button = screen.getByRole("button", { name: "Sign in" });
+    const button = screen.getByRole("button", { name: "Continue" });
     button.focus();
     fireEvent.click(button);
 
@@ -274,6 +274,38 @@ describe("SignupForm", () => {
 });
 
 describe("VerifyForm", () => {
+  it("reads ?email= into the field, then takes it out of the address bar, keeping next and the fragment", async () => {
+    const before = window.location.href;
+    window.history.replaceState(null, "", "/verify?email=mia%40example.com&next=%2Fevents%2Fneon-static#code");
+    try {
+      searchParams = new URLSearchParams("email=mia%40example.com&next=%2Fevents%2Fneon-static");
+      renderWith(<VerifyForm />);
+      expect(screen.getByLabelText("Email")).toHaveValue("mia@example.com");
+      await waitFor(() => expect(window.location.search).toBe("?next=%2Fevents%2Fneon-static"));
+      expect(window.location.pathname).toBe("/verify");
+      expect(window.location.hash).toBe("#code");
+      expect(window.location.href).not.toContain("mia");
+      // Still in the field after the address changed.
+      expect(screen.getByLabelText("Email")).toHaveValue("mia@example.com");
+    } finally {
+      window.history.replaceState(null, "", before);
+    }
+  });
+
+  it("leaves an address without ?email= alone", () => {
+    const before = window.location.href;
+    window.history.replaceState(null, "", "/verify?next=%2Faccount");
+    const replace = vi.spyOn(window.history, "replaceState");
+    try {
+      searchParams = new URLSearchParams("next=%2Faccount");
+      renderWith(<VerifyForm />);
+      expect(replace).not.toHaveBeenCalled();
+    } finally {
+      replace.mockRestore();
+      window.history.replaceState(null, "", before);
+    }
+  });
+
   it("asks for the code before calling Supabase", async () => {
     searchParams = new URLSearchParams("email=mia%40example.com");
     const auth = renderWith(<VerifyForm />);
@@ -337,7 +369,7 @@ describe("ForgotPasswordForm", () => {
     fireEvent.change(email, { target: { value: "mia@example.com" } });
     fireEvent.click(screen.getByRole("button", { name: "Send reset code" }));
     const code = await screen.findByLabelText("Reset code");
-    expect(auth.forgotPassword).toHaveBeenCalledWith("mia@example.com");
+    expect(auth.forgotPassword).toHaveBeenCalledWith("mia@example.com", undefined);
 
     fireEvent.click(screen.getByRole("button", { name: "Reset password" }));
     await waitFor(() => expect(document.activeElement).toBe(code));
@@ -414,6 +446,9 @@ describe("fieldsForAuthError", () => {
     ["Email not confirmed", ["email"]],
     ["Failed to fetch", []],
     ["Email rate limit exceeded", []],
+    // A refused CAPTCHA token (lib/auth/turnstile.ts) is about no field, whatever the form.
+    ["Couldn’t confirm you’re human. Try again.", []],
+    ["captcha protection: request disallowed (timeout-or-duplicate)", []],
   ])("%s → %j", (message, fields) => {
     expect(fieldsForAuthError(message, ["email"])).toEqual(fields);
   });

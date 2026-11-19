@@ -2,9 +2,18 @@ import type { ReactNode } from "react";
 
 /** Hand-made 24×24 stroke icons for the home page's category row. Decorative: the label beside each carries the meaning. */
 
-export type CategoryIconName = "music" | "art" | "workshop" | "pop-up" | "theatre" | "free";
+export type CategoryIconName = "all" | "music" | "art" | "workshop" | "pop-up" | "theatre" | "free";
 
 const paths: Record<CategoryIconName, ReactNode> = {
+  // Four squares: every category (the proposal's "All events" chip).
+  all: (
+    <>
+      <rect x="4" y="4" width="7" height="7" rx="1" />
+      <rect x="13" y="4" width="7" height="7" rx="1" />
+      <rect x="4" y="13" width="7" height="7" rx="1" />
+      <rect x="13" y="13" width="7" height="7" rx="1" />
+    </>
+  ),
   // A pair of quavers.
   music: (
     <>

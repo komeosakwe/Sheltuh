@@ -3,7 +3,7 @@ import { requireCronSecret } from "../cron-auth";
 import { pgErrorCode } from "../db";
 import type { Deps } from "../deps";
 import { drainEmailOutbox, sendTicketEmailSoon } from "../email-outbox";
-import { HttpError, okPrivate } from "../http";
+import { HttpError, okPrivate, tooManyRequests, windowSeconds } from "../http";
 import { decodeCursor, parseLimit, toPage } from "../pagination";
 import { ADMIN_EMAIL_JOB_SELECT, toAdminEmailJob } from "../records";
 import type { Handler } from "../route";
@@ -309,13 +309,13 @@ export const adminResendEmailJob: Handler<{ jobId: string }> = async (req, { job
     case "queued":
       break;
     case "rate_limited":
-      throw new HttpError(429, "That's a lot of resends for one hour. Try again later.");
+      throw tooManyRequests("That's a lot of resends for one hour. Try again later.", windowSeconds(RESEND_RATE_LIMIT.window));
     case "not_found":
       throw new HttpError(404, JOB_NOT_FOUND);
     case "in_progress":
       throw new HttpError(409, "That email is being sent right now.");
     case "too_soon":
-      throw new HttpError(429, "That email was resent in the last few minutes. Give it a moment to arrive.");
+      throw tooManyRequests("That email was resent in the last few minutes. Give it a moment to arrive.", windowSeconds(RESEND_MIN_INTERVAL));
     default:
       throw new Error(`Unexpected resend_email_job result: ${row.result}`);
   }

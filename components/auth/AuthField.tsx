@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState, type InputHTMLAttributes, type ReactNode, type Ref } from "react";
 
 /**
- * A labelled sign-in/sign-up field with its own error line. When the field is
+ * A labelled sign-in/sign-up field with its own error line: the rules' text
+ * input (radius 8, the 1.5px stroke, 48px; `compact` keeps its 1px edge). When the field is
  * invalid it's `aria-invalid`, and `aria-describedby` reads its error (or the
  * form's error, `invalidBy`, for a server error about it) before any hint.
  */
@@ -52,7 +53,7 @@ export default function AuthField({
       id={id}
       aria-invalid={error || invalidBy ? true : undefined}
       aria-describedby={describedBy || undefined}
-      className={`border border-foreground bg-transparent px-3 text-foreground ${compact ? "py-1.5 text-sm" : "py-2"} ${inputAside ? "min-h-11 w-full pr-12" : ""} ${className}`.trim()}
+      className={`rounded-control border-foreground bg-transparent text-foreground ${compact ? "border px-3 py-1.5 text-sm" : "min-h-12 border-control px-4 py-2"} ${inputAside ? `w-full pr-12 ${compact ? "min-h-11" : ""}` : ""} ${className}`.trim()}
       {...input}
     />
   );
@@ -112,13 +113,13 @@ export type AuthErrorField = "email" | "password" | "code";
 
 /**
  * Supabase Auth's messages name what's wrong ("Invalid login credentials",
- * "Token has expired or is invalid", "Password should be…"). A connection or
- * rate-limit failure is about no field. `fallback` is the form's own guess
- * for anything else.
+ * "Token has expired or is invalid", "Password should be…"). A connection,
+ * rate-limit or human-check (CAPTCHA) failure is about no field. `fallback`
+ * is the form's own guess for anything else.
  */
 export function fieldsForAuthError(message: string, fallback: AuthErrorField[]): AuthErrorField[] {
   const text = message.toLowerCase();
-  if (/fetch|network|timed? ?out|rate limit|too many|configured/.test(text)) return [];
+  if (/fetch|network|timed? ?out|rate limit|too many|configured|captcha|human/.test(text)) return [];
   if (/credential/.test(text)) return ["email", "password"];
   if (/password/.test(text)) return ["password"];
   if (/token|otp|code/.test(text)) return ["code"];

@@ -53,7 +53,7 @@ export default function ClipPlayButton({
   }
 
   const time = (
-    <span className="font-mono text-xs leading-4 font-medium tabular-nums">{clipTimeLabel(clip.durationMs)}</span>
+    <span className="text-xs leading-4 font-medium tabular-nums">{clipTimeLabel(clip.durationMs)}</span>
   );
   // The global :focus-visible outline isn't in a layer, so only an !important utility drops it for the ring.
   const ring = "focus-visible:outline-none!";

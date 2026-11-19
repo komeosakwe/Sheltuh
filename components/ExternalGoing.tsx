@@ -74,7 +74,7 @@ export default function ExternalGoing({
     if (demoEnded) return null;
     const { count } = demoGoing(event.id);
     return (
-      <Panel title="Who's going" titleId="external-going-title">
+      <Panel title="Who's going" titleId="external-going-title" variant="plain">
         <div className="flex flex-col items-start gap-3">
           {count >= GOING_COUNT_MIN && <p className="text-base leading-6 font-semibold">{count} going (sample)</p>}
           <Button size="lg" disabled className="w-full sm:w-auto">
@@ -113,7 +113,7 @@ export default function ExternalGoing({
   }
 
   return (
-    <Panel title="Who's going" titleId="external-going-title">
+    <Panel title="Who's going" titleId="external-going-title" variant="plain">
       <div className="flex flex-col items-start gap-3">
         {showCount && <p className="text-base leading-6 font-semibold">{summary.count} going</p>}
         {error && <ActionErrorNotice message={error} returnTo={`/events/${event.slug}`} />}

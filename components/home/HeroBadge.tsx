@@ -34,8 +34,8 @@ function BadgeArt({ spinning, paused }: { spinning: boolean; paused: boolean }) 
 }
 
 /**
- * The desktop hero collage's round badge, "MELBOURNE · NAARM · CURATED"
- * set on a circle around a dot (restored from the original collage at the
+ * The home hero's round badge, "MELBOURNE · NAARM · CURATED" set on a circle
+ * around a dot, beside the h1 from 1024px (the proposal; restored at the
  * owner's request, 23 Oct 2026; circles are otherwise off-brand). It turns
  * slowly. Moving content needs a way to stop it (WCAG 2.2.2), so where it
  * moves the badge is a button that pauses and restarts it, and it also holds
@@ -45,8 +45,7 @@ function BadgeArt({ spinning, paused }: { spinning: boolean; paused: boolean }) 
  * Signal Orange (6.18:1).
  *
  * `still`: never turns and is never a control, whatever the motion
- * preference: for a badge too small to be a 44px Pause/Play target (the
- * hero's thumbnail below 1024px, `HeroThumb`).
+ * preference: for a badge too small to be a 44px Pause/Play target.
  */
 export default function HeroBadge({ className = "", still = false }: { className?: string; still?: boolean }) {
   const motionOk = useMotionOk();

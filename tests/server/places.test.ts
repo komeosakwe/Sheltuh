@@ -503,7 +503,12 @@ describe("POST /api/places/autocomplete and /details", () => {
       const searched = await search({ input: "tote", sessionToken: SESSION });
       expect(searched.status, `allowance ${index}`).toBe(429);
       expect(searched.body.fieldErrors).toBeUndefined();
-      expect((await details({ placeId: TOTE_PLACE_ID, sessionToken: SESSION })).status).toBe(429);
+      // Retry-After: the refusing window's length, an hour or a day (fixed windows from their first hit).
+      const retryAfter = ["3600", "86400"][index];
+      expect(searched.headers.get("retry-after"), `allowance ${index}`).toBe(retryAfter);
+      const detailed = await details({ placeId: TOTE_PLACE_ID, sessionToken: SESSION });
+      expect(detailed.status).toBe(429);
+      expect(detailed.headers.get("retry-after")).toBe(retryAfter);
       expect(api.places!.calls).toEqual([]);
       expect(await platformHits("autocomplete")).toBeUndefined();
       expect(await platformHits("details")).toBeUndefined();

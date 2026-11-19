@@ -15,6 +15,7 @@ import {
   NO_TICKETS_LABEL,
   pricedTicketTypes,
   SOLD_OUT_LABEL,
+  startingPrice,
 } from "../lib/pricing";
 import { sampleEvents } from "../lib/sample-events";
 import type { SheltuhEvent, TicketType } from "../lib/types";
@@ -358,3 +359,18 @@ describe("group tickets in the 'From' price", () => {
   });
 });
 
+
+describe("startingPrice (the event page's buy bar before a choice)", () => {
+  it("says From before any amount, even with one ticket type, so a starting price never reads as a total", () => {
+    const single: TicketType = { id: "ga", name: "General admission", priceCents: 3500, feePolicy: "buyer-pays", quantityAvailable: 100 };
+    const amount = formatFeedPriceParts({ ...findEvent("neon-static"), ticketTypes: [single] })?.amount ?? "";
+    expect(amount).toBe("A$37.60");
+    expect(startingPrice(amount)).toBe("From A$37.60");
+  });
+
+  it("leaves Free, Sold out and an amount that already says From as they are", () => {
+    expect(startingPrice("Free")).toBe("Free");
+    expect(startingPrice("Sold out")).toBe("Sold out");
+    expect(startingPrice("From A$37.60")).toBe("From A$37.60");
+  });
+});

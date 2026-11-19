@@ -71,6 +71,7 @@ describe("/privacy — Your location", () => {
     expect(section).toHaveTextContent("The map asks the same way: when you open it with no suburb saved, and when you press “Near me”.");
     expect(section).toHaveTextContent("if you say no it doesn’t ask again on the map until your next browser session");
     expect(section).toHaveTextContent("only the suburb’s name is kept");
+    expect(section).toHaveTextContent("a place you pick is remembered straight away");
     expect(section).toHaveTextContent("/search?near=Fitzroy");
     expect(section).toHaveTextContent("hosting provider’s request logs");
     expect(section).toHaveTextContent("isn’t saved in our database, isn’t linked to your account, and isn’t sent with our event searches");
@@ -78,7 +79,7 @@ describe("/privacy — Your location", () => {
       "Sheltüh doesn’t use your IP address to work out where you are for search, the map or results. Our usage analytics tools may estimate a country or city from it",
     );
     expect(within(section).getByRole("link", { name: "Usage analytics" })).toHaveAttribute("href", "#analytics");
-    expect(section).toHaveTextContent("“Anywhere in Australia”");
+    expect(section).toHaveTextContent("“All of Australia”");
     expect(section).toHaveTextContent("or search with the location left empty");
     // The address with the suburb in it also lives on in the browser's history.
     expect(section).toHaveTextContent("Search results pages you’ve visited, suburb and all, stay in your browser’s history until you clear it there.");

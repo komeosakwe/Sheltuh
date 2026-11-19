@@ -224,7 +224,7 @@ describe("EventEditor — session-expiry recovery preserves the form", () => {
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "hunter2" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
-    await waitFor(() => expect(signIn).toHaveBeenCalledWith("owner@example.com", "hunter2"));
+    await waitFor(() => expect(signIn).toHaveBeenCalledWith("owner@example.com", "hunter2", undefined));
     // Recovery never navigated away — the field is still there after sign-in.
     expect(screen.getByLabelText("Title")).toHaveValue("Updated title");
     // Said politely, with focus on the button to try again (the sign-in form has gone).

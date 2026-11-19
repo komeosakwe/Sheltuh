@@ -1,7 +1,7 @@
 import { ticketNameWithGroup } from "@/lib/ticket-groups";
 import { orderKey } from "../client-key";
 import type { Deps } from "../deps";
-import { HttpError, PRIVATE_NO_STORE } from "../http";
+import { HttpError, PRIVATE_NO_STORE, tooManyRequests, windowSeconds } from "../http";
 import { ORDER_ID_PATTERN, orderReference } from "../order-reference";
 import type { Handler } from "../route";
 import type { CustomerOrder } from "../types";
@@ -101,7 +101,7 @@ async function walletTicket(req: Request, sessionId: string, provider: Provider,
   const n = ticketNumber(req);
   const secret = rateLimitSecret(deps, "the wallet pass rate limit was skipped");
   if (!(await takeClientLimit(req, deps, secret, WALLET_RATE_LIMITS.perClient, `Wallet pass (${provider})`))) {
-    throw new HttpError(429, WALLET_BUSY);
+    throw tooManyRequests(WALLET_BUSY, windowSeconds(WALLET_RATE_LIMITS.perClient.window));
   }
   const lookup = await lookupCustomerOrder(deps.db, sessionId);
   if (!walletEligible(lookup)) throw new HttpError(404, ORDER_NOT_FOUND);
@@ -110,7 +110,7 @@ async function walletTicket(req: Request, sessionId: string, provider: Provider,
       `select private.take_client_rate_limit($1, $2, $3, $4::interval) as allowed`,
       [orderKey(sessionId, secret), WALLET_RATE_LIMITS.perOrder.bucket, WALLET_RATE_LIMITS.perOrder.hits, WALLET_RATE_LIMITS.perOrder.window],
     );
-    if (!limit.allowed) throw new HttpError(429, WALLET_ORDER_BUSY);
+    if (!limit.allowed) throw tooManyRequests(WALLET_ORDER_BUSY, windowSeconds(WALLET_RATE_LIMITS.perOrder.window));
   }
   const order: CustomerOrder = lookup;
   const ticket = order.tickets[n - 1];

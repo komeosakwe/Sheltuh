@@ -121,7 +121,8 @@ for (const vp of [
 
     test("Streets tiles with the token, Mapbox's credit and wordmark, no Esri, no map style control", async ({ page }) => {
       const requested = await mockTiles(page);
-      await page.goto("/map");
+      // A phone opens on the list (the rules' Layout board): ask for the map.
+      await page.goto("/map?view=map");
 
       await expectStreetsTiles(page);
       expectStreetsUrls(requested.mapbox);

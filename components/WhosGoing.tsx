@@ -289,7 +289,8 @@ export default function WhosGoing() {
     <div
       id="whos-going"
       tabIndex={-1}
-      className="focus:outline-none"
+      // A ring when a link lands here (View attendees, a #whos-going link), whatever the pointer did before.
+      className="rounded-card focus:outline-2 focus:outline-offset-4 focus:outline-foreground"
       data-wg-expanded={expanded ? "" : undefined}
       aria-busy={state.status === "loading" ? true : undefined}
     >
@@ -302,6 +303,7 @@ export default function WhosGoing() {
           </span>
         }
         titleId="whos-going-title"
+        variant="plain"
       >
         {state.status === "loading" && <p className="min-h-30 text-sm text-muted">Loading who&rsquo;s going…</p>}
 
@@ -519,7 +521,7 @@ export default function WhosGoing() {
             </Link>
           </p>
           {errorNotice}
-          <Button variant="outline" size="lg" busy={busy !== null} onClick={join} className={pillClass}>
+          <Button variant="outline" size="lg" busy={busy !== null} onClick={join} className={pillClass} data-opt-in="">
             {busy === "join" ? "Adding you…" : "Show me as going"}
           </Button>
           <ConsentCopy className="text-xs leading-4 text-muted" />
@@ -541,6 +543,7 @@ export default function WhosGoing() {
             aria-controls={formOpen ? "wg-form" : undefined}
             onClick={toggleForm}
             className={pillClass}
+            data-opt-in=""
           >
             Add yourself
           </Button>

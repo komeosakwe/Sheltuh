@@ -3,8 +3,7 @@ import type { ReactNode } from "react";
 
 /**
  * The site's one back link's look (docs/design/mobile-redesign.md §3.2):
- * Instrument Sans 14/20 semibold, underlined, 44px tall to tap. Not mono:
- * Plex Mono is for categories, dates and labels, not navigation.
+ * Instrument Sans 14/20 semibold, underlined, 44px tall to tap.
  */
 export const backLinkClass =
   "group/back inline-flex min-h-11 w-fit items-center gap-1 self-start text-sm leading-5 font-semibold underline underline-offset-4";

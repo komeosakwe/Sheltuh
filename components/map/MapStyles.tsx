@@ -43,6 +43,10 @@ export default function MapStyles() {
         [data-map-pane]:has(> [data-near-me]) .leaflet-bottom.leaflet-right { max-width: calc(100% - 7.5rem); }
       }
       /* Zoom: two separate 44px rounded-square controls with a black edge (§6.1), not Leaflet's grey bar. */
+      /* A phone's Map view floats the search bar over the map's top (SceneMap): the top controls and
+         "Search this area" start below it. */
+      [data-search-over] .leaflet-top,
+      [data-search-over] [data-search-area] { top: 4.5rem; }
       .leaflet-control-zoom.leaflet-bar { border: 0 !important; box-shadow: none !important; display: flex; flex-direction: column; gap: 0.5rem; }
       .leaflet-control-zoom a {
         width: 2.75rem !important; height: 2.75rem !important; line-height: 2.625rem !important; font-size: 1.25rem !important;
