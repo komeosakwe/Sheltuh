@@ -15,8 +15,9 @@ export const PROFILE_FIELD_LABELS: Record<ProfileContentField, string> = {
   avatar: "Photo",
   bio: "Bio",
   instagram: "Instagram",
+  username: "Username",
 };
-const FIELDS: readonly ProfileContentField[] = ["avatar", "bio", "instagram"];
+const FIELDS: readonly ProfileContentField[] = ["avatar", "bio", "instagram", "username"];
 
 function errorText(err: unknown, fallback: string) {
   return err instanceof ApiError && err.status >= 400 && err.status < 500 ? err.message : fallback;
@@ -171,7 +172,7 @@ function CurrentProfile({ profileId, getToken }: { profileId: string; getToken: 
   );
 }
 
-/** Choose what to remove (photo, bio, Instagram), give a reason, Remove. */
+/** Choose what to remove (photo, bio, Instagram, username), give a reason, Remove. */
 function RemoveContent({ reportId, profileId, getToken }: { reportId: string; profileId: string; getToken: GetToken }) {
   const [fields, setFields] = useState<ProfileContentField[]>([]);
   const [reason, setReason] = useState("");

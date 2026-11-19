@@ -117,6 +117,35 @@ describe("admin: profile reports", () => {
     expect(await within(article).findByText("Removed: Photo and bio. Logged with your reason.")).toBeInTheDocument();
   });
 
+  it("offers the username too, sent after the other fields", async () => {
+    adminListReports.mockResolvedValue({ items: [PROFILE_REPORT] });
+    adminRemoveProfileContent.mockResolvedValue({
+      profileId: "p1",
+      displayName: "Aisha L.",
+      profileVisible: true,
+      hasAvatar: true,
+      suspended: false,
+      moderationLog: [],
+      removed: ["bio", "username"],
+    });
+    admin(<ReportQueue />);
+    const heading = await screen.findByRole("heading", { name: /Aisha L\./ });
+    const article = heading.closest("article") as HTMLElement;
+    const group = within(article).getByRole("group", { name: "Remove from their profile" });
+    fireEvent.click(within(group).getByRole("checkbox", { name: "Username" }));
+    fireEvent.click(within(group).getByRole("checkbox", { name: "Bio" }));
+    fireEvent.change(within(article).getByLabelText("Reason (admins only, logged)"), { target: { value: "Slur in the username." } });
+    fireEvent.click(within(article).getByRole("button", { name: "Remove" }));
+    await waitFor(() =>
+      expect(adminRemoveProfileContent).toHaveBeenCalledWith(
+        "p1",
+        { fields: ["bio", "username"], reason: "Slur in the username." },
+        expect.any(Function),
+      ),
+    );
+    expect(await within(article).findByText("Removed: Bio and username. Logged with your reason.")).toBeInTheDocument();
+  });
+
   it("opens the member's current profile and moderation log on request", async () => {
     adminListReports.mockResolvedValue({ items: [PROFILE_REPORT] });
     adminGetMemberProfile.mockResolvedValue({

@@ -1237,18 +1237,22 @@ export function toProfile(row: Row): ProfileRecord {
 
 /**
  * Only ever the opaque per-event id and the display name, plus the member's
- * profile id and photo when (and only when) their profile is visible: never a
- * user id, email or ticket. `profile_id` and `avatar_version` must already be
- * null for a profile that isn't visible (going.ts).
+ * profile id, username and photo when (and only when) their profile is
+ * visible: never a user id, email or ticket. `profile_id`, `username` and
+ * `avatar_version` must already be null for a profile that isn't visible
+ * (going.ts); a username is dropped here without a profile id all the same,
+ * as a stable username would link a hidden member across events.
  */
 export function toGoingAttendee(row: Row): GoingAttendee {
   const profileId = opt<string>(row.profile_id);
   const version = profileId ? opt<string>(row.avatar_version) : undefined;
+  const username = profileId ? opt<string>(row.username) : undefined;
   return {
     attendeeId: row.id as string,
     displayName: row.display_name as string,
     isYou: row.is_you === true,
     ...(profileId ? { profileId } : {}),
+    ...(username ? { username } : {}),
     hasAvatar: version !== undefined,
     ...(profileId && version !== undefined ? { avatarThumbUrl: avatarUrls(profileId, version).avatarThumbUrl } : {}),
   };
@@ -1266,9 +1270,11 @@ export function toMemberProfile(
   const profileId = row.public_id as string;
   const version = opt<string>(row.avatar_version);
   const handle = opt<string>(row.instagram_handle);
+  const username = opt<string>(row.username);
   return {
     profileId,
     displayName: row.display_name as string,
+    ...(username ? { username } : {}),
     bio: opt(row.bio),
     instagramHandle: handle,
     instagramUrl: handle ? socialLinks({ instagramHandle: handle }).instagram : undefined,
@@ -1284,6 +1290,7 @@ export function toMemberProfile(
 /** For `select … from public.profiles p` (admin only): the profile, its photo and newest moderation entries. */
 export const ADMIN_PROFILE_SELECT = `
   select p.public_id, p.display_name, p.profile_visible, p.bio, p.instagram_handle,
+         (select u.username from private.member_usernames u where u.user_id = p.user_id) as username,
          ${avatarVersionOf("p.user_id")} as avatar_version,
          exists (select 1 from private.social_suspensions s where s.user_id = p.user_id) as suspended,
          coalesce((
@@ -1298,9 +1305,11 @@ export function toAdminMemberProfile(row: Row): AdminMemberProfile {
   const profileId = row.public_id as string;
   const version = opt<string>(row.avatar_version);
   const log = row.moderation_log as { removed: ProfileContentField[]; reason: string; at: string; by: string | null }[];
+  const username = opt<string>(row.username);
   return {
     profileId,
     displayName: row.display_name as string,
+    ...(username ? { username } : {}),
     profileVisible: row.profile_visible === true,
     bio: opt(row.bio),
     instagramHandle: opt(row.instagram_handle),

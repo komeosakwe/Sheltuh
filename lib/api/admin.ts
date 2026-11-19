@@ -486,8 +486,8 @@ export async function adminGetMemberProfile(profileId: string, getToken: GetToke
 }
 
 /**
- * Removes a member's photo, bio and/or Instagram handle, with a reason
- * (logged; the content isn't kept). `removed` says what was there to remove.
+ * Removes a member's photo, bio, Instagram handle and/or username, with a
+ * reason (logged; the content isn't kept; a username is held for 30 days). `removed` says what was there to remove.
  * ApiError 400, 404.
  */
 export async function adminRemoveProfileContent(profileId: string, input: RemoveProfileContentInput, getToken: GetToken) {

@@ -45,6 +45,7 @@ export type {
   ProfileContentField,
   ProfileModerationEntry,
   UnsubscribeFollowResult,
+  UsernameCheck,
   BlockRecord,
   CheckoutResult,
   ConfirmFreeOrderResult,

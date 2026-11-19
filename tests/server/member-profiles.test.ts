@@ -8,6 +8,7 @@ import {
 } from "@/lib/server/avatar";
 import { createBlock } from "@/lib/server/handlers/blocks";
 import { listGoingAttendees } from "@/lib/server/handlers/going";
+import { getMe } from "@/lib/server/handlers/me";
 import {
   adminGetMemberProfile,
   adminRemoveProfileContent,
@@ -26,7 +27,9 @@ import {
   patchMyProfile,
   putMyAvatar,
 } from "@/lib/server/handlers/profiles";
+
 import { adminGetReportAvatar, adminListReports, createReport } from "@/lib/server/handlers/reports";
+import { putMyUsername } from "@/lib/server/handlers/usernames";
 import type { Handler } from "@/lib/server/route";
 import type { EventRecord } from "@/lib/server/types";
 import { SITE_URL, TestApi } from "./helpers/api";
@@ -926,6 +929,65 @@ describe("admin removal of profile content", () => {
     const again = await remove(admin.token, profileId, { fields: ["avatar", "bio"], reason: "Again" });
     expect(again.body.removed).toEqual([]);
     expect((await api.call(adminGetMemberProfile, { token: admin.token, params: { profileId } })).body.moderationLog).toHaveLength(1);
+  });
+
+  it("removes the username: held for 30 days, logged, and the member's clock restarts (the typo window closes too)", async () => {
+    const m: Member = await member(api);
+    expect((await api.call(putMyUsername, { token: m.token, method: "PUT", body: { username: "rude_name" } })).status).toBe(200);
+    const profileId = await profileIdOf(m);
+    expect((await api.call(adminGetMemberProfile, { token: admin.token, params: { profileId } })).body.username).toBe("rude_name");
+
+    const res = await remove(admin.token, profileId, { fields: ["username", "bio"], reason: "Report 14: offensive username" });
+    expect(res.status).toBe(200);
+    expect(res.body.removed).toEqual(["username"]);
+    expect(res.body.username).toBeUndefined();
+    expect(res.body.moderationLog).toEqual([
+      { removed: ["username"], reason: "Report 14: offensive username", at: expect.any(String), by: admin.userId },
+    ]);
+    expect(JSON.stringify(res.body.moderationLog)).not.toContain("rude_name");
+    const [held] = await api.db.query<{ user_id: string | null; days: number }>(
+      `select user_id, extract(epoch from held_until - now()) / 86400 as days from private.member_usernames`,
+    );
+    expect(held.user_id).toBeNull();
+    expect(Number(held.days)).toBeCloseTo(30, 1);
+
+    // Claimed minutes ago, so within the typo window: removal still makes them wait 30 days.
+    const retry = await api.call(putMyUsername, { token: m.token, method: "PUT", body: { username: "other_name" } });
+    expect(retry.status).toBe(429);
+    expect(retry.body.code).toBe("username_change_too_soon");
+    expect(Math.abs(new Date(retry.body.changeableAt).getTime() - (Date.now() + 30 * 86_400_000))).toBeLessThan(60_000);
+    expect((await api.call(getMe, { token: m.token })).body).toEqual({
+      usernameChangeableAt: retry.body.changeableAt,
+      upcomingCount: 0,
+    });
+
+    // Nothing left to remove: unchanged, nothing logged, the clock left alone.
+    const [before] = await api.db.query(`select * from private.member_username_changes where user_id = $1`, [m.userId]);
+    const again = await remove(admin.token, profileId, { fields: ["username"], reason: "Again" });
+    expect(again.body.removed).toEqual([]);
+    expect(again.body.moderationLog).toHaveLength(1);
+    const [after] = await api.db.query(`select * from private.member_username_changes where user_id = $1`, [m.userId]);
+    expect(after).toEqual(before);
+  });
+
+  it("a member who never set a username: unchanged, and the database log check takes 'username'", async () => {
+    const m = await member(api);
+    const profileId = await profileIdOf(m);
+    const res = await remove(admin.token, profileId, { fields: ["username"], reason: "Check" });
+    expect(res.status).toBe(200);
+    expect(res.body.removed).toEqual([]);
+    expect(res.body.moderationLog).toEqual([]);
+    await api.db.query(
+      `insert into private.profile_moderation_log (user_id, admin_id, removed, reason)
+       values ($1, $2, array['avatar', 'bio', 'instagram', 'username'], 'all four')`,
+      [m.userId, admin.userId],
+    );
+    await expect(
+      api.db.query(`insert into private.profile_moderation_log (user_id, admin_id, removed, reason) values ($1, $2, array['email'], 'x')`, [
+        m.userId,
+        admin.userId,
+      ]),
+    ).rejects.toThrow(/profile_moderation_log_removed_check/);
   });
 
   it("is admin only (403), validates fields and reason (400), and 404s an unknown profile", async () => {
