@@ -210,7 +210,7 @@ describe("buildTicketEmail: the design's fixture, top to bottom", () => {
   it("has the phone values in one @media (max-width:620px) block", () => {
     const media = email.html.match(/@media only screen and \(max-width:620px\)\{([\s\S]*?)\n\}/)?.[1] ?? "";
     for (const rule of [
-      ".pg{padding:33px 16px 40px 16px!important}",
+      ".pg{padding:34px 16px 40px 16px!important}",
       ".tx{padding-left:16px!important;padding-right:16px!important}",
       ".qr{width:231px!important;height:231px!important}",
       ".ei{max-height:144px!important}",
@@ -251,17 +251,17 @@ describe("the ticket card", () => {
   it("an orange frame (a cell's bgcolor, so Outlook draws it) round a white inside: stripes, ADMIT ONE · SHELTÜH, image, title, venue, perforation, stub, QR, code, note", () => {
     const { html } = buildTicketEmail(mockOrder, { ...mockEvent, imageUrl: IMAGE_PATH } as EventRecord, SITE, BUILT);
     const [card] = cardsOf(html);
-    expect(html).toContain(`<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" ${CARD} style="background-color:#ff4800;border-radius:20px;border-collapse:separate"><tr><td style="padding:12px">`);
-    expect(card).toContain('bgcolor="#ffffff" style="background-color:#ffffff;border-radius:12px');
+    expect(html).toContain(`<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" ${CARD} style="background-color:#ff4800;border-radius:15px;border-collapse:separate"><tr><td style="padding:12px">`);
+    expect(card).toContain('bgcolor="#ffffff" style="background-color:#ffffff;border-radius:7px');
     const sequence = [
-      `src="${SITE}${TICKET_EMAIL_ASSETS.stripesDesktop}" width="112" height="12" alt=""`,
-      `src="${SITE}${TICKET_EMAIL_ASSETS.stripesPhone}" width="72" height="12" alt=""`,
+      `src="${SITE}${TICKET_EMAIL_ASSETS.stripesDesktop}" width="112" height="14" alt=""`,
+      `src="${SITE}${TICKET_EMAIL_ASSETS.stripesPhone}" width="72" height="14" alt=""`,
       ">ADMIT ONE &middot; SHELT&Uuml;H</td>",
       `src="${SITE}${IMAGE_PATH}"`,
       ">HERE &#38; NOW</p>",
       ">Interconnect Studio · Coburg North</p>",
       `src="${SITE}${TICKET_EMAIL_ASSETS.notchLeft}" width="12" height="24" alt=""`,
-      "border-top:2px dashed #000000",
+      "border-top:1.5px dashed #000000",
       `src="${SITE}${TICKET_EMAIL_ASSETS.notchRight}" width="12" height="24" alt=""`,
       ">Date</p>",
       ">Sat 14 Nov</p>",
@@ -473,8 +473,8 @@ describe("the wordmark and the hosted images", () => {
 
   it("the hosted decorations exist in public/, at 2x their shown size", () => {
     const sizes: Record<string, [number, number]> = {
-      stripesDesktop: [224, 24],
-      stripesPhone: [144, 24],
+      stripesDesktop: [224, 28],
+      stripesPhone: [144, 28],
       notchLeft: [24, 48],
       notchRight: [24, 48],
       calendar: [40, 40],
@@ -556,9 +556,12 @@ describe("the buttons", () => {
       expect(page).toBe(`${SITE}/checkout/success?session_id=ord_abc`);
       const href = page.replace(/[.?]/g, "\\$&");
       expect(html).toMatch(
-        new RegExp(`<td align="center" bgcolor="#ff4800" style="background-color:#ff4800;border-radius:6px;mso-padding-alt:18px 16px"><a class="bt" href="${href}" style="display:block;padding:18px 16px;[^"]*color:#000000[^"]*">${label}&nbsp;&nbsp;<span[^>]*>&rarr;</span></a>`),
+        new RegExp(`<td align="center" bgcolor="#ff4800" style="background-color:#ff4800;border-radius:8px;mso-padding-alt:18px 16px"><a class="bt" href="${href}" style="display:block;padding:18px 16px;[^"]*color:#000000[^"]*">${label}&nbsp;&nbsp;<span[^>]*>&rarr;</span></a>`),
       );
-      expect(html).toMatch(new RegExp(`border:1\\.5px solid #000000;border-radius:6px;mso-padding-alt:16px 16px"><a class="bo" href="${href}" style="display:block;padding:16\\.5px 16px;[^"]*">Manage order</a>`));
+      // Its table keeps separate borders: in the collapsed model the stroke ignores the radius (square corners).
+      expect(html).toMatch(
+        new RegExp(`<table [^>]*style="border-collapse:separate"><tr><td align="center" bgcolor="#ffffff" style="background-color:#ffffff;border:1\\.5px solid #000000;border-radius:6px;mso-padding-alt:16px 16px"><a class="bo" href="${href}" style="display:block;padding:16\\.5px 16px;[^"]*">Manage order</a>`),
+      );
       // The text fallback is only in the plain-text part.
       expect(text).toContain(`${label}: ${page}\nManage order: ${page}\n(Button not working? Use the links above.)`);
       expect(html).not.toContain("Button not working");
@@ -589,7 +592,7 @@ describe("the info rows", () => {
       `<a href="${esc(href)}" title="${title}" style="color:#000000;text-decoration:underline;text-underline-offset:2px">${label}</a>`;
     // P3: "Add to calendar:" itself isn't underlined; only the three links are.
     expect(email.html).toContain(
-      `font-size:14px;line-height:24px;font-weight:600;color:#000000;padding-top:3px">Add to calendar: ${anchor(links.google!, "Add to Google Calendar", "Google")} &middot; ${anchor(links.apple!, "Add to Apple Calendar", "Apple")} &middot; ${anchor(links.outlook!, "Add to Outlook Calendar", "Outlook")}</p>`,
+      `font-size:15px;line-height:24px;font-weight:600;color:#000000;padding-top:3px">Add to calendar: ${anchor(links.google!, "Add to Google Calendar", "Google")} &middot; ${anchor(links.apple!, "Add to Apple Calendar", "Apple")} &middot; ${anchor(links.outlook!, "Add to Outlook Calendar", "Outlook")}</p>`,
     );
     expect(email.html).toContain(">Saturday 14 November 2026</p>");
     expect(email.html).toContain(">5:00 – 9:00 pm AEDT</p>");
@@ -699,7 +702,7 @@ describe("refund policy (docs/architecture.md, Refund policy)", () => {
     const line = "Refunds available until Sat 27 Feb 2027, 8:00 pm (7 days before the event).";
     expect(REFUND_ACL_STATEMENT).toBe("You're always entitled to a refund if the event is cancelled or significantly changed, as the Australian Consumer Law requires.");
     expect(html).toContain(
-      `text-align:right;font-family:'Instrument Sans',Arial,Helvetica,sans-serif;font-size:13px;line-height:20px;font-weight:400;color:#5c5c5c">${line} ${REFUND_ACL_STATEMENT.replace("'", "&#39;")}</p>`,
+      `text-align:right;font-family:'Instrument Sans',Arial,Helvetica,sans-serif;font-size:14px;line-height:20px;font-weight:400;color:#5c5c5c">${line} ${REFUND_ACL_STATEMENT.replace("'", "&#39;")}</p>`,
     );
     expect(text).toContain(`${line} ${REFUND_ACL_STATEMENT}`);
     expect(html.indexOf(line)).toBeGreaterThan(html.indexOf(">Total paid<"));

@@ -63,6 +63,30 @@ and the email uses the measured value:
 | "Going with friends?" box | 8 / 16 / 24 | **7 / 14**, chips' 8px bottom margin + 14 | Box 155px tall |
 | Need a hand → divider → footer | 40 / 32 | **32 / 24**; tagline 14, mono line 7 | Divider at 2053.5 |
 
+**Re-measured (19 Nov).** The owner asked for an exact copy, so these were re-measured against `154.webp` and
+`155.webp` with sub-pixel edge fits, and per-element fits of size and tracking in Chromium against the images. A
+value changed only where both widths agreed and the change measured better:
+
+| What | Was | Now (desktop / mobile) | Measured |
+| --- | --- | --- | --- |
+| Card radii | 20 outer / 12 inner | **15 / 7** (both widths) | Circle fits to the corner profiles at both widths (outer 15.0–15.3, inner 6.7–7.2) |
+| Corner stripes | 112×12 / 72×12, bars 8 wide | **112×14 / 72×14**, bars **9** wide on an 18px pitch, 45° | Stripe block 215.9–230.0 at 600 (212.1–226.2 at 375); bar edges every 18px |
+| Header row → image | 16 top / 20 | **17 / 16** (both widths) | The stripes start 1px lower, and the image starts 16px under them |
+| Perforation | 2px dashes; 24 above (both widths) | **1.5px**; **22 / 24** above | Integrated darkness 1.47px; dashes at 603.4 (600) |
+| Stub row above | 19 / 16 | **20 / 18** | Labels at 637.3 (600) and 529.0 (375) |
+| Stub labels | 0.1em | **0.08em** | |
+| Mobile headline / ticket title / stub values | 23 / 23 / 14 | **22 / 22 / 13** | Ink widths (283.5 vs 296.5 at 23px) |
+| Mobile page top / label → headline | 33 / 9 | **34 / 10** | |
+| "ADMIT ONE · SHELTÜH" | 10px, 0.12em | **11px, 0.08em** | |
+| Info rows' link lines | 14px | **15px** | Both widths |
+| "Order summary" | 20/28, −0.01em | **20/26**, no tracking; 14 to the first row | The heading sat 1.2px low at both widths |
+| Order reference value | Mono 15, 0.04em | **Mono 16**, no tracking | |
+| "Incl. booking fees", refund lines | 13px | **14px** | |
+| "Going with friends?" line / "Need a hand?" | 16px | **15px** | Ink width 296.5 vs 323.5 at 16px |
+| Footer mono line | 11px, 0.12em | **12px, 0.06em** | |
+| "View your ticket" radius | 6 | **8** | |
+| "Manage order" stroke | Drawn with square corners | Its table now has `border-collapse:separate`, so the 6px radius shows | A collapsed-border table ignores `border-radius` |
+
 Everything else is as specified. The QR area is taller than drawn by design (P2): its 4-module white margin is
 32px above and below the modules (28 on a phone), against ≈24 above and ≈12 below in the images.
 
@@ -171,7 +195,8 @@ email one-to-one, so the email follows the images. The plain-text part stays as 
 
 **Ticket:**
 - Border **8px solid `#FF4800`**.
-- Outer radius 20px, inner radius 12px. Outlook drops the radii, which is acceptable.
+- Outer radius 15px, inner radius 7px (re-measured, §0; first specified as 20 / 12). Outlook drops the radii, which is
+  acceptable.
 - Inner padding: 16px at the top. Sides 28px on desktop, 20px on mobile. 24px at the bottom.
 - Event image radius 4px.
 
@@ -227,7 +252,7 @@ Desktop: outer 536px, inner 520px, content 464px. Mobile: 343 / 327 / 287.
 | Part | Spec (desktop / mobile) | Now (`ticketPanel`) |
 | --- | --- | --- |
 | Frame | A table with `bgcolor="#FF4800"` and padding 8px (the border, so Outlook draws it), radius 20. Inside it, a table with `bgcolor="#FFFFFF"`, radius 12. | White, 1px black border, radius 8 |
-| Header row (padding-top 16) | Left: the **corner stripes** PNG, **112×12** / 72×12 (2×: 224×24 / 144×24), `alt=""`: seven / five `#FF4800` bars slanted at 45°, each ≈8px wide with ≈6px gaps. Right: "ADMIT ONE · SHELTÜH" (§3.2), right-aligned and vertically centred. | "Your ticket" + "Ticket n of N" |
+| Header row (padding-top 16; built 17, §0) | Left: the **corner stripes** PNG, **112×12** / 72×12 (2×: 224×24 / 144×24; built 112×14 / 72×14 with 9px bars, §0), `alt=""`: seven / five `#FF4800` bars slanted at 45°, each ≈8px wide with ≈6px gaps. Right: "ADMIT ONE · SHELTÜH" (§3.2), right-aligned and vertically centred. | "Your ticket" + "Ticket n of N" |
 | Gap 20 / 16 | | |
 | Event image | `width` 464 / 287, height auto at **2:1** (232 / 144), radius 4, `alt="Event image for {title}"` (as today). Same public URL as today (`eventImageEmailUrl`), so it's fetched once for N cards. **No image:** leave the row out, and the title follows the header row after 24px. An email can't draw EventArt's poster; a server-rendered poster PNG is an optional dependency (§11). | A full-width hero above the details (not in the ticket) |
 | Gap 24 / 20 | | |
@@ -699,3 +724,29 @@ The target (≤1.5%, no region over 24×24) isn't met. What remains is almost al
 design tool's rasterising of the same faces differs by sub-pixel amounts, the images are compressed webp, and
 the 375 image is scaled ×1.103. The remaining larger regions are the deliberate deviations (P2's taller QR area,
 D4–D8) and 1px differences at the card's frame. Real clients (§10 E2's matrix) haven't been checked.
+
+**Re-check (19 Nov), after the re-measured values in §0.** This used a new harness, so the numbers aren't
+comparable with the table above. Both versions were measured with it:
+- The fixture rendered in Chromium (fonts loaded, device scale 2, 600 in a 700px window).
+- Brought to 600 / 375 wide, with the reference upscaled to match.
+- Rows aligned by a monotonic dynamic-time-warping map.
+- pixelmatch at threshold 0.1, anti-aliasing excluded.
+- The same masks: the event image, QR, wallet buttons, the fourth chip, and the ticket type at 375.
+
+| Width | Before (18 Nov build) | After | At the image's own resolution (531 / 341 wide), before → after | After, also masking Q3's refund wording and P3's calendar label |
+| --- | --- | --- | --- | --- |
+| 600 | 4.71% | **4.42%** | 3.64% → 3.62% | 3.94% |
+| 375 | 7.35% | **6.51%** | 5.96% → 5.04% | 5.88% |
+
+The 1.5% target still isn't met, and changing the layout can't meet it:
+- Lines that match in size and position, like "Saturday 14 November 2026" (the same ink width, within 0.5px),
+  still have about a third of their box flagged. Figma's text rasterising differs from Chromium's, and the
+  reference is a 531px webp scaled up ×1.13.
+- Placing every pixel within 1px drops the figures to 0.77% / 1.22%.
+
+Known differences left:
+- **Strokes.** The 1.5px strokes (the chips, "Manage order", the perforation) show as 1px in Chromium, which
+  rounds borders down. WebKit (Apple Mail) draws 1.5.
+- **Arrows.** → and ↗ aren't in the self-hosted Instrument Sans subset (Google's "latin" range), so they fall back
+  to a system arrow. The image shows a shorter, heavier arrow.
+- **Owner decisions.** The deliberate deviations listed in §2 and §12.

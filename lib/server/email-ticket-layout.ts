@@ -99,20 +99,20 @@ export function ticketFontFace(siteUrl: string): string {
  * holds the desktop value. Kept short: Gmail clips a message over 102KB.
  */
 const MOBILE_CSS = `@media only screen and (max-width:620px){
-.pg{padding:33px 16px 40px 16px!important}
-.h1{font-size:23px!important;line-height:28px!important}
+.pg{padding:34px 16px 40px 16px!important}
+.h1{font-size:22px!important;line-height:28px!important}
 .tx{padding-left:16px!important;padding-right:16px!important}
 .pf{padding-left:4px!important;padding-right:4px!important}
-.g16{padding-top:16px!important}.g25{padding-top:25px!important}
-.gl{padding-bottom:9px!important}.gv{padding-top:8px!important}
-.tt{font-size:23px!important;line-height:28px!important}
+.g16{padding-top:18px!important}.g25{padding-top:25px!important}.gp{padding-top:24px!important}
+.gl{padding-bottom:10px!important}.gv{padding-top:8px!important}
+.tt{font-size:22px!important;line-height:28px!important}
 .tv{font-size:10px!important;line-height:14px!important}
-.sv{font-size:14px!important;line-height:20px!important}
+.sv{font-size:13px!important;line-height:20px!important}
 .sc{width:92px!important}
 .qr{width:231px!important;height:231px!important}
 .ei{max-height:144px!important}
 .sd{display:none!important}
-.sm{display:block!important;width:72px!important;height:12px!important;max-height:none!important;overflow:visible!important}
+.sm{display:block!important;width:72px!important;height:14px!important;max-height:none!important;overflow:visible!important}
 .bt{padding:14px 4px!important}
 .bo{padding:12.5px 4px!important}
 .bl{padding-right:4px!important}.br{padding-left:4px!important}

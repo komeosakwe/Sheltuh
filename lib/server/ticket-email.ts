@@ -531,7 +531,7 @@ function stubCell(label: string, value: string, widthPx?: number, cls = ""): str
   const width = widthPx ? ` width="${widthPx}"` : "";
   return (
     `<td${cls ? ` class="${cls}"` : ""}${width} valign="top" style="${widthPx ? `width:${widthPx}px;` : ""}padding:0 8px 0 0">` +
-    p(label, type("mono", 11, 12, 400, C.muted, "letter-spacing:0.1em;text-transform:uppercase")) +
+    p(label, type("mono", 11, 12, 400, C.muted, "letter-spacing:0.08em;text-transform:uppercase")) +
     p(escapeHtml(value), type("sans", 17, 24, 500, C.ink, "padding-top:5px;overflow-wrap:break-word;word-wrap:break-word"), "sv") +
     `</td>`
   );
@@ -550,15 +550,15 @@ function ticketCard(card: CardInput): string {
   const { siteUrl, event, qr } = card;
   const side = (top: number, cls = "") => `class="tx${cls ? ` ${cls}` : ""}" style="padding:${top}px 24px 0 24px"`;
   const stripes =
-    deco(ticketAssetUrl(siteUrl, TICKET_EMAIL_ASSETS.stripesDesktop), 112, 12, "", "sd") +
-    `<!--[if !mso]><!--><div class="sm" style="display:none;max-height:0;overflow:hidden;mso-hide:all">${deco(ticketAssetUrl(siteUrl, TICKET_EMAIL_ASSETS.stripesPhone), 72, 12)}</div><!--<![endif]-->`;
+    deco(ticketAssetUrl(siteUrl, TICKET_EMAIL_ASSETS.stripesDesktop), 112, 14, "", "sd") +
+    `<!--[if !mso]><!--><div class="sm" style="display:none;max-height:0;overflow:hidden;mso-hide:all">${deco(ticketAssetUrl(siteUrl, TICKET_EMAIL_ASSETS.stripesPhone), 72, 14)}</div><!--<![endif]-->`;
   const header =
-    `<tr><td ${side(16)}><table ${FULL}><tr>` +
+    `<tr><td ${side(17)}><table ${FULL}><tr>` +
     `<td align="left" valign="middle" style="font-size:0;line-height:0">${stripes}</td>` +
-    `<td align="right" valign="middle" style="${type("mono", 10, 12, 500, C.ink, "letter-spacing:0.12em;white-space:nowrap")}">ADMIT ONE &middot; SHELT&Uuml;H</td>` +
+    `<td align="right" valign="middle" style="${type("mono", 11, 12, 500, C.ink, "letter-spacing:0.08em;white-space:nowrap")}">ADMIT ONE &middot; SHELT&Uuml;H</td>` +
     `</tr></table></td></tr>`;
   const image = event?.imageUrl
-    ? `<tr><td ${side(20)}><div class="ei" style="max-height:232px;overflow:hidden;border-radius:4px"><img src="${escapeHtml(event.imageUrl)}" width="${CARD_CONTENT_WIDTH}" alt="${escapeHtml(`Event image for ${card.title}`)}" style="display:block;border:0;width:100%;max-width:${CARD_CONTENT_WIDTH}px;height:auto;aspect-ratio:2/1;object-fit:cover;${event.imageFocus ? `object-position:${event.imageFocus};` : ""}border-radius:4px;${type("sans", 14, 20, 400, C.muted)}"></div></td></tr>`
+    ? `<tr><td ${side(16)}><div class="ei" style="max-height:232px;overflow:hidden;border-radius:4px"><img src="${escapeHtml(event.imageUrl)}" width="${CARD_CONTENT_WIDTH}" alt="${escapeHtml(`Event image for ${card.title}`)}" style="display:block;border:0;width:100%;max-width:${CARD_CONTENT_WIDTH}px;height:auto;aspect-ratio:2/1;object-fit:cover;${event.imageFocus ? `object-position:${event.imageFocus};` : ""}border-radius:4px;${type("sans", 14, 20, 400, C.muted)}"></div></td></tr>`
     : "";
   const title = `<tr><td align="center" ${side(event?.imageUrl ? 27 : 24, event?.imageUrl ? "g25" : "")}>${p(escapeHtml(card.title), type("sans", 32, 38, 700, C.ink, "overflow-wrap:break-word;word-wrap:break-word"), "tt")}</td></tr>`;
   const venue = event?.venueLine
@@ -566,9 +566,9 @@ function ticketCard(card: CardInput): string {
     : "";
   const notch = (src: string) => `<td width="12" valign="middle" style="width:12px;font-size:0;line-height:0">${deco(ticketAssetUrl(siteUrl, src), 12, 24)}</td>`;
   const perforation =
-    `<tr><td style="padding:24px 0 0 0"><table ${FULL}><tr>` +
+    `<tr><td class="gp" style="padding:22px 0 0 0"><table ${FULL}><tr>` +
     notch(TICKET_EMAIL_ASSETS.notchLeft) +
-    `<td class="pf" valign="middle" style="padding:0 12px"><div style="border-top:2px dashed ${C.ink};height:0;font-size:0;line-height:0">&nbsp;</div></td>` +
+    `<td class="pf" valign="middle" style="padding:0 12px"><div style="border-top:1.5px dashed ${C.ink};height:0;font-size:0;line-height:0">&nbsp;</div></td>` +
     notch(TICKET_EMAIL_ASSETS.notchRight) +
     `</tr></table></td></tr>`;
   const columns = [
@@ -576,7 +576,7 @@ function ticketCard(card: CardInput): string {
     ...(card.typeName ? [["Ticket", card.typeName]] : []),
   ];
   const stub = columns.length
-    ? `<tr><td ${side(19, "g16")}><table ${FULL}><tr>` +
+    ? `<tr><td ${side(20, "g16")}><table ${FULL}><tr>` +
       // As drawn: DATE and TIME 160px apart (152 + 8; 100 on a phone), TICKET the rest.
       columns.map(([label, value], i) => (i < columns.length - 1 ? stubCell(label, value, 152, "sc") : stubCell(label, value))).join("") +
       `</tr></table></td></tr>`
@@ -590,8 +590,8 @@ function ticketCard(card: CardInput): string {
     : `<tr><td align="center" ${side(28)}>${p("Entry code", type("mono", 10, 12, 400, C.muted, "letter-spacing:0.1em;text-transform:uppercase"))}${p(escapeHtml(card.code), type("mono", 24, 32, 600, C.ink, "letter-spacing:0.15em;padding-top:4px;word-break:break-all"))}</td></tr>`;
   const note = `<tr><td align="center" class="tx" style="padding:8px 24px 24px 24px">${p(`Show this at the door &middot; ticket ${card.index + 1} of ${card.total}`, type("sans", 13, 16, 400, C.muted))}</td></tr>`;
   return (
-    `<table ${FULL} bgcolor="${C.signal}" class="ticket" style="background-color:${C.signal};border-radius:20px;border-collapse:separate"><tr><td style="padding:12px">` +
-    `<table ${FULL} bgcolor="${C.white}" style="background-color:${C.white};border-radius:12px;border-collapse:separate">\n` +
+    `<table ${FULL} bgcolor="${C.signal}" class="ticket" style="background-color:${C.signal};border-radius:15px;border-collapse:separate"><tr><td style="padding:12px">` +
+    `<table ${FULL} bgcolor="${C.white}" style="background-color:${C.white};border-radius:7px;border-collapse:separate">\n` +
     [header, image, title, venue, perforation, stub, seat, code, note].filter(Boolean).join("\n") +
     `\n</table></td></tr></table>`
   );
@@ -629,9 +629,9 @@ function buttonsRow(viewLabel: string, viewHref: string, manageHref: string): st
   const label = type("sans", 16, 20, 600, C.ink, "text-align:center;text-decoration:none;white-space:nowrap");
   return (
     `<table ${FULL}><tr>` +
-    `<td class="bl" width="50%" valign="top" style="padding-right:6px"><table ${FULL}><tr><td align="center" bgcolor="${C.signal}" style="background-color:${C.signal};border-radius:6px;mso-padding-alt:18px 16px">` +
+    `<td class="bl" width="50%" valign="top" style="padding-right:6px"><table ${FULL}><tr><td align="center" bgcolor="${C.signal}" style="background-color:${C.signal};border-radius:8px;mso-padding-alt:18px 16px">` +
     `<a class="bt" href="${escapeHtml(viewHref)}" style="display:block;padding:18px 16px;${label}">${escapeHtml(viewLabel)}&nbsp;&nbsp;<span style="font-size:19px;line-height:20px;font-weight:700">&rarr;</span></a></td></tr></table></td>` +
-    `<td class="br" width="50%" valign="top" style="padding-left:6px"><table ${FULL}><tr><td align="center" bgcolor="${C.white}" style="background-color:${C.white};border:1.5px solid ${C.ink};border-radius:6px;mso-padding-alt:16px 16px">` +
+    `<td class="br" width="50%" valign="top" style="padding-left:6px"><table ${FULL} style="border-collapse:separate"><tr><td align="center" bgcolor="${C.white}" style="background-color:${C.white};border:1.5px solid ${C.ink};border-radius:6px;mso-padding-alt:16px 16px">` +
     `<a class="bo" href="${escapeHtml(manageHref)}" style="display:block;padding:16.5px 16px;${label}">Manage order</a></td></tr></table></td>` +
     `</tr></table>`
   );
@@ -650,7 +650,7 @@ function infoRow(siteUrl: string, iconPath: string, lines: string[]): string {
 
 const infoStrong = (html: string) => p(html, type("sans", 16, 24, 600, C.ink, "overflow-wrap:break-word;word-wrap:break-word"));
 const infoMuted = (html: string) => p(html, type("sans", 16, 24, 400, C.muted, "padding-top:4px;overflow-wrap:break-word;word-wrap:break-word"));
-const infoLink = (html: string) => p(html, type("sans", 14, 24, 600, C.ink, "padding-top:3px"));
+const infoLink = (html: string) => p(html, type("sans", 15, 24, 600, C.ink, "padding-top:3px"));
 
 /** Calendar links for the When row: Google, Apple (the event's .ics) and Outlook, each null when it can't be built. */
 export function ticketCalendarLinks(event: EventRecord, siteUrl: string): { google: string | null; apple: string | null; outlook: string | null } {
@@ -884,19 +884,19 @@ export function buildTicketEmail(
 
   const value = type("sans", 16, 24, 400, C.ink);
   const summary =
-    `<h2 style="margin:0;${type("sans", 20, 28, 700, C.ink, "letter-spacing:-0.01em")}">Order summary</h2>` +
+    `<h2 style="margin:0;${type("sans", 20, 26, 700, C.ink)}">Order summary</h2>` +
     `<table ${FULL}>` +
-    summaryRow("Order reference", escapeHtml(reference), type("mono", 15, 24, 600, C.ink, "letter-spacing:0.04em"), 12) +
+    summaryRow("Order reference", escapeHtml(reference), type("mono", 16, 24, 600, C.ink), 14) +
     lineItems
       .map((l) => summaryRow(escapeHtml(l.label), l.cents === null ? "" : escapeHtml(l.cents === 0 ? "Free" : formatAud(l.cents)), value))
       .join("") +
     (support ? summaryRow(escapeHtml(SUPPORT_LABEL), escapeHtml(formatAud(support)), value) : "") +
     summaryRow("Total paid", escapeHtml(free ? "Free" : formatAud(order.totalCents)), type("sans", 16, 24, 700, C.ink), 12, type("sans", 16, 24, 700, C.ink)) +
     `</table>` +
-    (free ? "" : `<p style="margin:0;padding-top:12px;text-align:right;${type("sans", 13, 20, 400, C.muted)}">${escapeHtml(includes.replace(/^incl\./, "Incl."))}</p>`) +
+    (free ? "" : `<p style="margin:0;padding-top:12px;text-align:right;${type("sans", 14, 20, 400, C.muted)}">${escapeHtml(includes.replace(/^incl\./, "Incl."))}</p>`) +
     (refunds
-      ? `<p style="margin:0;padding-top:12px;text-align:right;${type("sans", 13, 20, 400, C.muted)}">${escapeHtml(`${refunds} ${REFUND_ACL_STATEMENT}`)}</p>` +
-        (support ? `<p style="margin:0;padding-top:8px;text-align:right;${type("sans", 13, 20, 400, C.muted)}">${escapeHtml(SUPPORT_REFUND_NOTE)}</p>` : "")
+      ? `<p style="margin:0;padding-top:12px;text-align:right;${type("sans", 14, 20, 400, C.muted)}">${escapeHtml(`${refunds} ${REFUND_ACL_STATEMENT}`)}</p>` +
+        (support ? `<p style="margin:0;padding-top:8px;text-align:right;${type("sans", 14, 20, 400, C.muted)}">${escapeHtml(SUPPORT_REFUND_NOTE)}</p>` : "")
       : "");
 
   const chip = (l: { label: string; href: string }) =>
@@ -904,7 +904,7 @@ export function buildTicketEmail(
   const friends = share
     ? `<table ${FULL} bgcolor="${C.cream}" style="background-color:${C.cream};border-radius:16px;border-collapse:separate"><tr><td style="padding:24px 24px 14px 24px">` +
       `<h2 style="margin:0;${type("sans", 18, 24, 700, C.ink)}">Going with friends?</h2>` +
-      p("Send them the event so you can go together.", type("sans", 16, 24, 400, C.muted, "padding-top:7px")) +
+      p("Send them the event so you can go together.", type("sans", 15, 24, 400, C.muted, "padding-top:7px")) +
       `<div style="padding-top:14px;font-size:0;line-height:0">${share.map(chip).join("")}</div>` +
       `</td></tr></table>`
     : "";
@@ -914,7 +914,7 @@ export function buildTicketEmail(
     `<table ${FULL}>` +
     `<tr><td align="center"><table ${TABLE} align="center"><tr><td>${wordmarkTag(88, 20)}</td></tr></table></td></tr>` +
     `<tr><td align="center" style="padding:14px 0 0 0;${type("sans", 14, 20, 400, C.muted)}">Find your place, find your people.</td></tr>` +
-    `<tr><td align="center" style="padding:7px 0 0 0;${type("mono", 11, 16, 400, C.muted, "letter-spacing:0.12em")}">SHELT&Uuml;H &middot; MELBOURNE</td></tr>` +
+    `<tr><td align="center" style="padding:7px 0 0 0;${type("mono", 12, 16, 400, C.muted, "letter-spacing:0.06em")}">SHELT&Uuml;H &middot; MELBOURNE</td></tr>` +
     `<tr><td align="center" style="padding:8px 0 0 0;${type("sans", 12, 16, 400, C.muted)}">${footerLink(`${site}/privacy`, "Privacy policy")} &middot; ${footerLink(`${site}/terms`, "Terms")} &middot; ${footerLink(`${site}/help`, "Help centre")}</td></tr>` +
     `<tr><td align="center" style="padding:8px 0 0 0;${type("sans", 12, 16, 400, C.muted)}">You&rsquo;re getting this email because you bought a ticket on Sheltüh.</td></tr>` +
     `</table>`;
@@ -937,7 +937,7 @@ export function buildTicketEmail(
       [summary, 24],
       [hairline(), 32],
       [friends, 32],
-      [p(`Need a hand? ${anchor(`mailto:${SUPPORT_EMAIL}`, escapeHtml(SUPPORT_EMAIL))}`, type("sans", 16, 24, 400, C.ink)), 32],
+      [p(`Need a hand? ${anchor(`mailto:${SUPPORT_EMAIL}`, escapeHtml(SUPPORT_EMAIL))}`, type("sans", 15, 24, 400, C.ink)), 32],
       [hairline(), 24],
       [footer, 0],
     ]);

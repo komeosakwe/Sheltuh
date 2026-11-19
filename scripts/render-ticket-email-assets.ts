@@ -2,8 +2,8 @@
  * Draws the ticket email's small images (docs/design/ticket-email.md §4–§5)
  * with sharp, from SVG written here, at 2x the size they're shown at:
  *
- *   public/email/ticket/stripes-112.png   the card's corner stripes, desktop: 112 x 12 (224 x 24)
- *   public/email/ticket/stripes-72.png    the same, phone: 72 x 12 (144 x 24)
+ *   public/email/ticket/stripes-112.png   the card's corner stripes, desktop: 112 x 14 (224 x 28)
+ *   public/email/ticket/stripes-72.png    the same, phone: 72 x 14 (144 x 28)
  *   public/email/ticket/notch-left.png    the perforation's half-discs, 12 x 24 (24 x 48),
  *   public/email/ticket/notch-right.png   flat edge against the orange border
  *   public/email/ticket/calendar.png      the info rows' icons, 20 x 20 (40 x 40),
@@ -14,8 +14,10 @@
  *
  *   node --import tsx scripts/render-ticket-email-assets.ts
  *
- * The stripes are 45° bars of Signal Orange (#FF4800), 8 px wide on an
- * 18 px pitch, clipped to their box, as measured from the design images.
+ * The stripes are 45° bars of Signal Orange (#FF4800), 9 px wide on an
+ * 18 px pitch, a bar starting every 18 px along the top edge, clipped to
+ * their box: as measured from the design images (154.webp / 155.webp at
+ * 600 / 375 px, 19 Nov).
  * Hosted from the site's own origin (lib/server/email-ticket-layout.ts);
  * all are decorative (alt=""), and each has its size set in the markup, so a
  * blocked image keeps the layout. Rerun only when a drawing changes; the
@@ -32,7 +34,7 @@ const INK = "#000000";
 const SCALE = 2;
 
 /** 45° stripes clipped to `width` x `height` (CSS px), first bar's foot `offset` px in. */
-function stripesSvg(width: number, height: number, offset = 6, bar = 8, pitch = 18): string {
+function stripesSvg(width: number, height: number, offset = 4, bar = 9, pitch = 18): string {
   const bars: string[] = [];
   for (let foot = offset - pitch * 2; foot < width + height; foot += pitch) {
     bars.push(`<polygon points="${foot},${height} ${foot + bar},${height} ${foot + bar + height},0 ${foot + height},0"/>`);
@@ -67,8 +69,8 @@ const png = (svg: string) => sharp(Buffer.from(svg)).png({ compressionLevel: 9, 
 async function main() {
   mkdirSync(OUT, { recursive: true });
   const files: [string, Buffer][] = [
-    ["stripes-112.png", await png(stripesSvg(112, 12))],
-    ["stripes-72.png", await png(stripesSvg(72, 12))],
+    ["stripes-112.png", await png(stripesSvg(112, 14))],
+    ["stripes-72.png", await png(stripesSvg(72, 14))],
     ["notch-left.png", await png(notchSvg("left"))],
     ["notch-right.png", await png(notchSvg("right"))],
     ...(await Promise.all(Object.entries(ICONS).map(async ([name, svg]) => [`${name}.png`, await png(svg)] as [string, Buffer]))),

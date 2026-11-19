@@ -188,8 +188,43 @@ badge artwork. Before launch, as for the sign-in logos
    the primary (black) one, SVG.
 3. Save them unmodified in `public/wallet/badges/`, swap them into
    `WalletButtons.tsx` (keeping the accessible names and the 44px height),
-   and note the source URL and download date in the commit. Neither page
-   could be read when this was built (unverified URLs).
+   and note the source URL and download date here and in the commit.
+
+**Status (checked 19 Nov 2026): still not downloaded.**
+
+- **Apple: the owner has to download it.** Apple's guidelines page loads.
+  Its "Download badge files" link (SVG and EPS, 45 locales) opens the
+  *Apple Wallet Marketing Artwork License Agreement* (EA0956). Ticking
+  "I agree" is a legal agreement made by the Apple Developer Program
+  account holder. It requires Developer Program membership, use only with
+  your own passes, an indemnity, and California law and courts, so only
+  the owner can accept it. Sign in to the Developer account, accept the
+  agreement, download the badge files, and take the English (AU/UK) black
+  SVG. Apple's rules for using it, from the same page:
+  - Use the SVG for the web and email, and never make your own version.
+  - Use the black badge on white or light backgrounds. On very dark
+    backgrounds, use the outline version from the same download.
+  - Keep a clear space of 0.1 × the badge's height around it.
+  - Don't let the badge dominate the page, dim it, change it, or add
+    effects to it.
+  - Put it near the pass.
+  - Tell people who open the page or email on another device to open it
+    on their iPhone, iPod touch or Mac.
+  - Wherever legal information appears, include Apple's credit line.
+    Apple's template is "Apple, Apple Watch, iPhone, and iPod touch are
+    trademarks of Apple Inc., registered in the U.S. and other countries",
+    listing only the marks we actually use (see Apple's Trademark List).
+- **Google: not reachable from the build environment.** The egress proxy
+  refuses `developers.google.com` (both
+  `/wallet/generic/resources/brand-guidelines` and
+  `/wallet/tickets/events/resources/brand-guidelines`) and
+  `www.gstatic.com` (403, policy). Download the assets zip from the
+  brand-guidelines page in a browser.
+  - Google's `google-wallet/web-codelab` repository on GitHub (Apache-2.0;
+    the licence doesn't cover trademarks) has a `wallet-button.png`. It's
+    1658 × 302, SHA-256 `0c1d3289…d82a0`, commit `814d807`. It's a
+    codelab's raster copy, not the brand-guidelines file, so it isn't
+    used.
 
 ## Images
 
