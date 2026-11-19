@@ -149,10 +149,14 @@ test.describe("phone drawer at 390px", () => {
     await expect(site.locator("[data-unread-badge], [data-menu-count]")).toHaveCount(0);
     await expect(site.getByRole("link", { name: "Your events" })).toHaveCount(0);
     expect(Math.round((await site.getByRole("link", { name: "For organisers" }).boundingBox())?.height ?? 0)).toBe(56);
-    // Tab stays in the bar and the drawer: past For organisers to the logo.
+    // Tab stays in the bar and the drawer: past For organisers to the logo, with the drawer still open.
     await site.getByRole("link", { name: "For organisers" }).focus();
     await page.keyboard.press("Tab");
     await expect(page.locator("[data-compact-header]").getByRole("link", { name: "Sheltüh home" })).toBeFocused();
+    await expect(page.locator("#site-menu")).toBeVisible();
+    await page.keyboard.press("Shift+Tab");
+    await expect(site.getByRole("link", { name: "For organisers" })).toBeFocused();
+    await expect(page.locator("#site-menu")).toBeVisible();
   });
 });
 

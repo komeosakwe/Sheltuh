@@ -134,10 +134,12 @@ export default function Nav() {
       setPageInert(open);
       if (open) menu?.querySelector<HTMLElement>("a[href]")?.focus();
     }
+    // Focus may move anywhere in the bar (the logo and Close, which Tab cycles to from the drawer's
+    // last control) without closing it; anywhere else closes it.
     function handleFocusOut(event: FocusEvent) {
       const next = event.relatedTarget;
       if (!(next instanceof Node)) return;
-      if (menu?.contains(next) || menuButtonRef.current?.contains(next)) return;
+      if (menu?.contains(next) || menuButtonRef.current?.contains(next) || compactBarRef.current?.contains(next)) return;
       menu?.hidePopover?.();
     }
     menu.addEventListener("toggle", handleToggle);

@@ -186,8 +186,10 @@ describe("phone drawer, keyboard", () => {
     expect(within(bar).getByRole("link", { name: "Search" })).toBeInTheDocument();
   });
 
-  it("keeps Tab inside the bar and the drawer while open: past the last button to the logo, and back", () => {
+  it("keeps Tab inside the bar and the drawer while open: past the last button to the logo, and back, staying open", () => {
     const { drawer } = renderNav(fakeAuthValue({ status: "signed-out" }));
+    const hidePopover = vi.fn();
+    drawer.hidePopover = hidePopover;
     fireToggle(drawer, "open");
     const organisers = within(drawer).getByRole("link", { name: "For organisers", hidden: true });
     const logos = screen.getAllByRole("link", { name: "Sheltüh home", hidden: true });
@@ -196,12 +198,23 @@ describe("phone drawer, keyboard", () => {
     organisers.focus();
     fireEvent.keyDown(organisers, { key: "Tab" });
     expect(barLogo).toHaveFocus();
+    // Focus moving from the drawer to the bar's logo doesn't close the drawer.
+    expect(hidePopover).not.toHaveBeenCalled();
     fireEvent.keyDown(barLogo, { key: "Tab", shiftKey: true });
     expect(organisers).toHaveFocus();
     // In between, Tab is the browser's.
     const discover = within(drawer).getByRole("link", { name: "Discover", hidden: true });
     discover.focus();
     expect(fireEvent.keyDown(discover, { key: "Tab" })).toBe(true);
+    expect(hidePopover).not.toHaveBeenCalled();
+    // Focus leaving for the page still closes it.
+    const outside = document.body.appendChild(document.createElement("button"));
+    try {
+      outside.focus();
+      expect(hidePopover).toHaveBeenCalledTimes(1);
+    } finally {
+      outside.remove();
+    }
   });
 
   it("closes on Escape with focus back on Menu", () => {
