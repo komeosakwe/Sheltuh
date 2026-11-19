@@ -25,6 +25,11 @@ interface Props {
   /** How the home page's featured banner shows the photo: cropped to fill (`crop`) or whole. Saved with the photo. */
   bannerFit: BannerFit;
   onBannerFitChange: (fit: BannerFit) => void;
+  /**
+   * While the event is being published: the focus and the fit can't change (publishing sends the ones it started
+   * with, and a published event's photo settings can't be saved by the organiser afterwards). Off again if it fails.
+   */
+  locked?: boolean;
   error?: string;
   /** The generated artwork the event shows until it has a photo (the same the public card shows). */
   poster: EventPoster;
@@ -49,6 +54,7 @@ export default function EventImageField({
   onFocusChange,
   bannerFit,
   onBannerFitChange,
+  locked = false,
   error,
   poster,
   title,
@@ -199,6 +205,7 @@ export default function EventImageField({
           imageUrl={shown}
           focus={focus}
           onChange={onFocusChange}
+          disabled={locked}
           poster={poster}
           title={title.trim() || "Untitled event"}
         />
@@ -213,6 +220,7 @@ export default function EventImageField({
                   id="event-banner-fit"
                   type="checkbox"
                   checked={bannerFit === "whole"}
+                  disabled={locked}
                   onChange={(e) => onBannerFitChange(e.target.checked ? "whole" : "crop")}
                   aria-describedby="event-banner-fit-hint"
                   className="mt-0.5 size-4 shrink-0"

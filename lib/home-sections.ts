@@ -196,12 +196,14 @@ const eventState = (event: SheltuhEvent): StateCode => event.state ?? "VIC";
 
 /**
  * A title compared loosely: letters and digits only (a Latin letter's accents dropped), lower case, single spaces.
- * "Kofi Stone", "KOFI STONE" and "Kofí  Stone!" are one title. Other scripts keep their marks, which can be whole
- * vowels: "राम" and "रोम" are two.
+ * "Kofi Stone", "KOFI STONE" and "Kofí  Stone!" are one title, as are "Kofi Stone ☀" and "Kofi Stone ☀️" (an
+ * emoji's text or emoji presentation selector, U+FE0E or U+FE0F, is dropped). Other scripts keep their marks, which
+ * can be whole vowels: "राम" and "रोम" are two.
  */
 function normaliseTitle(title: string): string {
   return title
     .normalize("NFKD")
+    .replace(/[\uFE0E\uFE0F]/g, "")
     .replace(/(\p{Script=Latin})\p{M}+/gu, "$1")
     .toLowerCase()
     .replace(/[^\p{L}\p{M}\p{N}]+/gu, " ")
@@ -212,7 +214,7 @@ function normaliseTitle(title: string): string {
  * Who an event is by, as far as the data can tell: its organiser (the id, or the name when there's
  * none) and its normalised title. There's no artist field, so the same act on two organisers'
  * listings counts twice, and one organiser's same-titled shows (a tour) count once. Nothing ever
- * collapses on a blank: a title with no letters or digits ("🎉🎉", "☀️") is compared as entered, and an
+ * collapses on a blank: a title with no letters or digits ("🎉🎉", "☀️", "™") is compared as entered, and an
  * event with no organiser (neither id nor name) or no title at all is only ever itself.
  */
 export function artistKey(event: SheltuhEvent): string {
@@ -220,9 +222,10 @@ export function artistKey(event: SheltuhEvent): string {
   // The types say a name is always there, but a record from elsewhere may lack it.
   const organiserName = (event.organiserName ?? "").trim();
   const organiser = event.organiserId ?? (organiserName ? `name:${organiserName}` : self);
-  // A key with no letter or digit (only marks: an emoji's variation selector, "☀️" and "✈️") falls back to the title as entered.
-  const normalised = normaliseTitle(event.title);
-  const title = (/[\p{L}\p{N}]/u.test(normalised) ? normalised : "") || event.title.trim() || self;
+  // A title with no letter or digit of its own ("☀️", "™") is compared as entered: never by what normalising makes of
+  // it ("™" is "TM" once decomposed, and "☀️" leaves only its selector).
+  const entered = event.title.trim();
+  const title = (/[\p{L}\p{N}]/u.test(entered) ? normaliseTitle(entered) : "") || entered || self;
   return `${organiser}\u0000${title}`;
 }
 

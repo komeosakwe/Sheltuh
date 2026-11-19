@@ -90,6 +90,19 @@ describe("the text without a real venue name: the address and the place it's in"
     expect(decoded(directionsHref(richmond))).toBe("https://www.google.com/maps/dir/?api=1&destination=1 March St, Richmond VIC 3121, Richmond, NSW");
   });
 
+  // CodeRabbit (PR #61, round 4): the event page can leave the state out after "Richmond"; a map query can't.
+  it("adds the event's state to an address that names only its suburb, and leaves one that says the state", () => {
+    const nsw = { venueName: "", suburb: "Richmond NSW", state: "NSW" as const };
+    expect(decoded(directionsHref({ ...nsw, venueAddress: "1 March St, Richmond" }))).toBe(
+      "https://www.google.com/maps/dir/?api=1&destination=1 March St, Richmond, NSW",
+    );
+    expect(decoded(appleMapsHref({ ...nsw, venueAddress: "1 March St, Richmond 2753" }))).toBe("https://maps.apple.com/?daddr=1 March St, Richmond 2753, NSW");
+    expect(decoded(appleMapsHref({ ...nsw, venueAddress: "1 March St, Richmond NSW 2753" }))).toBe("https://maps.apple.com/?daddr=1 March St, Richmond NSW 2753");
+    expect(decoded(appleMapsHref({ ...nsw, venueAddress: "1 March St, Richmond, NSW 2753" }))).toBe("https://maps.apple.com/?daddr=1 March St, Richmond, NSW 2753");
+    // No state on the event (the ticket email, an older event): as written.
+    expect(decoded(appleMapsHref({ venueName: "", suburb: "Richmond", venueAddress: "1 Swan St, Richmond" }))).toBe("https://maps.apple.com/?daddr=1 Swan St, Richmond");
+  });
+
   // CodeRabbit (PR #61, round 3): no street address, no pin: the suburb with its state, as the event page says it.
   it("without a street address, says the suburb with its state when the event has one", () => {
     const richmond = { venueName: "", venueAddress: "", suburb: "Richmond NSW", state: "NSW" as const };

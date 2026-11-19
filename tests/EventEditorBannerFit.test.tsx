@@ -4,7 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventEditor from "@/components/dashboard/EventEditor";
 import type { AdminEventRecord, EventRecord } from "@/lib/api/types";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
-import { stubMatchMedia, unstubMatchMedia } from "./test-utils/pinMapStub";
+import { showStep } from "./test-utils/editorSteps";
+import { CONFIRMED_PIN_LOCATION, stubMatchMedia, unstubMatchMedia } from "./test-utils/pinMapStub";
 
 /**
  * Round 2 Part 2: "Show the whole photo in the home banner" (event_images.banner_fit). Offered only
@@ -19,6 +20,7 @@ const updateEventDraft = vi.fn();
 const uploadEventImage = vi.fn();
 const deleteEventImage = vi.fn();
 const setEventImageDisplay = vi.fn();
+const publishEvent = vi.fn();
 const prepareEventImage = vi.fn();
 vi.mock("@/lib/api/events", async (importOriginal) => ({
   isPayoutsRequiredError: (await importOriginal<typeof import("@/lib/api/events")>()).isPayoutsRequiredError,
@@ -26,7 +28,7 @@ vi.mock("@/lib/api/events", async (importOriginal) => ({
   publishConflictCode: (await importOriginal<typeof import("@/lib/api/events")>()).publishConflictCode,
   updateEventDraft: (...args: unknown[]) => updateEventDraft(...args),
   createEventDraft: vi.fn(),
-  publishEvent: vi.fn(),
+  publishEvent: (...args: unknown[]) => publishEvent(...args),
   uploadEventImage: (...args: unknown[]) => uploadEventImage(...args),
   deleteEventImage: (...args: unknown[]) => deleteEventImage(...args),
   setEventImageDisplay: (...args: unknown[]) => setEventImageDisplay(...args),
@@ -53,7 +55,7 @@ vi.mock("@/lib/image", async (importOriginal) => ({
 
 beforeEach(() => {
   stubMatchMedia();
-  for (const fn of [updateEventDraft, uploadEventImage, deleteEventImage, setEventImageDisplay, prepareEventImage, adminUpdateEvent, adminSetEventImageDisplay, adminUploadEventImage]) {
+  for (const fn of [updateEventDraft, uploadEventImage, deleteEventImage, setEventImageDisplay, publishEvent, prepareEventImage, adminUpdateEvent, adminSetEventImageDisplay, adminUploadEventImage]) {
     fn.mockReset();
   }
   URL.createObjectURL = vi.fn(() => "blob:picked");
@@ -274,7 +276,8 @@ describe("EventEditor banner fit", () => {
     let answer: (record: EventRecord) => void = () => {};
     setEventImageDisplay
       .mockImplementationOnce(() => new Promise<EventRecord>((resolve) => (answer = resolve)))
-      .mockResolvedValueOnce({ ...EVENT, bannerFit: "crop" });
+      // The API sends no bannerFit for crop (lib/server/records.ts bannerFitOf).
+      .mockResolvedValueOnce(EVENT);
     const { onSaved } = renderEditor();
     const box = await checkbox();
     fireEvent.click(box);
@@ -290,7 +293,7 @@ describe("EventEditor banner fit", () => {
 
     await waitFor(() => expect(screen.getByRole("button", { name: "Save draft" })).not.toHaveAttribute("aria-disabled", "true"));
     save();
-    await waitFor(() => expect(onSaved).toHaveBeenLastCalledWith({ ...EVENT, bannerFit: "crop" }));
+    await waitFor(() => expect(onSaved).toHaveBeenLastCalledWith(EVENT));
     expect(setEventImageDisplay).toHaveBeenCalledTimes(2);
     expect(setEventImageDisplay.mock.calls[1][1]).toEqual({ bannerFit: "crop" });
   });
@@ -317,6 +320,67 @@ describe("EventEditor banner fit", () => {
     await waitFor(() => expect(onSaved).toHaveBeenLastCalledWith({ ...EVENT, imageFocus: { x: 40, y: 40 } }));
     expect(setEventImageDisplay).toHaveBeenCalledTimes(2);
     expect(setEventImageDisplay.mock.calls[1][1]).toEqual({ focus: { x: 40, y: 40 } });
+  });
+
+  // CodeRabbit (PR #61, round 4): publishing sends the focus and fit it started with, and a published event's photo
+  // settings can't be saved afterwards, so they can't change while it runs; they can again if it fails.
+  it("while publishing, the fit and the focus can't change; a failed publish gives them back", async () => {
+    let fail: (err: Error) => void = () => {};
+    updateEventDraft.mockImplementation(() => new Promise<EventRecord>((_, reject) => (fail = reject)));
+    renderEditor({ ...EVENT, location: CONFIRMED_PIN_LOCATION });
+    const box = await checkbox();
+    expect(box).toBeEnabled();
+    const focusArea = () => document.querySelector("[data-focus-area]") as HTMLElement;
+    showStep(3);
+    fireEvent.click(await screen.findByRole("button", { name: "Publish…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Publish now" }));
+    await waitFor(() => expect(updateEventDraft).toHaveBeenCalledTimes(1));
+
+    expect(screen.getByLabelText(LABEL)).toBeDisabled();
+    expect(focusArea()).toHaveAttribute("aria-disabled", "true");
+    fireEvent.keyDown(focusArea(), { key: "ArrowRight" });
+    expect(focusArea()).toHaveAttribute("aria-valuenow", "30");
+
+    await act(async () => fail(new Error("network")));
+    expect(await screen.findByText("network")).toBeInTheDocument();
+    expect(publishEvent).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByLabelText(LABEL)).toBeEnabled());
+    expect(focusArea()).not.toHaveAttribute("aria-disabled");
+    fireEvent.keyDown(focusArea(), { key: "ArrowRight" });
+    expect(focusArea()).toHaveAttribute("aria-valuenow", "35");
+  });
+
+  // CodeRabbit (PR #61, round 4): the delete's answer mustn't reset a photo picked (and its fit chosen) meanwhile.
+  it("a photo picked while the old one's delete runs keeps its fit, sent with it on the next save", async () => {
+    const bare = { ...EVENT, imageUrl: undefined, imageFocus: undefined };
+    const uploaded = { ...EVENT, imageFocus: undefined, imageUrl: "/api/events/evt-1/image?v=2" };
+    prepareEventImage.mockResolvedValue(new Blob(["x"], { type: "image/jpeg" }));
+    updateEventDraft.mockResolvedValueOnce(EVENT).mockResolvedValueOnce(bare);
+    let deleted: (record: EventRecord) => void = () => {};
+    deleteEventImage.mockImplementation(() => new Promise<EventRecord>((resolve) => (deleted = resolve)));
+    uploadEventImage.mockResolvedValue(uploaded);
+    setEventImageDisplay.mockResolvedValue({ ...uploaded, bannerFit: "whole" });
+    const { onSaved } = renderEditor();
+    await checkbox();
+    fireEvent.click(screen.getByRole("button", { name: "Remove photo" }));
+    save();
+    await waitFor(() => expect(deleteEventImage).toHaveBeenCalledTimes(1));
+    pickPhoto();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Discard new photo" })).toBeInTheDocument());
+    fireEvent.click(await checkbox());
+    expect(screen.getByLabelText(LABEL)).toBeChecked();
+
+    await act(async () => deleted(bare));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(bare));
+    expect(screen.getByLabelText(LABEL)).toBeChecked();
+    expect(screen.getByRole("button", { name: "Discard new photo" })).toBeInTheDocument();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save draft" })).not.toHaveAttribute("aria-disabled", "true"));
+    save();
+    await waitFor(() => expect(onSaved).toHaveBeenLastCalledWith({ ...uploaded, bannerFit: "whole" }));
+    expect(uploadEventImage).toHaveBeenCalledTimes(1);
+    expect(setEventImageDisplay).toHaveBeenCalledTimes(1);
+    expect(setEventImageDisplay.mock.calls[0][1]).toEqual({ bannerFit: "whole" });
   });
 
   it("removing the photo removes the option and its fit: only the delete is sent", async () => {

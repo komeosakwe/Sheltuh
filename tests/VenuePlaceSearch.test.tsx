@@ -67,13 +67,13 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-function renderSearch(props: { error?: string } = {}) {
+function renderSearch(props: { error?: string; placeKey?: string | null } = {}) {
   const onPick = vi.fn<(picked: PickedPlace) => void>();
   const onManual = vi.fn<(why: "chosen" | "unavailable") => void>();
   const onSubmit = vi.fn((event: { preventDefault: () => void }) => event.preventDefault());
   render(
     <form onSubmit={onSubmit}>
-      <VenuePlaceSearch getToken={getToken} onPick={onPick} onManual={onManual} error={props.error} errorId="loc-error" />
+      <VenuePlaceSearch getToken={getToken} placeKey={props.placeKey} onPick={onPick} onManual={onManual} error={props.error} errorId="loc-error" />
     </form>,
   );
   return { onPick, onManual, onSubmit, box: screen.getByRole("combobox", { name: "Find the venue on Google Maps" }) };
@@ -114,7 +114,7 @@ describe("VenuePlaceSearch — the combobox", () => {
   });
 
   it("arrows move through the suggestions (wrapping), Enter picks one; Escape closes, then clears", async () => {
-    const { box, onPick, onSubmit } = renderSearch();
+    const { box, onPick, onSubmit } = renderSearch({ placeKey: "collingwood|VIC" });
     await typeAndWait(box, "Venue");
     const options = screen.getAllByRole("option");
 
@@ -144,7 +144,8 @@ describe("VenuePlaceSearch — the combobox", () => {
     // The same session's token goes with the details request, which ends the session.
     const sessionToken = api.autocompletePlaces.mock.calls[0][1];
     expect(api.getPlaceDetails).toHaveBeenCalledWith("ChIJplace00000000002", sessionToken, getToken, expect.any(AbortSignal));
-    expect(onPick).toHaveBeenCalledWith({ suggestion: suggestion(2), details: DETAILS });
+    // With the suburb's place it was picked in (for the editor: a suburb changed while it loaded unlinks it).
+    expect(onPick).toHaveBeenCalledWith({ suggestion: suggestion(2), details: DETAILS, placeKey: "collingwood|VIC" });
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
@@ -154,7 +155,7 @@ describe("VenuePlaceSearch — the combobox", () => {
     await act(async () => {
       fireEvent.click(screen.getAllByRole("option")[0]);
     });
-    expect(onPick).toHaveBeenCalledWith({ suggestion: suggestion(1), details: DETAILS });
+    expect(onPick).toHaveBeenCalledWith({ suggestion: suggestion(1), details: DETAILS, placeKey: null });
     await typeAndWait(box, "Venue 2");
     expect(api.autocompletePlaces.mock.calls[1][1]).not.toBe(api.autocompletePlaces.mock.calls[0][1]);
   });

@@ -126,9 +126,13 @@ const STREET_TYPES: Readonly<Record<string, string>> = {
   cct: "cct",
 };
 
-/** One comma-separated part of an address, compared loosely: lower case, no punctuation, street types shortened. */
+/**
+ * One comma-separated part of an address, compared loosely: composed (NFC, so "Café" and "Cafe\u0301" are one word,
+ * accent kept), lower case, no punctuation, street types shortened.
+ */
 function streetKey(part: string): string {
   return part
+    .normalize("NFC")
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s/-]/gu, " ")
     .split(/\s+/)
@@ -191,23 +195,28 @@ interface AddressPart {
 
 /** "Collingwood VIC 3066" → { words: "collingwood", state: "VIC" }; "VIC 3121" → { words: "", state: "VIC" }; "3121" → { words: "", state: null }. */
 function addressPart(part: string): AddressPart {
-  const words = part.trim().replace(/\s+/g, " ").toLowerCase().replace(/\s*\b\d{4}$/, "");
+  const words = part.normalize("NFC").trim().replace(/\s+/g, " ").toLowerCase().replace(/\s*\b\d{4}$/, "");
   const named = STATE_WORDS.find(([word]) => words === word || words.endsWith(` ${word}`));
   if (!named) return { words, state: null };
   return { words: words.slice(0, -named[0].length).trim(), state: named[1] };
 }
 
 /**
- * Whether `parts[i]` names the place: the suburb, then (in that part or, for a bare suburb, in the next part, "1 Swan
- * St, Richmond, VIC 3121") no state or the place's own state.
+ * How `parts[i]` names the place: the suburb, then (in that part or, for a bare suburb, in the next part, "1 Swan
+ * St, Richmond, VIC 3121") the place's own state (`stated`) or no state. Null when it doesn't (another suburb, or
+ * another state).
  */
-function partNamesPlace(parts: readonly AddressPart[], i: number, place: { suburb: string; state: StateCode }): boolean {
+function partNaming(parts: readonly AddressPart[], i: number, place: { suburb: string; state: StateCode }): { stated: boolean } | null {
   const part = parts[i];
-  if (part.words !== place.suburb.replace(/\s+/g, " ").toLowerCase()) return false;
+  if (part.words !== place.suburb.normalize("NFC").replace(/\s+/g, " ").toLowerCase()) return null;
   const next = parts[i + 1];
   const state = part.state ?? (next && next.words === "" ? next.state : null);
-  return !state || state === place.state;
+  if (state && state !== place.state) return null;
+  return { stated: state !== null };
 }
+
+const partNamesPlace = (parts: readonly AddressPart[], i: number, place: { suburb: string; state: StateCode }) =>
+  partNaming(parts, i, place) !== null;
 
 /**
  * Whether `address` names the place (placeNameParts: its suburb and state) as one of its comma-separated parts, the
@@ -217,10 +226,25 @@ function partNamesPlace(parts: readonly AddressPart[], i: number, place: { subur
  * name Kew; "12 Carlton St" doesn't name Carlton). False for an empty suburb.
  */
 export function addressNamesPlace(address: string, suburb: string, state?: StateCode | null): boolean {
+  return addressPlace(address, suburb, state) !== null;
+}
+
+/**
+ * How `address` names the place (addressNamesPlace): `stated` when it says the state too ("Richmond NSW 2753",
+ * "Richmond, NSW"), not for the suburb alone ("Richmond", "Richmond 2753"). Null when it doesn't name it. For a map
+ * query, which needs the state where the event page doesn't.
+ */
+export function addressPlace(address: string, suburb: string, state?: StateCode | null): { stated: boolean } | null {
   const place = placeNameParts(suburb, state);
-  if (!place) return false;
+  if (!place) return null;
   const parts = address.split(",").map(addressPart);
-  return parts.some((_, i) => partNamesPlace(parts, i, place));
+  let bare: { stated: boolean } | null = null;
+  for (let i = 0; i < parts.length; i++) {
+    const naming = partNaming(parts, i, place);
+    if (naming?.stated) return naming;
+    bare ??= naming;
+  }
+  return bare;
 }
 
 /**

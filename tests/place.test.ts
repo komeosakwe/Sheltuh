@@ -102,6 +102,13 @@ describe("sameStreetLine", () => {
     expect(sameStreetLine("12-14 Smith Street, Fitzroy", "12-14 Smith St")).toBe(false);
   });
 
+  // CodeRabbit (PR #61, round 4): a precomposed and a decomposed accent are the same street.
+  it("compares composed and decomposed accents as one, keeping the accent", () => {
+    expect(sameStreetLine("10 Caf\u00e9 Street", "10 Cafe\u0301 St")).toBe(true);
+    expect(sameStreetLine("10 Cafe Street", "10 Caf\u00e9 St")).toBe(false);
+    expect(venueLines({ suburb: "Fitzroy", state: "VIC", venueName: "10 Cafe\u0301 Street", venueAddress: "10 Caf\u00e9 St" }).named).toBe(false);
+  });
+
   it.each<[string, string]>([
     ["Brunswick Street Print Hall", "Brunswick St"],
     ["Brunswick Street Print Hall", "12 Brunswick St"],

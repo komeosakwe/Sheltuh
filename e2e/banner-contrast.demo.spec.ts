@@ -12,8 +12,8 @@ import { sampleEvents } from "@/lib/sample-events";
  * (b) pixels: with the words, the ticket action and the controls hidden (the scrim and the photo
  *     stay), each slide is screenshotted, and each line's contrast is worked out from its words' own
  *     computed colours (read before they're hidden, so a change that stops them being white is
- *     caught) against every pixel behind it, the lowest counting: at least 4.5:1 for the category
- *     and the facts, 3:1 for the title (large text). A line with no screenshot pixels behind it
+ *     caught) against every pixel behind it, the lowest counting: at least 4.5:1, or 3:1 for the
+ *     title while its rendered size makes it large text (titleMin). A line with no screenshot pixels behind it
  *     (moved out of the slide) fails rather than passing unmeasured.
  * Both again with a long title forced onto two lines (the title's clamp), so the words start higher.
  * The worst value per width is printed, and attached to the report.
@@ -27,7 +27,13 @@ const FADE_PX = 96; // 6rem at the default 16px root size
 const LONG_TITLE = "A much longer event title that has to wrap onto a second line";
 
 type Kind = "category" | "title" | "facts";
-const MIN: Record<Kind, number> = { category: 4.5, title: 3, facts: 4.5 };
+/** WCAG 1.4.3: 4.5:1, or 3:1 for large text (titleMin). */
+const MIN: Record<Kind, number> = { category: 4.5, title: 4.5, facts: 4.5 };
+/**
+ * The title's minimum from its rendered size: 3:1 only while it's large text (WCAG: at least 18pt, 24px, or 14pt,
+ * about 18.67px, and bold), else 4.5:1, so a smaller or lighter title can't pass at 3:1.
+ */
+const titleMin = ({ px, weight }: { px: number; weight: number }) => (px >= 24 || (px >= 18.66 && weight >= 700) ? 3 : 4.5);
 
 interface Rect {
   x: number;
@@ -48,6 +54,8 @@ interface Measured {
   lines: { kind: Kind; rect: Rect }[];
   /** Each kind's text colours as computed (every element in it with text of its own). */
   inks: Record<Kind, Rgba[]>;
+  /** The title's computed font size (px) and weight. */
+  titleFont: { px: number; weight: number };
 }
 
 /** sRGB channel (0–255) to linear light. */
@@ -146,6 +154,7 @@ function measure(slide: Locator): Promise<Measured> {
       fadeAbove: category.getBoundingClientRect().top - scrim.getBoundingClientRect().top,
       titleLines: rows.size,
       inks: { category: inksOf(category), title: inksOf(title), facts: inksOf(facts) },
+      titleFont: { px: parseFloat(getComputedStyle(title).fontSize), weight: Number(getComputedStyle(title).fontWeight) },
       lines: [
         ...linesOf(category, category.getBoundingClientRect()).map((rect) => ({ kind: "category" as const, rect })),
         ...titleLines.map((rect) => ({ kind: "title" as const, rect })),
@@ -235,12 +244,13 @@ for (const width of WIDTHS) {
           leastFade = Math.min(leastFade, measured.fadeAbove);
           expect(measured.fadeAbove, `${name}: the category is 6rem below the scrim's top`).toBeGreaterThanOrEqual(FADE_PX - 0.5);
 
-          // (b) Each line against the brightest pixel behind it.
+          // (b) Each line against every pixel behind it, at its own minimum (the title's from its rendered size).
+          const min: Record<Kind, number> = { ...MIN, title: titleMin(measured.titleFont) };
           const image = await backdrop(page, slide);
           for (const { kind, rect } of measured.lines) {
             const ratio = worstIn(image, rect, measured.inks[kind]);
             if (ratio < worst[kind].ratio) worst[kind] = { ratio, slide: name };
-            expect(ratio, `${name}: ${kind} line at ${Math.round(rect.y)}px`).toBeGreaterThanOrEqual(MIN[kind]);
+            expect(ratio, `${name}: ${kind} line at ${Math.round(rect.y)}px (at least ${min[kind]}:1)`).toBeGreaterThanOrEqual(min[kind]);
           }
         }
 

@@ -3008,7 +3008,9 @@ featured banner crops the photo or shows it whole.
   an ordinary photo fills the 5:2 banner, cropped around the focus, but a
   portrait poster (at least 1.2 times as tall as it is wide) in a banner that
   isn't portrait is still shown whole on the blurred backdrop; `whole` shows
-  every photo whole, centred, on the blurred backdrop. It's a
+  every photo whole on the blurred backdrop: at the top of the slide below
+  640px (a phone's tall 4:5 slide, so the photo sits clear of the words below
+  it; the editor's phone preview does the same), centred from 640px. It's a
   choice about the banner, not about one photo's content, so replacing the
   photo keeps it (neither upload names the column) while deleting the photo
   drops it (a new photo starts at `crop`). The same `PATCH …/image` sets it:

@@ -463,8 +463,10 @@ for (const { width, height } of [
       expect(banner.position).toBe(width < 640 ? "50% 0%" : "50% 50%");
       expect(banner.className).not.toMatch(/object-\[/);
       await expect(slide.locator("[data-art-backdrop]")).toHaveCount(1);
-      // The words keep their scrim, and nothing scrolls sideways.
-      await expect(slide.locator("[data-slide-scrim]")).toBeVisible();
+      // The words keep their scrim (its gradient, not just the box that carries it), and nothing scrolls sideways.
+      const scrim = slide.locator("[data-slide-scrim]");
+      await expect(scrim).toBeVisible();
+      expect(await scrim.evaluate((el) => getComputedStyle(el).backgroundImage)).toMatch(/linear-gradient\(/);
       await page.screenshot({ path: test.info().outputPath(`whole-banner-${width}.png`) });
 
       const card = page.locator("[data-event-card]:has(a[href='/events/neon-static'])").first();

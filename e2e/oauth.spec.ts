@@ -213,6 +213,8 @@ test.describe("at 390×664 (phone viewport)", () => {
     const apple = await appleButton(page).boundingBox();
     const google = await googleButton(page).boundingBox();
     if (!submit || !apple || !google) throw new Error("not laid out");
+    // Whole: Continue's top edge in the first screen too, not only below its top.
+    expect(submit.y).toBeGreaterThanOrEqual(0);
     expect(apple.y).toBeGreaterThan(submit.y + submit.height);
     expect(google.y).toBeGreaterThan(apple.y + apple.height);
     expect(google.y + google.height).toBeLessThanOrEqual(664);
@@ -230,10 +232,14 @@ test.describe("at 390×664 (phone viewport)", () => {
     await expect(googleButton(page)).toBeVisible({ timeout: 60_000 });
     expect(await page.evaluate(() => window.scrollY)).toBe(0);
     const signUp = await page.getByRole("button", { name: "Sign up", exact: true }).boundingBox();
-    if (!signUp) throw new Error("not laid out");
-    // Whole: neither edge outside the first screen.
-    expect(signUp.y).toBeGreaterThanOrEqual(0);
-    expect(signUp.y + signUp.height).toBeLessThanOrEqual(664);
+    const apple = await appleButton(page).boundingBox();
+    const google = await googleButton(page).boundingBox();
+    if (!signUp || !apple || !google) throw new Error("not laid out");
+    // Whole: neither edge of Apple, Google or Sign up outside the first screen.
+    for (const box of [apple, google, signUp]) {
+      expect(box.y).toBeGreaterThanOrEqual(0);
+      expect(box.y + box.height).toBeLessThanOrEqual(664);
+    }
     await expect(page.locator("#main").getByRole("link", { name: "Privacy Policy" })).toHaveCount(1);
     await expect(page.locator("#main").getByRole("link", { name: "Terms of Use" })).toHaveCount(1);
     await noSidewaysScroll(page);

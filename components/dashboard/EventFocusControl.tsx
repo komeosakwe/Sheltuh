@@ -15,11 +15,14 @@ const clamp = (n: number) => Math.min(100, Math.max(0, Math.round(n)));
  * keys (5% a step; Home puts it back in the middle). Cropped renderings of the photo (map pins, cards)
  * keep that point in view; the two previews beside it show the result live. `focus` null is the
  * middle. One slider (its value text gives both axes), as a 2D control has no ARIA role of its own.
+ * `disabled` (while the event is being published): it stays focusable, marked aria-disabled, and ignores
+ * taps, drags and keys.
  */
 export default function EventFocusControl({
   imageUrl,
   focus,
   onChange,
+  disabled = false,
   poster,
   title,
 }: {
@@ -27,6 +30,7 @@ export default function EventFocusControl({
   imageUrl: string;
   focus: ImageFocus | null;
   onChange: (focus: ImageFocus | null) => void;
+  disabled?: boolean;
   poster: EventPoster;
   title: string;
 }) {
@@ -34,12 +38,14 @@ export default function EventFocusControl({
   const y = focus?.y ?? CENTRE;
 
   function place(e: PointerEvent<HTMLDivElement>) {
+    if (disabled) return;
     const rect = e.currentTarget.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
     onChange({ x: clamp(((e.clientX - rect.left) / rect.width) * 100), y: clamp(((e.clientY - rect.top) / rect.height) * 100) });
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    if (disabled) return;
     const move: Record<string, [number, number]> = {
       ArrowLeft: [-STEP, 0],
       ArrowRight: [STEP, 0],
@@ -76,6 +82,7 @@ export default function EventFocusControl({
           aria-valuemax={100}
           aria-valuenow={x}
           aria-valuetext={`${x}% across, ${y}% down`}
+          aria-disabled={disabled || undefined}
           data-focus-area=""
           onKeyDown={handleKeyDown}
           onPointerDown={(e) => {
@@ -86,7 +93,7 @@ export default function EventFocusControl({
           onPointerMove={(e) => {
             if (e.currentTarget.hasPointerCapture?.(e.pointerId)) place(e);
           }}
-          className="relative inline-block max-w-full cursor-crosshair touch-none self-start rounded-control focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-foreground"
+          className="relative inline-block max-w-full cursor-crosshair touch-none aria-disabled:cursor-not-allowed self-start rounded-control focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-foreground"
         >
           {/* eslint-disable-next-line @next/next/no-img-element -- an object URL of the chosen photo */}
           <img src={imageUrl} alt="" draggable={false} className="block max-h-64 max-w-full rounded-control select-none" />
@@ -109,7 +116,7 @@ export default function EventFocusControl({
         </div>
       </div>
       {focus && (
-        <Button variant="outline" size="sm" className="min-h-11 self-start" onClick={() => onChange(null)}>
+        <Button variant="outline" size="sm" className="min-h-11 self-start" busy={disabled} onClick={() => onChange(null)}>
           Centre
         </Button>
       )}

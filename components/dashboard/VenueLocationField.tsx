@@ -214,6 +214,8 @@ export function useVenueLocation(initial: VenueLocationInitial | undefined, plac
 
   return {
     mode: state.mode,
+    /** The suburb's place now (venuePlaceKey), null while it isn't known: a pick reports the one it started in. */
+    placeKey,
     linked: state.linked,
     note: state.note,
     /** In search mode after Change: the place (or pin) Keep goes back to, else null. */
@@ -226,14 +228,17 @@ export function useVenueLocation(initial: VenueLocationInitial | undefined, plac
     input,
     /** A pin will be saved with the event (or stays saved): what publishing needs. */
     hasPin: Boolean(input?.pin),
-    /** A Google place was picked: linked, and the pin starts again. */
-    link(placeId: string, label: string) {
+    /**
+     * A Google place was picked: linked, and the pin starts again. `at`: the place (venuePlaceKey) it was picked
+     * in, when the pick didn't fill the suburb, so a suburb changed while it loaded unlinks it (settleLinkedPlace);
+     * null: the one on screen once the pick has filled it (and the table has it).
+     */
+    link(placeId: string, label: string, at: string | null = null) {
       focusNext.current = VENUE_LINKED_ID;
       setState((s) => ({
         ...s,
         mode: "places",
-        // Its suburb: the one on screen once the pick has filled it (and the table has it).
-        linked: { placeId, label, at: null },
+        linked: { placeId, label, at },
         note: null,
         pin: null,
         moved: null,
@@ -326,6 +331,7 @@ function VenuePlaceLinkBody({ location, getToken, onPicked, venueName, venueAddr
       <>
         <VenuePlaceSearch
           getToken={getToken}
+          placeKey={location.placeKey}
           onPick={onPicked}
           onManual={(why) => location.manual(why === "unavailable" ? PLACES_UNAVAILABLE_NOTE : null, true)}
           error={error}

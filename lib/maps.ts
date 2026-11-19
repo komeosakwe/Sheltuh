@@ -1,5 +1,5 @@
 import { isInAustralia } from "@/lib/geo";
-import { addressNamesPlace, placeName, sameStreetLine } from "@/lib/place";
+import { addressPlace, placeName, sameStreetLine } from "@/lib/place";
 import type { Coordinates, SheltuhEvent } from "@/lib/types";
 
 /**
@@ -17,12 +17,16 @@ type VenueText = Pick<VenueLinkTarget, "venueName" | "venueAddress" | "suburb" |
 
 /**
  * The street address, then the place ("Collingwood, VIC") unless the address already names it with the same state
- * (lib/place.ts addressNamesPlace): the address as the event page shows it. Empty without an address.
+ * (lib/place.ts addressPlace): the address as the event page shows it. One that names the suburb without a state
+ * ("1 March St, Richmond") gets the event's state after it when the event has one, so the map doesn't guess which
+ * Richmond (the event page needn't say it again). Empty without an address.
  */
 function addressWithPlace(target: VenueText): string {
   const address = target.venueAddress.trim();
-  if (!address || !target.suburb.trim() || addressNamesPlace(address, target.suburb, target.state)) return address;
-  return `${address}, ${placeName(target.suburb, target.state)}`;
+  if (!address || !target.suburb.trim()) return address;
+  const named = addressPlace(address, target.suburb, target.state);
+  if (!named) return `${address}, ${placeName(target.suburb, target.state)}`;
+  return !named.stated && target.state ? `${address}, ${target.state}` : address;
 }
 
 /**

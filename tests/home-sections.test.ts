@@ -599,6 +599,20 @@ describe("This weekend: one card per artist (Round 2 B1)", () => {
     expect(withCarouselFull([sun, plane, sunAgain], [], now).weekend.items.map((ev) => ev.id)).toEqual(["sun", "plane"]);
   });
 
+  // CodeRabbit (PR #61, round 4): an emoji's presentation selector doesn't make a title another act; a title with no
+  // letter or digit of its own is compared as entered, never as what NFKD makes of it.
+  it("drops emoji presentation selectors from titles with words, and keeps ™ apart from TM", () => {
+    const sun = kofi("sun", 1, { title: "Kofi Stone \u2600" });
+    const sunEmoji = kofi("sun-emoji", 2, { title: "Kofi Stone \u2600\uFE0F" });
+    expect(artistKey(sun)).toBe(artistKey(sunEmoji));
+    expect(withCarouselFull([sun, sunEmoji], [], now).weekend.items.map((ev) => ev.id)).toEqual(["sun"]);
+
+    const mark = kofi("mark", 1, { title: "\u2122" });
+    const letters = kofi("letters", 2, { title: "TM" });
+    expect(artistKey(mark)).not.toBe(artistKey(letters));
+    expect(withCarouselFull([mark, letters], [], now).weekend.items.map((ev) => ev.id)).toEqual(["mark", "letters"]);
+  });
+
   it("never collapses on a blank: an emoji-only title is compared as entered, and no organiser is only itself", () => {
     const party = kofi("party", 1, { title: "🎉🎉" });
     const disco = kofi("disco", 2, { title: "🪩" });

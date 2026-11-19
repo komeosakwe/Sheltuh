@@ -391,12 +391,12 @@ export default function EventEditor(props: Props) {
   // How the home banner shows the photo (crop to fill, or whole), and whether it's changed since the last save.
   const [bannerFit, setBannerFit] = useState<BannerFit>(initial?.bannerFit ?? "crop");
   const [fitChanged, setFitChanged] = useState(false);
-  // The focus and fit as now chosen, for a save that ends after they were changed again (syncImage): a save marks
-  // them saved only if they're still what it sent.
-  const chosenDisplay = useRef({ imageFocus, bannerFit });
+  // The new photo, focus and fit as now chosen, for a save that ends after they were changed again (syncImage): a
+  // save marks them saved only if they're still what it sent.
+  const chosenDisplay = useRef({ imageFile, imageFocus, bannerFit });
   useEffect(() => {
-    chosenDisplay.current = { imageFocus, bannerFit };
-  }, [imageFocus, bannerFit]);
+    chosenDisplay.current = { imageFile, imageFocus, bannerFit };
+  }, [imageFile, imageFocus, bannerFit]);
   // Set once the draft exists, so a retry after a failed photo upload updates
   // it instead of creating a duplicate.
   const [createdId, setCreatedId] = useState<string | null>(null);
@@ -743,9 +743,15 @@ export default function EventEditor(props: Props) {
       // The fit goes with the photo.
       const updated = await remove(record.eventId, saveToken);
       setImageRemoved(false);
-      setFocusChanged(false);
-      setBannerFit("crop");
-      setFitChanged(false);
+      if (chosenDisplay.current.imageFile) {
+        // A new photo was picked while the delete ran: it keeps the focus and fit chosen for it. The server has no
+        // fit now (a new photo starts at crop), so any other fit is still to send.
+        setFitChanged(chosenDisplay.current.bannerFit !== "crop");
+      } else {
+        setFocusChanged(false);
+        setBannerFit("crop");
+        setFitChanged(false);
+      }
       return updated;
     }
     if (!latest.imageUrl || imageRemoved) return latest;
@@ -933,12 +939,17 @@ export default function EventEditor(props: Props) {
    * An address rather than a venue ("170 Russell Street") has no name to
    * give: the venue name is left for the organiser (Round 2: the page said
    * the address twice), with a hint under it while it's empty; a name they
-   * typed stays.
+   * typed stays. A suburb the pick doesn't fill stays as typed, and the place
+   * is linked to the suburb it was picked in: one changed while its details
+   * loaded unlinks it at once (settleLinkedPlace), so a place is never saved
+   * with another suburb.
    */
-  function handlePicked({ suggestion, details }: PickedPlace) {
+  function handlePicked({ suggestion, details, placeKey: pickedIn }: PickedPlace) {
     const fillable = (value: string, last: string | undefined) => !value.trim() || value === last;
     const next = { ...prefilled };
-    const addressOnly = Boolean(details.streetAddress && sameStreetLine(suggestion.primaryText, details.streetAddress));
+    // Its street line, with nothing more after a comma than the picked place's own locality, is an address.
+    const pickedPlace = details.locality ? { suburb: details.locality, state: details.state } : undefined;
+    const addressOnly = Boolean(details.streetAddress && sameStreetLine(suggestion.primaryText, details.streetAddress, pickedPlace));
     let name = venueName;
     if (suggestion.primaryText && fillable(venueName, prefilled.venueName)) {
       name = addressOnly ? "" : suggestion.primaryText;
@@ -950,6 +961,7 @@ export default function EventEditor(props: Props) {
       setVenueAddress(details.streetAddress);
       next.venueAddress = details.streetAddress;
     }
+    let filledSuburb = false;
     if (details.locality) {
       // As the suburb's own suggestions say it ("Fitzroy, VIC"); checked against the suburb table as typed text is.
       const suburb = details.state ? placeName(details.locality, details.state) : details.locality;
@@ -957,10 +969,15 @@ export default function EventEditor(props: Props) {
         venue.requestTable();
         venue.setSuburb(suburb);
         next.suburb = suburb;
+        filledSuburb = true;
       }
     }
     setPrefilled(next);
-    venueLocation.link(details.placeId, [suggestion.primaryText, suggestion.secondaryText].filter(Boolean).join(", "));
+    venueLocation.link(
+      details.placeId,
+      [suggestion.primaryText, suggestion.secondaryText].filter(Boolean).join(", "),
+      filledSuburb ? null : pickedIn,
+    );
     clearErrors("venueName", "venueAddress", "suburb", "state", "timeZone", "location");
   }
 
@@ -1519,6 +1536,8 @@ export default function EventEditor(props: Props) {
               onFocusChange={changeFocus}
               bannerFit={bannerFit}
               onBannerFitChange={changeBannerFit}
+              // Publishing sends the focus and fit it started with: neither changes until it's done (or failed).
+              locked={submitting}
               error={errors.image}
               poster={poster}
               title={title}

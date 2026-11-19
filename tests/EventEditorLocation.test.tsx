@@ -274,6 +274,35 @@ describe("EventEditor — picking a Google place", () => {
     expect(name).not.toHaveAccessibleDescription(VENUE_NAME_HINT);
   });
 
+  // CodeRabbit (PR #61, round 4): Google's primary text can carry the locality after the street line; that's still an
+  // address, never the venue's name. A real qualifier ("Rooftop") is a name.
+  it("an address pick whose text ends with its own locality is an address; one with a qualifier is a name", async () => {
+    const pickWithText = async (primaryText: string) => {
+      api.autocompletePlaces.mockResolvedValue({ suggestions: [{ placeId: "ChIJrussell000000000", primaryText, secondaryText: "Australia" }] });
+      api.getPlaceDetails.mockResolvedValue({
+        ...TOTE_DETAILS,
+        placeId: "ChIJrussell000000000",
+        formattedAddress: "170 Russell St, Melbourne VIC 3000",
+        streetAddress: "170 Russell St",
+        locality: "Melbourne",
+      });
+      fireEvent.focus(searchBox());
+      fireEvent.change(searchBox(), { target: { value: "170 Russell" } });
+      fireEvent.click(await screen.findByRole("option", { name: new RegExp(primaryText) }));
+      await screen.findByText("Linked to Google Maps:");
+    };
+    renderEditor(null);
+    await pickWithText("170 Russell Street, Melbourne VIC 3000");
+    expect(screen.getByLabelText("Venue name")).toHaveValue("");
+    expect(screen.getByText(VENUE_NAME_HINT)).toBeInTheDocument();
+
+    cleanup();
+    renderEditor(null);
+    await pickWithText("170 Russell Street, Rooftop");
+    expect(screen.getByLabelText("Venue name")).toHaveValue("170 Russell Street, Rooftop");
+    expect(screen.queryByText(VENUE_NAME_HINT)).toBeNull();
+  });
+
   // CodeRabbit (PR #61, round 3): the pick's details arrive after the name was typed; the editor that gets them is the
   // current one, so the name typed meanwhile stays (no hint).
   it("an address pick never wipes a venue name typed while its address was loading", async () => {
@@ -449,6 +478,38 @@ describe("EventEditor — the suburb changing under a linked place", () => {
     const input = await save();
     expect(input.state).toBe("WA");
     expect(input.location).toBeNull();
+  });
+
+  // CodeRabbit (PR #61, round 4): the place belongs to the suburb it was picked in, even when its details arrive after
+  // the suburb changed; it's never saved with the new one.
+  it("a pick whose details load while the suburb changes is unlinked at once, and the save has no place", async () => {
+    renderEditor();
+    let answer: (details: PlaceDetails) => void = () => {};
+    api.getPlaceDetails.mockImplementation(() => new Promise<PlaceDetails>((resolve) => (answer = resolve)));
+    fireEvent.focus(searchBox());
+    fireEvent.change(searchBox(), { target: { value: "The Tote" } });
+    fireEvent.click(await screen.findByRole("option", { name: /The Tote Hotel/ }));
+    await waitFor(() => expect(api.getPlaceDetails).toHaveBeenCalledTimes(1));
+    // Picked in Fitzroy (the saved suburb); Brunswick typed while its details load.
+    fireEvent.change(suburbField(), { target: { value: "Brunswick" } });
+    await act(async () => answer(TOTE_DETAILS));
+    await waitFor(() => expect(unlinkedNote()).toBeInTheDocument());
+    expect(linkedBlock()).toBeNull();
+    expect(searchBox()).toBeInTheDocument();
+    expect(suburbField()).toHaveValue("Brunswick");
+
+    const input = await save();
+    expect(input.suburb).toBe("Brunswick");
+    expect(input.location).toBeUndefined();
+    expect(JSON.stringify(input)).not.toContain(PLACE_ID);
+  });
+
+  it("a pick whose details load with the suburb unchanged stays linked to it", async () => {
+    renderEditor();
+    await pickTheTote();
+    expect(linkedBlock()).toHaveAttribute("data-linked-place", PLACE_ID);
+    expect(suburbField()).toHaveValue("Fitzroy");
+    expect(screen.queryByText(PLACE_UNLINKED_NOTE)).toBeNull();
   });
 
   it("a place just picked stays linked to the suburb the pick filled in; another suburb then unlinks it, and a pin can be dropped instead", async () => {

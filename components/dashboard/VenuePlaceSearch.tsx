@@ -25,10 +25,14 @@ export const VENUE_PLACE_SEARCH_ID = "venue-place-search";
 export interface PickedPlace {
   suggestion: PlaceSuggestion;
   details: PlaceDetails;
+  /** The suburb's place (venuePlaceKey) when the pick was made, before its details loaded; null if not known then. */
+  placeKey: string | null;
 }
 
 export interface VenuePlaceSearchProps {
   getToken: GetToken;
+  /** The suburb's place now (venuePlaceKey), null while it isn't known: reported with a pick as it was when picked. */
+  placeKey?: string | null;
   /** A place was picked and its address fetched (which ends the search's session). */
   onPick: (picked: PickedPlace) => void;
   /**
@@ -76,7 +80,7 @@ function errorText(err: unknown): string {
  * coordinates are never asked for: the organiser checks the pin on our own
  * map after this.
  */
-export default function VenuePlaceSearch({ getToken, onPick, onManual, error, errorId }: VenuePlaceSearchProps) {
+export default function VenuePlaceSearch({ getToken, placeKey, onPick, onManual, error, errorId }: VenuePlaceSearchProps) {
   const listId = useId();
   const statusId = useId();
   const optionId = (index: number) => `${listId}-option-${index}`;
@@ -162,6 +166,8 @@ export default function VenuePlaceSearch({ getToken, onPick, onManual, error, er
 
   async function pick(suggestion: PlaceSuggestion) {
     if (fetchingPlace) return;
+    // The suburb it's picked in: the organiser may change it while the details load.
+    const pickedIn = placeKey ?? null;
     searchAbort.current?.abort();
     detailsAbort.current?.abort();
     const token = session.current ?? sessionToken();
@@ -180,7 +186,7 @@ export default function VenuePlaceSearch({ getToken, onPick, onManual, error, er
     try {
       const details = await getPlaceDetails(suggestion.placeId, token, getToken, controller.signal);
       if (controller.signal.aborted) return;
-      latest.current.onPick({ suggestion, details });
+      latest.current.onPick({ suggestion, details, placeKey: pickedIn });
     } catch (err) {
       if (controller.signal.aborted || isAbort(err)) return;
       if (isPlacesUnavailableError(err)) {
