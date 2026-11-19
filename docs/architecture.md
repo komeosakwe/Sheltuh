@@ -4666,8 +4666,11 @@ or as tested elsewhere.
   also turns on Supabase's "Enforce SSL" (`docs/DEPLOYMENT.md`). The
   owner-run photo backfill (`scripts/backfill-event-image-metadata.ts`) is
   stricter than the app: off this machine it requires `DATABASE_CA_CERT` and
-  connects only with that full verification (exit 2 without it), and its
-  `DATABASE_URL` must name exactly one host and a database.
+  connects only with that full verification (exit 2 without it, or when it
+  doesn't parse as X.509), and its `DATABASE_URL` must name exactly one
+  host and a database, with no query parameters but `sslmode` and
+  `application_name` (postgres.js sends any other one as a startup
+  parameter, over the URL's user and database).
 - **CDN.** A function's response is shared at Vercel's CDN through
   `s-maxage` (`max-age` is for the browser); that Vercel keeps them, and
   never anything `private`, is checked on the first deploy

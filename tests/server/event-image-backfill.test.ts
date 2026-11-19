@@ -10,8 +10,10 @@ import {
   backfillEventImageMetadata,
   connectBackfillDatabase,
   CONNECTION_STRING_ADVICE,
+  DATABASE_CA_CERT_NOT_PEM,
   DATABASE_CA_CERT_REQUIRED,
   DATABASE_URL_INCOMPLETE,
+  DATABASE_URL_PARAMETERS,
   DATABASE_URL_ONE_HOST,
   main,
   scanImageMetadata,
@@ -168,12 +170,17 @@ async function pngWithCorruptIdat(): Promise<Buffer> {
   return out;
 }
 
-/** A real two-frame animated WebP (ANIM and two ANMF chunks), as the old upload path could have stored it. */
-async function animatedWebp(): Promise<Buffer> {
+/** A real two-frame animated WebP (ANIM and two ANMF chunks), as the old upload path could have stored it; optionally with GPS and camera EXIF. */
+async function animatedWebp(options: { withGps?: boolean } = {}): Promise<Buffer> {
   const frame = (background: string) => sharp({ create: { width: 40, height: 30, channels: 3, background } }).png().toBuffer();
-  return sharp([await frame("#ff0000"), await frame("#0000ff")], { join: { animated: true } })
-    .webp({ loop: 0, delay: [200, 200] })
-    .toBuffer();
+  const joined = sharp([await frame("#ff0000"), await frame("#0000ff")], { join: { animated: true } });
+  const withExif = options.withGps
+    ? joined.withExif({
+        IFD0: { Make: CAMERA_MAKE, Model: CAMERA_SERIAL },
+        IFD3: { GPSLatitudeRef: "S", GPSLatitude: "37/1 48/1 1234/100", GPSLongitudeRef: "E", GPSLongitude: "144/1 57/1 5678/100" },
+      })
+    : joined;
+  return withExif.webp({ loop: 0, delay: [200, 200] }).toBuffer();
 }
 
 /** A PNG with an APNG animation control chunk (acTL) before its IDAT. */
@@ -189,8 +196,23 @@ async function pngWithAcTL(): Promise<Buffer> {
   return Buffer.concat([png.subarray(0, 33), chunk, png.subarray(33)]);
 }
 
-/** A placeholder CA certificate: only its shape is checked before connecting. */
+/** A placeholder CA certificate, for main's tests whose connection is the test database (only its presence is checked there). */
 const CA = "-----BEGIN CERTIFICATE-----\nMIIBplaceholder\n-----END CERTIFICATE-----";
+
+/** A real, self-signed X.509 test CA (public certificate only; nothing is ever connected with it). */
+const REAL_CA = [
+  "-----BEGIN CERTIFICATE-----",
+  "MIIBnTCCAUOgAwIBAgIUY6kOIuVgosKS4OVizNiGAE4k8YUwCgYIKoZIzj0EAwIw",
+  "IzEhMB8GA1UEAwwYU2hlbHR1aCBiYWNrZmlsbCB0ZXN0IENBMCAXDTI2MTExOTAw",
+  "Mjc0MVoYDzIxMjYxMDI2MDAyNzQxWjAjMSEwHwYDVQQDDBhTaGVsdHVoIGJhY2tm",
+  "aWxsIHRlc3QgQ0EwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAARGHE7Ah8viBQJc",
+  "bDq0DQU/IkLsQWVBiEoqGymd+68SBwXxKR/wEV0hWSwlR+KlPX62AXf0NUxREKR/",
+  "1c7k3QRUo1MwUTAdBgNVHQ4EFgQU4qzqo7tjutS6k3uAZS3MaSDgBAkwHwYDVR0j",
+  "BBgwFoAU4qzqo7tjutS6k3uAZS3MaSDgBAkwDwYDVR0TAQH/BAUwAwEB/zAKBggq",
+  "hkjOPQQDAgNIADBFAiAcrJzQWI+vbPtUQtRn+kbihYKXgz9NkcGRmBV2DfWuvAIh",
+  "AP7WZ5dTURczG3qr8QDJMhqPEBLSZPB0LEJprEYSWKGp",
+  "-----END CERTIFICATE-----",
+].join("\n");
 
 /** The imageUrl of a published event's public record (GET /api/events/slug/{slug}). */
 async function publicImageUrl(slug: string): Promise<string | undefined> {
@@ -274,8 +296,15 @@ describe("scanImageMetadata", () => {
   it("flags animation: a WebP's ANIM/ANMF chunks, a PNG's acTL", async () => {
     const webp = await animatedWebp();
     expect((await sharp(webp).metadata()).pages).toBe(2);
-    expect(await scanImageMetadata(webp)).toEqual({ ok: true, format: "webp", kinds: ["other"], animated: true });
-    expect(await scanImageMetadata(await pngWithAcTL())).toEqual({ ok: true, format: "png", kinds: ["other"], animated: true });
+    // Animation chunks are frames, not metadata: only what's really there is listed.
+    expect(await scanImageMetadata(webp)).toEqual({ ok: true, format: "webp", kinds: [], animated: true });
+    expect(await scanImageMetadata(await pngWithAcTL())).toEqual({ ok: true, format: "png", kinds: [], animated: true });
+    expect(await scanImageMetadata(await animatedWebp({ withGps: true }))).toEqual({
+      ok: true,
+      format: "webp",
+      kinds: ["gps", "camera", "other"],
+      animated: true,
+    });
     // A still photo has no flag.
     expect(await scanImageMetadata(await webpWithGpsAndCamera())).not.toHaveProperty("animated");
   });
@@ -468,11 +497,12 @@ describe("backfillEventImageMetadata", () => {
   });
 
   it("never re-encodes an animated photo (it would keep one frame): FAILED, left untouched, in the dry run and with --apply", async () => {
-    const [animated, apng, still] = await Promise.all([0, 1, 2].map(() => publishedEvent(api, organiser, admin, FREE)));
+    const [animated, apng, still, located] = await Promise.all([0, 1, 2, 3].map(() => publishedEvent(api, organiser, admin, FREE)));
     await storeRaw(animated.eventId, await animatedWebp(), "image/webp");
     await storeRaw(apng.eventId, await pngWithAcTL(), "image/png");
     await storeRaw(still.eventId, await jpegWithGps(), "image/jpeg");
-    const before = await Promise.all([animated, apng].map((e) => stored(e.eventId)));
+    await storeRaw(located.eventId, await animatedWebp({ withGps: true }), "image/webp");
+    const before = await Promise.all([animated, apng, located].map((e) => stored(e.eventId)));
     let encodes = 0;
     const encode = (input: Uint8Array) => {
       encodes += 1;
@@ -480,33 +510,34 @@ describe("backfillEventImageMetadata", () => {
     };
 
     const dry: string[] = [];
-    expect(await backfillEventImageMetadata(api.db, { encode, print: (line) => dry.push(line) })).toMatchObject({
-      total: 3,
-      withMetadata: 1,
-      wouldClean: 1,
-      failed: 2,
-    });
+    // The counts are the still photo's alone (the located animated one's GPS and camera aren't counted).
+    const counts = { total: 4, withMetadata: 1, byKind: { gps: 1, camera: 1, other: 1 }, failed: 3 };
+    expect(await backfillEventImageMetadata(api.db, { encode, print: (line) => dry.push(line) })).toMatchObject({ ...counts, wouldClean: 1 });
     const applied: string[] = [];
     expect(await backfillEventImageMetadata(api.db, { apply: true, encode, print: (line) => applied.push(line) })).toMatchObject({
-      total: 3,
-      withMetadata: 1,
+      ...counts,
       cleaned: 1,
-      failed: 2,
     });
     // Only the still photo was ever re-encoded (once per run); the animated ones are byte for byte as they were.
     expect(encodes).toBe(2);
-    expect(await Promise.all([animated, apng].map((e) => stored(e.eventId)))).toEqual(before);
+    expect(await Promise.all([animated, apng, located].map((e) => stored(e.eventId)))).toEqual(before);
     expect((await sharp((await stored(animated.eventId)).data).metadata()).pages).toBe(2);
     for (const lines of [dry, applied]) {
+      const printed = lines.join("\n");
       for (const event of [animated, apng]) {
-        expect(lines.join("\n")).toMatch(
-          new RegExp(`${event.eventId.slice(0, 8)} .*FAILED, left untouched: animated: re-encoding keeps only the first frame.*replace it by hand`),
+        // Nothing found: no metadata part.
+        expect(printed).toMatch(
+          new RegExp(`${event.eventId.slice(0, 8)} .* {2}FAILED, left untouched: animated: re-encoding keeps only the first frame.*replace it by hand`),
         );
       }
+      // The one carrying GPS and camera details says so, so it stands out for replacing by hand.
+      expect(printed).toMatch(
+        new RegExp(`${located.eventId.slice(0, 8)} .* metadata: GPS, camera, other; FAILED, left untouched: animated: re-encoding keeps only the first frame`),
+      );
     }
     const deps = mainDeps({ argv: ["--apply"] });
     expect(await main(deps)).toBe(1);
-    expect(deps.out.join("\n")).toMatch(/Failed \(untouched\): +2/);
+    expect(deps.out.join("\n")).toMatch(/Failed \(untouched\): +3/);
   });
 
   it("says when a re-encoded copy changes format (over 2 MB in its own format, so WebP), in the dry run and with --apply", async () => {
@@ -743,6 +774,27 @@ describe("main", () => {
       expect(printed).not.toContain("Sup3r-Secret-Pw");
       expect(printed).not.toContain("secrethost");
     }
+    // Query parameters postgres.js would send in place of (or on top of) what the URI names: refused.
+    for (const query of [
+      "database=otherdb",
+      "user=supabase_admin",
+      "options=-c%20search_path%3Dsecretschema",
+      "search_path=secretschema",
+      "sslmode=require&database=otherdb",
+      "target_session_attrs=read-write",
+      "Database=otherdb",
+    ]) {
+      const url = `postgresql://postgres:Sup3r-Secret-Pw@db.abcdefgh.supabase.co:5432/postgres?${query}`;
+      const deps = mainDeps({ argv: ["--apply"], env: { DATABASE_URL: url, DATABASE_CA_CERT: CA } });
+      expect(await main(deps), query).toBe(2);
+      expect(deps.err[0]).toBe(DATABASE_URL_PARAMETERS);
+      expect(deps.err[0]).toMatch(/^DATABASE_URL /);
+      expect(deps.connects).toBe(0);
+      const printed = [...deps.out, ...deps.err].join("\n");
+      expect(printed).not.toContain("Sup3r-Secret-Pw");
+      expect(printed).not.toContain("otherdb");
+      expect(printed).not.toContain("secretschema");
+    }
     // A list of hosts, as postgres.js reads it (commas in the host part, percent-encoded or not).
     for (const url of [
       "postgresql://postgres:Sup3r-Secret-Pw@db.abcdefgh.supabase.co,secrethost.example/postgres",
@@ -762,6 +814,7 @@ describe("main", () => {
       "postgresql://postgres:Sup3r-Secret-Pw@db.abcdefgh.supabase.co:5432/postgres",
       "postgresql://postgres.abcdefgh:Sup3r-Secret-Pw@aws-0-ap-southeast-2.pooler.supabase.com:5432/postgres",
       "postgres://postgres.abcdefgh:Sup3r-Secret-Pw@aws-0-ap-southeast-2.pooler.supabase.com:6543/postgres?sslmode=require",
+      "postgresql://postgres:Sup3r-Secret-Pw@db.abcdefgh.supabase.co:5432/postgres?sslmode=verify-full&application_name=backfill",
     ]) {
       const deps = mainDeps({ env: { DATABASE_URL: url, DATABASE_CA_CERT: CA } });
       expect(await main(deps), url).toBe(0);
@@ -799,8 +852,8 @@ describe("main", () => {
     ];
     for (const url of remote) {
       // Creating the client doesn't connect: nothing is sent.
-      const connection = connectBackfillDatabase(url, { DATABASE_CA_CERT: CA });
-      expect(connection.tls, url).toEqual({ ca: CA, rejectUnauthorized: true });
+      const connection = connectBackfillDatabase(url, { DATABASE_CA_CERT: REAL_CA });
+      expect(connection.tls, url).toEqual({ ca: REAL_CA, rejectUnauthorized: true });
       await connection.end();
       // Without the CA it never falls back to unverified TLS ("require"): it throws, naming the variable only.
       let message = "";
@@ -813,10 +866,33 @@ describe("main", () => {
       expect(message).not.toContain("Sup3r-Secret-Pw");
       expect(message).not.toContain("supabase");
     }
+    // A CA with the PEM markers that doesn't parse as X.509 (truncated, or the placeholder) is refused at setup.
+    const truncated = REAL_CA.replace(/(-----BEGIN CERTIFICATE-----\n)[\s\S]{40}/, "$1");
+    for (const ca of [truncated, CA, `${REAL_CA}\n${truncated}`]) {
+      expect(() => connectBackfillDatabase(remote[0], { DATABASE_CA_CERT: ca })).toThrow(DATABASE_CA_CERT_NOT_PEM);
+    }
+    // A bundle of real certificates is fine.
+    expect(connectBackfillDatabase(remote[0], { DATABASE_CA_CERT: `${REAL_CA}\n${REAL_CA}` }).tls).toMatchObject({ rejectUnauthorized: true });
     // On this computer: left as the app leaves it (no TLS), CA or not.
     const local = connectBackfillDatabase("postgres://postgres@127.0.0.1:5432/postgres", {});
     expect(local.tls).toBe(false);
     await local.end();
+  });
+
+  it("a DATABASE_CA_CERT with PEM markers that doesn't parse as X.509 stops with exit 2 and the same diagnostic", async () => {
+    const deps = mainDeps({ argv: ["--apply"] });
+    deps.env.DATABASE_CA_CERT = REAL_CA.replace(/(-----BEGIN CERTIFICATE-----\n)[\s\S]{40}/, "$1");
+    deps.connect = (url, env) => {
+      deps.connects += 1;
+      return connectBackfillDatabase(url, env);
+    };
+    expect(await main(deps)).toBe(2);
+    expect(deps.err).toEqual([
+      `The backfill couldn't set up the database connection: ${DATABASE_CA_CERT_NOT_PEM}. Nothing was read or changed.`,
+    ]);
+    expect([...deps.out, ...deps.err].join("\n")).not.toContain("MIIB");
+    // The same words as lib/server/db.ts's for a value without PEM markers (the next test).
+    expect(DATABASE_CA_CERT_NOT_PEM).toBe("DATABASE_CA_CERT is set but isn't a PEM certificate (-----BEGIN CERTIFICATE----- …)");
   });
 
   it("a connection that can't be set up (DATABASE_CA_CERT isn't a PEM) stops with exit 2, redacted, and nothing to close", async () => {

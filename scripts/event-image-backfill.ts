@@ -64,7 +64,7 @@
  * tests/server/event-image-backfill.test.ts runs it against the test database
  * directly.
  */
-import { createHash } from "node:crypto";
+import { createHash, X509Certificate } from "node:crypto";
 import postgres from "postgres";
 import sharp, { type Metadata } from "sharp";
 import { connectPostgres, forcedDatabaseTls, type Db } from "../lib/server/db";
@@ -255,7 +255,7 @@ function scanJpeg(b: Buffer, kinds: Set<MetadataKind>): boolean {
 }
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-/** PNG chunks that are pixels or how to show them: anything else (eXIf, tEXt, iTXt, zTXt, iCCP, tIME, private chunks) is metadata. */
+/** PNG chunks that are pixels or how to show them: anything else (eXIf, tEXt, iTXt, zTXt, iCCP, tIME, private chunks) is metadata, APNG animation chunks aside. */
 const PNG_IMAGE_CHUNKS = new Set(["IHDR", "PLTE", "IDAT", "IEND", "tRNS", "pHYs", "gAMA", "cHRM", "sRGB", "sBIT", "bKGD"]);
 
 function scanPng(b: Buffer, kinds: Set<MetadataKind>, flags: ScanFlags): boolean {
@@ -271,15 +271,16 @@ function scanPng(b: Buffer, kinds: Set<MetadataKind>, flags: ScanFlags): boolean
       if (end < b.length) kinds.add("other");
       return true;
     }
-    if (type === "acTL") flags.animated = true; // APNG: still counted as other below
-    if (type === "eXIf") addAll(kinds, exifKinds(data));
+    // APNG's animation chunks: frames, not metadata (an animated photo is never re-encoded: see ANIMATED).
+    if (type === "acTL" || type === "fcTL" || type === "fdAT") flags.animated = true;
+    else if (type === "eXIf") addAll(kinds, exifKinds(data));
     else if (type === "iTXt" && startsWith(data, "XML:com.adobe.xmp\0")) addAll(kinds, xmpKinds(data));
     else if (!PNG_IMAGE_CHUNKS.has(type)) kinds.add("other");
     i = end;
   }
 }
 
-/** WebP chunks that are pixels or the extended header: EXIF, XMP, ICCP, animation and unknown chunks count as metadata. */
+/** WebP chunks that are pixels or the extended header: EXIF, XMP, ICCP and unknown chunks count as metadata (ANIM/ANMF flag animation). */
 const WEBP_IMAGE_CHUNKS = new Set(["VP8 ", "VP8L", "VP8X", "ALPH"]);
 
 function scanWebp(b: Buffer, kinds: Set<MetadataKind>, flags: ScanFlags): boolean {
@@ -293,8 +294,9 @@ function scanWebp(b: Buffer, kinds: Set<MetadataKind>, flags: ScanFlags): boolea
     const end = i + 8 + size;
     if (end > riffEnd) return false;
     const data = b.subarray(i + 8, end);
-    if (type === "ANIM" || type === "ANMF") flags.animated = true; // still counted as other below
-    if (type === "EXIF") addAll(kinds, exifKinds(data));
+    // Animation chunks: frames, not metadata (an animated photo is never re-encoded: see ANIMATED).
+    if (type === "ANIM" || type === "ANMF") flags.animated = true;
+    else if (type === "EXIF") addAll(kinds, exifKinds(data));
     else if (type === "XMP ") addAll(kinds, xmpKinds(data));
     else if (!WEBP_IMAGE_CHUNKS.has(type)) kinds.add("other");
     i = end + (size & 1);
@@ -431,7 +433,10 @@ export function describeRow(row: RowOutcome): string {
     case "skipped":
       return `${head}  metadata: ${found}; skipped: ${row.reason}`;
     case "failed":
-      return `${head}  FAILED, left untouched: ${row.reason}`;
+      // What was found, when the photo got that far (an animated one with GPS still has it: replace it by hand).
+      return row.kinds.length > 0
+        ? `${head}  metadata: ${found}; FAILED, left untouched: ${row.reason}`
+        : `${head}  FAILED, left untouched: ${row.reason}`;
     default:
       return `${head}  clean`;
   }
@@ -511,7 +516,8 @@ export async function backfillEventImageMetadata(db: Db, options: BackfillOption
     outcome.kinds = scan.kinds;
     if (scan.animated) {
       // encodeEventImage reads the first frame only (as every upload does), so a copy would silently drop the
-      // animation: never written, in either mode, and not counted under "with metadata".
+      // animation: never written, in either mode, and not counted under "with metadata" (the line still says
+      // what it carries, so one with GPS stands out for replacing by hand).
       outcome.result = "failed";
       outcome.reason = ANIMATED;
       summary.failed += 1;
@@ -687,7 +693,18 @@ export const DATABASE_URL_ONE_HOST =
   "the next one when the first doesn't answer, so --apply could write somewhere else. " +
   "Copy the URI again from Supabase → Project Settings → Database. It isn't shown here, and nothing was run.";
 
+/** Query parameters DATABASE_URL may carry: TLS mode (overridden by the CA's full verification anyway) and a label. */
+const ALLOWED_URL_PARAMETERS = new Set(["sslmode", "application_name"]);
+
+export const DATABASE_URL_PARAMETERS =
+  `${DATABASE_URL_ENV} may only carry sslmode or application_name after the "?". The database driver sends any other ` +
+  "parameter (database, user, options, a server setting) to the server in place of what the connection string names, " +
+  "so the run could use another database or role. Remove them (Supabase's URIs have none). It isn't shown here, and nothing was run.";
+
 export const DATABASE_CA_CERT_ENV = "DATABASE_CA_CERT";
+
+/** The message for a DATABASE_CA_CERT that isn't a certificate: the same words lib/server/db.ts uses for one without PEM markers. */
+export const DATABASE_CA_CERT_NOT_PEM = `${DATABASE_CA_CERT_ENV} is set but isn't a PEM certificate (-----BEGIN CERTIFICATE----- …)`;
 
 export const DATABASE_CA_CERT_REQUIRED =
   `${DATABASE_CA_CERT_ENV} is needed for a database that isn't on this computer: the Supabase CA certificate (PEM), ` +
@@ -743,8 +760,31 @@ export function databaseSettingsProblem(databaseUrl: string, env: Record<string,
   // A host list first: with ports (h1:5432,h2:5432) it isn't a URL the other check can read either.
   if (target && target.host.length > 1) return DATABASE_URL_ONE_HOST;
   if (!namesHostAndDatabase(databaseUrl) || !target || target.host.length !== 1 || target.host[0] === "") return DATABASE_URL_INCOMPLETE;
+  // postgres.js copies every query parameter it doesn't use itself into the startup message, after (so over) the
+  // user and database from the URL: `?database=` or `?user=` would quietly pick another database or role, and
+  // `?options=` (or any server setting by name) would change the session. Its own settings are refused too.
+  for (const key of new URL(databaseUrl).searchParams.keys()) {
+    if (!ALLOWED_URL_PARAMETERS.has(key)) return DATABASE_URL_PARAMETERS;
+  }
   if (!isLocalTarget(target) && !env[DATABASE_CA_CERT_ENV]?.trim()) return DATABASE_CA_CERT_REQUIRED;
   return undefined;
+}
+
+/**
+ * Whether a PEM holds only certificates that parse as X.509 (at least one).
+ * databaseCaCert (lib/server/db.ts) checks only the markers, and Node can
+ * skip a CA it can't parse without an error, so a truncated certificate
+ * would only surface later, as a trust error in the first handshake.
+ */
+function parsesAsCertificates(pem: string): boolean {
+  const blocks = pem.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g);
+  if (!blocks) return false;
+  try {
+    for (const block of blocks) new X509Certificate(block);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** TLS that checks the server: a CA to chain to, and unauthorised certificates refused (the host name is checked too, as by default). */
@@ -763,7 +803,7 @@ function isVerifyingTls(ssl: unknown): ssl is { ca: string; rejectUnauthorized: 
  * postgres.js sends the host as the TLS server name). Unlike the app, the
  * backfill never settles for unverified TLS ("require") off this computer:
  * it throws instead, before anything is sent. Throws too, naming only the
- * variable, when DATABASE_CA_CERT isn't a PEM certificate. `tls` is the
+ * variable, when DATABASE_CA_CERT isn't a PEM certificate or doesn't parse as X.509. `tls` is the
  * setting the connection will use (for the tests).
  */
 export function connectBackfillDatabase(
@@ -772,8 +812,12 @@ export function connectBackfillDatabase(
 ): { db: Db; end: () => Promise<void>; tls: unknown } {
   const sql = connectPostgres(databaseUrl, { prepare: false, max: 1, connect_timeout: 15, onnotice: () => {} }, env);
   const { host, path, ssl } = sql.options;
-  if (!isLocalTarget({ host, path: path || false }) && !isVerifyingTls(ssl)) {
-    throw new Error(`the database isn't on this computer, and without ${DATABASE_CA_CERT_ENV} its certificate can't be checked`);
+  if (!isLocalTarget({ host, path: path || false })) {
+    if (!isVerifyingTls(ssl)) {
+      throw new Error(`the database isn't on this computer, and without ${DATABASE_CA_CERT_ENV} its certificate can't be checked`);
+    }
+    // Parsed now, at setup (exit 2), not first met in the handshake. The chain and host name checks are the handshake's.
+    if (!parsesAsCertificates(ssl.ca)) throw new Error(DATABASE_CA_CERT_NOT_PEM);
   }
   return {
     db: {

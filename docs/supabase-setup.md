@@ -821,15 +821,20 @@ change, but read the dry run's output before you use `--apply`.
    pooler** URI (the Transaction pooler works too), and put the database
    password in place of `[YOUR-PASSWORD]`. Use the live project's string,
    not the one in `.env.local` (which may point at a dev database). The
-   string must name its host and database, and only one host.
+   string must name its host and database, only one host, and carry no
+   parameters after the `?` other than `sslmode` or `application_name`
+   (Supabase's URIs have none). Anything else, such as `database=`,
+   `user=` or `options=`, would be sent to the server in place of what
+   the string names, so the script refuses it.
 2. **Download the CA certificate.** On the same page (Project Settings →
    Database → SSL Configuration), click **Download certificate**, and note
    where the `.crt` file was saved. The script needs it for any database
    that isn't on your own computer: it uses the certificate to check that the
    server really is your Supabase database (its certificate chains to that CA
    and names the host) before it sends the password. Without
-   `DATABASE_CA_CERT` it refuses to run (exit code 2). It's a public
-   certificate, not a secret, but the script never prints it.
+   `DATABASE_CA_CERT` it refuses to run (exit code 2), and the same goes for
+   a value that isn't a whole certificate (it's parsed before connecting).
+   It's a public certificate, not a secret, but the script never prints it.
 3. **In a checkout of `main` that includes the script** (`npm ci` first, if
    `node_modules` is missing), set both for this terminal only. Paste the
    connection string at the prompt, so it doesn't end up in your shell
@@ -871,7 +876,9 @@ change, but read the dry run's output before you use `--apply`.
    be re-encoded, and how many **FAILED**. A failed photo couldn't be read,
    or its pixels didn't decode, or it wouldn't re-encode within the upload
    limits (24 megapixels, 2 MB), or it's animated (its line says so: a
-   re-encoded copy would keep only the first frame). It is never changed. Replace it through
+   re-encoded copy would keep only the first frame). Its line also lists
+   any metadata found (`metadata: GPS, camera; FAILED, …`), so replace
+   those with GPS first. It is never changed. Replace it through
    the admin event editor, which works at any status; for a published (or
    pending review) event that's the only way, because the organiser can't
    replace the photo then. Asking the organiser to replace it is an option
