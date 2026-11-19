@@ -280,7 +280,8 @@ describe("checkout with DELAYED_PAYOUTS unset", () => {
     const expected = {
       mode: "payment",
       client_reference_id: orderId,
-      expires_at: order.created + 3600,
+      // 33 minutes (GA_CHECKOUT_SESSION_MINUTES): Stripe's outer bound; the checkout's own pay deadline is 15 minutes.
+      expires_at: order.created + 33 * 60,
       line_items: [
         { price_data: { currency: "aud", product_data: { name: `GA — ${order.event_title}` }, unit_amount: 3000 }, quantity: 2 },
         { price_data: { currency: "aud", product_data: { name: "Booking fee" }, unit_amount: calculateBookingFeeCents(3000) }, quantity: 2 },

@@ -230,10 +230,12 @@ export default function SeatPicker({
   const everySeatTaken = availableCount === 0 && selectedSeats.length === 0;
   // Every seat unavailable but the event isn't sold out: they're held by people checking out, and
   // come back if those don't pay (the poll keeps going and shows them). Only sold out offers the waitlist.
+  // Within the hold (SEAT_HOLD.holdMinutes, 20): they're released at the 15-minute pay deadline, or by the
+  // sweeper up to 2 minutes later, and only lapse by themselves at the hold's end.
   const soldOut = isSoldOut(event);
   const takenWords = soldOut
     ? "Every seat is taken."
-    : `Every seat is held by people checking out. Unbought seats return within ${SEAT_HOLD.stripeMinutes} minutes.`;
+    : `Every seat is held by people checking out. Unbought seats return within ${SEAT_HOLD.holdMinutes} minutes.`;
   const canCheckout = mode === "live" && Boolean(event.organiserId) && !readOnly;
 
   // Totals (lib/fees.ts only).
