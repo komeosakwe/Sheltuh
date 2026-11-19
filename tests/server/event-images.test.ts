@@ -154,8 +154,27 @@ describe("event images", () => {
       304,
       EVENT_IMAGE_UNVERSIONED_CACHE,
     ]);
-    // An old version's ETag, a weak or listed one, or garbage: the image.
-    for (const header of [`"${Number(version) - 1}"`, `W/"${version}"`, `"${version}", "1"`, "*", version]) {
+    // RFC 9110 §13.1.2: a list naming the current version, a weak tag (the
+    // weak comparison applies) or `*` is a 304 too.
+    for (const header of [`"${version}", "1"`, `"1", W/"${version}"`, `W/"${version}"`, "*", ` * `]) {
+      const res = await getRaw(draft.eventId, undefined, version, { "if-none-match": header });
+      expect([header, res.status, res.headers.get("cache-control"), res.headers.get("etag")]).toEqual([
+        header,
+        304,
+        EVENT_IMAGE_CACHE,
+        `"${version}"`,
+      ]);
+      expect((await res.arrayBuffer()).byteLength).toBe(0);
+    }
+    // An old version's ETag, a list without the current one, or garbage
+    // (unquoted, `*` in a list, over 32 tags): the image.
+    for (const header of [
+      `"${Number(version) - 1}"`,
+      `"1", W/"${Number(version) - 1}", "${version}-l"`,
+      version,
+      `*, "${version}"`,
+      Array.from({ length: 32 }, (_, i) => `"${i}"`).concat(`"${version}"`).join(","),
+    ]) {
       const res = await getRaw(draft.eventId, undefined, version, { "if-none-match": header });
       expect([header, res.status]).toEqual([header, 200]);
       expect(new Uint8Array(await res.arrayBuffer())).toEqual(await storedBytes(draft.eventId));
@@ -164,12 +183,41 @@ describe("event images", () => {
     // Unpublished again: private, whatever `v` says, and only for the owner or an admin.
     await api.db.query(`update public.events set status = 'draft' where id = $1`, [draft.eventId]);
     expect((await getRaw(draft.eventId, undefined, version)).status).toBe(404);
-    // A matching ETag doesn't get round the access check either.
-    expect((await getRaw(draft.eventId, undefined, version, etag)).status).toBe(404);
+    // A matching ETag doesn't get round the access check either, nor a list,
+    // a weak tag or `*`, anonymous or as another member.
+    const stranger = await api.signUp();
+    for (const header of [`"${version}"`, `"1", "${version}"`, `W/"${version}"`, "*"]) {
+      for (const token of [undefined, stranger.token]) {
+        const res = await getRaw(draft.eventId, token, version, { "if-none-match": header });
+        expect([header, token === undefined, res.status]).toEqual([header, token === undefined, 404]);
+      }
+    }
     const owner = await getRaw(draft.eventId, organiser.token, version);
     expect([owner.status, owner.headers.get("cache-control")]).toEqual([200, "private, no-store"]);
-    const ownerNotModified = await getRaw(draft.eventId, organiser.token, version, etag);
-    expect([ownerNotModified.status, ownerNotModified.headers.get("cache-control")]).toEqual([304, "private, no-store"]);
+    for (const token of [organiser.token, admin.token]) {
+      for (const header of [`"${version}"`, `"1", W/"${version}"`, "*"]) {
+        const ownerNotModified = await getRaw(draft.eventId, token, version, { "if-none-match": header });
+        expect([header, ownerNotModified.status, ownerNotModified.headers.get("cache-control")]).toEqual([
+          header,
+          304,
+          "private, no-store",
+        ]);
+      }
+    }
+  });
+
+  it("`*` without an image is the usual 404, and a draft's is hidden behind it", async () => {
+    const draft = await draftEvent(api, organiser);
+    const star = { "if-none-match": "*" };
+    // No image yet, or no such event: 404 even for the owner.
+    expect((await getRaw(draft.eventId, organiser.token, undefined, star)).status).toBe(404);
+    expect((await getRaw(crypto.randomUUID(), undefined, undefined, star)).status).toBe(404);
+    // With one, a draft's is still a 404 to anyone else, and a 304 for the owner.
+    await put(draft.eventId, PNG);
+    const other = await api.signUp();
+    expect((await getRaw(draft.eventId, undefined, undefined, star)).status).toBe(404);
+    expect((await getRaw(draft.eventId, other.token, undefined, star)).status).toBe(404);
+    expect((await getRaw(draft.eventId, organiser.token, undefined, star)).status).toBe(304);
   });
 
   it("rejects non-images (by content, not by declared type) and oversized files", async () => {
