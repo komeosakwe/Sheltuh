@@ -9,6 +9,7 @@ import { isNewAccount } from "./new-account";
 import { oauthCallbackUrl, oauthQueryParams, type OAuthProvider } from "./oauth";
 import { accessTokenFor, createSessionResolver, SessionExpiredError } from "./session-token";
 import { announceUserSignOut, endsSession, lastUserSignOut, onUserSignOut } from "./sign-out-signal";
+import { HumanCheckError, isCaptchaFailure } from "./turnstile";
 
 // Re-exported so components can `import { SessionExpiredError } from
 // "@/lib/auth/AuthContext"` alongside `useAuth` without a second import.
@@ -73,12 +74,19 @@ interface AuthState {
 
 export interface AuthContextValue extends AuthState {
   configured: boolean;
-  signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string) => Promise<void>;
+  /*
+   * `captchaToken`, on the four calls Supabase Auth's CAPTCHA protection
+   * guards: Cloudflare Turnstile's single-use token (lib/auth/useHumanCheck.ts),
+   * or undefined when Turnstile is off (then the call is made exactly as
+   * without it). When Supabase refuses the token these reject with
+   * HumanCheckError (lib/auth/turnstile.ts).
+   */
+  signIn: (email: string, password: string, captchaToken?: string) => Promise<void>;
+  signUp: (email: string, password: string, captchaToken?: string) => Promise<void>;
   /** Confirms a new account with the code from its confirmation email, which also signs it in. */
   confirmSignUp: (email: string, code: string) => Promise<void>;
-  resendConfirmationCode: (email: string) => Promise<void>;
-  forgotPassword: (email: string) => Promise<void>;
+  resendConfirmationCode: (email: string, captchaToken?: string) => Promise<void>;
+  forgotPassword: (email: string, captchaToken?: string) => Promise<void>;
   confirmForgotPassword: (email: string, code: string, newPassword: string) => Promise<void>;
   /**
    * Starts signing in with Google or Apple: the browser leaves for the
@@ -175,9 +183,19 @@ function requireClient() {
   return client;
 }
 
-/** Supabase reports failures as `{ error }` rather than throwing. */
-function throwIfError(error: { message: string } | null) {
-  if (error) throw new Error(error.message);
+/**
+ * Supabase reports failures as `{ error }` rather than throwing. A refused
+ * CAPTCHA token is HumanCheckError, with copy a person can act on.
+ */
+function throwIfError(error: { message: string; code?: string } | null) {
+  if (!error) return;
+  if (isCaptchaFailure(error)) throw new HumanCheckError(error);
+  throw new Error(error.message);
+}
+
+/** Supabase's `options` for a CAPTCHA token: none at all without one, so the call is as it was before Turnstile. */
+function captchaOptions(captchaToken: string | undefined): { options?: { captchaToken: string } } {
+  return captchaToken ? { options: { captchaToken } } : {};
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -249,13 +267,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [resolveSession],
   );
 
-  const signIn = useCallback(async (email: string, password: string) => {
-    const { error } = await requireClient().auth.signInWithPassword({ email, password });
+  const signIn = useCallback(async (email: string, password: string, captchaToken?: string) => {
+    const { error } = await requireClient().auth.signInWithPassword({ email, password, ...captchaOptions(captchaToken) });
     throwIfError(error);
   }, []);
 
-  const signUp = useCallback(async (email: string, password: string) => {
-    const { error } = await requireClient().auth.signUp({ email, password });
+  const signUp = useCallback(async (email: string, password: string, captchaToken?: string) => {
+    const { error } = await requireClient().auth.signUp({ email, password, ...captchaOptions(captchaToken) });
     throwIfError(error);
   }, []);
 
@@ -264,13 +282,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     throwIfError(error);
   }, []);
 
-  const resendConfirmationCode = useCallback(async (email: string) => {
-    const { error } = await requireClient().auth.resend({ type: "signup", email });
+  const resendConfirmationCode = useCallback(async (email: string, captchaToken?: string) => {
+    const { error } = await requireClient().auth.resend({ type: "signup", email, ...captchaOptions(captchaToken) });
     throwIfError(error);
   }, []);
 
-  const forgotPassword = useCallback(async (email: string) => {
-    const { error } = await requireClient().auth.resetPasswordForEmail(email);
+  // The reset is by emailed code (verifyOtp, below), so no redirectTo.
+  const forgotPassword = useCallback(async (email: string, captchaToken?: string) => {
+    const client = requireClient();
+    const { error } = await (captchaToken
+      ? client.auth.resetPasswordForEmail(email, { captchaToken })
+      : client.auth.resetPasswordForEmail(email));
     throwIfError(error);
   }, []);
 

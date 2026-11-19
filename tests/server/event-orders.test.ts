@@ -567,6 +567,8 @@ describe("the search request", () => {
 });
 
 describe("the daily budget of buyer details", () => {
+  // These tests search for "lee" (Dee Lee's), never "dee": a search also matches the short reference
+  // (hex, from the random order id), so an all-hex text could match Eve's order too and serve 2 rows.
   beforeEach(async () => {
     await addOrder({ name: "Dee Lee", email: "dee@example.com", age: 200 });
     await addOrder({ name: "Eve Fox", email: "eve@example.com", age: 100 });
@@ -581,7 +583,7 @@ describe("the daily budget of buyer details", () => {
   it("every page adds the rows it served, and the request, to one aggregate row", async () => {
     await list(organiser.token);
     expect(await served()).toEqual({ rows_served: 2, requests: 1 });
-    await list(organiser.token, { q: "dee" });
+    await list(organiser.token, { q: "lee" });
     expect(await served()).toEqual({ rows_served: 3, requests: 2 });
     await list(organiser.token, { limit: "1" });
     expect(await served()).toEqual({ rows_served: 4, requests: 3 });
@@ -622,7 +624,7 @@ describe("the daily budget of buyer details", () => {
     expect(JSON.stringify(res.body)).not.toMatch(/Dee|dee@|Eve|eve@/);
     expect(await served()).toMatchObject({ rows_served: EVENT_ORDERS_LIMITS.dailyRows - 1 });
     // The search is shared, and a page that fits still goes.
-    expect((await list(organiser.token, { q: "dee" })).status).toBe(200);
+    expect((await list(organiser.token, { q: "lee" })).status).toBe(200);
     expect(await served()).toMatchObject({ rows_served: EVENT_ORDERS_LIMITS.dailyRows });
     expect((await list(organiser.token, { q: "eve" })).body.code).toBe("daily_limit");
   });

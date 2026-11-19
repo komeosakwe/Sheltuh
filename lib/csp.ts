@@ -1,3 +1,5 @@
+import { TURNSTILE_ORIGIN } from "@/lib/auth/turnstile";
+
 /**
  * The payment page's Content Security Policy (proxy.ts sets it on
  * /checkout/pay only). Scripts need this request's nonce (Next puts it on its
@@ -5,6 +7,12 @@
  * loaded by a nonced script, which 'strict-dynamic' trusts, and the
  * js.stripe.com sources are for browsers without 'strict-dynamic'. Stripe's
  * form runs in its own frames.
+ *
+ * A policy stays with the document it came with, so it still applies after a
+ * client-side navigation from here (Sign in, an expired session's sign-in
+ * box): Cloudflare Turnstile's script and frame (lib/auth/turnstile.ts) are
+ * allowed too, or the human check on those forms would be blocked once this
+ * is enforced.
  *
  * Sent as Content-Security-Policy-Report-Only for now: violations are logged
  * in the browser console, nothing is blocked (see CSP_HEADER).
@@ -49,6 +57,7 @@ export function checkoutPayCsp({ nonce, themeScriptHash, supabaseUrl, isDev }: C
       "'strict-dynamic'",
       themeScriptHash,
       stripeScripts,
+      TURNSTILE_ORIGIN,
       ...(isDev ? ["'unsafe-eval'"] : []),
     ],
     ["style-src", "'self'", "'unsafe-inline'"],
@@ -62,7 +71,7 @@ export function checkoutPayCsp({ nonce, themeScriptHash, supabaseUrl, isDev }: C
       "https://checkout.stripe.com",
       ...(isDev ? ["ws:"] : []),
     ],
-    ["frame-src", stripeScripts, "https://hooks.stripe.com", "https://checkout.stripe.com"],
+    ["frame-src", stripeScripts, "https://hooks.stripe.com", "https://checkout.stripe.com", TURNSTILE_ORIGIN],
     ["worker-src", "'self'"],
     ["manifest-src", "'self'"],
     ["object-src", "'none'"],

@@ -1,6 +1,6 @@
 import { encodeSquareImage, unsupportedImage, type EncodedAvatar } from "./avatar";
 import { HttpError } from "./http";
-import { MAX_EVENT_IMAGE_BYTES, readCappedBytes, sniffImageType } from "./handlers/event-images";
+import { MAX_EVENT_IMAGE_BYTES, readCappedBytes, sniffImageType } from "./image-upload";
 
 /**
  * Organiser logos (docs/architecture.md, "Organiser profiles"). Like member

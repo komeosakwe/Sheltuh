@@ -1,3 +1,4 @@
+import sharp from "sharp";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   deleteEventImage,
@@ -8,13 +9,17 @@ import {
 } from "@/lib/server/handlers/event-images";
 import { submitEventForReview } from "@/lib/server/handlers/events";
 import { adminApproveEvent } from "@/lib/server/handlers/admin";
+import { adminPutEventImage } from "@/lib/server/handlers/admin-authoring";
+import { EVENT_IMAGE_UPLOAD_RATE_LIMIT } from "@/lib/server/event-image";
+import { windowSeconds } from "@/lib/server/http";
 import { runHandler } from "@/lib/server/route";
 import type { Db } from "@/lib/server/db";
 import { TestApi } from "./helpers/api";
 import { approvedOrganiser, draftEvent, setUpPayouts, signUpAdmin } from "./helpers/fixtures";
+import { testPng } from "./helpers/images";
 import { createTestDb } from "./helpers/test-db";
 
-const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+const PNG = testPng();
 const SITE = "https://sheltuh.test/api/test";
 
 let api: TestApi;
@@ -53,6 +58,12 @@ async function getRaw(eventId: string, token?: string, version?: string, extraHe
   return (await import("@/lib/server/route")).runHandler(getEventImage, req, { eventId }, api.deps);
 }
 
+/** The photo as stored: the upload re-encoded (lib/server/event-image.ts), so not the uploaded bytes themselves. */
+async function storedBytes(eventId: string): Promise<Uint8Array> {
+  const [row] = await api.db.query<{ data: Uint8Array }>(`select data from public.event_images where event_id = $1`, [eventId]);
+  return new Uint8Array(row.data);
+}
+
 /** A Db that locks the event for review just before the statement containing `trigger` runs. */
 function lockingDb(real: Db, eventId: string, trigger: string): Db {
   return {
@@ -78,7 +89,11 @@ describe("event images", () => {
     expect(read.status).toBe(200);
     expect(read.headers.get("content-type")).toBe("image/png");
     expect(read.headers.get("cache-control")).toBe("private, no-store");
-    expect(new Uint8Array(await read.arrayBuffer())).toEqual(PNG);
+    const served = new Uint8Array(await read.arrayBuffer());
+    expect(served).toEqual(await storedBytes(draft.eventId));
+    // The same picture, re-encoded server-side.
+    const [uploaded, stored] = await Promise.all([sharp(PNG).metadata(), sharp(served).metadata()]);
+    expect([stored.format, stored.width, stored.height]).toEqual(["png", uploaded.width, uploaded.height]);
   });
 
   it("keeps a draft's image private: not anonymous, not other organisers", async () => {
@@ -110,7 +125,7 @@ describe("event images", () => {
     expect(current.headers.get("cache-control")).toBe(EVENT_IMAGE_CACHE);
     expect(current.headers.get("etag")).toBe(`"${version}"`);
     expect(current.headers.get("last-modified")).toBe(new Date(Number(version) * 1000).toUTCString());
-    expect(new Uint8Array(await current.arrayBuffer())).toEqual(PNG);
+    expect(new Uint8Array(await current.arrayBuffer())).toEqual(await storedBytes(draft.eventId));
     // The same for a signed-in caller: nothing in it depends on who asks.
     const signedIn = await getRaw(draft.eventId, organiser.token, version);
     expect(signedIn.headers.get("cache-control")).toBe(EVENT_IMAGE_CACHE);
@@ -162,7 +177,7 @@ describe("event images", () => {
     ]) {
       const res = await getRaw(draft.eventId, undefined, version, { "if-none-match": header });
       expect([header, res.status]).toEqual([header, 200]);
-      expect(new Uint8Array(await res.arrayBuffer())).toEqual(PNG);
+      expect(new Uint8Array(await res.arrayBuffer())).toEqual(await storedBytes(draft.eventId));
     }
 
     // Unpublished again: private, whatever `v` says, and only for the owner or an admin.
@@ -274,6 +289,45 @@ describe("event images", () => {
     expect(res.status).toBe(409);
     const [{ n }] = await api.db.query<{ n: string }>(`select count(*)::text as n from public.event_images`);
     expect(n).toBe("0");
+  });
+
+  it(`allows ${EVENT_IMAGE_UPLOAD_RATE_LIMIT.hits} uploads a day per organiser account: the next is a 429 with Retry-After, and nothing is written`, async () => {
+    const first = await draftEvent(api, organiser);
+    const second = await draftEvent(api, organiser);
+    // All but one of the day's uploads already used.
+    await api.db.query(
+      `insert into private.rate_limits (user_id, bucket, window_started_at, hits) values ($1, 'event_image_uploads', now(), $2)`,
+      [organiser.userId, EVENT_IMAGE_UPLOAD_RATE_LIMIT.hits - 1],
+    );
+    expect((await put(first.eventId, PNG)).status).toBe(200);
+    const before = await storedBytes(first.eventId);
+
+    // Over the limit: refused whichever event it's for, with nothing stored or replaced.
+    for (const eventId of [second.eventId, first.eventId]) {
+      const res = await put(eventId, testPng(1));
+      expect(res.status).toBe(429);
+      expect(res.headers.get("retry-after")).toBe(String(windowSeconds(EVENT_IMAGE_UPLOAD_RATE_LIMIT.window)));
+    }
+    expect(await api.db.query(`select 1 from public.event_images where event_id = $1`, [second.eventId])).toEqual([]);
+    expect(await storedBytes(first.eventId)).toEqual(before);
+  });
+
+  it("doesn't limit an admin's uploads, even on an organiser whose allowance is used up", async () => {
+    const draft = await draftEvent(api, organiser);
+    for (const userId of [organiser.userId, admin.userId]) {
+      await api.db.query(
+        `insert into private.rate_limits (user_id, bucket, window_started_at, hits) values ($1, 'event_image_uploads', now(), $2)`,
+        [userId, EVENT_IMAGE_UPLOAD_RATE_LIMIT.hits],
+      );
+    }
+    expect((await put(draft.eventId, PNG)).status).toBe(429);
+    const res = await api.send(
+      adminPutEventImage,
+      new Request(SITE, { method: "PUT", headers: { authorization: `Bearer ${admin.token}` }, body: PNG }),
+      { eventId: draft.eventId },
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.imageUrl).toBeDefined();
   });
 
   it("won't delete an image from an event locked meanwhile", async () => {

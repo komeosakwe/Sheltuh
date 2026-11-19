@@ -34,6 +34,7 @@ import {
   signUpAdmin,
   withoutHostCard,
 } from "./helpers/fixtures";
+import { testPng } from "./helpers/images";
 import { createTestDb } from "./helpers/test-db";
 
 /**
@@ -215,7 +216,7 @@ describe("database constraints", () => {
       new Request(`${SITE_URL}/api/test`, {
         method: "PUT",
         headers: { authorization: `Bearer ${admin.token}` },
-        body: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]),
+        body: testPng(),
       }),
       { eventId: other.eventId },
     );

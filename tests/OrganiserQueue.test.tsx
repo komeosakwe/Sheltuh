@@ -673,7 +673,7 @@ describe("Admin organisers: a suspend in flight", () => {
     expect(reason).toHaveValue("Spam");
     fireEvent.change(within(dialog).getByLabelText("Password"), { target: { value: "pw" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Sign in" }));
-    await waitFor(() => expect(auth.signIn).toHaveBeenCalledWith("admin@example.com", "pw"));
+    await waitFor(() => expect(auth.signIn).toHaveBeenCalledWith("admin@example.com", "pw", undefined));
     const submit = within(dialog).getByRole("button", { name: "Suspend organiser" });
     await waitFor(() => expect(submit).toHaveFocus());
     expect(within(dialog).queryByLabelText("Password")).toBeNull();
