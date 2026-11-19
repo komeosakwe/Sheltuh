@@ -325,10 +325,10 @@ export async function encodeMemberPhoto(input: Uint8Array): Promise<EncodedMembe
       height: decoded.info.height,
       channels: decoded.info.channels,
     };
-    const [image, thumb] = await Promise.all([
+    const [image, thumb] = await bothSettled(
       webpWithin(pixels, MEMBER_PHOTO_MAX_BYTES, MEMBER_PHOTO_QUALITIES),
       webpWithin(pixels, MEMBER_PHOTO_THUMB_MAX_BYTES, MEMBER_THUMB_QUALITIES, MEMBER_PHOTO_THUMB_SIZE),
-    ]);
+    );
     return { image: image.data, thumb: thumb.data, width: image.width, height: image.height };
   });
 }
