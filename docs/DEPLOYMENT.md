@@ -492,10 +492,12 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           Additive. Apply it with 52.
       54. `20261125000000_profile_photos.sql` (member photos, docs/architecture.md
           "Member photos": `private.profile_photos`, its cap trigger
-          `profile_photos_cap` and `private.add_profile_photo`). Additive; the
-          API adds photos only while `NEXT_PUBLIC_MEMBER_PHOTOS` is `1`, so apply
-          it before the app that sets the flag (see `.env.example`). Reversible,
-          with data loss: drop the trigger, both functions and the table.
+          `profile_photos_cap` and `private.add_profile_photo`). Additive. Apply it
+          before any app that reads profiles: profile responses query
+          `private.profile_photos` whether or not `NEXT_PUBLIC_MEMBER_PHOTOS` is `1`
+          (the flag gates only uploads; see `.env.example`). To roll back, first
+          deploy an app version that does not read photos. Then drop the trigger,
+          both functions and the table; this step loses data.
 
       **Files 33 to 37 can be applied ahead of this deploy, with the
       previous app still live.** "The previous app" here is the build of
