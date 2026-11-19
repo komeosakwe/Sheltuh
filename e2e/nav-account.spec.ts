@@ -203,8 +203,8 @@ for (const theme of ["light", "dark"] as const) {
       await page.keyboard.press("Tab");
       const logOut = menu.getByRole("button", { name: "Log out" });
       await expect(logOut).toBeFocused();
-      // The board's Log out orange (#ff4800) in both themes.
-      expect(await logOut.evaluate((el) => getComputedStyle(el).color)).toBe("rgb(255, 72, 0)");
+      // Log out: #d03e00 in Light (4.8:1 on white, owner 19 Nov 2026), the board's #ff4800 in Dark.
+      expect(await logOut.evaluate((el) => getComputedStyle(el).color)).toBe(theme === "light" ? "rgb(208, 62, 0)" : "rgb(255, 72, 0)");
       // As the board's two frames: white with a 1px hairline and no shadow in Light; #1c1b17 with a 1px white stroke in
       // Dark; radius 16.
       expect(

@@ -231,10 +231,10 @@ describe("avatar menu (from lg)", () => {
       ["Messages, 3 unread", "/messages"],
       ["Settings", "/account"],
     ]);
-    // The board's Log out: its label and its orange (--signal, #ff4800).
+    // The board's Log out: its label; #d03e00 (--signal-text) in Light, which passes 4.5:1 (owner, 19 Nov 2026), and the
+    // board's #ff4800 (--signal) in Dark.
     const logOut = within(nav).getByRole("button", { name: "Log out", hidden: true });
-    expect(logOut).toHaveClass("text-signal");
-    expect(logOut).not.toHaveClass("text-signal-text");
+    expect(logOut).toHaveClass("text-signal-text", "dark:text-signal");
     // 40px rows of 16px semibold, as drawn.
     for (const row of [...within(nav).getAllByRole("link", { hidden: true }), logOut]) {
       expect(row).toHaveClass("min-h-10", "text-base", "font-semibold", "hover:bg-menu-hover");

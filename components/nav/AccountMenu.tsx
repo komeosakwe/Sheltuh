@@ -239,9 +239,10 @@ export default function AccountMenu({ account, initial }: { account: NavAccount;
             {row("/account", "Settings", undefined, current("/account"))}
           </ul>
           <div aria-hidden="true" className={`my-2 ${dividerClass}`} />
-          {/* The board's Log out, in its own orange: --signal (#ff4800) in both themes (owner: the
-              build copies the boards exactly; navigation-search.md §5.16 records its contrast). */}
-          <button type="button" onClick={handleSignOut} className={`${rowClass} text-signal`}>
+          {/* The board's Log out. Light: --signal-text (#d03e00), 4.8:1 on white and 4.59:1 on the cream
+              hover row (owner, 19 Nov 2026: accessibility over the board's #ff4800 here). Dark: the board's
+              --signal (#ff4800), 5.07:1 on the panel (navigation-search.md §5.16). */}
+          <button type="button" onClick={handleSignOut} className={`${rowClass} text-signal-text dark:text-signal`}>
             Log out
           </button>
         </nav>

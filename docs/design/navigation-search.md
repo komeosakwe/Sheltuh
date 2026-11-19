@@ -554,7 +554,7 @@ the Navigation board), apart from the differences listed at the end.
 | Hairlines | 1px `--surface-border`, **edge to edge** across the panel (`-mx-2`). |
 | Rows | **40px** (`min-h-10`), **16px semibold**, 16px in; under the pointer, on focus and pressed: `--menu-hover` (cream #fffae7 in Light, **#2e2b26** in Dark). |
 | Counts | **24 × 16 pills**: Saved in the panel's other fill (cream on white, white on a hovered row; #2e2b26 in Dark), Messages orange with a black number, Admin black. |
-| Log out | the board's label, "Log out", in the board's orange: **`--signal` #ff4800** in both themes (not `--signal-text`). |
+| Log out | the board's label, "Log out". Light: **`--signal-text` #d03e00** (owner decision, 19 Nov 2026: accessibility over the board's exact colour for this one): 4.8:1 on white, 4.59:1 on the cream hover row. Dark: the board's **`--signal` #ff4800**, 5.07:1 on the panel. |
 
 **New tokens:** `--header` (#ffffff / Dark #0a0a0a), `--menu` (#ffffff / #1c1b17), `--menu-hover` (#fffae7 /
 #2e2b26), and `--avatar-placeholder` (#fffae7 in every theme). `label-nav` is now 18/24 (it's only used by the nav).
@@ -571,8 +571,8 @@ scrolled XL header (100 → 92); and the Dark phone bar's 1px rule against the b
 phone page).
 
 **Accessibility consequences of the exact copy** (for the owner, not changes to make):
-- Log out in #ff4800 is **3.4:1 on white** (3.25:1 on the cream hover row), under the 4.5:1 that WCAG 1.4.3 asks
-  of 16px text. It's 5.07:1 on the Dark panel.
+- Log out: the board's #ff4800 is 3.4:1 on white, so Light uses #d03e00 instead (owner, 19 Nov 2026; see the table).
+  In Dark, #ff4800 is 5.07:1 on the panel but **4.15:1 on the hovered or focused row** (#2e2b26), under 4.5:1.
 - Phones show no unread count anywhere outside /messages: not on Menu and not in the drawer.
 - Targets: the avatar menu's rows are 40px and the phone bar's buttons 40 × 48, above the 24px minimum (WCAG 2.5.8)
   but under the 44px this spec preferred.
