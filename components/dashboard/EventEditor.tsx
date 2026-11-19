@@ -345,7 +345,7 @@ export default function EventEditor(props: Props) {
   // The venue's location (owner decisions A-D1 to A-D3): a Google place and the organiser's confirmed
   // pin, or a pin alone. The pin counts for the suburb it was confirmed in.
   const placeKey = venue.place ? venuePlaceKey(venue.place.name, venue.place.state) : null;
-  const venueLocation = useVenueLocation(initial, placeKey);
+  const venueLocation = useVenueLocation(initial, placeKey, venue.suburb.trim());
   // What picking a Google place last filled each field with: a field is filled again only while it's
   // empty or still says that, never over what the organiser typed.
   const [prefilled, setPrefilled] = useState<{ venueName?: string; venueAddress?: string; suburb?: string }>({});
@@ -944,7 +944,7 @@ export default function EventEditor(props: Props) {
    * loaded unlinks it at once (settleLinkedPlace), so a place is never saved
    * with another suburb.
    */
-  function handlePicked({ suggestion, details, placeKey: pickedIn }: PickedPlace) {
+  function handlePicked({ suggestion, details, pickedIn }: PickedPlace) {
     const fillable = (value: string, last: string | undefined) => !value.trim() || value === last;
     const next = { ...prefilled };
     // Its street line, with nothing more after a comma than the picked place's own locality, is an address.
@@ -961,7 +961,8 @@ export default function EventEditor(props: Props) {
       setVenueAddress(details.streetAddress);
       next.venueAddress = details.streetAddress;
     }
-    let filledSuburb = false;
+    // The suburb it belongs to: the one the pick fills in (as typed until the table has it), else the one it was picked in.
+    let at = pickedIn;
     if (details.locality) {
       // As the suburb's own suggestions say it ("Fitzroy, VIC"); checked against the suburb table as typed text is.
       const suburb = details.state ? placeName(details.locality, details.state) : details.locality;
@@ -969,14 +970,14 @@ export default function EventEditor(props: Props) {
         venue.requestTable();
         venue.setSuburb(suburb);
         next.suburb = suburb;
-        filledSuburb = true;
+        at = { text: suburb.trim() };
       }
     }
     setPrefilled(next);
     venueLocation.link(
       details.placeId,
       [suggestion.primaryText, suggestion.secondaryText].filter(Boolean).join(", "),
-      filledSuburb ? null : pickedIn,
+      at,
     );
     clearErrors("venueName", "venueAddress", "suburb", "state", "timeZone", "location");
   }

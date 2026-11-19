@@ -14,6 +14,9 @@ import { CONFIRMED_PIN_LOCATION, stubMatchMedia, unstubMatchMedia } from "./test
  */
 
 vi.mock("@/lib/location-loader", async () => (await import("./test-utils/locationStub")).locationLoaderStub());
+// The publish tests' event has a confirmed pin, so the venue's inline map mounts: the stub, as the other editor tests
+// use (the real Leaflet needs ResizeObserver, which jsdom hasn't; its lazy chunk loading late threw mid-test in CI).
+vi.mock("@/components/dashboard/VenuePinMapLeaflet", async () => (await import("./test-utils/pinMapStub")).leafletStub());
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 const updateEventDraft = vi.fn();
@@ -338,6 +341,12 @@ describe("EventEditor banner fit", () => {
 
     expect(screen.getByLabelText(LABEL)).toBeDisabled();
     expect(focusArea()).toHaveAttribute("aria-disabled", "true");
+    // Nor the photo: no choosing another, no removing it.
+    expect(document.getElementById("event-image")).toBeDisabled();
+    const remove = screen.getByRole("button", { name: "Remove photo", hidden: true });
+    expect(remove).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(remove);
+    expect(screen.getByRole("button", { name: "Remove photo", hidden: true })).toBeInTheDocument();
     fireEvent.keyDown(focusArea(), { key: "ArrowRight" });
     expect(focusArea()).toHaveAttribute("aria-valuenow", "30");
 
@@ -346,8 +355,35 @@ describe("EventEditor banner fit", () => {
     expect(publishEvent).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.getByLabelText(LABEL)).toBeEnabled());
     expect(focusArea()).not.toHaveAttribute("aria-disabled");
+    expect(document.getElementById("event-image")).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Remove photo", hidden: true })).not.toHaveAttribute("aria-disabled");
     fireEvent.keyDown(focusArea(), { key: "ArrowRight" });
     expect(focusArea()).toHaveAttribute("aria-valuenow", "35");
+  });
+
+  // CodeRabbit (PR #61, round 5): a photo still being prepared when publishing starts isn't taken (said so).
+  it("a photo whose preparation ends after publishing started isn't added, and says why", async () => {
+    let prepared: (image: Blob) => void = () => {};
+    prepareEventImage.mockImplementation(() => new Promise<Blob>((resolve) => (prepared = resolve)));
+    let fail: (err: Error) => void = () => {};
+    updateEventDraft.mockImplementation(() => new Promise<EventRecord>((_, reject) => (fail = reject)));
+    renderEditor({ ...EVENT, location: CONFIRMED_PIN_LOCATION });
+    await checkbox();
+    pickPhoto();
+    await waitFor(() => expect(prepareEventImage).toHaveBeenCalledTimes(1));
+    showStep(3);
+    fireEvent.click(await screen.findByRole("button", { name: "Publish…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Publish now" }));
+    await waitFor(() => expect(updateEventDraft).toHaveBeenCalledTimes(1));
+    await act(async () => prepared(new Blob(["x"], { type: "image/jpeg" })));
+    expect(screen.getByText(/That photo wasn.t added: the event is being published/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Discard new photo", hidden: true })).toBeNull();
+
+    // A failed publish: the saved photo is still the one, and nothing is uploaded.
+    await act(async () => fail(new Error("network")));
+    expect(await screen.findByText("network")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Discard new photo", hidden: true })).toBeNull();
+    expect(uploadEventImage).not.toHaveBeenCalled();
   });
 
   // CodeRabbit (PR #61, round 4): the delete's answer mustn't reset a photo picked (and its fit chosen) meanwhile.

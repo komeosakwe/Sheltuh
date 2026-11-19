@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import VenuePlaceSearch, {
   PLACE_SEARCH_DEBOUNCE_MS,
   type PickedPlace,
+  type PlaceBinding,
 } from "@/components/dashboard/VenuePlaceSearch";
 import { ApiError } from "@/lib/api/client";
 import type { PlaceDetails, PlaceSuggestion } from "@/lib/api/places";
@@ -67,13 +68,13 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-function renderSearch(props: { error?: string; placeKey?: string | null } = {}) {
+function renderSearch(props: { error?: string; suburbBinding?: PlaceBinding } = {}) {
   const onPick = vi.fn<(picked: PickedPlace) => void>();
   const onManual = vi.fn<(why: "chosen" | "unavailable") => void>();
   const onSubmit = vi.fn((event: { preventDefault: () => void }) => event.preventDefault());
   render(
     <form onSubmit={onSubmit}>
-      <VenuePlaceSearch getToken={getToken} placeKey={props.placeKey} onPick={onPick} onManual={onManual} error={props.error} errorId="loc-error" />
+      <VenuePlaceSearch getToken={getToken} suburbBinding={props.suburbBinding} onPick={onPick} onManual={onManual} error={props.error} errorId="loc-error" />
     </form>,
   );
   return { onPick, onManual, onSubmit, box: screen.getByRole("combobox", { name: "Find the venue on Google Maps" }) };
@@ -114,7 +115,7 @@ describe("VenuePlaceSearch — the combobox", () => {
   });
 
   it("arrows move through the suggestions (wrapping), Enter picks one; Escape closes, then clears", async () => {
-    const { box, onPick, onSubmit } = renderSearch({ placeKey: "collingwood|VIC" });
+    const { box, onPick, onSubmit } = renderSearch({ suburbBinding: "collingwood|VIC" });
     await typeAndWait(box, "Venue");
     const options = screen.getAllByRole("option");
 
@@ -145,7 +146,7 @@ describe("VenuePlaceSearch — the combobox", () => {
     const sessionToken = api.autocompletePlaces.mock.calls[0][1];
     expect(api.getPlaceDetails).toHaveBeenCalledWith("ChIJplace00000000002", sessionToken, getToken, expect.any(AbortSignal));
     // With the suburb's place it was picked in (for the editor: a suburb changed while it loaded unlinks it).
-    expect(onPick).toHaveBeenCalledWith({ suggestion: suggestion(2), details: DETAILS, placeKey: "collingwood|VIC" });
+    expect(onPick).toHaveBeenCalledWith({ suggestion: suggestion(2), details: DETAILS, pickedIn: "collingwood|VIC" });
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
@@ -155,7 +156,7 @@ describe("VenuePlaceSearch — the combobox", () => {
     await act(async () => {
       fireEvent.click(screen.getAllByRole("option")[0]);
     });
-    expect(onPick).toHaveBeenCalledWith({ suggestion: suggestion(1), details: DETAILS, placeKey: null });
+    expect(onPick).toHaveBeenCalledWith({ suggestion: suggestion(1), details: DETAILS, pickedIn: { text: "" } });
     await typeAndWait(box, "Venue 2");
     expect(api.autocompletePlaces.mock.calls[1][1]).not.toBe(api.autocompletePlaces.mock.calls[0][1]);
   });

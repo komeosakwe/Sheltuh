@@ -26,8 +26,9 @@ interface Props {
   bannerFit: BannerFit;
   onBannerFitChange: (fit: BannerFit) => void;
   /**
-   * While the event is being published: the focus and the fit can't change (publishing sends the ones it started
-   * with, and a published event's photo settings can't be saved by the organiser afterwards). Off again if it fails.
+   * While the event is being published: the photo, its focus and its fit can't change (publishing sends the ones
+   * it started with, and a published event's photo can't be saved by the organiser afterwards). Choosing and
+   * removing are off, and a photo still being prepared when it started isn't taken. Off again if it fails.
    */
   locked?: boolean;
   error?: string;
@@ -61,6 +62,11 @@ export default function EventImageField({
   onPreviewUrl,
 }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
+  // `locked` as now, for a photo whose preparation (downsizing) ends after publishing started.
+  const lockedNow = useRef(locked);
+  useEffect(() => {
+    lockedNow.current = locked;
+  }, [locked]);
   const [pickError, setPickError] = useState<string | null>(null);
   const [pendingPreview, setPendingPreview] = useState<string | null>(null);
   const [existingPreview, setExistingPreview] = useState<string | null>(null);
@@ -106,10 +112,16 @@ export default function EventImageField({
     setPickError(null);
     if (!file) return;
     try {
-      onPendingChange(await prepareEventImage(file));
-      onRemovedChange(false);
-      // The focus belongs to the photo it was set on.
-      onFocusChange(null);
+      const prepared = await prepareEventImage(file);
+      if (lockedNow.current) {
+        // Publishing started meanwhile: it goes with the photo it started with; this one isn't taken (said so).
+        setPickError("That photo wasn\u2019t added: the event is being published. Choose it again if publishing doesn\u2019t go through.");
+      } else {
+        onPendingChange(prepared);
+        onRemovedChange(false);
+        // The focus belongs to the photo it was set on.
+        onFocusChange(null);
+      }
     } catch (err) {
       setPickError(err instanceof ImageError ? err.message : "Couldn't read that image.");
     }
@@ -163,6 +175,7 @@ export default function EventImageField({
             type="file"
             accept="image/jpeg,image/png,image/webp"
             onChange={(e) => handlePick(e.target.files?.[0])}
+            disabled={locked}
             aria-labelledby="event-image-title event-image-pick"
             aria-describedby={pickError || error ? "event-image-hint event-image-error" : "event-image-hint"}
             aria-invalid={pickError || error ? true : undefined}
@@ -171,6 +184,7 @@ export default function EventImageField({
           <label
             id="event-image-pick"
             htmlFor="event-image"
+            aria-disabled={locked || undefined}
             className={buttonClass(
               "outline",
               "sm",
@@ -187,6 +201,7 @@ export default function EventImageField({
               variant="outline"
               size="sm"
               className="min-h-11"
+              busy={locked}
               onClick={() => {
                 // When this button goes (no photo left), focus moves to Choose a photo rather than the page.
                 const goes = !pending || !(existingUrl && !removed);

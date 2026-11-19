@@ -19,7 +19,15 @@ import { CONFIRMED_PIN_LOCATION, pinMapDrag, stubMatchMedia, unstubMatchMedia } 
  * (Fitzroy -37.8, 144.98; Collingwood -37.8, 144.99; Brunswick -37.77, 144.96).
  */
 
-vi.mock("@/lib/location-loader", async () => (await import("./test-utils/locationStub")).locationLoaderStub());
+// The suburb table: the stub, loaded at once, unless a test holds it back (`tableGate.held`: a promise it releases).
+const tableGate = vi.hoisted(() => ({ held: null as Promise<void> | null }));
+vi.mock("@/lib/location-loader", async () => {
+  const stub = (await import("./test-utils/locationStub")).locationLoaderStub();
+  return {
+    loadLocation: () => (tableGate.held ? tableGate.held.then(() => stub.loadLocation()) : stub.loadLocation()),
+    loadedLocation: () => (tableGate.held ? null : stub.loadedLocation()),
+  };
+});
 vi.mock("@/components/dashboard/VenuePinMapLeaflet", async () => (await import("./test-utils/pinMapStub")).leafletStub());
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("@/lib/api/client", async (importOriginal) => ({
@@ -99,6 +107,7 @@ const EVENT: EventRecord = {
 };
 
 beforeEach(() => {
+  tableGate.held = null;
   stubMatchMedia();
   for (const fn of Object.values(api)) fn.mockReset();
   api.autocompletePlaces.mockResolvedValue({ suggestions: [TOTE] });
@@ -502,6 +511,67 @@ describe("EventEditor — the suburb changing under a linked place", () => {
     expect(input.suburb).toBe("Brunswick");
     expect(input.location).toBeUndefined();
     expect(JSON.stringify(input)).not.toContain(PLACE_ID);
+  });
+
+  // CodeRabbit (PR #61, round 5): picked while the suburb wasn't known yet ("Fitzr"), the place belongs to that text,
+  // never to whichever suburb is entered next.
+  it("a pick started while the suburb isn't known is unlinked when another suburb is entered before it loads", async () => {
+    renderEditor();
+    fireEvent.change(suburbField(), { target: { value: "Fitzr" } });
+    let answer: (details: PlaceDetails) => void = () => {};
+    api.getPlaceDetails.mockImplementation(() => new Promise<PlaceDetails>((resolve) => (answer = resolve)));
+    fireEvent.focus(searchBox());
+    fireEvent.change(searchBox(), { target: { value: "The Tote" } });
+    fireEvent.click(await screen.findByRole("option", { name: /The Tote Hotel/ }));
+    await waitFor(() => expect(api.getPlaceDetails).toHaveBeenCalledTimes(1));
+    fireEvent.change(suburbField(), { target: { value: "Brunswick" } });
+    await act(async () => answer(TOTE_DETAILS));
+    await waitFor(() => expect(unlinkedNote()).toBeInTheDocument());
+    expect(linkedBlock()).toBeNull();
+    // Brunswick is known now, and still the place isn't bound to it.
+    await waitFor(() => expect(document.querySelector("[data-pin-step]")).toBeNull());
+    const input = await save();
+    expect(input.suburb).toBe("Brunswick");
+    expect(input.location).toBeUndefined();
+    expect(JSON.stringify(input)).not.toContain(PLACE_ID);
+  });
+
+  // CodeRabbit (PR #61, thread 4615200325): the suburb table still loading when the pick starts (no place for the
+  // suburb yet), and the suburb changed before the details arrive: never linked to the new suburb.
+  it("a pick started while the suburb table loads is unlinked when the suburb changes before its details arrive", async () => {
+    let release: () => void = () => {};
+    tableGate.held = new Promise<void>((resolve) => (release = resolve));
+    renderEditor();
+    // Not the saved suburb (known without the table): Collingwood can't be looked up until the table loads.
+    fireEvent.change(suburbField(), { target: { value: "Collingwood" } });
+    let answer: (details: PlaceDetails) => void = () => {};
+    api.getPlaceDetails.mockImplementation(() => new Promise<PlaceDetails>((resolve) => (answer = resolve)));
+    fireEvent.focus(searchBox());
+    fireEvent.change(searchBox(), { target: { value: "The Tote" } });
+    fireEvent.click(await screen.findByRole("option", { name: /The Tote Hotel/ }));
+    await waitFor(() => expect(api.getPlaceDetails).toHaveBeenCalledTimes(1));
+    fireEvent.change(suburbField(), { target: { value: "Brunswick" } });
+    await act(async () => answer(TOTE_DETAILS));
+    await waitFor(() => expect(unlinkedNote()).toBeInTheDocument());
+    expect(linkedBlock()).toBeNull();
+    // The table arrives: Brunswick is known, and the place still isn't bound to it.
+    await act(async () => release());
+    await waitFor(() => expect(screen.queryByText("Checking the suburb…")).toBeNull());
+    expect(linkedBlock()).toBeNull();
+    expect(suburbField()).toHaveValue("Brunswick");
+
+    const input = await save();
+    expect(input.suburb).toBe("Brunswick");
+    expect(input.location).toBeUndefined();
+    expect(JSON.stringify(input)).not.toContain(PLACE_ID);
+  });
+
+  it("a pick started while the suburb isn't known stays linked while the suburb is as it was picked in", async () => {
+    renderEditor();
+    fireEvent.change(suburbField(), { target: { value: "Fitzr" } });
+    await pickTheTote();
+    expect(linkedBlock()).toHaveAttribute("data-linked-place", PLACE_ID);
+    expect(screen.queryByText(PLACE_UNLINKED_NOTE)).toBeNull();
   });
 
   it("a pick whose details load with the suburb unchanged stays linked to it", async () => {
