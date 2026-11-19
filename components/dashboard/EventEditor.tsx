@@ -747,8 +747,12 @@ export default function EventEditor(props: Props) {
     if (imageFile) {
       latest = await upload(record.eventId, imageFile, saveToken, imageFocus);
       uploaded = true;
-      setImageFile(null);
-      if (focusSent()) setFocusChanged(false);
+      // Only the photo this upload saved is done: one picked while it went up stays pending (with its focus and
+      // fit), for the next save.
+      if (chosenDisplay.current.imageFile === imageFile) {
+        setImageFile(null);
+        if (focusSent()) setFocusChanged(false);
+      }
     } else if (imageRemoved && record.imageUrl) {
       // The fit goes with the photo.
       const updated = await remove(record.eventId, saveToken);

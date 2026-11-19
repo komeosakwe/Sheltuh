@@ -395,6 +395,46 @@ describe("EventEditor banner fit", () => {
     expect(uploadEventImage).not.toHaveBeenCalled();
   });
 
+  // CodeRabbit (PR #61, round 7): photo A's upload ending mustn't clear photo B, picked (and set whole) meanwhile.
+  it("a photo picked while another uploads stays pending with its fit, and the next save uploads it", async () => {
+    const photoA = new Blob(["a"], { type: "image/jpeg" });
+    const photoB = new Blob(["b"], { type: "image/jpeg" });
+    prepareEventImage.mockResolvedValueOnce(photoA).mockResolvedValueOnce(photoB);
+    const savedA = { ...EVENT, imageFocus: undefined, imageUrl: "/api/events/evt-1/image?v=2" };
+    const savedB = { ...EVENT, imageFocus: undefined, imageUrl: "/api/events/evt-1/image?v=3" };
+    updateEventDraft.mockResolvedValueOnce(EVENT).mockResolvedValueOnce(savedA);
+    let uploadedA: (record: EventRecord) => void = () => {};
+    uploadEventImage.mockImplementationOnce(() => new Promise<EventRecord>((resolve) => (uploadedA = resolve))).mockResolvedValueOnce(savedB);
+    setEventImageDisplay.mockResolvedValue({ ...savedB, bannerFit: "whole" });
+    const { onSaved } = renderEditor();
+    pickPhoto();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Discard new photo" })).toBeInTheDocument());
+    save();
+    await waitFor(() => expect(uploadEventImage).toHaveBeenCalledTimes(1));
+    expect(uploadEventImage.mock.calls[0][1]).toBe(photoA);
+    // While A goes up: B, set to whole.
+    pickPhoto();
+    await waitFor(() => expect(prepareEventImage).toHaveBeenCalledTimes(2));
+    fireEvent.click(await checkbox());
+    expect(screen.getByLabelText(LABEL)).toBeChecked();
+
+    await act(async () => uploadedA(savedA));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(savedA));
+    // B is still the pending photo, still whole; A's fit wasn't touched.
+    expect(screen.getByRole("button", { name: "Discard new photo" })).toBeInTheDocument();
+    expect(screen.getByLabelText(LABEL)).toBeChecked();
+    expect(setEventImageDisplay).not.toHaveBeenCalled();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save draft" })).not.toHaveAttribute("aria-disabled", "true"));
+    save();
+    await waitFor(() => expect(onSaved).toHaveBeenLastCalledWith({ ...savedB, bannerFit: "whole" }));
+    expect(uploadEventImage).toHaveBeenCalledTimes(2);
+    expect(uploadEventImage.mock.calls[1][1]).toBe(photoB);
+    expect(setEventImageDisplay).toHaveBeenCalledTimes(1);
+    expect(setEventImageDisplay.mock.calls[0][1]).toEqual({ bannerFit: "whole" });
+    expect(uploadEventImage.mock.invocationCallOrder[1]).toBeLessThan(setEventImageDisplay.mock.invocationCallOrder[0]);
+  });
+
   // CodeRabbit (PR #61, round 6): a remove and a new pick while a whole-fit save runs left the control at the old
   // record's crop; the replacement keeps the stored whole, so the control shows it once that save is done.
   it("after a save, the control shows the stored fit when a photo was replaced meanwhile with no fit chosen", async () => {
