@@ -1,6 +1,6 @@
 import type { EventCategory } from "@/lib/types";
 import { ApiError, apiFetch, isApiConfigured, type GetToken } from "./client";
-import type { OrganiserPayouts, OrganiserRecord, PublicOrganiserProfile } from "./types";
+import type { OrganiserPayouts, OrganiserRecord, OrganiserTagsInput, PublicOrganiserProfile } from "./types";
 
 /**
  * Social handles, as the organiser types them: a leading '@' and surrounding
@@ -111,6 +111,48 @@ export const isOrganiserLogoUrl = (url: string) => LOGO_URL.test(url);
 export async function fetchOrganiserLogo(url: string, getToken: GetToken, signal?: AbortSignal): Promise<Blob> {
   if (!isApiConfigured) throw new Error("The live API is not configured in this environment (Supabase is unset).");
   if (!isOrganiserLogoUrl(url)) throw new Error("Not a logo URL.");
+  return fetchWithToken(url, getToken, signal);
+}
+
+/**
+ * Uploads the caller's organiser cover image: the image as-is (JPEG, PNG or
+ * WebP; at most 4 MB). The server crops it to fill 7:2 (2240 × 640, a smaller
+ * image enlarged), flattens transparency onto white and strips its metadata.
+ * Resolves to the organiser record with its new `coverUrl` and
+ * `coverSmallUrl`. ApiError 400 (`fieldErrors.cover`: not a supported image,
+ * over 24 megapixels, or too detailed to fit), 403 (not approved), 409 (the
+ * account changed during the upload), 413 (too large), 429 (20 a day), 503
+ * (busy: try again).
+ */
+export async function uploadOrganiserCover(image: Blob, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<OrganiserRecord>("/organisers/me/cover", { method: "PUT", body: image, token });
+}
+
+/** Removes the caller's organiser cover (any status). Idempotent; resolves to the record without `coverUrl`. ApiError 404 (no organiser). */
+export async function deleteOrganiserCover(getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<OrganiserRecord>("/organisers/me/cover", { method: "DELETE", token });
+}
+
+/** The only shape `coverUrl` / `coverSmallUrl` take (lib/server/records.ts organiserCoverUrls): no `..` or other routes. */
+const COVER_URL = /^\/api\/organisers\/[0-9a-f-]{36}\/cover(\?[^#]*)?$/i;
+export const isOrganiserCoverUrl = (url: string) => COVER_URL.test(url);
+
+/**
+ * Fetches an organiser's cover with the bearer token, as fetchOrganiserLogo:
+ * how an admin, or the owner, sees a cover that isn't public. Only
+ * `/api/organisers/{id}/cover` URLs. ApiError 404 when it can't be seen;
+ * status 0 offline.
+ */
+export async function fetchOrganiserCover(url: string, getToken: GetToken, signal?: AbortSignal): Promise<Blob> {
+  if (!isApiConfigured) throw new Error("The live API is not configured in this environment (Supabase is unset).");
+  if (!isOrganiserCoverUrl(url)) throw new Error("Not a cover URL.");
+  return fetchWithToken(url, getToken, signal);
+}
+
+/** GETs one of the API's own image URLs (already checked by the caller) with the bearer token, as a Blob. */
+async function fetchWithToken(url: string, getToken: GetToken, signal?: AbortSignal): Promise<Blob> {
   const token = await getToken();
   let res: Response;
   try {
@@ -121,6 +163,20 @@ export async function fetchOrganiserLogo(url: string, getToken: GetToken, signal
   }
   if (!res.ok) throw new ApiError(res.status, `Request failed (${res.status}).`);
   return res.blob();
+}
+
+/**
+ * Sets the chips on the caller's public profile: the whole new set (list
+ * items and own words; lib/api/organiser-tags.ts has the rules, and
+ * parseCustomTag checks an own word as the API does). Resolves to the
+ * organiser record (`profileTags` in list order, `customTags` cleaned).
+ * ApiError 400 (`fieldErrors.profileTags`, `fieldErrors.customTags` or
+ * `fieldErrors["customTags.<i>"]`), 403 (not approved), 409 (the account
+ * changed meanwhile).
+ */
+export async function setOrganiserTags(input: OrganiserTagsInput, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<OrganiserRecord>("/organisers/me/tags", { method: "PUT", body: input, token });
 }
 
 /** Public: an approved organiser's profile and their published events. 404 for anything else. */
