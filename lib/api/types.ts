@@ -2,11 +2,13 @@ import type { RefundPolicy } from "@/lib/refund-policy";
 import type { TicketingMode } from "@/lib/ticketing";
 import type { BannerFit, EventCategory, EventClip, FeePolicy, ImageFocus } from "@/lib/types";
 import type { FeaturedVideo } from "./featured-video";
+import type { OrganiserTag } from "./organiser-tags";
 import type { PublicEvent } from "./public-events";
 import type { SeatMapTemplate, TicketSeat } from "@/lib/seating/template";
 import type { AustralianTimeZone, StateCode } from "@/lib/time-zones";
 
 export type { FeaturedVideo, FeaturedVideoProvider } from "./featured-video";
+export type { OrganiserTag } from "./organiser-tags";
 export type { BannerFit, EventClip, ImageFocus } from "@/lib/types";
 
 export type { TicketingMode } from "@/lib/ticketing";
@@ -69,6 +71,33 @@ export interface OrganiserRecord {
    * (96 px) is the same URL with `size=thumb`. Versioned, so it caches safely.
    */
   logoUrl?: string;
+  /**
+   * The organiser's cover image (2240 × 640 WebP, 7:2), when they've uploaded
+   * one: `/api/organisers/{organiserId}/cover?v={version}`. Public once
+   * approved (otherwise only an admin, or the owner, with a bearer token), like
+   * the logo. Versioned, so it caches safely.
+   */
+  coverUrl?: string;
+  /** The same cover at 1120 × 320 (`size=small`); present exactly when `coverUrl` is. */
+  coverSmallUrl?: string;
+  /**
+   * The profile chips the organiser chose from the list
+   * (lib/api/organiser-tags.ts ORGANISER_TAGS), in list order; null until
+   * they choose (their public profile then shows their reviewed `categories`,
+   * mapped to the list). Set with PUT /organisers/me/tags. Always sent by the
+   * API; optional so older fixtures stay valid.
+   */
+  profileTags?: OrganiserTag[] | null;
+  /** Up to 2 chips in the organiser's own words (empty when none). Always sent; optional so older fixtures stay valid. */
+  customTags?: string[];
+}
+
+/** PUT /api/organisers/me/tags: the whole new set of chips (both lists required; [] for none). */
+export interface OrganiserTagsInput {
+  /** Slugs from ORGANISER_TAGS; repeats are dropped and the rest sorted into list order. */
+  profileTags: OrganiserTag[];
+  /** At most 2, each checked by parseCustomTag; at most 5 chips in all. */
+  customTags: string[];
 }
 
 /** A field an organiser-log entry can record a change to (`status` only for a takedown). */
@@ -87,11 +116,14 @@ export type OrganiserEditField =
 
 /**
  * Every field the organiser log can name: OrganiserEditField plus
- * `featuredVideo`, whose values are "youtube:{id}" / "vimeo:{id}", and
- * `logo`, whose values are the logo's version (milliseconds since the epoch
- * of the upload, as a decimal string; null: none).
+ * `featuredVideo`, whose values are "youtube:{id}" / "vimeo:{id}";
+ * `logo` and `cover`, whose values are the image's version (milliseconds
+ * since the epoch of the upload, as a decimal string; null: none); and
+ * `profileTags` and `customTags`, the chips joined with ", " (slugs for
+ * profileTags; null: none, and for profileTags "not chosen", with "" for
+ * "chosen none").
  */
-export type OrganiserLogField = OrganiserEditField | "featuredVideo" | "logo";
+export type OrganiserLogField = OrganiserEditField | "featuredVideo" | "logo" | "cover" | "profileTags" | "customTags";
 
 /** One field's value before and after; null means it was (or became) unset. */
 export interface OrganiserEditChange {
@@ -165,6 +197,14 @@ export interface PublicOrganiserProfile {
   displayName: string;
   description: string;
   categories: EventCategory[];
+  /**
+   * The profile chips from the list, in list order: the organiser's choice,
+   * or until they choose, their reviewed `categories` mapped to the list
+   * (empty if they chose none). Always sent; optional so older fixtures stay valid.
+   */
+  profileTags?: OrganiserTag[];
+  /** Up to 2 chips in the organiser's own words, shown after profileTags. Always sent; optional so older fixtures stay valid. */
+  customTags?: string[];
   websiteUrl?: string;
   socialLinks: OrganiserSocialLinks;
   /** "YYYY-MM" (Melbourne): the month the organiser joined. */
@@ -177,13 +217,22 @@ export interface PublicOrganiserProfile {
    * older fixtures stay valid.
    */
   followerCount?: number | null;
-  /** Published events that have ended ("Events hosted"). Always sent; optional so older fixtures stay valid. */
+  /**
+   * Published events that have ended ("Events hosted"). Always sent; optional so older fixtures stay valid.
+   * @deprecated Use eventCount; still sent until the profile page stops reading it.
+   */
   eventsHosted?: number;
+  /** Every published event, upcoming and past (the profile's "Events" count). Always sent; optional so older fixtures stay valid. */
+  eventCount?: number;
   /** The organiser's logo (512 px; public, versioned), only when they have one. See OrganiserRecord.logoUrl. */
   logoUrl?: string;
-  /** Published events that haven't ended, soonest first. */
+  /** The organiser's cover (2240 × 640; public, versioned), only when they have one. See OrganiserRecord.coverUrl. */
+  coverUrl?: string;
+  /** The cover at 1120 × 320, present exactly when `coverUrl` is. */
+  coverSmallUrl?: string;
+  /** Published events that haven't ended, soonest first: at most 24. */
   upcomingEvents: PublicEvent[];
-  /** Published events that have ended, most recent first. Together with upcomingEvents, at most 24. */
+  /** Published events that have ended, most recent first: at most 12, however many are upcoming. */
   recentEvents: PublicEvent[];
 }
 

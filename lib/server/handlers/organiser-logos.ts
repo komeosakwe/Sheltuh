@@ -1,5 +1,6 @@
 import { requireCaller } from "../auth";
 import { HttpError, okPrivate, tooManyRequests, windowSeconds } from "../http";
+import { claimedVersions } from "../if-none-match";
 import { encodeLogo, LOGO_UPLOAD_RATE_LIMIT, readLogoUpload } from "../organiser-logo";
 import { isUuid } from "../pagination";
 import { toOwnOrganiserView } from "../records";
@@ -84,12 +85,6 @@ function logoEtag(version: string, thumb: boolean): string {
   return `"${version}-${thumb ? "t" : "f"}"`;
 }
 
-/** The version an If-None-Match header names for this size, if it's exactly one of our ETags. */
-function claimedVersion(req: Request, thumb: boolean): string | null {
-  const match = /^"(\d{1,20})-([ft])"$/.exec(req.headers.get("if-none-match") ?? "");
-  return match && match[2] === (thumb ? "t" : "f") ? match[1] : null;
-}
-
 /**
  * GET /api/organisers/[organiserId]/logo[?size=thumb][&v=…] — the logo as
  * WebP (512 px, or the 96 px thumbnail). Public while the organiser is
@@ -98,7 +93,8 @@ function claimedVersion(req: Request, thumb: boolean): string | null {
  * otherwise). Otherwise only an admin or the organiser's owner, with a bearer
  * token, never cached; anyone else gets the same 404 as an unknown organiser
  * or one without a logo (a missing token included), so nothing leaks. ETag,
- * 304 on a matching If-None-Match.
+ * 304 on a matching If-None-Match (a list, weak tags and `*` included), only
+ * after that check.
  */
 export const getOrganiserLogo: Handler<{ organiserId: string }> = async (
   req,
@@ -109,7 +105,9 @@ export const getOrganiserLogo: Handler<{ organiserId: string }> = async (
   const query = new URL(req.url).searchParams;
   const thumb = query.get("size") === "thumb";
   // One query (both tables by primary key). The image is only read when the
-  // client doesn't already have this version.
+  // client doesn't already have this version: `*`, or any listed ETag of this
+  // size at the current version (lib/server/if-none-match.ts).
+  const claimed = claimedVersions(req, thumb ? "-t" : "-f");
   const [row] = await db.query<{
     status: string;
     owner_user_id: string | null;
@@ -117,12 +115,13 @@ export const getOrganiserLogo: Handler<{ organiserId: string }> = async (
     data: Uint8Array | null;
   }>(
     `select o.status::text as status, o.owner_user_id, v.version,
-            case when v.version = $3::text then null when $2::boolean then l.thumb else l.image end as data
+            case when $3::boolean or v.version = any($4::text[]) then null
+                 when $2::boolean then l.thumb else l.image end as data
        from public.organisers o
        join private.organiser_logos l on l.organiser_id = o.id
       cross join lateral (select floor(extract(epoch from l.updated_at) * 1000)::bigint::text as version) v
       where o.id = $1`,
-    [organiserId, thumb, claimedVersion(req, thumb)],
+    [organiserId, thumb, claimed.any, claimed.versions],
   );
   if (!row) throw new HttpError(404, LOGO_NOT_FOUND);
 

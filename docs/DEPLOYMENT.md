@@ -481,7 +481,25 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           keeps working (the argument defaults to null). It redefines none of the
           functions files 45 to 50 redefine. Not reversible without losing the
           names once orders carry them.
-      52. `20261129000000_event_banner_fit.sql` (how the home page's featured
+      52. `20261128000000_organiser_covers.sql` (an organiser's cover image on
+          their public profile, docs/architecture.md "Organiser profiles",
+          "Cover": table `private.organiser_covers`, RLS on and no grants, and
+          `put_organiser_cover`, `delete_organiser_cover`,
+          `admin_remove_organiser_cover`). Additive: no existing table,
+          column or function changes, and the previous app never reads the
+          table. Can be applied before the app. Reversible: drop the three
+          functions, then the table (destructive once covers exist).
+      53. `20261128000100_organiser_tags.sql` (an organiser's profile chips,
+          "Organiser profiles", "Categories": nullable
+          `organisers.profile_tags` and `custom_tags` (default `{}`), their
+          check constraints, the trigger `organisers_custom_tags_valid` with
+          `organiser_custom_tag_ok`, and `set_organiser_tags`,
+          `admin_remove_organiser_custom_tags`). Additive: the previous app
+          reads named columns and its inserts get the defaults; no existing
+          function is redefined. Can be applied before the app. Reversible:
+          drop the functions and trigger, then the two columns (destructive:
+          every organiser's chosen chips).
+      54. `20261129000000_event_banner_fit.sql` (how the home page's featured
           banner shows an event's photo, docs/architecture.md "Photo focus":
           `event_images.banner_fit`, text not null default `crop`, check
           constraint `event_images_banner_fit_check` (`crop` or `whole`), and

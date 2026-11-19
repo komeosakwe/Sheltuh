@@ -1,5 +1,6 @@
 import { requireCaller } from "../auth";
 import { HttpError, okPrivate, readJson, tooManyRequests, windowSeconds } from "../http";
+import { claimedVersions } from "../if-none-match";
 import { isUuid } from "../pagination";
 import type { Handler } from "../route";
 import { requireEvent, requireOwnEvent } from "./event-queries";
@@ -184,22 +185,20 @@ function imageEtag(version: string): string {
   return `"${version}"`;
 }
 
-/** The version an If-None-Match header names, if it's exactly one of our ETags. */
-function claimedImageVersion(req: Request): string | null {
-  const match = /^"(\d{1,20})"$/.exec(req.headers.get("if-none-match") ?? "");
-  return match ? match[1] : null;
-}
-
 /**
  * GET /api/events/[eventId]/image?v= — public for published events (shared
  * at the CDN only at the current version: EVENT_IMAGE_CACHE). For anything
  * else only the owning organiser or an admin may read it, via a bearer
  * token, and it's never cached. ETag (the version) and Last-Modified; a
- * matching If-None-Match gets a 304 with the same headers, after the same
- * access check, and the bytes aren't even read.
+ * matching If-None-Match (a list, weak tags and `*` included) gets a 304
+ * with the same headers, after the same access check, and the bytes aren't
+ * even read.
  */
 export const getEventImage: Handler<{ eventId: string }> = async (req, { eventId }, { db, verifyAccessToken }) => {
   if (!isUuid(eventId)) throw new HttpError(404, "Image not found.");
+  // The bytes are only read when the client doesn't already have this
+  // version: `*`, or any listed ETag at it (lib/server/if-none-match.ts).
+  const claimed = claimedVersions(req);
   const [row] = await db.query<{
     content_type: string;
     data: Uint8Array | null;
@@ -208,12 +207,12 @@ export const getEventImage: Handler<{ eventId: string }> = async (req, { eventId
     version: string;
   }>(
     `select i.content_type, e.status::text as status, e.organiser_id, v.version,
-            case when v.version = $2::text then null else i.data end as data
+            case when $2::boolean or v.version = any($3::text[]) then null else i.data end as data
        from public.event_images i
        join public.events e on e.id = i.event_id
       cross join lateral (select floor(extract(epoch from i.updated_at))::bigint::text as version) v
       where i.event_id = $1`,
-    [eventId, claimedImageVersion(req)],
+    [eventId, claimed.any, claimed.versions],
   );
   if (!row) throw new HttpError(404, "Image not found.");
 
