@@ -1203,6 +1203,12 @@ export interface AdminEmailJob {
   /** "m***@example.com". */
   maskedEmail?: string;
   /**
+   * Whether the order was paid by card (a total above zero): only a card
+   * order's email can be changed (a free booking's is refused,
+   * `order_not_card`). Absent from an older API.
+   */
+  cardOrder?: boolean;
+  /**
    * The order's email changes, newest first (at most 5): by the buyer
    * (once, from the paying browser) or by an admin (with their reason). Both
    * addresses masked. Absent when there are none (and from an older API).

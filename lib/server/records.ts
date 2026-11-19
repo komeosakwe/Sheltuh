@@ -939,13 +939,13 @@ export function toCustomerOrder(row: Row): CustomerOrder {
 
 /**
  * Admin view of a ticket-email job; append `where …`. Reads the order only
- * for its reference, title and masked email, and its newest 5 email changes
+ * for its reference, title, masked email and whether it's a card order, and its newest 5 email changes
  * (masked already in the database) by order_email_changes_order_idx.
  */
 export const ADMIN_EMAIL_JOB_SELECT = `
   select j.id::text as id, j.kind, j.status, j.attempts, j.next_attempt_at, j.last_error,
          j.created_at, j.sent_at, j.last_resend_at,
-         o.id as order_id, o.status::text as order_status, o.event_title, o.buyer_email,
+         o.id as order_id, o.status::text as order_status, o.event_title, o.buyer_email, o.total_cents > 0 as card_order,
          (select json_agg(json_strip_nulls(json_build_object(
                    'changedBy', c.changed_by, 'reason', c.reason, 'oldMaskedEmail', c.old_email_masked,
                    'newMaskedEmail', c.new_email_masked, 'changedAt', c.created_at))
@@ -974,6 +974,7 @@ export function toAdminEmailJob(row: Row): AdminEmailJob {
     orderStatus: row.order_status as AdminEmailJob["orderStatus"],
     eventTitle: row.event_title as string,
     maskedEmail: email ? maskEmail(email) : undefined,
+    cardOrder: row.card_order === true,
     ...(Array.isArray(row.email_changes) && row.email_changes.length > 0
       ? {
           emailChanges: (row.email_changes as EmailChangeRow[]).map((c) => ({

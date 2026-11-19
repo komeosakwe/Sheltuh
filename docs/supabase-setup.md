@@ -588,9 +588,12 @@ you match all of them against the order's payment in the Stripe dashboard
 `orderId` must start with `ord_` and the reference in lower case; the
 expiry is in the payment's card details). Don't read any of them out to
 them first, and don't change the address on a reference alone. The
-reference is only the order id's first 8 characters, and `/admin/emails`
-never shows the full id (it's the order page's credential): if the search
-finds more than one ticket email for the reference, don't pick one. Stop and
+reference is only the first 8 hex characters after `ord_` in the order id
+(`ord_7c1f2e0a…` is `#7C1F2E0A`), and `/admin/emails` never shows the full
+id (it's the order page's credential). Before treating a match as the
+order, page through every result (press Load more until it's gone): if the
+search finds more than one ticket email for the reference, on any page,
+don't pick one. Stop and
 escalate to the owner, who looks the order up by the payment's full
 metadata `orderId` in the SQL editor (its event title, and its ticket
 email's queued time and status in `private.email_outbox`) and says which of

@@ -53,12 +53,22 @@ function storage(): Storage | null {
   }
 }
 
+/**
+ * How far after `now` an entry's time may be and still be kept: another tab
+ * can save after this one took its `now` and before it reads (its time is
+ * then a little later), and that entry mustn't be dropped as bad. Anything
+ * further ahead (a clock that was wrong when it was saved) is.
+ */
+const FUTURE_SLACK_MS = 24 * 60 * 60 * 1000;
+
 /** The kept entries still in date, oldest first. */
 function readEntries(store: Storage, now: number): Entry[] {
   try {
     const parsed: unknown = JSON.parse(store.getItem(STORAGE_KEY) ?? "[]");
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(isEntry).filter((entry) => entry.at <= now && now - entry.at <= ORDER_ACCESS_MAX_AGE_MS);
+    return parsed
+      .filter(isEntry)
+      .filter((entry) => entry.at - now <= FUTURE_SLACK_MS && now - entry.at <= ORDER_ACCESS_MAX_AGE_MS);
   } catch {
     return [];
   }

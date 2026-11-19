@@ -143,8 +143,9 @@ async function job(orderId: string) {
 
 /**
  * A ticket email worker (a drain of `orderId`'s job, on `worker`'s connection) held between reading the order
- * and calling the mail provider (deliverTicketEmail awaits the Apple Wallet config in between): `reached`
- * resolves once it's there, `release` lets it go on, `done` is its drain.
+ * and calling the mail provider (deliverTicketEmail awaits the Apple Wallet config in between). `hold(meanwhile)`
+ * waits until it's there (failing at once, not by a timeout, if the drain ends first), runs `meanwhile`, lets
+ * the worker go on (even if `meanwhile` throws) and returns its drain's summary.
  */
 function pausedWorker(worker: TestApi, orderId: string) {
   let release!: () => void;
@@ -160,7 +161,23 @@ function pausedWorker(worker: TestApi, orderId: string) {
     },
   };
   const done = drainEmailOutbox(deps, { orderId, maxJobs: 1 });
-  return { reached: atGate, release, done };
+  const arrived = Promise.race([
+    atGate,
+    done.then(() => {
+      throw new Error("The worker's drain ended before it reached the send.");
+    }),
+  ]);
+  return {
+    async hold(meanwhile: () => Promise<unknown>) {
+      await arrived;
+      try {
+        await meanwhile();
+      } finally {
+        release();
+      }
+      return done;
+    },
+  };
 }
 
 describe("the buyer's change (POST /orders/by-session/{id}/email)", () => {
@@ -315,50 +332,69 @@ describe("the buyer's change (POST /orders/by-session/{id}/email)", () => {
   it("a worker that read the old address before the change commits sends nothing; the job goes to the new address", async () => {
     const { orderId, access } = await paidOrder();
     await api.db.query(`update private.email_outbox set status = 'pending', next_attempt_at = now() where order_id = $1`, [orderId]);
-    const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    const worker = pausedWorker(api, orderId);
-    await worker.reached;
-    // The worker has the order (the old address) and the lease; the change commits now.
-    expect((await change(orderId, { email: NEW }, { access })).body.result).toBe("changed");
-    worker.release();
-    expect(await worker.done).toMatchObject({ claimed: 1, sent: 0 });
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const summary = await pausedWorker(api, orderId).hold(async () => {
+      // The worker has the order (the old address) and the lease; the change commits now.
+      expect((await change(orderId, { email: NEW }, { access })).body.result).toBe("changed");
+    });
+    expect(summary).toMatchObject({ claimed: 1, sent: 0 });
     // Checked again straight before the provider: the lease was taken back, so nothing went to the old address.
     expect(api.sendEmail).not.toHaveBeenCalled();
-    expect(error.mock.calls.flat().join(" ")).toContain(TICKET_EMAIL_TAKEN_BACK);
-    expect(error.mock.calls.flat().join(" ")).not.toContain(OLD);
+    const logged = info.mock.calls.flat().join(" ");
+    expect(logged).toContain(`Ticket email job`);
+    expect(logged).toContain(TICKET_EMAIL_TAKEN_BACK);
+    expect(logged).not.toContain(OLD);
     expect(await job(orderId)).toMatchObject({ status: "pending", attempts: 0, lease_token: null });
     await api.runDeferred();
     expect(api.sendEmail.mock.calls.map(([message]) => message.to)).toEqual([NEW]);
     expect(await orderRow(orderId)).toEqual({ buyer_email: NEW, tickets_emailed: true });
   });
 
-  it("a worker whose lease ran out, or whose order's address isn't the one it read, sends nothing", async () => {
+  it("a worker whose lease ran out, or whose order's address isn't the one it read, sends nothing and uses up no attempt", async () => {
     const { orderId } = await paidOrder();
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    await api.db.query(`update private.email_outbox set status = 'pending', next_attempt_at = now() where order_id = $1`, [orderId]);
-    const expired = pausedWorker(api, orderId);
-    await expired.reached;
-    await api.db.query(`update private.email_outbox set lease_expires_at = now() - interval '1 second' where order_id = $1`, [orderId]);
-    expired.release();
-    await expired.done;
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    await api.db.query(`update private.email_outbox set status = 'pending', next_attempt_at = now(), attempts = 2 where order_id = $1`, [
+      orderId,
+    ]);
+    await pausedWorker(api, orderId).hold(() =>
+      api.db.query(`update private.email_outbox set lease_expires_at = now() - interval '1 second' where order_id = $1`, [orderId]),
+    );
     expect(api.sendEmail).not.toHaveBeenCalled();
+    // Back to pending, a minute on, with the attempt it was leased with given back.
+    expect(await job(orderId)).toMatchObject({ status: "pending", attempts: 2, lease_token: null });
 
     // Its own lease, in date, but the address moved under it (not through a change: nothing took the lease).
-    await api.db.query(
-      `update private.email_outbox set status = 'pending', next_attempt_at = now(), lease_token = null, lease_expires_at = null
-        where order_id = $1`,
-      [orderId],
+    await api.db.query(`update private.email_outbox set next_attempt_at = now() where order_id = $1`, [orderId]);
+    const summary = await pausedWorker(api, orderId).hold(() =>
+      api.db.query(`update public.orders set buyer_email = $2 where id = $1`, [orderId, NEW]),
     );
-    const moved = pausedWorker(api, orderId);
-    await moved.reached;
-    await api.db.query(`update public.orders set buyer_email = $2 where id = $1`, [orderId, NEW]);
-    moved.release();
-    expect(await moved.done).toMatchObject({ claimed: 1, sent: 0, retrying: 1 });
+    expect(summary).toMatchObject({ claimed: 1, sent: 0, failed: 0 });
     expect(api.sendEmail).not.toHaveBeenCalled();
-    // Retried later, read afresh then: to the address the order has.
+    expect(await job(orderId)).toMatchObject({ status: "pending", attempts: 2 });
+    // Tried again later, read afresh then: to the address the order has.
     await api.db.query(`update private.email_outbox set next_attempt_at = now() where order_id = $1`, [orderId]);
     await drainEmailOutbox(api.deps, { orderId, maxJobs: 1 });
     expect(api.sendEmail.mock.calls.map(([message]) => message.to)).toEqual([NEW]);
+  });
+
+  it("on its last attempt, a lease that ran out before the send leaves the job pending (nothing was sent), not failed", async () => {
+    const { orderId } = await paidOrder();
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    // Five attempts used: this lease is the sixth and last.
+    await api.db.query(`update private.email_outbox set status = 'pending', next_attempt_at = now(), attempts = 5 where order_id = $1`, [
+      orderId,
+    ]);
+    const summary = await pausedWorker(api, orderId).hold(() =>
+      api.db.query(`update private.email_outbox set lease_expires_at = now() - interval '1 second' where order_id = $1`, [orderId]),
+    );
+    expect(summary).toMatchObject({ claimed: 1, sent: 0, failed: 0 });
+    expect(api.sendEmail).not.toHaveBeenCalled();
+    expect(await job(orderId)).toMatchObject({ status: "pending", attempts: 5, lease_token: null });
+    // A later drain still sends it.
+    await api.db.query(`update private.email_outbox set next_attempt_at = now() where order_id = $1`, [orderId]);
+    expect(await drainEmailOutbox(api.deps, { orderId, maxJobs: 1 })).toMatchObject({ claimed: 1, sent: 1 });
+    expect(api.sendEmail.mock.calls.map(([message]) => message.to)).toEqual([OLD]);
+    expect(await job(orderId)).toMatchObject({ status: "sent", attempts: 6 });
   });
 
   it("an order whose sent job was purged (90 days on) gets a new one", async () => {
@@ -659,6 +695,9 @@ describe("the admin's change (POST /admin/emails/{jobId}/change-email)", () => {
     const [{ id: freeId }] = await api.db.query<{ id: string }>(`select id from public.orders where total_cents = 0`);
     const notCard = await adminChange((await job(freeId)).id, { email: NEW, reason: "Buyer asked" });
     expect([notCard.status, notCard.body.code]).toEqual([409, "order_not_card"]);
+    // The list says so up front, so the admin page offers no change for it.
+    const freeListed = await api.call(adminListEmailJobs, { token: admin.token, query: { reference: orderReference(freeId) } });
+    expect(freeListed.body.items[0]).toMatchObject({ orderStatus: "paid", cardOrder: false });
 
     const { orderId } = await paidOrder();
     await api.db.query(
@@ -680,7 +719,7 @@ describe("the admin's change (POST /admin/emails/{jobId}/change-email)", () => {
       const res = await list({ reference, status: "failed" });
       expect(res.status).toBe(200);
       expect(res.body.items.map((j: { orderReference: string }) => j.orderReference)).toEqual([orderReference(orderId)]);
-      expect(res.body.items[0].status).toBe("sent");
+      expect(res.body.items[0]).toMatchObject({ status: "sent", cardOrder: true });
     }
     expect((await list({ reference: "#XYZ" })).status).toBe(400);
     expect((await list({ reference: "1234567" })).status).toBe(400);
@@ -792,21 +831,19 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("races (real Postgres only)", ()
   it("a worker on its own connection, held after reading the old address, sends nothing once the change commits", async () => {
     const { orderId, access } = await paidOrder();
     await api.db.query(`update private.email_outbox set status = 'pending', next_attempt_at = now() where order_id = $1`, [orderId]);
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "info").mockImplementation(() => {});
     const workerConn = postgres(serverUrl as string, { max: 1, onnotice: () => {} });
     const buyerConn = postgres(serverUrl as string, { max: 1, onnotice: () => {} });
     try {
       const workerApi = connectedApi(workerConn);
-      const worker = pausedWorker(workerApi, orderId);
-      await worker.reached;
-      const changed = await connectedApi(buyerConn).call(changeOrderEmail, {
-        params: { sessionId: orderId },
-        body: { email: NEW },
-        headers: { [ORDER_ACCESS_HEADER]: access },
+      await pausedWorker(workerApi, orderId).hold(async () => {
+        const changed = await connectedApi(buyerConn).call(changeOrderEmail, {
+          params: { sessionId: orderId },
+          body: { email: NEW },
+          headers: { [ORDER_ACCESS_HEADER]: access },
+        });
+        expect(changed.status).toBe(200);
       });
-      expect(changed.status).toBe(200);
-      worker.release();
-      await worker.done;
       expect(workerApi.sendEmail).not.toHaveBeenCalled();
       expect(await job(orderId)).toMatchObject({ status: "pending", attempts: 0 });
       await drainEmailOutbox(api.deps, { orderId, maxJobs: 1 });
@@ -827,7 +864,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("races (real Postgres only)", ()
           const a = connectedApi(sql);
           return a.call(adminChangeOrderEmail, {
             params: { jobId: id },
-            body: { email: `support${i}@example.com`, reason: "Buyer confirmed by phone" },
+            // Different first letters, so the two masks differ and the assertion tells the orders apart.
+            body: { email: `${["alpha", "beta"][i]}@example.com`, reason: "Buyer confirmed by phone" },
             token: a.tokenFor({ userId: admin.userId, emailVerified: true, isAdmin: true }),
           });
         }),

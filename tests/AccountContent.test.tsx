@@ -184,7 +184,9 @@ describe("AccountContent", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
     await waitFor(() => expect(input).toHaveAttribute("aria-invalid", "true"));
     expect(input).toHaveAccessibleDescription(expect.stringContaining("can't include links"));
-    expect(input).toHaveFocus();
+    // Focus moves in an effect after the error renders (MemberProfileSettings' focusFirstError): an update after
+    // an await is a passive effect, flushed after the commit that waitFor above can already see.
+    await waitFor(() => expect(input).toHaveFocus());
 
     updateMyProfile.mockResolvedValueOnce({ ...PROFILE, displayName: "Mia Thompson" });
     fireEvent.change(input, { target: { value: " Mia Thompson " } });

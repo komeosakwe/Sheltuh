@@ -393,7 +393,9 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
      key: a replay bound to no client has none), never to another. It's
      optional: left out without `STRIPE_WEBHOOK_SECRET` (nothing to sign
      with) and in an unbound replay; without it the confirmation page shows
-     what any device sees (the masked email, and support's address).
+     what any device sees: the masked email while the order has an address
+     that has never been changed (none once the buyer or support has changed
+     it), and support's address.
    - Free orders skip Stripe: see "Free tickets" below.
 2. The buyer pays on our payment page, `/checkout/pay?order={orderId}`, in
    Stripe's embedded Checkout form: an iframe served by Stripe, mounted with
@@ -1594,7 +1596,9 @@ admission and seated card checkouts alike
 A mistyped address used to mean tickets nobody could receive, and nobody but
 support could fix it. Now every address a checkout takes is checked before
 anything is written, the paying browser can move its order to the right
-address once, and support can at any time
+address once, and support can at any time while the order's ticket email
+job still exists (support finds the order through it; sent jobs are purged
+after 90 days: see "Support's change")
 (`20261130000000_order_email_changes.sql`; owner decisions 1–12 and Q1–Q7).
 
 **The checks** (`lib/server/email-domain.ts`, over `lib/email-typos.ts`,

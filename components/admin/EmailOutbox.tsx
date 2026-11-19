@@ -77,8 +77,10 @@ export default function EmailOutbox() {
   });
   const [result, setResult] = useState<{ key: string; state: LoadState } | null>(null);
   const state: LoadState = result?.key === key ? result.state : { status: "loading" };
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [moreError, setMoreError] = useState<string | null>(null);
+  // Load more's busy state and error, for the list (key) it was started on: another list shows neither.
+  const [more, setMore] = useState<{ key: string; loading: boolean; error: string | null }>({ key: "", loading: false, error: null });
+  const loadingMore = more.key === key && more.loading;
+  const moreError = more.key === key ? more.error : null;
   const [announcement, setAnnouncement] = useState("");
   // Where focus goes once a resent email has left the list (its button,
   // which had focus, is gone): an element id, applied after the re-render.
@@ -121,7 +123,7 @@ export default function EmailOutbox() {
    * gone, and focus moves to the next email (or the previous one, or the list
    * heading when none are left).
    */
-  function jobUpdated(job: AdminEmailJob, said: string, focusInPlace?: string) {
+  function jobUpdated(job: AdminEmailJob, said: string, focusInPlace?: string, submittedId: string = job.jobId) {
     adminSummary?.refresh(); // The hub's and sub-nav's failed count.
     // Started under a list that's no longer the one shown (even if it's the same one shown again): its loaded
     // answer is newer, so this one doesn't touch it, say anything or move focus.
@@ -129,7 +131,12 @@ export default function EmailOutbox() {
     if (reference || job.status === status) {
       setResult((current) =>
         current && current.key === key && current.state.status === "ready"
-          ? { key, state: { ...current.state, items: current.state.items.map((j) => (j.jobId === job.jobId ? job : j)) } }
+          ? {
+              key,
+              // The row acted on (by the id it was submitted with: a purge may have replaced its job) becomes the
+              // job as it is now.
+              state: { ...current.state, items: current.state.items.map((j) => (j.jobId === submittedId ? job : j)) },
+            }
           : current,
       );
       if (focusInPlace) focusAfterRemoval.current = focusInPlace;
@@ -138,13 +145,13 @@ export default function EmailOutbox() {
     }
     const label = STATUSES.find((s) => s.value === job.status)?.label ?? job.status;
     if (state.status === "ready") {
-      const index = state.items.findIndex((j) => j.jobId === job.jobId);
+      const index = state.items.findIndex((j) => j.jobId === submittedId);
       const neighbour = state.items[index + 1] ?? state.items[index - 1];
-      focusAfterRemoval.current = neighbour && neighbour.jobId !== job.jobId ? jobHeadingId(neighbour) : "emails-heading";
+      focusAfterRemoval.current = neighbour && neighbour.jobId !== submittedId ? jobHeadingId(neighbour) : "emails-heading";
     }
     setResult((current) =>
       current && current.key === key && current.state.status === "ready"
-        ? { key, state: { ...current.state, items: current.state.items.filter((j) => j.jobId !== job.jobId) } }
+        ? { key, state: { ...current.state, items: current.state.items.filter((j) => j.jobId !== submittedId) } }
         : current,
     );
     setAnnouncement(`${said} It’s moved to ${label}.`);
@@ -158,13 +165,14 @@ export default function EmailOutbox() {
    * After an email change: the job (with its history) as the API has it now, and said; focus on its heading (the
    * form, which had it, is gone), or the next email's when it has left this status's list.
    */
-  function emailChanged({ result, job }: AdminOrderEmailChangeResult) {
+  function emailChanged({ result, job }: AdminOrderEmailChangeResult, submittedId: string) {
     jobUpdated(
       job,
       result === "changed"
         ? `Email changed for order ${job.orderReference}. The tickets are being sent to the new address.`
         : `That’s already the email for order ${job.orderReference}. Nothing changed.`,
       jobHeadingId(job),
+      submittedId,
     );
   }
 
@@ -194,8 +202,11 @@ export default function EmailOutbox() {
 
   async function loadMore() {
     if (state.status !== "ready" || !state.nextCursor || loadingMore) return;
-    setLoadingMore(true);
-    setMoreError(null);
+    const startedOn = key;
+    // Only the list it was started on: its busy state and error are that list's.
+    const settle = (error: string | null) =>
+      setMore((current) => (current.key === startedOn ? { key: startedOn, loading: false, error } : current));
+    setMore({ key: startedOn, loading: true, error: null });
     try {
       // The same list it continues: a status's, or one order's (found by reference).
       const page = reference
@@ -215,10 +226,9 @@ export default function EmailOutbox() {
             }
           : current,
       );
+      settle(null);
     } catch (err) {
-      setMoreError(errorText(err, "Couldn’t load more emails."));
-    } finally {
-      setLoadingMore(false);
+      settle(errorText(err, "Couldn’t load more emails."));
     }
   }
 
@@ -359,7 +369,8 @@ function EmailJobItem({
   job: AdminEmailJob;
   getToken: () => Promise<string>;
   onResent: (job: AdminEmailJob) => void;
-  onEmailChanged: (outcome: AdminOrderEmailChangeResult) => void;
+  /** With the job id the change was submitted for (the answer's job may be a new one, if the old was purged). */
+  onEmailChanged: (outcome: AdminOrderEmailChangeResult, submittedId: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -438,7 +449,7 @@ function EmailJobItem({
             getToken={getToken}
             onDone={(outcome) => {
               setChanging(false);
-              if (outcome) onEmailChanged(outcome);
+              if (outcome) onEmailChanged(outcome, job.jobId);
               else refocusChange.current = true;
             }}
           />
@@ -456,14 +467,16 @@ function EmailJobItem({
                 {busy ? "Resending…" : job.status === "sent" ? "Send again" : "Resend now"}
               </Button>
             )}
-            {/* Only a paid order's email can change (the API refuses a free or refunded one). */}
-            {job.orderStatus === "paid" && (
+            {/* Only a paid card order's email can change (the API refuses a free or refunded one). Not while a
+                resend is out: its answer, arriving after the change's, would put the job back as it was. */}
+            {job.orderStatus === "paid" && job.cardOrder !== false && (
               <Button
                 ref={changeButtonRef}
                 variant="outline"
                 size="sm"
                 className="min-h-11"
                 aria-describedby={headingId}
+                disabled={busy}
                 onClick={() => setChanging(true)}
               >
                 Change email
@@ -525,6 +538,8 @@ function ChangeEmailForm({
   const [busy, setBusy] = useState(false);
   const emailRef = useRef<HTMLInputElement>(null);
   const reasonRef = useRef<HTMLTextAreaElement>(null);
+  // What the fields hold now, for an answer that arrives after they've been edited.
+  const latest = useRef({ email: "", reason: "" });
 
   useEffect(() => {
     emailRef.current?.focus();
@@ -552,16 +567,20 @@ function ChangeEmailForm({
       reasonRef.current?.focus();
       return;
     }
+    const sentEmail = email.trim();
     setBusy(true);
     try {
-      onDone(await adminChangeOrderEmail(job.jobId, { email: email.trim(), reason: trimmed }, getToken));
+      onDone(await adminChangeOrderEmail(job.jobId, { email: sentEmail, reason: trimmed }, getToken));
     } catch (err) {
       setBusy(false);
       if (err instanceof ApiError && err.fieldErrors && (err.fieldErrors.email || err.fieldErrors.reason)) {
-        setEmailError(err.fieldErrors.email ?? null);
-        setReasonError(err.fieldErrors.reason ?? null);
-        if (err.fieldErrors.email) emailRef.current?.focus();
-        else reasonRef.current?.focus();
+        // Each about the value sent: not put on a field that's been corrected since.
+        const emailProblem = latest.current.email.trim() === sentEmail ? (err.fieldErrors.email ?? null) : null;
+        const reasonProblem = latest.current.reason.trim() === trimmed ? (err.fieldErrors.reason ?? null) : null;
+        setEmailError(emailProblem);
+        setReasonError(reasonProblem);
+        if (emailProblem) emailRef.current?.focus();
+        else if (reasonProblem) reasonRef.current?.focus();
         return;
       }
       setFormError(errorText(err, "Couldn’t change the email. Try again."));
@@ -591,6 +610,7 @@ function ChangeEmailForm({
           autoCapitalize="none"
           value={email}
           onChange={(e) => {
+            latest.current.email = e.target.value;
             setEmail(e.target.value);
             setEmailError(null);
           }}
@@ -617,6 +637,7 @@ function ChangeEmailForm({
           required
           value={reason}
           onChange={(e) => {
+            latest.current.reason = e.target.value;
             setReason(e.target.value);
             setReasonError(null);
           }}

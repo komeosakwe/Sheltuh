@@ -89,6 +89,12 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   // address is shown only if this is still what it was when that checkout was sent, so a late answer about an
   // address the buyer has since replaced can't mark the new one wrong, or offer to put the old one's fix back.
   const emailRevision = useRef(0);
+  // The address the field shows now (the account's prefill can change without an edit: a sign-in elsewhere, a
+  // token refresh): a refusal is shown only if it's still the address that was sent.
+  const shownEmail = useRef(buyerEmail.trim());
+  useEffect(() => {
+    shownEmail.current = buyerEmail.trim();
+  });
   // The name shared with the organiser (lib/buyer-details.ts): every checkout, paid or free. Not prefilled.
   const [buyerName, setBuyerName] = useState("");
   const [nameError, setNameError] = useState<string | null>(null);
@@ -313,6 +319,8 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
       return;
     }
     const sentRevision = emailRevision.current;
+    const sentEmail = buyerEmail.trim();
+    const stillSentEmail = () => emailRevision.current === sentRevision && shownEmail.current === sentEmail;
     // An Other amount that can't be sent: say why, by its field, rather than checking out without it.
     if (offerSupport && supportErrorOf(support)) {
       setRevealSupportError(true);
@@ -374,7 +382,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
           nameInputRef.current?.focus();
         }
         // About the address as it was sent: dropped if the buyer has edited it since (they're checking it again).
-        if (emailMessage && emailRevision.current === sentRevision) {
+        if (emailMessage && stillSentEmail()) {
           setEmailSuggestion(emailSuggestionOf(err));
           showEmailError(emailMessage);
         }
@@ -521,6 +529,9 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   function signOutHere() {
     auth?.signOut("local");
     emailRevision.current += 1;
+    // The account's address leaves the field: so does anything said about it (a "Use this" would put it back).
+    setEmailError(null);
+    setEmailSuggestion(null);
     announce("Signed out. Enter the email for your tickets.");
     emailInputRef.current?.focus();
   }

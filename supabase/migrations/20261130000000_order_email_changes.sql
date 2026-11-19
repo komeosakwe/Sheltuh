@@ -57,7 +57,11 @@
 -- after support's change, and hides a changed address from the order's
 -- link, so a re-applied empty log would undo all three for those orders.
 -- Only before any change, or with the log's rows exported first and put
--- back before the code that changes emails runs again: drop functions
+-- back before the code that changes emails runs again (their ids too, with
+-- `overriding system value`, and then the identity sequence advanced past
+-- the highest: select setval(pg_get_serial_sequence('private.order_email_changes',
+-- 'id'), (select max(id) from private.order_email_changes)); left at 1, the
+-- next change's insert collides with a restored id and is refused): drop functions
 -- private.admin_change_order_email, private.buyer_change_order_email,
 -- private.change_order_email, private.order_email_change_block and
 -- private.mask_email, then table private.order_email_changes (its trigger

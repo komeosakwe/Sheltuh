@@ -192,6 +192,15 @@ async function stillToSend(deps: Deps, job: ClaimedJob, to: string): Promise<boo
 
 /** Said (and logged) when stillToSend says no: no address, no order id. */
 export const TICKET_EMAIL_TAKEN_BACK = "the job was taken back or the order's email changed before sending; not sent";
+/**
+ * How long a ticket email that stillToSend held back waits before it's tried
+ * again. Nothing reached the mail provider, so it doesn't use up an attempt
+ * (deferSeconds): even on its last attempt (a lease that ran out before the
+ * check), it stays pending for a later drain rather than failing for good.
+ * After an email change the job is pending again already (the worker's
+ * finish is lease_lost), and this isn't used.
+ */
+export const TICKET_EMAIL_TAKEN_BACK_RETRY_SECONDS = 60;
 
 /** Builds and sends one order's ticket email (`job`'s), only while stillToSend. Never throws. */
 async function deliverTicketEmail(deps: Deps, job: ClaimedJob, orderId: string): Promise<Outcome> {
@@ -207,7 +216,9 @@ async function deliverTicketEmail(deps: Deps, job: ClaimedJob, orderId: string):
     const wallet = { google: !!deps.googleWallet(), apple: !!(await deps.appleWallet()) };
     const message = buildTicketEmail(order, event, deps.siteUrl(), new Date(), wallet);
     // Retried later if it's still due: the job is pending again after a change, and goes to the new address then.
-    if (!(await stillToSend(deps, job, message.to))) return { sent: false, error: TICKET_EMAIL_TAKEN_BACK, permanent: false };
+    if (!(await stillToSend(deps, job, message.to))) {
+      return { sent: false, error: TICKET_EMAIL_TAKEN_BACK, permanent: false, deferSeconds: TICKET_EMAIL_TAKEN_BACK_RETRY_SECONDS };
+    }
     await deps.sendEmail(message);
     return { sent: true };
   } catch (err) {
@@ -999,6 +1010,8 @@ function jobLabel(kind: EmailJobKind): string {
       return "Reminder";
     case "holder_message":
       return "Holder message";
+    case "ticket_email":
+      return "Ticket";
     default:
       return "Follower";
   }
@@ -1029,6 +1042,11 @@ async function runJob(deps: Deps, job: ClaimedJob, leaseEndsAt: number, summary:
       `update private.email_outbox set attempts = greatest(attempts - 1, 0) where id = $1::bigint and status = 'pending'`,
       [String(job.job_id)],
     );
+    console.info(`${jobLabel(job.job_kind)} email job ${job.job_id} held back: ${outcome.error}.`);
+    return;
+  }
+  if (result === "lease_lost" && !outcome.sent && outcome.deferSeconds !== undefined) {
+    // Held back, and the job was already someone else's (an email change took it back): nothing was sent.
     console.info(`${jobLabel(job.job_kind)} email job ${job.job_id} held back: ${outcome.error}.`);
     return;
   }

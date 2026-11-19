@@ -76,6 +76,19 @@ describe("order access tokens on this device (lib/order-access.ts)", () => {
     expect(orderAccessFor(other)).toBe("2b".repeat(32));
   });
 
+  it("keeps another tab's entry saved a moment after this tab's clock was read (not dropped as future-dated)", () => {
+    const now = Date.parse("2026-11-19T00:00:00Z");
+    const other = "ord_ffffffffffffffffffffffffffffffff";
+    // Another tab saved 5 ms after this one took `now`, before it read storage.
+    localStorage.setItem(KEY, JSON.stringify([{ f: orderAccessKey(other), t: "2b".repeat(32), at: now + 5 }]));
+    rememberOrderAccess(ORDER, TOKEN, now);
+    expect(orderAccessFor(other, now)).toBe("2b".repeat(32));
+    expect(orderAccessFor(ORDER, now)).toBe(TOKEN);
+    // Far in the future (a wrong clock when it was saved): dropped.
+    localStorage.setItem(KEY, JSON.stringify([{ f: orderAccessKey(other), t: "2b".repeat(32), at: now + 2 * 86_400_000 }]));
+    expect(orderAccessFor(other, now)).toBeUndefined();
+  });
+
   it("replaces an order's older token, and keeps only the newest 20", () => {
     const now = Date.parse("2026-11-17T00:00:00Z");
     for (let i = 0; i < ORDER_ACCESS_LIMIT + 5; i++) {

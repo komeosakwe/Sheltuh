@@ -614,13 +614,17 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       link, so a re-applied empty log would undo all three for those orders.
       If it must go, export `private.order_email_changes` first and put the
       rows back after re-applying, before the code that changes emails runs
-      again (the order of the drops is in the migration's header). After deploying, in test
+      again (the order of the drops, and putting back the ids and the identity sequence, are in the migration's header). After deploying, in test
       mode: a checkout with `fan@gmial.com` is refused with "Did you mean
       fan@gmail.com?"; a paid checkout's confirmation page shows the full
       address on the paying browser only; one change re-sends the tickets to
-      the new address; `/admin/emails` finds the order by its reference.
-      Lookups aren't logged (they fail open); if buyers report a real
-      address refused, `EMAIL_DOMAIN_CHECKS=off` is the switch.
+      the new address; `/admin/emails` finds the order by its reference
+      (the `fan@gmial.com` check needs the domain checks on: leave
+      `EMAIL_DOMAIN_CHECKS` unset). Lookups aren't logged (they fail open);
+      if buyers report a real address refused, `EMAIL_DOMAIN_CHECKS=off` is
+      the switch: it turns off every domain check (the typo list, the
+      special-use names such as `.test` and `.local`, and DNS), leaving the
+      format as the only one.
 - [ ] **Before go-live: Stripe test-mode check of the pay deadline**
       (unverified so far: what Stripe does when we expire a session whose
       payment is under way). In test mode, on the embedded checkout:
@@ -1044,7 +1048,8 @@ Git → Ignored Build Step. GitHub Actions CI is unaffected.
        Stripe test mode on a Preview deployment, and the platform's Stripe
        payouts are set to manual (Stripe step 7). Unset = today's behaviour.
        Optional: `EMAIL_DOMAIN_CHECKS=off` (server-only, never `NEXT_PUBLIC_`)
-       turns the buyer email checks' typo list and DNS lookup off, leaving the
+       turns every buyer email domain check off (the typo list, the
+       special-use names such as `.test`, and the DNS lookup), leaving the
        format as the only check (docs/architecture.md, "Buyer email checks").
        Leave it unset (on); set it only for a typo-list false positive or a
        DNS problem on the host, then redeploy.

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EmailOutbox from "@/components/admin/EmailOutbox";
 import { ApiError } from "@/lib/api/client";
@@ -399,11 +399,91 @@ describe("EmailOutbox: find an order, change its email", () => {
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Found order #7C1F2E0A."));
 
     // The first change's answer (its job as it was then: pending) arrives late.
-    answer({ result: "changed", job: job({ status: "pending", attempts: 0, lastError: undefined, maskedEmail: "j***@example.com" }) });
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await act(async () =>
+      answer({ result: "changed", job: job({ status: "pending", attempts: 0, lastError: undefined, maskedEmail: "j***@example.com" }) }),
+    );
     const after = screen.getByRole("heading", { name: "Order #7C1F2E0A: Neon Static" }).closest("article")!;
     expect(within(after).getByText("Sent")).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("Found order #7C1F2E0A.");
+  });
+
+  it("a change answered with a new job (the old one purged meanwhile) replaces the row it was made on", async () => {
+    adminListEmailJobs.mockResolvedValue({ items: [job()] });
+    adminChangeOrderEmail.mockResolvedValueOnce({
+      result: "changed",
+      job: job({ jobId: "9", status: "pending", attempts: 0, lastError: undefined, maskedEmail: "j***@example.com" }),
+    });
+    renderOutbox();
+    const search = screen.getByRole("search", { name: "Find an order" });
+    fireEvent.change(within(search).getByLabelText("Find an order by reference"), { target: { value: "7c1f2e0a" } });
+    fireEvent.click(within(search).getByRole("button", { name: "Find" }));
+    const item = (await screen.findByRole("heading", { name: "Order #7C1F2E0A: Neon Static" })).closest("article")!;
+    fireEvent.click(within(item).getByRole("button", { name: "Change email" }));
+    fireEvent.change(within(item).getByLabelText("New email"), { target: { value: "jo@example.com" } });
+    fireEvent.change(within(item).getByLabelText("Reason"), { target: { value: "Buyer phoned" } });
+    fireEvent.click(within(item).getByRole("button", { name: "Change and send" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Email changed for order #7C1F2E0A."));
+    // One row, the new job's (its heading id is the new job's, and has focus).
+    const headings = screen.getAllByRole("heading", { name: "Order #7C1F2E0A: Neon Static" });
+    expect(headings).toHaveLength(1);
+    expect(headings[0]).toHaveAttribute("id", "email-9");
+    expect(within(headings[0].closest("article")!).getByText("j***@example.com")).toBeInTheDocument();
+    await waitFor(() => expect(headings[0]).toHaveFocus());
+  });
+
+  it("Load more's busy state and error stay with the list it was started on", async () => {
+    let fail!: (err: unknown) => void;
+    adminListEmailJobs.mockImplementation(async (_status: string, _getToken: unknown, cursor?: string, reference?: string) => {
+      if (cursor === "c1") return new Promise((_, reject) => (fail = reject));
+      return reference ? { items: [job({ status: "sent" })], nextCursor: "r1" } : { items: [job()], nextCursor: "c1" };
+    });
+    renderOutbox();
+    fireEvent.click(await screen.findByRole("button", { name: "Load more" }));
+    expect(screen.getByRole("button", { name: "Loading…" })).toBeInTheDocument();
+    const search = screen.getByRole("search", { name: "Find an order" });
+    fireEvent.change(within(search).getByLabelText("Find an order by reference"), { target: { value: "7c1f2e0a" } });
+    fireEvent.click(within(search).getByRole("button", { name: "Find" }));
+    await screen.findByRole("heading", { name: "Ticket email for order #7C1F2E0A" });
+    // The found order's own Load more: not busy with the other list's request.
+    const own = await screen.findByRole("button", { name: "Load more" });
+    expect(own).not.toHaveAttribute("aria-disabled", "true");
+    await act(async () => fail(new ApiError(500, "Server error.")));
+    expect(screen.queryByText("Couldn’t load more emails.")).toBeNull();
+    expect(screen.getByRole("button", { name: "Load more" })).toBeInTheDocument();
+  });
+
+  it("offers no change for a free booking (paid, but not by card)", async () => {
+    adminListEmailJobs.mockResolvedValue({ items: [job({ cardOrder: false })] });
+    renderOutbox();
+    const item = (await screen.findByRole("heading", { name: "Order #7C1F2E0A: Neon Static" })).closest("article")!;
+    expect(within(item).queryByRole("button", { name: "Change email" })).toBeNull();
+  });
+
+  it("no Change email while a resend is out, and a refusal isn't put on a field corrected since it was sent", async () => {
+    adminListEmailJobs.mockResolvedValue({ items: [job()] });
+    let resent!: (value: unknown) => void;
+    adminResendEmailJob.mockReturnValueOnce(new Promise((resolve) => (resent = resolve)));
+    renderOutbox();
+    const item = (await screen.findByRole("heading", { name: "Order #7C1F2E0A: Neon Static" })).closest("article")!;
+    fireEvent.click(within(item).getByRole("button", { name: "Resend now" }));
+    expect(within(item).getByRole("button", { name: "Change email" })).toBeDisabled();
+    await act(async () => resent(job({ attempts: 6 })));
+    expect(within(item).getByRole("button", { name: "Change email" })).toBeEnabled();
+
+    let refuse!: (err: unknown) => void;
+    adminChangeOrderEmail.mockReturnValueOnce(new Promise((_, reject) => (refuse = reject)));
+    fireEvent.click(within(item).getByRole("button", { name: "Change email" }));
+    const form = within(item).getByRole("form");
+    fireEvent.change(within(form).getByLabelText("New email"), { target: { value: "jo@example.com" } });
+    fireEvent.change(within(form).getByLabelText("Reason"), { target: { value: "Asked by jo@example.com" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Change and send" }));
+    await waitFor(() => expect(adminChangeOrderEmail).toHaveBeenCalledTimes(1));
+    fireEvent.change(within(form).getByLabelText("Reason"), { target: { value: "Asked by phone" } });
+    await act(async () =>
+      refuse(new ApiError(400, "Please fix the highlighted fields.", { reason: "Leave email addresses out of the reason." })),
+    );
+    expect(within(form).queryByRole("alert")).toBeNull();
+    expect(within(form).getByLabelText("Reason")).not.toHaveAttribute("aria-invalid");
   });
 
   it("offers no change for an order that isn't paid", async () => {

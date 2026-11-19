@@ -113,12 +113,20 @@ const PAYMENT_CHECK_AFTER_POLLS = 2;
 export default function CheckoutConfirmation() {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("session_id");
-  const [state, setState] = useState<LoadState>({ status: "loading" });
+  // What the page has loaded, with the session_id and the visit (each run of the load below) it was loaded
+  // for. Another session_id in the same tab (the component stays mounted) is loading until its own answer is
+  // in: never the previous order's tickets, token or settled effects under the new URL.
+  const [loaded, setLoaded] = useState<{ sessionId: string | null; visit: number; state: LoadState }>({
+    sessionId,
+    visit: 0,
+    state: { status: "loading" },
+  });
+  const state: LoadState = loaded.sessionId === sessionId ? loaded.state : { status: "loading" };
   const pollCount = useRef(0);
   const headingRef = useRef<HTMLHeadingElement>(null);
-  // The order this page is showing now (set by the load below): an email change's answer for another order,
-  // one the page has since moved on from (another session_id in the same tab), isn't shown.
-  const shownSession = useRef(sessionId);
+  // The visit the page is on now: an email change's answer from an earlier one (another order, or this one
+  // before the tab went elsewhere and came back) isn't shown.
+  const currentVisit = useRef(0);
 
   // Settled (paid, refunded or oversold, or Stripe has the payment): going Back to the seat page mustn't
   // try to release this order's seats. Not before: a checkout that's still open (payment not
@@ -139,7 +147,9 @@ export default function CheckoutConfirmation() {
 
   useEffect(() => {
     let cancelled = false;
-    shownSession.current = sessionId;
+    const visit = (currentVisit.current += 1);
+    pollCount.current = 0;
+    const setState = (next: LoadState) => setLoaded({ sessionId, visit, state: next });
 
     if (!sessionId) {
       // Deferred via queueMicrotask so the effect body itself never calls
@@ -427,19 +437,23 @@ export default function CheckoutConfirmation() {
         <h1 className="display-md break-words">{order.eventTitle}</h1>
         {sessionId && (
           <OrderEmail
-            // A fresh form for each order: nothing typed for one is sent for another.
-            key={sessionId}
+            // A fresh form for each visit: nothing typed for one order (or an earlier visit) is sent for another.
+            key={`${sessionId}#${loaded.visit}`}
             sessionId={sessionId}
             order={order}
             access={state.access}
             onOrder={(next) => {
               // The token is this order's: forgotten when final, whatever the page shows by now.
               forgetOrderAccessIfFinal(sessionId, next.emailChange);
-              if (shownSession.current !== sessionId) return;
+              if (currentVisit.current !== loaded.visit) return;
+              const show = (shown: LoadState) => setLoaded({ sessionId, visit: loaded.visit, state: shown });
               // As the load does: paid stays here; refunded (say, while the change was being sent) gets its own page.
-              if (next.status === "paid") setState({ status: "ready", order: next, access: state.access });
-              else if (next.status === "oversold_refund_required" || next.status === "refunded") setState({ status: "oversold", order: next });
-              else setState({ status: "error", message: "This order couldn't be completed." });
+              if (next.status === "paid") show({ status: "ready", order: next, access: state.access });
+              else if (next.status === "oversold_refund_required" || next.status === "refunded") show({ status: "oversold", order: next });
+              else show({ status: "error", message: "This order couldn't be completed." });
+            }}
+            onUnavailable={(message) => {
+              if (currentVisit.current === loaded.visit) setLoaded({ sessionId, visit: loaded.visit, state: { status: "error", message } });
             }}
           />
         )}

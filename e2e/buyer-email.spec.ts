@@ -220,6 +220,8 @@ for (const viewport of [
 
     test("the click lands: nothing moves under it, and the checkout is sent with what was typed", async ({ page }) => {
       const seen = await mockBuyerApi(page);
+      // The page's timers under the test's control, so the hint's 500 ms can't run out at a slow moment.
+      await page.clock.install();
       await page.goto(`/events/${sample!.slug}`);
       const tickets = page.locator("#tickets");
       await tickets.getByRole("button", { name: "Increase quantity for General admission" }).click({ timeout: 30_000 });
@@ -227,13 +229,17 @@ for (const viewport of [
       const email = tickets.getByLabel("Email for your tickets");
       const checkout = tickets.getByRole("button", { name: "Checkout" });
       await checkout.scrollIntoViewIfNeeded();
+      // Time stops from here: the hint's timer, started by the typing, stays pending through the click.
+      await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
       // Typed key by key, then straight to Checkout: no blur trick, no pause for the hint.
       await email.pressSequentially("alex@gmial.com", { delay: 20 });
-      // Where Checkout is the moment typing stops (well inside the hint's 500 ms), clicked at that point: a
-      // locator's click would wait for the button to stop moving and follow it, passing even if the hint moved it.
+      await expect(tickets.getByText(/Did you mean/)).toHaveCount(0);
+      // Where Checkout is with the hint still pending, clicked at that point: a locator's click would wait for the
+      // button to stop moving and follow it, passing even if the hint moved it.
       const box = await checkout.boundingBox();
       expect(box).not.toBeNull();
       await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+      await page.clock.resume();
       await expect(page).toHaveURL(`/checkout/success?session_id=${ORDER_ID}`, { timeout: 30_000 });
       expect(seen.checkouts.map((c) => c.buyerEmail)).toEqual(["alex@gmial.com"]);
     });

@@ -502,6 +502,40 @@ describe("TicketSelector (the ticket email's checks)", () => {
     expect(email).toHaveValue("alex@example.com");
   });
 
+  it("a refusal of the account's address isn't shown once the field holds another (a prefill change), and sign-out drops it", async () => {
+    const message = "That email address looks mistyped. Check the part after the @.";
+    const refusal = () =>
+      new ApiError(400, message, { buyerEmail: message }, { error: message, fieldErrors: { buyerEmail: message }, code: "email_typo", suggestion: "mia@gmail.com" });
+    let refuse!: (err: unknown) => void;
+    createCheckoutSession.mockReturnValueOnce(new Promise((_, reject) => (refuse = reject)));
+    const view = (email: string, status: "signed-in" | "signed-out" = "signed-in") => (
+      <FakeAuthProvider value={fakeAuthValue({ email, status })}>
+        <TicketSelector event={live("neon-static")} />
+      </FakeAuthProvider>
+    );
+    const { rerender } = render(view("mia@gmial.com"));
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
+    typeName("Alex Doe", null);
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    // The account's address changes (another tab, a refresh) while the checkout is out: no edit in this field.
+    rerender(view("mia.t@example.com"));
+    expect(screen.getByLabelText("Email for your tickets")).toHaveValue("mia.t@example.com");
+    await act(async () => refuse(refusal()));
+    expect(screen.queryByText(/Did you mean/)).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    // Unchanged, it's shown; then signing out empties the field and drops it.
+    createCheckoutSession.mockRejectedValueOnce(refusal());
+    rerender(view("mia@gmial.com"));
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    expect(await screen.findByText(/Did you mean/)).toHaveTextContent("Did you mean mia@gmail.com?");
+    fireEvent.click(screen.getByRole("button", { name: "Not you? Sign out" }));
+    rerender(view("mia@gmial.com", "signed-out"));
+    expect(screen.getByLabelText("Email for your tickets")).toHaveValue("");
+    expect(screen.queryByText(/Did you mean/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Use this" })).toBeNull();
+  });
+
   it("a hint for a likely typo shows once typing pauses (no need to leave the field), and never stops Checkout", async () => {
     createCheckoutSession.mockReturnValue(new Promise(() => {}));
     render(<TicketSelector event={live("neon-static")} />);

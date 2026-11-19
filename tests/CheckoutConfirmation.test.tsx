@@ -1115,6 +1115,98 @@ describe("CheckoutConfirmation: the buyer's email (the paying browser's one chan
     expect(screen.queryByText(/mia@gmail\.com/)).toBeNull();
   });
 
+  it("moved to another order: loading (not the first order's tickets or token) until its own answer, and its hold isn't forgotten early", async () => {
+    asPayingBrowser();
+    rememberPendingCheckout("cs_test_2", "second-show");
+    let second!: (order: CustomerOrder) => void;
+    getOrderBySession.mockImplementation((id: string) => (id === "cs_test_2" ? new Promise((r) => (second = r)) : Promise.resolve(PAYING)));
+    const { rerender } = render(<CheckoutConfirmation />);
+    expect(await screen.findByText("ABC123")).toBeInTheDocument();
+    sessionParam = "cs_test_2";
+    rerender(<CheckoutConfirmation />);
+    expect(screen.getByRole("progressbar", { name: "Confirming your order" })).toBeInTheDocument();
+    expect(screen.queryByText("ABC123")).toBeNull();
+    expect(screen.queryByText(/Tickets sent to/)).toBeNull();
+    // The second order isn't settled yet: its stored hold is kept.
+    expect(sessionStorage.getItem("sheltuh:pending-checkout")).toContain("cs_test_2");
+    await act(async () => second({ ...ORDER, reference: "#B0B0B0B0", eventTitle: "Second Show", tickets: [{ ticketCode: "XYZ789", ticketTypeName: "General admission", checkedInAt: null }] }));
+    expect(screen.getByRole("heading", { level: 1, name: "Second Show" })).toBeInTheDocument();
+    expect(sessionStorage.getItem("sheltuh:pending-checkout")).toBeNull();
+  });
+
+  it("back on an order after another: a late answer from the first visit doesn't put back what the new visit read", async () => {
+    asPayingBrowser();
+    let answer!: (result: unknown) => void;
+    changeOrderEmail.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
+    const SECOND: CustomerOrder = { ...ORDER, reference: "#B0B0B0B0", eventTitle: "Second Show" };
+    getOrderBySession.mockImplementation(async (id: string) => (id === "cs_test_2" ? SECOND : PAYING));
+    const { rerender } = render(<CheckoutConfirmation />);
+    fireEvent.click(await screen.findByRole("button", { name: "Wrong email? Change it" }));
+    fireEvent.change(screen.getByLabelText("New email for your tickets"), { target: { value: "mia@gmail.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send tickets here" }));
+    await waitFor(() => expect(changeOrderEmail).toHaveBeenCalledTimes(1));
+
+    sessionParam = "cs_test_2";
+    rerender(<CheckoutConfirmation />);
+    expect(await screen.findByRole("heading", { level: 1, name: "Second Show" })).toBeInTheDocument();
+    // Back to the first order, which has been refunded meanwhile.
+    getOrderBySession.mockImplementation(async (id: string) =>
+      id === "cs_test_2" ? SECOND : { ...ORDER, status: "refunded", refundReason: "refunded", tickets: [] },
+    );
+    sessionParam = "cs_test_1";
+    rerender(<CheckoutConfirmation />);
+    expect(await screen.findByRole("heading", { level: 1, name: "This order has been refunded" })).toBeInTheDocument();
+    await act(async () =>
+      answer({ result: "changed", order: { ...PAYING, email: "mia@gmail.com", emailChange: { allowed: false, reason: "email_already_changed" } } }),
+    );
+    expect(screen.getByRole("heading", { level: 1, name: "This order has been refunded" })).toBeInTheDocument();
+    expect(screen.queryByText("ABC123")).toBeNull();
+  });
+
+  it("refunded (409 order_not_paid) and the order can't be read again: its tickets go, and the page says to reload", async () => {
+    asPayingBrowser();
+    getOrderBySession.mockResolvedValueOnce(PAYING).mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    changeOrderEmail.mockRejectedValueOnce(new ApiError(409, "This order isn't paid…", undefined, { code: "order_not_paid" }));
+    render(<CheckoutConfirmation />);
+    fireEvent.click(await screen.findByRole("button", { name: "Wrong email? Change it" }));
+    fireEvent.change(screen.getByLabelText("New email for your tickets"), { target: { value: "mia@gmail.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send tickets here" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("This order isn’t paid any more, so its tickets aren’t valid. Reload this page");
+    expect(screen.queryByText("ABC123")).toBeNull();
+  });
+
+  it("changed by support (409) and the order can't be read again: neither address is shown", async () => {
+    asPayingBrowser();
+    getOrderBySession.mockResolvedValueOnce(PAYING).mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    changeOrderEmail.mockRejectedValueOnce(new ApiError(409, "Contact support…", undefined, { code: "changed_by_support" }));
+    render(<CheckoutConfirmation />);
+    fireEvent.click(await screen.findByRole("button", { name: "Wrong email? Change it" }));
+    fireEvent.change(screen.getByLabelText("New email for your tickets"), { target: { value: "mia@gmail.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send tickets here" }));
+    const status = await screen.findByRole("status");
+    await waitFor(() => expect(status).toHaveTextContent(/Support has updated the email for this order/));
+    expect(screen.queryByText(/Tickets sent to/)).toBeNull();
+    expect(document.body.textContent).not.toContain("mia@gmail.con");
+    expect(orderAccessFor("cs_test_1")).toBeUndefined();
+  });
+
+  it("no clear answer (a 500), but the order now has the address sent: it says the change was made, with no second try", async () => {
+    asPayingBrowser();
+    getOrderBySession
+      .mockResolvedValueOnce(PAYING)
+      .mockResolvedValueOnce({ ...PAYING, email: "mia@gmail.com", emailChange: { allowed: false, reason: "email_already_changed" } });
+    changeOrderEmail.mockRejectedValueOnce(new ApiError(500, "Something went wrong."));
+    render(<CheckoutConfirmation />);
+    fireEvent.click(await screen.findByRole("button", { name: "Wrong email? Change it" }));
+    fireEvent.change(screen.getByLabelText("New email for your tickets"), { target: { value: "mia@gmail.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send tickets here" }));
+    const status = await screen.findByRole("status");
+    await waitFor(() => expect(status).toHaveTextContent("Email changed. Tickets are on their way to mia@gmail.com."));
+    expect(changeOrderEmail).toHaveBeenCalledTimes(1);
+    expect(screen.queryByLabelText("New email for your tickets")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("another device (no token): the masked email and support's address, no change", async () => {
     getOrderBySession.mockResolvedValue(ORDER);
     render(<CheckoutConfirmation />);

@@ -461,6 +461,33 @@ describe("seat page: the ticket email (every checkout, paid seats too)", () => {
     expect(email).toHaveValue("alex@outlook.com");
   });
 
+  it("Not you? Sign out drops a refusal of the account's address with it (its Use this can't put it back)", async () => {
+    const message = "That email address looks mistyped. Check the part after the @.";
+    createSeatedCheckout.mockRejectedValueOnce(
+      new ApiError(400, message, { buyerEmail: message }, { error: message, code: "email_typo", suggestion: "mia@gmail.com" }),
+    );
+    const value = fakeAuthValue({ email: "mia@gmial.com" });
+    const { rerender } = render(
+      <FakeAuthProvider value={value}>
+        <SeatPicker event={live} map={map} mode="live" initialUnavailable={sample.unavailable} />
+      </FakeAuthProvider>,
+    );
+    choosePaidSeat();
+    typeName("Alex Doe", null);
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    expect(await screen.findByText(/Did you mean/)).toHaveTextContent("Did you mean mia@gmail.com?");
+    fireEvent.click(screen.getByRole("button", { name: "Not you? Sign out" }));
+    rerender(
+      <FakeAuthProvider value={fakeAuthValue({ status: "signed-out" })}>
+        <SeatPicker event={live} map={map} mode="live" initialUnavailable={sample.unavailable} />
+      </FakeAuthProvider>,
+    );
+    expect(screen.getByLabelText("Email for your tickets")).toHaveValue("");
+    expect(screen.queryByText(/Did you mean/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Use this" })).toBeNull();
+    expect(screen.getByLabelText("Email for your tickets")).not.toHaveAttribute("aria-invalid");
+  });
+
   it("signed in: the account's email is filled in, with Not you? Sign out (this browser only)", async () => {
     const value = fakeAuthValue({ email: "mia@example.com" });
     render(
@@ -751,6 +778,36 @@ describe("seat page: back from Stripe releases the hold (§5.11)", () => {
     expect(createSeatedCheckout).toHaveBeenCalledTimes(1);
     expect(cancelPendingOrder.mock.invocationCallOrder[2]).toBeLessThan(createSeatedCheckout.mock.invocationCallOrder[0]);
     expect(JSON.parse(window.sessionStorage.getItem(KEY) ?? "null")).toMatchObject({ orderId: NEXT });
+    quiet.mockRestore();
+  });
+
+  it("an email edited while the last hold is being released: nothing is sent with the old one, and Checkout again sends the new", async () => {
+    window.sessionStorage.setItem(KEY, JSON.stringify({ orderId: ORDER, slug: event.slug, at: Date.now() - 60_000 }));
+    cancelPendingOrder.mockRejectedValueOnce(new ApiError(0, "Couldn't reach the server."));
+    createSeatedCheckout.mockReturnValue(new Promise(() => {}));
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    renderPicker({ event: live, mode: "live" });
+    await screen.findByRole("alert");
+    showList();
+    fireEvent.click(within(row("North, Row A")).getByRole("checkbox", { name: /^Seat 1, / }));
+    const email = screen.getByLabelText("Email for your tickets");
+    typeName("Alex Doe", null);
+    fireEvent.change(email, { target: { value: "mia@gmial.com" } });
+
+    let released!: (value: unknown) => void;
+    cancelPendingOrder.mockReturnValueOnce(new Promise((resolve) => (released = resolve)));
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    await waitFor(() => expect(cancelPendingOrder).toHaveBeenCalledTimes(2));
+    // Corrected while the old hold is still being released.
+    fireEvent.change(email, { target: { value: "mia@gmail.com" } });
+    await act(async () => released({ status: "released", eventTitle: event.title, eventSlug: event.slug }));
+    expect(createSeatedCheckout).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent("Your email changed while we were getting your checkout ready.");
+    // The released hold stays released; Checkout again goes with the address the field has.
+    expect(window.sessionStorage.getItem(KEY)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    await waitFor(() => expect(createSeatedCheckout).toHaveBeenCalledTimes(1));
+    expect(createSeatedCheckout.mock.calls[0][1].buyerEmail).toBe("mia@gmail.com");
     quiet.mockRestore();
   });
 

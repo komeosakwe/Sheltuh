@@ -98,18 +98,26 @@ function OutcomeText({ outcome }: { outcome: Outcome }) {
  * was sent. A refusal that says the order has moved on (a 409: refunded, the
  * one change already used, perhaps by an earlier try whose answer was lost)
  * reads the order again, so the page shows it as it is now.
+ * An answer that leaves it unclear whether the change went through (a server
+ * error, a lost connection, or a 429 after one) also reads the order: if it
+ * now has the address sent, it says the change was made, and offers no
+ * second try.
  * `onOrder`: the order as the server has it after a change (or that read).
+ * `onUnavailable(message)`: the order isn't paid any more but couldn't be
+ * read again: the page stops showing its (void) tickets and says to reload.
  */
 export default function OrderEmail({
   sessionId,
   order,
   access,
   onOrder,
+  onUnavailable,
 }: {
   sessionId: string;
   order: CustomerOrder;
   access: string | undefined;
   onOrder: (order: CustomerOrder) => void;
+  onUnavailable?: (message: string) => void;
 }) {
   const auth = useOptionalAuth();
   const [editing, setEditing] = useState(false);
@@ -222,13 +230,20 @@ export default function OrderEmail({
         // earlier try that did go through sent the tickets). Without that read, the order as it was, blocked.
         const blockedChange: OrderEmailChange = { allowed: false, reason: code };
         const now = await currentOrder();
+        if (!now && code === "order_not_paid") {
+          // Not paid any more (refunded, say), and its details couldn't be read: its tickets aren't shown as valid.
+          onUnavailable?.("This order isn’t paid any more, so its tickets aren’t valid. Reload this page to see what happened.");
+          return;
+        }
         // The refusal itself is the last word on whether it can change (and on keeping the token): the read's is
-        // used only when it also says no.
-        onOrder(
-          now
-            ? { ...now, emailChange: now.emailChange?.allowed === false ? now.emailChange : blockedChange }
-            : { ...order, emailChange: blockedChange },
-        );
+        // used only when it also says no. Without the read, the order as it was, blocked; after a support change
+        // without either address, as the server would send it.
+        const before: CustomerOrder = { ...order, emailChange: blockedChange };
+        if (code === "changed_by_support") {
+          delete before.email;
+          delete before.maskedEmail;
+        }
+        onOrder(now ? { ...now, emailChange: now.emailChange?.allowed === false ? now.emailChange : blockedChange } : before);
         setEditing(false);
         setOutcome({ kind: "blocked", reason: code });
         focusNext.current = "box";
@@ -237,6 +252,22 @@ export default function OrderEmail({
         setOutcome({ kind: "refused" });
         focusNext.current = "box";
       } else {
+        // No clear answer (a server error, no connection, or a 429 after a try whose answer was lost): did it go
+        // through? A read, never another change.
+        const unclear = !(err instanceof ApiError) || err.status >= 500 || err.status === 429;
+        const now = unclear ? await currentOrder() : null;
+        const landed =
+          now?.status === "paid" &&
+          !!now.email &&
+          now.email.toLowerCase() === sent.toLowerCase() &&
+          (order.email ?? "").toLowerCase() !== sent.toLowerCase();
+        if (now && landed) {
+          onOrder(now);
+          setEditing(false);
+          setOutcome({ kind: "changed", email: now.email });
+          focusNext.current = "box";
+          return;
+        }
         // A 429 or "being sent right now" says what to do; anything else gets the plain fallback.
         setFormError(err instanceof ApiError && err.status >= 400 && err.status < 500 ? err.message : "Couldn’t change the email. Try again.");
       }
