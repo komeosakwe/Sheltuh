@@ -268,6 +268,15 @@ export default function OrderEmail({
           focusNext.current = "box";
           return;
         }
+        // The read worked but didn't confirm the change: still show what it says. If the order isn't paid any more
+        // (refunded meanwhile), the page moves to that state; offering another try there would be wrong.
+        if (now) {
+          onOrder(now);
+          if (now.status !== "paid") {
+            setEditing(false);
+            return;
+          }
+        }
         // A 429 or "being sent right now" says what to do; anything else gets the plain fallback.
         setFormError(err instanceof ApiError && err.status >= 400 && err.status < 500 ? err.message : "Couldn’t change the email. Try again.");
       }

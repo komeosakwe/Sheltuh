@@ -1207,6 +1207,22 @@ describe("CheckoutConfirmation: the buyer's email (the paying browser's one chan
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
+  it("no clear answer (a 500), and the read shows the order was refunded meanwhile: the page shows the refund, no retry", async () => {
+    asPayingBrowser();
+    getOrderBySession
+      .mockResolvedValueOnce(PAYING)
+      .mockResolvedValueOnce({ ...PAYING, status: "refunded", refundReason: "refunded", tickets: [] });
+    changeOrderEmail.mockRejectedValueOnce(new ApiError(500, "Something went wrong."));
+    render(<CheckoutConfirmation />);
+    fireEvent.click(await screen.findByRole("button", { name: "Wrong email? Change it" }));
+    fireEvent.change(screen.getByLabelText("New email for your tickets"), { target: { value: "mia@gmail.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send tickets here" }));
+    expect(await screen.findByText("This order has been refunded")).toBeInTheDocument();
+    expect(changeOrderEmail).toHaveBeenCalledTimes(1);
+    expect(screen.queryByLabelText("New email for your tickets")).toBeNull();
+    expect(screen.queryByText("Couldn’t change the email. Try again.")).toBeNull();
+  });
+
   it("another device (no token): the masked email and support's address, no change", async () => {
     getOrderBySession.mockResolvedValue(ORDER);
     render(<CheckoutConfirmation />);
