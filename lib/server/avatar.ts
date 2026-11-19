@@ -57,6 +57,7 @@ const UNSUPPORTED_HINTS = {
   avatar: "Upload a JPEG, PNG or WebP photo.",
   logo: "Upload a JPEG, PNG or WebP image.",
   photo: "Upload a JPEG, PNG or WebP photo.",
+  cover: "Upload a JPEG, PNG or WebP image.",
 } as const;
 
 export type SquareImageField = keyof typeof UNSUPPORTED_HINTS;
@@ -97,7 +98,7 @@ const waiting: (() => void)[] = [];
 /**
  * Runs `work` in one of AVATAR_ENCODE_CONCURRENCY's slots, waiting for one if
  * needed; 503 when the queue is full. Shared by every upload that's decoded
- * (member photos, organiser logos, event photos).
+ * (member photos, organiser logos and covers, event photos).
  */
 export async function inEncodeSlot<T>(work: () => Promise<T>): Promise<T> {
   if (running < AVATAR_ENCODE_CONCURRENCY.running) {
@@ -119,11 +120,34 @@ export async function inEncodeSlot<T>(work: () => Promise<T>): Promise<T> {
 }
 
 /**
+ * Both results, once both have settled; if either rejected, the first
+ * rejection (`a`'s before `b`'s). For two encodes run side by side inside
+ * inEncodeSlot: unlike Promise.all, it doesn't settle while the other encode
+ * is still running, so the slot isn't handed on with libvips still busy.
+ */
+export async function bothSettled<A, B>(a: Promise<A>, b: Promise<B>): Promise<[A, B]> {
+  const [first, second] = await Promise.allSettled([a, b]);
+  if (first.status === "rejected") throw first.reason;
+  if (second.status === "rejected") throw second.reason;
+  return [first.value, second.value];
+}
+
+/**
  * The loader libvips itself picks for these bytes (it chooses from the bytes,
- * independently of our sniff), from a header-only read: `jpeg`, `png` or
- * `webp`, or null for anything else or nothing readable. Checked before any
- * decode, so a polyglot (an image signature followed by SVG, PDF, TIFF…)
- * can't reach another decoder.
+ * independently of our sniff): `jpeg`, `png` or `webp`, or null for anything
+ * else or nothing readable.
+ *
+ * What this does and doesn't gate: sharp's `metadata()` has libvips select a
+ * loader and open it to read the header, so the selected loader's header
+ * parsing has already run on the bytes by the time the format is compared
+ * with the allowlist. The allowlist therefore gates the pixel-decoding
+ * pipeline every caller builds next (decoder, encodeSquareImage,
+ * encodeEventImage), not the header read: a polyglot (an image signature
+ * followed by SVG, PDF, TIFF…) that libvips hands to another loader is
+ * refused before that loader decodes any pixels. What narrows which loaders
+ * the header read can reach is upstream: every caller has already required a
+ * JPEG, PNG or WebP signature at offset 0 (sniffImageType), and the body is
+ * size-capped (readCappedBytes).
  */
 export async function loaderFormat(input: Uint8Array): Promise<"jpeg" | "png" | "webp" | null> {
   const format = await sharp(input, { failOn: "error" })
@@ -146,13 +170,17 @@ export interface SquareImageOptions {
 }
 
 /**
- * The upload's decoder, after a header-only read confirms libvips chose its
- * own JPEG, PNG or WebP loader (it picks one from the bytes, independently of
- * our sniff), so a polyglot can't reach another decoder (SVG, PDF, TIFF…).
+ * The upload's decoder, after loaderFormat's header read confirms libvips
+ * chose its own JPEG, PNG or WebP loader (it picks one from the bytes,
+ * independently of our sniff), so a polyglot can't reach another loader's
+ * pixel decode (SVG, PDF, TIFF…); see loaderFormat for what that read does
+ * and doesn't gate.
  * First frame only, at most MAX_AVATAR_INPUT_PIXELS (refused from the
  * header), EXIF orientation applied to the pixels (the tag itself isn't kept).
+ * Call it inside inEncodeSlot. Used by member photos (encodeMemberPhoto) and organiser
+ * covers (organiser-cover.ts).
  */
-async function decoder(input: Uint8Array, field: SquareImageField): Promise<ReturnType<typeof sharp>> {
+export async function decoder(input: Uint8Array, field: SquareImageField): Promise<ReturnType<typeof sharp>> {
   if (!(await loaderFormat(input))) throw unsupportedImage(field);
   return sharp(input, { limitInputPixels: MAX_AVATAR_INPUT_PIXELS, failOn: "error", pages: 1 }).rotate();
 }
@@ -189,13 +217,13 @@ export async function encodeSquareImage(input: Uint8Array, options: SquareImageO
       });
     const raw = { raw: { width: square.info.width, height: square.info.height, channels: square.info.channels } };
     // No keepMetadata/withMetadata/keepExif/keepIccProfile: nothing is written but pixels.
-    const [image, thumb] = await Promise.all([
+    const [image, thumb] = await bothSettled(
       sharp(square.data, raw).webp({ quality: 82, effort: 4 }).toBuffer(),
       sharp(square.data, raw)
         .resize(AVATAR_THUMB_SIZE, AVATAR_THUMB_SIZE, { fit: "cover", position: "centre" })
         .webp({ quality: 80, effort: 4 })
         .toBuffer(),
-    ]);
+    );
     return { image, thumb };
   });
 }

@@ -68,7 +68,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261125000000_profile_photos.sql`. Never
+      newest, currently `20261128000100_organiser_tags.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -498,6 +498,24 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           (the flag gates only uploads; see `.env.example`). To roll back, first
           deploy an app version that does not read photos. Then drop the trigger,
           both functions and the table; this step loses data.
+      55. `20261128000000_organiser_covers.sql` (an organiser's cover image on
+          their public profile, docs/architecture.md "Organiser profiles",
+          "Cover": table `private.organiser_covers`, RLS on and no grants, and
+          `put_organiser_cover`, `delete_organiser_cover`,
+          `admin_remove_organiser_cover`). Additive: no existing table,
+          column or function changes, and the previous app never reads the
+          table. Can be applied before the app. Reversible: drop the three
+          functions, then the table (destructive once covers exist).
+      56. `20261128000100_organiser_tags.sql` (an organiser's profile chips,
+          "Organiser profiles", "Categories": nullable
+          `organisers.profile_tags` and `custom_tags` (default `{}`), their
+          check constraints, the trigger `organisers_custom_tags_valid` with
+          `organiser_custom_tag_ok`, and `set_organiser_tags`,
+          `admin_remove_organiser_custom_tags`). Additive: the previous app
+          reads named columns and its inserts get the defaults; no existing
+          function is redefined. Can be applied before the app. Reversible:
+          drop the functions and trigger, then the two columns (destructive:
+          every organiser's chosen chips).
 
       **Files 33 to 37 can be applied ahead of this deploy, with the
       previous app still live.** "The previous app" here is the build of

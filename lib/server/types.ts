@@ -82,6 +82,7 @@ export type {
   OrganiserRecord,
   OrganiserSocialLinks,
   OrganiserStatus,
+  OrganiserTagsInput,
   ProfileInput,
   ProfileRecord,
   PublicOrganiserProfile,

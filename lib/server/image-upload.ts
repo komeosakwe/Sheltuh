@@ -27,7 +27,12 @@ export function sniffImageType(bytes: Uint8Array): ImageType | null {
   return null;
 }
 
-/** Reads a request body, returning null as soon as it exceeds `max` bytes. */
+/**
+ * Reads a request body, returning null as soon as it exceeds `max` bytes.
+ * Cancelling the rest of the stream is best-effort: a cancel that rejects
+ * (the client already gone, say) still returns null, so the caller's 413
+ * isn't turned into a 500.
+ */
 export async function readCappedBytes(req: Request, max: number): Promise<Uint8Array | null> {
   if (!req.body) return new Uint8Array(0);
   const reader = req.body.getReader();
@@ -38,7 +43,8 @@ export async function readCappedBytes(req: Request, max: number): Promise<Uint8A
     if (done) break;
     total += value.length;
     if (total > max) {
-      await reader.cancel();
+      // Best effort and not awaited: a source whose cleanup rejects or never settles mustn't hold up the 413.
+      void reader.cancel().catch(() => undefined);
       return null;
     }
     chunks.push(value);
