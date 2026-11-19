@@ -206,7 +206,7 @@ export default function AccountMenu({ account, initial }: { account: NavAccount;
         popover="auto"
         data-account-menu=""
         onKeyDown={handlePanelKeyDown}
-        className="popover-fade top-27 right-8 bottom-auto left-auto m-0 w-70 rounded-card border border-surface-border bg-menu p-2 text-foreground dark:border-foreground xl:right-16.5 xl:group-data-scrolled/header:top-25"
+        className="popover-fade top-27 right-8 bottom-auto left-auto m-0 max-h-[calc(100dvh-7rem)] w-70 overflow-y-auto rounded-card border border-surface-border bg-menu p-2 text-foreground dark:border-foreground xl:right-16.5 xl:group-data-scrolled/header:top-25"
       >
         <nav aria-label="Account">
           {/* Who's signed in: not a link (Profile is the first row). */}
