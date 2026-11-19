@@ -353,12 +353,15 @@ open, so for them (a brand or a person's name squatted, say, reported to
 support) run this in the SQL editor, as one query. It does what the admin
 route does: the name is held for 30 days, the member waits 30 days before
 choosing another, and the removal is logged without the name. Find the
-account by the name (any spelling or lookalike of it finds the same row):
+account by the name, typed between the quotes as it was reported: it's
+normalised as the app does it (compatibility forms folded, spaces trimmed, a
+leading `@` dropped, lower case), and any spelling or lookalike of it finds
+the same row:
 
 ```sql
 with target as (
   select u.user_id as id from private.member_usernames u
-   where u.username_key = private.member_username_key(lower('the_username')) and u.user_id is not null
+   where u.username_key = private.member_username_key(lower(regexp_replace(btrim(normalize(' @The_Username ', NFKC)), '^@', ''))) and u.user_id is not null
 ), released as (
   update private.member_usernames u set user_id = null
     from target where u.user_id = target.id
@@ -376,7 +379,9 @@ select id, null, array['username'], 'short note for your own records' from relea
 
 `INSERT 0 1` means it was released; `INSERT 0 0` means no live username
 matched. If it reports a deadlock (the member saving at that very moment),
-run it again.
+run it again. If it says `permission denied for table users`, the role
+lacks the privilege the username functions need too (`docs/DEPLOYMENT.md`,
+migration 55).
 
 To let someone else have a held name straight away (the rightful owner of a
 squatted brand, say), delete the hold. Only a hold is deleted, never a live
@@ -384,7 +389,7 @@ name:
 
 ```sql
 delete from private.member_usernames
- where username_key = private.member_username_key(lower('the_username')) and user_id is null;
+ where username_key = private.member_username_key(lower(regexp_replace(btrim(normalize(' @The_Username ', NFKC)), '^@', ''))) and user_id is null;
 ```
 
 ### Message reports and moderation

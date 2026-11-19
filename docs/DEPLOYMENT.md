@@ -512,18 +512,44 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           docs/architecture.md "Usernames": tables
           `private.member_usernames` and `private.member_username_changes`,
           the claim, clear and state functions and two triggers;
-          `admin_remove_profile_content` gains `username` and
-          `purge_social_data` deletes expired holds and stale change clocks,
-          both with their signatures unchanged; the moderation log's
-          removed-fields check allows `username`). Needs file 54 before it
+          `admin_remove_profile_content` gains `username` (and locks the
+          account before the profile),
+          `purge_social_data` deletes change clocks that never completed a
+          claim and expired holds; `file_profile_report` copies the username
+          into a new `user_reports.reported_username`; all three with their
+          signatures unchanged; the moderation log's removed-fields check
+          allows `username`). Needs file 54 before it
           (filename order). Additive: the previous app never sends
           `username` to remove-content and reads none of the new objects, so
           it can be applied before the app. Reversible, with data loss: drop
           the new functions, triggers and both tables (every username and
           hold), restore `admin_remove_profile_content` from
           `20261024000100_member_profiles.sql` and `purge_social_data` from
-          `20261116000000_external_going.sql`; the old removed-fields check
-          only once no log entry names `username`.
+          `20261116000000_external_going.sql` and `file_profile_report`
+          from `20261102000100_social_hardening.sql`, and drop
+          `user_reports.reported_username` (the reports' username copies);
+          the old removed-fields check only once no log entry names
+          `username`.
+
+          **Needs the UPDATE privilege on `auth.users` for the app's
+          database role.** `claim_member_username`, `clear_member_username`
+          and `admin_remove_profile_content` lock the member's `auth.users`
+          row (`for key share`, so an account deletion waits instead of
+          deadlocking), and Postgres requires UPDATE on at least one column
+          of a table to lock its rows; nothing earlier in the app does this.
+          The app connects as the role in `DATABASE_URL` (Supabase's
+          transaction pooler: `postgres.<project-ref>`, i.e. the `postgres`
+          role, the same one the SQL editor uses). Before deploying, run in
+          the SQL editor:
+
+          ```sql
+          select has_any_column_privilege('postgres', 'auth.users', 'UPDATE');
+          ```
+
+          `true`: nothing to do. `false`: don't deploy this yet (setting,
+          clearing and an admin's removal of a username would fail with
+          `permission denied for table users`); raise it, as granting on
+          Supabase's `auth` schema isn't ours to change lightly.
 
       **Files 33 to 37 can be applied ahead of this deploy, with the
       previous app still live.** "The previous app" here is the build of
