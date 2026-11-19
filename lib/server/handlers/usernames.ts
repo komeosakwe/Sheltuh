@@ -16,7 +16,7 @@ import { readAccountSummary } from "./me";
  *
  * The rules a claim obeys (one change per 30 days, any number within 24
  * hours of the first claim, a 30-day hold on every released name) are the
- * database's: private.claim_member_username.
+ * database's: private.claim_member_username. The API adds allowances.
  */
 
 /**
@@ -29,6 +29,17 @@ export const USERNAME_LOOKUP_RATE_LIMITS = [
   { bucket: "username_lookups", hits: 30, window: "10 minutes" },
   { bucket: "username_lookups_daily", hits: 100, window: "24 hours" },
 ] as const satisfies readonly { bucket: string; hits: number; window: RateWindow }[];
+
+/**
+ * Saves per member (PUT only, on top of the lookups, taken before the claim):
+ * bounds how many names one account can put on hold in its 24-hour typo
+ * window (each change there holds the name it leaves for 30 days).
+ */
+export const USERNAME_CHANGE_RATE_LIMIT = { bucket: "username_changes", hits: 10, window: "24 hours" } as const satisfies {
+  bucket: string;
+  hits: number;
+  window: RateWindow;
+};
 
 const TAKEN = "That username is taken. Try another.";
 const SUSPENDED = "Your profile can't be changed right now.";
@@ -52,12 +63,19 @@ async function takeLookup(db: Db, userId: string): Promise<void> {
  * suspended; 409 `username_taken` (live for someone else, or held: the same
  * answer); 429 `username_change_too_soon` with `changeableAt` and
  * Retry-After; 429 past the lookup allowance. The same name again is a 200
- * that changes nothing.
+ * that changes nothing. Each PUT also takes one of USERNAME_CHANGE_RATE_LIMIT
+ * (10 a day; 429) before the claim.
  */
 export const putMyUsername: Handler = async (req, _params, { db, verifyAccessToken }) => {
   const caller = await requireVerifiedCaller(req, verifyAccessToken);
   const username = parseUsernameInput(await readJson(req));
   await takeLookup(db, caller.userId);
+  const limit = USERNAME_CHANGE_RATE_LIMIT;
+  const [{ allowed }] = await db.query<{ allowed: boolean }>(
+    `select private.take_rate_limit($1, $2, $3, $4::interval) as allowed`,
+    [caller.userId, limit.bucket, limit.hits, limit.window],
+  );
+  if (!allowed) throw tooManyRequests("Too many username saves today. Try again tomorrow.", windowSeconds(limit.window));
 
   const [claim] = await db.query<{ result: string; changeable_at: Date | string | null }>(
     `select * from private.claim_member_username($1, $2)`,

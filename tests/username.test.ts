@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CLAIM_WORDS as CLAIM_WORDS_FROM_TAGS } from "@/lib/api/organiser-tags";
 import { CLAIM_WORDS, makesAClaim } from "@/lib/lookalikes";
 import {
+  brandKey,
   normaliseUsername,
   parseUsername,
   RESERVED_USERNAMES,
@@ -64,6 +65,43 @@ describe("parseUsername", () => {
     ["s.u.p.p.o.r.t", "That username is reserved. Try another."],
   ])("refuses %j: %s", (raw, error) => {
     expect(parseUsername(raw)).toEqual({ ok: false, error });
+  });
+
+  it.each([
+    "adminsupport",
+    "support.team",
+    "moderatorkate",
+    "officialtickets",
+    "verifiedmia",
+    "2admin",
+    "verified1",
+    "staffpick1",
+    "katesupport",
+    "mia_staff",
+    "securitysam",
+    "helpdesk_au",
+    "featuredartist",
+    "m0derat0r_kate",
+    "5ecurity",
+    "v3rifiedmia",
+  ])("refuses %j: a claim or staff word run together at either end (digits read as letters)", (raw) => {
+    expect(parseUsername(raw).ok).toBe(false);
+  });
+
+  it.each(["sheltueh", "5heltuh", "shel7uh", "sh3ltuh_fan", "i_love_sheltueh"])("refuses %j: a Sheltüh lookalike", (raw) => {
+    expect(parseUsername(raw)).toEqual({ ok: false, error: "Usernames can't include Sheltüh." });
+  });
+
+  it.each(["badminton", "kadmina_x", "the_supporter_club", "m4ya", "j3ss", "studio7"])(
+    "still accepts %j (a staff word inside a word, or a digit that isn't a brand)",
+    (raw) => {
+      expect(parseUsername(raw).ok, raw).toBe(true);
+    },
+  );
+
+  it("brandKey reads 5/3/4/7 as s/e/a/t on top of usernameKey; uniqueness doesn't", () => {
+    expect(brandKey("5h3l7uh")).toBe("sheltuh");
+    expect(usernameKey("m4ya")).not.toBe(usernameKey("maya"));
   });
 
   it("refuses every reserved name and every claim word", () => {

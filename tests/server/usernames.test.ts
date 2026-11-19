@@ -2,12 +2,14 @@ import postgres from "postgres";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { listGoingAttendees } from "@/lib/server/handlers/going";
 import { getMe } from "@/lib/server/handlers/me";
-import { getMemberProfile } from "@/lib/server/handlers/member-profiles";
+import { adminGetMemberProfile, getMemberProfile } from "@/lib/server/handlers/member-profiles";
 import { deleteMyProfile } from "@/lib/server/handlers/profiles";
+import { adminListReports, createReport } from "@/lib/server/handlers/reports";
 import {
   checkMyUsername,
   deleteMyUsername,
   putMyUsername,
+  USERNAME_CHANGE_RATE_LIMIT,
   USERNAME_LOOKUP_RATE_LIMITS,
 } from "@/lib/server/handlers/usernames";
 import type { EventRecord } from "@/lib/server/types";
@@ -142,7 +144,31 @@ describe("PUT /api/me/username: what a username may be (400)", () => {
     ["me_", /reserved/],
     ["settings", /reserved/],
     ["bookings", /reserved/],
+    // Claim and staff words run together at either end, and with digits around them.
+    ["adminsupport", /makes a claim/],
+    ["support.team", /makes a claim/],
+    ["moderatorkate", /makes a claim/],
+    ["officialtickets", /makes a claim/],
+    ["verifiedmia", /makes a claim/],
+    ["2admin", /reserved|makes a claim/],
+    ["verified1", /makes a claim/],
+    ["staffpick1", /makes a claim/],
+    ["kate_security", /makes a claim/],
+    ["teamhelpdesk", /makes a claim/],
+    // Brand lookalikes: 5/3/4/7 read as s/e/a/t, and "sheltueh".
+    ["sheltueh", /Sheltüh/],
+    ["5heltuh_x", /Sheltüh/],
+    ["shel7uh_fan", /Sheltüh/],
+    ["5upport", /reserved/],
+    ["4dmin", /reserved/],
+    ["m0d3rat0r", /reserved/],
     ["mia.com", /web address/],
+    ["mia.top", /web address/],
+    ["is.gd", /web address/],
+    ["mia.co.uk", /web address/],
+    ["mia.ee", /web address/],
+    ["mia.gy", /web address/],
+    ["mia.ru_", /web address/],
     ["mia.co", /web address/],
     ["www.mia", /web address/],
   ];
@@ -157,8 +183,8 @@ describe("PUT /api/me/username: what a username may be (400)", () => {
     expect(checked.body.fieldErrors.username).toBe(res.body.fieldErrors.username);
   });
 
-  it("accepts the edges: 3 and 20 characters, _ at either end, dots inside, 4 digits", async () => {
-    for (const ok of ["mia", "a".repeat(20), "_ana_", "b.e.n", "jo_2026", "badminton", "the.dot.cafe"]) {
+  it("accepts the edges: 3 and 20 characters, _ at either end, dots inside, 4 digits; a claim word inside a word", async () => {
+    for (const ok of ["mia", "a".repeat(20), "_ana_", "b.e.n", "jo_2026", "badminton", "the.dot.cafe", "m4ya"]) {
       const res = await put(mia, ok);
       expect(res.status, ok).toBe(200);
       expect(res.body.username).toBe(ok);
@@ -177,7 +203,7 @@ describe("PUT /api/me/username: what a username may be (400)", () => {
         name,
         mia.userId,
       ]);
-    for (const bad of ["ab", "Mia", ".mia", "mia.", "mi..a", "12345", "mia12345", "sheltuh_x", "she1tuh", "zoë", "mia tan"]) {
+    for (const bad of ["ab", "Mia", ".mia", "mia.", "mi..a", "12345", "mia12345", "sheltuh_x", "she1tuh", "5heltuh_x", "sheltueh", "zoë", "mia tan"]) {
       await expect(insert(bad), bad).rejects.toThrow();
     }
     // A key that isn't the name's.
@@ -487,7 +513,8 @@ describe("POST /api/me/username/check", () => {
   it(`shares one allowance with PUT (${USERNAME_LOOKUP_RATE_LIMITS[0].hits} per ${USERNAME_LOOKUP_RATE_LIMITS[0].window}), taken before the lookup`, async () => {
     const [short] = USERNAME_LOOKUP_RATE_LIMITS;
     for (let i = 0; i < short.hits; i++) {
-      const res = i % 2 === 0 ? await check(mia, `name_${i}`) : await put(mia, `name_${i}`);
+      // A few saves (they have their own, smaller allowance too), the rest checks.
+      const res = i % 5 === 0 ? await put(mia, `name_${i}`) : await check(mia, `name_${i}`);
       expect(res.status, `request ${i}`).toBe(200);
     }
     const checkRefused = await check(mia, "latte");
@@ -514,6 +541,52 @@ describe("POST /api/me/username/check", () => {
   it("refusals of the name itself (400) take no allowance", async () => {
     for (let i = 0; i < 40; i++) expect((await check(mia, "ab")).status).toBe(400);
     expect((await check(mia, "latte")).status).toBe(200);
+  });
+});
+
+describe("PUT's own allowance", () => {
+  it(`${USERNAME_CHANGE_RATE_LIMIT.hits} saves per ${USERNAME_CHANGE_RATE_LIMIT.window}, taken before the claim; checks go on`, async () => {
+    for (let i = 0; i < USERNAME_CHANGE_RATE_LIMIT.hits; i++) {
+      expect((await put(mia, `typo_${i}`)).status, `save ${i}`).toBe(200);
+    }
+    const refused = await put(mia, "latte");
+    expect(refused.status).toBe(429);
+    expect(refused.body.code).toBeUndefined();
+    expect(refused.headers.get("retry-after")).toBe("86400");
+    expect((await me(mia)).body.username).toBe("typo_9");
+    expect((await check(mia, "latte")).status).toBe(200);
+    // So one account holds at most this many names from its typo window.
+    expect((await rows()).filter((r) => r.held)).toHaveLength(USERNAME_CHANGE_RATE_LIMIT.hits - 1);
+  });
+});
+
+describe("profile reports keep the username", () => {
+  it("a profile report copies the member's username; a quick change afterwards doesn't touch the copy", async () => {
+    const target = await member(api, { displayName: "Troll" });
+    await api.db.query(`update public.profiles set profile_visible = true where user_id = $1`, [target.userId]);
+    await claimed(target, "rude_name");
+    const [{ public_id: profileId }] = await api.db.query<{ public_id: string }>(
+      `select public_id from public.profiles where user_id = $1`,
+      [target.userId],
+    );
+    const filed = await api.call(createReport, { token: mia.token, body: { profileId, reason: "inappropriate" } });
+    expect(filed.status).toBe(201);
+    await claimed(target, "nice_name"); // within the typo window
+
+    const list = await api.call(adminListReports, { token: admin.token });
+    expect(list.body.items[0]).toMatchObject({ targetType: "profile", reportedUsername: "rude_name" });
+    expect((await api.call(adminGetMemberProfile, { token: admin.token, params: { profileId } })).body.username).toBe("nice_name");
+  });
+
+  it("no username: no copy", async () => {
+    await api.db.query(`update public.profiles set profile_visible = true where user_id = $1`, [sam.userId]);
+    const [{ public_id: profileId }] = await api.db.query<{ public_id: string }>(
+      `select public_id from public.profiles where user_id = $1`,
+      [sam.userId],
+    );
+    expect((await api.call(createReport, { token: mia.token, body: { profileId, reason: "inappropriate" } })).status).toBe(201);
+    const list = await api.call(adminListReports, { token: admin.token });
+    expect(list.body.items[0].reportedUsername).toBeUndefined();
   });
 });
 
@@ -599,7 +672,7 @@ describe("where a username shows: exactly where the profileId does", () => {
 // ---------------------------------------------------------------------------
 
 describe("private.purge_social_data", () => {
-  it("deletes only holds that have run out, and clocks that no longer limit anything", async () => {
+  it("deletes only holds that have run out, and clock rows that never completed a claim", async () => {
     const ann = await member(api);
     const bo = await member(api);
     const cy = await member(api);
@@ -607,7 +680,7 @@ describe("private.purge_social_data", () => {
     await claimed(sam, "mocha");
     await clear(sam); // held, not expired: kept; clock recent: kept
     await claimed(ann, "chai");
-    await clear(ann); // held, then expired: deleted; clock old: deleted
+    await clear(ann); // held, then expired: deleted; clock old, but kept (it holds their first claim)
     await claimed(bo, "flat_white");
     await clear(bo); // clock 20 days old without a name: kept (still limits them)
     await put(cy, "latte"); // 409: an empty clock row, deleted
@@ -628,8 +701,21 @@ describe("private.purge_social_data", () => {
     expect(await clock(mia)).toBeDefined();
     expect(await clock(sam)).toBeDefined();
     expect(await clock(bo)).toBeDefined();
-    expect(await clock(ann)).toBeUndefined();
+    expect(await clock(ann)).toBeDefined();
     expect(await clock(cy)).toBeUndefined();
+  });
+
+  it("never reopens the typo window: a member's first claim is remembered for the account's life", async () => {
+    await claimed(mia, "latte");
+    await clear(mia);
+    await backdate(mia, "60 days", "40 days");
+    await api.db.query(`select private.purge_social_data()`);
+    // 30 days since the latest claim: one change allowed...
+    await claimed(mia, "mocha");
+    // ...and then no burst of typo-window changes after it.
+    const again = await put(mia, "chai");
+    expect(again.status).toBe(429);
+    expect(again.body.code).toBe("username_change_too_soon");
   });
 });
 
@@ -717,6 +803,86 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("concurrency (real Postgres only
       }
     } finally {
       await Promise.all(conns.map((c) => c.end()));
+    }
+  });
+
+  /** Resolves once `conn`'s backend is waiting on a lock. */
+  async function blocked(conn: postgres.Sql) {
+    const [{ pid }] = await conn.unsafe("select pg_backend_pid() as pid");
+    return async () => {
+      for (let i = 0; ; i++) {
+        const [row] = await api.db.query<{ wait_event_type: string | null }>(
+          `select wait_event_type from pg_stat_activity where pid = $1`,
+          [pid],
+        );
+        if (row?.wait_event_type === "Lock") return;
+        if (i > 400) throw new Error("never blocked");
+        await new Promise((r) => setTimeout(r, 25));
+      }
+    };
+  }
+
+  it("the daily purge racing a claim of an expired hold: no deadlock (clock rows before name rows, as claims lock)", async () => {
+    const [claimer, purger] = connections(2);
+    const purgerBlocked = await blocked(purger);
+    try {
+      // A member whose first claim failed (an empty clock row, which the purge deletes) and an expired hold.
+      await api.db.query(`insert into private.member_username_changes (user_id) values ($1)`, [mia.userId]);
+      await api.db.query(
+        `insert into private.member_usernames (username_key, username, user_id, held_until)
+         values ('latte', 'latte', null, now() - interval '1 second')`,
+      );
+      // The claim has its clock row locked (its first step)...
+      await claimer.unsafe("begin");
+      await claimer.unsafe(`select 1 from private.member_username_changes where user_id = $1 for update`, [mia.userId]);
+      // ...when the purge reaches the clock rows: it waits for the claim.
+      // postgres.js sends a query when it's awaited or then'd: .then() starts it now.
+      const purge = purger.unsafe(`select * from private.purge_social_data()`).then((r) => r);
+      await purgerBlocked();
+      // The claim goes on to lock the hold, which the purge must not be holding.
+      const [claim] = await claimer.unsafe(`select result from private.claim_member_username($1, 'latte')`, [mia.userId]);
+      await claimer.unsafe("commit");
+      await purge;
+      expect(claim.result).toBe("claimed");
+      expect(await rows()).toEqual([{ username: "latte", user_id: mia.userId, held: false }]);
+      expect((await clock(mia))?.first).toBeInstanceOf(Date);
+    } finally {
+      await claimer.unsafe("rollback").catch(() => {});
+      await Promise.all([claimer.end(), purger.end()]);
+    }
+  });
+
+  it("an admin removal racing the account's deletion: no deadlock (the account is locked before the profile)", async () => {
+    const [remover, deleter, photoHolder] = connections(3);
+    const removerBlocked = await blocked(remover);
+    const deleterBlocked = await blocked(deleter);
+    try {
+      const target = await member(api);
+      await claimed(target, "rude_name");
+      const tiny = Buffer.from([1, 2, 3]);
+      await api.db.query(`insert into private.profile_avatars (user_id, image, thumb) values ($1, $2, $2)`, [target.userId, tiny]);
+      const [{ public_id: profileId }] = await api.db.query<{ public_id: string }>(
+        `select public_id from public.profiles where user_id = $1`,
+        [target.userId],
+      );
+      // Hold the photo so the removal stops part-way, with its first locks taken.
+      await photoHolder.unsafe("begin");
+      await photoHolder.unsafe(`select 1 from private.profile_avatars where user_id = $1 for update`, [target.userId]);
+      const removal = remover.unsafe(
+        `select result, removed from private.admin_remove_profile_content($1, $2, array['avatar', 'username'], 'Report')`,
+        [admin.userId, profileId],
+      ).then((r) => r);
+      await removerBlocked();
+      const deletion = deleter.unsafe(`delete from auth.users where id = $1`, [target.userId]).then((r) => r);
+      await deleterBlocked();
+      await photoHolder.unsafe("commit");
+      const [[removed]] = await Promise.all([removal, deletion]);
+      expect(removed.result).toBe("removed");
+      expect(removed.removed).toEqual(["avatar", "username"]);
+      expect(await rows()).toEqual([{ username: "rude_name", user_id: null, held: true }]);
+    } finally {
+      await photoHolder.unsafe("rollback").catch(() => {});
+      await Promise.all([remover.end(), deleter.end(), photoHolder.end()]);
     }
   });
 

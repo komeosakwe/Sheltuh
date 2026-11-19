@@ -1935,9 +1935,10 @@ export interface AdminReport {
   targetType?: "conversation" | "attendee" | "profile";
   /** The reported member's current profile, if they still have one (for GET/remove-content). */
   reportedProfileId?: string;
-  /** Profile reports: copies of the bio and Instagram handle when reported. */
+  /** Profile reports: copies of the bio, Instagram handle and username (without "@") when reported. */
   reportedBio?: string;
   reportedInstagramHandle?: string;
+  reportedUsername?: string;
   /** Profile reports with a photo: the copy taken when reported (admin only; fetch with the bearer token). */
   reportedAvatarUrl?: string;
 }

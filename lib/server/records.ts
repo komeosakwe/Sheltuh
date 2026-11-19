@@ -1415,7 +1415,7 @@ export const ADMIN_REPORT_SELECT = `
          r.reported_user_id is not null as reported_account_exists,
          exists (select 1 from private.social_suspensions s where s.user_id = r.reported_user_id) as reported_suspended,
          e.title as event_title, r.message_body, r.context, r.resolved_at, r.resolution_note,
-         r.target_type, r.reported_bio, r.reported_instagram, (r.reported_avatar is not null or r.reported_avatar_sha256 is not null) as has_reported_avatar,
+         r.target_type, r.reported_bio, r.reported_instagram, r.reported_username, (r.reported_avatar is not null or r.reported_avatar_sha256 is not null) as has_reported_avatar,
          (select p.public_id from public.profiles p where p.user_id = r.reported_user_id) as reported_profile_id
     from private.user_reports r
     left join public.events e on e.id = r.event_id`;
@@ -1440,6 +1440,7 @@ export function toAdminReport(row: Row): AdminReport {
     reportedProfileId: opt(row.reported_profile_id),
     reportedBio: opt(row.reported_bio),
     reportedInstagramHandle: opt(row.reported_instagram),
+    reportedUsername: opt(row.reported_username),
     ...(row.has_reported_avatar === true ? { reportedAvatarUrl: `/api/admin/reports/${row.id as string}/avatar` } : {}),
   };
 }

@@ -32,15 +32,18 @@ function listFields(fields: readonly ProfileContentField[]): string {
 /**
  * A profile report's evidence and moderation (docs/architecture.md, "Member
  * profiles"): the copies taken when it was reported (photo, fetched with the
- * admin's token from the report's own copy; bio; Instagram handle), the
- * member's current profile and its moderation log on request, and removing
- * their photo, bio or Instagram with a reason (logged, never the content).
+ * admin's token from the report's own copy; username; bio; Instagram handle),
+ * the member's current profile (username included) and its moderation log on
+ * request, and removing their photo, bio, Instagram or username with a reason
+ * (logged, never the content).
  * Everything is member-supplied text, shown as text.
  */
 export default function ProfileReportDetails({ report, getToken }: { report: AdminReport; getToken: GetToken }) {
   const photo = useAvatarObjectUrl(report.reportedAvatarUrl, getToken);
   const profileId = report.reportedProfileId;
-  const hasCopies = Boolean(report.reportedAvatarUrl || report.reportedBio || report.reportedInstagramHandle);
+  const hasCopies = Boolean(
+    report.reportedAvatarUrl || report.reportedBio || report.reportedInstagramHandle || report.reportedUsername,
+  );
 
   return (
     <div className="flex flex-col gap-4">
@@ -62,6 +65,12 @@ export default function ProfileReportDetails({ report, getToken }: { report: Adm
             )}
             <dl className="flex min-w-0 flex-col gap-2 text-sm">
               <div>
+                <dt className="text-muted">Username</dt>
+                <dd className="break-all">
+                  {report.reportedUsername ? `@${report.reportedUsername}` : <span className="text-muted italic">None</span>}
+                </dd>
+              </div>
+              <div>
                 <dt className="text-muted">Bio</dt>
                 <dd className="break-words whitespace-pre-wrap">
                   {report.reportedBio ?? <span className="text-muted italic">None</span>}
@@ -80,7 +89,9 @@ export default function ProfileReportDetails({ report, getToken }: { report: Adm
             </dl>
           </div>
         ) : (
-          <p className="mt-1 text-sm text-muted">No photo, bio or Instagram when it was reported (the name only).</p>
+          <p className="mt-1 text-sm text-muted">
+            No photo, username, bio or Instagram when it was reported (the name only).
+          </p>
         )}
       </div>
 
@@ -144,6 +155,10 @@ function CurrentProfile({ profileId, getToken }: { profileId: string; getToken: 
           <p>
             {state.profile.displayName} · {state.profile.profileVisible ? "Visible to members" : "Hidden"}
             {state.profile.suspended && " · Suspended"} · {state.profile.hasAvatar ? "Has a photo" : "No photo"}
+          </p>
+          <p className="break-all">
+            <span className="text-muted">Username: </span>
+            {state.profile.username ? `@${state.profile.username}` : <span className="text-muted italic">None</span>}
           </p>
           <p className="break-words whitespace-pre-wrap">
             <span className="text-muted">Bio: </span>

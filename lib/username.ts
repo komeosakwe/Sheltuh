@@ -1,4 +1,4 @@
-import { makesAClaim, skeleton } from "@/lib/lookalikes";
+import { CLAIM_WORDS, makesAClaim, skeleton } from "@/lib/lookalikes";
 
 /**
  * Member usernames (docs/architecture.md, "Usernames"): the rules, shared by
@@ -7,9 +7,12 @@ import { makesAClaim, skeleton } from "@/lib/lookalikes";
  *
  * A username is 3 to 20 of a–z 0–9 _ . ; it starts and ends with a letter,
  * digit or _; no ".."; at least one letter; at most 4 digits; no claim words
- * (CLAIM_WORDS, lib/lookalikes.ts), nothing whose key contains "sheltuh",
- * and none of RESERVED_USERNAMES. Two names are the same name when their keys
- * are (usernameKey: "1atte", "lat.te" and "latte" are one). The database's
+ * (CLAIM_WORDS, lib/lookalikes.ts) as words, nor run together at either end
+ * (EDGE_WORDS: "verifiedmia", "adminsupport", "2admin"); nothing whose key
+ * contains "sheltuh" (or "sheltueh"); and none of RESERVED_USERNAMES. Those
+ * brand checks also read 5/3/4/7 as s/e/a/t (brandKey). Two names are the
+ * same name when their keys are (usernameKey: "1atte", "lat.te" and "latte"
+ * are one; the digit folds are for the brand checks only). The database's
  * own floor is private.member_username_ok and private.member_username_key
  * (supabase/migrations/20261201000100_member_usernames.sql).
  */
@@ -55,8 +58,28 @@ export function usernameKey(username: string): string {
   return skeleton(username.replace(/[._]/g, ""));
 }
 
-const RESERVED_KEYS = new Set(RESERVED_USERNAMES.map(usernameKey));
-const SHELTUH_KEY = usernameKey("sheltuh");
+/**
+ * usernameKey, plus the digits that pass for letters in a brand or a role
+ * (5 → s, 3 → e, 4 → a, 7 → t): for the reserved, claim and Sheltüh checks
+ * only, never for uniqueness ("m4ya" and "maya" are different names).
+ */
+export function brandKey(username: string): string {
+  return usernameKey(username).replace(/[5347]/g, (d) => ({ "5": "s", "3": "e", "4": "a", "7": "t" })[d] ?? d);
+}
+
+/**
+ * Staff and verification words a name may not start or end with, run
+ * together or not ("adminsupport", "moderatorkate", "support.team"): with
+ * CLAIM_WORDS, EDGE_WORDS. In the middle of a longer word they're fine
+ * ("badminton").
+ */
+export const STAFF_WORDS: readonly string[] = [
+  "admin", "administrator", "moderator", "support", "official", "helpdesk", "security", "staff", "verified", "sheltuh",
+];
+
+const RESERVED_KEYS = new Set(RESERVED_USERNAMES.map(brandKey));
+const EDGE_KEYS = [...new Set([...CLAIM_WORDS, ...STAFF_WORDS].map(brandKey))];
+const SHELTUH_KEYS = ["sheltuh", "sheltueh"].map(brandKey);
 
 /** The longest input looked at, before any regex runs on it. */
 const MAX_INPUT_LENGTH = 100;
@@ -70,10 +93,22 @@ export function normaliseUsername(value: string): string {
   return (folded.startsWith("@") ? folded.slice(1) : folded).toLowerCase();
 }
 
+const CLAIM = "That username makes a claim we can't check. Try another.";
+
 export type UsernameResult = { ok: true; value: string } | { ok: false; error: string };
 
+/** The name's brand keys as it is and with leading and trailing digits, dots and underscores dropped ("2admin_" → "admin"). */
+function brandKeys(value: string): string[] {
+  return [brandKey(value), brandKey(value.replace(/^[0-9_.]+|[0-9_.]+$/g, ""))];
+}
+
 function isReserved(value: string): boolean {
-  return RESERVED_KEYS.has(usernameKey(value)) || RESERVED_KEYS.has(usernameKey(value.replace(/[0-9_.]+$/, "")));
+  return brandKeys(value).some((key) => RESERVED_KEYS.has(key));
+}
+
+/** Starts or ends with a claim or staff word (EDGE_WORDS), run together or not. */
+function startsOrEndsWithClaim(value: string): boolean {
+  return brandKeys(value).some((key) => key && EDGE_KEYS.some((word) => key.startsWith(word) || key.endsWith(word)));
 }
 
 /**
@@ -95,9 +130,11 @@ export function parseUsername(raw: unknown): UsernameResult {
   if ((value.match(/[0-9]/g)?.length ?? 0) > USERNAME_MAX_DIGITS) {
     return { ok: false, error: `Use ${USERNAME_MAX_DIGITS} numbers or fewer.` };
   }
-  if (usernameKey(value).includes(SHELTUH_KEY)) return { ok: false, error: "Usernames can't include Sheltüh." };
-  if (makesAClaim(value)) return { ok: false, error: "That username makes a claim we can't check. Try another." };
+  const key = brandKey(value);
+  if (SHELTUH_KEYS.some((brand) => key.includes(brand))) return { ok: false, error: "Usernames can't include Sheltüh." };
+  if (makesAClaim(value)) return { ok: false, error: CLAIM };
   if (isReserved(value)) return { ok: false, error: "That username is reserved. Try another." };
+  if (startsOrEndsWithClaim(value)) return { ok: false, error: CLAIM };
   return { ok: true, value };
 }
 

@@ -496,6 +496,7 @@ describe("Data API lock-out", () => {
       "admin_remove_profile_content",
       "claim_member_username",
       "clear_member_username",
+      "file_profile_report",
       "member_username_key",
       "member_username_ok",
       "member_username_state",

@@ -13,7 +13,9 @@
 --     (the API's parseUsername is stricter: reserved words, claim words,
 --     web-address-like names): 3 to 20 of a-z 0-9 _ . ; starts and ends with
 --     a letter, digit or _; no '..'; at least one letter; at most 4 digits;
---     no "sheltuh" in the key. Applied by the trigger member_usernames_valid
+--     no "sheltuh" or "sheltueh" in the key once 5/3/4/7 are read as s/e/a/t
+--     (those digit folds apply to this brand check only, not to uniqueness).
+--     Applied by the trigger member_usernames_valid
 --     when a name is new to the row (organisers_custom_tags_valid's pattern),
 --     so tightening the rule later never blocks an unrelated update.
 --   * private.member_usernames: live names and holds in one key space, so the
@@ -27,26 +29,37 @@
 --     claim yet, 30 days after the latest claim, or at any time (any number
 --     of changes) within 24 hours of the first claim (the typo window).
 --     Clearing never resets it; an admin removal restarts it and closes the
---     typo window. Both timestamps are null while a member's first claim is
---     in progress or failed (the row exists so the claim can lock it).
+--     typo window. Kept for the account's life once a claim completed, so the
+--     typo window is only ever the first claim's. Both timestamps are null
+--     while a member's first claim is in progress or failed (the row exists
+--     so the claim can lock it).
 --   * private.member_username_state(user): the username and changeable_at
 --     (null when a change is allowed now): the only reader of the rule.
 --   * private.claim_member_username / private.clear_member_username: the
 --     member's save and clear, each one atomic step.
 --   * private.admin_remove_profile_content gains 'username' (same signature,
---     20261024000100_member_profiles.sql's body otherwise unchanged), and
+--     20261024000100_member_profiles.sql's body otherwise unchanged but for
+--     its first lock: the account, key share, before the profile), and
 --     private.profile_moderation_log's removed-fields check allows it.
+--   * private.user_reports gains reported_username, and
+--     private.file_profile_report (same signature,
+--     20261102000100_social_hardening.sql's body otherwise unchanged) copies
+--     the member's username into a profile report with the rest, so the
+--     evidence survives a quick change.
 --   * private.purge_social_data (same OUT list, 20261116000000_external_going.sql's
---     body otherwise unchanged) deletes holds that have run out, and clock
---     rows of members with no username whose rule no longer limits anything
---     (latest claim over 30 days ago, first over 24 hours ago) or that never
---     completed a claim.
+--     body otherwise unchanged) deletes clock rows that never completed a
+--     claim, then holds that have run out (clock rows before name rows: the
+--     claim's lock order).
 --
 -- Locks, in this order everywhere: the account (auth.users, key share, so an
--- account deletion, which locks it first and then cascades to both tables,
--- waits rather than deadlocks), the profile (admin removal only), the clock
--- row, then username rows in key order. Two members swapping names lock the
--- same two keys in the same order, so one waits and both get 'taken'.
+-- account deletion, which locks it first and then cascades to the profile
+-- and both tables, waits rather than deadlocks), the profile (admin removal
+-- only), the clock row, then username rows in key order. Two members
+-- swapping names lock the same two keys in the same order, so one waits and
+-- both get 'taken'. The purge deletes clock rows before name rows for the
+-- same reason. `for key share` on auth.users needs the UPDATE privilege on
+-- it for the role the app connects as (docs/DEPLOYMENT.md, this file's
+-- entry).
 --
 -- Access model as everywhere else: RLS on, no policies, no grants to anon or
 -- authenticated, every new function's execute revoked from PUBLIC and its
@@ -58,18 +71,21 @@
 -- auth.users SET NULL; member_usernames_held_idx (held_until) where user_id
 -- is null serves the purge of expired holds. member_username_changes is read
 -- by its primary key; the daily purge scans it (one small row per member who
--- ever claimed), so no other index.
+-- ever claimed), so no other index. user_reports.reported_username is never
+-- filtered or sorted on.
 --
--- Additive for the previous app: two new tables, new functions; the two
--- redefined functions keep their signatures and behave as before for every
+-- Additive for the previous app: two new tables, a nullable column, new
+-- functions; the three redefined functions keep their signatures and behave as before for every
 -- input the previous app sends, and the relaxed check accepts every row the
 -- old one did. Can be applied before the app.
 --
 -- Reversible, with data loss: drop the functions added here and the two
 -- triggers, then tables private.member_username_changes and
--- private.member_usernames (every username and hold); restore
--- private.admin_remove_profile_content from 20261024000100_member_profiles.sql
--- and private.purge_social_data from 20261116000000_external_going.sql. The
+-- private.member_usernames (every username and hold) and column
+-- user_reports.reported_username (the reports' username copies); restore
+-- private.admin_remove_profile_content from 20261024000100_member_profiles.sql,
+-- private.file_profile_report from 20261102000100_social_hardening.sql and
+-- private.purge_social_data from 20261116000000_external_going.sql. The
 -- old removed-fields check can only be restored after deleting (or editing)
 -- the moderation log entries that name 'username'.
 
@@ -96,7 +112,8 @@ as $$
      and strpos(p_username, '..') = 0
      and p_username ~ '[a-z]'
      and char_length(regexp_replace(p_username, '[^0-9]', '', 'g')) <= 4
-     and strpos(private.member_username_key(p_username), 'sheltuh') = 0;
+     and strpos(translate(private.member_username_key(p_username), '5347', 'seat'), 'sheltuh') = 0
+     and strpos(translate(private.member_username_key(p_username), '5347', 'seat'), 'sheltueh') = 0;
 $$;
 
 -- ---------------------------------------------------------------------------
@@ -330,8 +347,9 @@ $$;
 
 -- An admin removes some of a member's profile content: 'avatar', 'bio',
 -- 'instagram', 'username' (others ignored). Only what's actually there is
--- removed and logged. Locks the profile row (no key update) first, then the
--- photo, then the username clock and name.
+-- removed and logged. Locks the account (key share, so a deletion of it waits
+-- rather than deadlocks) first, then the profile row (no key update), then
+-- the photo, then the username clock and name.
 -- Returns (result, removed): 'removed' with the fields removed,
 -- 'unchanged' (none of them was set: nothing logged) or 'not_found'.
 create or replace function private.admin_remove_profile_content(
@@ -341,14 +359,21 @@ set search_path = ''
 as $$
 declare
   v_user uuid;
+  v_locked uuid;
   v_bio text;
   v_instagram text;
 begin
   removed := array[]::text[];
-  select p.user_id, p.bio, p.instagram_handle into v_user, v_bio, v_instagram
+  select p.user_id into v_user from public.profiles p where p.public_id = p_profile_id;
+  if not found then
+    result := 'not_found';
+    return;
+  end if;
+  perform 1 from auth.users u where u.id = v_user for key share;
+  select p.user_id, p.bio, p.instagram_handle into v_locked, v_bio, v_instagram
     from public.profiles p where p.public_id = p_profile_id
      for no key update;
-  if not found then
+  if not found or v_locked <> v_user then
     result := 'not_found';
     return;
   end if;
@@ -394,17 +419,123 @@ begin
 end;
 $$;
 
+-- ---------------------------------------------------------------------------
+-- Profile reports: as in 20261102000100_social_hardening.sql, plus a copy of
+-- the member's username (kept like the other copies: deleted with the report,
+-- 2 years after resolution). Same signature, hence create or replace.
+-- ---------------------------------------------------------------------------
+
+alter table private.user_reports
+  add column reported_username text check (char_length(reported_username) between 1 and 20);
+
+-- Files p_reporter_id's report about the member behind p_profile_id, copying
+-- their display name, username, bio, Instagram handle and photo (once per
+-- distinct photo, private.report_photos) into the report. Only for a profile
+-- the reporter can see now (private.member_profile_visible), or a member
+-- they've blocked. Returns (result, new_report_id, filed_at):
+--   'filed'          a new report
+--   'already_open'   the reporter's open report about this member (its id
+--                    and time): nothing written, no allowance used
+--   'not_found'      no such profile, not one they can see (and not someone
+--                    they blocked), or deleted mid-call
+--   'self'           their own profile
+--   'rate_limited'   over p_limit per p_window
+-- The profile is key-share-locked while it's copied, so a deletion waits.
+create or replace function private.file_profile_report(
+  p_reporter_id uuid, p_profile_id uuid, p_reason text, p_details text, p_limit integer, p_window interval,
+  out result text, out new_report_id uuid, out filed_at timestamptz)
+language plpgsql
+set search_path = ''
+as $$
+declare
+  v_reported uuid;
+  v_name text;
+  v_bio text;
+  v_instagram text;
+  v_avatar bytea;
+  v_hash bytea;
+  v_username text;
+begin
+  select p.user_id, p.display_name, p.bio, p.instagram_handle into v_reported, v_name, v_bio, v_instagram
+    from public.profiles p where p.public_id = p_profile_id
+     for key share;
+  if not found then
+    result := 'not_found';
+    return;
+  end if;
+  if v_reported = p_reporter_id then
+    result := 'self';
+    return;
+  end if;
+  if private.member_profile_visible(p_reporter_id, p_profile_id) is null
+     and not exists (select 1 from public.user_blocks b
+                      where b.blocker_id = p_reporter_id and b.blocked_id = v_reported) then
+    result := 'not_found';
+    return;
+  end if;
+
+  select r.id, r.created_at into new_report_id, filed_at
+    from private.user_reports r
+   where r.reporter_id = p_reporter_id and r.reported_user_id = v_reported
+     and r.status = 'open' and r.target_type = 'profile';
+  if found then
+    result := 'already_open';
+    return;
+  end if;
+
+  select a.image into v_avatar from private.profile_avatars a where a.user_id = v_reported;
+  select u.username into v_username from private.member_usernames u where u.user_id = v_reported;
+
+  begin
+    if not private.take_rate_limit(p_reporter_id, 'user_reports', p_limit, p_window) then
+      raise exception 'rate limited' using errcode = 'P0001';
+    end if;
+    if v_avatar is not null then
+      v_hash := sha256(v_avatar);
+      -- The update (not "do nothing") locks the row, so a purge running now skips it.
+      insert into private.report_photos (sha256, image) values (v_hash, v_avatar)
+      on conflict (sha256) do update set last_used_at = now();
+    end if;
+    insert into private.user_reports (reporter_id, reported_user_id, target_type, reason, details,
+                                      reported_display_name, reported_bio, reported_instagram, reported_avatar_sha256,
+                                      reported_username)
+    values (p_reporter_id, v_reported, 'profile', p_reason, p_details, v_name, v_bio, v_instagram, v_hash, v_username)
+    returning id, created_at into new_report_id, filed_at;
+  exception
+    when raise_exception then
+      result := 'rate_limited';
+      new_report_id := null;
+      filed_at := null;
+      return;
+    when unique_violation then
+      -- The same reporter's report about the same member, filed at the same moment: that one stands.
+      select r.id, r.created_at into new_report_id, filed_at
+        from private.user_reports r
+       where r.reporter_id = p_reporter_id and r.reported_user_id = v_reported
+         and r.status = 'open' and r.target_type = 'profile';
+      result := case when new_report_id is null then 'not_found' else 'already_open' end;
+      return;
+    when foreign_key_violation or deadlock_detected then
+      result := 'not_found';
+      new_report_id := null;
+      filed_at := null;
+      return;
+  end;
+  result := 'filed';
+end;
+$$;
+
 alter table private.profile_moderation_log
   drop constraint profile_moderation_log_removed_check,
   add constraint profile_moderation_log_removed_check
     check (cardinality(removed) between 1 and 4 and removed <@ array['avatar', 'bio', 'instagram', 'username']::text[]);
 
 -- ---------------------------------------------------------------------------
--- Retention: as in 20261116000000_external_going.sql, plus holds that have
--- run out, and clock rows that no longer limit anything (no username, and
--- the latest claim over 30 days ago and the first over 24 hours ago, or no
--- claim ever completed). A member with a username keeps their clock row, so
--- the typo window stays the first claim's. Same signature, hence create or
+-- Retention: as in 20261116000000_external_going.sql, plus clock rows that
+-- never completed a claim (a completed one is kept for the account's life,
+-- so the typo window is only ever the first claim's) and then holds that
+-- have run out: clock rows before name rows, the order claims lock them in,
+-- so the purge never deadlocks with a claim. Same signature, hence create or
 -- replace.
 -- ---------------------------------------------------------------------------
 
@@ -472,11 +603,10 @@ begin
      and not exists (select 1 from private.user_reports r where r.reported_avatar_sha256 = ph.sha256);
   get diagnostics report_photos_deleted = row_count;
 
-  delete from private.member_usernames u where u.user_id is null and u.held_until <= now();
   delete from private.member_username_changes c
-   where (c.last_claimed_at is null
-          or (c.last_claimed_at < now() - interval '30 days' and c.first_claimed_at < now() - interval '24 hours'))
+   where c.first_claimed_at is null
      and not exists (select 1 from private.member_usernames u where u.user_id = c.user_id);
+  delete from private.member_usernames u where u.user_id is null and u.held_until <= now();
 end;
 $$;
 
@@ -493,3 +623,4 @@ revoke all on function private.claim_member_username(uuid, text) from public, an
 revoke all on function private.clear_member_username(uuid) from public, anon, authenticated;
 revoke all on function private.admin_remove_profile_content(uuid, uuid, text[], text) from public, anon, authenticated;
 revoke all on function private.purge_social_data() from public, anon, authenticated;
+revoke all on function private.file_profile_report(uuid, uuid, text, text, integer, interval) from public, anon, authenticated;

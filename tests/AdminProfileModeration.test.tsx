@@ -60,6 +60,7 @@ const PROFILE_REPORT: AdminReport = {
   reportedProfileId: "p1",
   reportedBio: "<b>not html</b>",
   reportedInstagramHandle: "aisha.paints",
+  reportedUsername: "aisha_l",
   reportedAvatarUrl: "/api/admin/reports/r1/avatar",
 };
 
@@ -72,6 +73,8 @@ describe("admin: profile reports", () => {
     expect(within(article).getByText("Member profile")).toBeInTheDocument();
     expect(within(article).getByText("<b>not html</b>")).toBeInTheDocument();
     expect(within(article).getByText("@aisha.paints")).toBeInTheDocument();
+    // The username as it was when reported, so a quick change doesn't lose the evidence.
+    expect(within(article).getByText("@aisha_l")).toBeInTheDocument();
     expect(await within(article).findByRole("img", { name: "Reported profile photo" })).toHaveAttribute("src", "blob:copy");
     expect(fetchAvatar).toHaveBeenCalledWith("/api/admin/reports/r1/avatar", expect.any(Function), expect.any(AbortSignal));
   });
@@ -155,6 +158,7 @@ describe("admin: profile reports", () => {
       hasAvatar: false,
       suspended: false,
       bio: "Now tame.",
+      username: "aisha_now",
       moderationLog: [{ removed: ["instagram"], reason: "Spam link.", at: "2026-10-19T00:00:00.000Z" }],
     });
     admin(<ReportQueue />);
@@ -164,6 +168,8 @@ describe("admin: profile reports", () => {
     details.open = true;
     fireEvent(details, new Event("toggle"));
     expect(await screen.findByText("Now tame.")).toBeInTheDocument();
+    // What "Username" in the removal boxes would remove.
+    expect(screen.getByText("@aisha_now")).toBeInTheDocument();
     expect(screen.getByText(/removed instagram/)).toBeInTheDocument();
     expect(screen.getByText(/Hidden/)).toBeInTheDocument();
   });

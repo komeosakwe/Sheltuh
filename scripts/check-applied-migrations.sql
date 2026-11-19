@@ -279,6 +279,8 @@ select version, file, coalesce(applied, false) as applied
       and exists (select 1 from pg_trigger where tgname = 'member_usernames_valid' and not tgisinternal)
       and exists (select 1 from fn where proname = 'admin_remove_profile_content' and prosrc like '%member_usernames%')
       and exists (select 1 from fn where proname = 'purge_social_data' and prosrc like '%member_username_changes%')
+      and exists (select 1 from col where attrelid = to_regclass('private.user_reports') and attname = 'reported_username')
+      and exists (select 1 from fn where proname = 'file_profile_report' and prosrc like '%reported_username%')
       and exists (select 1 from pg_constraint where conname = 'profile_moderation_log_removed_check'
                    and pg_get_constraintdef(oid) like '%username%'))
   ) as m(version, file, applied)
