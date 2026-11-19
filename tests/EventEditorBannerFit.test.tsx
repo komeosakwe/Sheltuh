@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventEditor from "@/components/dashboard/EventEditor";
+import { PHOTO_NOT_ADDED_WHILE_PUBLISHING } from "@/components/dashboard/EventImageField";
 import type { AdminEventRecord, EventRecord } from "@/lib/api/types";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 import { showStep } from "./test-utils/editorSteps";
@@ -107,6 +108,8 @@ const checkbox = () => screen.findByRole("checkbox", { name: LABEL });
 const preview = () => document.querySelector("[data-banner-preview] img") as HTMLImageElement | null;
 const phonePreview = () => document.querySelector("[data-banner-phone-preview] img") as HTMLImageElement | null;
 const save = () => fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+/** Not hidden by itself or an ancestor (a step panel off screen is `hidden`). */
+const isVisible = (el: Element) => !el.closest("[hidden]");
 
 function pickPhoto() {
   fireEvent.change(document.getElementById("event-image") as HTMLInputElement, {
@@ -376,7 +379,13 @@ describe("EventEditor banner fit", () => {
     fireEvent.click(screen.getByRole("button", { name: "Publish now" }));
     await waitFor(() => expect(updateEventDraft).toHaveBeenCalledTimes(1));
     await act(async () => prepared(new Blob(["x"], { type: "image/jpeg" })));
-    expect(screen.getByText(/That photo wasn.t added: the event is being published/)).toBeInTheDocument();
+    // Said where it's seen from the Publish step (CodeRabbit, round 6): the editor's status line, outside the hidden
+    // photo step, visible and announced; the photo field's own copy is on the hidden step.
+    const said = screen.getAllByText(PHOTO_NOT_ADDED_WHILE_PUBLISHING);
+    const shown = said.filter((el) => el.matches("[role='status']"));
+    expect(shown).toHaveLength(1);
+    expect(shown[0]).toBeVisible();
+    expect(said.filter((el) => el !== shown[0]).every((el) => !isVisible(el))).toBe(true);
     expect(screen.queryByRole("button", { name: "Discard new photo", hidden: true })).toBeNull();
 
     // A failed publish: the saved photo is still the one, and nothing is uploaded.
@@ -384,6 +393,38 @@ describe("EventEditor banner fit", () => {
     expect(await screen.findByText("network")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Discard new photo", hidden: true })).toBeNull();
     expect(uploadEventImage).not.toHaveBeenCalled();
+  });
+
+  // CodeRabbit (PR #61, round 6): a remove and a new pick while a whole-fit save runs left the control at the old
+  // record's crop; the replacement keeps the stored whole, so the control shows it once that save is done.
+  it("after a save, the control shows the stored fit when a photo was replaced meanwhile with no fit chosen", async () => {
+    const uploaded = { ...EVENT, imageFocus: undefined, imageUrl: "/api/events/evt-1/image?v=2", bannerFit: "whole" as const };
+    prepareEventImage.mockResolvedValue(new Blob(["x"], { type: "image/jpeg" }));
+    updateEventDraft.mockResolvedValueOnce(EVENT).mockResolvedValueOnce({ ...EVENT, bannerFit: "whole" });
+    let answer: (record: EventRecord) => void = () => {};
+    setEventImageDisplay.mockImplementationOnce(() => new Promise<EventRecord>((resolve) => (answer = resolve)));
+    uploadEventImage.mockResolvedValue(uploaded);
+    const { onSaved } = renderEditor();
+    fireEvent.click(await checkbox());
+    save();
+    await waitFor(() => expect(setEventImageDisplay).toHaveBeenCalledTimes(1));
+    // While the whole fit is on its way: remove the photo and pick another (the old record's crop shows).
+    fireEvent.click(screen.getByRole("button", { name: "Remove photo" }));
+    pickPhoto();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Discard new photo" })).toBeInTheDocument());
+    expect(screen.getByLabelText(LABEL)).not.toBeChecked();
+
+    await act(async () => answer({ ...EVENT, bannerFit: "whole" }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith({ ...EVENT, bannerFit: "whole" }));
+    expect(screen.getByLabelText(LABEL)).toBeChecked();
+
+    // The replacement keeps the stored whole: nothing more to send, and the control still says so.
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save draft" })).not.toHaveAttribute("aria-disabled", "true"));
+    save();
+    await waitFor(() => expect(onSaved).toHaveBeenLastCalledWith(uploaded));
+    expect(uploadEventImage).toHaveBeenCalledTimes(1);
+    expect(setEventImageDisplay).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText(LABEL)).toBeChecked();
   });
 
   // CodeRabbit (PR #61, round 4): the delete's answer mustn't reset a photo picked (and its fit chosen) meanwhile.

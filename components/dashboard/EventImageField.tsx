@@ -9,6 +9,10 @@ import type { GetToken } from "@/lib/api/client";
 import { ImageError, prepareEventImage } from "@/lib/image";
 import type { BannerFit, EventPoster, ImageFocus } from "@/lib/types";
 
+/** A photo whose preparation ended once publishing had started (`locked`): not taken. */
+export const PHOTO_NOT_ADDED_WHILE_PUBLISHING =
+  "That photo wasn\u2019t added: the event is being published. Choose it again if publishing doesn\u2019t go through.";
+
 interface Props {
   getToken: GetToken;
   /** The event's saved photo, if it has one. */
@@ -31,6 +35,11 @@ interface Props {
    * removing are off, and a photo still being prepared when it started isn't taken. Off again if it fails.
    */
   locked?: boolean;
+  /**
+   * Said where it's seen while publishing (the editor's status line, outside the step panels: this field's own
+   * step is hidden then): a photo wasn't taken because publishing had started.
+   */
+  onLockedPick?: (message: string) => void;
   error?: string;
   /** The generated artwork the event shows until it has a photo (the same the public card shows). */
   poster: EventPoster;
@@ -56,6 +65,7 @@ export default function EventImageField({
   bannerFit,
   onBannerFitChange,
   locked = false,
+  onLockedPick,
   error,
   poster,
   title,
@@ -114,8 +124,10 @@ export default function EventImageField({
     try {
       const prepared = await prepareEventImage(file);
       if (lockedNow.current) {
-        // Publishing started meanwhile: it goes with the photo it started with; this one isn't taken (said so).
-        setPickError("That photo wasn\u2019t added: the event is being published. Choose it again if publishing doesn\u2019t go through.");
+        // Publishing started meanwhile: it goes with the photo it started with; this one isn't taken. Said here (for
+        // when this step is shown again) and where it's seen now (onLockedPick).
+        setPickError(PHOTO_NOT_ADDED_WHILE_PUBLISHING);
+        onLockedPick?.(PHOTO_NOT_ADDED_WHILE_PUBLISHING);
       } else {
         onPendingChange(prepared);
         onRemovedChange(false);

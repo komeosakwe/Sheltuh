@@ -393,10 +393,10 @@ export default function EventEditor(props: Props) {
   const [fitChanged, setFitChanged] = useState(false);
   // The new photo, focus and fit as now chosen, for a save that ends after they were changed again (syncImage): a
   // save marks them saved only if they're still what it sent.
-  const chosenDisplay = useRef({ imageFile, imageFocus, bannerFit });
+  const chosenDisplay = useRef({ imageFile, imageRemoved, imageFocus, bannerFit, fitChanged });
   useEffect(() => {
-    chosenDisplay.current = { imageFile, imageFocus, bannerFit };
-  }, [imageFile, imageFocus, bannerFit]);
+    chosenDisplay.current = { imageFile, imageRemoved, imageFocus, bannerFit, fitChanged };
+  }, [imageFile, imageRemoved, imageFocus, bannerFit, fitChanged]);
   // Set once the draft exists, so a retry after a failed photo upload updates
   // it instead of creating a duplicate.
   const [createdId, setCreatedId] = useState<string | null>(null);
@@ -734,6 +734,16 @@ export default function EventEditor(props: Props) {
     // Still as this save sent it (the same focus object, the same fit), or changed again since.
     const focusSent = () => chosenDisplay.current.imageFocus === imageFocus;
     const fitSaved = (saved: BannerFit) => chosenDisplay.current.bannerFit === saved;
+    /**
+     * With no fit edit still to send, the control shows the fit now stored: a remove and a new pick made while
+     * this save ran put it at the old record's fit, and the photo it replaces keeps this one's (CodeRabbit, PR #61).
+     * Not while the photo is marked removed (no fit then).
+     */
+    const showStoredFit = (saved: BannerFit) => {
+      const now = chosenDisplay.current;
+      if (now.imageRemoved || (now.fitChanged && now.bannerFit !== saved)) return;
+      setBannerFit(saved);
+    };
     if (imageFile) {
       latest = await upload(record.eventId, imageFile, saveToken, imageFocus);
       uploaded = true;
@@ -761,12 +771,15 @@ export default function EventEditor(props: Props) {
     if (fitChanged && (latest.bannerFit ?? "crop") !== bannerFit) change.bannerFit = bannerFit;
     if (change.focus === undefined && change.bannerFit === undefined) {
       if (fitChanged && fitSaved(latest.bannerFit ?? "crop")) setFitChanged(false);
+      showStoredFit(latest.bannerFit ?? "crop");
       return latest;
     }
     try {
       const updated = await display(latest.eventId, change, saveToken);
+      const saved = change.bannerFit ?? latest.bannerFit ?? "crop";
       if (focusSent()) setFocusChanged(false);
-      if (fitSaved(change.bannerFit ?? latest.bannerFit ?? "crop")) setFitChanged(false);
+      if (fitSaved(saved)) setFitChanged(false);
+      showStoredFit(saved);
       return updated;
     } catch (err) {
       if (uploaded) kept(latest);
@@ -1539,6 +1552,7 @@ export default function EventEditor(props: Props) {
               onBannerFitChange={changeBannerFit}
               // Publishing sends the focus and fit it started with: neither changes until it's done (or failed).
               locked={submitting}
+              onLockedPick={setStatus}
               error={errors.image}
               poster={poster}
               title={title}
