@@ -16,9 +16,9 @@ export const navLinkClass =
   "umlaut relative px-2 py-2 text-[0.8125rem] leading-4 font-semibold uppercase tracking-[0.01em] text-foreground";
 
 /**
- * A nav item in the site header (the rules' Navigation board): Label/Nav 16/24 in
+ * A nav item in the site header (the "Navigation" board): Label/Nav 18/24 in
  * sentence case, 40px tall, the 20×6 orange dots above it on hover and on the current page,
- * which is also underlined 12px under the label (globals.css `umlaut-nav`).
+ * which is also underlined 13.5px under the label (globals.css `umlaut-nav`).
  */
 export const headerNavClass = "umlaut umlaut-nav flex min-h-10 items-center py-2 label-nav text-foreground";
 
@@ -26,8 +26,8 @@ export const headerNavClass = "umlaut umlaut-nav flex min-h-10 items-center py-2
 const headerButtonClass = "umlaut nav-button";
 
 /**
- * A row in the phone drawer's account list (navigation-search.md §5.3, the "Menu drawer / Mobile"
- * board): 64px to tap, a hairline above it, the label (and its count) 12px under the hairline.
+ * A row in the phone drawer's account list (navigation-search.md §5.3 and §5.16, the "Menu drawer
+ * / Mobile" board): 64px to tap, a hairline above it, the 18px label 12px under the hairline.
  */
 const menuRowClass = "block min-h-16 pt-3 label-nav";
 
@@ -83,10 +83,10 @@ export function HeaderAccount({ account }: { account: NavAccount }) {
           <CountBadge count={adminWaiting} srText={`, ${adminWaiting} waiting`} dataAttribute="data-admin-badge" />
         </Link>
       )}
-      {/* The rules' Messages chip: 32px, 14px, a muted outline, the count in orange. */}
+      {/* The board's Messages chip: 37px, 14px, a muted outline, the count in an orange pill. */}
       <Link href="/messages" aria-current={current("/messages")} className="umlaut nav-chip">
         Messages
-        <UnreadBadge count={unreadCount} tone="signal" />
+        <UnreadBadge count={unreadCount} tone="signal" shape="pill" />
       </Link>
       <AccountMenu account={account} initial={initialFor(auth.email)} />
     </>
@@ -94,15 +94,15 @@ export function HeaderAccount({ account }: { account: NavAccount }) {
 }
 
 /**
- * The account part of the phone drawer (navigation-search.md §5.3, the "Menu drawer / Mobile"
- * board), at its foot. Signed out and in the demo: Sign in (orange) and For organisers
- * (outlined), 56px buttons 16px apart. Signed in: who's signed in (the round avatar, the name and
- * "View profile", a link to the profile), then rows with hairlines: My tickets, Saved (its
- * count), Messages (the unread badge), Your events (organisers) and Admin (admins), then For
- * organisers. Settings and signing out are on /account.
+ * The account part of the phone drawer (navigation-search.md §5.3 and §5.16, the "Menu drawer /
+ * Mobile" board), at its foot. Signed out and in the demo: Sign in (orange) and For organisers
+ * (outlined), 56px buttons 16px apart. Signed in: who's signed in (the round avatar, the 20px
+ * name and "View profile", a link to the profile), then rows with hairlines: My tickets, Saved,
+ * Messages (no counts: the board draws none), Your events (organisers) and Admin (admins, with
+ * what's waiting), then For organisers. Settings and signing out are on /account.
  */
 export function MenuAccount({ account }: { account: NavAccount }) {
-  const { auth, current, unreadCount, adminWaiting, savedCount, profile, profileHref, name, showEvents } = account;
+  const { auth, current, adminWaiting, profile, profileHref, name, showEvents } = account;
 
   const organisersButton = (
     <Link href={ORGANISERS_HREF} aria-current={current(ORGANISERS_HREF)} className="btn btn-outline btn-lg w-full">
@@ -130,7 +130,7 @@ export function MenuAccount({ account }: { account: NavAccount }) {
     return (
       <div className="mt-auto flex flex-col gap-4 pt-8">
         <div className="flex min-h-16 items-center gap-4">
-          <span aria-hidden="true" className="size-12 shrink-0 rounded-full bg-surface" />
+          <span aria-hidden="true" data-avatar-placeholder="" className="size-12 shrink-0 rounded-full bg-avatar-placeholder" />
           <span className="label-nav text-muted">…</span>
         </div>
         {organisersButton}
@@ -162,25 +162,14 @@ export function MenuAccount({ account }: { account: NavAccount }) {
       >
         <AccountAvatar account={account} size="card" />
         <span className="flex min-w-0 flex-col">
-          <span className="truncate label-nav font-semibold">{shownName}</span>
-          <span className="meta text-muted">View profile</span>
+          <span className="truncate text-xl font-semibold">{shownName}</span>
+          <span className="text-sm font-medium text-muted">View profile</span>
         </span>
       </Link>
       <ul className="flex flex-col">
         {row(MY_TICKETS_HREF, "My tickets")}
-        {row(
-          "/saved",
-          "Saved",
-          savedCount ? (
-            <>
-              <span aria-hidden="true" data-menu-count="" className="meta text-muted tabular-nums">
-                {savedCount > 99 ? "99+" : savedCount}
-              </span>
-              <span className="sr-only">, {savedCount} saved</span>
-            </>
-          ) : null,
-        )}
-        {row("/messages", "Messages", <UnreadBadge count={unreadCount} tone="signal" />)}
+        {row("/saved", "Saved")}
+        {row("/messages", "Messages")}
         {showEvents && row("/dashboard", "Your events")}
         {auth.isAdmin &&
           row(
@@ -199,6 +188,6 @@ export function MenuAccount({ account }: { account: NavAccount }) {
  * background every minute, and announcing that would be noise. The count is
  * part of the link's name instead ("Messages, 2 unread"), read when the link is.
  */
-function UnreadBadge({ count, tone }: { count: number | null; tone?: "plain" | "signal" }) {
-  return <CountBadge count={count} srText={`, ${count} unread`} dataAttribute="data-unread-badge" tone={tone} />;
+function UnreadBadge({ count, tone, shape }: { count: number | null; tone?: "plain" | "signal"; shape?: "badge" | "pill" }) {
+  return <CountBadge count={count} srText={`, ${count} unread`} dataAttribute="data-unread-badge" tone={tone} shape={shape} />;
 }

@@ -53,21 +53,27 @@ function messagesLinks() {
 }
 
 describe("Unread badge", () => {
-  it("shows the count on Messages in the desktop row and the phone menu, in the link's name, not as a live region", async () => {
+  it("shows the count on Messages in the desktop row and the avatar menu, in the link's name, not as a live region", async () => {
     getUnreadCount.mockResolvedValue({ count: 3 });
     const { container } = renderNav();
     await advance(0);
     const links = messagesLinks();
-    // The desktop chip, the avatar menu's row and the phone menu's row.
+    // The desktop chip, the avatar menu's row and the phone drawer's row.
     expect(links).toHaveLength(3);
-    for (const link of links) {
+    const drawerRow = links.find((link) => link.closest("#site-menu"));
+    const counted = links.filter((link) => link !== drawerRow);
+    expect(counted).toHaveLength(2);
+    for (const link of counted) {
       expect(link).toHaveAttribute("href", "/messages");
       expect(link).toHaveAccessibleName("Messages, 3 unread");
       expect(link.querySelector("[data-unread-badge]")).toHaveTextContent("3");
     }
-    // The desktop header's Messages chip, the avatar menu's and the phone menu's rows all carry it in
-    // orange with a black number (the rules' Navigation board, 6.18:1).
-    for (const link of links) expect(link.querySelector("[data-unread-badge]")).toHaveClass("bg-signal", "text-signal-foreground");
+    // The header's Messages chip and the avatar menu's row carry it as the board's orange 24 × 16 pill with a
+    // black number (6.18:1).
+    for (const link of counted) expect(link.querySelector("[data-unread-badge]")).toHaveClass("bg-signal", "text-signal-foreground", "h-4", "min-w-6", "rounded-full");
+    // The phone drawer's row has none: the "Menu drawer / Mobile" board draws its rows without counts.
+    expect(drawerRow).toHaveAccessibleName("Messages");
+    expect(drawerRow?.querySelector("[data-unread-badge]")).toBeNull();
     // Background changes aren't announced.
     expect(container.querySelector("[aria-live], [role='status'], [role='alert']")).toBeNull();
     expect(getUnreadCount).toHaveBeenCalledTimes(1);
@@ -140,14 +146,12 @@ describe("Unread badge", () => {
     expect(getUnreadCount).not.toHaveBeenCalled();
   });
 
-  it("puts the count on the phone Menu button too, in its name", async () => {
-    getUnreadCount.mockResolvedValueOnce({ count: 3 }).mockResolvedValueOnce({ count: 1 });
+  it("puts no count on the phone Menu button, as the boards draw it", async () => {
+    getUnreadCount.mockResolvedValue({ count: 3 });
     renderNav();
     await advance(0);
-    const menu = screen.getByRole("button", { name: "Menu, 3 unread messages" });
-    expect(menu.querySelector("[data-menu-unread]")).toHaveTextContent("3");
-    await advance(UNREAD_POLL_MS);
-    expect(screen.getByRole("button", { name: "Menu, 1 unread message" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Menu" })).toBeInTheDocument();
+    expect(document.querySelector("[data-menu-unread]")).toBeNull();
   });
 
   it("no count, no Menu badge", async () => {

@@ -109,11 +109,12 @@ describe("Nav — phone menu", () => {
     // No Account row (the identity link replaces it) and no sign out (it's on /account).
     expect(within(menu).queryByRole("link", { name: "Account", hidden: true })).toBeNull();
     expect(within(menu).queryByRole("button", { name: /Sign out|Log out/, hidden: true })).toBeNull();
-    // 64px rows with a hairline above each, and For organisers outlined.
+    // 64px rows (Label/Nav, 18px) with a hairline above each, no counts (the board draws none), and For organisers outlined.
     for (const name of ["My tickets", "Saved", "Messages"]) {
       const row = within(menu).getByRole("link", { name, hidden: true });
       expect(row).toHaveClass("min-h-16", "label-nav");
       expect(row.parentElement).toHaveClass("border-t", "border-surface-border");
+      expect(row.querySelector("[data-unread-badge], [data-menu-count]")).toBeNull();
     }
     expect(within(menu).getByRole("link", { name: "For organisers", hidden: true })).toHaveClass("btn", "btn-outline", "btn-lg", "w-full");
   });
@@ -301,8 +302,9 @@ describe("Nav — desktop row", () => {
     expect(avatar).toHaveAttribute("type", "button");
     expect(avatar).toHaveTextContent(/^L$/);
     expect(avatar.querySelector("span[aria-hidden='true']")).toHaveTextContent("L");
-    // The caret.
+    // The board's small caret, 6 × 4.
     expect(avatar.querySelectorAll("svg[aria-hidden='true']")).toHaveLength(1);
+    expect(avatar.querySelector("svg")).toHaveClass("h-1", "w-1.5");
     expect(avatar).toHaveClass("umlaut", "nav-avatar");
   });
 
@@ -368,27 +370,30 @@ describe("Nav — what left the header", () => {
 });
 
 describe("Nav — header", () => {
-  it("is black below lg in both themes (the bar and drawer are ink), follows the theme from lg (Q1), 56px / 72px, with its 1px rule drawn inside it", () => {
+  it("is black below lg in both themes (the bar and drawer are ink), follows the theme from lg (Q1), 64px / 100px as the boards, with its 1px rule drawn inside it", () => {
     const { container, menu } = renderNav(fakeAuthValue({ status: "signed-out" }));
     const header = container.querySelector("header");
-    // Owner, 18 Nov 2026 (Q1): the desktop row is white in Light and black in Dark; the phone bar and drawer stay black.
+    // Owner, 18 Nov 2026 (Q1): the desktop row follows the theme (--header: white in Light, #0a0a0a in Dark, as the
+    // board's frames); the phone bar and drawer stay black.
     expect(header).not.toHaveAttribute("data-surface");
-    expect(header).toHaveClass("bg-ink", "lg:bg-background");
+    expect(header).toHaveClass("bg-ink", "lg:bg-header");
     expect(compactBar(container)).toHaveAttribute("data-surface", "ink");
     expect(menu).toHaveAttribute("data-surface", "ink");
     const [primary] = screen.getAllByRole("navigation", { name: "Primary" });
     expect(primary.closest("[data-surface]")).toBeNull();
-    // The rule is an ::after inside the header, so it never adds to --header-h: Dark only below lg, always from lg.
+    // The rule is an ::after inside the header, so it never adds to --header-h: Dark only below lg, always from lg,
+    // black in Light and #333 in Dark from lg, as the board's two frames.
     expect(header).toHaveClass("after:absolute", "after:bottom-0", "after:h-px", "after:hidden", "dark:after:block", "lg:after:block");
+    expect(header).toHaveClass("lg:after:bg-foreground", "lg:dark:after:bg-surface-border");
     expect(header?.className).not.toMatch(/(?:^|\s)(?:dark:)?border-b\b/);
-    expect(compactBar(container)).toHaveClass("h-14");
+    expect(compactBar(container)).toHaveClass("h-16");
     const [desktopNav] = screen.getAllByRole("navigation", { name: "Primary" });
-    expect(desktopNav.parentElement).toHaveClass("h-18", "gap-8");
+    expect(desktopNav.parentElement).toHaveClass("h-25", "gap-8", "xl:pl-16", "xl:pr-16.5");
     expect(desktopNav).toHaveClass("gap-8");
-    expect(desktopNav.parentElement?.querySelector("svg")).toHaveClass("h-5");
+    expect(desktopNav.parentElement?.querySelector("svg")).toHaveClass("h-5", "-translate-y-0.5");
   });
 
-  // Round 2 §1.2: from 1280px the row tightens to 64px once the page has scrolled; --header-h stays 72px.
+  // Round 2 §1.2: from 1280px the row tightens by 8px (100 to 92) once the page has scrolled; --header-h stays 100px.
   it("marks the header scrolled once its top-of-document sentinel leaves the viewport; only the XL row shrinks, eased for motion-safe only", () => {
     let report: ((entries: { isIntersecting: boolean }[]) => void) | undefined;
     const observe = vi.fn();
@@ -420,9 +425,9 @@ describe("Nav — header", () => {
       expect(header).not.toHaveAttribute("data-scrolled");
       const [desktopNav] = screen.getAllByRole("navigation", { name: "Primary" });
       const row = desktopNav.parentElement as HTMLElement;
-      expect(row).toHaveClass("h-18", "xl:group-data-scrolled/header:h-16", "motion-safe:transition-[height]", "motion-safe:duration-200");
+      expect(row).toHaveClass("h-25", "xl:group-data-scrolled/header:h-23", "motion-safe:transition-[height]", "motion-safe:duration-200");
       expect(row.className).not.toMatch(/(?:^|\s)(?:lg:)?group-data-scrolled/);
-      // The header's place in the flow stays 72px (the row's lost 8px become a bottom margin), easing together,
+      // The header's place in the flow stays 100px (the row's lost 8px become a bottom margin), easing together,
       // so nothing below it moves and scroll anchoring never shifts the page.
       expect(header).toHaveClass("xl:data-scrolled:mb-2", "motion-safe:transition-[margin]", "motion-safe:duration-200", "motion-safe:ease-out");
       act(() => report?.([{ isIntersecting: false }]));
@@ -438,14 +443,18 @@ describe("Nav — header", () => {
     }
   });
 
-  it("gives the phone bar's controls 48px targets and the orange wordmark, 20px tall (the Header / Mobile board)", () => {
+  it("gives the phone bar's controls 40 × 48px targets and the orange wordmark, 19px tall (the Header / Mobile board)", () => {
     pathname = "/events";
     const { container } = renderNav(fakeAuthValue({ status: "signed-out" }));
     const bar = compactBar(container);
     const logo = within(bar).getByRole("link", { name: "Sheltüh home" });
     expect(logo).toHaveClass("h-12");
-    expect(logo.querySelector("svg")).toHaveClass("h-5", "text-signal");
-    for (const control of bar.querySelectorAll("button, a[href]:not([aria-label='Sheltüh home'])")) expect(control).toHaveClass("size-12");
+    expect(logo.querySelector("svg")).toHaveClass("h-4.75", "-translate-y-0.5", "text-signal");
+    const controls = bar.querySelectorAll("button, a[href]:not([aria-label='Sheltüh home'])");
+    expect(controls).toHaveLength(2);
+    for (const control of controls) expect(control).toHaveClass("h-12", "w-10");
+    // The icons centred 68px and 28px in from the right, as drawn: the pair hangs 8px into the 16px margin.
+    expect(controls[0]?.parentElement).toHaveClass("-mr-2");
   });
 
   it("stays put (not sticky) on phones in a conversation, so the keyboard leaves room for the messages", () => {

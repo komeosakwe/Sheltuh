@@ -3,8 +3,9 @@ import type { AdminSummary } from "@/lib/api/types";
 
 /**
  * The desktop header (redesign PR 2, the proposal and the rules' Navigation
- * board; white in Light and black in Dark, owner Q1 of navigation-search.md) is one 72px row (Round 2 §1.2) at every desktop width, in Light and Dark (Dark's rule is
- * drawn inside it), whoever is signed in: signed out, Sign in and the For
+ * board; white in Light and #0a0a0a in Dark, owner Q1 of navigation-search.md) is one 100px row, as the
+ * board draws it (navigation-search.md §5.16), at every desktop width, in Light and Dark (its rule drawn
+ * inside it), whoever is signed in: signed out, Sign in and the For
  * organisers button; signed in, For organisers, the Messages chip with its count
  * and the avatar (plus Admin and its badge for admins), with no sideways scroll
  * and no search field. Live mode, with a stored test session (the Supabase URL
@@ -91,16 +92,16 @@ for (const width of [1024, 1280, 1440, 1920]) {
     test.describe(`desktop header at ${width}px in ${theme === "light" ? "Light" : "Dark"}`, () => {
       test.use({ viewport: { width, height: 900 } });
 
-      test("is one 72px row, as tall signed in (member, admin with badge) as signed out, with no search field", async ({ page }) => {
+      test("is one 100px row, as tall signed in (member, admin with badge) as signed out, with no search field", async ({ page }) => {
         const themed = async (p: Page) => {
           if (theme === "dark") await p.addInitScript(() => localStorage.setItem("sheltuh:theme", "dark"));
         };
         await themed(page);
         await as(page, "signed-out");
         const signedOut = await measure(page, "signed-out");
-        // --header-h (app/globals.css) is 72px from lg; in Dark too, its rule drawn inside the header.
-        expect(signedOut.height).toBe(72);
-        expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--header-h").trim())).toBe("4.5rem");
+        // --header-h (app/globals.css) is 100px from lg; in both themes its rule is drawn inside the header.
+        expect(signedOut.height).toBe(100);
+        expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--header-h").trim())).toBe("6.25rem");
         expect(signedOut.overflow).toBeLessThanOrEqual(0);
         await expect(page.locator("header").getByRole("search")).toHaveCount(0);
 
@@ -111,10 +112,10 @@ for (const width of [1024, 1280, 1440, 1920]) {
           const result = await measure(signedInPage, who);
           expect(result.height, `${who}: ${JSON.stringify(result)}`).toBe(signedOut.height);
           expect(result.overflow, who).toBeLessThanOrEqual(0);
-          // One row: every control inside the bar, 32px or taller (the Messages chip; the rest 40), and none past the right edge.
+          // One row: every control inside the bar, 32px or taller (the Messages chip is 37, the rest 40 or more), and none past the right edge.
           for (const control of result.controls) {
             expect(control.top, `${who}: ${JSON.stringify(control)}`).toBeGreaterThanOrEqual(0);
-            expect(control.bottom, `${who}: ${JSON.stringify(control)}`).toBeLessThanOrEqual(72);
+            expect(control.bottom, `${who}: ${JSON.stringify(control)}`).toBeLessThanOrEqual(100);
             expect(control.height, who).toBeGreaterThanOrEqual(32);
             expect(control.right, who).toBeLessThanOrEqual(width);
           }
@@ -122,14 +123,14 @@ for (const width of [1024, 1280, 1440, 1920]) {
           await expect(header.getByRole("search")).toHaveCount(0);
           // No heart on the desktop row: Saved is on /account (and in the phone menu).
           await expect(signedInPage.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Saved" })).toHaveCount(0);
-          // The avatar: a solid 40px square with the initial and a caret (the button that opens the avatar menu),
+          // The avatar: a solid 40px-tall block with the initial and a caret (the button that opens the avatar menu),
           // in the text colour: black in Light, white in Dark.
           const avatar = signedInPage.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: "Account" });
           await expect(avatar).toBeVisible();
           const avatarBox = await avatar.boundingBox();
           expect(Math.round(avatarBox?.height ?? 0)).toBe(40);
           expect(Math.round(avatarBox?.width ?? 0)).toBeGreaterThanOrEqual(40);
-          expect(avatarBox && avatarBox.y >= 0 && avatarBox.y + avatarBox.height <= 72, who).toBe(true);
+          expect(avatarBox && avatarBox.y >= 0 && avatarBox.y + avatarBox.height <= 100, who).toBe(true);
           expect(Math.round((avatarBox?.x ?? 0) + (avatarBox?.width ?? 0)), who).toBeLessThanOrEqual(width);
           expect(await avatar.evaluate((el) => [getComputedStyle(el).backgroundColor, getComputedStyle(el).color])).toEqual(
             theme === "light" ? ["rgb(0, 0, 0)", "rgb(255, 255, 255)"] : ["rgb(255, 255, 255)", "rgb(0, 0, 0)"],
@@ -141,32 +142,32 @@ for (const width of [1024, 1280, 1440, 1920]) {
   }
 }
 
-// Round 2 §1.2–1.3: 16px Medium nav labels; from 1280px the row tightens to 64px once the page has scrolled
-// (back to 72 at the top), while --header-h stays 72px. At 1024–1279 it stays 72.
+// The board's 18px Medium nav labels; from 1280px the row tightens by 8px, to 92, once the page has scrolled
+// (Round 2 §1.2; back to 100 at the top), while --header-h stays 100px. At 1024–1279 it stays 100.
 for (const width of [1024, 1440]) {
   test.describe(`desktop header at ${width}px, scrolled`, () => {
     test.use({ viewport: { width, height: 900 } });
 
-    test(width >= 1280 ? "tightens to 64px once scrolled and back to 72 at the top; the nav is 16px Medium" : "stays 72px when scrolled; the nav is 16px Medium", async ({ page }) => {
+    test(width >= 1280 ? "tightens to 92px once scrolled and back to 100 at the top; the nav is 18px Medium" : "stays 100px when scrolled; the nav is 18px Medium", async ({ page }) => {
       await as(page, "signed-out");
       await measure(page, "signed-out");
       const header = page.locator("header").first();
       const discover = page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Discover" });
-      expect(await discover.evaluate((el) => [getComputedStyle(el).fontSize, getComputedStyle(el).fontWeight])).toEqual(["16px", "500"]);
+      expect(await discover.evaluate((el) => [getComputedStyle(el).fontSize, getComputedStyle(el).fontWeight])).toEqual(["18px", "500"]);
       // Room to scroll, whatever the mocked page holds.
       await page.evaluate(() => document.querySelector("main")?.style.setProperty("min-height", "300vh"));
       await page.evaluate(() => window.scrollTo(0, 400));
-      const scrolledHeight = width >= 1280 ? 64 : 72;
+      const scrolledHeight = width >= 1280 ? 92 : 100;
       await expect(header).toHaveAttribute("data-scrolled", "");
       await expect.poll(async () => Math.round((await header.boundingBox())?.height ?? 0)).toBe(scrolledHeight);
-      // Its place in the flow stays 72px (an 8px margin under the 64px row), so the page below never moves.
-      expect(await header.evaluate((el) => Math.round(el.getBoundingClientRect().height + parseFloat(getComputedStyle(el).marginBottom)))).toBe(72);
+      // Its place in the flow stays 100px (an 8px margin under the 92px row), so the page below never moves.
+      expect(await header.evaluate((el) => Math.round(el.getBoundingClientRect().height + parseFloat(getComputedStyle(el).marginBottom)))).toBe(100);
       // Still sticky, at the top.
       expect(Math.round((await header.boundingBox())?.y ?? -1)).toBe(0);
-      expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--header-h").trim())).toBe("4.5rem");
+      expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--header-h").trim())).toBe("6.25rem");
       await page.evaluate(() => window.scrollTo(0, 0));
       await expect(header).not.toHaveAttribute("data-scrolled");
-      await expect.poll(async () => Math.round((await header.boundingBox())?.height ?? 0)).toBe(72);
+      await expect.poll(async () => Math.round((await header.boundingBox())?.height ?? 0)).toBe(100);
     });
   });
 }
@@ -174,35 +175,52 @@ for (const width of [1024, 1440]) {
 test.describe("desktop header at 1440px, signed in", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test("is white in Light and black in Dark (Q1), and the Messages count is orange with a black number", async ({ page }) => {
+  test("is white in Light and #0a0a0a in Dark (Q1, the board's frames), with the board's controls, and the Messages count an orange pill", async ({ page }) => {
     for (const theme of ["light", "dark"] as const) {
       const themed = await page.context().newPage();
       if (theme === "dark") await themed.addInitScript(() => localStorage.setItem("sheltuh:theme", "dark"));
       await as(themed, "member");
       await measure(themed, "member");
       const header = themed.locator("header").first();
-      expect(await header.evaluate((el) => getComputedStyle(el).backgroundColor), theme).toBe(theme === "light" ? "rgb(255, 255, 255)" : "rgb(0, 0, 0)");
-      // The 1px rule under it, in both themes from lg.
+      expect(await header.evaluate((el) => getComputedStyle(el).backgroundColor), theme).toBe(theme === "light" ? "rgb(255, 255, 255)" : "rgb(10, 10, 10)");
+      // The 1px rule under it, in both themes from lg: black in Light, #333 in Dark, as the board's frames.
       expect(await header.evaluate((el) => [getComputedStyle(el, "::after").display, getComputedStyle(el, "::after").backgroundColor]), theme).toEqual([
         "block",
-        theme === "light" ? "rgb(229, 227, 222)" : "rgb(51, 51, 51)",
+        theme === "light" ? "rgb(0, 0, 0)" : "rgb(51, 51, 51)",
       ]);
-      // The signed-in For organisers is the outlined nav button (navigation-search.md §5.1).
-      const organisers = themed.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "For organisers" });
-      expect(await organisers.evaluate((el) => [Math.round(el.getBoundingClientRect().height), getComputedStyle(el).borderTopStyle]), theme).toEqual([40, "solid"]);
-      // The Messages chip: 32px, 14px, a muted outline.
-      const chip = themed.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: READY.member });
-      expect(await chip.evaluate((el) => [Math.round(el.getBoundingClientRect().height), getComputedStyle(el).fontSize, getComputedStyle(el).borderTopColor])).toEqual([
-        32,
+      const primary = themed.getByRole("navigation", { name: "Primary" });
+      // The wordmark 64px in; the places 18px.
+      const wordmark = await themed.locator("header > div.hidden").getByRole("link", { name: "Sheltüh home" }).locator("svg").boundingBox();
+      expect(Math.round(wordmark?.x ?? 0)).toBe(64);
+      // The signed-in For organisers is the outlined nav button (navigation-search.md §5.1): an 18px regular label,
+      // 8px above and below it and 25px sides inside the 1.5px stroke (171 × 43 as drawn; Chrome draws the stroke 1px
+      // on a 1x screen, so the box is 170 × 42 there).
+      const organisers = primary.getByRole("link", { name: "For organisers" });
+      expect(
+        await organisers.evaluate((el) => {
+          const style = getComputedStyle(el);
+          return [el.clientHeight, style.paddingTop, style.paddingLeft, style.borderTopStyle, style.fontSize, style.fontWeight];
+        }),
+        theme,
+      ).toEqual([40, "8px", "25px", "solid", "18px", "400"]);
+      // The Messages chip: 37px, 14px regular, a muted outline.
+      const chip = primary.getByRole("link", { name: READY.member });
+      expect(await chip.evaluate((el) => [Math.round(el.getBoundingClientRect().height), getComputedStyle(el).fontSize, getComputedStyle(el).fontWeight, getComputedStyle(el).borderTopColor])).toEqual([
+        37,
         "14px",
+        "400",
         theme === "light" ? "rgb(229, 227, 222)" : "rgb(51, 51, 51)",
       ]);
-      // The chip's own badge (the avatar menu's Messages row has one too, in its closed popover).
+      // The chip's own badge (the avatar menu's Messages row has one too, in its closed popover): the board's 16px pill,
+      // 24 wide for one digit and 30 for "12" (as the board's "12" on Saved).
       const badge = chip.locator("[data-unread-badge]");
-      expect(await badge.evaluate((el) => [getComputedStyle(el).backgroundColor, getComputedStyle(el).color]), theme).toEqual([
-        "rgb(255, 72, 0)",
-        "rgb(0, 0, 0)",
-      ]);
+      expect(
+        await badge.evaluate((el) => [getComputedStyle(el).backgroundColor, getComputedStyle(el).color, Math.round(el.getBoundingClientRect().width), Math.round(el.getBoundingClientRect().height)]),
+        theme,
+      ).toEqual(["rgb(255, 72, 0)", "rgb(0, 0, 0)", 30, 16]);
+      // The avatar: 40px tall, its right edge 66px from the screen's, as drawn.
+      const avatarBox = await primary.getByRole("button", { name: "Account" }).boundingBox();
+      expect([Math.round(avatarBox?.height ?? 0), Math.round(1440 - (avatarBox?.x ?? 0) - (avatarBox?.width ?? 0))]).toEqual([40, 66]);
       await themed.close();
     }
   });

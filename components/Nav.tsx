@@ -73,24 +73,26 @@ function MenuIcon({ open }: { open: boolean }) {
 }
 
 /**
- * Site header (the proposal, the rules' Navigation board and navigation-search.md §5.1), 56px
- * below `lg` and 72px from it (--header-h; Round 2 §1.2). Below `lg` the bar and its drawer are
- * black in both themes (ink sections, as the "Header / Mobile" board draws them). From `lg` the
- * row follows the theme (owner, 18 Nov 2026, Q1): white in Light, black in Dark, over a 1px rule.
+ * Site header (the "Navigation" board; navigation-search.md §5.1 and §5.16), 64px below `lg` and
+ * 100px from it (--header-h), as the boards draw them. Below `lg` the bar and its drawer are black
+ * in both themes (ink sections, as the "Header / Mobile" board draws them). From `lg` the row
+ * follows the theme (owner, 18 Nov 2026, Q1): white over a 1px black rule in Light, #0a0a0a over a
+ * 1px #333 rule in Dark (`--header`), as the board's two frames.
  *
  * From `lg` it's one row: the wordmark; Discover, Nearby and Community; then the account area
  * (components/AuthNavLinks.tsx), whose avatar opens the avatar menu. No search field (owner
  * decision: search lives in the home's hero, /search and Nearby), no heart and no "Create profile".
  *
- * From 1280px the row tightens to 64px once the page has scrolled (Round 2 §1.2): a sentinel at the
- * document's top (an IntersectionObserver, no scroll listener) sets `data-scrolled` on the header.
- * --header-h stays 72px, so scroll padding and sticky offsets never under-measure it. The header
- * takes an 8px bottom margin as its row loses 8px, so its place in the flow stays 72px: nothing below
+ * From 1280px the row tightens by 8px, to 92px, once the page has scrolled (Round 2 §1.2): a sentinel
+ * at the document's top (an IntersectionObserver, no scroll listener) sets `data-scrolled` on the
+ * header. --header-h stays 100px, so scroll padding and sticky offsets never under-measure it. The
+ * header takes an 8px bottom margin as its row loses 8px, so its place in the flow stays 100px: nothing below
  * it moves, and scroll anchoring never nudges the page (back at the top, scrollY is 0, not 8). Both
  * ease together, only for people who don't prefer reduced motion.
  *
- * Below `lg` (phones and tablets): the orange wordmark, a search icon link (not on the home, whose
- * hero has the page's search, nor while the drawer is open) and Menu, 48px targets. Menu opens a
+ * Below `lg` (phones and tablets): the orange wordmark (19px tall), a search icon link (not on the
+ * home, whose hero has the page's search, nor while the drawer is open) and Menu, 40 × 48px targets
+ * whose icons sit where the board draws them (centred 28px and 68px in from the right). Menu opens a
  * black drawer under the bar, a native popover (Escape and outside taps close it, focus returns
  * to Menu; while it's open the page behind is inert and Tab cycles through the bar and the drawer):
  * the three places in Label/Menu (40px bold) with the orange dots left of the current one, then
@@ -105,7 +107,6 @@ export default function Nav() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const account = useNavAccount();
-  const unreadCount = account.unreadCount ?? 0;
   const inThread = /^\/messages\/(?!blocked$)[^/]+$/.test(pathname);
   // At the door the header scrolls away at every width, so it doesn't sit lit above the scanner.
   const atDoor = /^\/dashboard\/[^/]+\/check-in$/.test(pathname);
@@ -224,28 +225,30 @@ export default function Nav() {
     // (and what the keyboard leaves of it) to the messages and the composer.
     // The top padding keeps it below a status bar or notch (viewport-fit=cover);
     // it's 0 on desktop and in iOS's black status-bar style.
-    // Where black meets black (Dark), and from lg in Light too (the white row over the white
-    // page), a 1px rule, drawn inside the header (after:) so it stays exactly --header-h tall.
+    // Where black meets black (Dark), and from lg in both themes (as the board's frames: black in
+    // Light, #333 in Dark), a 1px rule, drawn inside the header (after:) so it stays exactly
+    // --header-h tall.
     <>
       {/* The scroll sentinel: 16px at the very top of the document (absolute, so it takes no room). */}
       <span ref={sentinelRef} aria-hidden="true" data-header-sentinel="" className="pointer-events-none absolute top-0 left-0 h-4 w-px" />
       <header
         data-scrolled={scrolled ? "" : undefined}
         onKeyDown={handleHeaderKeyDown}
-        className={`group/header ${atDoor ? "relative" : inThread ? "relative lg:sticky" : "sticky"} top-0 z-30 bg-ink pt-[env(safe-area-inset-top)] text-foreground lg:bg-background xl:data-scrolled:mb-2 motion-safe:transition-[margin] motion-safe:duration-200 motion-safe:ease-out after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:hidden after:h-px after:bg-surface-border dark:after:block lg:after:block`}
+        className={`group/header ${atDoor ? "relative" : inThread ? "relative lg:sticky" : "sticky"} top-0 z-30 bg-ink pt-[env(safe-area-inset-top)] text-foreground lg:bg-header xl:data-scrolled:mb-2 motion-safe:transition-[margin] motion-safe:duration-200 motion-safe:ease-out after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:hidden after:h-px after:bg-surface-border dark:after:block lg:after:block lg:after:bg-foreground lg:dark:after:bg-surface-border`}
       >
         {/* Compact bar (phones and tablets): black in both themes. */}
         <div
           ref={compactBarRef}
           data-surface="ink"
           data-compact-header=""
-          className="page-container flex h-14 items-center justify-between lg:hidden"
+          className="page-container flex h-16 items-center justify-between lg:hidden"
         >
-          {/* The orange wordmark, 20px tall, 16px in (the "Header / Mobile" board); the link carries the name. */}
+          {/* The orange wordmark, 19px tall, 16px in and 2px above the bar's middle (the "Header / Mobile"
+              and "Menu drawer / Mobile" boards); the link carries the name. */}
           {COMPACT_LOGO === "wordmark" ? (
             // min-w-0 / max-w-full: with 200% text at 320px it shrinks to fit beside Search and Menu.
             <HomeLogoLink className="-ml-2 flex h-12 min-w-0 items-center rounded-control px-2" onActivate={closeMenu}>
-              <Wordmark className="h-5 w-auto max-w-full text-signal" />
+              <Wordmark className="h-4.75 w-auto max-w-full -translate-y-0.5 text-signal" />
             </HomeLogoLink>
           ) : (
             <HomeLogoLink
@@ -263,7 +266,7 @@ export default function Nav() {
                 href="/search"
                 aria-label="Search"
                 aria-current={pathname === "/search" ? "page" : undefined}
-                className="flex size-12 items-center justify-center rounded-control"
+                className="flex h-12 w-10 items-center justify-center rounded-control"
               >
                 <svg
                   aria-hidden="true"
@@ -279,40 +282,27 @@ export default function Nav() {
                 </svg>
               </Link>
             )}
+            {/* No count on Menu or Close: the "Header / Mobile" and "Menu drawer / Mobile" boards draw none. */}
             <button
               ref={menuButtonRef}
               type="button"
               popoverTarget={MENU_ID}
-              className="relative flex size-12 items-center justify-center rounded-control"
+              className="flex h-12 w-10 items-center justify-center rounded-control"
             >
               <MenuIcon open={menuOpen} />
               <span className="sr-only">{menuOpen ? "Close" : "Menu"}</span>
-              {/* The Messages count lives inside the menu; this says there's something in there. */}
-              {unreadCount > 0 && (
-                <>
-                  <span
-                    aria-hidden="true"
-                    data-menu-unread=""
-                    className="absolute top-1 right-0 inline-flex h-5 min-w-5 items-center justify-center rounded-badge bg-signal px-1 text-xs leading-5 font-semibold text-signal-foreground tabular-nums"
-                  >
-                    {unreadCount > 99 ? "99+" : unreadCount}
-                  </span>
-                  <span className="sr-only">
-                    , {unreadCount} unread{" "}
-                    {unreadCount === 1 ? "message" : "messages"}
-                  </span>
-              </>
-            )}
-          </button>
+            </button>
+          </div>
         </div>
-      </div>
 
-      {/* Desktop row: 72px (Round 2 §1.2), 64px from 1280px once the page has scrolled. */}
+      {/* Desktop row: 100px (the "Header" board), 92px from 1280px once the page has scrolled. */}
       {/* Full width (owner, 13 Nov): the logo hugs the left and the actions the right on any screen, 64px in
-          from 1280px (the mock's margin at 1440), rather than stopping at the page column on wide screens. */}
-      <div className="hidden h-18 w-full items-center gap-8 px-8 lg:flex xl:px-16 xl:group-data-scrolled/header:h-16 motion-safe:transition-[height] motion-safe:duration-200 motion-safe:ease-out">
-        <HomeLogoLink className="flex items-center py-2" onActivate={closeMenu}>
-          <Wordmark className="h-5 w-auto" />
+          from 1280px (the mock's margin at 1440; the board's avatar ends 66px from the right), rather than
+          stopping at the page column on wide screens. */}
+      <div className="hidden h-25 w-full items-center gap-8 px-8 lg:flex xl:pr-16.5 xl:pl-16 xl:group-data-scrolled/header:h-23 motion-safe:transition-[height] motion-safe:duration-200 motion-safe:ease-out">
+        {/* As measured on the board: the wordmark 2px above the row's middle, the places 34px after it. */}
+        <HomeLogoLink className="mr-0.5 flex items-center py-2" onActivate={closeMenu}>
+          <Wordmark className="h-5 w-auto -translate-y-0.5" />
         </HomeLogoLink>
         <nav aria-label="Primary" className="flex flex-1 items-center gap-8">
           {PRIMARY_LINKS.map((link) => (
@@ -348,10 +338,10 @@ export default function Nav() {
           onClick={closeMenuOnAction}
           className="page-container flex min-h-full flex-col pb-[calc(2rem+env(safe-area-inset-bottom))]"
         >
-          {/* The three places on a 72px pitch, the first word's line 64px under the bar (as the
+          {/* The three places on a 72px pitch, the first word's line 56px under the 64px bar (as the
               board), the words 40px in from the margin (56 from the screen's edge), the current
               one's dots in that gap. */}
-          <ul className="flex flex-col pt-13">
+          <ul className="flex flex-col pt-11">
             {PRIMARY_LINKS.map((link) => (
               <li key={link.href}>
                 <Link

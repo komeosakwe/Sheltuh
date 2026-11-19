@@ -108,17 +108,20 @@ function names(container: HTMLElement) {
 }
 
 describe("phone drawer, signed in", () => {
-  it("shows who's signed in (a 48px round avatar, the name, View profile) as a link to the member page, named '{name}, view profile'", () => {
+  it("shows who's signed in (a 48px round avatar, the 20px name, View profile) as a link to the member page, named '{name}, view profile'", () => {
     const { drawer } = renderNav();
     const identity = within(drawer).getByRole("link", { name: "Latte, view profile", hidden: true });
     expect(identity).toHaveAttribute("href", "/members/p-latte");
     expect(identity).toHaveTextContent("LatteView profile");
     expect(identity).toHaveClass("min-h-16", "gap-4", "pb-4");
-    // The initials in the round avatar (no photo on this profile), decorative.
+    // No photo on this profile: the board's cream circle, no initials, decorative.
     const avatar = identity.querySelector("span[aria-hidden='true']");
     expect(avatar).toHaveClass("size-12");
-    expect(avatar?.querySelector(".rounded-full")).toHaveTextContent("L");
-    expect(within(identity).getByText("View profile")).toHaveClass("meta", "text-muted");
+    const circle = avatar?.querySelector("[data-avatar-placeholder]");
+    expect(circle).toHaveClass("rounded-full", "bg-avatar-placeholder");
+    expect(circle).toHaveTextContent("");
+    expect(within(identity).getByText("Latte")).toHaveClass("text-xl", "font-semibold", "truncate");
+    expect(within(identity).getByText("View profile")).toHaveClass("text-sm", "font-medium", "text-muted");
   });
 
   it("links the identity to where the profile is edited while it's hidden from members, and shows the email while it loads", () => {
@@ -132,10 +135,11 @@ describe("phone drawer, signed in", () => {
     profileState = { status: "loading" };
     const { drawer } = renderNav();
     const identity = within(drawer).getByRole("link", { name: "latte@example.com, view profile", hidden: true });
-    expect(identity.querySelector("[data-avatar-placeholder]")).toHaveClass("size-12", "rounded-full", "bg-surface");
+    expect(identity.querySelector("[data-avatar-placeholder]")).toHaveClass("size-12", "rounded-full", "bg-avatar-placeholder");
   });
 
-  it("lists My tickets, Saved and Messages for a member (no Your events), with the counts in the links' names", () => {
+  it("lists My tickets, Saved and Messages for a member (no Your events), with no counts, as the board draws them", () => {
+    // 12 saved and 3 unread: the "Menu drawer / Mobile" board shows the same member's rows without numbers.
     const { drawer } = renderNav();
     expect(names(drawer)).toEqual([
       ["Discover", "/"],
@@ -143,22 +147,16 @@ describe("phone drawer, signed in", () => {
       ["Community", "/community"],
       ["Latte, view profile", "/members/p-latte"],
       ["My tickets", "/help#where-are-my-tickets"],
-      ["Saved, 12 saved", "/saved"],
-      ["Messages, 3 unread", "/messages"],
+      ["Saved", "/saved"],
+      ["Messages", "/messages"],
       ["For organisers", "/organisers/apply"],
     ]);
-    // The numbers themselves are decorative: the names carry them.
-    expect(drawer.querySelector("[data-menu-count]")).toHaveAttribute("aria-hidden", "true");
-    expect(drawer.querySelector("[data-unread-badge]")).toHaveAttribute("aria-hidden", "true");
+    expect(drawer.querySelector("[data-menu-count], [data-unread-badge]")).toBeNull();
   });
 
-  it("shows no count that isn't known: Saved before its list has loaded, or when it's empty", () => {
-    saved = { status: "loading", count: 0 };
-    unread = null;
-    const { drawer } = renderNav();
-    expect(within(drawer).getByRole("link", { name: "Saved", hidden: true })).toBeInTheDocument();
-    expect(within(drawer).getByRole("link", { name: "Messages", hidden: true })).toBeInTheDocument();
-    expect(drawer.querySelector("[data-menu-count]")).toBeNull();
+  it("keeps the waiting count on an admin's Admin row (a row the board doesn't draw)", () => {
+    const { drawer } = renderNav(fakeAuthValue({ email: "latte@example.com", isAdmin: true }));
+    expect(within(drawer).getByRole("link", { name: /^Admin/, hidden: true })).toHaveAttribute("href", "/admin");
   });
 
   it("adds Your events for an organiser (or applicant)", () => {
@@ -216,8 +214,8 @@ describe("phone drawer, keyboard", () => {
     fireEvent.keyDown(nearby, { key: "Escape" });
     expect(hidePopover).toHaveBeenCalled();
     fireToggle(drawer, "closed");
-    // The unread count is in Menu's name too.
-    expect(screen.getByRole("button", { name: "Menu, 3 unread messages" })).toHaveFocus();
+    // No count on Menu (the boards draw none), even with 3 unread.
+    expect(screen.getByRole("button", { name: "Menu" })).toHaveFocus();
   });
 });
 
@@ -233,12 +231,20 @@ describe("avatar menu (from lg)", () => {
       ["Messages, 3 unread", "/messages"],
       ["Settings", "/account"],
     ]);
+    // The board's Log out: its label and its orange (--signal, #ff4800).
     const logOut = within(nav).getByRole("button", { name: "Log out", hidden: true });
-    expect(logOut).toHaveClass("text-signal-text");
-    // 44px rows.
-    for (const row of [...within(nav).getAllByRole("link", { hidden: true }), logOut]) expect(row).toHaveClass("min-h-11");
-    // The Messages badge is the header chip's orange one.
-    expect(panel.querySelector("[data-unread-badge]")).toHaveClass("bg-signal");
+    expect(logOut).toHaveClass("text-signal");
+    expect(logOut).not.toHaveClass("text-signal-text");
+    // 40px rows of 16px semibold, as drawn.
+    for (const row of [...within(nav).getAllByRole("link", { hidden: true }), logOut]) {
+      expect(row).toHaveClass("min-h-10", "text-base", "font-semibold", "hover:bg-menu-hover");
+      expect(row).not.toHaveClass("min-h-11");
+    }
+    // The counts are the board's 24 × 16 pills: Messages orange, Saved in the panel's other fill.
+    expect(panel.querySelector("[data-unread-badge]")).toHaveClass("bg-signal", "h-4", "min-w-6", "rounded-full");
+    expect(panel.querySelector("[data-menu-count]")).toHaveClass("h-4", "min-w-6", "rounded-full", "bg-menu-hover", "group-hover:bg-menu");
+    // The hairlines run edge to edge across the panel.
+    for (const divider of panel.querySelectorAll("nav > div[aria-hidden='true']")) expect(divider).toHaveClass("-mx-2", "h-px");
   });
 
   it("adds Your events for organisers and Admin (with what's waiting) for admins", () => {
@@ -252,6 +258,9 @@ describe("avatar menu (from lg)", () => {
     const panel = requirePanel(renderNav().panel);
     expect(within(panel).getByText("Latte")).toHaveClass("body-m", "font-semibold", "truncate");
     expect(within(panel).getByText("latte@example.com")).toHaveClass("meta", "text-muted");
+    // No photo: the board's cream circle, not initials.
+    expect(panel.querySelector("[data-avatar-placeholder]")).toHaveClass("rounded-full", "bg-avatar-placeholder");
+    expect(panel.querySelector("[data-avatar-placeholder]")).toHaveTextContent("");
     cleanup();
     profileState = { status: "ready", profile: null };
     const bare = requirePanel(renderNav().panel);
@@ -268,11 +277,14 @@ describe("avatar menu (from lg)", () => {
     expect(avatar).toHaveAttribute("aria-expanded", "true");
     fireToggle(panel, "closed");
     expect(avatar).toHaveAttribute("aria-expanded", "false");
-    // White in Light, black in Dark: no ink scope around it.
+    // The page theme (no ink scope): as the board's two frames, white with a 1px hairline and no shadow in Light,
+    // #1c1b17 with a 1px white stroke in Dark; 280px, radius 16.
     expect(panel.closest("[data-surface]")).toBeNull();
-    expect(panel).toHaveClass("w-68", "bg-card", "border-control", "border-foreground", "rounded-control", "p-2");
-    // 72px header + 8; right edge on the avatar's (the row's 32 / 64px padding); 64 + 8 once scrolled at XL.
-    expect(panel).toHaveClass("top-20", "right-8", "xl:right-16", "xl:group-data-scrolled/header:top-18");
+    expect(panel).toHaveClass("w-70", "bg-menu", "border", "border-surface-border", "dark:border-foreground", "rounded-card", "p-2");
+    expect(panel).not.toHaveClass("border-control", "border-foreground");
+    expect(panel.className).not.toMatch(/shadow/);
+    // 100px header + 8; right edge on the avatar's (the row's 32 / 66px right padding); 92 + 8 once scrolled at XL.
+    expect(panel).toHaveClass("top-27", "right-8", "xl:right-16.5", "xl:group-data-scrolled/header:top-25");
   });
 
   it("closes on Escape with focus back on the avatar", () => {

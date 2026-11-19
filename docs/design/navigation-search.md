@@ -21,6 +21,8 @@ disagrees with one of them, the earlier decision wins, and the row says so.
   sentence case, as written: `eyebrow` (12/16, 500) or `meta` / `mono-s` (12/16, 400, tabular). The boards predate
   the owner's 13 Nov decision on this.
 - **Copy is sentence case.** Use "Sign out", not "Log out", to match /account and the rest of the site.
+  *Superseded for the header, the avatar menu and the drawer (owner, 19 Nov 2026: the build copies the boards
+  exactly): the avatar menu says "Log out", as drawn. See §5.16, which overrides every section here for those three.*
 - **Prices are all-inclusive.** Every price band is computed from `lib/fees.ts` through `getMinBuyerTotalCents`.
 - **Real, privacy-permitted data only.** The boards' counts, "2 you know", "Jay saved this" and avatar stacks are
   placeholders.
@@ -73,7 +75,9 @@ No colour changes. All pairs below already exist and pass AA.
 The current drawer items use `display-m`: Bootzy capitals, 40/48, and 56/64 from 768px. On the 390 frame the board
 draws Instrument Sans Bold, sentence case, at about 40px, so `label-menu` replaces `display-m` there.
 
-**Unchanged, and confirmed against the boards:**
+**Unchanged, and confirmed against the boards** (*superseded for the header, the avatar menu and the drawer by
+§5.16: `--header-h` is now 64 / 100, `label-nav` 18/24, and `nav-button`, `nav-chip`, `nav-avatar` and
+`umlaut-nav` take the board's measurements*):
 - `--header-h` (56 / 72)
 - `label-nav` 16/24 500
 - `nav-button`: 40px, 1.5px stroke, radius 8, cream on hover, filled when current
@@ -106,7 +110,8 @@ draws Instrument Sans Bold, sentence case, at about 40px, so `label-menu` replac
 | Filter sheet | bottom sheet, full width, `max-h-4/5`, `px-4`, Show pinned | same | the dropdown row instead (§5.9) | same |
 
 The Figma desktop header frames measure about 96px tall. That predates Round 2's 72px (64 once scrolled at XL),
-so **keep 72**.
+so **keep 72**. *Superseded (19 Nov 2026): the header is the board's 100px, 92 once scrolled at XL; the avatar
+menu is 280px. See §5.16.*
 
 ## 4. Imagery
 
@@ -116,7 +121,8 @@ so **keep 72**.
   `lib/api/profiles.ts fetchAvatar` and shown from an object URL. Never put the URL in `<img src>` directly.
 - Fallback (no profile, no photo, still loading, or the fetch failed): `InitialsAvatar`, using initials from
   `displayName`, or the email's first letter (as `initialFor` does in `AuthNavLinks.tsx`). The board's cream
-  circle is a photo placeholder, not a style.
+  circle is a photo placeholder, not a style. *Superseded (19 Nov 2026): the fallback is the board's cream
+  circle, with no initials. See §5.16.*
 - The header's 40px square avatar stays the square initial (`nav-avatar`), as drawn.
 
 ### 4.2 Event images (Local discovery, anything in a sheet)
@@ -500,30 +506,76 @@ there. What's specific to this page:
 - Without the photos: Melbourne's photo stays for every city.
 - No photo without a `public/events/README.md` entry.
 
-### 5.16 Increments 1 and 2 as built (measured against the boards, 18 Nov 2026)
+### 5.16 Header, avatar menu and drawer as built: an exact copy of the boards (19 Nov 2026)
 
-Re-measured from the "Menu drawer / Mobile" and "Navigation" boards at their frame scale; these replace the values
-above where they differ.
-- **Drawer places:** the list's top padding is `pt-13` (52), not `pt-10`: the board's first line sits 64px under
-  the bar (the places matched the board to the pixel after this). The current place's dots are **round, 24×8**
-  (two 8px circles 8px apart), not 20×8 rounded squares: the board's pixels show circles.
-- **Drawer rows:** the hairline-to-hairline pitch is 64, but the label sits **12px under its hairline** (not
-  centred): each row is a 64px link with `pt-3`. For organisers follows the last row directly (no `mt-6`: the
-  row's own space below the label is the gap). Your events shows only for organisers and applicants (as /account
-  decides), so a member sees exactly the board's three rows.
-- **Avatar menu:** the panel is **272px** (`w-68`; the board measures 274), not 288. Rows are **44px** (the board
-  draws 40; 44 is the target minimum), with the label 16px in (`px-4`). The identity row is `py-4 gap-4`, the
-  first divider `mb-2`. Saved's count is a **small pill** (cream on white, white on a hovered row; `--surface` in
-  Dark), as drawn, not a plain number.
-- **Log out:** labelled "Log out" and orange, as drawn (owner: one-to-one with the boards), in `--signal-text`
-  (#d03e00 Light, 4.8:1 on white; #ff6a33 Dark), because `--signal` is 3.4:1 on white and fails as small text.
-- **Avatar menu placement** is CSS only (`top-20 right-8 xl:right-16`, `xl:group-data-scrolled/header:top-18`), as
-  the avatar is always the row's last item: the same result as measuring on `beforetoggle`, right before
-  hydration too. With the header following the theme (Q1), the panel stays inside the desktop row (it takes the
-  page theme there), so its focus order needs no popover-invoker rule.
-- **Kept from the spec where the board differs:** the Light panel keeps its 1.5px foreground stroke (the board
-  draws none, but a white panel on a white page with no shadow would be invisible); the initials avatar instead of
-  the board's cream placeholder circle; the unread badge on the bar's Menu/Close and the counts in the drawer.
+**The owner's standing rule:** when they send reference pictures, the build is an exact copy of them: layout, sizes,
+spacing, colours, icons and wording, with no "improvements". This section records the header, the avatar menu and
+the phone drawer as built to that rule. **It overrides every section above for those three** (§2, §3, §4.1, §5.1,
+§5.2 and §5.3) wherever they differ. Two owner decisions still override the boards: the desktop header follows the
+theme (Q1), and "My tickets" links to `/help#where-are-my-tickets` (Q2).
+
+**How it was measured.** Pixel overlays on the board images at each frame's own scale: the "Navigation" board
+(1440 → 535px, 0.372), the "Menu drawer / Mobile" board (390 → 246px, 0.630) and the two 1440 × 900 Dark page
+boards with the header (2000px, 1.389, de-dimmed from their modal overlay). The build was rendered in Chromium at the
+same scale and fitted to the board by the least squared pixel difference, for each size, weight and offset below.
+Everything listed now lands within one board pixel (0.7px on the 1440 boards, 1.6px on the drawer board, 2.7px on
+the Navigation board), apart from the differences listed at the end.
+
+**Desktop header** (`components/Nav.tsx`, `components/AuthNavLinks.tsx`, `app/globals.css`):
+
+| Part | As built (= the board) |
+| --- | --- |
+| Row | **100px** (`--header-h: 6.25rem`; `h-25`, 92 once scrolled at XL, as before with 8px less). Light: white (`--header`), a **1px black** rule inside its foot. Dark: **#0a0a0a** (`--header`), a 1px `--surface-border` (#333) rule. |
+| Sides | 64px left, **66px** right from 1280px (`xl:pl-16 xl:pr-16.5`); 32px from 1024. |
+| Wordmark | 20px tall (88 wide), **2px above** the row's middle (`-translate-y-0.5`); the places start 34px after it (`mr-0.5` + `gap-8`). |
+| Places, Sign in | `label-nav` **18/24 medium**, 32px apart, the label **1.5px below** the middle (`umlaut-nav` `translate: 0 1.5px`). Dots 20×6, 26px from the top. The current page's 2px underline **13.5px** under the baseline. |
+| For organisers | `nav-button`: **171 × 43**: an 18/24 **regular** label, 8px top and bottom, 25px sides, the 1.5px stroke, radius 8, 1.5px below the middle. |
+| Messages | `nav-chip`: **37px** tall, 14/20 **regular**, 16px sides, the 1.5px `--surface-border` outline; the count is an orange **24 × 16 pill** (`CountBadge shape="pill"`), 8px after the label and 2px above the middle. |
+| Avatar | `nav-avatar`: 40px tall, **51 wide**: 16px sides, the initial (16px semibold), then a **6 × 4 caret** 4px after it (`gap-1`). Black in Light, white in Dark. |
+
+**Phone bar and drawer** (`components/Nav.tsx`, `MenuAccount`):
+
+| Part | As built (= the board) |
+| --- | --- |
+| Bar | **64px** (`--header-h: 4rem` below 1024; `h-16`), black in both themes. |
+| Wordmark | orange, **19px** tall (`h-4.75`), 16px in, **2px above** the bar's middle. |
+| Search, Menu, Close | 40 × 48 targets (`h-12 w-10`); the icons centred **68px and 28px** in from the right (`-mr-2`). **No unread count** on Menu or Close: the boards draw none. |
+| Places | unchanged: `label-menu` 40/48 bold on a 72px pitch, the first line **56px under the bar** (`pt-11`), 56px from the edge; round 24×8 dots 16px in. |
+| Who's signed in | a 48px circle (the photo, else the **cream circle**, `--avatar-placeholder` #fffae7, no initials); the name **20px semibold** (`text-xl`); "View profile" **14px medium**, muted. |
+| Rows | My tickets, Saved, Messages: 64px, a hairline above, the label `label-nav` **18px** 12px under it. **No counts** (the board draws Latte's rows without numbers). Your events (organisers) and Admin (admins, with its waiting count) as before: the board doesn't draw them. |
+| Buttons | unchanged: Sign in orange and For organisers outlined, 56px, 16px apart. |
+
+**Avatar menu** (`components/nav/AccountMenu.tsx`):
+
+| Part | As built (= the board) |
+| --- | --- |
+| Panel | **280px** (`w-70`), radius **16** (`rounded-card`), `p-2`, **no shadow** (the board draws none). Light: white (`--menu`) with a **1px `--surface-border` hairline**, no black stroke. Dark: **#1c1b17** (`--menu`) with a 1px white stroke. 8px under the header (`top-27`, `top-25` once scrolled at XL), its right edge on the avatar's. |
+| Who's signed in | as before: a 40px circle (the photo, else the **cream circle**, no initials), 16px semibold name, `py-4 gap-4`. |
+| Hairlines | 1px `--surface-border`, **edge to edge** across the panel (`-mx-2`). |
+| Rows | **40px** (`min-h-10`), **16px semibold**, 16px in; under the pointer, on focus and pressed: `--menu-hover` (cream #fffae7 in Light, **#2e2b26** in Dark). |
+| Counts | **24 × 16 pills**: Saved in the panel's other fill (cream on white, white on a hovered row; #2e2b26 in Dark), Messages orange with a black number, Admin black. |
+| Log out | the board's label, "Log out", in the board's orange: **`--signal` #ff4800** in both themes (not `--signal-text`). |
+
+**New tokens:** `--header` (#ffffff / Dark #0a0a0a), `--menu` (#ffffff / #1c1b17), `--menu-hover` (#fffae7 /
+#2e2b26), and `--avatar-placeholder` (#fffae7 in every theme). `label-nav` is now 18/24 (it's only used by the nav).
+
+**The one unavoidable difference:**
+- **The identity row's second line.** The board's "@latte · 2 upcoming" has no data behind it: there's no @handle
+  and no upcoming count. The line shows the member's email (`meta`, muted, sentence case), and nothing when there's
+  no display name. For the same reason, **My tickets has no count** (the board's "2"): there's no tickets list
+  until B1.
+
+**What the boards don't draw, kept as it was:** hover, focus and pressed states; the loading states; the Admin header
+item and the Admin and Your events rows (for admins and organisers only, so a member sees exactly the board); the
+scrolled XL header (100 → 92); and the Dark phone bar's 1px rule against the black page (no board shows a Dark
+phone page).
+
+**Accessibility consequences of the exact copy** (for the owner, not changes to make):
+- Log out in #ff4800 is **3.4:1 on white** (3.25:1 on the cream hover row), under the 4.5:1 that WCAG 1.4.3 asks
+  of 16px text. It's 5.07:1 on the Dark panel.
+- Phones show no unread count anywhere outside /messages: not on Menu and not in the drawer.
+- Targets: the avatar menu's rows are 40px and the phone bar's buttons 40 × 48, above the 24px minimum (WCAG 2.5.8)
+  but under the 44px this spec preferred.
 
 ## 6. Motion
 
