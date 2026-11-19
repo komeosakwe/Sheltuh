@@ -2489,6 +2489,22 @@ export interface FollowInput {
   notifyNewEvents?: boolean;
 }
 
+/**
+ * GET /api/me: the signed-in member's own account summary (verified email
+ * required; never cached). `upcomingCount` is how many published events that
+ * haven't started yet they hold a ticket for: events with a `paid` order (free
+ * tickets included; a partly refunded order stays paid) whose buyer email
+ * equals theirs, ignoring case. Several orders, or a group order, for one
+ * event count once. `username` and `usernameChangeableAt` aren't sent yet
+ * (reserved for usernames).
+ */
+export interface AccountSummary {
+  username?: string;
+  /** ISO 8601: when the username can next be changed. */
+  usernameChangeableAt?: string;
+  upcomingCount: number;
+}
+
 /** One entry of GET /api/me/following. */
 export interface FollowedOrganiser {
   organiserId: string;

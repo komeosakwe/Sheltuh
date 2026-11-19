@@ -4660,6 +4660,7 @@ without one. The UI keeps showing the API's words, which already say when
 | `GET /admin/reports/{reportId}/avatar` | admin: a profile report's copy of the photo. 404 none |
 | `GET /organisers/{organiserId}/follow` · `POST …/follow` `{notifyNewEvents?}` · `DELETE …/follow` | GET signed in, `{following, notifyNewEvents}` (404 not approved). POST verified email: 201 new (emails off unless `notifyNewEvents: true`) / 200 existing; 400 not a boolean (null included) or own organiser; 404; 409 500 follows; 429. DELETE signed in, 204 idempotent |
 | `GET /me/following?cursor&limit` · `GET /me/following/events?cursor&limit` | signed in: `FollowedOrganiser` items; upcoming events of followed organisers (public event shape), soonest first |
+| `GET /me` | verified email (`requireVerifiedCaller`: 401 signed out, 403 unverified): the caller's own `AccountSummary`, `private, no-store`. `upcomingCount`: how many published events that haven't started yet (`starts_at > now()`, so an event in progress no longer counts) the caller has a `paid` order for whose `buyer_email` equals their verified email ignoring case, the same match as Who's Going (`set_going`; no +tag or Gmail-dot folding). Free tickets are A$0 paid orders and count; a partly refunded order stays `paid` and counts; pending, failed, refunded and oversold orders don't. Distinct events: several orders, or a group order, for one event count once. Only the token's email decides whose orders are counted. One query on `orders_paid_email_event_idx` (`lower(buyer_email), event_id`, paid only; `20261201000000_member_upcoming_index.sql`). `username` and `usernameChangeableAt` are in the type but not sent yet. `GET /profiles/me` isn't used for this: it's a 404 for a member without a Who's Going profile |
 | `POST /holder-messages/stop` `{token}` (or `?token=…` with a form body, RFC 8058 one-click) · `GET /holder-messages/stop?token=…` | public (the emailed token is the credential; see "Messages to ticket holders", "Stopping messages"). POST 200 `{status: "stopped", organiserName?}` (idempotent); 400; 404. GET changes nothing: 303 to `/holder-messages/stop#token=…` |
 | `POST /follows/unsubscribe` `{token}` | public (the emailed token is the credential). 200 `{status: "unsubscribed", organiserName?}` (idempotent); 400; 404 |
 | `POST /admin/organisers/{organiserId}/remove-video` `{reason}` | admin. 200 `AdminOrganiserRecord` (unchanged, nothing logged, without a video); 400; 404 |
@@ -4823,6 +4824,11 @@ What that means:
 - `lib/server/deps.ts`: the production wiring (postgres.js, Supabase Auth,
   Stripe, SMTP), read from env.
 - `lib/api/*`: the browser-side client for the same routes.
+- Account summary (`GET /api/me`): `lib/server/handlers/me.ts` (`getMe`),
+  route `app/api/me/route.ts`, client `lib/api/me.ts`, type `AccountSummary`
+  in `lib/api/types.ts`, index in
+  `supabase/migrations/20261201000000_member_upcoming_index.sql`; tests
+  `tests/server/me.test.ts`.
 - Delayed payouts: `supabase/migrations/20261119000000_delayed_payouts.sql`;
   `lib/server/order-transfers.ts` (the job), `lib/server/handlers/payouts.ts`
   (cron, organiser and admin routes), the session shape in

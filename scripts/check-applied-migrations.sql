@@ -266,6 +266,8 @@ select version, file, coalesce(applied, false) as applied
       and exists (select 1 from fn where proname = 'organiser_custom_tag_ok')
       and exists (select 1 from fn where proname = 'set_organiser_tags')
       and exists (select 1 from fn where proname = 'admin_remove_organiser_custom_tags')
-      and exists (select 1 from pg_trigger where tgname = 'organisers_custom_tags_valid' and not tgisinternal))
+      and exists (select 1 from pg_trigger where tgname = 'organisers_custom_tags_valid' and not tgisinternal)),
+    ('20261201000000', 'member_upcoming_index',
+      to_regclass('public.orders_paid_email_event_idx') is not null)
   ) as m(version, file, applied)
  order by version;
