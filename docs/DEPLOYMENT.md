@@ -68,7 +68,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261201000000_member_upcoming_index.sql`. Never
+      newest, currently `20261201000100_member_usernames.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -508,6 +508,22 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           A plain `create index` holds a SHARE lock on `orders` (order writes
           wait) while it builds: immediate pre-launch, outside peak sales
           after. Reversible, not destructive: drop the index.
+      55. `20261201000100_member_usernames.sql` (members' usernames,
+          docs/architecture.md "Usernames": tables
+          `private.member_usernames` and `private.member_username_changes`,
+          the claim, clear and state functions and two triggers;
+          `admin_remove_profile_content` gains `username` and
+          `purge_social_data` deletes expired holds and stale change clocks,
+          both with their signatures unchanged; the moderation log's
+          removed-fields check allows `username`). Needs file 54 before it
+          (filename order). Additive: the previous app never sends
+          `username` to remove-content and reads none of the new objects, so
+          it can be applied before the app. Reversible, with data loss: drop
+          the new functions, triggers and both tables (every username and
+          hold), restore `admin_remove_profile_content` from
+          `20261024000100_member_profiles.sql` and `purge_social_data` from
+          `20261116000000_external_going.sql`; the old removed-fields check
+          only once no log entry names `username`.
 
       **Files 33 to 37 can be applied ahead of this deploy, with the
       previous app still live.** "The previous app" here is the build of

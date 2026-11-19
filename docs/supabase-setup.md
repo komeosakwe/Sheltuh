@@ -344,6 +344,49 @@ where event_id = (select id from events where slug = 'the-event-slug')
   and user_id = (select id from auth.users where email = 'person@example.com');
 ```
 
+### Release a username
+
+Admins remove a member's username from the report screen (it goes through
+their member profile: `POST /api/admin/profiles/{profileId}/remove-content`
+with `username`). A member without a Who's Going profile has no profile to
+open, so for them (a brand or a person's name squatted, say, reported to
+support) run this in the SQL editor, as one query. It does what the admin
+route does: the name is held for 30 days, the member waits 30 days before
+choosing another, and the removal is logged without the name. Find the
+account by the name (any spelling or lookalike of it finds the same row):
+
+```sql
+with target as (
+  select u.user_id as id from private.member_usernames u
+   where u.username_key = private.member_username_key(lower('the_username')) and u.user_id is not null
+), released as (
+  update private.member_usernames u set user_id = null
+    from target where u.user_id = target.id
+  returning target.id
+), clock as (
+  insert into private.member_username_changes as c (user_id, first_claimed_at, last_claimed_at)
+  select id, now() - interval '24 hours', now() from released
+  on conflict (user_id) do update
+     set first_claimed_at = least(coalesce(c.first_claimed_at, now()), now() - interval '24 hours'),
+         last_claimed_at = now()
+)
+insert into private.profile_moderation_log (user_id, admin_id, removed, reason)
+select id, null, array['username'], 'short note for your own records' from released;
+```
+
+`INSERT 0 1` means it was released; `INSERT 0 0` means no live username
+matched. If it reports a deadlock (the member saving at that very moment),
+run it again.
+
+To let someone else have a held name straight away (the rightful owner of a
+squatted brand, say), delete the hold. Only a hold is deleted, never a live
+name:
+
+```sql
+delete from private.member_usernames
+ where username_key = private.member_username_key(lower('the_username')) and user_id is null;
+```
+
 ### Message reports and moderation
 
 Members can report a conversation, a message or a name on a Who's Going list.
