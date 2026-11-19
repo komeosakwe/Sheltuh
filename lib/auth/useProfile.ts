@@ -22,6 +22,13 @@ export type ProfileState =
   | { status: "ready"; profile: ProfileRecord | null };
 
 /**
+ * Every mounted useProfile, so a change saved through one (the /account page) reaches the others
+ * (the header's avatar menu and phone drawer, which stay mounted in the root layout) without a
+ * reload: setProfile publishes to all of them, each keeping it only for the same account.
+ */
+const sharedSetters = new Set<(email: string | undefined, profile: ProfileRecord | null) => void>();
+
+/**
  * Loads the signed-in user's Who's Going profile. Only fetches in live mode
  * while signed in; otherwise it stays "loading" and callers render their own
  * signed-out / demo state instead.
@@ -34,19 +41,24 @@ export function useProfile() {
   // Each result is tagged with the request it answers, so a new account or a
   // retry reads as "loading" straight away without resetting state in an effect.
   const key = `${auth.email ?? ""}#${attempt}`;
-  const [result, setResult] = useState<{ key: string; state: ProfileState } | null>(null);
+  // `saved`: set by a change published through setProfile, which a load that was already in flight
+  // (and so may predate the change) never overwrites.
+  const [result, setResult] = useState<{ key: string; state: ProfileState; saved?: true } | null>(null);
+  const email = auth.email;
 
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
+    const settle = (state: ProfileState) =>
+      setResult((previous) => (previous?.key === key && previous.saved ? previous : { key, state }));
     fetchMyProfile(getToken).then(
       (profile) => {
-        if (!cancelled) setResult({ key, state: { status: "ready", profile } });
+        if (!cancelled) settle({ status: "ready", profile });
       },
       (err: unknown) => {
         if (cancelled) return;
         const message = err instanceof Error ? err.message : "Couldn't load your profile.";
-        setResult({ key, state: { status: "error", message } });
+        settle({ status: "error", message });
       },
     );
     return () => {
@@ -56,10 +68,22 @@ export function useProfile() {
 
   const state: ProfileState = result?.key === key ? result.state : { status: "loading" };
 
-  /** Replaces the loaded profile after a save (or null after a delete). */
+  useEffect(() => {
+    function receive(from: string | undefined, profile: ProfileRecord | null) {
+      if (from === email) setResult({ key, state: { status: "ready", profile }, saved: true });
+    }
+    sharedSetters.add(receive);
+    return () => {
+      sharedSetters.delete(receive);
+    };
+  }, [email, key]);
+
+  /** Replaces the loaded profile after a save (or null after a delete), here and in every other useProfile. */
   const setProfile = useCallback(
-    (profile: ProfileRecord | null) => setResult({ key, state: { status: "ready", profile } }),
-    [key],
+    (profile: ProfileRecord | null) => {
+      for (const receive of sharedSetters) receive(email, profile);
+    },
+    [email],
   );
   const reload = useCallback(() => setAttempt((n) => n + 1), []);
 
