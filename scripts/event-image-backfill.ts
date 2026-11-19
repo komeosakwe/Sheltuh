@@ -701,6 +701,10 @@ export const DATABASE_URL_PARAMETERS =
   "parameter (database, user, options, a server setting) to the server in place of what the connection string names, " +
   "so the run could use another database or role. Remove them (Supabase's URIs have none). It isn't shown here, and nothing was run.";
 
+export const DATABASE_URL_NUL =
+  `${DATABASE_URL_ENV} contains an encoded NUL character (%00). The database driver would pass it into the server's ` +
+  "startup message, where it can start a new setting (such as another database). Remove it. It isn't shown here, and nothing was run.";
+
 export const DATABASE_CA_CERT_ENV = "DATABASE_CA_CERT";
 
 /** The message for a DATABASE_CA_CERT that isn't a certificate: the same words lib/server/db.ts uses for one without PEM markers. */
@@ -748,6 +752,18 @@ function isLocalTarget(target: { host: string[]; path: string | false }): boolea
   return forcedDatabaseTls({ ...target, ssl: false }) === undefined;
 }
 
+/** The URL's user, password, database and query values as the driver decodes them (undecodable text as written). */
+function decodedParts(url: URL): string[] {
+  const decode = (text: string) => {
+    try {
+      return decodeURIComponent(text);
+    } catch {
+      return text;
+    }
+  };
+  return [decode(url.username), decode(url.password), decode(url.pathname), ...url.searchParams.values()];
+}
+
 /**
  * Why DATABASE_URL (with DATABASE_CA_CERT) can't be used, or undefined when
  * it can: it must name its host and database, exactly one host (as
@@ -763,9 +779,13 @@ export function databaseSettingsProblem(databaseUrl: string, env: Record<string,
   // postgres.js copies every query parameter it doesn't use itself into the startup message, after (so over) the
   // user and database from the URL: `?database=` or `?user=` would quietly pick another database or role, and
   // `?options=` (or any server setting by name) would change the session. Its own settings are refused too.
-  for (const key of new URL(databaseUrl).searchParams.keys()) {
+  const url = new URL(databaseUrl);
+  for (const key of url.searchParams.keys()) {
     if (!ALLOWED_URL_PARAMETERS.has(key)) return DATABASE_URL_PARAMETERS;
   }
+  // The startup message is NUL-delimited and the driver decodes %00 into it unchanged, so a NUL in the user,
+  // database or an allowed value (application_name=x%00database%00other) would add a field the server reads.
+  if (decodedParts(url).some((part) => part.includes("\0"))) return DATABASE_URL_NUL;
   if (!isLocalTarget(target) && !env[DATABASE_CA_CERT_ENV]?.trim()) return DATABASE_CA_CERT_REQUIRED;
   return undefined;
 }

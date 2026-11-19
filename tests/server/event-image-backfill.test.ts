@@ -14,6 +14,7 @@ import {
   DATABASE_CA_CERT_REQUIRED,
   DATABASE_URL_INCOMPLETE,
   DATABASE_URL_PARAMETERS,
+  DATABASE_URL_NUL,
   DATABASE_URL_ONE_HOST,
   main,
   scanImageMetadata,
@@ -794,6 +795,21 @@ describe("main", () => {
       expect(printed).not.toContain("Sup3r-Secret-Pw");
       expect(printed).not.toContain("otherdb");
       expect(printed).not.toContain("secretschema");
+    }
+    // An encoded NUL would start a new field in the NUL-delimited startup message (here, another database).
+    for (const url of [
+      "postgresql://postgres:Sup3r-Secret-Pw@db.abcdefgh.supabase.co:5432/postgres?application_name=backfill%00database%00otherdb",
+      "postgresql://postgres:Sup3r-Secret-Pw@db.abcdefgh.supabase.co:5432/postgres%00database%00otherdb",
+      "postgresql://postgres%00database%00otherdb:Sup3r-Secret-Pw@db.abcdefgh.supabase.co:5432/postgres",
+    ]) {
+      const deps = mainDeps({ argv: ["--apply"], env: { DATABASE_URL: url, DATABASE_CA_CERT: CA } });
+      expect(await main(deps), url).toBe(2);
+      expect(deps.err[0]).toBe(DATABASE_URL_NUL);
+      expect(deps.err[0]).toMatch(/^DATABASE_URL /);
+      expect(deps.connects).toBe(0);
+      const printed = [...deps.out, ...deps.err].join("\n");
+      expect(printed).not.toContain("Sup3r-Secret-Pw");
+      expect(printed).not.toContain("otherdb");
     }
     // A list of hosts, as postgres.js reads it (commas in the host part, percent-encoded or not).
     for (const url of [
