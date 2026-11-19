@@ -535,4 +535,27 @@ describe("AccountContent and the header share the profile", () => {
     await waitFor(() => expect(renameStatus()).toHaveTextContent(/Mia Thompson/));
     expect(screen.getByTestId("header-profile")).toHaveTextContent("Mia T.");
   });
+  it("a load from a later sign-in isn't held back by a change saved in an earlier session", async () => {
+    function Publisher() {
+      const { setProfile } = useProfile();
+      return <button onClick={() => setProfile({ ...PROFILE, displayName: "Mia Thompson" })}>publish</button>;
+    }
+    const mia = fakeAuthValue({ email: "mia@example.com" });
+    getMyProfile.mockResolvedValue(PROFILE);
+    const tree = (value: AuthContextValue) => (
+      <FakeAuthProvider value={value}>
+        <HeaderProbe />
+        <Publisher />
+      </FakeAuthProvider>
+    );
+    const { rerender } = render(tree(mia));
+    await waitFor(() => expect(screen.getByTestId("header-profile")).toHaveTextContent("Mia T."));
+    fireEvent.click(screen.getByRole("button", { name: "publish" }));
+    expect(screen.getByTestId("header-profile")).toHaveTextContent("Mia Thompson");
+    // Sign out, then back in as the same account: the profile was changed elsewhere in between.
+    rerender(tree(fakeAuthValue({ status: "signed-out", email: undefined })));
+    getMyProfile.mockResolvedValue({ ...PROFILE, displayName: "Mia Fresh" });
+    rerender(tree(fakeAuthValue({ email: "mia@example.com" })));
+    await waitFor(() => expect(screen.getByTestId("header-profile")).toHaveTextContent("Mia Fresh"));
+  });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, isApiConfigured, type GetToken } from "@/lib/api/client";
 import { getMyProfile } from "@/lib/api/profiles";
 import type { ProfileRecord } from "@/lib/api/types";
@@ -41,16 +41,20 @@ export function useProfile() {
   // Each result is tagged with the request it answers, so a new account or a
   // retry reads as "loading" straight away without resetting state in an effect.
   const key = `${auth.email ?? ""}#${attempt}`;
-  // `saved`: set by a change published through setProfile, which a load that was already in flight
-  // (and so may predate the change) never overwrites.
-  const [result, setResult] = useState<{ key: string; state: ProfileState; saved?: true } | null>(null);
+  const [result, setResult] = useState<{ key: string; state: ProfileState } | null>(null);
   const email = auth.email;
+  // Counts changes published through setProfile. A load drops its answer if one landed while it was
+  // in flight (the answer may predate the change); a load started afterwards, e.g. after signing out
+  // and back in, settles as normal.
+  const published = useRef(0);
 
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
-    const settle = (state: ProfileState) =>
-      setResult((previous) => (previous?.key === key && previous.saved ? previous : { key, state }));
+    const startedAt = published.current;
+    const settle = (state: ProfileState) => {
+      if (published.current === startedAt) setResult({ key, state });
+    };
     fetchMyProfile(getToken).then(
       (profile) => {
         if (!cancelled) settle({ status: "ready", profile });
@@ -70,7 +74,9 @@ export function useProfile() {
 
   useEffect(() => {
     function receive(from: string | undefined, profile: ProfileRecord | null) {
-      if (from === email) setResult({ key, state: { status: "ready", profile }, saved: true });
+      if (from !== email) return;
+      published.current += 1;
+      setResult({ key, state: { status: "ready", profile } });
     }
     sharedSetters.add(receive);
     return () => {
