@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import OrganiserQueue from "@/components/admin/OrganiserQueue";
 import { ApiError } from "@/lib/api/client";
@@ -1043,6 +1043,74 @@ describe("Admin organisers: cover and profile categories", () => {
     expect(adminRemoveOrganiserTags).toHaveBeenLastCalledWith("a1", "A claim.", expect.any(Function));
     expect(row(articleOf("Org a1"), "Own words")).toHaveTextContent("None");
     expect(row(articleOf("Org a1"), "Profile categories")).toHaveTextContent("Art");
+  });
+
+  it("one change to an organiser at a time: a second removal waits, so an older record can't land last and bring back what it removed", async () => {
+    const cover = deferred<AdminOrganiserRecord>();
+    const words = deferred<AdminOrganiserRecord>();
+    adminRemoveOrganiserCover.mockReturnValue(cover.promise);
+    adminRemoveOrganiserTags.mockReturnValue(words.promise);
+    listing("approved", [
+      organiser("a1", { coverUrl: COVER_URL, coverSmallUrl: COVER_SMALL_URL, customTags: ["Late night"] }),
+    ]);
+    await showApproved();
+    const article = articleOf("Org a1");
+
+    fireEvent.click(within(article).getByRole("button", { name: "Remove cover…" }));
+    const coverGroup = within(article).getByRole("group", { name: "Remove Org a1’s cover photo?" });
+    fireEvent.change(within(coverGroup).getByLabelText("Reason (kept on their log)"), { target: { value: "Not theirs." } });
+    fireEvent.click(within(coverGroup).getByRole("button", { name: "Remove cover" }));
+    await waitFor(() => expect(adminRemoveOrganiserCover).toHaveBeenCalledTimes(1));
+    expect(within(coverGroup).getByRole("button", { name: "Removing…" })).toHaveAttribute("aria-disabled", "true");
+
+    // While the cover's removal is in flight, Remove own words can be filled in but waits.
+    fireEvent.click(within(article).getByRole("button", { name: "Remove own words…" }));
+    const wordsGroup = within(article).getByRole("group", { name: "Remove Org a1’s own words?" });
+    fireEvent.change(within(wordsGroup).getByLabelText("Reason (kept on their log)"), { target: { value: "A claim." } });
+    const removeWords = within(wordsGroup).getByRole("button", { name: "Remove own words" });
+    expect(removeWords).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(removeWords);
+    expect(adminRemoveOrganiserTags).not.toHaveBeenCalled();
+
+    // The cover's record still has the own words (they weren't removed when it was read).
+    await act(async () => cover.resolve(organiser("a1", { customTags: ["Late night"] })));
+    expect(row(articleOf("Org a1"), "Cover photo")).toHaveTextContent("None");
+    const ready = within(articleOf("Org a1")).getByRole("button", { name: "Remove own words" });
+    expect(ready).not.toHaveAttribute("aria-disabled");
+    fireEvent.click(ready);
+    await waitFor(() => expect(adminRemoveOrganiserTags).toHaveBeenCalledWith("a1", "A claim.", expect.any(Function)));
+    await act(async () => words.resolve(organiser("a1", { customTags: [] })));
+
+    // The newest record stays: neither the cover nor the own words come back.
+    await waitFor(() => expect(actionStatus()).toHaveTextContent("Removed Org a1’s own words."));
+    expect(row(articleOf("Org a1"), "Cover photo")).toHaveTextContent("None");
+    expect(row(articleOf("Org a1"), "Own words")).toHaveTextContent("None");
+    expect(within(articleOf("Org a1")).queryByRole("button", { name: /^Remove (cover|own words)/ })).toBeNull();
+  });
+
+  it("after a removal, closes the form and frees its buttons even if the record still has something to remove", async () => {
+    // They saved new own words between the removal and the record being read back.
+    adminRemoveOrganiserTags.mockResolvedValue(organiser("a1", { customTags: ["Queer joy"] }));
+    listing("approved", [organiser("a1", { customTags: ["Late night"] })]);
+    await showApproved();
+    const article = articleOf("Org a1");
+    fireEvent.click(within(article).getByRole("button", { name: "Remove own words…" }));
+    const group = within(article).getByRole("group", { name: "Remove Org a1’s own words?" });
+    fireEvent.change(within(group).getByLabelText("Reason (kept on their log)"), { target: { value: "A claim." } });
+    fireEvent.click(within(group).getByRole("button", { name: "Remove own words" }));
+
+    await waitFor(() => expect(actionStatus()).toHaveTextContent("Removed Org a1’s own words."));
+    expect(row(articleOf("Org a1"), "Own words").textContent).toBe("“Queer joy”");
+    expect(within(articleOf("Org a1")).queryByRole("group", { name: "Remove Org a1’s own words?" })).toBeNull();
+    const reopen = within(articleOf("Org a1")).getByRole("button", { name: "Remove own words…" });
+    expect(reopen).not.toHaveAttribute("aria-disabled");
+
+    // Opened again: a fresh reason, and Remove and Cancel both work.
+    fireEvent.click(reopen);
+    const again = within(articleOf("Org a1")).getByRole("group", { name: "Remove Org a1’s own words?" });
+    expect(within(again).getByLabelText("Reason (kept on their log)")).toHaveValue("");
+    expect(within(again).getByRole("button", { name: "Remove own words" })).not.toHaveAttribute("aria-disabled");
+    expect(within(again).getByRole("button", { name: "Cancel" })).not.toHaveAttribute("aria-disabled");
   });
 
   it("logs chips as labels, and tells 'not chosen' from 'chose none'", async () => {

@@ -163,6 +163,45 @@ describe("OrganiserTagsField", () => {
     expect(pressedLabels()).toEqual(["Live music", "Art"]);
   });
 
+  it("can't be changed while it saves, so nothing done meanwhile is lost when the stored set replaces it", async () => {
+    let resolve: (record: OrganiserRecord) => void = () => {};
+    setOrganiserTags.mockReturnValue(new Promise<OrganiserRecord>((r) => (resolve = r)));
+    renderField({ ...RECORD, profileTags: ["art"], customTags: ["Late night"] });
+    fireEvent.change(screen.getByLabelText("Own word 1"), { target: { value: "Late nights" } });
+    save();
+    expect(screen.getByRole("button", { name: "Saving…" })).toHaveAttribute("aria-disabled", "true");
+
+    // Each way of changing the draft is marked unavailable, and does nothing.
+    expect(chip("Live music")).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(chip("Live music"));
+    expect(pressedLabels()).toEqual(["Art"]);
+    const word = screen.getByLabelText("Own word 1");
+    expect(word).toHaveAttribute("readonly");
+    fireEvent.change(word, { target: { value: "Typed while saving" } });
+    expect(word).toHaveValue("Late nights");
+    const add = screen.getByRole("button", { name: "Add your own word" });
+    expect(add).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(add);
+    expect(screen.queryByLabelText("Own word 2")).toBeNull();
+    const remove = screen.getByRole("button", { name: "Remove own word 1" });
+    expect(remove).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(remove);
+    expect(screen.getByLabelText("Own word 1")).toBeInTheDocument();
+    // Submitting again (Enter in a field) doesn't send a second save.
+    fireEvent.submit(screen.getByLabelText("Own word 1").closest("form") as HTMLFormElement);
+    expect(setOrganiserTags).toHaveBeenCalledTimes(1);
+
+    await act(async () => resolve({ ...RECORD, profileTags: ["art"], customTags: ["Late nights"] }));
+    expect(await screen.findByText("Categories saved. They’re on your public profile now.")).toBeInTheDocument();
+    expect(pressedLabels()).toEqual(["Art"]);
+    expect(screen.getByLabelText("Own word 1")).toHaveValue("Late nights");
+    // Editable again once it's saved.
+    expect(screen.getByLabelText("Own word 1")).not.toHaveAttribute("readonly");
+    expect(chip("Live music")).not.toHaveAttribute("aria-disabled");
+    fireEvent.click(chip("Live music"));
+    expect(pressedLabels()).toEqual(["Live music", "Art"]);
+  });
+
   it("shows the API's field errors where they belong and focuses the first", async () => {
     setOrganiserTags.mockRejectedValue(
       new ApiError(400, "Check your categories.", { "customTags.0": "One of your own words can't be used. Try another." }),

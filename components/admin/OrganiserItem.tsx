@@ -65,6 +65,21 @@ export function suspendButtonId(organiserId: string) {
   return `suspend-open-${organiserId}`;
 }
 
+/** An action that changes the record in place: a removal, or whether their events are reviewed first. */
+type RecordAction = keyof typeof REMOVABLE | "eventReview";
+
+/**
+ * One record change at a time for an organiser: each response replaces their
+ * whole record in the list, so two in flight could land out of order and the
+ * older one would bring back what the newer one removed. `claim` starts one
+ * (false if another is in flight); `release` ends it, success or failure.
+ */
+interface RecordActionLock {
+  inFlight: RecordAction | null;
+  claim: (action: RecordAction) => boolean;
+  release: () => void;
+}
+
 function categoryLabel(value: string) {
   return EVENT_CATEGORIES.find((c) => c.value === value)?.label ?? value;
 }
@@ -76,7 +91,8 @@ function categoryLabel(value: string) {
  * once approved (the dialog itself is the queue's). Rejected organisers say
  * whether they were rejected or suspended, when, and why. A featured video,
  * logo, cover photo or their own-word chips can be removed, with a reason,
- * whatever their status (`onUpdated` gets the record without it).
+ * whatever their status (`onUpdated` gets the record without it), one
+ * change to the record at a time.
  */
 export default function OrganiserItem({
   item,
@@ -101,6 +117,22 @@ export default function OrganiserItem({
   const id = item.organiserId;
   const headingId = organiserHeadingId(id);
   const standing = organiserStanding(item);
+  const [inFlight, setInFlight] = useState<RecordAction | null>(null);
+  // Set as soon as one is claimed, so a second claim before the next render is refused too.
+  const claimed = useRef<RecordAction | null>(null);
+  const lock: RecordActionLock = {
+    inFlight,
+    claim: (action) => {
+      if (claimed.current) return false;
+      claimed.current = action;
+      setInFlight(action);
+      return true;
+    },
+    release: () => {
+      claimed.current = null;
+      setInFlight(null);
+    },
+  };
 
   return (
     <li className="border-t border-foreground pt-4">
@@ -225,11 +257,17 @@ export default function OrganiserItem({
 
         {onUpdated && (item.featuredVideo || item.logoUrl || item.coverUrl || (item.customTags?.length ?? 0) > 0) && (
           <div className="flex flex-col items-start gap-3">
-            {item.featuredVideo && <RemoveContent kind="video" item={item} getToken={getToken} onUpdated={onUpdated} />}
-            {item.logoUrl && <RemoveContent kind="logo" item={item} getToken={getToken} onUpdated={onUpdated} />}
-            {item.coverUrl && <RemoveContent kind="cover" item={item} getToken={getToken} onUpdated={onUpdated} />}
+            {item.featuredVideo && (
+              <RemoveContent kind="video" item={item} getToken={getToken} onUpdated={onUpdated} lock={lock} />
+            )}
+            {item.logoUrl && (
+              <RemoveContent kind="logo" item={item} getToken={getToken} onUpdated={onUpdated} lock={lock} />
+            )}
+            {item.coverUrl && (
+              <RemoveContent kind="cover" item={item} getToken={getToken} onUpdated={onUpdated} lock={lock} />
+            )}
             {(item.customTags?.length ?? 0) > 0 && (
-              <RemoveContent kind="customTags" item={item} getToken={getToken} onUpdated={onUpdated} />
+              <RemoveContent kind="customTags" item={item} getToken={getToken} onUpdated={onUpdated} lock={lock} />
             )}
           </div>
         )}
@@ -256,7 +294,7 @@ export default function OrganiserItem({
         )}
 
         {item.status === "approved" && (
-          <EventReviewSwitch item={item} getToken={getToken} onUpdated={onUpdated} />
+          <EventReviewSwitch item={item} getToken={getToken} onUpdated={onUpdated} lock={lock} />
         )}
 
         {item.status === "approved" && (
@@ -565,17 +603,23 @@ const REMOVABLE = {
  * characters, as for a suspension; logged on the organiser's log as an edit
  * by the Sheltüh team; the organiser isn't emailed), then Remove. The public
  * profile (and, for a logo, their event pages) stop showing it at once.
+ * Only one change to the organiser's record is sent at a time (`lock`): while
+ * another is in flight, Remove waits. After a removal the form closes, even
+ * if the returned record still has something to remove (the organiser added
+ * it again meanwhile).
  */
 function RemoveContent({
   kind,
   item,
   getToken,
   onUpdated,
+  lock,
 }: {
   kind: keyof typeof REMOVABLE;
   item: AdminOrganiserRecord;
   getToken: GetToken;
   onUpdated: (item: AdminOrganiserRecord, message: string) => void;
+  lock: RecordActionLock;
 }) {
   const id = item.organiserId;
   const copy = REMOVABLE[kind];
@@ -585,7 +629,7 @@ function RemoveContent({
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const busy = lock.inFlight === kind;
   const pendingFocus = useRef<string | null>(null);
 
   useEffect(() => {
@@ -597,7 +641,7 @@ function RemoveContent({
   });
 
   async function remove() {
-    if (busy) return;
+    if (lock.inFlight) return;
     setError(null);
     const invalid = validateMessage(reason, { label: "Reasons", max: SUSPEND_REASON_MAX, empty: "Enter a reason." });
     setReasonError(invalid);
@@ -605,18 +649,22 @@ function RemoveContent({
       document.getElementById(reasonId)?.focus();
       return;
     }
-    setBusy(true);
+    if (!lock.claim(kind)) return;
     try {
       const record = await copy.request(id, reason.trim(), getToken);
+      lock.release();
+      setOpen(false);
+      setReason("");
+      // The list announces it and focuses the organiser's heading.
       onUpdated(record, copy.done(item.displayName));
     } catch (err) {
+      lock.release();
       if (err instanceof ApiError && err.fieldErrors?.reason) {
         setReasonError(err.fieldErrors.reason);
         document.getElementById(reasonId)?.focus();
       } else {
         setError(actionErrorText(err, copy.failed));
       }
-      setBusy(false);
     }
   }
 
@@ -664,7 +712,8 @@ function RemoveContent({
         </Notice>
       )}
       <div className="flex flex-wrap gap-2">
-        <Button variant="danger" size="sm" className="min-h-11" busy={busy} onClick={remove}>
+        {/* Busy while this removal, or another change to the record, is in flight. */}
+        <Button variant="danger" size="sm" className="min-h-11" busy={lock.inFlight !== null} onClick={remove}>
           {busy ? "Removing…" : copy.confirm}
         </Button>
         <Button
@@ -692,15 +741,18 @@ function RemoveContent({
  * once; on, they go to the review queue. Turning it on or off asks for a
  * reason (required, up to 500 characters, kept on their log; the organiser
  * isn't emailed). Read-only where the list can't update the record in place.
+ * Waits, like the removals, while another change to the record is in flight.
  */
 function EventReviewSwitch({
   item,
   getToken,
   onUpdated,
+  lock,
 }: {
   item: AdminOrganiserRecord;
   getToken: GetToken;
   onUpdated?: (item: AdminOrganiserRecord, message: string) => void;
+  lock: RecordActionLock;
 }) {
   const id = item.organiserId;
   const on = item.eventReviewRequired === true;
@@ -711,7 +763,7 @@ function EventReviewSwitch({
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const busy = lock.inFlight === "eventReview";
   const pendingFocus = useRef<string | null>(null);
 
   useEffect(() => {
@@ -723,7 +775,7 @@ function EventReviewSwitch({
   });
 
   async function save() {
-    if (busy || !onUpdated) return;
+    if (lock.inFlight || !onUpdated) return;
     setError(null);
     const invalid = validateMessage(reason, { label: "Reasons", max: SUSPEND_REASON_MAX, empty: "Enter a reason." });
     setReasonError(invalid);
@@ -731,12 +783,12 @@ function EventReviewSwitch({
       document.getElementById(reasonId)?.focus();
       return;
     }
-    setBusy(true);
+    if (!lock.claim("eventReview")) return;
     try {
       const record = await adminSetEventReviewRequired(id, !on, reason.trim(), getToken);
+      lock.release();
       setOpen(false);
       setReason("");
-      setBusy(false);
       // The list announces it and focuses the organiser's heading (as for a removed logo).
       onUpdated(
         record,
@@ -751,7 +803,7 @@ function EventReviewSwitch({
       } else {
         setError(actionErrorText(err, "Couldn’t change this setting. Try again."));
       }
-      setBusy(false);
+      lock.release();
     }
   }
 
@@ -800,7 +852,7 @@ function EventReviewSwitch({
             max={SUSPEND_REASON_MAX}
           />
           <div className="flex flex-wrap gap-2">
-            <Button variant="solid" size="sm" className="min-h-11" busy={busy} onClick={save}>
+            <Button variant="solid" size="sm" className="min-h-11" busy={lock.inFlight !== null} onClick={save}>
               {busy ? "Saving…" : on ? "Stop reviewing first" : "Review their events"}
             </Button>
             <Button

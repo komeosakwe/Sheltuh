@@ -67,7 +67,9 @@ export function ownWordError(words: readonly Pick<OwnWord, "value" | "touched">[
  * §5.9): up to 5 chips on their public profile, from the list of 18 and up to
  * 2 in their own words, each own word checked as they type with the API's
  * own rules (lib/api/organiser-tags.ts). Saved with its own button (PUT
- * /organisers/me/tags), straight away, no review. Until they've chosen, it
+ * /organisers/me/tags), straight away, no review. While it saves, the chips
+ * and own words can't be changed (what was stored then replaces them, so an
+ * edit made meanwhile would be lost). Until they've chosen, it
  * starts from what their profile already shows: their reviewed event
  * categories, mapped to the list.
  */
@@ -129,6 +131,7 @@ export default function OrganiserTagsField({ organiser }: { organiser: Organiser
   }
 
   function toggle(tag: OrganiserTag) {
+    if (saving) return;
     if (selected.includes(tag)) {
       setSelected(selected.filter((t) => t !== tag));
     } else if (atLimit) {
@@ -142,6 +145,7 @@ export default function OrganiserTagsField({ organiser }: { organiser: Organiser
   }
 
   function changeWord(i: number, value: string) {
+    if (saving) return;
     setWords(words.map((w, j) => (j === i ? { ...w, value } : w)));
     setServerErrors((prev) => {
       const rows = { ...prev.rows };
@@ -152,13 +156,14 @@ export default function OrganiserTagsField({ organiser }: { organiser: Organiser
   }
 
   function addWord() {
-    if (atLimit || words.length >= MAX_CUSTOM_TAGS) return;
+    if (saving || atLimit || words.length >= MAX_CUSTOM_TAGS) return;
     pendingFocus.current = ownWordId(words.length);
     setWords([...words, { key: nextKey.current++, value: "", touched: false }]);
     edited();
   }
 
   function removeWord(i: number) {
+    if (saving) return;
     setWords(words.filter((_, j) => j !== i));
     setServerErrors({ ...serverErrors, own: undefined, rows: {} });
     edited();
@@ -168,6 +173,7 @@ export default function OrganiserTagsField({ organiser }: { organiser: Organiser
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (saving) return;
     showStatus(null);
     setSubmitError(null);
     setSessionExpired(false);
@@ -292,7 +298,14 @@ export default function OrganiserTagsField({ organiser }: { organiser: Organiser
                 );
               }
               return (
-                <FilterChip key={value} id={`tag-chip-${value}`} pressed={pressed} wrap onClick={() => toggle(value)}>
+                <FilterChip
+                  key={value}
+                  id={`tag-chip-${value}`}
+                  pressed={pressed}
+                  wrap
+                  aria-disabled={saving ? true : undefined}
+                  onClick={() => toggle(value)}
+                >
                   {label}
                 </FilterChip>
               );
@@ -342,6 +355,8 @@ export default function OrganiserTagsField({ organiser }: { organiser: Organiser
                     type="text"
                     autoComplete="off"
                     value={word.value}
+                    // Read-only (not disabled, which would drop focus) while saving: the save replaces the rows.
+                    readOnly={saving}
                     onChange={(e) => changeWord(i, e.target.value)}
                     onBlur={() => setWords((prev) => prev.map((w, j) => (j === i ? { ...w, touched: true } : w)))}
                     aria-invalid={error ? true : undefined}
@@ -352,6 +367,7 @@ export default function OrganiserTagsField({ organiser }: { organiser: Organiser
                     variant="outline"
                     size="md"
                     aria-label={`Remove own word ${i + 1}`}
+                    busy={saving}
                     onClick={() => removeWord(i)}
                     className="shrink-0"
                   >
@@ -377,6 +393,7 @@ export default function OrganiserTagsField({ organiser }: { organiser: Organiser
                 size="md"
                 aria-disabled={atLimit ? true : undefined}
                 aria-describedby={atLimit ? "tags-own-add-note" : undefined}
+                busy={saving}
                 onClick={addWord}
               >
                 Add your own word

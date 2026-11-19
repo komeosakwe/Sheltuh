@@ -185,6 +185,23 @@ describe("OrganiserCoverField", () => {
     expect(picker()).toHaveFocus();
   });
 
+  it("announces the removal while it's in flight, from the status line outside the busy body", async () => {
+    let resolve: (record: OrganiserRecord) => void = () => {};
+    deleteOrganiserCover.mockReturnValue(new Promise<OrganiserRecord>((r) => (resolve = r)));
+    const { container } = renderField(withCover);
+    fireEvent.click(screen.getByRole("button", { name: "Remove cover photo" }));
+
+    expect(statusText()).toBe("Removing your cover photo…");
+    expect(screen.getByRole("button", { name: "Removing…" })).toHaveAttribute("aria-disabled", "true");
+    const busyRegion = container.querySelector("[aria-busy='true']");
+    expect(busyRegion).toHaveAttribute("data-organiser-cover-body");
+    for (const status of screen.getAllByRole("status")) expect(busyRegion).not.toContainElement(status);
+
+    await act(async () => resolve(RECORD));
+    expect(statusText()).toBe("Cover photo removed.");
+    expect(container.querySelector("[aria-busy='true']")).toBeNull();
+  });
+
   it("says when the stored cover can't be shown", () => {
     renderField(withCover);
     fireEvent.error(screen.getByRole("img", { name: "Your cover photo" }));

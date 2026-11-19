@@ -414,7 +414,7 @@ on one line at the default text size. Recorded in `docs/design-system.md`.
 
 **Anatomy** (root `id="cover"`, `data-organiser-cover-field`, `flex flex-col gap-3`). Items 1–6 and 8 sit in an
 inner `data-organiser-cover-body` that's `aria-busy` while busy; the status line (7) is outside it, so its
-"Uploading…" and "Removing…" are announced.
+"Uploading your cover photo…" and "Removing your cover photo…" are announced.
 
 1. **Title:** `<p id="organiser-cover-title" className="eyebrow text-muted">Cover photo (optional)</p>`.
 
@@ -456,6 +456,7 @@ inner `data-organiser-cover-body` that's `aria-busy` while busy; the status line
    - "Uploading your cover photo…"
    - "Cover photo saved. It's on your public profile now."
    - With the warning: add " It's been enlarged, so it may look soft on large screens."
+   - "Removing your cover photo…"
    - "Cover photo removed."
 
 8. **Errors:** `ActionErrorNotice` with `logoErrorMessage`'s mapping for the field `cover`. The changed words are:
