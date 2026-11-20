@@ -1,13 +1,15 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import OrganiserLogoField, { logoErrorMessage, logoFileError } from "@/components/dashboard/OrganiserLogoField";
+import OrganiserLogoField from "@/components/dashboard/OrganiserLogoField";
+import { logoErrorMessage, logoFileError } from "@/components/dashboard/organiser-image-upload";
 import { SESSION_EXPIRED_MESSAGE } from "@/components/whos-going/shared";
 import { ApiError } from "@/lib/api/client";
 import type { OrganiserRecord } from "@/lib/api/types";
 import { ADD_LOGO_HREF } from "@/lib/organiser-profile";
 import { SessionExpiredError } from "@/lib/auth/session-token";
 import { ImageError } from "@/lib/image";
+import { callsTokenFirst, fakeAuthValue, FakeAuthProvider, switchableSession } from "./test-utils/fakeAuth";
 
 const uploadOrganiserLogo = vi.fn();
 const deleteOrganiserLogo = vi.fn();
@@ -48,10 +50,26 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-const getToken = vi.fn().mockResolvedValue("t");
+const OWNER = { userId: "user-1", email: "org@example.com" };
+const OTHER = { userId: "user-2", email: "other@example.com" };
 
-function renderField(record: OrganiserRecord = RECORD) {
-  return render(<OrganiserLogoField organiser={record} getToken={getToken} />);
+/** Mounted signed in as OWNER; the session can change under it (session.become) or be re-rendered as another account. */
+function renderField(record: OrganiserRecord = RECORD, session = switchableSession(OWNER)) {
+  const tree = (account: typeof OWNER) => (
+    <FakeAuthProvider value={fakeAuthValue({ status: "signed-in", ...account, ...session.auth })}>
+      <OrganiserLogoField organiser={record} />
+    </FakeAuthProvider>
+  );
+  const view = render(tree(OWNER));
+  return { ...view, renderAs: (account: typeof OWNER) => view.rerender(tree(account)) };
+}
+
+/** The token the given API mock's last call would send: its last argument is the token getter. */
+function sentToken(mock: ReturnType<typeof vi.fn>): Promise<string> {
+  const args = mock.mock.lastCall ?? [];
+  const getToken = args[args.length - 1];
+  if (typeof getToken !== "function") throw new Error("No token getter passed");
+  return (getToken as () => Promise<string>)();
 }
 
 function picker(): HTMLElement {
@@ -117,7 +135,8 @@ describe("OrganiserLogoField", () => {
     expect(screen.getByRole("img", { name: "Your new logo, uploading" })).toHaveAttribute("src", "blob:1");
     expect(statusText()).toContain("Uploading your logo…");
     expect(container.querySelector("[data-organiser-logo-field]")).toHaveAttribute("aria-busy", "true");
-    await waitFor(() => expect(uploadOrganiserLogo).toHaveBeenCalledWith(PREPARED, getToken));
+    await waitFor(() => expect(uploadOrganiserLogo).toHaveBeenCalledWith(PREPARED, expect.any(Function)));
+    await expect(sentToken(uploadOrganiserLogo)).resolves.toBe("user-1-token");
     expect(prepareEventImage).toHaveBeenCalledWith(file);
     // A second pick while one is uploading is ignored (the picker stays focusable).
     expect(picker()).toHaveAttribute("aria-disabled", "true");
@@ -182,7 +201,8 @@ describe("OrganiserLogoField", () => {
     expect(picker()).toHaveAccessibleName("Logo (optional) Change logo");
 
     fireEvent.click(screen.getByRole("button", { name: "Remove logo" }));
-    await waitFor(() => expect(deleteOrganiserLogo).toHaveBeenCalledWith(getToken));
+    await waitFor(() => expect(deleteOrganiserLogo).toHaveBeenCalledWith(expect.any(Function)));
+    await expect(sentToken(deleteOrganiserLogo)).resolves.toBe("user-1-token");
     await waitFor(() => expect(screen.getByText("No logo yet")).toBeInTheDocument());
     expect(statusText()).toContain("Logo removed.");
     expect(picker()).toHaveFocus();
@@ -204,6 +224,57 @@ describe("OrganiserLogoField", () => {
     });
     expect(screen.getByText("Couldn’t show your logo")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Remove logo" })).toBeInTheDocument();
+  });
+
+  describe("only ever as the account it was opened as", () => {
+    it("someone else signed in mid-upload (another tab, while the logo was being shrunk): refused, never sent as them", async () => {
+      const session = switchableSession(OWNER);
+      const tokens: string[] = [];
+      prepareEventImage.mockImplementation(async () => {
+        session.become(OTHER); // After the pick, before the upload asks for its token.
+        return PREPARED;
+      });
+      uploadOrganiserLogo.mockImplementation(async (_image: Blob, getToken: () => Promise<string>) => {
+        tokens.push(await getToken());
+        return { ...RECORD, logoUrl: LOGO_URL };
+      });
+      renderField(RECORD, session);
+      pick(png());
+      expect(await screen.findByRole("alert")).toHaveTextContent(SESSION_EXPIRED_MESSAGE);
+      expect(tokens).toEqual([]);
+      expect(session.auth.getAccessTokenFor).toHaveBeenCalledWith({ userId: OWNER.userId, email: OWNER.email });
+      expect(screen.getByText("No logo yet")).toBeInTheDocument();
+      expect(statusText()).toBe("");
+    });
+
+    it("someone else signed in mid-removal: refused, never sent as them", async () => {
+      const session = switchableSession(OWNER);
+      deleteOrganiserLogo.mockImplementation((...args: unknown[]) => {
+        session.become(OTHER);
+        return callsTokenFirst(RECORD)(...args);
+      });
+      renderField({ ...RECORD, logoUrl: LOGO_URL }, session);
+      fireEvent.click(screen.getByRole("button", { name: "Remove logo" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent(SESSION_EXPIRED_MESSAGE);
+      expect(screen.getByRole("img", { name: "Your logo" })).toBeInTheDocument();
+      expect(statusText()).toBe("");
+    });
+
+    it("already signed in as someone else when a logo is chosen or Remove pressed: refused without shrinking or sending", () => {
+      const session = switchableSession(OWNER);
+      const { renderAs } = renderField({ ...RECORD, logoUrl: LOGO_URL }, session);
+      session.become(OTHER);
+      renderAs(OTHER);
+      pick(png());
+      expect(screen.getByRole("alert")).toHaveTextContent(SESSION_EXPIRED_MESSAGE);
+      expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/login?next=%2Fdashboard%2Fprofile");
+      fireEvent.click(screen.getByRole("button", { name: "Remove logo" }));
+      expect(screen.getByRole("alert")).toHaveTextContent(SESSION_EXPIRED_MESSAGE);
+      expect(prepareEventImage).not.toHaveBeenCalled();
+      expect(uploadOrganiserLogo).not.toHaveBeenCalled();
+      expect(deleteOrganiserLogo).not.toHaveBeenCalled();
+      expect(session.auth.getAccessTokenFor).not.toHaveBeenCalled();
+    });
   });
 });
 

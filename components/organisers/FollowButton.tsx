@@ -11,6 +11,7 @@ import { track } from "@/lib/analytics";
 import type { FollowStatus } from "@/lib/api/types";
 import { SessionExpiredError } from "@/lib/auth/AuthContext";
 import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
+import { organiserProfilePath } from "@/lib/organiser-profile";
 import { withNext } from "@/lib/safe-next-path";
 
 type Load = { status: "loading" } | { status: "ready"; follow: FollowStatus } | { status: "hidden" };
@@ -31,21 +32,37 @@ function errorMessage(err: unknown): string {
  * from at /following/unsubscribe). Signed out: a link to sign in that comes
  * back here. Nobody sees who follows whom. In the demo (no API): an
  * unavailable Follow, still focusable, described by a note, and no request.
+ *
+ * `variant` is the not-following look: `solid` (black; the event page's
+ * Organiser card) or `signal` (orange; the organiser's own profile, its one
+ * primary action), which "Sign in to follow" takes too. Following is always
+ * the outline with a check. `holdPlace` (with `beside`): while the session
+ * loads, an empty box as wide as the widest label holds the button's place,
+ * so what's beside it doesn't move when the button arrives.
  */
 export default function FollowButton({
   organiserId,
   organiserName,
-  returnTo = `/organisers/${encodeURIComponent(organiserId)}`,
+  returnTo = organiserProfilePath(organiserId),
   size = "lg",
+  variant = "solid",
+  buttonClassName = "",
   beside,
+  holdPlace = false,
 }: {
   organiserId: string;
   organiserName: string;
   /** Where signing in (and a session-expired notice) comes back to: the organiser's profile by default. */
   returnTo?: string;
   size?: ButtonSize;
+  /** The button's look while not following (and signed out). */
+  variant?: "solid" | "signal";
+  /** Added to the button (or the sign-in link) in every state, the demo's included. */
+  buttonClassName?: string;
   /** Shown in a row beside the button (the event page's Organiser card: View profile), whatever its state. */
   beside?: ReactNode;
+  /** While the session loads, hold the button's place beside `beside` (the profile's Follow and Share). */
+  holdPlace?: boolean;
 }) {
   const auth = useOptionalAuth();
   const signedIn = auth?.status === "signed-in";
@@ -58,7 +75,7 @@ export default function FollowButton({
   const [announcement, setAnnouncement] = useState("");
   const demoNoteId = useId();
   // Full width on phones on its own; beside something, as wide as its words.
-  const width = beside ? "" : "w-full sm:w-auto";
+  const width = `${beside ? "" : "w-full sm:w-auto"} ${buttonClassName}`.trim();
   // The button, with `beside` next to it when there is one.
   const row = (button: ReactNode) =>
     beside ? (
@@ -96,7 +113,7 @@ export default function FollowButton({
       <div className="flex flex-col items-start gap-3">
         {/* aria-disabled, not disabled: it stays in the tab order, so the note is heard with it. */}
         {row(
-          <Button variant="solid" size={size} aria-disabled="true" aria-describedby={demoNoteId} className={width}>
+          <Button variant={variant} size={size} aria-disabled="true" aria-describedby={demoNoteId} className={width}>
             <span>
               Follow <span className="sr-only">{organiserName}</span>
             </span>
@@ -109,11 +126,24 @@ export default function FollowButton({
     );
   }
 
-  if (!auth || auth.status === "loading") return beside ? row(null) : null;
+  if (!auth || auth.status === "loading") {
+    if (!beside) return null;
+    // Hold the button's place while the session loads, so what's beside it doesn't jump: as wide as the
+    // widest label, "Sign in to follow" (about 170px at md), from sm; below sm the button fills the row anyway.
+    return row(
+      holdPlace ? (
+        <span
+          aria-hidden="true"
+          data-follow-placeholder=""
+          className={`h-12 w-32 rounded-control bg-surface sm:w-44 ${buttonClassName}`.trim()}
+        />
+      ) : null,
+    );
+  }
 
   if (!signedIn || !getToken) {
     return row(
-      <ButtonLink href={withNext("/login", returnTo)} variant="outline" size={size} className={width}>
+      <ButtonLink href={withNext("/login", returnTo)} variant={variant === "signal" ? "signal" : "outline"} size={size} className={width}>
         Sign in to follow
       </ButtonLink>,
     );
@@ -175,7 +205,7 @@ export default function FollowButton({
     <div className="flex flex-col items-start gap-3" aria-busy={load.status === "loading" ? true : undefined}>
       {row(
         <Button
-          variant={following ? "outline" : "solid"}
+          variant={following ? "outline" : variant}
           size={size}
           aria-pressed={following}
           busy={busy === "follow" || load.status === "loading"}

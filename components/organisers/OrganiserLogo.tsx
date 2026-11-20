@@ -9,6 +9,8 @@ const SIZES = {
   /** The event page's Organiser card (the owner's event mock). */
   card: { box: "size-12", px: 48 },
   lg: { box: "size-24 sm:size-32", px: 128 },
+  /** The organiser's profile header: `lg` with a step up at 1280px (96 / 128 / 160). */
+  profile: { box: "size-24 sm:size-32 xl:size-40", px: 160 },
 } as const;
 
 /**
@@ -27,25 +29,29 @@ export default function OrganiserLogo({
   url,
   size,
   fallback,
+  className = "",
 }: {
   name: string;
   /** `logoUrl` or `organiserLogoThumbUrl` from the API; unset: the fallback. */
   url?: string;
   size: keyof typeof SIZES;
   fallback: "initials" | "none";
+  /** Added to the box (the profile's cut-out ring over a cover). */
+  className?: string;
 }) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const { box, px } = SIZES[size];
 
   if (!url || failedUrl === url) {
-    return fallback === "initials" ? <InitialsAvatar name={name} size={size} shape="logo" /> : null;
+    if (fallback === "none") return null;
+    return <InitialsAvatar name={name} size={size === "profile" ? "lg" : size} shape="logo" />;
   }
 
   return (
     <span
       aria-hidden="true"
       data-organiser-logo=""
-      className={`flex shrink-0 overflow-hidden rounded-dot border border-foreground bg-paper ${box}`}
+      className={`flex shrink-0 overflow-hidden rounded-dot border border-foreground bg-paper ${box} ${className}`.trim()}
     >
       {/* eslint-disable-next-line @next/next/no-img-element -- a same-origin API image, already sized (96/512 px) and versioned by the server */}
       <img

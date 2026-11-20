@@ -2,7 +2,8 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import HomeAllEvents, { ALL_EVENTS_PAGE, ALL_EVENTS_PAGE_PHONE, HOME_GRID } from "@/components/home/HomeAllEvents";
+import HomeAllEvents, { ALL_EVENTS_PAGE, ALL_EVENTS_PAGE_PHONE } from "@/components/home/HomeAllEvents";
+import { HOME_GRID } from "@/components/ui/grids";
 import { NO_HOME_FILTERS, type HomeFilters } from "@/lib/home-filters";
 import type { SheltuhEvent } from "@/lib/types";
 

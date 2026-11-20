@@ -14,6 +14,8 @@ const SIZES = {
   strip: "size-7.5 text-xs leading-4",
   /** An organiser's initials on the event page's Organiser card (OrganiserLogo `card`). */
   card: "size-12 text-base leading-6",
+  /** The avatar menu's identity row (navigation-search.md §4.1): 40px. */
+  nav: "size-10 text-sm leading-5",
   lg: "size-24 text-2xl leading-8 sm:size-32 sm:text-4xl sm:leading-10",
   field: "size-18 text-xl leading-7",
 } as const;

@@ -8,11 +8,18 @@ import type { OrganiserSocialLinks, PublicOrganiserProfile } from "@/lib/api/typ
  */
 export type OrganiserProfileDetails = Omit<PublicOrganiserProfile, "upcomingEvents" | "recentEvents">;
 
-/** Longest bio the API accepts (organisers.description). */
 /** The dashboard Profile page's logo field (its id is `logo`), for every "Add logo" link. */
 export const ADD_LOGO_HREF = "/dashboard/profile#logo";
 
+/** Longest bio the API accepts (organisers.description). */
 export const MAX_BIO_LENGTH = 2000;
+
+/**
+ * The most past events a profile lists (the most recent): the API's cap
+ * (lib/server/handlers/public-organisers.ts), the demo's
+ * (lib/sample-organisers.ts) and the page's.
+ */
+export const PROFILE_PAST_EVENT_LIMIT = 12;
 
 export type SocialNetwork = keyof OrganiserSocialLinks;
 
@@ -27,6 +34,37 @@ export const SOCIAL_NETWORKS: readonly { network: SocialNetwork; label: string }
   { network: "x", label: "X" },
   { network: "linkedin", label: "LinkedIn" },
 ];
+
+/** An organiser profile's path: `/organisers/{id}`. */
+export function organiserProfilePath(organiserId: string): string {
+  return `/organisers/${encodeURIComponent(organiserId)}`;
+}
+
+/**
+ * An organiser profile's public address, for sharing and reports: the origin
+ * and `/organisers/{id}` only, never the address bar's query or fragment
+ * (as publicEventUrl in lib/event-url.ts).
+ */
+export function publicOrganiserUrl(organiserId: string, origin: string): string {
+  return `${origin.replace(/\/+$/, "")}${organiserProfilePath(organiserId)}`;
+}
+
+/**
+ * "Report this organiser": an email to Sheltüh's support, its subject naming
+ * the organiser and their profile ("Report: {name} ({url})"), the whole
+ * subject encoded (a name can hold "&" or "?"). Without a configured origin
+ * (`siteOrigin()`, a demo deployment), the profile's path stands in. As
+ * reportEventHref in lib/event-url.ts.
+ */
+export function reportOrganiserHref(
+  displayName: string,
+  organiserId: string,
+  origin: string | undefined,
+  email: string,
+): string {
+  const page = origin ? publicOrganiserUrl(organiserId, origin) : organiserProfilePath(organiserId);
+  return `mailto:${email}?subject=${encodeURIComponent(`Report: ${displayName} (${page})`)}`;
+}
 
 /** The organiser profile page's title before (or without) the organiser's name. */
 export const ORGANISER_PAGE_TITLE = "Organiser — Sheltüh";

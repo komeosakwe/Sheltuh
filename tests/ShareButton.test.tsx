@@ -220,6 +220,68 @@ describe("ShareButton", () => {
   });
 });
 
+describe("ShareButton with a path (an organiser's profile)", () => {
+  const PROFILE = `${ORIGIN}/organisers/org-1`;
+
+  beforeEach(() => {
+    window.history.replaceState(null, "", "/organisers/org-1?ref=abcd2345#links");
+  });
+
+  it("shares the page's path on this origin, never the address bar's query or fragment", async () => {
+    const share = vi.fn().mockResolvedValue(undefined);
+    setNavigator({ share, canShare: () => true });
+    render(<ShareButton path="/organisers/org-1?x=1#y" title="Northside Noise" text="Northside Noise on Sheltüh" />);
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Share Northside Noise" })));
+    expect(share).toHaveBeenCalledWith({ title: "Northside Noise", text: "Northside Noise on Sheltüh", url: PROFILE });
+  });
+
+  it("names the copy-by-hand field with copyLabel", async () => {
+    setNavigator({});
+    render(<ShareButton path="/organisers/org-1" title="Northside Noise" copyLabel="Link to this profile" />);
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Share Northside Noise" })));
+    expect(screen.getByRole("textbox", { name: "Link to this profile" })).toHaveValue(PROFILE);
+  });
+
+  it("copiedInLabel: the button reads Copied for a few seconds, and Link copied is said, not shown", async () => {
+    vi.useFakeTimers();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    setNavigator({ clipboard: { writeText } });
+    const { container } = render(<ShareButton path="/organisers/org-1" title="Northside Noise" copiedInLabel />);
+    const button = screen.getByRole("button", { name: "Share Northside Noise" });
+    const label = (which: "share" | "copied") => container.querySelector(`[data-share-label="${which}"]`);
+    // Both labels share one grid cell, so the button is as wide as "Copied" before and after.
+    expect(label("share")).not.toHaveClass("invisible");
+    expect(label("copied")).toHaveClass("invisible");
+    expect(label("share")?.parentElement).toBe(label("copied")?.parentElement);
+    expect(label("share")?.parentElement).toHaveClass("grid");
+    await act(async () => fireEvent.click(button));
+    expect(writeText).toHaveBeenCalledWith(PROFILE);
+    expect(label("copied")).not.toHaveClass("invisible");
+    expect(label("share")).toHaveClass("invisible");
+    // The name starts with what's shown (WCAG 2.5.3).
+    expect(button).toHaveAccessibleName("Copied. Share Northside Noise");
+    const status = screen.getByRole("status");
+    expect(status).toHaveTextContent("Link copied");
+    expect(status).toHaveClass("sr-only");
+    act(() => vi.advanceTimersByTime(4000));
+    expect(button).toHaveAccessibleName("Share Northside Noise");
+    expect(label("share")).not.toHaveClass("invisible");
+    expect(label("copied")).toHaveClass("invisible");
+  });
+
+  it("without copiedInLabel the label stays Share and Link copied shows beside it (the event page)", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    setNavigator({ clipboard: { writeText } });
+    renderShare();
+    const button = screen.getByRole("button", { name: "Share Neon Static" });
+    await act(async () => fireEvent.click(button));
+    expect(button).toHaveTextContent("Share");
+    expect(button).not.toHaveTextContent("Copied");
+    expect(button).toHaveAccessibleName("Share Neon Static");
+    expect(screen.getByRole("status")).not.toHaveClass("sr-only");
+  });
+});
+
 describe("AddToCalendar", () => {
   const event = sampleEvents.find((e) => e.slug === "thornbury-dub-session");
   if (!event) throw new Error("fixture missing");
