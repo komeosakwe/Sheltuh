@@ -68,7 +68,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261128000100_organiser_tags.sql`. Never
+      newest, currently `20261201000000_member_upcoming_index.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -516,6 +516,15 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           function is redefined. Can be applied before the app. Reversible:
           drop the functions and trigger, then the two columns (destructive:
           every organiser's chosen chips).
+      54. `20261201000000_member_upcoming_index.sql` (a member's upcoming
+          events count, docs/architecture.md "API", `GET /me`: index
+          `orders_paid_email_event_idx` on `orders (lower(buyer_email),
+          event_id)` where `status = 'paid'`). Additive: no table, column,
+          function or grant changes. Can be applied before the app; without
+          it `GET /me` still answers, reading paid orders without the index.
+          A plain `create index` holds a SHARE lock on `orders` (order writes
+          wait) while it builds: immediate pre-launch, outside peak sales
+          after. Reversible, not destructive: drop the index.
 
       **Files 33 to 37 can be applied ahead of this deploy, with the
       previous app still live.** "The previous app" here is the build of

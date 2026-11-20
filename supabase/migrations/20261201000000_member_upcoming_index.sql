@@ -1,0 +1,27 @@
+-- A member's upcoming events count (docs/architecture.md, "API",
+-- `GET /me`): how many published events that haven't started yet the caller
+-- holds a ticket for. Guest checkout has no account, so a ticket belongs to a
+-- member by a paid order whose buyer_email equals their verified email,
+-- ignoring case: the same match as Who's Going (private.set_going).
+--
+--   * orders_paid_email_event_idx (lower(buyer_email), event_id) where
+--     status = 'paid'. GET /me looks a member's paid orders up by email
+--     across every event. The existing orders_event_paid_email_idx holds the
+--     same rows but leads with event_id (set_going asks about one event), so
+--     it can't find one email's orders without reading the whole index; this
+--     one leads with the lower() expression the query compares (so the
+--     planner can use it) and carries event_id for the join to events and
+--     the distinct count. Partial on 'paid', as the query's predicate is: the
+--     pending, failed, refunded and oversold orders a count never includes
+--     stay out of it.
+--
+-- Plain `create index` (not concurrently: a migration runs in one
+-- transaction): it holds a SHARE lock on public.orders while it builds, so
+-- order writes wait for it. Pre-launch the table is small and the build is
+-- immediate; past launch, run it outside peak sales.
+--
+-- Additive: no table, column, function or grant changes; the previous app
+-- never relies on it and can run with it. Can be applied before the app.
+-- Reversible, not destructive: drop index public.orders_paid_email_event_idx.
+
+create index orders_paid_email_event_idx on public.orders (lower(buyer_email), event_id) where status = 'paid';

@@ -37,6 +37,7 @@ export type {
   AdminReport,
   EmailJobStatus,
   FeaturedVideo,
+  AccountSummary,
   FollowedOrganiser,
   FollowStatus,
   MemberPhoto,
