@@ -175,17 +175,24 @@ use OpenSSL, which macOS, Linux and Git Bash on Windows already have.
 ## Official badges
 
 Both buttons are the vendors' official artwork, downloaded by the owner on
-20 Nov 2026. They're committed byte for byte in `public/wallet/badges/`
-(`lib/wallet-badges.ts`) and used unmodified on the ticket page
-(`components/tickets/WalletButtons.tsx`) and in the ticket email. As with
-the sign-in logos (`docs/auth-logos.md`), never redraw, recolour, crop or
-restyle them, and never ship a made-up version. To replace one, download
-it again yourself.
+20 Nov 2026, in `public/wallet/badges/` (`lib/wallet-badges.ts`), and used
+on the ticket page (`components/tickets/WalletButtons.tsx`) and in the
+ticket email. Apple's is committed byte for byte. Google's has one change,
+the owner's call on 20 Nov 2026: its two outline rectangles' corner radius
+goes from `rx="27"` (a pill) to `rx="13"`, so it's a rounded rectangle like
+Apple's (Apple's corner is about 24% of its height; 13 is 24% of 54).
+Nothing else in it changed. Google's guidelines ask for the button
+unaltered, so Google could flag this when it reviews the Wallet
+integration; if it does, put back the original (`rx="27"`, the SHA-256
+below) and re-run `scripts/render-ticket-email-assets.ts`. Apart from
+that, as with the sign-in logos (`docs/auth-logos.md`), never redraw,
+recolour, crop or restyle them, and never ship a made-up version. To
+replace one, download it again yourself.
 
 | File | Source | What it is | SHA-256 |
 | --- | --- | --- | --- |
 | `US-UK_Add_to_Apple_Wallet_RGB_101421.svg` | Apple's "Add to Apple Wallet" badge files (the `US_UK/RGB` folder), from the Add to Apple Wallet guidelines (<https://developer.apple.com/wallet/add-to-apple-wallet-guidelines/>). The owner accepted Apple's Wallet Marketing Artwork License Agreement to download them. | Black, two lines ("Add to / Apple Wallet"), 110.739 × 35.016 | `052b3b446860fd2f9b49c2f0336038947623a5a9433ee3583585b8552ff6f506` |
-| `enAU_add_to_google_wallet_add-wallet-badge.svg` | Google Wallet's brand guidelines badge packs ("Add to Google Wallet", all locales) | Australian English, two lines ("Add to / Google Wallet"), 199 × 55 | `6e5b4dd71644a1df382ef0255591526859488e17e398eeae36d2f3f25b7e8efb` |
+| `enAU_add_to_google_wallet_add-wallet-badge.svg` | Google Wallet's brand guidelines badge packs ("Add to Google Wallet", all locales) | Australian English, two lines ("Add to / Google Wallet"), 199 × 55, corners rounded as above | Committed: `18d7d9603d0953e4887cb62f292a6378304da0e21c6668306b9d653e2e5a717b`. Google's original: `6e5b4dd71644a1df382ef0255591526859488e17e398eeae36d2f3f25b7e8efb` |
 
 Not committed, from the same downloads:
 - Google's one-line `enAU_add_to_google_wallet_wallet-button.svg`

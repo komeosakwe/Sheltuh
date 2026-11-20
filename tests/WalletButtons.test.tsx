@@ -88,9 +88,13 @@ describe("WalletButtons", () => {
     expect(new Set(screen.getAllByRole("img").map((img) => img.getAttribute("class")))).toEqual(new Set(["block h-11 w-auto"]));
   });
 
-  it("the committed artwork is the vendors' download, byte for byte", () => {
-    const sha = (file: string) => createHash("sha256").update(readFileSync(path.join(process.cwd(), "public", file))).digest("hex");
-    expect(sha(WALLET_BADGES.apple.src)).toBe("052b3b446860fd2f9b49c2f0336038947623a5a9433ee3583585b8552ff6f506");
-    expect(sha(WALLET_BADGES.google.src)).toBe("6e5b4dd71644a1df382ef0255591526859488e17e398eeae36d2f3f25b7e8efb");
+  it("the committed artwork is the vendors' download: Apple's byte for byte, Google's with only its corners changed", () => {
+    const read = (file: string) => readFileSync(path.join(process.cwd(), "public", file));
+    const sha = (data: Buffer | string) => createHash("sha256").update(data).digest("hex");
+    expect(sha(read(WALLET_BADGES.apple.src))).toBe("052b3b446860fd2f9b49c2f0336038947623a5a9433ee3583585b8552ff6f506");
+    // Google's pill (rx="27") cut to a rounded rectangle like Apple's (rx="13"), the owner's call (docs/wallet-setup.md).
+    const google = read(WALLET_BADGES.google.src).toString("utf8");
+    expect(sha(google)).toBe("18d7d9603d0953e4887cb62f292a6378304da0e21c6668306b9d653e2e5a717b");
+    expect(sha(google.replaceAll('rx="13"', 'rx="27"'))).toBe("6e5b4dd71644a1df382ef0255591526859488e17e398eeae36d2f3f25b7e8efb");
   });
 });

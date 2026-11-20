@@ -1,8 +1,10 @@
 /**
  * The vendors' official wallet artwork (docs/wallet-setup.md, "Official
- * badges"), downloaded by the owner on 20 Nov 2026 and committed byte for
- * byte under public/wallet/badges/. Never redraw, recolour, crop or restyle
- * either. The email can't rely on SVG, so it uses PNGs rasterised from these
+ * badges"), downloaded by the owner on 20 Nov 2026, under
+ * public/wallet/badges/. Apple's is byte for byte. Google's has its corner
+ * radius cut from a pill to a rounded rectangle like Apple's (the owner's
+ * call; docs/wallet-setup.md), nothing else. Never redraw, recolour, crop or
+ * otherwise restyle either. The email can't rely on SVG, so it uses PNGs rasterised from these
  * same files (scripts/render-ticket-email-assets.ts,
  * lib/server/email-ticket-layout.ts).
  *

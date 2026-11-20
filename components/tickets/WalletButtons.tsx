@@ -21,7 +21,7 @@ interface WalletButtonsProps {
  * route redirects to Google's save page, and Apple's serves the .pkpass,
  * which Safari offers to add to Wallet.
  *
- * Each is the vendor's official badge, unmodified (lib/wallet-badges.ts):
+ * Each is the vendor's official badge (lib/wallet-badges.ts; Google's with rounded-rectangle corners):
  * Apple's then Google's, both 44px tall at their own proportions (about 139
  * and 159px wide), 8px apart (Apple asks for 0.1x the height around its
  * badge: 4.4px). No hover effects, no dimming, and the same files in both
