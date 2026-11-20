@@ -25,6 +25,7 @@
   --signal-foreground: #000000; /* 6.18:1, the only small-text pairing on orange */
   --ink: #000000; /* constants, never re-scoped (e.g. .btn-signal:hover) */
   --paper: #ffffff; /* (e.g. the SaveButton's ring gap) */
+  --avatar-placeholder: #fffae7; /* the account's cream circle when it has no photo, in the avatar menu and the drawer, in every theme (the "Navigation" board) */
   --danger: #b3261e;
   --danger-foreground: #ffffff;
   /* The ticket panel on the event page (owner's mockup, 6 Nov 2026): a warm ivory card, a peach tint for the
@@ -74,7 +75,7 @@
   --display-tracking: 0;
   /* The control stroke (the rules' Shape board): chips, filters, inputs and secondary buttons. */
   --stroke-control: 1.5px;
-  --header-h: 3.5rem; /* 56px: the phone and tablet header (Round 2 §1.2); 72px from lg, below */
+  --header-h: 4rem; /* 64px: the phone and tablet bar, as the "Header / Mobile" board draws it; 100px from lg, below */
   /* The header's nav dots (the rules' Navigation board): two 6px squares, 20px across. */
   --umlaut-mask-nav: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 6'%3E%3Crect width='6' height='6' rx='1'/%3E%3Crect x='14' width='6' height='6' rx='1'/%3E%3C/svg%3E");
   --buybar-h: 4rem; /* 64px sticky event-page buy bar, < lg (before the safe area) */
@@ -89,11 +90,18 @@
   --google-fill: #ffffff;
   --google-stroke: #747775;
   --google-text: #1f1f1f;
+  /* The site header and the avatar menu, as the "Navigation" board draws them (navigation-search.md
+     §5.16): the header row is white in Light and #0a0a0a in Dark, over the #000 page; the avatar
+     menu is white in Light (cream under the pointer) and a warm near-black in Dark. Page theme only,
+     so never re-scoped in [data-surface=*]. */
+  --header: #ffffff;
+  --menu: #ffffff;
+  --menu-hover: #fffae7;
 }
 
 @media (width >= 64rem) {
   :root {
-    --header-h: 4.5rem; /* 72px: the desktop header (Round 2 §1.2). It stays 72 when the XL row shrinks to 64 on scroll, so scroll padding never under-measures. */
+    --header-h: 6.25rem; /* 100px: the desktop header, as the "Header" board draws it (navigation-search.md §5.16). It stays 100 when the XL row shrinks to 92 on scroll, so scroll padding never under-measures. */
   }
 }
 
@@ -131,6 +139,9 @@
     --google-fill: #131314;
     --google-stroke: #8e918f;
     --google-text: #e3e3e3;
+    --header: #0a0a0a;
+    --menu: #1c1b17; /* white on it 17.2:1, the muted grey 6.8:1 */
+    --menu-hover: #2e2b26; /* white on it 14.1:1 */
   }
 }
 
@@ -319,12 +330,16 @@
   --color-signal-foreground: var(--signal-foreground);
   --color-ink: var(--ink);
   --color-paper: var(--paper);
+  --color-avatar-placeholder: var(--avatar-placeholder);
   --color-panel: var(--panel);
   --color-tint: var(--tint);
   --color-signal-ink: var(--signal-ink);
   --color-soft-line: var(--soft-line);
   --color-peach: var(--peach);
   --color-signal-text: var(--signal-text);
+  --color-header: var(--header);
+  --color-menu: var(--menu);
+  --color-menu-hover: var(--menu-hover);
   --color-lilac: var(--lilac);
   --color-sand: var(--sand);
   --color-night: var(--night);
@@ -589,10 +604,12 @@ h4 {
   font-size: 0.875rem;
   line-height: 1.25rem;
 }
+/* Label/Nav as the "Navigation" and "Menu drawer / Mobile" boards draw it: 18 medium (the header's
+   places, Sign in and For organisers, the drawer's rows). */
 @utility label-nav {
   font-family: var(--face-sans);
   font-weight: 500;
-  font-size: 1rem;
+  font-size: 1.125rem;
   line-height: 1.5rem;
 }
 @utility label-button {
@@ -608,6 +625,15 @@ h4 {
   font-weight: 500;
   font-size: 0.75rem;
   line-height: 1rem;
+}
+/* The phone drawer's three places (docs/design/navigation-search.md §2, the "Menu drawer / Mobile"
+   board): Instrument Sans Bold 40/48 at every width, as written (sentence case), never Bootzy. */
+@utility label-menu {
+  font-family: var(--face-sans);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  font-size: 2.5rem;
+  line-height: 3rem;
 }
 /* Mono/M and Mono/S keep the Type board's names, but no longer its face (owner decision,
    13 Nov 2026): Instrument Sans 400 as written, in sentence case and normal tracking, with
@@ -707,6 +733,24 @@ h4 {
     line-height: 3rem;
   }
 }
+/* banner-scrim (Round 2 Part 2): the featured banner's shade around its words, on the box that wraps
+   them (FeaturedCarousel [data-slide-scrim]). Clear at its top, 60% ink 6rem down (its top padding,
+   pt-24, where the words start), 80% at the bottom. White text on 60% ink over a pure-white pixel is 5.7:1,
+   so every line holds 4.5:1 on any photo, at any title length or text size. Ink is the constant
+   black in both themes. The fade's height is --banner-scrim-fade (6rem); banner-scrim-scaled sets
+   it to the share of the scrim it takes on the home (96px of about 320px), for the editor's small
+   previews of the banner (EventImageField), which draw the same scrim where the words sit. */
+@utility banner-scrim {
+  background-image: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--ink) 80%, transparent) 0%,
+    color-mix(in srgb, var(--ink) 60%, transparent) calc(100% - var(--banner-scrim-fade, 6rem)),
+    transparent 100%
+  );
+}
+@utility banner-scrim-scaled {
+  --banner-scrim-fade: 30%;
+}
 @utility heading-section-l {
   font-family: var(--face-sans);
   font-weight: 700;
@@ -789,6 +833,8 @@ h4 {
      2px underline in the text colour, so it doesn't rest on colour and small marks only. */
   /* "true": the section you're in, e.g. Discover on an event's page. */
   /* aria-selected: the seat page's Map / List tabs (docs/design/seating.md §5.4). */
+  /* data-current: the header's avatar while the page is one of its menu's (navigation-search.md §5.2). */
+  &[data-current],
   &[aria-selected="true"],
   &[aria-current="page"],
   &[aria-current="true"] {
@@ -797,6 +843,7 @@ h4 {
     text-decoration-thickness: 2px;
     text-underline-offset: var(--umlaut-offset, 4px);
   }
+  &[data-current]::before,
   &[aria-selected="true"]::before,
   &[aria-current="page"]::before,
   &[aria-current="true"]::before {
@@ -829,20 +876,22 @@ h4 {
   }
 }
 
-/* The header's nav items (the rules' Navigation board), with `umlaut`: the 20×6 pair of dots
-   over the label, and the current page's underline 12px under it. */
+/* The header's nav items (the "Header" board), with `umlaut`: the 20×6 pair of dots over the
+   label, and the current page's underline 13.5px under its baseline. As measured on the board,
+   the label sits 1.5px below the 100px row's middle while its dots stay 26px from the top. */
 @utility umlaut-nav {
   --umlaut-w: 20px;
   --umlaut-h: 6px;
-  --umlaut-top: -0.25rem;
-  --umlaut-offset: 12px;
+  --umlaut-top: calc(-0.25rem - 1.5px);
+  --umlaut-offset: 13.5px;
   --umlaut-mask: var(--umlaut-mask-nav);
+  translate: 0 1.5px;
 }
 
-/* The header's nav button ("For organisers"), with `umlaut`: 40px, the 1.5px stroke, radius 8,
-   Label/Nav 16 medium (Round 2 §1.3), 24px sides. Its dots sit 8px above the button, not on the label; hover
+/* The header's nav button ("For organisers"), with `umlaut`: 43 × 171px as the "Header" board draws
+   it (an 18/24 label, regular as drawn, 8px from the 1.5px stroke, 25px sides), radius 8. Its dots sit 8px above the button, not on the label; hover
    adds the --hover fill, and the current page fills it in the text colour (no underline: the
-   fill carries the state). In the black header in both themes. */
+   fill carries the state). In the theme-following desktop header. */
 @utility nav-button {
   --umlaut-w: 20px;
   --umlaut-h: 6px;
@@ -853,12 +902,13 @@ h4 {
   align-items: center;
   gap: 0.5rem;
   min-height: 2.5rem;
-  padding-inline: 1.5rem;
+  padding: 0.5rem 1.5625rem;
   border: var(--stroke-control) solid var(--foreground);
+  translate: 0 1.5px; /* as the board: 1.5px below the row's middle, like the labels */
   border-radius: var(--radius-control);
   font-family: var(--face-sans);
-  font-weight: 500;
-  font-size: 1rem;
+  font-weight: 400;
+  font-size: 1.125rem;
   line-height: 1.5rem;
   color: var(--foreground);
   @media (hover: hover) {
@@ -872,8 +922,9 @@ h4 {
   }
 }
 
-/* The header's Messages chip (the rules' signed-in header), with `umlaut`: 32px, 14px medium,
-   a muted 1.5px outline, the dots 8px above it. Current: filled, as the nav button. */
+/* The header's Messages chip (the "Header" board, signed in), with `umlaut`: 37px as drawn, 14px
+   regular, a muted 1.5px outline, the dots above it, the count's pill 2px above the middle.
+   Current: filled, as the nav button. */
 @utility nav-chip {
   --umlaut-w: 20px;
   --umlaut-h: 6px;
@@ -883,12 +934,12 @@ h4 {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  height: 2rem;
+  height: 2.3125rem;
   padding-inline: 1rem;
   border: var(--stroke-control) solid var(--surface-border);
   border-radius: var(--radius-control);
   font-family: var(--face-sans);
-  font-weight: 500;
+  font-weight: 400;
   font-size: 0.875rem;
   line-height: 1.25rem;
   color: var(--foreground);
@@ -901,10 +952,14 @@ h4 {
     background: var(--foreground);
     color: var(--background);
   }
+  & > [data-unread-badge] {
+    translate: 0 -2px;
+  }
 }
 
-/* The header's avatar (the rules' signed-in header), with `umlaut`: a solid square in the text
-   colour (white in the black header) with the initial and a caret in the page colour; 40px. */
+/* The header's avatar (the "Header" board, signed in), with `umlaut`: a solid block in the text
+   colour (black in Light, white in Dark), 40px tall, the initial and a small caret 4px apart
+   in the page colour, 16px in from each side. */
 @utility nav-avatar {
   --umlaut-w: 20px;
   --umlaut-h: 6px;
@@ -914,10 +969,10 @@ h4 {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
+  gap: 0.25rem;
   height: 2.5rem;
   min-width: 2.5rem;
-  padding-inline: 0.5rem;
+  padding-inline: 1rem;
   border-radius: var(--radius-control);
   background: var(--foreground);
   color: var(--background);
@@ -934,6 +989,41 @@ h4 {
   --umlaut-x: 0;
   &::before {
     top: 0.25rem;
+  }
+}
+
+/* The phone drawer's places (navigation-search.md §2, §5.3): the pair left of the word, at the
+   start of the link's 40px left padding (16px from the screen's edge) and centred on the line;
+   no underline, so the dots' shape carries the state (aria-current stays). As the "Menu drawer /
+   Mobile" board draws them: two round 8px dots, 24px across (the header's are 6px squares). */
+@utility umlaut-side {
+  --umlaut-w: 24px;
+  --umlaut-h: 8px;
+  --umlaut-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 8'%3E%3Ccircle cx='4' cy='4' r='4'/%3E%3Ccircle cx='20' cy='4' r='4'/%3E%3C/svg%3E");
+  --umlaut-left: 0;
+  --umlaut-x: 0;
+  --umlaut-top: calc(50% - 4px);
+  --umlaut-line: none;
+}
+
+/* The phone drawer and the avatar menu fade in (navigation-search.md §6): opacity 0 to 1 over
+   150ms, also on the way out (display and overlay stay until it ends). Only for people who don't
+   prefer reduced motion: for them it appears at once. Where :popover-open isn't supported the
+   rules are dropped, so nothing is ever left transparent. */
+@utility popover-fade {
+  @media (prefers-reduced-motion: no-preference) {
+    transition-property: opacity, display, overlay;
+    transition-duration: 150ms;
+    transition-timing-function: ease-out;
+    transition-behavior: allow-discrete;
+    &:not(:popover-open) {
+      opacity: 0;
+    }
+    @starting-style {
+      &:popover-open {
+        opacity: 0;
+      }
+    }
   }
 }
 

@@ -1,11 +1,19 @@
 import sharp from "sharp";
+import {
+  MAX_MEMBER_PHOTO_UPLOAD_BYTES,
+  MEMBER_PHOTO_MAX_SIDE,
+  MEMBER_PHOTO_THUMB_SIZE,
+} from "@/lib/member-photo-rules";
 import { HttpError } from "./http";
 import { readCappedBytes, sniffImageType } from "./image-upload";
 
 /**
  * Member profile photos (docs/architecture.md, "Member profiles"), the
  * square re-encoder they share with organiser logos (organiser-logo.ts), and
- * the decode slots and loader check event photos use too (event-image.ts). The upload
+ * member photos (encodeMemberPhoto; "Member photos"), which share the same
+ * decode slots (AVATAR_ENCODE_CONCURRENCY) so a burst of either queues
+ * behind the other; event photos use the decode slots and loader check too
+ * (event-image.ts). The upload
  * is never stored as sent: it's decoded and re-encoded here, server-side, to
  * a square WebP (AVATAR_SIZE) and a thumbnail (AVATAR_THUMB_SIZE). sharp
  * writes no metadata unless asked to, so the output carries no EXIF (camera,
@@ -48,6 +56,8 @@ export interface EncodedAvatar {
 const UNSUPPORTED_HINTS = {
   avatar: "Upload a JPEG, PNG or WebP photo.",
   logo: "Upload a JPEG, PNG or WebP image.",
+  photo: "Upload a JPEG, PNG or WebP photo.",
+  cover: "Upload a JPEG, PNG or WebP image.",
 } as const;
 
 export type SquareImageField = keyof typeof UNSUPPORTED_HINTS;
@@ -57,21 +67,28 @@ export function unsupportedImage(field: SquareImageField): HttpError {
   return new HttpError(400, "That file isn't a supported image.", { [field]: UNSUPPORTED_HINTS[field] });
 }
 
-const NOT_AN_IMAGE = () => unsupportedImage("avatar");
-
 /**
  * The upload, read as a stream and cut off past MAX_AVATAR_UPLOAD_BYTES
  * (413), whose own bytes must be a JPEG, PNG or WebP (400): the declared
  * Content-Type isn't trusted, and nothing else (SVG, GIF, HEIC, ...) is
  * handed to the decoder.
  */
-export async function readAvatarUpload(req: Request): Promise<Uint8Array> {
-  const tooLarge = () => new HttpError(413, "That photo is too large.", { avatar: "Use a photo under 5 MB." });
+export function readAvatarUpload(req: Request): Promise<Uint8Array> {
+  return readImageUpload(req, MAX_AVATAR_UPLOAD_BYTES, "avatar", "Use a photo under 5 MB.");
+}
+
+/** readAvatarUpload for a member photo: at most MAX_MEMBER_PHOTO_UPLOAD_BYTES (413), errors on `photo`. */
+export function readMemberPhotoUpload(req: Request): Promise<Uint8Array> {
+  return readImageUpload(req, MAX_MEMBER_PHOTO_UPLOAD_BYTES, "photo", "Use a photo under 4 MB.");
+}
+
+async function readImageUpload(req: Request, max: number, field: SquareImageField, sizeHint: string): Promise<Uint8Array> {
+  const tooLarge = () => new HttpError(413, "That photo is too large.", { [field]: sizeHint });
   const declared = Number(req.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > MAX_AVATAR_UPLOAD_BYTES) throw tooLarge();
-  const bytes = await readCappedBytes(req, MAX_AVATAR_UPLOAD_BYTES);
+  if (Number.isFinite(declared) && declared > max) throw tooLarge();
+  const bytes = await readCappedBytes(req, max);
   if (!bytes) throw tooLarge();
-  if (!sniffImageType(bytes)) throw NOT_AN_IMAGE();
+  if (!sniffImageType(bytes)) throw unsupportedImage(field);
   return bytes;
 }
 
@@ -81,7 +98,7 @@ const waiting: (() => void)[] = [];
 /**
  * Runs `work` in one of AVATAR_ENCODE_CONCURRENCY's slots, waiting for one if
  * needed; 503 when the queue is full. Shared by every upload that's decoded
- * (member photos, organiser logos, event photos).
+ * (member photos, organiser logos and covers, event photos).
  */
 export async function inEncodeSlot<T>(work: () => Promise<T>): Promise<T> {
   if (running < AVATAR_ENCODE_CONCURRENCY.running) {
@@ -103,11 +120,34 @@ export async function inEncodeSlot<T>(work: () => Promise<T>): Promise<T> {
 }
 
 /**
+ * Both results, once both have settled; if either rejected, the first
+ * rejection (`a`'s before `b`'s). For two encodes run side by side inside
+ * inEncodeSlot: unlike Promise.all, it doesn't settle while the other encode
+ * is still running, so the slot isn't handed on with libvips still busy.
+ */
+export async function bothSettled<A, B>(a: Promise<A>, b: Promise<B>): Promise<[A, B]> {
+  const [first, second] = await Promise.allSettled([a, b]);
+  if (first.status === "rejected") throw first.reason;
+  if (second.status === "rejected") throw second.reason;
+  return [first.value, second.value];
+}
+
+/**
  * The loader libvips itself picks for these bytes (it chooses from the bytes,
- * independently of our sniff), from a header-only read: `jpeg`, `png` or
- * `webp`, or null for anything else or nothing readable. Checked before any
- * decode, so a polyglot (an image signature followed by SVG, PDF, TIFF…)
- * can't reach another decoder.
+ * independently of our sniff): `jpeg`, `png` or `webp`, or null for anything
+ * else or nothing readable.
+ *
+ * What this does and doesn't gate: sharp's `metadata()` has libvips select a
+ * loader and open it to read the header, so the selected loader's header
+ * parsing has already run on the bytes by the time the format is compared
+ * with the allowlist. The allowlist therefore gates the pixel-decoding
+ * pipeline every caller builds next (decoder, encodeSquareImage,
+ * encodeEventImage), not the header read: a polyglot (an image signature
+ * followed by SVG, PDF, TIFF…) that libvips hands to another loader is
+ * refused before that loader decodes any pixels. What narrows which loaders
+ * the header read can reach is upstream: every caller has already required a
+ * JPEG, PNG or WebP signature at offset 0 (sniffImageType), and the body is
+ * size-capped (readCappedBytes).
  */
 export async function loaderFormat(input: Uint8Array): Promise<"jpeg" | "png" | "webp" | null> {
   const format = await sharp(input, { failOn: "error" })
@@ -130,6 +170,22 @@ export interface SquareImageOptions {
 }
 
 /**
+ * The upload's decoder, after loaderFormat's header read confirms libvips
+ * chose its own JPEG, PNG or WebP loader (it picks one from the bytes,
+ * independently of our sniff), so a polyglot can't reach another loader's
+ * pixel decode (SVG, PDF, TIFF…); see loaderFormat for what that read does
+ * and doesn't gate.
+ * First frame only, at most MAX_AVATAR_INPUT_PIXELS (refused from the
+ * header), EXIF orientation applied to the pixels (the tag itself isn't kept).
+ * Call it inside inEncodeSlot. Used by member photos (encodeMemberPhoto) and organiser
+ * covers (organiser-cover.ts).
+ */
+export async function decoder(input: Uint8Array, field: SquareImageField): Promise<ReturnType<typeof sharp>> {
+  if (!(await loaderFormat(input))) throw unsupportedImage(field);
+  return sharp(input, { limitInputPixels: MAX_AVATAR_INPUT_PIXELS, failOn: "error", pages: 1 }).rotate();
+}
+
+/**
  * Re-encodes an upload (already sniffed as JPEG, PNG or WebP), decoding it
  * once: the upload becomes a 512 px square of raw sRGB pixels, and both WebPs
  * are made from those (the thumbnail scaled down from them). A file that
@@ -140,10 +196,7 @@ export interface SquareImageOptions {
 export async function encodeSquareImage(input: Uint8Array, options: SquareImageOptions): Promise<EncodedAvatar> {
   const notAnImage = () => unsupportedImage(options.field);
   return inEncodeSlot(async () => {
-    if (!(await loaderFormat(input))) throw notAnImage();
-    let pipeline = sharp(input, { limitInputPixels: MAX_AVATAR_INPUT_PIXELS, failOn: "error", pages: 1 })
-      // Applies the EXIF orientation to the pixels (the tag itself isn't kept).
-      .rotate();
+    let pipeline = await decoder(input, options.field);
     if (options.fit === "contain") {
       const background = options.background ?? "#ffffff";
       pipeline = pipeline
@@ -164,13 +217,13 @@ export async function encodeSquareImage(input: Uint8Array, options: SquareImageO
       });
     const raw = { raw: { width: square.info.width, height: square.info.height, channels: square.info.channels } };
     // No keepMetadata/withMetadata/keepExif/keepIccProfile: nothing is written but pixels.
-    const [image, thumb] = await Promise.all([
+    const [image, thumb] = await bothSettled(
       sharp(square.data, raw).webp({ quality: 82, effort: 4 }).toBuffer(),
       sharp(square.data, raw)
         .resize(AVATAR_THUMB_SIZE, AVATAR_THUMB_SIZE, { fit: "cover", position: "centre" })
         .webp({ quality: 80, effort: 4 })
         .toBuffer(),
-    ]);
+    );
     return { image, thumb };
   });
 }
@@ -181,4 +234,101 @@ export async function encodeSquareImage(input: Uint8Array, options: SquareImageO
  */
 export function encodeAvatar(input: Uint8Array): Promise<EncodedAvatar> {
   return encodeSquareImage(input, { field: "avatar", fit: "cover" });
+}
+
+/** private.profile_photos.image's bound (bytes): the same as a report's photo copy (report_photos.image). */
+export const MEMBER_PHOTO_MAX_BYTES = 512 * 1024;
+/** private.profile_photos.thumb's bound (bytes). */
+export const MEMBER_PHOTO_THUMB_MAX_BYTES = 64 * 1024;
+/** WebP qualities tried in turn until the output fits its bound (most photos fit the first). */
+const MEMBER_PHOTO_QUALITIES = [82, 70, 55, 40, 25] as const;
+const MEMBER_THUMB_QUALITIES = [80, 70, 55, 40] as const;
+
+export interface EncodedMemberPhoto {
+  image: Buffer;
+  thumb: Buffer;
+  /** The stored image's size in pixels (each at most MEMBER_PHOTO_MAX_SIDE). */
+  width: number;
+  height: number;
+}
+
+export type RawPixels = { data: Buffer; width: number; height: number; channels: 1 | 2 | 3 | 4 };
+
+/**
+ * `pixels` as a WebP of at most `maxBytes`, made only from those pixels (no
+ * metadata): each of `qualities` in turn, then, if even the lowest is too big
+ * (only noise-like images get there), the pixels scaled down by a fifth at a
+ * time at the lowest quality. A square `side` crops to fill that square
+ * first. Returns the WebP and its size as encoded. Exported for its test.
+ */
+export async function webpWithin(
+  pixels: RawPixels,
+  maxBytes: number,
+  qualities: readonly number[],
+  side?: number,
+): Promise<{ data: Buffer; width: number; height: number }> {
+  const raw = { raw: { width: pixels.width, height: pixels.height, channels: pixels.channels } };
+  let width = side ?? pixels.width;
+  let height = side ?? pixels.height;
+  // The WebP and its real size (`fit: "inside"` can come out a pixel under the box).
+  const encode = async (quality: number) => {
+    const fit = side === undefined ? "inside" : "cover";
+    const { data, info } = await sharp(pixels.data, raw)
+      .resize(width, height, { fit, position: "centre" })
+      .webp({ quality, effort: 4 })
+      .toBuffer({ resolveWithObject: true });
+    return { data, width: info.width, height: info.height };
+  };
+  for (const quality of qualities) {
+    const out = await encode(quality);
+    if (out.data.length <= maxBytes) return out;
+  }
+  const lowest = qualities[qualities.length - 1];
+  // Bounded: each step has 64% of the pixels, and a 1-pixel WebP is tiny.
+  for (;;) {
+    width = Math.max(1, Math.floor(width * 0.8));
+    height = Math.max(1, Math.floor(height * 0.8));
+    const out = await encode(lowest);
+    if (out.data.length <= maxBytes) return out;
+  }
+}
+
+/**
+ * Re-encodes an uploaded member photo (already sniffed as JPEG, PNG or WebP),
+ * decoding it once, in one of the decode slots it shares with profile photos
+ * and logos (AVATAR_ENCODE_CONCURRENCY; 503 when the queue is full). The
+ * upload becomes raw sRGB pixels fitted inside MEMBER_PHOTO_MAX_SIDE (never
+ * enlarged), with any transparency flattened onto white (a photo, and it
+ * keeps a noisy alpha channel from blowing the size bound); from those, a
+ * WebP of at most MEMBER_PHOTO_MAX_BYTES and a MEMBER_PHOTO_THUMB_SIZE square
+ * thumbnail (cropped to fill) of at most MEMBER_PHOTO_THUMB_MAX_BYTES, each
+ * stepping its quality down until it fits. No metadata is written (no EXIF,
+ * GPS, ICC or XMP). A file that doesn't decode (truncated, corrupt, over the
+ * pixel limit) is a 400 on `photo`.
+ */
+export async function encodeMemberPhoto(input: Uint8Array): Promise<EncodedMemberPhoto> {
+  return inEncodeSlot(async () => {
+    const decoded = await (await decoder(input, "photo"))
+      .flatten({ background: "#ffffff" })
+      .resize(MEMBER_PHOTO_MAX_SIDE, MEMBER_PHOTO_MAX_SIDE, { fit: "inside", withoutEnlargement: true })
+      // Into sRGB, so the image looks right without an embedded ICC profile.
+      .toColourspace("srgb")
+      // Raw pixels: nothing of the upload but them goes any further.
+      .raw()
+      .toBuffer({ resolveWithObject: true })
+      .catch(() => {
+        throw unsupportedImage("photo");
+      });
+    const pixels: RawPixels = {
+      data: decoded.data,
+      width: decoded.info.width,
+      height: decoded.info.height,
+      channels: decoded.info.channels,
+    };
+    const [image, thumb] = await bothSettled(
+      webpWithin(pixels, MEMBER_PHOTO_MAX_BYTES, MEMBER_PHOTO_QUALITIES),
+      webpWithin(pixels, MEMBER_PHOTO_THUMB_MAX_BYTES, MEMBER_THUMB_QUALITIES, MEMBER_PHOTO_THUMB_SIZE),
+    );
+    return { image: image.data, thumb: thumb.data, width: image.width, height: image.height };
+  });
 }

@@ -481,6 +481,46 @@ describe("GET /organisers/{id}/logo", () => {
     }
   });
 
+  it("a list, a weak tag or `*` naming the current logo is a 304 too (RFC 9110 §13.1.2); anything else gets it", async () => {
+    await upload(organiser.token, await smallPng());
+    const { version } = (await storedLogo(organiser.organiserId))!;
+
+    for (const [query, header, etag] of [
+      ["", `"1-f", "${version}-f"`, `"${version}-f"`],
+      ["", `"${version}-t", W/"${version}-f"`, `"${version}-f"`],
+      ["", `W/"${version}-f"`, `"${version}-f"`],
+      ["", "*", `"${version}-f"`],
+      ["?size=thumb", `"${version}-f", "${version}-t"`, `"${version}-t"`],
+      ["?size=thumb", "*", `"${version}-t"`],
+    ]) {
+      const res = await getLogo(organiser.organiserId, { query, headers: { "if-none-match": header } });
+      expect([query, header, res.status, res.headers.get("etag")]).toEqual([query, header, 304, etag]);
+      expect((await res.arrayBuffer()).byteLength).toBe(0);
+    }
+    // The 304 carries the cache header of the 200 it stands for.
+    const versioned = await getLogo(organiser.organiserId, { query: `?v=${version}`, headers: { "if-none-match": "*" } });
+    expect([versioned.status, versioned.headers.get("cache-control")]).toEqual([304, LOGO_CACHE]);
+
+    // No listed tag is this size's at the current version, or the header isn't one we read: the image.
+    for (const [query, header] of [
+      ["", `"1-f", "${version}-t", "${version}-l"`],
+      ["?size=thumb", `"${version}-f", W/"1-t"`],
+      ["", `"${version}-f" "1-f"`],
+      ["", `*, "${version}-f"`],
+      ["", Array.from({ length: 32 }, (_, i) => `"${i}-f"`).concat(`"${version}-f"`).join(",")],
+    ]) {
+      const res = await getLogo(organiser.organiserId, { query, headers: { "if-none-match": header } });
+      expect([query, header, res.status]).toEqual([query, header, 200]);
+      expect((await res.arrayBuffer()).byteLength).toBeGreaterThan(0);
+    }
+  });
+
+  it("`*` without a logo is the usual 404", async () => {
+    for (const organiserId of [crypto.randomUUID(), organiser.organiserId]) {
+      expect((await getLogo(organiserId, { headers: { "if-none-match": "*" } })).status).toBe(404);
+    }
+  });
+
   it("is a 404 for unknown organisers and organisers without a logo", async () => {
     for (const organiserId of [crypto.randomUUID(), organiser.organiserId]) {
       const res = await getLogo(organiserId);
@@ -513,8 +553,13 @@ describe("GET /organisers/{id}/logo", () => {
       {},
       { token: "forged" },
       { token: stranger.token },
-      // A matching ETag is no way round it.
+      // A matching ETag is no way round it, nor a list, a weak tag or `*`.
       { headers: { "if-none-match": `"${version}-f"` } },
+      { headers: { "if-none-match": `"1-f", "${version}-f"` } },
+      { headers: { "if-none-match": `W/"${version}-f"` } },
+      { headers: { "if-none-match": "*" } },
+      { token: stranger.token, headers: { "if-none-match": "*" } },
+      { token: stranger.token, headers: { "if-none-match": `"1-f", W/"${version}-f"` } },
     ]) {
       const res = await getLogo(organiser.organiserId, options);
       expect(res.status).toBe(404);
@@ -525,6 +570,15 @@ describe("GET /organisers/{id}/logo", () => {
       expect(res.status).toBe(200);
       expect(res.headers.get("cache-control")).toBe("private, no-store");
       expect((await sharp(Buffer.from(await res.arrayBuffer())).metadata()).width).toBe(96);
+      // Allowed to see it, they may revalidate it, `*` included.
+      for (const header of ["*", `"1-f", W/"${version}-f"`]) {
+        const notModified = await getLogo(organiser.organiserId, { token, headers: { "if-none-match": header } });
+        expect([header, notModified.status, notModified.headers.get("cache-control")]).toEqual([
+          header,
+          304,
+          "private, no-store",
+        ]);
+      }
     }
   });
 });

@@ -44,9 +44,9 @@ export default function WhosGoingCard({ className = "" }: { className?: string }
 
   const youName = youNameOf(data);
   const attendees = data.attendees ?? [];
-  // The rules' Secondary button: 40px from 768px, 48px on phones (touch targets of at least 48 at 390). Content-wide
-  // beside the words; the whole width once it wraps under them (the words take the row's free space first).
-  const action = buttonClass("outline", "sm", "grow max-md:min-h-12");
+  // The rules' Secondary button M (48px at every width, Round 2). Content-wide beside the words; the whole width
+  // once it wraps under them (the words take the row's free space first).
+  const action = buttonClass("outline", "md", "grow");
   // Signed out, the panel's way in is signing in to see the names; signed in (or the demo's samples), the list itself.
   const viewLabel = data.viewer.kind === "signed-out" && mode === "live" ? "See who’s going" : "View attendees";
 

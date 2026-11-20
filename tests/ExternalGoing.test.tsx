@@ -97,6 +97,9 @@ describe("ExternalGoing (live)", () => {
     renderGoing();
     const button = await screen.findByRole("button", { name: "I’m going" });
     expect(screen.getByText("5 going")).toBeInTheDocument();
+    // The rules' Secondary M (48px, the button label at every width; Round 2: no 12px label from lg).
+    expect(button).toHaveClass("btn", "btn-outline");
+    expect(button.className).not.toMatch(/btn-(sm|lg)|text-xs/);
 
     fireEvent.click(button);
     expect(await screen.findByRole("button", { name: "Going ✓" })).toBeInTheDocument();

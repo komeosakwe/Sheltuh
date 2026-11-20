@@ -135,6 +135,32 @@ describe("EventLocation", () => {
     expect(mapLink).toHaveAttribute("tabindex", "-1");
   });
 
+  // CodeRabbit (PR #61): a name that's only the street line (a Google address pick, no place or pin) leads with the
+  // address and its suburb; both links go where they say, the suburb included.
+  it("routes a street-line venue to the address and the suburb it shows", () => {
+    const event: SheltuhEvent = {
+      ...sample("neon-static"),
+      venueName: "71 Johnston Street",
+      venueAddress: "71 Johnston St",
+      suburb: "Collingwood",
+      state: "VIC",
+      venuePlaceId: undefined,
+      venuePinned: false,
+    };
+    render(<EventLocation event={event} map={false} />);
+    const region = screen.getByRole("region", { name: "Location" });
+    expect(within(region).getByText("71 Johnston St")).toBeInTheDocument();
+    expect(within(region).getByText("Collingwood, VIC")).toBeInTheDocument();
+    const google = within(region).getByRole("link", { name: GOOGLE_MAPS });
+    expect(google).toHaveAccessibleName("Google Maps: directions to 71 Johnston St, Collingwood, VIC (opens in a new tab)");
+    expect(decodeURIComponent(google.getAttribute("href") ?? "")).toBe(
+      "https://www.google.com/maps/dir/?api=1&destination=71 Johnston St, Collingwood, VIC",
+    );
+    const apple = within(region).getByRole("link", { name: APPLE_MAPS });
+    expect(apple).toHaveAccessibleName("Apple Maps: directions to 71 Johnston St, Collingwood, VIC (opens in a new tab)");
+    expect(decodeURIComponent(apple.getAttribute("href") ?? "")).toBe("https://maps.apple.com/?daddr=71 Johnston St, Collingwood, VIC");
+  });
+
   it("loads nothing until the map nears the screen, then pins the venue's own position at street level", async () => {
     const event = sample("neon-static");
     const { container } = render(<EventLocation event={event} />);
@@ -201,6 +227,18 @@ describe("EventLocation", () => {
     expect(screen.getByRole("link", { name: APPLE_MAPS })).toHaveAttribute(
       "href",
       "https://maps.apple.com/?daddr=Warehouse%209%2C%20Collingwood",
+    );
+  });
+
+  it("says the address once when the venue's name is only its street line (a Google address pick, Round 2)", () => {
+    const event: SheltuhEvent = { ...sample("neon-static"), venueName: "71 Johnston Street", venueAddress: "71 Johnston St" };
+    render(<EventLocation event={event} />);
+    expect(screen.queryByText("71 Johnston Street")).toBeNull();
+    // Not bold: it isn't a venue name.
+    expect(screen.getByText("71 Johnston St")).not.toHaveClass("font-semibold");
+    expect(screen.getByText("Collingwood, VIC")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: GOOGLE_MAPS })).toHaveAccessibleName(
+      "Google Maps: directions to 71 Johnston St, Collingwood, VIC (opens in a new tab)",
     );
   });
 

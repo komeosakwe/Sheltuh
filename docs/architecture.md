@@ -81,14 +81,15 @@ iframe served by Stripe), with the publishable key
 
 | Table | Key | Notes |
 |---|---|---|
-| `organisers` | `id` | `owner_user_id` is unique, one application per account. It's null for platform-managed organisers (events Sheltüh lists on someone's behalf, and seed data), which admins create (`POST /admin/organisers`), which sell no paid Sheltüh tickets, and whose events only admins check in (see "Admin authoring" and "Check-in"); their `contact_email` should be a Sheltüh alias, never a person's own address (`docs/supabase-setup.md`); check constraint `organisers_platform_no_payouts`: such an organiser has no Stripe account and no payouts. `status`: pending → approved / rejected. Also holds the Stripe Connect account id and `payouts_enabled`. Optional social handles (`instagram_handle`, `tiktok_handle`, `facebook_page`, `x_handle`), stored without `@` and pattern-checked by the database, and four path-style links (`spotify_path`, `soundcloud_handle`, `youtube_channel`, `linkedin_path`; `20261121000000_organiser_more_socials.sql`, see "Organiser profiles"); `website_url` must be http(s), at most 2048 characters (check constraint; the API only takes new `https://` addresses, see "Organiser profiles"). An admin takedown sets `rejected` (see "Organiser profiles"). `featured_video_provider` (`youtube` or `vimeo`) and `featured_video_id`: the featured video, provider and id only, never a URL (check constraint `organisers_featured_video_check`: both or neither, id pattern per provider). `event_review_required` (default false; `20261111000000_event_publish_now.sql`): an admin's switch that sends every publish of this organiser's events to the review queue (see "Publishing events"), changed only through `private.set_event_review_required` and logged in `organiser_profile_edits`. |
+| `organisers` | `id` | `owner_user_id` is unique, one application per account. It's null for platform-managed organisers (events Sheltüh lists on someone's behalf, and seed data), which admins create (`POST /admin/organisers`), which sell no paid Sheltüh tickets, and whose events only admins check in (see "Admin authoring" and "Check-in"); their `contact_email` should be a Sheltüh alias, never a person's own address (`docs/supabase-setup.md`); check constraint `organisers_platform_no_payouts`: such an organiser has no Stripe account and no payouts. `status`: pending → approved / rejected. Also holds the Stripe Connect account id and `payouts_enabled`. Optional social handles (`instagram_handle`, `tiktok_handle`, `facebook_page`, `x_handle`), stored without `@` and pattern-checked by the database, and four path-style links (`spotify_path`, `soundcloud_handle`, `youtube_channel`, `linkedin_path`; `20261121000000_organiser_more_socials.sql`, see "Organiser profiles"); `website_url` must be http(s), at most 2048 characters (check constraint; the API only takes new `https://` addresses, see "Organiser profiles"). An admin takedown sets `rejected` (see "Organiser profiles"). `featured_video_provider` (`youtube` or `vimeo`) and `featured_video_id`: the featured video, provider and id only, never a URL (check constraint `organisers_featured_video_check`: both or neither, id pattern per provider). `event_review_required` (default false; `20261111000000_event_publish_now.sql`): an admin's switch that sends every publish of this organiser's events to the review queue (see "Publishing events"), changed only through `private.set_event_review_required` and logged in `organiser_profile_edits`. `profile_tags` (nullable) and `custom_tags` (default `{}`; `20261128000100_organiser_tags.sql`): the chips on the public profile, separate from the reviewed `categories` (see "Organiser profiles", "Categories"); check constraints `organisers_profile_tags_check` (at most 5, from the 18 slugs) and `organisers_custom_tags_check` (at most 2, at most 5 in all, none while `profile_tags` is null), and trigger `organisers_custom_tags_valid` (each newly added own word passes `private.organiser_custom_tag_ok`; no repeats). |
 | `private.organiser_profile_edits` | `id` (identity) | Append-only log per organiser: each profile edit made without review (`profile_edit`: old and new value of each changed field, by the owner, or by an admin with a reason: removing the featured video, logged as `featured_video` `"provider:id"`, or the logo, logged as `logo` with its version), each admin takedown (`suspended`, with the admin and reason; a takedown must have a reason), the organiser's creation by an accepted admin invite or an organiser link, or a link's approval of their pending application (`invite_accepted`, by the new owner: `status` null or pending → approved; see "Account invites" and "Organiser links"), and an admin's review switch (a `profile_edit` by the admin with a reason, `event_review_required` `"on"` / `"off"`; see "Publishing events"). A trigger refuses updates (except the `actor_id` foreign key's own set-null when that account is deleted). Admins see the newest 20 per organiser. Kept while the organiser exists; deleted with it. |
 | `private.organiser_logos` | `organiser_id` | An organiser's logo as the server re-encoded it: `image` (512 × 512 WebP, ≤ 512 KB) and `thumb` (96 × 96 WebP, ≤ 64 KB), the whole logo fitted on white, no transparency, no metadata. `updated_at` is its version (milliseconds since the epoch, in its URL and the log); every write moves it on by at least a millisecond. Deleted with the organiser (see "Organiser profiles"). |
+| `private.organiser_covers` | `organiser_id` | An organiser's cover image as the server re-encoded it (`20261128000000_organiser_covers.sql`): `image` (2240 × 640 WebP, ≤ 1 MB) and `small` (1120 × 320 WebP, ≤ 256 KB), centre-cropped to 7:2, transparency flattened onto white, no metadata. `updated_at` is its version, as the logo's. Deleted with the organiser (see "Organiser profiles", "Cover"). |
 | `events` | `id` | Belongs to an organiser. Globally unique `slug`. `status`: draft → pending_review → published / rejected, or, for an approved organiser's own publish, draft / rejected → published directly (see "Publishing events"); unpublish returns it to draft. `rejection_reason`: the admin's reason on a rejection, an unpublish (optional) or a takedown, shown to the organiser; any later status change through `transition_event` replaces it (a publish or submit clears it). `is_free` (true only when the event has ticket types and all are free; for an external event, `external_free`) is kept up to date by `replace_ticket_types` for the feed's free filter. `whos_going_enabled` (default true) is an admin-only kill switch for that event's Who's Going, set in SQL (`docs/supabase-setup.md`). `ticketing_mode` (`sheltuh`, the default, or `external`), `external_ticket_url`, `external_free` and `external_price_from_cents`: see "External ticketing". Check constraints: an external event has a link, a Sheltüh-ticketed one has no link and isn't `external_free`, and an external event's `is_free` equals `external_free`. The trigger `events_external_ticket_url_valid` checks a link against `private.external_ticket_url_ok` when it's inserted or changed (only then, so tightening the rules never blocks a later status change; see "External ticketing"). `updated_at` changes on every update of the row, a photo change included (trigger `event_images_touch_event`). Triggers refuse ticket types and orders for an external event, and switching an event with ticket types to external. `state` (default `VIC`) and `time_zone` (default `Australia/Melbourne`): the event's state or territory and the IANA zone its times are in; check constraint `events_place_check` allows only the zones `ZONES_BY_STATE` lists for the state (see "Events: state and time zone"). The venue's location (`20261111000100_event_venue_location.sql`; see "Venue location"): `location_source` (`legacy`, the default and every earlier event; `places`; `manual_pin`), `venue_place_id` (a Google place id, the only Google Places data stored) and `venue_lat` / `venue_lng` (the organiser's own pin, never Google's coordinates); checks `events_venue_pin_pair`, `events_venue_pin_bounds` (`AUSTRALIA_BOUNDS`), `events_venue_place_id_shape` and `events_location_source_check` (`legacy`: neither; `places`: a place id, pin optional; `manual_pin`: a pin and no place id). No index: nothing filters or sorts on them. |
 | `ticket_types` | `(event_id, id)` | `id` is stable across draft edits. A trigger refuses a price above 0 for a platform-managed organiser's event (`ticket_types_platform_free_only`). `quantity_sold` only ever goes up in `fulfil_order`, and down only in `record_payment_refund` (a paid order refunded in full). `seated`: the tier has seats on the event's seat map; its `quantity_available` is then always its unblocked seats (trigger `ticket_types_seated_capacity`, whatever is written; see "Reserved seating"). `opens_after_previous`: the tier waits for the one above it (by `position`) to sell out; `sold_out_at`: when `quantity_sold` first reached `quantity_available`, set by trigger `ticket_types_sold_out_at` and never cleared (see "Sequential ticket releases"). |
 | `event_seat_maps` | `event_id` | An event's optional seat map (see "Reserved seating"): `layout` (the validated template, `lib/seating/template.ts`), `seat_count` (1–10,000) and `version` (from the sequence `private.seat_map_versions`: never reused, not even after a delete). Every write bumps the event's `updated_at` (`event_seat_maps_touch_event`). Refused for an external event (`event_seat_maps_sheltuh_only`). Deleted with the event. |
 | `event_seats` | `(event_id, id)` | The map's seats, derived from the layout in the same step (`write_seat_map`): `position` (map order: the availability bit), section, row (may be empty) and seat labels, `ticket_type_id` (no-action foreign key `event_seats_ticket_type_fkey`: a tier with seats can't be removed), `kind` (standard, wheelchair, companion), `blocked`; `hold_order_id` / `hold_expires_at` (a pending order's hold) and `sold_order_id`. Checks: never held and sold at once (`event_seats_one_owner`), never held or sold while blocked (`event_seats_blocked_unsold`). Deleted with the map. |
-| `event_images` | `event_id` | Optional organiser photo (≤2 MB, JPEG/PNG/WebP) stored as `bytea` — no Storage bucket or extra secret. Never stored as uploaded: both writers (`PUT /events/{id}/image` and the admin's) go through `readEventImage`, which re-encodes it server-side with sharp (`lib/server/event-image.ts`): the EXIF orientation applied to the pixels, then written with **no metadata** (no EXIF, GPS, camera or serial number, ICC, XMP, IPTC or PNG text), at its own size and in its own format (as WebP if that would be over 2 MB; 413 if that is too). The same loader check against polyglots, 24-megapixel limit (first frame only; 400) and decode slots (`AVATAR_ENCODE_CONCURRENCY`, 503) as member photos; each encode is stopped after 10 seconds (`EVENT_IMAGE_ENCODE_TIMEOUT_SECONDS`; 400). The organiser's uploads are limited to 50 a day per account (429 with `Retry-After`, bucket `event_image_uploads`, before the body is read); an admin's aren't. Rows written before this re-encoding was added (November 2026) may still hold the upload's metadata until the photo is replaced or backfilled: the organiser can replace it only while the event is a draft or rejected, so on a published event only an admin can (`PUT /admin/events/{id}/image`); the owner's one-off `scripts/backfill-event-image-metadata.ts` (runbook in `docs/supabase-setup.md`, "Event photos stored before re-encoding") re-encodes those rows with `encodeEventImage`, one statement per row (event row locked first, written only if the bytes are still the ones read, focus and fit untouched, `updated_at` moved on by at least a second so the `?v=` version changes; not logged in `event_moderation_log`, which records people's edits). Public via `GET /api/events/[id]/image` once published (versioned URL, shared at the CDN for an hour at the current version, ETag and 304; see "CDN windows"); before that only the owner/admins with a token. Every write (insert, update, delete) bumps the event's `updated_at` in the same transaction (`event_images_touch_event`), so a photo change is a new version of the event (see "Admin authoring"); writers lock the event row (for no key update) before the image row. Move to Storage/CDN if volume grows. `focus_x` / `focus_y` (`20261115000000_event_image_focus.sql`; smallint 0..100, both null or both set, check constraint `event_images_focus_check`): where the photo's subject is, so cropped renderings centre on it (see "Photo focus"). No index: nothing filters on it. |
+| `event_images` | `event_id` | Optional organiser photo (≤2 MB, JPEG/PNG/WebP) stored as `bytea` — no Storage bucket or extra secret. Never stored as uploaded: both writers (`PUT /events/{id}/image` and the admin's) go through `readEventImage`, which re-encodes it server-side with sharp (`lib/server/event-image.ts`): the EXIF orientation applied to the pixels, then written with **no metadata** (no EXIF, GPS, camera or serial number, ICC, XMP, IPTC or PNG text), at its own size and in its own format (as WebP if that would be over 2 MB; 413 if that is too). The same loader check against polyglots, 24-megapixel limit (first frame only; 400) and decode slots (`AVATAR_ENCODE_CONCURRENCY`, 503) as member photos; each encode is stopped after 10 seconds (`EVENT_IMAGE_ENCODE_TIMEOUT_SECONDS`; 400). The organiser's uploads are limited to 50 a day per account (429 with `Retry-After`, bucket `event_image_uploads`, before the body is read); an admin's aren't. Rows written before this re-encoding was added (November 2026) may still hold the upload's metadata until the photo is replaced or backfilled: the organiser can replace it only while the event is a draft or rejected, so on a published event only an admin can (`PUT /admin/events/{id}/image`); the owner's one-off `scripts/backfill-event-image-metadata.ts` (runbook in `docs/supabase-setup.md`, "Event photos stored before re-encoding") re-encodes those rows with `encodeEventImage`, one statement per row (event row locked first, written only if the bytes are still the ones read, focus and fit untouched, `updated_at` moved on by at least a second so the `?v=` version changes; not logged in `event_moderation_log`, which records people's edits). Public via `GET /api/events/[id]/image` once published (versioned URL, shared at the CDN for an hour at the current version, ETag and 304; see "CDN windows"); before that only the owner/admins with a token. Every write (insert, update, delete) bumps the event's `updated_at` in the same transaction (`event_images_touch_event`), so a photo change is a new version of the event (see "Admin authoring"); writers lock the event row (for no key update) before the image row. Move to Storage/CDN if volume grows. `focus_x` / `focus_y` (`20261115000000_event_image_focus.sql`; smallint 0..100, both null or both set, check constraint `event_images_focus_check`): where the photo's subject is, so cropped renderings centre on it (see "Photo focus"). `banner_fit` (`20261129000000_event_banner_fit.sql`; text, not null, default `crop`, check constraint `event_images_banner_fit_check`: `crop` or `whole`): how the home page's featured banner shows the photo (see "Photo focus"); kept when the photo is replaced, dropped with it. No index: nothing filters on them. |
 | `event_moderation_log` | `id` | Append-only: submitted / approved / rejected / unpublished / ticketing_changed / created / edited / curated, by whom, and why. `approved` means "went live": an admin's approval or publish, or an approved organiser's own publish (`private.publish_event`, logged by the organiser's own account), so every reader of "approved before" treats the two alike (see "Publishing events"). Partial index `event_moderation_log_approved_idx (created_at, event_id) where action = 'approved'` serves the admins' "recently published" list and the admin home's count. `details` (jsonb object, null for the other actions): for `ticketing_changed`, the old and new value of each ticketing field the admin changed (full ticket links: see "External ticketing"); for `edited`, the old and new value of each other field an admin changed (see "Admin authoring"); for `curated`, the old and new `boost` and `excluded` (see "Trending"). Shown to the event's organiser and to admins (`moderationLog[].changes`), never publicly, except `curated` entries, which only admins see (`GET /admin/events/{id}/curation`). `by` is the actor's account id for admins; the organiser's view shows `"Sheltüh team"` (`SHELTUH_TEAM_ACTOR`) for anyone but the organiser's own account. No update trigger: personal information in `details` or `reason` is redacted in place (`docs/supabase-setup.md`, APP 11/13). |
 | `orders` | `id` (`ord_…`) | Priced snapshot of the line items and totals. `status`: pending → paid / failed / oversold_refund_required; oversold_refund_required → refunded (our automatic refund); paid → refunded (refunded in full in Stripe: Stripe's `refunded`, or at least `total_cents` refunded; see "Refunds made in Stripe"); pending → failed also when a paid session's amount or currency wasn't the order's (`private.fail_mismatched_order`, which also records the payment intent; the payment is then refunded). `amount_refunded_cents` (≥ 0, default 0) is Stripe's cumulative refunded amount, recorded only for paid orders (a partial refund leaves the order paid, whatever its amount; a refunded order with `amount_refunded_cents` below `total_cents` was voided by the tickets-only rule of `20261110000200_support_ticket_refund.sql`, before `20261111000300_refund_no_inference.sql` removed it). Indexed on `stripe_payment_intent_id` (partial, not null) for the refund webhook, and on `(event_id, created_at)` (partial, `paid`) for the trending refresh's 14-day read. `tickets_emailed_at` records the ticket email. `tracking_code` is the event tracking link the checkout came through (checked against the event's links when the order is created; null otherwise). `seat_ids` (1–10): a seated order's seats, set when it's made and never changed (what fulfilment and refunds act on). `support_cents` (0 to 50000, default 0; `20261110000100_order_support.sql`): Support Sheltüh, what the buyer added for the platform (see "Support Sheltüh"); only on an order with a paid ticket (`orders_support_paid_only`), and in `total_cents` (`orders_support_in_total`: total = subtotal + buyer fee + support when there is some), never in `subtotal_cents`, `buyer_fee_cents` or `application_fee_cents` (the booking fee). `payout_method` (`destination` default, or `transfer`; `orders_payout_method_check`; `20261119000000_delayed_payouts.sql`): how the organiser's share is paid. `destination`: a destination charge, paid out with the payment (every order made before delayed payouts, and while `DELAYED_PAYOUTS` is off). `transfer`: charged on the platform and transferred after the event (see "Delayed payouts"). Chosen once, while the order is `pending` (`orders_payout_method_frozen` refuses any later change), and every Stripe call about the order follows it. Partial index `orders_transfer_paid_idx` on `(event_id)` for paid `transfer` orders. `buyer_name` (1–80 characters, trimmed, no control, invisible or line-separator characters, written as escapes only so pasting the migration can't lose them; the zero-width joiners U+200C/U+200D are allowed there and by the API only between letters: `orders_buyer_name_check`) and `details_notice_at` are set together or not at all (`orders_details_notice_pair`): the name the buyer typed at checkout, and when it was made, which the database stamps itself (the `orders_details_notice` trigger: `now()` on insert when there is a name; a client can't set it), proof the checkout's notice "Your name and email are shared with the organiser of this event." had been shown (`20261122000000_order_buyer_details.sql`; see "Organiser orders"). Once set they can only be cleared, both together (the `orders_details_immutable` trigger: the withdrawal runbook). Null for every order made before it and for any made without a name. Never in `ORDER_SELECT` or `CustomerOrder`: only the Orders view reads them. |
 | `private.order_detail_exports` | `id` (identity) | The audit log of the Orders view's CSV exports (see "Organiser orders"): event, organiser, the exporting account (`actor_id`, set null if the account goes) and row count, with the time. No buyer data. Written by `record_order_export`. RLS on, no grants. Kept (it is the record of who took the data). |
@@ -114,6 +115,7 @@ iframe served by Stripe), with the publishable key
 | `private.event_waitlist_tokens` | `token_hash` | SHA-256 hashes of emailed waitlist tokens, never the tokens: `confirm` (a guest's join link, 24 hours, used once) and `leave` (one per notification email, valid while the entry exists). Deleted with the entry; expired confirmation links a week after expiry. |
 | `profiles` | `user_id` | A member's social identity: `display_name` (1–40 characters), `adult_confirmed_at` (required: no profile without an 18+ confirmation). Deleted with the Supabase account. `social_suspended_at` is deprecated and ignored (see `private.social_suspensions`). Member profile fields (see "Member profiles"): `public_id` (random uuid, unique: the opaque `profileId`, never the user id; a recreated profile gets a new one), `profile_visible` (opt-in, default false), `bio` (1–200 characters) and `instagram_handle` (Instagram's username pattern, check constraint), both optional. |
 | `private.profile_avatars` | `user_id` | The member's photo as the server re-encoded it: `image` (512 × 512 WebP, ≤ 512 KB) and `thumb` (96 × 96 WebP, ≤ 64 KB), no metadata. Deleted with the profile. |
+| `private.profile_photos` | `id` | A member's photos beside the profile photo, at most 6 (`20261125000000_profile_photos.sql`; see "Member photos"): `image` (WebP fitted inside 1080 px, ≤ 512 KB, as the server re-encoded it, no metadata), `thumb` (320 × 320 WebP, ≤ 64 KB), `width`/`height` (1–1080), optional `description` (1–100 characters, one line, trimmed), `image_sha256` (checked `= sha256(image)`, unique per member: the same image again is the same photo). At most 6 per member is enforced by the trigger `profile_photos_cap` (it locks the profile row, then counts) as well as by `add_profile_photo`. Index `(user_id, created_at, id)`: a member's photos oldest first. Deleted with the profile. |
 | `private.profile_moderation_log` | `id` (identity) | An admin's removal of a member's photo, bio or Instagram handle: the member's account, the admin, which fields (never the content) and the reason (1–500). Deleted with the member's account, and 2 years after the entry (`purge_social_data`). |
 | `event_attendees` | `id` | One row per Who's Going opt-in, unique per `(event_id, user_id)`. `id` is the opaque `attendeeId` shown to members: a fresh one per event, so it can't be linked across events or to a user. Deleted with the profile or the event, and by `purge_social_data` 30 days after the event ends. |
 | `private.external_event_going` | `(event_id, user_id)` | One row per "I'm going" tap on an external-ticket event (`20261116000000_external_going.sql`; see "External ticketing"). Count only: no name, profile or ticket behind it. RLS on, no policies, no client grants. Deleted with the event or the member's account, and by `purge_social_data` 30 days after the event ends. Index on `user_id` for the account cascade. |
@@ -162,6 +164,7 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
 | `admin_create_event` | An admin's new event (see "Admin authoring"): share-locks the organiser, which must exist and be approved; refuses a paid Sheltüh ticket type for a platform-managed organiser (`platform_paid`); then `create_event_draft`, a `created` log entry and, if asked, `transition_event` to published (`approved`), in one step. Nothing is written on a refusal. |
 | `admin_edit_event` | An admin's edit of any event, any status: share-locks the organiser, then locks the event; refuses (`stale`) unless its `updated_at` still equals the version the admin edited (to the millisecond); computes each changed field (the venue location included, logged as `changes.location`: old and new `{source, placeId, pin}`, null for none); decides every refusal (`platform_paid`, `has_orders`, `reason_required`, `organiser_not_approved`) before writing; then ticketing through `admin_set_event_ticketing`, the other fields, `replace_ticket_types`, one `edited` entry with old and new values, and the optional publish. Nothing changing is `unchanged` (nothing written). |
 | `admin_put_event_image`, `admin_delete_event_image` | An admin's photo change on any event, any status, with an `edited` entry (`{"image": {old, new}}`, `"set"` or null). Locks the event row (for no key update) first; the write bumps the event's `updated_at`. Deleting when there's no photo is `unchanged`, not logged. |
+| `admin_set_event_image_display` | An admin's change to how an event's saved photo is shown, any status (`PATCH /admin/events/{id}/image`; `20261129000000_event_banner_fit.sql`; see "Photo focus"): the focus point (only when `p_set_focus`) and/or the banner fit (only when not null), in one step. Locks the event row (for no key update), then the image row (for update). One `edited` entry with `imageFocus` and/or `bannerFit` (`{old, new}`) for what changed; nothing written or logged when nothing does. Returns `updated`, `unchanged`, `no_image` or `not_found`. `admin_set_event_image_focus` (`20261115000000_event_image_focus.sql`, focus only) stays for the app version before it and is no longer called. |
 | `admin_set_event_ticketing` | An admin's change to an event's ticketing, any status: locks the event row; nothing changing is `unchanged` (nothing logged); switching to external an event with any order is `has_orders` (409), otherwise its ticket types are deleted; then the update and a `ticketing_changed` moderation log entry with the reason and the old and new values, in one step. |
 | `external_ticket_url_ok` | Immutable check behind the `events_external_ticket_url_valid` trigger (run when a link is inserted or changed): the stored ticket link's rules (see "External ticketing"). Its shortener and non-public-name lists mirror `lib/ticketing.ts`; `tests/server/ticketing-url.test.ts` checks they agree. |
 | `replace_ticket_types` | Upserts by id and removes ticket types that were dropped. Refuses to remove one with sales, or to cut a quantity below what's already sold. |
@@ -221,11 +224,16 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
 | `put_organiser_logo` | An approved organiser's logo (`PUT /organisers/me/logo`, already re-encoded): locks the organiser row (for no key update), checks it's still approved (`not_approved` → 409: nothing written), writes the logo, bumps the organiser's `updated_at` and logs a `profile_edit` by the owner (`logo`, old and new version), in one step. Returns `updated`, `not_approved` or `not_found`. |
 | `delete_organiser_logo` | The organiser removes their logo, any status: locks the organiser row, deletes it, bumps `updated_at` and logs it. Returns `deleted`, `unchanged` (none: nothing written) or `not_found`. |
 | `admin_remove_organiser_logo` | An admin removes an organiser's logo (any status), with a reason: as `delete_organiser_logo`, logged as a `profile_edit` by the admin with the reason (`byStaff`). Returns `removed`, `unchanged` (none: nothing logged) or `not_found`. |
+| `put_organiser_cover` · `delete_organiser_cover` · `admin_remove_organiser_cover` | The cover image's writes (`PUT` / `DELETE /organisers/me/cover`, `POST /admin/organisers/{id}/remove-cover`), exactly as the three logo functions: the organiser row locked (for no key update) before the cover row, approval re-checked for an upload (`not_approved` → 409: nothing written), `updated_at` bumped, a `profile_edit` logged with old and new version (`cover`; by the admin, with the reason, for a removal). Return `updated` / `deleted` / `removed`, `unchanged` (no cover: nothing written) or `not_found`. |
+| `set_organiser_tags` | An approved organiser's profile chips (`PUT /organisers/me/tags`, already checked by the API): locks the organiser row (for no key update), checks it's approved (`not_approved` → 409), writes only the columns that really change (`profile_tags`, `custom_tags`) and logs a `profile_edit` with their old and new values joined with ", ", in one step. A no-op writes nothing. Returns `updated`, `unchanged`, `not_approved` or `not_found`. |
+| `admin_remove_organiser_custom_tags` | An admin clears an organiser's own words (any status; the list items stay), with a reason, logged as a `profile_edit` by the admin (`byStaff`). Returns `removed`, `unchanged` (none: nothing logged) or `not_found`. |
+| `organiser_custom_tag_ok` | Immutable: one own word passes the database's structural floor (2–24 characters, trimmed, no double spaces, none of `@ # . / : \ < >` or their fullwidth forms, no control, format or separator characters or any other assigned default-ignorable one (the Hangul fillers, the combining grapheme joiner, U+17B4–17B5, U+180B–180F), no emoji building blocks). Called by the trigger `organisers_custom_tags_valid` for newly added words only, so tightening it never blocks an unrelated update. The API's `parseCustomTag` is stricter. |
 | `member_profile_visible` | The one rule for seeing a member profile (stable SQL): the member behind a `profileId` if the viewer has a profile, neither is suspended, neither blocks the other, and the profile is visible or the viewer's own; else null. Used by every read and write by `profileId`; the API also requires a verified email. |
 | `file_profile_report` | A report about a profile: key-share-locks the profile; only one the reporter can see now (`member_profile_visible`) or a member they've blocked (else `not_found`, the unknown-id answer); an open profile report by the same reporter about the same member is returned as it is (`already_open`, no allowance used; two at once: the unique index makes the second find the first); then the reports rate limit, the photo copied once per distinct image (`report_photos`, upserted so a concurrent purge skips it), and the insert (`target_type` `profile`). Returns `filed`, `already_open`, `not_found`, `self` or `rate_limited`. |
 | `create_block_by_profile` | `create_block` for a profile the blocker can see now (`member_profile_visible`); same snapshot, rate limit and results. |
 | `request_conversation_by_profile` | A first message by `profileId`: the profile must be visible to the sender (`unavailable` otherwise, 404); picks the soonest open event both are opted in to (`not_going` if none) and hands over to `request_conversation` with that attendeeId, so every other rule is the same code. |
 | `admin_remove_profile_content` | An admin removes a member's photo, bio and/or Instagram handle: locks the profile (no key update), then the photo; removes only what's there; logs the fields, admin and reason in `profile_moderation_log`. Returns `removed` (with the fields), `unchanged` or `not_found`. |
+| `add_profile_photo` | Adds a member photo the API re-encoded (`POST /profiles/me/photos`; see "Member photos"): locks the profile (no key update; lock order profile, then photos, as `admin_remove_profile_content`), re-checks it exists (`no_profile`) and isn't suspended (`suspended`); the same image already one of theirs is `exists` with its id (nothing inserted); 6 already is `full`; else it inserts and returns `added` with the new id. Concurrent uploads for one member queue on the profile lock, so at 5 photos exactly one more is added. |
 | `follow_organiser` | A follow (or a change of its email choice): key-share-locks the approved organiser (`not_found` otherwise; `self` for its own account), then an advisory lock on the account; an existing follow is `exists` (its choice updated if sent); else the 500-follow cap (`limit`) and the 60-an-hour allowance (`rate_limited`) before the insert (`followed`, emails off unless the choice sent was true). |
 | `unsubscribe_follow` | Turns a follow's emails off by an unsubscribe token's hash (the follow stays). Idempotent: `unsubscribed` or `not_found`. |
 | `notify_followers` | Run at commit by the deferred constraint trigger `events_followers_announce` (status becomes `published`): for a published, upcoming event of an approved organiser, records the announcement (once per event ever: a republish is a no-op), then, under an advisory lock per organiser, queues one `organiser_new_events` job per follower with emails on and a confirmed email (`auth.users.email_confirmed_at`) who has none waiting, due at the later of now and 24 hours after their last, until the platform's 500 a day. Locks each follow row as it's queued. |
@@ -2261,6 +2269,114 @@ Clickable Who's Going names (owner request, 21 Oct 2026;
 - **A screenshot outlives a block.** Nothing can stop a member keeping a copy
   of a photo they once saw.
 
+## Member photos
+
+Up to 6 photos on a member profile, beside the profile photo (owner
+decisions, 12 Nov 2026; `lib/server/handlers/profile-photos.ts`,
+`lib/server/avatar.ts` `encodeMemberPhoto`, `lib/member-photo-rules.ts`,
+`lib/member-photos-flag.ts`,
+`supabase/migrations/20261125000000_profile_photos.sql`). Members are
+attendees with a Who's Going profile (18+, verified email), not organisers.
+
+- **Off until the owner turns it on.** `NEXT_PUBLIC_MEMBER_PHOTOS=1`
+  (`.env.example`) lets members upload; anything else (the default) and
+  `POST /profiles/me/photos` is a 503, enforced by the server (after
+  sign-in, before anything is read or used). Describing, deleting and seeing
+  photos don't depend on it, so switching it off strands nothing. To go on
+  only after the Terms and Privacy wording below is approved, and the open
+  questions (a rule on photos of children; Online Safety Act advice) are
+  settled.
+- **Who sees them: exactly the profile photo's audience.** Every fetch
+  re-runs `private.member_profile_visible` (verified-email viewer with a
+  profile, neither suspended, no block either way, profile visible or their
+  own), so a block, suspension or hidden profile applies at once; admins see
+  any (moderation), each read logged by the admin's id and the opaque photo
+  and profile ids. `GET /profiles/{profileId}` lists `photos` only past that
+  check (the same statement); `GET /profiles/me` and
+  `GET /admin/profiles/{profileId}` always list them. No public or signed
+  URLs: like the profile photo, the browser fetches the bytes with the
+  bearer token (`fetchAvatar` accepts these URLs) and shows a blob URL.
+  Fetches share the profile photo's limit (`avatar_views`, 600 per 10
+  minutes, 304s included). `private, no-cache`; the ETag is the photo id (a
+  photo's bytes never change: a new photo is a new id); a 304 only once the
+  gate has passed. Anything the caller may not see is the same 404, another
+  member's photo id under this profile included.
+- **Storage.** Postgres `bytea` in `private.profile_photos`, like profile
+  photos (no Supabase Storage). Each photo is re-encoded on the server and
+  the upload itself is never stored: the same decoder rules as profile
+  photos (JPEG, PNG or WebP sniffed from the bytes, libvips' own loader
+  confirmed from the header, first frame, at most 24 megapixels, EXIF
+  orientation applied), any transparency flattened onto white, fitted inside
+  1080 px (never enlarged) as raw sRGB pixels, then a WebP of at most 512 KB
+  (the bound of a report's photo copy, `report_photos`) and a 320 px square
+  thumbnail of at most 64 KB, each stepping its quality down (82 → 25; a
+  noise-like image past that is scaled down a fifth at a time) until it
+  fits. No metadata at all (no EXIF, GPS, camera, ICC or XMP). Uploads are
+  read as a stream and cut off past 4 MB (under Vercel's 4.5 MB request
+  limit); the browser is expected to downsize first (`prepareEventImage`,
+  lib/image.ts: at most 1600 px, under 2 MB). Decoding shares the profile
+  photos' and logos' slots (`AVATAR_ENCODE_CONCURRENCY`: 2 at once per
+  instance, 8 waiting, then 503).
+- **Adding one** (`POST /profiles/me/photos`, raw bytes), in this order so
+  cheap refusals use nothing: verified email; the flag; one read of the
+  caller's profile, suspension and photo count (403 suspended, 404 no
+  profile, 409 `photos_full` at 6, before the allowance, the body or the
+  decoder); the day's allowance (20 uploads per 24 hours, bucket
+  `profile_photo_uploads`, 429); the capped body read (413) and sniff (400);
+  the encode; then `private.add_profile_photo`, which re-checks the profile,
+  suspension and count under the profile's lock. The same image again (a
+  retried upload; the encoder is deterministic and the database keys each
+  photo by its SHA-256) is a 200 with the photo already there, and nothing
+  added. The cap is also a database rule (trigger `profile_photos_cap`).
+- **Descriptions.** Optional, 1–100 characters, plain text on one line (runs
+  of whitespace, line breaks included, become one space), no links, no
+  control, invisible or text-direction characters (the bio's cleaning):
+  `PATCH /profiles/me/photos/{photoId} {description}`; null or "" removes
+  it. Used as the photo's alt text and caption.
+- **Deleting.** `DELETE /profiles/me/photos/{photoId}`: signed in is enough
+  (a suspended or unverified member can always remove their own), 204
+  idempotent. Photos are deleted with the profile (`DELETE /profiles/me`)
+  and with the account (cascade).
+- **Not built yet** (later PRs): report copies of member photos and admin
+  removal of one photo (PR 2: the flag must stay off until it has merged);
+  the account and profile UI. No automated scanning (owner decision):
+  reports and admin removal are the control.
+- **Known follow-ups** (not built): a kill switch for serving (the flag only
+  stops uploads); a platform-wide daily upload cap (today only per member);
+  a separate, lower limit for full-size fetches (they share `avatar_views`
+  with thumbnails and profile photos); `GET /profiles/me/photos/{photoId}`
+  so a suspended member can still see their own photos (APP 12 access); and
+  PR 4's moderation view must show the full image, not the thumbnail (thumbs
+  are centre crops and can hide what was reported).
+
+**Terms and Privacy Policy wording needed before the flag goes on** (owner
+to approve): that a member may add up to 6 photos to their profile, seen
+only by the members who can see the profile (never publicly), re-encoded
+with all embedded information (camera details, location/GPS, date) removed;
+that descriptions are shown with them; that they're deleted with the photo,
+the profile or the account; what photos aren't allowed (and the rule on
+photos of children, still open).
+
+### Accepted risks (member photos)
+
+- **No automated scanning** (owner decision). Harmful images are found by
+  reports and removed by admins; until PR 2 ships report copies and admin
+  removal of a single photo, the flag stays off.
+- **A suspended member can't see their own photos.** The serving route runs
+  the profile gate, which hides a suspended member's profile from everyone,
+  themselves included (unlike the profile photo, which has `GET
+  /profiles/me/avatar`). They can still list (`GET /profiles/me`) and
+  delete them.
+- **A retry at the 6th photo is a 409.** The count is checked before the
+  upload is decoded (so a full set uses no allowance), so a retried upload
+  of the photo that made 6 is `photos_full`, not the 200 a retry gets below
+  6. The photo is there: `GET /profiles/me` shows it.
+- **Images are decoded on the server.** As for profile photos: bounded (4
+  MB, 24 megapixels, first frame, three sniffed formats, one decode per
+  upload, shared slots, 20 a day, verified members only), and a libvips
+  vulnerability would still be reachable; keep sharp updated.
+- **A screenshot outlives a block.** As for profile photos.
+
 ## Favourites
 
 A signed-in member's private list (`lib/server/handlers/favourites.ts`).
@@ -2982,7 +3098,8 @@ signal. Not for Sheltüh-ticketed events, which keep the real Who's Going.
 
 An organiser (or an admin) can say where the subject of an event's photo is,
 so cropped renderings (map pins, cards, rails, the event page's strip) keep
-it in view instead of cropping to the middle.
+it in view instead of cropping to the middle, and whether the home page's
+featured banner crops the photo or shows it whole.
 
 - **Data.** `event_images.focus_x` / `focus_y` (smallint, percent from the
   left / top, 0..100; both null or both set). On the image row, not on
@@ -3001,8 +3118,33 @@ it in view instead of cropping to the middle.
   `PATCH /admin/events/{id}/image`: any status, 404 unknown event, 409 no
   photo, logged `edited`, nothing logged when unchanged). The organiser's
   writes lock the event row before the image row, as every photo writer does.
-- **Reads.** `imageFocus: {x, y}` is on the event (absent without one),
-  including the public shape: it says nothing private.
+- **Banner fit.** `event_images.banner_fit` (`20261129000000_event_banner_fit.sql`):
+  `crop` (the default) is the banner's default behaviour (EventArt `fit="poster"`):
+  an ordinary photo fills the 5:2 banner, cropped around the focus, but a
+  portrait poster (at least 1.2 times as tall as it is wide) in a banner that
+  isn't portrait is still shown whole on the blurred backdrop; `whole` shows
+  every photo whole on the blurred backdrop: at the top of the slide below
+  640px (a phone's tall 4:5 slide, so the photo sits clear of the words below
+  it; the editor's phone preview does the same), centred from 640px. It's a
+  choice about the banner, not about one photo's content, so replacing the
+  photo keeps it (neither upload names the column) while deleting the photo
+  drops it (a new photo starts at `crop`). The same `PATCH …/image` sets it:
+  the body is `{"focus"?: {"x", "y"} | null, "bannerFit"?: "crop" | "whole"}`
+  (`parseImageDisplayBody`), at least one key; an absent key keeps the stored
+  value, and both change in one statement. Neither key, or a bad focus, is
+  400 `fieldErrors.imageFocus` (as the focus-only body always was); a bad fit,
+  `fieldErrors.bannerFit`. The same status rule as the focus (owner
+  decision): the organiser only on a draft or rejected event (409 once
+  pending or published), an admin on any status
+  (`private.admin_set_event_image_display`, logged `edited` with
+  `changes.bannerFit` `{old, new}`, nothing when unchanged). Like a focus
+  change, it bumps the event's `updated_at` and leaves the photo's `?v=` alone.
+  Client: `setEventImageDisplay` / `adminSetEventImageDisplay` (`lib/api`).
+- **Reads.** `imageFocus: {x, y}` is on the event (absent without one), and
+  `bannerFit: "whole"` only when whole (absent means `crop`, and always
+  without a photo), including the public shape (list, slug, trending): neither
+  says anything private. **Apply the migration before deploying the app**:
+  every event read selects `banner_fit`.
 - **Rendering.** `components/EventArt.tsx` takes `imageFocus` and sets
   `object-position: x% y%` on the cover image (and on the blurred backdrop
   of a contained image, whose foreground stays whole); every caller that
@@ -3081,9 +3223,11 @@ Admins create events themselves, for any organiser
   from a version loaded before it is stale (409): an admin can't publish a
   photo they haven't seen. The photo routes answer with the event, and the
   editor takes its next `expectedUpdatedAt` from that answer.
-- **Photo focus** (`PATCH /admin/events/{id}/image`, `PUT …/image?fx=&fy=`):
-  see "Photo focus"; logged `edited` with `changes.imageFocus` (`{x, y}` or
-  null, each side).
+- **Photo focus and banner fit** (`PATCH /admin/events/{id}/image`,
+  `PUT …/image?fx=&fy=`): see "Photo focus"; logged `edited` with
+  `changes.imageFocus` (`{x, y}` or null, each side) and/or
+  `changes.bannerFit` (`crop` / `whole`). On a published event only an admin
+  can change either.
 - **Audit.** `created`, `edited` and `ticketing_changed` entries carry the
   admin's user id, which admin routes show; the event's organiser sees the
   entries in their event's `moderationLog` with `by: "Sheltüh team"` instead
@@ -3238,7 +3382,9 @@ Admins create events themselves, for any organiser
   `immutable`, so a takedown stops being served within about an hour); any
   other `v`, or none, still gets the current logo but `private,
   max-age=3600`, never shared. ETag `"<version>-<f|t>"` and 304, with the
-  same cache header as the 200. Otherwise only an
+  same cache header as the 200 (If-None-Match as the event image's: a list,
+  weak tags and `*`, via `lib/server/if-none-match.ts`, only after the access
+  check). Otherwise only an
   admin or the owner with a bearer token, `private, no-store`; anyone else
   (no token included) gets the same 404 as an unknown organiser, and a
   non-uuid id is a 404 without a query. The image is only read from the
@@ -3261,6 +3407,79 @@ Admins create events themselves, for any organiser
   logo beside the name (`components/organisers/OrganiserLogo.tsx`: initials,
   or nothing on the profile, when there's none or it fails to load); the
   admin queue shows it with "Remove logo…". The demo has no logos.
+- **Cover** (`lib/server/handlers/organiser-covers.ts`, `lib/server/organiser-cover.ts`,
+  `supabase/migrations/20261128000000_organiser_covers.sql`): the wide banner
+  at the top of the public profile, built exactly like the logo (upload,
+  log, serving, moderation, privacy) with these differences. At most 4 MB
+  (413; under Vercel's ~4.5 MB request body limit; `proxy.ts` doesn't match
+  these routes), 20 uploads a day (bucket `organiser_cover_uploads`, separate
+  from the logo's), errors on `cover`. The upload is decoded once (the shared
+  `decoder` and decode slots in `lib/server/avatar.ts`), centre-cropped to
+  fill 7:2 at 2240 × 640 (a smaller upload is enlarged; the dashboard warns
+  when it's narrow), transparency flattened onto white, converted to sRGB
+  raw pixels, then encoded twice: 2240 × 640 (≤ 1 MB) and 1120 × 320
+  (`small`, ≤ 256 KB), each stepping WebP quality 82 → 70 → 55 → 40 until it
+  fits (a 400 on `cover` if even 40 doesn't; even pure noise, the worst
+  case, fits by 70: measured with sharp 0.35, it already fits at 82, at
+  about 97% of the 1 MB bound; `tests/server/organiser-covers.test.ts`
+  checks both the steps and the claim).
+  **Serving**: `GET /organisers/{id}/cover[?size=small]`, the logo's cache
+  rules and windows (ETag `"<version>-<l|s>"`). **In payloads**: `coverUrl`
+  and `coverSmallUrl` on the organiser's own record, the admin queue and the
+  public profile, absent with no cover (not on events). **Moderation**:
+  `POST /admin/organisers/{id}/remove-cover` with a reason; `DELETE
+  /organisers/me/cover` at any status. Only the organiser's own account
+  uploads one: platform-managed organisers have no cover (owner decision).
+- **Categories** (profile chips; `lib/api/organiser-tags.ts`,
+  `lib/server/handlers/organiser-tags.ts`,
+  `supabase/migrations/20261128000100_organiser_tags.sql`). Not the reviewed
+  `categories` (5 event categories, chosen in the application and fixed at
+  approval): an approved organiser chooses up to 5 chips from a list of 18
+  (`ORGANISER_TAGS`: live music, DJ & club nights, festivals, art,
+  exhibitions, theatre, comedy, dance, film, fashion, photography, design,
+  poetry & spoken word, workshops, pop-ups & markets, food & drink, wellness,
+  community), up to 2 of them in their own words, with no review.
+  `PUT /organisers/me/tags {profileTags, customTags}` sends the whole set
+  (both required, `[]` for none): list items are deduplicated and sorted
+  into list order; own words are cleaned (NFC, any run of spaces one space,
+  trimmed) and checked by `parseCustomTag`, which the dashboard runs too:
+  letters of any script, digits (`\p{Nd}`, at most 4, so no phone
+  numbers), single spaces and `& ' ’ -`, combining marks only on a letter
+  and at most 2 in a row, 2–24 characters with at least one letter; no
+  control, invisible or other default-ignorable characters (as display
+  names: `\p{Default_Ignorable_Code_Point}`, the Hangul fillers included),
+  emoji, variation selectors, enclosing marks or combining marks for symbols
+  (U+20D0–20FF: the keycap and VS16 tricks), nothing a link or handle needs
+  (`. : / \ @ #` in any width), no word mixing Latin, Cyrillic and Greek
+  letters, no repeat of another own word or a list label (compared folded:
+  case, accents, compatibility forms, punctuation), and no claim word
+  (`CLAIM_WORDS`: official, verified, certified, accredited, endorsed,
+  approved, authorised, sponsored, promoted, featured, partner, Sheltüh,
+  admin, moderator, trending, sold out, staff pick, editor's pick/choice, top
+  rated), compared on the display names' lookalike skeleton
+  (`lib/lookalikes.ts`: case, accents, compatibility forms, Cyrillic/Greek
+  lookalikes, i/l/1 → l, 0 → o, rn → m: "OfficiaI", "Appr0ved"), as whole
+  words, squashed across spaces or punctuation ("soldout", "o f f i c i a
+  l") and split at a change of case ("OfficialVenue"); "sheltuh" is refused
+  anywhere ("TeamSheltuh"). 400 with `fieldErrors` on `profileTags`,
+  `customTags` or `customTags.<i>` (and on `profileTags` or `customTags` if
+  the database's checks ever refuse what the API let through, rather than a
+  500); 403 not approved (before the body is read); 409 if the status
+  changed before the write. Every change is logged with old and new
+  values (`profileTags`, `customTags`); an admin clears the own words with a
+  reason (`POST /admin/organisers/{id}/remove-tags`, `byStaff`). The
+  database re-checks the slugs, counts and a structural deny-list (see
+  "Tables"). Until the organiser chooses (`profileTags` null on their
+  record), the public profile shows their reviewed event categories mapped
+  to the list (`tagsForEventCategories`: workshop → workshops, pop-up →
+  pop-ups & markets, the rest by name); an empty choice shows none. Own
+  words are only ever rendered as text, never in a link. **Accepted risk**:
+  the lookalike skeleton is a hand-picked subset of Unicode's confusables,
+  and a claim made in other words or another language gets past the list;
+  the log, admin removal and takedown are the controls. A claim word run
+  together with a change of case is refused even where it reads as one word
+  ("UnOfficial"). No rate limit on saves (each is
+  one logged row; the admin queue shows the newest 20 entries).
 - **Host card on the event page** (`GET /events/slug/{slug}` only): the
   public event carries `organiserWebsiteUrl`, `organiserSocialLinks` (the
   same server-built URLs as the profile's `socialLinks`, only when at least
@@ -3274,13 +3493,17 @@ Admins create events themselves, for any organiser
   `toPublicEventFromRow` without them.
 - **Public profile** (`GET /organisers/{id}/profile`): only approved
   organisers. Only `organiserId`, `displayName`, `description`,
-  `categories`, `websiteUrl`, `socialLinks`, `memberSince` (Melbourne
+  `categories`, `profileTags` and `customTags` (see "Categories"),
+  `websiteUrl`, `socialLinks`, `memberSince` (Melbourne
   `YYYY-MM` of the application), `featuredVideo` (`{provider, id}` or null),
-  `logoUrl` (only with a logo),
-  `followerCount` (only from 10 followers, else null: see "Following
-  organisers"), `eventsHosted` (published events that have ended) and their
-  published events in the feed's public shape: `upcomingEvents` (not yet ended, soonest first), then
-  `recentEvents` (ended, most recent first), 24 in all. The organiser query
+  `logoUrl` (only with a logo), `coverUrl` and `coverSmallUrl` (only with a
+  cover), `followerCount` (only from 10 followers, else null: see "Following
+  organisers"), `eventCount` (every published event, upcoming and past),
+  `eventsHosted` (published events that have ended; deprecated, still sent
+  until the profile page reads `eventCount`) and their
+  published events in the feed's public shape: `upcomingEvents` (not yet
+  ended, soonest first, at most 24) and, separately, `recentEvents` (ended,
+  most recent first, at most 12 however many are upcoming). The organiser query
   reads no private column (contact email, owner, Stripe, payouts, review). Not
   personalised, so it's sent without `private, no-store`, like the event feed.
   Like the other public reads, it isn't rate-limited (no IPs or cookies):
@@ -4558,8 +4781,8 @@ without one. The UI keeps showing the API's words, which already say when
 | `GET /admin/holder-messages?eventId&cursor&limit` · `GET /admin/holder-messages/{messageId}` · `POST /admin/holder-messages/{messageId}/cancel` | admin. The list has no text; the detail has the text and counts (`sentCount`, `skippedCount`); cancel stops what hasn't gone out (200 also when already stopped). 400 bad `eventId`; 404 unknown or malformed id |
 | `POST /places/autocomplete` `{input, sessionToken}` · `POST /places/details` `{placeId, sessionToken}` | approved organiser or admin (401, 403); `private, no-store` (see "Venue location"). Autocomplete: `input` 2–120 characters after control characters are removed; `sessionToken` `^[A-Za-z0-9_-]{8,36}$`, one per search. 200 `{suggestions: [{placeId, primaryText, secondaryText}]}` (at most 5, in Australia and its external territories). Details (ends the search's session): 200 `{placeId, formattedAddress, streetAddress, locality, state, postcode, googleMapsUrl}`, never a position. 400 fieldErrors (`input`, `sessionToken`, `placeId`: malformed, unknown to Google, or not in Australia); 429 per account (autocomplete 100 an hour and 400 a day; details, shared with event saves' place checks, 30 an hour and 120 a day); 503 `code: "places_unavailable"` (no key, Google unreachable, over quota, a bad key or disabled API, over 5 s, or the platform's cap for Google's day used: autocomplete 1,800, details 450). Bodies at most 4 KB. Nothing about the search is logged |
 | `GET /organisers/me/events` · `GET /organisers/me/events/{id}` | organiser (own events), `private, no-store` |
-| `PUT /events/{id}/image[?fx=&fy=]` · `PATCH /events/{id}/image` (`{focus}`) · `DELETE /events/{id}/image` | organiser (own events, while draft or rejected). The photo is re-encoded with no metadata before it's stored (see `event_images`): 400 if it doesn't decode (or takes over 10 seconds), 413 over 2 MB, 429 (PUT) over 50 uploads a day per account (`Retry-After`), 503 when the decode queue is full. Admins: `…/admin/events/{id}/image`. See "Photo focus" |
-| `GET /events/{id}/image?v=` | public once published: at the current `v` (as `imageUrl` gives it) `public, max-age=3600, s-maxage=3600`, with any other `v` or none the same image but `private, max-age=3600` (never shared: a guessed future version can't be cached ahead of a replacement); before that, the owning organiser or an admin, `private, no-store`. ETag `"<version>"` and Last-Modified; a matching `If-None-Match` is a 304 with the same headers (after the same access check, and without reading the bytes) |
+| `PUT /events/{id}/image[?fx=&fy=]` · `PATCH /events/{id}/image` (`{focus?, bannerFit?}`, at least one) · `DELETE /events/{id}/image` | organiser (own events, while draft or rejected). The photo is re-encoded with no metadata before it's stored (see `event_images`): 400 if it doesn't decode (or takes over 10 seconds), 413 over 2 MB, 429 (PUT) over 50 uploads a day per account (`Retry-After`), 503 when the decode queue is full. Admins: `…/admin/events/{id}/image`. See "Photo focus". PATCH: 200 with the event; 400 `fieldErrors.imageFocus` / `bannerFit`; 404; 409 locked or no photo |
+| `GET /events/{id}/image?v=` | public once published: at the current `v` (as `imageUrl` gives it) `public, max-age=3600, s-maxage=3600`, with any other `v` or none the same image but `private, max-age=3600` (never shared: a guessed future version can't be cached ahead of a replacement); before that, the owning organiser or an admin, `private, no-store`. ETag `"<version>"` and Last-Modified; a matching `If-None-Match` (RFC 9110 §13.1.2: any tag of a list, weak or strong, or `*`; parsed by `lib/server/if-none-match.ts`, which ignores headers over 1 KB or 32 tags) is a 304 with the same headers (after the same access check, and without reading the bytes) |
 | `GET /events/{id}/going` | public (published only): `{count, closed, countHidden}`. No cache header (not CDN-cached, so the count keeps up with the names list) |
 | `GET /events/{id}/going/attendees?cursor` | verified email with a profile that isn't suspended (403 otherwise); published only; 429 when rate-limited |
 | `GET /events/{id}/going/me` · `DELETE /events/{id}/going/me` | signed in (own opt-in) |
@@ -4567,21 +4790,30 @@ without one. The UI keeps showing the API's words, which already say when
 | `GET /events/{id}/external-going` | public (published only): `{count, closed, countHidden}` for an external event ("Going on external events"). `public, max-age=0, s-maxage=15, stale-while-revalidate=45` |
 | `GET /events/{id}/external-going/me` · `DELETE …/me` | signed in; `{going, open}`, `private, no-store`. DELETE idempotent, 429 over 30 an hour (shared with PUT) |
 | `PUT /events/{id}/external-going/me` | verified email (403); 404 unpublished, 409 not external or ended, 429 over 30 an hour |
-| `GET /profiles/me` · `DELETE /profiles/me` | signed in (own profile; DELETE also removes every opt-in, every conversation the member is in, for both sides, and the photo, bio and handle). GET also has `profileId`, `profileVisible`, `bio?`, `instagramHandle?`, `hasAvatar`, `avatarUrl?`, `avatarThumbUrl?` |
+| `GET /profiles/me` · `DELETE /profiles/me` | signed in (own profile; DELETE also removes every opt-in, every conversation the member is in, for both sides, and the photo, member photos, bio and handle). GET also has `profileId`, `profileVisible`, `bio?`, `instagramHandle?`, `hasAvatar`, `avatarUrl?`, `avatarThumbUrl?`, `photos` (`MemberPhoto[]`, oldest first) |
 | `PATCH /profiles/me` `{displayName?, profileVisible?, bio?, instagramHandle?}` | verified email, a profile (404), not suspended (403). Absent: unchanged; null or "" clears bio or handle. 400 fieldErrors |
 | `PUT /profiles/me/avatar` (raw JPEG/PNG/WebP) · `DELETE …/avatar` · `GET …/avatar[?size=thumb]` | PUT: verified, a profile (404), not suspended (403); 200 the profile; 400 not a supported image (or over 24 megapixels); 413 over 5 MB; 429 over 20 a day; 503 too many photos being decoded on the instance. DELETE: signed in, 204 idempotent. GET: the caller's own |
 | `GET /profiles/{profileId}` | verified member with a profile, not suspended: `MemberProfile` (see "Member profiles"); 404 for anything they can't see; 429 |
 | `GET /profiles/{profileId}/avatar[?size=thumb]` | the same gate (404 otherwise, also with a matching `If-None-Match`), or an admin (logged). WebP, `private, no-cache`, ETag (304); 429 over 600 per 10 minutes (members) |
+| `POST /profiles/me/photos` (raw JPEG/PNG/WebP) | verified email (401/403); 503 while `NEXT_PUBLIC_MEMBER_PHOTOS` isn't `1`; 403 suspended; 404 no profile; 409 `code: "photos_full"` at 6 (before the allowance, the body or the decoder); 429 over 20 a day; 413 over 4 MB; 400 not a supported image (or over 24 megapixels; `fieldErrors.photo`); 503 too many photos being decoded on the instance. 201 `{photo, profile}` (`MemberPhotoResult`); 200 the same with the existing photo when the same image is already one of the caller's. See "Member photos" |
+| `PATCH /profiles/me/photos/{photoId}` `{description}` · `DELETE …/photos/{photoId}` | PATCH: verified email, not suspended (403); 400 `fieldErrors.description`; 404 not one of the caller's photos (malformed ids included); 200 `{photo, profile}`. null or "" clears. DELETE: signed in, 204 idempotent (another member's or a malformed id is a no-op) |
+| `GET /profiles/{profileId}/photos/{photoId}[?size=thumb]` | the profile photo's gate and limit (shares `avatar_views`), or an admin (logged by ids). The same 404 for anything else: hidden, blocked either way, suspended either way, the viewer without a profile, unknown or malformed ids, another member's photo id under this profile; a conditional request (`If-None-Match`) that fails the gate also gets this 404, never a 304. WebP, `private, no-cache`, ETag the photo id (304 only after the gate), `nosniff`, `Cross-Origin-Resource-Policy: same-origin` |
 | `GET /admin/profiles/{profileId}` · `POST …/remove-content` `{fields, reason}` | admin. `AdminMemberProfile` (with the moderation log; remove-content adds `removed`). 400; 404 |
 | `GET /admin/reports/{reportId}/avatar` | admin: a profile report's copy of the photo. 404 none |
 | `GET /organisers/{organiserId}/follow` · `POST …/follow` `{notifyNewEvents?}` · `DELETE …/follow` | GET signed in, `{following, notifyNewEvents}` (404 not approved). POST verified email: 201 new (emails off unless `notifyNewEvents: true`) / 200 existing; 400 not a boolean (null included) or own organiser; 404; 409 500 follows; 429. DELETE signed in, 204 idempotent |
 | `GET /me/following?cursor&limit` · `GET /me/following/events?cursor&limit` | signed in: `FollowedOrganiser` items; upcoming events of followed organisers (public event shape), soonest first |
+| `GET /me` | verified email (`requireVerifiedCaller`: 401 signed out, 403 unverified): the caller's own `AccountSummary`, `private, no-store`. `upcomingCount`: how many published events that haven't started yet (`starts_at > now()`, so an event in progress no longer counts) the caller has a `paid` order for whose `buyer_email` equals their verified email ignoring case, the same match as Who's Going (`set_going`; no +tag or Gmail-dot folding). Free tickets are A$0 paid orders and count; a partly refunded order stays `paid` and counts; pending, failed, refunded and oversold orders don't. Distinct events: several orders, or a group order, for one event count once. Only the token's email decides whose orders are counted. One query on `orders_paid_email_event_idx` (`lower(buyer_email), event_id`, paid only; `20261201000000_member_upcoming_index.sql`). `username` and `usernameChangeableAt` are in the type but not sent yet. `GET /profiles/me` isn't used for this: it's a 404 for a member without a Who's Going profile |
 | `POST /holder-messages/stop` `{token}` (or `?token=…` with a form body, RFC 8058 one-click) · `GET /holder-messages/stop?token=…` | public (the emailed token is the credential; see "Messages to ticket holders", "Stopping messages"). POST 200 `{status: "stopped", organiserName?}` (idempotent); 400; 404. GET changes nothing: 303 to `/holder-messages/stop#token=…` |
 | `POST /follows/unsubscribe` `{token}` | public (the emailed token is the credential). 200 `{status: "unsubscribed", organiserName?}` (idempotent); 400; 404 |
 | `POST /admin/organisers/{organiserId}/remove-video` `{reason}` | admin. 200 `AdminOrganiserRecord` (unchanged, nothing logged, without a video); 400; 404 |
 | `PUT /organisers/me/logo` (raw JPEG/PNG/WebP) · `DELETE /organisers/me/logo` | PUT: an approved organiser (403 otherwise, before the body is read); 200 the organiser record (`logoUrl`), `private, no-store`; 400 `fieldErrors.logo` (not a supported image, or over 24 megapixels); 409 no longer approved by the time it's written; 413 over 2 MB; 429 over 20 a day; 503 too many images being decoded on the instance. DELETE: signed in, any status; 200 the record without `logoUrl` (idempotent); 404 no organiser |
 | `GET /organisers/{organiserId}/logo[?size=thumb][&v=…]` | public while the organiser is approved: at the current `v` `public, max-age=3600, s-maxage=3600`, otherwise `private, max-age=3600` (the current logo whatever `v` says); otherwise an admin or the owner with a bearer token (`private, no-store`). WebP 512 px (96 px thumbnail), `x-content-type-options: nosniff`, ETag (304). 404 for anything else: unknown, no logo, not approved without the right token, not a uuid |
 | `POST /admin/organisers/{organiserId}/remove-logo` `{reason}` | admin. 200 `AdminOrganiserRecord` (unchanged, nothing logged, without a logo); 400 `fieldErrors.reason` (1–500 characters, cleaned like a message); 403; 404 |
+| `PUT /organisers/me/cover` (raw JPEG/PNG/WebP) · `DELETE /organisers/me/cover` | As the logo's: PUT an approved organiser (403 otherwise, before the body is read); 200 the organiser record (`coverUrl`, `coverSmallUrl`), `private, no-store`; 400 `fieldErrors.cover` (not a supported image, over 24 megapixels, or too detailed to fit); 409 no longer approved by the time it's written; 413 over 4 MB; 429 over 20 a day; 503 too many images being decoded. DELETE: signed in, any status; 200 the record without them (idempotent); 404 no organiser |
+| `GET /organisers/{organiserId}/cover[?size=small][&v=…]` | As the logo's: public while approved (current `v`: `public, max-age=3600, s-maxage=3600`; otherwise `private, max-age=3600`), else an admin or the owner with a bearer token (`private, no-store`). WebP 2240 × 640 (1120 × 320 small), `nosniff`, ETag (304). 404 for anything else |
+| `POST /admin/organisers/{organiserId}/remove-cover` `{reason}` | admin. As remove-logo |
+| `PUT /organisers/me/tags` `{profileTags, customTags}` | an approved organiser (403 otherwise, before the body is read). 200 the organiser record (`profileTags` in list order, `customTags` cleaned; unchanged and nothing logged if it already was so), `private, no-store`; 400 `fieldErrors.profileTags`, `.customTags` or `["customTags.<i>"]` (also for a refusal by the database's checks); 409 status changed (see "Organiser profiles", "Categories") |
+| `POST /admin/organisers/{organiserId}/remove-tags` `{reason}` | admin. Clears the own words (`customTags`) only. 200 `AdminOrganiserRecord` (unchanged, nothing logged, without any); 400 `fieldErrors.reason`; 403; 404 |
 | `PUT /profiles/me` | verified email, not suspended (403). Creating needs `adultConfirmed: true` (an explicit `false` is a 400); a rename (no `adultConfirmed`) with no profile is a 404. Display names are checked in `lib/server/profile-input.ts`: no control, invisible or default-ignorable characters (U+FE0E/FE0F allowed), at least one letter or digit, at most 4 combining marks per character, no links, emails or @handles, no Latin/Cyrillic/Greek mix within a word, and no reserved names, compared on a lookalike skeleton |
 | `GET /conversations?cursor` | verified member: own conversations, newest activity first |
 | `POST /conversations` `{attendeeId, body}` \| `{profileId, body}` | verified member going to the same open event. 201; 400 invalid/links/self, 403 not going or suspended, 404 member unavailable (also: blocked either way, a pair whose conversation was deleted, or the recipient over their incoming cap), 409 conversation exists, 429 |
@@ -4615,7 +4847,7 @@ without one. The UI keeps showing the API's words, which already say when
 | `POST /organiser-links/view` `{token}` | public (the token is the credential), private, no-store; read-only. 200 `{expiresAt}`; 404 `code: "unavailable"` for a malformed, unknown, used, expired or cancelled link, or one whose creator is no longer an admin (one message for all: "This link has expired or was already used — ask Sheltüh for a new one."); 429 over 60 an hour per client (every request counts) |
 | `POST /organiser-links/join` `{token, displayName?, categories?}` | verified email (any address). 200 `{organiserId, displayName}` (idempotent for the account that used the link); 400 fieldErrors `displayName` / `categories` (the application's rules, plus no control or invisible characters in the name, no name only Sheltüh may use, and at most 5 categories as sent, repeats dropped; required when the account has no organiser, ignored for a pending application); 401; 403 unverified; 404 `code: "unavailable"` (as view); 409 `code` `already_organiser` / `rejected` (rejected, taken down, or pending again after a takedown; the link stays unused) or `conflict` (an application arrived at the same moment); 429 over 10 an hour per account or 30 per client (every attempt counts) |
 | `GET /admin/events/{id}` · `POST /admin/events` · `PATCH /admin/events/{id}` | admin (see "Admin authoring"). `AdminEventRecord`. The event body's `state` and `timeZone` as the organiser's (see "Events: state and time zone"; PATCH without them keeps the stored place). The body's optional `location` as the organiser's (400 / 503 as there; an admin's publish needs none). POST: the event body plus `organiserId`, `publish?`; 201; 400 fieldErrors (`organiserId` unknown; `ticketTypes` paid for a platform-managed organiser); 409 organiser not approved. PATCH: the event body with `ticketingMode` required, `expectedUpdatedAt`, `publish?`, `reason?` (≤500); 200 (unchanged if nothing changes); 400 fieldErrors (incl. `reason` to change an approved event's mode or link); 404; 409 stale version (`fieldErrors.expectedUpdatedAt`), orders on a switch to external, sold ticket types, or organiser not approved when publishing |
-| `PUT /admin/events/{id}/image` · `DELETE /admin/events/{id}/image` | admin, any status. As the organiser's (413, 400, 503; re-encoded with no metadata, see `event_images`), but with no daily limit, logged `edited`; 404 |
+| `PUT /admin/events/{id}/image` · `PATCH /admin/events/{id}/image` (`{focus?, bannerFit?}`) · `DELETE /admin/events/{id}/image` | admin, any status. As the organiser's (413, 400, 503; re-encoded with no metadata, see `event_images`), but with no daily limit, logged `edited` (PATCH: nothing logged when unchanged); 404; PATCH 409 no photo |
 | `GET /admin/events/{id}/curation` · `PUT …/curation` `{boost, excluded, reason}` | admin, any status (see "Trending"). `{eventId, boost, excluded, updatedAt, log}` (newest 20 changes). PUT: 200 (unchanged, nothing logged, if nothing changes; logged `curated` otherwise); 400 fieldErrors (`boost` a number from 0.5 to 2, rounded to 2 places; `excluded` a boolean; `reason` 1–500 characters); 404 |
 | `PATCH /admin/events/{id}/ticketing` `{ticketingMode, externalTicketUrl?, externalFree?, externalPriceFromCents?, reason}` | admin. Any status. 200 with the event (logged as `ticketing_changed`; unchanged, and nothing logged, if nothing would change); 400 fields (`ticketingMode` is required) or reason (1–500 characters); 404; 409 switching to external an event with orders |
 
@@ -4699,7 +4931,7 @@ the same URL that someone ran that search moments ago.
 | Event `GET /events/slug/{slug}` (event and seat pages) | `public, max-age=0, s-maxage=15, stale-while-revalidate=45` | about 1 minute (the seat page's reload after a map change adds `?seatMapVersion={v}`, a new cache key, so it never gets a copy from before the change) |
 | Trending | `public, max-age=0, s-maxage=300, stale-while-revalidate=600` | 15 minutes (plus the snapshot's own age; see "Trending") |
 | Seat availability | `public, max-age=0, s-maxage=5` | 5 seconds |
-| Event image, organiser logo (current `v` only) | `public, max-age=3600, s-maxage=3600`, ETag (304) | about an hour (two at most, if the CDN dropped `Age`) |
+| Event image, organiser logo and cover (current `v` only) | `public, max-age=3600, s-maxage=3600`, ETag (304) | about an hour (two at most, if the CDN dropped `Age`) |
 | Seat map (current `v` only) | `public, max-age=31536000, s-maxage=3600, immutable` | about an hour at the CDN; a year in a browser that already has it (a new map is a new URL) |
 | Calendar `.ics` | `public, max-age=300, s-maxage=300` | 5 minutes (plus a browser's 5) |
 
@@ -4715,8 +4947,8 @@ What that means:
 - **Takedowns.** An unpublished event, a suspended organiser's events and
   profile, or an admin's edit can still be served from the CDN for up to
   about 3 minutes in the feed and on a profile, about 1 minute on the event
-  page (checkout refuses at once), and about an hour for an image, a logo
-  or a seat map at the CDN. `max-age` equals `s-maxage` for images and
+  page (checkout refuses at once), and about an hour for an image, a logo,
+  a cover or a seat map at the CDN (an admin's cover removal included). `max-age` equals `s-maxage` for images and
   logos on purpose: a browser counts the CDN copy's `Age` against `max-age`
   (RFC 9111), so a copy is never stale on arrival and the whole chain still
   ends an hour after the function answered. A browser that already loaded
@@ -4741,6 +4973,11 @@ What that means:
 - `lib/server/deps.ts`: the production wiring (postgres.js, Supabase Auth,
   Stripe, SMTP), read from env.
 - `lib/api/*`: the browser-side client for the same routes.
+- Account summary (`GET /api/me`): `lib/server/handlers/me.ts` (`getMe`),
+  route `app/api/me/route.ts`, client `lib/api/me.ts`, type `AccountSummary`
+  in `lib/api/types.ts`, index in
+  `supabase/migrations/20261201000000_member_upcoming_index.sql`; tests
+  `tests/server/me.test.ts`.
 - Delayed payouts: `supabase/migrations/20261119000000_delayed_payouts.sql`;
   `lib/server/order-transfers.ts` (the job), `lib/server/handlers/payouts.ts`
   (cron, organiser and admin routes), the session shape in
@@ -4854,8 +5091,31 @@ What that means:
   `tests/server/wallet-passes.test.ts`, `wallet-google.test.ts`,
   `wallet-apple.test.ts` (helpers `tests/server/helpers/wallet.ts`) and
   `tests/WalletButtons.test.tsx`.
+- Member photos (see that section): `lib/server/handlers/profile-photos.ts`
+  (routes `app/api/profiles/me/photos/route.ts`,
+  `app/api/profiles/me/photos/[photoId]/route.ts`,
+  `app/api/profiles/[profileId]/photos/[photoId]/route.ts`);
+  `encodeMemberPhoto` in `lib/server/avatar.ts`; `photosOf`, `photoUrls` and
+  `toMemberPhotos` in `lib/server/records.ts`; `parsePhotoDescription` in
+  `lib/server/member-profile-input.ts`; `lib/member-photo-rules.ts` (limits);
+  `lib/member-photos-flag.ts` (`NEXT_PUBLIC_MEMBER_PHOTOS`);
+  `uploadMyPhoto`, `describeMyPhoto` and `deleteMyPhoto` in
+  `lib/api/profiles.ts`; tests `tests/server/profile-photos.test.ts`.
 - `components/tickets/TicketQr.tsx` / `lib/ticket-qr.ts`: the ticket QR,
   as inline SVG on `/checkout/success` and as a PNG in the ticket email.
+- Organiser profile cover and categories: covers in
+  `supabase/migrations/20261128000000_organiser_covers.sql`,
+  `lib/server/organiser-cover.ts` (re-encoding, sharing `decoder` and
+  `inEncodeSlot` from `lib/server/avatar.ts`),
+  `lib/server/handlers/organiser-covers.ts` and `adminRemoveOrganiserCover`
+  in `lib/server/handlers/admin.ts`; categories in
+  `supabase/migrations/20261128000100_organiser_tags.sql`,
+  `lib/api/organiser-tags.ts` (the list and rules, shared with the
+  dashboard), `lib/server/handlers/organiser-tags.ts` and
+  `adminRemoveOrganiserTags`; client wrappers in `lib/api/organisers.ts`
+  and `lib/api/admin.ts`. Tests: `tests/server/organiser-covers.test.ts`,
+  `tests/server/organiser-tags.test.ts`, `tests/organiser-tags.test.ts`,
+  `tests/organiser-cover-url.test.ts`.
 - Link previews: `lib/share-metadata.ts` builds title, description,
   canonical, Open Graph and Twitter/X metadata from public fields only;
   `lib/server/share-metadata.ts` is live mode's server-side read for
@@ -5068,11 +5328,32 @@ Events can be anywhere in Australia (owner plan, steps S3 and S4;
   With a saved "near" suburb (browser-only), `HomeEventsProvider` reads its
   state from storage (`readStoredNearState`: the state saved with the
   suburb, or for an entry saved before that, the state code its name ends
-  with, "Richmond NSW") and `selectHomeSections(…, preferredState)` lists
-  that state's events first in each section (a stable reorder, before each
-  takes its six). The home never loads the suburb table, so nothing waits on
-  it; a bare name saved without a state leaves the order Australia-wide. The
-  state never reaches the API.
+  with, "Richmond NSW") and passes it as `preferredState`, which it also
+  exposes in its ready state. `selectHomeSections(…, preferredState)` then:
+  - **This weekend** *filters* by it (Round 2): only that state's weekend
+    events, then one per artist (`onePerArtist`: `artistKey` = the
+    organiser's id, or name when it has none, plus the normalised title; no
+    artist field exists), then its six, so de-duplicating first fills the row
+    with distinct events. Nothing left in the state: the section hides.
+    Without a saved state it's Australia-wide, still one per artist.
+  - every other section lists that state's events first (a stable reorder,
+    before each takes its six).
+  - All events shows its first page (8, 4 on phones) with a bottom "See all
+    events →" instead of Show more, and drops "· Across Australia" from its
+    note when a state is saved.
+
+  The home never loads the suburb table, so nothing waits on it; a bare name
+  saved without a state leaves everything Australia-wide. The state never
+  reaches the API. "Selected location" in the Round 2 handoff is this state,
+  not a radius (a radius would load the suburb table, about 155 kB gzipped).
+- **Zone on compact lines** (Round 2, owner decision R0): cards, Nearby
+  rows, the map's card and the seat page name the event's zone (" Perth
+  time") only when its clock differs from Melbourne's at the event's start
+  (`zoneSuffix(timeZone, state, startsAt)`, `lib/event-card.ts`
+  `startLabel` / `cardDateLabel`). The rule reads only the event, so server
+  and browser render the same (no change after hydration). Without the
+  instant (emails, wallet passes, link previews, orders, admin) any zone but
+  Melbourne's is named, as before.
 - **Platform zone** (owner decision D1): analytics day buckets, trending,
   rate-limit days, retention, and admin and message times stay in
   Australia/Melbourne.
@@ -6019,7 +6300,8 @@ switched on**, and none of it runs in demo mode, in tests or on `/admin`.
   Supabase project, so their visits would otherwise count.
 - **Start-up.** `instrumentation-client.ts` calls `initAnalytics()`
   (`lib/analytics.ts`) before hydration. `posthog-js` is a dynamic import, so
-  it is in no bundle that runs without the key. Events queue on the load
+  it is in no bundle that runs without the key (nor is the error-catching
+  extension, imported beside it). Events queue on the load
   promise, so they go out in order. A failed load (ad blocker) leaves
   analytics off and never breaks the page.
 - **First-party proxy** (`proxy.ts`, `/ingest`). `api_host` is `/ingest`. The
@@ -6058,8 +6340,45 @@ switched on**, and none of it runs in demo mode, in tests or on `/admin`.
   `resetIdentity()` calls `reset(true)` (new anonymous id **and** device id; only
   if someone was identified; it waits out the "loading" state so a page load is
   not mistaken for a sign-out). No `$set` person properties are sent by us.
+- **Error reports** (owner decision, 18 Nov 2026). Uncaught errors and
+  unhandled promise rejections are sent as PostHog `$exception` events
+  (`capture_exceptions` with `capture_unhandled_errors` and
+  `capture_unhandled_rejections`; **never** `capture_console_errors`, which
+  would send whatever is logged). PostHog's error-catching extension is bundled
+  (`import("posthog-js/dist/exception-autocapture")` beside the SDK), since
+  external loading is off. It loads beside the SDK and never holds it up (a
+  stalled chunk mustn't delay a purchase event): once it is in,
+  `startExceptionAutocapture` (re)starts capture; if it never loads, error
+  reports stay off and the rest of analytics works. A `$exception` whose cleaned list is empty is
+  not sent. Breadcrumbs (`exception_steps`) and browser-extension
+  errors are off. `before_send` rebuilds `$exception_list` from the fields it
+  needs only (`sanitizeExceptionList`): the error's class name, its message
+  through `redactErrorMessage` (web addresses and site paths cleaned like page
+  addresses, with any path segment that isn't a lower-case route word or file
+  name replaced by `[…]`; an escaped quote (`\"`) never ends a quotation, `/admin` addresses replaced, and emails, quoted text (greedy, so
+  nested quotes are covered; an apostrophe is not a quote; a quote left open
+  redacts the rest), `ord_…`, uuids, ticket codes, tokens and runs of 7+ digits
+  (not dates) replaced by placeholders; 500 characters at most; PostHog's
+  "Non-Error promise rejection captured with value: …" and "Primitive value
+  captured as exception: …" keep only their prefix). This is best effort: a
+  name written into a message without quotes can't be recognised, which is why
+  the Privacy Policy says "the details we can recognise"),
+  how it was caught, and each frame's file (cleaned), function, line, column,
+  `in_app` and `chunk_id`. Hardening (security review, 18 Nov 2026): a value
+  PostHog marks `synthetic` (a thrown string, an object's `message`) becomes
+  `[redacted]` except "Script error." and PostHog's keys-only and prefix
+  wordings; the type is kept only when class-shaped (`…Error`, `…Exception`,
+  `DOMException`); a frame with no absolute script address (one parsed out of
+  message text) is dropped, and function names are kept only in identifier
+  shapes with no order reference or long digit-bearing run; the email pattern
+  is bounded and the text is cut again after addresses are cleaned. Source lines, variables and every other
+  `$exception_*` property are dropped; `$exception_level` is kept only as one
+  of PostHog's levels. A report from an `/admin` page, or with a frame whose
+  file is an `/admin` address, is dropped. Stacks are minified (no source maps
+  are uploaded). Tests: `tests/analyticsPrivacy.test.ts` ("error reports") and
+  the real SDK in `tests/analyticsRealPostHog.test.ts`.
 - **What is never captured.** Autocapture, rageclick, dead clicks, heatmaps,
-  exception capture, performance capture, session recording, surveys and
+  console errors, error breadcrumbs, performance capture, session recording, surveys and
   feature-flag calls are all off; `mask_all_text` and
   `mask_all_element_attributes` are on in case any is ever enabled in the
   PostHog UI (the local config wins over remote settings). Persistence is
@@ -6165,7 +6484,15 @@ presses the emailed free-booking link (`FreeOrderConfirm`),
 in the same step it hands the event to PostHog (a failed load keeps it, so it can
 be tried again). Opening the page from an email elsewhere, or after the tab is
 closed, is not counted: a purchase finished in a different tab than it started
-(the card-payment redirect stays in one tab) is the one gap.
+(the card-payment redirect stays in one tab) is the one gap. It is captured with
+`send_instantly` (not batched): from 9 to 14 Nov 2026 production recorded 3
+`order_completed` against 31 paid orders while `checkout_started` matched the
+orders (60 vs 59), and a real-browser reproduction found no code fault. The
+likely loss is PostHog's 3-second batch: `checkout_started` always leaves by
+beacon (a navigation follows), but buyers close the success page or the in-app
+browser within seconds. Note for tests: posthog-js sends nothing from headless
+Chromium (`navigator.webdriver`, `HeadlessChrome`), so a real-PostHog e2e check
+must override those.
 
 Tests: `tests/analyticsPrivacy.test.ts` (sanitiser, DNT/GPC),
 `tests/analyticsRealPostHog.test.ts` (the real posthog-js),

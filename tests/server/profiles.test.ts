@@ -67,6 +67,7 @@ describe("profile lifecycle", () => {
       profileId: expect.stringMatching(/^[0-9a-f-]{36}$/),
       profileVisible: false,
       hasAvatar: false,
+      photos: [],
     });
     const confirmedAt = (await profileRow(user.userId)).adult_confirmed_at;
     expect(confirmedAt).toBeTruthy();

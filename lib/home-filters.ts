@@ -1,6 +1,7 @@
+import { eventFilterHref } from "./event-filter-params";
 import { isOpenThisWeekend } from "./home-sections";
 import { isTonight, matchesPricing } from "./scene-map-filters";
-import type { EventCategory, SheltuhEvent } from "./types";
+import { EVENT_CATEGORIES, type EventCategory, type SheltuhEvent } from "./types";
 
 /**
  * The home's event filters (the proposal's All events row, redesign PR 3): Price, Category and
@@ -50,4 +51,16 @@ export function matchesHomeFilters(event: SheltuhEvent, filters: HomeFilters, no
     matchesPricing(event, filters.price) &&
     (filters.date === "all" || (filters.date === "tonight" ? isTonight(event, now) : isOpenThisWeekend(event, now)))
   );
+}
+
+/**
+ * All events' way to the full list (/events), carrying the filters /events reads too
+ * (lib/event-filter-params.ts: `?category=`, `?pricing=free`). Under A$25 and the dates have no
+ * /events equivalent, so they're left out. With a category on, the words name it ("See all live
+ * music events").
+ */
+export function seeAllEventsLink(filters: HomeFilters): { href: string; label: string } {
+  const href = eventFilterHref({ category: filters.category, pricing: filters.price === "free" ? "free" : "all" });
+  const category = EVENT_CATEGORIES.find((c) => c.value === filters.category);
+  return { href, label: category ? `See all ${category.label.toLowerCase()} events` : "See all events" };
 }

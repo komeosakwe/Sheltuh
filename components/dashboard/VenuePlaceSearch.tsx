@@ -22,13 +22,23 @@ export const PLACE_SEARCH_MAX_SUGGESTIONS = 5;
 /** The search field's id: the editor focuses it, and labels errors by it. */
 export const VENUE_PLACE_SEARCH_ID = "venue-place-search";
 
+/**
+ * The suburb a linked place belongs to: its place (venuePlaceKey) once that's known, or, while it isn't (typed
+ * but not looked up yet, or the suburb table loading), the suburb as typed, until its place is known.
+ */
+export type PlaceBinding = string | { text: string };
+
 export interface PickedPlace {
   suggestion: PlaceSuggestion;
   details: PlaceDetails;
+  /** The suburb when the pick was made, before its details loaded (`suburbBinding` then). */
+  pickedIn: PlaceBinding;
 }
 
 export interface VenuePlaceSearchProps {
   getToken: GetToken;
+  /** The suburb now (VenueLocationField: its place, or the text while that isn't known): reported with a pick as it was when picked. */
+  suburbBinding?: PlaceBinding;
   /** A place was picked and its address fetched (which ends the search's session). */
   onPick: (picked: PickedPlace) => void;
   /**
@@ -76,7 +86,7 @@ function errorText(err: unknown): string {
  * coordinates are never asked for: the organiser checks the pin on our own
  * map after this.
  */
-export default function VenuePlaceSearch({ getToken, onPick, onManual, error, errorId }: VenuePlaceSearchProps) {
+export default function VenuePlaceSearch({ getToken, suburbBinding = { text: "" }, onPick, onManual, error, errorId }: VenuePlaceSearchProps) {
   const listId = useId();
   const statusId = useId();
   const optionId = (index: number) => `${listId}-option-${index}`;
@@ -92,11 +102,12 @@ export default function VenuePlaceSearch({ getToken, onPick, onManual, error, er
   const session = useRef<string | null>(null);
   const searchAbort = useRef<AbortController | null>(null);
   const detailsAbort = useRef<AbortController | null>(null);
-  // The latest props, for the effects (they mustn't re-run because the editor re-rendered).
-  const latest = useRef({ getToken, onManual });
+  // The latest props, for the effects (they mustn't re-run because the editor re-rendered) and for a pick
+  // whose details arrive after the editor changed (a name typed meanwhile must be what onPick sees).
+  const latest = useRef({ getToken, onManual, onPick });
   useEffect(() => {
-    latest.current = { getToken, onManual };
-  }, [getToken, onManual]);
+    latest.current = { getToken, onManual, onPick };
+  }, [getToken, onManual, onPick]);
 
   const text = query.trim();
   const longEnough = text.length >= PLACE_SEARCH_MIN_CHARS;
@@ -161,6 +172,8 @@ export default function VenuePlaceSearch({ getToken, onPick, onManual, error, er
 
   async function pick(suggestion: PlaceSuggestion) {
     if (fetchingPlace) return;
+    // The suburb it's picked in: the organiser may change it while the details load.
+    const pickedIn = suburbBinding;
     searchAbort.current?.abort();
     detailsAbort.current?.abort();
     const token = session.current ?? sessionToken();
@@ -179,11 +192,11 @@ export default function VenuePlaceSearch({ getToken, onPick, onManual, error, er
     try {
       const details = await getPlaceDetails(suggestion.placeId, token, getToken, controller.signal);
       if (controller.signal.aborted) return;
-      onPick({ suggestion, details });
+      latest.current.onPick({ suggestion, details, pickedIn });
     } catch (err) {
       if (controller.signal.aborted || isAbort(err)) return;
       if (isPlacesUnavailableError(err)) {
-        onManual("unavailable");
+        latest.current.onManual("unavailable");
         return;
       }
       setProblem(`Couldn’t get that place’s address: ${errorText(err)}`);

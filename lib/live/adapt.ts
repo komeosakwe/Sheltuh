@@ -43,6 +43,8 @@ export function adaptPublicEvent(event: PublicEvent): SheltuhEvent {
     imageUrl: event.imageUrl,
     // Only with a focus point: an event without one adapts exactly as before.
     ...(event.imageFocus ? { imageFocus: { x: event.imageFocus.x, y: event.imageFocus.y } } : {}),
+    // Only when the banner shows the whole photo: an event without it adapts exactly as before.
+    ...(event.bannerFit === "whole" ? { bannerFit: "whole" as const } : {}),
     // Only with a clip: an event without one adapts exactly as before.
     ...(event.clip
       ? {

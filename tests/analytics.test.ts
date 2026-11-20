@@ -10,8 +10,11 @@ const posthog = {
   register_for_session: vi.fn(),
   get_distinct_id: vi.fn(() => "anon-id"),
   _isIdentified: vi.fn(() => true),
+  startExceptionAutocapture: vi.fn(),
 };
 vi.mock("posthog-js", () => ({ default: posthog }));
+// The error-catching extension registers itself on window as it loads; tests/analyticsRealPostHog.test.ts loads the real one.
+vi.mock("posthog-js/dist/exception-autocapture", () => ({ default: {} }));
 
 let supabaseConfigured = true;
 vi.mock("@/lib/supabase/config", () => ({
@@ -122,7 +125,9 @@ describe("analytics is on", () => {
       disable_session_recording: true,
       capture_heatmaps: false,
       capture_dead_clicks: false,
-      capture_exceptions: false,
+      // Uncaught errors and rejections only: console.error can carry anything logged.
+      capture_exceptions: { capture_unhandled_errors: true, capture_unhandled_rejections: true, capture_console_errors: false },
+      error_tracking: { captureExtensionExceptions: false, exception_steps: { enabled: false } },
       disable_surveys: true,
       disable_external_dependency_loading: true,
       mask_all_text: true,
@@ -131,6 +136,52 @@ describe("analytics is on", () => {
       respect_dnt: true,
     });
     expect(config.property_denylist).toEqual(expect.arrayContaining(["gclid", "fbclid", "mc_eid"]));
+  });
+
+  it("starts error capture once the extension is in, with console errors off", async () => {
+    const a = await load();
+    a.initAnalytics();
+    await settle();
+    await settle();
+    expect(posthog.startExceptionAutocapture).toHaveBeenCalledWith({
+      capture_unhandled_errors: true,
+      capture_unhandled_rejections: true,
+      capture_console_errors: false,
+    });
+  });
+
+  it("doesn't hold PostHog (or a purchase) back while the extension is still loading", async () => {
+    vi.doMock("posthog-js/dist/exception-autocapture", () => new Promise(() => {}));
+    try {
+      const a = await load();
+      a.initAnalytics();
+      await settle();
+      expect(posthog.init).toHaveBeenCalledTimes(1);
+      a.track("map_near_me_used", {});
+      await settle();
+      expect(posthog.capture).toHaveBeenCalledWith("map_near_me_used", {});
+      expect(posthog.startExceptionAutocapture).not.toHaveBeenCalled();
+    } finally {
+      vi.doMock("posthog-js/dist/exception-autocapture", () => ({ default: {} }));
+    }
+  });
+
+  it("still starts PostHog when its error-catching extension can't load (error reports just stay off)", async () => {
+    vi.doMock("posthog-js/dist/exception-autocapture", () => {
+      throw new Error("chunk failed to load");
+    });
+    try {
+      const a = await load();
+      a.initAnalytics();
+      await settle();
+      expect(posthog.init).toHaveBeenCalledTimes(1);
+      a.track("map_near_me_used", {});
+      await settle();
+      expect(posthog.capture).toHaveBeenCalledWith("map_near_me_used", {});
+      expect(posthog.startExceptionAutocapture).not.toHaveBeenCalled();
+    } finally {
+      vi.doMock("posthog-js/dist/exception-autocapture", () => ({ default: {} }));
+    }
   });
 
   it("hands PostHog a before_send that drops /admin and cleans addresses", async () => {
@@ -280,7 +331,7 @@ describe("order_completed is for the visit that checked out", () => {
     a.trackOrderCompleted("ord_abc", ORDER_PROPERTIES);
     await settle();
     expect(posthog.capture).toHaveBeenCalledTimes(1);
-    expect(posthog.capture).toHaveBeenCalledWith("order_completed", ORDER_PROPERTIES);
+    expect(posthog.capture).toHaveBeenCalledWith("order_completed", ORDER_PROPERTIES, { send_instantly: true });
     expect(JSON.parse(sessionStorage.getItem(STARTED) ?? "[]")).toEqual([]);
   });
 

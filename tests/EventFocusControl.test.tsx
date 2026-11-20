@@ -78,6 +78,21 @@ describe("EventFocusControl", () => {
     expect(screen.getByText("Pin")).toBeInTheDocument();
     expect(screen.getByText("Card")).toBeInTheDocument();
   });
+
+  // CodeRabbit (PR #61): the Card preview fits a photo as the public card does (EventCard's fit="poster"): a portrait
+  // poster is shown whole in the 2:1 box, not cropped to a strip.
+  it("shows a portrait poster whole in the Card preview, as the public card does", () => {
+    const { container } = setup(null);
+    const card = screen.getByText("Card").previousElementSibling;
+    const img = card?.querySelector("img");
+    if (!img) throw new Error("no Card preview photo");
+    expect(card).toHaveClass("aspect-[2/1]");
+    Object.defineProperty(img, "naturalWidth", { value: 800 });
+    Object.defineProperty(img, "naturalHeight", { value: 1200 });
+    fireEvent.load(img);
+    expect(img).toHaveClass("object-contain");
+    expect(container.querySelector("[data-focus-marker]")).not.toBeNull();
+  });
 });
 
 describe("map marker", () => {

@@ -60,6 +60,25 @@ for (const vp of [
       checkNoApiCalls();
     });
 
+    test("a sample organiser with a cover: the photo, their chips, Share and Report, with no API calls", async ({ page }) => {
+      const checkNoApiCalls = noApiCalls(page);
+      await page.goto("/organisers/static-collective");
+      await expect(page.getByRole("heading", { level: 1, name: "Static Collective" })).toBeVisible({ timeout: 60_000 });
+      await expect(page.locator("[data-organiser-cover] img")).toHaveAttribute("src", "/events/dj-crate-digging.jpg");
+      await expect(page.getByRole("list", { name: "Categories" }).getByRole("listitem")).toHaveText([
+        "Live music",
+        "Late-night",
+        "Analogue synths",
+      ]);
+      await expect(page.getByRole("button", { name: "Share Static Collective" })).toBeVisible();
+      await expect(page.getByRole("link", { name: "Report this organiser" })).toHaveAttribute(
+        "href",
+        /^mailto:support@sheltuh\.com\.au\?subject=Report%3A%20Static%20Collective%20/,
+      );
+      await noSidewaysScroll(page);
+      checkNoApiCalls();
+    });
+
     test("a Who's Going name opens their profile; Message opens a conversation where a sent message appears", async ({
       page,
     }) => {

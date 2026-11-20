@@ -418,13 +418,26 @@ describe("OAuthButtons on /login and /signup", () => {
     expect(signInWithProvider).toHaveBeenCalledWith("google", "/events/neon-static");
   });
 
-  it("/login (the sign-in mock): the email form and Continue, then \"Or continue with\", the buttons and their line, carrying ?next=", async () => {
+  // Round 2 (the owner's iPhone screenshot): Privacy Policy and Terms of Use once on the page, under Sign up, covering
+  // Apple and Google too; no explainer under the buttons (their labels say it).
+  it("/signup says the privacy line once, under Sign up, and nothing under the buttons", async () => {
+    await renderPage("signup");
+    expect(screen.getAllByRole("link", { name: "Privacy Policy" })).toHaveLength(1);
+    expect(screen.getAllByRole("link", { name: "Terms of Use" })).toHaveLength(1);
+    expect(screen.queryByText(/^Continuing with/)).toBeNull();
+    const line = screen.getByText(/^By continuing you agree to the/);
+    for (const before of [screen.getByRole("button", { name: "Sign up" }), apple(), google()]) {
+      expect(before.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+  });
+
+  it("/login (the sign-in mock): the email form and Continue, then \"Or continue with\", the buttons and the page's one privacy line, carrying ?next=", async () => {
     const signInWithProvider = await renderPage("login", "/events/neon-static");
     const email = screen.getByLabelText("Email");
     const submit = screen.getByRole("button", { name: "Continue" });
     const divider = screen.getByText("Or continue with");
     const appleButton = apple();
-    const line = screen.getByText(/^Continuing with Apple or Google signs you in/);
+    const line = screen.getByText(/^By continuing you agree to the/);
     for (const [before, after] of [
       [email, submit],
       [submit, divider],
@@ -445,15 +458,19 @@ describe("OAuthButtons on /login and /signup", () => {
     expect(signInWithProvider).toHaveBeenCalledWith("google", "/events/neon-static");
   });
 
-  it("/login says the privacy line once: the buttons' line with them, the one under the form without", async () => {
-    await renderPage("login");
-    expect(screen.getAllByRole("link", { name: "Privacy Policy" })).toHaveLength(1);
-    expect(screen.getByText(/^Continuing with Apple or Google signs you in/)).toBeInTheDocument();
-    cleanup();
-
-    await renderPage("login", undefined, "");
-    expect(screen.getAllByRole("link", { name: "Privacy Policy" })).toHaveLength(1);
-    expect(screen.getByText(/^How we handle your details:/)).toBeInTheDocument();
+  it("/login says the privacy line once, with the buttons or without", async () => {
+    for (const flag of ["google,apple", ""]) {
+      await renderPage("login", undefined, flag);
+      // Each layout is the one meant: both buttons with the flag, neither without.
+      for (const name of ["Continue with Apple", "Continue with Google"]) {
+        expect(screen.queryAllByRole("button", { name })).toHaveLength(flag ? 1 : 0);
+      }
+      expect(screen.getAllByRole("link", { name: "Privacy Policy" })).toHaveLength(1);
+      expect(screen.getAllByRole("link", { name: "Terms of Use" })).toHaveLength(1);
+      expect(screen.getByText(/^By continuing you agree to the/)).toBeInTheDocument();
+      expect(screen.queryByText(/^Continuing with/)).toBeNull();
+      cleanup();
+    }
   });
 });
 

@@ -146,15 +146,18 @@ describe("the home's event sections (redesign PR 3)", () => {
     expect(within(all).getByText(`${UPCOMING} upcoming · Across Australia`)).toBeInTheDocument();
     // This weekend's events go last, so the first page is everything else, soonest first.
     expect(titlesIn("All events")).toEqual([NEXT, ...COMING].map((e) => e.title));
-    expect(within(all).getByRole("link", { name: "See all events" })).toHaveAttribute("href", "/events");
-    expect(within(all).getByRole("button", { name: "Show more events" })).toBeInTheDocument();
+    // Round 2 B2: no Show more; See all events in the head and, as more match than are shown, at the bottom.
+    expect(within(all).queryByRole("button", { name: /Show more/ })).toBeNull();
+    const seeAll = within(all).getAllByRole("link", { name: "See all events" });
+    expect(seeAll).toHaveLength(2);
+    for (const link of seeAll) expect(link).toHaveAttribute("href", "/events");
     expect(screen.queryByText("Event ended")).not.toBeInTheDocument();
     // No rails, marquee, What else? or Recently on.
     for (const name of ["Recently on", "What else?", "Coming up"]) expect(screen.queryByRole("heading", { name })).toBeNull();
     expect(document.querySelector("[data-rail-clone], [data-rail-layout]")).toBeNull();
   });
 
-  it("an event can be in both the carousel and This weekend; All events lists each upcoming event once, This weekend's last", async () => {
+  it("an event can be in both the carousel and This weekend; All events' first page never repeats This weekend's", async () => {
     loadHomeEvents.mockResolvedValue(EVENTS);
     loadHomeTrending.mockResolvedValue(TRENDING);
     renderHome();
@@ -163,11 +166,14 @@ describe("the home's event sections (redesign PR 3)", () => {
     expect(titlesIn("This weekend")).toContain("Event sat");
     // This weekend itself never repeats an event.
     expect(new Set(titlesIn("This weekend")).size).toBe(titlesIn("This weekend").length);
-    fireEvent.click(screen.getByRole("button", { name: "Show more events" }));
     const all = titlesIn("All events");
-    expect(all).toHaveLength(UPCOMING);
+    expect(all).toHaveLength(8);
     expect(new Set(all).size).toBe(all.length);
-    expect(all.at(-1)).toBe("Event sun");
+    for (const title of titlesIn("This weekend")) expect(all).not.toContain(title);
+    // The count is still every upcoming event's.
+    expect(screen.getByRole("region", { name: "All events" }).querySelector("[data-section-note]")).toHaveTextContent(
+      new RegExp(`^${UPCOMING} upcoming`),
+    );
   });
 
   it("gives cards the real going counts the page has: the trending ones, live or demo alike", async () => {
@@ -383,13 +389,15 @@ describe("the home with a saved suburb (owner decision D5, browser-only)", () =>
   /** All events less the carousel's far-off ones: This weekend's, last, in their order. */
   const allButFar = () => titlesIn("All events").filter((t) => !t.startsWith("Event far"));
 
-  it("lists the saved suburb's state first in This weekend and All events, read from storage without the suburb table", async () => {
+  it("shows only the saved suburb's state in This weekend (Round 2 B1), read from storage without the suburb table", async () => {
     localStorage.setItem("sheltuh:near:v1", JSON.stringify({ suburb: "Perth", state: "WA" }));
     loadHomeEvents.mockResolvedValue([SAT, SUN, PERTH_SAT, ...FAR]);
     renderHome();
     await flush();
-    expect(titlesIn("This weekend")).toEqual(["Event perth-sat", "Event sat", "Event sun"]);
-    expect(allButFar()).toEqual(["Event perth-sat", "Event sat", "Event sun"]);
+    expect(titlesIn("This weekend")).toEqual(["Event perth-sat"]);
+    // All events: every upcoming event, This weekend's last; with a state saved, not "Across Australia".
+    expect(allButFar()).toEqual(["Event sat", "Event sun", "Event perth-sat"]);
+    expect(screen.getByRole("region", { name: "All events" }).querySelector("[data-section-note]")).toHaveTextContent(/^6 upcoming$/);
     // Nothing waits on the ~15k-row table: it isn't loaded at all.
     expect(loadLocation).not.toHaveBeenCalled();
     // The suburb isn't sent with the events' requests.

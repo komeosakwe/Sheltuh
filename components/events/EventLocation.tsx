@@ -1,7 +1,7 @@
 import EventLocationMap from "@/components/events/EventLocationMap";
 import { ExternalIcon } from "@/components/home/icons";
 import { appleMapsHref, directionsHref, venuePin } from "@/lib/maps";
-import { placeName } from "@/lib/place";
+import { venueLines } from "@/lib/place";
 import type { SheltuhEvent } from "@/lib/types";
 
 // Mono like the address beside them, in the words' own case (the owner's event mock), each a 44px target.
@@ -23,10 +23,10 @@ export default function EventLocation({ event, map = true }: { event: SheltuhEve
   const directions = directionsHref(event);
   const apple = appleMapsHref(event);
   if (!directions) return null;
-  const venue = event.venueName.trim();
-  // The street address, or where it has none, the suburb ("Fitzroy, VIC").
-  const where = event.venueAddress.trim() || placeName(event.suburb, event.state);
-  const destination = [venue, where].filter(Boolean).join(", ");
+  // The venue's name, then its street address or, where it has none, the suburb ("Fitzroy, VIC"). No real name (none,
+  // or only the street line: a Google address pick): the address, then the suburb (lib/place.ts venueLines).
+  const { first, second, named } = venueLines(event);
+  const destination = [first, second].filter(Boolean).join(", ");
   // With the organiser's pin, Apple Maps opens on that spot; otherwise it routes to the address.
   const appleAction = venuePin(event) ? destination : `directions to ${destination}`;
 
@@ -39,9 +39,9 @@ export default function EventLocation({ event, map = true }: { event: SheltuhEve
         {map && <EventLocationMap event={event} directions={directions} />}
         <div className="flex flex-wrap items-center gap-x-2">
           <address className="mono-m flex flex-wrap gap-x-2 not-italic">
-            {venue && <span className="font-semibold">{venue}</span>}
-            {venue && where && <span aria-hidden="true">·</span>}
-            {where && <span className="break-words">{where}</span>}
+            {first && <span className={named ? "font-semibold" : "break-words"}>{first}</span>}
+            {first && second && <span aria-hidden="true">·</span>}
+            {second && <span className="break-words">{second}</span>}
           </address>
           <span aria-hidden="true" className="mono-m">
             ·

@@ -25,11 +25,13 @@ import type { TicketingMode } from "@/lib/ticketing";
  * does nothing and posthog-js isn't even downloaded.
  *
  * Everything sent is chosen here: no autocapture, no session recording, no
- * heatmaps, no input values. People are identified only by their Supabase
+ * heatmaps, no input values. Uncaught errors are reported, cleaned first
+ * (sanitizeExceptionList). People are identified only by their Supabase
  * user id (never an email, name or phone number), and the address of every
  * event is cleaned first (lib/analytics-privacy.ts). Properties are internal
  * slugs, uuids, counts and flags: never an order id, ticket code, token,
- * email or search words.
+ * email or search words. Error reports are the exception: their message is
+ * free text, redacted on a best-effort basis (redactErrorMessage).
  */
 
 /** Every custom event and exactly the properties it carries. */
@@ -91,6 +93,17 @@ export function analyticsConfig(): AnalyticsConfig | null {
 let client: Promise<PostHog> | null = null;
 
 /**
+ * Error reports: uncaught errors and unhandled promise rejections only, never console.error (which can
+ * carry anything logged). Their message, stack and addresses are cleaned by before_send
+ * (sanitizeExceptionList); no breadcrumbs are kept.
+ */
+const EXCEPTION_CAPTURE = {
+  capture_unhandled_errors: true,
+  capture_unhandled_rejections: true,
+  capture_console_errors: false,
+} as const;
+
+/**
  * Starts PostHog, once, in the browser. Called from instrumentation-client.ts
  * before the app hydrates. Does nothing when analytics is off or the browser
  * says Do Not Track / Global Privacy Control (then nothing is downloaded or
@@ -101,6 +114,14 @@ export function initAnalytics(): void {
   const config = analyticsConfig();
   if (!config) return;
   if (browserOptedOut()) return;
+  // Error reports need PostHog's error-catching extension. It is bundled (it registers itself on window
+  // as it loads) because PostHog may not fetch scripts at run time (below). It loads beside the SDK and
+  // never holds it up: once it's in, error capture is (re)started. If it never loads, error reports
+  // stay off and everything else works.
+  const errorExtension = import("posthog-js/dist/exception-autocapture").then(
+    () => true,
+    () => false,
+  );
   client = import("posthog-js").then(({ default: posthog }) => {
     posthog.init(config.key, {
       // The first-party proxy (next.config.ts rewrites /ingest to PostHog), so ad blockers don't skew the numbers.
@@ -115,7 +136,8 @@ export function initAnalytics(): void {
       rageclick: false,
       capture_dead_clicks: false,
       capture_heatmaps: false,
-      capture_exceptions: false,
+      capture_exceptions: EXCEPTION_CAPTURE,
+      error_tracking: { captureExtensionExceptions: false, exception_steps: { enabled: false } },
       capture_performance: false,
       disable_session_recording: true,
       disable_surveys: true,
@@ -144,6 +166,9 @@ export function initAnalytics(): void {
     // property of every event this visit (the user agent itself is not sent on).
     const inApp = inAppBrowserName(window.navigator.userAgent);
     if (inApp) posthog.register({ in_app_browser: inApp });
+    void errorExtension.then((loaded) => {
+      if (loaded) posthog.startExceptionAutocapture(EXCEPTION_CAPTURE);
+    });
     return posthog;
   });
   // Analytics must never break the site: a blocked or failed load just leaves it off.
@@ -287,7 +312,9 @@ export function trackOrderCompleted(orderId: string, properties: AnalyticsEvents
       writeStarted(ids.filter((item) => item !== id));
       return;
     }
-    posthog.capture("order_completed", properties);
+    // Sent at once, not batched: buyers often close the page (or the in-app browser) seconds after
+    // the confirmation shows, and a batched event is lost if that happens before PostHog's flush.
+    posthog.capture("order_completed", properties, { send_instantly: true });
     markCompleted(id);
     writeStarted(ids.filter((item) => item !== id));
   });

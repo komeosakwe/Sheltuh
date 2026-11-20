@@ -25,3 +25,15 @@ export function parseEventFilterParams(params: Record<string, SearchParamValue>)
     pricing: pricing === "free" || pricing === "paid" ? pricing : "all",
   };
 }
+
+/**
+ * The /events link that opens with these filters (the inverse of parseEventFilterParams): "all"
+ * adds nothing, so no filters is plain /events.
+ */
+export function eventFilterHref({ category, pricing }: EventFilterParams): string {
+  const query = new URLSearchParams();
+  if (category !== "all") query.set("category", category);
+  if (pricing !== "all") query.set("pricing", pricing);
+  const search = query.toString();
+  return search ? `/events?${search}` : "/events";
+}

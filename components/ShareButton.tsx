@@ -4,6 +4,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { actionRowClass, actionRowLabelClass, buttonClass, secondaryActionClass } from "@/components/ui/Button";
 import { PHONE_QUERY } from "@/components/ui/useIsPhone";
 import { publicEventUrl } from "@/lib/event-url";
+import { absoluteUrl } from "@/lib/share-metadata";
 
 const COPIED_FOR_MS = 4000;
 /** The popover's gap below the button on phones, matching `sm:mt-2`. */
@@ -28,26 +29,54 @@ function ShareIcon() {
   );
 }
 
+function CopiedIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={2} className="size-4 shrink-0">
+      <path d="M3 8.5l3.5 3.5L13 4.5" />
+    </svg>
+  );
+}
+
+/** What's shared: an event (`slug`), or any other page of the site by its `path` ("/organisers/{id}"). */
+type ShareTarget = { slug: string; path?: never } | { path: string; slug?: never };
+
+/** The address shared: the origin and the page's path alone, never a query string or fragment. */
+function shareUrl(target: ShareTarget, origin: string): string {
+  if (target.slug !== undefined) return publicEventUrl(target.slug, origin);
+  return absoluteUrl((target.path ?? "/").split(/[?#]/, 1)[0], origin);
+}
+
 function isAbort(err: unknown): boolean {
   return err instanceof DOMException && err.name === "AbortError";
 }
 
 /**
- * Share an event (docs/design/brand-direction-one.md §6.7): the device's own
- * share sheet where there is one; otherwise the link is copied, with a polite
- * "Link copied"; and if the clipboard refuses, a small popover with the link
- * selected, to copy by hand. The link is the event page alone, never the
- * address bar's query (so a tracking `?ref=` isn't passed on).
+ * Share an event (docs/design/brand-direction-one.md §6.7), or with `path`
+ * another page (an organiser's profile): the device's own share sheet where
+ * there is one; otherwise the link is copied, with a polite "Link copied";
+ * and if the clipboard refuses, a small popover with the link selected, to
+ * copy by hand. The link is the page alone, never the address bar's query
+ * (so a tracking `?ref=` isn't passed on).
  */
 export default function ShareButton({
   slug,
+  path,
   title,
   text,
   className = "",
   fill = false,
-}: {
-  slug: string;
+  copyLabel = "Link to this event",
+  copiedInLabel = false,
+}: ShareTarget & {
   title: string;
+  /** The copy-by-hand popover's field label. */
+  copyLabel?: string;
+  /**
+   * After a copy, the button itself reads "Copied" (with a check) for a few seconds, and is named "Copied. Share
+   * {title}" meanwhile; "Link copied" is said but not shown. The button is always as wide as "Copied", so a row it
+   * shares (the organiser profile's Follow and Share) never changes.
+   */
+  copiedInLabel?: boolean;
   /**
    * The button fills the box it's given (the event page's ticket panel, in a row with Save and Add to
    * calendar), and "Link copied" shows just under it rather than beside it, so the row never gets wider.
@@ -71,6 +100,7 @@ export default function ShareButton({
   useEffect(() => () => clearTimeout(clearTimer.current), []);
 
   const open = manualUrl !== null;
+  const copied = copiedInLabel && status !== "";
 
   // Below sm the popover spans the viewport inside its gutters (`fixed
   // inset-x-5`), just under the button, following it as the page scrolls; a
@@ -137,7 +167,7 @@ export default function ShareButton({
   }
 
   async function share() {
-    const url = publicEventUrl(slug, window.location.origin);
+    const url = shareUrl(slug !== undefined ? { slug } : { path: path ?? "/" }, window.location.origin);
     setManualUrl(null);
     setManualHint("");
     if (typeof navigator.share === "function" && navigator.canShare?.({ url }) !== false) {
@@ -195,18 +225,34 @@ export default function ShareButton({
         ref={buttonRef}
         type="button"
         onClick={share}
-        aria-label={`Share ${title}`}
+        // While "Copied" shows, the name starts with it too (WCAG 2.5.3, label in name), then says what it does.
+        aria-label={copied ? `Copied. Share ${title}` : `Share ${title}`}
         aria-expanded={open ? true : undefined}
         aria-controls={open ? popoverId : undefined}
         className={fill ? actionRowClass : secondaryActionClass}
       >
-        <ShareIcon />
-        {/* The name "Share {title}" starts with what's shown. */}
-        <span className={fill ? actionRowLabelClass : undefined}>Share</span>
+        {copied ? <CopiedIcon /> : <ShareIcon />}
+        {copiedInLabel ? (
+          // Both labels in one grid cell, the one not showing invisible, so the button is always as wide as
+          // the wider ("Copied") and the row it shares never shifts.
+          <span className="grid justify-items-center">
+            <span data-share-label="share" className={`col-start-1 row-start-1 ${copied ? "invisible" : ""}`.trim()}>
+              Share
+            </span>
+            <span data-share-label="copied" className={`col-start-1 row-start-1 ${copied ? "" : "invisible"}`.trim()}>
+              Copied
+            </span>
+          </span>
+        ) : (
+          <span className={fill ? actionRowLabelClass : undefined}>Share</span>
+        )}
       </button>
       {/* Beside the button, and always in the page so the change is announced. */}
       {/* Filling a row: under the button, in the flow, so it pushes the page down rather than covering anything. */}
-      <p role="status" className={fill ? "text-xs leading-4 not-empty:mt-2" : "text-sm whitespace-nowrap"}>
+      <p
+        role="status"
+        className={copiedInLabel ? "sr-only" : fill ? "text-xs leading-4 not-empty:mt-2" : "text-sm whitespace-nowrap"}
+      >
         {status}
       </p>
       {manualUrl !== null && (
@@ -218,7 +264,7 @@ export default function ShareButton({
           className="fixed inset-x-5 z-30 flex flex-col gap-2 rounded-control border border-foreground bg-card p-3 text-foreground sm:absolute sm:inset-x-auto sm:top-full sm:right-0 sm:mt-2 sm:w-72"
         >
           <label htmlFor={fieldId} className="eyebrow text-muted">
-            Link to this event
+            {copyLabel}
           </label>
           <input
             ref={fieldRef}

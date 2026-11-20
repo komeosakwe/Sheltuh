@@ -20,6 +20,7 @@ import type {
   EventSeating,
   GoingAttendee,
   IssuedTicket,
+  MemberPhoto,
   MemberProfile,
   MessageRecord,
   ModerationLogEntry,
@@ -47,6 +48,7 @@ import {
   type VenueLocation,
 } from "@/lib/api/types";
 import { isFeaturedVideo, type FeaturedVideo } from "@/lib/api/featured-video";
+import { tagsForEventCategories, type OrganiserTag } from "@/lib/api/organiser-tags";
 import { admitsOf, withGroupPositions } from "@/lib/ticket-groups";
 import { ticketProviderName, type TicketingMode } from "@/lib/ticketing";
 import { DEFAULT_REFUND_POLICY, type RefundPolicy } from "@/lib/refund-policy";
@@ -95,13 +97,39 @@ function logoUrlOf(row: Row): { logoUrl?: string } {
   return version === undefined ? {} : { logoUrl: organiserLogoUrls(row.id as string, version).logoUrl };
 }
 
+/**
+ * SQL: the organiser `organiserIdSql`'s cover version (as organiserLogoVersionOf),
+ * or null with no cover. private.organiser_covers' primary key.
+ */
+function organiserCoverVersionOf(organiserIdSql: string): string {
+  return `(select floor(extract(epoch from cv.updated_at) * 1000)::bigint::text
+             from private.organiser_covers cv where cv.organiser_id = ${organiserIdSql})`;
+}
+
+/**
+ * An organiser cover's URLs (2240 × 640 and 1120 × 320). `v` only busts
+ * caches: the route serves the current cover whatever it says.
+ */
+export function organiserCoverUrls(organiserId: string, version: string): { coverUrl: string; coverSmallUrl: string } {
+  const base = `/api/organisers/${organiserId}/cover`;
+  const v = encodeURIComponent(version);
+  return { coverUrl: `${base}?v=${v}`, coverSmallUrl: `${base}?size=small&v=${v}` };
+}
+
+/** The `coverUrl` and `coverSmallUrl` fields for a row with `id` and `cover_version`: absent with no cover. */
+function coverUrlsOf(row: Row): { coverUrl?: string; coverSmallUrl?: string } {
+  const version = opt<string>(row.cover_version);
+  return version === undefined ? {} : organiserCoverUrls(row.id as string, version);
+}
+
 const ORGANISER_COLUMNS = `o.id, o.owner_user_id, o.display_name, o.contact_email, o.description,
          o.categories::text[] as categories, o.website_url,
          o.instagram_handle, o.tiktok_handle, o.facebook_page, o.x_handle,
          o.spotify_path, o.soundcloud_handle, o.youtube_channel, o.linkedin_path, o.status::text as status,
          o.rejection_reason, o.reviewed_by, o.reviewed_at, o.stripe_account_id,
          o.payouts_enabled, o.event_review_required, o.created_at, o.updated_at, o.featured_video_provider,
-         o.featured_video_id, ${organiserLogoVersionOf("o.id")} as logo_version`;
+         o.featured_video_id, ${organiserLogoVersionOf("o.id")} as logo_version,
+         ${organiserCoverVersionOf("o.id")} as cover_version, o.profile_tags, o.custom_tags`;
 
 export const ORGANISER_SELECT = `
   select ${ORGANISER_COLUMNS}
@@ -145,6 +173,9 @@ const EDIT_FIELDS: Record<string, OrganiserLogField> = {
   linkedin_path: "linkedinPath",
   featured_video: "featuredVideo",
   logo: "logo",
+  cover: "cover",
+  profile_tags: "profileTags",
+  custom_tags: "customTags",
   status: "status",
 };
 
@@ -214,6 +245,9 @@ export function toOrganiser(row: Row): OrganiserRecord {
     updatedAt: iso(row.updated_at),
     featuredVideo: featuredVideoOf(row),
     ...logoUrlOf(row),
+    ...coverUrlsOf(row),
+    profileTags: (row.profile_tags as OrganiserTag[] | null) ?? null,
+    customTags: (row.custom_tags as string[] | null) ?? [],
   };
 }
 
@@ -234,13 +268,17 @@ const PUBLIC_ORGANISER_SELECT = `
   select o.id, o.display_name, o.description, o.categories::text[] as categories, o.website_url,
          o.instagram_handle, o.tiktok_handle, o.facebook_page, o.x_handle,
          o.spotify_path, o.soundcloud_handle, o.youtube_channel, o.linkedin_path,
-         o.featured_video_provider, o.featured_video_id,
+         o.featured_video_provider, o.featured_video_id, o.profile_tags, o.custom_tags,
          ${organiserLogoVersionOf("o.id")} as logo_version,
+         ${organiserCoverVersionOf("o.id")} as cover_version,
          to_char(o.created_at at time zone 'Australia/Melbourne', 'YYYY-MM') as member_since,
          -- organiser_follows_organiser_idx; only shown from FOLLOWER_COUNT_THRESHOLD.
          (select count(*)::int from public.organiser_follows f where f.organiser_id = o.id) as follower_count,
          (select count(*)::int from public.events e
-           where e.organiser_id = o.id and e.status = 'published' and e.ends_at <= now()) as events_hosted
+           where e.organiser_id = o.id and e.status = 'published' and e.ends_at <= now()) as events_hosted,
+         -- Every published event, past and upcoming (events_organiser_created_idx).
+         (select count(*)::int from public.events e
+           where e.organiser_id = o.id and e.status = 'published') as event_count
   from public.organisers o`;
 
 /**
@@ -279,13 +317,18 @@ export function toPublicOrganiserProfile(
     displayName: row.display_name as string,
     description: row.description as string,
     categories: row.categories as PublicOrganiserProfile["categories"],
+    // Until the organiser chooses, their reviewed event categories, mapped to the list.
+    profileTags: (row.profile_tags as OrganiserTag[] | null) ?? tagsForEventCategories(row.categories as string[]),
+    customTags: (row.custom_tags as string[] | null) ?? [],
     websiteUrl: opt(row.website_url),
     socialLinks: socialLinksOf(row),
     memberSince: row.member_since as string,
     featuredVideo: featuredVideoOf(row) ?? null,
     followerCount: (row.follower_count as number) >= FOLLOWER_COUNT_THRESHOLD ? (row.follower_count as number) : null,
     eventsHosted: row.events_hosted as number,
+    eventCount: row.event_count as number,
     ...logoUrlOf(row),
+    ...coverUrlsOf(row),
     upcomingEvents,
     recentEvents,
   };
@@ -308,6 +351,8 @@ const EVENT_COLUMNS = `
             from public.event_images i where i.event_id = e.id) as image_url,
          (select json_build_object('x', i.focus_x, 'y', i.focus_y)
             from public.event_images i where i.event_id = e.id and i.focus_x is not null) as image_focus,
+         -- How the home banner shows the photo (by primary key; null without a photo).
+         (select i.banner_fit from public.event_images i where i.event_id = e.id) as banner_fit,
          -- The clip (private.event_clips, by primary key), versioned in milliseconds (every write moves it on).
          (select json_build_object('version', floor(extract(epoch from c.updated_at) * 1000)::bigint::text,
                                    'durationMs', c.duration_ms, 'width', c.width, 'height', c.height,
@@ -406,6 +451,7 @@ const LOG_CHANGE_FIELDS = [
   "ticketTypes",
   "image",
   "imageFocus",
+  "bannerFit",
   "seatMap",
   "clip",
   "clipDescription",
@@ -525,6 +571,11 @@ function imageFocusOf(row: Row): { imageFocus?: { x: number; y: number } } {
   return focus ? { imageFocus: { x: focus.x, y: focus.y } } : {};
 }
 
+/** The `bannerFit` field for a row of EVENT_SELECT: only `whole` is sent (absent means `crop`, and always without a photo). */
+function bannerFitOf(row: Row): { bannerFit?: "whole" } {
+  return row.banner_fit === "whole" ? { bannerFit: "whole" } : {};
+}
+
 /** The `organiserLogoThumbUrl` field for a row of EVENT_SELECT: absent with no logo (or an organiser not approved). */
 function organiserLogoThumbOf(row: Row): { organiserLogoThumbUrl?: string } {
   const version = opt<string>(row.organiser_logo_version);
@@ -626,6 +677,7 @@ function mapEvent(row: Row, audience: LogAudience): EventRecord {
     organiserName: row.organiser_name as string,
     imageUrl: opt(row.image_url),
     ...imageFocusOf(row),
+    ...bannerFitOf(row),
     ...clipOf(row),
     ...organiserLogoThumbOf(row),
     ticketTypes: row.ticket_types as TicketTypeInput[],
@@ -714,6 +766,8 @@ export function toPublicEvent(event: EventRecord, remaining?: Record<string, num
     imageUrl: event.imageUrl,
     // Only with a focus point (not sensitive: where the subject of the public photo is).
     ...(event.imageFocus ? { imageFocus: { x: event.imageFocus.x, y: event.imageFocus.y } } : {}),
+    // Only when the banner shows the whole photo (not sensitive either: how the public photo is framed).
+    ...(event.bannerFit === "whole" ? { bannerFit: "whole" as const } : {}),
     // Only with a clip (and, like every field here, only ever on a published event's public shape).
     ...(event.clip
       ? {
@@ -1157,7 +1211,40 @@ export function toAdminOrganiserLink(row: Row): AdminOrganiserLinkRecord {
  */
 export const PROFILE_COLUMNS = `display_name, created_at, updated_at, public_id, profile_visible, bio, instagram_handle,
   exists (select 1 from private.social_suspensions s where s.user_id = profiles.user_id) as suspended,
-  ${avatarVersionOf("profiles.user_id")} as avatar_version`;
+  ${avatarVersionOf("profiles.user_id")} as avatar_version,
+  ${photosOf("profiles.user_id")} as photos`;
+
+/**
+ * SQL: the member `userIdSql`'s photos (private.profile_photos; never the
+ * bytes), oldest first, as a JSON array (empty with none): for photoUrls.
+ * Callers must only select it where the reader may see the profile (their
+ * own, a visible one after private.member_profile_visible, or an admin).
+ * Served by profile_photos_user_created_idx; at most 6 rows.
+ */
+export function photosOf(userIdSql: string): string {
+  return `(select coalesce(json_agg(json_build_object('id', ph.id, 'width', ph.width, 'height', ph.height,
+                                                      'description', ph.description)
+                                    order by ph.created_at, ph.id), '[]'::json)
+             from private.profile_photos ph where ph.user_id = ${userIdSql})`;
+}
+
+/** A member photo's URLs (the route checks who may see it on every request). Its bytes never change, so neither do they. */
+export function photoUrls(profileId: string, photoId: string): { url: string; thumbUrl: string } {
+  const base = `/api/profiles/${profileId}/photos/${photoId}`;
+  return { url: base, thumbUrl: `${base}?size=thumb` };
+}
+
+/** photosOf's JSON array as MemberPhotos. */
+export function toMemberPhotos(profileId: string, value: unknown): MemberPhoto[] {
+  const rows = (value ?? []) as { id: string; width: number; height: number; description: string | null }[];
+  return rows.map((p) => ({
+    photoId: p.id,
+    ...photoUrls(profileId, p.id),
+    width: p.width,
+    height: p.height,
+    ...(p.description ? { description: p.description } : {}),
+  }));
+}
 
 /**
  * SQL: the photo's version for the member `userIdSql` (milliseconds since
@@ -1190,6 +1277,7 @@ export function toProfile(row: Row): ProfileRecord {
     instagramHandle: opt(row.instagram_handle),
     hasAvatar: version !== undefined,
     ...(version !== undefined ? avatarUrls(profileId, version) : {}),
+    photos: toMemberPhotos(profileId, row.photos),
   };
 }
 
@@ -1214,7 +1302,8 @@ export function toGoingAttendee(row: Row): GoingAttendee {
 
 /**
  * Another member's profile (GET /api/profiles/{profileId}). `row` holds the
- * profile's public columns only (going.ts / profiles.ts read nothing else).
+ * profile's public columns only (going.ts / profiles.ts read nothing else),
+ * and `photos` (photosOf) when it was read past the visibility check.
  */
 export function toMemberProfile(
   row: Row,
@@ -1232,6 +1321,7 @@ export function toMemberProfile(
     instagramUrl: handle ? socialLinks({ instagramHandle: handle }).instagram : undefined,
     hasAvatar: version !== undefined,
     ...(version !== undefined ? avatarUrls(profileId, version) : {}),
+    ...(row.photos !== undefined ? { photos: toMemberPhotos(profileId, row.photos) } : {}),
     isYou: row.is_you === true,
     upcomingEvents,
     canMessage: messaging.canMessage,
@@ -1239,10 +1329,11 @@ export function toMemberProfile(
   };
 }
 
-/** For `select … from public.profiles p` (admin only): the profile, its photo and newest moderation entries. */
+/** For `select … from public.profiles p` (admin only): the profile, its photos and newest moderation entries. */
 export const ADMIN_PROFILE_SELECT = `
   select p.public_id, p.display_name, p.profile_visible, p.bio, p.instagram_handle,
          ${avatarVersionOf("p.user_id")} as avatar_version,
+         ${photosOf("p.user_id")} as photos,
          exists (select 1 from private.social_suspensions s where s.user_id = p.user_id) as suspended,
          coalesce((
            select json_agg(json_build_object('removed', l.removed, 'reason', l.reason, 'at', l.created_at,
@@ -1264,6 +1355,7 @@ export function toAdminMemberProfile(row: Row): AdminMemberProfile {
     instagramHandle: opt(row.instagram_handle),
     hasAvatar: version !== undefined,
     ...(version !== undefined ? { avatarUrl: avatarUrls(profileId, version).avatarUrl } : {}),
+    photos: toMemberPhotos(profileId, row.photos),
     suspended: row.suspended === true,
     moderationLog: log.map((entry) => ({
       removed: entry.removed,

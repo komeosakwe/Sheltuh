@@ -1,9 +1,10 @@
 import { requireCaller } from "../auth";
-import { HttpError, ok, readJson, tooManyRequests, windowSeconds } from "../http";
+import { HttpError, okPrivate, readJson, tooManyRequests, windowSeconds } from "../http";
+import { claimedVersions } from "../if-none-match";
 import { isUuid } from "../pagination";
 import type { Handler } from "../route";
 import { requireEvent, requireOwnEvent } from "./event-queries";
-import { parseFocusBody, parseFocusQuery } from "../validation";
+import { parseFocusQuery, parseImageDisplayBody } from "../validation";
 import { findOrganiserByOwner, requireApprovedOrganiser } from "./organiser-guard";
 import { encodeEventImage, EVENT_IMAGE_UPLOAD_RATE_LIMIT, type EncodedEventImage } from "../event-image";
 import { MAX_EVENT_IMAGE_BYTES, readCappedBytes, sniffImageType } from "../image-upload";
@@ -91,41 +92,48 @@ export const putEventImage: Handler<{ eventId: string }> = async (req, { eventId
     [eventId, contentType, bytes, organiser.organiserId, focus?.x ?? null, focus?.y ?? null],
   );
   if (written.length === 0) throw new HttpError(409, EDIT_LOCKED_MESSAGE);
-  return ok(await requireEvent(db, eventId));
+  return okPrivate(await requireEvent(db, eventId));
 };
 
 /**
- * PATCH /api/events/[eventId]/image — `{ "focus": { "x", "y" } | null }`: moves
- * (or clears) the focus point of the saved photo, without touching its bytes
- * or version. Draft or rejected events only (409), and only with a photo (409).
+ * PATCH /api/events/[eventId]/image — `{ "focus"?: { "x", "y" } | null,
+ * "bannerFit"?: "crop" | "whole" }` (at least one; parseImageDisplayBody):
+ * moves (or clears) the focus point and/or sets how the home banner shows the
+ * saved photo, in one write, without touching its bytes or version. An absent
+ * key keeps the stored value. Draft or rejected events only (409: on a
+ * published event only an admin may change either), and only with a photo (409).
  */
 export const patchEventImageFocus: Handler<{ eventId: string }> = async (req, { eventId }, { db, verifyAccessToken }) => {
   const caller = await requireCaller(req, verifyAccessToken);
   const organiser = await requireApprovedOrganiser(db, caller);
   const event = await requireOwnEvent(db, organiser.organiserId, eventId);
-  const focus = parseFocusBody(await readJson(req));
+  const display = parseImageDisplayBody(await readJson(req));
   if (event.status !== "draft" && event.status !== "rejected") {
     throw new HttpError(409, EDIT_LOCKED_MESSAGE);
   }
   // The event row first (for no key update), then the image: see putEventImage.
+  // Focus and fit change together or not at all (one statement).
   const updated = await db.query(
     `with e as (
        select e.id from public.events e
         where e.id = $1 and e.organiser_id = $2 and e.status in ('draft', 'rejected')
           for no key update
      )
-     update public.event_images i set focus_x = $3::smallint, focus_y = $4::smallint
+     update public.event_images i
+        set focus_x = case when $3::boolean then $4::smallint else i.focus_x end,
+            focus_y = case when $3::boolean then $5::smallint else i.focus_y end,
+            banner_fit = coalesce($6::text, i.banner_fit)
        from e
       where i.event_id = e.id
       returning i.event_id`,
-    [eventId, organiser.organiserId, focus?.x ?? null, focus?.y ?? null],
+    [eventId, organiser.organiserId, display.setFocus, display.focus?.x ?? null, display.focus?.y ?? null, display.bannerFit],
   );
   if (updated.length === 0) {
     const current = await requireEvent(db, eventId);
     if (current.status !== "draft" && current.status !== "rejected") throw new HttpError(409, EDIT_LOCKED_MESSAGE);
     throw new HttpError(409, "Add a photo first.");
   }
-  return ok(await requireEvent(db, eventId));
+  return okPrivate(await requireEvent(db, eventId));
 };
 
 /** DELETE /api/events/[eventId]/image */
@@ -153,7 +161,7 @@ export const deleteEventImage: Handler<{ eventId: string }> = async (req, { even
     const current = await requireEvent(db, eventId);
     if (current.status !== "draft" && current.status !== "rejected") throw new HttpError(409, EDIT_LOCKED_MESSAGE);
   }
-  return ok(await requireEvent(db, eventId));
+  return okPrivate(await requireEvent(db, eventId));
 };
 
 /**
@@ -177,22 +185,20 @@ function imageEtag(version: string): string {
   return `"${version}"`;
 }
 
-/** The version an If-None-Match header names, if it's exactly one of our ETags. */
-function claimedImageVersion(req: Request): string | null {
-  const match = /^"(\d{1,20})"$/.exec(req.headers.get("if-none-match") ?? "");
-  return match ? match[1] : null;
-}
-
 /**
  * GET /api/events/[eventId]/image?v= — public for published events (shared
  * at the CDN only at the current version: EVENT_IMAGE_CACHE). For anything
  * else only the owning organiser or an admin may read it, via a bearer
  * token, and it's never cached. ETag (the version) and Last-Modified; a
- * matching If-None-Match gets a 304 with the same headers, after the same
- * access check, and the bytes aren't even read.
+ * matching If-None-Match (a list, weak tags and `*` included) gets a 304
+ * with the same headers, after the same access check, and the bytes aren't
+ * even read.
  */
 export const getEventImage: Handler<{ eventId: string }> = async (req, { eventId }, { db, verifyAccessToken }) => {
   if (!isUuid(eventId)) throw new HttpError(404, "Image not found.");
+  // The bytes are only read when the client doesn't already have this
+  // version: `*`, or any listed ETag at it (lib/server/if-none-match.ts).
+  const claimed = claimedVersions(req);
   const [row] = await db.query<{
     content_type: string;
     data: Uint8Array | null;
@@ -201,12 +207,12 @@ export const getEventImage: Handler<{ eventId: string }> = async (req, { eventId
     version: string;
   }>(
     `select i.content_type, e.status::text as status, e.organiser_id, v.version,
-            case when v.version = $2::text then null else i.data end as data
+            case when $2::boolean or v.version = any($3::text[]) then null else i.data end as data
        from public.event_images i
        join public.events e on e.id = i.event_id
       cross join lateral (select floor(extract(epoch from i.updated_at))::bigint::text as version) v
       where i.event_id = $1`,
-    [eventId, claimedImageVersion(req)],
+    [eventId, claimed.any, claimed.versions],
   );
   if (!row) throw new HttpError(404, "Image not found.");
 

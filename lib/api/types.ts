@@ -1,13 +1,15 @@
 import type { RefundPolicy } from "@/lib/refund-policy";
 import type { TicketingMode } from "@/lib/ticketing";
-import type { EventCategory, EventClip, FeePolicy, ImageFocus } from "@/lib/types";
+import type { BannerFit, EventCategory, EventClip, FeePolicy, ImageFocus } from "@/lib/types";
 import type { FeaturedVideo } from "./featured-video";
+import type { OrganiserTag } from "./organiser-tags";
 import type { PublicEvent } from "./public-events";
 import type { SeatMapTemplate, TicketSeat } from "@/lib/seating/template";
 import type { AustralianTimeZone, StateCode } from "@/lib/time-zones";
 
 export type { FeaturedVideo, FeaturedVideoProvider } from "./featured-video";
-export type { EventClip, ImageFocus } from "@/lib/types";
+export type { OrganiserTag } from "./organiser-tags";
+export type { BannerFit, EventClip, ImageFocus } from "@/lib/types";
 
 export type { TicketingMode } from "@/lib/ticketing";
 export type { RefundPolicy } from "@/lib/refund-policy";
@@ -69,6 +71,33 @@ export interface OrganiserRecord {
    * (96 px) is the same URL with `size=thumb`. Versioned, so it caches safely.
    */
   logoUrl?: string;
+  /**
+   * The organiser's cover image (2240 × 640 WebP, 7:2), when they've uploaded
+   * one: `/api/organisers/{organiserId}/cover?v={version}`. Public once
+   * approved (otherwise only an admin, or the owner, with a bearer token), like
+   * the logo. Versioned, so it caches safely.
+   */
+  coverUrl?: string;
+  /** The same cover at 1120 × 320 (`size=small`); present exactly when `coverUrl` is. */
+  coverSmallUrl?: string;
+  /**
+   * The profile chips the organiser chose from the list
+   * (lib/api/organiser-tags.ts ORGANISER_TAGS), in list order; null until
+   * they choose (their public profile then shows their reviewed `categories`,
+   * mapped to the list). Set with PUT /organisers/me/tags. Always sent by the
+   * API; optional so older fixtures stay valid.
+   */
+  profileTags?: OrganiserTag[] | null;
+  /** Up to 2 chips in the organiser's own words (empty when none). Always sent; optional so older fixtures stay valid. */
+  customTags?: string[];
+}
+
+/** PUT /api/organisers/me/tags: the whole new set of chips (both lists required; [] for none). */
+export interface OrganiserTagsInput {
+  /** Slugs from ORGANISER_TAGS; repeats are dropped and the rest sorted into list order. */
+  profileTags: OrganiserTag[];
+  /** At most 2, each checked by parseCustomTag; at most 5 chips in all. */
+  customTags: string[];
 }
 
 /** A field an organiser-log entry can record a change to (`status` only for a takedown). */
@@ -87,11 +116,14 @@ export type OrganiserEditField =
 
 /**
  * Every field the organiser log can name: OrganiserEditField plus
- * `featuredVideo`, whose values are "youtube:{id}" / "vimeo:{id}", and
- * `logo`, whose values are the logo's version (milliseconds since the epoch
- * of the upload, as a decimal string; null: none).
+ * `featuredVideo`, whose values are "youtube:{id}" / "vimeo:{id}";
+ * `logo` and `cover`, whose values are the image's version (milliseconds
+ * since the epoch of the upload, as a decimal string; null: none); and
+ * `profileTags` and `customTags`, the chips joined with ", " (slugs for
+ * profileTags; null: none, and for profileTags "not chosen", with "" for
+ * "chosen none").
  */
-export type OrganiserLogField = OrganiserEditField | "featuredVideo" | "logo";
+export type OrganiserLogField = OrganiserEditField | "featuredVideo" | "logo" | "cover" | "profileTags" | "customTags";
 
 /** One field's value before and after; null means it was (or became) unset. */
 export interface OrganiserEditChange {
@@ -165,6 +197,14 @@ export interface PublicOrganiserProfile {
   displayName: string;
   description: string;
   categories: EventCategory[];
+  /**
+   * The profile chips from the list, in list order: the organiser's choice,
+   * or until they choose, their reviewed `categories` mapped to the list
+   * (empty if they chose none). Always sent; optional so older fixtures stay valid.
+   */
+  profileTags?: OrganiserTag[];
+  /** Up to 2 chips in the organiser's own words, shown after profileTags. Always sent; optional so older fixtures stay valid. */
+  customTags?: string[];
   websiteUrl?: string;
   socialLinks: OrganiserSocialLinks;
   /** "YYYY-MM" (Melbourne): the month the organiser joined. */
@@ -177,13 +217,22 @@ export interface PublicOrganiserProfile {
    * older fixtures stay valid.
    */
   followerCount?: number | null;
-  /** Published events that have ended ("Events hosted"). Always sent; optional so older fixtures stay valid. */
+  /**
+   * Published events that have ended ("Events hosted"). Always sent; optional so older fixtures stay valid.
+   * @deprecated Use eventCount; still sent until the profile page stops reading it.
+   */
   eventsHosted?: number;
+  /** Every published event, upcoming and past (the profile's "Events" count). Always sent; optional so older fixtures stay valid. */
+  eventCount?: number;
   /** The organiser's logo (512 px; public, versioned), only when they have one. See OrganiserRecord.logoUrl. */
   logoUrl?: string;
-  /** Published events that haven't ended, soonest first. */
+  /** The organiser's cover (2240 × 640; public, versioned), only when they have one. See OrganiserRecord.coverUrl. */
+  coverUrl?: string;
+  /** The cover at 1120 × 320, present exactly when `coverUrl` is. */
+  coverSmallUrl?: string;
+  /** Published events that haven't ended, soonest first: at most 24. */
   upcomingEvents: PublicEvent[];
-  /** Published events that have ended, most recent first. Together with upcomingEvents, at most 24. */
+  /** Published events that have ended, most recent first: at most 12, however many are upcoming. */
   recentEvents: PublicEvent[];
 }
 
@@ -291,6 +340,8 @@ export interface EventEditChanges {
   image?: TicketingFieldChange<"set">;
   /** An admin set, moved or cleared the photo's focus point. */
   imageFocus?: TicketingFieldChange<ImageFocus>;
+  /** An admin changed how the home banner shows the photo (`crop` or `whole`). */
+  bannerFit?: TicketingFieldChange<BannerFit>;
   /** An admin replaced or removed the seat map (or switched the event to external ticketing, removing it). */
   seatMap?: TicketingFieldChange<EventSeating>;
   /** An admin added, replaced or removed the clip (its versions). */
@@ -417,6 +468,18 @@ export interface ModerationLogEntry {
   changes?: TicketingChanges & EventEditChanges;
 }
 
+/**
+ * PATCH /events/{id}/image (and /admin/events/{id}/image): how the saved
+ * photo is shown, without touching its bytes. At least one key; an absent key
+ * keeps the stored value.
+ */
+export interface ImageDisplayInput {
+  /** The focus point, or null to clear it (the crop centres). */
+  focus?: ImageFocus | null;
+  /** How the home page's featured banner shows the photo. */
+  bannerFit?: BannerFit;
+}
+
 export interface EventRecord {
   organiserId: string;
   eventId: string;
@@ -455,6 +518,11 @@ export interface EventRecord {
   imageUrl?: string;
   /** Where the photo's subject is (percent from the left and top), only when set: cropped renderings centre on it. */
   imageFocus?: ImageFocus;
+  /**
+   * Only when the photo is to be shown whole in the home page's featured
+   * banner (absent: `crop`, the default, and always without a photo).
+   */
+  bannerFit?: "whole";
   /**
    * The event's clip, only when it has one (absent otherwise). Its `url`
    * plays only once the event is published; before that, the owner or an
@@ -1588,6 +1656,47 @@ export interface ProfileRecord {
   avatarUrl?: string;
   /** The 96 px thumbnail. */
   avatarThumbUrl?: string;
+  /**
+   * The member's photos beside the profile photo, oldest first, at most 6
+   * (docs/architecture.md, "Member photos"). Always sent by servers that
+   * have them; absent from older servers.
+   */
+  photos?: MemberPhoto[];
+}
+
+/**
+ * One of a member's photos (at most 6, beside the profile photo). Never
+ * public: fetch `url` / `thumbUrl` with the bearer token (fetchAvatar in
+ * lib/api/profiles.ts) and show a blob URL. A photo's bytes never change, so
+ * its URLs don't either.
+ */
+export interface MemberPhoto {
+  /** Opaque id (DELETE / PATCH /api/profiles/me/photos/{photoId}). */
+  photoId: string;
+  /** The photo, fitted inside 1080 px. */
+  url: string;
+  /** A 320 px square thumbnail. */
+  thumbUrl: string;
+  /** `url`'s size in pixels (each at most 1080). */
+  width: number;
+  height: number;
+  /** 1–100 characters, plain text: the alt text and caption. Unset when the member gave none. */
+  description?: string;
+}
+
+/**
+ * POST /api/profiles/me/photos (201 a new photo, 200 the same image already
+ * there) and PATCH /api/profiles/me/photos/{photoId} (200): the photo, and
+ * the caller's profile with every photo.
+ */
+export interface MemberPhotoResult {
+  photo: MemberPhoto;
+  profile: ProfileRecord;
+}
+
+/** PATCH /api/profiles/me/photos/{photoId}. null or "" clears the description. */
+export interface MemberPhotoPatchInput {
+  description: string | null;
 }
 
 /**
@@ -1618,6 +1727,8 @@ export interface MemberProfile {
   /** Versioned; fetch with the bearer token. */
   avatarUrl?: string;
   avatarThumbUrl?: string;
+  /** Oldest first, at most 6; sent only with the profile itself (whoever may see it may see them). */
+  photos?: MemberPhoto[];
   /** It's the caller's own profile. */
   isYou: boolean;
   /**
@@ -1663,6 +1774,8 @@ export interface AdminMemberProfile {
   hasAvatar: boolean;
   /** Admins may fetch it whatever the profile's visibility. */
   avatarUrl?: string;
+  /** The member's photos, oldest first (admins may fetch them whatever the profile's visibility). */
+  photos?: MemberPhoto[];
   suspended: boolean;
   /** Newest first, at most 20. */
   moderationLog: ProfileModerationEntry[];
@@ -2438,6 +2551,22 @@ export interface FollowStatus {
 export interface FollowInput {
   /** Chosen when following (left out: off); sending it again changes it. Must be a boolean if sent. */
   notifyNewEvents?: boolean;
+}
+
+/**
+ * GET /api/me: the signed-in member's own account summary (verified email
+ * required; never cached). `upcomingCount` is how many published events that
+ * haven't started yet they hold a ticket for: events with a `paid` order (free
+ * tickets included; a partly refunded order stays paid) whose buyer email
+ * equals theirs, ignoring case. Several orders, or a group order, for one
+ * event count once. `username` and `usernameChangeableAt` aren't sent yet
+ * (reserved for usernames).
+ */
+export interface AccountSummary {
+  username?: string;
+  /** ISO 8601: when the username can next be changed. */
+  usernameChangeableAt?: string;
+  upcomingCount: number;
 }
 
 /** One entry of GET /api/me/following. */
