@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import Flame from "@/components/ui/Flame";
 import { Notice } from "@/components/ui/Section";
 import { useSetBuyBar } from "@/components/checkout/BuyBar";
 import { InfoIcon, LockIcon } from "@/components/checkout/icons";
@@ -691,8 +692,10 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                     <p className="text-sm font-medium text-foreground">{waitingText}</p>
                   )}
                   {showOwnLimit && !dimmed && isLow(ticket) && (
-                    // "Only N left" is the server's own count (10 or fewer), in black, never orange.
+                    // "Only N left" is the server's own count (10 or fewer), in black, never orange. The
+                    // 🔥 is decorative: hidden, so the + button's description is still the words alone.
                     <p id={ownLimitId} className="text-xs font-semibold text-foreground">
+                      <Flame />
                       {ownLimitHint(ticket)}
                     </p>
                   )}

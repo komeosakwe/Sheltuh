@@ -1,5 +1,6 @@
 import {
   cachedDateTimeFormat,
+  offsetMinutesAt,
   PLATFORM_TIME_ZONE,
   wallClockParts,
   zoneLabel,
@@ -220,10 +221,27 @@ export function eventZone(timeZone?: string | null): string {
  * exactly as before, and otherwise a space and the zone's city: " Perth
  * time", " Canberra time" (with the ACT's state). Append it to the time:
  * "Sat 21 Nov, 8:00 pm Perth time".
+ *
+ * With `instant` (the event's start; Round 2, owner decision R0): also ""
+ * when the event's clock reads the same as Melbourne's at that instant, so
+ * Sydney, Canberra and Hobart never say it, Brisbane only in Melbourne's
+ * summer, and Adelaide, Darwin and Perth always. The same on the server and
+ * in every browser (it depends on the event alone, never the viewer's zone).
+ * Without it (emails, wallet passes, link previews, orders, admin screens):
+ * any zone but Melbourne's is named, as before.
  */
-export function zoneSuffix(timeZone?: string | null, state?: StateCode | null): string {
+export function zoneSuffix(timeZone?: string | null, state?: StateCode | null, instant?: string | Date): string {
   const zone = eventZone(timeZone);
-  return zone === PLATFORM_TIME_ZONE ? "" : ` ${zoneShortLabel(zone, state)}`;
+  if (zone === PLATFORM_TIME_ZONE) return "";
+  if (instant !== undefined && sameClockAsPlatform(zone, instant)) return "";
+  return ` ${zoneShortLabel(zone, state)}`;
+}
+
+/** Whether `timeZone`'s clock reads the same as Melbourne's at `instant` (false for an instant that isn't one). */
+export function sameClockAsPlatform(timeZone: string, instant: string | Date): boolean {
+  const ms = typeof instant === "string" ? Date.parse(instant) : instant.getTime();
+  if (!Number.isFinite(ms)) return false;
+  return offsetMinutesAt(ms, timeZone) === offsetMinutesAt(ms, PLATFORM_TIME_ZONE);
 }
 
 /**

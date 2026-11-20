@@ -102,7 +102,7 @@ async function card() {
 }
 
 describe("Who's going? card", () => {
-  it("is a labelled section after the ticket panel's actions (before the tickets), with View attendees to the panel", async () => {
+  it("is a labelled section after the ticket panel's actions and the organiser (before the tickets), with View attendees to the panel", async () => {
     member({ count: 42, attendees: people(5) });
     renderEvent(LIVE_EVENT);
     const region = await card();
@@ -115,20 +115,22 @@ describe("Who's going? card", () => {
     expect(region).not.toHaveTextContent("sample");
     const view = within(region).getByRole("link", { name: `View attendees for ${LIVE_EVENT.title}` });
     expect(view).toHaveAttribute("href", "#whos-going");
-    // The rules' Secondary button, 48px tall on phones.
-    expect(view).toHaveClass("btn-outline", "max-md:min-h-12");
+    // The rules' Secondary button M: 48px at every width (Round 2).
+    expect(view).toHaveClass("btn", "btn-outline");
+    expect(view.className).not.toMatch(/btn-(sm|lg)/);
     // A cream panel, no photo.
     expect(region).toHaveClass("bg-hover");
     expect(region.querySelector("img")).toBeNull();
 
-    // Reading order: the organiser, then Save and Share (so they stay above the phone's bar), then this row, then
-    // the tickets. From lg the panel is drawn after this row (CSS order), as in the mock.
+    // Reading order (Round 2): Save and Share (so they stay above the phone's bar), then Hosted by, then this row,
+    // then the tickets. From lg the panel is drawn after this row (CSS order), as in the mock, so there the organiser
+    // still shows straight under the facts.
     const organiser = document.querySelector("[data-organiser-avatar]");
     const actions = document.querySelector("[data-event-actions]");
     const tickets = screen.getByRole("heading", { name: "Choose your tickets" });
     if (!actions || !organiser) throw new Error("no actions row or organiser");
-    expect(organiser.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(actions.compareDocumentPosition(region) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(actions.compareDocumentPosition(organiser) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(organiser.compareDocumentPosition(region) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(region.compareDocumentPosition(tickets) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(document.querySelector("[data-ticket-panel]")).toHaveClass("lg:order-last");
   });

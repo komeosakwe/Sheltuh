@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useRef, useState, type FormEvent } from "react";
 import AuthField, { fieldsForAuthError, useFocusAfterRender, type AuthErrorField } from "@/components/auth/AuthField";
 import HumanCheckField from "@/components/auth/HumanCheckField";
-import LegalNote from "@/components/auth/LegalNote";
+import { AgreeNote } from "@/components/auth/LegalNote";
 import PasswordField from "@/components/auth/PasswordField";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -21,8 +21,9 @@ type Field = "email" | "password";
  * `next` is the raw `?next=` return path, carried on to /verify (and back to sign in).
  * Fields are checked here before Supabase is called: a filled field on blur,
  * all of them on submit, where focus goes to the first invalid field, which is
- * marked and described by its error. The password rules tick live (PasswordField).
- * The privacy line sits above the button, so it's read before signing up.
+ * marked and described by its error. The password rules tick live (PasswordField),
+ * shown once the password is focused or filled. The page's one privacy line
+ * (AgreeNote, for Apple and Google above too) sits right under Sign up.
  */
 export default function SignupForm({ next }: { next?: string } = {}) {
   const auth = useAuth();
@@ -102,7 +103,7 @@ export default function SignupForm({ next }: { next?: string } = {}) {
   const invalidBy = (field: AuthErrorField) => (errorFields.includes(field) ? FORM_ERROR_ID : undefined);
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-5" noValidate>
+    <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
       <AuthField
         ref={emailRef}
         id="email"
@@ -145,12 +146,11 @@ export default function SignupForm({ next }: { next?: string } = {}) {
         </p>
       )}
 
-      <LegalNote />
-
       <Button type="submit" variant="signal" busy={loading} className="w-full">
         {loading ? "Creating account…" : "Sign up"}
       </Button>
       <HumanCheckField check={humanCheck} />
+      <AgreeNote />
 
       <p className="text-sm text-muted">
         Already have an account?{" "}

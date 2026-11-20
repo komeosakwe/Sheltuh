@@ -271,6 +271,9 @@ select version, file, coalesce(applied, false) as applied
       and exists (select 1 from fn where proname = 'set_organiser_tags')
       and exists (select 1 from fn where proname = 'admin_remove_organiser_custom_tags')
       and exists (select 1 from pg_trigger where tgname = 'organisers_custom_tags_valid' and not tgisinternal)),
+    ('20261129000000', 'event_banner_fit',
+      exists (select 1 from col where attrelid = to_regclass('public.event_images') and attname = 'banner_fit')
+      and exists (select 1 from fn where proname = 'admin_set_event_image_display')),
     ('20261201000000', 'member_upcoming_index',
       to_regclass('public.orders_paid_email_event_idx') is not null),
     ('20261201000100', 'member_usernames',

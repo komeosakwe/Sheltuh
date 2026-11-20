@@ -262,6 +262,13 @@ describe("adaptPublicEvent: the photo's focus point", () => {
   });
 });
 
+describe("adaptPublicEvent: the banner fit", () => {
+  it("carries whole when sent, and leaves it out of a payload without it", () => {
+    expect(adaptPublicEvent({ ...base, imageUrl: "/api/events/evt-1/image?v=1", bannerFit: "whole" }).bannerFit).toBe("whole");
+    expect(adaptPublicEvent({ ...base, imageUrl: "/api/events/evt-1/image?v=1" })).not.toHaveProperty("bannerFit");
+  });
+});
+
 describe("adaptPublicEvent: group tickets", () => {
   const ga = { id: "t1", name: "General admission", priceCents: 3500, feePolicy: "buyer-pays" as const, quantityAvailable: 100 };
 

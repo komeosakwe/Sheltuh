@@ -200,7 +200,9 @@ describe("Who's Going — demo", () => {
     const add = within(region).getByRole("button", { name: "Add yourself" });
     expect(add).toBeDisabled();
     // The shared button and its disabled style (brand-direction-one.md §6.1), not a one-off.
-    expect(add).toHaveClass("btn", "btn-lg");
+    expect(add).toHaveClass("btn");
+    // Secondary M, 48px (Round 2), as the live buttons.
+    expect(add.className).not.toMatch(/btn-(sm|lg)/);
     expect(within(region).getByRole("note")).toHaveTextContent("Sample names.");
     const card = summaryCard();
     if (!card) throw new Error("no Who's going? card");
@@ -263,7 +265,11 @@ describe("Who's Going — loading and errors", () => {
     expect(summaryCard()).toBeNull();
 
     api.getGoingSummary.mockResolvedValueOnce(summary(4));
-    fireEvent.click(within(region).getByRole("button", { name: "Try again" }));
+    // The standard Secondary M (48px), not a small button stretched to 44.
+    const retry = within(region).getByRole("button", { name: "Try again" });
+    expect(retry).toHaveClass("btn", "btn-outline");
+    expect(retry.className).not.toMatch(/btn-sm|min-h-11/);
+    fireEvent.click(retry);
     await waitFor(() => expect(within(region).getByText("4").closest("p")).toHaveTextContent("4 going"));
     expect(api.getGoingSummary).toHaveBeenCalledTimes(2);
     expect(liveRegion(region)).toBeEmptyDOMElement();
@@ -392,6 +398,7 @@ describe("Who's Going — signed in", () => {
     expect(within(region).getByRole("button", { name: "Show me as going" })).toBeInTheDocument();
 
     api.listGoingAttendees.mockResolvedValue({ items: people(4) });
+    expect(within(region).getByRole("button", { name: "Try again" }).className).not.toMatch(/btn-sm|min-h-11/);
     fireEvent.click(within(region).getByRole("button", { name: "Try again" }));
     await waitFor(() => expect(within(region).getByRole("button", { name: "See who’s going" })).toBeInTheDocument());
     openList(region);
@@ -407,6 +414,9 @@ describe("Who's Going — signed in", () => {
       const region = await panel();
       const add = within(region).getByRole("button", { name: "Add yourself" });
       expect(add).toHaveAttribute("aria-expanded", "false");
+      // The rules' Secondary M (48px, the button label at every width; Round 2: no 12px label from lg).
+      expect(add).toHaveClass("btn", "btn-outline");
+      expect(add.className).not.toMatch(/btn-(sm|lg)|text-xs/);
       fireEvent.click(add);
       expect(add).toHaveAttribute("aria-expanded", "true");
       expect(add).toHaveAttribute("aria-controls", "wg-form");

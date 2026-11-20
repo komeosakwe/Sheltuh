@@ -197,6 +197,55 @@ test("a callback URL whose next was tampered with lands on /events, not the othe
   expect(origin(page)).toBe(new URL(baseURL ?? "").origin);
 });
 
+// Round 2 (the owner's iPhone screenshots): at the viewport an iPhone with Safari's bars leaves (390×664), /login's
+// Continue with Apple and Google are whole in the first screen with nothing scrolled, under the email form and
+// Continue (the same order); /signup's Sign up is too, with the page's one privacy line under it. The geometry at
+// that viewport, in the suite's Chromium (not Safari itself: CI installs Chromium only).
+test.describe("at 390×664 (phone viewport)", () => {
+  test.use({ viewport: { width: 390, height: 664 } });
+
+  test("/login: the email form, Continue, then Apple and Google, all in the first screen", async ({ page }) => {
+    await mockAuth(page);
+    await page.goto("/login");
+    await expect(googleButton(page)).toBeVisible({ timeout: 60_000 });
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    const submit = await page.getByRole("button", { name: "Continue", exact: true }).boundingBox();
+    const apple = await appleButton(page).boundingBox();
+    const google = await googleButton(page).boundingBox();
+    if (!submit || !apple || !google) throw new Error("not laid out");
+    // Whole: Continue's top edge in the first screen too, not only below its top.
+    expect(submit.y).toBeGreaterThanOrEqual(0);
+    expect(apple.y).toBeGreaterThan(submit.y + submit.height);
+    expect(google.y).toBeGreaterThan(apple.y + apple.height);
+    expect(google.y + google.height).toBeLessThanOrEqual(664);
+    // The inputs and buttons stay 48px; no hint under the password before a sign-in fails; no wordmark in the card.
+    expect(google.height).toBe(48);
+    expect((await page.locator("#main").getByLabel("Email").boundingBox())?.height).toBe(48);
+    await expect(page.getByText(/Signed up with/)).toHaveCount(0);
+    await expect(page.locator("[data-auth-card] > svg")).toBeHidden();
+    await noSidewaysScroll(page);
+  });
+
+  test("/signup: Apple, Google, the email form and Sign up in the first screen, the privacy line once", async ({ page }) => {
+    await mockAuth(page);
+    await page.goto("/signup");
+    await expect(googleButton(page)).toBeVisible({ timeout: 60_000 });
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    const signUp = await page.getByRole("button", { name: "Sign up", exact: true }).boundingBox();
+    const apple = await appleButton(page).boundingBox();
+    const google = await googleButton(page).boundingBox();
+    if (!signUp || !apple || !google) throw new Error("not laid out");
+    // Whole: neither edge of Apple, Google or Sign up outside the first screen.
+    for (const box of [apple, google, signUp]) {
+      expect(box.y).toBeGreaterThanOrEqual(0);
+      expect(box.y + box.height).toBeLessThanOrEqual(664);
+    }
+    await expect(page.locator("#main").getByRole("link", { name: "Privacy Policy" })).toHaveCount(1);
+    await expect(page.locator("#main").getByRole("link", { name: "Terms of Use" })).toHaveCount(1);
+    await noSidewaysScroll(page);
+  });
+});
+
 test.describe("at 375×667", () => {
   test.use({ viewport: { width: 375, height: 667 } });
 

@@ -128,7 +128,7 @@ export default function ForgotPasswordForm({ next }: { next?: string } = {}) {
 
   if (step === "request") {
     return (
-      <form onSubmit={handleRequestCode} className="flex flex-col gap-5" noValidate>
+      <form onSubmit={handleRequestCode} className="flex flex-col gap-4" noValidate>
         <AuthField
           ref={emailRef}
           id="email"
@@ -144,7 +144,7 @@ export default function ForgotPasswordForm({ next }: { next?: string } = {}) {
           invalidBy={invalidBy("email")}
         />
         {formError}
-        <Button type="submit" size="lg" busy={loading} className="w-full">
+        <Button type="submit" busy={loading} className="w-full">
           {loading ? "Sending…" : "Send reset code"}
         </Button>
         <HumanCheckField check={humanCheck} />
@@ -158,7 +158,7 @@ export default function ForgotPasswordForm({ next }: { next?: string } = {}) {
   }
 
   return (
-    <form onSubmit={handleConfirm} className="flex flex-col gap-5" noValidate>
+    <form onSubmit={handleConfirm} className="flex flex-col gap-4" noValidate>
       <p className="text-sm text-muted">Code sent to {email}.</p>
       <AuthField
         ref={codeRef}
@@ -194,7 +194,7 @@ export default function ForgotPasswordForm({ next }: { next?: string } = {}) {
         rules
       />
       {formError}
-      <Button type="submit" size="lg" busy={loading} className="w-full">
+      <Button type="submit" busy={loading} className="w-full">
         {loading ? "Resetting…" : "Reset password"}
       </Button>
     </form>

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  artistKey,
   FEATURED_MAX,
   formatWeekendRange,
   isOpenThisWeekend,
@@ -444,22 +445,24 @@ describe("selectHomeSections: the saved suburb's state first (owner decision D5)
     ]);
   });
 
-  it("with Western Australia: its events first, each part still soonest first (a stable reorder)", () => {
-    expect(withCarouselFull(events, [], now, [], "WA").weekend.items.map((e) => e.id)).toEqual([
-      "wa-1",
-      "wa-2",
-      "vic-1",
-      "vic-2",
-    ]);
+  it("This weekend with Western Australia: only its events, soonest first (Round 2 B1: filtered, not reordered)", () => {
+    expect(withCarouselFull(events, [], now, [], "WA").weekend.items.map((e) => e.id)).toEqual(["wa-1", "wa-2"]);
   });
 
   it("an event without a state counts as Victorian", () => {
-    expect(withCarouselFull(events, [], now, [], "VIC").weekend.items.map((e) => e.id)).toEqual([
-      "vic-1",
-      "vic-2",
-      "wa-1",
-      "wa-2",
-    ]);
+    expect(withCarouselFull(events, [], now, [], "VIC").weekend.items.map((e) => e.id)).toEqual(["vic-1", "vic-2"]);
+  });
+
+  it("This weekend hides when the saved state has nothing on, rather than showing other states'", () => {
+    const sections = withCarouselFull(events, [], now, [], "NSW");
+    expect(sections.weekend.status).toBe("hidden");
+    expect(sections.weekend.items).toEqual([]);
+  });
+
+  it("other states' weekend events stay free for the sections below", () => {
+    const followed = withCarouselFull(events, [], now, [wa1, vic1], "VIC");
+    expect(followed.weekend.items.map((e) => e.id)).toEqual(["vic-1", "vic-2"]);
+    expect(followed.following.map((e) => e.id)).toEqual(["wa-1"]);
   });
 
   it("applies to every section before it takes its share: following, Popular and Coming up", () => {
@@ -529,5 +532,107 @@ describe("isOpenThisWeekend: This weekend's rule, shared by the section and the 
     const section = withCarouselFull(events, [], NOW).weekend.items.map((e) => e.id).sort();
     expect(events.filter((e) => isOpenThisWeekend(e, NOW)).map((e) => e.id).sort()).toEqual(section);
     expect(section).toEqual(["exhibition", "fri-1700", "perth-sun", "sun-late"]);
+  });
+});
+
+describe("This weekend: one card per artist (Round 2 B1)", () => {
+  // Thu 22 Oct 2026, noon AEDT: before the weekend.
+  const now = at("2026-10-22T01:00:00.000Z");
+  const sat = (hourUtc: number) => `2026-10-24T${String(hourUtc).padStart(2, "0")}:00:00.000Z`;
+  const kofi = (id: string, hourUtc: number, opts: Partial<SheltuhEvent> = {}) =>
+    event(id, sat(hourUtc), { title: "Kofi Stone", organiserId: "org-k", organiserName: "Kofi Live", ...opts });
+
+  it("keeps the soonest of an artist's shows, Melbourne and Sydney alike, when no state is saved", () => {
+    const melbourne = kofi("kofi-mel", 1);
+    const sydney = kofi("kofi-syd", 2, { state: "NSW", title: "KOFI STONE", timeZone: "Australia/Sydney" });
+    const other = event("other", sat(3));
+    expect(withCarouselFull([sydney, melbourne, other], [], now).weekend.items.map((e) => e.id)).toEqual([
+      "kofi-mel",
+      "other",
+    ]);
+  });
+
+  it("filters to the saved state first, so that state's show is the one kept", () => {
+    const melbourne = kofi("kofi-mel", 1);
+    const sydney = kofi("kofi-syd", 2, { state: "NSW", timeZone: "Australia/Sydney" });
+    expect(withCarouselFull([melbourne, sydney], [], now, [], "NSW").weekend.items.map((e) => e.id)).toEqual(["kofi-syd"]);
+  });
+
+  it("groups before the cut to six, so the row fills with distinct artists, and never pads it", () => {
+    const shows = [1, 2, 3, 4, 5, 6].map((h) => kofi(`kofi-${h}`, h));
+    const others = [7, 8].map((h) => event(`other-${h}`, sat(h)));
+    expect(withCarouselFull([...shows, ...others], [], now).weekend.items.map((e) => e.id)).toEqual([
+      "kofi-1",
+      "other-7",
+      "other-8",
+    ]);
+  });
+
+  it("matches titles loosely, but organisers exactly (by id, or by name without one)", () => {
+    const a = kofi("a", 1, { title: "Kofí  Stone!" });
+    const b = kofi("b", 2, { organiserId: "org-other" });
+    const c = kofi("c", 3, { organiserId: undefined, organiserName: "Kofi Live" });
+    const d = kofi("d", 4, { organiserId: undefined, organiserName: "Kofi Live", title: "kofi stone" });
+    const e = kofi("e", 5, { title: "Kofi Stone Live" });
+    // The same organiser's plain "Kofi Stone", later: the accented one's act.
+    const f = kofi("f", 6);
+    expect(withCarouselFull([a, b, c, d, e, f], [], now).weekend.items.map((ev) => ev.id)).toEqual(["a", "b", "c", "e"]);
+  });
+
+  // CodeRabbit (PR #61): only a Latin letter's accents are dropped; another script's marks can be whole vowels.
+  it("keeps other scripts' vowel signs: राम and रोम are two acts", () => {
+    const ram = kofi("ram", 1, { title: "राम" });
+    const rom = kofi("rom", 2, { title: "रोम" });
+    const ramAgain = kofi("ram-again", 3, { title: " राम! " });
+    expect(artistKey(ram)).not.toBe(artistKey(rom));
+    expect(artistKey(ram)).toBe(artistKey(ramAgain));
+    expect(withCarouselFull([ram, rom, ramAgain], [], now).weekend.items.map((ev) => ev.id)).toEqual(["ram", "rom"]);
+  });
+
+  // CodeRabbit (PR #61, round 3): "☀️" and "✈️" both normalise to the shared U+FE0F, a mark, not a letter.
+  it("keeps emoji-only titles with a variation selector apart: ☀️ and ✈️ are two acts", () => {
+    const sun = kofi("sun", 1, { title: "\u2600\uFE0F" });
+    const plane = kofi("plane", 2, { title: "\u2708\uFE0F" });
+    const sunAgain = kofi("sun-again", 3, { title: " \u2600\uFE0F " });
+    expect(artistKey(sun)).not.toBe(artistKey(plane));
+    expect(artistKey(sun)).toBe(artistKey(sunAgain));
+    expect(withCarouselFull([sun, plane, sunAgain], [], now).weekend.items.map((ev) => ev.id)).toEqual(["sun", "plane"]);
+  });
+
+  // CodeRabbit (PR #61, round 4): an emoji's presentation selector doesn't make a title another act; a title with no
+  // letter or digit of its own is compared as entered, never as what NFKD makes of it.
+  it("drops emoji presentation selectors from titles with words, and keeps ™ apart from TM", () => {
+    const sun = kofi("sun", 1, { title: "Kofi Stone \u2600" });
+    const sunEmoji = kofi("sun-emoji", 2, { title: "Kofi Stone \u2600\uFE0F" });
+    expect(artistKey(sun)).toBe(artistKey(sunEmoji));
+    expect(withCarouselFull([sun, sunEmoji], [], now).weekend.items.map((ev) => ev.id)).toEqual(["sun"]);
+
+    const mark = kofi("mark", 1, { title: "\u2122" });
+    const letters = kofi("letters", 2, { title: "TM" });
+    expect(artistKey(mark)).not.toBe(artistKey(letters));
+    expect(withCarouselFull([mark, letters], [], now).weekend.items.map((ev) => ev.id)).toEqual(["mark", "letters"]);
+  });
+
+  it("never collapses on a blank: an emoji-only title is compared as entered, and no organiser is only itself", () => {
+    const party = kofi("party", 1, { title: "🎉🎉" });
+    const disco = kofi("disco", 2, { title: "🪩" });
+    const partyAgain = kofi("party-again", 3, { title: " 🎉🎉 " });
+    expect(artistKey(party)).not.toBe(artistKey(disco));
+    expect(artistKey(party)).toBe(artistKey(partyAgain));
+    expect(withCarouselFull([party, disco, partyAgain], [], now).weekend.items.map((ev) => ev.id)).toEqual(["party", "disco"]);
+
+    // Neither an organiser id nor a name (a record from elsewhere): never "name:undefined", never grouped with another.
+    const anonymous = (id: string, hourUtc: number) => {
+      const shown = kofi(id, hourUtc, { organiserId: undefined });
+      return { ...shown, organiserName: undefined } as unknown as SheltuhEvent;
+    };
+    const first = anonymous("anon-1", 4);
+    const second = anonymous("anon-2", 5);
+    expect(artistKey(first)).not.toContain("undefined");
+    expect(artistKey(first)).not.toBe(artistKey(second));
+    expect(artistKey(kofi("blank", 6, { organiserId: undefined, organiserName: "  " }))).not.toBe(
+      artistKey(kofi("blank-2", 7, { organiserId: undefined, organiserName: "" })),
+    );
+    expect(withCarouselFull([first, second], [], now).weekend.items.map((ev) => ev.id)).toEqual(["anon-1", "anon-2"]);
   });
 });

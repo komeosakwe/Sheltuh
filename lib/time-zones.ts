@@ -147,7 +147,7 @@ function localPartsAt(epochMs: number, timeZone: string): LocalDateTime {
 }
 
 /** The zone's UTC offset, in minutes, at the given instant (daylight saving included). */
-function offsetMinutesAt(epochMs: number, timeZone: string): number {
+export function offsetMinutesAt(epochMs: number, timeZone: string): number {
   // The local parts are read to the minute, so compare them with the instant's own minute: one
   // 40 seconds in would otherwise come out a minute short ("UTC+06:59").
   const minuteMs = Math.floor(epochMs / 60_000) * 60_000;

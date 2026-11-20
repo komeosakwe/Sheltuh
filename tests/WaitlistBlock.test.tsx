@@ -122,6 +122,11 @@ describe("TicketSelector, one tier sold out, or few left", () => {
     expect(more).toHaveAttribute("aria-disabled", "true");
     // The count first, then why there's no more.
     expect(more).toHaveAccessibleDescription("2 Only 2 left.");
+    // Round 2: a decorative 🔥 before the visible words only; it isn't in the description above.
+    const flame = low.querySelector("[data-flame]");
+    expect(flame).toHaveAttribute("aria-hidden", "true");
+    expect(low.firstElementChild).toBe(flame);
+    expect(document.querySelectorAll("[data-flame]")).toHaveLength(1);
   });
 
   it("says both when the per-booking cap is lower than what's left", () => {

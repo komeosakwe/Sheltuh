@@ -19,10 +19,6 @@ const FORM_ERROR_ID = "login-error";
 /** Supabase Auth's message for a wrong email or password (it won't say which). */
 const INVALID_CREDENTIALS = "invalid login credentials";
 
-function noPasswordHint(names: string): string {
-  return `Signed up with ${names}? Use the ${names} button below.`;
-}
-
 /**
  * `next` is the raw `?next=` value: where to go after signing in. Only a
  * same-site relative path is honoured; anything else goes to the dashboard.
@@ -32,9 +28,10 @@ function noPasswordHint(names: string): string {
  * its error. A wrong email or password marks both (the service won't say which).
  *
  * With Apple or Google offered under the form (OAuthButtons, "Or continue
- * with"), the password field's hint says an account made with one of them has
- * no password, and a wrong email or password says to use that button (such an
- * account has no password to get right).
+ * with"), a wrong email or password says to use that button (an account made
+ * with one of them has no password to get right), in the error that's
+ * announced and describes both fields. No hint before then (the owner's iPhone
+ * screenshot, Round 2: less small text, so the buttons fit the first screen).
  *
  * The submit is "Continue" (the sign-in mock), the page's one orange action.
  * /login's own "New here? Create an account" (carrying `next`) is under the
@@ -107,7 +104,7 @@ export default function LoginForm({ next }: { next?: string } = {}) {
   const invalidBy = (field: AuthErrorField) => (errorFields.includes(field) ? FORM_ERROR_ID : undefined);
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-5" noValidate>
+    <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
       <AuthField
         ref={emailRef}
         id="email"
@@ -134,10 +131,9 @@ export default function LoginForm({ next }: { next?: string } = {}) {
         onChange={(e) => setPassword(e.target.value)}
         error={fieldErrors.password}
         invalidBy={invalidBy("password")}
-        hint={providers.length > 0 ? noPasswordHint(oauthProviderNames(providers, ["google", "apple"])) : undefined}
         labelAside={
           <Link
-            // 44px to tap, but laid out at its 16px line (-my-3.5), so the label sits 4px above its field.
+            // 44px to tap, but laid out at 16px (-my-3.5), within the label's line, so the label sits 8px above its field.
             href={withNext("/forgot-password", next)}
             className="-my-3.5 inline-flex min-h-11 items-center text-sm text-accent underline underline-offset-2"
           >

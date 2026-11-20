@@ -223,6 +223,27 @@ describe("EventDetailsView key facts under the title (Refinement, 22 Oct 2026)",
     expect(within(where).getByText("Collingwood, VIC")).toBeInTheDocument();
   });
 
+  it("never says the address twice: a venue name that's only its street line leads with the address, then the suburb (Round 2)", () => {
+    const event = { ...findEvent("neon-static"), venueName: "170 Russell Street", venueAddress: "170 Russell St", suburb: "Melbourne", state: "VIC" as const };
+    const { container } = render(<EventDetailsView event={event} demo />);
+    const where = container.querySelector<HTMLElement>("[data-event-where]");
+    if (!where) throw new Error("Where not rendered");
+    expect(within(where).queryByText("170 Russell Street")).toBeNull();
+    const lead = within(where).getByText("170 Russell St");
+    expect(lead).toHaveClass("body-m", "font-medium");
+    expect(within(where).getByText("Melbourne, VIC")).toHaveAttribute("data-venue-address");
+    expect(within(where).getByRole("link", { name: /^Get directions to 170 Russell St, Melbourne, VIC / })).toBeInTheDocument();
+  });
+
+  it("keeps a real venue name that starts like its street ('Brunswick Street Print Hall' over 'Brunswick St')", () => {
+    const event = { ...findEvent("neon-static"), venueName: "Brunswick Street Print Hall", venueAddress: "12 Brunswick St" };
+    const { container } = render(<EventDetailsView event={event} demo />);
+    const where = container.querySelector<HTMLElement>("[data-event-where]");
+    if (!where) throw new Error("Where not rendered");
+    expect(within(where).getByText("Brunswick Street Print Hall")).toBeInTheDocument();
+    expect(within(where).getByText("12 Brunswick St")).toHaveAttribute("data-venue-address");
+  });
+
   it("keeps each time whole ('8:00 pm', 'midnight'), so a narrow screen never splits one, but lets the rest wrap", () => {
     const { container } = render(<EventDetailsView event={findEvent("neon-static")} demo />);
     const parts = Array.from(container.querySelectorAll("[data-event-facts] .whitespace-nowrap")).map((el) => el.textContent);
