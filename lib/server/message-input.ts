@@ -24,7 +24,7 @@ export const REPORT_REASONS: ReportReason[] = ["harassment", "spam", "inappropri
 const DISALLOWED = /(?![\n\r\t])\p{Cc}|(?![\u200C\u200D])\p{Cf}|[\u2028\u2029]/u;
 // The one legitimate use of \p{Cf} tag characters: emoji tag sequences (the
 // flags of England, Scotland and Wales). Removed before the check above.
-const EMOJI_TAG_SEQUENCE = /\u{1F3F4}[\u{E0030}-\u{E0039}\u{E0061}-\u{E007A}]{1,8}\u{E007F}/gu;
+export const EMOJI_TAG_SEQUENCE = /\u{1F3F4}[\u{E0030}-\u{E0039}\u{E0061}-\u{E007A}]{1,8}\u{E007F}/gu;
 // Something visible: a letter, number, punctuation mark or symbol (emoji are symbols).
 const VISIBLE = /[\p{L}\p{N}\p{P}\p{S}]/u;
 

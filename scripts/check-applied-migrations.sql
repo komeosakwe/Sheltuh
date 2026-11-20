@@ -255,6 +255,10 @@ select version, file, coalesce(applied, false) as applied
       exists (select 1 from fn where proname = 'finish_checkout_expiry' and 'p_max_missing' = any(proargnames))
       and exists (select 1 from pg_constraint where conname = 'checkout_expiry_checks_last_outcome_check'
                    and pg_get_constraintdef(oid) like '%missing%')),
+    ('20261125000000', 'profile_photos',
+      to_regclass('private.profile_photos') is not null
+      and exists (select 1 from fn where proname = 'add_profile_photo')
+      and exists (select 1 from pg_trigger where tgname = 'profile_photos_cap' and not tgisinternal)),
     ('20261128000000', 'organiser_covers',
       to_regclass('private.organiser_covers') is not null
       and exists (select 1 from fn where proname = 'put_organiser_cover')
@@ -269,6 +273,8 @@ select version, file, coalesce(applied, false) as applied
       and exists (select 1 from pg_trigger where tgname = 'organisers_custom_tags_valid' and not tgisinternal)),
     ('20261129000000', 'event_banner_fit',
       exists (select 1 from col where attrelid = to_regclass('public.event_images') and attname = 'banner_fit')
-      and exists (select 1 from fn where proname = 'admin_set_event_image_display'))
+      and exists (select 1 from fn where proname = 'admin_set_event_image_display')),
+    ('20261201000000', 'member_upcoming_index',
+      to_regclass('public.orders_paid_email_event_idx') is not null)
   ) as m(version, file, applied)
  order by version;
