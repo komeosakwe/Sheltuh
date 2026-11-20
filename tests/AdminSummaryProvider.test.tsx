@@ -73,7 +73,7 @@ function later<T>() {
 const adminLinks = () => screen.getAllByRole("link", { name: /^Admin/, hidden: true });
 
 describe("Admin badge in the main nav", () => {
-  it("shows an admin what needs them, on Admin in the desktop row and the phone menu, in the link's name", async () => {
+  it("shows an admin what needs them, on Admin in the desktop row, the avatar menu and the phone menu, in the link's name", async () => {
     adminGetSummary.mockResolvedValue(
       adminSummary({
         reportsOpen: { count: 2, oldestAt: null },
@@ -86,7 +86,7 @@ describe("Admin badge in the main nav", () => {
     renderNav(fakeAuthValue({ isAdmin: true, email: "admin@sheltuh.example" }));
     await advance(0);
     const links = adminLinks();
-    expect(links).toHaveLength(2);
+    expect(links).toHaveLength(3);
     for (const link of links) {
       expect(link).toHaveAccessibleName("Admin, 7 waiting");
       expect(link.querySelector("[data-admin-badge]")).toHaveTextContent("7");

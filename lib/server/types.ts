@@ -40,6 +40,8 @@ export type {
   AccountSummary,
   FollowedOrganiser,
   FollowStatus,
+  MemberPhoto,
+  MemberPhotoResult,
   MemberProfile,
   OrganiserLogField,
   ProfileContentField,

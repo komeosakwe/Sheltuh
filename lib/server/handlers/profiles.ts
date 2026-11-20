@@ -15,11 +15,11 @@ import { avatarResponse } from "./member-profiles";
  * never cached.
  */
 
-const NO_PROFILE = "You haven't set up a profile yet.";
-const SUSPENDED = "Your profile can't be changed right now.";
+export const NO_PROFILE = "You haven't set up a profile yet.";
+export const SUSPENDED = "Your profile can't be changed right now.";
 
 /** SQL: the caller ($1) is suspended from social features. */
-const CALLER_SUSPENDED = `exists (select 1 from private.social_suspensions s where s.user_id = $1)`;
+export const CALLER_SUSPENDED = `exists (select 1 from private.social_suspensions s where s.user_id = $1)`;
 
 /** GET /api/profiles/me */
 export const getMyProfile: Handler = async (req, _params, { db, verifyAccessToken }) => {
@@ -79,7 +79,7 @@ export const putMyProfile: Handler = async (req, _params, { db, verifyAccessToke
 
 /**
  * DELETE /api/profiles/me — deletes the profile and, by cascade in the same
- * statement, every Who's Going opt-in, the photo, bio and Instagram handle
+ * statement, every Who's Going opt-in, the photo, member photos, bio and Instagram handle
  * (a recreated profile starts hidden, with a new profile id). Idempotent. Signed in is enough:
  * removing your own data is never gated on verification. A suspension
  * (private.social_suspensions) is kept.
@@ -91,7 +91,7 @@ export const deleteMyProfile: Handler = async (req, _params, { db, verifyAccessT
 };
 
 /** Where the caller stands: has a profile, and is suspended (both false/false for a stranger). */
-async function profileState(db: Db, userId: string) {
+export async function profileState(db: Db, userId: string) {
   const [state] = await db.query<{ has_profile: boolean; suspended: boolean }>(
     `select exists (select 1 from public.profiles where user_id = $1) as has_profile, ${CALLER_SUSPENDED} as suspended`,
     [userId],

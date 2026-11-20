@@ -7,6 +7,7 @@ import {
   avatarVersionOf,
   conversationVisibleTo,
   EVENT_SELECT,
+  photosOf,
   toAdminMemberProfile,
   toMemberProfile,
   toPublicEventFromRow,
@@ -74,8 +75,8 @@ export function avatarResponse(req: Request, data: Uint8Array, version: string, 
 /**
  * GET /api/profiles/[profileId] — verified members with a profile that isn't
  * suspended; rate-limited (429). The display name, username, bio, Instagram
- * handle, photo, the open events the member has opted in to, and whether the
- * caller can message them. 404 for anything the caller may not see.
+ * handle, photo, member photos, the open events the member has opted in to,
+ * and whether the caller can message them. 404 for anything the caller may not see.
  */
 export const getMemberProfile: Handler<{ profileId: string }> = async (req, { profileId }, { db, verifyAccessToken }) => {
   const caller = await requireVerifiedCaller(req, verifyAccessToken);
@@ -95,7 +96,8 @@ export const getMemberProfile: Handler<{ profileId: string }> = async (req, { pr
   );
   if (!allowed) throw tooManyRequests("Too many requests. Try again in a few minutes.", windowSeconds(PROFILE_VIEW_RATE_LIMIT.window));
 
-  // One statement: who it is (if visible), and the messaging state between them.
+  // One statement: who it is (if visible), their photos (only past that
+  // check: the join yields no row otherwise), and the messaging state between them.
   // Messaging mirrors private.request_conversation: a shared open event both
   // are opted in to, and no conversation ever (conversation_pairs).
   const [row] = await db.query(
@@ -103,6 +105,7 @@ export const getMemberProfile: Handler<{ profileId: string }> = async (req, { pr
      select p.public_id, p.display_name, p.bio, p.instagram_handle, p.user_id = $1 as is_you,
             (select u.username from private.member_usernames u where u.user_id = p.user_id) as username,
             ${avatarVersionOf("p.user_id")} as avatar_version,
+            ${photosOf("p.user_id")} as photos,
             (p.user_id <> $1
               and exists (select 1 from public.event_attendees a
                             join public.event_attendees mine on mine.event_id = a.event_id and mine.user_id = $1

@@ -615,6 +615,52 @@ describe("account-link and an account someone registered first with the invited 
     expect(await accountsFor()).toEqual([expect.objectContaining({ id: accounts[0].id })]);
   });
 
+  it("a press that looks the moment another press's new account appears finds it fresh (Supabase makes it in one transaction): both 200, nothing deleted", async () => {
+    const { token } = await createOrganiserInvite();
+    // Right after the first of the fake's statements that leaves an account
+    // for the address (what another session can see from then on), the other
+    // press runs until it deletes an account or asks for its own token.
+    let other: ReturnType<typeof accountLink> | undefined;
+    let reached: () => void = () => {};
+    const otherReached = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const fake = new FakeAuthAdmin({
+      async query<T>(text: string, params?: unknown[]) {
+        const rows = await api.db.query<T>(text, params);
+        if (!other && (await accountsFor()).length > 0) {
+          other = accountLink(token);
+          void other.finally(reached);
+          await otherReached;
+        }
+        return rows;
+      },
+    });
+    api.authAdmin = fake;
+    const minted: string[] = [];
+    const generate = fake.generateInviteLink.bind(fake);
+    vi.spyOn(fake, "generateInviteLink").mockImplementation(async (email) => {
+      if (fake.calls.length > 0) reached(); // the other press's (queued behind the first)
+      const link = await generate(email);
+      if (link !== "exists") minted.push(link.userId);
+      return link;
+    });
+    const deleteUser = fake.deleteUser.bind(fake);
+    vi.spyOn(fake, "deleteUser").mockImplementation((id) => {
+      reached();
+      return deleteUser(id);
+    });
+
+    const first = await accountLink(token);
+    expect(other).toBeDefined();
+    const second = await other!;
+    expect([first.status, second.status]).toEqual([200, 200]);
+    expect(fake.deleted).toEqual([]);
+    const accounts = await accountsFor();
+    expect(accounts).toHaveLength(1);
+    expect(minted).toEqual([accounts[0].id, accounts[0].id]);
+  });
+
   it("an earlier press's account verified meanwhile is never deleted: 409 has_account", async () => {
     const { token } = await createOrganiserInvite();
     expect((await accountLink(token)).status).toBe(200);

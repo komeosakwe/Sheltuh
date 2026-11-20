@@ -5,53 +5,13 @@ import { DotsLoader } from "@/components/brand/DotsMark";
 import { Button, buttonClass } from "@/components/ui/Button";
 import ActionErrorNotice from "@/components/whos-going/ActionErrorNotice";
 import { SESSION_EXPIRED_MESSAGE } from "@/components/whos-going/shared";
-import { ApiError, type GetToken } from "@/lib/api/client";
 import { deleteOrganiserLogo, uploadOrganiserLogo } from "@/lib/api/organisers";
 import type { OrganiserRecord } from "@/lib/api/types";
-import { SessionExpiredError } from "@/lib/auth/AuthContext";
-import { ImageError, prepareEventImage } from "@/lib/image";
+import { useAccountOwner } from "@/lib/auth/useAccountOwner";
+import { prepareEventImage } from "@/lib/image";
+import { LOGO_TYPES, logoErrorMessage, logoFileError } from "./organiser-image-upload";
 
-/** What the API takes (docs/architecture.md, "Organiser profiles" → Logo: sniffed from the bytes). */
-export const LOGO_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
 const RETURN_TO = "/dashboard/profile";
-
-const TOO_LARGE = "That image is over 2 MB, even after shrinking it. Choose a smaller one.";
-
-/** Checked before anything is sent; the server checks again (and decides by the bytes, not the name). */
-export function logoFileError(file: File): string | null {
-  if (!(LOGO_TYPES as readonly string[]).includes(file.type)) return "Choose a JPEG, PNG or WebP image.";
-  if (file.size === 0) return "That file is empty. Choose another image.";
-  return null;
-}
-
-/** What to say when an upload or removal fails: plain words for each of the API's answers. */
-export function logoErrorMessage(err: unknown, fallback: string): string {
-  if (err instanceof SessionExpiredError) return SESSION_EXPIRED_MESSAGE;
-  if (err instanceof ImageError) return err.message;
-  if (!(err instanceof ApiError)) return fallback;
-  switch (err.status) {
-    case 401:
-      return SESSION_EXPIRED_MESSAGE; // The token was refused: trying again won't help, signing in will.
-    case 0:
-      return err.message; // No connection: the client's own wording.
-    case 400:
-      return err.fieldErrors?.logo ?? "We couldn’t use that file. Choose a JPEG, PNG or WebP image.";
-    case 403:
-      return "Only approved organisers can add a logo. Reload the page to check your profile’s status.";
-    case 404:
-      return "We couldn’t find your organiser profile. Reload the page and try again.";
-    case 409:
-      return "Your organiser profile changed while the logo was uploading, so it wasn’t saved. Reload the page to check its status.";
-    case 413:
-      return TOO_LARGE;
-    case 429:
-      return "You’ve changed your logo a lot today. Try again tomorrow.";
-    case 503:
-      return "We’re busy processing images right now. Try again in a minute.";
-    default:
-      return fallback;
-  }
-}
 
 type Busy = { kind: "upload"; preview: string } | { kind: "remove" } | null;
 
@@ -64,15 +24,13 @@ type Busy = { kind: "upload"; preview: string } | { kind: "remove" } | null;
  * replaced by what the server stored (the whole image fitted on a white
  * square, with no metadata). The logo is public, so the stored one is a
  * plain image. Upload progress isn't measurable through the API client, so
- * "Uploading…" is said, not a percentage.
+ * "Uploading…" is said, not a percentage. Requests are made only as the
+ * account that was signed in when it mounted (useAccountOwner): if someone
+ * else has signed in since (another tab), the upload or removal is refused,
+ * never sent as them.
  */
-export default function OrganiserLogoField({
-  organiser,
-  getToken,
-}: {
-  organiser: OrganiserRecord;
-  getToken: GetToken;
-}) {
+export default function OrganiserLogoField({ organiser }: { organiser: OrganiserRecord }) {
+  const { otherAccount, getOwnerToken } = useAccountOwner();
   const inputRef = useRef<HTMLInputElement>(null);
   const [logoUrl, setLogoUrl] = useState(organiser.logoUrl);
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
@@ -97,11 +55,16 @@ export default function OrganiserLogoField({
       setError(invalid);
       return;
     }
+    if (otherAccount) {
+      // Signed in as someone else now (another tab): refused, never sent as them.
+      setError(SESSION_EXPIRED_MESSAGE);
+      return;
+    }
     setBusy({ kind: "upload", preview: URL.createObjectURL(file) });
     setStatus("Uploading your logo…");
     try {
       const image = await prepareEventImage(file);
-      const updated = await uploadOrganiserLogo(image, getToken);
+      const updated = await uploadOrganiserLogo(image, getOwnerToken);
       setLogoUrl(updated.logoUrl);
       setStatus("Logo saved. It’s on your public profile now.");
     } catch (err) {
@@ -115,10 +78,16 @@ export default function OrganiserLogoField({
   async function remove() {
     if (busy) return;
     setError(null);
+    setStatus("");
+    if (otherAccount) {
+      // Signed in as someone else now (another tab): refused, never sent as them.
+      setError(SESSION_EXPIRED_MESSAGE);
+      return;
+    }
     setBusy({ kind: "remove" });
     setStatus("Removing your logo…");
     try {
-      const updated = await deleteOrganiserLogo(getToken);
+      const updated = await deleteOrganiserLogo(getOwnerToken);
       setLogoUrl(updated.logoUrl);
       setStatus("Logo removed.");
       // The Remove button has gone: focus goes back to the picker.

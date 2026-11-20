@@ -7,6 +7,7 @@ import {
   MAX_PROFILE_TAGS,
   ORGANISER_TAGS,
   parseCustomTag,
+  TAG_SET_ERRORS,
   type OrganiserTag,
 } from "@/lib/api/organiser-tags";
 import { requireCaller } from "../auth";
@@ -67,9 +68,9 @@ export function parseOrganiserTags(body: Record<string, unknown>): OrganiserTags
       }
       const key = customTagKey(parsed.value);
       if (seen.has(key)) {
-        errors[`customTags.${i}`] = "You've already added this one.";
+        errors[`customTags.${i}`] = TAG_SET_ERRORS.duplicate;
       } else if (isTagLabel(parsed.value)) {
-        errors[`customTags.${i}`] = "That's in the list: choose it there instead.";
+        errors[`customTags.${i}`] = TAG_SET_ERRORS.isLabel;
       } else {
         seen.add(key);
         customTags.push(parsed.value);
@@ -78,7 +79,7 @@ export function parseOrganiserTags(body: Record<string, unknown>): OrganiserTags
   }
 
   if (!errors.profileTags && !errors.customTags && profileTags.length + customTags.length > MAX_PROFILE_TAGS) {
-    errors.customTags = `Choose up to ${MAX_PROFILE_TAGS} in all, your own words included.`;
+    errors.customTags = TAG_SET_ERRORS.tooMany;
   }
   if (Object.keys(errors).length > 0) fail(errors);
   return { profileTags, customTags };

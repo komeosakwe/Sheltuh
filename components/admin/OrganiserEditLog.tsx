@@ -3,7 +3,12 @@
 import { useState } from "react";
 import type { OrganiserEditChange, OrganiserEditEntry, OrganiserLogField } from "@/lib/api/types";
 import { formatDayTime } from "@/lib/format";
-import { formatOrganiserFieldValue, ORGANISER_FIELD_LABELS, ORGANISER_FIELD_ORDER } from "./organiser-fields";
+import {
+  emptyOrganiserFieldValue,
+  formatOrganiserFieldValue,
+  ORGANISER_FIELD_LABELS,
+  ORGANISER_FIELD_ORDER,
+} from "./organiser-fields";
 
 /** Values longer than this (code points) are cut short, with a button to show the rest. */
 export const LOG_VALUE_PREVIEW_LENGTH = 120;
@@ -78,7 +83,7 @@ function ChangeList({ entry }: { entry: OrganiserEditEntry }) {
   });
   if (rows.length === 0) return null;
   return (
-    <dl className="flex flex-col gap-2 sm:grid sm:grid-cols-[6rem_1fr] sm:gap-x-3 sm:gap-y-2">
+    <dl className="flex flex-col gap-2 sm:grid sm:grid-cols-[8rem_1fr] sm:gap-x-3 sm:gap-y-2">
       {rows.map(({ field, change }) => (
         <ChangeRow key={field} field={field} change={change} kind={entry.kind} />
       ))}
@@ -126,7 +131,8 @@ function LogValue({
   value: string | null;
   kind: OrganiserEditEntry["kind"];
 }) {
-  if (value === null) return <span className="text-muted italic">(none)</span>;
+  const empty = emptyOrganiserFieldValue(field, value);
+  if (empty !== null || value === null) return <span className="text-muted italic">{empty ?? "(none)"}</span>;
   return <LongText text={formatOrganiserFieldValue(field, value, kind)} context={context} />;
 }
 

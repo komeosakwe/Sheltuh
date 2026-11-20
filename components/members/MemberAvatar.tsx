@@ -5,7 +5,7 @@ import InitialsAvatar from "@/components/ui/InitialsAvatar";
 import type { GetToken } from "@/lib/api/client";
 import { useAvatarObjectUrl } from "./useAvatarObjectUrl";
 
-const SIZE_CLASS = { md: "size-8", face: "size-9", lg: "size-24 sm:size-32" } as const;
+const SIZE_CLASS = { md: "size-8", face: "size-9", nav: "size-10", card: "size-12", lg: "size-24 sm:size-32" } as const;
 
 /**
  * A member's photo in the avatar's circle (the rules' Shape board), or their
@@ -14,6 +14,9 @@ const SIZE_CLASS = { md: "size-8", face: "size-9", lg: "size-24 sm:size-32" } as
  *
  * `lazy`: fetched only once it scrolls near the viewport (a long Who's Going
  * list fetches only the rows people see).
+ *
+ * `fallback="placeholder"`: a plain cream circle instead of the initials (the account's own avatar in
+ * the avatar menu and the phone drawer, as the "Navigation" board draws it).
  */
 export default function MemberAvatar({
   name,
@@ -22,6 +25,7 @@ export default function MemberAvatar({
   size = "md",
   index = 0,
   lazy = false,
+  fallback = "initials",
 }: {
   name: string;
   /** `avatarUrl` / `avatarThumbUrl` from the API; unset: initials. */
@@ -31,6 +35,7 @@ export default function MemberAvatar({
   /** The row's place in its list, for the initials' fill. */
   index?: number;
   lazy?: boolean;
+  fallback?: "initials" | "placeholder";
 }) {
   const ref = useRef<HTMLSpanElement>(null);
   const [visible, setVisible] = useState(!lazy);
@@ -63,6 +68,8 @@ export default function MemberAvatar({
       {src ? (
         // eslint-disable-next-line @next/next/no-img-element -- a local object URL (the photo needs the bearer token)
         <img src={src} alt="" data-member-photo="" className="size-full rounded-full object-cover" />
+      ) : fallback === "placeholder" ? (
+        <span data-avatar-placeholder="" className="size-full rounded-full bg-avatar-placeholder" />
       ) : (
         <InitialsAvatar name={name} index={index} size={size} />
       )}

@@ -381,7 +381,7 @@ select id, null, array['username'], 'short note for your own records' from relea
 matched. If it reports a deadlock (the member saving at that very moment),
 run it again. If it says `permission denied for table users`, the role
 lacks the privilege the username functions need too (`docs/DEPLOYMENT.md`,
-migration 55).
+migration 58).
 
 To let someone else have a held name straight away (the rightful owner of a
 squatted brand, say), delete the hold. Only a hold is deleted, never a live
