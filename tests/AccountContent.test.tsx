@@ -5,6 +5,7 @@ import AccountContent from "@/components/account/AccountContent";
 import { ApiError } from "@/lib/api/client";
 import type { ProfileRecord } from "@/lib/api/types";
 import { SessionExpiredError, type AuthContextValue } from "@/lib/auth/AuthContext";
+import { useProfile } from "@/lib/auth/useProfile";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 
 vi.mock("@/lib/api/client", async (importOriginal) => ({
@@ -449,5 +450,114 @@ describe("AccountContent", () => {
     );
     expect(name).not.toHaveAttribute("aria-invalid");
     expect(bio).not.toHaveAttribute("aria-invalid");
+  });
+});
+
+/** Another useProfile on the page, as the header's avatar menu and drawer have (components/nav/useNavAccount.ts). */
+function HeaderProbe() {
+  const { state } = useProfile();
+  return (
+    <p data-testid="header-profile">
+      {state.status === "ready" ? (state.profile ? state.profile.displayName : "no profile") : state.status}
+    </p>
+  );
+}
+
+describe("AccountContent and the header share the profile", () => {
+  function renderWithHeader() {
+    return render(
+      <FakeAuthProvider value={fakeAuthValue({ email: "mia@example.com" })}>
+        <HeaderProbe />
+        <AccountContent />
+      </FakeAuthProvider>,
+    );
+  }
+
+  it("a rename saved on /account reaches the header's copy at once, with no reload", async () => {
+    getMyProfile.mockResolvedValue(PROFILE);
+    renderWithHeader();
+    const input = await screen.findByLabelText("Display name");
+    await waitFor(() => expect(screen.getByTestId("header-profile")).toHaveTextContent("Mia T."));
+    updateMyProfile.mockResolvedValueOnce({ ...PROFILE, displayName: "Mia Thompson" });
+    fireEvent.change(input, { target: { value: "Mia Thompson" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    await waitFor(() => expect(screen.getByTestId("header-profile")).toHaveTextContent("Mia Thompson"));
+    // Each copy loaded once: the header learnt of the change without fetching again.
+    expect(getMyProfile).toHaveBeenCalledTimes(2);
+  });
+
+  it("a deleted profile is gone from the header's copy too", async () => {
+    getMyProfile.mockResolvedValue(PROFILE);
+    renderWithHeader();
+    await waitFor(() => expect(screen.getByTestId("header-profile")).toHaveTextContent("Mia T."));
+    deleteMyProfile.mockResolvedValueOnce(undefined);
+    fireEvent.click(await openDelete());
+    fireEvent.click(screen.getByRole("button", { name: "Yes, delete" }));
+    await screen.findByText("Profile deleted.");
+    expect(screen.getByTestId("header-profile")).toHaveTextContent("no profile");
+  });
+
+  it("a load still in flight when the change lands doesn't put the old profile back", async () => {
+    let resolveLate: (profile: ProfileRecord) => void = () => {};
+    // /account loads first; the header's load is slow and answers with the profile from before the save.
+    getMyProfile.mockResolvedValueOnce(PROFILE).mockReturnValueOnce(new Promise((resolve) => (resolveLate = resolve)));
+    render(
+      <FakeAuthProvider value={fakeAuthValue({ email: "mia@example.com" })}>
+        <AccountContent />
+        <HeaderProbe />
+      </FakeAuthProvider>,
+    );
+    const input = await screen.findByLabelText("Display name");
+    expect(screen.getByTestId("header-profile")).toHaveTextContent("loading");
+    updateMyProfile.mockResolvedValueOnce({ ...PROFILE, displayName: "Mia Thompson" });
+    fireEvent.change(input, { target: { value: "Mia Thompson" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    await waitFor(() => expect(screen.getByTestId("header-profile")).toHaveTextContent("Mia Thompson"));
+    await act(async () => resolveLate(PROFILE));
+    expect(screen.getByTestId("header-profile")).toHaveTextContent("Mia Thompson");
+  });
+
+  it("keeps another account's change out", async () => {
+    getMyProfile.mockResolvedValue(PROFILE);
+    render(
+      <>
+        <FakeAuthProvider value={fakeAuthValue({ email: "someone@example.com" })}>
+          <HeaderProbe />
+        </FakeAuthProvider>
+        <FakeAuthProvider value={fakeAuthValue({ email: "mia@example.com" })}>
+          <AccountContent />
+        </FakeAuthProvider>
+      </>,
+    );
+    const input = await screen.findByLabelText("Display name");
+    await waitFor(() => expect(screen.getByTestId("header-profile")).toHaveTextContent("Mia T."));
+    updateMyProfile.mockResolvedValueOnce({ ...PROFILE, displayName: "Mia Thompson" });
+    fireEvent.change(input, { target: { value: "Mia Thompson" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    await waitFor(() => expect(renameStatus()).toHaveTextContent(/Mia Thompson/));
+    expect(screen.getByTestId("header-profile")).toHaveTextContent("Mia T.");
+  });
+  it("a load from a later sign-in isn't held back by a change saved in an earlier session", async () => {
+    function Publisher() {
+      const { setProfile } = useProfile();
+      return <button onClick={() => setProfile({ ...PROFILE, displayName: "Mia Thompson" })}>publish</button>;
+    }
+    const mia = fakeAuthValue({ email: "mia@example.com" });
+    getMyProfile.mockResolvedValue(PROFILE);
+    const tree = (value: AuthContextValue) => (
+      <FakeAuthProvider value={value}>
+        <HeaderProbe />
+        <Publisher />
+      </FakeAuthProvider>
+    );
+    const { rerender } = render(tree(mia));
+    await waitFor(() => expect(screen.getByTestId("header-profile")).toHaveTextContent("Mia T."));
+    fireEvent.click(screen.getByRole("button", { name: "publish" }));
+    expect(screen.getByTestId("header-profile")).toHaveTextContent("Mia Thompson");
+    // Sign out, then back in as the same account: the profile was changed elsewhere in between.
+    rerender(tree(fakeAuthValue({ status: "signed-out", email: undefined })));
+    getMyProfile.mockResolvedValue({ ...PROFILE, displayName: "Mia Fresh" });
+    rerender(tree(fakeAuthValue({ email: "mia@example.com" })));
+    await waitFor(() => expect(screen.getByTestId("header-profile")).toHaveTextContent("Mia Fresh"));
   });
 });

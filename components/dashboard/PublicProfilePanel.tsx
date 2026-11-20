@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import OrganiserCoverField from "@/components/dashboard/OrganiserCoverField";
 import OrganiserLogoField from "@/components/dashboard/OrganiserLogoField";
+import OrganiserTagsField from "@/components/dashboard/OrganiserTagsField";
 import PublicProfileForm from "@/components/dashboard/PublicProfileForm";
 import { ButtonLink } from "@/components/ui/Button";
-import type { GetToken } from "@/lib/api/client";
 import type { OrganiserRecord } from "@/lib/api/types";
 import { accountKey } from "@/lib/auth/account";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -17,7 +18,8 @@ const RETURN_TO = "/dashboard/profile";
 
 /**
  * The dashboard's public profile editor: available once the organiser is
- * approved (the logo too: the API refuses one before then). Never in the
+ * approved (the cover, logo and categories too: the API refuses them before
+ * then). Never in the
  * demo, which has no accounts.
  */
 export default function PublicProfilePanel() {
@@ -41,7 +43,7 @@ export default function PublicProfilePanel() {
     );
   }
 
-  if (editing?.value) return <ProfileEditor key={editing.account} organiser={editing.value} getToken={auth.getAccessToken} />;
+  if (editing?.value) return <ProfileEditor key={editing.account} organiser={editing.value} />;
 
   if (auth.status === "loading" || loading) {
     return (
@@ -88,24 +90,27 @@ export default function PublicProfilePanel() {
     );
   }
 
-  return <ProfileEditor key={accountKey(auth) ?? ""} organiser={organiser} getToken={auth.getAccessToken} />;
+  return <ProfileEditor key={accountKey(auth) ?? ""} organiser={organiser} />;
 }
 
 /** One component wherever it's shown from, so the form is never remounted (losing edits). */
-function ProfileEditor({ organiser, getToken }: { organiser: OrganiserRecord; getToken: GetToken }) {
+function ProfileEditor({ organiser }: { organiser: OrganiserRecord }) {
   const profileHref = `/organisers/${encodeURIComponent(organiser.organiserId)}`;
 
   return (
     <div className="flex flex-col gap-8">
       <div className="flex flex-col items-start gap-4 border-t border-foreground pt-5">
         <p className="text-sm text-muted">
-          Changes go live straight away. To change your name, contact email or categories, contact us.
+          Changes go live straight away. To change your name, contact email or event categories, contact us.
         </p>
         <ButtonLink href={profileHref} variant="outline" size="lg">
           View public profile
         </ButtonLink>
       </div>
-      <OrganiserLogoField organiser={organiser} getToken={getToken} />
+      {/* In the public profile's order: cover, logo, categories, then the rest. */}
+      <OrganiserCoverField organiser={organiser} />
+      <OrganiserLogoField organiser={organiser} />
+      <OrganiserTagsField organiser={organiser} />
       <PublicProfileForm organiser={organiser} />
     </div>
   );

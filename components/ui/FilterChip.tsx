@@ -1,5 +1,11 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
+/** A chip's height and width: one 48px line, or (`wrap`) at least 48px, as many lines as its label needs. */
+export const CHIP_SIZING = {
+  line: "h-12 shrink-0",
+  wrap: "h-auto min-h-12 max-w-full py-2 text-left whitespace-normal",
+} as const;
+
 /**
  * A filter chip's classes (the rules' Tags & chips board, "Chips tap"): a
  * 48px rounded-square control (radius 8) with the 1.5px foreground stroke,
@@ -7,10 +13,12 @@ import type { ButtonHTMLAttributes, ReactNode } from "react";
  * foreground-filled with the page colour's label (black with white in Light,
  * white with black in Dark), plus the two orange dots where the chip shows
  * them. Also used for a native control that sits in a row of chips (the
- * map's date field).
+ * map's date field). `wrap`: at least 48px rather than exactly, its label
+ * free to wrap onto more lines when the text is large (a long list of
+ * chips in a form), never wider than its row.
  */
-export function filterChipClass(selected: boolean, className = "") {
-  return `label-button inline-flex h-12 shrink-0 items-center gap-2 rounded-control border-control border-foreground px-4 motion-safe:transition-colors motion-safe:duration-200 motion-safe:ease-out ${
+export function filterChipClass(selected: boolean, className = "", wrap = false) {
+  return `label-button inline-flex ${CHIP_SIZING[wrap ? "wrap" : "line"]} items-center gap-2 rounded-control border-control border-foreground px-4 motion-safe:transition-colors motion-safe:duration-200 motion-safe:ease-out ${
     selected ? "bg-foreground text-background" : "bg-background text-foreground hover:bg-hover"
   } ${className}`
     .replace(/\s+/g, " ")
@@ -36,10 +44,16 @@ export default function FilterChip({
   pressed,
   children,
   className = "",
+  wrap = false,
   ...props
-}: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "aria-pressed"> & { pressed: boolean; children: ReactNode }) {
+}: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "aria-pressed"> & {
+  pressed: boolean;
+  children: ReactNode;
+  /** The label may wrap at large text (filterChipClass). */
+  wrap?: boolean;
+}) {
   return (
-    <button type="button" aria-pressed={pressed} className={filterChipClass(pressed, className)} {...props}>
+    <button type="button" aria-pressed={pressed} className={filterChipClass(pressed, className, wrap)} {...props}>
       {pressed && <SelectedDots />}
       {children}
     </button>

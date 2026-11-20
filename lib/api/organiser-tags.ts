@@ -217,9 +217,14 @@ function misplacedMarks(value: string): boolean {
   return false;
 }
 
+/** An own word as it's read and stored: NFC, spaces of any kind folded to one, trimmed. */
+export function cleanCustomTag(raw: string): string {
+  return raw.normalize("NFC").replace(SPACES, " ").trim();
+}
+
 /**
- * One own word, as the organiser typed it: cleaned (NFC, spaces of any kind
- * folded to one, trimmed) and checked. Allowed: letters (any script), digits
+ * One own word, as the organiser typed it: cleaned (cleanCustomTag) and
+ * checked. Allowed: letters (any script), digits
  * (at most CUSTOM_TAG_MAX_DIGITS), single spaces and & ' ’ -, with combining
  * marks only on a letter; CUSTOM_TAG_MIN_LENGTH to CUSTOM_TAG_MAX_LENGTH
  * characters, at least one a letter; no word mixing Latin, Cyrillic and
@@ -231,7 +236,7 @@ export function parseCustomTag(raw: unknown): CustomTagResult {
   if (typeof raw !== "string") return { ok: false, error: "Type a word or two." };
   // Before any regex runs on it.
   if (raw.length > CUSTOM_TAG_MAX_LENGTH * 4) return { ok: false, error: `Use ${CUSTOM_TAG_MAX_LENGTH} characters or fewer.` };
-  const value = raw.normalize("NFC").replace(SPACES, " ").trim();
+  const value = cleanCustomTag(raw);
   if (!value) return { ok: false, error: "Type a word or two." };
   if (INVISIBLE.test(value)) return { ok: false, error: "Remove the hidden characters." };
   if (EMOJI.test(value)) return { ok: false, error: "Emoji can't be used here." };
@@ -251,6 +256,20 @@ export function parseCustomTag(raw: unknown): CustomTagResult {
   if (makesAClaim(value)) return { ok: false, error: "That word makes a claim we can't check. Try another." };
   return { ok: true, value };
 }
+
+/**
+ * The API's words for the checks across the whole set (parseOrganiserTags in
+ * lib/server/handlers/organiser-tags.ts), here so the dashboard form says
+ * exactly the same as it checks while the organiser types.
+ */
+export const TAG_SET_ERRORS = {
+  /** An own word repeating an earlier one (compared by customTagKey). */
+  duplicate: "You've already added this one.",
+  /** An own word that's one of the list's labels (isTagLabel). */
+  isLabel: "That's in the list: choose it there instead.",
+  /** More than MAX_PROFILE_TAGS chips in all. */
+  tooMany: `Choose up to ${MAX_PROFILE_TAGS} in all, your own words included.`,
+} as const;
 
 /** Whether an own word (already parsed) is one of the list's labels ("Live music"): choose that from the list instead. */
 export function isTagLabel(value: string): boolean {

@@ -22,6 +22,7 @@ import { getFollow, listFollowingEvents, listMyFollowing } from "@/lib/server/ha
 import { getMyExternalGoing } from "@/lib/server/handlers/external-going";
 import { getGoingSummary, getMyGoing, listGoingAttendees } from "@/lib/server/handlers/going";
 import { adminListInvites } from "@/lib/server/handlers/invites";
+import { getMe } from "@/lib/server/handlers/me";
 import { adminGetMemberProfile } from "@/lib/server/handlers/member-profiles";
 import { getUnreadCount, listConversations } from "@/lib/server/handlers/messages";
 import { adminListOrganiserLinks } from "@/lib/server/handlers/organiser-links";
@@ -112,6 +113,7 @@ const PRIVATE_GETS: Case[] = [
   { name: "listMyFollowing", handler: h(listMyFollowing), as: asMember },
   { name: "listFollowingEvents", handler: h(listFollowingEvents), as: asMember },
   { name: "getFollow", handler: h(getFollow), as: asMember, params: () => ({ organiserId: organiser.organiserId }) },
+  { name: "getMe", handler: h(getMe), as: asMember },
   { name: "getMyProfile", handler: h(getMyProfile), as: asMember },
   { name: "getMyGoing", handler: h(getMyGoing), as: asMember, params: event },
   { name: "getMyExternalGoing", handler: h(getMyExternalGoing), as: asMember, params: event },
@@ -172,6 +174,7 @@ const COVERED_ELSEWHERE: Record<string, string> = {
   getMemberProfile: "member-profiles.test.ts (another member visible through a shared event)",
   getMemberAvatar: "member-profiles.test.ts (`private, no-cache` with an ETag)",
   getMyAvatar: "member-profiles.test.ts (`private, no-cache` with an ETag, 304 included)",
+  getMemberPhoto: "profile-photos.test.ts (`private, no-cache` with an ETag, 304 included)",
   adminGetReportAvatar: "member-profiles.test.ts (a report with a photo)",
   adminGetHolderMessage: "holder-messages.test.ts (a message sent to ticket holders)",
   openStopHolderMessages: "holder-messages.test.ts (the stop link redirects and changes nothing)",

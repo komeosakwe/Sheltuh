@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import EventCard from "@/components/ui/EventCard";
 import FilterDropdown from "@/components/ui/FilterDropdown";
+import { HOME_GRID } from "@/components/ui/grids";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/Section";
 import { useIsPhone } from "@/components/ui/useIsPhone";
@@ -20,15 +21,6 @@ import {
 import type { TrendingSignal } from "@/lib/home-sections";
 import { EVENT_CATEGORIES, type SheltuhEvent } from "@/lib/types";
 import HomeSectionHead from "./HomeSectionHead";
-
-/**
- * The home's card grid (the rules' Layout board, Round 2 §1.2): one column below 768px, two from
- * 768px, three from 1024px and four from 1280px, so a card is never narrower than its foot needs to
- * sit on one line (who's going and the price label: 16rem): 304px at 1440 (1312px of content, 32px
- * gutters), 264px at 1280 (64px margins), 298px at 1024 and 340px at 768. Gutters 16 / 24 / 32px,
- * rows 32px apart.
- */
-export const HOME_GRID = "grid grid-cols-1 gap-x-4 gap-y-8 md:grid-cols-2 md:gap-x-6 lg:grid-cols-3 lg:gap-x-8 xl:grid-cols-4";
 
 /** Cards shown at first, and how many more each "Show more events" adds: two rows of four… */
 export const ALL_EVENTS_PAGE = 8;
