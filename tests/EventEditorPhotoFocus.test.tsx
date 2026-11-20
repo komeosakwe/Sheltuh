@@ -12,7 +12,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 const updateEventDraft = vi.fn();
 const uploadEventImage = vi.fn();
 const deleteEventImage = vi.fn();
-const setEventImageFocus = vi.fn();
+const setEventImageDisplay = vi.fn();
 const prepareEventImage = vi.fn();
 vi.mock("@/lib/api/events", async (importOriginal) => ({
   isPayoutsRequiredError: (await importOriginal<typeof import("@/lib/api/events")>()).isPayoutsRequiredError,
@@ -23,7 +23,7 @@ vi.mock("@/lib/api/events", async (importOriginal) => ({
   publishEvent: vi.fn(),
   uploadEventImage: (...args: unknown[]) => uploadEventImage(...args),
   deleteEventImage: (...args: unknown[]) => deleteEventImage(...args),
-  setEventImageFocus: (...args: unknown[]) => setEventImageFocus(...args),
+  setEventImageDisplay: (...args: unknown[]) => setEventImageDisplay(...args),
   fetchPrivateEventImage: vi.fn().mockResolvedValue("blob:saved"),
 }));
 vi.mock("@/lib/image", async (importOriginal) => ({
@@ -33,7 +33,7 @@ vi.mock("@/lib/image", async (importOriginal) => ({
 
 beforeEach(() => {
   stubMatchMedia();
-  for (const fn of [updateEventDraft, uploadEventImage, deleteEventImage, setEventImageFocus, prepareEventImage]) fn.mockReset();
+  for (const fn of [updateEventDraft, uploadEventImage, deleteEventImage, setEventImageDisplay, prepareEventImage]) fn.mockReset();
   // jsdom has no object URLs.
   URL.createObjectURL = vi.fn(() => "blob:picked");
   URL.revokeObjectURL = vi.fn();
@@ -78,7 +78,7 @@ const slider = () => screen.findByRole("slider", { name: "Focus" });
 describe("EventEditor photo focus", () => {
   it("shows the saved focus, and saving a moved focus changes only the focus (no re-upload)", async () => {
     updateEventDraft.mockResolvedValue(EVENT);
-    setEventImageFocus.mockResolvedValue({ ...EVENT, imageFocus: { x: 35, y: 40 } });
+    setEventImageDisplay.mockResolvedValue({ ...EVENT, imageFocus: { x: 35, y: 40 } });
     renderEditor();
     const control = await slider();
     expect(control).toHaveAttribute("aria-valuetext", "30% across, 40% down");
@@ -87,7 +87,7 @@ describe("EventEditor photo focus", () => {
     expect(control).toHaveAttribute("aria-valuetext", "35% across, 40% down");
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
 
-    await waitFor(() => expect(setEventImageFocus).toHaveBeenCalledWith("evt-1", { x: 35, y: 40 }, expect.any(Function)));
+    await waitFor(() => expect(setEventImageDisplay).toHaveBeenCalledWith("evt-1", { focus: { x: 35, y: 40 } }, expect.any(Function)));
     expect(uploadEventImage).not.toHaveBeenCalled();
   });
 
@@ -97,7 +97,7 @@ describe("EventEditor photo focus", () => {
     await slider();
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
     await waitFor(() => expect(updateEventDraft).toHaveBeenCalled());
-    expect(setEventImageFocus).not.toHaveBeenCalled();
+    expect(setEventImageDisplay).not.toHaveBeenCalled();
     expect(uploadEventImage).not.toHaveBeenCalled();
   });
 
@@ -118,7 +118,7 @@ describe("EventEditor photo focus", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
 
     await waitFor(() => expect(uploadEventImage).toHaveBeenCalledWith("evt-1", picked, expect.any(Function), { x: 50, y: 55 }));
-    expect(setEventImageFocus).not.toHaveBeenCalled();
+    expect(setEventImageDisplay).not.toHaveBeenCalled();
   });
 
   it("discarding the new photo brings the saved photo's focus back; removing the photo drops the control", async () => {

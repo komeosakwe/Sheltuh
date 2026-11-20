@@ -7,7 +7,11 @@ import { Button, buttonClass } from "@/components/ui/Button";
 import { fetchPrivateEventImage } from "@/lib/api/events";
 import type { GetToken } from "@/lib/api/client";
 import { ImageError, prepareEventImage } from "@/lib/image";
-import type { EventPoster, ImageFocus } from "@/lib/types";
+import type { BannerFit, EventPoster, ImageFocus } from "@/lib/types";
+
+/** A photo whose preparation ended once publishing had started (`locked`): not taken. */
+export const PHOTO_NOT_ADDED_WHILE_PUBLISHING =
+  "That photo wasn\u2019t added: the event is being published. Choose it again if publishing doesn\u2019t go through.";
 
 interface Props {
   getToken: GetToken;
@@ -22,6 +26,20 @@ interface Props {
   /** Where the photo's subject is (null: the middle). Saved with the photo. */
   focus: ImageFocus | null;
   onFocusChange: (focus: ImageFocus | null) => void;
+  /** How the home page's featured banner shows the photo: cropped to fill (`crop`) or whole. Saved with the photo. */
+  bannerFit: BannerFit;
+  onBannerFitChange: (fit: BannerFit) => void;
+  /**
+   * While the event is being published: the photo, its focus and its fit can't change (publishing sends the ones
+   * it started with, and a published event's photo can't be saved by the organiser afterwards). Choosing and
+   * removing are off, and a photo still being prepared when it started isn't taken. Off again if it fails.
+   */
+  locked?: boolean;
+  /**
+   * Said where it's seen while publishing (the editor's status line, outside the step panels: this field's own
+   * step is hidden then): a photo wasn't taken because publishing had started.
+   */
+  onLockedPick?: (message: string) => void;
   error?: string;
   /** The generated artwork the event shows until it has a photo (the same the public card shows). */
   poster: EventPoster;
@@ -44,12 +62,21 @@ export default function EventImageField({
   onRemovedChange,
   focus,
   onFocusChange,
+  bannerFit,
+  onBannerFitChange,
+  locked = false,
+  onLockedPick,
   error,
   poster,
   title,
   onPreviewUrl,
 }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
+  // `locked` as now, for a photo whose preparation (downsizing) ends after publishing started.
+  const lockedNow = useRef(locked);
+  useEffect(() => {
+    lockedNow.current = locked;
+  }, [locked]);
   const [pickError, setPickError] = useState<string | null>(null);
   const [pendingPreview, setPendingPreview] = useState<string | null>(null);
   const [existingPreview, setExistingPreview] = useState<string | null>(null);
@@ -95,10 +122,18 @@ export default function EventImageField({
     setPickError(null);
     if (!file) return;
     try {
-      onPendingChange(await prepareEventImage(file));
-      onRemovedChange(false);
-      // The focus belongs to the photo it was set on.
-      onFocusChange(null);
+      const prepared = await prepareEventImage(file);
+      if (lockedNow.current) {
+        // Publishing started meanwhile: it goes with the photo it started with; this one isn't taken. Said here (for
+        // when this step is shown again) and where it's seen now (onLockedPick).
+        setPickError(PHOTO_NOT_ADDED_WHILE_PUBLISHING);
+        onLockedPick?.(PHOTO_NOT_ADDED_WHILE_PUBLISHING);
+      } else {
+        onPendingChange(prepared);
+        onRemovedChange(false);
+        // The focus belongs to the photo it was set on.
+        onFocusChange(null);
+      }
     } catch (err) {
       setPickError(err instanceof ImageError ? err.message : "Couldn't read that image.");
     }
@@ -152,6 +187,7 @@ export default function EventImageField({
             type="file"
             accept="image/jpeg,image/png,image/webp"
             onChange={(e) => handlePick(e.target.files?.[0])}
+            disabled={locked}
             aria-labelledby="event-image-title event-image-pick"
             aria-describedby={pickError || error ? "event-image-hint event-image-error" : "event-image-hint"}
             aria-invalid={pickError || error ? true : undefined}
@@ -160,6 +196,7 @@ export default function EventImageField({
           <label
             id="event-image-pick"
             htmlFor="event-image"
+            aria-disabled={locked || undefined}
             className={buttonClass(
               "outline",
               "sm",
@@ -176,9 +213,13 @@ export default function EventImageField({
               variant="outline"
               size="sm"
               className="min-h-11"
+              busy={locked}
               onClick={() => {
+                // When this button goes (no photo left), focus moves to Choose a photo rather than the page.
+                const goes = !pending || !(existingUrl && !removed);
                 if (pending) onPendingChange(null);
                 else onRemovedChange(true);
+                if (goes) inputRef.current?.focus();
               }}
             >
               {pending ? "Discard new photo" : "Remove photo"}
@@ -191,15 +232,122 @@ export default function EventImageField({
           imageUrl={shown}
           focus={focus}
           onChange={onFocusChange}
+          disabled={locked}
           poster={poster}
           title={title.trim() || "Untitled event"}
         />
+      )}
+      {hasImage && (
+        <div data-banner-fit="" className="flex flex-col gap-3 border-t border-surface-border pt-4">
+          <p className="eyebrow text-muted">Home banner</p>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+            <div className="flex flex-col gap-1">
+              <label className="flex min-h-11 items-start gap-3 text-sm text-foreground">
+                <input
+                  id="event-banner-fit"
+                  type="checkbox"
+                  checked={bannerFit === "whole"}
+                  disabled={locked}
+                  onChange={(e) => onBannerFitChange(e.target.checked ? "whole" : "crop")}
+                  aria-describedby="event-banner-fit-hint"
+                  className="mt-0.5 size-4 shrink-0"
+                />
+                Show the whole photo in the home banner
+              </label>
+              <p id="event-banner-fit-hint" className="max-w-sm text-xs text-muted">
+                If your event is featured at the top of the home page, show the whole photo instead of cropping it. Unticked, it&rsquo;s cropped around your focus point.
+              </p>
+            </div>
+            {/* The banner as it shows from 1024px (5:2) and on a phone (4:5): whole on the photo's blurred backdrop
+                (at the top on a phone), or cropped as the banner crops it (FeaturedCarousel's focal defaults when
+                there's no focus). Over each, the home's scrim (banner-scrim) where the words sit. */}
+            {shown && (
+              <div data-banner-previews="" className="flex w-full items-end gap-3 sm:w-auto">
+                <BannerPreview
+                  label="Banner"
+                  data={{ "data-banner-preview": "" }}
+                  className="min-w-0 flex-1 sm:w-64 sm:flex-none"
+                  frameClassName="aspect-[5/2]"
+                  scrimClassName="h-2/3"
+                  imgClassName={bannerFit === "whole" || focus ? undefined : "object-[50%_35%]"}
+                  poster={poster}
+                  shown={shown}
+                  focus={focus}
+                  bannerFit={bannerFit}
+                  title={title}
+                />
+                <BannerPreview
+                  label="Phone"
+                  data={{ "data-banner-phone-preview": "" }}
+                  className="w-20 shrink-0"
+                  frameClassName="aspect-[4/5]"
+                  scrimClassName="h-3/4"
+                  imgClassName={bannerFit === "whole" ? "object-top" : focus ? undefined : "object-[50%_50%]"}
+                  poster={poster}
+                  shown={shown}
+                  focus={focus}
+                  bannerFit={bannerFit}
+                  title={title}
+                />
+              </div>
+            )}
+          </div>
+        </div>
       )}
       {(pickError || error) && (
         <p id="event-image-error" className="text-sm text-danger">
           {pickError ?? error}
         </p>
       )}
+    </div>
+  );
+}
+
+/**
+ * One of the editor's previews of the home banner: the photo in the banner's frame, as the banner shows it (whole
+ * or cropped), with the home's scrim (banner-scrim, its fade scaled to the preview) over the share of it the words
+ * take there: about two thirds of the 5:2 banner, three quarters of a phone's 4:5 slide.
+ */
+function BannerPreview({
+  label,
+  data,
+  className,
+  frameClassName,
+  scrimClassName,
+  imgClassName,
+  poster,
+  shown,
+  focus,
+  bannerFit,
+  title,
+}: {
+  label: string;
+  data: Record<`data-${string}`, string>;
+  className: string;
+  frameClassName: string;
+  scrimClassName: string;
+  imgClassName: string | undefined;
+  poster: EventPoster;
+  shown: string;
+  focus: ImageFocus | null;
+  bannerFit: BannerFit;
+  title: string;
+}) {
+  return (
+    <div className={`flex flex-col gap-1 ${className}`}>
+      <div data-surface="ink" {...data} className="relative overflow-hidden rounded-control">
+        <EventArt
+          poster={poster}
+          imageUrl={shown}
+          imageFocus={focus}
+          imgClassName={imgClassName}
+          title={title.trim() || "Untitled event"}
+          fit={bannerFit === "whole" ? "contain" : "poster"}
+          className={`${frameClassName} w-full`}
+        />
+        <div aria-hidden="true" data-preview-scrim="" className={`banner-scrim banner-scrim-scaled absolute inset-x-0 bottom-0 ${scrimClassName}`} />
+      </div>
+      <span className="text-xs text-muted">{label}</span>
     </div>
   );
 }

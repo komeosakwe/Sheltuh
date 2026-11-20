@@ -17,7 +17,7 @@ import { ADMIN_EVENT_SELECT, ADMIN_ORGANISER_SELECT, toAdminEvent, toAdminOrgani
 import type { Handler } from "../route";
 import { MAX_TICKETING_REASON_LENGTH } from "../ticketing-input";
 import type { AdminEventRecord } from "../types";
-import { fail, parseFocusBody, parseFocusQuery } from "../validation";
+import { fail, parseFocusQuery, parseImageDisplayBody } from "../validation";
 import { readEventImage } from "./event-images";
 import {
   ADMIN_PAYOUTS_REQUIRED,
@@ -381,17 +381,19 @@ export const adminPutEventImage: Handler<{ eventId: string }> = async (req, { ev
 };
 
 /**
- * PATCH /api/admin/events/[eventId]/image — `{ "focus": { "x", "y" } | null }`: moves or clears the
- * focus point of the event's photo, any status, logged `edited` (`changes.imageFocus`; nothing when
- * unchanged). 200 with the event; 400 `fieldErrors.imageFocus`; 404; 409 when there's no photo.
+ * PATCH /api/admin/events/[eventId]/image — `{ "focus"?: { "x", "y" } | null, "bannerFit"?: "crop" | "whole" }`
+ * (at least one; an absent key keeps the stored value): moves or clears the focus point and/or sets the
+ * home banner's fit of the event's photo, any status, in one step (private.admin_set_event_image_display),
+ * logged `edited` (`changes.imageFocus`, `changes.bannerFit`; nothing when unchanged). 200 with the event;
+ * 400 `fieldErrors.imageFocus` / `bannerFit`; 404; 409 when there's no photo.
  */
 export const adminPatchEventImageFocus: Handler<{ eventId: string }> = async (req, { eventId }, { db, verifyAccessToken }) => {
   const admin = await requireAdmin(req, verifyAccessToken);
   if (!isUuid(eventId)) throw new HttpError(404, EVENT_NOT_FOUND);
-  const focus = parseFocusBody(await readJson(req));
+  const display = parseImageDisplayBody(await readJson(req));
   const [row] = await db.query<{ result: "updated" | "unchanged" | "no_image" | "not_found" }>(
-    `select private.admin_set_event_image_focus($1, $2, $3::smallint, $4::smallint) as result`,
-    [eventId, admin.userId, focus?.x ?? null, focus?.y ?? null],
+    `select private.admin_set_event_image_display($1, $2, $3::boolean, $4::smallint, $5::smallint, $6::text) as result`,
+    [eventId, admin.userId, display.setFocus, display.focus?.x ?? null, display.focus?.y ?? null, display.bannerFit],
   );
   if (row.result === "not_found") throw new HttpError(404, EVENT_NOT_FOUND);
   if (row.result === "no_image") throw new HttpError(409, "Add a photo first.");

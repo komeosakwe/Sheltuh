@@ -76,7 +76,7 @@ import { fieldClass } from "@/components/ui/Field";
 import {
   adminCreateEvent,
   adminDeleteEventImage,
-  adminSetEventImageFocus,
+  adminSetEventImageDisplay,
   adminUpdateEvent,
   adminUploadEventImage,
 } from "@/lib/api/admin";
@@ -95,13 +95,21 @@ import {
   isRefundPolicyTightenedError,
   publishConflictCode,
   publishEvent,
-  setEventImageFocus,
+  setEventImageDisplay,
   updateEventDraft,
   uploadEventImage,
   type EventInput,
 } from "@/lib/api/events";
 import { isPlacesUnavailableError } from "@/lib/api/places";
-import type { AdminEventRecord, EventRecord, ImageFocus, PublishEventConflictCode, TicketTypeInput } from "@/lib/api/types";
+import type {
+  AdminEventRecord,
+  BannerFit,
+  EventRecord,
+  ImageDisplayInput,
+  ImageFocus,
+  PublishEventConflictCode,
+  TicketTypeInput,
+} from "@/lib/api/types";
 import { SessionExpiredError } from "@/lib/auth/AuthContext";
 import { useAccountOwner } from "@/lib/auth/useAccountOwner";
 import { eventClipsEnabled } from "@/lib/clips-flag";
@@ -118,12 +126,16 @@ import { groupTicketsEnabled } from "@/lib/group-tickets-flag";
 import { formatFeedPriceParts } from "@/lib/pricing";
 import { DEFAULT_REFUND_POLICY, type RefundPolicy } from "@/lib/refund-policy";
 import { sellsPaidTicketsOnSheltuh, type TicketingMode } from "@/lib/ticketing";
-import { placeName, placeQuery } from "@/lib/place";
+import { placeName, placeQuery, sameStreetLine } from "@/lib/place";
 import { localToUtcIso, PLATFORM_TIME_ZONE, zoneShortLabel } from "@/lib/time-zones";
 import { EVENT_CATEGORIES, type Coordinates } from "@/lib/types";
 
 /** A card's title when it's a child's legend (seating, refunds, where tickets are sold): the same as EditorCard's h3. */
 const SECTION_TITLE = "font-heading text-lg leading-6 text-foreground";
+
+/** Under Venue name after a Google pick that was an address, not a venue (handlePicked). */
+export const VENUE_NAME_HINT = "Google found an address, not a venue name. Add the venue’s name.";
+const VENUE_NAME_HINT_ID = "venueName-hint";
 
 interface OrganiserProps {
   getToken: GetToken;
@@ -333,10 +345,12 @@ export default function EventEditor(props: Props) {
   // The venue's location (owner decisions A-D1 to A-D3): a Google place and the organiser's confirmed
   // pin, or a pin alone. The pin counts for the suburb it was confirmed in.
   const placeKey = venue.place ? venuePlaceKey(venue.place.name, venue.place.state) : null;
-  const venueLocation = useVenueLocation(initial, placeKey);
+  const venueLocation = useVenueLocation(initial, placeKey, venue.suburb.trim());
   // What picking a Google place last filled each field with: a field is filled again only while it's
   // empty or still says that, never over what the organiser typed.
   const [prefilled, setPrefilled] = useState<{ venueName?: string; venueAddress?: string; suburb?: string }>({});
+  // A Google pick that was an address, not a venue, left the venue name empty: say so under it until they type.
+  const [venueNameHint, setVenueNameHint] = useState(false);
   const [ticketTypes, setTicketTypes] = useState<TicketTypeInput[]>(
     initial?.ticketTypes && initial.ticketTypes.length > 0 ? initial.ticketTypes : [newTicketType()],
   );
@@ -374,6 +388,15 @@ export default function EventEditor(props: Props) {
   // Where the photo's subject is (null: the middle), and whether it's changed since the last save.
   const [imageFocus, setImageFocus] = useState<ImageFocus | null>(initial?.imageFocus ?? null);
   const [focusChanged, setFocusChanged] = useState(false);
+  // How the home banner shows the photo (crop to fill, or whole), and whether it's changed since the last save.
+  const [bannerFit, setBannerFit] = useState<BannerFit>(initial?.bannerFit ?? "crop");
+  const [fitChanged, setFitChanged] = useState(false);
+  // The new photo, focus and fit as now chosen, for a save that ends after they were changed again (syncImage): a
+  // save marks them saved only if they're still what it sent.
+  const chosenDisplay = useRef({ imageFile, imageRemoved, imageFocus, bannerFit, fitChanged });
+  useEffect(() => {
+    chosenDisplay.current = { imageFile, imageRemoved, imageFocus, bannerFit, fitChanged };
+  }, [imageFile, imageRemoved, imageFocus, bannerFit, fitChanged]);
   // Set once the draft exists, so a retry after a failed photo upload updates
   // it instead of creating a duplicate.
   const [createdId, setCreatedId] = useState<string | null>(null);
@@ -691,33 +714,81 @@ export default function EventEditor(props: Props) {
    * Applies a pending photo change to a saved event through `upload` or
    * `remove` (the organiser's routes or the admin's, which answer with the
    * same kind of record they're given); returns the latest record. A new
-   * photo goes up with its focus point; a moved focus on the saved photo is
-   * `moveFocus`.
+   * photo goes up with its focus point; then a changed focus (on the saved
+   * photo) and/or banner fit go in one `display` request. When that second
+   * request fails after an upload, `kept` gets the uploaded record (the photo
+   * is saved; the fit stays pending, sent again on the next save), to keep it
+   * here and tell the page of an existing event, as syncClip's `kept` does.
+   * A focus or fit changed again while this runs stays pending (it isn't what
+   * this save sent), so the next save sends it.
    */
   async function syncImage<R extends EventRecord>(
     record: R,
     upload: (eventId: string, image: Blob, getToken: GetToken, focus?: ImageFocus | null) => Promise<R>,
     remove: (eventId: string, getToken: GetToken) => Promise<R>,
-    moveFocus: (eventId: string, focus: ImageFocus | null, getToken: GetToken) => Promise<R>,
+    display: (eventId: string, change: ImageDisplayInput, getToken: GetToken) => Promise<R>,
+    kept: (record: R) => void,
   ): Promise<R> {
+    let latest = record;
+    let uploaded = false;
+    // Still as this save sent it (the same focus object, the same fit), or changed again since.
+    const focusSent = () => chosenDisplay.current.imageFocus === imageFocus;
+    const fitSaved = (saved: BannerFit) => chosenDisplay.current.bannerFit === saved;
+    /**
+     * With no fit edit still to send, the control shows the fit now stored: a remove and a new pick made while
+     * this save ran put it at the old record's fit, and the photo it replaces keeps this one's (CodeRabbit, PR #61).
+     * Not while the photo is marked removed (no fit then).
+     */
+    const showStoredFit = (saved: BannerFit) => {
+      const now = chosenDisplay.current;
+      if (now.imageRemoved || (now.fitChanged && now.bannerFit !== saved)) return;
+      setBannerFit(saved);
+    };
     if (imageFile) {
-      const updated = await upload(record.eventId, imageFile, saveToken, imageFocus);
-      setImageFile(null);
-      setFocusChanged(false);
-      return updated;
-    }
-    if (imageRemoved && record.imageUrl) {
+      latest = await upload(record.eventId, imageFile, saveToken, imageFocus);
+      uploaded = true;
+      // Only the photo this upload saved is done: one picked while it went up stays pending (with its focus and
+      // fit), for the next save.
+      if (chosenDisplay.current.imageFile === imageFile) {
+        setImageFile(null);
+        if (focusSent()) setFocusChanged(false);
+      }
+    } else if (imageRemoved && record.imageUrl) {
+      // The fit goes with the photo.
       const updated = await remove(record.eventId, saveToken);
       setImageRemoved(false);
-      setFocusChanged(false);
+      if (chosenDisplay.current.imageFile) {
+        // A new photo was picked while the delete ran: it keeps the focus and fit chosen for it. The server has no
+        // fit now (a new photo starts at crop), so any other fit is still to send.
+        setFitChanged(chosenDisplay.current.bannerFit !== "crop");
+      } else {
+        setFocusChanged(false);
+        setBannerFit("crop");
+        setFitChanged(false);
+      }
       return updated;
     }
-    if (focusChanged && record.imageUrl && !imageRemoved) {
-      const updated = await moveFocus(record.eventId, imageFocus, saveToken);
-      setFocusChanged(false);
-      return updated;
+    if (!latest.imageUrl || imageRemoved) return latest;
+    const change: ImageDisplayInput = {};
+    if (focusChanged && !uploaded) change.focus = imageFocus;
+    // A replaced photo keeps its fit, so after an upload only a fit that differs is sent.
+    if (fitChanged && (latest.bannerFit ?? "crop") !== bannerFit) change.bannerFit = bannerFit;
+    if (change.focus === undefined && change.bannerFit === undefined) {
+      if (fitChanged && fitSaved(latest.bannerFit ?? "crop")) setFitChanged(false);
+      showStoredFit(latest.bannerFit ?? "crop");
+      return latest;
     }
-    return record;
+    try {
+      const updated = await display(latest.eventId, change, saveToken);
+      const saved = change.bannerFit ?? latest.bannerFit ?? "crop";
+      if (focusSent()) setFocusChanged(false);
+      if (fitSaved(saved)) setFitChanged(false);
+      showStoredFit(saved);
+      return updated;
+    } catch (err) {
+      if (uploaded) kept(latest);
+      throw err;
+    }
   }
 
   function changeFocus(focus: ImageFocus | null) {
@@ -725,21 +796,33 @@ export default function EventEditor(props: Props) {
     setFocusChanged(true);
   }
 
-  /** Discarding a new pick brings back the saved photo, and with it its saved focus. */
+  function changeBannerFit(fit: BannerFit) {
+    setBannerFit(fit);
+    setFitChanged(true);
+  }
+
+  /** Discarding a new pick brings back the saved photo, and with it its saved focus and fit. */
   function changePending(image: Blob | null) {
     setImageFile(image);
     if (image === null) {
       setImageFocus(savedRecord?.imageFocus ?? null);
       setFocusChanged(false);
+      setBannerFit(savedRecord?.bannerFit ?? "crop");
+      setFitChanged(false);
     }
   }
 
-  /** Removing the saved photo drops its focus with it. */
+  /** Removing the saved photo drops its focus and fit with it. */
   function changeRemoved(removedNow: boolean) {
     setImageRemoved(removedNow);
     if (removedNow) {
       setImageFocus(null);
       setFocusChanged(false);
+      setBannerFit("crop");
+      setFitChanged(false);
+    } else if (imageRemoved) {
+      // A new pick after removing: it replaces the saved photo, which keeps its fit.
+      setBannerFit(savedRecord?.bannerFit ?? "crop");
     }
   }
 
@@ -789,11 +872,15 @@ export default function EventEditor(props: Props) {
         const note = reason.trim();
         let record = await adminSave(input);
         setPublish(false);
-        record = await syncImage(record, adminUploadEventImage, adminDeleteEventImage, (id, focus, token) => adminSetEventImageFocus(id, focus, token));
+        const onSaved = props.onSaved;
+        record = await syncImage(record, adminUploadEventImage, adminDeleteEventImage, (id, change, token) => adminSetEventImageDisplay(id, change, token), (kept) => {
+          setVersion(kept.updatedAt);
+          setSavedRecord(kept);
+          if (initial) onSaved(kept);
+        });
         // A photo change bumps the event's version too: the next save is made against it.
         setVersion(record.updatedAt);
         // So does a clip change: the admin routes answer with the event, whose version is the next.
-        const onSaved = props.onSaved;
         record = await syncClip(record, adminClipRoutes(note), (kept) => {
           // The save is in the event's log with this note now.
           setReason("");
@@ -821,8 +908,11 @@ export default function EventEditor(props: Props) {
           setCreatedId(record.eventId);
           track("organiser_event_created", {});
         }
-        record = await syncImage(record, uploadEventImage, deleteEventImage, (id, focus, token) => setEventImageFocus(id, focus, token));
         const onSaved = props.onSaved;
+        record = await syncImage(record, uploadEventImage, deleteEventImage, (id, change, token) => setEventImageDisplay(id, change, token), (kept) => {
+          setSavedRecord(kept);
+          if (initial) onSaved(kept);
+        });
         record = await syncClip(record, ORGANISER_CLIP_ROUTES, (kept) => {
           if (initial) onSaved(kept);
         });
@@ -863,18 +953,33 @@ export default function EventEditor(props: Props) {
    * A Google place was picked (VenuePlaceSearch): linked, and its name,
    * street address and suburb fill the fields that are empty or still say
    * what an earlier pick filled in (never over what the organiser typed).
+   * An address rather than a venue ("170 Russell Street") has no name to
+   * give: the venue name is left for the organiser (Round 2: the page said
+   * the address twice), with a hint under it while it's empty; a name they
+   * typed stays. A suburb the pick doesn't fill stays as typed, and the place
+   * is linked to the suburb it was picked in: one changed while its details
+   * loaded unlinks it at once (settleLinkedPlace), so a place is never saved
+   * with another suburb.
    */
-  function handlePicked({ suggestion, details }: PickedPlace) {
+  function handlePicked({ suggestion, details, pickedIn }: PickedPlace) {
     const fillable = (value: string, last: string | undefined) => !value.trim() || value === last;
     const next = { ...prefilled };
+    // Its street line, with nothing more after a comma than the picked place's own locality, is an address.
+    const pickedPlace = details.locality ? { suburb: details.locality, state: details.state } : undefined;
+    const addressOnly = Boolean(details.streetAddress && sameStreetLine(suggestion.primaryText, details.streetAddress, pickedPlace));
+    let name = venueName;
     if (suggestion.primaryText && fillable(venueName, prefilled.venueName)) {
-      setVenueName(suggestion.primaryText);
-      next.venueName = suggestion.primaryText;
+      name = addressOnly ? "" : suggestion.primaryText;
+      setVenueName(name);
+      next.venueName = name;
     }
+    setVenueNameHint(addressOnly && !name.trim());
     if (details.streetAddress && fillable(venueAddress, prefilled.venueAddress)) {
       setVenueAddress(details.streetAddress);
       next.venueAddress = details.streetAddress;
     }
+    // The suburb it belongs to: the one the pick fills in (as typed until the table has it), else the one it was picked in.
+    let at = pickedIn;
     if (details.locality) {
       // As the suburb's own suggestions say it ("Fitzroy, VIC"); checked against the suburb table as typed text is.
       const suburb = details.state ? placeName(details.locality, details.state) : details.locality;
@@ -882,10 +987,15 @@ export default function EventEditor(props: Props) {
         venue.requestTable();
         venue.setSuburb(suburb);
         next.suburb = suburb;
+        at = { text: suburb.trim() };
       }
     }
     setPrefilled(next);
-    venueLocation.link(details.placeId, [suggestion.primaryText, suggestion.secondaryText].filter(Boolean).join(", "));
+    venueLocation.link(
+      details.placeId,
+      [suggestion.primaryText, suggestion.secondaryText].filter(Boolean).join(", "),
+      at,
+    );
     clearErrors("venueName", "venueAddress", "suburb", "state", "timeZone", "location");
   }
 
@@ -952,7 +1062,10 @@ export default function EventEditor(props: Props) {
     }
     try {
       const saved = await updateEventDraft(initial.eventId, input, saveToken);
-      const withImage = await syncImage(saved, uploadEventImage, deleteEventImage, (id, focus, token) => setEventImageFocus(id, focus, token));
+      const withImage = await syncImage(saved, uploadEventImage, deleteEventImage, (id, change, token) => setEventImageDisplay(id, change, token), (kept) => {
+        setSavedRecord(kept);
+        props.onSaved(kept);
+      });
       // Waits for a clip upload a save already started, and never publishes without the clip.
       setSavedRecord(await syncClip(withImage, ORGANISER_CLIP_ROUTES, props.onSaved));
       const record: PublishedEvent = await publishEvent(initial.eventId, saveToken);
@@ -1439,6 +1552,11 @@ export default function EventEditor(props: Props) {
               onRemovedChange={changeRemoved}
               focus={imageFocus}
               onFocusChange={changeFocus}
+              bannerFit={bannerFit}
+              onBannerFitChange={changeBannerFit}
+              // Publishing sends the focus and fit it started with: neither changes until it's done (or failed).
+              locked={submitting}
+              onLockedPick={setStatus}
               error={errors.image}
               poster={poster}
               title={title}
@@ -1536,10 +1654,18 @@ export default function EventEditor(props: Props) {
                   id="venueName"
                   value={venueName}
                   {...invalidProps("venueName")}
-                  onChange={(e) => setVenueName(e.target.value)}
+                  aria-describedby={[errors.venueName ? errorId("venueName") : "", venueNameHint ? VENUE_NAME_HINT_ID : ""].filter(Boolean).join(" ") || undefined}
+                  onChange={(e) => {
+                    setVenueName(e.target.value);
+                    setVenueNameHint(false);
+                  }}
                   className={fieldClass}
                 />
                 {fieldError("venueName")}
+                {/* Said as it appears (a pick is made elsewhere in the card), and read with the field after. */}
+                <p id={VENUE_NAME_HINT_ID} aria-live="polite" className="text-xs text-muted empty:sr-only">
+                  {venueNameHint ? VENUE_NAME_HINT : ""}
+                </p>
               </div>
               <div className="flex flex-col gap-1 sm:col-span-1">
                 <label htmlFor="venueAddress" className="eyebrow text-muted">

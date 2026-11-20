@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import EventEditor from "@/components/dashboard/EventEditor";
+import EventEditor, { VENUE_NAME_HINT } from "@/components/dashboard/EventEditor";
 import { PLACE_UNLINKED_NOTE } from "@/components/dashboard/VenueLocationField";
 import { MOVE_PIN_FIRST, PIN_ZOOM_EXACT } from "@/components/dashboard/VenuePinMap";
 import { ApiError } from "@/lib/api/client";
@@ -19,7 +19,15 @@ import { CONFIRMED_PIN_LOCATION, pinMapDrag, stubMatchMedia, unstubMatchMedia } 
  * (Fitzroy -37.8, 144.98; Collingwood -37.8, 144.99; Brunswick -37.77, 144.96).
  */
 
-vi.mock("@/lib/location-loader", async () => (await import("./test-utils/locationStub")).locationLoaderStub());
+// The suburb table: the stub, loaded at once, unless a test holds it back (`tableGate.held`: a promise it releases).
+const tableGate = vi.hoisted(() => ({ held: null as Promise<void> | null }));
+vi.mock("@/lib/location-loader", async () => {
+  const stub = (await import("./test-utils/locationStub")).locationLoaderStub();
+  return {
+    loadLocation: () => (tableGate.held ? tableGate.held.then(() => stub.loadLocation()) : stub.loadLocation()),
+    loadedLocation: () => (tableGate.held ? null : stub.loadedLocation()),
+  };
+});
 vi.mock("@/components/dashboard/VenuePinMapLeaflet", async () => (await import("./test-utils/pinMapStub")).leafletStub());
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("@/lib/api/client", async (importOriginal) => ({
@@ -99,6 +107,7 @@ const EVENT: EventRecord = {
 };
 
 beforeEach(() => {
+  tableGate.held = null;
   stubMatchMedia();
   for (const fn of Object.values(api)) fn.mockReset();
   api.autocompletePlaces.mockResolvedValue({ suggestions: [TOTE] });
@@ -210,6 +219,140 @@ describe("EventEditor — picking a Google place", () => {
     expect(screen.getByLabelText("Venue name")).toHaveValue("The Tote (front bar)");
     expect(screen.getByLabelText("Venue address")).toHaveValue("57 Swan St");
     expect(screen.getByLabelText("Suburb or town")).toHaveValue("Brunswick, VIC");
+  });
+
+  it("an address pick (no venue) leaves the venue name for the organiser, and clears a name an earlier pick filled (Round 2)", async () => {
+    renderEditor(null);
+    await pickTheTote();
+    expect(screen.getByLabelText("Venue name")).toHaveValue("The Tote Hotel");
+
+    await pickAnAddress(true);
+    // Not the street line twice: the name is empty, the address filled.
+    expect(screen.getByLabelText("Venue name")).toHaveValue("");
+    expect(screen.getByLabelText("Venue address")).toHaveValue("170 Russell St");
+    expect(screen.getByLabelText("Suburb or town")).toHaveValue("Melbourne, VIC");
+  });
+
+  /** The address-only pick (170 Russell Street), after Change when a place is linked already. */
+  async function pickAnAddress(change: boolean) {
+    api.autocompletePlaces.mockResolvedValue({
+      suggestions: [{ placeId: "ChIJrussell000000000", primaryText: "170 Russell Street", secondaryText: "Melbourne VIC, Australia" }],
+    });
+    api.getPlaceDetails.mockResolvedValue({
+      ...TOTE_DETAILS,
+      placeId: "ChIJrussell000000000",
+      formattedAddress: "170 Russell St, Melbourne VIC 3000",
+      streetAddress: "170 Russell St",
+      locality: "Melbourne",
+    });
+    if (change) fireEvent.click(screen.getByRole("button", { name: /^Change/ }));
+    fireEvent.focus(searchBox());
+    fireEvent.change(searchBox(), { target: { value: "170 Russell" } });
+    fireEvent.click(await screen.findByRole("option", { name: /170 Russell Street/ }));
+    await screen.findByText(/170 Russell Street, Melbourne VIC/);
+  }
+
+  it("an address pick says under the empty Venue name that Google found no name (described by it, polite), until they type", async () => {
+    renderEditor(null);
+    const name = screen.getByLabelText("Venue name");
+    expect(name).not.toHaveAccessibleDescription(VENUE_NAME_HINT);
+    // The live region is there, empty, before the pick (only visually hidden, never display: none), so the
+    // hint that fills it is announced.
+    const hint = document.getElementById("venueName-hint");
+    expect(hint).toBeEmptyDOMElement();
+    expect(hint).toHaveAttribute("aria-live", "polite");
+    expect(hint).toHaveClass("empty:sr-only");
+    expect(hint).not.toHaveClass("empty:hidden");
+    await pickAnAddress(false);
+    expect(name).toHaveValue("");
+    expect(name).toHaveAccessibleDescription(VENUE_NAME_HINT);
+    expect(screen.getByText(VENUE_NAME_HINT)).toHaveAttribute("aria-live", "polite");
+    fireEvent.change(name, { target: { value: "The Forum" } });
+    expect(name).not.toHaveAccessibleDescription(VENUE_NAME_HINT);
+    expect(screen.queryByText(VENUE_NAME_HINT)).toBeNull();
+  });
+
+  it("an address pick never wipes a venue name the organiser typed, and says nothing then", async () => {
+    renderEditor(null);
+    const name = screen.getByLabelText("Venue name");
+    fireEvent.change(name, { target: { value: "The Forum" } });
+    await pickAnAddress(false);
+    expect(name).toHaveValue("The Forum");
+    expect(screen.getByLabelText("Venue address")).toHaveValue("170 Russell St");
+    expect(screen.queryByText(VENUE_NAME_HINT)).toBeNull();
+    expect(name).not.toHaveAccessibleDescription(VENUE_NAME_HINT);
+  });
+
+  // CodeRabbit (PR #61, round 4): Google's primary text can carry the locality after the street line; that's still an
+  // address, never the venue's name. A real qualifier ("Rooftop") is a name.
+  it("an address pick whose text ends with its own locality is an address; one with a qualifier is a name", async () => {
+    const pickWithText = async (primaryText: string) => {
+      api.autocompletePlaces.mockResolvedValue({ suggestions: [{ placeId: "ChIJrussell000000000", primaryText, secondaryText: "Australia" }] });
+      api.getPlaceDetails.mockResolvedValue({
+        ...TOTE_DETAILS,
+        placeId: "ChIJrussell000000000",
+        formattedAddress: "170 Russell St, Melbourne VIC 3000",
+        streetAddress: "170 Russell St",
+        locality: "Melbourne",
+      });
+      fireEvent.focus(searchBox());
+      fireEvent.change(searchBox(), { target: { value: "170 Russell" } });
+      fireEvent.click(await screen.findByRole("option", { name: new RegExp(primaryText) }));
+      await screen.findByText("Linked to Google Maps:");
+    };
+    renderEditor(null);
+    await pickWithText("170 Russell Street, Melbourne VIC 3000");
+    expect(screen.getByLabelText("Venue name")).toHaveValue("");
+    expect(screen.getByText(VENUE_NAME_HINT)).toBeInTheDocument();
+
+    cleanup();
+    renderEditor(null);
+    await pickWithText("170 Russell Street, Rooftop");
+    expect(screen.getByLabelText("Venue name")).toHaveValue("170 Russell Street, Rooftop");
+    expect(screen.queryByText(VENUE_NAME_HINT)).toBeNull();
+  });
+
+  // CodeRabbit (PR #61, round 3): the pick's details arrive after the name was typed; the editor that gets them is the
+  // current one, so the name typed meanwhile stays (no hint).
+  it("an address pick never wipes a venue name typed while its address was loading", async () => {
+    renderEditor(null);
+    let answer: (details: PlaceDetails) => void = () => {};
+    api.autocompletePlaces.mockResolvedValue({
+      suggestions: [{ placeId: "ChIJrussell000000000", primaryText: "170 Russell Street", secondaryText: "Melbourne VIC, Australia" }],
+    });
+    api.getPlaceDetails.mockImplementation(() => new Promise<PlaceDetails>((resolve) => (answer = resolve)));
+    fireEvent.focus(searchBox());
+    fireEvent.change(searchBox(), { target: { value: "170 Russell" } });
+    fireEvent.click(await screen.findByRole("option", { name: /170 Russell Street/ }));
+    await waitFor(() => expect(api.getPlaceDetails).toHaveBeenCalledTimes(1));
+    const name = screen.getByLabelText("Venue name");
+    fireEvent.change(name, { target: { value: "The Forum" } });
+    await act(async () => {
+      answer({
+        ...TOTE_DETAILS,
+        placeId: "ChIJrussell000000000",
+        formattedAddress: "170 Russell St, Melbourne VIC 3000",
+        streetAddress: "170 Russell St",
+        locality: "Melbourne",
+      });
+    });
+    await screen.findByText(/170 Russell Street, Melbourne VIC/);
+    expect(name).toHaveValue("The Forum");
+    expect(screen.getByLabelText("Venue address")).toHaveValue("170 Russell St");
+    expect(screen.queryByText(VENUE_NAME_HINT)).toBeNull();
+    expect(name).not.toHaveAccessibleDescription(VENUE_NAME_HINT);
+  });
+
+  it("a venue pick after an address pick fills the name and drops the hint", async () => {
+    renderEditor(null);
+    await pickAnAddress(false);
+    expect(screen.getByText(VENUE_NAME_HINT)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Change/ }));
+    api.autocompletePlaces.mockResolvedValue({ suggestions: [TOTE] });
+    api.getPlaceDetails.mockResolvedValue(TOTE_DETAILS);
+    await pickTheTote();
+    expect(screen.getByLabelText("Venue name")).toHaveValue("The Tote Hotel");
+    expect(screen.queryByText(VENUE_NAME_HINT)).toBeNull();
   });
 
   it("a saved event's own fields stay as they are", async () => {
@@ -344,6 +487,99 @@ describe("EventEditor — the suburb changing under a linked place", () => {
     const input = await save();
     expect(input.state).toBe("WA");
     expect(input.location).toBeNull();
+  });
+
+  // CodeRabbit (PR #61, round 4): the place belongs to the suburb it was picked in, even when its details arrive after
+  // the suburb changed; it's never saved with the new one.
+  it("a pick whose details load while the suburb changes is unlinked at once, and the save has no place", async () => {
+    renderEditor();
+    let answer: (details: PlaceDetails) => void = () => {};
+    api.getPlaceDetails.mockImplementation(() => new Promise<PlaceDetails>((resolve) => (answer = resolve)));
+    fireEvent.focus(searchBox());
+    fireEvent.change(searchBox(), { target: { value: "The Tote" } });
+    fireEvent.click(await screen.findByRole("option", { name: /The Tote Hotel/ }));
+    await waitFor(() => expect(api.getPlaceDetails).toHaveBeenCalledTimes(1));
+    // Picked in Fitzroy (the saved suburb); Brunswick typed while its details load.
+    fireEvent.change(suburbField(), { target: { value: "Brunswick" } });
+    await act(async () => answer(TOTE_DETAILS));
+    await waitFor(() => expect(unlinkedNote()).toBeInTheDocument());
+    expect(linkedBlock()).toBeNull();
+    expect(searchBox()).toBeInTheDocument();
+    expect(suburbField()).toHaveValue("Brunswick");
+
+    const input = await save();
+    expect(input.suburb).toBe("Brunswick");
+    expect(input.location).toBeUndefined();
+    expect(JSON.stringify(input)).not.toContain(PLACE_ID);
+  });
+
+  // CodeRabbit (PR #61, round 5): picked while the suburb wasn't known yet ("Fitzr"), the place belongs to that text,
+  // never to whichever suburb is entered next.
+  it("a pick started while the suburb isn't known is unlinked when another suburb is entered before it loads", async () => {
+    renderEditor();
+    fireEvent.change(suburbField(), { target: { value: "Fitzr" } });
+    let answer: (details: PlaceDetails) => void = () => {};
+    api.getPlaceDetails.mockImplementation(() => new Promise<PlaceDetails>((resolve) => (answer = resolve)));
+    fireEvent.focus(searchBox());
+    fireEvent.change(searchBox(), { target: { value: "The Tote" } });
+    fireEvent.click(await screen.findByRole("option", { name: /The Tote Hotel/ }));
+    await waitFor(() => expect(api.getPlaceDetails).toHaveBeenCalledTimes(1));
+    fireEvent.change(suburbField(), { target: { value: "Brunswick" } });
+    await act(async () => answer(TOTE_DETAILS));
+    await waitFor(() => expect(unlinkedNote()).toBeInTheDocument());
+    expect(linkedBlock()).toBeNull();
+    // Brunswick is known now, and still the place isn't bound to it.
+    await waitFor(() => expect(document.querySelector("[data-pin-step]")).toBeNull());
+    const input = await save();
+    expect(input.suburb).toBe("Brunswick");
+    expect(input.location).toBeUndefined();
+    expect(JSON.stringify(input)).not.toContain(PLACE_ID);
+  });
+
+  // CodeRabbit (PR #61, thread 4615200325): the suburb table still loading when the pick starts (no place for the
+  // suburb yet), and the suburb changed before the details arrive: never linked to the new suburb.
+  it("a pick started while the suburb table loads is unlinked when the suburb changes before its details arrive", async () => {
+    let release: () => void = () => {};
+    tableGate.held = new Promise<void>((resolve) => (release = resolve));
+    renderEditor();
+    // Not the saved suburb (known without the table): Collingwood can't be looked up until the table loads.
+    fireEvent.change(suburbField(), { target: { value: "Collingwood" } });
+    let answer: (details: PlaceDetails) => void = () => {};
+    api.getPlaceDetails.mockImplementation(() => new Promise<PlaceDetails>((resolve) => (answer = resolve)));
+    fireEvent.focus(searchBox());
+    fireEvent.change(searchBox(), { target: { value: "The Tote" } });
+    fireEvent.click(await screen.findByRole("option", { name: /The Tote Hotel/ }));
+    await waitFor(() => expect(api.getPlaceDetails).toHaveBeenCalledTimes(1));
+    fireEvent.change(suburbField(), { target: { value: "Brunswick" } });
+    await act(async () => answer(TOTE_DETAILS));
+    await waitFor(() => expect(unlinkedNote()).toBeInTheDocument());
+    expect(linkedBlock()).toBeNull();
+    // The table arrives: Brunswick is known, and the place still isn't bound to it.
+    await act(async () => release());
+    await waitFor(() => expect(screen.queryByText("Checking the suburb…")).toBeNull());
+    expect(linkedBlock()).toBeNull();
+    expect(suburbField()).toHaveValue("Brunswick");
+
+    const input = await save();
+    expect(input.suburb).toBe("Brunswick");
+    expect(input.location).toBeUndefined();
+    expect(JSON.stringify(input)).not.toContain(PLACE_ID);
+  });
+
+  it("a pick started while the suburb isn't known stays linked while the suburb is as it was picked in", async () => {
+    renderEditor();
+    fireEvent.change(suburbField(), { target: { value: "Fitzr" } });
+    await pickTheTote();
+    expect(linkedBlock()).toHaveAttribute("data-linked-place", PLACE_ID);
+    expect(screen.queryByText(PLACE_UNLINKED_NOTE)).toBeNull();
+  });
+
+  it("a pick whose details load with the suburb unchanged stays linked to it", async () => {
+    renderEditor();
+    await pickTheTote();
+    expect(linkedBlock()).toHaveAttribute("data-linked-place", PLACE_ID);
+    expect(suburbField()).toHaveValue("Fitzroy");
+    expect(screen.queryByText(PLACE_UNLINKED_NOTE)).toBeNull();
   });
 
   it("a place just picked stays linked to the suburb the pick filled in; another suburb then unlinks it, and a pin can be dropped instead", async () => {

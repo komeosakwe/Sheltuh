@@ -185,11 +185,60 @@ export const bySoonest = (a: SheltuhEvent, b: SheltuhEvent) => startMs(a) - star
  */
 export function preferState<T>(items: T[], state: StateCode | null | undefined, eventOf: (item: T) => SheltuhEvent): T[] {
   if (!state) return items;
-  const inState = (item: T) => (eventOf(item).state ?? "VIC") === state;
+  const inState = (item: T) => eventState(eventOf(item)) === state;
   return [...items.filter(inState), ...items.filter((item) => !inState(item))];
 }
 
 const itself = (event: SheltuhEvent) => event;
+
+/** An event's state: an event without one is Victorian (as everywhere on the home). */
+const eventState = (event: SheltuhEvent): StateCode => event.state ?? "VIC";
+
+/**
+ * A title compared loosely: letters and digits only (a Latin letter's accents dropped), lower case, single spaces.
+ * "Kofi Stone", "KOFI STONE" and "Kofí  Stone!" are one title, as are "Kofi Stone ☀" and "Kofi Stone ☀️" (an
+ * emoji's text or emoji presentation selector, U+FE0E or U+FE0F, is dropped). Other scripts keep their marks, which
+ * can be whole vowels: "राम" and "रोम" are two.
+ */
+function normaliseTitle(title: string): string {
+  return title
+    .normalize("NFKD")
+    .replace(/[\uFE0E\uFE0F]/g, "")
+    .replace(/(\p{Script=Latin})\p{M}+/gu, "$1")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{M}\p{N}]+/gu, " ")
+    .trim();
+}
+
+/**
+ * Who an event is by, as far as the data can tell: its organiser (the id, or the name when there's
+ * none) and its normalised title. There's no artist field, so the same act on two organisers'
+ * listings counts twice, and one organiser's same-titled shows (a tour) count once. Nothing ever
+ * collapses on a blank: a title with no letters or digits ("🎉🎉", "☀️", "™") is compared as entered, and an
+ * event with no organiser (neither id nor name) or no title at all is only ever itself.
+ */
+export function artistKey(event: SheltuhEvent): string {
+  const self = `event:${event.id}`;
+  // The types say a name is always there, but a record from elsewhere may lack it.
+  const organiserName = (event.organiserName ?? "").trim();
+  const organiser = event.organiserId ?? (organiserName ? `name:${organiserName}` : self);
+  // A title with no letter or digit of its own ("☀️", "™") is compared as entered: never by what normalising makes of
+  // it ("™" is "TM" once decomposed, and "☀️" leaves only its selector).
+  const entered = event.title.trim();
+  const title = (/[\p{L}\p{N}]/u.test(entered) ? normaliseTitle(entered) : "") || entered || self;
+  return `${organiser}\u0000${title}`;
+}
+
+/** `events` keeping only the first of each artist (artistKey), in their order. */
+export function onePerArtist(events: SheltuhEvent[]): SheltuhEvent[] {
+  const seen = new Set<string>();
+  return events.filter((event) => {
+    const key = artistKey(event);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
 
 /** The featured carousel's slides at most. */
 export const FEATURED_MAX = 5;
@@ -205,12 +254,13 @@ export const FEATURED_MAX = 5;
  *    weekend).
  * The sections below then claim events in page order, and a later one never shows an event an
  * earlier one did:
- * 2. This weekend: anything open during the weekend, each in its own zone (isOpenThisWeekend).
+ * 2. This weekend: anything open during the weekend, each in its own zone (isOpenThisWeekend); with
+ *    a saved state, only that state's (hidden when it has none); one per artist (onePerArtist).
  * 3. From organisers you follow (`following`: the signed-in member's followed organisers'
  *    upcoming events; empty otherwise).
- * `preferredState`: the state of the visitor's saved suburb, whose events come first in every
- * section (preferState) before each takes its share; absent, Australia-wide soonest first (owner
- * decision D5).
+ * `preferredState`: the state of the visitor's saved suburb. This weekend shows only its events;
+ * every other section puts them first (preferState) before it takes its share. Absent,
+ * Australia-wide soonest first (owner decision D5).
  */
 export function selectHomeSections(
   events: SheltuhEvent[],
@@ -264,12 +314,16 @@ export function selectHomeSections(
   };
   const overlapping = upcoming.filter((event) => openDuring(event, windowOf(event)));
   const alreadyRunning = (event: SheltuhEvent) => (startMs(event) < windowOf(event).start ? 1 : 0);
-  const weekendItems = preferState(
-    overlapping.filter(unclaimed).sort((a, b) => alreadyRunning(a) - alreadyRunning(b) || bySoonest(a, b)),
-    preferredState,
-    itself,
+  // Round 2 (owner decisions B1): with a saved state, only that state's events; then one per artist
+  // (artistKey), the first in this order; then the share. Grouping before the cut fills the row with
+  // distinct events, and the row is never padded with others.
+  const weekendItems = onePerArtist(
+    overlapping
+      .filter(unclaimed)
+      .filter((event) => !preferredState || eventState(event) === preferredState)
+      .sort((a, b) => alreadyRunning(a) - alreadyRunning(b) || bySoonest(a, b)),
   ).slice(0, SECTION_MAX);
-  // Nothing (left) on: hide.
+  // Nothing (left) on, or nothing in the saved state: hide.
   const weekendStatus = weekendItems.length > 0 ? "cards" : "hidden";
   claim(weekendItems);
   const weekendIds = new Set(weekendItems.map((event) => event.id));

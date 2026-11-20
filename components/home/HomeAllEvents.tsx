@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import EventCard from "@/components/ui/EventCard";
 import FilterDropdown from "@/components/ui/FilterDropdown";
 import { HOME_GRID } from "@/components/ui/grids";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/Section";
-import { useIsPhone } from "@/components/ui/useIsPhone";
 import {
   hasHomeFilters,
   HOME_DATE_OPTIONS,
@@ -17,15 +16,46 @@ import {
   type HomeDateFilter,
   type HomeFilters,
   type HomePriceFilter,
+  seeAllEventsLink,
 } from "@/lib/home-filters";
 import type { TrendingSignal } from "@/lib/home-sections";
 import { EVENT_CATEGORIES, type SheltuhEvent } from "@/lib/types";
 import HomeSectionHead from "./HomeSectionHead";
+import { ArrowRightIcon } from "./icons";
 
-/** Cards shown at first, and how many more each "Show more events" adds: two rows of four… */
+/** Cards shown, always whole rows of HOME_GRID: two rows of four from 1280px… */
 export const ALL_EVENTS_PAGE = 8;
-/** …and four on a phone's single column (the owner's 390 mock). */
+/** …two rows of three from 1024px, and three rows of two from 768px… */
+export const ALL_EVENTS_PAGE_MD = 6;
+/** …and four in the single column below 768px (the owner's 390 mock). */
 export const ALL_EVENTS_PAGE_PHONE = 4;
+
+/** Below HOME_GRID's two columns (md, 768px), and below its four (xl, 1280px). */
+const SINGLE_COLUMN_QUERY = "(max-width: 47.99rem)";
+const BELOW_FOUR_COLUMNS_QUERY = "(max-width: 79.99rem)";
+
+function subscribePageSize(onChange: () => void) {
+  if (typeof window.matchMedia !== "function") return () => {};
+  const queries = [SINGLE_COLUMN_QUERY, BELOW_FOUR_COLUMNS_QUERY].map((query) => window.matchMedia(query));
+  for (const mql of queries) mql.addEventListener("change", onChange);
+  return () => {
+    for (const mql of queries) mql.removeEventListener("change", onChange);
+  };
+}
+/** Without matchMedia (jsdom), the widest page. */
+function pageSizeSnapshot(): number {
+  if (typeof window.matchMedia !== "function") return ALL_EVENTS_PAGE;
+  if (window.matchMedia(SINGLE_COLUMN_QUERY).matches) return ALL_EVENTS_PAGE_PHONE;
+  if (window.matchMedia(BELOW_FOUR_COLUMNS_QUERY).matches) return ALL_EVENTS_PAGE_MD;
+  return ALL_EVENTS_PAGE;
+}
+/** The server (and hydration) render the widest page; the real size follows straight after. */
+const serverPageSize = () => ALL_EVENTS_PAGE;
+
+/** How many cards fill whole rows of HOME_GRID at the current width, kept current as it resizes. */
+function useAllEventsPageSize(): number {
+  return useSyncExternalStore(subscribePageSize, pageSizeSnapshot, serverPageSize);
+}
 
 const NO_MATCH = "No events match your filters";
 /** When the home didn't load every event: only what's loaded can be said not to match. */
@@ -38,12 +68,14 @@ const ANNOUNCE_DELAY_MS = 100;
  * (the saved suburb's state first), as a grid of the one EventCard, with the filters the loaded
  * events can answer: Price, Category and Date (FilterDropdown; Distance, Accessibility and Sort
  * are deferred). The category chips above set the same filters (`filters` lives in the parent).
- * It shows ALL_EVENTS_PAGE cards (ALL_EVENTS_PAGE_PHONE on a phone), then "Show more events" adds as many again, moving focus to the
- * first new card's link so a keyboard user carries on from there. The home loads up to its own
- * limit, so "See all events" always leads to the full list (/events), in the head and, once
- * everything loaded is shown without it being every event, at the bottom too. The note gives the
- * count only when it's the whole number (`complete`: the API returns no total), else "Across
- * Australia". A filter change is announced ("5 events match"); with no match, the empty state.
+ * It shows whole rows of cards (8 from 1280px, 6 from 768px, 4 below), with no paging (Round 2: no
+ * "Show more events"): "See all events →" leads to the full list (/events, with the Category and
+ * Free filters it shares: seeAllEventsLink), in the head and, when more match than are shown or the
+ * home didn't load every event, at the bottom too, where Show more was ("See all live music events"
+ * with a category on). The note gives the count only when it's the whole number (`complete`: the API returns
+ * no total), and says "Across Australia" only when no state is saved (`stateSaved`: the list is
+ * then that state's first, so it isn't simply Australia-wide). A filter change is announced ("5
+ * events match"); with no match, the empty state.
  * Neither claims more than the loaded events when they aren't every event ("2 of the loaded events
  * match"; the empty state then says so and links to the full list).
  * Reset filters (either) clears them and moves focus to the section's heading. The filters are
@@ -54,6 +86,7 @@ export default function HomeAllEvents({
   events,
   signals = {},
   complete,
+  stateSaved = false,
   mode,
   now,
   filters,
@@ -66,6 +99,8 @@ export default function HomeAllEvents({
   /** The trending signals the page has, by event id: a card's real going count comes only from these. */
   signals?: Readonly<Record<string, TrendingSignal>>;
   complete: boolean;
+  /** The visitor has a saved suburb with a state, so the list isn't simply "Across Australia". */
+  stateSaved?: boolean;
   mode: "demo" | "live";
   now: Date;
   filters: HomeFilters;
@@ -73,19 +108,14 @@ export default function HomeAllEvents({
   className?: string;
 }) {
   const titleId = `${id}-title`;
-  const listRef = useRef<HTMLUListElement>(null);
-  const pageSize = useIsPhone() ? ALL_EVENTS_PAGE_PHONE : ALL_EVENTS_PAGE;
-  const [pages, setPages] = useState(1);
-  /** After Show more: the index of the first new card, whose link takes focus once it's rendered. */
-  const focusFrom = useRef<number | null>(null);
-  // A filter change starts the list again from the first page, and is announced: the status is
-  // cleared first, then set a moment later, so the same count twice in a row is still read out.
+  const pageSize = useAllEventsPageSize();
+  // A filter change is announced: the status is cleared first, then set a moment later, so the
+  // same count twice in a row is still read out.
   const [announcement, setAnnouncement] = useState("");
   const [changes, setChanges] = useState(0);
   const [lastFilters, setLastFilters] = useState(filters);
   if (lastFilters !== filters) {
     setLastFilters(filters);
-    setPages(1);
     setAnnouncement("");
     setChanges((n) => n + 1);
   }
@@ -100,16 +130,14 @@ export default function HomeAllEvents({
     const timer = setTimeout(() => setAnnouncement(matchMessage), ANNOUNCE_DELAY_MS);
     return () => clearTimeout(timer);
   }, [changes, matchMessage]);
-  const visible = matches.slice(0, pages * pageSize);
+  const visible = matches.slice(0, pageSize);
   const filtered = hasHomeFilters(filters);
-  const note = complete ? `${matches.length} upcoming · Across Australia` : "Across Australia";
-
-  useEffect(() => {
-    const index = focusFrom.current;
-    if (index === null) return;
-    focusFrom.current = null;
-    listRef.current?.children[index]?.querySelector<HTMLElement>("[data-card-link]")?.focus();
-  }, [pages]);
+  const where = stateSaved ? [] : ["Across Australia"];
+  const note = [...(complete ? [`${matches.length} upcoming`] : []), ...where].join(" · ") || undefined;
+  // The way to the rest, at the bottom: more match than are shown, or the home didn't load every
+  // event (the empty state has its own).
+  const more = matches.length > visible.length || (!complete && matches.length > 0);
+  const seeAll = seeAllEventsLink(filters);
 
   /** Clears every filter and moves focus to the section's heading (the button it was on may go). */
   function reset() {
@@ -117,14 +145,9 @@ export default function HomeAllEvents({
     document.getElementById(titleId)?.focus();
   }
 
-  function showMore() {
-    focusFrom.current = visible.length;
-    setPages((n) => n + 1);
-  }
-
   return (
     <section id={id} aria-labelledby={titleId} data-home-section="" className={className}>
-      <HomeSectionHead id={titleId} title="All events" note={note} link={{ href: "/events", label: "See all events" }} />
+      <HomeSectionHead id={titleId} title="All events" note={note} link={{ href: seeAll.href, label: "See all events" }} />
       {/* One sideways row on phones (a filter sheet is Batch 2), wrapping from 640px. */}
       <form
         aria-label="Filter events"
@@ -189,8 +212,8 @@ export default function HomeAllEvents({
               <div className="flex flex-wrap gap-4">
                 <Button onClick={reset}>Reset filters</Button>
                 {!complete && (
-                  <ButtonLink href="/events" variant="outline">
-                    See all events
+                  <ButtonLink href={seeAll.href} variant="outline">
+                    {seeAll.label}
                   </ButtonLink>
                 )}
               </div>
@@ -200,7 +223,7 @@ export default function HomeAllEvents({
           </EmptyState>
         </div>
       ) : (
-        <ul ref={listRef} aria-labelledby={titleId} className={`mt-8 ${HOME_GRID}`}>
+        <ul aria-labelledby={titleId} className={`mt-8 ${HOME_GRID}`}>
           {visible.map((event) => (
             <li key={event.id} className="flex min-w-0">
               <EventCard event={event} mode={mode} signal={signals[event.id]} now={now} />
@@ -208,23 +231,13 @@ export default function HomeAllEvents({
           ))}
         </ul>
       )}
-      {matches.length > visible.length ? (
-        <div className="mt-12 flex justify-center">
-          <Button variant="outline" onClick={showMore}>
-            Show more events
-          </Button>
+      {more && (
+        <div className="mt-8 flex justify-center lg:mt-12">
+          <ButtonLink href={seeAll.href} variant="outline" data-all-events-more="">
+            {seeAll.label}
+            <ArrowRightIcon className="size-4 shrink-0" />
+          </ButtonLink>
         </div>
-      ) : (
-        // Everything loaded is shown, but the home didn't load every event: the way to the rest
-        // (the empty state has its own).
-        !complete &&
-        matches.length > 0 && (
-          <div className="mt-12 flex justify-center">
-            <ButtonLink href="/events" variant="outline">
-              See all events
-            </ButtonLink>
-          </div>
-        )
       )}
     </section>
   );

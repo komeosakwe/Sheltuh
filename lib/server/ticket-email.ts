@@ -271,7 +271,7 @@ export function eventImageEmailUrl(siteUrl: string, imageUrl: string | undefined
  * venue name alone, like "Secret location", isn't enough).
  */
 export function ticketDirectionsLink(
-  event: Pick<EventRecord, "venueName" | "venueAddress" | "suburb"> & Partial<Pick<EventRecord, "location">>,
+  event: Pick<EventRecord, "venueName" | "venueAddress" | "suburb"> & Partial<Pick<EventRecord, "state" | "location">>,
 ): string | null {
   const venueName = event.venueName?.trim() ?? "";
   const venueAddress = event.venueAddress?.trim() ?? "";
@@ -282,6 +282,7 @@ export function ticketDirectionsLink(
     venueName,
     venueAddress,
     suburb,
+    ...(event.state ? { state: event.state } : {}),
     ...(location?.placeId ? { venuePlaceId: location.placeId } : {}),
     ...(location?.pin ? { venuePinned: true, coordinates: { lat: location.pin.lat, lng: location.pin.lng } } : {}),
   });

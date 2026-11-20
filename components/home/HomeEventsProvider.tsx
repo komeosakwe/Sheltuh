@@ -7,6 +7,7 @@ import { loadHomeFeed, loadHomeFollowing, loadHomeTrending } from "@/lib/home-ev
 import { isUpcomingEvent } from "@/lib/data";
 import { bySoonest, preferState, selectHomeSections, type HomeSections, type TrendingItem } from "@/lib/home-sections";
 import { readStoredNearState, subscribeStoredNear } from "@/lib/near-storage";
+import type { StateCode } from "@/lib/time-zones";
 import type { SheltuhEvent } from "@/lib/types";
 
 export type HomeEventsState =
@@ -26,6 +27,8 @@ export type HomeEventsState =
        * demo: the sample events with the most people going). Empty when trending failed.
        */
       trending: TrendingItem[];
+      /** The saved suburb's state the sections were split for, or null (none, or the server render). */
+      preferredState: StateCode | null;
     };
 
 export interface HomeEventsValue {
@@ -62,8 +65,8 @@ const serverNull = () => null;
  * session to be known first, so sections are split once and events don't
  * jump between them; signing in or out splits them again.
  *
- * With a saved "near" suburb, each section lists its state's events first
- * (owner decision D5): the state saved with the suburb (lib/near-storage.ts
+ * With a saved "near" suburb, This weekend shows only its state's events and
+ * every other section lists them first (owner decisions D5 and Round 2 B1): the state saved with the suburb (lib/near-storage.ts
  * readStoredNearState), read in the browser and never sent. The suburb table
  * is never loaded here, so nothing waits on it; a suburb saved without a
  * state it can be read from leaves the order Australia-wide. A place chosen
@@ -94,6 +97,7 @@ export function HomeEventsProvider({ children }: { children: ReactNode }) {
       ),
       complete: feed.complete,
       trending,
+      preferredState,
     };
   }, [load, preferredState]);
 

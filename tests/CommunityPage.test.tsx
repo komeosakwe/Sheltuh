@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import CommunityPage from "@/components/community/CommunityPage";
-import { COMMUNITY_LEDE, JOIN_FEATURES, JOIN_LEDE, LOCAL_DISCOVERY } from "@/components/community/community-content";
+import { COMMUNITY_COLLAGE, COMMUNITY_LEDE, JOIN_FEATURES, JOIN_LEDE, LOCAL_DISCOVERY } from "@/components/community/community-content";
 import { cityScenes } from "@/lib/community";
 import { getUpcomingEvents } from "@/lib/data";
 import { bySoonest } from "@/lib/home-sections";
@@ -110,6 +110,16 @@ describe("/community (demo)", () => {
     // Only the licensed photos (public/events, public/home/people), never the proposal's.
     for (const src of srcs) expect(src).toMatch(/\/(events\/[a-z-]+\.(jpg|webp)|home\/people\/person-\d\.webp)/);
     for (const img of collage?.querySelectorAll("img") ?? []) expect(img).toHaveAttribute("alt", "");
+    // Round 2: never grey boxes while they load. Each loads at once (all above the fold), on a
+    // blurred placeholder of its own (a tiny data URL), and none uses the deprecated priority's preload.
+    const imgs = Array.from(collage?.querySelectorAll("img") ?? []);
+    for (const img of imgs) {
+      expect(img).toHaveAttribute("loading", "eager");
+      expect(img.getAttribute("style") ?? "").toMatch(/background-image:.*data:image\/webp;base64,/);
+    }
+    expect(imgs.filter((img) => img.getAttribute("fetchpriority") === "high")).toHaveLength(3);
+    expect(document.head.querySelector("link[rel='preload'][as='image']")).toBeNull();
+    for (const photo of COMMUNITY_COLLAGE.flat()) expect(photo.blurDataURL).toMatch(/^data:image\/webp;base64,[A-Za-z0-9+/=]{20,200}$/);
   });
 
   it("Local discovery: its line, the soonest upcoming events as the one EventCard, and See events on Nearby", async () => {

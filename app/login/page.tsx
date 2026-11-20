@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import AuthShell from "@/components/auth/AuthShell";
-import EmailOnlyLegalNote from "@/components/auth/EmailOnlyLegalNote";
+import { AgreeNote } from "@/components/auth/LegalNote";
 import LoginForm from "@/components/auth/LoginForm";
 import LoginLinks from "@/components/auth/LoginLinks";
 import OAuthButtons from "@/components/auth/OAuthButtons";
@@ -18,10 +18,10 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
       <div id={EMAIL_SIGN_IN_ID}>
         <LoginForm next={next} />
       </div>
-      {/* "Or continue with", Apple and Google (when enabled) and their privacy line. */}
-      <OAuthButtons next={next} placement="below" />
-      {/* Only without the buttons: theirs is the page's privacy line otherwise. */}
-      <EmailOnlyLegalNote />
+      {/* "Or continue with", Apple and Google (when enabled). */}
+      <OAuthButtons next={next} placement="below" legal={false} />
+      {/* The page's one privacy line, for the email form and the buttons alike. */}
+      <AgreeNote />
       <LoginLinks next={next} />
     </AuthShell>
   );

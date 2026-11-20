@@ -5,6 +5,7 @@ import {
   EVENT_IMAGE_CACHE,
   EVENT_IMAGE_UNVERSIONED_CACHE,
   getEventImage,
+  patchEventImageFocus,
   putEventImage,
 } from "@/lib/server/handlers/event-images";
 import { submitEventForReview } from "@/lib/server/handlers/events";
@@ -244,6 +245,18 @@ describe("event images", () => {
 
     await api.call(submitEventForReview, { token: organiser.token, params, method: "POST" });
     expect((await put(draft.eventId, PNG)).status).toBe(409);
+  });
+
+  it("never lets a cache keep the owner's draft from the upload, focus/fit and delete responses (private, no-store)", async () => {
+    const draft = await draftEvent(api, organiser);
+    const params = { eventId: draft.eventId };
+    const uploaded = await put(draft.eventId, PNG);
+    expect(uploaded.status).toBe(200);
+    const patched = await api.call(patchEventImageFocus, { token: organiser.token, params, method: "PATCH", body: { bannerFit: "whole" } });
+    expect(patched.status).toBe(200);
+    const removed = await api.call(deleteEventImage, { token: organiser.token, params, method: "DELETE" });
+    expect(removed.status).toBe(200);
+    for (const res of [uploaded, patched, removed]) expect(res.headers.get("cache-control")).toBe("private, no-store");
   });
 
   it("won't let another organiser upload to someone else's event", async () => {
