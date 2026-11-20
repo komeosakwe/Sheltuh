@@ -485,9 +485,11 @@ disabled: principle 4.
    None of these ever returns the replacement code, its QR, or a pass built from it. For that ticket they return
    only the transferred state (state 3: "Sent to Sam · accepted 13 Nov", no QR, no code). Its wallet routes
    return 404, as for any ticket that isn't the caller's, and old handoff tokens die with the old code. The new
-   code reaches only the recipient: their ticket email and their own order or holder view. Tests must show the
+   code reaches only the recipient: their ticket email and their own order or holder view. That view shows only
+   the transferred ticket: no other ticket on the order, and no buyer name or email. Tests must show the
    sender's order response, wallet routes and resent email after acceptance contain neither the new code nor a
-   pass for it.
+   pass for it, and that a recipient who accepts one ticket from a two-ticket order gets neither the other
+   ticket nor any buyer details from any route they can reach.
 3. **Holder records.** Who's Going opt-ins (`going`) belong to the sender's account. On accept, the sender's
    opt-in for that ticket is removed, and the recipient can opt in.
 4. **Emails** (outbox): a "ticket sent to you" email to the recipient, with the accept link; an "accepted" or
