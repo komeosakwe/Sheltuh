@@ -1,30 +1,56 @@
 import Link from "next/link";
 import type { Ref } from "react";
+import ShareButton from "@/components/ShareButton";
 import FollowButton from "@/components/organisers/FollowButton";
+import OrganiserCover from "@/components/organisers/OrganiserCover";
 import OrganiserLinks from "@/components/organisers/OrganiserLinks";
 import OrganiserLogo from "@/components/organisers/OrganiserLogo";
 import OwnLogoPrompt from "@/components/organisers/OwnLogoPrompt";
 import VideoFacade from "@/components/organisers/VideoFacade";
-import { RESULTS_GRID } from "@/components/EventResults";
 import BackLink from "@/components/ui/BackLink";
+import CategoryTag from "@/components/ui/CategoryTag";
 import EventCard from "@/components/ui/EventCard";
-import Strap from "@/components/ui/Strap";
+import { HOME_GRID } from "@/components/ui/grids";
 import SectionHead from "@/components/ui/SectionHead";
+import Strap from "@/components/ui/Strap";
+import { organiserTagLabel, tagsForEventCategories } from "@/lib/api/organiser-tags";
+import { SUPPORT_EMAIL } from "@/lib/contact";
 import { eventZone, formatDayWithYear } from "@/lib/format";
-import { formatMemberSince, type OrganiserProfileDetails } from "@/lib/organiser-profile";
+import {
+  formatMemberSince,
+  organiserProfilePath,
+  PROFILE_PAST_EVENT_LIMIT,
+  reportOrganiserHref,
+  type OrganiserProfileDetails,
+} from "@/lib/organiser-profile";
 import { eventPlaceName } from "@/lib/place";
-import { EVENT_CATEGORIES, type SheltuhEvent } from "@/lib/types";
+import { siteOrigin } from "@/lib/share-metadata";
+import type { SheltuhEvent } from "@/lib/types";
 
 const countFormatter = new Intl.NumberFormat("en-AU");
 
+/** The gap above each section below the header (Round 2 §1.4): 40 / 48 / 64. */
+const SECTION_GAP = "mt-10 md:mt-12 lg:mt-16";
+
+/** A fact's number and its word: "1 event", "1,240 followers". */
+function fact(n: number, one: string, many: string) {
+  return { number: countFormatter.format(n), label: n === 1 ? one : many };
+}
+
 /**
- * An approved organiser's public profile: who they are (with their logo,
- * when they have one), Follow, their numbers (followers once there are 10,
- * events hosted once there is one), their links and featured video, then their events: `upcoming` (soonest first) and `past`
- * (most recent first), already in the screens' shape (a live profile's
- * events adapted by LiveOrganiserProfile, or the demo's sample events).
- * `headingRef` makes the h1 focusable from script (tabIndex -1), for a caller
- * that moves focus to it.
+ * An approved organiser's public profile (docs/design/organiser-profile.md):
+ * their cover across the top when they have one, with their logo over its
+ * bottom-left corner; then who they are (name, a line of facts: events,
+ * followers once there are 10, member since), Follow and Share, their
+ * categories, bio and links; then their events: `upcoming` (soonest first)
+ * as cards, their featured video, `past` (most recent first) as a list of
+ * up to 12, and a link to report them. The events come already in the
+ * screens' shape (a live profile's adapted by LiveOrganiserProfile, or the
+ * demo's sample events). `headingRef` makes the h1 focusable from script
+ * (tabIndex -1), for a caller that moves focus to it.
+ *
+ * One column, in DOM order, below 1024px; from there the links sit in a
+ * column beside the header and bio.
  */
 export default function OrganiserProfileView({
   profile,
@@ -37,102 +63,159 @@ export default function OrganiserProfileView({
   past: readonly SheltuhEvent[];
   headingRef?: Ref<HTMLHeadingElement>;
 }) {
-  const categoryLabels = profile.categories.map(
-    (value) => EVENT_CATEGORIES.find((category) => category.value === value)?.label ?? value,
-  );
+  const hasCover = Boolean(profile.coverUrl);
   const hasLinks = Boolean(profile.websiteUrl) || Object.values(profile.socialLinks).some(Boolean);
-  const title = (
-    <>
-      <Strap label="Organiser" rule={false} />
-      <h1
-        ref={headingRef}
-        tabIndex={headingRef ? -1 : undefined}
-        className="display-lg break-words outline-offset-2"
-      >
-        {profile.displayName}
-      </h1>
-    </>
-  );
+  // The list's chips in list order, then the organiser's own words as they wrote them. A profile from before
+  // the chips existed (a cached one) has none: its reviewed categories stand in, as the API's do.
+  const chips = [
+    ...(profile.profileTags ?? tagsForEventCategories(profile.categories)).map((tag) => ({ key: tag, label: organiserTagLabel(tag) })),
+    ...(profile.customTags ?? []).map((word, i) => ({ key: `own-${i}`, label: word })),
+  ];
+  const events =
+    typeof profile.eventCount === "number" && profile.eventCount > 0 ? fact(profile.eventCount, "event", "events") : null;
+  // The API sends a count only from 10 followers (null below).
+  const followers =
+    typeof profile.followerCount === "number" ? fact(profile.followerCount, "follower", "followers") : null;
+  const now = new Date();
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-10 px-5 pt-2 pb-12 sm:gap-14 sm:px-8 sm:py-14">
+    <div className="page-container flex flex-col pt-2 pb-12 md:pt-4 md:pb-16 lg:pt-6 lg:pb-24">
       <BackLink href="/events">All events</BackLink>
 
-      <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:gap-14">
-        <header className="flex flex-col gap-5 lg:col-span-7">
-          {/* Their logo (or, for them alone, "Add logo") beside the strap and name from sm; stacked on phones. */}
-          <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:gap-6">
+      {profile.coverUrl && (
+        <div className="mt-2 md:mt-4">
+          <OrganiserCover url={profile.coverUrl} smallUrl={profile.coverSmallUrl} />
+        </div>
+      )}
+
+      {/* From 1024px: header and bio in columns 1–7, the links in 9–12 beside both. The second row takes any
+          extra height the links need, so the bio stays right under the header. */}
+      <div className="group/intro lg:grid lg:grid-cols-12 lg:grid-rows-[auto_1fr] lg:gap-x-8">
+        <header className="flex flex-col lg:col-span-7">
+          {/* The logo (or, for its organiser alone, "Add logo") over the cover's bottom-left corner, cut out of
+              it by a ring of the page colour; in the flow without a cover. Empty (no logo, or one that failed),
+              it's hidden, and the strap below takes its own spacing (peer-empty). */}
+          <div
+            data-organiser-logo-slot=""
+            className={`peer w-fit empty:hidden ${
+              hasCover ? "relative z-10 -mt-12 ml-4 sm:-mt-16 md:ml-6 lg:ml-8 xl:-mt-20" : "mt-2 md:mt-4"
+            }`}
+          >
             {profile.logoUrl ? (
               // Decorative: the h1 names them. If it can't load, it's left out.
-              <OrganiserLogo name={profile.displayName} url={profile.logoUrl} size="lg" fallback="none" />
+              <OrganiserLogo
+                name={profile.displayName}
+                url={profile.logoUrl}
+                size="profile"
+                fallback="none"
+                className="ring-4 ring-background"
+              />
             ) : (
-              <OwnLogoPrompt organiserId={profile.organiserId} />
+              <OwnLogoPrompt organiserId={profile.organiserId} overlap={hasCover} />
             )}
-            <div className="flex min-w-0 flex-col gap-5">{title}</div>
           </div>
-          <p className="meta text-muted">Member since {formatMemberSince(profile.memberSince)}</p>
-          {/* Followers only once the API sends a count (10 or more); events hosted (past events). */}
-          <dl className="flex flex-wrap gap-x-8 gap-y-3 empty:hidden">
-            {typeof profile.followerCount === "number" && (
-              <div className="flex flex-col">
-                <dt className="eyebrow text-muted">Followers</dt>
-                <dd className="font-heading text-[2rem] leading-9 tracking-[-0.03em] tabular-nums lg:text-[2.5rem] lg:leading-11">
-                  {countFormatter.format(profile.followerCount)}
-                </dd>
-              </div>
+
+          <div
+            className={`mt-4 flex flex-col gap-2 md:mt-6 ${
+              hasCover ? "peer-empty:mt-6 md:peer-empty:mt-8" : "peer-empty:mt-4 md:peer-empty:mt-4"
+            }`}
+          >
+            <Strap label="Organiser" rule={false} />
+            <h1
+              ref={headingRef}
+              tabIndex={headingRef ? -1 : undefined}
+              className="display-lg break-words text-balance outline-offset-2"
+            >
+              {profile.displayName}
+            </h1>
+          </div>
+
+          {/* A line of facts, with no separators (a wrap can't strand one). Member since is always there. */}
+          <ul className="body-m mt-2 flex flex-wrap gap-x-6 gap-y-1 md:mt-3">
+            {events && (
+              <li>
+                <span className="font-semibold text-foreground tabular-nums">{events.number}</span>{" "}
+                <span className="font-medium text-muted">{events.label}</span>
+              </li>
             )}
-            {typeof profile.eventsHosted === "number" && profile.eventsHosted > 0 && (
-              <div className="flex flex-col">
-                <dt className="eyebrow text-muted">Events organised</dt>
-                <dd className="font-heading text-[2rem] leading-9 tracking-[-0.03em] tabular-nums lg:text-[2.5rem] lg:leading-11">
-                  {countFormatter.format(profile.eventsHosted)}
-                </dd>
-              </div>
+            {followers && (
+              <li>
+                <span className="font-semibold text-foreground tabular-nums">{followers.number}</span>{" "}
+                <span className="font-medium text-muted">{followers.label}</span>
+              </li>
             )}
-          </dl>
-          <FollowButton organiserId={profile.organiserId} organiserName={profile.displayName} />
-          {categoryLabels.length > 0 && (
-            <ul aria-label="Categories" className="flex flex-wrap gap-2">
-              {categoryLabels.map((label) => (
-                <li key={label} className="eyebrow rounded-badge border border-foreground bg-card px-2 py-1">
-                  {label}
+            <li className="font-medium text-muted">Member since {formatMemberSince(profile.memberSince)}</li>
+          </ul>
+
+          <div className="mt-6">
+            <FollowButton
+              organiserId={profile.organiserId}
+              organiserName={profile.displayName}
+              variant="signal"
+              size="md"
+              holdPlace
+              // Below sm it fills the row beside Share, but no narrower than 10rem: with large text, Share wraps
+              // under it rather than crushing its label. From sm it's at least as wide as its widest label ("Sign
+              // in to follow", about 169px) and its loading placeholder (sm:w-44), so Share never moves. Below sm
+              // its side padding is Share's 16, so "Sign in to follow" stays on one line beside Share at 320.
+              buttonClassName="min-w-0 grow basis-40 max-sm:px-4 sm:min-w-44 sm:flex-none"
+              beside={
+                <ShareButton
+                  path={organiserProfilePath(profile.organiserId)}
+                  title={profile.displayName}
+                  text={`${profile.displayName} on Sheltüh`}
+                  copyLabel="Link to this profile"
+                  copiedInLabel
+                  className="shrink-0"
+                />
+              }
+            />
+          </div>
+
+          {chips.length > 0 && (
+            <ul aria-label="Categories" className="mt-6 flex flex-wrap gap-2">
+              {chips.map((chip) => (
+                <li key={chip.key} className="flex min-w-0">
+                  <CategoryTag tone="neutral" size="md">
+                    {chip.label}
+                  </CategoryTag>
                 </li>
               ))}
             </ul>
           )}
-          {profile.description && (
-            <p className="max-w-2xl whitespace-pre-line break-words text-base leading-relaxed sm:text-lg">
-              {profile.description}
-            </p>
-          )}
         </header>
 
-        {(hasLinks || profile.featuredVideo) && (
-          <div className="flex flex-col gap-8 md:max-w-xl lg:col-span-5 lg:max-w-none">
-            {profile.featuredVideo && (
-              <section aria-labelledby="organiser-video" className="flex flex-col gap-3">
-                <h2 id="organiser-video" className="eyebrow text-muted">
-                  Featured video
-                </h2>
-                <VideoFacade video={profile.featuredVideo} title={`${profile.displayName}’s featured video`} />
-              </section>
-            )}
-            {hasLinks && (
-              <section aria-labelledby="organiser-links" className="flex flex-col gap-3">
-                <h2 id="organiser-links" className="eyebrow text-muted">
-                  Links
-                </h2>
-                <OrganiserLinks websiteUrl={profile.websiteUrl} socialLinks={profile.socialLinks} />
-              </section>
-            )}
-          </div>
+        {profile.description && (
+          <p className="body-l mt-6 max-w-2xl break-words whitespace-pre-line md:mt-8 lg:col-span-7 lg:row-start-2">
+            {profile.description}
+          </p>
+        )}
+
+        {hasLinks && (
+          <section
+            aria-labelledby="organiser-links"
+            className={`mt-8 flex flex-col gap-3 md:max-w-xl lg:col-span-4 lg:col-start-9 lg:row-span-2 lg:row-start-1 lg:mt-0 lg:max-w-none lg:self-start ${
+              // Level with the header's first line, keyed on what the logo slot actually holds (a logo that
+              // loaded, or the owner's "Add logo"; empty otherwise): with a cover, the strap under the overlapping
+              // logo (the overlap + 24) or, the slot empty, the strap alone (32); without a cover, the logo or
+              // the strap (16 either way).
+              hasCover
+                ? "lg:pt-8 lg:group-has-[[data-organiser-logo-slot]:not(:empty)]/intro:pt-22 xl:group-has-[[data-organiser-logo-slot]:not(:empty)]/intro:pt-26"
+                : "lg:pt-4"
+            }`}
+          >
+            <h2 id="organiser-links" className="eyebrow text-muted">
+              Links
+            </h2>
+            <OrganiserLinks websiteUrl={profile.websiteUrl} socialLinks={profile.socialLinks} />
+          </section>
         )}
       </div>
 
-      <section aria-labelledby="organiser-upcoming">
+      <section aria-labelledby="organiser-upcoming" className={SECTION_GAP}>
         <SectionHead id="organiser-upcoming" title="Upcoming events" />
         {upcoming.length > 0 ? (
-          <ul className={RESULTS_GRID}>
+          <ul className={HOME_GRID}>
             {upcoming.map((event) => (
               <li key={event.id} className="flex min-w-0">
                 <EventCard event={event} />
@@ -140,37 +223,72 @@ export default function OrganiserProfileView({
             ))}
           </ul>
         ) : (
-          <p className="text-sm text-muted">
+          <p className="body-m text-muted">
             No upcoming events right now.{" "}
-            <Link href="/events" className="text-foreground underline underline-offset-4">
+            <Link href="/events" className="text-foreground underline underline-offset-4 hover:decoration-2">
               Browse all events
             </Link>
           </p>
         )}
       </section>
 
+      {profile.featuredVideo && (
+        <section aria-labelledby="organiser-video" className={SECTION_GAP}>
+          <SectionHead id="organiser-video" title="Featured video" />
+          <div className="max-w-3xl">
+            <VideoFacade video={profile.featuredVideo} title={`${profile.displayName}’s featured video`} />
+          </div>
+        </section>
+      )}
+
       {past.length > 0 && (
-        <section aria-labelledby="organiser-past">
+        <section aria-labelledby="organiser-past" className={SECTION_GAP}>
           <SectionHead id="organiser-past" title="Past events" />
-          <ul className="flex flex-col border-t border-surface-border">
-            {past.map((event) => (
-              <li key={event.id} className="border-b border-surface-border">
-                <Link
-                  href={`/events/${event.slug}`}
-                  className="group flex min-h-11 flex-col justify-center gap-0.5 py-3 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6"
-                >
-                  <span className="text-sm font-semibold group-hover:underline group-hover:underline-offset-4">
-                    {event.title}
-                  </span>
-                  <span className="meta shrink-0 text-muted">
-                    {formatDayWithYear(event.startsAt, new Date(), eventZone(event.timeZone))} · {event.venueName || eventPlaceName(event)}
-                  </span>
-                </Link>
-              </li>
+          <ul className="border-t border-surface-border">
+            {past.slice(0, PROFILE_PAST_EVENT_LIMIT).map((event) => (
+              <PastEventRow key={event.id} event={event} now={now} />
             ))}
           </ul>
         </section>
       )}
+
+      <p className={`text-sm text-muted ${SECTION_GAP}`}>
+        <a
+          href={reportOrganiserHref(profile.displayName, profile.organiserId, siteOrigin(), SUPPORT_EMAIL)}
+          className="inline-flex min-h-11 items-center text-foreground underline underline-offset-4 hover:decoration-2"
+        >
+          Report this organiser
+        </a>
+      </p>
     </div>
+  );
+}
+
+/**
+ * One past event, like a line of a gallery's exhibition history: date |
+ * title | place. The title is the row's one link, stretched over the row,
+ * which draws its focus (an inset outline) and the hover and press fills,
+ * with the title underlined on hover and focus alike. On phones the date
+ * spans two lines beside the title, which sits over the place.
+ */
+function PastEventRow({ event, now }: { event: SheltuhEvent; now: Date }) {
+  const place = eventPlaceName(event);
+  return (
+    <li className="group/row relative grid grid-cols-[5.5rem_minmax(0,1fr)] items-baseline gap-x-4 border-b border-surface-border px-2 py-3 hover:bg-surface has-[a:active]:bg-surface-border has-[a:focus-visible]:bg-surface has-[a:focus-visible]:outline-2 has-[a:focus-visible]:-outline-offset-2 has-[a:focus-visible]:outline-foreground motion-safe:transition-colors motion-safe:duration-200 md:grid-cols-[8rem_minmax(0,1fr)_16rem] md:gap-x-6 md:px-3 md:py-4 lg:grid-cols-[8rem_minmax(0,1fr)_20rem]">
+      <time dateTime={event.startsAt} className="mono-m text-muted max-md:row-span-2">
+        {formatDayWithYear(event.startsAt, now, eventZone(event.timeZone))}
+      </time>
+      {/* data-card-link: the row draws the focus ring, so the link's own is dropped (globals.css). */}
+      <Link
+        href={`/events/${event.slug}`}
+        data-card-link=""
+        className="body-m line-clamp-2 font-semibold break-words underline decoration-transparent underline-offset-4 group-hover/row:decoration-current after:absolute after:inset-0 after:content-[''] focus-visible:decoration-current focus-visible:outline-none"
+      >
+        {event.title}
+      </Link>
+      <span className="mono-m truncate text-muted max-md:col-start-2">
+        {event.venueName.trim() ? `${event.venueName} · ${place}` : place}
+      </span>
+    </li>
   );
 }

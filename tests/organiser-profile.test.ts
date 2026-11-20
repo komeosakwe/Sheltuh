@@ -4,6 +4,9 @@ import {
   formatMemberSince,
   handleFromProfileUrl,
   isHttpUrl,
+  organiserProfilePath,
+  publicOrganiserUrl,
+  reportOrganiserHref,
   SOCIAL_HANDLE_FIELDS,
   SOCIAL_NETWORKS,
   socialHandleFromUrl,
@@ -264,5 +267,28 @@ describe("websiteUrlError (the API's website rule, client side)", () => {
     expect(websiteUrlError(" http://old.example ", "http://old.example")).toBeNull();
     expect(websiteUrlError("http://old.example/x", "http://old.example")).toBe(SECURE);
     expect(websiteUrlError("http://old.example", undefined)).toBe(SECURE);
+  });
+});
+
+describe("organiser profile addresses", () => {
+  it("builds the profile's path and public URL (origin and path only)", () => {
+    expect(organiserProfilePath("org 1")).toBe("/organisers/org%201");
+    expect(publicOrganiserUrl("org-1", "https://sheltuh.com.au/")).toBe("https://sheltuh.com.au/organisers/org-1");
+  });
+
+  it("reports by email, the whole subject encoded (a name can hold & or ?)", () => {
+    const href = reportOrganiserHref("Salt & Pepper? #1", "org-1", "https://sheltuh.com.au", "support@sheltuh.com.au");
+    expect(href).toBe(
+      `mailto:support@sheltuh.com.au?subject=${encodeURIComponent("Report: Salt & Pepper? #1 (https://sheltuh.com.au/organisers/org-1)")}`,
+    );
+    const query = new URLSearchParams(href.slice(href.indexOf("?") + 1));
+    expect([...query.keys()]).toEqual(["subject"]);
+    expect(query.get("subject")).toBe("Report: Salt & Pepper? #1 (https://sheltuh.com.au/organisers/org-1)");
+  });
+
+  it("names the profile by its path without a configured origin (a demo deployment)", () => {
+    expect(reportOrganiserHref("Static Collective", "static-collective", undefined, "support@sheltuh.com.au")).toBe(
+      `mailto:support@sheltuh.com.au?subject=${encodeURIComponent("Report: Static Collective (/organisers/static-collective)")}`,
+    );
   });
 });

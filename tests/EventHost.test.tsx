@@ -52,6 +52,14 @@ describe("EventHost, in the demo", () => {
     expect(instagram).toHaveAttribute("rel", "noopener noreferrer");
   });
 
+  it("lists the social profiles in network order (Instagram first) and the website last", () => {
+    const host = renderHost(sampleEvent("Static Collective"), true);
+    const names = within(host)
+      .getAllByRole("link", { name: /\(opens in a new tab\)$/ })
+      .map((link) => link.getAttribute("aria-label")?.replace(/(: .*)? \(opens in a new tab\)$/, ""));
+    expect(names).toEqual([...SOCIAL_NETWORKS.map((n) => n.label), "Website"]);
+  });
+
   it("lays the links out one to a row on phones and two from 640px", () => {
     const host = renderHost(sampleEvent("Static Collective"), true);
     const list = within(host).getAllByRole("list")[0];
