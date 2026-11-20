@@ -1,0 +1,87 @@
+"use client";
+
+import { usePathname } from "next/navigation";
+import { useAdminSummary } from "@/components/admin/AdminSummaryProvider";
+import { useFavourites } from "@/components/favourites/FavouritesProvider";
+import { useUnread } from "@/components/messages/UnreadProvider";
+import { needsYouTotal } from "@/lib/admin-summary";
+import type { ProfileRecord } from "@/lib/api/types";
+import { useAuth, type AuthContextValue } from "@/lib/auth/AuthContext";
+import { useOrganiser } from "@/lib/auth/useOrganiser";
+import { useProfile } from "@/lib/auth/useProfile";
+
+/**
+ * Where "My tickets" goes until members have a tickets list (owner, 18 Nov 2026: Q2; the list
+ * comes with the My ticket work, B1): Help's "Where are my tickets?", as /login's "Find my
+ * tickets" (components/auth/LoginLinks.tsx). Tickets are emailed today.
+ */
+export const MY_TICKETS_HREF = "/help#where-are-my-tickets";
+
+export const ORGANISERS_HREF = "/organisers/apply";
+
+/** Where an own profile is edited (AccountContent's #member-profile section). */
+const EDIT_PROFILE_HREF = "/account#member-profile";
+
+/** The pages behind the avatar menu's rows that have no header item of their own. */
+const AVATAR_MENU_PAGES = ["/account", "/saved", "/dashboard"];
+
+export interface NavAccount {
+  auth: AuthContextValue;
+  /** aria-current for a link to `href`: the page itself or anything under it. */
+  current: (href: string) => "page" | undefined;
+  /** The unread count; null until it's known (or never, for someone who can't message yet). */
+  unreadCount: number | null;
+  adminWaiting: number;
+  /** Saved events, only once the list has loaded and isn't empty: never a guessed "0". */
+  savedCount: number | null;
+  /** The Who's Going profile: undefined while it loads, null when there's none or it failed. */
+  profile: ProfileRecord | null | undefined;
+  /** The member page when it's visible to other members, else where the profile is edited. */
+  profileHref: string;
+  /** The display name, else the email: what the identity rows show first. */
+  name: string;
+  /** Organisers and applicants (or when that couldn't be told, as /account decides) get Your events. */
+  showEvents: boolean;
+  /** The page is one of the avatar menu's: the header's avatar keeps its dots. */
+  avatarCurrent: boolean;
+}
+
+/**
+ * The signed-in account as the header's avatar menu and the phone drawer show it, loaded once
+ * for both (Nav calls this and passes it down): the profile for the name, photo and profile link,
+ * the organiser record for Your events, and the counts already kept app-wide (unread, admin,
+ * saved). Nothing here fetches in demo mode or while signed out.
+ */
+export function useNavAccount(): NavAccount {
+  const auth = useAuth();
+  const pathname = usePathname();
+  const unread = useUnread();
+  const favourites = useFavourites();
+  const adminSummary = useAdminSummary()?.summary;
+  const { state: profileState } = useProfile();
+  const organiser = useOrganiser();
+
+  const current = (href: string) => (pathname === href || pathname.startsWith(`${href}/`) ? "page" : undefined);
+
+  const profile =
+    profileState.status === "ready" ? profileState.profile : profileState.status === "error" ? null : undefined;
+  const profileHref =
+    profile?.profileVisible && profile.profileId ? `/members/${encodeURIComponent(profile.profileId)}` : EDIT_PROFILE_HREF;
+  const savedCount =
+    favourites && favourites.status === "ready" && favourites.count > 0 ? favourites.count : null;
+
+  return {
+    auth,
+    current,
+    unreadCount: unread?.count ?? null,
+    adminWaiting: adminSummary ? needsYouTotal(adminSummary) : 0,
+    savedCount,
+    profile,
+    profileHref,
+    name: profile?.displayName || auth.email || "Your account",
+    showEvents: !organiser.loading && (organiser.organiser !== null || organiser.error !== null),
+    avatarCurrent:
+      AVATAR_MENU_PAGES.some((href) => current(href) === "page") ||
+      (profileHref.startsWith("/members/") && current(profileHref) === "page"),
+  };
+}

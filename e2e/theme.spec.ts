@@ -4,8 +4,8 @@ import { expect, test, type Page } from "@playwright/test";
  * The Light / Dark theme (docs/design/theme-white-dark.md) in a real
  * Chromium on the local server: the no-flash script, the footer's switch (the
  * only one: the rules' Navigation board), persistence, a first visit staying
- * white whatever the OS prefers, and the black theme-color of the black header
- * in both themes. /api is intercepted, so nothing reaches a backend.
+ * white whatever the OS prefers, and the black theme-color of the phone's black
+ * header bar in both themes (from 1024px the header follows the theme). /api is intercepted, so nothing reaches a backend.
  */
 
 const KEY = "sheltuh:theme";
@@ -45,7 +45,7 @@ test("a stored Dark is on from the first paint: black page, and the header's bla
   await page.goto("/");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   expect(await bodyBackground(page)).toBe(BLACK);
-  // One theme-color, black (the header is black in both themes, so nothing swaps it).
+  // One theme-color, black (the phone bar is black in both themes, so nothing swaps it).
   await expect(page.locator('meta[name="theme-color"]')).toHaveCount(1);
   await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", "#000000");
   // The footer's switch shows Dark as the pressed option.
@@ -65,9 +65,13 @@ test("choosing Light in the footer applies at once and survives a reload", async
   await expect(light).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator("html")).not.toHaveAttribute("data-theme");
   expect(await bodyBackground(page)).toBe(WHITE);
-  // The header stays black, and so does the browser's chrome above it.
+  // The browser's chrome stays black (the phone bar is black in both themes); from 1024px the
+  // header follows the theme (navigation-search.md Q1), white in Light.
   await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", "#000000");
-  expect(await page.locator("header").first().evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(BLACK);
+  expect(await page.locator("header").first().evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(WHITE);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.locator("[data-compact-header]").evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(BLACK);
+  await page.setViewportSize({ width: 1280, height: 720 });
 
   await page.reload();
   await expect(page.locator("html")).not.toHaveAttribute("data-theme");
