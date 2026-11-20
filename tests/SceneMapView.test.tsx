@@ -46,7 +46,8 @@ const event = (id: string, title: string, priceCents: number): SheltuhEvent => (
   suburb: "Fitzroy",
   venueName: "The Venue",
   venueAddress: "1 Test St",
-  startsAt: "2026-11-20T09:00:00.000Z",
+  // Far future: a quick buy is only offered before an event ends (lib/quick-buy.ts), and this one has no endsAt.
+  startsAt: "2099-11-20T09:00:00.000Z",
   organiserName: "Test Org",
   coordinates: { lat: -37.7986, lng: 144.9784 },
   poster: { pattern: "burst", background: "#000000", primary: "#111111", secondary: "#222222" },
