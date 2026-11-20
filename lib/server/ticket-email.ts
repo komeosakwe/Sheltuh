@@ -12,6 +12,7 @@ import { SUPPORT_LABEL, SUPPORT_REFUND_NOTE } from "@/lib/support";
 import { ticketNameWithGroup } from "@/lib/ticket-groups";
 import { TICKET_CODE_PATTERN } from "@/lib/ticket-code";
 import { ticketQrLabel } from "@/lib/ticket-qr";
+import { appleWalletDeviceNote, WALLET_BADGES } from "@/lib/wallet-badges";
 import { cachedDateTimeFormat, PLATFORM_TIME_ZONE, zoneLabel, type StateCode } from "@/lib/time-zones";
 import { subjectLine, type EmailMessage, type InlineImage } from "./email";
 import { escapeHtml } from "./email-layout";
@@ -22,6 +23,7 @@ import {
   stack,
   TICKET_EMAIL_ASSETS,
   TICKET_EMAIL_COLOURS,
+  TICKET_EMAIL_WALLET_BADGES,
   ticketAssetUrl,
   ticketEmailPage,
   ticketWordmarkImage,
@@ -230,6 +232,13 @@ export function walletPassLink(siteUrl: string, orderId: string, provider: "appl
   return `${siteUrl}/api/orders/by-session/${encodeURIComponent(orderId)}/wallet/${provider}?ticket=${ticketNumber}`;
 }
 
+/** One wallet link: which wallet, the vendor's wording, and the pass route. */
+export interface WalletLink {
+  provider: "apple" | "google";
+  label: string;
+  href: string;
+}
+
 /** No wallet passes: buildTicketEmail's default, when the caller doesn't say which wallets are on. */
 const NO_WALLET: WalletAvailability = { google: false, apple: false };
 
@@ -248,11 +257,11 @@ export function ticketWalletLinks(
   siteUrl: string,
   wallet: WalletAvailability,
   index: number,
-): { label: string; href: string }[] {
+): WalletLink[] {
   if (order.status !== "paid" || event.status !== "published") return [];
   return [
-    ...(wallet.apple ? [{ label: "Add to Apple Wallet", href: walletPassLink(siteUrl, order.orderId, "apple", index + 1) }] : []),
-    ...(wallet.google ? [{ label: "Add to Google Wallet", href: walletPassLink(siteUrl, order.orderId, "google", index + 1) }] : []),
+    ...(wallet.apple ? [{ provider: "apple" as const, label: WALLET_BADGES.apple.label, href: walletPassLink(siteUrl, order.orderId, "apple", index + 1) }] : []),
+    ...(wallet.google ? [{ provider: "google" as const, label: WALLET_BADGES.google.label, href: walletPassLink(siteUrl, order.orderId, "google", index + 1) }] : []),
   ];
 }
 
@@ -598,30 +607,36 @@ function ticketCard(card: CardInput): string {
 }
 
 /**
- * A ticket's wallet buttons, under its card: black, 48px tall, the vendors'
- * exact wording ("Add to Apple Wallet", "Add to Google Wallet"), centred with
- * a 12px gap (two equal halves, 8px apart, on a phone). Text buttons styled
- * like the design: the official badge artwork isn't in the repo yet
- * (docs/wallet-setup.md, "Official badges"). Their links are ticketWalletLinks'.
+ * A ticket's wallet badges, under its card: the vendors' official artwork
+ * (TICKET_EMAIL_WALLET_BADGES, hosted PNGs of their SVGs), Apple's then
+ * Google's, each 48px tall at its own proportions (46 on a phone), centred
+ * with a 12px gap (two equal halves, 8px apart, on a phone). No colour behind
+ * them (their corners are transparent), nothing over them, no effects. The
+ * alt text is the vendor's wording, shown in black with images off. Their
+ * links are ticketWalletLinks'. With `deviceNote` (the last card's row) and
+ * Apple's on, Apple's note follows: how to add the pass from a device
+ * without Wallet (Apple's badge rules).
  */
-function walletButtons(links: { label: string; href: string }[], index: number, total: number): string {
+function walletButtons(siteUrl: string, links: WalletLink[], index: number, total: number, deviceNote: boolean): string {
   if (links.length === 0) return "";
-  const widths: Record<string, number> = { "Add to Apple Wallet": 207, "Add to Google Wallet": 215 };
-  const button = (l: { label: string; href: string }) => {
+  const cell = (l: WalletLink) => {
+    const badge = TICKET_EMAIL_WALLET_BADGES[l.provider];
     const name = total > 1 ? `${l.label}: ticket ${index + 1} of ${total}` : l.label;
-    const width = widths[l.label] ?? 211;
     return (
-      `<td class="wh" align="center" valign="top"><table ${TABLE} class="wt"><tr><td bgcolor="${C.ink}" style="background-color:${C.ink};border-radius:8px;mso-padding-alt:14px 0">` +
-      `<a class="wa" href="${escapeHtml(l.href)}"${total > 1 ? ` aria-label="${escapeHtml(name)}" title="${escapeHtml(name)}"` : ""} style="display:block;width:${width}px;padding:14px 0;${type("sans", 14, 20, 600, C.white, "text-align:center;text-decoration:none")}">${escapeHtml(l.label)}</a>` +
-      `</td></tr></table></td>`
+      `<td class="wh" align="center" valign="middle">` +
+      `<a class="wa" href="${escapeHtml(l.href)}"${total > 1 ? ` aria-label="${escapeHtml(name)}" title="${escapeHtml(name)}"` : ""} style="display:inline-block;text-decoration:none">` +
+      `<img class="wb" src="${escapeHtml(ticketAssetUrl(siteUrl, badge.x2))}" srcset="${escapeHtml(ticketAssetUrl(siteUrl, badge.x3))} 3x" width="${badge.width}" height="${badge.height}" alt="${escapeHtml(l.label)}" style="display:block;border:0;width:${badge.width}px;max-width:100%;height:auto;${type("sans", 14, 20, 600, C.ink, "text-align:center")}">` +
+      `</a></td>`
     );
   };
-  const cells = links.map(button);
+  const cells = links.map(cell);
   if (cells.length === 2) {
-    cells[0] = cells[0].replace('<td class="wh" align="center" valign="top">', '<td class="wh bl" align="center" valign="top" style="padding-right:6px">');
-    cells[1] = cells[1].replace('<td class="wh" align="center" valign="top">', '<td class="wh br" align="center" valign="top" style="padding-left:6px">');
+    cells[0] = cells[0].replace('<td class="wh" align="center" valign="middle">', '<td class="wh bl" align="center" valign="middle" style="padding-right:6px">');
+    cells[1] = cells[1].replace('<td class="wh" align="center" valign="middle">', '<td class="wh br" align="center" valign="middle" style="padding-left:6px">');
   }
-  return `<table ${TABLE} align="center" class="wt"><tr>${cells.join("")}</tr></table>`;
+  const row = `<table ${TABLE} align="center" class="wt"><tr>${cells.join("")}</tr></table>`;
+  if (!deviceNote || !links.some((l) => l.provider === "apple")) return row;
+  return row + p(escapeHtml(appleWalletDeviceNote("email", total)), type("sans", 13, 16, 400, C.muted, "text-align:center;padding-top:12px"));
 }
 
 /** "View your ticket →" (Signal Orange, black label) and "Manage order" (white, 1.5px black stroke): 56px tall (48 on a phone), equal halves. */
@@ -754,6 +769,7 @@ export function buildTicketEmail(
       ...(t.seat ? [`Seat: ${speakSeatLine(t.seat)}`] : []),
       ...walletLinks(i).map((l) => `${l.label}: ${l.href}`),
     ]),
+    ...(walletLinks(0).some((l) => l.provider === "apple") ? ["", appleWalletDeviceNote("email", total)] : []),
     "",
     `${viewLabel}: ${link}`,
     `Manage order: ${link}`,
@@ -924,7 +940,7 @@ export function buildTicketEmail(
   /** The whole page with full cards for the first `cards` tickets (the rest listed). */
   const render = (cards: number) => {
     const tickets = order.tickets.slice(0, cards).flatMap((t, i): [string, number][] => {
-      const wallets = walletButtons(walletLinks(i), i, total);
+      const wallets = walletButtons(siteUrl, walletLinks(i), i, total, i === cards - 1);
       return wallets ? [[card(t, i), 32], [wallets, 32]] : [[card(t, i), 32]];
     });
     const body = stack([

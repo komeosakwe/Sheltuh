@@ -6,7 +6,7 @@ import { googleCalendarUrl, outlookCalendarUrl } from "@/lib/calendar";
 import { REFUND_ACL_STATEMENT } from "@/lib/refund-policy";
 import { SUPPORT_REFUND_NOTE } from "@/lib/support";
 import { mailOptions } from "@/lib/server/email";
-import { TICKET_EMAIL_ASSETS, TICKET_EMAIL_COLOURS, TICKET_EMAIL_FONTS } from "@/lib/server/email-ticket-layout";
+import { TICKET_EMAIL_ASSETS, TICKET_EMAIL_COLOURS, TICKET_EMAIL_FONTS, TICKET_EMAIL_WALLET_BADGES } from "@/lib/server/email-ticket-layout";
 import { TICKET_EMAIL_WORDMARK } from "@/lib/server/email-ticket-wordmark";
 import { ticketQrPng } from "@/lib/server/qr-image";
 import {
@@ -132,8 +132,8 @@ describe("buildTicketEmail: the design's fixture, top to bottom", () => {
       "Second release",
       "BPT7-7P6W",
       "Show this at the door · ticket 1 of 1",
-      "Add to Apple Wallet",
-      "Add to Google Wallet",
+      // The wallet badges' words are their images' alt text (the "official badges" test below), then Apple's note.
+      "To add your ticket to Apple Wallet, open this email on your iPhone or Mac.",
       "View your ticket →",
       "Manage order",
       "Saturday 14 November 2026",
@@ -500,7 +500,7 @@ describe("wallet buttons (ticketWalletLinks; the outbox passes which wallets are
     }
   });
 
-  it("under each ticket's card, its own number's route (1-based): black buttons with the vendors' wording", () => {
+  it("under each ticket's card, its own number's route (1-based), Apple's then Google's, in the vendors' wording", () => {
     const { html, text } = buildTicketEmail(order, event, SITE, BUILT, BOTH);
     for (const [i, card] of cardsOf(html).entries()) {
       const n = i + 1;
@@ -508,9 +508,7 @@ describe("wallet buttons (ticketWalletLinks; the outbox passes which wallets are
       expect(apple).toBeGreaterThan(card.indexOf(`ticket ${n} of 2</p>`));
       expect(card.indexOf(`href="${link("google", n)}"`)).toBeGreaterThan(apple);
       expect(card).toContain(`aria-label="Add to Apple Wallet: ticket ${n} of 2"`);
-      expect(card).toMatch(
-        new RegExp(`<td bgcolor="#000000"[^>]*><a class="wa" href="${pattern(link("apple", n))}"[^>]*style="display:block;width:207px;padding:14px 0;[^"]*color:#ffffff[^"]*">Add to Apple Wallet</a>`),
-      );
+      expect(card).toContain(`aria-label="Add to Google Wallet: ticket ${n} of 2"`);
     }
     expect(text).toContain(
       [
@@ -522,9 +520,70 @@ describe("wallet buttons (ticketWalletLinks; the outbox passes which wallets are
     expect(walletPassLink(SITE, "ord_abc", "google", 2)).toBe(link("google", 2));
   });
 
+  it("both are the vendors' official badges (hosted PNGs of their SVGs), never text: alt in their words, in their pass links, the same height", () => {
+    const { html } = buildTicketEmail(order, event, SITE, BUILT, BOTH);
+    for (const [i, card] of cardsOf(html).entries()) {
+      const n = i + 1;
+      for (const [provider, words, file, width] of [
+        ["apple", "Add to Apple Wallet", "apple-wallet-badge", 152],
+        ["google", "Add to Google Wallet", "google-wallet-badge", 174],
+      ] as const) {
+        const anchor = card.match(new RegExp(`<a class="wa" href="${pattern(link(provider, n))}"[^>]*>([\\s\\S]*?)</a>`));
+        expect(anchor, `${provider} ${n}`).not.toBeNull();
+        const [whole, inside] = anchor!;
+        expect(whole).toContain(`aria-label="${words}: ticket ${n} of 2"`);
+        // No words of its own: one image, the badge.
+        expect(inside.replace(/<[^>]+>/g, "").trim()).toBe("");
+        expect(inside.match(/<img [^>]*>/g)).toEqual([
+          expect.stringContaining(
+            `<img class="wb" src="${SITE}/email/ticket/${file}@2x.png" srcset="${SITE}/email/ticket/${file}@3x.png 3x" width="${width}" height="48" alt="${words}" style="display:block;border:0;width:${width}px;max-width:100%;height:auto;`,
+          ),
+        ]);
+      }
+      // No colour behind them (their corners are transparent): plain cells.
+      expect(card).not.toMatch(/<td bgcolor="#000000"[^>]*><a class="wa"/);
+    }
+    // On a phone both are 46px tall, at their own proportions.
+    expect(html.match(/@media only screen and \(max-width:620px\)\{([\s\S]*?)\n\}/)?.[1]).toContain(".wb{width:auto!important;height:46px!important}");
+    expect(visibleText(html)).not.toMatch(/Add to (Apple|Google) Wallet/);
+  });
+
+  it("Apple's note, once under the last card's badges and in the plain text: how to add from a device without Wallet", () => {
+    const { html, text } = buildTicketEmail(order, event, SITE, BUILT, BOTH);
+    const note = "To add your tickets to Apple Wallet, open this email on your iPhone or Mac.";
+    expect(html.split(note)).toHaveLength(2);
+    const cards = cardsOf(html);
+    expect(cards[0]).not.toContain(note);
+    expect(cards[1]).toContain(`text-align:center;padding-top:12px">${note}</p>`);
+    expect(text.split(note)).toHaveLength(2);
+    // Not without Apple's badge.
+    const google = buildTicketEmail(order, event, SITE, BUILT, { google: true, apple: false });
+    expect(google.html + google.text).not.toContain("Apple Wallet");
+  });
+
+  it("the wallet PNGs are the vendors' SVGs rendered at 2x and 3x the 48px shown, at their own proportions, transparent outside", () => {
+    for (const [svg, shown, width, height] of [
+      ["public/wallet/badges/US-UK_Add_to_Apple_Wallet_RGB_101421.svg", TICKET_EMAIL_WALLET_BADGES.apple, 110.739, 35.016],
+      ["public/wallet/badges/enAU_add_to_google_wallet_add-wallet-badge.svg", TICKET_EMAIL_WALLET_BADGES.google, 199, 55],
+    ] as const) {
+      expect(readFileSync(path.join(process.cwd(), svg), "utf8")).toContain(`viewBox="0 0 ${width} ${height}"`);
+      expect(shown.height).toBe(48);
+      // Shown at the artwork's proportions, to within rounding (under half a pixel).
+      expect(Math.abs((shown.height * width) / height - shown.width)).toBeLessThan(0.5);
+      for (const [file, scale] of [[shown.x2, 2], [shown.x3, 3]] as const) {
+        const png = readFileSync(path.join(process.cwd(), "public", file));
+        expect(png.readUInt32BE(20), file).toBe(48 * scale);
+        expect(Math.abs(png.readUInt32BE(16) - (48 * scale * width) / height), file).toBeLessThanOrEqual(1);
+        // Colour type 6: RGBA, so the corners outside the badge stay transparent.
+        expect(png[25], file).toBe(6);
+      }
+    }
+  });
+
   it("only the wallets that are on", () => {
     const google = buildTicketEmail(order, event, SITE, BUILT, { google: true, apple: false });
-    expect(google.html).toContain(">Add to Google Wallet</a>");
+    expect(google.html).toContain('alt="Add to Google Wallet"');
+    expect(google.html).toContain(`href="${link("google", 1)}"`);
     expect(google.html).not.toContain("Apple Wallet");
     expect(google.text).not.toContain("Apple Wallet");
   });
@@ -839,6 +898,8 @@ describe("plain text (docs/design/ticket-email.md §9)", () => {
           "Ticket 1 of 1 — Entry code: BPT7-7P6W (show this at the door; the QR code is in the full email)",
           `Add to Apple Wallet: ${walletPassLink(SITE, mockOrder.orderId, "apple", 1)}`,
           `Add to Google Wallet: ${walletPassLink(SITE, mockOrder.orderId, "google", 1)}`,
+          "",
+          "To add your ticket to Apple Wallet, open this email on your iPhone or Mac.",
           "",
           `View your ticket: ${page}`,
           `Manage order: ${page}`,

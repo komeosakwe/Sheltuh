@@ -65,6 +65,21 @@ export const TICKET_EMAIL_ASSETS = {
   info: "/email/ticket/info.png",
 } as const;
 
+/**
+ * The vendors' official wallet badges as PNGs (email clients can't be relied
+ * on for SVG), rasterised unmodified from the committed SVGs
+ * (lib/wallet-badges.ts) by scripts/render-ticket-email-assets.ts at 2x and
+ * 3x, transparent outside the badge. Both are shown 48px tall (the design
+ * images measure 47.5 at 600), at their own proportions: Apple's 152 wide
+ * (110.739 x 35.016 scaled: 151.8) and Google's two-line badge 174 wide
+ * (199 x 55 scaled: 173.7). On a phone both are 46px tall (`.wb`), so
+ * Google's fits half of the row.
+ */
+export const TICKET_EMAIL_WALLET_BADGES = {
+  apple: { x2: "/email/ticket/apple-wallet-badge@2x.png", x3: "/email/ticket/apple-wallet-badge@3x.png", width: 152, height: 48 },
+  google: { x2: "/email/ticket/google-wallet-badge@2x.png", x3: "/email/ticket/google-wallet-badge@3x.png", width: 174, height: 48 },
+} as const;
+
 /** The site's https origin, or null (a local http dev server gets no web fonts). */
 function httpsOrigin(siteUrl: string): string | null {
   try {
@@ -112,6 +127,7 @@ const MOBILE_CSS = `@media only screen and (max-width:620px){
 .qr{width:231px!important;height:231px!important}
 .ei{max-height:144px!important}
 .sd{display:none!important}
+.wb{width:auto!important;height:46px!important}
 .sm{display:block!important;width:72px!important;height:14px!important;max-height:none!important;overflow:visible!important}
 .bt{padding:14px 4px!important}
 .bo{padding:12.5px 4px!important}
