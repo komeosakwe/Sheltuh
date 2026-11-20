@@ -335,11 +335,25 @@ disabled: principle 4.
   - Then 32px, a **QR** of 168 (≈ modules area) in its quiet zone, centred, **with the centre ü** (D1).
   - Then 24px, "Opens Apple Wallet on iPhone, Google Wallet on Android." (14/20 `#5C5C5C`, centred). 32px bottom
     padding.
-- **The QR encodes** a NEW short route, `/api/orders/by-session/{orderId}/wallet?ticket={n}`. It picks Apple or
-  Google by the phone's user agent and then behaves like today's per-provider routes.
-  - The order id is the same capability as the page's own URL, so this exposes nothing new. A QR on a screen can
-    still be photographed by someone nearby: the same risk as the ticket QR itself.
-  - The decode suite covers this QR too (it's longer, so a higher version, still level H).
+- **The QR encodes a short-lived handoff token, never the order.** It must not carry the order id (the
+  `session_id` capability) or anything else that opens the order: a photo of a QR on a screen is easy to take,
+  and the order id would open every ticket in the order, the buyer's details and the order's actions.
+  - **Minting.** Opening the dialog calls a NEW route, `POST /api/orders/by-session/{orderId}/wallet-handoff`
+    `{ ticket: n }`, which needs the order capability as today. It mints a token for **that one ticket**:
+    - at least 128 random bits, stored only as a hash;
+    - bound to the order, the ticket and the ticket's current code;
+    - expires after a short time (e.g. 10 minutes);
+    - rate-limited per order.
+  - **The QR's URL is `/api/wallet-handoff/{token}`.** It picks Apple or Google by the phone's user agent and
+    returns **only that ticket's pass**: Apple's `.pkpass`, or a redirect to Google's save page for that one
+    object.
+  - **Redeemable only for that ticket.** It never returns the order id, the order page, other tickets, the
+    buyer's email or any order data. Invalid after expiry, or once the ticket is transferred, refunded or
+    voided, or its code changes. Expired and unknown tokens get the same 404.
+  - Responses are `Cache-Control: no-store` and `Referrer-Policy: no-referrer`. Tokens are never logged.
+  - What a photo leaks: at most that one ticket's pass, within the window. That's no more than the ticket's own
+    QR, which is on the same screen.
+  - The decode suite covers this QR too (version and level H for its length).
 - **Alternative text.** "QR code that opens this ticket's wallet pass on your phone". Under it, the link "Or open
   the pass link here", for people who can't scan.
 
@@ -462,6 +476,18 @@ disabled: principle 4.
    staff as "This ticket was sent to someone else". Wallet passes for the old code must stop working: update the
    Apple pass through its web service if one exists (today's passes are static), and the Google object's state
    (`INACTIVE`).
+   **After acceptance, nothing the sender holds reveals the new code.** This covers:
+   - the sender's existing order link (`/checkout/success?session_id=…`, `GET /api/orders/by-session/{id}`);
+   - the per-provider wallet routes (`…/wallet/{apple|google}?ticket={n}`);
+   - any wallet-handoff token (§5.8);
+   - any email the outbox builds or resends for the sender's order.
+
+   None of these ever returns the replacement code, its QR, or a pass built from it. For that ticket they return
+   only the transferred state (state 3: "Sent to Sam · accepted 13 Nov", no QR, no code). Its wallet routes
+   return 404, as for any ticket that isn't the caller's, and old handoff tokens die with the old code. The new
+   code reaches only the recipient: their ticket email and their own order or holder view. Tests must show the
+   sender's order response, wallet routes and resent email after acceptance contain neither the new code nor a
+   pass for it.
 3. **Holder records.** Who's Going opt-ins (`going`) belong to the sender's account. On accept, the sender's
    opt-in for that ticket is removed, and the recipient can opt in.
 4. **Emails** (outbox): a "ticket sent to you" email to the recipient, with the accept link; an "accepted" or
@@ -503,7 +529,7 @@ visibility to the organiser needs the same notice decision.
 | Event change notices | no tracking of time/venue changes after publish. There are organiser broadcasts (holder messages) and the admin edit log. | **B8**: record material changes (start, end, venue) after the first sale, with the old and new values, plus a holder notice. |
 | Event cancelled | no cancelled state (unpublish plus refunds are manual) | **B9**: a cancellation state, plus refund automation |
 | Transfer | none | **B10**: §7 |
-| Wallet auto-route for the desktop QR | per-provider routes exist | **B11**: one route that picks the provider by user agent |
+| Wallet handoff for the desktop QR | per-provider routes exist (need the order id) | **B11**: a per-ticket, short-lived handoff token (mint + redeem routes, §5.8) that picks the provider by user agent and never exposes the order |
 
 ## 9. Increments (each ships alone; UI first where data exists)
 

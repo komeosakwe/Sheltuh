@@ -752,7 +752,12 @@ export function buildTicketEmail(
 
   // --- Plain text (docs/design/ticket-email.md §9) ---
   const whereText = [venueName, address].filter(Boolean).join(", ");
-  const plain = [
+  /**
+   * The plain text for an email with full cards (and so QR codes) for the first `cards` tickets. Every code is
+   * listed; only a ticket whose card is in the email is said to have its QR code there, and the rest point at the
+   * ticket page, as the HTML's list does (the size budget, below).
+   */
+  const plainText = (cards: number) => [
     "SHELTÜH",
     "",
     `ORDER ${reference}`,
@@ -765,7 +770,7 @@ export function buildTicketEmail(
       : []),
     ...order.tickets.flatMap((t, i) => [
       "",
-      `Ticket ${i + 1} of ${total}${!one && typeName(t) ? ` · ${typeName(t)}` : ""} — Entry code: ${t.ticketCode} (show this at the door${qrs[i] ? "; the QR code is in the full email" : ""})`,
+      `Ticket ${i + 1} of ${total}${!one && typeName(t) ? ` · ${typeName(t)}` : ""} — Entry code: ${t.ticketCode} (show this at the door${!qrs[i] ? "" : i < cards ? "; the QR code is in the full email" : "; its QR code is on your ticket page"})`,
       ...(t.seat ? [`Seat: ${speakSeatLine(t.seat)}`] : []),
       ...walletLinks(i).map((l) => `${l.label}: ${l.href}`),
     ]),
@@ -978,7 +983,7 @@ export function buildTicketEmail(
   return {
     to: order.buyerEmail ?? "",
     subject: subjectLine(`Your tickets: ${event.title}`),
-    text: plain,
+    text: plainText(cards),
     html,
     inlineImages,
   };

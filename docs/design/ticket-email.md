@@ -598,6 +598,9 @@ You're getting this email because you bought a ticket on Sheltüh.
 ```
 
 For N tickets, repeat the ticket block once per ticket. An unlisted event and a free order follow today's rules.
+Past the size budget (D8), the ticket blocks whose cards were left out of the HTML end "(show this at the door; its
+QR code is on your ticket page)" instead, since their QR codes aren't in the email. A code with no QR (not
+canonical) has neither clause.
 
 ## 10. Increments (each ships on its own; tests stay green)
 

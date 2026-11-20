@@ -960,6 +960,13 @@ describe("the size budget (Gmail clips HTML over 102KB)", () => {
       expect(email.html).toContain(t.ticketCode);
       expect(email.text).toContain(`Entry code: ${t.ticketCode}`);
     }
+    // The text says a ticket's QR code is in the email only if its card (and QR) is; the listed ones point at the ticket page.
+    const lines = email.text.split("\n").filter((line) => line.startsWith("Ticket ") && line.includes("Entry code: "));
+    expect(lines).toHaveLength(400);
+    for (const [i, line] of lines.entries()) {
+      expect(line, line).toMatch(i < cards ? /; the QR code is in the full email\)$/ : /; its QR code is on your ticket page\)$/);
+    }
+    expect(email.text).toContain(`View your tickets: ${ticketPageLink(SITE, big.orderId)}`);
   });
 
   it("a usual order (8 tickets, both wallets) is all full cards, well under the budget", () => {
