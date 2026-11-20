@@ -116,7 +116,9 @@ iframe served by Stripe), with the publishable key
 | `profiles` | `user_id` | A member's social identity: `display_name` (1–40 characters), `adult_confirmed_at` (required: no profile without an 18+ confirmation). Deleted with the Supabase account. `social_suspended_at` is deprecated and ignored (see `private.social_suspensions`). Member profile fields (see "Member profiles"): `public_id` (random uuid, unique: the opaque `profileId`, never the user id; a recreated profile gets a new one), `profile_visible` (opt-in, default false), `bio` (1–200 characters) and `instagram_handle` (Instagram's username pattern, check constraint), both optional. |
 | `private.profile_avatars` | `user_id` | The member's photo as the server re-encoded it: `image` (512 × 512 WebP, ≤ 512 KB) and `thumb` (96 × 96 WebP, ≤ 64 KB), no metadata. Deleted with the profile. |
 | `private.profile_photos` | `id` | A member's photos beside the profile photo, at most 6 (`20261125000000_profile_photos.sql`; see "Member photos"): `image` (WebP fitted inside 1080 px, ≤ 512 KB, as the server re-encoded it, no metadata), `thumb` (320 × 320 WebP, ≤ 64 KB), `width`/`height` (1–1080), optional `description` (1–100 characters, one line, trimmed), `image_sha256` (checked `= sha256(image)`, unique per member: the same image again is the same photo). At most 6 per member is enforced by the trigger `profile_photos_cap` (it locks the profile row, then counts) as well as by `add_profile_photo`. Index `(user_id, created_at, id)`: a member's photos oldest first. Deleted with the profile. |
-| `private.profile_moderation_log` | `id` (identity) | An admin's removal of a member's photo, bio or Instagram handle: the member's account, the admin, which fields (never the content) and the reason (1–500). Deleted with the member's account, and 2 years after the entry (`purge_social_data`). |
+| `private.profile_moderation_log` | `id` (identity) | An admin's removal of a member's photo, bio, Instagram handle or username: the member's account, the admin, which fields (never the content) and the reason (1–500). Deleted with the member's account, and 2 years after the entry (`purge_social_data`). |
+| `private.member_usernames` | `username_key` | Usernames (`20261201000100_member_usernames.sql`; see "Usernames"): live names and holds in one key space, keyed on `private.member_username_key(username)` (lookalike-folded; check constraint), so the primary key decides every race. `user_id` (unique; set null with the account) is the owner; null means held until `held_until` (check: exactly one of the two), set by the trigger `member_usernames_hold` whenever a name is released. Trigger `member_usernames_valid` checks a name new to the row (`member_username_ok`). Expired holds deleted by `purge_social_data`. RLS on, no policies, no client grants. |
+| `private.member_username_changes` | `user_id` | A member's username change clock: `first_claimed_at`, `last_claimed_at` (both null while a first claim is in progress or failed). Kept for the account's life once a claim completed (so the typo window is only ever the first claim's); deleted with the account, and by `purge_social_data` if no claim ever completed. RLS on, no policies, no client grants. |
 | `event_attendees` | `id` | One row per Who's Going opt-in, unique per `(event_id, user_id)`. `id` is the opaque `attendeeId` shown to members: a fresh one per event, so it can't be linked across events or to a user. Deleted with the profile or the event, and by `purge_social_data` 30 days after the event ends. |
 | `private.external_event_going` | `(event_id, user_id)` | One row per "I'm going" tap on an external-ticket event (`20261116000000_external_going.sql`; see "External ticketing"). Count only: no name, profile or ticket behind it. RLS on, no policies, no client grants. Deleted with the event or the member's account, and by `purge_social_data` 30 days after the event ends. Index on `user_id` for the account cascade. |
 | `private.social_suspensions` | `user_id` | Admin-set Who's Going suspensions (SQL only, `docs/supabase-setup.md`). Keyed on the auth user, not the profile, so a member can't clear one by deleting and recreating their profile. Deleted with the Supabase account. |
@@ -139,7 +141,7 @@ iframe served by Stripe), with the publishable key
 | `private.event_curation` | `event_id` | An admin's trending curation (see "Trending"): `boost` (0.5 to 2, default 1, check constraint) and `excluded`, with who changed it last and when (null until changed). Written only by `set_event_curation`. Deleted with the event. |
 | `private.trending_snapshot` | `rank` | The ranked trending list (at most 24): rank, event (unique), score and when it was computed. Rebuilt as a whole by `refresh_trending`; holds no counts. Deleted with the event. |
 | `private.analytics_settings` | single row | `views_tracked_since`: the Melbourne day view counting started (when its migration ran), so reports show earlier days as "not counted" rather than 0. |
-| `private.user_reports` | `id` | A member's report: copies of the reported message, up to 20 messages of context and the reported display name; `target_type` (`conversation`, `attendee` or `profile`); for a profile report, copies of the bio, Instagram handle and photo (512 px WebP: `reported_avatar_sha256`, a key into `private.report_photos`; reports made before that keep the copy inline in `reported_avatar`, never both: `user_reports_one_avatar_copy`). At most one open profile report per reporter and reported member (partial unique index `user_reports_open_profile_key`). Every reference is `on delete set null`, so the evidence survives the messages and both accounts. `status`: open → actioned (suspended) / dismissed. Resolved reports are deleted 2 years after resolution. |
+| `private.user_reports` | `id` | A member's report: copies of the reported message, up to 20 messages of context and the reported display name; `target_type` (`conversation`, `attendee` or `profile`); for a profile report, copies of the username (`reported_username`), bio, Instagram handle and photo (512 px WebP: `reported_avatar_sha256`, a key into `private.report_photos`; reports made before that keep the copy inline in `reported_avatar`, never both: `user_reports_one_avatar_copy`). At most one open profile report per reporter and reported member (partial unique index `user_reports_open_profile_key`). Every reference is `on delete set null`, so the evidence survives the messages and both accounts. `status`: open → actioned (suspended) / dismissed. Resolved reports are deleted 2 years after resolution. |
 | `private.account_invites` | `id` | Admin invites (see "Account invites"): `kind` (`organiser`, with `organiser_profile`: the application's fields, the organisers columns as keys; or `member`, without), the address as typed, `token_hash` (SHA-256 of the emailed token, never the token; unique), `status` pending → accepted / revoked / expired (a pending invite past `expires_at` reads as expired), who invited, last sent, accepted and revoked it (each `on delete set null`), `expires_at` (14 days from the last send), `last_sent_at`, `last_send_failed_at`, `send_count`, `links_issued` (sign-up tokens requested with the current link), `accepted_organiser_id`. At most one pending invite per address, ignoring case (`account_invites_pending_email_key`). Check constraints tie a profile to organiser invites and `accepted_at` / `revoked_at` to their statuses. Deleted 90 days after it was accepted, revoked or expired (`purge_operational_data`). |
 | `private.organiser_invite_links` | `id` | Organiser links (see "Organiser links"): `token_hash` (SHA-256 of the link's token, never the token; unique), `status` active → used / cancelled (an active link past `expires_at` reads as expired), who created, used and cancelled it (each `on delete set null`; cancelled with no canceller: its creator stopped being an admin), `expires_at` (7 days from creation, after `created_at`: check), `used_at`, `organiser_id` (the organiser it created or approved, `on delete set null`), `cancelled_at`. Check constraints tie `used_at` / `cancelled_at` to their statuses. `organiser_invite_links_created_idx` (created_at desc, id desc) serves the admin list. Deleted 90 days after it was used or cancelled, or expired (`purge_operational_data`). |
 | `private.report_photos` | `sha256` | Profile reports' photo copies, once per distinct image (`sha256 = sha256(image)`, check constraint), however many reports take it. `last_used_at` is bumped whenever a report takes it. Deleted by `purge_social_data` once no report references it and it's been unused for a day. |
@@ -174,7 +176,7 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
 | `set_external_going` | "I'm going" on an external event: share-locks the event row, then re-checks it is published, external and not ended in the same step as the insert. Idempotent. Returns `going`, `event_unavailable` (404), `not_external` (409), `ended` (409) or `user_unavailable` (the account was deleted mid-call; 401). |
 | `unset_external_going` | Deletes the member's tap; works in any event state. Idempotent. |
 | `external_going_state` | One row for a published event: `open` (external and not ended), the count (0 when not open) and whether the given member is going. The threshold is applied by the handler. |
-| `purge_social_data` | Retention: deletes Who's Going opt-ins 30 days after their event ended, profile moderation log entries after 2 years, follower-email unsubscribe tokens after 90 days, report photos no report references (after a day unused), rate-limit rows idle for a day, external "going" taps 30 days after their event ended, conversations (with their messages) 12 months after their last message, resolved reports 2 years after resolution, pair records with no conversation 12 months after the pair's first request, and the waitlist (see "Waitlist": entries 30 days after their event ended, unconfirmed entries 8 days after their last link, entries 30 days after their person left, expired confirmation links after a week). Idempotent. Scheduled daily with Supabase Cron (`docs/supabase-setup.md`), not by a migration. |
+| `purge_social_data` | Retention: deletes Who's Going opt-ins 30 days after their event ended, profile moderation log entries after 2 years, username change clocks that never completed a claim and then username holds once they've run out (clock rows before name rows, the order claims lock them in; see "Usernames"), follower-email unsubscribe tokens after 90 days, report photos no report references (after a day unused), rate-limit rows idle for a day, external "going" taps 30 days after their event ended, conversations (with their messages) 12 months after their last message, resolved reports 2 years after resolution, pair records with no conversation 12 months after the pair's first request, and the waitlist (see "Waitlist": entries 30 days after their event ended, unconfirmed entries 8 days after their last link, entries 30 days after their person left, expired confirmation links after a week). Idempotent. Scheduled daily with Supabase Cron (`docs/supabase-setup.md`), not by a migration. |
 | `request_conversation` | A first message to the member behind an `attendeeId`, checked in one step: the sender isn't suspended and is opted in to the same event, which is open; the recipient isn't suspended; neither blocks the other; the pair has no conversation yet and none on record (`conversation_pairs`: a pair whose conversation went with a deleted profile is `unavailable`); the sender is within both rate limits; and the recipient is within their cap on requests received (over it, `unavailable`). Locks the sender's profile first (`for no key update`, so it doesn't block the other member's FK checks and mutual requests can't deadlock). Two members requesting each other at once: the pair's primary key makes the second insert fail, which rolls back its rate-limit hits (and the recipient's count) and returns `exists` (409). The recipient's profile or account deleted mid-call is `unavailable`. Returns `sent`, `sender_suspended`, `not_going`, `unavailable`, `self`, `exists` or `rate_limited`. |
 | `send_message` | Locks the sender's profile, then the conversation, then checks visibility (blocks, the other member's suspension, a declined request), that the sender isn't waiting on their own request, and the rate limit, before inserting. A reply to a request accepts it; a reply and a decline racing can't both win. Returns `sent`, `sender_suspended`, `not_found`, `awaiting_reply` or `rate_limited`. |
 | `file_report` | Checks the reporter is in the conversation (and the message is the other member's), takes the rate limit and copies the evidence into the report in one step. Key-share-locks the conversation, then the message, when it finds them, so a profile deletion or retention purge waits for the report; one already under way means the report finds nothing (`not_found`, 404). The reported account deleted mid-call (a foreign-key failure) or a deadlock with an account deletion is also `not_found`, never a 500. |
@@ -232,7 +234,11 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
 | `file_profile_report` | A report about a profile: key-share-locks the profile; only one the reporter can see now (`member_profile_visible`) or a member they've blocked (else `not_found`, the unknown-id answer); an open profile report by the same reporter about the same member is returned as it is (`already_open`, no allowance used; two at once: the unique index makes the second find the first); then the reports rate limit, the photo copied once per distinct image (`report_photos`, upserted so a concurrent purge skips it), and the insert (`target_type` `profile`). Returns `filed`, `already_open`, `not_found`, `self` or `rate_limited`. |
 | `create_block_by_profile` | `create_block` for a profile the blocker can see now (`member_profile_visible`); same snapshot, rate limit and results. |
 | `request_conversation_by_profile` | A first message by `profileId`: the profile must be visible to the sender (`unavailable` otherwise, 404); picks the soonest open event both are opted in to (`not_going` if none) and hands over to `request_conversation` with that attendeeId, so every other rule is the same code. |
-| `admin_remove_profile_content` | An admin removes a member's photo, bio and/or Instagram handle: locks the profile (no key update), then the photo; removes only what's there; logs the fields, admin and reason in `profile_moderation_log`. Returns `removed` (with the fields), `unchanged` or `not_found`. |
+| `admin_remove_profile_content` | An admin removes a member's photo, bio, Instagram handle and/or username: locks the account (`auth.users`, key share, so its deletion waits rather than deadlocks), then the profile (no key update), then the photo, then the username clock and name; removes only what's there; a username is held for 30 days and the member's clock restarts (typo window closed); logs the fields, admin and reason in `profile_moderation_log`. Returns `removed` (with the fields), `unchanged` or `not_found`. |
+| `member_username_key` · `member_username_ok` | Usernames' lookalike key (`.` and `_` dropped, then i/1 → l, 0 → o, rn → m: the ASCII part of `skeleton()` in `lib/lookalikes.ts`) and the database's structural floor of a name (3–20 of a–z 0–9 _ ., no leading or trailing `.`, no `..`, a letter, at most 4 digits, no "sheltuh" in the key). Immutable. |
+| `member_username_state` | A member's username and `changeable_at` (null when a change is allowed now): the only reader of the 30-day / 24-hour rule. |
+| `claim_member_username` | A member claims a username (see "Usernames"): key-share-locks the account, upserts and locks the clock row, then `suspended` / `unchanged` / `too_soon` / `taken` (a plain read), then locks the old and new name rows in key order and, in a subtransaction, releases the old name and inserts the new one (or takes over an expired hold): `taken` if that fails, rolled back. Returns (`result`, `changeable_at`): `claimed`, `unchanged`, `too_soon`, `taken`, `suspended` or `user_unavailable`. |
+| `clear_member_username` | A member clears their username (held 30 days; the clock untouched): `cleared` or `unchanged`. |
 | `add_profile_photo` | Adds a member photo the API re-encoded (`POST /profiles/me/photos`; see "Member photos"): locks the profile (no key update; lock order profile, then photos, as `admin_remove_profile_content`), re-checks it exists (`no_profile`) and isn't suspended (`suspended`); the same image already one of theirs is `exists` with its id (nothing inserted); 6 already is `full`; else it inserts and returns `added` with the new id. Concurrent uploads for one member queue on the profile lock, so at 5 photos exactly one more is added. |
 | `follow_organiser` | A follow (or a change of its email choice): key-share-locks the approved organiser (`not_found` otherwise; `self` for its own account), then an advisory lock on the account; an existing follow is `exists` (its choice updated if sent); else the 500-follow cap (`limit`) and the 60-an-hour allowance (`rate_limited`) before the insert (`followed`, emails off unless the choice sent was true). |
 | `unsubscribe_follow` | Turns a follow's emails off by an unsubscribe token's hash (the follow stays). Idempotent: `unsubscribed` or `not_found`. |
@@ -2210,8 +2216,9 @@ Clickable Who's Going names (owner request, 21 Oct 2026;
   same-origin`. URLs carry a version (`?v=`), and no photo shows initials.
 - **Moderation.** Admins see `targetType`, the copies and `reportedProfileId`
   on reports, read any profile (`GET /admin/profiles/{profileId}`, with its
-  moderation log) and remove a photo, bio or handle with a reason
-  (`POST /admin/profiles/{profileId}/remove-content`), logged in
+  moderation log and username) and remove a photo, bio, handle or username
+  with a reason (`POST /admin/profiles/{profileId}/remove-content`; a
+  username is held 30 days and restarts the member's clock), logged in
   `private.profile_moderation_log` (fields, admin, reason; never the
   content). Every admin read of a member's profile or photo, or a report's
   photo copy, is logged (`console.info`: the admin's account id and the
@@ -2376,6 +2383,138 @@ photos of children, still open).
   upload, shared slots, 20 a day, verified members only), and a libvips
   vulnerability would still be reachable; keep sharp updated.
 - **A screenshot outlives a block.** As for profile photos.
+
+## Usernames
+
+An optional `@username` a member sets in settings (owner decisions, 19 Nov
+2026; `lib/username.ts`, `lib/server/username-input.ts`,
+`lib/server/handlers/usernames.ts`,
+`supabase/migrations/20261201000100_member_usernames.sql`). Called
+`username` in code and "Username" in the UI (the `*_handle` columns are
+organisers' and members' socials).
+
+- **Rules** (`parseUsername`, shared by the API and the settings form): 3–20
+  of a–z 0–9 `_` `.`; starts and ends with a letter, digit or `_`; no `..`;
+  at least one letter; at most 4 digits; no claim words (`CLAIM_WORDS` and
+  `makesAClaim`, `lib/lookalikes.ts`, shared with organisers' own words) as
+  words, nor a claim or staff word (`STAFF_WORDS`: admin, administrator,
+  moderator, support, official, helpdesk, security, staff, verified,
+  sheltuh) run together at either end ("verifiedmia", "adminsupport",
+  "support.team"; inside a longer word is fine: "badminton", and so,
+  accepted, is the odd innocent prefix: "staffordshire" is refused); no
+  "sheltuh" or "sheltueh" anywhere in the key; none of `RESERVED_USERNAMES`
+  (every top-level page and API segment, and Sheltüh's own roles and
+  mailboxes). The reserved and claim checks also try the name with leading
+  and trailing digits, dots and underscores dropped ("2admin", "support_1",
+  "verified1"), and these brand checks (not uniqueness) read 5/3/4/7 as
+  s/e/a/t (`brandKey`: "5upport", "shel7uh"; and whole claim words too,
+  "mia_v3rified_au", folded on the username path only, so organisers' own
+  words keep their rule). The API also refuses anything
+  that reads as a web address (`containsLink`, plus any part after a dot
+  that's a TLD from `lib/contact-detail.ts`'s list or .ee/.gy: "mia.com",
+  "www.mia", "is.gd", "mia.co.uk"). Input is normalised first: NFKC,
+  trimmed, one leading `@` dropped, lower case ("@Latte" is `latte`). The
+  database's floor is `member_username_ok` (the structural part, and the
+  Sheltüh brand check), checked by a trigger on any name new to the row.
+- **One name per lookalike key.** `member_username_key`: `.` and `_` dropped,
+  then i/1 → l, 0 → o, rn → m (the ASCII part of `skeleton()`;
+  `usernameKey` in `lib/username.ts` is the same, pinned by
+  `tests/server/usernames.test.ts`). "1atte", "lat.te", "la_tte" and
+  "latte" are one name. Live names and holds share the table's primary key,
+  so the key decides every race.
+- **Optional, from settings only.** Suggestions (`suggestUsername`) come from
+  the display name only, never the email: accents dropped, every run of
+  anything else one `_` ("Mia T." → `mia_t`, "Zoë" → `zoe`; nothing for an
+  emoji-only name).
+- **Changes.** At most one per 30 days, counted from the latest claim. The
+  exception is a typo window: within 24 hours of a member's first ever claim
+  they may change it any number of times. A re-spelling of the same key
+  ("lat.te" for "latte") is a change. Clearing (`DELETE /me/username`)
+  never resets the clock; an admin removal restarts it and closes the typo
+  window, so the member waits 30 days for another. `GET /me` sends
+  `usernameChangeableAt` while a change has to wait; a refused change is a
+  429 `username_change_too_soon` with `changeableAt` and Retry-After.
+- **Holds.** Every released name (changed, cleared, removed by an admin, or
+  its account deleted: the FK's `on delete set null`) is held for 30 days
+  from everyone, its previous owner included, typo-window changes included.
+  A held name gets exactly the same 409 `username_taken` and the same
+  `available: false` as a live one. A live name never passes straight to
+  another account (the hold trigger refuses it).
+- **Who sees it.** The member (`GET /me`), and, exactly where their
+  `profileId` is sent: their member profile for those allowed to open it
+  (`member_profile_visible`: verified, with a profile, neither suspended,
+  no block either way, the profile visible) and their entry on Who's Going
+  lists (only when the profile is visible; blocked and suspended members
+  aren't listed at all). Never for a hidden profile: a stable username would
+  link a hidden member across events, which the per-event `attendeeId`
+  exists to prevent. Admins see it with the profile. It's never in a URL,
+  no endpoint looks a member up by username, and none resolves one.
+- **Lookups.** `PUT /me/username` and `POST /me/username/check` share one
+  allowance per member, taken before the lookup (30 per 10 minutes, 100 per
+  24 hours; 429). `PUT` also takes one of its own (`username_changes`, 10
+  per 24 hours; 429) before the claim, which bounds how many names one
+  account can put on hold from its typo window. The check is a POST so the name stays out of URLs and
+  access logs; the API never logs a name.
+- **Races** (`claim_member_username`). Locks in one order: the account
+  (`auth.users`, key share, so a deletion, which locks it first and then
+  cascades, waits rather than deadlocks), the profile (admin removal only:
+  the account is locked before it), the member's clock row (one member's
+  saves run one at a time), then the name rows in key order (two members
+  swapping names: both `taken`, no deadlock). `purge_social_data` deletes
+  clock rows before name rows for the same reason. Locking `auth.users`
+  rows needs the UPDATE privilege on it for the app's database role
+  (`docs/DEPLOYMENT.md`, migration 59). The new name is inserted with `on
+  conflict (username_key) do update … where` it's an expired hold, so
+  concurrent claims of one name (or its lookalikes) leave exactly one
+  winner; a failed claim's release of the old name rolls back with it.
+- **Suspension.** A suspended member can't claim (403) or check (403), and
+  can always clear. Their username, like their profile, is shown nowhere
+  while suspended.
+- **Moderation.** A profile report copies the username with the rest
+  (`user_reports.reported_username`), so a quick change afterwards doesn't
+  lose the evidence; the report screen shows that copy and the member's
+  current username. Admins remove a username like a bio
+  (`POST /admin/profiles/{profileId}/remove-content {fields: ["username"]}`):
+  held, logged in `profile_moderation_log` (never the name), clock
+  restarted. A member without a profile has no admin route: see
+  `docs/supabase-setup.md`, "Release a username".
+- **Retention.** The username lives as long as the account (deleting the
+  Who's Going profile leaves it); deleting the account turns it into a
+  30-day hold and deletes the clock. `purge_social_data` deletes holds once
+  they've run out, and clock rows that never completed a claim. A completed
+  claim's clock row (two timestamps) is kept for the account's life, so the
+  typo window is only ever the first claim's.
+
+**Privacy Policy wording needed before go-live** (owner to approve): that a
+member can choose a username, shown to other signed-in members on their
+member profile and next to their name on Who's Going while their profile is
+visible; that a changed, cleared or removed username, and the username of a
+deleted account, is kept for 30 days (held so nobody else can take it at
+once); that a report about a member's profile keeps a copy of their username
+with the rest of the reported content; and that Sheltüh staff may remove a
+username and keep a record of the removal (not the name) for up to 2 years.
+
+### Accepted risks (usernames)
+
+- **Squatting.** One verified account holds one name at a time, but the
+  typo window lets an account, once in its life, release (and so hold for
+  30 days) up to 18 names. Every save takes one of 10 `username_changes` a
+  day, a save refused as taken included, and that day's window starts at the
+  first save, which can be before the first claim; so the typo window can
+  span two windows: 8 changes, then 10 more after the reset. Without an early
+  refusal the cap is 9. After that it's one change per 30 days, so one more
+  hold a month.
+  Many verified accounts can still claim many names. Reserved, claim and
+  staff words cover Sheltüh's own; anything else is first come, with admin
+  removal (and freeing a hold early, `docs/supabase-setup.md`) as the
+  control.
+- **Enumeration, limited.** Whether a name is taken can be probed (that's
+  what the check is for): 30 per 10 minutes and 100 a day per verified
+  member, and the answer never says whose it is or whether it's held.
+- **Lookalikes beyond the key.** The uniqueness key folds only i/1/l, 0/o,
+  rn/m, dots and underscores; "vv" for "w", or "m4ya" for "maya", are
+  different names (the 5/3/4/7 folds apply to the brand, claim and reserved
+  checks only).
 
 ## Favourites
 
@@ -4799,10 +4938,15 @@ without one. The UI keeps showing the API's words, which already say when
 | `PATCH /profiles/me/photos/{photoId}` `{description}` · `DELETE …/photos/{photoId}` | PATCH: verified email, not suspended (403); 400 `fieldErrors.description`; 404 not one of the caller's photos (malformed ids included); 200 `{photo, profile}`. null or "" clears. DELETE: signed in, 204 idempotent (another member's or a malformed id is a no-op) |
 | `GET /profiles/{profileId}/photos/{photoId}[?size=thumb]` | the profile photo's gate and limit (shares `avatar_views`), or an admin (logged by ids). The same 404 for anything else: hidden, blocked either way, suspended either way, the viewer without a profile, unknown or malformed ids, another member's photo id under this profile; a conditional request (`If-None-Match`) that fails the gate also gets this 404, never a 304. WebP, `private, no-cache`, ETag the photo id (304 only after the gate), `nosniff`, `Cross-Origin-Resource-Policy: same-origin` |
 | `GET /admin/profiles/{profileId}` · `POST …/remove-content` `{fields, reason}` | admin. `AdminMemberProfile` (with the moderation log; remove-content adds `removed`). 400; 404 |
+
+| `GET /admin/profiles/{profileId}` · `POST …/remove-content` `{fields, reason}` | admin. `AdminMemberProfile` (with the moderation log and `username`, whatever the visibility; remove-content adds `removed`). `fields` from `avatar`, `bio`, `instagram`, `username` (held 30 days, the member's clock restarted). 400; 404 |
 | `GET /admin/reports/{reportId}/avatar` | admin: a profile report's copy of the photo. 404 none |
 | `GET /organisers/{organiserId}/follow` · `POST …/follow` `{notifyNewEvents?}` · `DELETE …/follow` | GET signed in, `{following, notifyNewEvents}` (404 not approved). POST verified email: 201 new (emails off unless `notifyNewEvents: true`) / 200 existing; 400 not a boolean (null included) or own organiser; 404; 409 500 follows; 429. DELETE signed in, 204 idempotent |
 | `GET /me/following?cursor&limit` · `GET /me/following/events?cursor&limit` | signed in: `FollowedOrganiser` items; upcoming events of followed organisers (public event shape), soonest first |
-| `GET /me` | verified email (`requireVerifiedCaller`: 401 signed out, 403 unverified): the caller's own `AccountSummary`, `private, no-store`. `upcomingCount`: how many published events that haven't started yet (`starts_at > now()`, so an event in progress no longer counts) the caller has a `paid` order for whose `buyer_email` equals their verified email ignoring case, the same match as Who's Going (`set_going`; no +tag or Gmail-dot folding). Free tickets are A$0 paid orders and count; a partly refunded order stays `paid` and counts; pending, failed, refunded and oversold orders don't. Distinct events: several orders, or a group order, for one event count once. Only the token's email decides whose orders are counted. One query on `orders_paid_email_event_idx` (`lower(buyer_email), event_id`, paid only; `20261201000000_member_upcoming_index.sql`). `username` and `usernameChangeableAt` are in the type but not sent yet. `GET /profiles/me` isn't used for this: it's a 404 for a member without a Who's Going profile |
+| `GET /me` | verified email (`requireVerifiedCaller`: 401 signed out, 403 unverified): the caller's own `AccountSummary`, `private, no-store`. `upcomingCount`: how many published events that haven't started yet (`starts_at > now()`, so an event in progress no longer counts) the caller has a `paid` order for whose `buyer_email` equals their verified email ignoring case, the same match as Who's Going (`set_going`; no +tag or Gmail-dot folding). Free tickets are A$0 paid orders and count; a partly refunded order stays `paid` and counts; pending, failed, refunded and oversold orders don't. Distinct events: several orders, or a group order, for one event count once. Only the token's email decides whose orders are counted. One query on `orders_paid_email_event_idx` (`lower(buyer_email), event_id`, paid only; `20261201000000_member_upcoming_index.sql`). `username` (if set) and `usernameChangeableAt` (only while a change has to wait) from `member_username_state`, in the same statement (see "Usernames"). `GET /profiles/me` isn't used for this: it's a 404 for a member without a Who's Going profile |
+| `PUT /me/username` `{username}` | verified email (see "Usernames"): claims it, normalised (NFKC, trimmed, one leading `@` dropped, lower case). 200 `AccountSummary`; the same name again is a 200 that changes nothing. 400 `fieldErrors.username`; 401; 403 suspended; 409 `code: "username_taken"` (live or held: the same answer) with `fieldErrors.username`; 429 `code: "username_change_too_soon"` with `changeableAt` and Retry-After; 429 past the lookup allowance (`username_lookups` 30 / 10 minutes and `username_lookups_daily` 100 / 24 hours, shared with the check, taken before the lookup) or the saves allowance (`username_changes` 10 / 24 hours, PUT only, taken before the claim) |
+| `DELETE /me/username` | signed in (no verified email needed; suspended members too). The name is held 30 days; the clock isn't reset. 204, idempotent |
+| `POST /me/username/check` `{username}` | verified email. A POST so the name stays out of URLs and logs. 200 `UsernameCheck` `{username, available, yours?}`: `available` false for a live or held name alike (the caller's own released name included), `yours` for (a spelling of) their current name. 400; 403 suspended; 429 (the allowance PUT uses). Says nothing about the caller's clock |
 | `POST /holder-messages/stop` `{token}` (or `?token=…` with a form body, RFC 8058 one-click) · `GET /holder-messages/stop?token=…` | public (the emailed token is the credential; see "Messages to ticket holders", "Stopping messages"). POST 200 `{status: "stopped", organiserName?}` (idempotent); 400; 404. GET changes nothing: 303 to `/holder-messages/stop#token=…` |
 | `POST /follows/unsubscribe` `{token}` | public (the emailed token is the credential). 200 `{status: "unsubscribed", organiserName?}` (idempotent); 400; 404 |
 | `POST /admin/organisers/{organiserId}/remove-video` `{reason}` | admin. 200 `AdminOrganiserRecord` (unchanged, nothing logged, without a video); 400; 404 |
@@ -4966,6 +5110,12 @@ What that means:
 - `lib/server/deps.ts`: the production wiring (postgres.js, Supabase Auth,
   Stripe, SMTP), read from env.
 - `lib/api/*`: the browser-side client for the same routes.
+- Usernames: rules `lib/username.ts` (browser-safe) and
+  `lib/server/username-input.ts`, handlers `lib/server/handlers/usernames.ts`
+  (routes `app/api/me/username/route.ts`, `…/check/route.ts`), client
+  `setMyUsername`, `clearMyUsername`, `checkUsername` in `lib/api/me.ts`,
+  schema `supabase/migrations/20261201000100_member_usernames.sql`; tests
+  `tests/server/usernames.test.ts`, `tests/username.test.ts`.
 - Account summary (`GET /api/me`): `lib/server/handlers/me.ts` (`getMe`),
   route `app/api/me/route.ts`, client `lib/api/me.ts`, type `AccountSummary`
   in `lib/api/types.ts`, index in

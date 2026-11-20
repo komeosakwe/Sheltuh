@@ -74,9 +74,9 @@ export function avatarResponse(req: Request, data: Uint8Array, version: string, 
 
 /**
  * GET /api/profiles/[profileId] — verified members with a profile that isn't
- * suspended; rate-limited (429). The display name, bio, Instagram handle,
- * photo, member photos, the open events the member has opted in to, and whether the caller
- * can message them. 404 for anything the caller may not see.
+ * suspended; rate-limited (429). The display name, username, bio, Instagram
+ * handle, photo, member photos, the open events the member has opted in to,
+ * and whether the caller can message them. 404 for anything the caller may not see.
  */
 export const getMemberProfile: Handler<{ profileId: string }> = async (req, { profileId }, { db, verifyAccessToken }) => {
   const caller = await requireVerifiedCaller(req, verifyAccessToken);
@@ -103,6 +103,7 @@ export const getMemberProfile: Handler<{ profileId: string }> = async (req, { pr
   const [row] = await db.query(
     `with t as (select private.member_profile_visible($1, $2) as user_id)
      select p.public_id, p.display_name, p.bio, p.instagram_handle, p.user_id = $1 as is_you,
+            (select u.username from private.member_usernames u where u.user_id = p.user_id) as username,
             ${avatarVersionOf("p.user_id")} as avatar_version,
             ${photosOf("p.user_id")} as photos,
             (p.user_id <> $1
@@ -179,7 +180,7 @@ export const getMemberAvatar: Handler<{ profileId: string }> = async (req, { pro
 // Admin
 // ---------------------------------------------------------------------------
 
-const CONTENT_FIELDS: readonly ProfileContentField[] = ["avatar", "bio", "instagram"];
+const CONTENT_FIELDS: readonly ProfileContentField[] = ["avatar", "bio", "instagram", "username"];
 
 /** GET /api/admin/profiles/[profileId] — admin: the profile whatever its visibility, and its moderation log. Logged. */
 export const adminGetMemberProfile: Handler<{ profileId: string }> = async (
@@ -197,8 +198,9 @@ export const adminGetMemberProfile: Handler<{ profileId: string }> = async (
 
 /**
  * POST /api/admin/profiles/[profileId]/remove-content {fields, reason} —
- * admin: removes the member's photo, bio and/or Instagram handle
- * (private.admin_remove_profile_content), logged with the admin and reason
+ * admin: removes the member's photo, bio, Instagram handle and/or username
+ * (private.admin_remove_profile_content; a username is held for 30 days and
+ * the member's change clock restarts), logged with the admin and reason
  * (never the content). 200 with the profile and `removed` (empty when none
  * of them was set: nothing logged); 400; 404.
  */
@@ -216,7 +218,7 @@ export const adminRemoveProfileContent: Handler<{ profileId: string }> = async (
     fields.length === 0 ||
     !fields.every((f) => CONTENT_FIELDS.includes(f as ProfileContentField))
   ) {
-    errors.fields = "Choose what to remove: avatar, bio or instagram.";
+    errors.fields = "Choose what to remove: avatar, bio, instagram or username.";
   }
   const reason = parseMessageText(body.reason, "reason", errors, { allowLinks: true, label: "Reasons", maxLength: 500 });
   if (Object.keys(errors).length > 0) fail(errors);

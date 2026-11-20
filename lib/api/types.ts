@@ -1719,6 +1719,8 @@ export interface ProfilePatchInput {
 export interface MemberProfile {
   profileId: string;
   displayName: string;
+  /** Their username, without "@", if they've set one. */
+  username?: string;
   bio?: string;
   instagramHandle?: string;
   /** https://www.instagram.com/{handle}/, built by the server. */
@@ -1746,8 +1748,8 @@ export interface MemberProfile {
   conversationId?: string;
 }
 
-/** What an admin can remove from a member profile. */
-export type ProfileContentField = "avatar" | "bio" | "instagram";
+/** What an admin can remove from a member profile. `username` is held for 30 days and restarts the member's change clock. */
+export type ProfileContentField = "avatar" | "bio" | "instagram" | "username";
 
 /** POST /api/admin/profiles/{profileId}/remove-content. */
 export interface RemoveProfileContentInput {
@@ -1768,6 +1770,8 @@ export interface ProfileModerationEntry {
 export interface AdminMemberProfile {
   profileId: string;
   displayName: string;
+  /** Their username, whatever the profile's visibility. */
+  username?: string;
   profileVisible: boolean;
   bio?: string;
   instagramHandle?: string;
@@ -1831,6 +1835,8 @@ export interface GoingAttendee {
    * made it visible. Absent: show the name as plain text.
    */
   profileId?: string;
+  /** Their username, without "@": only with a profileId (a visible profile), and only if they've set one. */
+  username?: string;
   /** Always sent; true only with a profileId and a photo. Optional so older fixtures stay valid. */
   hasAvatar?: boolean;
   /** The 96 px photo when hasAvatar (fetch with the bearer token); otherwise show initials. */
@@ -1993,9 +1999,10 @@ export interface AdminReport {
   targetType?: "conversation" | "attendee" | "profile";
   /** The reported member's current profile, if they still have one (for GET/remove-content). */
   reportedProfileId?: string;
-  /** Profile reports: copies of the bio and Instagram handle when reported. */
+  /** Profile reports: copies of the bio, Instagram handle and username (without "@") when reported. */
   reportedBio?: string;
   reportedInstagramHandle?: string;
+  reportedUsername?: string;
   /** Profile reports with a photo: the copy taken when reported (admin only; fetch with the bearer token). */
   reportedAvatarUrl?: string;
 }
@@ -2559,14 +2566,29 @@ export interface FollowInput {
  * haven't started yet they hold a ticket for: events with a `paid` order (free
  * tickets included; a partly refunded order stays paid) whose buyer email
  * equals theirs, ignoring case. Several orders, or a group order, for one
- * event count once. `username` and `usernameChangeableAt` aren't sent yet
- * (reserved for usernames).
+ * event count once.
  */
 export interface AccountSummary {
+  /** Their username (docs/architecture.md, "Usernames"), without "@". Absent: none set. */
   username?: string;
-  /** ISO 8601: when the username can next be changed. */
+  /**
+   * ISO 8601: when the username can next be set or changed, only while that
+   * has to wait (30 days after the latest claim, or after an admin removed
+   * it). Absent: it can be changed now (no claim yet, within 24 hours of the
+   * first claim, or the 30 days have passed). Clearing doesn't reset it.
+   */
   usernameChangeableAt?: string;
   upcomingCount: number;
+}
+
+/** POST /api/me/username/check {username}: whether the caller could have that username. */
+export interface UsernameCheck {
+  /** The name as it would be stored (normalised: "@Latte" is "latte"). */
+  username: string;
+  /** False when it (or a lookalike of it) is someone's, or was released in the last 30 days (by anyone, the caller included). */
+  available: boolean;
+  /** It's (a spelling of) the caller's current username. */
+  yours?: boolean;
 }
 
 /** One entry of GET /api/me/following. */

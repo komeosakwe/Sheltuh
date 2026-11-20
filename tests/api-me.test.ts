@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/supabase/config", () => ({ isSupabaseConfigured: true }));
 
-const { getMe } = await import("@/lib/api/me");
+const { checkUsername, clearMyUsername, getMe, setMyUsername } = await import("@/lib/api/me");
 const { ApiError } = await import("@/lib/api/client");
 
 afterEach(() => {
@@ -37,5 +37,49 @@ describe("getMe", () => {
     const controller = new AbortController();
     controller.abort();
     await expect(getMe(getToken, controller.signal)).rejects.toMatchObject({ name: "AbortError" });
+  });
+});
+
+describe("usernames", () => {
+  it("setMyUsername PUTs {username} to /api/me/username and returns the summary", async () => {
+    const fetch = stub({ username: "latte", upcomingCount: 0 });
+    await expect(setMyUsername("@Latte", getToken)).resolves.toEqual({ username: "latte", upcomingCount: 0 });
+    const [url, init] = fetch.mock.calls[0];
+    expect(url).toBe("/api/me/username");
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(init.body)).toEqual({ username: "@Latte" });
+    expect(init.headers.authorization).toBe("Bearer tok");
+  });
+
+  it("a taken name is an ApiError 409 carrying the code", async () => {
+    stub({ error: "That username is taken. Try another.", fieldErrors: { username: "That username is taken. Try another." }, code: "username_taken" }, 409);
+    await expect(setMyUsername("latte", getToken)).rejects.toSatisfy(
+      (err) => err instanceof ApiError && err.status === 409 && err.body?.code === "username_taken" && Boolean(err.fieldErrors?.username),
+    );
+  });
+
+  it("clearMyUsername DELETEs /api/me/username", async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetch);
+    await expect(clearMyUsername(getToken)).resolves.toBeUndefined();
+    const [url, init] = fetch.mock.calls[0];
+    expect(url).toBe("/api/me/username");
+    expect(init.method).toBe("DELETE");
+  });
+
+  it("checkUsername POSTs the name in the body, never the URL", async () => {
+    const fetch = stub({ username: "latte", available: true });
+    await expect(checkUsername("latte", getToken)).resolves.toEqual({ username: "latte", available: true });
+    const [url, init] = fetch.mock.calls[0];
+    expect(url).toBe("/api/me/username/check");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({ username: "latte" });
+  });
+
+  it("checkUsername can be aborted", async () => {
+    stub({ username: "latte", available: true });
+    const controller = new AbortController();
+    controller.abort();
+    await expect(checkUsername("latte", getToken, controller.signal)).rejects.toMatchObject({ name: "AbortError" });
   });
 });

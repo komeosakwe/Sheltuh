@@ -1,6 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { adminUnpublishEvent } from "@/lib/server/handlers/admin";
 import { getMe } from "@/lib/server/handlers/me";
+import { deleteMyUsername, putMyUsername } from "@/lib/server/handlers/usernames";
 import type { EventRecord } from "@/lib/server/types";
 import { TestApi } from "./helpers/api";
 import { approvedOrganiser, draftEvent, insertOrder, publishedEvent, signUpAdmin } from "./helpers/fixtures";
@@ -51,7 +52,7 @@ describe("GET /api/me", () => {
     await insertOrder(api, event, member.email);
     const res = await me(member.token);
     expect(res.status).toBe(200);
-    // Only the count for now: the username fields are reserved and not sent.
+    // No username set: only the count.
     expect(res.body).toEqual({ upcomingCount: 1 });
     expect(res.headers.get("cache-control")).toBe("private, no-store");
   });
@@ -201,5 +202,37 @@ describe("GET /api/me", () => {
       `select indexdef from pg_indexes where schemaname = 'public' and indexname = 'orders_paid_email_event_idx'`,
     );
     expect(index?.indexdef).toMatch(/ON public\.orders USING btree \(lower\(buyer_email\), event_id\) WHERE \(status = 'paid'::(public\.)?order_status\)/);
+  });
+
+  describe("username fields (docs/architecture.md, \"Usernames\")", () => {
+    const setUsername = (token: string, username: string) =>
+      api.call(putMyUsername, { token, method: "PUT", body: { username } });
+
+    it("the caller's own username, with no changeable time while a change is allowed", async () => {
+      await insertOrder(api, event, member.email);
+      expect((await setUsername(member.token, "Sam.T")).status).toBe(200);
+      expect((await me(member.token)).body).toEqual({ username: "sam.t", upcomingCount: 1 });
+    });
+
+    it("usernameChangeableAt while a change has to wait, also once cleared", async () => {
+      await setUsername(member.token, "sam_t");
+      await api.db.query(
+        `update private.member_username_changes set first_claimed_at = now() - interval '10 days',
+                last_claimed_at = now() - interval '10 days' where user_id = $1`,
+        [member.userId],
+      );
+      const body = (await me(member.token)).body;
+      expect(body.username).toBe("sam_t");
+      expect(Math.abs(new Date(body.usernameChangeableAt).getTime() - (Date.now() + 20 * 86_400_000))).toBeLessThan(60_000);
+
+      await api.call(deleteMyUsername, { token: member.token, method: "DELETE" });
+      expect((await me(member.token)).body).toEqual({ usernameChangeableAt: body.usernameChangeableAt, upcomingCount: 0 });
+    });
+
+    it("only the token's account: another member's username never shows", async () => {
+      const other = await api.signUp({ email: "alex@example.com" });
+      await setUsername(other.token, "alex");
+      expect((await me(member.token, { userId: other.userId })).body).toEqual({ upcomingCount: 0 });
+    });
   });
 });
