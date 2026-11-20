@@ -40,6 +40,9 @@ function listFields(fields: readonly ProfileContentField[]): string {
  */
 export default function ProfileReportDetails({ report, getToken }: { report: AdminReport; getToken: GetToken }) {
   const photo = useAvatarObjectUrl(report.reportedAvatarUrl, getToken);
+  // The profile as the last removal returned it, so "Their profile now" never
+  // shows what was just removed. The report's copies above stay as they were.
+  const [updated, setUpdated] = useState<UpdatedProfile>();
   const profileId = report.reportedProfileId;
   const hasCopies = Boolean(
     report.reportedAvatarUrl || report.reportedBio || report.reportedInstagramHandle || report.reportedUsername,
@@ -97,8 +100,13 @@ export default function ProfileReportDetails({ report, getToken }: { report: Adm
 
       {profileId ? (
         <>
-          <CurrentProfile profileId={profileId} getToken={getToken} />
-          <RemoveContent reportId={report.reportId} profileId={profileId} getToken={getToken} />
+          <CurrentProfile profileId={profileId} getToken={getToken} updated={updated} />
+          <RemoveContent
+            reportId={report.reportId}
+            profileId={profileId}
+            getToken={getToken}
+            onRemoved={(profile) => setUpdated((current) => ({ profile, seq: (current?.seq ?? 0) + 1 }))}
+          />
         </>
       ) : (
         <p className="text-xs text-muted">They no longer have a profile, so there&rsquo;s nothing left to remove.</p>
@@ -107,20 +115,31 @@ export default function ProfileReportDetails({ report, getToken }: { report: Adm
   );
 }
 
-/** The member's profile now, with its moderation log: loaded only when opened. */
-function CurrentProfile({ profileId, getToken }: { profileId: string; getToken: GetToken }) {
+/** A profile a removal returned, numbered so a newer one (or a load started after it) wins. */
+type UpdatedProfile = { profile: AdminMemberProfile; seq: number } | undefined;
+
+/**
+ * The member's profile now, with its moderation log: loaded only when opened,
+ * and replaced by what a removal returns (`updated`); a load started before
+ * that removal never overwrites it.
+ */
+function CurrentProfile({ profileId, getToken, updated }: { profileId: string; getToken: GetToken; updated: UpdatedProfile }) {
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<
-    { status: "loading" } | { status: "error"; message: string } | { status: "ready"; profile: AdminMemberProfile }
+    | { status: "loading" }
+    | { status: "error"; message: string }
+    | { status: "ready"; profile: AdminMemberProfile; seq: number }
   >({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
+  const updatedSeq = updated?.seq ?? 0;
 
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
+    // Reloads after a removal too (a newer seq), cancelling a load from before it.
     adminGetMemberProfile(profileId, getToken).then(
       (profile) => {
-        if (!cancelled) setState({ status: "ready", profile });
+        if (!cancelled) setState({ status: "ready", profile, seq: updatedSeq });
       },
       (err: unknown) => {
         if (!cancelled) setState({ status: "error", message: errorText(err, "Couldn’t load their profile.") });
@@ -129,7 +148,14 @@ function CurrentProfile({ profileId, getToken }: { profileId: string; getToken: 
     return () => {
       cancelled = true;
     };
-  }, [open, profileId, getToken, attempt]);
+  }, [open, profileId, getToken, attempt, updatedSeq]);
+
+  const profile =
+    updated && (state.status !== "ready" || state.seq < updated.seq)
+      ? updated.profile
+      : state.status === "ready"
+        ? state.profile
+        : undefined;
 
   return (
     <details className="group text-sm" onToggle={(e) => setOpen(e.currentTarget.open)}>
@@ -139,8 +165,8 @@ function CurrentProfile({ profileId, getToken }: { profileId: string; getToken: 
         </span>
         Their profile now
       </summary>
-      {open && state.status === "loading" && <p className="text-muted">Loading…</p>}
-      {open && state.status === "error" && (
+      {open && !profile && state.status === "loading" && <p className="text-muted">Loading…</p>}
+      {open && !profile && state.status === "error" && (
         <div className="flex flex-col items-start gap-2">
           <Notice tone="danger" role="alert">
             {state.message}
@@ -150,27 +176,27 @@ function CurrentProfile({ profileId, getToken }: { profileId: string; getToken: 
           </Button>
         </div>
       )}
-      {open && state.status === "ready" && (
+      {open && profile && (
         <div className="mt-2 flex flex-col gap-2">
           <p>
-            {state.profile.displayName} · {state.profile.profileVisible ? "Visible to members" : "Hidden"}
-            {state.profile.suspended && " · Suspended"} · {state.profile.hasAvatar ? "Has a photo" : "No photo"}
+            {profile.displayName} · {profile.profileVisible ? "Visible to members" : "Hidden"}
+            {profile.suspended && " · Suspended"} · {profile.hasAvatar ? "Has a photo" : "No photo"}
           </p>
           <p className="break-all">
             <span className="text-muted">Username: </span>
-            {state.profile.username ? `@${state.profile.username}` : <span className="text-muted italic">None</span>}
+            {profile.username ? `@${profile.username}` : <span className="text-muted italic">None</span>}
           </p>
           <p className="break-words whitespace-pre-wrap">
             <span className="text-muted">Bio: </span>
-            {state.profile.bio ?? <span className="text-muted italic">None</span>}
+            {profile.bio ?? <span className="text-muted italic">None</span>}
           </p>
           <p className="break-all">
             <span className="text-muted">Instagram: </span>
-            {state.profile.instagramHandle ? `@${state.profile.instagramHandle}` : <span className="text-muted italic">None</span>}
+            {profile.instagramHandle ? `@${profile.instagramHandle}` : <span className="text-muted italic">None</span>}
           </p>
-          {state.profile.moderationLog.length > 0 ? (
+          {profile.moderationLog.length > 0 ? (
             <ol className="flex flex-col gap-1 border-l-2 border-surface-border pl-3 text-xs">
-              {state.profile.moderationLog.map((entry, index) => (
+              {profile.moderationLog.map((entry, index) => (
                 <li key={`${entry.at}-${index}`}>
                   <time dateTime={entry.at}>{formatDayTime(entry.at)}</time>: removed {listFields(entry.removed).toLowerCase()}
                   {" · "}
@@ -188,7 +214,18 @@ function CurrentProfile({ profileId, getToken }: { profileId: string; getToken: 
 }
 
 /** Choose what to remove (photo, bio, Instagram, username), give a reason, Remove. */
-function RemoveContent({ reportId, profileId, getToken }: { reportId: string; profileId: string; getToken: GetToken }) {
+function RemoveContent({
+  reportId,
+  profileId,
+  getToken,
+  onRemoved,
+}: {
+  reportId: string;
+  profileId: string;
+  getToken: GetToken;
+  /** The profile after the removal (what the API returned). */
+  onRemoved: (profile: AdminMemberProfile) => void;
+}) {
   const [fields, setFields] = useState<ProfileContentField[]>([]);
   const [reason, setReason] = useState("");
   const [fieldsError, setFieldsError] = useState<string | null>(null);
@@ -227,6 +264,7 @@ function RemoveContent({ reportId, profileId, getToken }: { reportId: string; pr
       const ordered = FIELDS.filter((f) => fields.includes(f));
       const result = await adminRemoveProfileContent(profileId, { fields: ordered, reason: reason.trim() }, getToken);
       const removed = result.removed ?? [];
+      onRemoved(result);
       setDone(
         removed.length > 0
           ? `Removed: ${listFields(removed)}. Logged with your reason.`

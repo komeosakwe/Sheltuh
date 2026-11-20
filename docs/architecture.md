@@ -2406,7 +2406,9 @@ organisers' and members' socials).
   mailboxes). The reserved and claim checks also try the name with leading
   and trailing digits, dots and underscores dropped ("2admin", "support_1",
   "verified1"), and these brand checks (not uniqueness) read 5/3/4/7 as
-  s/e/a/t (`brandKey`: "5upport", "shel7uh"). The API also refuses anything
+  s/e/a/t (`brandKey`: "5upport", "shel7uh"; and whole claim words too,
+  "mia_v3rified_au", folded on the username path only, so organisers' own
+  words keep their rule). The API also refuses anything
   that reads as a web address (`containsLink`, plus any part after a dot
   that's a TLD from `lib/contact-detail.ts`'s list or .ee/.gy: "mia.com",
   "www.mia", "is.gd", "mia.co.uk"). Input is normalised first: NFKC,

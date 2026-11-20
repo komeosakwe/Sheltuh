@@ -64,7 +64,12 @@ export function usernameKey(username: string): string {
  * only, never for uniqueness ("m4ya" and "maya" are different names).
  */
 export function brandKey(username: string): string {
-  return usernameKey(username).replace(/[5347]/g, (d) => ({ "5": "s", "3": "e", "4": "a", "7": "t" })[d] ?? d);
+  return foldBrandDigits(usernameKey(username));
+}
+
+/** 5 → s, 3 → e, 4 → a, 7 → t, nothing else touched (dots and underscores stay, so word boundaries do too). */
+function foldBrandDigits(value: string): string {
+  return value.replace(/[5347]/g, (d) => ({ "5": "s", "3": "e", "4": "a", "7": "t" })[d] ?? d);
 }
 
 /**
@@ -132,7 +137,10 @@ export function parseUsername(raw: unknown): UsernameResult {
   }
   const key = brandKey(value);
   if (SHELTUH_KEYS.some((brand) => key.includes(brand))) return { ok: false, error: "Usernames can't include Sheltüh." };
-  if (makesAClaim(value)) return { ok: false, error: CLAIM };
+  // Whole claim words with the brand digit folds too ("mia_v3rified_au",
+  // "the_4dmin_x"). Folded here, not in makesAClaim, so organisers' own words
+  // (lib/api/organiser-tags.ts) keep their rule.
+  if (makesAClaim(foldBrandDigits(value))) return { ok: false, error: CLAIM };
   if (isReserved(value)) return { ok: false, error: "That username is reserved. Try another." };
   if (startsOrEndsWithClaim(value)) return { ok: false, error: CLAIM };
   return { ok: true, value };

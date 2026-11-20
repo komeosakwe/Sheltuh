@@ -88,6 +88,15 @@ describe("parseUsername", () => {
     expect(parseUsername(raw).ok).toBe(false);
   });
 
+  it.each(["mia_v3rified_au", "the_4dmin_x", "x.5ponsored.y", "kate.m0d3rator.au", "go_4pproved_now", "mia_appr0v3d_au"])(
+    "refuses %j: a claim word inside the name with digits for letters",
+    (raw) => {
+      expect(parseUsername(raw)).toEqual({ ok: false, error: "That username makes a claim we can't check. Try another." });
+      // As the same name spelt with letters is.
+      expect(parseUsername(raw.replace(/[5347]/g, (d) => ({ "5": "s", "3": "e", "4": "a", "7": "t" })[d] ?? d)).ok).toBe(false);
+    },
+  );
+
   it.each(["sheltueh", "5heltuh", "shel7uh", "sh3ltuh_fan", "i_love_sheltueh"])("refuses %j: a Sheltüh lookalike", (raw) => {
     expect(parseUsername(raw)).toEqual({ ok: false, error: "Usernames can't include Sheltüh." });
   });

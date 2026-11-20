@@ -174,6 +174,48 @@ describe("admin: profile reports", () => {
     expect(screen.getByText(/Hidden/)).toBeInTheDocument();
   });
 
+  it("after a removal, their profile now shows what's left (the removal's answer); the report's copies stay", async () => {
+    adminListReports.mockResolvedValue({ items: [PROFILE_REPORT] });
+    const before = {
+      profileId: "p1",
+      displayName: "Aisha L.",
+      profileVisible: true,
+      hasAvatar: false,
+      suspended: false,
+      bio: "Now tame.",
+      username: "aisha_now",
+      moderationLog: [],
+    };
+    // Opened before the removal: the old profile. Any reload after it never answers,
+    // so what shows afterwards can only be the removal's own answer.
+    adminGetMemberProfile.mockResolvedValueOnce(before).mockReturnValue(new Promise(() => {}));
+    adminRemoveProfileContent.mockResolvedValue({
+      ...before,
+      username: undefined,
+      moderationLog: [{ removed: ["username"], reason: "Slur in the username.", at: "2026-11-20T00:00:00.000Z" }],
+      removed: ["username"],
+    });
+    admin(<ReportQueue />);
+    const heading = await screen.findByRole("heading", { name: /Aisha L\./ });
+    const article = heading.closest("article") as HTMLElement;
+    const details = within(article).getByText("Their profile now").closest("details") as HTMLDetailsElement;
+    details.open = true;
+    fireEvent(details, new Event("toggle"));
+    expect(await within(details).findByText("@aisha_now")).toBeInTheDocument();
+
+    const group = within(article).getByRole("group", { name: "Remove from their profile" });
+    fireEvent.click(within(group).getByRole("checkbox", { name: "Username" }));
+    fireEvent.change(within(article).getByLabelText("Reason (admins only, logged)"), { target: { value: "Slur in the username." } });
+    fireEvent.click(within(article).getByRole("button", { name: "Remove" }));
+    expect(await within(article).findByText("Removed: Username. Logged with your reason.")).toBeInTheDocument();
+
+    await waitFor(() => expect(within(details).queryByText("@aisha_now")).toBeNull());
+    expect(within(details).getByText(/removed username/)).toBeInTheDocument();
+    expect(within(details).getByText("Now tame.")).toBeInTheDocument();
+    // The copy taken when it was reported is evidence: unchanged.
+    expect(within(article).getByText("@aisha_l")).toBeInTheDocument();
+  });
+
   it("a message report has no profile tools", async () => {
     adminListReports.mockResolvedValue({ items: [{ ...PROFILE_REPORT, targetType: "conversation", reportedAvatarUrl: undefined }] });
     admin(<ReportQueue />);
