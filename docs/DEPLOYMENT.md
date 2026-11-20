@@ -481,7 +481,24 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           keeps working (the argument defaults to null). It redefines none of the
           functions files 45 to 50 redefine. Not reversible without losing the
           names once orders carry them.
-      52. `20261128000000_organiser_covers.sql` (an organiser's cover image on
+      52. `20261123000000_checkout_pay_deadline.sql` (the 15-minute card
+          checkout pay deadline and its sweeper: `private.checkout_expiry_checks`,
+          `claim_overdue_checkouts`, `finish_checkout_expiry` and the partial
+          index `orders_pending_card_created_idx`). Additive. Apply it before
+          the app; see "Checkout pay deadline" below.
+      53. `20261124000000_checkout_expiry_missing.sql` (the sweeper's cap on
+          sessions Stripe says don't exist: `finish_checkout_expiry` gains
+          `p_max_missing`, and `checkout_expiry_checks` a `missing` outcome).
+          Additive. Apply it with 52.
+      54. `20261125000000_profile_photos.sql` (member photos, docs/architecture.md
+          "Member photos": `private.profile_photos`, its cap trigger
+          `profile_photos_cap` and `private.add_profile_photo`). Additive. Apply it
+          before any app that reads profiles: profile responses query
+          `private.profile_photos` whether or not `NEXT_PUBLIC_MEMBER_PHOTOS` is `1`
+          (the flag gates only uploads; see `.env.example`). To roll back, first
+          deploy an app version that does not read photos. Then drop the trigger,
+          both functions and the table; this step loses data.
+      55. `20261128000000_organiser_covers.sql` (an organiser's cover image on
           their public profile, docs/architecture.md "Organiser profiles",
           "Cover": table `private.organiser_covers`, RLS on and no grants, and
           `put_organiser_cover`, `delete_organiser_cover`,
@@ -489,7 +506,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           column or function changes, and the previous app never reads the
           table. Can be applied before the app. Reversible: drop the three
           functions, then the table (destructive once covers exist).
-      53. `20261128000100_organiser_tags.sql` (an organiser's profile chips,
+      56. `20261128000100_organiser_tags.sql` (an organiser's profile chips,
           "Organiser profiles", "Categories": nullable
           `organisers.profile_tags` and `custom_tags` (default `{}`), their
           check constraints, the trigger `organisers_custom_tags_valid` with
