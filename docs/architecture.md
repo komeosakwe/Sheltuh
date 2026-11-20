@@ -2498,8 +2498,12 @@ username and keep a record of the removal (not the name) for up to 2 years.
 
 - **Squatting.** One verified account holds one name at a time, but the
   typo window lets an account, once in its life, release (and so hold for
-  30 days) up to 9 names: 10 saves a day (`username_changes`), the last one
-  live. After that it's one change per 30 days, so one more hold a month.
+  30 days) up to 18 names. Every save takes one of 10 `username_changes` a
+  day, a save refused as taken included, and that day's window starts at the
+  first save, which can be before the first claim; so the typo window can
+  span two windows: 8 changes, then 10 more after the reset. Without an early
+  refusal the cap is 9. After that it's one change per 30 days, so one more
+  hold a month.
   Many verified accounts can still claim many names. Reserved, claim and
   staff words cover Sheltüh's own; anything else is first come, with admin
   removal (and freeing a hold early, `docs/supabase-setup.md`) as the
