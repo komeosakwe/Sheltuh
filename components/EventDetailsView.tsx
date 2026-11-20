@@ -346,7 +346,10 @@ export default function EventDetailsView({
         <div className="grid grid-cols-1 gap-y-2 sm:gap-y-6 lg:grid-cols-12 lg:gap-x-8 lg:gap-y-24">
           {/* The photo, with the date chip on it (decorative: the date line says it). The page's LCP image. On
               phones never more than 22% of the screen's height, so the title, facts, Save and Share fit above
-              the buy bar (owner request, 26 Oct 2026: e2e/event-page.spec.ts); a 7:2 strip on tablets; 3:2 beside
+              the buy bar (owner request, 26 Oct 2026: e2e/event-page.spec.ts). On a short phone (below 640px wide and up to 700px tall,
+              an iPhone SE's 667) 8px less: what the phone header gained (56 to 64px, the "Header / Mobile" board),
+              so everything under the photo sits where it did there; taller phones have room and keep the 22%. A
+              7:2 strip on tablets; 3:2 beside
               the panel from 1024px. An event's clip Play sits on its bottom-left (docs/design/event-clips.md §5.3);
               absolutely placed, so nothing shifts. */}
           <div className="relative lg:col-span-7 xl:col-span-8">
@@ -357,7 +360,7 @@ export default function EventDetailsView({
               title={event.title}
               priority
               fit="auto"
-              className="aspect-[4/3] max-h-[22svh] w-full rounded-card sm:aspect-video sm:max-h-none md:aspect-[7/2] lg:aspect-[3/2]"
+              className="aspect-[4/3] max-h-[22svh] w-full rounded-card max-sm:[@media(max-height:700px)]:max-h-[calc(22svh-0.5rem)] sm:aspect-video sm:max-h-none md:aspect-[7/2] lg:aspect-[3/2]"
             />
             {!missing?.when && <DateChip event={event} size="page" className="absolute top-2 left-2 sm:top-4 sm:left-4" />}
             <ClipPlayButton event={event} size="hero" className="absolute bottom-2 left-2 sm:bottom-4 sm:left-4" />
