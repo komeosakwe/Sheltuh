@@ -1,8 +1,9 @@
 import { isApiConfigured } from "@/lib/api/client";
+import { tagsForEventCategories } from "@/lib/api/organiser-tags";
 import type { OrganiserSocialLinks } from "@/lib/api/types";
 import { isUpcomingEvent } from "@/lib/data";
 import { toMelbourneDateTimeInputParts } from "@/lib/format";
-import type { OrganiserProfileDetails } from "@/lib/organiser-profile";
+import { PROFILE_PAST_EVENT_LIMIT, type OrganiserProfileDetails } from "@/lib/organiser-profile";
 import { sampleEvents } from "@/lib/sample-events";
 import type { SheltuhEvent } from "@/lib/types";
 
@@ -71,6 +72,29 @@ const SAMPLE_SOCIAL_LINKS: Readonly<Record<string, OrganiserSocialLinks>> = {
   },
 };
 
+/**
+ * Covers for a few of the organisers: the demo's own sample photos
+ * (public/events, see its README for their licences), cropped by the
+ * profile's frame like any other shape. No small variant, so no srcset.
+ * The rest show the profile without a cover.
+ */
+const SAMPLE_COVERS: Readonly<Record<string, string>> = {
+  "static-collective": "/events/dj-crate-digging.jpg",
+  "low-end-theory-sound": "/events/record-shop-dj.jpg",
+  "small-press-melbourne": "/events/street-market.jpg",
+};
+
+/**
+ * Made-up own words for a few of the organisers' chips (after the list's,
+ * which come from their events' categories), so the demo shows both kinds.
+ * Each passes parseCustomTag, as an organiser's would have to.
+ */
+const SAMPLE_OWN_WORDS: Readonly<Record<string, readonly string[]>> = {
+  "static-collective": ["Late-night", "Analogue synths"],
+  "low-end-theory-sound": ["Sound systems"],
+  "paper-moon-studio": ["Risograph"],
+};
+
 function eventsByOrganiser(): Map<string, SheltuhEvent[]> {
   const groups = new Map<string, SheltuhEvent[]>();
   for (const event of sampleEvents) {
@@ -96,10 +120,12 @@ function melbourneMonth(iso: string): string {
 
 /**
  * A demo organiser's profile, built from their sample events the way the API
- * builds a live one: upcoming soonest first, past most recent first, events
- * hosted counting the past ones. Member since: the month of their first
- * event, or this month if that's still to come. No followers or video. Null
- * for an id that isn't one of the demo's organisers.
+ * builds a live one: upcoming soonest first, past most recent first (at
+ * most PROFILE_PAST_EVENT_LIMIT), the event count covering both. Chips: their events' categories
+ * mapped to the list, then any made-up own words; a cover for a few. Member
+ * since: the month of their first event, or this month if that's still to
+ * come. No followers or video. Null for an id that isn't one of the demo's
+ * organisers.
  */
 export function getSampleOrganiser(organiserId: string, now: Date = new Date()): SampleOrganiser | null {
   const events = SAMPLE_ORGANISER_EVENTS.get(organiserId);
@@ -107,6 +133,7 @@ export function getSampleOrganiser(organiserId: string, now: Date = new Date()):
 
   const upcoming = events.filter((event) => isUpcomingEvent(event, now)).sort((a, b) => startTime(a) - startTime(b));
   const past = events.filter((event) => !isUpcomingEvent(event, now)).sort((a, b) => startTime(b) - startTime(a));
+  const cover = SAMPLE_COVERS[organiserId];
   const first = events.reduce((earliest, event) => (startTime(event) < startTime(earliest) ? event : earliest));
   const firstMonth = melbourneMonth(first.startsAt);
   const thisMonth = melbourneMonth(now.toISOString());
@@ -122,15 +149,18 @@ export function getSampleOrganiser(organiserId: string, now: Date = new Date()):
         `${displayName} is a fictional organiser, made up for this demo.` +
         (suburbs.length > 0 ? ` Find their events in ${suburbs.join(", ")}.` : ""),
       categories,
+      profileTags: tagsForEventCategories(categories),
+      customTags: [...(SAMPLE_OWN_WORDS[organiserId] ?? [])],
+      ...(cover ? { coverUrl: cover } : {}),
       websiteUrl: SAMPLE_WEBSITES[organiserId],
       socialLinks: { ...SAMPLE_SOCIAL_LINKS[organiserId] },
       memberSince: firstMonth < thisMonth ? firstMonth : thisMonth,
       featuredVideo: null,
       followerCount: null,
-      eventsHosted: past.length,
+      eventCount: events.length,
     },
     upcoming,
-    past,
+    past: past.slice(0, PROFILE_PAST_EVENT_LIMIT),
   };
 }
 

@@ -116,7 +116,7 @@ test("Continue with Google: PKCE out to the provider and back, signed in on /acc
 
   await googleButton(page).click();
   await expect(page).toHaveURL(/\/account$/, { timeout: 30_000 });
-  await expect(page.getByText("mia@example.com")).toBeVisible();
+  await expect(page.locator("#main").getByText("mia@example.com")).toBeVisible();
   await expect(page.getByText("Sign-in methods: Google")).toBeVisible();
 
   expect(flow.authorize).toHaveLength(1);

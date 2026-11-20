@@ -359,13 +359,13 @@ describe("current page in the nav", () => {
       return css.slice(start, css.indexOf("\n@utility ", start + 1));
     };
     const button = block("nav-button");
-    // The rules' Navigation board, Round 2 §1.3: Label/Nav 16 medium, 24px sides, 40px, the stroke, radius 8.
-    expect(button).toContain("font-size: 1rem;");
+    // The "Header" board (navigation-search.md §5.16): an 18/24 regular label 8px from the stroke (43px), 25px sides,
+    // the stroke, radius 8, 1.5px below the row's middle.
+    expect(button).toContain("font-size: 1.125rem;");
     expect(button).toContain("line-height: 1.5rem;");
-    expect(button).not.toContain("1.125rem");
-    expect(button).toContain("font-weight: 500;");
-    expect(button).toContain("padding-inline: 1.5rem;");
-    expect(button).toContain("min-height: 2.5rem;");
+    expect(button).toContain("font-weight: 400;");
+    expect(button).toContain("padding: 0.5rem 1.5625rem;");
+    expect(button).toContain("translate: 0 1.5px;");
     expect(button).toContain("border: var(--stroke-control) solid var(--foreground);");
     expect(button).toContain("border-radius: var(--radius-control);");
     // The 20×6 dots, 8px above the button.
@@ -374,30 +374,53 @@ describe("current page in the nav", () => {
     expect(button).toContain("--umlaut-top: -0.875rem;");
     expect(button).toContain("--umlaut-line: none;");
     expect(button).toMatch(/&\[aria-current="page"\] \{\s*background: var\(--foreground\);\s*color: var\(--background\);/);
-    // The Messages chip: 32px, 14px, a muted outline.
+    // The Messages chip: 37px, 14px regular, a muted outline, its count's pill 2px above the middle.
     const chip = block("nav-chip");
-    expect(chip).toContain("height: 2rem;");
+    expect(chip).toContain("height: 2.3125rem;");
     expect(chip).toContain("font-size: 0.875rem;");
+    expect(chip).toContain("font-weight: 400;");
     expect(chip).toContain("border: var(--stroke-control) solid var(--surface-border);");
-    // The nav items: the same 20×6 dots, the underline 12px under the label.
+    expect(chip).toMatch(/& > \[data-unread-badge\] \{\s*translate: 0 -2px;/);
+    // The avatar: 16px sides, the initial and the caret 4px apart.
+    const avatar = block("nav-avatar");
+    expect(avatar).toContain("padding-inline: 1rem;");
+    expect(avatar).toContain("gap: 0.25rem;");
+    // The nav items: the same 20×6 dots (kept 26px from the row's top), the label 1.5px below the middle, the
+    // underline 13.5px under it.
     const item = block("umlaut-nav");
     expect(item).toContain("--umlaut-w: 20px;");
     expect(item).toContain("--umlaut-h: 6px;");
-    expect(item).toContain("--umlaut-offset: 12px;");
-    // Only the header's button, chip and avatar fill instead of underlining.
-    expect(css.match(/--umlaut-line: none;/g)).toHaveLength(3);
+    expect(item).toContain("--umlaut-top: calc(-0.25rem - 1.5px);");
+    expect(item).toContain("--umlaut-offset: 13.5px;");
+    expect(item).toContain("translate: 0 1.5px;");
+    // Only the header's button, chip and avatar fill instead of underlining, and the phone drawer's
+    // places (umlaut-side, navigation-search.md §5.3) show the dots alone.
+    expect(css.match(/--umlaut-line: none;/g)).toHaveLength(4);
   });
 
-  it("the desktop header is 72px from lg, 56px below (Round 2 §1.2)", () => {
-    expect(css).toMatch(/--header-h: 3\.5rem;/);
-    expect(css).toMatch(/@media \(width >= 64rem\) \{\s*:root \{\s*--header-h: 4\.5rem;/);
+  it("the header is 100px from lg and 64px below, as the boards draw it (navigation-search.md §5.16)", () => {
+    expect(css).toMatch(/--header-h: 4rem;/);
+    expect(css).toMatch(/@media \(width >= 64rem\) \{\s*:root \{\s*--header-h: 6\.25rem;/);
   });
 
-  it("sets the nav labels at 16/24 medium (Round 2 §1.3)", () => {
+  it("colours the header and the avatar menu as the board's Light and Dark frames", () => {
+    expect(block(":root")).toContain("--header: #ffffff;");
+    expect(block(":root")).toContain("--menu: #ffffff;");
+    expect(block(":root")).toContain("--menu-hover: #fffae7;");
+    expect(block(":root")).toContain("--avatar-placeholder: #fffae7;");
+    const dark = css.slice(css.indexOf('[data-theme="dark"] {'), css.indexOf("@custom-variant dark"));
+    expect(dark).toContain("--header: #0a0a0a;");
+    expect(dark).toContain("--menu: #1c1b17;");
+    expect(dark).toContain("--menu-hover: #2e2b26;");
+    // The placeholder circle is cream in every theme.
+    expect(dark).not.toContain("--avatar-placeholder");
+  });
+
+  it("sets the nav labels at 18/24 medium, as the Navigation and Menu drawer boards draw them", () => {
     const start = css.indexOf("@utility label-nav {");
     const body = css.slice(start, css.indexOf("\n@utility ", start + 1));
     expect(body).toContain("font-weight: 500;");
-    expect(body).toMatch(/font-size: 1rem;\s*line-height: 1\.5rem;/);
+    expect(body).toMatch(/font-size: 1\.125rem;\s*line-height: 1\.5rem;/);
   });
 });
 

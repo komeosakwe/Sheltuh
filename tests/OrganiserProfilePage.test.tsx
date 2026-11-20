@@ -5,6 +5,7 @@ import OrganiserProfilePage, { generateMetadata } from "@/app/organisers/[organi
 import { ApiError } from "@/lib/api/client";
 import type { PublicEvent } from "@/lib/api/public-events";
 import type { PublicOrganiserProfile } from "@/lib/api/types";
+import { PROFILE_PAST_EVENT_LIMIT } from "@/lib/organiser-profile";
 
 // Live by default; the demo test flips it.
 let apiConfigured = true;
@@ -66,6 +67,8 @@ function profile(overrides: Partial<PublicOrganiserProfile> = {}): PublicOrganis
     displayName: "Northside Noise",
     description: "Loud nights in small rooms.\nAll ages where we can.",
     categories: ["live-music", "pop-up"],
+    profileTags: ["live-music", "pop-ups-markets"],
+    customTags: ["Late-night"],
     websiteUrl: "https://www.northside.example/about?ref=x",
     socialLinks: {
       instagram: "https://www.instagram.com/northside.noise/",
@@ -103,7 +106,7 @@ async function renderPage(organiserId = ORGANISER_ID) {
 }
 
 describe("/organisers/[organiserId] (live)", () => {
-  it("shows the organiser's name, join month, categories and bio, with one h1", async () => {
+  it("shows the organiser's name, join month, chips and bio, with one h1", async () => {
     getOrganiserProfile.mockResolvedValue(profile());
     await renderPage();
 
@@ -112,11 +115,164 @@ describe("/organisers/[organiserId] (live)", () => {
     expect(getOrganiserProfile).toHaveBeenCalledWith(ORGANISER_ID);
     expect(screen.getByText("Member since March 2026")).toBeInTheDocument();
     const categories = screen.getByRole("list", { name: "Categories" });
-    expect(within(categories).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Live music", "Pop-up"]);
+    // The list's chips (as labels, in list order), then their own words.
+    expect(within(categories).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "Live music",
+      "Pop-ups & markets",
+      "Late-night",
+    ]);
     expect(screen.getByText(/Loud nights in small rooms\./)).toBeInTheDocument();
   });
 
-  it("shows the organiser's logo (decorative) beside the strap and name when they have one", async () => {
+  it("falls back to the reviewed categories for a profile sent without chips, and has no chips list when they chose none", async () => {
+    getOrganiserProfile.mockResolvedValue(profile({ profileTags: undefined, customTags: undefined }));
+    await renderPage();
+    const categories = await screen.findByRole("list", { name: "Categories" });
+    expect(within(categories).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "Live music",
+      "Pop-ups & markets",
+    ]);
+    cleanup();
+
+    getOrganiserProfile.mockResolvedValue(profile({ profileTags: [], customTags: [] }));
+    await renderPage();
+    await screen.findByRole("heading", { level: 1 });
+    expect(screen.queryByRole("list", { name: "Categories" })).toBeNull();
+  });
+
+  it("shows the cover (decorative) above the header, and no cover frame without one", async () => {
+    getOrganiserProfile.mockResolvedValue(
+      profile({
+        coverUrl: `/api/organisers/${ORGANISER_ID}/cover?v=7`,
+        coverSmallUrl: `/api/organisers/${ORGANISER_ID}/cover?size=small&v=7`,
+      }),
+    );
+    const { container } = render(await renderTree());
+    const heading = await screen.findByRole("heading", { level: 1, name: "Northside Noise" });
+    const cover = container.querySelector("[data-organiser-cover]");
+    if (!cover) throw new Error("cover not rendered");
+    const img = cover.querySelector("img");
+    expect(img).toHaveAttribute("src", `/api/organisers/${ORGANISER_ID}/cover?v=7`);
+    expect(img).toHaveAttribute(
+      "srcset",
+      `/api/organisers/${ORGANISER_ID}/cover?size=small&v=7 1120w, /api/organisers/${ORGANISER_ID}/cover?v=7 2240w`,
+    );
+    expect(img).toHaveAttribute("alt", "");
+    // Before the header in the DOM, as on screen; nothing is written on it.
+    expect(cover.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(cover.textContent).toBe("");
+    cleanup();
+
+    getOrganiserProfile.mockResolvedValue(profile());
+    const second = render(await renderTree());
+    await screen.findByRole("heading", { level: 1 });
+    expect(second.container.querySelector("[data-organiser-cover]")).toBeNull();
+  });
+
+  it("keeps the cover's frame, empty, when the image fails", async () => {
+    getOrganiserProfile.mockResolvedValue(profile({ coverUrl: `/api/organisers/${ORGANISER_ID}/cover?v=7` }));
+    const { container } = render(await renderTree());
+    await screen.findByRole("heading", { level: 1 });
+    const img = container.querySelector("[data-organiser-cover] img");
+    if (!img) throw new Error("cover not rendered");
+    act(() => {
+      img.dispatchEvent(new Event("error"));
+    });
+    const frame = container.querySelector("[data-organiser-cover]");
+    expect(frame).not.toBeNull();
+    expect(frame?.querySelector("img")).toBeNull();
+    expect(frame).toHaveClass("aspect-7/2", "min-h-44", "bg-surface");
+  });
+
+  it("lays the logo over the cover's corner when there's a cover, and in the flow without one", async () => {
+    const logoUrl = `/api/organisers/${ORGANISER_ID}/logo?v=42`;
+    getOrganiserProfile.mockResolvedValue(profile({ logoUrl, coverUrl: `/api/organisers/${ORGANISER_ID}/cover?v=7` }));
+    const { container } = render(await renderTree());
+    await screen.findByRole("heading", { level: 1 });
+    const slot = container.querySelector("[data-organiser-logo-slot]");
+    expect(slot).toHaveClass("-mt-12", "sm:-mt-16", "xl:-mt-20", "relative", "z-10");
+    expect(container.querySelector("[data-organiser-logo]")).toHaveClass("ring-4", "ring-background", "xl:size-40");
+    cleanup();
+
+    getOrganiserProfile.mockResolvedValue(profile({ logoUrl }));
+    const second = render(await renderTree());
+    await screen.findByRole("heading", { level: 1 });
+    expect(second.container.querySelector("[data-organiser-logo-slot]")).not.toHaveClass("-mt-12");
+  });
+
+  it("states its facts on one line: events (hidden at 0), followers (only when sent), member since", async () => {
+    getOrganiserProfile.mockResolvedValue(profile({ eventCount: 1240, followerCount: 12 }));
+    await renderPage();
+    const member = await screen.findByText("Member since March 2026");
+    const facts = member.closest("ul");
+    if (!facts) throw new Error("facts not rendered");
+    expect([...facts.children].map((li) => li.textContent)).toEqual([
+      "1,240 events",
+      "12 followers",
+      "Member since March 2026",
+    ]);
+    cleanup();
+
+    getOrganiserProfile.mockResolvedValue(profile({ eventCount: 1, followerCount: null }));
+    await renderPage();
+    const one = (await screen.findByText("Member since March 2026")).closest("ul");
+    expect([...(one?.children ?? [])].map((li) => li.textContent)).toEqual(["1 event", "Member since March 2026"]);
+    cleanup();
+
+    getOrganiserProfile.mockResolvedValue(profile({ eventCount: 0 }));
+    await renderPage();
+    const none = (await screen.findByText("Member since March 2026")).closest("ul");
+    expect([...(none?.children ?? [])].map((li) => li.textContent)).toEqual(["Member since March 2026"]);
+  });
+
+  it("lists the social links first (Instagram first) and the website last", async () => {
+    getOrganiserProfile.mockResolvedValue(profile());
+    await renderPage();
+    const links = (await screen.findByRole("heading", { level: 2, name: "Links" })).closest("section");
+    if (!links) throw new Error("links not rendered");
+    expect(within(links).getAllByRole("link").map((a) => a.getAttribute("aria-label")?.replace(/(: .*)? \(opens in a new tab\)$/, ""))).toEqual([
+      "Instagram",
+      "TikTok",
+      "Facebook",
+      "X",
+      "Website",
+    ]);
+  });
+
+  it(`lists at most ${PROFILE_PAST_EVENT_LIMIT} past events, as rows of date, title and place`, async () => {
+    const recentEvents = Array.from({ length: PROFILE_PAST_EVENT_LIMIT + 2 }, (_, i) =>
+      publicEvent(`past-${i}`, { startsAt: "2025-08-01T09:00:00.000Z", endsAt: "2025-08-01T12:00:00.000Z" }),
+    );
+    getOrganiserProfile.mockResolvedValue(profile({ recentEvents }));
+    await renderPage();
+    const past = (await screen.findByRole("heading", { level: 2, name: "Past events" })).closest("section");
+    if (!past) throw new Error("past section not rendered");
+    const rows = within(past).getAllByRole("listitem");
+    expect(rows).toHaveLength(PROFILE_PAST_EVENT_LIMIT);
+    const [date, title, place] = [...rows[0].children];
+    expect(date.tagName).toBe("TIME");
+    expect(date).toHaveAttribute("datetime", "2025-08-01T09:00:00.000Z");
+    expect(title).toHaveAttribute("href", "/events/past-0");
+    // The row draws the focus ring; data-card-link drops the link's own (globals.css), so there's one ring, not two.
+    expect(title).toHaveAttribute("data-card-link", "");
+    expect(rows[0].className).toContain("has-[a:focus-visible]:outline-2");
+    expect(place).toHaveTextContent("The Tote · Collingwood");
+  });
+
+  it("offers a report email naming the organiser and their profile, the whole subject encoded", async () => {
+    getOrganiserProfile.mockResolvedValue(profile({ displayName: "Salt & Pepper? Nights" }));
+    await renderPage();
+    const report = await screen.findByRole("link", { name: "Report this organiser" });
+    const href = report.getAttribute("href") ?? "";
+    expect(href.startsWith("mailto:support@sheltuh.com.au?subject=")).toBe(true);
+    const query = href.slice(href.indexOf("?") + 1);
+    expect([...new URLSearchParams(query).keys()]).toEqual(["subject"]);
+    expect(new URLSearchParams(query).get("subject")).toMatch(
+      new RegExp(`^Report: Salt & Pepper\\? Nights \\((https?://[^/]+)?/organisers/${ORGANISER_ID}\\)$`),
+    );
+  });
+
+  it("shows the organiser's logo (decorative) above the strap and name when they have one", async () => {
     getOrganiserProfile.mockResolvedValue(profile({ logoUrl: `/api/organisers/${ORGANISER_ID}/logo?v=42` }));
     const { container } = render(await renderTree());
     const heading = await screen.findByRole("heading", { level: 1, name: "Northside Noise" });
@@ -125,10 +281,10 @@ describe("/organisers/[organiserId] (live)", () => {
     expect(logo).toHaveAttribute("aria-hidden", "true");
     expect(logo.querySelector("img")).toHaveAttribute("src", `/api/organisers/${ORGANISER_ID}/logo?v=42`);
     expect(logo.querySelector("img")).toHaveAttribute("alt", "");
-    // In the same row as the title block: stacked on phones, side by side from sm.
-    const row = logo.parentElement;
-    expect(row).toHaveClass("flex-col", "sm:flex-row");
-    expect(row).toContainElement(heading);
+    // Above the strap and name, in the header, at the profile's sizes.
+    expect(logo.closest("header")).toContainElement(heading);
+    expect(logo.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(logo).toHaveClass("size-24", "sm:size-32", "xl:size-40");
     expect(screen.queryByRole("img")).toBeNull();
   });
 
@@ -143,6 +299,8 @@ describe("/organisers/[organiserId] (live)", () => {
     });
     expect(container.querySelector("[data-organiser-logo]")).toBeNull();
     expect(screen.queryByText("NN")).toBeNull(); // no initials stand-in
+    // The slot is left empty, which is what the strap's spacing and the links column's padding follow.
+    expect(container.querySelector("[data-organiser-logo-slot]")).toBeEmptyDOMElement();
     cleanup();
 
     getOrganiserProfile.mockResolvedValue(profile());
@@ -182,6 +340,24 @@ describe("/organisers/[organiserId] (live)", () => {
     }
   });
 
+  it("links only http(s) addresses: a social or website value that isn't one is left out", async () => {
+    getOrganiserProfile.mockResolvedValue(
+      profile({
+        websiteUrl: "javascript:alert(1)",
+        socialLinks: {
+          instagram: "javascript:alert(1)",
+          tiktok: "data:text/html,hi",
+          x: "https://x.com/nsnoise",
+        },
+      }),
+    );
+    await renderPage();
+    await screen.findByRole("heading", { level: 1 });
+    const links = within(screen.getByRole("region", { name: "Links" })).getAllByRole("link");
+    expect(links.map((link) => link.getAttribute("href"))).toEqual(["https://x.com/nsnoise"]);
+    expect(document.querySelector('a[href^="javascript:"], a[href^="data:"]')).toBeNull();
+  });
+
   it("shows only the links the organiser has set, and no links section without any", async () => {
     getOrganiserProfile.mockResolvedValue(profile({ websiteUrl: undefined, socialLinks: { x: "https://x.com/nsnoise" } }));
     await renderPage();
@@ -214,9 +390,10 @@ describe("/organisers/[organiserId] (live)", () => {
 
     const past = screen.getByRole("heading", { level: 2, name: "Past events" }).closest("section");
     if (!past) throw new Error("past section not rendered");
-    const pastLink = within(past).getByRole("link", { name: /Event gone/ });
+    const pastLink = within(past).getByRole("link", { name: "Event gone" });
     expect(pastLink).toHaveAttribute("href", "/events/gone");
-    expect(pastLink).toHaveTextContent("2025"); // a past date carries its year
+    // A past date carries its year.
+    expect(pastLink.closest("li")?.querySelector("time")).toHaveTextContent("2025");
   });
 
   // V3 (visual QA, 22 Oct 2026): the old section header drew a mono strap repeating each h2. The
@@ -396,15 +573,14 @@ describe("/organisers/[organiserId] (demo)", () => {
       "/events/dead-letter-office",
     );
     expect(screen.queryByRole("heading", { level: 2, name: "Past events" })).not.toBeInTheDocument();
-    // No past events yet: the zero isn't shown.
-    expect(screen.queryByText("Events organised")).not.toBeInTheDocument();
-    // The demo has no logos: the header is just the strap and name.
+    // The demo has no logos, and this organiser no cover: the header is just the strap and name.
     expect(document.querySelector("[data-organiser-logo]")).toBeNull();
+    expect(document.querySelector("[data-organiser-cover]")).toBeNull();
     expect(document.querySelector("header img")).toBeNull();
     expect(getOrganiserProfile).not.toHaveBeenCalled();
   });
 
-  it("lists an organiser's ended sample events as past, counted as hosted", async () => {
+  it("lists an organiser's ended sample events as past, with their cover, chips and event count", async () => {
     await renderPage("static-collective");
 
     expect(screen.getByRole("heading", { level: 1, name: "Static Collective" })).toBeInTheDocument();
@@ -413,7 +589,24 @@ describe("/organisers/[organiserId] (demo)", () => {
     const past = screen.getByRole("heading", { level: 2, name: "Past events" }).closest("section");
     if (!past) throw new Error("past section not rendered");
     expect(within(past).getByRole("link", { name: /Neon Static/ })).toHaveAttribute("href", "/events/neon-static");
-    expect(screen.getByText("Events organised").nextElementSibling).toHaveTextContent("1");
+    const facts = screen.getByText("Member since September 2026").closest("ul");
+    expect(facts?.firstElementChild).toHaveTextContent("1 event");
+    // A sample photo as the cover (no small variant, so no srcset), and made-up own words after the list's chips.
+    const cover = document.querySelector("[data-organiser-cover] img");
+    expect(cover).toHaveAttribute("src", "/events/dj-crate-digging.jpg");
+    expect(cover).not.toHaveAttribute("srcset");
+    const categories = screen.getByRole("list", { name: "Categories" });
+    expect(within(categories).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "Live music",
+      "Late-night",
+      "Analogue synths",
+    ]);
+    // Share and Report work in the demo.
+    expect(screen.getByRole("button", { name: "Share Static Collective" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Report this organiser" })).toHaveAttribute(
+      "href",
+      expect.stringMatching(/^mailto:support@sheltuh\.com\.au\?subject=Report%3A%20Static%20Collective%20/),
+    );
   });
 
   it("offers Follow only as unavailable, with a note, and makes no follow request", async () => {

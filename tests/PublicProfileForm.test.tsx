@@ -11,9 +11,12 @@ import { callsTokenFirst, fakeAuthValue, FakeAuthProvider, switchableSession } f
 const updateOrganiserProfile = vi.fn();
 vi.mock("@/lib/api/organisers", () => ({
   updateOrganiserProfile: (...args: unknown[]) => updateOrganiserProfile(...args),
-  // The panel's logo field (tested in OrganiserLogoField.test.tsx); never called here.
+  // The panel's cover, logo and categories fields (tested in their own files); never called here.
   uploadOrganiserLogo: vi.fn(),
   deleteOrganiserLogo: vi.fn(),
+  uploadOrganiserCover: vi.fn(),
+  deleteOrganiserCover: vi.fn(),
+  setOrganiserTags: vi.fn(),
 }));
 
 let organiserState: { loading: boolean; organiser: OrganiserRecord | null; error: string | null };
@@ -354,6 +357,22 @@ describe("PublicProfilePanel", () => {
     expect(logo.compareDocumentPosition(bio) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // Not part of the form: choosing a logo doesn't submit or wait for "Save profile".
     expect(logo.closest("form")).toBeNull();
+  });
+
+  it("follows the public profile's order: cover, logo, categories, then the form; says event categories are ours to change", () => {
+    renderPanel();
+    const cover = screen.getByLabelText(/Cover photo \(optional\)/);
+    const logo = screen.getByLabelText(/Logo \(optional\)/);
+    const categories = screen.getByRole("group", { name: "Categories" });
+    const bio = screen.getByLabelText("Bio (required)");
+    const order = [cover, logo, categories, bio];
+    for (let i = 1; i < order.length; i++) {
+      expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+    // Each saves on its own: the cover isn't in a form, the categories have their own.
+    expect(cover.closest("form")).toBeNull();
+    expect(categories.closest("form")).not.toBe(bio.closest("form"));
+    expect(screen.getByText(/To change your name, contact email or event categories, contact us\./)).toBeInTheDocument();
   });
 
   it("has no logo field before approval, or where accounts aren't configured (the demo)", () => {

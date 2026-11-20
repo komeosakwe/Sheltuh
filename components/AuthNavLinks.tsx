@@ -1,13 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
-import { useAdminSummary } from "@/components/admin/AdminSummaryProvider";
-import { useUnread } from "@/components/messages/UnreadProvider";
+import AccountAvatar from "@/components/nav/AccountAvatar";
+import AccountMenu from "@/components/nav/AccountMenu";
+import { MY_TICKETS_HREF, ORGANISERS_HREF, type NavAccount } from "@/components/nav/useNavAccount";
 import CountBadge from "@/components/ui/CountBadge";
-import { needsYouTotal } from "@/lib/admin-summary";
-import { useAuth } from "@/lib/auth/AuthContext";
 
 /**
  * The sub-navs' link style (the dashboard's, the admin's, the seat page's tabs). `umlaut`
@@ -18,29 +16,20 @@ export const navLinkClass =
   "umlaut relative px-2 py-2 text-[0.8125rem] leading-4 font-semibold uppercase tracking-[0.01em] text-foreground";
 
 /**
- * A nav item in the black site header (the rules' Navigation board): Label/Nav 18/24 in
+ * A nav item in the site header (the "Navigation" board): Label/Nav 18/24 in
  * sentence case, 40px tall, the 20×6 orange dots above it on hover and on the current page,
- * which is also underlined 12px under the label (globals.css `umlaut-nav`).
+ * which is also underlined 13.5px under the label (globals.css `umlaut-nav`).
  */
 export const headerNavClass = "umlaut umlaut-nav flex min-h-10 items-center py-2 label-nav text-foreground";
 
 /** The header's outlined nav button ("For organisers"): globals.css `nav-button`. */
 const headerButtonClass = "umlaut nav-button";
 
-/** A row in the phone menu's account list: 48px. */
-const menuRowClass = "flex min-h-12 items-center label-nav";
-
-const ORGANISERS_HREF = "/organisers/apply";
-
-function useAccountState() {
-  const auth = useAuth();
-  const pathname = usePathname();
-  const unread = useUnread();
-  const adminSummary = useAdminSummary()?.summary;
-  const adminWaiting = adminSummary ? needsYouTotal(adminSummary) : 0;
-  const current = (href: string) => (pathname === href || pathname.startsWith(`${href}/`) ? "page" : undefined);
-  return { auth, current, unreadCount: unread?.count ?? null, adminWaiting };
-}
+/**
+ * A row in the phone drawer's account list (navigation-search.md §5.3 and §5.16, the "Menu drawer
+ * / Mobile" board): 64px to tap, a hairline above it, the 18px label 12px under the hairline.
+ */
+const menuRowClass = "block min-h-16 pt-3 label-nav";
 
 /** "S" for sam@…: the avatar's initial, from the account's email (no extra request). */
 function initialFor(email: string | undefined): string {
@@ -48,15 +37,22 @@ function initialFor(email: string | undefined): string {
   return /\p{L}|\p{N}/u.test(first) ? first.toLocaleUpperCase("en-AU") : "";
 }
 
+const NOT_CONFIGURED = "Accounts aren't configured in this environment yet";
+
 /**
- * The right of the desktop header (the rules' Navigation board). Signed out (and in the demo,
- * where accounts aren't configured): Sign in, then the For organisers nav button. Signed in:
- * For organisers, Admin with what's waiting (admins only), the Messages chip with its unread
- * count, and the avatar (its initial and a caret), a link to /account (the avatar menu is Batch 2). Saved, Your
- * events and Sign out are on /account.
+ * The right of the desktop header (the rules' Navigation board; navigation-search.md §5.1).
+ * Signed out (and in the demo, where accounts aren't configured): Sign in, then the For
+ * organisers nav button. Signed in: the For organisers nav button, Admin with what's waiting
+ * (admins only), the Messages chip with its unread count, and the avatar, which opens the
+ * avatar menu (components/nav/AccountMenu.tsx; never in the demo).
  */
-export function HeaderAccount() {
-  const { auth, current, unreadCount, adminWaiting } = useAccountState();
+export function HeaderAccount({ account }: { account: NavAccount }) {
+  const { auth, current, unreadCount, adminWaiting } = account;
+  const organisers = (
+    <Link href={ORGANISERS_HREF} aria-current={current(ORGANISERS_HREF)} className={headerButtonClass}>
+      For organisers
+    </Link>
+  );
 
   if (!auth.configured || auth.status !== "signed-in") {
     return (
@@ -68,76 +64,45 @@ export function HeaderAccount() {
             href="/login"
             aria-current={current("/login")}
             className={headerNavClass}
-            title={auth.configured ? undefined : "Accounts aren't configured in this environment yet"}
+            title={auth.configured ? undefined : NOT_CONFIGURED}
           >
             Sign in
           </Link>
         )}
-        <Link href={ORGANISERS_HREF} aria-current={current(ORGANISERS_HREF)} className={headerButtonClass}>
-          For organisers
-        </Link>
+        {organisers}
       </>
     );
   }
 
-  const initial = initialFor(auth.email);
   return (
     <>
-      <Link href={ORGANISERS_HREF} aria-current={current(ORGANISERS_HREF)} className={headerNavClass}>
-        For organisers
-      </Link>
+      {organisers}
       {auth.isAdmin && (
         <Link href="/admin" aria-current={current("/admin")} className={headerNavClass}>
           Admin
           <CountBadge count={adminWaiting} srText={`, ${adminWaiting} waiting`} dataAttribute="data-admin-badge" />
         </Link>
       )}
-      {/* The rules' Messages chip: 32px, 14px, a muted outline, the count in orange. */}
+      {/* The board's Messages chip: 37px, 14px, a muted outline, the count in an orange pill. */}
       <Link href="/messages" aria-current={current("/messages")} className="umlaut nav-chip">
         Messages
-        <UnreadBadge count={unreadCount} tone="signal" />
+        <UnreadBadge count={unreadCount} tone="signal" shape="pill" />
       </Link>
-      {/* The avatar: a solid square with the initial and a caret (the avatar menu is Batch 2;
-          for now it's the link to /account). */}
-      <Link
-        href="/account"
-        aria-label="Account"
-        aria-current={current("/account")}
-        data-header-avatar=""
-        className="umlaut nav-avatar"
-      >
-        {initial ? (
-          <span aria-hidden="true">{initial}</span>
-        ) : (
-          <svg
-            aria-hidden="true"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            className="size-5"
-          >
-            <circle cx="12" cy="8" r="4" />
-            <path d="M4 21a8 8 0 0 1 16 0" />
-          </svg>
-        )}
-        <svg aria-hidden="true" viewBox="0 0 12 12" fill="currentColor" className="size-3">
-          <path d="M2 4h8L6 9z" />
-        </svg>
-      </Link>
+      <AccountMenu account={account} initial={initialFor(auth.email)} />
     </>
   );
 }
 
 /**
- * The account part of the phone menu (the rules: "Sign in / For organisers at bottom as
- * buttons"). Signed in: a list of 48px rows, Admin (admins), Messages, Saved, Your events and
- * Account, then the For organisers button. Signed out and in the demo: Sign in and For
- * organisers, as buttons.
+ * The account part of the phone drawer (navigation-search.md §5.3 and §5.16, the "Menu drawer /
+ * Mobile" board), at its foot. Signed out and in the demo: Sign in (orange) and For organisers
+ * (outlined), 56px buttons 16px apart. Signed in: who's signed in (the round avatar, the 20px
+ * name and "View profile", a link to the profile), then rows with hairlines: My tickets, Saved,
+ * Messages (no counts: the board draws none), Your events (organisers) and Admin (admins, with
+ * what's waiting), then For organisers. Settings and signing out are on /account.
  */
-export function MenuAccount() {
-  const { auth, current, unreadCount, adminWaiting } = useAccountState();
+export function MenuAccount({ account }: { account: NavAccount }) {
+  const { auth, current, adminWaiting, profile, profileHref, name, showEvents } = account;
 
   const organisersButton = (
     <Link href={ORGANISERS_HREF} aria-current={current(ORGANISERS_HREF)} className="btn btn-outline btn-lg w-full">
@@ -145,58 +110,76 @@ export function MenuAccount() {
     </Link>
   );
 
-  if (auth.configured && auth.status === "loading") {
+  if (!auth.configured || auth.status === "signed-out") {
     return (
-      <>
-        <span className="label-nav text-muted">…</span>
-        {organisersButton}
-      </>
-    );
-  }
-
-  if (!auth.configured || auth.status !== "signed-in") {
-    return (
-      <>
+      <div className="mt-auto flex flex-col gap-4 pt-8">
         <Link
           href="/login"
           aria-current={current("/login")}
-          className="btn btn-solid btn-lg w-full"
-          title={auth.configured ? undefined : "Accounts aren't configured in this environment yet"}
+          className="btn btn-signal btn-lg w-full"
+          title={auth.configured ? undefined : NOT_CONFIGURED}
         >
           Sign in
         </Link>
         {organisersButton}
-      </>
+      </div>
+    );
+  }
+
+  if (auth.status === "loading") {
+    return (
+      <div className="mt-auto flex flex-col gap-4 pt-8">
+        <div className="flex min-h-16 items-center gap-4">
+          <span aria-hidden="true" data-avatar-placeholder="" className="size-12 shrink-0 rounded-full bg-avatar-placeholder" />
+          <span className="label-nav text-muted">…</span>
+        </div>
+        {organisersButton}
+      </div>
     );
   }
 
   function row(href: string, label: string, extra?: ReactNode) {
     return (
-      <li>
+      <li className="border-t border-surface-border">
         <Link href={href} aria-current={current(href)} className={menuRowClass}>
-          {label}
-          {extra}
+          <span className="flex min-h-6 items-center justify-between gap-3">
+            <span>{label}</span>
+            {extra}
+          </span>
         </Link>
       </li>
     );
   }
 
+  const shownName = profile === undefined ? auth.email ?? "…" : name;
   return (
-    <>
+    <div className="mt-auto flex flex-col pt-8">
+      <Link
+        href={profileHref}
+        aria-label={`${shownName}, view profile`}
+        aria-current={profileHref.startsWith("/members/") ? current(profileHref) : undefined}
+        className="flex min-h-16 items-center gap-4 pb-4"
+      >
+        <AccountAvatar account={account} size="card" />
+        <span className="flex min-w-0 flex-col">
+          <span className="truncate text-xl font-semibold">{shownName}</span>
+          <span className="text-sm font-medium text-muted">View profile</span>
+        </span>
+      </Link>
       <ul className="flex flex-col">
+        {row(MY_TICKETS_HREF, "My tickets")}
+        {row("/saved", "Saved")}
+        {row("/messages", "Messages")}
+        {showEvents && row("/dashboard", "Your events")}
         {auth.isAdmin &&
           row(
             "/admin",
             "Admin",
             <CountBadge count={adminWaiting} srText={`, ${adminWaiting} waiting`} dataAttribute="data-admin-badge" />,
           )}
-        {row("/messages", "Messages", <UnreadBadge count={unreadCount} tone="signal" />)}
-        {row("/saved", "Saved")}
-        {row("/dashboard", "Your events")}
-        {row("/account", "Account")}
       </ul>
       {organisersButton}
-    </>
+    </div>
   );
 }
 
@@ -205,6 +188,6 @@ export function MenuAccount() {
  * background every minute, and announcing that would be noise. The count is
  * part of the link's name instead ("Messages, 2 unread"), read when the link is.
  */
-function UnreadBadge({ count, tone }: { count: number | null; tone?: "plain" | "signal" }) {
-  return <CountBadge count={count} srText={`, ${count} unread`} dataAttribute="data-unread-badge" tone={tone} />;
+function UnreadBadge({ count, tone, shape }: { count: number | null; tone?: "plain" | "signal"; shape?: "badge" | "pill" }) {
+  return <CountBadge count={count} srText={`, ${count} unread`} dataAttribute="data-unread-badge" tone={tone} shape={shape} />;
 }

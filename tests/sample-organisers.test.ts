@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { isTagLabel, parseCustomTag } from "@/lib/api/organiser-tags";
+import { PROFILE_PAST_EVENT_LIMIT } from "@/lib/organiser-profile";
 import { sampleEvents } from "@/lib/sample-events";
 import {
   getSampleOrganiser,
@@ -46,7 +48,9 @@ describe("getSampleOrganiser", () => {
       displayName: "Small Hours Theatre",
       categories: ["theatre"],
       memberSince: "2026-10",
-      eventsHosted: 0,
+      eventCount: 1,
+      profileTags: ["theatre"],
+      customTags: [],
       followerCount: null,
       featuredVideo: null,
       socialLinks: {},
@@ -56,7 +60,8 @@ describe("getSampleOrganiser", () => {
 
     const ended = getSampleOrganiser("static-collective", now);
     expect(ended?.profile.memberSince).toBe("2026-09");
-    expect(ended?.profile.eventsHosted).toBe(1);
+    expect(ended?.profile.eventCount).toBe(1);
+    expect(ended?.profile).not.toHaveProperty("eventsHosted");
     expect(ended?.upcoming).toEqual([]);
     expect(ended?.past.map((e) => e.slug)).toEqual(["neon-static"]);
   });
@@ -72,6 +77,45 @@ describe("getSampleOrganiser", () => {
     for (const name of names) {
       const website = getSampleOrganiser(sampleOrganiserId(name), now)?.profile.websiteUrl;
       if (website) expect(new URL(website).hostname).toMatch(/\.example$/);
+    }
+  });
+
+  it("gives a few organisers a cover from the demo's own photos, and the rest none", () => {
+    const names = [...new Set(sampleEvents.map((event) => event.organiserName))];
+    const covers = names.flatMap((name) => getSampleOrganiser(sampleOrganiserId(name), now)?.profile.coverUrl ?? []);
+    expect(covers.length).toBeGreaterThanOrEqual(2);
+    expect(covers.length).toBeLessThan(names.length);
+    for (const url of covers) expect(url).toMatch(/^\/events\/[a-z-]+\.(jpg|webp)$/);
+    // No small variant (it's a static photo), so the profile offers no srcset.
+    expect(getSampleOrganiser("static-collective", now)?.profile.coverSmallUrl).toBeUndefined();
+  });
+
+  it("chips: the events' categories mapped to the list, then own words that pass the API's own check", () => {
+    const names = new Set(sampleEvents.map((event) => event.organiserName));
+    let ownWords = 0;
+    for (const name of names) {
+      const profile = getSampleOrganiser(sampleOrganiserId(name), now)?.profile;
+      const tags = [...(profile?.profileTags ?? []), ...(profile?.customTags ?? [])];
+      expect(tags.length).toBeLessThanOrEqual(5);
+      for (const word of profile?.customTags ?? []) {
+        ownWords += 1;
+        expect(parseCustomTag(word)).toEqual({ ok: true, value: word });
+        expect(isTagLabel(word)).toBe(false);
+      }
+    }
+    expect(ownWords).toBeGreaterThan(0);
+    expect(getSampleOrganiser("static-collective", now)?.profile).toMatchObject({
+      profileTags: ["live-music"],
+      customTags: ["Late-night", "Analogue synths"],
+    });
+  });
+
+  it(`lists at most ${PROFILE_PAST_EVENT_LIMIT} past events (the API's cap), while counting them all`, () => {
+    const far = new Date("2099-01-01T00:00:00.000Z");
+    for (const name of new Set(sampleEvents.map((event) => event.organiserName))) {
+      const sample = getSampleOrganiser(sampleOrganiserId(name), far);
+      expect(sample?.past.length).toBeLessThanOrEqual(PROFILE_PAST_EVENT_LIMIT);
+      expect(sample?.profile.eventCount).toBe(sampleEvents.filter((e) => e.organiserName === name).length);
     }
   });
 

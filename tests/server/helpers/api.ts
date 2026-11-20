@@ -293,7 +293,8 @@ export class FakeClipStorage implements ClipStorage {
  * unconfirmed one without a password (with an 'email' identity), sets the
  * account's invited_at, and answers a fresh token hash with that account's
  * id. Calls run one at a time, as Supabase Auth looks up and creates an
- * address's account in one transaction (one account per address).
+ * address's account in one transaction (one account per address), and a new
+ * account appears with its invited_at and identity already set.
  * `deleteUser` deletes the account and its identities (resolving if it's
  * already gone). Each
  * throws an AuthAdminError while `failing` / `failingDelete` is set.
@@ -330,12 +331,19 @@ export class FakeAuthAdmin implements AuthAdmin {
     );
     if (accounts.some((a) => a.confirmed)) return "exists" as const;
     let userId = accounts[0]?.id;
-    if (!userId) {
+    if (userId) {
+      await this.db.query(`update auth.users set invited_at = now() where id = $1`, [userId]);
+    } else {
+      // One statement, as Supabase's one transaction: no other session sees the account without its invited_at or identity.
       userId = crypto.randomUUID();
-      await this.db.query(`insert into auth.users (id, email, raw_app_meta_data) values ($1, $2, '{}')`, [userId, email]);
-      await this.db.query(`insert into auth.identities (user_id, provider) values ($1, 'email')`, [userId]);
+      await this.db.query(
+        `with created as (
+           insert into auth.users (id, email, raw_app_meta_data, invited_at) values ($1, $2, '{}', now()) returning id
+         )
+         insert into auth.identities (user_id, provider) select id, 'email' from created`,
+        [userId, email],
+      );
     }
-    await this.db.query(`update auth.users set invited_at = now() where id = $1`, [userId]);
     return { tokenHash: `pkce_hash_${crypto.randomUUID().replace(/-/g, "")}`, userId };
   }
 

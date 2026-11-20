@@ -79,6 +79,51 @@ describe("FollowButton", () => {
     expect(getFollowStatus).not.toHaveBeenCalled();
   });
 
+  it("keeps the black (solid) look and an outline sign-in link by default, as on the event page", () => {
+    withAuth(<FollowButton organiserId={ORG} organiserName="N" />, fakeAuthValue({ status: "signed-out" }));
+    expect(screen.getByRole("link", { name: "Sign in to follow" })).toHaveClass("btn-outline");
+  });
+
+  it("variant signal: orange while not following, outline once following; buttonClassName in every state", async () => {
+    getFollowStatus.mockResolvedValue({ following: false, notifyNewEvents: false });
+    followOrganiser.mockResolvedValue({ following: true, notifyNewEvents: false });
+    withAuth(<FollowButton organiserId={ORG} organiserName="N" variant="signal" buttonClassName="flex-1" />);
+    const button = await screen.findByRole("button", { name: "Follow N" });
+    await waitFor(() => expect(button).not.toHaveAttribute("aria-disabled"));
+    expect(button).toHaveClass("btn-signal", "flex-1");
+    fireEvent.click(button);
+    const pressed = await screen.findByRole("button", { name: "Follow N", pressed: true });
+    expect(pressed).toHaveClass("btn-outline", "flex-1");
+    expect(pressed).not.toHaveClass("btn-signal");
+  });
+
+  it("holdPlace, while the session loads: a placeholder as wide as 'Sign in to follow' holds Follow's place beside what's next to it", () => {
+    const { container } = withAuth(
+      <FollowButton
+        organiserId={ORG}
+        organiserName="N"
+        holdPlace
+        buttonClassName="grow"
+        beside={<button type="button">Share</button>}
+      />,
+      fakeAuthValue({ status: "loading" }),
+    );
+    const placeholder = container.querySelector("[data-follow-placeholder]");
+    expect(placeholder).toHaveAttribute("aria-hidden", "true");
+    expect(placeholder).toHaveClass("h-12", "sm:w-44", "grow");
+    expect(placeholder?.nextElementSibling).toHaveTextContent("Share");
+    expect(screen.queryByRole("button", { name: /Follow/ })).toBeNull();
+  });
+
+  it("without holdPlace, no placeholder while the session loads, whatever the variant", () => {
+    const { container } = withAuth(
+      <FollowButton organiserId={ORG} organiserName="N" variant="signal" beside={<button type="button">Share</button>} />,
+      fakeAuthValue({ status: "loading" }),
+    );
+    expect(container.querySelector("[data-follow-placeholder]")).toBeNull();
+    expect(screen.getByRole("button", { name: "Share" })).toBeInTheDocument();
+  });
+
   it("follows with the email choice (unticked until chosen: consent), as a pressed toggle, and announces it", async () => {
     getFollowStatus.mockResolvedValue({ following: false, notifyNewEvents: false });
     followOrganiser.mockResolvedValue({ following: true, notifyNewEvents: true });
@@ -159,19 +204,22 @@ const PROFILE: PublicOrganiserProfile = {
   memberSince: "2026-03",
   featuredVideo: { provider: "youtube", id: "dQw4w9WgXcQ" },
   followerCount: 1234,
-  eventsHosted: 7,
+  eventCount: 7,
   upcomingEvents: [],
   recentEvents: [],
 };
 
 describe("organiser page: follow, numbers, video", () => {
-  it("shows the follower count (when sent), events organised, Follow, and the video facade", async () => {
+  it("shows the follower count (when sent), the event count, an orange Follow with Share beside it, and the video facade", async () => {
     getFollowStatus.mockResolvedValue({ following: false, notifyNewEvents: false });
     const { container } = withAuth(<OrganiserProfileView profile={PROFILE} upcoming={[]} past={[]} />);
-    const followers = screen.getByText("Followers");
-    expect(followers.nextElementSibling).toHaveTextContent("1,234");
-    expect(screen.getByText("Events organised").nextElementSibling).toHaveTextContent("7");
-    expect(await screen.findByRole("button", { name: "Follow Northside Noise" })).toBeInTheDocument();
+    expect(screen.getByText("followers").parentElement).toHaveTextContent("1,234 followers");
+    expect(screen.getByText("events").parentElement).toHaveTextContent("7 events");
+    const follow = await screen.findByRole("button", { name: "Follow Northside Noise" });
+    // The profile's one primary action: Signal Orange, in a row with Share.
+    expect(follow).toHaveClass("btn-signal");
+    const share = screen.getByRole("button", { name: "Share Northside Noise" });
+    expect(follow.parentElement).toContainElement(share);
     const video = screen.getByRole("region", { name: "Featured video" });
     expect(within(video).getByRole("button", { name: /Play video/ })).toBeInTheDocument();
     expect(container.querySelector("iframe")).toBeNull();
@@ -179,8 +227,10 @@ describe("organiser page: follow, numbers, video", () => {
 
   it("hides the follower count below 10 (null) and has no video section without one", () => {
     withAuth(<OrganiserProfileView profile={{ ...PROFILE, followerCount: null, featuredVideo: null }} upcoming={[]} past={[]} />, fakeAuthValue({ status: "signed-out" }));
-    expect(screen.queryByText("Followers")).toBeNull();
-    expect(screen.getByText("Events organised")).toBeInTheDocument();
+    expect(screen.queryByText(/followers?$/)).toBeNull();
+    expect(screen.getByText("events")).toBeInTheDocument();
+    // Signed out, "Sign in to follow" is the orange one.
+    expect(screen.getByRole("link", { name: "Sign in to follow" })).toHaveClass("btn-signal");
     expect(screen.queryByRole("region", { name: "Featured video" })).toBeNull();
   });
 });

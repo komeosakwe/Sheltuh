@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   CLAIM_WORDS,
+  cleanCustomTag,
   CUSTOM_TAG_MAX_LENGTH,
   customTagKey,
   inTagOrder,
@@ -66,6 +67,18 @@ describe("tagsForEventCategories", () => {
 
   it("skips anything that isn't a category", () => {
     expect(tagsForEventCategories(["art", "jazz", "constructor", "__proto__"])).toEqual(["art"]);
+  });
+});
+
+describe("cleanCustomTag", () => {
+  it("is what parseCustomTag reads and returns: NFC, any spaces folded to one, trimmed", () => {
+    for (const raw of ["  Late\u00A0\u2003night\t", "Cafe\u0301 sessions", "Queer\n\njoy "]) {
+      const result = parseCustomTag(raw);
+      expect(result).toEqual(ok(cleanCustomTag(raw)));
+    }
+    expect(cleanCustomTag("  Late\u00A0\u2003night\t")).toBe("Late night");
+    expect(cleanCustomTag("Cafe\u0301 sessions")).toBe("Caf\u00E9 sessions");
+    expect(cleanCustomTag(" \t ")).toBe("");
   });
 });
 
