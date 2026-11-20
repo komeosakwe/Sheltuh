@@ -133,7 +133,9 @@ describe("Who's Going preview: collapsed by default", () => {
     if (!button) throw new Error("no See who's going");
     expect(button).toHaveAttribute("aria-expanded", "false");
     expect(button).not.toHaveAttribute("aria-controls");
-    expect(button).toHaveClass("min-h-11");
+    // The standard Secondary M (48px): no size class of its own, and nothing shrinking it.
+    expect(button).toHaveClass("btn", "btn-outline", "w-full", "gap-2", "sm:w-auto");
+    expect(button.className).not.toMatch(/btn-sm|btn-lg|min-h-11/);
     expect(region.closest("#whos-going")).not.toHaveAttribute("data-wg-expanded");
 
     fireEvent.click(button);

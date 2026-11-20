@@ -36,7 +36,7 @@ import { SUPPORT_EMAIL } from "@/lib/contact";
 import { isSafeTicketUrl, reportEventHref } from "@/lib/event-url";
 import { eventZone, formatEventDateShort, formatEventDateTimeRange, formatEventTime, formatTimeZoneLabel, zoneSuffix } from "@/lib/format";
 import { directionsHref } from "@/lib/maps";
-import { placeName } from "@/lib/place";
+import { venueLines } from "@/lib/place";
 import { externalPriceFromLabel, formatFeedPriceParts, isSoldOut, startingPrice } from "@/lib/pricing";
 import { goesToSeatPage, quickBuyLabel } from "@/lib/quick-buy";
 import { soonFields, type SoonFields } from "@/lib/soon";
@@ -275,13 +275,11 @@ export default function EventDetailsView({
   const saveTarget = { id: event.id, title: event.title, slug: event.slug };
   const organiserHref = organiserProfileHref(event);
   const directions = directionsHref(event);
-  const address = [event.venueName, event.venueAddress].filter(Boolean).join(", ");
-  // The venue group's two lines: the venue's name, then its full street address (or, without one, its suburb, as the
-  // Location section does). A venue with no name leads with the address.
-  const venueName = event.venueName.trim();
-  const fullAddress = event.venueAddress.trim() || placeName(event.suburb, event.state);
-  const venueLine = venueName || fullAddress;
-  const addressLine = venueName ? fullAddress : "";
+  // The venue group's two lines (lib/place.ts venueLines): the venue's name, then its street address (or, without
+  // one, its suburb, as the Location section does). A venue with no name, or whose name is only its street line
+  // (a Google address pick, Round 2), leads with the address, then the suburb: never the address twice.
+  const { first: venueLine, second: addressLine } = venueLines(event);
+  const address = [venueLine, addressLine].filter(Boolean).join(", ");
   const outboundLink = (className: string) => (
     <ExternalTicketLink eventId={event.id} url={ticketUrl} className={className} preview={Boolean(preview)} />
   );
@@ -348,7 +346,10 @@ export default function EventDetailsView({
         <div className="grid grid-cols-1 gap-y-2 sm:gap-y-6 lg:grid-cols-12 lg:gap-x-8 lg:gap-y-24">
           {/* The photo, with the date chip on it (decorative: the date line says it). The page's LCP image. On
               phones never more than 22% of the screen's height, so the title, facts, Save and Share fit above
-              the buy bar (owner request, 26 Oct 2026: e2e/event-page.spec.ts); a 7:2 strip on tablets; 3:2 beside
+              the buy bar (owner request, 26 Oct 2026: e2e/event-page.spec.ts). On a short phone (below 640px wide and up to 700px tall,
+              an iPhone SE's 667) 8px less: what the phone header gained (56 to 64px, the "Header / Mobile" board),
+              so everything under the photo sits where it did there; taller phones have room and keep the 22%. A
+              7:2 strip on tablets; 3:2 beside
               the panel from 1024px. An event's clip Play sits on its bottom-left (docs/design/event-clips.md §5.3);
               absolutely placed, so nothing shifts. */}
           <div className="relative lg:col-span-7 xl:col-span-8">
@@ -359,7 +360,7 @@ export default function EventDetailsView({
               title={event.title}
               priority
               fit="auto"
-              className="aspect-[4/3] max-h-[22svh] w-full rounded-card sm:aspect-video sm:max-h-none md:aspect-[7/2] lg:aspect-[3/2]"
+              className="aspect-[4/3] max-h-[22svh] w-full rounded-card max-sm:[@media(max-height:700px)]:max-h-[calc(22svh-0.5rem)] sm:aspect-video sm:max-h-none md:aspect-[7/2] lg:aspect-[3/2]"
             />
             {!missing?.when && <DateChip event={event} size="page" className="absolute top-2 left-2 sm:top-4 sm:left-4" />}
             <ClipPlayButton event={event} size="hero" className="absolute bottom-2 left-2 sm:bottom-4 sm:left-4" />
@@ -439,7 +440,7 @@ export default function EventDetailsView({
                       // otherwise). Named in full: it starts with the visible words, holds the address, and says
                       // where it goes and that it opens a new tab. A 44px target on phones that takes only its
                       // 24px line in the column (the address above it isn't pressable, and the 12px gap below
-                      // keeps it clear of the organiser row); 24px with a pointer.
+                      // keeps it clear of the row below); 24px with a pointer.
                       <a
                         href={directions}
                         target="_blank"
@@ -456,9 +457,36 @@ export default function EventDetailsView({
                 )}
               </div>
             </dl>
+            {/* The ticket panel: sticky under the header from lg while the details scroll by, boxed when it has a price
+                and action (none once the event has ended, or before anything's on sale), and last in the column there
+                (after Who's going, as in the mock). Below lg its price and action are the buy bar's, so it's just the
+                secondary row, straight after the facts so Save and Share stay above the bar. */}
+            <div
+              data-ticket-panel=""
+              className={`flex flex-col gap-4 lg:order-last lg:mt-2 ${panelBuy ? "lg:rounded-card lg:border lg:border-foreground lg:p-6" : ""} ${preview ? "" : "lg:sticky lg:top-[calc(var(--header-h)+2rem)]"}`}
+            >
+              {panelBuy && (
+                <div className="max-lg:hidden">
+                  <h2 className="sr-only">Price and tickets</h2>
+                  {panelBuy}
+                </div>
+              )}
+              {/* The one secondary row: Save (the page's only Save), Share and Add to calendar, a third each. Top-aligned,
+                  so Share's "Link copied" under it pushes the page down rather than covering anything. */}
+              {/* A container, so the row can follow the text size (components/ui/Button.tsx actionRowClass). */}
+              <div className="@container">
+                <div data-event-actions="" className={actionRowGridClass}>
+                  <SaveButton event={saveTarget} variant="action" />
+                  <ShareButton slug={event.slug} title={event.title} text={shareText} fill />
+                  {!missing?.when && <AddToCalendar event={event} look="button" />}
+                </div>
+              </div>
+            </div>
             {/* Who's hosting (the owner's event reference): their mark, "Hosted by {name}", and View organiser → to their
                 profile at the right, or under the name where the row is too narrow for both. (Their upcoming count is
-                gone from here: beside the link it crowded the row.) */}
+                gone from here: beside the link it crowded the row.) After the ticket panel in the DOM (Round 2): below
+                lg that puts it under Save, Share and Calendar, just above Who's going; from lg the panel is order-last,
+                so it still shows straight under the facts. */}
             <div data-event-organiser="" className="flex items-center gap-3">
               {/* Their profile mark: their logo in the avatar square, or their initials (no logo, the demo, or it didn't
                   load). Decorative and out of the tab order: View organiser is the link. */}
@@ -494,34 +522,9 @@ export default function EventDetailsView({
                 )}
               </div>
             </div>
-            {/* The ticket panel: sticky under the header from lg while the details scroll by, boxed when it has a price
-                and action (none once the event has ended, or before anything's on sale), and last in the column there
-                (after Who's going, as in the mock). Below lg its price and action are the buy bar's, so it's just the
-                secondary row, straight after the facts so Save and Share stay above the bar. */}
-            <div
-              data-ticket-panel=""
-              className={`flex flex-col gap-4 lg:order-last lg:mt-2 ${panelBuy ? "lg:rounded-card lg:border lg:border-foreground lg:p-6" : ""} ${preview ? "" : "lg:sticky lg:top-[calc(var(--header-h)+2rem)]"}`}
-            >
-              {panelBuy && (
-                <div className="max-lg:hidden">
-                  <h2 className="sr-only">Price and tickets</h2>
-                  {panelBuy}
-                </div>
-              )}
-              {/* The one secondary row: Save (the page's only Save), Share and Add to calendar, a third each. Top-aligned,
-                  so Share's "Link copied" under it pushes the page down rather than covering anything. */}
-              {/* A container, so the row can follow the text size (components/ui/Button.tsx actionRowClass). */}
-              <div className="@container">
-                <div data-event-actions="" className={actionRowGridClass}>
-                  <SaveButton event={saveTarget} variant="action" />
-                  <ShareButton slug={event.slug} title={event.title} text={shareText} fill />
-                  {!missing?.when && <AddToCalendar event={event} look="button" />}
-                </div>
-              </div>
-            </div>
             {/* Who's going (the owner's event mock): the count, a few faces and I'm going (or See who's going, View
                 attendees), to the panel further down. Nothing while there's no count to show and nothing to do. */}
-            {!preview && <WhosGoingCard className="mt-1" />}
+            {!preview && <WhosGoingCard />}
           </div>
 
           <div className="flex min-w-0 flex-col gap-10 max-lg:pt-4 lg:col-span-7 lg:row-start-2 lg:gap-12 xl:col-span-8">

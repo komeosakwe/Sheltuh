@@ -200,3 +200,60 @@ describe("EventArt fit=poster", () => {
     expect(img.style.objectPosition).toBe("");
   });
 });
+
+// Round 2 Part 2: "Show the whole photo in the home banner" (event_images.banner_fit = 'whole').
+describe("EventArt fit=contain", () => {
+  it("always shows the whole photo, contained before it has even loaded, its blurred backdrop once it has", () => {
+    const { container } = render(<EventArt poster={poster} title="x" imageUrl="/events/wide.jpg" fit="contain" />);
+    const img = container.querySelector("img") as HTMLImageElement;
+    expect(img).toHaveClass("object-contain");
+    expect(img).not.toHaveClass("object-cover");
+    expect(img.style.objectPosition).toBe("");
+    // CodeRabbit (PR #61): the backdrop is a CSS background, which `loading="lazy"` doesn't defer, so it waits for
+    // the photo: an off-screen slide's photo isn't fetched early.
+    expect(img).toHaveAttribute("loading", "lazy");
+    expect(container.querySelector("[data-art-backdrop]")).toBeNull();
+    Object.defineProperty(img, "naturalWidth", { value: 1600 });
+    Object.defineProperty(img, "naturalHeight", { value: 900 });
+    fireEvent.load(img);
+    expect(container.querySelector("[data-art-backdrop]")).not.toBeNull();
+  });
+
+  it.each<[string, number, number]>([
+    ["landscape", 1600, 900],
+    ["portrait", 800, 1200],
+    ["square", 1000, 1000],
+  ])("keeps a %s photo whole once loaded", (_, width, height) => {
+    const { container } = render(<EventArt poster={poster} title="x" imageUrl="/events/p.jpg" fit="contain" />);
+    const img = container.querySelector("img") as HTMLImageElement;
+    Object.defineProperty(img, "naturalWidth", { value: width });
+    Object.defineProperty(img, "naturalHeight", { value: height });
+    fireEvent.load(img);
+    // The photo mounted now (never a node the load replaced), whole and never cropped.
+    const shown = container.querySelectorAll("img");
+    expect(shown).toHaveLength(1);
+    expect(shown[0]).toBe(img);
+    expect(shown[0]).toHaveClass("object-contain");
+    expect(shown[0]).not.toHaveClass("object-cover");
+  });
+
+  it("puts the photo's focus on the backdrop only", () => {
+    const { container } = render(
+      <EventArt poster={poster} title="x" imageUrl="/events/p.jpg" fit="contain" imageFocus={{ x: 30, y: 60 }} />,
+    );
+    const img = container.querySelector("img") as HTMLImageElement;
+    Object.defineProperty(img, "naturalWidth", { value: 1600 });
+    Object.defineProperty(img, "naturalHeight", { value: 900 });
+    fireEvent.load(img);
+    expect((container.querySelector("img") as HTMLImageElement).style.objectPosition).toBe("");
+    expect((container.querySelector("[data-art-backdrop]") as HTMLElement).style.backgroundPosition).toBe("30% 60%");
+  });
+
+  it("still falls back to the poster art when the photo fails", () => {
+    const { container } = render(<EventArt poster={poster} title="x" imageUrl="/events/p.jpg" fit="contain" />);
+    fireEvent.error(container.querySelector("img") as HTMLImageElement);
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.querySelector("[data-art-backdrop]")).toBeNull();
+    expect(container.querySelector("svg")).not.toBeNull();
+  });
+});

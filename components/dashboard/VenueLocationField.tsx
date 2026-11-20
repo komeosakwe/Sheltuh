@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import VenuePinMap, { MOVE_PIN_FIRST, PIN_ZOOM_STREET, roundPin } from "@/components/dashboard/VenuePinMap";
-import VenuePlaceSearch, { VENUE_PLACE_SEARCH_ID, type PickedPlace } from "@/components/dashboard/VenuePlaceSearch";
+import VenuePlaceSearch, { VENUE_PLACE_SEARCH_ID, type PickedPlace, type PlaceBinding } from "@/components/dashboard/VenuePlaceSearch";
 import { Button } from "@/components/ui/Button";
 import { useIsPhone } from "@/components/ui/useIsPhone";
 import type { GetToken } from "@/lib/api/client";
@@ -62,14 +62,14 @@ export const PLACE_UNLINKED_NOTE =
   "The suburb changed, so the venue is no longer linked to Google Maps. Find the venue again, or drop a pin.";
 
 /**
- * A linked Google place: its id, what to call it, and the place (venuePlaceKey) it belongs to.
- * `at` is null from the pick until the suburb is known (picking can fill the suburb, and the
- * suburb table may still be loading): it then belongs to that one.
+ * A linked Google place: its id, what to call it, and the suburb it belongs to (`at`): its place
+ * (venuePlaceKey), or the suburb as typed while that isn't known (picked while it was being typed, or
+ * filled by the pick with the suburb table still loading), until it is (settleAt).
  */
 interface LinkedPlace {
   placeId: string;
   label: string;
-  at: string | null;
+  at: PlaceBinding;
 }
 
 interface LocationState {
@@ -119,21 +119,33 @@ function initialState(initial: VenueLocationInitial | undefined): LocationState 
 }
 
 /**
- * A linked place (or one kept after Change) belongs to the first suburb known after it was linked;
- * once the suburb is another place, it's unlinked, and it's back to the search saying why. Nothing
- * changes while the suburb isn't known (`placeKey` null: typing, or the table loading).
+ * A link's suburb against the suburb on screen (its place `placeKey`, null while unknown, and its text): the same
+ * (`at` itself, or bound to the place now known for the text it was waiting on), or null when the suburb is
+ * another one, so the link goes. A place-bound link waits while the suburb isn't known (typing, or the table
+ * loading); a text-bound one goes as soon as the text changes, never bound to whatever suburb comes next.
  */
-function settleLinkedPlace(state: LocationState, placeKey: string | null): LocationState {
-  if (placeKey === null) return state;
+function settleAt(at: PlaceBinding, placeKey: string | null, suburbText: string): PlaceBinding | null {
+  if (typeof at === "string") return placeKey === null || at === placeKey ? at : null;
+  if (at.text !== suburbText) return null;
+  return placeKey ?? at;
+}
+
+/**
+ * A linked place (or one kept after Change) belongs to the suburb it was linked in (settleAt); once
+ * the suburb is another one, it's unlinked, and it's back to the search saying why.
+ */
+function settleLinkedPlace(state: LocationState, placeKey: string | null, suburbText: string): LocationState {
   let next = state;
   if (next.linked) {
-    if (next.linked.at === null) next = { ...next, linked: { ...next.linked, at: placeKey } };
-    else if (next.linked.at !== placeKey) next = { ...next, mode: "search", linked: null, note: PLACE_UNLINKED_NOTE, kept: null };
+    const at = settleAt(next.linked.at, placeKey, suburbText);
+    if (at === null) next = { ...next, mode: "search", linked: null, note: PLACE_UNLINKED_NOTE, kept: null };
+    else if (at !== next.linked.at) next = { ...next, linked: { ...next.linked, at } };
   }
   const kept = next.kept;
   if (kept?.linked) {
-    if (kept.linked.at === null) next = { ...next, kept: { ...kept, linked: { ...kept.linked, at: placeKey } } };
-    else if (kept.linked.at !== placeKey) next = { ...next, kept: null, note: PLACE_UNLINKED_NOTE };
+    const at = settleAt(kept.linked.at, placeKey, suburbText);
+    if (at === null) next = { ...next, kept: null, note: PLACE_UNLINKED_NOTE };
+    else if (at !== kept.linked.at) next = { ...next, kept: { ...kept, linked: { ...kept.linked, at } } };
   }
   return next;
 }
@@ -184,11 +196,11 @@ type FocusTarget = typeof VENUE_LINKED_ID | typeof VENUE_PLACE_SEARCH_ID | typeo
  * now (venuePlaceKey), null while it isn't known; the pin counts only for
  * the place it was confirmed for.
  */
-export function useVenueLocation(initial: VenueLocationInitial | undefined, placeKey: string | null) {
+export function useVenueLocation(initial: VenueLocationInitial | undefined, placeKey: string | null, suburbText = "") {
   const [state, setState] = useState<LocationState>(() => initialState(initial));
   // The suburb changed under a linked place: unlinked before anything is shown or saved (React
   // renders again at once with this state).
-  const settled = settleLinkedPlace(state, placeKey);
+  const settled = settleLinkedPlace(state, placeKey, suburbText);
   if (settled !== state) setState(settled);
   const pin = state.pin && placeKey !== null && state.pin.at === placeKey ? state.pin.pin : null;
   const mapKey = `${placeKey ?? ""}|${state.picks}`;
@@ -214,6 +226,8 @@ export function useVenueLocation(initial: VenueLocationInitial | undefined, plac
 
   return {
     mode: state.mode,
+    /** The suburb now, as a link would belong to it (its place, or the text while that isn't known): a pick reports the one it started in. */
+    suburbBinding: (placeKey ?? { text: suburbText }) as PlaceBinding,
     linked: state.linked,
     note: state.note,
     /** In search mode after Change: the place (or pin) Keep goes back to, else null. */
@@ -226,14 +240,16 @@ export function useVenueLocation(initial: VenueLocationInitial | undefined, plac
     input,
     /** A pin will be saved with the event (or stays saved): what publishing needs. */
     hasPin: Boolean(input?.pin),
-    /** A Google place was picked: linked, and the pin starts again. */
-    link(placeId: string, label: string) {
+    /**
+     * A Google place was picked: linked, and the pin starts again. `at`: the suburb it belongs to (the one it was
+     * picked in, or the one the pick filled in), so a suburb changed since unlinks it (settleLinkedPlace).
+     */
+    link(placeId: string, label: string, at: PlaceBinding) {
       focusNext.current = VENUE_LINKED_ID;
       setState((s) => ({
         ...s,
         mode: "places",
-        // Its suburb: the one on screen once the pick has filled it (and the table has it).
-        linked: { placeId, label, at: null },
+        linked: { placeId, label, at },
         note: null,
         pin: null,
         moved: null,
@@ -326,6 +342,7 @@ function VenuePlaceLinkBody({ location, getToken, onPicked, venueName, venueAddr
       <>
         <VenuePlaceSearch
           getToken={getToken}
+          suburbBinding={location.suburbBinding}
           onPick={onPicked}
           onManual={(why) => location.manual(why === "unavailable" ? PLACES_UNAVAILABLE_NOTE : null, true)}
           error={error}

@@ -351,6 +351,8 @@ const EVENT_COLUMNS = `
             from public.event_images i where i.event_id = e.id) as image_url,
          (select json_build_object('x', i.focus_x, 'y', i.focus_y)
             from public.event_images i where i.event_id = e.id and i.focus_x is not null) as image_focus,
+         -- How the home banner shows the photo (by primary key; null without a photo).
+         (select i.banner_fit from public.event_images i where i.event_id = e.id) as banner_fit,
          -- The clip (private.event_clips, by primary key), versioned in milliseconds (every write moves it on).
          (select json_build_object('version', floor(extract(epoch from c.updated_at) * 1000)::bigint::text,
                                    'durationMs', c.duration_ms, 'width', c.width, 'height', c.height,
@@ -449,6 +451,7 @@ const LOG_CHANGE_FIELDS = [
   "ticketTypes",
   "image",
   "imageFocus",
+  "bannerFit",
   "seatMap",
   "clip",
   "clipDescription",
@@ -568,6 +571,11 @@ function imageFocusOf(row: Row): { imageFocus?: { x: number; y: number } } {
   return focus ? { imageFocus: { x: focus.x, y: focus.y } } : {};
 }
 
+/** The `bannerFit` field for a row of EVENT_SELECT: only `whole` is sent (absent means `crop`, and always without a photo). */
+function bannerFitOf(row: Row): { bannerFit?: "whole" } {
+  return row.banner_fit === "whole" ? { bannerFit: "whole" } : {};
+}
+
 /** The `organiserLogoThumbUrl` field for a row of EVENT_SELECT: absent with no logo (or an organiser not approved). */
 function organiserLogoThumbOf(row: Row): { organiserLogoThumbUrl?: string } {
   const version = opt<string>(row.organiser_logo_version);
@@ -669,6 +677,7 @@ function mapEvent(row: Row, audience: LogAudience): EventRecord {
     organiserName: row.organiser_name as string,
     imageUrl: opt(row.image_url),
     ...imageFocusOf(row),
+    ...bannerFitOf(row),
     ...clipOf(row),
     ...organiserLogoThumbOf(row),
     ticketTypes: row.ticket_types as TicketTypeInput[],
@@ -757,6 +766,8 @@ export function toPublicEvent(event: EventRecord, remaining?: Record<string, num
     imageUrl: event.imageUrl,
     // Only with a focus point (not sensitive: where the subject of the public photo is).
     ...(event.imageFocus ? { imageFocus: { x: event.imageFocus.x, y: event.imageFocus.y } } : {}),
+    // Only when the banner shows the whole photo (not sensitive either: how the public photo is framed).
+    ...(event.bannerFit === "whole" ? { bannerFit: "whole" as const } : {}),
     // Only with a clip (and, like every field here, only ever on a published event's public shape).
     ...(event.clip
       ? {

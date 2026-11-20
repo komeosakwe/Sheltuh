@@ -107,6 +107,13 @@ export interface ImageFocus {
 }
 
 /**
+ * How the home page's featured banner shows an event's photo: `crop` (the
+ * default) fills the banner, cropped around the focus point; `whole` shows the
+ * whole photo, centred, on its blurred backdrop.
+ */
+export type BannerFit = "crop" | "whole";
+
+/**
  * An event's short silent video (docs/design/event-clips.md): shown only
  * when someone presses Play on the event's image. Absent when the event has
  * none, so an event without a clip has the same payload as before.
@@ -200,6 +207,8 @@ export interface SheltuhEvent {
   imageUrl?: string;
   /** Where the photo's subject is, so cropped renderings centre on it (absent: the middle). */
   imageFocus?: ImageFocus;
+  /** Only when the photo should be shown whole in the featured banner (absent: cropped, the default). */
+  bannerFit?: "whole";
   /** Live events only, and only with a clip: its short silent video (a Play button over the image). */
   clip?: EventClip;
   /** Always empty for an external event (tickets sold on another site). */

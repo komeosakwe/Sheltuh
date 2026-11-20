@@ -49,8 +49,9 @@ export function placeParts(event: SheltuhEvent): { venue: string; place: { subur
 }
 
 /**
- * A start's date and time in the event's own zone. `zone` names any zone but
- * the platform's ("Perth time", zoneSuffix), "" for Melbourne's: kept apart
+ * A start's date and time in the event's own zone. `zone` names a zone whose
+ * clock differs from Melbourne's at the start ("Perth time", zoneSuffix's R0
+ * rule), "" otherwise (Melbourne, Sydney, Hobart…): kept apart
  * from `time` so a narrow line can wrap before it rather than overflow.
  */
 export interface StartLabel {
@@ -65,17 +66,18 @@ export type CardDateLabel = StartLabel | { running: string };
 export type EventStartFields = Pick<SheltuhEvent, "startsAt" | "timeZone" | "state">;
 
 /**
- * The start's date and time in the event's own zone, with any zone but the
- * platform's named (zoneSuffix): `{ date: "Sat 21 Nov", time: "8:00 pm",
- * zone: "Perth time" }`, and for a Melbourne event exactly as before
- * (`zone: ""`). Every compact event line (cards, map, list rows) uses it.
+ * The start's date and time in the event's own zone, naming the zone only
+ * when its clock differs from Melbourne's at the start (zoneSuffix, Round 2
+ * R0): `{ date: "Sat 21 Nov", time: "8:00 pm", zone: "Perth time" }`, and
+ * `zone: ""` for Melbourne, Sydney, Canberra and Hobart (and Brisbane in
+ * winter). Every compact event line (cards, map, list rows) uses it.
  */
 export function startLabel(event: EventStartFields): StartLabel {
   const zone = eventZone(event.timeZone);
   return {
     date: formatEventDateShort(event.startsAt, zone),
     time: formatEventTime(event.startsAt, zone),
-    zone: zoneSuffix(event.timeZone, event.state).trim(),
+    zone: zoneSuffix(event.timeZone, event.state, event.startsAt).trim(),
   };
 }
 
@@ -94,12 +96,14 @@ export function startDateTimeLine(event: EventStartFields, { zone = true }: { zo
  * that ends after `now` says so ("Now on · until Sun 1 Nov", or "Now on ·
  * until 11:00 pm" when it ends today there), since its start date has
  * passed; anything else is the start's date and time. Never "Today!" or a
- * countdown. A time outside the platform's zone names its zone ("8:00 pm
- * Perth time", zoneSuffix); a Melbourne event's line is unchanged.
+ * countdown. A time on a clock other than Melbourne's at the start names
+ * its zone ("8:00 pm Perth time", zoneSuffix); a Melbourne event's line is
+ * unchanged.
  */
 export function cardDateLabel(event: SheltuhEvent, now: Date): CardDateLabel {
   const zone = eventZone(event.timeZone);
-  const suffix = zoneSuffix(event.timeZone, event.state);
+  // The start's rule (zoneSuffix), for the end time too: one event says its city everywhere, or nowhere.
+  const suffix = zoneSuffix(event.timeZone, event.state, event.startsAt);
   const start = Date.parse(event.startsAt);
   const end = event.endsAt ? Date.parse(event.endsAt) : Number.NaN;
   const nowMs = now.getTime();

@@ -215,9 +215,16 @@ describe("SignupForm", () => {
     const password = screen.getByLabelText("Password");
     const items = () => screen.getAllByRole("listitem").map((li) => li.textContent);
     const live = () => document.querySelector("[aria-live=polite]")?.textContent;
+    // Round 2: shown once the field is focused or filled (less small text before then), but its description throughout.
+    const list = () => screen.getAllByRole("listitem", { hidden: true })[0].closest("ul");
+    expect(list()).not.toBeVisible();
+    expect(describedBy(password)).toContain("Needed: 8+ characters");
+    fireEvent.focus(password);
+    expect(list()).toBeVisible();
+    fireEvent.blur(password);
+    expect(list()).toBeVisible();
     expect(items()).toEqual(["Needed: 8+ characters", "Needed: Uppercase letter", "Needed: Lowercase letter", "Needed: Number"]);
     expect(live()).toBe("");
-    expect(describedBy(password)).toContain("Needed: 8+ characters");
 
     fireEvent.change(password, { target: { value: "hunter" } });
     expect(items()).toEqual(["Needed: 8+ characters", "Needed: Uppercase letter", "Met: Lowercase letter", "Needed: Number"]);
@@ -264,12 +271,18 @@ describe("SignupForm", () => {
     await waitFor(() => expect(document.activeElement).toBe(email));
   });
 
-  it("puts the privacy line above the Sign up button", () => {
+  // Round 2 (the owner's iPhone screenshot): the page's one privacy line, right under Sign up, for the email form and
+  // Apple and Google alike.
+  it("puts the one privacy line right under the Sign up button", () => {
     renderWith(<SignupForm />);
     const privacy = screen.getByRole("link", { name: "Privacy Policy" });
     const button = screen.getByRole("button", { name: "Sign up" });
-    expect(privacy.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(within(button.closest("form") as HTMLElement).getByRole("link", { name: "Terms of Use" })).toBeInTheDocument();
+    expect(button.compareDocumentPosition(privacy) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(privacy).toHaveAttribute("href", "/privacy");
+    const form = button.closest("form") as HTMLElement;
+    expect(within(form).getByRole("link", { name: "Terms of Use" })).toHaveAttribute("href", "/terms");
+    expect(within(form).getAllByRole("link", { name: "Privacy Policy" })).toHaveLength(1);
+    expect(privacy.closest("p")).toHaveTextContent("By continuing you agree to the Terms of Use and Privacy Policy.");
   });
 });
 

@@ -1,8 +1,9 @@
 "use client";
 
+import Flame from "@/components/ui/Flame";
 import { stepperButtonClass } from "@/components/ui/stepper";
 import { formatTicketHeadline } from "@/lib/pricing";
-import { opensWhenText, ownLimit, ownLimitHint, type Quantities } from "@/lib/ticket-limits";
+import { isLow, opensWhenText, ownLimit, ownLimitHint, type Quantities } from "@/lib/ticket-limits";
 import type { TicketType } from "@/lib/types";
 
 /**
@@ -49,7 +50,14 @@ export default function GeneralAdmissionSteppers({
                 </p>
                 {!soldOut && !waitingText && (
                   <p id={hintId} className="text-xs text-muted">
-                    Standing. {ownLimit(ticket) > 0 ? ownLimitHint(ticket) : ""}
+                    Standing.{" "}
+                    {ownLimit(ticket) > 0 && (
+                      <>
+                        {/* Decorative, before "Only N left" only: the hint (this p) still describes the + button in words alone. */}
+                        {isLow(ticket) && <Flame />}
+                        {ownLimitHint(ticket)}
+                      </>
+                    )}
                   </p>
                 )}
               </div>

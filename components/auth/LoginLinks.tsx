@@ -15,7 +15,7 @@ export const FIND_TICKETS_HREF = "/help#where-are-my-tickets";
 export default function LoginLinks({ next }: { next?: string }) {
   const auth = useAuth();
   return (
-    <div className="flex flex-wrap items-center justify-between gap-x-4 body-s font-semibold">
+    <div className="-my-3 flex flex-wrap items-center justify-between gap-x-4 body-s font-semibold">
       {auth.configured && (
         <p>
           New here?{" "}

@@ -44,12 +44,15 @@ function TickIcon({ met }: { met: boolean }) {
 
 /**
  * A password input with a show/hide button inside its right edge. With
- * `rules`, a checklist of the password rules ticks as they're met: it
- * describes the field (aria-describedby), and a polite status line names
- * what's still missing, changing only when that set changes.
+ * `rules`, a checklist of the password rules ticks as they're met, shown once
+ * the field is focused or filled (less small text before then, Round 2): it
+ * describes the field (aria-describedby) either way, and a polite status line
+ * names what's still missing, changing only when that set changes.
  */
-export default function PasswordField({ rules = false, ...field }: FieldProps & { rules?: boolean }) {
+export default function PasswordField({ rules = false, onFocus, ...field }: FieldProps & { rules?: boolean }) {
   const [shown, setShown] = useState(false);
+  // The rules show once the field is focused or filled, and stay (never jumping away under a tap).
+  const [touched, setTouched] = useState(false);
   const rulesId = useId();
   const value = typeof field.value === "string" ? field.value : "";
   const missing = PASSWORD_RULES.filter((rule) => !rule.met(value));
@@ -60,6 +63,10 @@ export default function PasswordField({ rules = false, ...field }: FieldProps & 
       <AuthField
         {...field}
         type={shown ? "text" : "password"}
+        onFocus={(event) => {
+          setTouched(true);
+          onFocus?.(event);
+        }}
         describedBy={rules ? rulesId : undefined}
         inputAside={
           <button
@@ -77,7 +84,8 @@ export default function PasswordField({ rules = false, ...field }: FieldProps & 
       />
       {rules && (
         <>
-          <ul id={rulesId} className="grid grid-cols-2 gap-x-3 gap-y-1 text-sm">
+          {/* Hidden until then, but still the field's description (aria-describedby reads hidden text). */}
+          <ul id={rulesId} hidden={!touched && !value} className="grid grid-cols-2 gap-x-3 gap-y-1 text-sm">
             {PASSWORD_RULES.map((rule) => {
               const met = rule.met(value);
               return (

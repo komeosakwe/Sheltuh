@@ -102,16 +102,16 @@ describe("LoginForm: the no-password hint for Apple / Google accounts", () => {
     );
   }
 
-  it("describes the password field with it when a provider is on, naming only the ones that are", () => {
-    renderLogin("apple,google");
-    const hint = screen.getByText(
-      "Signed up with Google or Apple? Use the Google or Apple button below.",
-    );
-    expect(screen.getByLabelText("Password")).toHaveAttribute("aria-describedby", hint.id);
-    cleanup();
-
-    renderLogin("apple");
-    expect(screen.getByText("Signed up with Apple? Use the Apple button below.")).toBeInTheDocument();
+  // Round 2 (the owner's iPhone screenshot): no hint before a sign-in fails, so Apple and Google fit the first screen;
+  // the same advice comes with the error instead (below).
+  it("says nothing about Apple or Google accounts before a sign-in fails, a provider on or not", () => {
+    for (const flag of ["apple,google", "apple"]) {
+      renderLogin(flag);
+      expect(screen.queryByText(/Signed up with/)).toBeNull();
+      expect(screen.queryByText(/use that button/)).toBeNull();
+      expect(screen.getByLabelText("Password")).not.toHaveAttribute("aria-describedby");
+      cleanup();
+    }
   });
 
   it("has no hint with no provider on", () => {
@@ -141,6 +141,9 @@ describe("LoginForm: a wrong email or password, with Apple / Google offered", ()
     );
     expect(screen.getByLabelText("Email")).toHaveAttribute("aria-invalid", "true");
     expect(screen.getByLabelText("Password")).toHaveAttribute("aria-invalid", "true");
+    // Announced (the alert) and read with each field.
+    expect(screen.getByLabelText("Password")).toHaveAccessibleDescription(/If you signed up with Apple or Google, use that button below\./);
+    expect(screen.getByLabelText("Email")).toHaveAccessibleDescription(/If you signed up with Apple or Google, use that button below\./);
   });
 
   it("names only the provider that's on", async () => {

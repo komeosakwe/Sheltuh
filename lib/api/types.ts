@@ -1,6 +1,6 @@
 import type { RefundPolicy } from "@/lib/refund-policy";
 import type { TicketingMode } from "@/lib/ticketing";
-import type { EventCategory, EventClip, FeePolicy, ImageFocus } from "@/lib/types";
+import type { BannerFit, EventCategory, EventClip, FeePolicy, ImageFocus } from "@/lib/types";
 import type { FeaturedVideo } from "./featured-video";
 import type { OrganiserTag } from "./organiser-tags";
 import type { PublicEvent } from "./public-events";
@@ -9,7 +9,7 @@ import type { AustralianTimeZone, StateCode } from "@/lib/time-zones";
 
 export type { FeaturedVideo, FeaturedVideoProvider } from "./featured-video";
 export type { OrganiserTag } from "./organiser-tags";
-export type { EventClip, ImageFocus } from "@/lib/types";
+export type { BannerFit, EventClip, ImageFocus } from "@/lib/types";
 
 export type { TicketingMode } from "@/lib/ticketing";
 export type { RefundPolicy } from "@/lib/refund-policy";
@@ -340,6 +340,8 @@ export interface EventEditChanges {
   image?: TicketingFieldChange<"set">;
   /** An admin set, moved or cleared the photo's focus point. */
   imageFocus?: TicketingFieldChange<ImageFocus>;
+  /** An admin changed how the home banner shows the photo (`crop` or `whole`). */
+  bannerFit?: TicketingFieldChange<BannerFit>;
   /** An admin replaced or removed the seat map (or switched the event to external ticketing, removing it). */
   seatMap?: TicketingFieldChange<EventSeating>;
   /** An admin added, replaced or removed the clip (its versions). */
@@ -466,6 +468,18 @@ export interface ModerationLogEntry {
   changes?: TicketingChanges & EventEditChanges;
 }
 
+/**
+ * PATCH /events/{id}/image (and /admin/events/{id}/image): how the saved
+ * photo is shown, without touching its bytes. At least one key; an absent key
+ * keeps the stored value.
+ */
+export interface ImageDisplayInput {
+  /** The focus point, or null to clear it (the crop centres). */
+  focus?: ImageFocus | null;
+  /** How the home page's featured banner shows the photo. */
+  bannerFit?: BannerFit;
+}
+
 export interface EventRecord {
   organiserId: string;
   eventId: string;
@@ -504,6 +518,11 @@ export interface EventRecord {
   imageUrl?: string;
   /** Where the photo's subject is (percent from the left and top), only when set: cropped renderings centre on it. */
   imageFocus?: ImageFocus;
+  /**
+   * Only when the photo is to be shown whole in the home page's featured
+   * banner (absent: `crop`, the default, and always without a photo).
+   */
+  bannerFit?: "whole";
   /**
    * The event's clip, only when it has one (absent otherwise). Its `url`
    * plays only once the event is published; before that, the owner or an

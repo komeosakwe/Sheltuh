@@ -22,3 +22,24 @@ export default function LegalNote({ lead = "How we handle your details:" }: { le
     </p>
   );
 }
+
+/**
+ * The account pages' one privacy line (the owner's iPhone screenshots, Round 2: said once, near the
+ * actions): "By continuing you agree to the Terms of Use and Privacy Policy." Under /login's Apple
+ * and Google buttons and under /signup's Sign up, covering the email form and the buttons alike.
+ */
+export function AgreeNote() {
+  return (
+    <p data-agree-note="" className="text-sm leading-5 text-muted">
+      By continuing you agree to the{" "}
+      <Link href="/terms" className="text-foreground underline underline-offset-4">
+        Terms of Use
+      </Link>{" "}
+      and{" "}
+      <Link href="/privacy" className="text-foreground underline underline-offset-4">
+        Privacy Policy
+      </Link>
+      .
+    </p>
+  );
+}

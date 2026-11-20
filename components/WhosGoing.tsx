@@ -310,7 +310,7 @@ export default function WhosGoing() {
         {state.status === "error" && (
           <div className="flex flex-col items-start gap-3">
             <Notice tone="danger">{LOAD_ERROR}</Notice>
-            <Button variant="outline" size="sm" className="min-h-11" onClick={tryAgain}>
+            <Button variant="outline" size="md" onClick={tryAgain}>
               Try again
             </Button>
           </div>
@@ -367,10 +367,11 @@ export default function WhosGoing() {
         {listShown && (
           <Button
             variant="outline"
+            size="md"
             aria-expanded={listOpen}
             aria-controls={listOpen ? "wg-list" : undefined}
             onClick={toggleList}
-            className={`min-h-11 w-full gap-2 sm:w-auto ${countShown || others ? "mt-4" : ""}`.trim()}
+            className={`w-full gap-2 sm:w-auto ${countShown || others ? "mt-4" : ""}`.trim()}
           >
             See who&rsquo;s going
             <ChevronIcon open={listOpen} />
@@ -416,7 +417,7 @@ export default function WhosGoing() {
         {signedIn?.namesRateLimited && (
           <div className="flex flex-col items-start gap-3">
             <p className="text-sm">{RATE_LIMITED}</p>
-            <Button variant="outline" size="sm" className="min-h-11" onClick={tryAgain}>
+            <Button variant="outline" size="md" onClick={tryAgain}>
               Try again
             </Button>
           </div>
@@ -439,7 +440,7 @@ export default function WhosGoing() {
     return (
       <>
         {/* The shared disabled style (§6.1). */}
-        <Button size="lg" disabled className="w-full sm:w-auto">
+        <Button size="md" disabled className="w-full sm:w-auto">
           Add yourself
         </Button>
         <DemoNotice>Sample names.</DemoNotice>
@@ -451,7 +452,7 @@ export default function WhosGoing() {
     return (
       <>
         {/* The API withholds counts under three (including none), so this can't tell 0 from 1–2. */}
-        <ButtonLink variant="outline" size="lg" href={withNext("/login", `/events/${event.slug}`)} className={pillClass}>
+        <ButtonLink variant="outline" size="md" href={withNext("/login", `/events/${event.slug}`)} className={pillClass}>
           Sign in to see who&rsquo;s going
         </ButtonLink>
       </>
@@ -488,7 +489,7 @@ export default function WhosGoing() {
       return (
         <>
           {errorNotice}
-          <Button variant="outline" size="lg" busy={busy !== null} onClick={leave} className={pillClass}>
+          <Button variant="outline" size="md" busy={busy !== null} onClick={leave} className={pillClass}>
             {busy === "leave" ? "Removing…" : "Stop showing me"}
           </Button>
           <p className="flex flex-wrap gap-x-4 text-xs text-muted">
@@ -521,7 +522,7 @@ export default function WhosGoing() {
             </Link>
           </p>
           {errorNotice}
-          <Button variant="outline" size="lg" busy={busy !== null} onClick={join} className={pillClass} data-opt-in="">
+          <Button variant="outline" size="md" busy={busy !== null} onClick={join} className={pillClass} data-opt-in="">
             {busy === "join" ? "Adding you…" : "Show me as going"}
           </Button>
           <ConsentCopy className="text-xs leading-4 text-muted" />
@@ -538,7 +539,7 @@ export default function WhosGoing() {
           <Button
             id="wg-add"
             variant="outline"
-            size="lg"
+            size="md"
             aria-expanded={formOpen}
             aria-controls={formOpen ? "wg-form" : undefined}
             onClick={toggleForm}

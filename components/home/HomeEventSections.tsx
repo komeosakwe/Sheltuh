@@ -177,6 +177,7 @@ export default function HomeEventSections() {
           events={afterWeekend(ready.events, sections)}
           signals={signals}
           complete={ready.complete}
+          stateSaved={ready.preferredState !== null}
           mode={mode}
           now={ready.now}
           filters={filters}

@@ -122,9 +122,9 @@ describe("CommunitySection in live mode", () => {
     expect(card).not.toBeNull();
     expect(card).not.toHaveAttribute("data-community-example");
     expect(container.querySelector("#find-your-people")?.textContent).not.toMatch(/\d/);
-    // The scene cards still show, each with its tile, its link and no numbers.
+    // The scene cards still show, each with its filler photo (never a grey tile), its link and no numbers.
     expect(container.querySelectorAll("[data-community-scene]")).toHaveLength(3);
-    expect(container.querySelectorAll("[data-scene-fallback]")).toHaveLength(3);
+    expect(container.querySelectorAll("[data-scene-filler] img")).toHaveLength(3);
   });
 });
 
@@ -149,19 +149,58 @@ describe("CommunitySection's scene cards in live mode", () => {
     const art = container.querySelector<HTMLElement>("[data-community-scene='art']");
     const music = container.querySelector<HTMLElement>("[data-community-scene='live-music']");
     const popups = container.querySelector<HTMLElement>("[data-community-scene='pop-up']");
-    if (!art || !music || !popups) throw new Error("no scene cards");
+    if (!art || !music) throw new Error("no scene cards");
     expect(art.querySelector("[data-scene-going]")).toHaveTextContent("17 going this week");
     expect(art.querySelector("[data-scene-meta]")).toHaveTextContent("3 events this month");
     // Popular without a count: no number.
     expect(music.querySelector("[data-scene-going]")).toBeNull();
     expect(music.querySelector("[data-scene-meta]")).toHaveTextContent("1 event this month");
-    // No pop-up events at all: the icon tile, no count, and says so.
-    expect(popups.querySelector("[data-scene-fallback]")).not.toBeNull();
-    expect(popups.querySelector("[data-scene-going]")).toBeNull();
+    // No pop-up events at all: the card still shows (owner request, Round 2), on its filler photo, saying so.
+    if (!popups) throw new Error("no Pop-ups card");
+    expect(decodeURIComponent(popups.querySelector("[data-scene-filler] img")?.getAttribute("src") ?? "")).toContain(
+      "/events/vintage-market-stall.jpg",
+    );
     expect(popups.querySelector("[data-scene-meta]")).toHaveTextContent("No upcoming events");
+    expect(within(popups).getByRole("link", { name: "See events: Pop-ups" })).toHaveAttribute("href", "/events?category=pop-up");
+    expect(container.querySelectorAll("[data-community-scene]")).toHaveLength(3);
+    expect(container.querySelector("[data-community-scenes]")).toHaveClass("lg:grid-cols-3");
+    // These leads have no photo of their own: their scenes' fillers too, never a grey tile.
+    expect(decodeURIComponent(art.querySelector("[data-scene-filler] img")?.getAttribute("src") ?? "")).toContain("/events/gallery-opening.jpg");
+    expect(decodeURIComponent(music.querySelector("[data-scene-filler] img")?.getAttribute("src") ?? "")).toContain("/events/record-shop-dj.jpg");
     expect(container.querySelector("[data-scenes-note]")).toBeNull();
     expect(container).not.toHaveTextContent(SCENES_DEMO_NOTE);
     expect(container.querySelector("#find-your-people")).not.toHaveTextContent(/friends|members|follow/i);
+  });
+
+  it("with no scene's events loaded: all three scenes on their filler photos, each saying No upcoming events, and no note", async () => {
+    loadHomeEvents.mockReset().mockResolvedValue([event("theatre", "2026-10-22T08:00:00.000Z", "theatre")]);
+    loadHomeTrending.mockReset().mockResolvedValue([]);
+    const { container } = await renderLive();
+    expect(container.querySelector("[data-community-band]")).not.toBeNull();
+    const scenes = Array.from(container.querySelectorAll<HTMLElement>("[data-community-scene]"));
+    expect(scenes).toHaveLength(3);
+    for (const scene of scenes) {
+      expect(scene.querySelector("[data-scene-filler]")).toHaveAttribute("aria-hidden", "true");
+      expect(scene.querySelector("[data-scene-filler] img")).toHaveAttribute("alt", "");
+      expect(scene.querySelector("[data-scene-meta]")).toHaveTextContent("No upcoming events");
+    }
+    expect(container.querySelector("[data-scenes-note]")).toBeNull();
+  });
+
+  it("a scene whose lead event has a photo shows that photo, not its filler", async () => {
+    const withPhoto = { ...event("art-photo", "2026-10-22T08:00:00.000Z"), imageUrl: "/api/events/art-photo/image?v=1" };
+    loadHomeEvents.mockReset().mockResolvedValue([withPhoto, event("music", "2026-10-23T09:00:00.000Z", "live-music")]);
+    loadHomeTrending.mockReset().mockResolvedValue([]);
+    const { container } = await renderLive();
+    const art = container.querySelector<HTMLElement>("[data-community-scene='art']");
+    if (!art) throw new Error("no Art card");
+    expect(art.querySelector("[data-scene-filler]")).toBeNull();
+    const imgs = art.querySelectorAll("[data-scene-media] img");
+    expect(imgs).toHaveLength(1);
+    expect(imgs[0]).toHaveAttribute("src", "/api/events/art-photo/image?v=1");
+    expect(imgs[0].closest("[aria-hidden='true']")).not.toBeNull();
+    // The scene without one keeps its filler.
+    expect(container.querySelector("[data-community-scene='live-music'] [data-scene-filler]")).not.toBeNull();
   });
 
   it("leaves the event counts out when the loaded events may not be all of them", async () => {

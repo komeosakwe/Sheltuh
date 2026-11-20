@@ -1,8 +1,11 @@
 import { ApiError } from "@/lib/api/client";
 import { SessionExpiredError } from "@/lib/auth/session-token";
 
-/** Pills are 48px (btn-lg) below lg and back to the md size (44px min) from lg. */
-export const pillClass = "min-h-11 w-full sm:w-auto lg:px-6 lg:py-2.5 lg:text-xs/4.5";
+/**
+ * The Who's Going buttons (with `size="md"`): the rules' Secondary M, 48px with the button label at every
+ * width (Round 2: the 12px label from lg made "I'm going" small); full width on phones.
+ */
+export const pillClass = "w-full sm:w-auto";
 
 export const GENERIC_MUTATION_ERROR = "Couldn't update that. Try again.";
 

@@ -983,6 +983,57 @@ test.describe("/dashboard/[eventId]: photo focus at 375px", () => {
     await expect.poll(() => saved).toEqual([{ focus: { x: 35, y: 40 } }]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
   });
+
+  // Round 2 Part 2: "Show the whole photo in the home banner" (event_images.banner_fit), saved with the focus in one PATCH.
+  test("the banner toggle shows the whole photo in its 5:2 and 4:5 previews, under the scrim, and saves only the fit", async ({ page }) => {
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+      "base64",
+    );
+    const draft = freeDraft("evt-e2e-fit", { imageUrl: "/api/events/evt-e2e-fit/image?v=1" });
+    const saved: unknown[] = [];
+    await signedInAsOrganiser(page, (request, path) => {
+      const method = request.method();
+      if (method === "GET" && path === `/api/organisers/me/events/${draft.eventId}`) return { json: draft };
+      if (method === "PATCH" && path === `/api/events/${draft.eventId}`) return { json: draft };
+      if (method === "PATCH" && path === `/api/events/${draft.eventId}/image`) {
+        saved.push(request.postDataJSON());
+        return { json: { ...draft, bannerFit: "whole" } };
+      }
+      return null;
+    });
+    await page.route("**/api/events/evt-e2e-fit/image*", (route) =>
+      route.request().method() === "GET" ? route.fulfill({ contentType: "image/png", body: png }) : route.fallback(),
+    );
+    await page.goto(`/dashboard/${draft.eventId}`);
+    const toggle = page.getByRole("checkbox", { name: "Show the whole photo in the home banner" });
+    await expect(toggle).toBeVisible({ timeout: 30_000 });
+    await expect(toggle).not.toBeChecked();
+    // A 44px target: the whole label.
+    const label = await page.locator("label").filter({ has: toggle }).boundingBox();
+    expect(label?.height ?? 0).toBeGreaterThanOrEqual(44);
+
+    const preview = page.locator("[data-banner-preview] img");
+    await expect(preview).toHaveCSS("object-fit", "cover");
+    const box = await page.locator("[data-banner-preview] > div").first().boundingBox();
+    expect((box?.width ?? 0) / (box?.height ?? 1)).toBeCloseTo(2.5, 1);
+    const phone = page.locator("[data-banner-phone-preview] img");
+    const phoneBox = await page.locator("[data-banner-phone-preview] > div").first().boundingBox();
+    expect((phoneBox?.width ?? 0) / (phoneBox?.height ?? 1)).toBeCloseTo(0.8, 1);
+    // The home's scrim where the words sit, on both previews.
+    for (const frame of ["[data-banner-preview]", "[data-banner-phone-preview]"]) {
+      await expect(page.locator(`${frame} [data-preview-scrim]`)).toHaveCSS("background-image", /linear-gradient/);
+    }
+    await toggle.check();
+    await expect(preview).toHaveCSS("object-fit", "contain");
+    await expect(phone).toHaveCSS("object-fit", "contain");
+    await expect(phone).toHaveCSS("object-position", "50% 0%");
+
+    await page.getByRole("button", { name: "Save draft" }).click();
+    await expect.poll(() => saved).toEqual([{ bannerFit: "whole" }]);
+    await expect(toggle).toBeChecked();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+  });
 });
 
 // docs/architecture.md, "Sequential ticket releases": the tick box is on tickets after the first only.

@@ -56,7 +56,10 @@ describe("event page for a seated event (docs/design/seating.md §5.1)", () => {
     expect(within(tickets).queryByRole("list", { name: "How booking works" })).toBeNull();
     expect(within(tickets).getByRole("link", { name: "Choose your seats" })).toHaveAttribute("href", "/events/off-kilter-a-new-play/seats");
     expect(within(tickets).getByText("A$37.60 incl. booking fee")).toBeInTheDocument();
-    expect(within(tickets).getByText("Only 10 seats left")).toBeInTheDocument();
+    const left = within(tickets).getByText("Only 10 seats left");
+    // Round 2: a decorative 🔥 before the words, hidden from screen readers.
+    expect(left.firstElementChild).toHaveAttribute("data-flame");
+    expect(left.firstElementChild).toHaveAttribute("aria-hidden", "true");
     expect(within(tickets).getByText("Few seats left in Concession.")).toBeInTheDocument();
     const bar = container.querySelector("[data-buy-bar]") as HTMLElement;
     const cta = within(bar).getByRole("link", { name: "Choose seats" });
@@ -148,6 +151,37 @@ describe("a waiting general admission tier (sequential release)", () => {
     expect(within(row).queryByRole("button")).toBeNull();
     expect(screen.getByRole("button", { name: "Increase quantity for First release" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Increase quantity for Second release" })).toBeNull();
+  });
+});
+
+describe("the seat page's standing tiers: 'Only N left' (Round 2)", () => {
+  const tier = (id: string, remaining?: number) => ({
+    id,
+    name: `Tier ${id}`,
+    priceCents: 3500,
+    feePolicy: "buyer-pays" as const,
+    quantityAvailable: 50,
+    ...(remaining === undefined ? {} : { remaining }),
+  });
+
+  it("puts a decorative 🔥 before 'Only N left' only, and the + button's description stays the words", () => {
+    render(
+      <GeneralAdmissionSteppers
+        tiers={[tier("low", 3), tier("plenty")]}
+        quantities={{}}
+        capFor={() => ({ cap: 8, reason: "" })}
+        onChange={vi.fn()}
+        idPrefix="t"
+      />,
+    );
+    const low = screen.getByRole("button", { name: "Increase quantity for Tier low" });
+    expect(low).toHaveAccessibleDescription("Standing. Only 3 left.");
+    const hint = document.getElementById(low.getAttribute("aria-describedby") ?? "") as HTMLElement;
+    expect(hint.querySelector("[data-flame]")).toHaveAttribute("aria-hidden", "true");
+    // Nothing urgent about "Up to 8 per booking.": no flame.
+    const plenty = screen.getByRole("button", { name: "Increase quantity for Tier plenty" });
+    expect(plenty).toHaveAccessibleDescription("Standing. Up to 8 per booking.");
+    expect(document.querySelectorAll("[data-flame]")).toHaveLength(1);
   });
 });
 

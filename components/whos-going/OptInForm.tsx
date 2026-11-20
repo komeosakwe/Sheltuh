@@ -89,10 +89,10 @@ export default function OptInForm({
 
       <div className="flex flex-col gap-3 sm:flex-row">
         {/* busy, not disabled, so focus stays put and a failure can be retried from here. */}
-        <Button type="submit" variant="solid" size="lg" busy={busy} aria-describedby="wg-consent" className={pillClass}>
+        <Button type="submit" variant="solid" size="md" busy={busy} aria-describedby="wg-consent" className={pillClass}>
           {busy ? "Adding you…" : "Show me as going"}
         </Button>
-        <Button variant="outline" size="lg" busy={busy} onClick={onCancel} className={pillClass}>
+        <Button variant="outline" size="md" busy={busy} onClick={onCancel} className={pillClass}>
           Cancel
         </Button>
       </div>

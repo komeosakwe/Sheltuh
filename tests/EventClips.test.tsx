@@ -299,6 +299,8 @@ describe("the event page's photo (§5.3)", () => {
     const art = wrapper.firstElementChild as HTMLElement;
     expect(art).toHaveAttribute("aria-hidden", "true");
     expect(art).toHaveClass("aspect-[4/3]", "max-h-[22svh]", "w-full", "rounded-card", "lg:aspect-[3/2]");
+    // On a short phone (an iPhone SE), 8px less: what the 64px phone header took (e2e/event-page.spec.ts).
+    expect(art).toHaveClass("max-sm:[@media(max-height:700px)]:max-h-[calc(22svh-0.5rem)]");
     expect(container.querySelector("video")).toBeNull();
     fireEvent.click(button);
     expect(video()?.getAttribute("src")).toBe(CLIP.url);

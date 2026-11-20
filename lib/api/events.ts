@@ -5,6 +5,7 @@ import type { EventCategory, ImageFocus } from "@/lib/types";
 import { ApiError, apiFetch, type GetToken } from "./client";
 import type {
   EventRecord,
+  ImageDisplayInput,
   Paginated,
   PublishEventConflictCode,
   PublishEventResponse,
@@ -203,7 +204,7 @@ export async function getMyEvent(eventId: string, getToken: GetToken) {
 /** Uploads (or replaces) the event's photo. Returns the updated event, whose `imageUrl` is the new version. */
 export async function uploadEventImage(eventId: string, image: Blob, getToken: GetToken, focus?: ImageFocus | null) {
   const token = await getToken();
-  return apiFetch<EventRecord>(`/events/${eventId}/image${focusQuery(focus)}`, { method: "PUT", body: image, token });
+  return apiFetch<EventRecord>(`/events/${encodeURIComponent(eventId)}/image${focusQuery(focus)}`, { method: "PUT", body: image, token });
 }
 
 /** `?fx=&fy=` for an upload's focus point (none: no query, so the photo has no focus). */
@@ -211,15 +212,20 @@ export function focusQuery(focus?: ImageFocus | null): string {
   return focus ? `?fx=${focus.x}&fy=${focus.y}` : "";
 }
 
-/** Moves (or, with null, clears) the focus point of the event's saved photo. ApiError 409 when it has no photo or is locked. */
-export async function setEventImageFocus(eventId: string, focus: ImageFocus | null, getToken: GetToken) {
+/**
+ * Changes how the event's saved photo is shown: its focus point (null clears
+ * it) and/or the home banner's fit, in one request; an absent key keeps the
+ * stored value. Draft or rejected events only. ApiError 409 when it has no
+ * photo or is locked; 400 `fieldErrors.imageFocus` / `bannerFit`.
+ */
+export async function setEventImageDisplay(eventId: string, display: ImageDisplayInput, getToken: GetToken) {
   const token = await getToken();
-  return apiFetch<EventRecord>(`/events/${eventId}/image`, { method: "PATCH", body: { focus }, token });
+  return apiFetch<EventRecord>(`/events/${encodeURIComponent(eventId)}/image`, { method: "PATCH", body: display, token });
 }
 
 export async function deleteEventImage(eventId: string, getToken: GetToken) {
   const token = await getToken();
-  return apiFetch<EventRecord>(`/events/${eventId}/image`, { method: "DELETE", token });
+  return apiFetch<EventRecord>(`/events/${encodeURIComponent(eventId)}/image`, { method: "DELETE", token });
 }
 
 /**

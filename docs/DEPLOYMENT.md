@@ -516,7 +516,30 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           function is redefined. Can be applied before the app. Reversible:
           drop the functions and trigger, then the two columns (destructive:
           every organiser's chosen chips).
-      54. `20261201000000_member_upcoming_index.sql` (a member's upcoming
+      57. `20261129000000_event_banner_fit.sql` (how the home page's featured
+          banner shows an event's photo, docs/architecture.md "Photo focus":
+          `event_images.banner_fit`, text not null default `crop`, check
+          constraint `event_images_banner_fit_check` (`crop` or `whole`), and
+          the new `private.admin_set_event_image_display`). search_path
+          pinned, execute revoked from clients, no new table, grant or index.
+          **Apply it before deploying the app**: the new app selects
+          `banner_fit` in every event read, so on the old schema every event
+          page, list and the home fail. The previous app keeps working against
+          it (it never reads or writes the column; its photos get `crop`, as
+          now, and it keeps calling `admin_set_event_image_focus`, which is
+          unchanged), so it can be applied ahead of the deploy. Needs no new
+          environment variable. Not destructive. Reversible after deploying an
+          app that doesn't select the column: drop
+          `admin_set_event_image_display`, then the constraint and the column
+          (every `whole` setting is lost). If `npx supabase db push` applied
+          it (it's listed in `supabase_migrations.schema_migrations`), then
+          also run `npx supabase migration repair --status reverted
+          20261129000000` against the same database, so the next push applies
+          it again; then run `npx supabase db push --dry-run` against that
+          same database and confirm it lists
+          `20261129000000_event_banner_fit.sql` as pending before applying it
+          again. Applied in the SQL editor only, there's no entry to repair.
+      58. `20261201000000_member_upcoming_index.sql` (a member's upcoming
           events count, docs/architecture.md "API", `GET /me`: index
           `orders_paid_email_event_idx` on `orders (lower(buyer_email),
           event_id)` where `status = 'paid'`). Additive: no table, column,
