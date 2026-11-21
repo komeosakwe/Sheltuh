@@ -296,6 +296,17 @@ select version, file, coalesce(applied, false) as applied
       and exists (select 1 from col where attrelid = to_regclass('private.user_reports') and attname = 'reported_username')
       and exists (select 1 from fn where proname = 'file_profile_report' and prosrc like '%reported_username%')
       and exists (select 1 from pg_constraint where conname = 'profile_moderation_log_removed_check'
-                   and pg_get_constraintdef(oid) like '%username%'))
+                   and pg_get_constraintdef(oid) like '%username%')),
+    ('20261203000000', 'ticket_transfers',
+      to_regclass('private.ticket_transfers') is not null
+      and to_regclass('private.ticket_transfer_tokens') is not null
+      and exists (select 1 from fn where proname = 'accept_ticket_transfer')
+      and exists (select 1 from fn where proname = 'member_held_tickets')
+      and exists (select 1 from fn where proname = 'check_in_ticket' and prosrc like '%transferred%')
+      and exists (select 1 from fn where proname = 'set_going' and prosrc like '%member_held_tickets%')
+      and exists (select 1 from fn where proname = 'purge_operational_data' and prosrc like '%ticket_transfer_tokens%')
+      and exists (select 1 from col where attrelid = to_regclass('private.email_outbox') and attname = 'ticket_transfer_id')
+      and exists (select 1 from col where attrelid = to_regclass('public.ticket_check_ins') and attname = 'scanned_last4')
+      and exists (select 1 from pg_trigger where tgname = 'tickets_code_not_reissued' and not tgisinternal))
   ) as m(version, file, applied)
  order by version;

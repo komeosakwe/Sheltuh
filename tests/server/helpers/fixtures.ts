@@ -3,6 +3,7 @@ import { adminApproveEvent, adminApproveOrganiser } from "@/lib/server/handlers/
 import { publishEvent } from "@/lib/server/handlers/event-publish";
 import { createEventDraft, submitEventForReview } from "@/lib/server/handlers/events";
 import { applyAsOrganiser } from "@/lib/server/handlers/organisers";
+import { generateTicketCode } from "@/lib/server/ticket-issuance";
 import type { EventRecord } from "@/lib/server/types";
 import type { TestApi } from "./api";
 
@@ -159,13 +160,17 @@ export async function enablePayouts(api: TestApi, organiserId: string) {
 /**
  * Inserts an order straight into the database in any status, for tests that
  * only care that "an order with this email and status exists" (e.g. Who's
- * Going eligibility). Real checkouts go through createCheckout.
+ * Going eligibility). Real checkouts go through createCheckout. A paid order
+ * gets one ticket of the event's first ticket type, as a real one always has
+ * tickets (holding a ticket is per ticket: private.member_held_tickets);
+ * `tickets: 0` for none.
  */
 export async function insertOrder(
   api: TestApi,
   event: { eventId: string; organiserId: string },
   buyerEmail: string | null,
   status: "pending" | "paid" | "failed" | "oversold_refund_required" | "refunded" = "paid",
+  { tickets = status === "paid" ? 1 : 0 }: { tickets?: number } = {},
 ) {
   const orderId = `ord_${crypto.randomUUID().replace(/-/g, "")}`;
   await api.db.query(
@@ -174,6 +179,14 @@ export async function insertOrder(
      values ($1, $2, $3, 'Test event', $4, '[]'::jsonb, 0, 0, 0, 0, $5::public.order_status)`,
     [orderId, event.eventId, event.organiserId, buyerEmail, status],
   );
+  for (let i = 0; i < tickets; i += 1) {
+    await api.db.query(
+      `insert into public.tickets (code, order_id, event_id, ticket_type_id, ticket_type_name)
+       select $1, $2, tt.event_id, tt.id, tt.name from public.ticket_types tt
+        where tt.event_id = $3 order by tt.position, tt.id limit 1`,
+      [generateTicketCode(), orderId, event.eventId],
+    );
+  }
   return orderId;
 }
 
