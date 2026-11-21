@@ -93,6 +93,17 @@ function reasonAndDetails(result: DoorResult, now: Date, timeZone: string): { re
           </>
         ),
       };
+    case "transferred":
+      // The buyer's code after they sent the ticket on (docs/architecture.md, "Ticket transfers"): nothing to undo.
+      return {
+        reason: "Sent to someone else",
+        details: (
+          <>
+            {ticket && <TicketLine ticket={ticket} />}
+            <p className="text-base">This ticket was sent to someone else. Ask for the ticket they were sent.</p>
+          </>
+        ),
+      };
     case "other_event":
       return {
         reason: "Wrong event",

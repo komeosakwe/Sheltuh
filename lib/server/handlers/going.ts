@@ -136,9 +136,9 @@ async function myGoingStatus(db: Db, caller: Caller, eventId: string): Promise<M
             exists (select 1 from public.event_attendees a where a.event_id = $1 and a.user_id = $2) as going,
             exists (select 1 from public.profiles p where p.user_id = $2) as has_profile,
             exists (select 1 from private.social_suspensions s where s.user_id = $2) as suspended,
+            -- Holds a ticket: as private.set_going decides (member_held_tickets).
             ($3::text is not null and exists (
-              select 1 from public.orders o
-               where o.event_id = $1 and o.status = 'paid' and lower(o.buyer_email) = lower($3::text)
+              select 1 from private.member_held_tickets($2, $3::text) h where h.event_id = $1
             )) as has_ticket
        from (select 1) as one
        left join public.events e on e.id = $1 and e.status = 'published'`,

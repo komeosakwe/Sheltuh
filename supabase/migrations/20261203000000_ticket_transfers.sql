@@ -524,7 +524,7 @@ begin
   begin
     if (p_sender_user_id is not null
         and not private.take_rate_limit(p_sender_user_id, 'ticket_transfer_sends', p_account_limit, p_account_window))
-       or not private.take_platform_rate_limit('ticket_transfer_offers_to:' || private.email_recipient_hash(p_recipient_email),
+       or not private.take_platform_rate_limit('ticket_transfer_to:' || left(private.email_recipient_hash(p_recipient_email), 40),
                                                p_recipient_limit, p_recipient_window)
        or not private.take_platform_rate_limit('ticket_transfer_offers_daily', p_platform_limit, p_platform_window) then
       raise exception 'ticket transfer allowance used up' using errcode = 'SH429';
@@ -867,14 +867,15 @@ begin
     if not private.take_rate_limit(p_user_id, 'ticket_transfer_accepts', p_account_limit, p_account_window) then
       raise exception 'ticket transfer accept allowance used up' using errcode = 'SH429';
     end if;
+    -- A re-send's previous holding first: ticket_transfers_one_holding allows one current holding at a time.
+    if v_transfer.sender_kind = 'holder' then
+      update private.ticket_transfers x set superseded_at = now() where x.id = v_transfer.from_transfer_id;
+    end if;
     update private.ticket_transfers x
        set status = 'accepted', decided_at = now(), accepted_user_id = p_user_id, accepted_email = p_email,
            holder_name = p_holder_name, holder_notice_at = now(), issued_code = p_new_code,
            wallet_serial = gen_random_uuid()
      where x.id = v_id;
-    if v_transfer.sender_kind = 'holder' then
-      update private.ticket_transfers x set superseded_at = now() where x.id = v_transfer.from_transfer_id;
-    end if;
   exception
     when sqlstate 'SH429' then
       result := 'rate_limited';

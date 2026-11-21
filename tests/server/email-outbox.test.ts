@@ -449,10 +449,10 @@ describe("cron route, called every 5 minutes", () => {
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ claimed: 0, sent: 0, retrying: 0, failed: 0 });
       // Queueing member welcomes (private.queue_member_welcomes) and event reminders (private.queue_event_reminders),
-      // seven claims (ops alerts, everything else, then event reminders, messages to ticket holders and the
+      // expiring overdue ticket transfer offers (private.expire_ticket_transfers), seven claims (ops alerts, everything else, then event reminders, messages to ticket holders and the
       // organiser-published, organiser-joined and onboarding emails), recording the run and the trending
       // refresh that rides on this cron (refreshTrending: the payouts job took trending's slot in vercel.json).
-      expect(queries).toBe(11);
+      expect(queries).toBe(12);
     }
     expect(counting.sendEmail).not.toHaveBeenCalled();
     expect(await stored()).toEqual(before);
@@ -563,6 +563,11 @@ describe("admin health", () => {
         "onboarding",
         "event_reminder",
         "holder_message",
+        "transfer_offer",
+        "transfer_accepted",
+        "transfer_declined",
+        "transfer_expired",
+        "transfer_ticket",
       ].map(
         (kind) => ({ kind, ...zeros }),
       ),
