@@ -50,17 +50,28 @@ export default function Inbox({ getToken, selectedId }: { getToken: GetToken; se
   // or you move to another conversation or back to /messages (`selectedId`). A reload keeps the rows
   // on screen until the new ones arrive; if it fails, they stay, marked as possibly out of date.
   const syncVersion = useInboxVersion();
+  /** Try again after a failed reload: reloads, keeping the rows on screen meanwhile. */
+  const [reloads, setReloads] = useState(0);
+  // Each (re)load starts a new generation: a Load more begun before it is dropped when it lands, so
+  // it can't put back rows the reload took out (a conversation just blocked) or announce them.
+  // While a reload is in flight, Load more waits for it.
+  const listGeneration = useRef(0);
+  const listLoading = useRef(false);
   useEffect(() => {
     let cancelled = false;
+    listGeneration.current += 1;
+    listLoading.current = true;
     listConversations(getToken).then(
       (page) => {
         if (cancelled) return;
+        listLoading.current = false;
         setResult({ attempt, state: { status: "ready", items: page.items, nextCursor: page.nextCursor } });
         // The list is the truth about what's unread: bring the nav badge in step.
         refreshUnread?.();
       },
       (err: unknown) => {
         if (cancelled) return;
+        listLoading.current = false;
         setResult((current) =>
           current?.attempt === attempt && current.state.status === "ready"
             ? { attempt, state: { ...current.state, stale: true } }
@@ -71,7 +82,7 @@ export default function Inbox({ getToken, selectedId }: { getToken: GetToken; se
     return () => {
       cancelled = true;
     };
-  }, [getToken, attempt, refreshUnread, syncVersion, selectedId]);
+  }, [getToken, attempt, refreshUnread, syncVersion, selectedId, reloads]);
 
   // Focus moves only after something the person did (Load more), once it's rendered.
   useEffect(() => {
@@ -87,11 +98,13 @@ export default function Inbox({ getToken, selectedId }: { getToken: GetToken; se
   });
 
   async function loadMore() {
-    if (state.status !== "ready" || !state.nextCursor || loadingMore) return;
+    if (state.status !== "ready" || !state.nextCursor || loadingMore || listLoading.current) return;
+    const generation = listGeneration.current;
     setLoadingMore(true);
     setMoreError(null);
     try {
       const page = await listConversations(getToken, state.nextCursor);
+      if (generation !== listGeneration.current) return; // A reload replaced the list meanwhile.
       const known = new Set(state.items.map((c) => c.conversationId));
       const fresh = page.items.filter((c) => !known.has(c.conversationId));
       setResult({ attempt, state: { status: "ready", items: [...state.items, ...fresh], nextCursor: page.nextCursor } });
@@ -99,7 +112,7 @@ export default function Inbox({ getToken, selectedId }: { getToken: GetToken; se
       setAnnouncement(fresh.length > 0 ? `${fresh.length} more ${noun} shown.` : "That’s everything.");
       if (fresh[0]) pendingFocus.current = fresh[0].conversationId;
     } catch (err) {
-      setMoreError(loadErrorMessage(err, MORE_ERROR));
+      if (generation === listGeneration.current) setMoreError(loadErrorMessage(err, MORE_ERROR));
     } finally {
       setLoadingMore(false);
     }
@@ -120,6 +133,20 @@ export default function Inbox({ getToken, selectedId }: { getToken: GetToken; se
 
       {state.status === "ready" && state.items.length === 0 && <InboxEmpty />}
 
+      {/* A reload that failed (the list on screen may be out of date), with or without rows. */}
+      {state.status === "ready" && state.stale && (
+        <div role="status" className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2">
+          <p className="label-tag text-muted">Couldn&rsquo;t refresh this list.</p>
+          <button
+            type="button"
+            onClick={() => setReloads((n) => n + 1)}
+            className="label-tag inline-flex min-h-11 items-center underline underline-offset-4 hover:decoration-2"
+          >
+            Try again
+          </button>
+        </div>
+      )}
+
       {state.status === "ready" && state.items.length > 0 && (
         <>
           <ul ref={listRef} aria-label="Conversations" className={CONVERSATIONS_LIST_CLASS}>
@@ -131,11 +158,6 @@ export default function Inbox({ getToken, selectedId }: { getToken: GetToken; se
               />
             ))}
           </ul>
-          {state.stale && (
-            <p role="status" className="label-tag px-4 py-2 text-muted">
-              Couldn&rsquo;t refresh this list. It updates again when you open a conversation.
-            </p>
-          )}
           {state.nextCursor && (
             <div className="mt-2 flex flex-col items-start gap-3 px-2 pb-2">
               {moreError && <Notice tone="danger">{moreError}</Notice>}

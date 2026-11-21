@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import MessagesFrame from "@/components/messages/MessagesFrame";
 import { ThreadPageContent } from "@/components/messages/MessagesPages";
@@ -156,7 +156,56 @@ describe("the conversation list beside an open conversation", () => {
     const { rerenderAt } = renderSplit();
     await waitFor(() => expect(row("Leo")).toBeDefined());
     rerenderAt(null);
-    expect(await screen.findByText(/Couldn’t refresh this list/)).toHaveAttribute("role", "status");
+    const note = await screen.findByText("Couldn’t refresh this list.");
+    expect(note.closest('[role="status"]')).not.toBeNull();
     expect(row("Leo")).toBeDefined();
+    // Try again reloads, keeping the rows meanwhile.
+    api.listConversations.mockResolvedValue({ items: [LEO] });
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(row("Sam K.")).toBeUndefined());
+    expect(screen.queryByText("Couldn’t refresh this list.")).toBeNull();
+  });
+
+  it("says a reload failed even when the list is empty, with Try again", async () => {
+    segment = null;
+    api.listConversations.mockResolvedValueOnce({ items: [] }).mockRejectedValueOnce(new Error("offline"));
+    const { rerenderAt } = renderSplit();
+    expect(await screen.findByText("No messages yet")).toBeInTheDocument();
+    api.getMessages.mockResolvedValue(thread({ ...SAM, unread: false }));
+    rerenderAt("c1");
+    expect(await screen.findByText("Couldn’t refresh this list.")).toBeInTheDocument();
+    api.listConversations.mockResolvedValue({ items: [{ ...SAM, unread: false }] });
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(row("Sam K.")).toBeDefined());
+  });
+
+  it("drops a Load more that a reload overtook, so it can't bring back a blocked conversation", async () => {
+    segment = null;
+    const PRIYA = conversation("c3", "Priya R.");
+    let resolveMore: (page: { items: ConversationSummary[] }) => void = () => undefined;
+    let reload: { items: ConversationSummary[] } = { items: [{ ...SAM, unread: false }, LEO] };
+    let firstLoad = true;
+    api.listConversations.mockImplementation((_token: unknown, cursor?: string) => {
+      if (cursor) return new Promise((resolve) => (resolveMore = resolve));
+      if (firstLoad) {
+        firstLoad = false;
+        return Promise.resolve({ items: [{ ...SAM, unread: false }, LEO], nextCursor: "n2" });
+      }
+      return Promise.resolve(reload);
+    });
+    const { rerenderAt } = renderSplit();
+    fireEvent.click(await screen.findByRole("button", { name: "Load more" }));
+    expect(api.listConversations).toHaveBeenLastCalledWith(expect.any(Function), "n2");
+    // Meanwhile Sam is blocked elsewhere and the list reloads without them.
+    reload = { items: [LEO] };
+    api.getMessages.mockResolvedValue(thread(LEO));
+    rerenderAt("c2");
+    await waitFor(() => expect(row("Sam K.")).toBeUndefined());
+    // The old Load more lands: dropped, not merged onto the old rows, and not announced.
+    resolveMore({ items: [PRIYA] });
+    await act(async () => {});
+    expect(row("Sam K.")).toBeUndefined();
+    expect(row("Priya R.")).toBeUndefined();
+    expect(screen.queryByText(/more conversation/)).toBeNull();
   });
 });
