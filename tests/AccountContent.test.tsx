@@ -385,6 +385,10 @@ describe("AccountContent", () => {
       "/privacy#whos-going",
     );
     within(privacy).getByRole("button", { name: "Delete your profile" });
+    // Its disclosure heading sits under the card's h2.
+    expect(within(privacy).getByRole("heading", { level: 2, name: "Privacy" })).toBeInTheDocument();
+    expect(within(privacy).getByRole("heading", { level: 3, name: "Delete your profile" })).toBeInTheDocument();
+    expect(within(privacy).queryByRole("heading", { level: 2, name: "Delete your profile" })).toBeNull();
     const sign = screen.getByRole("region", { name: "Sign-in" });
     expect(within(sign).getByText("mia@example.com")).toBeInTheDocument();
     expect(within(sign).getByText("Email and password")).toBeInTheDocument();
