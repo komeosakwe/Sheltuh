@@ -68,7 +68,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261201000100_member_usernames.sql`. Never
+      newest, currently `20261202000000_checkout_expiry_claim_retry.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -590,6 +590,17 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           clearing and an admin's removal of a username would fail with
           `permission denied for table users`); raise it, as granting on
           Supabase's `auth` schema isn't ours to change lightly.
+      60. `20261202000000_checkout_expiry_claim_retry.sql` (the checkout
+          sweeper's claim, docs/architecture.md "Checkout pay deadline":
+          `private.claim_overdue_checkouts` redefined with the same
+          signature and columns; a claim that picked an order another
+          claim had just leased and committed retries the pick, up to 5
+          times, instead of returning nothing, which stopped the sweep's
+          run early). No table, column, index or grant changes; search_path
+          pinned and execute still revoked from clients. Needs file 52
+          before it. The previous app calls it the same way, so it can be
+          applied before or after the app. Not destructive. Reversible:
+          re-run the function from `20261123000000_checkout_pay_deadline.sql`.
 
       **Files 33 to 37 can be applied ahead of this deploy, with the
       previous app still live.** "The previous app" here is the build of

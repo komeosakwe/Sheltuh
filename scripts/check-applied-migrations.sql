@@ -296,6 +296,8 @@ select version, file, coalesce(applied, false) as applied
       and exists (select 1 from col where attrelid = to_regclass('private.user_reports') and attname = 'reported_username')
       and exists (select 1 from fn where proname = 'file_profile_report' and prosrc like '%reported_username%')
       and exists (select 1 from pg_constraint where conname = 'profile_moderation_log_removed_check'
-                   and pg_get_constraintdef(oid) like '%username%'))
+                   and pg_get_constraintdef(oid) like '%username%')),
+    ('20261202000000', 'checkout_expiry_claim_retry',
+      exists (select 1 from fn where proname = 'claim_overdue_checkouts' and prosrc like '%c_max_retries%'))
   ) as m(version, file, applied)
  order by version;

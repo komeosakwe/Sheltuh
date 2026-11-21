@@ -162,6 +162,9 @@ export async function runCheckoutExpiry(
         [CHECKOUT_PAY_MINUTES, CHECKOUT_EXPIRY_LEASE],
       );
       if (!job) {
+        // Nothing claimable now: a claim that lost an order to another claim's commit picks again
+        // (20261202000000_checkout_expiry_claim_retry.sql), so empty isn't one lost race. Locked orders are held by
+        // another worker, a webhook, the payment page or a checkout attempt; the next run takes whatever is left.
         reserved -= 1;
         drained = true;
         return;
