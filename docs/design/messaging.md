@@ -6,6 +6,12 @@ Tokens, type and shapes are the existing ones (`docs/design-system.md`); nothing
 
 ## Where it lives
 
+Since the 1120 account area, `/messages` and its threads are one split view inside the account shell
+(`components/messages/MessagesFrame.tsx`: the list beside the open conversation; above it on phones), with
+Latte's rows, bubbles and composer: see `docs/design/account-dashboard.md`. Behaviour below is unchanged,
+except that the thread has no "All messages" back link (the list is beside it) and `/messages` links to
+Blocked members only from Settings → Privacy.
+
 | Surface | Code |
 | --- | --- |
 | "Message" on Who's Going names | `components/messages/ComposeRequest.tsx` (`AttendeeMessageAction`, `ComposeRequestForm`), wired in `components/WhosGoing.tsx` via `NameList`'s `renderAction` |
