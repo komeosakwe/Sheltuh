@@ -5,7 +5,7 @@ import InitialsAvatar from "@/components/ui/InitialsAvatar";
 import type { GetToken } from "@/lib/api/client";
 import { useAvatarObjectUrl } from "./useAvatarObjectUrl";
 
-const SIZE_CLASS = { md: "size-8", face: "size-9", nav: "size-10", card: "size-12", lg: "size-24 sm:size-32" } as const;
+const SIZE_CLASS = { md: "size-8", face: "size-9", nav: "size-10", card: "size-12", lg: "size-24 sm:size-32", row: "size-11", sidebar: "size-28" } as const;
 
 /**
  * A member's photo in the avatar's circle (the rules' Shape board), or their

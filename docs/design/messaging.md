@@ -43,7 +43,7 @@ Tokens, type and shapes are the existing ones (`docs/design-system.md`); nothing
   announced). Bodies are React text in `whitespace-pre-wrap break-words`: no HTML, no
   auto-linking. Yours: ink on the right; theirs: paper on the left; time under each. The
   composer is sticky at the foot (safe-area padding, 16px text on phones,
-  `interactiveWidget: "resizes-content"` in `app/messages/layout.tsx` so Android keeps it above
+  `interactiveWidget: "resizes-content"` in `app/(account)/messages/layout.tsx` so Android keeps it above
   the keyboard). Ctrl/Cmd+Enter sends; Enter is a new line. After sending, focus returns to the
   box and "Message sent." is announced.
   - `request_received`: under the messages, "{name} wants to message you. Reply below to accept…

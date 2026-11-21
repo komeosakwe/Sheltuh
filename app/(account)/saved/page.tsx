@@ -1,14 +1,14 @@
 import type { Metadata } from "next";
+import AccountPageHead from "@/components/account/AccountPageHead";
 import SavedPageContent from "@/components/favourites/SavedPageContent";
-import { Page, PageHeader } from "@/components/ui/Section";
 
 export const metadata: Metadata = { title: "Saved — Sheltüh" };
 
 export default function SavedPage() {
   return (
-    <Page>
-      <PageHeader size="md" eyebrow="Your list" title="Saved" intro="Only you can see this list." />
+    <>
+      <AccountPageHead title="Saved" intro="Events you’ve saved for later." />
       <SavedPageContent />
-    </Page>
+    </>
   );
 }
