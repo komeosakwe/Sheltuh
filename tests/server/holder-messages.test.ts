@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { adminSuspendOrganiser } from "@/lib/server/handlers/admin";
+import { RECIPIENT_CHANGED } from "@/lib/server/email-outbox";
 import { runEmailOutboxCron } from "@/lib/server/handlers/email-outbox";
 import {
   adminCancelHolderMessage,
@@ -660,6 +661,43 @@ describe("sending", () => {
     expect(holderMails()).toEqual([]);
     expect(await jobs()).toEqual([{ status: "failed", attempts: 1, last_error: reason }]);
     expect(await recipients()).toEqual([{ sent: false, skip_reason: reason }]);
+  });
+
+  describe("an order whose email was changed (docs/architecture.md, \"Buyer email checks\")", () => {
+    /** Makes `orderId` a card order (only those can change), then changes its email as the paying browser does. */
+    async function changeEmail(orderId: string, email: string) {
+      await api.db.query(`update public.orders set subtotal_cents = 3000, total_cents = 3000 where id = $1`, [orderId]);
+      const [{ result }] = await api.db.query<{ result: string }>(`select private.buyer_change_order_email($1, $2) as result`, [
+        orderId,
+        email,
+      ]);
+      expect(result).toBe("changed");
+    }
+
+    it("a message queued before the change goes to neither address; one queued after goes to the new one", async () => {
+      const [orderId] = await holders(["a@example.com"]);
+      expect((await post(validBody({ expectedRecipients: 1 }))).status).toBe(201);
+      await changeEmail(orderId, "right@example.com");
+      await api.runDeferred();
+      expect(holderMails()).toEqual([]);
+      expect(await jobs()).toEqual([{ status: "failed", attempts: 1, last_error: RECIPIENT_CHANGED }]);
+      expect(await recipients()).toEqual([{ sent: false, skip_reason: RECIPIENT_CHANGED }]);
+
+      await nextDay();
+      expect((await post(validBody({ expectedRecipients: 1, subject: "Set times are up" }))).status).toBe(201);
+      await api.runDeferred();
+      expect(holderMails().map((m) => m.to)).toEqual(["right@example.com"]);
+    });
+
+    it("the old address still gets it if it holds another paid order for the event", async () => {
+      await holders(["a@example.com", "a@example.com"]);
+      expect((await post(validBody({ expectedRecipients: 1 }))).status).toBe(201);
+      const [{ order_id }] = await api.db.query<{ order_id: string }>(`select order_id from private.holder_message_recipients`);
+      await changeEmail(order_id, "right@example.com");
+      await api.runDeferred();
+      expect(holderMails().map((m) => m.to)).toEqual(["a@example.com"]);
+      expect(await recipients()).toEqual([{ sent: true, skip_reason: null }]);
+    });
   });
 
   it("retries a failed send with the same message, and logs no address or text", async () => {

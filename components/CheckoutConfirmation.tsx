@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode, type Ref } from "react";
+import OrderEmail from "@/components/checkout/OrderEmail";
 import { SupportSummaryLine } from "@/components/checkout/SupportSheltuh";
 import TicketStub from "@/components/tickets/TicketStub";
 import WalletButtons from "@/components/tickets/WalletButtons";
@@ -26,6 +27,7 @@ import {
 } from "@/lib/checkout-pay";
 import { eventZone, formatAud, formatEventWhen } from "@/lib/format";
 import { REFUND_ACL_STATEMENT, refundTermsLine } from "@/lib/refund-policy";
+import { forgetOrderAccessIfFinal, orderAccessFor } from "@/lib/order-access";
 import { placeName } from "@/lib/place";
 import { SUPPORT_REFUND_NOTE } from "@/lib/support";
 import { ticketNameWithGroup } from "@/lib/ticket-groups";
@@ -37,7 +39,8 @@ import type { CustomerOrder, StateCode } from "@/lib/api/types";
 export type LoadState =
   | { status: "loading" }
   | { status: "confirming" } // paid on Stripe's side, waiting on our webhook to land
-  | { status: "ready"; order: CustomerOrder }
+  // `access`: this browser's order access token, when it paid for the order (lib/order-access.ts).
+  | { status: "ready"; order: CustomerOrder; access?: string }
   | { status: "oversold"; order: CustomerOrder }
   | { status: "not-found" }
   | { status: "error"; message: string }
@@ -111,9 +114,20 @@ const PAYMENT_CHECK_AFTER_POLLS = 2;
 export default function CheckoutConfirmation() {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("session_id");
-  const [state, setState] = useState<LoadState>({ status: "loading" });
+  // What the page has loaded, with the session_id and the visit (each run of the load below) it was loaded
+  // for. Another session_id in the same tab (the component stays mounted) is loading until its own answer is
+  // in: never the previous order's tickets, token or settled effects under the new URL.
+  const [loaded, setLoaded] = useState<{ sessionId: string | null; visit: number; state: LoadState }>({
+    sessionId,
+    visit: 0,
+    state: { status: "loading" },
+  });
+  const state: LoadState = loaded.sessionId === sessionId ? loaded.state : { status: "loading" };
   const pollCount = useRef(0);
   const headingRef = useRef<HTMLHeadingElement>(null);
+  // The visit the page is on now: an email change's answer from an earlier one (another order, or this one
+  // before the tab went elsewhere and came back) isn't shown.
+  const currentVisit = useRef(0);
 
   // Settled (paid, refunded or oversold, or Stripe has the payment): going Back to the seat page mustn't
   // try to release this order's seats. Not before: a checkout that's still open (payment not
@@ -134,6 +148,9 @@ export default function CheckoutConfirmation() {
 
   useEffect(() => {
     let cancelled = false;
+    const visit = (currentVisit.current += 1);
+    pollCount.current = 0;
+    const setState = (next: LoadState) => setLoaded({ sessionId, visit, state: next });
 
     if (!sessionId) {
       // Deferred via queueMicrotask so the effect body itself never calls
@@ -145,6 +162,10 @@ export default function CheckoutConfirmation() {
         cancelled = true;
       };
     }
+
+    // This browser's order access token, if it paid for the order (lib/order-access.ts): sent on every read, so
+    // the answer carries the full email and whether it can be changed.
+    const access = orderAccessFor(sessionId);
 
     // What Stripe says about this checkout (read-only, asked once): "processing" when it has the payment.
     let stripeHasPayment = false;
@@ -191,7 +212,7 @@ export default function CheckoutConfirmation() {
 
     async function poll() {
       try {
-        const result = await getOrderBySession(sessionId as string);
+        const result = await getOrderBySession(sessionId as string, access);
         if (cancelled) return;
 
         if (result.status === "pending") {
@@ -218,7 +239,9 @@ export default function CheckoutConfirmation() {
 
         const order = result;
         if (order.status === "paid") {
-          setState({ status: "ready", order });
+          // The server says the token can't change anything any more: this device stops keeping it.
+          if (access) forgetOrderAccessIfFinal(sessionId as string, order.emailChange);
+          setState({ status: "ready", order, access });
         } else if (order.status === "oversold_refund_required" || order.status === "refunded") {
           setState({ status: "oversold", order });
         } else {
@@ -413,8 +436,27 @@ export default function CheckoutConfirmation() {
         {/* The reference is a machine code (owner decision, 13 Nov 2026): the one mono in the strap, so 0 and O read apart. */}
         <Strap label="Order confirmed" note={<span className="font-mono">{order.reference}</span>} />
         <h1 className="display-md break-words">{order.eventTitle}</h1>
-        {order.maskedEmail && (
-          <p className="text-sm text-muted">Tickets sent to {order.maskedEmail}.</p>
+        {sessionId && (
+          <OrderEmail
+            // A fresh form for each visit: nothing typed for one order (or an earlier visit) is sent for another.
+            key={`${sessionId}#${loaded.visit}`}
+            sessionId={sessionId}
+            order={order}
+            access={state.access}
+            onOrder={(next) => {
+              // The token is this order's: forgotten when final, whatever the page shows by now.
+              forgetOrderAccessIfFinal(sessionId, next.emailChange);
+              if (currentVisit.current !== loaded.visit) return;
+              const show = (shown: LoadState) => setLoaded({ sessionId, visit: loaded.visit, state: shown });
+              // As the load does: paid stays here; refunded (say, while the change was being sent) gets its own page.
+              if (next.status === "paid") show({ status: "ready", order: next, access: state.access });
+              else if (next.status === "oversold_refund_required" || next.status === "refunded") show({ status: "oversold", order: next });
+              else show({ status: "error", message: "This order couldn't be completed." });
+            }}
+            onUnavailable={(message) => {
+              if (currentVisit.current === loaded.visit) setLoaded({ sessionId, visit: loaded.visit, state: { status: "error", message } });
+            }}
+          />
         )}
       </div>
 

@@ -67,7 +67,12 @@ const SALT_CONTEXT = "sheltuh/client-key/v1";
 /** The same, for order keys: a different salt, so an order key never equals a client key. */
 const ORDER_SALT_CONTEXT = "sheltuh/order-key/v1";
 
-function keyedHash(context: string, value: string, secret: string): string {
+/**
+ * HMAC-SHA256 of `value` under a salt derived from `secret` and labelled
+ * `context`, 64 hex characters. Each use has its own label, so no two kinds
+ * of key derived from the same secret can ever be equal.
+ */
+export function keyedHash(context: string, value: string, secret: string): string {
   const salt = createHmac("sha256", secret).update(context, "utf8").digest();
   return createHmac("sha256", salt).update(value, "utf8").digest("hex");
 }

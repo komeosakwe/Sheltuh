@@ -149,10 +149,11 @@ test.describe("the sticky buy bar at 390×844", () => {
     const tickets = page.locator("#tickets");
     await tickets.getByRole("button", { name: "Increase quantity for Second release" }).click({ timeout: 30_000 });
     await tickets.getByLabel("Your name").fill("Alex Doe");
+    await tickets.getByLabel("Email for your tickets").fill("alex@example.com");
     await page.locator("[data-buy-bar]").getByRole("button", { name: "Buy tickets" }).click();
     await expect(page).toHaveURL(`/checkout/pay?order=${ORDER_ID}`);
     expect(seen.checkouts).toEqual([
-      { lineItems: [{ ticketTypeId: expect.stringContaining("cinder-warehouse-sessions-1"), quantity: 1 }], buyerName: "Alex Doe" },
+      { lineItems: [{ ticketTypeId: expect.stringContaining("cinder-warehouse-sessions-1"), quantity: 1 }], buyerEmail: "alex@example.com", buyerName: "Alex Doe" },
     ]);
   });
 
@@ -260,7 +261,7 @@ test.describe("the bar before anything is chosen, at 390×844", () => {
 test.describe("desktop keeps the panel's Checkout and has no buy bar", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
-  test("the ticket panel never checks out: Buy tickets → focuses the tickets heading, then Review order the name, then Checkout", async ({ page }) => {
+  test("the ticket panel never checks out: Buy tickets → focuses the tickets heading, then Review order the name, the email, then Checkout", async ({ page }) => {
     await mockApi(page);
     await page.goto(`/events/${sample!.slug}`);
     const panel = page.locator("[data-buy-panel]");
@@ -289,6 +290,10 @@ test.describe("desktop keeps the panel's Checkout and has no buy bar", () => {
     await review.click();
     await expect(tickets.getByLabel("Your name")).toBeFocused();
     await tickets.getByLabel("Your name").fill("Mia Tran");
+    // Then the ticket email (every checkout asks for it).
+    await review.click();
+    await expect(tickets.getByLabel("Email for your tickets")).toBeFocused();
+    await tickets.getByLabel("Email for your tickets").fill("mia@example.com");
     await review.click();
     const checkout = tickets.getByRole("button", { name: "Checkout" });
     await expect(checkout).toBeFocused();

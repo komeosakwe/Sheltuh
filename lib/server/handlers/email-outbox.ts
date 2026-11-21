@@ -273,10 +273,34 @@ function sum(rows: HealthRow[], pick: (row: HealthRow) => number): number {
   return rows.reduce((n, r) => n + pick(r), 0);
 }
 
-/** GET /api/admin/emails?status=failed&cursor — newest first. Default `failed`. */
+/** An order's short reference as an admin types it: 8 hex characters, with or without "#", any case. */
+const ORDER_REFERENCE = /^#?([0-9a-f]{8})$/i;
+
+/**
+ * GET /api/admin/emails?status=failed&cursor — newest first. Default `failed`.
+ * With `reference` (an order's short reference, orderReference): that
+ * order's ticket email whatever its status, for support to find a buyer's
+ * order (and change its email); `status` is then ignored. A reference that
+ * isn't 8 hex characters is a 400. A prefix match on the order id: a scan of
+ * the outbox's ticket emails (no index on a prefix; fine at this size), and
+ * 32 bits could in theory match more than one order, so it pages as a list.
+ */
 export const adminListEmailJobs: Handler = async (req, _params, { db, verifyAccessToken }) => {
   await requireAdmin(req, verifyAccessToken);
   const qs = new URL(req.url).searchParams;
+  const reference = qs.get("reference");
+  if (reference !== null) {
+    const match = ORDER_REFERENCE.exec(reference.trim());
+    if (!match) throw new HttpError(400, "reference must be an order's 8-character reference, like #7C1F2E0A.");
+    const limit = parseLimit(qs.get("limit"));
+    const offset = decodeCursor(qs.get("cursor"));
+    const rows = await db.query(
+      `${ADMIN_EMAIL_JOB_SELECT} where j.kind = 'ticket_email' and j.order_id like $1
+        order by j.created_at desc, j.id desc limit $2 offset $3`,
+      [`ord_${match[1].toLowerCase()}%`, limit + 1, offset],
+    );
+    return okPrivate(toPage(rows.map(toAdminEmailJob), offset, limit));
+  }
   const status = (qs.get("status") ?? "failed") as EmailJobStatus;
   if (!EMAIL_JOB_STATUSES.includes(status)) {
     throw new HttpError(400, `status must be one of: ${EMAIL_JOB_STATUSES.join(", ")}`);

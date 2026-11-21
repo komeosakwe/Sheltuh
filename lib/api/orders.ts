@@ -1,6 +1,14 @@
+import { keepCheckoutAccess } from "@/lib/order-access";
 import { runCheckoutAttempt } from "./checkout-attempt";
 import { apiFetch, type GetToken } from "./client";
-import type { CheckoutResult, ConfirmFreeOrderResult, CustomerOrderLookup, OrderPaymentLookup } from "./types";
+import {
+  ORDER_ACCESS_HEADER,
+  type CheckoutResult,
+  type ConfirmFreeOrderResult,
+  type CustomerOrderLookup,
+  type OrderEmailChangeResult,
+  type OrderPaymentLookup,
+} from "./types";
 
 /** The wallets a ticket can be added to (CustomerOrder.wallet). */
 export type WalletProvider = "google" | "apple";
@@ -17,9 +25,12 @@ export interface CheckoutLineItemInput {
  * order that needs confirming by email, `{status: "confirmation_sent"}`
  * (show "check your inbox").
  *
- * `buyerEmail` is required when the order is free (it's the only way the
- * tickets reach the buyer). For paid orders it's optional: Stripe collects
- * the email, prefilled with this one when it's given.
+ * `buyerEmail`: where the tickets are sent, checked by the server (its
+ * format, a typo list, then whether its domain takes email: 400
+ * `fieldErrors.buyerEmail` with `code` `email_typo` / `email_no_mail` and
+ * any `suggestion` in `err.body`). Required when the order is free; the
+ * panels send it for paid orders too, and Stripe's form is prefilled with it
+ * (the API still accepts a paid order without one for one release).
  *
  * `buyerName`: the name shared with the organiser (lib/buyer-details.ts),
  * asked for on every checkout (the API still accepts none for one release).
@@ -39,6 +50,10 @@ export interface CheckoutLineItemInput {
  * account's own (verified) email then issues the tickets straight away; any
  * other email still gets a confirmation link. A token that can't be had is
  * simply left off (the order goes the guest way).
+ *
+ * A paid checkout's `orderAccess` (the order access token) is kept on this
+ * device as it answers (lib/order-access.ts): the confirmation page sends it
+ * back (getOrderBySession, changeOrderEmail).
  *
  * Sent with an `Idempotency-Key` (lib/api/checkout-attempt.ts): calling
  * this again with the same basket while it's in flight shares the one
@@ -74,7 +89,7 @@ export async function createCheckoutSession(
     ...(trackingCode ? { trackingCode } : {}),
     ...(supportCents && supportCents > 0 ? { supportCents } : {}),
   };
-  return runCheckoutAttempt(eventId, body, async (key) => {
+  const result = await runCheckoutAttempt(eventId, body, async (key) => {
     let token: string | undefined;
     if (getToken) {
       try {
@@ -90,6 +105,8 @@ export async function createCheckoutSession(
       headers: { "idempotency-key": key },
     });
   });
+  // A paid checkout's order access token stays on this device (lib/order-access.ts), for the confirmation page.
+  return keepCheckoutAccess(result);
 }
 
 /**
@@ -111,9 +128,45 @@ export async function confirmFreeOrder(token: string) {
  * A still-pending order (webhook hasn't landed yet) comes back with only
  * `status` set — no tickets, no totals. ApiError 404 for an unknown or
  * malformed id.
+ *
+ * `orderAccess`: the order's token from the checkout's answer
+ * (CheckoutResult.orderAccess), when this browser has it. It goes in the
+ * `x-order-access` header (never the URL), and the answer then also carries
+ * the full `email` and `emailChange`. Without it (any other device, or the
+ * ticket email's link), the masked email only, and none once the email has
+ * been changed.
  */
-export async function getOrderBySession(sessionId: string) {
-  return apiFetch<CustomerOrderLookup>(`/orders/by-session/${encodeURIComponent(sessionId)}`);
+export async function getOrderBySession(sessionId: string, orderAccess?: string) {
+  return apiFetch<CustomerOrderLookup>(`/orders/by-session/${encodeURIComponent(sessionId)}`, {
+    ...(orderAccess ? { headers: { [ORDER_ACCESS_HEADER]: orderAccess } } : {}),
+  });
+}
+
+/**
+ * Public, for the paying browser only — the buyer's one change of a paid
+ * order's email (OrderEmailChangeResult), with the order's token
+ * (`orderAccess`, sent as the `x-order-access` header, never in the URL).
+ * `getToken`: pass it when signed in, so the order can be moved to the
+ * account's own confirmed address (a token that can't be had is left off).
+ * ApiError: 404 unknown order or wrong token; 400 `fieldErrors.email`, or
+ * `code` `email_typo` / `email_no_mail` with an optional `suggestion` (read
+ * from `err.body`); 409 OrderEmailChangeErrorCode; 429 `rate_limited`.
+ */
+export async function changeOrderEmail(sessionId: string, email: string, orderAccess: string, getToken?: GetToken) {
+  let token: string | undefined;
+  if (getToken) {
+    try {
+      token = await getToken();
+    } catch {
+      token = undefined;
+    }
+  }
+  return apiFetch<OrderEmailChangeResult>(`/orders/by-session/${encodeURIComponent(sessionId)}/email`, {
+    method: "POST",
+    body: { email },
+    token,
+    headers: { [ORDER_ACCESS_HEADER]: orderAccess },
+  });
 }
 
 /**

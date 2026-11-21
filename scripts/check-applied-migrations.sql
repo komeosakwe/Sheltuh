@@ -274,6 +274,13 @@ select version, file, coalesce(applied, false) as applied
     ('20261129000000', 'event_banner_fit',
       exists (select 1 from col where attrelid = to_regclass('public.event_images') and attname = 'banner_fit')
       and exists (select 1 from fn where proname = 'admin_set_event_image_display')),
+    ('20261130000000', 'order_email_changes',
+      to_regclass('private.order_email_changes') is not null
+      and to_regclass('private.order_email_changes_one_buyer_change') is not null
+      and exists (select 1 from fn where proname = 'mask_email')
+      and exists (select 1 from fn where proname = 'order_email_change_block')
+      and exists (select 1 from fn where proname = 'buyer_change_order_email')
+      and exists (select 1 from fn where proname = 'admin_change_order_email')),
     ('20261201000000', 'member_upcoming_index',
       to_regclass('public.orders_paid_email_event_idx') is not null),
     ('20261201000100', 'member_usernames',

@@ -3,7 +3,9 @@ import Stripe from "stripe";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { clientKey } from "@/lib/server/client-key";
 import { CHECKOUT_ATTEMPT, CHECKOUT_LIMITS, checkoutFingerprint, STRIPE_SESSION_REQUEST } from "@/lib/server/checkout-attempts";
+import { EMAIL_DOMAIN_LOOKUP_LIMIT } from "@/lib/server/email-domain";
 import { drainEmailOutbox } from "@/lib/server/email-outbox";
+import { orderAccessToken } from "@/lib/server/order-access";
 import {
   CHECKOUT_RATE_LIMITS,
   cancelPendingOrder,
@@ -166,12 +168,17 @@ async function nextMinute() {
 
 describe("the same Idempotency-Key and basket", () => {
   it("a lost response's retry gets the same order and session (200), with no second order or Stripe call", async () => {
-    const first = await checkout();
+    const first = await checkout(BASKET, { ip: IP });
     expect(first.status).toBe(201);
     expect(first.headers.get("cache-control")).toBe("private, no-store");
-    expect(first.body).toEqual({ url: payPage(first.body.orderId as string), orderId: first.body.orderId });
+    expect(first.body).toEqual({
+      url: payPage(first.body.orderId as string),
+      orderId: first.body.orderId,
+      // The order access token, for this client only (lib/server/order-access.ts).
+      orderAccess: orderAccessToken(first.body.orderId as string, WEBHOOK_SECRET),
+    });
 
-    const again = await checkout({ ...BASKET, buyerEmail: " fan@example.com " }); // the same email, normalised
+    const again = await checkout({ ...BASKET, buyerEmail: " fan@example.com " }, { ip: IP }); // the same email, normalised
     expect(again.status).toBe(200);
     expect(again.body).toEqual(first.body);
     expect(again.headers.get("idempotent-replayed")).toBe("true");
@@ -196,7 +203,7 @@ describe("the same Idempotency-Key and basket", () => {
 
   it("a double click (two identical requests at once): one order and one session; the other is told to wait, then replays", async () => {
     const open = stripe.hold();
-    const results = [checkout(), checkout()];
+    const results = [checkout(BASKET, { ip: IP }), checkout(BASKET, { ip: IP })];
     const early = await Promise.race(results);
     expect(early.status).toBe(409);
     expect(early.body).toMatchObject({ code: "checkout_in_progress", retryAfterSeconds: 2 });
@@ -209,7 +216,7 @@ describe("the same Idempotency-Key and basket", () => {
     expect(createCalls()).toHaveLength(1);
     expect(await orders()).toHaveLength(1);
 
-    const retried = await checkout();
+    const retried = await checkout(BASKET, { ip: IP });
     expect(retried.status).toBe(200);
     expect(retried.body).toEqual(done.body);
   });
@@ -229,6 +236,9 @@ describe("the same Idempotency-Key and basket", () => {
       expect(text).not.toContain("_secret_");
       expect(res.body).not.toHaveProperty("url");
       expect(res.body).not.toHaveProperty("orderId");
+      // Nor the order access token: it goes only to the client that started the checkout.
+      expect(text).not.toContain(first.body.orderAccess as string);
+      expect(res.body).not.toHaveProperty("orderAccess");
     }
     expect(createCalls()).toHaveLength(1);
     expect(await api.db.query(`select * from private.checkout_attempts`)).toEqual([before]);
@@ -237,11 +247,31 @@ describe("the same Idempotency-Key and basket", () => {
     expect([mine.status, mine.body]).toEqual([200, first.body]);
   });
 
-  it("no client IP binds to no client IP: such a replay works, one with an IP is another client", async () => {
+  it("no client IP binds to no client IP: such a replay works, without the order access token; one with an IP is another client", async () => {
     const first = await checkout();
     expect(first.status).toBe(201);
-    expect((await checkout()).status).toBe(200);
+    // The new attempt's answer carries it, as always.
+    expect(first.body.orderAccess).toBe(orderAccessToken(first.body.orderId as string, WEBHOOK_SECRET));
+    const replay = await checkout();
+    expect(replay.status).toBe(200);
+    // Bound to no client, the replay could reach anyone else without one who has the key: the order, never its token.
+    const { orderAccess, ...rest } = first.body;
+    expect(replay.body).toEqual(rest);
+    expect(JSON.stringify(replay.body)).not.toContain(orderAccess as string);
     expect((await checkout(BASKET, { ip: IP })).body.code).toBe("checkout_other_client");
+  });
+
+  it("under the row lock (begin_checkout_attempt, when the first look missed), a replay without a client IP has no token either", async () => {
+    const first = await checkout();
+    const query = api.db.query.bind(api.db);
+    vi.spyOn(api.db, "query").mockImplementation(((sql: string, params?: unknown[]) =>
+      sql.includes("checkout_attempt_state(a, $2, $3)") ? Promise.resolve([]) : query(sql, params)) as typeof api.db.query);
+    const replay = await checkout();
+    expect(replay.status).toBe(200);
+    expect(replay.headers.get("idempotent-replayed")).toBe("true");
+    expect(replay.body.orderId).toBe(first.body.orderId);
+    expect(replay.body).not.toHaveProperty("orderAccess");
+    expect(createCalls()).toHaveLength(1);
   });
 
   it("under the row lock too (begin_checkout_attempt, when the first look missed): other_client, and completed worded from the order", async () => {
@@ -442,6 +472,7 @@ describe("Stripe failures and retries", () => {
 
     const retry = await checkout();
     expect(retry.status).toBe(201);
+    // A reused order is a replay: bound to no client (no client IP), so whoever retries it gets no order access token.
     expect(retry.body).toEqual({ url: payPage(kept.id), orderId: kept.id });
     expect(stripe.made()).toBe(1); // Stripe made one session in all
     expect(await orders()).toEqual([{ id: kept.id, status: "pending", stripe_checkout_session_id: "cs_test_1" }]);
@@ -454,6 +485,25 @@ describe("Stripe failures and retries", () => {
     const before = Date.now();
     expect(params1.expires_at * 1000 - before).toBeGreaterThan((GA_CHECKOUT_SESSION_MINUTES - 1) * 60_000);
     expect(params1.expires_at * 1000 - before).toBeLessThanOrEqual(GA_CHECKOUT_SESSION_MINUTES * 60_000);
+  });
+
+  it("a reused order's 201 carries the order access token only for a client with a key, as a replay does", async () => {
+    // With a client IP: the attempt is this client's, so its retry gets the token.
+    stripe.failNext("lost");
+    expect((await checkout(BASKET, { ip: IP })).status).toBe(503);
+    const mine = await checkout(BASKET, { ip: IP });
+    expect(mine.status).toBe(201);
+    expect(mine.body.orderAccess).toBe(orderAccessToken(mine.body.orderId as string, WEBHOOK_SECRET));
+
+    // Without one (another key, no client IP): the first try and its retry could come from anyone; no token.
+    const OTHER_KEY = crypto.randomUUID();
+    stripe.failNext("lost");
+    expect((await checkout(BASKET, { key: OTHER_KEY })).status).toBe(503);
+    const anyone = await checkout(BASKET, { key: OTHER_KEY });
+    expect(anyone.status).toBe(201);
+    expect(anyone.body.orderId).not.toBe(mine.body.orderId);
+    expect(anyone.body).not.toHaveProperty("orderAccess");
+    expect(JSON.stringify(anyone.body)).not.toContain(orderAccessToken(anyone.body.orderId as string, WEBHOOK_SECRET));
   });
 
   it("Stripe unreachable (nothing made): the retry makes the session for the same order", async () => {
@@ -580,9 +630,12 @@ describe("general admission paid checkout limits", () => {
     expect(over.headers.get("retry-after")).toBe("600");
     expect(await orders()).toHaveLength(20);
     expect(await attempts()).toHaveLength(20); // the refused key wasn't recorded
+    // The buyer email's domain was looked up for each new checkout and the refused one (it's checked before
+    // the limits, on its own allowance: lib/server/email-domain.ts), never for the replay.
+    expect(api.mailDomainLookups).toHaveLength(21);
     const hits = await api.db.query<{ bucket: string; hits: number }>(
-      `select bucket, hits from private.client_rate_limits where client_key = $1 order by bucket`,
-      [clientKey(IP, WEBHOOK_SECRET)],
+      `select bucket, hits from private.client_rate_limits where client_key = $1 and bucket <> $2 order by bucket`,
+      [clientKey(IP, WEBHOOK_SECRET), EMAIL_DOMAIN_LOOKUP_LIMIT.bucket],
     );
     expect(hits).toEqual([
       { bucket: "checkouts", hits: 20 },
@@ -602,13 +655,15 @@ describe("general admission paid checkout limits", () => {
     expect([over.status, over.body.code]).toEqual([429, "client_rate_limited"]);
     expect(over.body.error).toBe("You've started a lot of checkouts in the last minute. Wait a minute, then try again.");
     expect(over.headers.get("retry-after")).toBe("60");
-    // No attempt row, no order, no Stripe call, and no hit in any bucket for the refusal.
+    // No attempt row, no order, no Stripe call, and no hit in any checkout bucket for the refusal.
     expect(await attempts()).toHaveLength(10);
     expect(await orders()).toHaveLength(10);
     expect(createCalls()).toHaveLength(10);
+    // Only the email's DNS lookup counted for the refused one, on its own allowance (lib/server/email-domain.ts).
+    expect(api.mailDomainLookups).toHaveLength(11);
     const hits = await api.db.query<{ bucket: string; hits: number }>(
-      `select bucket, hits from private.client_rate_limits where client_key = $1 order by bucket`,
-      [clientKey(IP, WEBHOOK_SECRET)],
+      `select bucket, hits from private.client_rate_limits where client_key = $1 and bucket <> $2 order by bucket`,
+      [clientKey(IP, WEBHOOK_SECRET), EMAIL_DOMAIN_LOOKUP_LIMIT.bucket],
     );
     expect(hits).toEqual([
       { bucket: "checkouts", hits: 10 },
@@ -751,6 +806,33 @@ describe("seated checkout", () => {
   const seatedCheckout = (body = seats(["A1", "A2"]), options: { key?: string; ip?: string } = {}) =>
     checkout(body, { on: seated, key: options.key, ip: options.ip });
 
+  it("a replay without a client IP has no order access token: from the first look, and from the look after the seat check", async () => {
+    const first = await seatedCheckout();
+    expect(first.status).toBe(201);
+    expect(first.body.orderAccess).toBe(orderAccessToken(first.body.orderId as string, WEBHOOK_SECRET));
+    const withoutToken = { ...first.body };
+    delete withoutToken.orderAccess;
+
+    const replay = await seatedCheckout();
+    expect([replay.status, replay.body]).toEqual([200, withoutToken]);
+
+    // The first look misses (as for a request that read just before the first one committed): its own seats look
+    // taken, and the second look's replay answers.
+    const query = api.db.query.bind(api.db);
+    let missed = false;
+    vi.spyOn(api.db, "query").mockImplementation(((sql: string, params?: unknown[]) => {
+      if (!missed && sql.includes("checkout_attempt_state(a, $2, $3)")) {
+        missed = true;
+        return Promise.resolve([]);
+      }
+      return query(sql, params);
+    }) as typeof api.db.query);
+    const late = await seatedCheckout();
+    expect(missed).toBe(true);
+    expect([late.status, late.body]).toEqual([200, withoutToken]);
+    expect(createCalls()).toHaveLength(1);
+  });
+
   it("a double click holds the seats once and makes one session; a retry gets the same order, hold and session", async () => {
     const open = stripe.hold();
     const results = [seatedCheckout(seats(["A1", "A2"]), { ip: IP }), seatedCheckout(seats(["A1", "A2"]), { ip: IP })];
@@ -758,7 +840,7 @@ describe("seated checkout", () => {
     expect(early.body.code).toBe("checkout_in_progress");
     open();
     const done = (await Promise.all(results)).find((r) => r.status === 201)!;
-    expect(Object.keys(done.body).sort()).toEqual(["holdExpiresAt", "orderId", "url"]);
+    expect(Object.keys(done.body).sort()).toEqual(["holdExpiresAt", "orderAccess", "orderId", "url"]);
     expect(createCalls()).toHaveLength(1);
     expect((await orders(seated.eventId)).map((o) => o.id)).toEqual([done.body.orderId]);
     expect(await seatStates(api, seated.eventId)).toMatchObject({ A1: `held:${done.body.orderId}`, A2: `held:${done.body.orderId}` });

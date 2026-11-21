@@ -10,7 +10,7 @@ import { SAMPLE_SEAT_MAPS } from "@/lib/sample-seat-maps";
 import { sampleEvents } from "@/lib/sample-events";
 import { SUPPORT_PAUSED, SUPPORT_RECIPIENT_NOTE } from "@/lib/support";
 import type { SheltuhEvent } from "@/lib/types";
-import { typeName } from "./test-utils/buyerName";
+import { TEST_BUYER_EMAIL, typeName } from "./test-utils/buyerName";
 import { addTicket } from "./test-utils/ticketCards";
 
 /**
@@ -173,7 +173,7 @@ describe("Support Sheltüh in the ticket selector (general admission)", () => {
     expect(createCheckoutSession).toHaveBeenCalledWith(
       "evt-neon-static",
       [{ ticketTypeId: "neon-static-ga", quantity: 1 }],
-      undefined,
+      TEST_BUYER_EMAIL,
       undefined,
       undefined,
       500,
