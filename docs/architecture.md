@@ -1533,7 +1533,13 @@ admission and seated card checkouts alike
   complete still has a pending order an hour after the checkout started: a
   webhook may have been lost. At most 50 orders per run and none started
   after 25 seconds, so a run ends inside the route's 60-second
-  `maxDuration`. Two runs at once never take the same order. It logs counts
+  `maxDuration`. Two runs at once never take the same order. A claim that
+  picked an order another claim leased and committed after the claim's
+  snapshot (READ COMMITTED: the order no longer locked, the other's lease
+  not yet visible) claims nothing for it at the insert's `on conflict`; it
+  then picks again in a fresh statement, up to 5 times, so an empty claim
+  really means nothing is claimable and a worker can stop the run on it
+  (`20261202000000_checkout_expiry_claim_retry.sql`). It logs counts
   only, and answers its counts (`claimed`, `released`, `complete`,
   `settled`, `failed`, `leaseLost`), `private, no-store`, plus `gaveUp` and `staleComplete`. The claim also
   deletes up to 100 bookkeeping rows whose order has left `pending`.
@@ -1567,8 +1573,8 @@ admission and seated card checkouts alike
   sweeper's auth, what it picks and leaves alone, idempotency, back-off,
   leases, its bound and its logs; a late `checkout.session.completed`
   refunded with no tickets or double-sold seat; and, with
-  `TEST_DATABASE_URL`, three sweeps at once and sweeps racing the payment
-  page and paying webhooks).
+  `TEST_DATABASE_URL`, three sweeps at once, sweeps racing the payment
+  page and paying webhooks, and a claim racing another claim's commit).
 
 ### Accepted limits (checkout pay deadline)
 
