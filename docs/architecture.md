@@ -668,7 +668,7 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
      by "This event is no longer listed. Contact support@…" (the ticket
      page's rule, and the public routes' `status = 'published'`); the
      tickets still go out, and a resend follows the event's status at the
-     time. The wordmark is a PNG (black on white, 212×48 shown at 106×24 and
+     time. The wordmark is a PNG (Signal Orange on transparent, 212×48 shown at 106×24 and
      88×20, `public/email/ticket/wordmark.png`, embedded as base64 in
      `lib/server/email-ticket-wordmark.ts`, both written by
      `scripts/render-ticket-email-assets.ts`) attached inline (`cid:`) like

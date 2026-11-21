@@ -7,7 +7,7 @@ import { EMAIL_WORDMARK } from "./email-wordmark";
  * column (the cream of the owner's email banner, so the footer banner sits on
  * it seamlessly), framed by a slightly darker warm page, and Signal Orange
  * only ever as a fill carrying black text (6.18:1; white on orange fails for
- * text), never as text. Used by the ticket, free-ticket confirmation,
+ * text) or as the wordmark, never as text. Used by the ticket, free-ticket confirmation,
  * waitlist, follower, admin review and invite emails, so they can't drift
  * apart.
  *
@@ -222,9 +222,9 @@ export function emailFooterImageUrl(siteUrl: string): string | null {
 export const WORDMARK_CID = "sheltuh-wordmark@sheltuh.com.au";
 
 /**
- * The official uppercase wordmark (lib/server/email-wordmark.ts, black on an
- * opaque plate of the column's ivory), attached inline (`cid:`) so it shows
- * where remote images are blocked. Send `wordmarkImage()` with any email that
+ * The official uppercase wordmark (lib/server/email-wordmark.ts, Signal
+ * Orange on transparent), attached inline (`cid:`) so it shows where remote
+ * images are blocked. Send `wordmarkImage()` with any email that
  * uses this markup.
  */
 export const wordmarkHtml = `<img src="cid:${WORDMARK_CID}" width="${EMAIL_WORDMARK.displayWidth}" height="${EMAIL_WORDMARK.displayHeight}" alt="SHELT&Uuml;H" style="display:block;border:0;width:${EMAIL_WORDMARK.displayWidth}px;height:${EMAIL_WORDMARK.displayHeight}px;font-family:${SANS};font-size:20px;line-height:24px;font-weight:bold;color:${INK}">`;
