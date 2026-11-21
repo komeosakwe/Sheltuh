@@ -165,7 +165,9 @@ describe("/messages (demo)", () => {
       "/messages/maeve-d",
     ]);
     expect(rows[0]).toHaveTextContent("Priya R.");
-    expect(rows[0]).toHaveTextContent("Neon Static");
+    // Latte's two-line row: name and time, then the preview. The event is named in the thread's head.
+    expect(rows[0]).not.toHaveTextContent("Neon Static");
+    expect(rows[0].querySelector("time")).toHaveAttribute("datetime", "2026-09-24T09:12:00.000Z");
     expect(rows[0]).toHaveTextContent("See you by the merch table");
   });
 });
