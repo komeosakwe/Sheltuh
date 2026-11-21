@@ -381,9 +381,19 @@ for (const width of [320, 375, 768]) {
       }
       await expect(footer.getByRole("link", { name: "Email support@sheltuh.com.au" })).toBeVisible();
       await expect(footer.getByRole("navigation", { name: "Legal" }).getByRole("link", { name: "Privacy Policy" })).toBeVisible();
-      // Latte's rhythm where the labels fit one line (390 and 768): rows 28 apart.
-      if (width >= 375) {
-        const ys = await Promise.all(["Help & FAQs", "Request a refund", "Contact support"].map(async (name) => (await footer.getByRole("link", { name, exact: true }).boundingBox())?.y ?? NaN));
+      // Latte's rhythm: 8px between one label's last line and the next label (rows 28 apart where a label is one
+      // line). Each link's 24px target overhangs its text by 2px top and bottom, so the boxes sit 4px apart; a label
+      // that wraps (fonts vary by system, so not at a fixed width) only adds its own line.
+      for (const group of [["Help & FAQs", "Request a refund", "Contact support"], ["All events", "Nearby", "For organisers"]]) {
+        const boxes = await Promise.all(group.map(async (name) => await footer.getByRole("link", { name, exact: true }).boundingBox()));
+        for (let i = 1; i < boxes.length; i++) {
+          const [prev, next] = [boxes[i - 1], boxes[i]];
+          expect(Math.round((next?.y ?? NaN) - ((prev?.y ?? NaN) + (prev?.height ?? NaN))), `${group[i - 1]} → ${group[i]}`).toBe(4);
+        }
+      }
+      // Where every label fits one line (390 and up), that's Latte's 28px rows.
+      if (width >= 390) {
+        const ys = await Promise.all(["All events", "Nearby", "For organisers"].map(async (name) => (await footer.getByRole("link", { name, exact: true }).boundingBox())?.y ?? NaN));
         expect(Math.round(ys[1] - ys[0])).toBe(28);
         expect(Math.round(ys[2] - ys[1])).toBe(28);
       }
