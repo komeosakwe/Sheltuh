@@ -97,6 +97,12 @@
   --header: #ffffff;
   --menu: #ffffff;
   --menu-hover: #fffae7;
+  /* The site footer, as Latte's 1120 "Dash / Site footer" frames draw it: black in both themes, so
+     these are constants, never re-scoped. Footer only. */
+  --footer-label: #999999; /* column labels, "Theme" and the legal row (Mono/S): 7.36:1 on black */
+  --footer-line: #595959; /* the Light / Dark switch's 1px border */
+  --footer-quiet: #bfbfbf; /* the switch's unchosen option: 11.4:1 on black */
+  --footer-icon: #d9d6cf; /* Contact Sheltüh's line icons */
 }
 
 @media (width >= 64rem) {
@@ -340,6 +346,10 @@
   --color-header: var(--header);
   --color-menu: var(--menu);
   --color-menu-hover: var(--menu-hover);
+  --color-footer-label: var(--footer-label);
+  --color-footer-line: var(--footer-line);
+  --color-footer-quiet: var(--footer-quiet);
+  --color-footer-icon: var(--footer-icon);
   --color-lilac: var(--lilac);
   --color-sand: var(--sand);
   --color-night: var(--night);

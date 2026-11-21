@@ -343,14 +343,15 @@ for (const width of [1024, 1200, 1280]) {
 /**
  * The footer's link groups (Figma 1120, the mobile footer): below 1024px, Fan support, Explore and Our company sit side
  * by side in one row spread across the width (Fan support flush left, Our company flush right), their links Body/S
- * (14/20) in rows at least 44px tall (WCAG 2.5.8, with room), long labels wrapping inside their column rather than
- * clipping; Contact Sheltüh's icons on their own row below. From 1024px, four columns in one row, the socials last.
+ * (14/20) on Latte's 28px rhythm, each a target at least 24px tall (WCAG 2.5.8), long labels wrapping inside their
+ * column rather than clipping; Contact Sheltüh's icons on their own row below. From 1024px, one row: the brand block,
+ * then four columns as wide as their words, 64 apart, the socials last at the right edge.
  */
 for (const width of [320, 375, 768]) {
   test.describe(`footer at ${width}px`, () => {
     test.use({ viewport: { width, height: 812 } });
 
-    test("three link groups in one row, Contact Sheltüh below, 44px Body/S rows, nothing clipped, no sideways scroll", async ({ page }) => {
+    test("three link groups in one row, Contact Sheltüh below, Body/S rows 28 apart with 24px targets, nothing clipped, no sideways scroll", async ({ page }) => {
       await mockApi(page);
       await page.goto("/");
       await expect(page.locator("[data-home-section]").first()).toBeVisible({ timeout: 30_000 });
@@ -360,7 +361,9 @@ for (const width of [320, 375, 768]) {
       for (const name of ["Help & FAQs", "Request a refund", "Contact support", "All events", "Nearby", "For organisers", "About Sheltüh", "Become a partner"]) {
         const link = footer.getByRole("link", { name, exact: true });
         await expect(link).toBeVisible();
-        expect(Math.round((await link.boundingBox())?.height ?? 0), name).toBeGreaterThanOrEqual(44);
+        const target = await link.boundingBox();
+        expect(Math.round(target?.height ?? 0), name).toBeGreaterThanOrEqual(24);
+        expect(Math.round(target?.width ?? 0), name).toBeGreaterThanOrEqual(24);
         const style = await link.evaluate((el) => {
           const css = getComputedStyle(el);
           // Wrapped, never cut: the text fits the link's box, and the link fits its group.
@@ -378,6 +381,19 @@ for (const width of [320, 375, 768]) {
       }
       await expect(footer.getByRole("link", { name: "Email support@sheltuh.com.au" })).toBeVisible();
       await expect(footer.getByRole("navigation", { name: "Legal" }).getByRole("link", { name: "Privacy Policy" })).toBeVisible();
+      // Latte's rhythm where the labels fit one line (390 and 768): rows 28 apart.
+      if (width >= 375) {
+        const ys = await Promise.all(["Help & FAQs", "Request a refund", "Contact support"].map(async (name) => (await footer.getByRole("link", { name, exact: true }).boundingBox())?.y ?? NaN));
+        expect(Math.round(ys[1] - ys[0])).toBe(28);
+        expect(Math.round(ys[2] - ys[1])).toBe(28);
+      }
+      // Every contact icon and legal link is a target at least 24px each way.
+      for (const name of ["Contact Sheltüh", "Legal"]) {
+        for (const link of await footer.getByRole("navigation", { name }).getByRole("link").all()) {
+          const b = await link.boundingBox();
+          expect(Math.min(b?.width ?? 0, b?.height ?? 0)).toBeGreaterThanOrEqual(24);
+        }
+      }
 
       const box = async (name: string) => {
         const b = await footer.getByRole("navigation", { name }).boundingBox();
@@ -410,7 +426,7 @@ for (const width of [320, 375, 768]) {
 test.describe("footer at 1280px", () => {
   test.use({ viewport: { width: 1280, height: 900 } });
 
-  test("four columns in one row, Contact Sheltüh last, the links Body/S", async ({ page }) => {
+  test("four columns in one row as wide as their words, 64 apart, Contact Sheltüh last at the right edge, the links Body/S", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
     await expect(page.locator("[data-home-section]").first()).toBeVisible({ timeout: 30_000 });
@@ -423,11 +439,18 @@ test.describe("footer at 1280px", () => {
     }
     for (let i = 1; i < boxes.length; i++) {
       expect(Math.round(boxes[i].y)).toBe(Math.round(boxes[0].y));
-      expect(boxes[i].x).toBeGreaterThan(boxes[i - 1].x + boxes[i - 1].width);
+      expect(Math.round(boxes[i].x - (boxes[i - 1].x + boxes[i - 1].width))).toBe(64);
     }
+    // Contact Sheltüh's three 40px icons, 8 apart, end at the content's right edge (64 in from 1280px).
+    const last = boxes[boxes.length - 1];
+    expect(Math.round(last.width)).toBe(136);
+    expect(Math.round(last.x + last.width)).toBe(1280 - 64);
     const help = footer.getByRole("link", { name: "Help & FAQs" });
     expect(await help.evaluate((el) => getComputedStyle(el).fontSize)).toBe("14px");
-    expect(Math.round((await help.boundingBox())?.height ?? 0)).toBe(32);
+    // A 24px target (20px line plus 2px each way) on rows 28 apart.
+    expect(Math.round((await help.boundingBox())?.height ?? 0)).toBe(24);
+    const refund = await footer.getByRole("link", { name: "Request a refund" }).boundingBox();
+    expect(Math.round((refund?.y ?? NaN) - ((await help.boundingBox())?.y ?? NaN))).toBe(28);
   });
 });
 
