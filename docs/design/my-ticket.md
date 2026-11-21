@@ -19,6 +19,21 @@ are the ones listed in §2, each with its reason.
 
 The header and footer are specified in `navigation-search.md`. The QR rules are in `ticket-email.md` §6.
 
+**Built so far (21 Nov 2026, the 1120 frames).** The buyer's ticket page, `/checkout/success`, now follows Latte's
+1120 My ticket frames at 1440 / 768 / 390 (`components/tickets/MyTicketView.tsx`), with these parts:
+- **The full ticket is the email's orange-outline ticket** (`components/tickets/FullTicket.tsx`, the site's version
+  of `ticketCard` in `lib/server/ticket-email.ts`): owner rule, 21 Nov 2026. It replaces §5.1's orange card with a
+  black stub and the old `TicketStub` (retired). Latte's frames set its sizes and everything around it.
+- **The compact card** in all eight states: `components/tickets/TicketCard.tsx` (props only; nothing lists tickets
+  yet).
+- **Sheets and dialogs** on one component, `components/ui/Sheet.tsx` (a bottom sheet below 768, a 480 dialog from
+  768): Add to calendar, Directions, Order receipt and Manage order (`components/tickets/TicketSheets.tsx`).
+- **The full-screen ticket** on phones, with the Wake Lock and pager of §5.12: `components/tickets/TicketFullScreen.tsx`.
+- **Left out until their data exists:** PURCHASED, the receipt's placed-at / card line, GST line and PDF, Manage
+  order's send, rename, resend and contact rows, "Send" on the full-screen ticket, and the desktop "Add to your
+  phone's wallet" QR dialog (§5.8 needs its handoff route).
+Where this section and the sections below disagree, the 1120 frames and the owner rule win.
+
 **What it replaces.** Today a buyer's tickets live on `/checkout/success?session_id={orderId}`
 (`components/CheckoutConfirmation.tsx`, `components/tickets/TicketStub.tsx`, `TicketQr.tsx`, `WalletButtons.tsx`).
 That page is reached by its order-id capability, from the email. It has no account link and no "My tickets" list.
