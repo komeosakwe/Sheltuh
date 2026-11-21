@@ -335,6 +335,7 @@ This mirrors the map's existing Map/List segmented toggle (`components/SceneMap.
 - **`ticket-email.ts`:** the code tile's `bgcolor` and `background-color` become `SURFACE`. Comments change from "cream page" to "white page".
 - **Wordmark PNG** (`public/brand/sheltuh-wordmark-email.png`, `lib/server/email-wordmark.ts`):
   - Re-render it with `scripts/render-email-wordmark.ts`, using `PAGE` for the background. The result is **black on opaque white**, 212×48 shown at 106×24, under 16 KB.
+  - Superseded 21 Nov 2026: the email wordmarks are Signal Orange on transparent (`brand-direction-one.md` §11 #6).
   - It's opaque, not transparent: Gmail and Outlook dark modes can darken the page, and a transparent black mark would vanish. A white plate keeps it legible, which is the script's existing rationale.
   - Update the script and module comments ("Black on White").
 

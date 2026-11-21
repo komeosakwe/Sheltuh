@@ -1,3 +1,4 @@
+import postgres from "postgres";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import Stripe from "stripe";
 import { CHECKOUT_PAY_MINUTES, SEAT_HOLD } from "@/lib/api/types";
@@ -37,12 +38,14 @@ const IP = "203.0.113.7";
 
 let api: TestApi;
 let reset: () => Promise<void>;
+let serverUrl: string | undefined;
 let admin: { token: string; userId: string };
 let organiser: { token: string; userId: string; organiserId: string };
 
 beforeAll(async () => {
   const testDb = await createTestDb();
   reset = testDb.reset;
+  serverUrl = testDb.url;
   api = new TestApi(testDb.db);
 });
 
@@ -866,5 +869,131 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("under concurrency (real Postgre
     expect(tickets).toEqual([...paying].sort().map((order_id) => ({ order_id, n: 1 })));
     expect((await tierCounts(api, event.eventId)).ga.sold).toBe(3);
     expect(api.stripe.refunds.create).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A claim that loses a race to another claim's commit (real Postgres only)
+// ---------------------------------------------------------------------------
+
+// supabase/migrations/20261202000000_checkout_expiry_claim_retry.sql. Under
+// READ COMMITTED a claim's pick runs on a snapshot taken when it starts. If
+// another claim leases an order and commits after that snapshot, but before
+// this claim's scan reaches the order, the order is no longer locked (so
+// `skip locked` doesn't skip it) and the other claim's lease row is invisible
+// to the pick's `not exists`, so the order is picked; the insert's
+// `on conflict ... where` then sees the live lease and claims nothing. The
+// claim used to return no rows, which a sweeper worker reads as "nothing
+// overdue", stopping the whole run with other checkouts still overdue.
+describe.skipIf(!process.env.TEST_DATABASE_URL)("a claim racing another claim's commit (real Postgres only)", () => {
+  const claim = (conn: postgres.Sql) =>
+    conn.unsafe<{ claimed_order_id: string; claimed_lease_token: string }[]>(
+      `select claimed_order_id, claimed_lease_token from private.claim_overdue_checkouts(make_interval(mins => $1::integer), 1, $2::interval)`,
+      [CHECKOUT_PAY_MINUTES, CHECKOUT_EXPIRY_LEASE],
+    );
+
+  const connect = () => postgres(serverUrl as string, { max: 1, onnotice: () => {} });
+
+  async function pid(conn: postgres.Sql): Promise<number> {
+    const [row] = await conn.unsafe<{ pid: number }[]>("select pg_backend_pid() as pid");
+    return row.pid;
+  }
+
+  /** Waits until the backend `of` is in the state `until` says (pg_stat_activity, read on the shared pool). */
+  async function waitFor(of: number, until: (row: { state: string | null; wait_event_type: string | null }) => boolean, what: string) {
+    for (let i = 0; ; i++) {
+      const [row] = await api.db.query<{ state: string | null; wait_event_type: string | null }>(
+        `select state, wait_event_type from pg_stat_activity where pid = $1`,
+        [of],
+      );
+      if (row && until(row)) return;
+      if (i > 400) throw new Error(`never ${what}`);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+
+  async function twoOverdue(): Promise<{ first: string; second: string }> {
+    const event = await paidEvent();
+    const first = (await gaOrder(event, 1)).orderId;
+    const second = (await gaOrder(event, 1)).orderId;
+    await age(first, 20);
+    await age(second, 18);
+    return { first, second };
+  }
+
+  it("deterministic: the order it picked was leased by a claim committed after its snapshot; it claims the next overdue order", { timeout: 30_000 }, async () => {
+    const { first, second } = await twoOverdue();
+    const [other, sweeper] = [connect(), connect()];
+    try {
+      // Another claim's lease on `first`, its commit in flight. It holds no lock on the order row: the moment
+      // just after that claim committed (row lock gone, lease row not in the sweeper's snapshot), held still.
+      await other.unsafe("begin");
+      await other.unsafe(
+        `insert into private.checkout_expiry_checks (order_id, lease_token, lease_expires_at, next_check_at)
+         values ($1, gen_random_uuid(), now() + $2::interval, now())`,
+        [first, CHECKOUT_EXPIRY_LEASE],
+      );
+      // The sweeper's pick sees no lease on `first` and locks it; its insert then waits on the other claim's row.
+      const sweeperPid = await pid(sweeper);
+      const pending = claim(sweeper).execute();
+      await waitFor(sweeperPid, (row) => row.wait_event_type === "Lock", "blocked on the other claim's lease row");
+      await other.unsafe("commit");
+      const claimed = await pending;
+      expect(claimed.map((row) => row.claimed_order_id)).toEqual([second]);
+    } finally {
+      await other.end();
+      await sweeper.end();
+    }
+    // The other claim keeps its lease; the sweeper has the second order's.
+    const leases = await api.db.query<{ order_id: string; leased: boolean }>(
+      `select order_id, lease_expires_at > now() as leased from private.checkout_expiry_checks order by order_id`,
+    );
+    expect(leases).toEqual([first, second].sort().map((order_id) => ({ order_id, leased: true })));
+  });
+
+  it("two staggered claims behind many orders they can't take: the second claims the remaining overdue order", { timeout: 60_000 }, async () => {
+    const { first, second } = await twoOverdue();
+    // Best effort: this one depends on timing (the first claim must commit while the second is still walking the
+    // fillers), so on a fast server it can pass without meeting the race. The deterministic test above is the guard.
+    // Fillers: overdue pending card orders older than both, cloned from `first` and held by another transaction,
+    // so every claim walks past all of them (skip locked) before it reaches `first`: a slow claim.
+    const FILLERS = 20_000;
+    await api.db.query(
+      `insert into public.orders
+       select r.*
+         from public.orders o, generate_series(1, $2::integer) g,
+              lateral jsonb_populate_record(null::public.orders, to_jsonb(o) || jsonb_build_object(
+                'id', 'ord_fill_' || lpad(g::text, 6, '0'),
+                'stripe_checkout_session_id', 'cs_test_fill_' || g,
+                'created_at', o.created_at - interval '1 hour' - make_interval(secs => g))) r
+        where o.id = $1`,
+      [first, FILLERS],
+    );
+    const [holder, one, two] = [connect(), connect(), connect()];
+    try {
+      await holder.unsafe("begin");
+      await holder.unsafe(`select 1 from public.orders where id like 'ord_fill_%' for no key update`);
+      // The first claim takes `first` and stays uncommitted (its row lock and lease row in flight).
+      await one.unsafe("begin");
+      expect((await claim(one)).map((row) => row.claimed_order_id)).toEqual([first]);
+      // The second starts (its snapshot can't see the first's lease), and the first commits while it walks the fillers.
+      const twoPid = await pid(two);
+      const pending = claim(two).execute();
+      // A claim that already finished between two samples is back to idle: that counts as started too.
+      let finished = false;
+      const settled = () => {
+        finished = true;
+      };
+      void pending.then(settled, settled);
+      await waitFor(twoPid, (row) => finished || row.state === "active", "started");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await one.unsafe("commit");
+      expect((await pending).map((row) => row.claimed_order_id)).toEqual([second]);
+      await holder.unsafe("rollback");
+    } finally {
+      await holder.end();
+      await one.end();
+      await two.end();
+    }
   });
 });
