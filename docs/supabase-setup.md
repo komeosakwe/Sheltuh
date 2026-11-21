@@ -558,7 +558,7 @@ admins can't check in for organisers' own events
 An event's check-ins (no buyer data), with who scanned:
 
 ```sql
-select c.id, c.result, right(c.ticket_code, 4) as code_last4, c.reason, c.created_at, u.email as scanned_by
+select c.id, c.result, coalesce(c.scanned_last4, right(c.ticket_code, 4)) as code_last4, c.reason, c.created_at, u.email as scanned_by
 from ticket_check_ins c left join auth.users u on u.id = c.actor_user_id
 where c.event_id = '<event id>' order by c.id desc limit 50;
 ```
@@ -667,6 +667,51 @@ select c.created_at, c.changed_by, c.old_email_masked, c.new_email_masked, c.rea
 from private.order_email_changes c left join auth.users u on u.id = c.admin_id
 where c.order_id = '<the payment metadata orderId>' order by c.created_at, c.id;
 ```
+
+### Ticket transfers (sending a ticket to someone)
+
+`20261203000000_ticket_transfers.sql` (docs/architecture.md, "Ticket
+transfers"; docs/DEPLOYMENT.md, migration 61) adds the offers
+(`private.ticket_transfers`), their link tokens (hashed only) and the
+functions behind them, the door's `transferred` result and `scanned_last4`.
+Apply it in the SQL editor before deploying the app that reads it; sending
+stays off until `NEXT_PUBLIC_TICKET_TRANSFERS=1`. Never edit an accepted
+offer's row or delete it: its `issued_code` is the recipient's ticket, and
+the buyer's original code stays dead while it exists (the guard trigger
+refuses edits anyway). Support lists offers at `GET /api/admin/ticket-transfers`
+(by an order's or a transfer's reference) and cancels one that's still
+pending there, with a reason; an accepted one can't be undone in v1.
+
+A ticket's offers, by the full order id (from the verified Stripe payment's
+metadata `orderId`, as for email changes); addresses masked:
+
+```sql
+select x.id, x.status, x.created_at, x.expires_at, x.decided_at, x.sender_kind, x.sender_name,
+       x.recipient_name, private.mask_email(x.recipient_email) as sent_to,
+       x.holder_name, private.mask_email(x.accepted_email) as accepted_by, x.cancelled_by, x.cancel_reason
+from private.ticket_transfers x
+where x.order_id = '<the payment metadata orderId>' order by x.created_at;
+```
+
+Before refunding an order, check this: a refund voids every ticket of it,
+including ones its buyer sent on (the recipient isn't told in v1).
+
+**Withdrawing a holder's details.** A recipient who asks (by email to
+support) for their name and email to stop being shown to the organiser:
+verify the request comes from the address they accepted with, then stamp
+their holdings. The row stays (it's their ticket); the organiser's view
+hides the details once stamped (set once; the guard trigger refuses any
+other change):
+
+```sql
+update private.ticket_transfers set holder_details_withdrawn_at = now()
+where status = 'accepted' and lower(accepted_email) = lower('<address>') and holder_details_withdrawn_at is null;
+```
+
+Retention: the daily `purge_operational_data` deletes link tokens 30 days
+after their offer was decided, and declined, cancelled and expired offers
+(the typed name and address of someone who never accepted) 30 days after
+their event ended. Accepted offers are kept, as orders are.
 
 ### Platform-managed organisers
 
