@@ -700,14 +700,23 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
      over a thousand codes, as matrices, PNGs and rendered email, with two
      independent decoders (jsQR, ZXing) outside the repo; the tests check the
      symbol's structure against the standard and pin a decoder-verified
-     matrix. Email clients themselves aren't tested. The other transactional
-     emails (free-ticket confirmation, waitlist, follower, review, invite) are built
-     on one layout, `lib/server/email-layout.ts` (Brand Direction One:
-     white page, white card with a black hairline, black text, Signal Orange only on the one
-     button, with black text on it; the button keeps its size in Outlook
-     for Windows via `mso-padding-alt`, and the preheader is hidden there
-     with `mso-hide:all`), so they can't drift apart;
-     `tests/server/email-brand.test.ts` holds every builder to it.
+     matrix. Email clients themselves aren't tested. Every customer and
+     organiser email (the ticket email around its own card, the reminder,
+     the holder message, free-ticket confirmation, waitlist, follower,
+     invites and the welcome / onboarding emails) is built on one layout,
+     `lib/server/email-kit.ts`, to the designer's 20 Nov ("1120") frames:
+     a white 600px column on cream (customer) or warm grey (organiser),
+     the orange wordmark, eyebrow and heading, outlined notice boxes,
+     detail rows, the 56px orange call to action (48px on a phone, black
+     label) beside an outlined one, and one footer (no company line until
+     the owner confirms it). Table layout and inline styles, Instrument
+     Sans and IBM Plex Mono self-hosted, `mso-padding-alt` on the buttons,
+     the preheader hidden with `mso-hide:all`, so the emails can't drift
+     apart; `tests/server/email-brand.test.ts` holds every builder to it.
+     The admin review emails stay on `lib/server/email-layout.ts`.
+     Organiser emails A4 (7 days after approval) and A5 (the morning after
+     each event) are built (`lib/server/onboarding-email.ts`) but not sent:
+     their triggers need new onboarding / outbox kinds, a migration.
    Free orders require the buyer's email address at checkout; a paid one
    has the address typed on our page (checked, and prefilled into Stripe's
    form) or, from an older client, the one Stripe's form collected. The same outbox carries waitlist emails

@@ -734,6 +734,8 @@ export function emailEventCardText(event: EventRecord): string[] {
 
 /** The footer's reason line on the ticket email. */
 export const TICKET_EMAIL_REASON = "You’re getting this email because you bought a ticket on Sheltüh.";
+/** …and on a free order's (Latte's "Free ticket order" frame). */
+export const TICKET_EMAIL_FREE_REASON = "You’re getting this email because you got a free ticket on Sheltüh.";
 
 // --- The email ---
 
@@ -807,7 +809,7 @@ export function buildTicketEmail(
 
   const qrs = order.tickets.map((t, i) => ticketQr(t.ticketCode, i));
   const firstType = order.tickets[0] ? typeName(order.tickets[0]) : "";
-  const footerInput = { siteUrl, tone: "customer" as const, reason: TICKET_EMAIL_REASON };
+  const footerInput = { siteUrl, tone: "customer" as const, reason: free ? TICKET_EMAIL_FREE_REASON : TICKET_EMAIL_REASON };
 
   // --- Plain text ---
   const whereText = [venueName, address].filter(Boolean).join(", ");

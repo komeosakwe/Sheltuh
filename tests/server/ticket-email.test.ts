@@ -766,6 +766,7 @@ describe("the order summary", () => {
     const { html, text } = buildTicketEmail({ ...order, totalCents: 0 } as OrderRecord, event, SITE);
     expect(html).toMatch(/>Total<\/td><td align="right" valign="top" style="[^"]*">A\$0\.00<\/td>/);
     expect(html).toContain(">No payment was taken, so there’s no tax invoice for this order.</p>");
+    expect(html).toContain(">You’re getting this email because you got a free ticket on Sheltüh.</p>");
     expect(html).toContain(">You’re in. Here are your 2 tickets.</h1>");
     expect(html).not.toContain("booking fees");
     expect(text).toContain("Total: A$0.00");

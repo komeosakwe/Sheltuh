@@ -219,11 +219,11 @@ export interface KitButton {
   kind: "primary" | "secondary";
 }
 
-function buttonCell(b: KitButton): string {
+function buttonCell(b: KitButton, phoneSize = true): string {
   if (b.kind === "primary") {
     return (
       `<table ${FULL}><tr><td align="center" bgcolor="${KIT.orange}" style="background-color:${KIT.orange};border-radius:8px;mso-padding-alt:16px 24px">` +
-      `<a class="kbp" href="${escapeHtml(b.href)}" style="display:block;padding:16px 24px;${kitType("sans", 18, 24, 500, KIT.black, "text-align:center;text-decoration:none")}">${escapeHtml(b.label)}&nbsp;&nbsp;<span style="font-family:Arial,Helvetica,sans-serif;font-size:20px;line-height:20px;font-weight:700">&rarr;</span></a>` +
+      `<a${phoneSize ? ' class="kbp"' : ""} href="${escapeHtml(b.href)}" style="display:block;padding:16px 24px;${kitType("sans", 18, 24, 500, KIT.black, "text-align:center;text-decoration:none")}">${escapeHtml(b.label)}&nbsp;&nbsp;<span style="font-family:Arial,Helvetica,sans-serif;font-size:20px;line-height:20px;font-weight:700">&rarr;</span></a>` +
       `</td></tr></table>`
     );
   }
@@ -237,12 +237,13 @@ function buttonCell(b: KitButton): string {
 /**
  * The actions row: one button the full width, or two equal halves 12px apart
  * (8 on a phone, still side by side). `hug`: one button as wide as its label
- * (the organiser emails), the full width on a phone.
+ * (the organiser emails), the full width on a phone at its desktop size.
  */
 export function kitButtons(buttons: ReadonlyArray<KitButton>, options: { hug?: boolean } = {}): string {
   if (buttons.length === 0) return "";
   if (buttons.length === 1) {
-    return options.hug ? `<table ${TABLE} class="kw"><tr><td>${buttonCell(buttons[0])}</td></tr></table>` : buttonCell(buttons[0]);
+    // The organiser frames keep the 56px button with its 18px label on a phone, full width.
+    return options.hug ? `<table ${TABLE} class="kw"><tr><td>${buttonCell(buttons[0], false)}</td></tr></table>` : buttonCell(buttons[0]);
   }
   const [a, b] = buttons;
   return (
