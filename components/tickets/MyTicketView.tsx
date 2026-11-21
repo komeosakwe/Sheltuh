@@ -118,6 +118,9 @@ export default function MyTicketView({ order, sessionId, event = null, emailSlot
     lines && venue && lines.named && street && place && !addressNamesPlace(street, venue.suburb, venue.state)
       ? `${street}, ${place.suburb} ${place.state}`
       : (lines?.second ?? "");
+  // What Directions' Copy address copies. A venue with no name has its street as the first line and the place as the
+  // second ("16 Catherine St" / "Coburg North, VIC"): copy both, not the place alone. A named venue copies `address`.
+  const copyAddress = lines && !lines.named ? [lines.first, lines.second].filter(Boolean).join(", ") : undefined;
   const googleHref = venue ? directionsHref(venue) : null;
   const appleHref = venue ? appleMapsHref(venue) : null;
 
@@ -375,6 +378,7 @@ export default function MyTicketView({ order, sessionId, event = null, emailSlot
           onClose={() => setSheet(null)}
           venueName={lines.first}
           address={address}
+          copyText={copyAddress}
           appleHref={appleHref}
           googleHref={googleHref}
         />

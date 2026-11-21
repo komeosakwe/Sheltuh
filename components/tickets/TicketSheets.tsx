@@ -57,17 +57,20 @@ export function DirectionsSheet({
   onClose,
   venueName,
   address,
+  copyText,
   appleHref,
   googleHref,
 }: OpenProps & {
   venueName: string;
-  /** The address as shown on the page; also what Copy address copies (the venue's name alone without one). */
+  /** The address as shown on the page; also what Copy address copies (the venue's name alone without one), unless `copyText` says otherwise. */
   address: string;
+  /** What Copy address copies, when the title and address shown aren't it on their own (a venue with no name: its street is the title). */
+  copyText?: string;
   appleHref: string | null;
   googleHref: string | null;
 }) {
   const [copied, setCopied] = useState<"" | "copied" | "failed">("");
-  const text = address || venueName;
+  const text = copyText || address || venueName;
 
   async function copy() {
     try {

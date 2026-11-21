@@ -149,6 +149,18 @@ describe("MyTicketView (Latte's My ticket page around the orange-outline ticket)
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Couldn’t copy. Select the address above instead."));
   });
 
+  it("a venue with no name: its street is the title and the place under it, and Copy address copies both", async () => {
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    render(<MyTicketView order={{ ...ORDER, venueName: undefined }} sessionId="ord_1" event={{ ...EVENT, venueName: "" }} />);
+    fireEvent.click(screen.getByRole("button", { name: "Directions to 16 Catherine St" }));
+    const sheet = screen.getByRole("dialog", { name: "16 Catherine St" });
+    expect(within(sheet).getByText("Coburg North, VIC")).toBeInTheDocument();
+    fireEvent.click(within(sheet).getByRole("button", { name: "Copy address" }));
+    await waitFor(() => expect(within(sheet).getByRole("status")).toHaveTextContent("Address copied"));
+    expect(writeText).toHaveBeenCalledWith("16 Catherine St, Coburg North, VIC");
+  });
+
   it("Ticket details: label left, value right; rows with no data yet (PURCHASED) are left out", () => {
     render(<MyTicketView order={ORDER} sessionId="ord_1" />);
     const details = card("Ticket details");
