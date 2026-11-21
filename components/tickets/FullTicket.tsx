@@ -88,9 +88,11 @@ function StubCell({ label, children, className = "" }: { label: string; children
  * white (TicketQr).
  *
  * A checked-in ticket says so in words on an orange stamp over the QR, with
- * the time on the door's clock; the QR and code are dimmed behind it (Latte's
- * full-screen Checked in frame). The stamp's text is black, not the frame's
- * white: white on Signal Orange is 3.4:1, under WCAG AA for text this size.
+ * the time on the door's clock; the QR is dimmed behind it (Latte's
+ * full-screen Checked in frame). Two differences from that frame, both for
+ * WCAG AA contrast: the stamp's text is black, not white (white on Signal
+ * Orange is 3.4:1), and the backup code stays at full strength (the frame
+ * dims it to 30%, which is 2.1:1; it's still the text the door can type).
  *
  * A code that isn't a real ticket code gets no QR (TicketQr renders nothing):
  * the code alone, as the "Entry code".
@@ -123,11 +125,11 @@ export default function FullTicket({
   const checkedIn = Boolean(checkedInAt);
   return (
     <article
-      data-surface="paper"
       data-ticket-size={size}
       className={`w-full rounded-card bg-signal p-3 print:break-inside-avoid ${className}`.trim()}
     >
-      <div className="relative flex flex-col overflow-hidden rounded-control bg-paper pt-4 pb-5 text-ink">
+      {/* The Light tokens, pinned (data-surface="paper" also paints its own white, so it's on the inside, not the frame). */}
+      <div data-surface="paper" className="relative flex flex-col overflow-hidden rounded-control bg-paper pt-4 pb-5 text-ink">
         <div className={`flex items-center justify-between gap-3 ${side}`}>
           <Stripes />
           <p className="font-mono text-xs leading-4 font-medium tracking-wider whitespace-nowrap">ADMIT ONE · SHELTÜH</p>
@@ -137,7 +139,7 @@ export default function FullTicket({
             <div className={`overflow-hidden rounded bg-surface *:size-full ${page ? "h-24 md:h-32" : "h-21"}`}>{image}</div>
           </div>
         )}
-        <Heading className={`mt-6 text-center text-2xl leading-8 font-bold break-words ${side}`}>{eventTitle}</Heading>
+        <Heading className={`${page ? "mt-6" : "mt-4"} text-center text-2xl leading-8 font-bold break-words ${side}`}>{eventTitle}</Heading>
         {showEvent && venueLine && (
           <p
             className={`mt-2 text-center font-mono text-xs leading-4 font-medium tracking-widest break-words text-signal-text uppercase ${side} ${page ? "max-md:hidden" : ""}`.trim()}
@@ -155,22 +157,21 @@ export default function FullTicket({
           </p>
         )}
         {/* The perforation: a notch of the frame's orange each side (a disc centred on the edge, clipped to a half). */}
-        <div aria-hidden="true" className="relative mt-6 flex h-6 items-center px-6">
+        <div aria-hidden="true" className={`relative flex h-6 items-center px-6 ${page ? "mt-6" : "mt-4"}`}>
           <span className="absolute top-0 -left-3 size-6 rounded-full bg-signal" />
           <span className="absolute top-0 -right-3 size-6 rounded-full bg-signal" />
           <span className="w-full border-t border-dashed border-ink" />
         </div>
-        <dl className={`mt-5 flex flex-col gap-4 ${side}`}>
-          <div className="flex gap-4">
-            {showEvent && date && <StubCell label="Date" className="shrink-0">{date}</StubCell>}
-            {showEvent && time && <StubCell label="Time" className="shrink-0">{time}</StubCell>}
-            <StubCell label="Ticket" className="flex-1">
-              {ticketNameWithGroup(typeName, group)}
-            </StubCell>
-          </div>
-          {holderName && <StubCell label="Holder">{holderName}</StubCell>}
+        {/* One level of groups (dl > div > dt + dd): DATE, TIME and TICKET share a row; HOLDER and SEAT take their own. */}
+        <dl className={`flex flex-wrap gap-4 ${page ? "mt-5" : "mt-4"} ${side}`}>
+          {showEvent && date && <StubCell label="Date" className="shrink-0">{date}</StubCell>}
+          {showEvent && time && <StubCell label="Time" className="shrink-0">{time}</StubCell>}
+          <StubCell label="Ticket" className="flex-1">
+            {ticketNameWithGroup(typeName, group)}
+          </StubCell>
+          {holderName && <StubCell label="Holder" className="basis-full">{holderName}</StubCell>}
           {seat && (
-            <StubCell label="Seat">
+            <StubCell label="Seat" className="basis-full">
               <SeatLine seat={seat} />
             </StubCell>
           )}
@@ -187,11 +188,7 @@ export default function FullTicket({
           ) : (
             <p className={`mt-4 ${labelClass}`}>Entry code</p>
           )}
-          <p
-            className={`max-w-full px-4 text-center font-mono text-lg leading-6 font-semibold tracking-widest break-all select-all ${checkedIn && hasQr ? "opacity-30" : ""}`.trim()}
-          >
-            {code}
-          </p>
+          <p className="max-w-full px-4 text-center font-mono text-lg leading-6 font-semibold tracking-widest break-all select-all">{code}</p>
           {checkedInAt && (
             <div
               data-ticket-stamp=""

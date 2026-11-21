@@ -4,12 +4,10 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import OrderEmail from "@/components/checkout/OrderEmail";
-import { SupportSummaryLine } from "@/components/checkout/SupportSheltuh";
-import TicketStub from "@/components/tickets/TicketStub";
-import WalletButtons from "@/components/tickets/WalletButtons";
+import MyTicketView from "@/components/tickets/MyTicketView";
+import { useTicketEvent } from "@/components/tickets/useTicketEvent";
 import { ButtonLink, buttonClass } from "@/components/ui/Button";
 import { LoadingState } from "@/components/ui/ProgressLoader";
-import Strap from "@/components/ui/Strap";
 import { orderCompletedProperties, trackOrderCompleted } from "@/lib/analytics";
 import { ApiError } from "@/lib/api/client";
 import { getOrderBySession, getOrderPayment } from "@/lib/api/orders";
@@ -25,15 +23,8 @@ import {
   formatHoldDeadline,
   type CheckoutOrderContext,
 } from "@/lib/checkout-pay";
-import { eventZone, formatAud, formatEventWhen } from "@/lib/format";
-import { REFUND_ACL_STATEMENT, refundTermsLine } from "@/lib/refund-policy";
 import { forgetOrderAccessIfFinal, orderAccessFor } from "@/lib/order-access";
-import { placeName } from "@/lib/place";
-import { SUPPORT_REFUND_NOTE } from "@/lib/support";
-import { ticketNameWithGroup } from "@/lib/ticket-groups";
-import { compareSeats } from "@/lib/seating/format";
 import { forgetPendingCheckout } from "@/lib/seating/pending-checkout";
-import { appleWalletDeviceNote } from "@/lib/wallet-badges";
 import type { CustomerOrder, StateCode } from "@/lib/api/types";
 
 export type LoadState =
@@ -60,15 +51,6 @@ export type LoadState =
   // `unconfirmed`), and the order still wasn't paid after polling: the tickets may still come by email.
   | { status: "unconfirmed"; context: CheckoutOrderContext }
   | { status: "sold-out"; context: CheckoutOrderContext };
-
-/** Each ticket with its number in the API's (and the email's) order, seated ones sorted by seat. */
-function sortTicketsBySeat(tickets: CustomerOrder["tickets"]) {
-  const numbered = tickets.map((ticket, i) => ({ ticket, number: i + 1 }));
-  if (!tickets.some((ticket) => ticket.seat)) return numbered;
-  return [...numbered].sort((a, b) =>
-    a.ticket.seat && b.ticket.seat ? compareSeats(a.ticket.seat, b.ticket.seat) : a.ticket.seat ? -1 : b.ticket.seat ? 1 : a.number - b.number,
-  );
-}
 
 /**
  * The tab's title for each answer (the route's own, "Your order — Sheltüh", stays while it's loading):
@@ -106,10 +88,12 @@ const MAX_POLLS = 12; // ~24s — generous for a webhook that's normally near-in
 const PAYMENT_CHECK_AFTER_POLLS = 2;
 
 /**
- * /checkout/success (docs/design/brand-direction-one.md §6.9): a quiet,
- * left-aligned single column. The strap says "Order confirmed" with the
- * reference, the event is the h1, then the ticket stubs (no grey wrapper)
- * and the totals card. Every other state is left-aligned too, with its own h1.
+ * /checkout/success: the buyer's ticket page, opened by the order id in its
+ * URL (from checkout, and from the ticket email). A paid order is the My
+ * ticket page (components/tickets/MyTicketView.tsx: Latte's 1120 frames
+ * around the orange-outline ticket). Every other answer (still confirming,
+ * not found, refunded, payment not completed, closed, sold out) is a quiet
+ * left-aligned message with its own h1.
  */
 export default function CheckoutConfirmation() {
   const searchParams = useSearchParams();
@@ -145,6 +129,8 @@ export default function CheckoutConfirmation() {
   useEffect(() => {
     if (paidOrder && sessionId) trackOrderCompleted(sessionId, orderCompletedProperties(paidOrder));
   }, [paidOrder, sessionId]);
+  // The event's public details (image, street address, map links) for a listed event's tickets: optional extras.
+  const ticketEvent = useTicketEvent(paidOrder && paidOrder.eventListed !== false ? paidOrder.eventSlug : null);
 
   useEffect(() => {
     let cancelled = false;
@@ -411,32 +397,13 @@ export default function CheckoutConfirmation() {
   }
 
   const { order } = state;
-  // An event that's no longer published: no date or venue (the API leaves them out too), and no links to
-  // its page, which would be a 404. Unset (an older API) counts as listed.
-  const unlisted = order.eventListed === false;
-  const eventPath = order.eventSlug && !unlisted ? `/events/${encodeURIComponent(order.eventSlug)}` : null;
-  // Each ticket repeats the event, so a screenshot of one says what it's for. Unset from an older API.
-  // In the event's zone, naming it outside Melbourne's ("… 11:00 pm Perth time").
-  const zone = eventZone(order.eventTimeZone);
-  const when =
-    order.eventStartsAt && !unlisted
-      ? formatEventWhen(order.eventStartsAt, order.eventEndsAt, order.eventTimeZone, order.eventState)
-      : undefined;
-  const where = unlisted
-    ? undefined
-    : [order.venueName, order.suburb ? placeName(order.suburb, order.eventState) : ""]
-        .filter((part) => !!part?.trim())
-        .join(", ") || undefined;
-  // The refund policy: only where something was paid (a free order has nothing to refund) and the event is listed.
-  const refunds =
-    unlisted || order.totalCents <= 0 ? null : refundTermsLine(order.refundPolicy, order.refundDays, order.eventStartsAt, { timeZone: zone });
   return (
-    <div className="flex flex-col gap-8 py-10 sm:py-14">
-      <div className="flex flex-col gap-3">
-        {/* The reference is a machine code (owner decision, 13 Nov 2026): the one mono in the strap, so 0 and O read apart. */}
-        <Strap label="Order confirmed" note={<span className="font-mono">{order.reference}</span>} />
-        <h1 className="display-md break-words">{order.eventTitle}</h1>
-        {sessionId && (
+    <MyTicketView
+      order={order}
+      sessionId={sessionId}
+      event={ticketEvent}
+      emailSlot={
+        sessionId && (
           <OrderEmail
             // A fresh form for each visit: nothing typed for one order (or an earlier visit) is sent for another.
             key={`${sessionId}#${loaded.visit}`}
@@ -457,135 +424,9 @@ export default function CheckoutConfirmation() {
               if (currentVisit.current === loaded.visit) setLoaded({ sessionId, visit: loaded.visit, state: { status: "error", message } });
             }}
           />
-        )}
-      </div>
-
-      <section aria-labelledby="your-tickets" className="flex flex-col gap-3">
-        <h2 id="your-tickets" className="font-heading text-xl text-foreground">
-          {/* A group ticket's people each have one: the count says how many tickets the order holds. */}
-          {order.tickets.some((ticket) => ticket.group) ? `Your tickets (${order.tickets.length})` : "Your tickets"}
-        </h2>
-        <ul className="flex flex-col gap-3">
-          {/* Numbered as in the ticket email and at the door: both order an order's
-              tickets by ticket type, then code, as the API returns them. */}
-          {/* Seated tickets are listed by section, row, then seat (docs/design/seating.md §5.15),
-              keeping their numbers from the email's order. */}
-          {sortTicketsBySeat(order.tickets).map(({ ticket, number }) => (
-            <TicketStub
-              key={ticket.ticketCode}
-              code={ticket.ticketCode}
-              typeName={ticket.ticketTypeName}
-              ticketNumber={number}
-              ticketCount={order.tickets.length}
-              group={ticket.group}
-              seat={ticket.seat}
-              eventTitle={order.eventTitle}
-              when={when}
-              where={where}
-              eventUnlisted={unlisted}
-              checkedInAt={ticket.checkedInAt}
-              timeZone={zone}
-            />
-          ))}
-        </ul>
-        {/* Add to Apple / Google Wallet, per ticket, only for the wallets the server has on (order.wallet: set only
-            for a paid order of a listed event, as the pass routes require). Numbered as the stubs and the email
-            (the route takes the number). */}
-        {sessionId && !unlisted && (order.wallet?.apple || order.wallet?.google) && (
-          <div className="flex flex-col gap-2 print:hidden">
-            <ul className="flex flex-col gap-3" aria-label="Add to your phone's wallet">
-              {sortTicketsBySeat(order.tickets).map(({ ticket, number }) => (
-                <li key={ticket.ticketCode} className="flex flex-col gap-1">
-                  {order.tickets.length > 1 && (
-                    <p className="text-xs text-muted">
-                      Ticket {number} of {order.tickets.length} · {ticketNameWithGroup(ticket.ticketTypeName, ticket.group)}
-                    </p>
-                  )}
-                  <WalletButtons
-                    sessionId={sessionId}
-                    wallet={order.wallet}
-                    ticketNumber={number}
-                    ticketCount={order.tickets.length}
-                  />
-                </li>
-              ))}
-            </ul>
-            {/* Apple's badge rules: say how to add the pass from a device without Wallet. */}
-            {order.wallet?.apple && <p className="text-xs text-muted">{appleWalletDeviceNote("page", order.tickets.length)}</p>}
-          </div>
-        )}
-        <div className="flex flex-col gap-1 text-xs text-muted">
-          <p>Screenshot your codes in case signal drops at the venue.</p>
-          <p>Each code works once. Don&rsquo;t share it.</p>
-          <p>
-            Order reference <span className="font-mono">{order.reference}</span>
-          </p>
-        </div>
-      </section>
-
-      {/* The totals card (brand-direction-one.md §6.9). */}
-      <div className="rounded-card border border-foreground bg-card p-4">
-        <dl className="flex flex-col gap-2 text-sm">
-          <div className="flex justify-between gap-4">
-            <dt className="text-muted">Ticket subtotal</dt>
-            <dd className="tabular-nums text-foreground">{formatAud(order.subtotalCents)}</dd>
-          </div>
-          <div className="flex justify-between gap-4">
-            <dt className="text-muted">Booking fees</dt>
-            <dd className="tabular-nums text-foreground">{formatAud(order.buyerFeeCents)}</dd>
-          </div>
-          {/* Only when they added some (unset otherwise, and from an older API); in the total paid. */}
-          <SupportSummaryLine cents={order.supportCents} />
-          {/* The total is the largest number here (brand-direction-one.md §6.8). */}
-          <div className="mt-1 flex items-baseline justify-between gap-4 border-t border-foreground pt-3">
-            <dt className="text-lg leading-6 font-bold text-foreground">Total paid</dt>
-            <dd className="text-xl leading-7 font-bold tabular-nums text-foreground">{formatAud(order.totalCents)}</dd>
-          </div>
-        </dl>
-        {order.supportCents !== undefined && order.supportCents > 0 && (
-          <p className="mt-3 text-sm text-foreground">Thanks for supporting Sheltüh.</p>
-        )}
-        {/* The event's refund policy (the API sends it for listed events only). */}
-        {refunds && (
-          <div data-refund-policy="" className="mt-4 flex flex-col gap-1 border-t border-surface-border pt-3 text-sm">
-            <p className="text-foreground">
-              <span className="font-semibold">Refund policy:</span> {refunds}
-            </p>
-            {order.supportCents !== undefined && order.supportCents > 0 && (
-              <p className="text-foreground">{SUPPORT_REFUND_NOTE}</p>
-            )}
-            <p className="text-sm text-muted">{REFUND_ACL_STATEMENT}</p>
-            <p className="text-xs text-muted">
-              To ask for one, use{" "}
-              <Link href="/refunds" className="text-foreground underline underline-offset-2">
-                Request a refund
-              </Link>
-              .
-            </p>
-          </div>
-        )}
-      </div>
-
-      {eventPath ? (
-        <div className="flex flex-col items-start gap-3">
-          <ButtonLink variant="outline" size="lg" href={`${eventPath}#whos-going`} className="w-full sm:w-auto">
-            Add yourself to Who&rsquo;s Going
-          </ButtonLink>
-          <p className="flex flex-wrap gap-x-6 text-sm">
-            <Link href={eventPath} className={linkClass}>
-              Back to the event
-            </Link>
-            <Link href="/" className={linkClass}>
-              Back to Sheltüh
-            </Link>
-          </p>
-        </div>
-      ) : (
-        <Link href="/" className={`${linkClass} self-start text-sm`}>
-          Back to Sheltüh
-        </Link>
-      )}
-    </div>
+        )
+      }
+    />
   );
 }
 

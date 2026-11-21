@@ -28,9 +28,9 @@ describe("FullTicket (the site's version of the email ticket)", () => {
     render(<FullTicket {...base} image={<span data-art="" />} />);
     const card = ticket();
     expect(card).toHaveClass("bg-signal", "p-3", "rounded-card", "print:break-inside-avoid");
-    expect(card).toHaveAttribute("data-surface", "paper");
     const inside = card.firstElementChild as HTMLElement;
     expect(inside).toHaveClass("bg-paper", "text-ink", "overflow-hidden");
+    expect(inside).toHaveAttribute("data-surface", "paper");
     expect(within(card).getByText("ADMIT ONE · SHELTÜH")).toHaveClass("font-mono");
     // The stripes: decoration, four bars in the frame's orange.
     const stripes = card.querySelector("svg.fill-signal");
@@ -135,7 +135,7 @@ describe("FullTicket (the site's version of the email ticket)", () => {
     expect(within(card).getByText("BPT7-7P6W")).toBeInTheDocument();
   });
 
-  it("checked in: an orange stamp says so in words with the door's time (black text), the QR and code dim behind it, and the hint goes", () => {
+  it("checked in: an orange stamp says so in words with the door's time (black text), the QR dims behind it, the code stays readable, and the hint goes", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2027-03-06T11:00:00.000Z")); // 10:00 pm Sat, Melbourne
     render(<FullTicket {...base} checkedInAt="2027-03-06T09:42:00.000Z" />);
@@ -145,7 +145,8 @@ describe("FullTicket (the site's version of the email ticket)", () => {
     expect(stamp).toHaveTextContent("Checked in");
     expect(stamp).toHaveTextContent("8:42 pm · Enjoy the night");
     expect(within(card).getByRole("img").parentElement?.parentElement).toHaveClass("opacity-15");
-    expect(within(card).getByText("BPT7-7P6W")).toHaveClass("opacity-30");
+    // The code keeps its contrast (dimmed, it would fail WCAG AA).
+    expect(within(card).getByText("BPT7-7P6W").className).not.toMatch(/opacity/);
     expect(within(card).queryByText(HINT)).toBeNull();
   });
 
@@ -164,12 +165,11 @@ describe("FullTicket (the site's version of the email ticket)", () => {
     const card = ticket();
     expect(card.querySelector("[data-ticket-stamp]")).toBeNull();
     expect(card.querySelector(".opacity-15")).toBeNull();
-    expect(within(card).getByText("BPT7-7P6W")).not.toHaveClass("opacity-30");
   });
 
   it("a checked-in ticket without a QR keeps its code readable, with the stamp under it", () => {
     render(<FullTicket {...base} code="ABC123" checkedInAt="2027-03-06T09:42:00.000Z" />);
-    expect(screen.getByText("ABC123")).not.toHaveClass("opacity-30");
+    expect(screen.getByText("ABC123").className).not.toMatch(/opacity/);
     expect(ticket().querySelector("[data-ticket-stamp]")).not.toHaveClass("absolute");
   });
 });

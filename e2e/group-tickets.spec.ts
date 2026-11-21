@@ -144,9 +144,10 @@ for (const vp of [
       await expect(summary).toContainText("2 × A$240 · Admits 4");
 
       await page.goto(`/checkout/success?session_id=${ORDER_ID}`);
-      await expect(page.getByRole("heading", { level: 2, name: "Your tickets (4)" })).toBeVisible();
+      await expect(page.getByRole("heading", { level: 2, name: "Your tickets (4)" })).toBeAttached();
       for (const position of [1, 2, 3, 4]) {
-        await expect(page.getByText(`Ticket ${position} of 4 · Group of 4 (${position} of 4)`)).toBeVisible();
+        const ticket = page.getByRole("listitem").filter({ hasText: `ticket ${position} of 4` });
+        await expect(ticket.getByText(`Group of 4 (${position} of 4)`, { exact: true })).toBeVisible();
       }
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       expect(overflow).toBeLessThanOrEqual(0);
