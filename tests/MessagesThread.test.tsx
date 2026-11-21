@@ -944,3 +944,16 @@ describe("Thread — scrolling inside its panel (from 768px the messages section
     await waitFor(() => expect(section().scrollTop).toBe(2000));
   });
 });
+
+describe("Thread — bubbles", () => {
+  it("are never wider than the thread, and wrap a long unbroken word inside", async () => {
+    const long = "x".repeat(300);
+    api.getMessages.mockResolvedValue(page([msg(1, false, long)]));
+    renderThread();
+    await ready();
+    const bubble = screen.getByText(long).closest("li");
+    // 392px at most, and never more than the thread's own width (min(100%, 24.5rem)).
+    expect(bubble).toHaveClass("max-w-[min(100%,24.5rem)]", "min-w-0");
+    expect(screen.getByText(long)).toHaveClass("break-words", "max-w-full");
+  });
+});
