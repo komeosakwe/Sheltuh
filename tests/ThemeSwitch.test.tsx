@@ -80,20 +80,22 @@ describe("ThemeSwitch (docs/design/theme-white-dark.md §5.6)", () => {
     expect(within(second).getByRole("button", { name: "Dark" })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("has 48px segments on phones (40px from lg), radius 8 with the stroke, and draws its selected state from CSS, so it's right before hydration", () => {
+  it("is Latte's 1120 footer toggle: 40px options in Label/Button, a 56px group with a 1px #595959 border, its selected state drawn from CSS, so it's right before hydration", () => {
     render(<ThemeSwitch />);
     const light = screen.getByRole("button", { name: "Light" });
     const dark = screen.getByRole("button", { name: "Dark" });
     for (const button of [light, dark]) {
       expect(button).toHaveAttribute("type", "button");
-      expect(button).toHaveClass("min-h-12", "lg:min-h-10");
+      // SemiBold 16/24 with 16 × 8 padding: 40px tall, a target well over 24px (WCAG 2.5.8).
+      expect(button).toHaveClass("label-button", "px-4", "py-2", "rounded-badge");
+      expect(button.querySelector("[data-selected-dots]")).toBeNull();
     }
-    expect(themeGroup()).toHaveClass("rounded-control", "border-control", "border-foreground", "p-2", "gap-2");
-    expect(light).toHaveClass("bg-foreground", "text-background", "dark:bg-transparent", "dark:text-foreground");
-    expect(dark).toHaveClass("text-foreground", "hover:bg-surface", "dark:bg-foreground", "dark:text-background");
-    // The orange dots mark the selected option (not colour alone), shown by the same CSS switch.
-    expect(light.querySelector("[data-selected-dots]")?.parentElement).toHaveClass("flex", "dark:hidden");
-    expect(dark.querySelector("[data-selected-dots]")?.parentElement).toHaveClass("hidden", "dark:flex");
+    expect(themeGroup()).toHaveClass("h-14", "items-center", "rounded-control", "border", "border-footer-line", "bg-background", "px-2", "gap-2");
+    // The chosen option is a white pill with black words; the other, #bfbfbf words. Switched by CSS on <html>.
+    expect(light).toHaveClass("bg-foreground", "text-background", "dark:bg-transparent", "dark:text-footer-quiet");
+    expect(dark).toHaveClass("text-footer-quiet", "hover:bg-surface", "dark:bg-foreground", "dark:text-background");
+    // The "Theme" label: Latte's Mono/S (IBM Plex Mono 12/16) in #999.
+    expect(screen.getByText("Theme")).toHaveClass("font-mono", "text-xs", "leading-4", "text-footer-label");
     expect(themeGroup().closest("[data-theme-switch]")).not.toBeNull();
   });
 });

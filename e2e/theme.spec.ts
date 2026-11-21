@@ -79,7 +79,7 @@ test("choosing Light in the footer applies at once and survives a reload", async
   expect(await page.evaluate((key) => localStorage.getItem(key), KEY)).toBe("light");
 });
 
-test("at 375px, the phone menu has no theme switch; the footer's works, with 48px options and no sideways scroll", async ({ page }) => {
+test("at 375px, the phone menu has no theme switch; the footer's works, with 40px options (Latte 1120) and no sideways scroll", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 667 });
   await page.goto("/events");
   await page.getByRole("button", { name: "Menu" }).click();
@@ -92,7 +92,8 @@ test("at 375px, the phone menu has no theme switch; the footer's works, with 48p
   const dark = page.locator("footer").getByRole("group", { name: "Theme" }).getByRole("button", { name: "Dark" });
   await dark.scrollIntoViewIfNeeded();
   const box = await dark.boundingBox();
-  expect(box?.height ?? 0).toBeGreaterThanOrEqual(48);
+  expect(Math.round(box?.height ?? 0)).toBe(40);
+  expect(box?.width ?? 0).toBeGreaterThanOrEqual(24);
   await dark.click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await expect(dark).toHaveAttribute("aria-pressed", "true");

@@ -110,14 +110,15 @@ describe("DotsMark", () => {
 });
 
 describe("Footer", () => {
-  // Refinement (owner, 22 Oct 2026): the wordmark stays, at a restrained size (it was full width).
-  it("is an ink section with the decorative orange wordmark at a restrained size; the © line carries the name", () => {
+  // Latte's 1120 footer frames: the orange wordmark 151 × 34 at every width (owner, 22 Oct 2026: never full width).
+  it("is an ink section with the decorative orange wordmark, 34px tall at every width; the © line carries the name", () => {
     const { container } = render(<Footer />);
     const footer = container.querySelector("footer");
     expect(footer).toHaveAttribute("data-surface", "ink");
     const wordmark = footer?.querySelector(`svg[viewBox="${WORDMARK.viewBox}"]`);
     expect(wordmark).toHaveAttribute("aria-hidden", "true");
-    expect(wordmark).toHaveClass("text-signal", "h-7", "w-auto", "sm:h-8");
+    expect(wordmark).toHaveClass("text-signal", "h-8.5", "w-auto");
+    expect(wordmark?.getAttribute("class")).not.toMatch(/(?:^|\s)(?:sm|md|lg|xl):h-/);
     expect(wordmark).not.toHaveClass("w-full");
     expect(screen.getByText(`© ${new Date().getFullYear()} Sheltüh`)).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Legal" })).toBeInTheDocument();
@@ -145,14 +146,15 @@ describe("Footer", () => {
       ["About Sheltüh", "/about"],
       ["Become a partner", "/partners"],
     ]);
-    // Email, then Sheltüh's own socials (owner, 13 Nov 2026), each named for screen readers and opening a new tab.
+    // Latte's 1120 set and order: LinkedIn, Instagram (Sheltüh's own, owner 13 Nov 2026), then email, each named for
+    // screen readers, the socials opening a new tab. No TikTok: Latte's frames don't have it.
     expect(links("Contact Sheltüh")).toEqual([
-      [`Email ${SUPPORT_EMAIL}`, `mailto:${SUPPORT_EMAIL}`],
-      ["Sheltüh on Instagram (opens in a new tab)", "https://www.instagram.com/findsheltuh/"],
-      ["Sheltüh on TikTok (opens in a new tab)", "https://www.tiktok.com/@findsheltuh"],
       ["Sheltüh on LinkedIn (opens in a new tab)", "https://www.linkedin.com/company/sheltuh/"],
+      ["Sheltüh on Instagram (opens in a new tab)", "https://www.instagram.com/findsheltuh/"],
+      [`Email ${SUPPORT_EMAIL}`, `mailto:${SUPPORT_EMAIL}`],
     ]);
-    for (const social of within(screen.getByRole("navigation", { name: "Contact Sheltüh" })).getAllByRole("link").slice(1)) {
+    expect(screen.queryByRole("link", { name: /TikTok/ })).toBeNull();
+    for (const social of within(screen.getByRole("navigation", { name: "Contact Sheltüh" })).getAllByRole("link").slice(0, 2)) {
       expect(social).toHaveAttribute("target", "_blank");
       expect(social).toHaveAttribute("rel", "noopener noreferrer");
     }
@@ -163,18 +165,20 @@ describe("Footer", () => {
     ]);
   });
 
-  it("sets the legal links in readable sentence-case Instrument (not mono), 48px tall on phones", () => {
+  it("keeps the legal links (not in Latte's frames) quietly in the footer's Mono/S grey, underlined, at least 24px tall", () => {
     render(<Footer />);
     for (const link of within(screen.getByRole("navigation", { name: "Legal" })).getAllByRole("link")) {
-      expect(link).toHaveClass("text-sm", "leading-5", "min-h-12", "underline");
-      expect(link.closest(".eyebrow")).toBeNull();
+      expect(link).toHaveClass("font-mono", "text-xs", "leading-4", "text-footer-label", "min-h-6", "underline");
+      expect(link).not.toHaveClass("uppercase");
     }
+    expect(screen.getByText(`© ${new Date().getFullYear()} Sheltüh`)).toHaveClass("font-mono", "text-footer-label");
   });
 
-  it("keeps the campaign line (heard as one sentence), small, under the wordmark", () => {
+  it("keeps the campaign line (heard as one sentence), Label/Nav (Medium 18/24), under the wordmark", () => {
     const { container } = render(<Footer />);
     const line = screen.getByText("Where is your Sheltüh?").closest("p");
-    expect(line).toHaveClass("text-base", "font-semibold");
+    expect(line).toHaveClass("label-nav");
+    expect(line).not.toHaveClass("font-semibold");
     expect(line).not.toHaveClass("display-lg");
     const wordmark = container.querySelector(`svg[viewBox="${WORDMARK.viewBox}"]`);
     if (!line || !wordmark) throw new Error("campaign line or wordmark missing");
@@ -190,33 +194,46 @@ describe("Footer", () => {
     expect(theme.compareDocumentPosition(support) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("shows every link without expanding anything: no disclosures, 44px Body/S rows on phones, three groups in a row with Contact below, then four columns", () => {
+  it("shows every link without expanding anything: no disclosures, Mono/S labels, Body/S rows 28 apart with 24px targets, three groups in a row with Contact below, then one row", () => {
     const { container } = render(<Footer />);
     // The only buttons are the theme switch's two.
     expect(within(container).queryAllByRole("button").filter((b) => !b.closest("[data-theme-switch]"))).toEqual([]);
     for (const name of ["Fan support", "Explore", "Our company"]) {
       const nav = screen.getByRole("navigation", { name });
       expect(within(nav).getByRole("list").className).not.toMatch(/(?:^|\s)hidden(?:\s|$)/);
-      // Body/S (14/20) at every width (Figma 1120); 44px tall below lg (WCAG 2.5.8 with room), 32px from lg.
+      // Latte's column label: IBM Plex Mono Regular 12/16 in #999, as written.
+      expect(within(nav).getByText(name)).toHaveClass("font-mono", "text-xs", "leading-4", "font-normal", "text-footer-label");
+      expect(within(nav).getByText(name)).not.toHaveClass("eyebrow");
+      // 8 between rows (Latte's 28px rhythm), at every width.
+      expect(within(nav).getByRole("list")).toHaveClass("flex", "flex-col", "gap-2");
+      // Body/S (14/20) at every width (Figma 1120), block-level on its 20px line; 2px of padding each way (cancelled
+      // by the margin, so the rhythm holds) makes a 24px-tall target (WCAG 2.5.8).
       for (const link of within(nav).getAllByRole("link")) {
-        expect(link).toHaveClass("body-s", "min-h-11", "lg:min-h-8");
-        expect(link).not.toHaveClass("body-m");
+        expect(link).toHaveClass("body-s", "block", "py-0.5", "-my-0.5");
+        expect(link).not.toHaveClass("body-m", "min-h-11");
       }
     }
-    // Email and each social: a 48px icon target on phones, 40px from lg, the icon decorative (the label names it).
-    for (const icon of within(screen.getByRole("navigation", { name: "Contact Sheltüh" })).getAllByRole("link")) {
-      expect(icon).toHaveClass("size-12", "lg:size-10");
+    // LinkedIn, Instagram and email: 40px tiles 8 apart in Latte's light grey, each a 24px icon, decorative (the label names it).
+    const contact = screen.getByRole("navigation", { name: "Contact Sheltüh" });
+    expect(within(contact).getByText("Contact Sheltüh")).toHaveClass("font-mono", "text-footer-label");
+    expect(within(contact).getByRole("list")).toHaveClass("gap-2");
+    for (const icon of within(contact).getAllByRole("link")) {
+      expect(icon).toHaveClass("size-10", "text-footer-icon");
       expect(icon.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+      expect(icon.querySelector("svg")).toHaveClass("size-6");
     }
     // Figma 1120 (mobile footer): Fan support, Explore and Our company side by side in one row, spread across the
-    // width; Contact Sheltüh on its own row below. From lg the row dissolves (display: contents) into four columns.
+    // width; Contact Sheltüh on its own row below, 24 between them. From lg (Latte's 1440) the row dissolves
+    // (display: contents) into the footer's row: the brand block takes the free width, each column as wide as its
+    // words, 64 apart.
     const row = screen.getByRole("navigation", { name: "Fan support" }).parentElement;
     expect(row).toHaveClass("flex", "justify-between", "lg:contents");
     expect([...(row?.children ?? [])].map((nav) => nav.getAttribute("aria-label"))).toEqual(["Fan support", "Explore", "Our company"]);
-    const grid = row?.parentElement;
-    expect(grid).toHaveClass("grid", "lg:grid-cols-4");
-    expect(grid).not.toHaveClass("sm:grid-cols-2");
-    expect(grid?.lastElementChild).toBe(screen.getByRole("navigation", { name: "Contact Sheltüh" }));
+    const main = row?.parentElement;
+    expect(main).toHaveClass("flex", "flex-col", "gap-6", "lg:flex-row", "lg:gap-16");
+    expect(main?.firstElementChild).toHaveClass("lg:flex-1");
+    expect(main?.lastElementChild).toBe(contact);
+    for (const nav of [...(row?.children ?? []), contact]) expect(nav).toHaveClass("lg:shrink-0");
   });
 
   describe("the install action", () => {
