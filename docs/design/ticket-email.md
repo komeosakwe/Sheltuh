@@ -506,6 +506,10 @@ lists all four links.
 
 ## 7. Wallet passes: what can and can't follow the email
 
+> **Superseded (21 Nov 2026):** the passes now follow the designer's 20 Nov 2026 Wallet pass frames: white, black
+> labels, the frames' fields and a new strip, logo and banner. See `docs/wallet-setup.md`, "What the passes look
+> like". The event image row below still stands: it isn't built. The text below is kept as the record.
+
 Today (already built):
 - `lib/server/wallet/apple.ts`: eventTicket passes.
 - `lib/server/wallet/google.ts`: the EventTicket class and object.
