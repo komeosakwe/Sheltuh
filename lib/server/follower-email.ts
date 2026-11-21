@@ -3,9 +3,8 @@ import { subjectLine, type EmailMessage } from "./email";
 import { escapeHtml } from "./email-layout";
 import { kitButtons, kitFooter, kitFooterText, kitHeader, kitHelp, kitHelpText, kitIntro, kitLink, kitPage, kitStack, kitText } from "./email-kit";
 import { ticketWordmarkImage } from "./email-ticket-layout";
-import { emailEventCard } from "./ticket-email";
 import type { EventRecord } from "./types";
-import { when, where } from "./waitlist-email";
+import { emailEventDetails, when, where } from "./waitlist-email";
 
 /**
  * "New from {organiser}": the email a member chose (when following) to get
@@ -85,8 +84,8 @@ export function buildFollowerNewEventsEmail(input: {
       kitHeader(),
       kitIntro("", heading),
       kitStack(
-        events.map((event) => emailEventCard(event, siteUrl, publicEventUrl(event.slug, siteUrl))),
-        16,
+        events.map((event) => emailEventDetails(event, siteUrl, publicEventUrl(event.slug, siteUrl))),
+        24,
       ),
       kitButtons([{ label: total === 1 ? "See the event" : "See the first event", href: firstLink, kind: "primary" }]),
       more > 0 ? kitText(`And ${more} more on ${kitLink(organiserLink, `${escapeHtml(organiserName)}&rsquo;s page`)}.`) : "",

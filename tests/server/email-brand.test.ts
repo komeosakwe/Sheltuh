@@ -250,6 +250,24 @@ describe("every transactional email uses the shared brand layout", () => {
     }
   });
 
+  it("the follower and waitlist emails name the town and state under each event card, even with no venue name or a generic one", () => {
+    const townHall = { ...event, venueName: "Town Hall", venueAddress: "", suburb: "Castlemaine", state: "VIC" } as EventRecord;
+    const noVenue = { ...event, slug: "no-venue", title: "Open Studio", venueName: "", venueAddress: "", suburb: "Ballarat", state: "VIC" } as EventRecord;
+    const emails = [
+      follower(2, [townHall, noVenue]),
+      buildWaitlistConfirmationEmail("fan@example.com", townHall, `${site}/waitlist/confirm#token=x`, 24),
+      buildWaitlistAvailableEmail("fan@example.com", noVenue, `${site}/events/no-venue#tickets`, `${site}/waitlist/leave#token=x`),
+    ];
+    const [followed, confirm, available] = emails.map((e) => e.html);
+    expect(followed).toContain("Town Hall, Castlemaine, VIC</p>");
+    expect(followed).toContain("Ballarat, VIC</p>");
+    expect(confirm).toContain("Town Hall, Castlemaine, VIC</p>");
+    expect(available).toContain("Ballarat, VIC</p>");
+    // The plain text says the same.
+    expect(emails[0].text).toContain("Town Hall, Castlemaine, VIC");
+    expect(emails[0].text).toContain("Ballarat, VIC");
+  });
+
   it("sets the event title in black in the ticket, free-confirmation, waitlist and follower emails (the 1120 Ticket card's title)", () => {
     const title = `font-size:20px;line-height:28px;font-weight:600;color:${INK};overflow-wrap:break-word;word-wrap:break-word">${escapeHtml(event.title)}</p>`;
     for (const name of ["freeConfirmation", "waitlistConfirmation", "waitlistAvailable"]) {

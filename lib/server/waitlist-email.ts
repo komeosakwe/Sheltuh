@@ -48,9 +48,19 @@ export function where(event: EventRecord): string {
   return [event.venueName, eventPlaceName(event)].filter(Boolean).join(", ");
 }
 
-function eventDetails(event: EventRecord, siteUrl: string): string {
+/**
+ * The event as the waitlist and follower emails show it: the compact Ticket
+ * card (date and time, title, venue name, image; `href` links the title),
+ * then the full date and time and the place (venue, suburb and state:
+ * where()) on one muted line, so an event with no venue name, or a generic
+ * one ("Town Hall"), still says which town it's in.
+ */
+export function emailEventDetails(event: EventRecord, siteUrl: string, href?: string): string {
   const place = where(event);
-  return kitStack([emailEventCard(event, siteUrl), kitText(escapeHtml([when(event), place].filter(Boolean).join(" · ")), { muted: true })], 16);
+  return kitStack(
+    [emailEventCard(event, siteUrl, href), kitText(escapeHtml([when(event), place].filter(Boolean).join(" · ")), { muted: true })],
+    16,
+  );
 }
 
 /** The site's origin, from a link the handler built on it. */
@@ -98,7 +108,7 @@ export function buildWaitlistConfirmationEmail(
     body: kitStack([
       kitHeader(),
       kitIntro("", headline),
-      eventDetails(event, siteUrl),
+      emailEventDetails(event, siteUrl),
       kitButtons([{ label: "Confirm and join", href: link, kind: "primary" }]),
       kitStack(
         [
@@ -160,7 +170,7 @@ export function buildWaitlistAvailableEmail(
     body: kitStack([
       kitHeader(),
       kitIntro("", headline),
-      eventDetails(event, siteUrl),
+      emailEventDetails(event, siteUrl),
       kitButtons([{ label: "Buy tickets", href: eventLink, kind: "primary" }]),
       kitText(
         "Some tickets have just been released. They&rsquo;re first come, first served: being on the waitlist doesn&rsquo;t hold one for you, and they may be gone by the time you look.",
