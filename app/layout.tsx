@@ -54,7 +54,7 @@ export const metadata: Metadata = {
 
 // viewport-fit=cover hands the notch and home-indicator areas to the page, so
 // fixed and sticky edges pad with env(safe-area-inset-*) (0 on desktop).
-// Child layouts merge field by field (app/messages/layout.tsx adds interactiveWidget).
+// Child layouts merge field by field (app/(account)/messages/layout.tsx adds interactiveWidget).
 export const viewport: Viewport = {
   themeColor: APP_THEME_COLOR,
   viewportFit: "cover",

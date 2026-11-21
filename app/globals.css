@@ -536,6 +536,15 @@ h4 {
     line-height: 3rem;
   }
 }
+/* The account pages' title (Saved, Messages, Settings…; Latte's 1120 frames, "Page title"): Heading/H1,
+   Instrument Sans Bold 40/48 with -0.4px tracking, at every width (the 390 frames don't step it down). */
+@utility heading-page {
+  font-family: var(--face-sans);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  font-size: 2.5rem;
+  line-height: 3rem;
+}
 @utility heading-h2 {
   font-family: var(--face-sans);
   font-weight: 600;

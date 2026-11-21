@@ -28,16 +28,19 @@ import {
   loadErrorMessage,
   messagingError,
   tallInlineLinkClass,
+  THREAD_ACTION_CLASS,
   THREAD_HEADER_CLASS,
+  THREAD_HEADER_ROW_CLASS,
   THREAD_MESSAGES_CLASS,
   THREAD_PAGE_CLASS,
+  THREAD_STATE_CLASS,
   THREAD_POLL_MS,
   threadHref,
 } from "./shared";
 import ThreadTitle from "./ThreadTitle";
+import { useRefreshInbox } from "./InboxSync";
 import { useUnread } from "./UnreadProvider";
 import { LoadingState } from "@/components/ui/ProgressLoader";
-import BackLink from "@/components/ui/BackLink";
 
 const LOAD_ERROR = "Couldn’t load this conversation.";
 const EARLIER_ERROR = "Couldn’t load earlier messages.";
@@ -107,6 +110,9 @@ function waitingNote(name: string) {
 export default function Thread({ conversationId, getToken }: { conversationId: string; getToken: GetToken }) {
   const unread = useUnread();
   const refreshUnread = unread?.refresh;
+  // The conversation list beside this thread (MessagesFrame) reloads after anything that changes
+  // this conversation's row: read, sent, accepted, declined, blocked, unblocked or gone.
+  const refreshInbox = useRefreshInbox();
   const returnTo = threadHref(conversationId);
 
   const [attempt, setAttempt] = useState(0);
@@ -187,8 +193,9 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
       show({ status: "unavailable" });
       if (focusWasHere) pendingFocus.current = "heading";
       refreshUnread?.();
+      refreshInbox();
     },
-    [show, refreshUnread],
+    [show, refreshUnread, refreshInbox],
   );
 
   const markRead = useCallback(
@@ -197,13 +204,14 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
         () => {
           update((d) => ({ ...d, conversation: { ...d.conversation, unread: false } }));
           refreshUnread?.();
+          refreshInbox();
         },
         // Not shown: nothing the person can do about it. `unread` stays true,
         // so the next check for new messages tries again.
         () => undefined,
       );
     },
-    [conversationId, getToken, update, refreshUnread],
+    [conversationId, getToken, update, refreshUnread, refreshInbox],
   );
 
   // First load (and Try again, and after unblocking).
@@ -375,6 +383,7 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
         messages: merge(d.messages, [message], "after").messages,
       }));
       setNewIds(new Set([message.messageId]));
+      refreshInbox();
       pendingScroll.current = "new";
       setAnnouncement(accepting ? `Message sent. You’re now chatting with ${endSentence(other)}` : "Message sent.");
       return { ok: true };
@@ -425,6 +434,7 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
       setReported(false);
       pendingFocus.current = "heading";
       refreshUnread?.();
+      refreshInbox();
     } catch (err) {
       const mapped = messagingError(err, { rateLimited: BLOCK_RATE_LIMITED, fallback: "Couldn’t block. Try again." });
       if (mapped.kind === "unavailable") {
@@ -448,6 +458,7 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
       setReported(false);
       pendingFocus.current = "heading";
       setAttempt((n) => n + 1);
+      refreshInbox();
     } catch (err) {
       const mapped = messagingError(err, { rateLimited: "Try again in a few minutes.", fallback: "Couldn’t unblock. Try again." });
       setActionError(errorText(mapped, "Couldn’t unblock. Try again."));
@@ -468,6 +479,7 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
       setReported(false);
       pendingFocus.current = "heading";
       refreshUnread?.();
+      refreshInbox();
     } catch (err) {
       const mapped = messagingError(err, { rateLimited: "Try again in a few minutes.", fallback: "Couldn’t decline. Try again." });
       if (mapped.kind === "unavailable") lose(true);
@@ -508,7 +520,6 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
       <span key={announcement.n}>{announcement.text}</span>
     </p>
   );
-  const backLink = <BackLink href="/messages">All messages</BackLink>;
   const reportName =
     view.status === "ready"
       ? view.data.conversation.otherDisplayName
@@ -521,8 +532,7 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
 
   if (view.status !== "ready") {
     return (
-      <div ref={rootRef} className="mx-auto flex w-full max-w-6xl *:max-w-2xl flex-col gap-6 px-5 py-12 sm:px-8 sm:py-20">
-        {backLink}
+      <div ref={rootRef} className={THREAD_STATE_CLASS}>
         {renderOtherState(view)}
         {reportDialog}
         {liveRegion}
@@ -537,8 +547,7 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
   return (
     <div ref={rootRef} className={THREAD_PAGE_CLASS}>
       <header className={THREAD_HEADER_CLASS}>
-        {backLink}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className={THREAD_HEADER_ROW_CLASS}>
           <ThreadTitle name={other} event={conversation.event} headingRef={headingRef} />
           {renderSafetyButtons({ block: true })}
         </div>
@@ -554,7 +563,7 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
         {hasEarlier && (
           <div className="flex flex-col items-center gap-3">
             {earlierError && <Notice tone="danger">{earlierError}</Notice>}
-            <Button variant="outline" size="sm" className="min-h-11" busy={earlierBusy} onClick={loadEarlier}>
+            <Button variant="outline" size="sm" className={THREAD_ACTION_CLASS} busy={earlierBusy} onClick={loadEarlier}>
               {earlierBusy ? "Loading…" : "Load earlier messages"}
             </Button>
           </div>
@@ -586,7 +595,7 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
           id="thread-report"
           variant="outline"
           size="sm"
-          className="min-h-11"
+          className={THREAD_ACTION_CLASS}
           onClick={() => {
             setReported(false);
             setReportOpen(true);
@@ -599,7 +608,7 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
             id="thread-block"
             variant="outline"
             size="sm"
-            className="min-h-11"
+            className={THREAD_ACTION_CLASS}
             aria-expanded={confirming === "block"}
             onClick={() => (confirming === "block" ? cancelConfirm() : openConfirm("block"))}
           >
@@ -708,15 +717,15 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
           <div className="flex flex-col items-start gap-3">
             <h1 className="sr-only">Conversation</h1>
             <ActionErrorNotice message={v.message} returnTo={returnTo} />
-            <Button variant="outline" size="sm" className="min-h-11" onClick={() => setAttempt((n) => n + 1)}>
+            <Button variant="outline" size="sm" className={THREAD_ACTION_CLASS} onClick={() => setAttempt((n) => n + 1)}>
               Try again
             </Button>
           </div>
         );
       case "unavailable":
         return (
-          <div className="border-t border-foreground py-10">
-            <h1 ref={headingRef} tabIndex={-1} className="display-md outline-offset-2">
+          <div>
+            <h1 ref={headingRef} tabIndex={-1} className="heading-h4 outline-offset-2">
               This conversation isn&rsquo;t available
             </h1>
             <p className="mt-3 max-w-md text-sm text-muted">
@@ -752,7 +761,7 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
               <Button
                 variant="outline"
                 size="sm"
-                className="min-h-11"
+                className={THREAD_ACTION_CLASS}
                 busy={actionBusy !== null}
                 onClick={() => unblock(v.blockId, v.name)}
               >

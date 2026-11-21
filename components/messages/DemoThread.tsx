@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import DemoNotice from "@/components/DemoNotice";
-import BackLink from "@/components/ui/BackLink";
 import { Button } from "@/components/ui/Button";
 import type { MessageRecord } from "@/lib/api/types";
 import { endSentence } from "@/lib/display-name";
@@ -13,9 +12,12 @@ import ReportDialog, { type ReportOutcome } from "./ReportDialog";
 import {
   BLOCK_EFFECT,
   COMPOSER_BAR_CLASS,
+  THREAD_ACTION_CLASS,
   THREAD_HEADER_CLASS,
+  THREAD_HEADER_ROW_CLASS,
   THREAD_MESSAGES_CLASS,
   THREAD_PAGE_CLASS,
+  THREAD_STATE_CLASS,
   threadHref,
 } from "./shared";
 import ThreadTitle from "./ThreadTitle";
@@ -70,10 +72,9 @@ export default function DemoThread({ conversationId }: { conversationId: string 
 
   if (!thread || !name) {
     return (
-      <div className="mx-auto flex w-full max-w-6xl *:max-w-2xl flex-col gap-6 px-5 py-12 sm:px-8 sm:py-20">
-        <BackLink href="/messages">All messages</BackLink>
-        <div className="border-t border-foreground py-10">
-          <h1 className="display-md">This conversation isn&rsquo;t available</h1>
+      <div className={THREAD_STATE_CLASS}>
+        <div>
+          <h1 className="heading-h4">This conversation isn&rsquo;t available</h1>
           <p className="mt-3 max-w-md text-sm text-muted">This demo only has conversations with its sample members.</p>
         </div>
       </div>
@@ -105,14 +106,13 @@ export default function DemoThread({ conversationId }: { conversationId: string 
   return (
     <div className={THREAD_PAGE_CLASS}>
       <header className={THREAD_HEADER_CLASS}>
-        <BackLink href="/messages">All messages</BackLink>
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className={THREAD_HEADER_ROW_CLASS}>
           <ThreadTitle name={name} event={thread.event} />
           <div className="flex shrink-0 gap-2">
             <Button
               variant="outline"
               size="sm"
-              className="min-h-11"
+              className={THREAD_ACTION_CLASS}
               onClick={() => {
                 setReported(false);
                 setReportOpen(true);
@@ -124,7 +124,7 @@ export default function DemoThread({ conversationId }: { conversationId: string 
               id="thread-block"
               variant="outline"
               size="sm"
-              className="min-h-11"
+              className={THREAD_ACTION_CLASS}
               aria-expanded={blockOpen}
               onClick={() => {
                 pendingFocus.current = blockOpen ? null : "block-close";

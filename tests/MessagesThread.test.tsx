@@ -144,7 +144,8 @@ describe("Thread — loading and reading", () => {
     expect(text).toContain("This person can’t be messaged any more, or the conversation was removed.");
     expect(text).not.toMatch(/block|declin|suspend/i);
     expect(screen.queryByRole("textbox")).toBeNull();
-    expect(screen.getByRole("link", { name: /All messages/ })).toHaveAttribute("href", "/messages");
+    // In the thread's panel; the way back is the conversation list beside it (MessagesFrame).
+    expect(heading.closest("div.rounded-card.border")).not.toBeNull();
   });
 
   it("explains a 403 (unverified email) and Try again reloads", async () => {
@@ -847,18 +848,17 @@ describe("Thread — every state has an h1, inside the page's padding", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Conversation" })).toBeInTheDocument();
   });
 
-  it("signed out, auth loading and demo, framed like other pages", () => {
+  it("signed out, auth loading and demo, framed in the thread's panel", () => {
+    const panel = "div.rounded-card.border";
     const { unmount } = renderThread(fakeAuthValue({ status: "signed-out", email: undefined }));
     const heading = screen.getByRole("heading", { level: 1, name: "Sign in to see your messages" });
-    expect(heading.closest("div.px-5")).not.toBeNull();
+    expect(heading.closest(panel)).not.toBeNull();
     unmount();
     const loading = renderThread(fakeAuthValue({ status: "loading" }));
-    expect(screen.getByRole("heading", { level: 1, name: "Conversation" }).closest("div.px-5")).not.toBeNull();
+    expect(screen.getByRole("heading", { level: 1, name: "Conversation" }).closest(panel)).not.toBeNull();
     loading.unmount();
     renderThread(fakeAuthValue({ configured: false, status: "signed-out" }));
-    expect(
-      screen.getByRole("heading", { level: 1, name: "This conversation isn’t available" }).closest("div.px-5"),
-    ).not.toBeNull();
+    expect(screen.getByRole("heading", { level: 1, name: "This conversation isn’t available" }).closest(panel)).not.toBeNull();
   });
 
   it("names the page after the person once loaded", async () => {

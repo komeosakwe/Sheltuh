@@ -272,3 +272,20 @@ export function formatTimeAgo(isoLike: string, now: number = Date.now()): string
   if (hours < 48) return `${hours} h ago`;
   return `${Math.floor(hours / 24)} days ago`;
 }
+
+/**
+ * How long ago, as short as a conversation list's corner allows (Latte's Messages frames: "2h",
+ * "1d", "3d", "1w"): "now" under a minute, then minutes, hours under a day, days under a week,
+ * then weeks. A time in the future (clock skew) is "now". Visual only: pair it with the full
+ * time for screen readers (formatMessageTime).
+ */
+export function formatShortAgo(isoLike: string, now: number = Date.now()): string {
+  const minutes = Math.floor((now - Date.parse(isoLike)) / 60_000);
+  if (!Number.isFinite(minutes) || minutes < 1) return "now";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d`;
+  return `${Math.floor(days / 7)}w`;
+}

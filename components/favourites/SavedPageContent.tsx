@@ -1,27 +1,40 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import DemoNotice from "@/components/DemoNotice";
-import EventResults from "@/components/EventResults";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { EmptyState, Notice } from "@/components/ui/Section";
-import SectionHead from "@/components/ui/SectionHead";
 import { listFavourites } from "@/lib/api/favourites";
 import { MAX_FAVOURITES } from "@/lib/api/types";
 import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
 import { eventZone, formatDayWithYear } from "@/lib/format";
 import { adaptPublicEvent } from "@/lib/live/adapt";
+import { getMinBuyerTotalCents } from "@/lib/pricing";
 import { withNext } from "@/lib/safe-next-path";
 import { sampleEvents } from "@/lib/sample-events";
 import type { SheltuhEvent } from "@/lib/types";
 import { useFavourites } from "./FavouritesProvider";
+import SavedEventCard from "./SavedEventCard";
 import { LoadingState } from "@/components/ui/ProgressLoader";
 
 /** Saved events per page (the API allows up to 50). */
 export const SAVED_PAGE_SIZE = 48;
-/** From here the count line says "{n} of 500 saved". */
+/** Cards shown at a time: six, then "Show 6 more" (Latte's Saved frames). */
+export const SAVED_STEP = 6;
+/** From here a line under the filters says "{n} of 500 saved". */
 const NEAR_CAP = 450;
+
+/**
+ * Saved's own grid (Latte's Saved frames): one card per row on phones, two from 768px (328px cards
+ * at 768) and three from 1280px; 16px across and 24px down (16 down on phones). The cards carry
+ * their own 16px padding.
+ */
+export const SAVED_GRID = "grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-y-6 xl:grid-cols-3";
+
+/** "Show 6 more" (the frames' small outline button, Label/Tag), 44px to touch. */
+const SHOW_MORE_CLASS =
+  "label-tag relative inline-flex h-10 items-center rounded-control border-control border-foreground bg-background px-5 text-foreground after:absolute after:-inset-y-0.5 after:inset-x-0 after:content-[''] hover:bg-foreground hover:text-background focus-visible:bg-foreground focus-visible:text-background aria-disabled:cursor-wait motion-safe:transition-colors motion-safe:duration-200 motion-safe:ease-out";
 
 type ListState =
   | { status: "loading" }
@@ -59,12 +72,6 @@ export default function SavedPageContent() {
   return <LiveSaved key={auth.email ?? ""} getToken={auth.getAccessToken} />;
 }
 
-function CountLine({ count }: { count: number }) {
-  return (
-    <p className="-mt-2 mb-8 text-sm text-muted">{count >= NEAR_CAP ? `${count} of ${MAX_FAVOURITES} saved` : `${count} saved`}</p>
-  );
-}
-
 function DemoSaved() {
   const favourites = useFavourites();
   const ready = favourites?.status === "ready";
@@ -79,9 +86,7 @@ function DemoSaved() {
 
   return (
     <>
-      <div className="mb-8">
-        <DemoNotice>Saved on this device only.</DemoNotice>
-      </div>
+      <DemoNotice>Saved on this device only.</DemoNotice>
       {!shown ? (
         <LoadingState text="Loading…" />
       ) : (
@@ -94,8 +99,7 @@ function DemoSaved() {
 function LiveSaved({ getToken }: { getToken: () => Promise<string> }) {
   const favourites = useFavourites();
   const [state, setState] = useState<ListState>({ status: "loading" });
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [moreError, setMoreError] = useState(false);
+  const [restFailed, setRestFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
@@ -119,31 +123,38 @@ function LiveSaved({ getToken }: { getToken: () => Promise<string> }) {
     };
   }, [getToken, attempt]);
 
+  // The filters and their counts need the whole list (up to 500), not the first page: the rest is
+  // fetched page by page straight after the first is shown. A failed page stops it, and says so.
+  const nextCursor = state.status === "ready" ? state.nextCursor : undefined;
+  useEffect(() => {
+    if (!nextCursor || restFailed) return;
+    let cancelled = false;
+    listFavourites(getToken, { cursor: nextCursor, limit: SAVED_PAGE_SIZE }).then(
+      (page) => {
+        if (cancelled) return;
+        setState((current) => {
+          if (current.status !== "ready") return current;
+          const seen = new Set(current.events.map((e) => e.id));
+          return {
+            ...current,
+            events: [...current.events, ...page.items.map(adaptPublicEvent).filter((e) => !seen.has(e.id))],
+            nextCursor: page.nextCursor,
+          };
+        });
+      },
+      () => {
+        if (!cancelled) setRestFailed(true);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [getToken, nextCursor, restFailed]);
+
   function retry() {
     setState({ status: "loading" });
+    setRestFailed(false);
     setAttempt((n) => n + 1);
-  }
-
-  async function loadMore() {
-    if (state.status !== "ready" || !state.nextCursor) return;
-    setLoadingMore(true);
-    setMoreError(false);
-    try {
-      const page = await listFavourites(getToken, { cursor: state.nextCursor, limit: SAVED_PAGE_SIZE });
-      setState((current) => {
-        if (current.status !== "ready") return current;
-        const seen = new Set(current.events.map((e) => e.id));
-        return {
-          ...current,
-          events: [...current.events, ...page.items.map(adaptPublicEvent).filter((e) => !seen.has(e.id))],
-          nextCursor: page.nextCursor,
-        };
-      });
-    } catch {
-      setMoreError(true);
-    } finally {
-      setLoadingMore(false);
-    }
   }
 
   if (state.status === "loading") {
@@ -172,74 +183,176 @@ function LiveSaved({ getToken }: { getToken: () => Promise<string> }) {
       events={state.events}
       now={state.now}
       count={favourites?.status === "ready" ? favourites.count : state.events.length}
-      more={
-        state.nextCursor ? (
-          <div className="mt-10 flex flex-col items-start gap-3">
-            {moreError && (
-              <Notice tone="danger" role="alert">
-                Couldn&rsquo;t load more. Try again.
-              </Notice>
-            )}
-            <Button variant="outline" size="lg" className="w-full sm:w-auto" busy={loadingMore} onClick={loadMore}>
-              {loadingMore ? "Loading…" : "Load more"}
-            </Button>
-          </div>
-        ) : null
-      }
+      rest={{ complete: !state.nextCursor, failed: restFailed, retry: () => setRestFailed(false) }}
     />
   );
 }
 
+/** The rest of the saved events, after the first page (live mode): still loading, all in, or stopped by an error. */
+interface RestOfList {
+  complete: boolean;
+  failed: boolean;
+  retry: () => void;
+}
+
+type SavedFilter = "all" | "week" | "free";
+
+const WEEK_MS = 7 * 86_400_000;
+
+/** Coming up in the next seven days (or on now). */
+const isThisWeek = (event: SheltuhEvent, now: number) => new Date(event.startsAt).getTime() - now < WEEK_MS;
+/** Its cheapest ticket costs nothing. */
+const isFree = (event: SheltuhEvent) => getMinBuyerTotalCents(event) === 0;
+
+/**
+ * The saved events (Latte's Saved frames): the filters (All · This week · Free, each with its
+ * count), the grid of cards (one per row on phones, two from 768px and three from 1280px:
+ * SAVED_GRID), six at a time with "Show 6 more" under them, then any ended events in their own
+ * list with Remove buttons.
+ */
 function SavedList({
   events,
   now,
   count,
-  more,
+  rest = { complete: true, failed: false, retry: () => undefined },
 }: {
   events: SheltuhEvent[];
   now: number;
   count: number;
-  more?: ReactNode;
+  rest?: RestOfList;
 }) {
   const [removed, setRemoved] = useState<ReadonlySet<string>>(new Set());
+  const [filter, setFilter] = useState<SavedFilter>("all");
+  const [shown, setShown] = useState(SAVED_STEP);
+  const [announcement, setAnnouncement] = useState("");
+  const pendingFocus = useRef<string | null>(null);
+  const gridRef = useRef<HTMLUListElement>(null);
   const upcoming = events.filter((event) => !hasEnded(event, now));
   const past = events.filter((event) => hasEnded(event, now) && !removed.has(event.id));
   // Stays once shown, so removing the last row leaves focus somewhere (its heading).
   const [hadPast, setHadPast] = useState(false);
   if (!hadPast && past.length > 0) setHadPast(true);
 
-  if (events.length === 0) {
-    return (
-      <EmptyState
-        title="Nothing saved yet"
-        action={
-          <ButtonLink size="lg" href="/events">
-            Browse events
-          </ButtonLink>
-        }
-      />
-    );
+  // After "Show more", focus goes to the first card that appeared, once it's rendered.
+  useEffect(() => {
+    const id = pendingFocus.current;
+    if (!id) return;
+    const link = gridRef.current?.querySelector<HTMLElement>(`[data-saved-id="${CSS.escape(id)}"] [data-card-link]`);
+    if (!link) return;
+    pendingFocus.current = null;
+    link.focus();
+  });
+
+  if (events.length === 0) return <SavedEmpty />;
+
+  // This week and Free count the whole list, so their numbers wait until it's all in (All is the
+  // saved total, known from the start).
+  const whole = rest.complete;
+  const filters: { key: SavedFilter; label: string; count: number | null }[] = [
+    { key: "all", label: "All", count: Math.max(count, upcoming.length) },
+    { key: "week", label: "This week", count: whole ? upcoming.filter((event) => isThisWeek(event, now)).length : null },
+    { key: "free", label: "Free", count: whole ? upcoming.filter(isFree).length : null },
+  ];
+  const filtered =
+    filter === "week" ? upcoming.filter((event) => isThisWeek(event, now)) : filter === "free" ? upcoming.filter(isFree) : upcoming;
+  const visible = filtered.slice(0, shown);
+  const hidden = filtered.length - visible.length;
+  const nowDate = new Date(now);
+
+  function showMore() {
+    const next = filtered[shown];
+    const added = Math.min(SAVED_STEP, hidden);
+    if (next) pendingFocus.current = next.id;
+    setShown((n) => n + SAVED_STEP);
+    setAnnouncement(`${added} more ${added === 1 ? "event" : "events"} shown.`);
   }
 
   return (
     <>
-      <CountLine count={count} />
-      <section aria-labelledby="saved-upcoming" className="flex flex-col">
-        <SectionHead title="Coming up" id="saved-upcoming" />
-        {upcoming.length > 0 ? (
-          <EventResults events={upcoming} />
-        ) : (
-          <p className="text-sm text-muted">Nothing coming up.</p>
+      <div role="group" aria-label="Filter saved events" className="flex flex-wrap gap-2">
+        {filters.map((option) => (
+          <button
+            key={option.key}
+            type="button"
+            aria-pressed={filter === option.key}
+            onClick={() => {
+              setFilter(option.key);
+              setShown(SAVED_STEP);
+            }}
+            className={`label-tag relative inline-flex h-9 items-center rounded-control border-control border-foreground px-4 after:absolute after:-inset-y-1 after:inset-x-0 after:content-[''] motion-safe:transition-colors motion-safe:duration-200 motion-safe:ease-out ${
+              filter === option.key ? "bg-foreground text-background" : "bg-background text-foreground hover:bg-hover"
+            }`}
+          >
+            {option.label}
+            {option.count !== null && (
+              <>
+                <span aria-hidden="true">&nbsp;·</span>
+                <span className="sr-only">,</span> {option.count}
+              </>
+            )}
+          </button>
+        ))}
+      </div>
+      {count >= NEAR_CAP && (
+        <p className="body-s text-muted">
+          {count} of {MAX_FAVOURITES} saved
+        </p>
+      )}
+      <section aria-labelledby="saved-upcoming" className="flex flex-col gap-6">
+        <h2 id="saved-upcoming" className="sr-only">
+          Coming up
+        </h2>
+        {visible.length > 0 ? (
+          <ul ref={gridRef} className={SAVED_GRID}>
+            {visible.map((event, index) => (
+              <li key={event.id} data-saved-id={event.id} className="flex">
+                <SavedEventCard event={event} now={nowDate} priority={index < 2} />
+              </li>
+            ))}
+          </ul>
+        ) : !whole ? null : (
+          <p className="body-s text-muted">
+            {filter === "all" ? "Nothing coming up." : filter === "week" ? "Nothing on this week." : "No free events saved."}
+          </p>
         )}
+        {hidden > 0 ? (
+          <div>
+            <button type="button" onClick={showMore} className={SHOW_MORE_CLASS}>
+              Show {Math.min(SAVED_STEP, hidden)} more
+            </button>
+          </div>
+        ) : rest.failed ? (
+          <div className="flex flex-col items-start gap-3">
+            <Notice tone="danger" role="alert">
+              Couldn&rsquo;t load all your saved events.
+            </Notice>
+            <button type="button" onClick={rest.retry} className={SHOW_MORE_CLASS}>
+              Try again
+            </button>
+          </div>
+        ) : (
+          !whole && <LoadingState text="Loading the rest of your saved events…" />
+        )}
+        <p role="status" className="sr-only">
+          {announcement}
+        </p>
       </section>
       {hadPast && (
-        <PastList
-          events={past}
-          onRemoved={(id) => setRemoved((current) => new Set([...current, id]))}
-        />
+        <PastList events={past} onRemoved={(id) => setRemoved((current) => new Set([...current, id]))} />
       )}
-      {more}
     </>
+  );
+}
+
+/** Nothing saved (until Latte designs it: the page title, one line and a link to Discover). */
+function SavedEmpty() {
+  return (
+    <p className="body-m">
+      Nothing saved yet. Tap the heart on any event to keep it here.{" "}
+      <Link href="/" className="font-semibold underline underline-offset-4 hover:decoration-2">
+        Discover events
+      </Link>
+    </p>
   );
 }
 
@@ -285,8 +398,8 @@ function PastList({ events, onRemoved }: { events: SheltuhEvent[]; onRemoved: (i
   );
 
   return (
-    <section aria-labelledby="saved-past" className="mt-16 border-t border-foreground pt-5">
-      <h2 id="saved-past" ref={headingRef} tabIndex={-1} className="display-md mb-4 !text-2xl outline-offset-2">
+    <section aria-labelledby="saved-past" className="mt-4 border-t border-surface-border pt-6">
+      <h2 id="saved-past" ref={headingRef} tabIndex={-1} className="heading-h3 mb-4 outline-offset-2">
         Past events
       </h2>
       {events.length === 0 && <p className="text-sm text-muted">No past events saved.</p>}

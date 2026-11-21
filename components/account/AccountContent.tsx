@@ -22,14 +22,17 @@ import { useProfile } from "@/lib/auth/useProfile";
 import { endSentence, validateDisplayName } from "@/lib/display-name";
 import { withNext } from "@/lib/safe-next-path";
 import { LoadingState } from "@/components/ui/ProgressLoader";
-import AccountLinks, { type AccountEventsRow } from "./AccountLinks";
+import { SUPPORT_EMAIL } from "@/lib/contact";
+import AccountLinks, { EVENTS_ROWS, type AccountEventsRow } from "./AccountLinks";
 import DeleteProfile from "./DeleteProfile";
 import MemberProfileSettings from "./MemberProfileSettings";
 
 const pillClass = "w-full sm:w-auto";
 const linkClass = "underline underline-offset-4 hover:decoration-2";
-const sectionClass = "border-t border-foreground pt-4";
-const headingClass = "font-heading text-xl leading-6";
+/** A Settings card (Latte's 1120 Settings frames): a 1px border/subtle outline, radius 16, 24px in, 16px between its parts. */
+export const settingsCardClass = "flex min-w-0 flex-col gap-4 rounded-card border border-surface-border bg-card p-6";
+/** A card's title: Heading/H4, 20/28 at every width. */
+const headingClass = "heading-h4 max-md:text-xl max-md:leading-7";
 const RETURN_TO = "/account";
 
 function errorMessage(err: unknown, fallback: string) {
@@ -38,33 +41,23 @@ function errorMessage(err: unknown, fallback: string) {
   return fallback;
 }
 
-/**
- * The card's heading and one-line intro, with the privacy link (`privacyLink`
- * false where the form below has its own, beside its consent line).
- */
-function ProfileHeading({ privacyLink = true }: { privacyLink?: boolean }) {
+/** The profile card's title. */
+function ProfileHeading() {
   return (
-    <>
-      <h2 id="member-profile-title" className={headingClass}>
-        Your profile
-      </h2>
-      {privacyLink && (
-        <p className="mt-1 mb-4 text-sm text-muted">
-          <Link href="/privacy#whos-going" className={linkClass}>
-            How we handle your information
-          </Link>
-        </p>
-      )}
-    </>
+    <h2 id="member-profile-title" className={headingClass}>
+      Your profile
+    </h2>
   );
 }
 
 /**
- * /account, compact and profile first: Your profile (photo, display name,
- * bio, Instagram, the visibility switch: one Save), a list of link rows
- * (Your events for organisers, else Organise events; Organisers you follow, Messages, Blocked
- * members), Sign-in (the email and how it signs in, Sign out), and Delete
- * your profile behind a disclosure.
+ * /account (Settings), as Latte's 1120 Settings frames lay it out: two columns of cards from
+ * 768px (stacked on phones). Left: Your profile (photo, display name, bio, Instagram, the
+ * visibility switch: one Save) and Privacy (Blocked members, how we handle your information,
+ * Delete your profile behind a disclosure). Right: Sign-in (the email and how it signs in, Sign
+ * out: the only log-out on tablet and mobile), Events (Your events for organisers, else Organise
+ * events; Organisers you follow), and how to delete the whole account. The frames' Notifications
+ * card and Personalised picks have nothing behind them yet, so they aren't shown.
  */
 export default function AccountContent() {
   const auth = useAuth();
@@ -106,86 +99,107 @@ export default function AccountContent() {
   const profile = state.status === "ready" ? state.profile : null;
 
   return (
-    <div className="flex flex-col gap-8">
-      {state.status === "loading" && (
-        <section className={sectionClass} aria-labelledby="member-profile-title">
-          <ProfileHeading />
-          <LoadingState text="Loading your profile…" />
+    <div className="grid gap-6 md:grid-cols-2 md:items-start">
+      <div className="flex min-w-0 flex-col gap-6">
+        {state.status === "loading" && (
+          <section className={settingsCardClass} aria-labelledby="member-profile-title">
+            <ProfileHeading />
+            <LoadingState text="Loading your profile…" />
+          </section>
+        )}
+
+        {state.status === "error" && (
+          <section className={settingsCardClass} aria-labelledby="member-profile-title">
+            <ProfileHeading />
+            <div className="flex flex-col items-start gap-3">
+              <Notice tone="danger" role="alert">
+                Couldn&rsquo;t load your profile.
+              </Notice>
+              <Button variant="outline" size="sm" className="min-h-11" onClick={reload}>
+                Try again
+              </Button>
+            </div>
+          </section>
+        )}
+
+        {state.status === "ready" && (
+          <ProfileSection profile={state.profile} deleted={deleted} onSaved={setProfile} getToken={auth.getAccessToken} />
+        )}
+
+        <section className={settingsCardClass} aria-labelledby="privacy-title">
+          <h2 id="privacy-title" className={headingClass}>
+            Privacy
+          </h2>
+          <AccountLinks
+            label="Privacy"
+            links={[
+              { href: "/messages/blocked", label: "Blocked members", note: "People who can’t message you" },
+              { href: "/privacy#whos-going", label: "How we handle your information", note: "Who’s Going, messages and your profile" },
+            ]}
+          />
+          {profile && !deleted && (
+            <DeleteProfile
+              getToken={auth.getAccessToken}
+              onDeleted={() => {
+                setProfile(null);
+                setDeleted(true);
+              }}
+            />
+          )}
         </section>
-      )}
+      </div>
 
-      {state.status === "error" && (
-        <section className={sectionClass} aria-labelledby="member-profile-title">
-          <ProfileHeading />
-          <div className="flex flex-col items-start gap-3">
-            <Notice tone="danger" role="alert">
-              Couldn&rsquo;t load your profile.
-            </Notice>
-            <Button variant="outline" size="sm" className="min-h-11" onClick={reload}>
-              Try again
-            </Button>
-          </div>
-        </section>
-      )}
-
-      {state.status === "ready" && (
-        <ProfileSection profile={state.profile} deleted={deleted} onSaved={setProfile} getToken={auth.getAccessToken} />
-      )}
-
-      <AccountLinks events={eventsRow} />
-
-      <section className={sectionClass} aria-labelledby="sign-in-title">
-        <h2 id="sign-in-title" className={headingClass}>
-          Sign-in
-        </h2>
-        <div className="mt-3 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="min-w-0 text-sm text-muted">
+      <div className="flex min-w-0 flex-col gap-6">
+        <section className={settingsCardClass} aria-labelledby="sign-in-title">
+          <h2 id="sign-in-title" className={headingClass}>
+            Sign-in
+          </h2>
+          <p className="body-s min-w-0 text-muted">
             <span>Signed in as </span>
-            <span className="break-words text-foreground">{auth.email}</span>
+            <span className="break-words">{auth.email}</span>
             {signInMethods && (
               <>
-                {/* One line from 640px; on a phone the methods start their own. */}
-                <span aria-hidden="true" className="hidden sm:inline">
-                  {" "}
-                  ·{" "}
-                </span>
-                <span className="block sm:inline">Sign-in methods: {signInMethods}</span>
+                {" · "}
+                <span data-sign-in-methods="">{signInMethods}</span>
               </>
             )}
           </p>
-          <Button variant="outline" size="md" onClick={handleSignOut} className="min-h-11 shrink-0">
+          <Button variant="outline" size="sm" onClick={handleSignOut} className="min-h-11 self-start">
             Sign out
           </Button>
-        </div>
-      </section>
+        </section>
 
-      <section className={sectionClass}>
-        {profile && !deleted && (
-          <DeleteProfile
-            getToken={auth.getAccessToken}
-            onDeleted={() => {
-              setProfile(null);
-              setDeleted(true);
-            }}
-          />
+        {eventsRow && (
+          <section className={settingsCardClass} aria-labelledby="events-title">
+            <h2 id="events-title" className={headingClass}>
+              Events
+            </h2>
+            <AccountLinks
+              label="Events"
+              links={[EVENTS_ROWS[eventsRow], { href: "/following", label: "Organisers you follow" }]}
+            />
+          </section>
         )}
-        <p className={`text-xs text-muted ${profile && !deleted ? "mt-2" : ""}`.trim()}>
-          To delete your whole account, see our{" "}
-          <Link href="/privacy" className={linkClass}>
-            Privacy Policy
-          </Link>
-          .
+
+        <p className="label-tag text-muted">
+          To delete your account, contact{" "}
+          <a href={`mailto:${SUPPORT_EMAIL}`} className={linkClass}>
+            {SUPPORT_EMAIL}
+          </a>
+          . Tickets for upcoming events stay in your email.
         </p>
-      </section>
+      </div>
     </div>
   );
 }
 
 function DemoAccount() {
   return (
-    <div className="flex flex-col gap-8">
-      <DemoNotice>Accounts aren&rsquo;t available in this demo.</DemoNotice>
-      <section className={sectionClass} aria-labelledby="member-profile-title">
+    <div className="grid gap-6 md:grid-cols-2 md:items-start">
+      <div className="md:col-span-2">
+        <DemoNotice>Accounts aren&rsquo;t available in this demo.</DemoNotice>
+      </div>
+      <section className={settingsCardClass} aria-labelledby="member-profile-title">
         <ProfileHeading />
         <form className="flex flex-col gap-5" aria-label="Your profile" onSubmit={(e) => e.preventDefault()}>
           <div className="flex items-center gap-4">
@@ -193,8 +207,8 @@ function DemoAccount() {
             <p className="text-sm text-muted">Photo (optional)</p>
           </div>
           <DisplayNameField id="account-name" value="Mia T." onChange={() => {}} disabled />
-          <Button type="submit" variant="solid" size="lg" disabled className={pillClass}>
-            Save profile
+          <Button type="submit" variant="solid" size="sm" disabled className="min-h-11 self-start">
+            Save changes
           </Button>
         </form>
       </section>
@@ -253,9 +267,9 @@ function ProfileSection({
       id="member-profile"
       tabIndex={-1}
       aria-labelledby="member-profile-title"
-      className={`${sectionClass} scroll-mt-24 outline-offset-2`}
+      className={`${settingsCardClass} scroll-mt-24 outline-offset-2`}
     >
-      <ProfileHeading privacyLink={profile !== null} />
+      <ProfileHeading />
       {profile ? (
         <>
           {notice?.kind === "created" && (

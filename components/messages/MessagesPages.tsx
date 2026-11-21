@@ -7,7 +7,7 @@ import DemoThread from "./DemoThread";
 import Inbox from "./Inbox";
 import MessagesGate from "./MessagesGate";
 import Thread from "./Thread";
-import { threadHref } from "./shared";
+import { THREAD_STATE_CLASS, threadHref } from "./shared";
 
 /** /messages */
 export function InboxPageContent() {
@@ -18,12 +18,24 @@ export function InboxPageContent() {
   );
 }
 
+/**
+ * /messages beside the list (from 768px): where a conversation opens. Below 768px the list is the
+ * page, so it isn't shown.
+ */
+export function PickConversation() {
+  return (
+    <div className="hidden min-w-0 flex-1 items-center justify-center rounded-card border border-surface-border p-6 md:flex md:h-169 lg:h-191">
+      <p className="body-s text-center text-muted">Pick a conversation to read it here.</p>
+    </div>
+  );
+}
+
 /** /messages/[conversationId]. The thread (live or demo) lays itself out (it fills the screen on phones). */
 export function ThreadPageContent({ conversationId }: { conversationId: string }) {
   return (
     <MessagesGate
       returnTo={threadHref(conversationId)}
-      frameClassName="mx-auto flex w-full max-w-6xl *:max-w-2xl flex-col gap-8 px-5 py-12 sm:px-8 sm:py-20"
+      frameClassName={THREAD_STATE_CLASS}
       pageTitle="Conversation"
       demo={<DemoThread key={conversationId} conversationId={conversationId} />}
     >

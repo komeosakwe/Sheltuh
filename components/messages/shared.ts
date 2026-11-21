@@ -9,13 +9,25 @@ export const THREAD_POLL_MS = 10_000;
 export const inlineLinkClass = "underline underline-offset-4 hover:decoration-2";
 export const tallInlineLinkClass = `inline-flex min-h-11 items-center ${inlineLinkClass}`;
 
-/** A conversation page's layout (live and demo): it fills the screen, with the composer stuck to its foot. */
+/**
+ * A conversation's panel (live and demo), as Latte's Messages frames draw the thread: a 1px
+ * border/subtle outline, radius 16, beside the conversation list from 768px (676px tall, 764px
+ * from 1024px) with the messages scrolling between the head and the composer; below 768px it's
+ * under the list, as tall as its messages, with the composer stuck to the screen's foot.
+ */
 export const THREAD_PAGE_CLASS =
-  "mx-auto flex min-h-[calc(100dvh-var(--header-h))] w-full max-w-6xl *:max-w-2xl flex-col px-5 sm:px-8";
-export const THREAD_HEADER_CLASS = "flex flex-col gap-3 border-b border-surface-border pt-4 pb-4 sm:pt-8";
-export const THREAD_MESSAGES_CLASS = "flex flex-1 flex-col gap-4 py-6";
+  "flex min-w-0 flex-1 flex-col rounded-card border border-surface-border md:h-169 md:overflow-hidden lg:h-191";
+/** The thread's head: the avatar, name and event, and Report / Block, over a 1px border/subtle line; 16px in, 24px from 768px. */
+export const THREAD_HEADER_CLASS = "flex flex-col gap-3 border-b border-surface-border px-4 py-4 md:px-6";
+/** The head's row: who and what on the left, the actions on the right; stacked on phones (the 390 frame's head). */
+export const THREAD_HEADER_ROW_CLASS = "flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between";
+export const THREAD_MESSAGES_CLASS = "flex flex-1 flex-col gap-3 p-4 md:overflow-y-auto md:p-6";
 export const COMPOSER_BAR_CLASS =
-  "sticky bottom-0 -mx-5 border-t border-foreground bg-background px-5 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:-mx-8 sm:px-8";
+  "sticky bottom-0 rounded-b-card border-t border-surface-border bg-background px-4 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))] md:static md:px-6 md:pb-4";
+/** A thread that isn't showing messages (loading, an error, declined, blocked, gone), in the same panel. */
+export const THREAD_STATE_CLASS = "flex min-w-0 flex-1 flex-col items-start gap-6 rounded-card border border-surface-border p-6";
+/** The thread's Report and Block (the frames' small outline "View ticket" button, Label/Tag): 36px, 44px to touch below 1024px. */
+export const THREAD_ACTION_CLASS = "label-tag min-h-11 px-4 lg:min-h-9";
 
 export function threadHref(conversationId: string) {
   return `/messages/${encodeURIComponent(conversationId)}`;
