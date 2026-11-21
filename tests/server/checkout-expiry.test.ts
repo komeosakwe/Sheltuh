@@ -977,7 +977,13 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("a claim racing another claim's 
       // The second starts (its snapshot can't see the first's lease), and the first commits while it walks the fillers.
       const twoPid = await pid(two);
       const pending = claim(two).execute();
-      await waitFor(twoPid, (row) => row.state === "active", "started");
+      // A claim that already finished between two samples is back to idle: that counts as started too.
+      let finished = false;
+      const settled = () => {
+        finished = true;
+      };
+      void pending.then(settled, settled);
+      await waitFor(twoPid, (row) => finished || row.state === "active", "started");
       await new Promise((resolve) => setTimeout(resolve, 20));
       await one.unsafe("commit");
       expect((await pending).map((row) => row.claimed_order_id)).toEqual([second]);
