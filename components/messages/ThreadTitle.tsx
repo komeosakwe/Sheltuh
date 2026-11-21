@@ -1,8 +1,12 @@
 import Link from "next/link";
 import type { Ref } from "react";
-import { tallInlineLinkClass } from "./shared";
+import InitialsAvatar from "@/components/ui/InitialsAvatar";
 
-/** A conversation's heading (live and demo): the other person's name, and the event they're both going to. */
+/**
+ * A conversation's heading (live and demo), as the Messages frames' thread head: a 40px round
+ * avatar, the other person's name (Label/Button, cut short with "…" rather than pushing the
+ * actions out) and, under it in Label/Tag text/secondary, the event they're both going to.
+ */
 export default function ThreadTitle({
   name,
   event,
@@ -13,18 +17,24 @@ export default function ThreadTitle({
   headingRef?: Ref<HTMLHeadingElement>;
 }) {
   return (
-    <div className="min-w-0">
-      <h1 ref={headingRef} tabIndex={-1} className="display-md break-words outline-offset-2">
-        {name}
-      </h1>
-      {event && (
-        <p className="mt-1 flex flex-wrap items-center gap-x-1 text-sm text-muted">
-          Going to
-          <Link href={`/events/${event.slug}`} className={`${tallInlineLinkClass} min-w-0 break-words text-foreground`}>
-            {event.title}
-          </Link>
-        </p>
-      )}
+    <div className="flex min-w-0 flex-1 items-center gap-3">
+      <InitialsAvatar name={name} size="nav" />
+      <div className="min-w-0">
+        <h1 ref={headingRef} tabIndex={-1} className="label-button truncate outline-offset-2">
+          {name}
+        </h1>
+        {event && (
+          <p className="label-tag flex min-w-0 items-center gap-1 text-muted">
+            <span className="shrink-0">Going to</span>
+            <Link
+              href={`/events/${event.slug}`}
+              className="inline-flex min-h-6 min-w-0 items-center truncate text-foreground underline underline-offset-4 hover:decoration-2"
+            >
+              <span className="truncate">{event.title}</span>
+            </Link>
+          </p>
+        )}
+      </div>
     </div>
   );
 }

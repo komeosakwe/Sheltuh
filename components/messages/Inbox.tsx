@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import InitialsAvatar from "@/components/ui/InitialsAvatar";
-import { EmptyState, Notice } from "@/components/ui/Section";
+import { Notice } from "@/components/ui/Section";
 import ActionErrorNotice from "@/components/whos-going/ActionErrorNotice";
 import type { GetToken } from "@/lib/api/client";
 import { listConversations } from "@/lib/api/messages";
@@ -33,7 +33,7 @@ type LoadState =
  * received, requests they've sent and accepted conversations share one list
  * (the API pages them by activity), each labelled, with unread ones marked.
  */
-export default function Inbox({ getToken }: { getToken: GetToken }) {
+export default function Inbox({ getToken, selectedId }: { getToken: GetToken; selectedId?: string | null }) {
   const unread = useUnread();
   const refreshUnread = unread?.refresh;
   const [attempt, setAttempt] = useState(0);
@@ -96,7 +96,7 @@ export default function Inbox({ getToken }: { getToken: GetToken }) {
   }
 
   return (
-    <div aria-busy={state.status === "loading" ? true : undefined}>
+    <div aria-busy={state.status === "loading" ? true : undefined} className={CONVERSATIONS_PANEL_CLASS}>
       {state.status === "loading" && <LoadingState text="Loading your messages…" />}
 
       {state.status === "error" && (
@@ -108,19 +108,22 @@ export default function Inbox({ getToken }: { getToken: GetToken }) {
         </div>
       )}
 
-      {state.status === "ready" && state.items.length === 0 && (
-        <EmptyState title="No messages yet" />
-      )}
+      {state.status === "ready" && state.items.length === 0 && <InboxEmpty />}
 
       {state.status === "ready" && state.items.length > 0 && (
         <>
-          <ul ref={listRef} aria-label="Conversations" className="border-t border-foreground">
+          <ul ref={listRef} aria-label="Conversations" className={CONVERSATIONS_LIST_CLASS}>
             {state.items.map((conversation, index) => (
-              <ConversationRow key={conversation.conversationId} conversation={conversation} index={index} />
+              <ConversationRow
+                key={conversation.conversationId}
+                conversation={conversation}
+                index={index}
+                selected={conversation.conversationId === selectedId}
+              />
             ))}
           </ul>
           {state.nextCursor && (
-            <div className="mt-6 flex flex-col items-start gap-3">
+            <div className="mt-2 flex flex-col items-start gap-3 px-2 pb-2">
               {moreError && <Notice tone="danger">{moreError}</Notice>}
               <Button variant="outline" busy={loadingMore} onClick={loadMore} className="min-h-11 w-full sm:w-auto">
                 {loadingMore ? "Loading…" : "Load more"}
@@ -137,42 +140,74 @@ export default function Inbox({ getToken }: { getToken: GetToken }) {
   );
 }
 
-export function ConversationRow({ conversation, index }: { conversation: ConversationSummary; index: number }) {
-  const { otherDisplayName, status, event, lastMessage, unread } = conversation;
+/**
+ * The conversations' panel (Latte's Messages frames): cream (surface/card-hover), radius 16, 8px
+ * in; 280px wide beside the thread from 768px and 360px from 1280px, full width above it on phones.
+ */
+export const CONVERSATIONS_PANEL_CLASS =
+  "flex w-full shrink-0 flex-col gap-1 rounded-card bg-hover p-2 md:w-70 md:self-stretch xl:w-90";
+const CONVERSATIONS_LIST_CLASS = "flex flex-col gap-1";
+
+/** No conversations yet (until Latte designs it: one line and a link to Discover). */
+export function InboxEmpty() {
+  return (
+    <div className="flex flex-col gap-1 p-4">
+      <p className="body-s font-semibold">No messages yet</p>
+      <p className="body-s text-muted">
+        When someone going to the same event messages you, it shows up here.{" "}
+        <Link href="/" className="font-semibold text-foreground underline underline-offset-4 hover:decoration-2">
+          Discover events
+        </Link>
+      </p>
+    </div>
+  );
+}
+
+/**
+ * One conversation in the list (the frames' "Conversation" row): a 44px round avatar, the name
+ * (Body/S Strong when unread, Body/S when read; cut short with "…", never pushing the time out)
+ * and the time (IBM Plex Mono 12/16) on top, the preview on one line under them (Label/Tag, black
+ * when unread, text/secondary when read), and an 8px orange dot when unread. The open one is a
+ * white row (aria-current="page"); the others fill white on hover or keyboard focus.
+ */
+export function ConversationRow({
+  conversation,
+  index,
+  selected = false,
+}: {
+  conversation: ConversationSummary;
+  index: number;
+  selected?: boolean;
+}) {
+  const { otherDisplayName, status, lastMessage, unread } = conversation;
   const label = STATUS_LABEL[status];
   return (
-    <li data-conversation-id={conversation.conversationId} className="border-b border-surface-border">
+    <li data-conversation-id={conversation.conversationId}>
       <Link
         href={threadHref(conversation.conversationId)}
-        className="flex min-h-11 gap-3 py-4 outline-offset-2 hover:bg-surface"
+        aria-current={selected ? "page" : undefined}
+        className={`flex min-h-11 items-center gap-3 rounded-card px-4 py-3 outline-offset-2 hover:bg-background focus-visible:bg-background motion-safe:transition-colors motion-safe:duration-200 motion-safe:ease-out ${
+          selected ? "bg-background" : ""
+        }`.trim()}
       >
-        <InitialsAvatar name={otherDisplayName} index={index} />
+        <InitialsAvatar name={otherDisplayName} index={index} size="row" />
         <span className="flex min-w-0 flex-1 flex-col gap-1">
-          <span className="flex items-baseline justify-between gap-3">
-            <span className={`truncate text-base leading-6 ${unread ? "font-semibold" : ""}`.trim()}>
+          <span className="flex min-w-0 items-baseline justify-between gap-2">
+            <span className={`body-s min-w-0 truncate ${unread ? "font-semibold" : ""}`.trim()}>
               {unread && <span className="sr-only">Unread: </span>}
               {otherDisplayName}
             </span>
-            <time dateTime={lastMessage.sentAt} className="meta shrink-0 text-muted">
+            <time dateTime={lastMessage.sentAt} className="shrink-0 font-mono text-xs leading-4 text-muted">
               {formatMessageTime(lastMessage.sentAt)}
             </time>
           </span>
-          {(label || event) && (
-            <span className="flex flex-wrap items-baseline gap-x-2 text-xs text-muted">
-              {label && <span className="eyebrow text-foreground">{label}</span>}
-              {event && <span className="min-w-0 truncate">{event.title}</span>}
-            </span>
-          )}
-          <span
-            className={`line-clamp-2 text-sm leading-5 break-words ${unread ? "text-foreground" : "text-muted"}`}
-          >
-            {lastMessage.fromYou && <span className="text-muted">You: </span>}
+          <span className={`label-tag truncate ${unread ? "text-foreground" : "text-muted"}`}>
+            {label && <span className="font-semibold text-foreground">{label} · </span>}
+            {lastMessage.fromYou && <span>You: </span>}
             {lastMessage.preview}
           </span>
         </span>
-        {unread && (
-          <span aria-hidden="true" data-unread-dot="" className="mt-2 size-2.5 shrink-0 bg-foreground" />
-        )}
+        {unread && <span aria-hidden="true" data-unread-dot="" className="size-2 shrink-0 rounded-full bg-signal" />}
       </Link>
     </li>
   );
