@@ -6652,7 +6652,7 @@ request so the two can't disagree): the event's current title (as the
 email; Google's class is shared by every ticket for the event, so it can't
 be one order's snapshot, and the passes are only made while the event is
 published), date and time in the event's zone (`passTimeZone`: the
-ticket page's `eventTimeZone`, Melbourne when absent), venue name and address, ticket type (with "Ticket n of N" when the order has more than one ticket), the seat, the
+ticket page's `eventTimeZone`, Melbourne when absent), venue name and address, ticket type, the ticket's number ("n of N", when the order has more than one ticket), the seat, the
 QR carrying exactly the existing payload (`ticketQrPayload`: `SH1:` + code;
 none for a code that isn't canonical, as the email) with the code as its
 alternate text, and the order's short reference. Nothing about the buyer:
@@ -6676,8 +6676,8 @@ the service account, `aud` `google`, `typ` `savetowallet`, `origins`
 (`reviewStatus` `UNDER_REVIEW`, event name, venue, `dateTime` as the venue's
 local time with its offset, logo and hero image URLs on the site, a
 "Contact support" link, and `classTemplateInfo.cardTemplateOverride`: the
-card's rows, Date, Time and Ticket, then Seat, each naming one of the
-object's text modules by id; unverified against Google until the owner's
+card's rows, Date, Time and Ticket, then the seat or the ticket's number,
+each naming one of the object's text modules by id; unverified against Google until the owner's
 test save, `docs/wallet-setup.md`), object
 `{issuerId}.sheltuh-ticket-{serial}` (`serial`: the ticket's
 `wallet_serial`, a random uuid stored with it, as 32 hex characters, so the
@@ -6699,7 +6699,8 @@ above as `serialNumber`, `organizationName` "Sheltüh", `description`,
 `groupingIdentifier` per event, `sharingProhibited`, the colours,
 `relevantDate` and `relevantDates`, an `eventTicket` with header (date),
 no primary field (nothing over the strip image), secondary (event, time),
-auxiliary (venue, ticket; the seat on a second row) and back fields, and
+auxiliary (venue, ticket; the ticket's number and the seat on a second
+row) and back fields, and
 `barcodes` with the QR payload and `altText`); the images;
 `manifest.json` (SHA-1 of each file); and `signature`, a detached PKCS #7
 SignedData over the manifest (SHA-256, with contentType, messageDigest and

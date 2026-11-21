@@ -116,22 +116,20 @@ export function passWhen(ticket: Pick<WalletTicket, "startsAt" | "endsAt" | "tim
   return `${day} ${year}${range.slice(day.length)} ${zoneAbbreviation(ticket.endsAt ?? ticket.startsAt, ticket.timeZone)}`.trim();
 }
 
-/** "Ticket 1 of 3". */
+/** "2 of 3": which of the order's tickets this one is (the email's "Ticket 2 of 3"). */
 export function passTicketNumber(ticket: Pick<WalletTicket, "ticketNumber" | "ticketCount">): string {
-  return `Ticket ${ticket.ticketNumber} of ${ticket.ticketCount}`;
+  return `${ticket.ticketNumber} of ${ticket.ticketCount}`;
 }
 
 /**
- * The fronts' TICKET value: the ticket type's name alone for an order of one
- * ("Second release", as the frames show it), and with its number when the
- * order has more, so its passes can be told apart ("Second release · Ticket
- * 2 of 3"; a group ticket's "Group of 4 (3 of 4) · Ticket 3 of 4"). "Ticket"
- * (or "Ticket 2 of 3") for a type with no name.
+ * The fronts' TICKET value: the ticket type's name as entered ("Second
+ * release", as the frames show it; a group ticket's "Group of 4 (3 of 4)"),
+ * or "Ticket" for a type with no name. Nothing is added to it: an order of
+ * several shows each ticket's number in a field of its own, so this one is
+ * never cut short to fit it.
  */
-export function passTicketLine(ticket: Pick<WalletTicket, "ticketTypeName" | "ticketNumber" | "ticketCount">): string {
-  const name = ticket.ticketTypeName.trim();
-  if (ticket.ticketCount <= 1) return name || "Ticket";
-  return [name, passTicketNumber(ticket)].filter(Boolean).join(" · ");
+export function passTicketType(ticket: Pick<WalletTicket, "ticketTypeName">): string {
+  return ticket.ticketTypeName.trim() || "Ticket";
 }
 
 /** "Stalls · Row F · Seat 12", or undefined for general admission. */

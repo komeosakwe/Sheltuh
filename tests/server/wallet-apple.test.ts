@@ -235,8 +235,8 @@ describe("the .pkpass", () => {
     // No web service in v1.
     for (const key of ["webServiceURL", "authenticationToken", "barcode"]) expect(pass).not.toHaveProperty(key);
     // The frame's front, in its order: DATE in the header; nothing over the strip (no primary field); EVENT
-    // and TIME; VENUE and TICKET; each row's last field at the right edge. The seat, which the frame
-    // doesn't show, on a second auxiliary row.
+    // and TIME; VENUE and TICKET; each row's last field at the right edge. What the frame doesn't show
+    // (this ticket's number in an order of three, and its seat) on a second auxiliary row.
     expect(Object.keys(pass.eventTicket)).toEqual(["headerFields", "secondaryFields", "auxiliaryFields", "backFields"]);
     expect(pass.eventTicket.headerFields).toEqual([{ key: "date", label: "DATE", value: "Sat 6 Mar", textAlignment: "PKTextAlignmentRight" }]);
     expect(pass.eventTicket.secondaryFields).toEqual([
@@ -245,7 +245,8 @@ describe("the .pkpass", () => {
     ]);
     expect(pass.eventTicket.auxiliaryFields).toEqual([
       { key: "venue", label: "VENUE", value: "The Tote" },
-      { key: "ticket", label: "TICKET", value: "General admission · Ticket 2 of 3", textAlignment: "PKTextAlignmentRight" },
+      { key: "ticket", label: "TICKET", value: "General admission", textAlignment: "PKTextAlignmentRight" },
+      { key: "number", label: "TICKET NUMBER", value: "2 of 3", row: 1 },
       { key: "seat", label: "SEAT", value: "Stalls · Row F · Seat 12", row: 1 },
     ]);
     // Every key once: Wallet refuses a pass that repeats one.
@@ -270,7 +271,7 @@ describe("the .pkpass", () => {
     expect(() => applePassJson(config, sampleTicket({ serial: "7KQM-2HXD" }))).toThrow();
   });
 
-  it("the front as the frame writes it: the ticket type alone for an order of one, the time as a short range, the ticket by itself without a venue", () => {
+  it("the front as the frame writes it: exactly its two rows for an order of one, the time as a short range, the ticket by itself without a venue", () => {
     const { config } = apple();
     // The frame's own ticket: "Sat 14 Nov", "5–9 pm", "Second release".
     const framed = applePassJson(
@@ -290,10 +291,12 @@ describe("the .pkpass", () => {
       ["EVENT", "Here & Now"],
       ["TIME", "5–9 pm"],
     ]);
+    // Nothing more: an order of one, unseated, has no second row.
     expect(framed.eventTicket.auxiliaryFields.map((f) => [f.label, f.value])).toEqual([
       ["VENUE", "Interconnect Studio"],
       ["TICKET", "Second release"],
     ]);
+    expect(framed.eventTicket.auxiliaryFields.some((f) => f.row)).toBe(false);
 
     // No end: the start alone. Overnight: both meridiems.
     const time = (overrides: Parameters<typeof sampleTicket>[0]) =>
@@ -303,16 +306,18 @@ describe("the .pkpass", () => {
     // Another zone's own clock (Perth, 8 pm there).
     expect(time({ startsAt: "2027-03-06T12:00:00.000Z", endsAt: "2027-03-06T15:30:00.000Z", timeZone: "Australia/Perth" })).toBe("8–11:30 pm");
 
-    // Without a venue name the ticket stands alone, at the left.
+    // Without a venue name the ticket stands alone, at the left. The number keeps its own row: the
+    // ticket type's name is never cut short to make room for it.
     for (const venueName of [undefined, "  "]) {
       expect(applePassJson(config, sampleTicket({ venueName })).eventTicket.auxiliaryFields).toEqual([
-        { key: "ticket", label: "TICKET", value: "General admission · Ticket 2 of 3" },
+        { key: "ticket", label: "TICKET", value: "General admission" },
+        { key: "number", label: "TICKET NUMBER", value: "2 of 3", row: 1 },
       ]);
     }
     // A ticket type with no name.
     const ticketValue = (overrides: Parameters<typeof sampleTicket>[0]) =>
       applePassJson(config, sampleTicket(overrides)).eventTicket.auxiliaryFields.find((f) => f.key === "ticket")?.value;
-    expect(ticketValue({ ticketTypeName: "" })).toBe("Ticket 2 of 3");
+    expect(ticketValue({ ticketTypeName: "" })).toBe("Ticket");
     expect(ticketValue({ ticketTypeName: " ", ticketNumber: 1, ticketCount: 1 })).toBe("Ticket");
   });
 

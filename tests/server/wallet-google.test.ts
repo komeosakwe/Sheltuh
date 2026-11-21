@@ -169,14 +169,16 @@ describe("the Save to Google Wallet JWT", () => {
       // The card's row, with the frame's sentence-case labels.
       { id: "date", header: "Date", body: "Sat 6 Mar" },
       { id: "time", header: "Time", body: "8–11:30 pm" },
-      { id: "ticket", header: "Ticket", body: "General admission · Ticket 2 of 3" },
+      { id: "ticket", header: "Ticket", body: "General admission" },
+      // The card's second row: which of the order's three tickets this is (it has no seat to tell it by).
+      { id: "which", header: "Ticket number", body: "2 of 3" },
       // The details under the card. The year is here: the row's date has none.
       { id: "when", header: "When", body: "Sat 6 Mar 2027, 8:00 pm – 11:30 pm AEDT" },
       { id: "order", header: "Order reference", body: "#7C1F2E0A" },
     ]);
   });
 
-  it("the card's rows are the frame's: Date, Time and Ticket, then the seat, each naming a text module the object carries", () => {
+  it("the card's rows are the frame's Date, Time and Ticket, then the seat or the ticket's number, each naming a text module the object carries", () => {
     const { config: google, publicKey } = config();
     const item = (id: string) => ({ firstValue: { fields: [{ fieldPath: `object.textModulesData['${id}']` }] } });
     const seated = sampleTicket({ seat: { section: "Stalls", row: "F", seat: "12", kind: "standard" } });
@@ -187,16 +189,23 @@ describe("the Save to Google Wallet JWT", () => {
       cardTemplateOverride: {
         cardRowTemplateInfos: [
           { threeItems: { startItem: item("date"), middleItem: item("time"), endItem: item("ticket") } },
-          { oneItem: { item: item("seat") } },
+          { oneItem: { item: item("which") } },
         ],
       },
     });
-    // Every module a row names is on a seated ticket's object, once; an unseated one has all but the seat.
+    // Every module a row names is on the object, once. Row 2's is the seat for a seated ticket, the ticket's
+    // number for an unseated one of several, and absent for an order of one (the frame's card: one row).
     const ids = (o: { textModulesData: { id: string }[] }) => o.textModulesData.map((m) => m.id);
-    expect(ids(object)).toEqual(["date", "time", "ticket", "seat", "when", "order"]);
-    expect(object.textModulesData).toContainEqual({ id: "seat", header: "Seat", body: "Stalls · Row F · Seat 12" });
-    const [unseated] = decodeJwt(buildGoogleSaveJwt(google, sampleTicket(), "https://sheltuh.com.au"), publicKey).claims.payload.eventTicketObjects;
-    expect(ids(unseated)).toEqual(["date", "time", "ticket", "when", "order"]);
+    const objectOf = (overrides: Parameters<typeof sampleTicket>[0]) =>
+      decodeJwt(buildGoogleSaveJwt(google, sampleTicket(overrides), "https://sheltuh.com.au"), publicKey).claims.payload.eventTicketObjects[0];
+    expect(ids(object)).toEqual(["date", "time", "ticket", "which", "when", "order"]);
+    expect(object.textModulesData).toContainEqual({ id: "which", header: "Seat", body: "Stalls · Row F · Seat 12" });
+    // Its number is still on the object, under Google's own label in the details.
+    expect(object.ticketNumber).toBe("2 of 3");
+    const several = objectOf({});
+    expect(ids(several)).toEqual(["date", "time", "ticket", "which", "when", "order"]);
+    expect(several.textModulesData).toContainEqual({ id: "which", header: "Ticket number", body: "2 of 3" });
+    expect(ids(objectOf({ ticketNumber: 1, ticketCount: 1 }))).toEqual(["date", "time", "ticket", "when", "order"]);
     // The class is the event's, shared by every ticket: the same rows whatever the ticket.
     expect(decodeJwt(buildGoogleSaveJwt(google, sampleTicket(), "https://sheltuh.com.au"), publicKey).claims.payload.eventTicketClasses[0].classTemplateInfo).toEqual(
       cls.classTemplateInfo,

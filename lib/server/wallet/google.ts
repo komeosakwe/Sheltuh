@@ -7,7 +7,8 @@ import {
   passAddress,
   passDate,
   passSeat,
-  passTicketLine,
+  passTicketNumber,
+  passTicketType,
   passTime,
   passWhen,
   WALLET_SERIAL_PATTERN,
@@ -61,20 +62,23 @@ export const GOOGLE_HERO_PATH = "/wallet/google-hero-v2.png";
  * The card's rows, in place of Google's default ones (its template override:
  * `classTemplateInfo.cardTemplateOverride`). Each item names one of the
  * object's text modules by id; Google shows the module's header as the label
- * and its body as the value. Row 1 is the frame's Date, Time and Ticket; row
- * 2 is the seat, which only a seated ticket's object has (Google's docs, as
- * remembered, leave out an item whose field is empty; unverified here, as is
- * the override itself: docs/wallet-setup.md has the owner check both kinds
- * of ticket on a phone before relying on it).
+ * and its body as the value. Row 1 is the frame's Date, Time and Ticket. Row
+ * 2 is what tells one of an order's passes from another, which the frame
+ * (an order of one, unseated) doesn't show: the seat, or with no seat the
+ * ticket's number when the order has more than one. Only those tickets'
+ * objects have that module (Google's docs, as remembered, leave out an item
+ * whose field is empty; unverified here, as is the override itself:
+ * docs/wallet-setup.md has the owner check each kind of ticket on a phone
+ * before relying on it).
  */
-const CARD_FIELD = { date: "date", time: "time", ticket: "ticket", seat: "seat" } as const;
+const CARD_FIELD = { date: "date", time: "time", ticket: "ticket", which: "which" } as const;
 
 /**
  * A row's value is cut to this many characters ("…" last). The row has room
  * for far fewer, so Google cuts a long one itself, and the whole of it is
  * in the object anyway (ticketType, seatInfo: Google's details). Cutting it
  * here keeps the save URL short: without it a long ticket type name would
- * travel twice.
+ * travel twice. One row-2 item, not two, for the same reason.
  */
 const CARD_VALUE_MAX = 40;
 
@@ -95,7 +99,7 @@ const CARD_TEMPLATE = {
           endItem: cardItem(CARD_FIELD.ticket),
         },
       },
-      { oneItem: { item: cardItem(CARD_FIELD.seat) } },
+      { oneItem: { item: cardItem(CARD_FIELD.which) } },
     ],
   },
 } as const;
@@ -126,6 +130,12 @@ export function googleSaveClaims(config: GoogleWalletConfig, ticket: WalletTicke
   const address = passAddress(ticket);
   const venueName = ticket.venueName?.trim();
   const seat = passSeat(ticket);
+  // Row 2 (CARD_TEMPLATE): the seat, or the ticket's number when the order has more than one.
+  const which = seat
+    ? { id: CARD_FIELD.which, header: "Seat", body: cardValue(seat) }
+    : ticket.ticketCount > 1
+      ? { id: CARD_FIELD.which, header: "Ticket number", body: passTicketNumber(ticket) }
+      : undefined;
   const eventTicketClass = {
     id: classId,
     issuerName: WALLET_ORGANISATION_NAME,
@@ -156,7 +166,7 @@ export function googleSaveClaims(config: GoogleWalletConfig, ticket: WalletTicke
       : {}),
     ticketType: localized(ticket.ticketTypeName || "Ticket"),
     // Shown under Google's own "Ticket number" label: "1 of 3".
-    ticketNumber: `${ticket.ticketNumber} of ${ticket.ticketCount}`,
+    ticketNumber: passTicketNumber(ticket),
     ...(ticket.seat
       ? {
           seatInfo: {
@@ -171,8 +181,8 @@ export function googleSaveClaims(config: GoogleWalletConfig, ticket: WalletTicke
       // The card's rows (CARD_TEMPLATE), labelled in sentence case as the frame has them.
       { id: CARD_FIELD.date, header: "Date", body: passDate(ticket) },
       { id: CARD_FIELD.time, header: "Time", body: passTime(ticket) },
-      { id: CARD_FIELD.ticket, header: "Ticket", body: cardValue(passTicketLine(ticket)) },
-      ...(seat ? [{ id: CARD_FIELD.seat, header: "Seat", body: cardValue(seat) }] : []),
+      { id: CARD_FIELD.ticket, header: "Ticket", body: cardValue(passTicketType(ticket)) },
+      ...(which ? [which] : []),
       // The details under the card.
       { id: "when", header: "When", body: passWhen(ticket) },
       ...(ticket.qrPayload ? [] : [{ id: "code", header: "Entry code", body: ticket.code }]),

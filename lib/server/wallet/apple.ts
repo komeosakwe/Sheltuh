@@ -9,7 +9,8 @@ import {
   localIsoWithOffset,
   passDate,
   passSeat,
-  passTicketLine,
+  passTicketNumber,
+  passTicketType,
   passTime,
   passVenue,
   passWhen,
@@ -92,8 +93,9 @@ const RIGHT = { textAlignment: "PKTextAlignmentRight" } as const;
  * frame (docs/wallet-setup.md, "What the passes look like"): the logo and
  * DATE in the header, the strip image with nothing over it (so no primary
  * field), EVENT and TIME under it, then VENUE and TICKET. What the frame
- * doesn't show goes on a second auxiliary row: SEAT, and ENTRY CODE for a
- * code with no QR.
+ * doesn't show goes on a second auxiliary row, so the frame's rows are never
+ * squeezed: TICKET NUMBER when the order has more than one ticket (so its
+ * passes can be told apart), SEAT, and ENTRY CODE for a code with no QR.
  */
 export function applePassJson(config: Pick<AppleWalletConfig, "passTypeId" | "teamId">, ticket: WalletTicket) {
   if (!WALLET_SERIAL_PATTERN.test(ticket.serial)) throw new Error("A wallet pass serial must be 32 hex characters.");
@@ -107,9 +109,10 @@ export function applePassJson(config: Pick<AppleWalletConfig, "passTypeId" | "te
   const auxiliaryFields: PassField[] = venueName
     ? [
         { key: "venue", label: "VENUE", value: venueName },
-        { key: "ticket", label: "TICKET", value: passTicketLine(ticket), ...RIGHT },
+        { key: "ticket", label: "TICKET", value: passTicketType(ticket), ...RIGHT },
       ]
-    : [{ key: "ticket", label: "TICKET", value: passTicketLine(ticket) }];
+    : [{ key: "ticket", label: "TICKET", value: passTicketType(ticket) }];
+  if (ticket.ticketCount > 1) auxiliaryFields.push({ key: "number", label: "TICKET NUMBER", value: passTicketNumber(ticket), row: 1 });
   if (seat) auxiliaryFields.push({ key: "seat", label: "SEAT", value: seat, row: 1 });
   if (!ticket.qrPayload) auxiliaryFields.push({ key: "code", label: "ENTRY CODE", value: ticket.code, row: 1 });
   const backFields: PassField[] = [

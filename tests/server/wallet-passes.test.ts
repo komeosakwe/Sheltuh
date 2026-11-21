@@ -155,7 +155,8 @@ describe("Add to Apple Wallet (GET …/wallet/apple?ticket={n})", () => {
     const json = JSON.parse(files.get("pass.json")!.toString("utf8"));
     const code = (tickets as { ticketCode: string }[])[1].ticketCode;
     expect(json.barcodes[0]).toMatchObject({ message: ticketQrPayload(code), altText: code });
-    expect(json.eventTicket.auxiliaryFields.find((f: { key: string }) => f.key === "ticket").value).toBe("General admission · Ticket 2 of 2");
+    const front = Object.fromEntries(json.eventTicket.auxiliaryFields.map((f: { key: string; value: string }) => [f.key, f.value]));
+    expect(front).toMatchObject({ ticket: "General admission", number: "2 of 2" });
     expect(files.get("pass.json")!.toString("utf8")).not.toMatch(new RegExp(`buyer@example\\.com|${orderId}`));
   });
 });

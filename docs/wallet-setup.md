@@ -76,8 +76,10 @@ a personal one.
     Wallet** → Save. Check the card against "What the passes look like"
     below: white, the venue and event names, one row of Date, Time and
     Ticket (the event's own time), and that the QR scans at the door
-    (`/dashboard/{event}/check-in`, "Admitted"). **Save one unseated ticket
-    and one seated ticket** (the seated one has a Seat row under the first):
+    (`/dashboard/{event}/check-in`, "Admitted"). **Save three kinds of
+    ticket**: an order of one unseated ticket (one row), one ticket of an
+    order of several (a "Ticket number" row under the first), and a seated
+    ticket (a "Seat" row):
     the card's rows are set with Google's template override, which couldn't
     be tried from the build environment. If Save fails at Google's end for
     every ticket, or a row is missing or shows an empty label, that override
@@ -163,8 +165,9 @@ use OpenSSL, which macOS, Linux and Git Bash on Windows already have.
 8. **Redeploy.**
 9. **Test on an iPhone**, in Safari: a ticket's page → **Add to Apple
    Wallet** → Wallet's "Add" sheet → Add. Check the front against "What
-   the passes look like" below (date, event, time, venue, ticket, and for a
-   seated ticket the seat on a row of its own), the back (event, when,
+   the passes look like" below (date, event, time, venue, ticket, and on a
+   second row the ticket's number for an order of several and the seat for
+   a seated ticket), the back (event, when,
    where, backup code, order reference), and that the QR scans at the
    door. "Safari cannot download
    this file" means Wallet refused the pass: check the logs for "Apple
@@ -211,8 +214,8 @@ What the code sets, and what each wallet draws itself:
 | Logo | `logo.png`: the wordmark in Signal Orange, 88 pt wide | `logo`: the wordmark's Ü in Signal Orange on black, in Google's circle; "Sheltüh" beside it is `issuerName` |
 | Header | DATE at the top right ("Sat 14 Nov") | **Google's** header: the venue's name over the event's name |
 | Image band | `strip.png`, 375 × 98 pt, under the header. **Apple fixes an event ticket's strip at 98 pt**; the frame draws it 123 tall | `heroImage`, 1032 × 336, which Google puts at the bottom of the card |
-| Fields | No primary field (nothing over the strip). EVENT and TIME, then VENUE and TICKET, the last of each row at the right edge. SEAT, and ENTRY CODE for a code with no QR, on a second row (`row: 1`), which the frame doesn't show | One row: Date, Time, Ticket (`classTemplateInfo.cardTemplateOverride`, each item one of the object's text modules). A second row, Seat, for a seated ticket |
-| Values | "Sat 14 Nov" (no year), "5–9 pm" (the ticket email's short time, in the event's zone, no zone name), the ticket type's name, plus "· Ticket 2 of 3" when the order has more than one ticket. The wallet cuts a value that doesn't fit | The same; a row value over 40 characters is cut in the code (the whole name is in the details) |
+| Fields | No primary field (nothing over the strip). EVENT and TIME, then VENUE and TICKET, the last of each row at the right edge. A second row (`row: 1`) for what the frame doesn't show, so the frame's rows are never squeezed: TICKET NUMBER ("2 of 3") when the order has more than one ticket, SEAT, and ENTRY CODE for a code with no QR | One row: Date, Time, Ticket (`classTemplateInfo.cardTemplateOverride`, each item one of the object's text modules). A second row of one item: Seat for a seated ticket, otherwise Ticket number ("2 of 3") when the order has more than one. An order of one, unseated, has the frame's one row |
+| Values | "Sat 14 Nov" (no year), "5–9 pm" (the ticket email's short time, in the event's zone, no zone name), the ticket type's name as entered. The wallet cuts a value that doesn't fit | The same; a row value over 40 characters is cut in the code (the whole name is in the details) |
 | QR | **Apple's**: it draws the code, always on its own white tile, from the payload. Its size, tile and place can't be set. The backup code under it is `altText` | **Google's**, the same; the backup code is `alternateText` |
 | Back / details | Event, when (with the year and the zone), where (venue and street address), backup code, order reference, at the door, support's address | Google's details: the venue and address (its own map link), ticket type and number, when, order reference, a "Contact support" link, the site |
 
