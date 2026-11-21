@@ -27,11 +27,13 @@ describe("TicketStub", () => {
     expect(qr.compareDocumentPosition(code) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByText(HINT)).toHaveClass("print:hidden");
 
-    const svgs = Array.from(container.querySelectorAll("svg"));
+    // The QR (whose centre ü is a nested SVG inside the same image) and the stub's decorative ü.
+    const svgs = Array.from(container.querySelectorAll("svg")).filter((svg) => !svg.parentElement?.closest("svg"));
     expect(svgs).toHaveLength(2);
+    expect(qr.querySelectorAll('svg[data-qr="mark"]')).toHaveLength(1);
     const hidden = svgs.filter((svg) => svg.getAttribute("aria-hidden") === "true");
     expect(hidden).toHaveLength(1);
-    expect(hidden[0].querySelectorAll("polygon").length).toBeGreaterThan(0); // the ü, not the QR
+    expect(hidden[0].querySelectorAll("polygon").length).toBeGreaterThan(0); // the stub's ü, not the QR
     expect(container.querySelector("li")).toHaveClass("print:break-inside-avoid");
   });
 

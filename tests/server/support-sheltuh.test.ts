@@ -569,7 +569,7 @@ describe("after payment", () => {
     expect(email.html).toContain(">Support Sheltüh</td>");
     expect(email.html).toContain(">A$5</td>");
     expect(email.html).toContain("A$149.60");
-    expect(email.html).toContain("incl. booking fees and Support Sheltüh");
+    expect(email.html).toContain("Incl. booking fees and Support Sheltüh");
   });
 
   it("without support the ticket page has no supportCents and the email no line", async () => {
@@ -1335,15 +1335,16 @@ describe("ticket email (unit)", () => {
     const withPolicy = { ...event, refundPolicy: "no_change_of_mind" } as EventRecord;
     const email = buildTicketEmail(order, withPolicy, "https://sheltuh.com.au");
     expect(SUPPORT_REFUND_NOTE).toBe("Support Sheltüh is refunded only if your whole order is refunded.");
-    // Right after the policy line, before the ACL statement.
-    expect(email.text).toContain(`Refund policy: No refunds for change of mind.\n${SUPPORT_REFUND_NOTE}\nYou're always entitled`);
+    // Right after the refund paragraph (the policy, then the Australian Consumer Law sentence:
+    // docs/design/ticket-email.md §5.8).
+    expect(email.text).toContain(`No refunds for change of mind. You're always entitled to a refund if the event is cancelled or significantly changed, as the Australian Consumer Law requires.\n${SUPPORT_REFUND_NOTE}`);
     const at = email.html.indexOf(`>${SUPPORT_REFUND_NOTE}</p>`);
-    expect(at).toBeGreaterThan(email.html.indexOf("Refund policy:</span>"));
-    expect(at).toBeLessThan(email.html.indexOf("You&#39;re always entitled"));
+    expect(at).toBeGreaterThan(email.html.indexOf("No refunds for change of mind."));
+    expect(at).toBeGreaterThan(email.html.indexOf("You&#39;re always entitled"));
 
     for (const without of [{ ...order, totalCents: 3230, supportCents: undefined }, { ...order, totalCents: 3230, supportCents: 0 }]) {
       const plain = buildTicketEmail(without as OrderRecord, withPolicy, "https://sheltuh.com.au");
-      expect(plain.text).toContain("Refund policy: No refunds for change of mind.");
+      expect(plain.text).toContain("No refunds for change of mind.");
       expect(plain.text).not.toContain(SUPPORT_REFUND_NOTE);
       expect(plain.html).not.toContain(SUPPORT_REFUND_NOTE);
     }

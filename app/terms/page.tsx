@@ -44,6 +44,14 @@ export default function TermsPage() {
           tickets is also covered by our <Link href="/purchase-terms">Purchase Terms</Link>.
         </p>
       </ContentSection>
+      {/* Apple's credit line for its "Add to Apple Wallet" badge (Apple asks for it wherever legal information is
+          given; it lists only the marks Sheltüh uses: docs/wallet-setup.md, "Official badges"). */}
+      <ContentSection title="Trademarks">
+        <p>
+          Apple, Apple Wallet, iPhone and Mac are trademarks of Apple Inc., registered in the U.S. and other
+          countries. Google Wallet is a trademark of Google LLC.
+        </p>
+      </ContentSection>
       <ContentSection title="Contact">
         <p>
           <a href="mailto:support@sheltuh.com.au">support@sheltuh.com.au</a>

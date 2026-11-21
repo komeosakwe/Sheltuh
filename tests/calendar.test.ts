@@ -171,8 +171,12 @@ describe("outlookCalendarUrl", () => {
   it("prefills subject, ISO UTC start and end, place and details on outlook.live.com", () => {
     const href = outlookCalendarUrl(event(), URL) ?? "";
     const url = new globalThis.URL(href);
-    expect(url.origin + url.pathname).toBe("https://outlook.live.com/calendar/0/action/compose");
-    expect([...url.searchParams.keys()]).toEqual(["subject", "startdt", "enddt", "location", "body"]);
+    expect(url.origin + url.pathname).toBe("https://outlook.live.com/calendar/0/deeplink/compose");
+    // Microsoft's compose deeplink: the compose path and "add event", then the event's fields.
+    expect(href).toMatch(/^https:\/\/outlook\.live\.com\/calendar\/0\/deeplink\/compose\?path=\/calendar\/action\/compose&rru=addevent&subject=/);
+    expect([...url.searchParams.keys()]).toEqual(["path", "rru", "subject", "startdt", "enddt", "location", "body"]);
+    expect(url.searchParams.get("path")).toBe("/calendar/action/compose");
+    expect(url.searchParams.get("rru")).toBe("addevent");
     expect(url.searchParams.get("subject")).toBe("Thornbury Dub Session");
     // 7:30 pm to midnight AEDT, as UTC with a Z.
     expect(url.searchParams.get("startdt")).toBe("2026-11-07T08:30:00Z");

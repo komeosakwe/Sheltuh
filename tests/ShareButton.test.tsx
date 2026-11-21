@@ -328,7 +328,8 @@ describe("AddToCalendar", () => {
     expect(outlook).toHaveAttribute("target", "_blank");
     expect(outlook).toHaveAttribute("rel", "noopener noreferrer");
     const outlookUrl = new URL(outlook.getAttribute("href") ?? "");
-    expect(outlookUrl.origin + outlookUrl.pathname).toBe("https://outlook.live.com/calendar/0/action/compose");
+    expect(outlookUrl.origin + outlookUrl.pathname).toBe("https://outlook.live.com/calendar/0/deeplink/compose");
+    expect(outlookUrl.searchParams.get("rru")).toBe("addevent");
     expect(outlookUrl.searchParams.get("startdt")).toBe("2026-11-07T08:30:00Z");
     // The event's bare URL, from the page's origin: never the address bar's ?ref= or hash.
     expect(outlookUrl.searchParams.get("body")).toContain(`${ORIGIN}/events/thornbury-dub-session`);

@@ -31,6 +31,7 @@ import { SUPPORT_REFUND_NOTE } from "@/lib/support";
 import { ticketNameWithGroup } from "@/lib/ticket-groups";
 import { compareSeats } from "@/lib/seating/format";
 import { forgetPendingCheckout } from "@/lib/seating/pending-checkout";
+import { appleWalletDeviceNote } from "@/lib/wallet-badges";
 import type { CustomerOrder, StateCode } from "@/lib/api/types";
 
 export type LoadState =
@@ -449,23 +450,27 @@ export default function CheckoutConfirmation() {
             for a paid order of a listed event, as the pass routes require). Numbered as the stubs and the email
             (the route takes the number). */}
         {sessionId && !unlisted && (order.wallet?.apple || order.wallet?.google) && (
-          <ul className="flex flex-col gap-3 print:hidden" aria-label="Add to your phone's wallet">
-            {sortTicketsBySeat(order.tickets).map(({ ticket, number }) => (
-              <li key={ticket.ticketCode} className="flex flex-col gap-1">
-                {order.tickets.length > 1 && (
-                  <p className="text-xs text-muted">
-                    Ticket {number} of {order.tickets.length} · {ticketNameWithGroup(ticket.ticketTypeName, ticket.group)}
-                  </p>
-                )}
-                <WalletButtons
-                  sessionId={sessionId}
-                  wallet={order.wallet}
-                  ticketNumber={number}
-                  ticketCount={order.tickets.length}
-                />
-              </li>
-            ))}
-          </ul>
+          <div className="flex flex-col gap-2 print:hidden">
+            <ul className="flex flex-col gap-3" aria-label="Add to your phone's wallet">
+              {sortTicketsBySeat(order.tickets).map(({ ticket, number }) => (
+                <li key={ticket.ticketCode} className="flex flex-col gap-1">
+                  {order.tickets.length > 1 && (
+                    <p className="text-xs text-muted">
+                      Ticket {number} of {order.tickets.length} · {ticketNameWithGroup(ticket.ticketTypeName, ticket.group)}
+                    </p>
+                  )}
+                  <WalletButtons
+                    sessionId={sessionId}
+                    wallet={order.wallet}
+                    ticketNumber={number}
+                    ticketCount={order.tickets.length}
+                  />
+                </li>
+              ))}
+            </ul>
+            {/* Apple's badge rules: say how to add the pass from a device without Wallet. */}
+            {order.wallet?.apple && <p className="text-xs text-muted">{appleWalletDeviceNote("page", order.tickets.length)}</p>}
+          </div>
         )}
         <div className="flex flex-col gap-1 text-xs text-muted">
           <p>Screenshot your codes in case signal drops at the venue.</p>

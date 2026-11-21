@@ -175,14 +175,14 @@ describe("queueing", () => {
 
   it("the email says the event's refund policy, as stored on the event (docs/architecture.md, Refund policy)", async () => {
     await paidOrder("fan@example.com", { runDeferred: true });
-    expect(api.sendEmail.mock.calls[0][0].text).toContain("Refund policy: No refunds for change of mind.");
+    expect(api.sendEmail.mock.calls[0][0].text).toContain("No refunds for change of mind. You're always entitled to a refund");
     await api.db.query(`update public.events set refund_policy = 'days_before', refund_days = 10 where id = $1`, [eventId]);
     await paidOrder("fan@example.com", { runDeferred: true });
     const { text, html } = api.sendEmail.mock.calls[1][0];
     // Dated from the event's start (Sat 6 Mar 2027, 8:00 pm): until 10 days before, then closed.
     const line = refundTermsLine("days_before", 10, eventStartsAt);
     expect(line).toMatch(/^Refunds available until Wed 24 Feb 2027, 8:00 pm \(10 days before the event\)\.$|has closed/);
-    expect(text).toContain(`Refund policy: ${line}`);
+    expect(text).toContain(`${line} You're always entitled to a refund`);
     expect(html).toContain(line);
   });
 
@@ -297,7 +297,7 @@ describe("SMTP failures", () => {
     await drainEmailOutbox(api.deps);
     expect(await jobs(orderId)).toMatchObject([{ status: "sent", attempts: 2 }]);
     const [first, retry] = api.sendEmail.mock.calls.map(([m]) => m);
-    expect(first.text).toContain("Venue: The Tote");
+    expect(first.text).toContain("The Tote, 71 Johnston St");
     expectUnlisted(retry);
     const [code] = await api.db.query<{ code: string }>(`select code from public.tickets where order_id = $1`, [orderId]);
     expect(retry.text).toContain(`Entry code: ${code.code}`);

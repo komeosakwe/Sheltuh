@@ -47,18 +47,21 @@ describe("the ticket email's Tell a friend", () => {
     status: "published",
   } as EventRecord;
 
+  // The ticket email's redesign (docs/design/ticket-email.md §5.9) shows the same links as "Going with
+  // friends?" chips, plus "Share page" (the event's public page).
   it("is in a published event's email, html and text, linking its page", () => {
     const email = buildTicketEmail(order, event, "https://sheltuh.com.au");
-    expect(email.html).toContain("Tell a friend:");
+    expect(email.html).toContain("Going with friends?");
     expect(email.html).toContain(encodeURIComponent("https://sheltuh.com.au/events/paint-and-sip"));
-    expect(email.text).toContain("TELL A FRIEND");
-    expect(email.text).toContain("https://sheltuh.com.au/events/paint-and-sip");
+    expect(email.html).toContain('<a href="https://sheltuh.com.au/events/paint-and-sip" style="display:inline-block;');
+    expect(email.text).toContain("GOING WITH FRIENDS?");
+    expect(email.text).toContain("Share page: https://sheltuh.com.au/events/paint-and-sip");
   });
 
   it("isn't in an unlisted event's email (no public page to share)", () => {
     const email = buildTicketEmail(order, { ...event, status: "draft" } as EventRecord, "https://sheltuh.com.au");
-    expect(email.html).not.toContain("Tell a friend:");
-    expect(email.text).not.toContain("TELL A FRIEND");
+    expect(email.html).not.toContain("Going with friends?");
+    expect(email.text).not.toContain("GOING WITH FRIENDS?");
   });
 });
 

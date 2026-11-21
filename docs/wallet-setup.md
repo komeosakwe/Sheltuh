@@ -174,22 +174,83 @@ use OpenSSL, which macOS, Linux and Git Bash on Windows already have.
 
 ## Official badges
 
-The buttons are text-only stand-ins in the vendors' colours and exact
-wording ("Add to Apple Wallet", "Add to Google Wallet",
-`components/tickets/WalletButtons.tsx`). Both vendors ask for their own
-badge artwork. Before launch, as for the sign-in logos
-(`docs/auth-logos.md`):
+Both buttons are the vendors' official artwork, downloaded by the owner on
+20 Nov 2026, in `public/wallet/badges/` (`lib/wallet-badges.ts`), and used
+on the ticket page (`components/tickets/WalletButtons.tsx`) and in the
+ticket email. Apple's is committed byte for byte. Google's has one change,
+the owner's call on 20 Nov 2026: its two outline rectangles' corner radius
+goes from `rx="27"` (a pill) to `rx="13"`, so it's a rounded rectangle like
+Apple's (Apple's corner is about 24% of its height; 13 is 24% of 54).
+Nothing else in it changed. Google's guidelines ask for the button
+unaltered, so Google could flag this when it reviews the Wallet
+integration; if it does, put back the original (`rx="27"`, the SHA-256
+below) and re-run `scripts/render-ticket-email-assets.ts`. Apart from
+that, as with the sign-in logos (`docs/auth-logos.md`), never redraw,
+recolour, crop or restyle them, and never ship a made-up version. To
+replace one, download it again yourself.
 
-1. Apple: the "Add to Apple Wallet" badge from the Add to Apple Wallet
-   guidelines (<https://developer.apple.com/wallet/add-to-apple-wallet-guidelines/>),
-   English (Australia), black, SVG.
-2. Google: the "Add to Google Wallet" button from Google Wallet's brand
-   guidelines (<https://developers.google.com/wallet/tickets/events/resources/brand-guidelines>),
-   the primary (black) one, SVG.
-3. Save them unmodified in `public/wallet/badges/`, swap them into
-   `WalletButtons.tsx` (keeping the accessible names and the 44px height),
-   and note the source URL and download date in the commit. Neither page
-   could be read when this was built (unverified URLs).
+| File | Source | What it is | SHA-256 |
+| --- | --- | --- | --- |
+| `US-UK_Add_to_Apple_Wallet_RGB_101421.svg` | Apple's "Add to Apple Wallet" badge files (the `US_UK/RGB` folder), from the Add to Apple Wallet guidelines (<https://developer.apple.com/wallet/add-to-apple-wallet-guidelines/>). The owner accepted Apple's Wallet Marketing Artwork License Agreement to download them. | Black, two lines ("Add to / Apple Wallet"), 110.739 × 35.016 | `052b3b446860fd2f9b49c2f0336038947623a5a9433ee3583585b8552ff6f506` |
+| `enAU_add_to_google_wallet_add-wallet-badge.svg` | Google Wallet's brand guidelines badge packs ("Add to Google Wallet", all locales) | Australian English, two lines ("Add to / Google Wallet"), 199 × 55, corners rounded as above | Committed: `18d7d9603d0953e4887cb62f292a6378304da0e21c6668306b9d653e2e5a717b`. Google's original: `6e5b4dd71644a1df382ef0255591526859488e17e398eeae36d2f3f25b7e8efb` |
+
+Not committed, from the same downloads:
+- Google's one-line `enAU_add_to_google_wallet_wallet-button.svg`
+  (SHA-256 `ab93b845dd1807ae8c6056d1b3354b871d7c90e454028c7ae7df2b995ad750ee`).
+- Google's "View in Google Wallet" files: `en-AU_view_in_wallet_wallet-button.svg`
+  (`18f8a5f68fe59b76f11e867e06979ee04aac9c9547ce22f143be6ed129fed4c6`) and
+  `en-AU_view_in_wallet_add-wallet-badge.svg`
+  (`7e2362d65b0e5ea932d56cbed7f1dfc832f51d82706b648705f4e0bb8575daf9`).
+  "View in" is only right once a pass is known to be saved, and the site
+  can't know that: Google's route redirects to Google's save page, and
+  Apple's serves the `.pkpass`, with no callback to us. So both always say
+  "Add".
+
+All of them are vector SVG with no scripts and no external references.
+Google's are plain paths with an internal gradient. Apple's is an
+Illustrator export whose only `<image>`s are inline base64 PNGs (the cards'
+shadows). The text in each is outlined. A test checks the committed files'
+SHA-256 (`tests/WalletButtons.test.tsx`).
+
+**Which variant, and how they're shown:**
+- **Two-line badges for both.** Apple's badge only comes in two lines.
+  Google's matching two-line badge pairs with it at the same height, and
+  fits half a phone-width row. Google's one-line button, which the owner's
+  design images show, would have type about 40% bigger beside Apple's at
+  the same height, and at half a 375px row it would be 29px tall.
+- **Same height, own proportions.** On the site, 44px tall (Apple about 139
+  wide, Google about 159), 8px apart. In the email, 48px tall (the design
+  images measure 47.5): Apple 152 × 48, Google 174 × 48, 12px apart. On a
+  phone, both are 46px tall, 8px apart.
+- **Clear space.** Apple asks for 0.1 × the badge's height around it (4.4px
+  on the site, 4.8 in the email), which the gaps cover. Google's own
+  minimum-size and clear-space numbers weren't readable from the build
+  environment. Check them on Google's guidelines page.
+- **No changes.** No colour behind them (their corners are transparent), no
+  hover or pressed effects, no dimming.
+- **Light theme.** The black badges on white, as both vendors ask.
+- **Dark theme.** The site's Dark page is `#000000`, and the wallet rows sit
+  on it. Apple asks for its outline badge on very dark backgrounds. That
+  version isn't in the files supplied: the `US_UK` folder has the black
+  badge only. For now Dark shows the black badge, separated from the page
+  only by its own grey rim. **Get Apple's outline badge** and use it on
+  Dark. Google's badge has its own grey outline for dark pages.
+- **Apple's other rules.** Next to the badges, "To add your ticket(s) to
+  Apple Wallet, open this page / email on your iPhone or Mac." appears on
+  the ticket page (`CheckoutConfirmation.tsx`), and once under the last
+  ticket's badges in the email (and its plain-text part). This is Apple's
+  instruction for people who open them on another device. The email has no
+  legal footer (owner decision), so Apple's credit line, plus Google's, is
+  on the Terms of Use page (`app/terms/page.tsx`, "Trademarks"), which the
+  email's footer links to: "Apple, Apple Wallet, iPhone and Mac are
+  trademarks of Apple Inc., registered in the U.S. and other countries.
+  Google Wallet is a trademark of Google LLC." It lists only the marks
+  used; check it against Apple's Trademark List.
+- **The email's PNGs.** Gmail and Outlook don't show SVG, so the email uses
+  `public/email/ticket/{apple,google}-wallet-badge@{2x,3x}.png`: the same
+  SVGs rendered directly (no resampling) at 96 / 144px tall by
+  `node --import tsx scripts/render-ticket-email-assets.ts`, transparent
+  outside the badge. Their alt text is the vendors' wording.
 
 ## Images
 
