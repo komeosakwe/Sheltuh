@@ -1,11 +1,13 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import { buildEventReviewEmail, buildOrganiserJoinedEmail, buildOrganiserReviewEmail } from "@/lib/server/admin-review-email";
 import type { EmailMessage } from "@/lib/server/email";
 import { buildEventReminderEmail } from "@/lib/server/event-reminder-email";
-import { button, EMAIL_COLOURS, emailFooterImageUrl, escapeHtml, INK, SIGNAL, supportFooter, WORDMARK_CID } from "@/lib/server/email-layout";
+import { button, EMAIL_COLOURS, emailFooterImageUrl, escapeHtml, INK, SIGNAL, supportFooter, WORDMARK_CID, wordmarkImage } from "@/lib/server/email-layout";
 import { MODERN_COLOURS, ICON_PATHS } from "@/lib/server/email-modern-layout";
+import { EMAIL_WORDMARK } from "@/lib/server/email-wordmark";
 import { TICKET_EMAIL_COLOURS } from "@/lib/server/email-ticket-layout";
 import { buildFollowerNewEventsEmail } from "@/lib/server/follower-email";
 import { DETAILS_NOTICE } from "@/lib/buyer-details";
@@ -423,6 +425,41 @@ describe("the modern look's assets and colours", () => {
     expect(contrast(ink, bg)).toBeGreaterThanOrEqual(7);
     expect(contrast(muted, bg)).toBeGreaterThanOrEqual(4.5);
     expect(contrast(muted, tint)).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+describe("the email wordmarks", () => {
+  const CLASSIC = "public/brand/sheltuh-wordmark-email.png"; // inline in email-layout.ts, hosted in email-modern-layout.ts
+  const TICKET = "public/email/ticket/wordmark.png"; // inline in email-ticket-layout.ts
+
+  it("the inline wordmark is the PNG shipped in public/brand, at 2x", () => {
+    const shipped = readFileSync(path.join(process.cwd(), CLASSIC));
+    const png = Buffer.from(EMAIL_WORDMARK.pngBase64, "base64");
+    expect(png.equals(shipped)).toBe(true);
+    expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([EMAIL_WORDMARK.displayWidth * 2, EMAIL_WORDMARK.displayHeight * 2]);
+    expect(wordmarkImage().content.equals(shipped)).toBe(true);
+  });
+
+  it.each([CLASSIC, TICKET])("%s: Signal Orange on transparent, legible on every ground it sits on", async (file) => {
+    const { data, info } = await sharp(path.join(process.cwd(), file)).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    const signal = [1, 3, 5].map((i) => parseInt(SIGNAL.slice(i, i + 2), 16));
+    let opaque = 0;
+    let clear = 0;
+    const offColour: string[] = [];
+    for (let i = 0; i < info.width * info.height; i += 1) {
+      const [r, g, b, a] = data.subarray(i * 4, i * 4 + 4);
+      if (a === 0) clear += 1;
+      if (a !== 255) continue;
+      opaque += 1;
+      if (r !== signal[0] || g !== signal[1] || b !== signal[2]) offColour.push(`${i}: ${r},${g},${b}`);
+    }
+    expect(offColour).toEqual([]); // every solid pixel is the orange: no plate, no black
+    expect(opaque).toBeGreaterThan(1000); // the mark is there
+    expect(clear).toBeGreaterThan(1000); // and nothing is behind it
+    // A logo, so held to the 3:1 for graphics: on each layout's ground, and on a dark page a client may force.
+    for (const ground of [TICKET_EMAIL_COLOURS.white, EMAIL_COLOURS.card, MODERN_COLOURS.bg, "#1e1e1e"]) {
+      expect(contrast(SIGNAL, ground), ground).toBeGreaterThanOrEqual(3);
+    }
   });
 });
 

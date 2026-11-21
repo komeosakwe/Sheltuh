@@ -201,7 +201,7 @@ export function wordmarkTag(width: number, height: number): string {
   return `<img src="cid:${WORDMARK_CID}" width="${width}" height="${height}" alt="Sheltüh" style="display:block;border:0;width:${width}px;height:${height}px;font-family:${SANS};font-size:16px;line-height:20px;font-weight:700;color:${TICKET_EMAIL_COLOURS.ink}">`;
 }
 
-/** The wordmark's inline attachment: black on white. Its name is the brand's, never anything about the order. */
+/** The wordmark's inline attachment: Signal Orange on transparent. Its name is the brand's, never anything about the order. */
 export function ticketWordmarkImage(): InlineImage {
   return {
     cid: WORDMARK_CID,

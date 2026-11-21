@@ -297,6 +297,8 @@ select version, file, coalesce(applied, false) as applied
       and exists (select 1 from fn where proname = 'file_profile_report' and prosrc like '%reported_username%')
       and exists (select 1 from pg_constraint where conname = 'profile_moderation_log_removed_check'
                    and pg_get_constraintdef(oid) like '%username%')),
+    ('20261202000000', 'checkout_expiry_claim_retry',
+      exists (select 1 from fn where proname = 'claim_overdue_checkouts' and prosrc like '%c_max_retries%')),
     ('20261203000000', 'ticket_transfers',
       to_regclass('private.ticket_transfers') is not null
       and to_regclass('private.ticket_transfer_tokens') is not null

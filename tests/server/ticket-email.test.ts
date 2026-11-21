@@ -450,7 +450,7 @@ describe("QR codes", () => {
 });
 
 describe("the wordmark and the hosted images", () => {
-  it("the wordmark: black on white, inline (cid), 106 x 24 at the top and 88 x 20 in the footer, alt Sheltüh", () => {
+  it("the wordmark: Signal Orange on transparent, inline (cid), 106 x 24 at the top and 88 x 20 in the footer, alt Sheltüh", () => {
     const email = buildTicketEmail(order, event, SITE);
     const wordmark = email.inlineImages?.[0];
     expect(wordmark?.cid).toBe(WORDMARK_CID);
