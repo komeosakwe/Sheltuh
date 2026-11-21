@@ -33,7 +33,8 @@ describe("MessagesFrame", () => {
   it("on /messages: the title is the h1, the list sits beside the page, nothing is marked open", () => {
     renderFrame();
     expect(screen.getByRole("heading", { level: 1, name: "Messages" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Blocked members" })).toHaveAttribute("href", "/messages/blocked");
+    // Blocked members is in Settings → Privacy, as the frames have no link here.
+    expect(screen.queryByRole("link", { name: "Blocked members" })).toBeNull();
     const list = screen.getByRole("list", { name: "Conversations" });
     const page = screen.getByRole("region", { name: "Open conversation" });
     // The list comes first (above on phones, on the left from 768px), in one row with the page.

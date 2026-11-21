@@ -174,7 +174,7 @@ export default function Composer({
         trailing={
           // busy, not disabled: focus stays on the button through the send. Orange, as Latte's
           // Messages frames draw Send (Label/Tag, 40px; 44px to touch).
-          <Button type="submit" variant="signal" size="sm" busy={busy} disabled={waiting} className="min-h-11 shrink-0 lg:min-h-10">
+          <Button type="submit" variant="signal" size="sm" busy={busy} disabled={waiting} className="label-tag min-h-11 shrink-0 px-5 lg:min-h-10">
             {busy ? "Sending…" : "Send"}
           </Button>
         }

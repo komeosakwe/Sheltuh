@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Ref } from "react";
-import InitialsAvatar from "@/components/ui/InitialsAvatar";
+import ConversationAvatar from "./ConversationAvatar";
 
 /**
  * A conversation's heading (live and demo), as the Messages frames' thread head: a 40px round
@@ -17,8 +17,8 @@ export default function ThreadTitle({
   headingRef?: Ref<HTMLHeadingElement>;
 }) {
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-3">
-      <InitialsAvatar name={name} size="nav" />
+    <div className="flex min-w-0 flex-1 items-center gap-3 self-stretch sm:self-auto">
+      <ConversationAvatar name={name} size="head" />
       <div className="min-w-0">
         <h1 ref={headingRef} tabIndex={-1} className="label-button truncate outline-offset-2">
           {name}

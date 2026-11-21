@@ -26,20 +26,21 @@ export default function AccountTabs({ items }: { items: AccountNavItem[] }) {
                 item.current ? "border-foreground text-foreground" : "border-transparent text-muted"
               }`}
             >
-              {item.label}
+              {/* The count's words sit in the label's box, so the link is named "Saved, 12 events". */}
+              <span>
+                {item.label}
+                {item.countText && <span className="sr-only">{item.countText}</span>}
+              </span>
               {item.count !== null && (
-                <>
-                  <span
-                    aria-hidden="true"
-                    data-account-count=""
-                    className={`rounded-badge px-2 font-mono text-xs leading-4 font-normal text-foreground tabular-nums ${
-                      item.alert ? "bg-signal text-signal-foreground" : "bg-surface"
-                    }`}
-                  >
-                    {shownCount(item.count)}
-                  </span>
-                  {item.countText && <span className="sr-only">{item.countText}</span>}
-                </>
+                <span
+                  aria-hidden="true"
+                  data-account-count=""
+                  className={`rounded-badge px-2 font-mono text-xs leading-4 font-normal text-foreground tabular-nums ${
+                    item.alert ? "bg-signal text-signal-foreground" : "bg-surface"
+                  }`}
+                >
+                  {shownCount(item.count)}
+                </span>
               )}
             </Link>
           </li>

@@ -3,13 +3,13 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
-import InitialsAvatar from "@/components/ui/InitialsAvatar";
 import { Notice } from "@/components/ui/Section";
 import ActionErrorNotice from "@/components/whos-going/ActionErrorNotice";
 import type { GetToken } from "@/lib/api/client";
 import { listConversations } from "@/lib/api/messages";
 import type { ConversationStatus, ConversationSummary } from "@/lib/api/types";
-import { formatMessageTime } from "@/lib/format";
+import { formatMessageTime, formatShortAgo } from "@/lib/format";
+import ConversationAvatar from "./ConversationAvatar";
 import { loadErrorMessage, threadHref } from "./shared";
 import { useUnread } from "./UnreadProvider";
 import { LoadingState } from "@/components/ui/ProgressLoader";
@@ -113,11 +113,10 @@ export default function Inbox({ getToken, selectedId }: { getToken: GetToken; se
       {state.status === "ready" && state.items.length > 0 && (
         <>
           <ul ref={listRef} aria-label="Conversations" className={CONVERSATIONS_LIST_CLASS}>
-            {state.items.map((conversation, index) => (
+            {state.items.map((conversation) => (
               <ConversationRow
                 key={conversation.conversationId}
                 conversation={conversation}
-                index={index}
                 selected={conversation.conversationId === selectedId}
               />
             ))}
@@ -172,11 +171,9 @@ export function InboxEmpty() {
  */
 export function ConversationRow({
   conversation,
-  index,
   selected = false,
 }: {
   conversation: ConversationSummary;
-  index: number;
   selected?: boolean;
 }) {
   const { otherDisplayName, status, lastMessage, unread } = conversation;
@@ -190,7 +187,7 @@ export function ConversationRow({
           selected ? "bg-background" : ""
         }`.trim()}
       >
-        <InitialsAvatar name={otherDisplayName} index={index} size="row" />
+        <ConversationAvatar name={otherDisplayName} size="row" />
         <span className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="flex min-w-0 items-baseline justify-between gap-2">
             <span className={`body-s min-w-0 truncate ${unread ? "font-semibold" : ""}`.trim()}>
@@ -198,7 +195,8 @@ export function ConversationRow({
               {otherDisplayName}
             </span>
             <time dateTime={lastMessage.sentAt} className="shrink-0 font-mono text-xs leading-4 text-muted">
-              {formatMessageTime(lastMessage.sentAt)}
+              <span aria-hidden="true">{formatShortAgo(lastMessage.sentAt)}</span>
+              <span className="sr-only">{formatMessageTime(lastMessage.sentAt)}</span>
             </time>
           </span>
           <span className={`label-tag truncate ${unread ? "text-foreground" : "text-muted"}`}>

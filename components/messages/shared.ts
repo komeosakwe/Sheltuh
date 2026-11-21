@@ -19,15 +19,15 @@ export const THREAD_PAGE_CLASS =
   "flex min-w-0 flex-1 flex-col rounded-card border border-surface-border md:h-169 md:overflow-hidden lg:h-191";
 /** The thread's head: the avatar, name and event, and Report / Block, over a 1px border/subtle line; 16px in, 24px from 768px. */
 export const THREAD_HEADER_CLASS = "flex flex-col gap-3 border-b border-surface-border px-4 py-4 md:px-6";
-/** The head's row: who and what on the left, the actions on the right (wrapping under on a narrow phone). */
-export const THREAD_HEADER_ROW_CLASS = "flex flex-wrap items-center justify-between gap-3";
+/** The head's row: who and what on the left, the actions on the right; stacked on phones (the 390 frame's head). */
+export const THREAD_HEADER_ROW_CLASS = "flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between";
 export const THREAD_MESSAGES_CLASS = "flex flex-1 flex-col gap-3 p-4 md:overflow-y-auto md:p-6";
 export const COMPOSER_BAR_CLASS =
   "sticky bottom-0 rounded-b-card border-t border-surface-border bg-background px-4 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))] md:static md:px-6 md:pb-4";
 /** A thread that isn't showing messages (loading, an error, declined, blocked, gone), in the same panel. */
 export const THREAD_STATE_CLASS = "flex min-w-0 flex-1 flex-col items-start gap-6 rounded-card border border-surface-border p-6";
-/** The thread's Report and Block (the frames' small outline "View ticket" button): 40px, 44px to touch below 1024px. */
-export const THREAD_ACTION_CLASS = "min-h-11 lg:min-h-10";
+/** The thread's Report and Block (the frames' small outline "View ticket" button, Label/Tag): 36px, 44px to touch below 1024px. */
+export const THREAD_ACTION_CLASS = "label-tag min-h-11 px-4 lg:min-h-9";
 
 export function threadHref(conversationId: string) {
   return `/messages/${encodeURIComponent(conversationId)}`;

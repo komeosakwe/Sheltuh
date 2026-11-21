@@ -73,20 +73,21 @@ export default function AccountSidebar({
                 }`}
               >
                 <span aria-hidden="true" className={`size-2 shrink-0 rounded-full ${item.current ? "bg-signal" : "bg-foreground"}`} />
-                <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                {/* The count's words sit in the label's box, so the link is named "Saved, 12 events". */}
+                <span className="min-w-0 flex-1 truncate">
+                  {item.label}
+                  {item.countText && <span className="sr-only">{item.countText}</span>}
+                </span>
                 {item.count !== null && (
-                  <>
-                    <span
-                      aria-hidden="true"
-                      data-account-count=""
-                      className={`label-tag shrink-0 rounded-badge px-2 py-1 tabular-nums ${
-                        item.alert ? "bg-signal text-signal-foreground" : "bg-surface-border text-foreground"
-                      }`}
-                    >
-                      {shownCount(item.count)}
-                    </span>
-                    {item.countText && <span className="sr-only">{item.countText}</span>}
-                  </>
+                  <span
+                    aria-hidden="true"
+                    data-account-count=""
+                    className={`label-tag shrink-0 rounded-badge px-2 py-1 tabular-nums ${
+                      item.alert ? "bg-signal text-signal-foreground" : "bg-surface-border text-foreground"
+                    }`}
+                  >
+                    {shownCount(item.count)}
+                  </span>
                 )}
               </Link>
             </li>

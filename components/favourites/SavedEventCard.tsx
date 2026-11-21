@@ -43,7 +43,7 @@ export default function SavedEventCard({
     <div
       data-saved-card=""
       data-card-state={state}
-      className="group/card relative isolate flex min-w-0 flex-col gap-2 rounded-card p-4 hover:bg-hover has-[[data-card-link]:focus-visible]:bg-hover has-[[data-card-link]:active]:bg-hover motion-safe:transition-colors motion-safe:duration-200 motion-safe:ease-out"
+      className="group/card relative isolate flex w-full min-w-0 flex-col gap-2 rounded-card p-4 hover:bg-hover has-[[data-card-link]:focus-visible]:bg-hover has-[[data-card-link]:active]:bg-hover motion-safe:transition-colors motion-safe:duration-200 motion-safe:ease-out"
     >
       <div className="relative h-36 overflow-hidden rounded-control">
         <EventArt

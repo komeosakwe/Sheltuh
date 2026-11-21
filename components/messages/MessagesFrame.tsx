@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname, useSelectedLayoutSegment } from "next/navigation";
 import type { ReactNode } from "react";
 import AccountPageHead from "@/components/account/AccountPageHead";
@@ -17,7 +16,8 @@ import { THREAD_STATE_CLASS } from "./shared";
  * move between conversations. /messages/blocked is a page of its own.
  *
  * On /messages the title is the page's h1; on a conversation the other person's name is (the
- * thread's own heading), and the title is shown in the same style as a paragraph.
+ * thread's own heading), and the title is shown in the same style as a paragraph. Blocked members
+ * is reached from Settings → Privacy (the frames have no link here).
  */
 export default function MessagesFrame({ children }: { children: ReactNode }) {
   const segment = useSelectedLayoutSegment();
@@ -38,14 +38,6 @@ export default function MessagesFrame({ children }: { children: ReactNode }) {
         as={selectedId ? "p" : "h1"}
         title="Messages"
         intro="Chat with people going to the same events."
-        action={
-          <Link
-            href="/messages/blocked"
-            className="body-s inline-flex min-h-11 items-center underline underline-offset-4 hover:decoration-2"
-          >
-            Blocked members
-          </Link>
-        }
       />
       <MessagesGate
         returnTo={pathname}

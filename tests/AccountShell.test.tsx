@@ -178,9 +178,9 @@ describe("AccountShell", () => {
     expect(within(sidebar).getByText("@latte · 2 upcoming")).toBeInTheDocument();
     expect(linkNames(within(sidebar).getByRole("navigation"))).toEqual([
       "Profile",
-      "My tickets2, 2 upcoming events",
-      "Saved12, 12 events",
-      "Messages3, 3 unread",
+      "My tickets, 2 upcoming events2",
+      "Saved, 12 events12",
+      "Messages, 3 unread3",
       "Settings",
     ]);
     expect(within(sidebar).getByRole("link", { name: "Messages, 3 unread" })).toHaveAttribute("href", "/messages");

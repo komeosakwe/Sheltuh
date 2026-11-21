@@ -14,11 +14,10 @@ export default function DemoInbox({ selectedId }: { selectedId?: string | null }
         <DemoNotice>Sample conversations.</DemoNotice>
       </div>
       <ul aria-label="Conversations" className="flex flex-col gap-1">
-        {conversations.map((conversation, index) => (
+        {conversations.map((conversation) => (
           <ConversationRow
             key={conversation.conversationId}
             conversation={conversation}
-            index={index}
             selected={conversation.conversationId === selectedId}
           />
         ))}
