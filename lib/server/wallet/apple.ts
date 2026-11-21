@@ -9,8 +9,8 @@ import {
   localIsoWithOffset,
   passDate,
   passSeat,
-  passStartTime,
-  passTicketNumber,
+  passTicketLine,
+  passTime,
   passVenue,
   passWhen,
   WALLET_SERIAL_PATTERN,
@@ -81,20 +81,40 @@ export function zipStore(files: [name: string, bytes: Buffer][]): Buffer {
   return Buffer.concat([...locals, directory, end]);
 }
 
-type PassField = { key: string; label?: string; value: string };
+/** A field as pass.json takes it. `row` (0 or 1) is for an event ticket's auxiliary fields only: 1 starts a second row. */
+type PassField = { key: string; label?: string; value: string; textAlignment?: "PKTextAlignmentRight"; row?: 1 };
 
-/** pass.json (exported for tests). */
+/** The last field of a row sits at the pass's right edge, as the frames draw TIME and TICKET. */
+const RIGHT = { textAlignment: "PKTextAlignmentRight" } as const;
+
+/**
+ * pass.json (exported for tests). The front is the designer's 20 Nov 2026
+ * frame (docs/wallet-setup.md, "What the passes look like"): the logo and
+ * DATE in the header, the strip image with nothing over it (so no primary
+ * field), EVENT and TIME under it, then VENUE and TICKET. What the frame
+ * doesn't show goes on a second auxiliary row: SEAT, and ENTRY CODE for a
+ * code with no QR.
+ */
 export function applePassJson(config: Pick<AppleWalletConfig, "passTypeId" | "teamId">, ticket: WalletTicket) {
   if (!WALLET_SERIAL_PATTERN.test(ticket.serial)) throw new Error("A wallet pass serial must be 32 hex characters.");
   const venue = passVenue(ticket);
+  const venueName = ticket.venueName?.trim();
   const seat = passSeat(ticket);
-  const ticketLine = [ticket.ticketTypeName, passTicketNumber(ticket)].filter(Boolean).join(" · ");
-  const secondaryFields: PassField[] = [{ key: "time", label: "TIME", value: passStartTime(ticket) }];
-  if (ticket.venueName?.trim()) secondaryFields.push({ key: "venue", label: "VENUE", value: ticket.venueName.trim() });
-  const auxiliaryFields: PassField[] = [{ key: "ticket", label: "TICKET", value: ticketLine }];
-  if (seat) auxiliaryFields.push({ key: "seat", label: "SEAT", value: seat });
-  if (!ticket.qrPayload) auxiliaryFields.push({ key: "code", label: "ENTRY CODE", value: ticket.code });
+  const secondaryFields: PassField[] = [
+    { key: "event", label: "EVENT", value: ticket.eventTitle },
+    { key: "time", label: "TIME", value: passTime(ticket), ...RIGHT },
+  ];
+  const auxiliaryFields: PassField[] = venueName
+    ? [
+        { key: "venue", label: "VENUE", value: venueName },
+        { key: "ticket", label: "TICKET", value: passTicketLine(ticket), ...RIGHT },
+      ]
+    : [{ key: "ticket", label: "TICKET", value: passTicketLine(ticket) }];
+  if (seat) auxiliaryFields.push({ key: "seat", label: "SEAT", value: seat, row: 1 });
+  if (!ticket.qrPayload) auxiliaryFields.push({ key: "code", label: "ENTRY CODE", value: ticket.code, row: 1 });
   const backFields: PassField[] = [
+    // In full: the front's EVENT is cut short when the title is long.
+    { key: "title", label: "Event", value: ticket.eventTitle },
     { key: "when", label: "When", value: passWhen(ticket) },
     ...(venue ? [{ key: "where", label: "Where", value: venue }] : []),
     { key: "backup-code", label: ticket.qrPayload ? "Backup code" : "Entry code", value: ticket.code },
@@ -119,9 +139,10 @@ export function applePassJson(config: Pick<AppleWalletConfig, "passTypeId" | "te
     groupingIdentifier: `sheltuh-event-${ticket.eventId}`,
     // The door admits each code once; sharing the pass would share the ticket.
     sharingProhibited: true,
-    backgroundColor: appleRgb(WALLET_COLOURS.ivory),
+    backgroundColor: appleRgb(WALLET_COLOURS.white),
     foregroundColor: appleRgb(WALLET_COLOURS.ink),
-    labelColor: appleRgb(WALLET_COLOURS.muted),
+    // Black, as the frames draw the labels (the handoff's text says grey; the frames win).
+    labelColor: appleRgb(WALLET_COLOURS.ink),
     relevantDate: start,
     ...(ticket.endsAt ? { relevantDates: [{ startDate: start, endDate: localIsoWithOffset(ticket.endsAt, ticket.timeZone) }] } : {}),
     ...(ticket.qrPayload
@@ -132,8 +153,7 @@ export function applePassJson(config: Pick<AppleWalletConfig, "passTypeId" | "te
         }
       : {}),
     eventTicket: {
-      headerFields: [{ key: "date", label: "DATE", value: passDate(ticket) }],
-      primaryFields: [{ key: "event", label: "EVENT", value: ticket.eventTitle }],
+      headerFields: [{ key: "date", label: "DATE", value: passDate(ticket), ...RIGHT }],
       secondaryFields,
       auxiliaryFields,
       backFields,

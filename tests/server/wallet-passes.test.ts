@@ -155,7 +155,7 @@ describe("Add to Apple Wallet (GET …/wallet/apple?ticket={n})", () => {
     const json = JSON.parse(files.get("pass.json")!.toString("utf8"));
     const code = (tickets as { ticketCode: string }[])[1].ticketCode;
     expect(json.barcodes[0]).toMatchObject({ message: ticketQrPayload(code), altText: code });
-    expect(json.eventTicket.auxiliaryFields[0].value).toBe("General admission · Ticket 2 of 2");
+    expect(json.eventTicket.auxiliaryFields.find((f: { key: string }) => f.key === "ticket").value).toBe("General admission · Ticket 2 of 2");
     expect(files.get("pass.json")!.toString("utf8")).not.toMatch(new RegExp(`buyer@example\\.com|${orderId}`));
   });
 });
@@ -210,7 +210,7 @@ describe("the event's current details", () => {
     const { claims } = decodeJwt(res.headers.get("location")!.slice(GOOGLE_SAVE_URL_BASE.length), googleCreds.keys.publicKey);
     expect(claims.payload.eventTicketClasses[0].eventName.defaultValue.value).toBe("Neon Static (late show)");
     const files = readZip(Buffer.from(await (await pass(getAppleWalletPass, orderId)).arrayBuffer()));
-    expect(JSON.parse(files.get("pass.json")!.toString("utf8")).eventTicket.primaryFields[0].value).toBe("Neon Static (late show)");
+    expect(JSON.parse(files.get("pass.json")!.toString("utf8")).eventTicket.secondaryFields[0]).toMatchObject({ key: "event", value: "Neon Static (late show)" });
   });
 });
 

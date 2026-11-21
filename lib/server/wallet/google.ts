@@ -1,9 +1,14 @@
 import { sign } from "node:crypto";
+import { SUPPORT_EMAIL } from "@/lib/contact";
 import { WALLET_COLOURS, WALLET_ORGANISATION_NAME } from "./brand";
 import type { GoogleWalletConfig } from "./config";
 import {
   localIsoWithOffset,
   passAddress,
+  passDate,
+  passSeat,
+  passTicketLine,
+  passTime,
   passWhen,
   WALLET_SERIAL_PATTERN,
   type WalletTicket,
@@ -24,7 +29,16 @@ import {
  *
  * Google inserts the class and object the first time a JWT is saved and
  * keeps its copy after that (no updates in v1: the REST API would be needed;
- * docs/architecture.md, "Wallet passes").
+ * docs/architecture.md, "Wallet passes"). So a change to the class here (its
+ * images or card rows) reaches only events nobody has saved a pass for yet;
+ * an event whose class Google already holds keeps the old one.
+ *
+ * The card is the designer's 20 Nov 2026 frame (docs/wallet-setup.md, "What
+ * the passes look like"): white, the round logo and "Sheltüh", the venue and
+ * event names (Google's own header), one row of Date, Time and Ticket, the
+ * QR, and the banner at the bottom. Google draws all of it, in its own type
+ * and label colour: what's set here is the background, the two images, which
+ * fields the rows hold and their labels and values.
  */
 
 const LANGUAGE = "en-AU";
@@ -32,9 +46,59 @@ const LANGUAGE = "en-AU";
 /** The save link's base. */
 export const GOOGLE_SAVE_URL_BASE = "https://pay.google.com/gp/v/save/";
 
-/** Public images Google fetches itself (scripts/render-wallet-images.ts). */
-export const GOOGLE_LOGO_PATH = "/wallet/google-logo.png";
-export const GOOGLE_HERO_PATH = "/wallet/google-hero.png";
+/**
+ * Public images Google fetches itself (scripts/render-wallet-images.ts). New
+ * artwork gets a new file name, never a new image at an old one: the classes
+ * Google already holds still point at /wallet/google-logo.png and
+ * /wallet/google-hero.png (the look before 21 Nov 2026), which stay in
+ * public/wallet/ for them, and Google keeps a copy of what it fetches (for
+ * how long is unverified here), so a changed file might not show.
+ */
+export const GOOGLE_LOGO_PATH = "/wallet/google-logo-v2.png";
+export const GOOGLE_HERO_PATH = "/wallet/google-hero-v2.png";
+
+/**
+ * The card's rows, in place of Google's default ones (its template override:
+ * `classTemplateInfo.cardTemplateOverride`). Each item names one of the
+ * object's text modules by id; Google shows the module's header as the label
+ * and its body as the value. Row 1 is the frame's Date, Time and Ticket; row
+ * 2 is the seat, which only a seated ticket's object has (Google's docs, as
+ * remembered, leave out an item whose field is empty; unverified here, as is
+ * the override itself: docs/wallet-setup.md has the owner check both kinds
+ * of ticket on a phone before relying on it).
+ */
+const CARD_FIELD = { date: "date", time: "time", ticket: "ticket", seat: "seat" } as const;
+
+/**
+ * A row's value is cut to this many characters ("…" last). The row has room
+ * for far fewer, so Google cuts a long one itself, and the whole of it is
+ * in the object anyway (ticketType, seatInfo: Google's details). Cutting it
+ * here keeps the save URL short: without it a long ticket type name would
+ * travel twice.
+ */
+const CARD_VALUE_MAX = 40;
+
+function cardValue(value: string): string {
+  const characters = Array.from(value);
+  return characters.length > CARD_VALUE_MAX ? `${characters.slice(0, CARD_VALUE_MAX - 1).join("").trimEnd()}…` : value;
+}
+
+const cardItem = (id: string) => ({ firstValue: { fields: [{ fieldPath: `object.textModulesData['${id}']` }] } });
+
+const CARD_TEMPLATE = {
+  cardTemplateOverride: {
+    cardRowTemplateInfos: [
+      {
+        threeItems: {
+          startItem: cardItem(CARD_FIELD.date),
+          middleItem: cardItem(CARD_FIELD.time),
+          endItem: cardItem(CARD_FIELD.ticket),
+        },
+      },
+      { oneItem: { item: cardItem(CARD_FIELD.seat) } },
+    ],
+  },
+} as const;
 
 /** Google's ids allow only [A-Za-z0-9._-]: anything else is dropped. */
 export function googleIdPart(value: string): string {
@@ -61,6 +125,7 @@ export function googleSaveClaims(config: GoogleWalletConfig, ticket: WalletTicke
   const classId = googleClassId(config.issuerId, ticket.eventId);
   const address = passAddress(ticket);
   const venueName = ticket.venueName?.trim();
+  const seat = passSeat(ticket);
   const eventTicketClass = {
     id: classId,
     issuerName: WALLET_ORGANISATION_NAME,
@@ -76,8 +141,11 @@ export function googleSaveClaims(config: GoogleWalletConfig, ticket: WalletTicke
     },
     logo: { sourceUri: { uri: `${origin}${GOOGLE_LOGO_PATH}` }, contentDescription: localized(WALLET_ORGANISATION_NAME) },
     heroImage: { sourceUri: { uri: `${origin}${GOOGLE_HERO_PATH}` }, contentDescription: localized(WALLET_ORGANISATION_NAME) },
-    hexBackgroundColor: WALLET_COLOURS.ivory,
+    hexBackgroundColor: WALLET_COLOURS.white,
+    classTemplateInfo: CARD_TEMPLATE,
     homepageUri: { uri: origin, description: WALLET_ORGANISATION_NAME },
+    // In the details under the card, with the address and the order reference.
+    linksModuleData: { uris: [{ id: "support", uri: `mailto:${SUPPORT_EMAIL}`, description: "Contact support" }] },
   };
   const eventTicketObject = {
     id: googleObjectId(config.issuerId, ticket.serial),
@@ -98,8 +166,14 @@ export function googleSaveClaims(config: GoogleWalletConfig, ticket: WalletTicke
           },
         }
       : {}),
-    hexBackgroundColor: WALLET_COLOURS.ivory,
+    hexBackgroundColor: WALLET_COLOURS.white,
     textModulesData: [
+      // The card's rows (CARD_TEMPLATE), labelled in sentence case as the frame has them.
+      { id: CARD_FIELD.date, header: "Date", body: passDate(ticket) },
+      { id: CARD_FIELD.time, header: "Time", body: passTime(ticket) },
+      { id: CARD_FIELD.ticket, header: "Ticket", body: cardValue(passTicketLine(ticket)) },
+      ...(seat ? [{ id: CARD_FIELD.seat, header: "Seat", body: cardValue(seat) }] : []),
+      // The details under the card.
       { id: "when", header: "When", body: passWhen(ticket) },
       ...(ticket.qrPayload ? [] : [{ id: "code", header: "Entry code", body: ticket.code }]),
       { id: "order", header: "Order reference", body: ticket.orderReference },

@@ -6652,16 +6652,21 @@ request so the two can't disagree): the event's current title (as the
 email; Google's class is shared by every ticket for the event, so it can't
 be one order's snapshot, and the passes are only made while the event is
 published), date and time in the event's zone (`passTimeZone`: the
-ticket page's `eventTimeZone`, Melbourne when absent), venue name and address, ticket type, "Ticket n of N", the seat, the
+ticket page's `eventTimeZone`, Melbourne when absent), venue name and address, ticket type (with "Ticket n of N" when the order has more than one ticket), the seat, the
 QR carrying exactly the existing payload (`ticketQrPayload`: `SH1:` + code;
 none for a code that isn't canonical, as the email) with the code as its
 alternate text, and the order's short reference. Nothing about the buyer:
 no email, name or order id. Both wallets draw their own QR from the
 payload, so the symbol differs from the email's (level H with the centre
 ü; the wallets can't carry a logo) but scans to the same text, which
-check-in already accepts. Ivory background, black
-text, Signal Orange only as a fill (`lib/server/wallet/brand.ts`); images in
-`public/wallet/` (`scripts/render-wallet-images.ts`).
+check-in already accepts. The look is the designer's 20 Nov 2026 frames: a
+white pass, black values and labels, Signal Orange only in the marks
+(`lib/server/wallet/brand.ts`); images in `public/wallet/`
+(`scripts/render-wallet-images.ts`). What the code sets and what each
+wallet draws itself, and what isn't built (the event's own artwork in the
+image band, the refund policy line): `docs/wallet-setup.md`, "What the
+passes look like". A pass is static, so one saved before a change of look
+keeps the old one.
 
 **Google** (`lib/server/wallet/google.ts`, no dependency): a "Save to Google
 Wallet" JWT, RS256 over node:crypto with the service account's key, `iss`
@@ -6669,7 +6674,11 @@ the service account, `aud` `google`, `typ` `savetowallet`, `origins`
 `[NEXT_PUBLIC_SITE_URL's origin]`, and the payload's `eventTicketClasses` and
 `eventTicketObjects` inline: class `{issuerId}.sheltuh-event-{eventId}`
 (`reviewStatus` `UNDER_REVIEW`, event name, venue, `dateTime` as the venue's
-local time with its offset, logo and hero image URLs on the site), object
+local time with its offset, logo and hero image URLs on the site, a
+"Contact support" link, and `classTemplateInfo.cardTemplateOverride`: the
+card's rows, Date, Time and Ticket, then Seat, each naming one of the
+object's text modules by id; unverified against Google until the owner's
+test save, `docs/wallet-setup.md`), object
 `{issuerId}.sheltuh-ticket-{serial}` (`serial`: the ticket's
 `wallet_serial`, a random uuid stored with it, as 32 hex characters, so the
 same ticket is always the same object and the id says nothing about the
@@ -6677,8 +6686,9 @@ code: a serial hashed from the code could be reversed by trying all 2^40
 codes, and a pass's id can never change once saved; ids keep to
 `[A-Za-z0-9._-]`), barcode `QR_CODE`. The route answers 302 to
 `https://pay.google.com/gp/v/save/{jwt}`. **One ticket per JWT**, not the
-order: the JWT travels in a URL, a typical ticket's is about 2.5 KB (a test
-holds it under 5 KB at the longest field lengths), and a whole order's (10
+order: the JWT travels in a URL, a typical ticket's is about 3.6 KB (a test
+holds it under 5 KB at the longest field lengths; a card row's value is cut
+at 40 characters for that), and a whole order's (10
 seats, or more general admission tickets) could pass what browsers and
 Google's front end reliably accept (the exact limit is unverified); it also
 matches Apple's one pass per ticket.
@@ -6688,8 +6698,9 @@ here: `pass.json` (`formatVersion` 1, the Pass Type ID and team, the serial
 above as `serialNumber`, `organizationName` "Sheltüh", `description`,
 `groupingIdentifier` per event, `sharingProhibited`, the colours,
 `relevantDate` and `relevantDates`, an `eventTicket` with header (date),
-primary (event), secondary (time, venue), auxiliary (ticket, seat) and back
-fields, and `barcodes` with the QR payload and `altText`); the images;
+no primary field (nothing over the strip image), secondary (event, time),
+auxiliary (venue, ticket; the seat on a second row) and back fields, and
+`barcodes` with the QR payload and `altText`); the images;
 `manifest.json` (SHA-1 of each file); and `signature`, a detached PKCS #7
 SignedData over the manifest (SHA-256, with contentType, messageDigest and
 signingTime attributes) by the Pass Type ID certificate, carrying it and the

@@ -581,7 +581,7 @@ describe("each person's ticket says which person of the group it is", () => {
     expect(res.status).toBe(200);
     const files = readZip(Buffer.from(await res.arrayBuffer()));
     const json = JSON.parse(files.get("pass.json")!.toString("utf8"));
-    expect(json.eventTicket.auxiliaryFields[0].value).toBe("Group of 4 (3 of 4) · Ticket 3 of 4");
+    expect(json.eventTicket.auxiliaryFields.find((f: { key: string }) => f.key === "ticket").value).toBe("Group of 4 (3 of 4) · Ticket 3 of 4");
   });
 });
 
