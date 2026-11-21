@@ -18,6 +18,7 @@ import {
   THREAD_MESSAGES_CLASS,
   THREAD_PAGE_CLASS,
   THREAD_STATE_CLASS,
+  scrollThreadToEnd,
   threadHref,
 } from "./shared";
 import ThreadTitle from "./ThreadTitle";
@@ -44,6 +45,7 @@ export default function DemoThread({ conversationId }: { conversationId: string 
   const pendingFocus = useRef<Focus | null>(null);
   const pendingScroll = useRef(false);
   const endRef = useRef<HTMLDivElement>(null);
+  const sectionRef = useRef<HTMLElement>(null);
   const reportedRef = useRef<HTMLDivElement>(null);
   const name = thread?.otherDisplayName;
 
@@ -66,7 +68,7 @@ export default function DemoThread({ conversationId }: { conversationId: string 
     }
     if (pendingScroll.current && endRef.current) {
       pendingScroll.current = false;
-      endRef.current.scrollIntoView?.({ block: "end" });
+      scrollThreadToEnd(sectionRef.current, endRef.current, { force: true });
     }
   });
 
@@ -173,7 +175,7 @@ export default function DemoThread({ conversationId }: { conversationId: string 
         <DemoNotice>Messages aren&rsquo;t sent in this demo.</DemoNotice>
       </header>
 
-      <section aria-labelledby="thread-messages-title" className={THREAD_MESSAGES_CLASS}>
+      <section ref={sectionRef} aria-labelledby="thread-messages-title" className={THREAD_MESSAGES_CLASS}>
         <h2 id="thread-messages-title" className="sr-only">
           Messages
         </h2>
@@ -182,12 +184,13 @@ export default function DemoThread({ conversationId }: { conversationId: string 
         ) : (
           <p className="text-sm text-muted">No messages yet. Say hello to {endSentence(name)}</p>
         )}
+        {/* The end of the messages, inside their scroll container. */}
+        <div ref={endRef} />
       </section>
 
       <div className={COMPOSER_BAR_CLASS}>
         <Composer otherName={name} mode="reply" onSend={send} returnTo={threadHref(conversationId)} />
       </div>
-      <div ref={endRef} />
       <ReportDialog
         open={reportOpen}
         otherName={name}

@@ -29,6 +29,31 @@ export const THREAD_STATE_CLASS = "flex min-w-0 flex-1 flex-col items-start gap-
 /** The thread's Report and Block (the frames' small outline "View ticket" button, Label/Tag): 36px, 44px to touch below 1024px. */
 export const THREAD_ACTION_CLASS = "label-tag min-h-11 px-4 lg:min-h-9";
 
+/** How close to the end (px) still counts as "at the bottom", so a new message scrolls into view. */
+const NEAR_END = 200;
+
+/**
+ * Brings a thread's end into view. From 768px the messages section is its own scroll container (it
+ * scrolls between the head and the composer), so that's what scrolls and what "near the bottom" is
+ * measured against; below 768px it grows with its messages and the page scrolls instead. `force`:
+ * always (opening the thread, sending); otherwise only if the reader was already near the end
+ * (`addedHeight`: how much was just added below, so it doesn't count against them).
+ */
+export function scrollThreadToEnd(
+  section: HTMLElement | null,
+  end: HTMLElement | null,
+  { force, addedHeight = 0, instant = false }: { force: boolean; addedHeight?: number; instant?: boolean },
+): void {
+  if (!end) return;
+  if (section && section.scrollHeight > section.clientHeight) {
+    const fromEnd = section.scrollHeight - section.scrollTop - section.clientHeight - addedHeight;
+    if (force || fromEnd <= NEAR_END) section.scrollTop = section.scrollHeight;
+    return;
+  }
+  const nearEnd = end.getBoundingClientRect().top - addedHeight <= window.innerHeight + NEAR_END;
+  if (force || nearEnd) end.scrollIntoView?.({ block: "end", behavior: instant ? "instant" : "auto" });
+}
+
 export function threadHref(conversationId: string) {
   return `/messages/${encodeURIComponent(conversationId)}`;
 }

@@ -34,6 +34,7 @@ import {
   THREAD_MESSAGES_CLASS,
   THREAD_PAGE_CLASS,
   THREAD_STATE_CLASS,
+  scrollThreadToEnd,
   THREAD_POLL_MS,
   threadHref,
 } from "./shared";
@@ -144,6 +145,7 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
   const statusVersionRef = useRef(0);
   const rootRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLOListElement>(null);
+  const sectionRef = useRef<HTMLElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const reportedRef = useRef<HTMLDivElement>(null);
@@ -267,10 +269,14 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
     const scroll = pendingScroll.current;
     if (scroll && endRef.current) {
       pendingScroll.current = null;
-      const end = endRef.current;
-      // New messages only scroll into view if the person was already at the bottom.
-      const nearBottom = end.getBoundingClientRect().top <= window.innerHeight + 200;
-      if (scroll === "initial" || nearBottom) end.scrollIntoView?.({ block: "end", behavior: scroll === "initial" ? "instant" : "auto" });
+      // New messages only scroll into view if the person was already at the bottom (of the messages
+      // section from 768px, where it scrolls on its own; of the page below that).
+      const added = scroll === "new" ? (listRef.current?.lastElementChild?.getBoundingClientRect().height ?? 0) : 0;
+      scrollThreadToEnd(sectionRef.current, endRef.current, {
+        force: scroll === "initial",
+        instant: scroll === "initial",
+        addedHeight: added,
+      });
     }
   });
 
@@ -556,7 +562,7 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
         {renderReported(other)}
       </header>
 
-      <section aria-labelledby="thread-messages-title" className={THREAD_MESSAGES_CLASS}>
+      <section ref={sectionRef} aria-labelledby="thread-messages-title" className={THREAD_MESSAGES_CLASS}>
         <h2 id="thread-messages-title" className="sr-only">
           Messages
         </h2>
@@ -571,6 +577,8 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
         <MessageList messages={messages} otherName={other} listRef={listRef} newFrom={newIds} />
         {status === "request_received" && renderRequestReceived(other)}
         {pollError && <p className="text-xs text-muted">{pollError}</p>}
+        {/* The end of the messages, inside their scroll container. */}
+        <div ref={endRef} />
       </section>
 
       <div className={COMPOSER_BAR_CLASS}>
@@ -582,7 +590,6 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
           returnTo={returnTo}
         />
       </div>
-      <div ref={endRef} />
       {reportDialog}
       {liveRegion}
     </div>

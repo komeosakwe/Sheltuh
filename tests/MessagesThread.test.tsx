@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { ThreadPageContent } from "@/components/messages/MessagesPages";
 import { UnreadProvider } from "@/components/messages/UnreadProvider";
 import { ApiError } from "@/lib/api/client";
@@ -866,5 +866,81 @@ describe("Thread — every state has an h1, inside the page's padding", () => {
     renderThread();
     await ready();
     await waitFor(() => expect(document.title).toBe("Sam K. — Messages — Sheltüh"));
+  });
+});
+
+describe("Thread — scrolling inside its panel (from 768px the messages section scrolls on its own)", () => {
+  // jsdom lays nothing out: give the messages section a scroll box (2000 of content in 600) and
+  // record where it's scrolled to.
+  const scrollTops = new WeakMap<Element, number>();
+  const isSection = (el: Element) => el.matches('section[aria-labelledby="thread-messages-title"]');
+  let restore: (() => void) | undefined;
+  beforeEach(() => {
+    const proto = HTMLElement.prototype;
+    const saved = {
+      scrollHeight: Object.getOwnPropertyDescriptor(Element.prototype, "scrollHeight"),
+      clientHeight: Object.getOwnPropertyDescriptor(Element.prototype, "clientHeight"),
+      scrollTop: Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop"),
+    };
+    Object.defineProperty(proto, "scrollHeight", { configurable: true, get() { return isSection(this) ? 2000 : 0; } });
+    Object.defineProperty(proto, "clientHeight", { configurable: true, get() { return isSection(this) ? 600 : 0; } });
+    Object.defineProperty(proto, "scrollTop", {
+      configurable: true,
+      get() { return scrollTops.get(this) ?? 0; },
+      set(value: number) { scrollTops.set(this, value); },
+    });
+    restore = () => {
+      for (const key of ["scrollHeight", "clientHeight", "scrollTop"] as const) {
+        delete (proto as unknown as Record<string, unknown>)[key];
+        const original = saved[key];
+        if (original) Object.defineProperty(Element.prototype, key, original);
+      }
+    };
+  });
+  afterEach(() => restore?.());
+
+  const section = () => {
+    const el = document.querySelector<HTMLElement>('section[aria-labelledby="thread-messages-title"]');
+    if (!el) throw new Error("no messages section");
+    return el;
+  };
+
+  it("opens at the newest message by scrolling the section, whose end it holds", async () => {
+    const intoView = vi.fn();
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = intoView;
+    onTestFinished(() => {
+      Element.prototype.scrollIntoView = original;
+    });
+    api.getMessages.mockResolvedValue(page([msg(1), msg(2), msg(3)]));
+    renderThread();
+    await ready();
+    await waitFor(() => expect(section().scrollTop).toBe(2000));
+    // The end marker is inside the scroll container, after the messages (not after the composer).
+    expect(section().lastElementChild?.tagName).toBe("DIV");
+    expect(section().contains(screen.getByRole("list", { name: "Messages with Sam K." }))).toBe(true);
+    expect(intoView).not.toHaveBeenCalled();
+  });
+
+  it("follows a new message only when the reader is near the end of the section", async () => {
+    api.getMessages.mockResolvedValue(page([msg(1), msg(2)]));
+    api.sendMessage.mockResolvedValue(msg(3, true, "On my way"));
+    renderThread();
+    await ready();
+    await waitFor(() => expect(section().scrollTop).toBe(2000));
+    // Scrolled up to read older messages: a new one doesn't pull them down.
+    section().scrollTop = 100;
+    await type("On my way");
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await screen.findByText("On my way");
+    await act(async () => {});
+    expect(section().scrollTop).toBe(100);
+    // Back at the end: the next one is followed.
+    section().scrollTop = 1400;
+    api.sendMessage.mockResolvedValue(msg(4, true, "Nearly there"));
+    await type("Nearly there");
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await screen.findByText("Nearly there");
+    await waitFor(() => expect(section().scrollTop).toBe(2000));
   });
 });
