@@ -122,7 +122,7 @@ describe("free checkout (member, own verified email)", () => {
     expect(api.sendEmail).toHaveBeenCalledTimes(1);
     const email = api.sendEmail.mock.calls[0][0];
     expect(email.to).toBe("fan@example.com");
-    expect(email.subject).toBe("Your tickets: Neon Static");
+    expect(email.subject).toBe("You’re in: Neon Static");
     for (const ticket of order.body.tickets) expect(email.text).toContain(ticket.ticketCode);
     expect(email.text).toContain(`https://sheltuh.test/checkout/success?session_id=${orderId}`);
   });

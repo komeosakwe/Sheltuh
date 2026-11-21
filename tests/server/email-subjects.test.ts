@@ -214,7 +214,17 @@ describe("organiser-supplied names in the reminder and the holder message", () =
       }),
   };
 
-  it.each(Object.entries(messages))("%s: no control, invisible or bidi characters, and no line breaks, in the title or the name", (_name, build) => {
+  it("reminder: no control, invisible or bidi characters, and no line breaks, in the title (Latte's reminder names no organiser)", () => {
+    const { html, text, subject } = messages.reminder();
+    expect(subject).not.toMatch(UNSAFE);
+    for (const field of [html, text]) {
+      expect(field).not.toMatch(/[\p{Cf}\p{Zl}\p{Zp}]/u);
+      expect(field).toContain(CLEAN_TITLE);
+    }
+  });
+
+  it("message: no control, invisible or bidi characters, and no line breaks, in the title or the name", () => {
+    const build = messages.message;
     const { html, text, subject } = build();
     expect(subject).not.toMatch(UNSAFE);
     const clean = (value: string) => decodeURIComponent(value).replace(/\n/g, "");
@@ -236,9 +246,9 @@ describe("organiser-supplied names in the reminder and the holder message", () =
     expect(text).toContain(`About ${CLEAN_NAME}: `);
   });
 
-  it("the reminder's title line and host line carry the cleaned title and name", () => {
+  it("the reminder's heading and title line carry the cleaned title", () => {
     const { text } = messages.reminder();
     expect(text).toContain(`\n${CLEAN_TITLE}\n`);
-    expect(text).toContain(`Organised by ${CLEAN_NAME}: `);
+    expect(text).toContain(`See you tomorrow at ${CLEAN_TITLE}.`);
   });
 });

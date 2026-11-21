@@ -65,8 +65,8 @@ describe("the ticket email's Tell a friend", () => {
   });
 });
 
-describe("the reminder's Tell a friend", () => {
-  it("is in the day-before reminder, html and text", async () => {
+describe("the reminder and sharing", () => {
+  it("the day-before reminder follows Latte's 1120 frame: no Tell a friend (sharing lives in the ticket email), but the calendar links", async () => {
     const { buildEventReminderEmail } = await import("@/lib/server/event-reminder-email");
     const email = buildEventReminderEmail({
       to: "fan@example.com",
@@ -86,9 +86,9 @@ describe("the reminder's Tell a friend", () => {
         status: "published",
       } as EventRecord,
     });
-    expect(email.html).toContain("Tell a friend:");
-    expect(email.text).toContain("TELL A FRIEND");
-    expect(email.text).toContain("https://sheltuh.com.au/events/paint-and-sip");
+    expect(email.html).not.toContain("Tell a friend");
+    expect(email.text).not.toContain("TELL A FRIEND");
+    expect(email.text).toContain("https://sheltuh.com.au/events/paint-and-sip/calendar.ics");
   });
 });
 

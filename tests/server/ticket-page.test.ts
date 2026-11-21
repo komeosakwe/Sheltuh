@@ -118,7 +118,7 @@ async function guestFreeOrder(quantity: number) {
 /** The ticket email for an order (sent through the outbox, as after a real purchase). */
 async function ticketEmail(orderId: string): Promise<EmailMessage> {
   await api.runDeferred();
-  const sent = api.sendEmail.mock.calls.map(([m]) => m).filter((m) => m.subject.startsWith("Your tickets"));
+  const sent = api.sendEmail.mock.calls.map(([m]) => m).filter((m) => /^(Your (\d+ )?tickets? to |You’re in: )/.test(m.subject));
   const reference = orderReference(orderId);
   const email = sent.find((m) => m.text.includes(`Order reference: ${reference}`));
   if (!email) throw new Error(`no ticket email for ${reference}`);

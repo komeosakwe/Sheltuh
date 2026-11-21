@@ -875,7 +875,7 @@ describe("the footer", () => {
       'Need a hand? <a href="mailto:support@sheltuh.com.au" style="color:#000000;text-decoration:underline;text-underline-offset:2px">support@sheltuh.com.au</a>',
     );
     expect(text).toContain(
-      `Need a hand? support@sheltuh.com.au\n\nFind your place, find your people.\nSheltüh · Melbourne\nPrivacy policy: ${SITE}/privacy · Terms: ${SITE}/terms · Help centre: ${SITE}/help\nYou're getting this email because you bought a ticket on Sheltüh.`,
+      `Need a hand? support@sheltuh.com.au\n\nFind your place, find your people.\nSheltüh · Melbourne\nPrivacy policy: ${SITE}/privacy · Terms: ${SITE}/terms · Help centre: ${SITE}/help\nYou’re getting this email because you bought a ticket on Sheltüh.`,
     );
     expect(text.toLowerCase()).not.toContain("reply");
   });

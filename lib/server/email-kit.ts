@@ -349,7 +349,7 @@ export function kitFooterText({ siteUrl, reason, reasonLink }: KitFooterInput): 
     footerLinks(siteUrl)
       .map((l) => `${l.label}: ${l.href}`)
       .join(" · "),
-    reason.replaceAll("’", "'"),
+    reason,
     ...(reasonLink ? [`${reasonLink.label}: ${reasonLink.href}`] : []),
   ].join("\n");
 }
