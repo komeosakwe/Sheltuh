@@ -1,4 +1,4 @@
-import { mixesScripts, skeleton } from "@/lib/lookalikes";
+import { makesAClaim, mixesScripts } from "@/lib/lookalikes";
 import type { EventCategory } from "@/lib/types";
 
 /**
@@ -92,49 +92,12 @@ export function tagsForEventCategories(categories: readonly string[]): Organiser
 }
 
 /**
- * Words that claim a status only Sheltüh (or nobody) can give, refused in an
- * organiser's own words: endorsement, verification, partnership, ranking or
- * availability ("Official", "Verified", "Sold out", "Sheltüh partner").
- * Compared on the lookalike skeleton (skeleton(), lib/lookalikes.ts: case,
- * accents, fullwidth and other compatibility forms, Cyrillic and Greek
- * lookalikes, i/l/1 → l, 0 → o, rn → m: "ÖFFICIAL", "ｏｆｆｉｃｉａｌ",
- * "OfficiaI", "Appr0ved"), as whole words, and squashed across the spaces or
- * punctuation between words ("soldout", "sold-out", "o f f i c i a l") and
- * the change of case inside one ("OfficialVenue"). "sheltuh" is refused
- * anywhere at all ("TeamSheltuh", "SheltuhPick"), as in display names. Each
- * entry is written as it's matched: lower case, ASCII, no spaces.
+ * The words refused in an own word as a claim only Sheltüh (or nobody) can
+ * give ("Official", "Verified", "Sold out"): shared with usernames, so they
+ * live in lib/lookalikes.ts (CLAIM_WORDS, makesAClaim). Re-exported here for
+ * the callers that know them from this module.
  */
-export const CLAIM_WORDS: readonly string[] = [
-  "official",
-  "officially",
-  "verified",
-  "certified",
-  "accredited",
-  "endorsed",
-  "approved",
-  "authorised",
-  "authorized",
-  "sponsored",
-  "promoted",
-  "featured",
-  "partner",
-  "partners",
-  "partnered",
-  "sheltuh",
-  "admin",
-  "moderator",
-  "trending",
-  "soldout",
-  "staffpick",
-  "staffpicks",
-  "editorspick",
-  "editorschoice",
-  "toprated",
-];
-
-const CLAIM_SKELETONS = new Set(CLAIM_WORDS.map(skeleton));
-/** Refused anywhere in an own word, not only as a whole word. */
-const RESERVED_SUBSTRING = skeleton("sheltuh");
+export { CLAIM_WORDS } from "@/lib/lookalikes";
 
 /**
  * `value` folded for comparison: compatibility forms decomposed (NFKD),
@@ -150,29 +113,6 @@ export function customTagKey(value: string): string {
 }
 
 const LABEL_KEYS = new Set(ORGANISER_TAGS.map((t) => customTagKey(t.label)));
-
-/**
- * Contains a claim word: a run of whole words that, joined, is one of
- * CLAIM_WORDS on the skeleton. A lower-case letter followed by a capital
- * starts a new word ("OfficialVenue", and "OfficiaI" with a capital I).
- * Contains "sheltuh" anywhere, spaces and punctuation ignored.
- */
-function makesAClaim(value: string): boolean {
-  if (skeleton(value.replace(/[^\p{L}\p{N}]/gu, "")).includes(RESERVED_SUBSTRING)) return true;
-  const words = value
-    .replace(/(\p{Ll})(\p{Lu})/gu, "$1 $2")
-    .split(/[^\p{L}\p{N}]+/u)
-    .filter(Boolean);
-  // Own words are at most CUSTOM_TAG_MAX_LENGTH characters, so this is at most a few hundred short strings.
-  for (let i = 0; i < words.length; i++) {
-    let joined = "";
-    for (let j = i; j < words.length; j++) {
-      joined += words[j];
-      if (CLAIM_SKELETONS.has(skeleton(joined))) return true;
-    }
-  }
-  return false;
-}
 
 // Characters nobody types on purpose in a word: control characters, every
 // invisible "format" character (zero-width spaces and joiners, bidi controls,

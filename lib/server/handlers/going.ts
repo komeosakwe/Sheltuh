@@ -69,9 +69,9 @@ export const getGoingSummary: Handler<{ eventId: string }> = async (_req, { even
  * GET /api/events/[eventId]/going/attendees?cursor — verified members with a
  * profile that isn't suspended (403 otherwise), rate-limited per member (429).
  * Display names and opaque per-event ids, oldest opt-in first, up to 50 a
- * page, with the member's profile id and photo when their profile is
- * visible. An empty page once the event is closed. Members who block the
- * viewer, or whom the viewer blocks, are left out.
+ * page, with the member's profile id, username (if set) and photo when
+ * their profile is visible. An empty page once the event is closed. Members
+ * who block the viewer, or whom the viewer blocks, are left out.
  */
 export const listGoingAttendees: Handler<{ eventId: string }> = async (req, { eventId }, { db, verifyAccessToken }) => {
   const caller = await requireVerifiedCaller(req, verifyAccessToken);
@@ -98,11 +98,13 @@ export const listGoingAttendees: Handler<{ eventId: string }> = async (req, { ev
 
   if (!viewer.open) return okPrivate({ items: [] });
 
-  // The profile id and photo only for a visible profile (the member opted
-  // in); blocked members and suspended ones aren't listed at all.
+  // The profile id, username and photo only for a visible profile (the
+  // member opted in); blocked members and suspended ones aren't listed at all.
   const rows = await db.query(
     `select a.id, p.display_name, a.user_id = $2 as is_you,
             case when p.profile_visible then p.public_id end as profile_id,
+            case when p.profile_visible
+                 then (select u.username from private.member_usernames u where u.user_id = a.user_id) end as username,
             case when p.profile_visible then ${avatarVersionOf("a.user_id")} end as avatar_version
        from public.event_attendees a
        join public.profiles p on p.user_id = a.user_id

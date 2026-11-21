@@ -1,8 +1,8 @@
 /**
  * Lookalike-insensitive comparison, shared by the API's display-name rules
- * (lib/server/profile-input.ts) and an organiser's own words
- * (lib/api/organiser-tags.ts, which the dashboard form runs too): plain
- * string functions, safe in the browser.
+ * (lib/server/profile-input.ts), an organiser's own words
+ * (lib/api/organiser-tags.ts, which the dashboard form runs too) and
+ * usernames (lib/username.ts): plain string functions, safe in the browser.
  */
 
 /**
@@ -49,4 +49,73 @@ export function mixesScripts(value: string): boolean {
   return value
     .split(/[^\p{L}\p{M}\p{N}]+/u)
     .some((word) => SCRIPTS.filter((script) => script.test(word)).length > 1);
+}
+
+/**
+ * Words that claim a status only Sheltüh (or nobody) can give, refused in an
+ * organiser's own words (lib/api/organiser-tags.ts) and in usernames
+ * (lib/username.ts): endorsement, verification, partnership, ranking or
+ * availability ("Official", "Verified", "Sold out", "Sheltüh partner").
+ * Compared on the lookalike skeleton (skeleton(), above: case,
+ * accents, fullwidth and other compatibility forms, Cyrillic and Greek
+ * lookalikes, i/l/1 → l, 0 → o, rn → m: "ÖFFICIAL", "ｏｆｆｉｃｉａｌ",
+ * "OfficiaI", "Appr0ved"), as whole words, and squashed across the spaces or
+ * punctuation between words ("soldout", "sold-out", "o f f i c i a l") and
+ * the change of case inside one ("OfficialVenue"). "sheltuh" is refused
+ * anywhere at all ("TeamSheltuh", "SheltuhPick"), as in display names. Each
+ * entry is written as it's matched: lower case, ASCII, no spaces.
+ */
+export const CLAIM_WORDS: readonly string[] = [
+  "official",
+  "officially",
+  "verified",
+  "certified",
+  "accredited",
+  "endorsed",
+  "approved",
+  "authorised",
+  "authorized",
+  "sponsored",
+  "promoted",
+  "featured",
+  "partner",
+  "partners",
+  "partnered",
+  "sheltuh",
+  "admin",
+  "moderator",
+  "trending",
+  "soldout",
+  "staffpick",
+  "staffpicks",
+  "editorspick",
+  "editorschoice",
+  "toprated",
+];
+
+const CLAIM_SKELETONS = new Set(CLAIM_WORDS.map(skeleton));
+/** Refused anywhere in an own word, not only as a whole word. */
+const RESERVED_SUBSTRING = skeleton("sheltuh");
+
+/**
+ * Contains a claim word: a run of whole words that, joined, is one of
+ * CLAIM_WORDS on the skeleton. A lower-case letter followed by a capital
+ * starts a new word ("OfficialVenue", and "OfficiaI" with a capital I).
+ * Contains "sheltuh" anywhere, spaces and punctuation ignored.
+ */
+export function makesAClaim(value: string): boolean {
+  if (skeleton(value.replace(/[^\p{L}\p{N}]/gu, "")).includes(RESERVED_SUBSTRING)) return true;
+  const words = value
+    .replace(/(\p{Ll})(\p{Lu})/gu, "$1 $2")
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean);
+  // Callers cap the length first (an own word 24 characters, a username 20), so this is at most a few hundred short strings.
+  for (let i = 0; i < words.length; i++) {
+    let joined = "";
+    for (let j = i; j < words.length; j++) {
+      joined += words[j];
+      if (CLAIM_SKELETONS.has(skeleton(joined))) return true;
+    }
+  }
+  return false;
 }

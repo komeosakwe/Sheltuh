@@ -487,7 +487,7 @@ describe("the ticket email's wallet links (lib/server/ticket-email.ts, ticketWal
       .slice(1)
       .map((block) => {
         const number = Number(/^(\d+) of /.exec(block)![1]);
-        const code = /^Entry code: (\S+)$/m.exec(block)![1];
+        const code = /Entry code: ([A-Z0-9-]+)/.exec(block)![1];
         const links = Object.fromEntries([...block.matchAll(/^(Add to (?:Apple|Google) Wallet): (\S+)$/gm)].map((m) => [m[1], m[2]]));
         return { number, code, links };
       });
@@ -528,7 +528,8 @@ describe("the ticket email's wallet links (lib/server/ticket-email.ts, ticketWal
     const { orderId } = await paidOrder(1);
     let { text, html } = await sentEmail();
     expect(textTickets(text)[0].links).toEqual({ "Add to Apple Wallet": `${SITE_URL}/api/orders/by-session/${orderId}/wallet/apple?ticket=1` });
-    expect(html).toContain(">Add to Apple Wallet</a>");
+    // Apple's official badge (an image whose alt is Apple's wording), in its pass link.
+    expect(html).toMatch(new RegExp(`<a class="wa" href="${SITE_URL}/api/orders/by-session/${orderId}/wallet/apple\\?ticket=1"[^>]*><img [^>]*alt="Add to Apple Wallet"`));
     expect(html).not.toContain("Google Wallet");
 
     api.appleWallet = undefined;

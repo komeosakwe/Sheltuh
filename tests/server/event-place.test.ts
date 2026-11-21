@@ -553,8 +553,10 @@ describe("emails say the event's own time", () => {
     const created = (await create(eventInput({ ...PERTH, refundPolicy: "days_before", refundDays: 7 }))).body as EventRecord;
     const event = { ...(await findEventById(api.db, created.eventId))!, status: "published" } as EventRecord;
     const email = buildTicketEmail(order, event, "https://sheltuh.com.au", new Date("2027-01-01T00:00:00Z"));
-    expect(email.text).toContain("Date: Saturday 6 March 2027\nTime: 8:00 pm – 11:30 pm Perth time (AWST)");
-    expect(email.html).toContain("8:00 pm – 11:30 pm Perth time (AWST)");
+    // The redesigned email (docs/design/ticket-email.md §5.2): the When row, and the card's short stub time.
+    expect(email.text).toContain("Saturday 6 March 2027, 8:00 – 11:30 pm Perth time (AWST)");
+    expect(email.text).toContain("Date: Sat 6 Mar · Time: 8–11:30 pm");
+    expect(email.html).toContain(">8:00 – 11:30 pm Perth time (AWST)</p>");
     expect(ticketEmailRefundPolicy(order, event, new Date("2027-01-01T00:00:00Z"))).toBe(
       "Refunds available until Sat 27 Feb, 8:00 pm (7 days before the event).",
     );
@@ -596,7 +598,7 @@ describe("emails say the event's own time", () => {
     const zoned = buildTicketEmail(order, { ...event, state: "VIC", timeZone: "Australia/Melbourne" }, "https://sheltuh.com.au", now);
     expect(zoned.text).toBe(plain.text);
     expect(zoned.html).toBe(plain.html);
-    expect(plain.text).toContain("Time: 8:00 pm – 10:00 pm AEDT");
+    expect(plain.text).toContain("Saturday 6 March 2027, 8:00 – 10:00 pm AEDT");
     expect(when(event)).toBe("Saturday 6 March 2027, 8:00 pm – 10:00 pm AEDT");
     expect(reviewEventStart(MELBOURNE_8PM)).toBe("Saturday 6 March 2027, 8:00 pm AEDT");
   });

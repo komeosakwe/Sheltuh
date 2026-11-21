@@ -42,7 +42,9 @@ const BRACKETED_AT = /\s{0,8}[[({<]\s{0,8}at\s{0,8}[\])}>]\s{0,8}/giu;
 // TLDs that make a *spoken or spaced* dot ("name dot com", "name . com") a
 // domain. Only these, because "dot" and a lone " . " are ordinary in prose
 // ("a polka dot dress", "so . Anyway"); an attached ".ru" is checked openly.
-const SPOKEN_TLDS =
+// Also the TLDs a username may not end a dotted part with
+// (lib/server/username-input.ts).
+export const SPOKEN_TLDS =
   "com|net|org|edu|gov|au|uk|nz|us|ca|de|fr|jp|cn|ru|io|co|ai|cc|me|tv|ly|gg|gd|gl|top|xyz|click|link|app|dev|page|site|online|shop|store|club|live|info|biz|icu|vip|work|buzz|fun";
 const NOT_ALNUM_AFTER = String.raw`(?![\p{L}\p{N}])`;
 const SPOKEN_DOT = new RegExp(String.raw`\s{1,8}dot\s{1,8}(?=(?:${SPOKEN_TLDS})${NOT_ALNUM_AFTER})`, "giu");

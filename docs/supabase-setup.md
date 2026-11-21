@@ -344,6 +344,54 @@ where event_id = (select id from events where slug = 'the-event-slug')
   and user_id = (select id from auth.users where email = 'person@example.com');
 ```
 
+### Release a username
+
+Admins remove a member's username from the report screen (it goes through
+their member profile: `POST /api/admin/profiles/{profileId}/remove-content`
+with `username`). A member without a Who's Going profile has no profile to
+open, so for them (a brand or a person's name squatted, say, reported to
+support) run this in the SQL editor, as one query. It does what the admin
+route does: the name is held for 30 days, the member waits 30 days before
+choosing another, and the removal is logged without the name. Find the
+account by the name, typed between the quotes as it was reported: it's
+normalised as the app does it (compatibility forms folded, spaces trimmed, a
+leading `@` dropped, lower case), and any spelling or lookalike of it finds
+the same row:
+
+```sql
+with target as (
+  select u.user_id as id from private.member_usernames u
+   where u.username_key = private.member_username_key(lower(regexp_replace(btrim(normalize(' @The_Username ', NFKC)), '^@', ''))) and u.user_id is not null
+), released as (
+  update private.member_usernames u set user_id = null
+    from target where u.user_id = target.id
+  returning target.id
+), clock as (
+  insert into private.member_username_changes as c (user_id, first_claimed_at, last_claimed_at)
+  select id, now() - interval '24 hours', now() from released
+  on conflict (user_id) do update
+     set first_claimed_at = least(coalesce(c.first_claimed_at, now()), now() - interval '24 hours'),
+         last_claimed_at = now()
+)
+insert into private.profile_moderation_log (user_id, admin_id, removed, reason)
+select id, null, array['username'], 'short note for your own records' from released;
+```
+
+`INSERT 0 1` means it was released; `INSERT 0 0` means no live username
+matched. If it reports a deadlock (the member saving at that very moment),
+run it again. If it says `permission denied for table users`, the role
+lacks the privilege the username functions need too (`docs/DEPLOYMENT.md`,
+migration 59).
+
+To let someone else have a held name straight away (the rightful owner of a
+squatted brand, say), delete the hold. Only a hold is deleted, never a live
+name:
+
+```sql
+delete from private.member_usernames
+ where username_key = private.member_username_key(lower(regexp_replace(btrim(normalize(' @The_Username ', NFKC)), '^@', ''))) and user_id is null;
+```
+
 ### Message reports and moderation
 
 Members can report a conversation, a message or a name on a Who's Going list.
@@ -835,6 +883,131 @@ updates by design (trigger `organiser_profile_edits_append_only`); redacting
 there means disabling that trigger inside the same transaction, updating the
 one row, and enabling it again before `commit`. Do it only for a request you
 have recorded.
+
+### Event photos stored before re-encoding (one-off metadata backfill)
+
+Since November 2026 every event photo is re-encoded on upload, which strips
+the GPS location, camera make, model and serial number, and other metadata
+(`docs/architecture.md`, `event_images`). Photos uploaded before that may
+still carry it. `scripts/backfill-event-image-metadata.ts` re-encodes those
+photos the same way an upload is re-encoded today. Run it once, from your own
+computer, after the re-encoding release is deployed.
+
+It changes only the stored photo file. The focus point and banner fit stay
+as they are, and the photo looks the same, but re-encoding isn't lossless: a
+JPEG or WebP is compressed again, and a phone photo stored sideways is turned
+the right way up, as an upload is today. The format usually stays the same,
+but a PNG or JPEG that comes out over 2 MB in its own format is stored as
+WebP instead (as an upload is). The dry run shows each photo's current
+format, and adds `as WebP` to the line of any photo whose format would
+change. Nobody else's edit is
+overwritten, because a photo replaced while the script runs is skipped. An
+animated photo (an animated WebP or PNG) is never re-encoded, because the
+copy would keep only its first frame: it's reported as failed (see step 4).
+Each cleaned photo gets a new version. Event records read fresh from the
+database link to the clean file straight away, but a cached record can still
+give the old `imageUrl` for a while: an event's page for about a minute, and
+the event feed for about three minutes (their CDN windows,
+`lib/server/handlers/public-events.ts`). So a page still showing the old link
+just after `--apply` hasn't failed. Separately, an old copy of the photo file
+itself, already cached by the CDN or a browser under its old URL, expires
+within about an hour. The event's own version also moves on, so if an admin has that event
+open in the editor, saving asks them to reload. Nothing is added to the
+event's moderation log. You don't need a backup for this metadata-only
+change, but read the dry run's output before you use `--apply`.
+
+1. **Get the connection string.** In Supabase, open Project Settings →
+   Database (or the **Connect** button at the top), copy the **Session
+   pooler** URI (the Transaction pooler works too), and put the database
+   password in place of `[YOUR-PASSWORD]`. Use the live project's string,
+   not the one in `.env.local` (which may point at a dev database). The
+   string must name its host and database, only one host, and carry no
+   parameters after the `?` other than `sslmode` or `application_name`
+   (Supabase's URIs have none). Anything else, such as `database=`,
+   `user=` or `options=`, would be sent to the server in place of what
+   the string names, so the script refuses it.
+2. **Download the CA certificate.** On the same page (Project Settings →
+   Database → SSL Configuration), click **Download certificate**, and note
+   where the `.crt` file was saved. The script needs it for any database
+   that isn't on your own computer: it uses the certificate to check that the
+   server really is your Supabase database (its certificate chains to that CA
+   and names the host) before it sends the password. Without
+   `DATABASE_CA_CERT` it refuses to run (exit code 2), and the same goes for
+   a value that isn't a whole certificate (it's parsed before connecting).
+   It's a public certificate, not a secret, but the script never prints it.
+3. **In a checkout of `main` that includes the script** (`npm ci` first, if
+   `node_modules` is missing), set both for this terminal only. Paste the
+   connection string at the prompt, so it doesn't end up in your shell
+   history, and put the path of the downloaded file in place of
+   `path/to/the-downloaded.crt`:
+
+   Git Bash / macOS / Linux:
+
+   ```sh
+   read -rs DATABASE_URL && export DATABASE_URL
+   export DATABASE_CA_CERT="$(cat path/to/the-downloaded.crt)"
+   ```
+
+   PowerShell:
+
+   ```powershell
+   $env:DATABASE_URL = Read-Host "Connection string"
+   $env:DATABASE_CA_CERT = Get-Content -Raw "path\to\the-downloaded.crt"
+   ```
+
+   If a run stops with a certificate error (for example `self-signed
+   certificate in certificate chain`, or a host name that doesn't match),
+   nothing was read or changed. Check that the certificate came from the
+   same project as the connection string. Don't work around it by leaving
+   `DATABASE_CA_CERT` out, because the script won't connect without it.
+
+4. **Dry run** (the default: it reads every photo and changes nothing):
+
+   ```sh
+   npx tsx scripts/backfill-event-image-metadata.ts
+   ```
+
+   It prints one line for each photo that isn't already clean: the first 8
+   characters of the event's id, the event's status, the format, the size,
+   and what was found (`GPS`, `camera` for make, model, serial or lens, and
+   `other` for the rest, such as the time taken, colour profile, editing
+   history, text or comments). Then it prints a summary: photos checked, how
+   many have metadata (by kind), how many are already clean, how many would
+   be re-encoded, and how many **FAILED**. A failed photo couldn't be read,
+   or its pixels didn't decode, or it wouldn't re-encode within the upload
+   limits (24 megapixels, 2 MB), or it's animated (its line says so: a
+   re-encoded copy would keep only the first frame). Its line also lists
+   any metadata found (`metadata: GPS, camera; FAILED, …`), so replace
+   those with GPS first. It is never changed. Replace it through
+   the admin event editor, which works at any status; for a published (or
+   pending review) event that's the only way, because the organiser can't
+   replace the photo then. Asking the organiser to replace it is an option
+   only while the event is a draft or rejected. (Any replacement, an
+   animated one included, is stored as a still photo: uploads keep only the
+   first frame.) The script exits with code 1 when any photo failed, 2 when
+   a setting is missing or wrong (nothing is read then), and 0 otherwise.
+5. **Apply**, once the dry run looks right:
+
+   ```sh
+   npx tsx scripts/backfill-event-image-metadata.ts --apply
+   ```
+
+   The photos are re-encoded one at a time, and each is saved in its own
+   transaction, so stopping it partway leaves every photo either cleaned or
+   untouched. If any are reported as `skipped`, someone replaced them while
+   the script was running. Run `--apply` again to check the new ones.
+6. **Check it's done.** Run the dry run again. It should report
+   `With metadata: 0` (failed photos aside). Running `--apply` again is
+   harmless and does nothing.
+7. Clear the variables (`unset DATABASE_URL DATABASE_CA_CERT`, or in
+   PowerShell `Remove-Item Env:DATABASE_URL, Env:DATABASE_CA_CERT`), or
+   close the terminal.
+
+The script never prints the connection string, a full event id, a URL or
+any image data, and refuses arguments it doesn't know. Give the connection
+string only as `DATABASE_URL`: if it's passed as an argument, the script
+refuses it without printing it, and you should reset the database password,
+because the string may now be in your shell history.
 
 ### Free-ticket and email outbox retention (daily job)
 

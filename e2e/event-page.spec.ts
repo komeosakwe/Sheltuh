@@ -473,7 +473,7 @@ test.describe("add to calendar at 375px", () => {
     expect(await apple.getAttribute("download")).toBeNull();
     await expect(menu.getByRole("link", { name: "Outlook (opens in a new tab)" })).toHaveAttribute(
       "href",
-      /^https:\/\/outlook\.live\.com\/calendar\/0\/action\/compose\?subject=Neon%20Static&startdt=/,
+      /^https:\/\/outlook\.live\.com\/calendar\/0\/deeplink\/compose\?path=\/calendar\/action\/compose&rru=addevent&subject=Neon%20Static&startdt=/,
     );
     const box = await menu.boundingBox();
     if (!box) throw new Error("menu not laid out");

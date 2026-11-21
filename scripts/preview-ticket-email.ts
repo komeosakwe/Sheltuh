@@ -1,6 +1,7 @@
 /**
- * Writes the ticket confirmation email to local HTML/text files with synthetic
- * (fictional) data, for eyeballing in a browser, plus one of each other
+ * Writes the ticket confirmation email (docs/design/ticket-email.md) to local
+ * HTML/text files with synthetic (fictional) data, for eyeballing in a
+ * browser, plus one of each other
  * transactional email (free-ticket confirmation, waitlist, follower) so the
  * shared brand layout (lib/server/email-layout.ts) can be compared side by
  * side. Sends nothing and touches no service.
@@ -14,8 +15,10 @@
  * email's `cid:` images (the wordmark and each ticket's QR), and the remote
  * ones (the footer image and the event image, both on the site's origin)
  * aren't fetched, so each is swapped for a data URI of a local file: the same
- * PNGs for the `cid:` images, public/brand/sheltuh-email-footer.png for the
- * footer, and a sample photo from public/events/ for the event image.
+ * PNGs for the `cid:` images, the files in public/email/ticket and
+ * public/fonts for the ticket email's decorations and web fonts,
+ * public/brand/sheltuh-email-footer.png for the other emails' footer, and a
+ * sample photo from public/events/ for the event image.
  * qr-svg.html shows the SVG version (lib/ticket-qr.ts `ticketQrSvgPath`, as
  * the ticket page draws it) beside the PNG. email-preview.html is the
  * multiple-tickets scenario.
@@ -36,7 +39,8 @@ import { buildFreeConfirmationEmail } from "../lib/server/free-confirmation-emai
 import { buildTicketEmail } from "../lib/server/ticket-email";
 import type { EventRecord, OrderRecord } from "../lib/server/types";
 import { buildWaitlistAvailableEmail, buildWaitlistConfirmationEmail } from "../lib/server/waitlist-email";
-import { ticketQrLabel, ticketQrMatrix, ticketQrSvgPath } from "../lib/ticket-qr";
+import { U_MARK } from "../components/brand/marks";
+import { QR_QUIET_ZONE_MODULES, ticketQrLabel, ticketQrSvgPath, ticketQrSymbol } from "../lib/ticket-qr";
 
 const args = process.argv.slice(2);
 const outArg = args.find((a) => a.startsWith("--out="));
@@ -138,21 +142,30 @@ function withDataUris(email: EmailMessage): string {
   // The remote images, from local files (nothing is fetched).
   const footerUrl = emailFooterImageUrl(siteUrl);
   if (footerUrl) html = html.replaceAll(footerUrl, fileDataUri(path.join(process.cwd(), `public${EMAIL_FOOTER_IMAGE_PATH}`), "image/png"));
+  // The ticket email's hosted decorations and self-hosted fonts (public/email/ticket, public/fonts).
+  const origin = siteUrl.replace(/\/+$/, "");
+  html = html.replace(new RegExp(`${origin.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(/(?:email|fonts)/[^'")\\s]+)`, "g"), (whole, file: string) => {
+    const local = path.join(process.cwd(), "public", file);
+    if (!existsSync(local)) return whole;
+    return fileDataUri(local, file.endsWith(".woff2") ? "font/woff2" : "image/png");
+  });
   html = html.replaceAll(new URL(PREVIEW_IMAGE_PATH, siteUrl).href.replaceAll("&", "&#38;"), fileDataUri(PREVIEW_PHOTO, "image/jpeg"));
   return html;
 }
 
-/** The SVG QR next to the email's PNG, for comparing the two renderings. */
+/** The SVG QR (as the ticket page draws it, with the centre ü) next to the email's PNG, for comparing the two renderings. */
 function qrSvgPage(code: string, email: EmailMessage): string {
-  const matrix = ticketQrMatrix(code);
-  if (!matrix) throw new Error(`${code} isn't a ticket code`);
-  const { d, size } = ticketQrSvgPath(matrix);
+  const symbol = ticketQrSymbol(code);
+  if (!symbol) throw new Error(`${code} isn't a ticket code`);
+  const { d, size } = ticketQrSvgPath(symbol.matrix);
+  const at = symbol.mark.start + QR_QUIET_ZONE_MODULES;
+  const mark = `<svg x="${at}" y="${at}" width="${symbol.mark.size}" height="${symbol.mark.size}" viewBox="${U_MARK.viewBox}">${U_MARK.paths.map((p) => `<path d="${p}" fill="#000"/>`).join("")}</svg>`;
   const png = email.inlineImages?.find((image) => image.cid.startsWith("ticket-qr-"));
-  const pngTag = png ? `<img src="data:${png.contentType};base64,${png.content.toString("base64")}" width="232" height="232" alt="PNG">` : "";
+  const pngTag = png ? `<img src="data:${png.contentType};base64,${png.content.toString("base64")}" width="264" height="264" alt="PNG">` : "";
   return `<!DOCTYPE html><html lang="en-AU"><head><meta charset="utf-8"><title>QR ${code}</title></head>
 <body style="font-family:sans-serif;background:${PAGE};padding:24px">
-<p>SVG (ticketQrSvgPath) and the email's PNG for ${code}</p>
-<svg role="img" aria-label="${ticketQrLabel(code)}" viewBox="0 0 ${size} ${size}" width="232" height="232" shape-rendering="crispEdges"><rect width="${size}" height="${size}" fill="#fff"/><path d="${d}" fill="#000"/></svg>
+<p>SVG (ticketQrSymbol, as TicketQr draws it) and the email's PNG for ${code}</p>
+<svg role="img" aria-label="${ticketQrLabel(code)}" viewBox="0 0 ${size} ${size}" width="264" height="264" shape-rendering="crispEdges"><rect width="${size}" height="${size}" fill="#fff"/><path d="${d}" fill="#000"/>${mark}</svg>
 ${pngTag}
 </body></html>`;
 }

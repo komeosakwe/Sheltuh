@@ -342,6 +342,8 @@ describe("CheckoutConfirmation", () => {
         "/api/orders/by-session/cs_test_1/wallet/google?ticket=2",
       ]);
       expect(within(list).getByText("Ticket 2 of 2 · VIP")).toBeInTheDocument();
+      // Apple's device note is only for Apple's badge.
+      expect(screen.queryByText(/Apple Wallet, open this page/)).toBeNull();
       cleanup();
 
       getOrderBySession.mockResolvedValue({ ...WITH_DETAILS, eventListed: true, wallet: { google: true, apple: true } });
@@ -353,6 +355,8 @@ describe("CheckoutConfirmation", () => {
         "/api/orders/by-session/cs_test_1/wallet/apple?ticket=2",
         "/api/orders/by-session/cs_test_1/wallet/google?ticket=2",
       ]);
+      // Apple's badge rules: once, under the badges, how to add them from a device without Wallet.
+      expect(screen.getAllByText("To add your tickets to Apple Wallet, open this page on your iPhone or Mac.")).toHaveLength(1);
     });
 
     it("seated tickets are listed by seat but keep their numbers, so each link is the route's ticket", async () => {

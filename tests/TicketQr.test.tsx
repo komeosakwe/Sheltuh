@@ -3,7 +3,8 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 import TicketQr from "@/components/tickets/TicketQr";
-import { QR_QUIET_ZONE_MODULES, ticketQrMatrix } from "@/lib/ticket-qr";
+import { U_MARK } from "@/components/brand/marks";
+import { QR_QUIET_ZONE_MODULES, ticketQrMatrix, ticketQrSymbol } from "@/lib/ticket-qr";
 
 afterEach(cleanup);
 
@@ -49,27 +50,52 @@ function renderQr(code: string) {
 }
 
 describe("TicketQr", () => {
-  it("draws exactly the ticket's QR modules, offset by a 4-module quiet zone, on a 29-module plate", () => {
+  it("draws exactly the ticket's QR modules with the centre cleared, offset by a 4-module quiet zone, on a 33-module plate", () => {
     const container = renderQr(CODE);
     const svg = container.querySelector("svg");
-    expect(svg).toHaveAttribute("viewBox", "0 0 29 29");
+    expect(svg).toHaveAttribute("viewBox", "0 0 33 33");
     expect(svg).toHaveAttribute("shape-rendering", "crispEdges");
 
     const rect = container.querySelector("rect");
-    expect(rect).toHaveAttribute("width", "29");
-    expect(rect).toHaveAttribute("height", "29");
+    expect(rect).toHaveAttribute("width", "33");
+    expect(rect).toHaveAttribute("height", "33");
 
-    const paths = container.querySelectorAll("path");
-    expect(paths).toHaveLength(1);
-    const matrix = ticketQrMatrix(CODE);
-    expect(matrix).not.toBeNull();
-    expect(rows(drawPath(paths[0].getAttribute("d") ?? "", 29))).toEqual(rows(withQuietZone(matrix ?? [])));
+    const modules = container.querySelectorAll('path[data-qr="modules"]');
+    expect(modules).toHaveLength(1);
+    const symbol = ticketQrSymbol(CODE);
+    expect(symbol).not.toBeNull();
+    const drawn = drawPath(modules[0].getAttribute("d") ?? "", 33);
+    expect(rows(drawn)).toEqual(rows(withQuietZone(symbol?.matrix ?? [])));
+    // The cleared centre (7 × 7) is light; outside it, every module is the plain symbol's.
+    const plain = withQuietZone(ticketQrMatrix(CODE) ?? []);
+    for (let y = 0; y < 33; y++) {
+      for (let x = 0; x < 33; x++) {
+        const inLogo = x >= 13 && x <= 19 && y >= 13 && y <= 19;
+        expect(drawn[y][x]).toBe(inLogo ? false : plain[y][x]);
+      }
+    }
+  });
+
+  it("draws the brand's ü in black in the centre 5 × 5 modules, inside the same image (not an overlay)", () => {
+    const container = renderQr(CODE);
+    const outer = container.querySelector("svg");
+    const mark = outer?.querySelector('svg[data-qr="mark"]');
+    expect(mark?.parentElement).toBe(outer);
+    expect(mark).toHaveAttribute("x", "14");
+    expect(mark).toHaveAttribute("y", "14");
+    expect(mark).toHaveAttribute("width", "5");
+    expect(mark).toHaveAttribute("height", "5");
+    expect(mark).toHaveAttribute("viewBox", U_MARK.viewBox);
+    expect(mark).toHaveAttribute("aria-hidden", "true");
+    const paths = mark?.querySelectorAll("path") ?? [];
+    expect([...paths].map((p) => p.getAttribute("d"))).toEqual([...U_MARK.paths]);
+    for (const p of paths) expect(p).toHaveAttribute("fill", "#000000");
   });
 
   it("draws different codes differently", () => {
     const d = (code: string) => {
       const { container, unmount } = render(<TicketQr code={code} />);
-      const value = container.querySelector("path")?.getAttribute("d");
+      const value = container.querySelector('path[data-qr="modules"]')?.getAttribute("d");
       unmount();
       return value;
     };
@@ -97,7 +123,7 @@ describe("TicketQr", () => {
   it("is pure black on pure white, with no theme colour, currentColor or token class to tint it", () => {
     const container = renderQr(CODE);
     expect(container.querySelector("rect")).toHaveAttribute("fill", "#ffffff");
-    expect(container.querySelector("path")).toHaveAttribute("fill", "#000000");
+    for (const path of container.querySelectorAll("path")) expect(path).toHaveAttribute("fill", "#000000");
     const html = container.innerHTML;
     expect(html).not.toMatch(/currentColor/i);
     expect(html).not.toMatch(/var\(--/);
@@ -115,13 +141,13 @@ describe("TicketQr", () => {
     expect(html).toMatch(/color-scheme:only light/);
   });
 
-  it("is 203px under 375px wide, 232px from 375px and 40mm in print (whole-pixel modules)", () => {
+  it("is 231px under 375px wide, 264px from 375px and 40mm in print (whole-pixel modules)", () => {
     const container = renderQr(CODE);
     const plate = container.firstElementChild;
     const classes = (plate?.getAttribute("class") ?? "").split(/\s+/);
-    expect(classes).toEqual(expect.arrayContaining(["size-[203px]", "min-[375px]:size-[232px]", "print:size-[40mm]"]));
-    expect(203 % 29).toBe(0);
-    expect(232 % 29).toBe(0);
+    expect(classes).toEqual(expect.arrayContaining(["size-[231px]", "min-[375px]:size-[264px]", "print:size-[40mm]"]));
+    expect(231 / 33).toBe(7);
+    expect(264 / 33).toBe(8);
     expect(container.querySelector("svg")).toHaveClass("size-full");
   });
 });

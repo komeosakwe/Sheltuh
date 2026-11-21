@@ -60,6 +60,7 @@ const PROFILE_REPORT: AdminReport = {
   reportedProfileId: "p1",
   reportedBio: "<b>not html</b>",
   reportedInstagramHandle: "aisha.paints",
+  reportedUsername: "aisha_l",
   reportedAvatarUrl: "/api/admin/reports/r1/avatar",
 };
 
@@ -72,6 +73,8 @@ describe("admin: profile reports", () => {
     expect(within(article).getByText("Member profile")).toBeInTheDocument();
     expect(within(article).getByText("<b>not html</b>")).toBeInTheDocument();
     expect(within(article).getByText("@aisha.paints")).toBeInTheDocument();
+    // The username as it was when reported, so a quick change doesn't lose the evidence.
+    expect(within(article).getByText("@aisha_l")).toBeInTheDocument();
     expect(await within(article).findByRole("img", { name: "Reported profile photo" })).toHaveAttribute("src", "blob:copy");
     expect(fetchAvatar).toHaveBeenCalledWith("/api/admin/reports/r1/avatar", expect.any(Function), expect.any(AbortSignal));
   });
@@ -117,6 +120,35 @@ describe("admin: profile reports", () => {
     expect(await within(article).findByText("Removed: Photo and bio. Logged with your reason.")).toBeInTheDocument();
   });
 
+  it("offers the username too, sent after the other fields", async () => {
+    adminListReports.mockResolvedValue({ items: [PROFILE_REPORT] });
+    adminRemoveProfileContent.mockResolvedValue({
+      profileId: "p1",
+      displayName: "Aisha L.",
+      profileVisible: true,
+      hasAvatar: true,
+      suspended: false,
+      moderationLog: [],
+      removed: ["bio", "username"],
+    });
+    admin(<ReportQueue />);
+    const heading = await screen.findByRole("heading", { name: /Aisha L\./ });
+    const article = heading.closest("article") as HTMLElement;
+    const group = within(article).getByRole("group", { name: "Remove from their profile" });
+    fireEvent.click(within(group).getByRole("checkbox", { name: "Username" }));
+    fireEvent.click(within(group).getByRole("checkbox", { name: "Bio" }));
+    fireEvent.change(within(article).getByLabelText("Reason (admins only, logged)"), { target: { value: "Slur in the username." } });
+    fireEvent.click(within(article).getByRole("button", { name: "Remove" }));
+    await waitFor(() =>
+      expect(adminRemoveProfileContent).toHaveBeenCalledWith(
+        "p1",
+        { fields: ["bio", "username"], reason: "Slur in the username." },
+        expect.any(Function),
+      ),
+    );
+    expect(await within(article).findByText("Removed: Bio and username. Logged with your reason.")).toBeInTheDocument();
+  });
+
   it("opens the member's current profile and moderation log on request", async () => {
     adminListReports.mockResolvedValue({ items: [PROFILE_REPORT] });
     adminGetMemberProfile.mockResolvedValue({
@@ -126,6 +158,7 @@ describe("admin: profile reports", () => {
       hasAvatar: false,
       suspended: false,
       bio: "Now tame.",
+      username: "aisha_now",
       moderationLog: [{ removed: ["instagram"], reason: "Spam link.", at: "2026-10-19T00:00:00.000Z" }],
     });
     admin(<ReportQueue />);
@@ -135,8 +168,52 @@ describe("admin: profile reports", () => {
     details.open = true;
     fireEvent(details, new Event("toggle"));
     expect(await screen.findByText("Now tame.")).toBeInTheDocument();
+    // What "Username" in the removal boxes would remove.
+    expect(screen.getByText("@aisha_now")).toBeInTheDocument();
     expect(screen.getByText(/removed instagram/)).toBeInTheDocument();
     expect(screen.getByText(/Hidden/)).toBeInTheDocument();
+  });
+
+  it("after a removal, their profile now shows what's left (the removal's answer); the report's copies stay", async () => {
+    adminListReports.mockResolvedValue({ items: [PROFILE_REPORT] });
+    const before = {
+      profileId: "p1",
+      displayName: "Aisha L.",
+      profileVisible: true,
+      hasAvatar: false,
+      suspended: false,
+      bio: "Now tame.",
+      username: "aisha_now",
+      moderationLog: [],
+    };
+    // Opened before the removal: the old profile. Any reload after it never answers,
+    // so what shows afterwards can only be the removal's own answer.
+    adminGetMemberProfile.mockResolvedValueOnce(before).mockReturnValue(new Promise(() => {}));
+    adminRemoveProfileContent.mockResolvedValue({
+      ...before,
+      username: undefined,
+      moderationLog: [{ removed: ["username"], reason: "Slur in the username.", at: "2026-11-20T00:00:00.000Z" }],
+      removed: ["username"],
+    });
+    admin(<ReportQueue />);
+    const heading = await screen.findByRole("heading", { name: /Aisha L\./ });
+    const article = heading.closest("article") as HTMLElement;
+    const details = within(article).getByText("Their profile now").closest("details") as HTMLDetailsElement;
+    details.open = true;
+    fireEvent(details, new Event("toggle"));
+    expect(await within(details).findByText("@aisha_now")).toBeInTheDocument();
+
+    const group = within(article).getByRole("group", { name: "Remove from their profile" });
+    fireEvent.click(within(group).getByRole("checkbox", { name: "Username" }));
+    fireEvent.change(within(article).getByLabelText("Reason (admins only, logged)"), { target: { value: "Slur in the username." } });
+    fireEvent.click(within(article).getByRole("button", { name: "Remove" }));
+    expect(await within(article).findByText("Removed: Username. Logged with your reason.")).toBeInTheDocument();
+
+    await waitFor(() => expect(within(details).queryByText("@aisha_now")).toBeNull());
+    expect(within(details).getByText(/removed username/)).toBeInTheDocument();
+    expect(within(details).getByText("Now tame.")).toBeInTheDocument();
+    // The copy taken when it was reported is evidence: unchanged.
+    expect(within(article).getByText("@aisha_l")).toBeInTheDocument();
   });
 
   it("a message report has no profile tools", async () => {

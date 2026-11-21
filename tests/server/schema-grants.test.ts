@@ -164,6 +164,8 @@ describe("Data API lock-out", () => {
       { table_name: "holder_message_stop_tokens", rls: true },
       { table_name: "holder_message_suppressions", rls: true },
       { table_name: "holder_messages", rls: true },
+      { table_name: "member_username_changes", rls: true },
+      { table_name: "member_usernames", rls: true },
       { table_name: "onboarding_emails", rls: true },
       { table_name: "order_detail_exports", rls: true },
       { table_name: "order_detail_views", rls: true },
@@ -510,6 +512,46 @@ describe("Data API lock-out", () => {
         where tgname = 'organisers_custom_tags_valid' and tgrelid = 'public.organisers'::regclass and not tgisinternal`,
     );
     expect(trigger.n).toBe(1);
+  });
+
+  it("the username functions and triggers exist, pin search_path, aren't security definer and aren't client-executable", async () => {
+    const names = [
+      "admin_remove_profile_content",
+      "claim_member_username",
+      "clear_member_username",
+      "file_profile_report",
+      "member_username_key",
+      "member_username_ok",
+      "member_username_state",
+      "member_usernames_hold",
+      "member_usernames_valid",
+      "purge_social_data",
+    ];
+    expect(await privateFunctions(names)).toEqual(locked(names));
+    const [definer] = await db.query<{ n: number }>(
+      `select count(*)::int as n from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'private' and p.proname = any($1::text[]) and p.prosecdef`,
+      [names],
+    );
+    expect(definer.n).toBe(0);
+    const triggers = await db.query<{ tgname: string }>(
+      `select tgname from pg_trigger where tgrelid = 'private.member_usernames'::regclass and not tgisinternal order by 1`,
+    );
+    expect(triggers.map((t) => t.tgname)).toEqual(["member_usernames_hold", "member_usernames_valid"]);
+    // Both tables: RLS on, no policies, no grants.
+    const tables = await db.query<{ table_name: string; rls: boolean; policies: number; grants: number }>(
+      `select c.relname as table_name, c.relrowsecurity as rls,
+              (select count(*)::int from pg_policy p where p.polrelid = c.oid) as policies,
+              (select count(*)::int from information_schema.role_table_grants g
+                where g.table_schema = 'private' and g.table_name = c.relname
+                  and g.grantee in ('anon', 'authenticated', 'PUBLIC')) as grants
+         from pg_class c join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = 'private' and c.relname in ('member_usernames', 'member_username_changes') order by 1`,
+    );
+    expect(tables).toEqual([
+      { table_name: "member_username_changes", rls: true, policies: 0, grants: 0 },
+      { table_name: "member_usernames", rls: true, policies: 0, grants: 0 },
+    ]);
   });
 
   it("the event clip functions and trigger exist, pin search_path and aren't client-executable", async () => {
