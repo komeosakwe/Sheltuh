@@ -159,10 +159,18 @@ const KIT_EMAILS: Record<string, "customer" | "organiser"> = {
   ticketSeated: "customer",
   eventReminder: "customer",
   holderMessage: "customer",
+  freeConfirmation: "customer",
+  freeConfirmationSeated: "customer",
+  waitlistConfirmation: "customer",
+  waitlistAvailable: "customer",
+  followerOne: "customer",
+  followerMany: "customer",
+  inviteMember: "customer",
+  inviteOrganiser: "organiser",
 };
 const isKit = (name: string) => name in KIT_EMAILS;
-/** Emails with the inline wordmark header and the branded footer (emailFooter). */
-const BRANDED = ["freeConfirmation", "freeConfirmationSeated"];
+/** Emails with the inline wordmark header and the old branded footer banner: none now (every customer email is on the 1120 layout). */
+const BRANDED: string[] = [];
 /** The two emails in the modern look: hosted https logo (no cid), compact footer, MODERN_COLOURS. */
 const MODERN: string[] = [];
 const classic = Object.entries(emails).filter(([name]) => !MODERN.includes(name) && !isKit(name));
@@ -233,14 +241,6 @@ describe("every transactional email uses the shared brand layout", () => {
     expect(html).toMatch(new RegExp(`color:${TICKET_EMAIL_COLOURS.signalText};letter-spacing:0\\.12em`));
   });
 
-  it.each(BRANDED)("%s: the wordmark header (inline) and one branded footer banner", (name) => {
-    const email = emails[name]();
-    expect(email.html.split(`<img src="cid:${WORDMARK_CID}"`)).toHaveLength(2);
-    expect(email.inlineImages?.[0]?.cid).toBe(WORDMARK_CID);
-    expect(email.html.split(`<img src="${emailFooterImageUrl(site)}"`)).toHaveLength(2);
-    expect(email.html.match(/<img src="https:[^"]*"/g)?.filter((tag) => tag.includes("/brand/"))).toHaveLength(1);
-  });
-
   it("the other emails carry no images", () => {
     for (const [name, build] of Object.entries(emails)) {
       if (BRANDED.includes(name) || MODERN.includes(name) || isKit(name)) continue;
@@ -250,11 +250,12 @@ describe("every transactional email uses the shared brand layout", () => {
     }
   });
 
-  it("sets the event title in black in the ticket, free-confirmation and waitlist emails", () => {
-    const title = `font-size:20px;line-height:26px;font-weight:bold;color:${INK}">${escapeHtml(event.title)}</p>`;
+  it("sets the event title in black in the ticket, free-confirmation, waitlist and follower emails (the 1120 Ticket card's title)", () => {
+    const title = `font-size:20px;line-height:28px;font-weight:600;color:${INK};overflow-wrap:break-word;word-wrap:break-word">${escapeHtml(event.title)}</p>`;
     for (const name of ["freeConfirmation", "waitlistConfirmation", "waitlistAvailable"]) {
       expect(emails[name]().html).toContain(title);
     }
+    expect(emails.followerOne().html).toContain(`>${escapeHtml(event.title)}</a></p>`);
     // The ticket card's title.
     expect(emails.ticketPaid().html).toContain(`font-size:32px;line-height:38px;font-weight:700;color:${INK};overflow-wrap:break-word;word-wrap:break-word">${escapeHtml(event.title)}</p>`);
   });

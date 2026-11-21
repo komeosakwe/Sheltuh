@@ -30,6 +30,7 @@ import {
   kitStack,
   kitSummary,
   kitTellAFriend,
+  kitTicketCard,
 } from "./email-kit";
 import {
   MONO,
@@ -702,6 +703,33 @@ export function ticketOrderDate(iso: string | undefined, where: EventZone = {}):
   if (!iso || Number.isNaN(Date.parse(iso))) return null;
   const day = cachedDateTimeFormat("en-AU", { timeZone: zoneOf(where), day: "numeric", month: "short", year: "numeric" });
   return `${day.format(new Date(iso))}, ${time(iso, where)}`;
+}
+
+/**
+ * The event as the 1120 emails show it: the compact Ticket card (kitTicketCard)
+ * with "Sat 14 Nov · 5–9 pm", the title, the venue and the event's image (on
+ * an https site). Organiser-supplied text is cleaned with subjectLine. `href`
+ * links the title (the event's page).
+ */
+export function emailEventCard(event: EventRecord, siteUrl: string, href?: string): string {
+  const title = subjectLine(event.title);
+  return kitTicketCard({
+    dateLine: `${formatEventDateShort(event.startsAt, zoneOf(event))} · ${formatStubTime(event.startsAt, event.endsAt, event)}`,
+    title,
+    venue: subjectLine(event.venueName ?? ""),
+    imageUrl: eventImageEmailUrl(siteUrl, event.imageUrl),
+    ...(href ? { href } : {}),
+  });
+}
+
+/** The event card's lines as plain text: the title, "Sat 14 Nov · 5–9 pm", the venue. */
+export function emailEventCardText(event: EventRecord): string[] {
+  const venue = subjectLine(event.venueName ?? "");
+  return [
+    subjectLine(event.title),
+    `${formatEventDateShort(event.startsAt, zoneOf(event))} · ${formatStubTime(event.startsAt, event.endsAt, event)}`,
+    ...(venue ? [venue] : []),
+  ];
 }
 
 /** The footer's reason line on the ticket email. */

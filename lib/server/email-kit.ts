@@ -146,15 +146,23 @@ export function kitHeader(): string {
   return wordmarkTag(106, 24);
 }
 
-/** The customer intro: an orange mono eyebrow over a bold heading (24/32; 22/28 on a phone). Plain text. */
+/** The customer intro: an orange mono eyebrow (left out when empty) over a bold heading (24/32; 22/28 on a phone). Plain text. */
 export function kitIntro(eyebrow: string, heading: string): string {
   return kitStack(
     [
-      kitP(escapeHtml(eyebrow), kitType("mono", 14, 20, 500, KIT.orange, `letter-spacing:0.56px;${WRAP}`)),
+      eyebrow ? kitP(escapeHtml(eyebrow), kitType("mono", 14, 20, 500, KIT.orange, `letter-spacing:0.56px;${WRAP}`)) : "",
       `<h1 class="kh" style="margin:0;${kitType("sans", 24, 32, 700, KIT.black, WRAP)}">${escapeHtml(heading)}</h1>`,
     ],
     8,
   );
+}
+
+/**
+ * Body copy: 16/24 black, or `muted` (15/22, text/secondary) for the quieter
+ * lines (expiry, "Didn't ask for this?"). `html` is trusted markup.
+ */
+export function kitText(html: string, options: { muted?: boolean } = {}): string {
+  return options.muted ? kitP(html, kitType("sans", 15, 22, 400, KIT.muted, WRAP)) : kitP(html, kitType("sans", 16, 24, 400, KIT.black, WRAP));
 }
 
 /** A notice box ("Before you go", "How it works", "What changed", …): 1px black outline, radius 8, padding 24. `linesHtml` are trusted markup. */
@@ -299,10 +307,10 @@ export const KIT_TAGLINE = "Find your place, find your people.";
 export interface KitFooterInput {
   siteUrl: string;
   tone: EmailTone;
-  /** Why the reader got this email (plain text). */
-  reason: string;
-  /** An optional link after the reason, e.g. "Stop these emails". */
-  reasonLink?: { label: string; href: string };
+  /** Why the reader got this email (plain text); no line when absent. */
+  reason?: string;
+  /** An optional link after the reason, e.g. "Stop these emails", and plain text after it. */
+  reasonLink?: { label: string; href: string; after?: string };
 }
 
 function footerLinks(siteUrl: string) {
@@ -333,10 +341,13 @@ export function kitFooter({ siteUrl, tone, reason, reasonLink }: KitFooterInput)
     kitP(KIT_TAGLINE, kitType("sans", 14, 20, 400, KIT.muted, "text-align:center;padding-top:8px")) +
     kitP("SHELT&Uuml;H &middot; MELBOURNE", `${city};text-align:center;padding-top:8px`) +
     kitP(linkLine, `${small};text-align:center;padding-top:8px`) +
-    kitP(
-      escapeHtml(reason) + (reasonLink ? ` ${kitLink(reasonLink.href, escapeHtml(reasonLink.label), KIT.muted)}` : ""),
-      `${small};text-align:center;padding-top:8px`,
-    ) +
+    (reason
+      ? kitP(
+          escapeHtml(reason) +
+            (reasonLink ? ` ${kitLink(reasonLink.href, escapeHtml(reasonLink.label), KIT.muted)}${escapeHtml(reasonLink.after ?? "")}` : ""),
+          `${small};text-align:center;padding-top:8px`,
+        )
+      : "") +
     `</td></tr></table>`
   );
 }
@@ -349,8 +360,8 @@ export function kitFooterText({ siteUrl, reason, reasonLink }: KitFooterInput): 
     footerLinks(siteUrl)
       .map((l) => `${l.label}: ${l.href}`)
       .join(" · "),
-    reason,
-    ...(reasonLink ? [`${reasonLink.label}: ${reasonLink.href}`] : []),
+    ...(reason ? [reason] : []),
+    ...(reasonLink ? [`${reasonLink.label}${(reasonLink.after ?? "").replace(/\.$/, "")}: ${reasonLink.href}`] : []),
   ].join("\n");
 }
 
@@ -363,6 +374,8 @@ export interface KitTicketCardInput {
   venue: string;
   /** The event image's absolute https URL, or null (no image cell). */
   imageUrl: string | null;
+  /** The title as a link (the event's page), e.g. in the follower email. */
+  href?: string;
   /** An optional holder row: "Sam Lee · Second release" and "1 of 1". */
   holder?: { name: string; count: string };
 }
@@ -375,7 +388,7 @@ export function kitTicketCard(card: KitTicketCardInput): string {
   const text = kitStack(
     [
       card.dateLine ? kitP(escapeHtml(card.dateLine), kitType("mono", 12, 16, 400, KIT.black)) : "",
-      kitP(escapeHtml(card.title), kitType("sans", 20, 28, 600, KIT.black, WRAP)),
+      kitP(card.href ? kitLink(card.href, escapeHtml(card.title), KIT.black, "text-decoration:none") : escapeHtml(card.title), kitType("sans", 20, 28, 600, KIT.black, WRAP)),
       card.venue ? kitP(escapeHtml(card.venue), kitType("sans", 14, 20, 400, KIT.black, WRAP)) : "",
     ],
     4,
@@ -417,7 +430,7 @@ export function kitHero(input: { eyebrow: string; line1: string; line2: string; 
 export function kitBody(greeting: string, paragraphs: ReadonlyArray<string>): string {
   return kitStack(
     [
-      kitP(escapeHtml(greeting), kitType("sans", 16, 24, 600, KIT.black, WRAP)),
+      greeting ? kitP(escapeHtml(greeting), kitType("sans", 16, 24, 600, KIT.black, WRAP)) : "",
       ...paragraphs.map((p) => kitP(escapeHtml(p), kitType("sans", 16, 24, 400, KIT.black, WRAP))),
     ],
     16,
@@ -433,7 +446,7 @@ export interface KitStep {
 const stepNumber = (i: number) => String(i + 1).padStart(2, "0");
 
 /** Numbered steps: a mono eyebrow, an optional heading, then cream cards each with a black 48px number badge. */
-export function kitSteps(input: { eyebrow: string; heading?: string; steps: ReadonlyArray<KitStep> }): string {
+export function kitSteps(input: { eyebrow?: string; heading?: string; steps: ReadonlyArray<KitStep> }): string {
   const card = (s: KitStep, i: number) =>
     `<table ${FULL} bgcolor="${KIT.cream}" style="background-color:${KIT.cream};border-radius:16px;border-collapse:separate"><tr><td style="padding:24px"><table ${FULL}><tr>` +
     `<td width="48" valign="top" style="width:48px"><table ${TABLE}><tr><td width="48" height="48" align="center" valign="middle" bgcolor="${KIT.black}" style="width:48px;height:48px;border-radius:8px;background-color:${KIT.black};${kitType("mono", 14, 20, 500, KIT.white)}">${stepNumber(i)}</td></tr></table></td>` +
@@ -450,7 +463,7 @@ export function kitSteps(input: { eyebrow: string; heading?: string; steps: Read
     `</td></tr></table></td></tr></table>`;
   return kitStack(
     [
-      kitP(escapeHtml(input.eyebrow), kitType("mono", 12, 16, 400, KIT.muted)),
+      input.eyebrow ? kitP(escapeHtml(input.eyebrow), kitType("mono", 12, 16, 400, KIT.muted)) : "",
       input.heading ? kitP(escapeHtml(input.heading), kitType("sans", 20, 28, 600, KIT.black, WRAP)) : "",
       ...input.steps.map(card),
     ],
@@ -459,9 +472,9 @@ export function kitSteps(input: { eyebrow: string; heading?: string; steps: Read
 }
 
 /** The steps as plain text: "01 Title", the description, the link. */
-export function kitStepsText(input: { eyebrow: string; heading?: string; steps: ReadonlyArray<KitStep> }): string {
+export function kitStepsText(input: { eyebrow?: string; heading?: string; steps: ReadonlyArray<KitStep> }): string {
   return [
-    input.eyebrow.toUpperCase(),
+    ...(input.eyebrow ? [input.eyebrow.toUpperCase()] : []),
     ...(input.heading ? [input.heading] : []),
     "",
     input.steps
@@ -492,8 +505,8 @@ export function kitStats(tiles: ReadonlyArray<{ value: string; label: string }>)
 
 /** The sign-off: line 1 regular, line 2 SemiBold. Plain text. */
 export function kitSignOff(line1: string, line2: string): string {
-  return kitP(
-    `${escapeHtml(line1)}<br><span style="font-weight:600">${escapeHtml(line2)}</span>`,
-    kitType("sans", 16, 24, 400, KIT.black, "padding-top:4px"),
+  return (
+    kitP(escapeHtml(line1), kitType("sans", 16, 24, 400, KIT.black, "padding-top:4px")) +
+    kitP(escapeHtml(line2), kitType("sans", 16, 24, 600, KIT.black, "padding-top:4px"))
   );
 }

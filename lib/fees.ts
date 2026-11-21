@@ -27,6 +27,12 @@ export function describeBookingFee(): string {
   return `${percent}% of ticket face value + ${formatAud(BOOKING_FEE_FLAT_CENTS)} per paid ticket`;
 }
 
+/** The fee in short, as the organiser emails write it: "6% + A$0.50". */
+export function describeBookingFeeShort(): string {
+  const percent = Math.round(BOOKING_FEE_RATE * 10000) / 100;
+  return `${percent}% + ${formatAud(BOOKING_FEE_FLAT_CENTS)}`;
+}
+
 /** The one place the fee is explained near a Checkout button, e.g. "Prices include a booking fee of 6% of ticket face value + A$0.50 per paid ticket." */
 export function describeBookingFeeNote(): string {
   return `Prices include a booking fee of ${describeBookingFee()}.`;
