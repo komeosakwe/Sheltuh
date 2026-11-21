@@ -1,7 +1,9 @@
-import { SUPPORT_EMAIL } from "@/lib/contact";
 import { publicEventUrl } from "@/lib/event-url";
 import { subjectLine, type EmailMessage } from "./email";
-import { button, escapeHtml, heading as h1, INK, MUTED, page, SANS } from "./email-layout";
+import { escapeHtml } from "./email-layout";
+import { kitButtons, kitFooter, kitFooterText, kitHeader, kitHelp, kitHelpText, kitIntro, kitLink, kitPage, kitStack, kitText } from "./email-kit";
+import { ticketWordmarkImage } from "./email-ticket-layout";
+import { emailEventCard } from "./ticket-email";
 import type { EventRecord } from "./types";
 import { when, where } from "./waitlist-email";
 
@@ -10,7 +12,7 @@ import { when, where } from "./waitlist-email";
  * when an organiser they follow publishes new events (docs/architecture.md,
  * "Following organisers"). At most one a day per organiser per member; it
  * lists every event announced since the last one. The brand look is shared
- * with every email (lib/server/email-layout.ts). Every email carries its own
+ * with every email (lib/server/email-kit.ts). Every email carries its own
  * unsubscribe link (a page that POSTs the fragment's token), in the body and
  * as `List-Unsubscribe` (Spam Act 2003: a functional unsubscribe facility).
  */
@@ -28,17 +30,6 @@ export function organiserPageLink(siteUrl: string, organiserId: string): string 
   return `${siteUrl}/organisers/${encodeURIComponent(organiserId)}`;
 }
 
-function eventItem(event: EventRecord, siteUrl: string): string {
-  const place = where(event);
-  const link = publicEventUrl(event.slug, siteUrl);
-  return (
-    `<p style="margin:0 0 4px 0;font-family:${SANS};font-size:18px;line-height:24px;font-weight:bold;color:${INK}">` +
-    `<a href="${escapeHtml(link)}" style="color:${INK}">${escapeHtml(event.title)}</a></p>` +
-    `<p style="margin:0 0 20px 0;font-size:15px;line-height:22px">${escapeHtml(when(event))}` +
-    (place ? `<br>${escapeHtml(place)}` : "") +
-    `</p>`
-  );
-}
 
 /**
  * `events`: the new events still published and upcoming, soonest first (at
@@ -62,6 +53,12 @@ export function buildFollowerNewEventsEmail(input: {
     total === 1 ? `New from ${organiserName}` : `${total} new events from ${organiserName}`;
   const more = total - events.length;
   const firstLink = publicEventUrl(events[0].slug, siteUrl);
+  const footer = {
+    siteUrl,
+    tone: "customer" as const,
+    reason: `You’re getting this because you follow ${organiserName} on Sheltüh and asked to hear about their new events.`,
+    reasonLink: { label: "Stop these emails", href: unsubscribeLink, after: " (you’ll still follow them)." },
+  };
 
   const text = [
     heading,
@@ -74,23 +71,28 @@ export function buildFollowerNewEventsEmail(input: {
       "",
     ]),
     ...(more > 0 ? [`And ${more} more: ${organiserLink}`, ""] : []),
-    `You're getting this because you follow ${organiserName} on Sheltüh and asked to hear about their new events.`,
-    `Stop these emails (you'll still follow ${organiserName}): ${unsubscribeLink}`,
+    kitHelpText("customer"),
     "",
-    `Need help? Email ${SUPPORT_EMAIL}`,
-    "Sheltüh, Melbourne",
+    kitFooterText(footer),
   ].join("\n");
 
-  const html = page({
+  const html = kitPage({
     title: heading,
-    body:
-      h1(escapeHtml(heading), 20) +
-      events.map((event) => eventItem(event, siteUrl)).join("") +
-      button(total === 1 ? "See the event" : "See the first event", firstLink) +
-      (more > 0
-        ? `<p style="margin:0 0 24px 0;font-size:15px;line-height:22px">And ${more} more on <a href="${escapeHtml(organiserLink)}" style="color:${INK}">${escapeHtml(organiserName)}&rsquo;s page</a>.</p>`
-        : "") +
-      `<p style="margin:0;font-size:13px;line-height:20px;color:${MUTED}">You&rsquo;re getting this because you follow ${escapeHtml(organiserName)} on Sheltüh and asked to hear about their new events. <a href="${escapeHtml(unsubscribeLink)}" style="color:${INK}">Stop these emails</a> (you&rsquo;ll still follow them).</p>`,
+    preheader: events.map((event) => event.title).join(" · "),
+    siteUrl,
+    tone: "customer",
+    body: kitStack([
+      kitHeader(),
+      kitIntro("", heading),
+      kitStack(
+        events.map((event) => emailEventCard(event, siteUrl, publicEventUrl(event.slug, siteUrl))),
+        16,
+      ),
+      kitButtons([{ label: total === 1 ? "See the event" : "See the first event", href: firstLink, kind: "primary" }]),
+      more > 0 ? kitText(`And ${more} more on ${kitLink(organiserLink, `${escapeHtml(organiserName)}&rsquo;s page`)}.`) : "",
+      kitHelp("customer"),
+      kitFooter(footer),
+    ]),
   });
 
   return {
@@ -99,5 +101,6 @@ export function buildFollowerNewEventsEmail(input: {
     text,
     html,
     headers: { "List-Unsubscribe": `<${unsubscribeLink}>` },
+    inlineImages: [ticketWordmarkImage()],
   };
 }

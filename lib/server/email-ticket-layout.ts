@@ -111,10 +111,11 @@ export function ticketFontFace(siteUrl: string): string {
 
 /**
  * The phone values (≤620px), as classes on the elements whose inline style
- * holds the desktop value. Kept short: Gmail clips a message over 102KB.
+ * holds the desktop value (the ticket card's too, so the shared layout,
+ * lib/server/email-kit.ts, adds them wherever the card appears). Kept short:
+ * Gmail clips a message over 102KB.
  */
-const MOBILE_CSS = `@media only screen and (max-width:620px){
-.pg{padding:34px 16px 40px 16px!important}
+export const TICKET_PHONE_RULES = `.pg{padding:34px 16px 40px 16px!important}
 .h1{font-size:22px!important;line-height:28px!important}
 .tx{padding-left:16px!important;padding-right:16px!important}
 .pf{padding-left:4px!important;padding-right:4px!important}
@@ -132,7 +133,10 @@ const MOBILE_CSS = `@media only screen and (max-width:620px){
 .bt{padding:14px 4px!important}
 .bo{padding:12.5px 4px!important}
 .bl{padding-right:4px!important}.br{padding-left:4px!important}
-.wt{width:100%!important}.wh{width:50%!important}.wa{width:auto!important}
+.wt{width:100%!important}.wh{width:50%!important}.wa{width:auto!important}`;
+
+const MOBILE_CSS = `@media only screen and (max-width:620px){
+${TICKET_PHONE_RULES}
 }`;
 
 export interface TicketEmailPageInput {
