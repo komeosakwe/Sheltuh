@@ -101,7 +101,7 @@ describe("holding seats at checkout (paid)", () => {
     const res = await checkout({ ...seats(["A1", "B2"]), lineItems: [{ ticketTypeId: "ga", quantity: 2 }], buyerEmail: "fan@example.com" });
     expect(res.status).toBe(201);
     expect(res.headers.get("cache-control")).toBe("private, no-store");
-    expect(Object.keys(res.body).sort()).toEqual(["holdExpiresAt", "orderId", "url"]);
+    expect(Object.keys(res.body).sort()).toEqual(["holdExpiresAt", "orderAccess", "orderId", "url"]);
     const holdMs = Date.parse(res.body.holdExpiresAt) - before;
     // 20 minutes: five past the 15-minute pay deadline (SEAT_HOLD), when the seats are released anyway.
     expect(holdMs).toBeGreaterThan(19 * 60_000);
@@ -609,12 +609,12 @@ describe("check-in", () => {
 });
 
 describe("general admission is unchanged", () => {
-  it("a GA checkout has no hold, its own hour-long expiry and no cancel_url; its body is {url, orderId}, never cached", async () => {
+  it("a GA checkout has no hold, its own hour-long expiry and no cancel_url; its body is {url, orderId, orderAccess}, never cached", async () => {
     const ga = await publishedEvent(api, organiser, admin, { title: "Plain Gig" });
     const before = Date.now();
     const res = await checkout({ lineItems: [{ ticketTypeId: "ga", quantity: 1 }] }, { eventId: ga.eventId });
     expect(res.status).toBe(201);
-    expect(Object.keys(res.body).sort()).toEqual(["orderId", "url"]);
+    expect(Object.keys(res.body).sort()).toEqual(["orderAccess", "orderId", "url"]);
     expect(res.headers.get("cache-control")).toBe("private, no-store");
     const params = api.stripe.checkout.sessions.create.mock.lastCall![0];
     expect(res.body.orderId).toBe(params.client_reference_id);

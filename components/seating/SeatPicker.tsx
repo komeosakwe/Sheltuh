@@ -12,6 +12,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { navLinkClass } from "@/components/AuthNavLinks";
+import BuyerEmailField from "@/components/checkout/BuyerEmailField";
 import BuyerNameField from "@/components/checkout/BuyerNameField";
 import SupportSheltuh, { SupportSummaryLine } from "@/components/checkout/SupportSheltuh";
 import { Button } from "@/components/ui/Button";
@@ -24,6 +25,7 @@ import { createCheckoutSession } from "@/lib/api/orders";
 import { createSeatedCheckout, getSeatAvailability, seatErrorDetails } from "@/lib/api/seating";
 import { MAX_FREE_TICKETS_PER_ORDER, SEAT_HOLD } from "@/lib/api/types";
 import { buyerNameError } from "@/lib/buyer-details";
+import { buyerEmailError, emailSuggestionOf } from "@/lib/buyer-email";
 import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
 import { startDateTimeLine } from "@/lib/event-card";
 import { eventZone, formatAud, formatEventTime } from "@/lib/format";
@@ -64,7 +66,6 @@ import SeatLine from "./SeatLine";
 import SeatList, { seatPriceText } from "./SeatList";
 import SeatMap, { type SeatMapControl } from "./SeatMap";
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /** Availability is polled this often while the page is visible (docs/SEATING_PLAN.md). */
 export const AVAILABILITY_POLL_MS = 10_000;
 /** After this many failed polls in a row, say availability may be out of date (§5.2). */
@@ -72,6 +73,8 @@ const STALE_AFTER_FAILURES = 3;
 /** Releasing the last checkout's hold failed; it's kept and tried again at the next chance. */
 const RELEASE_FAILED = `Couldn’t release the seats from your last checkout. We’ll retry at Checkout, and they’re released within ${SEAT_HOLD.holdMinutes} minutes anyway. You weren’t charged.`;
 /** …and again when Checkout was pressed, so the new checkout waits. */
+/** The email was edited while the last checkout's seats were being released: nothing was sent. */
+const EMAIL_CHANGED_AT_CHECKOUT = "Your email changed while we were getting your checkout ready. Check it, then press Checkout again.";
 const RELEASE_FAILED_AT_CHECKOUT = `Couldn’t release the seats from your last checkout, so we can’t start a new one. Try Checkout again; they’re released within ${SEAT_HOLD.holdMinutes} minutes anyway. You weren’t charged.`;
 
 export type SeatPickerMode = "live" | "demo" | "preview";
@@ -199,6 +202,17 @@ export default function SeatPicker({
   const [typedEmail, setTypedEmail] = useState<string | null>(null);
   const buyerEmail = typedEmail ?? accountEmail ?? "";
   const [emailError, setEmailError] = useState<string | null>(null);
+  // The server's "Did you mean …?" for a refused address (400 email_typo / email_no_mail), until it changes.
+  const [emailSuggestion, setEmailSuggestion] = useState<string | null>(null);
+  // Bumped on every edit of the address (and on sign-out): a checkout's refusal of the address is shown only if
+  // this is unchanged since it was sent, so a late answer can't mark a corrected address wrong or undo it.
+  const emailRevision = useRef(0);
+  // The address the field shows now (the account's prefill can change without an edit): a refusal is shown, and
+  // a checkout sent, only while it's still the address the buyer pressed Checkout with.
+  const shownEmail = useRef(buyerEmail.trim());
+  useEffect(() => {
+    shownEmail.current = buyerEmail.trim();
+  });
   // The name shared with the organiser (lib/buyer-details.ts): every checkout, paid or free. Not prefilled.
   const [buyerName, setBuyerName] = useState("");
   const [nameError, setNameError] = useState<string | null>(null);
@@ -260,7 +274,9 @@ export default function SeatPicker({
   const freeSeats = selectedSeats.filter((seat) => (tierById.get(seat.ticketTypeId)?.priceCents ?? 0) === 0).length;
   const freeTickets = freeSeats + freeTicketsIn(gaTiers, gaQuantities);
   const freeBooking = hasAnything ? totals.totalCents === 0 : [...tiers, ...gaTiers.filter((tier) => !tier.opensAfter)].every((tier) => tier.priceCents === 0);
-  const needsEmail = canCheckout && hasAnything && totals.totalCents === 0;
+  // Every order asks for the ticket email (paid ones prefill Stripe's form with it); signed in, the account's is the default.
+  const needsEmail = canCheckout && hasAnything;
+  const freeOrder = hasAnything && totals.totalCents === 0;
   const onSaleTiers = tiers.filter((tier) => !tier.soldOut);
   const fromCents = tiers.length ? Math.min(...(onSaleTiers.length ? onSaleTiers : tiers).map(getTicketBuyerTotalCents)) : null;
   // The summary exists in one place only (the desktop card, or the phone sheet), so its ids and focus targets are unique.
@@ -577,6 +593,7 @@ export default function SeatPicker({
     if (!canCheckout || !hasAnything) return;
     setCheckoutError(null);
     setEmailError(null);
+    setEmailSuggestion(null);
     setNameError(null);
     const nameProblem = buyerNameError(buyerName);
     if (nameProblem) {
@@ -585,12 +602,16 @@ export default function SeatPicker({
       pendingFocus.current = { kind: "name" };
       return;
     }
-    if (needsEmail && !EMAIL_REGEX.test(buyerEmail.trim())) {
-      setEmailError("Enter the email address to send your tickets to.");
+    const emailProblem = needsEmail ? buyerEmailError(buyerEmail) : null;
+    if (emailProblem) {
+      setEmailError(emailProblem);
       if (!sheetOpen) setSheetOpen(true);
       pendingFocus.current = { kind: "email" };
       return;
     }
+    const sentRevision = emailRevision.current;
+    const sentEmail = buyerEmail.trim();
+    const stillSentEmail = () => emailRevision.current === sentRevision && shownEmail.current === sentEmail;
     // An Other amount that can't be sent: say why, by its field, rather than checking out without it.
     if (offerSupport && supportErrorOf(support)) {
       setRevealSupportError(true);
@@ -609,10 +630,19 @@ export default function SeatPicker({
       setCheckoutError((prev) => ({ text: RELEASE_FAILED_AT_CHECKOUT, n: (prev?.n ?? 0) + 1 }));
       return;
     }
+    // The address was edited while the last hold was being released: nothing is sent with the old one. The
+    // released hold stays released; Checkout again sends what the field says now.
+    if (!stillSentEmail()) {
+      setBusy(false);
+      setCheckoutError((prev) => ({ text: EMAIL_CHANGED_AT_CHECKOUT, n: (prev?.n ?? 0) + 1 }));
+      setSheetOpen(true);
+      pendingFocus.current = { kind: "email" };
+      return;
+    }
     const lineItems = gaLines.map((line) => ({ ticketTypeId: line.ticket.id, quantity: line.quantity }));
-    const email = needsEmail ? buyerEmail.trim() : accountEmail;
+    const email = buyerEmail.trim();
     const name = buyerName.trim();
-    const getToken = needsEmail && auth?.status === "signed-in" ? auth.getAccessToken : undefined;
+    const getToken = freeOrder && auth?.status === "signed-in" ? auth.getAccessToken : undefined;
     try {
       const result =
         selectedIds.length > 0
@@ -653,7 +683,7 @@ export default function SeatPicker({
         window.location.assign(result.url);
         return;
       }
-      setSentTo(email ?? "");
+      setSentTo(email);
       setBusy(false);
     } catch (err) {
       setBusy(false);
@@ -671,12 +701,16 @@ export default function SeatPicker({
         text = "A lot of people are checking out for this event right now. Try again in a minute.";
       } else if (err instanceof ApiError && err.fieldErrors?.buyerName) {
         setNameError(err.fieldErrors.buyerName);
-        if (!sheetOpen) setSheetOpen(true);
+        setSheetOpen(true);
         pendingFocus.current = { kind: "name" };
         return;
       } else if (err instanceof ApiError && err.fieldErrors?.buyerEmail) {
+        // About the address as it was sent: dropped if the field holds another since (they're checking it again).
+        if (!stillSentEmail()) return;
         setEmailError(err.fieldErrors.buyerEmail);
-        if (!sheetOpen) setSheetOpen(true);
+        setEmailSuggestion(emailSuggestionOf(err));
+        // Open now, whatever it was when Checkout was pressed (it may have been closed since).
+        setSheetOpen(true);
         pendingFocus.current = { kind: "email" };
         return;
       } else if (err instanceof ApiError && err.fieldErrors?.supportCents && offerSupport) {
@@ -691,6 +725,18 @@ export default function SeatPicker({
       }
       setCheckoutError((prev) => ({ text, n: (prev?.n ?? 0) + 1 }));
     }
+  }
+
+  // "Not you?": ends this browser's session only. The seats stay chosen and the order goes the guest way: the
+  // account's address leaves the field (unless they'd typed their own), said, and focus goes to the field.
+  function signOutHere() {
+    auth?.signOut("local");
+    emailRevision.current += 1;
+    // The account's address leaves the field: so does anything said about it (a "Use this" would put it back).
+    setEmailError(null);
+    setEmailSuggestion(null);
+    announce("Signed out. Enter the email for your tickets.");
+    pendingFocus.current = { kind: "email" };
   }
 
   // ---------------------------------------------------------------------------
@@ -854,34 +900,26 @@ export default function SeatPicker({
             }}
             error={nameError}
             inputRef={nameRef}
+            notice={!needsEmail}
           />
         )}
 
         {needsEmail && sentTo === null && (
-          <div className="flex flex-col gap-1">
-            <label htmlFor={`${idPrefix}-email`} className="eyebrow text-muted">
-              Email for your tickets
-            </label>
-            <input
-              ref={emailRef}
-              id={`${idPrefix}-email`}
-              type="email"
-              autoComplete="email"
-              name="email"
-              inputMode="email"
-              required
-              value={buyerEmail}
-              onChange={(event) => setTypedEmail(event.target.value)}
-              aria-invalid={emailError ? true : undefined}
-              aria-describedby={emailError ? `${idPrefix}-email-error` : undefined}
-              className="min-h-12 px-3 py-2 text-base"
-            />
-            {emailError && (
-              <p id={`${idPrefix}-email-error`} role="alert" className="text-sm text-danger">
-                {emailError}
-              </p>
-            )}
-          </div>
+          <BuyerEmailField
+            id={`${idPrefix}-email`}
+            value={buyerEmail}
+            onChange={(value) => {
+              emailRevision.current += 1;
+              setTypedEmail(value);
+              setEmailError(null);
+              setEmailSuggestion(null);
+            }}
+            error={emailError}
+            suggestion={emailSuggestion}
+            inputRef={emailRef}
+            onSignOut={auth?.status === "signed-in" ? signOutHere : undefined}
+            detailsNotice
+          />
         )}
 
         {/* Right above Checkout (the desktop card's button, or the phone bar's under the sheet). */}

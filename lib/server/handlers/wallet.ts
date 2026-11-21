@@ -8,7 +8,8 @@ import type { CustomerOrder } from "../types";
 import { buildApplePass } from "../wallet/apple";
 import { buildGoogleSaveJwt, googleSaveUrl } from "../wallet/google";
 import { passTimeZone, walletQrPayload, type WalletTicket } from "../wallet/pass-content";
-import { lookupCustomerOrder, ORDER_NOT_FOUND, rateLimitSecret, takeClientLimit, walletEligible } from "./orders";
+import { rateLimitSecret, takeClientLimit } from "../client-limits";
+import { lookupCustomerOrder, ORDER_NOT_FOUND, walletEligible } from "./orders";
 
 /**
  * GET /api/orders/by-session/[sessionId]/wallet/google?ticket={n} and

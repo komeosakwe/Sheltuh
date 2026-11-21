@@ -9,7 +9,10 @@ export class HttpError extends Error {
     public fieldErrors?: Record<string, string>,
     /**
      * Extra fields for the error body, beside `error` and `fieldErrors` (e.g.
-     * the seat ids a seated checkout couldn't have). Never personal data.
+     * the seat ids a seated checkout couldn't have). May echo the requester's
+     * own input back to them (e.g. a refused email's `suggestion`: the address
+     * they typed, its domain corrected), never anyone else's personal data.
+     * Never logged.
      */
     public details?: Record<string, unknown>,
     /** Extra response headers (e.g. `Retry-After`). Never personal data. */

@@ -8,6 +8,7 @@ import { createClipStorage, type ClipStorage } from "./clip-storage";
 import { createPostgresDb, type Db } from "./db";
 import { createSmtpSender, type SendEmail } from "./email";
 import { isPlainEmailAddress, redactForLog } from "./email-address";
+import { createMailDomainLookup, type MailDomainAnswer } from "./mail-domain";
 import { createPlaces, type Places } from "./places";
 import { matchingPublishableKey } from "./stripe-keys";
 import {
@@ -109,6 +110,19 @@ export interface Deps {
    * (organisers drop a pin instead).
    */
   places(): Places | undefined;
+  /**
+   * The buyer email checks beyond the format (lib/server/email-domain.ts):
+   * the typo list and the DNS lookup. On unless EMAIL_DOMAIN_CHECKS is "off"
+   * (server-only; the switch for a typo-list false positive or a DNS
+   * problem). Off, only the format is checked.
+   */
+  emailDomainChecks(): boolean;
+  /**
+   * Whether a domain can receive email, by DNS (lib/server/mail-domain.ts):
+   * `accepts`, `no_mail`, or `unknown` (no answer in time: accepted). Never
+   * throws; only the domain is looked up and nothing is logged.
+   */
+  mailDomain(domain: string): Promise<MailDomainAnswer>;
 }
 
 /**
@@ -222,6 +236,8 @@ export function getDeps(): Deps {
       if (places === undefined) places = createPlaces(process.env.GOOGLE_MAPS_API_KEY) ?? null;
       return places ?? undefined;
     },
+    emailDomainChecks: () => process.env.EMAIL_DOMAIN_CHECKS?.trim().toLowerCase() !== "off",
+    mailDomain: createMailDomainLookup(),
   };
   return cached;
 }

@@ -616,6 +616,58 @@ only cleared (the `orders_details_immutable` trigger). A paid guest's `buyer_ema
 form collected; a name given for an order whose email differs is cleared only
 by the order's own address.
 
+### Buyer email changes
+
+`20261130000000_order_email_changes.sql` (docs/architecture.md, "Buyer
+email checks") logs every change of a paid order's email, both addresses
+masked. Support changes an order's email from `/admin/emails` (find it by the
+order's reference, then "Change email", with a reason), never in SQL: an
+`update orders set buyer_email = …` would leave no record and wouldn't send
+the tickets again.
+
+Before changing it, check that the person asking paid for the order. The
+holder of the mistyped address has our ticket email (the reference, the
+amount and the date), and, if Stripe's customer receipts are on, Stripe's
+receipt too (the card's brand and last 4). So ask for something neither
+email contains as well: the card's expiry month and year. They give you the
+reference, the payment's date, amount and card's last 4, and the expiry;
+you match all of them against the order's payment in the Stripe dashboard
+(Payments, filtered to that date and amount; the payment's metadata
+`orderId` must start with `ord_` and the reference in lower case; the
+expiry is in the payment's card details). Don't read any of them out to
+them first, and don't change the address on a reference alone. The
+reference is only the first 8 hex characters after `ord_` in the order id
+(`ord_7c1f2e0a…` is `#7C1F2E0A`), and `/admin/emails` never shows the full
+id (it's the order page's credential). Before treating a match as the
+order, page through every result (press Load more until it's gone): if the
+search finds more than one ticket email for the reference, on any page,
+don't pick one. Stop and
+escalate to the owner, who looks the order up by the payment's full
+metadata `orderId` in the SQL editor (its event title, and its ticket
+email's queued time and status in `private.email_outbox`) and says which of
+the listed emails is that order's; change only that one. This
+assumes Stripe's "Successful payments" customer emails are off (Settings →
+Customer emails; the owner to confirm before launch). Keep email addresses
+out of the reason (the API refuses one with an address in it): say what
+you checked, e.g. "Matched date, amount, last 4 and expiry by phone". After a support change the buyer can't change the address
+themselves any more, and their confirmation page no longer shows it; any
+further change is support's.
+
+The admin search finds an order through its ticket email, and sent emails
+are purged after 90 days (see "Free-ticket and email outbox retention"):
+an order whose ticket email was sent more than 90 days ago can't be found
+or changed from `/admin/emails` (docs/architecture.md, "Not built yet").
+
+An order's changes (no full addresses in this table), by the full order id
+from the verified Stripe payment's metadata `orderId` (`ord_` and 32
+characters; never the reference, which may match more than one order):
+
+```sql
+select c.created_at, c.changed_by, c.old_email_masked, c.new_email_masked, c.reason, u.email as admin
+from private.order_email_changes c left join auth.users u on u.id = c.admin_id
+where c.order_id = '<the payment metadata orderId>' order by c.created_at, c.id;
+```
+
 ### Platform-managed organisers
 
 When you create one (`/admin/events/new` → new organiser, or

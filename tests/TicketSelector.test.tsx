@@ -8,7 +8,7 @@ import { sampleEvents } from "@/lib/sample-events";
 import { setTrackingRef } from "@/lib/tracking-ref";
 import type { SheltuhEvent } from "@/lib/types";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
-import { typeName } from "./test-utils/buyerName";
+import { TEST_BUYER_EMAIL, typeName } from "./test-utils/buyerName";
 import { priceLine, addTicket } from "./test-utils/ticketCards";
 
 // Live mode: checkout is only offered when the API is configured.
@@ -95,9 +95,9 @@ describe("TicketSelector (live)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Free tickets" }));
     expect(screen.getByRole("alert")).toHaveTextContent("Enter the email address to send your tickets to.");
     expect(email).toHaveAttribute("aria-invalid", "true");
-    // Both the hint and the error describe the field.
+    // The hint (a guest's: nothing about an account), the error and the details notice describe the field.
     expect(email).toHaveAccessibleDescription(
-      "Tickets are sent here. Use your account email to join Who’s Going. Enter the email address to send your tickets to.",
+      "Tickets are sent here. Enter the email address to send your tickets to. Your name and email are shared with the organiser of this event.",
     );
     expect(createCheckoutSession).not.toHaveBeenCalled();
   });
@@ -169,7 +169,7 @@ describe("TicketSelector (live, signed in)", () => {
     const email = screen.getByLabelText("Email for your tickets");
     expect(email).toHaveValue("mia@example.com");
     expect(email).toHaveAccessibleDescription(
-      "Tickets are sent here. Use your account email to join Who’s Going.",
+      "Tickets are sent here. Use your account email to join Who’s Going. Your name and email are shared with the organiser of this event.",
     );
     typeName();
     fireEvent.click(screen.getByRole("button", { name: "Free tickets" }));
@@ -187,7 +187,7 @@ describe("TicketSelector (live, signed in)", () => {
     );
   });
 
-  it("offers a way out of the account for a paid order: Not you? Sign out (this browser only), said and with focus on the name", () => {
+  it("offers a way out of the account for a paid order: Not you? Sign out (this browser only), said and with focus on the email", () => {
     const value = fakeAuthValue({ email: "mia@example.com" });
     render(
       <FakeAuthProvider value={value}>
@@ -195,14 +195,15 @@ describe("TicketSelector (live, signed in)", () => {
       </FakeAuthProvider>,
     );
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
-    const out = screen.getByRole("button", { name: "Not you? Sign out and book as a guest" });
+    const out = screen.getByRole("button", { name: "Not you? Sign out" });
     expect(out).toHaveClass("min-h-11");
     fireEvent.click(out);
     expect(value.signOut).toHaveBeenCalledWith("local");
-    // The panel's one status says what happens next, and focus lands on the name field (not lost with the button).
+    // The panel's one status says what happens next, and focus lands on the email field (not lost with the button).
     const status = screen.getAllByRole("status").find((el) => el.classList.contains("sr-only"));
-    expect(status).toHaveTextContent("Signed out. Stripe will ask for your email.");
-    expect(screen.getByLabelText("Your name")).toHaveFocus();
+    expect(status).toHaveTextContent("Signed out. Enter the email for your tickets.");
+    expect(document.body.textContent).not.toMatch(/Stripe will ask/);
+    expect(screen.getByLabelText("Email for your tickets")).toHaveFocus();
   });
 
   it("lets the buyer replace the prefilled email, including clearing it", () => {
@@ -211,21 +212,22 @@ describe("TicketSelector (live, signed in)", () => {
     const email = screen.getByLabelText("Email for your tickets");
     fireEvent.change(email, { target: { value: "" } });
     expect(email).toHaveValue("");
-    typeName();
+    typeName("Alex Doe", null);
     fireEvent.click(screen.getByRole("button", { name: "Free tickets" }));
     expect(screen.getByRole("alert")).toHaveTextContent("Enter the email address to send your tickets to.");
     expect(createCheckoutSession).not.toHaveBeenCalled();
   });
 
-  it("books paid tickets with the account email, and says so before Checkout", () => {
+  it("books paid tickets with the account email, prefilled in the field before Checkout", () => {
     createCheckoutSession.mockReturnValue(new Promise(() => {}));
     renderSignedIn("neon-static");
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
-    const hint = screen.getByText((_c, el) => el?.tagName === "P" && el.textContent?.startsWith("Booking as mia@example.com") === true);
-    expect(within(hint).getByText("mia@example.com")).toHaveClass("underline");
+    const email = screen.getByLabelText("Email for your tickets");
+    expect(email).toHaveValue("mia@example.com");
+    expect(screen.queryByText(/Booking as/)).toBeNull();
     const checkout = screen.getByRole("button", { name: "Checkout" });
-    // The hint is read before the button, not after it.
-    expect(hint.compareDocumentPosition(checkout) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The field is before the button, not after it.
+    expect(email.compareDocumentPosition(checkout) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     typeName();
     fireEvent.click(checkout);
     expect(createCheckoutSession).toHaveBeenCalledWith(
@@ -249,14 +251,22 @@ describe("TicketSelector (live, no auth)", () => {
     expect(screen.queryByText(/Booking as/)).toBeNull();
   });
 
-  it("sends no email with a signed-out paid order (Stripe collects it)", () => {
+  it("asks a signed-out paid order for its email too, and sends it trimmed (no account token)", () => {
     createCheckoutSession.mockReturnValue(new Promise(() => {}));
     render(<TicketSelector event={live("neon-static")} />);
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
     expect(screen.queryByText(/Booking as/)).toBeNull();
-    typeName();
+    expect(screen.queryByRole("button", { name: "Not you? Sign out" })).toBeNull();
+    const email = screen.getByLabelText("Email for your tickets");
+    expect(email).toHaveValue("");
+    typeName("Alex Doe", null);
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
-    expect(createCheckoutSession).toHaveBeenCalledWith(expect.any(String), expect.any(Array), undefined, undefined, undefined, undefined, "Alex Doe");
+    expect(createCheckoutSession).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter the email address to send your tickets to.");
+    fireEvent.change(email, { target: { value: "  fan@example.com " } });
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    expect(createCheckoutSession).toHaveBeenCalledWith(expect.any(String), expect.any(Array), "fan@example.com", undefined, undefined, undefined, "Alex Doe");
   });
 });
 
@@ -445,6 +455,109 @@ describe("TicketSelector (free tickets)", () => {
   });
 });
 
+describe("TicketSelector (the ticket email's checks)", () => {
+  it("a paid checkout refused for a mistyped domain: the error on the field, the server's suggestion, then it goes through", async () => {
+    const message = "That email address looks mistyped. Check the part after the @.";
+    createCheckoutSession
+      .mockRejectedValueOnce(
+        new ApiError(400, message, { buyerEmail: message }, { error: message, fieldErrors: { buyerEmail: message }, code: "email_typo", suggestion: "fan@gmail.com" }),
+      )
+      .mockReturnValueOnce(new Promise(() => {}));
+    render(<TicketSelector event={live("neon-static")} />);
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
+    const email = screen.getByLabelText("Email for your tickets");
+    fireEvent.change(email, { target: { value: "fan@gmail.con" } });
+    typeName();
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
+    // Only the field's own alert: the panel doesn't repeat it.
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    await waitFor(() => expect(email).toHaveFocus());
+    expect(screen.getByText(/Did you mean/)).toHaveTextContent("Did you mean fan@gmail.com?");
+    fireEvent.click(screen.getByRole("button", { name: "Use this" }));
+    expect(email).toHaveValue("fan@gmail.com");
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    expect(createCheckoutSession).toHaveBeenLastCalledWith(expect.any(String), expect.any(Array), "fan@gmail.com", undefined, undefined, undefined, "Alex Doe");
+  });
+
+  it("a refusal that arrives after the buyer has edited the address isn't put on the new one", async () => {
+    const message = "That email address looks mistyped. Check the part after the @.";
+    let refuse!: (err: unknown) => void;
+    createCheckoutSession.mockReturnValueOnce(new Promise((_, reject) => (refuse = reject)));
+    render(<TicketSelector event={live("neon-static")} />);
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
+    const email = screen.getByLabelText("Email for your tickets");
+    fireEvent.change(email, { target: { value: "mia@gmial.com" } });
+    typeName();
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    // While it's being sent, the buyer types someone else's address.
+    fireEvent.change(email, { target: { value: "alex@example.com" } });
+    refuse(new ApiError(400, message, { buyerEmail: message }, { error: message, fieldErrors: { buyerEmail: message }, code: "email_typo", suggestion: "mia@gmail.com" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Checkout" })).not.toHaveAttribute("aria-disabled", "true"));
+    expect(screen.queryByText(/Did you mean/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Use this" })).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(email).not.toHaveAttribute("aria-invalid");
+    expect(email).toHaveValue("alex@example.com");
+  });
+
+  it("a refusal of the account's address isn't shown once the field holds another (a prefill change), and sign-out drops it", async () => {
+    const message = "That email address looks mistyped. Check the part after the @.";
+    const refusal = () =>
+      new ApiError(400, message, { buyerEmail: message }, { error: message, fieldErrors: { buyerEmail: message }, code: "email_typo", suggestion: "mia@gmail.com" });
+    let refuse!: (err: unknown) => void;
+    createCheckoutSession.mockReturnValueOnce(new Promise((_, reject) => (refuse = reject)));
+    const view = (email: string, status: "signed-in" | "signed-out" = "signed-in") => (
+      <FakeAuthProvider value={fakeAuthValue({ email, status })}>
+        <TicketSelector event={live("neon-static")} />
+      </FakeAuthProvider>
+    );
+    const { rerender } = render(view("mia@gmial.com"));
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
+    typeName("Alex Doe", null);
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    // The account's address changes (another tab, a refresh) while the checkout is out: no edit in this field.
+    rerender(view("mia.t@example.com"));
+    expect(screen.getByLabelText("Email for your tickets")).toHaveValue("mia.t@example.com");
+    await act(async () => refuse(refusal()));
+    expect(screen.queryByText(/Did you mean/)).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    // Unchanged, it's shown; then signing out empties the field and drops it.
+    createCheckoutSession.mockRejectedValueOnce(refusal());
+    rerender(view("mia@gmial.com"));
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    expect(await screen.findByText(/Did you mean/)).toHaveTextContent("Did you mean mia@gmail.com?");
+    fireEvent.click(screen.getByRole("button", { name: "Not you? Sign out" }));
+    rerender(view("mia@gmial.com", "signed-out"));
+    expect(screen.getByLabelText("Email for your tickets")).toHaveValue("");
+    expect(screen.queryByText(/Did you mean/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Use this" })).toBeNull();
+  });
+
+  it("a hint for a likely typo shows once typing pauses (no need to leave the field), and never stops Checkout", async () => {
+    createCheckoutSession.mockReturnValue(new Promise(() => {}));
+    render(<TicketSelector event={live("neon-static")} />);
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
+    const email = screen.getByLabelText("Email for your tickets");
+    email.focus();
+    fireEvent.change(email, { target: { value: "fan@hotmial.com" } });
+    expect(await screen.findByText(/Did you mean/)).toHaveTextContent("Did you mean fan@hotmail.com?");
+    expect(email).toHaveFocus();
+    typeName();
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    expect(createCheckoutSession).toHaveBeenCalledWith(expect.any(String), expect.any(Array), "fan@hotmial.com", undefined, undefined, undefined, "Alex Doe");
+  });
+
+  it("no longer says Stripe will ask for the email", () => {
+    render(<TicketSelector event={live("neon-static")} />);
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
+    expect(document.body.textContent).not.toMatch(/Stripe will ask/);
+    expect(screen.getByText("You’ll pay on the next page, via Stripe.")).toBeInTheDocument();
+  });
+});
+
 describe("TicketSelector (tracking-link attribution)", () => {
   it("sends the tracking code remembered for this event, and only this event's", () => {
     createCheckoutSession.mockReturnValue(new Promise(() => {}));
@@ -455,7 +568,7 @@ describe("TicketSelector (tracking-link attribution)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
     typeName();
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
-    expect(createCheckoutSession).toHaveBeenCalledWith(event.id, expect.any(Array), undefined, "abcd2345", undefined, undefined, "Alex Doe");
+    expect(createCheckoutSession).toHaveBeenCalledWith(event.id, expect.any(Array), TEST_BUYER_EMAIL, "abcd2345", undefined, undefined, "Alex Doe");
   });
 });
 
@@ -616,11 +729,11 @@ describe("TicketSelector checkout focus and errors (WCAG 2.2)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Free entry" }));
     const email = screen.getByLabelText("Email for your tickets");
     const book = screen.getByRole("button", { name: "Free tickets" });
-    typeName();
+    typeName("Alex Doe", null);
     book.focus();
     fireEvent.click(book);
     await waitFor(() => expect(email).toHaveFocus());
-    expect(email).toHaveAccessibleDescription(/Enter the email address to send your tickets to\.$/);
+    expect(email).toHaveAccessibleDescription(/Enter the email address to send your tickets to\./);
     // The same error again still brings focus back.
     book.focus();
     fireEvent.click(book);
@@ -1011,7 +1124,7 @@ describe("TicketSelector: group tickets", () => {
     expect(createCheckoutSession).toHaveBeenCalledWith(
       expect.any(String),
       [{ ticketTypeId: "group", quantity: 2 }],
-      undefined,
+      TEST_BUYER_EMAIL,
       undefined,
       undefined,
       undefined,
@@ -1072,13 +1185,15 @@ describe("TicketSelector: group tickets", () => {
 });
 
 describe("TicketSelector (buyer name)", () => {
+  /** One ticket chosen; a paid one's email typed in (every checkout asks for one), so the name is what's checked. */
   function chooseOne(slug = "neon-static", ticket = "General admission") {
     render(<TicketSelector event={live(slug)} />);
     fireEvent.click(screen.getByRole("button", { name: `Increase quantity for ${ticket}` }));
+    if (slug === "neon-static") fireEvent.change(screen.getByLabelText("Email for your tickets"), { target: { value: TEST_BUYER_EMAIL } });
     return screen.getByLabelText("Your name");
   }
 
-  it("asks for a name on a paid and a free order, with the notice as its hint", () => {
+  it("asks for a name on a paid and a free order; the notice comes after the email, describing it", () => {
     for (const [slug, ticket] of [
       ["neon-static", "General admission"],
       ["brunswick-zine-fair", "Free entry"],
@@ -1088,7 +1203,13 @@ describe("TicketSelector (buyer name)", () => {
       expect(name).toBeRequired();
       expect(name).toHaveClass("min-h-12", "text-base");
       expect(name).toHaveValue("");
-      expect(name).toHaveAccessibleDescription("Your name and email are shared with the organiser of this event.");
+      // Said once, after both fields it's about.
+      expect(name).toHaveAccessibleDescription("");
+      const email = screen.getByLabelText("Email for your tickets");
+      expect(email).toHaveAccessibleDescription(/Your name and email are shared with the organiser of this event\.$/);
+      expect(screen.getAllByText("Your name and email are shared with the organiser of this event.")).toHaveLength(1);
+      const notice = screen.getByText("Your name and email are shared with the organiser of this event.");
+      expect(email.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       cleanup();
     }
   });

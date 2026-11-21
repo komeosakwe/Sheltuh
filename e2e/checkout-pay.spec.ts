@@ -129,13 +129,18 @@ test.describe("general admission at 1280×900", () => {
     // The event page never loads Stripe.js.
     expect(stripe.requests).toEqual([]);
 
-    // The name is asked for first, with who sees it.
+    // The name is asked for first; who sees it is said once, after the ticket email.
     const name = tickets.getByLabel("Your name");
-    await expect(name).toHaveAccessibleDescription("Your name and email are shared with the organiser of this event.");
     await name.fill("Alex Doe");
+    // Every checkout asks for the ticket email too (Stripe's form is prefilled with it).
+    const email = tickets.getByLabel("Email for your tickets");
+    await expect(email).toHaveAccessibleDescription(
+      "Tickets are sent here. Your name and email are shared with the organiser of this event.",
+    );
+    await email.fill("alex@example.com");
     await tickets.getByRole("button", { name: "Checkout" }).click();
     await expect(page).toHaveURL(`/checkout/pay?order=${ORDER_ID}`);
-    expect(seen.checkouts).toEqual([{ lineItems: [{ ticketTypeId: ga!.id, quantity: 1 }], buyerName: "Alex Doe" }]);
+    expect(seen.checkouts).toEqual([{ lineItems: [{ ticketTypeId: ga!.id, quantity: 1 }], buyerEmail: "alex@example.com", buyerName: "Alex Doe" }]);
 
     await expect(page.getByRole("heading", { level: 1, name: "Pay for your tickets" })).toBeVisible({ timeout: 30_000 });
     const summary = page.getByRole("region", { name: sample!.title });

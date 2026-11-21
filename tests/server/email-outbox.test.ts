@@ -697,6 +697,8 @@ describe("admin", () => {
         orderStatus: "paid",
         eventTitle: "Neon Static",
         maskedEmail: "m***@example.com",
+        // A card order (its total is above zero): its email can be changed.
+        cardOrder: true,
       },
     ]);
     const raw = JSON.stringify(res.body);

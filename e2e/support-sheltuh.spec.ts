@@ -150,9 +150,10 @@ test.describe("general admission at 1280×900", () => {
     expect(chipBox?.height ?? 0).toBeGreaterThanOrEqual(44);
 
     await tickets.getByLabel("Your name").fill("Alex Doe");
+    await tickets.getByLabel("Email for your tickets").fill("alex@example.com");
     await tickets.getByRole("button", { name: "Checkout" }).click();
     await expect(page).toHaveURL(`/checkout/pay?order=${GA_ORDER}`);
-    expect(seen.checkouts).toEqual([{ lineItems: [{ ticketTypeId: "neon-static-ga", quantity: 1 }], buyerName: "Alex Doe", supportCents: 500 }]);
+    expect(seen.checkouts).toEqual([{ lineItems: [{ ticketTypeId: "neon-static-ga", quantity: 1 }], buyerEmail: "alex@example.com", buyerName: "Alex Doe", supportCents: 500 }]);
 
     const summary = page.getByRole("region", { name: neon.title });
     await expect(summary).toBeVisible({ timeout: 30_000 });
@@ -176,9 +177,10 @@ test.describe("general admission at 1280×900", () => {
     await expect(tickets.locator("dl").first()).not.toContainText("Support Sheltüh");
     // Checkout then sends none.
     await tickets.getByLabel("Your name").fill("Alex Doe");
+    await tickets.getByLabel("Email for your tickets").fill("alex@example.com");
     await tickets.getByRole("button", { name: "Checkout" }).click();
     await expect(page).toHaveURL(`/checkout/pay?order=${GA_ORDER}`);
-    expect(seen.checkouts).toEqual([{ lineItems: [{ ticketTypeId: "neon-static-ga", quantity: 1 }], buyerName: "Alex Doe" }]);
+    expect(seen.checkouts).toEqual([{ lineItems: [{ ticketTypeId: "neon-static-ga", quantity: 1 }], buyerEmail: "alex@example.com", buyerName: "Alex Doe" }]);
   });
 
   test("keyboard: Tab into the group, arrows choose, Space on the chosen one removes it, focus visible", async ({ page }) => {
@@ -236,6 +238,7 @@ test.describe("general admission at 1280×900", () => {
     await expect(field).toHaveAttribute("aria-invalid", "true");
     // Checkout refuses it and takes focus back to the field.
     await tickets.getByLabel("Your name").fill("Alex Doe");
+    await tickets.getByLabel("Email for your tickets").fill("alex@example.com");
     await tickets.getByRole("button", { name: "Checkout" }).click();
     await expect(field).toBeFocused();
     expect(seen.checkouts).toEqual([]);
@@ -243,9 +246,10 @@ test.describe("general admission at 1280×900", () => {
     await expect(tickets.getByRole("alert")).toHaveCount(0);
     await expect(tickets.getByText("Total", { exact: true }).locator("xpath=following-sibling::dd")).toHaveText("A$44.80");
     await tickets.getByLabel("Your name").fill("Alex Doe");
+    await tickets.getByLabel("Email for your tickets").fill("alex@example.com");
     await tickets.getByRole("button", { name: "Checkout" }).click();
     await expect(page).toHaveURL(`/checkout/pay?order=${GA_ORDER}`);
-    expect(seen.checkouts).toEqual([{ lineItems: [{ ticketTypeId: "neon-static-ga", quantity: 1 }], buyerName: "Alex Doe", supportCents: 1250 }]);
+    expect(seen.checkouts).toEqual([{ lineItems: [{ ticketTypeId: "neon-static-ga", quantity: 1 }], buyerEmail: "alex@example.com", buyerName: "Alex Doe", supportCents: 1250 }]);
   });
 });
 
@@ -261,6 +265,7 @@ async function invalidOtherThenCheckout(page: Page, phone = false) {
   await tickets.getByRole("button", { name: "Increase quantity for General admission" }).click({ timeout: 30_000 });
   // The name first: leaving the Other field for it would show that field's error early.
   await tickets.getByLabel("Your name").fill("Alex Doe");
+  await tickets.getByLabel("Email for your tickets").fill("alex@example.com");
   const support = tickets.getByRole("group", { name: "Support Sheltüh" });
   await support.locator("label", { hasText: "Other" }).click();
   const field = tickets.getByLabel("Other amount");
@@ -424,10 +429,11 @@ test.describe("seated checkout at 1280×900", () => {
     await expect(totals).toContainText("A$42.60");
 
     await page.getByLabel("Your name").fill("Alex Doe");
+    await page.getByLabel("Email for your tickets").fill("alex@example.com");
     await page.getByRole("button", { name: "Checkout" }).click();
     await expect(page).toHaveURL(`/checkout/pay?order=${SEATED_ORDER}`);
     expect(seen.checkouts).toEqual([
-      { seats: { mapVersion: seatSample.version, seatIds: ["N-A1"] }, buyerName: "Alex Doe", supportCents: 500 },
+      { seats: { mapVersion: seatSample.version, seatIds: ["N-A1"] }, buyerEmail: "alex@example.com", buyerName: "Alex Doe", supportCents: 500 },
     ]);
   });
 });
@@ -454,10 +460,11 @@ test.describe("seated checkout on a phone at 375", () => {
     await noSidewaysScroll(page);
 
     await seatBar.getByLabel("Your name").fill("Alex Doe");
+    await seatBar.getByLabel("Email for your tickets").fill("alex@example.com");
     await seatBar.getByRole("button", { name: "Checkout" }).click();
     await expect(page).toHaveURL(`/checkout/pay?order=${SEATED_ORDER}`);
     expect(seen.checkouts).toEqual([
-      { seats: { mapVersion: seatSample.version, seatIds: ["N-A1"] }, buyerName: "Alex Doe", supportCents: 200 },
+      { seats: { mapVersion: seatSample.version, seatIds: ["N-A1"] }, buyerEmail: "alex@example.com", buyerName: "Alex Doe", supportCents: 200 },
     ]);
   });
 });
@@ -473,6 +480,7 @@ test.describe("payment page on a phone at 375", () => {
     await tickets.getByRole("button", { name: "Increase quantity for General admission" }).click({ timeout: 30_000 });
     await tickets.getByRole("group", { name: "Support Sheltüh" }).locator("label", { hasText: "A$2" }).click();
     await tickets.getByLabel("Your name").fill("Alex Doe");
+    await tickets.getByLabel("Email for your tickets").fill("alex@example.com");
     // On a phone the sticky buy bar is the one Checkout.
     await page.locator("[data-buy-bar]").getByRole("button", { name: "Buy tickets" }).click();
     await expect(page).toHaveURL(`/checkout/pay?order=${GA_ORDER}`);

@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // Live mode: the client only calls the API when Supabase is configured.
 vi.mock("@/lib/supabase/config", () => ({ isSupabaseConfigured: true }));
 
-const { confirmFreeOrder, createCheckoutSession, getOrderBySession, getOrderPayment } = await import("@/lib/api/orders");
+const { changeOrderEmail, confirmFreeOrder, createCheckoutSession, getOrderBySession, getOrderPayment } = await import("@/lib/api/orders");
 const { createSeatedCheckout } = await import("@/lib/api/seating");
 const { checkoutErrorCode, currentCheckoutKey, resetCheckoutAttempt } = await import("@/lib/api/checkout-attempt");
 
@@ -108,6 +108,53 @@ describe("getOrderBySession", () => {
     const fetch = stubFetch({ status: "pending" });
     expect(await getOrderBySession("ord_a/b")).toEqual({ status: "pending" });
     expect(fetch.mock.calls[0][0]).toBe("/api/orders/by-session/ord_a%2Fb");
+    // No token: no header at all.
+    expect(fetch.mock.calls[0][1].headers).not.toHaveProperty("x-order-access");
+  });
+
+  it("sends the order access token as the x-order-access header, never in the URL", async () => {
+    const token = "c".repeat(64);
+    const fetch = stubFetch({ status: "pending" });
+    await getOrderBySession("ord_1", token);
+    expect(fetch.mock.calls[0][0]).toBe("/api/orders/by-session/ord_1");
+    expect(fetch.mock.calls[0][1].headers["x-order-access"]).toBe(token);
+    expect(fetch.mock.calls[0][1].referrerPolicy).toBe("strict-origin");
+  });
+});
+
+describe("changeOrderEmail", () => {
+  const token = "d".repeat(64);
+
+  it("POSTs {email} with the token in the header (never the URL or the body), and the account's bearer when given", async () => {
+    const fetch = stubFetch({ result: "changed", order: { status: "paid" } });
+    await changeOrderEmail("ord_1", "mia@gmail.com", token, async () => "jwt");
+    const [url, init] = fetch.mock.calls[0];
+    expect(url).toBe("/api/orders/by-session/ord_1/email");
+    expect(url).not.toContain(token);
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({ email: "mia@gmail.com" });
+    expect(init.body).not.toContain(token);
+    expect(init.headers["x-order-access"]).toBe(token);
+    expect(init.headers.authorization).toBe("Bearer jwt");
+  });
+
+  it("goes without the bearer when there's no token to be had", async () => {
+    const fetch = stubFetch({ result: "unchanged", order: { status: "paid" } });
+    await changeOrderEmail("ord_1", "mia@gmail.com", token, async () => {
+      throw new Error("signed out");
+    });
+    expect(fetch.mock.calls[0][1].headers).not.toHaveProperty("authorization");
+    expect(fetch.mock.calls[0][1].headers["x-order-access"]).toBe(token);
+  });
+
+  it("a refused address is an ApiError with the suggestion in its body", async () => {
+    stubFetch(
+      { error: "That email address looks mistyped.", fieldErrors: { email: "That email address looks mistyped." }, code: "email_typo", suggestion: "mia@gmail.com" },
+      400,
+    );
+    const err = await changeOrderEmail("ord_1", "mia@gmial.com", token).catch((e: unknown) => e);
+    expect(err).toMatchObject({ status: 400, fieldErrors: { email: "That email address looks mistyped." } });
+    expect((err as { body: Record<string, unknown> }).body.suggestion).toBe("mia@gmail.com");
   });
 });
 

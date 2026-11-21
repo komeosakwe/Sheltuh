@@ -798,6 +798,9 @@ export interface OrderRecord {
   updatedAt: string;
 }
 
+/** The request header that carries an order access token (CheckoutResult.orderAccess). */
+export const ORDER_ACCESS_HEADER = "x-order-access";
+
 /** Most tickets one free order can have (POST …/checkout is a 400 beyond it). */
 export const MAX_FREE_TICKETS_PER_ORDER = 4;
 
@@ -817,6 +820,18 @@ export const MAX_FREE_TICKETS_PER_ORDER = 4;
 export type CheckoutResult =
   | {
       url: string;
+      /**
+       * A paid (Stripe) checkout only, seated or not, in the answer to the
+       * client that started it (the 201, and a replay of it to that same
+       * client, when the request carried a client IP: a replay bound to no
+       * client has none): the order access token (64 hex characters). Keep it on this
+       * device (lib/order-access.ts) and send it as the `x-order-access`
+       * header (ORDER_ACCESS_HEADER) when reading the order
+       * (getOrderBySession) or changing its email (changeOrderEmail): it is
+       * what tells the paying browser from anyone holding the order id. Never
+       * put it in a URL or log it. Absent when the server can't issue one.
+       */
+      orderAccess?: string;
       /**
        * A seated paid checkout only: when the seats' hold ends (ISO 8601).
        * The checkout's pay deadline is a few minutes before
@@ -894,7 +909,8 @@ export interface LeaveWaitlistResult {
  * needs, and nothing more. The order id in the URL is the only credential, so
  * this never carries the order, event or organiser ids, the fee split, Stripe
  * ids, line items, the order's own timestamps, the venue's street address or
- * the full email address. A pending order is `{ status: "pending" }` only.
+ * the full email address (except `email`, for the paying browser only: see
+ * there). A pending order is `{ status: "pending" }` only.
  */
 export interface CustomerOrder {
   status: Exclude<OrderStatus, "pending">;
@@ -947,8 +963,28 @@ export interface CustomerOrder {
    */
   refundPolicy?: RefundPolicy;
   refundDays?: number;
-  /** The buyer's address, masked: "m***@example.com". Unset if none is on record. */
+  /**
+   * The buyer's address, masked: "m***@example.com". Unset if none is on
+   * record, and, once the order's email has been changed (by the buyer or
+   * support), for anyone but the paying browser (an `x-order-access` header
+   * with the order's token): the old address's holder has the order's link
+   * too, and mustn't learn the new address even masked. Once support has
+   * changed it, for the paying browser too (see `emailChange`).
+   */
   maskedEmail?: string;
+  /**
+   * Only for the paying browser (a valid `x-order-access` header,
+   * CheckoutResult.orderAccess) and a card order: the full address the
+   * tickets are sent to, so the buyer can spot a typo. Unset for anyone else.
+   */
+  email?: string;
+  /**
+   * Only for the paying browser, with `email`: whether it can change it now
+   * (changeOrderEmail). Without `email` (and without `maskedEmail`) once
+   * support has changed the address: `{allowed: false, reason:
+   * "changed_by_support"}`.
+   */
+  emailChange?: OrderEmailChange;
   subtotalCents: number;
   /** Booking fees the buyer paid (not any the organiser absorbed). */
   buyerFeeCents: number;
@@ -1009,6 +1045,64 @@ export interface TicketGroup {
 }
 
 export type CustomerOrderLookup = CustomerOrder | { status: "pending" };
+
+/**
+ * Why the paying browser can't change the order's email now (each is also
+ * the 409 `code` of changeOrderEmail): `order_not_paid` (not paid, or
+ * refunded), `event_ended`, `ticket_scanned` (a ticket was admitted at the
+ * door, even if that was undone), `email_already_changed` (the one change
+ * is used) or `changed_by_support` (support changed it: only support can
+ * change it again, and the order no longer shows its address, full or
+ * masked). Support can still change it (/admin/emails).
+ */
+export type OrderEmailChangeBlock =
+  | "order_not_paid"
+  | "event_ended"
+  | "ticket_scanned"
+  | "email_already_changed"
+  | "changed_by_support";
+
+/** CustomerOrder.emailChange. */
+export type OrderEmailChange = { allowed: true } | { allowed: false; reason: OrderEmailChangeBlock };
+
+/**
+ * The 409 `code`s of POST /api/orders/by-session/{orderId}/email: the
+ * OrderEmailChangeBlock reasons; `email_has_account` (the address belongs to
+ * a confirmed account other than the signed-in caller's: the message says
+ * "Contact support to use this address" and never that an account exists);
+ * `email_change_busy` (the ticket email is being queued at this instant:
+ * try again in a moment, Retry-After).
+ */
+export type OrderEmailChangeErrorCode = OrderEmailChangeBlock | "email_has_account" | "email_change_busy";
+
+/**
+ * The 400 `code` of a refused buyer email (checkout `fieldErrors.buyerEmail`,
+ * email change `fieldErrors.email`): `email_typo` (the domain is on the typo
+ * list) or `email_no_mail` (it can't receive email). The body's `suggestion`,
+ * when there is one, is the address with the domain corrected, for a "Did you
+ * mean …?" the buyer can accept. A plain format error has `fieldErrors` only.
+ */
+export type BuyerEmailErrorCode = "email_typo" | "email_no_mail";
+
+/**
+ * POST /api/orders/by-session/{orderId}/email `{email}`, with the order's
+ * token in the `x-order-access` header (and, optionally, the signed-in
+ * buyer's bearer token: moving the order to their own confirmed account
+ * email is allowed). 200: `changed` (the ticket email is on its way to the
+ * new address and nothing new is sent to the old one, though an email already
+ * handed to the mail provider for it can't be recalled; the QR codes are
+ * unchanged)
+ * or `unchanged` (the same address, ignoring case: nothing done, and the one
+ * change is still there). `order` is the CustomerOrder as the paying browser
+ * sees it. ApiError: 404 a malformed or unknown order, or a missing or wrong
+ * token (always "Order not found."); 400 `fieldErrors.email` (format) or
+ * BuyerEmailErrorCode; 409 OrderEmailChangeErrorCode; 429 `rate_limited`
+ * (10 an hour from one connection, 5 a day for one order).
+ */
+export interface OrderEmailChangeResult {
+  result: "changed" | "unchanged";
+  order: CustomerOrder;
+}
 
 /** One line of OrderPaymentSummary. Amounts are the buyer's (booking fee included when they pay it; lib/fees.ts). */
 export interface OrderPaymentLine {
@@ -1151,7 +1245,9 @@ export type EmailJobStatus = "pending" | "sending" | "sent" | "failed";
 export const EMAIL_JOB_STATUSES: readonly EmailJobStatus[] = ["failed", "pending", "sending", "sent"];
 
 /**
- * GET /api/admin/emails. One ticket email. Never carries the buyer's full
+ * GET /api/admin/emails?status&cursor, or ?reference=7C1F2E0A (the order's
+ * short reference, with or without "#", any case: that order's ticket email
+ * in any status). One ticket email. Never carries the buyer's full
  * address or the order id (the order page's credential): the order is shown
  * by its short reference only.
  */
@@ -1174,6 +1270,61 @@ export interface AdminEmailJob {
   eventTitle: string;
   /** "m***@example.com". */
   maskedEmail?: string;
+  /**
+   * Whether the order was paid by card (a total above zero): only a card
+   * order's email can be changed (a free booking's is refused,
+   * `order_not_card`). Absent from an older API.
+   */
+  cardOrder?: boolean;
+  /**
+   * The order's email changes, newest first (at most 5): by the buyer
+   * (once, from the paying browser) or by an admin (with their reason). Both
+   * addresses masked. Absent when there are none (and from an older API).
+   */
+  emailChanges?: AdminOrderEmailChange[];
+}
+
+/** One change of an order's email (AdminEmailJob.emailChanges). */
+export interface AdminOrderEmailChange {
+  changedBy: "buyer" | "admin";
+  /** The admin's reason; only for `admin`. */
+  reason?: string;
+  /** The address before, masked; unset if there was none. */
+  oldMaskedEmail?: string;
+  newMaskedEmail: string;
+  changedAt: string;
+}
+
+/**
+ * POST /api/admin/emails/{jobId}/change-email `{email, reason}` (admins):
+ * moves the job's order to `email` and sends the ticket email there now. Any
+ * time, any address (an account's included), the typo list skipped (support
+ * has checked the address with the buyer), but the address must receive
+ * email (400 `email_no_mail`) and `reason` is required (3 to 500
+ * characters, and no email addresses in it: the log keeps addresses masked
+ * only, full-width "＠" included; 400 `fieldErrors.reason`). Logged with
+ * the admin and reason. 200 AdminOrderEmailChangeResult. ApiError 404
+ * unknown job; 409 `order_not_card` (a free order) or `order_not_paid`, or
+ * `email_change_busy`; 429 over 20 changes an hour per admin.
+ */
+export interface AdminChangeOrderEmailInput {
+  email: string;
+  /** ADMIN_EMAIL_CHANGE_REASON.min to .max characters (after trimming). */
+  reason: string;
+}
+
+/** The length of AdminChangeOrderEmailInput.reason, in characters: the API's check and the admin form's. */
+export const ADMIN_EMAIL_CHANGE_REASON = { min: 3, max: 500 } as const;
+
+/**
+ * The 200 of POST /api/admin/emails/{jobId}/change-email: `changed` (the
+ * ticket email is on its way to the new address, and the change is in
+ * `job.emailChanges`) or `unchanged` (the same address, ignoring case:
+ * nothing done), with the job as it is now (AdminEmailJob).
+ */
+export interface AdminOrderEmailChangeResult {
+  result: "changed" | "unchanged";
+  job: AdminEmailJob;
 }
 
 /** Every kind of outbox job (private.email_outbox's kind check). */

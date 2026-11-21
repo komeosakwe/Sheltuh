@@ -12,13 +12,17 @@ import {
   checkoutFingerprint,
   idempotencyKey,
   peekCheckoutAttempt,
+  replayAccessSecret,
   requestClientKey,
   runPaidCheckout,
   settledAttemptResponse,
   stripeErrorLabel,
 } from "../checkout-attempts";
-import { clientIp, clientKey, orderKey } from "../client-key";
-import { HttpError, ok, okPrivate, type RateWindow, readJson, tooManyRequests, windowSeconds } from "../http";
+import { orderKey } from "../client-key";
+import { rateLimitSecret, takeClientLimit, takeKeyedLimit } from "../client-limits";
+import { refuseUndeliverableEmail } from "../email-domain";
+import { HttpError, ok, okPrivate, readJson, tooManyRequests, windowSeconds } from "../http";
+import { withOrderEmail } from "../order-email-view";
 import { parseBuyerName, parseCheckoutLineItems, parseSupportCents, refuseSupportOnFreeOrder } from "../order-input";
 import { parseCheckoutSeats } from "../seat-map-input";
 import { ORDER_ID_PATTERN, orderReference } from "../order-reference";
@@ -638,7 +642,10 @@ async function recordPaymentRefund(deps: Deps, eventId: string, charge: Stripe.C
   return row.result;
 }
 
-/** A buyer email is required for free orders (nothing else delivers the tickets) and optional otherwise. */
+/**
+ * A buyer email is required for free orders (nothing else delivers the tickets) and optional otherwise. The
+ * format only: checkBuyerEmail adds the typo list and DNS once the request is past its replay check.
+ */
 function parseBuyerEmail(body: Record<string, unknown>, required: true): string;
 function parseBuyerEmail(body: Record<string, unknown>, required: false): string | null;
 function parseBuyerEmail(body: Record<string, unknown>, required: boolean): string | null {
@@ -647,6 +654,16 @@ function parseBuyerEmail(body: Record<string, unknown>, required: boolean): stri
   const email = requireEmail(body.buyerEmail, "buyerEmail", errors);
   if (Object.keys(errors).length > 0) fail(errors);
   return email;
+}
+
+/**
+ * The buyer email checks beyond the format (../email-domain.ts: the typo list, then DNS), for paid and free
+ * checkouts alike: 400 `fieldErrors.buyerEmail` with `code` (`email_typo` / `email_no_mail`) and any
+ * `suggestion`. Run after a paid checkout's replay check, so a replay never depends on DNS, and before
+ * anything is written. Nothing to check without an email (a paid checkout may still leave it to Stripe).
+ */
+async function checkBuyerEmail(req: Request, deps: Deps, email: string | null): Promise<void> {
+  if (email) await refuseUndeliverableEmail(req, deps, email, "buyerEmail");
 }
 
 /** A platform-managed organiser's event has no paid Sheltüh tickets (only free ones, or external ticketing). */
@@ -750,48 +767,8 @@ export const CHECKOUT_RATE_LIMITS = {
   paymentPerOrder: { bucket: "order_payment:order", hits: 20, window: "1 minute" },
 } as const;
 
-/** A fixed-window limit on private.take_client_rate_limit: CHECKOUT_RATE_LIMITS, and the wallet passes' (./wallet.ts). */
-export type KeyedLimit = { readonly bucket: string; readonly hits: number; readonly window: RateWindow };
-
 const CHECKOUTS_BUSY = "You've started a lot of checkouts in the last minute. Wait a minute, then try again.";
 const PAYMENT_BUSY = "This checkout has been loaded a lot in the last minute. Wait a minute, then reload the page.";
-
-/** One hit on a keyed fixed-window counter: whether it's within the limit. */
-async function takeKeyedLimit(db: Db, key: string, limit: KeyedLimit): Promise<boolean> {
-  const [row] = await db.query<{ allowed: boolean }>(
-    `select private.take_client_rate_limit($1, $2, $3, $4::interval) as allowed`,
-    [key, limit.bucket, limit.hits, limit.window],
-  );
-  return row.allowed;
-}
-
-/**
- * The secret rate-limit keys are salted with, or undefined when it isn't
- * configured (logged, naming only the limits skipped): the caller fails open.
- */
-export function rateLimitSecret(deps: Deps, skipped: string): string | undefined {
-  try {
-    return deps.stripeWebhookSecret();
-  } catch {
-    console.error(`STRIPE_WEBHOOK_SECRET isn't set: ${skipped}.`);
-    return undefined;
-  }
-}
-
-/**
- * One hit on the request's client's counter for `limit`: false when it's
- * over. True (fails open) without `secret`, or without a usable client IP,
- * logged without any request detail.
- */
-export async function takeClientLimit(req: Request, deps: Deps, secret: string | undefined, limit: KeyedLimit, what: string) {
-  if (!secret) return true;
-  const ip = clientIp(req);
-  if (!ip) {
-    console.warn(`${what} without a client IP header: the per-client limit was skipped.`);
-    return true;
-  }
-  return takeKeyedLimit(deps.db, clientKey(ip, secret), limit);
-}
 
 /**
  * POST /api/events/[eventId]/checkout — public guest checkout. A paid order
@@ -873,6 +850,7 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
   // Free: tickets straight away for a member's own verified email, an emailed confirmation link for anyone else.
   if (isFree) {
     const buyerEmail = parseBuyerEmail(body, true);
+    await checkBuyerEmail(req, deps, buyerEmail);
     await assertFreeTicketsPerOrder(deps, lineItems);
     await assertAvailable(db, eventId, lineItems);
     return refuseIfClosed(() =>
@@ -902,8 +880,9 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
   // The attempt is bound to this client: a replay or retry from another client key is refused.
   const client = requestClientKey(req, deps);
   const peeked = await peekCheckoutAttempt(db, key, fingerprint, client.key);
-  const settled = peeked && settledAttemptResponse(peeked);
+  const settled = peeked && settledAttemptResponse(peeked, replayAccessSecret(deps, client));
   if (settled) return settled;
+  await checkBuyerEmail(req, deps, buyerEmail);
 
   // Free lines in a paid order: the same per-order cap. The Stripe payment identifies the buyer, so there's
   // no emailed confirmation or per-person allowance (those count wholly free orders only).
@@ -1001,20 +980,35 @@ export function walletEligible(lookup: CustomerOrderLookup): lookup is CustomerO
 }
 
 /**
+ * `order` with `wallet` (which wallets' passes are on, from the server's own
+ * configuration: Deps.googleWallet / appleWallet) when its tickets can go in
+ * a wallet (walletEligible); as it is otherwise. Every answer that's the
+ * confirmation page's order (getOrderBySession, and an email change's,
+ * ./order-email.ts) goes through it, so the page never loses its wallet
+ * buttons, nor offers one the server would refuse.
+ */
+export async function withWallet(deps: Deps, order: CustomerOrder): Promise<CustomerOrder> {
+  if (!walletEligible(order)) return order;
+  return { ...order, wallet: { google: !!deps.googleWallet(), apple: !!(await deps.appleWallet()) } };
+}
+
+/**
  * GET /api/orders/by-session/[sessionId] — public. The unguessable order id
  * from the confirmation page's URL is the credential (guest checkout has no
  * account), so the response is only what that page shows (CustomerOrder),
  * never cached anywhere. A pending order reveals nothing but its status.
- * For an order whose tickets can go in a wallet (walletEligible), `wallet`
- * says which wallets' passes are on, from the server's own configuration
- * (Deps.googleWallet / appleWallet), so the page never offers a button the
- * server would refuse.
+ * The paying browser (the order's token in `x-order-access`, from the
+ * checkout's answer) also gets `emailChange`, and the full `email` until
+ * the event ends; anyone
+ * else gets the masked email only until the email is changed, and none after
+ * (withOrderEmail, ../order-email-view.ts).
+ * For an order whose tickets can go in a wallet, `wallet` says which
+ * wallets' passes are on (withWallet).
  */
-export const getOrderBySession: Handler<{ sessionId: string }> = async (_req, { sessionId }, deps) => {
+export const getOrderBySession: Handler<{ sessionId: string }> = async (req, { sessionId }, deps) => {
   const lookup = await lookupCustomerOrder(deps.db, sessionId);
-  if (!walletEligible(lookup)) return okPrivate(lookup);
-  const order: CustomerOrder = { ...lookup, wallet: { google: !!deps.googleWallet(), apple: !!(await deps.appleWallet()) } };
-  return okPrivate(order);
+  if (lookup.status === "pending") return okPrivate(lookup);
+  return okPrivate(await withWallet(deps, await withOrderEmail(req, deps, sessionId, lookup)));
 };
 
 /**
@@ -1110,7 +1104,10 @@ export const stripeWebhook: Handler = async (req, _params, deps) => {
     return received;
   }
   const { status, alertQueued } = await fulfilOrder(deps.db, order, {
-    buyerEmail: session.customer_details?.email,
+    // Our address wins: the one the buyer typed on our page was checked (format, typo list, DNS) and is what
+    // Stripe's form was prefilled with (customer_email). Stripe's is used only when the order has none (an
+    // older client that left the email to Stripe).
+    buyerEmail: order.buyerEmail ? null : session.customer_details?.email,
     paymentIntentId,
   });
   // A partial refund recorded before the payment opened a payment exception and queued its alert.
@@ -1259,7 +1256,7 @@ async function createSeatedCheckout(
   });
   const client = requestClientKey(req, deps);
   const peeked = await peekCheckoutAttempt(db, key, fingerprint, client.key);
-  const settled = peeked && settledAttemptResponse(peeked);
+  const settled = peeked && settledAttemptResponse(peeked, replayAccessSecret(deps, client));
   if (settled) return settled;
 
   // A retry's own earlier order may still hold these seats: not "taken" (begin_checkout_attempt reuses or releases it).
@@ -1279,7 +1276,7 @@ async function createSeatedCheckout(
   if (gone.length > 0) {
     // A duplicate of a request that held these seats since our first look (a double click): its answer, not "taken".
     const now = await peekCheckoutAttempt(db, key, fingerprint, client.key);
-    const answer = now && settledAttemptResponse(now);
+    const answer = now && settledAttemptResponse(now, replayAccessSecret(deps, client));
     if (answer) return answer;
     throw seatError(409, SEATS_TAKEN, "seats", { code: "seats_unavailable", seatIds: gone });
   }
@@ -1291,6 +1288,7 @@ async function createSeatedCheckout(
 
   if (totals.totalCents === 0) {
     const buyerEmail = parseBuyerEmail(body, true);
+    await checkBuyerEmail(req, deps, buyerEmail);
     await assertFreeTicketsPerOrder(deps, lineItems);
     await assertAvailable(db, event.eventId, lineItems);
     return refuseIfClosed(() =>
@@ -1299,6 +1297,7 @@ async function createSeatedCheckout(
   }
 
   const buyerEmail = parseBuyerEmail(body, false);
+  await checkBuyerEmail(req, deps, buyerEmail);
   await assertFreeTicketsPerOrder(deps, lineItems);
   await assertAvailable(db, event.eventId, lineItems);
   const organiser = await findOrganiserById(db, event.organiserId);

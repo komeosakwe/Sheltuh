@@ -705,6 +705,35 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       session expired. Apply `20261124000000_checkout_expiry_missing.sql`
       with it (also additive: the sweeper's cap on sessions Stripe says don't
       exist).
+- [ ] **Buyer email checks** (`20261130000000_order_email_changes.sql`,
+      docs/architecture.md "Buyer email checks"). Apply the migration
+      **before** the code deploys: until it's there, email changes and
+      `/admin/emails` fail (the confirmation page falls back to the masked
+      email, with a warning logged once).
+      It sorts after `20261128000000`, `20261128000100` (organiser profile)
+      and `20261129000000` (event banner fit), which production already has
+      (it was written as `20261127000000` and renamed so it doesn't sort
+      before them; no project ran the old name).
+      It's additive (a new private table and six functions; no existing
+      table, column or function changes). To roll back, roll the code back
+      and **leave the migration in place**: the previous release never reads
+      it. Dropping the table is destructive once any email has changed: the
+      log is what keeps a buyer to one change, keeps the paying browser out
+      after a support change and hides a changed address from the order's
+      link, so a re-applied empty log would undo all three for those orders.
+      If it must go, export `private.order_email_changes` first and put the
+      rows back after re-applying, before the code that changes emails runs
+      again (the order of the drops, and putting back the ids and the identity sequence, are in the migration's header). After deploying, in test
+      mode: a checkout with `fan@gmial.com` is refused with "Did you mean
+      fan@gmail.com?"; a paid checkout's confirmation page shows the full
+      address on the paying browser only; one change re-sends the tickets to
+      the new address; `/admin/emails` finds the order by its reference
+      (the `fan@gmial.com` check needs the domain checks on: leave
+      `EMAIL_DOMAIN_CHECKS` unset). Lookups aren't logged (they fail open);
+      if buyers report a real address refused, `EMAIL_DOMAIN_CHECKS=off` is
+      the switch: it turns off every domain check (the typo list, the
+      special-use names such as `.test` and `.local`, and DNS), leaving the
+      format as the only one.
 - [ ] **Before go-live: Stripe test-mode check of the pay deadline**
       (unverified so far: what Stripe does when we expire a session whose
       payment is under way). In test mode, on the embedded checkout:
@@ -1127,6 +1156,12 @@ Git → Ignored Build Step. GitHub Actions CI is unaffected.
        **Leave it unset** until the migration is applied, it has been tried in
        Stripe test mode on a Preview deployment, and the platform's Stripe
        payouts are set to manual (Stripe step 7). Unset = today's behaviour.
+       Optional: `EMAIL_DOMAIN_CHECKS=off` (server-only, never `NEXT_PUBLIC_`)
+       turns every buyer email domain check off (the typo list, the
+       special-use names such as `.test`, and the DNS lookup), leaving the
+       format as the only check (docs/architecture.md, "Buyer email checks").
+       Leave it unset (on); set it only for a typo-list false positive or a
+       DNS problem on the host, then redeploy.
        Optional: `OPS_ALERT_EMAIL` (server-only), one address for ops alerts
        about payment exceptions and checkout surges (unset = logged only).
        Optional: `ADMIN_NOTIFY_EMAILS` (server-only, never `NEXT_PUBLIC_`),
