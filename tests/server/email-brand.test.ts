@@ -8,6 +8,7 @@ import { buildEventReminderEmail } from "@/lib/server/event-reminder-email";
 import { button, EMAIL_COLOURS, emailFooterImageUrl, escapeHtml, INK, SIGNAL, supportFooter, WORDMARK_CID, wordmarkImage } from "@/lib/server/email-layout";
 import { MODERN_COLOURS, ICON_PATHS } from "@/lib/server/email-modern-layout";
 import { EMAIL_WORDMARK } from "@/lib/server/email-wordmark";
+import { KIT } from "@/lib/server/email-kit";
 import { TICKET_EMAIL_COLOURS } from "@/lib/server/email-ticket-layout";
 import { buildFollowerNewEventsEmail } from "@/lib/server/follower-email";
 import { DETAILS_NOTICE } from "@/lib/buyer-details";
@@ -149,14 +150,22 @@ const BUTTON_CELL = button("x", "https://x").match(/<td [^>]*>/)![0];
 
 const OLD_PALETTE = ["#2b3cff", "#f3f0e8", "#0b0b0b", "#5b574e", "#e3ded1"];
 
-/** The tickets email, in its own look (lib/server/email-ticket-layout.ts): TICKET_EMAIL_COLOURS, an inline wordmark, no banner. */
+/** The tickets email: the shared 1120 layout around its own orange-framed card (TICKET_EMAIL_COLOURS). */
 const TICKET_EMAILS = ["ticketPaid", "ticketFreeOne", "ticketSeated"];
+/** Emails on the shared 1120 layout (lib/server/email-kit.ts, Latte's frames), with their tone. */
+const KIT_EMAILS: Record<string, "customer" | "organiser"> = {
+  ticketPaid: "customer",
+  ticketFreeOne: "customer",
+  ticketSeated: "customer",
+};
+const isKit = (name: string) => name in KIT_EMAILS;
 /** Emails with the inline wordmark header and the branded footer (emailFooter). */
 const BRANDED = ["freeConfirmation", "freeConfirmationSeated"];
 /** The two emails in the modern look: hosted https logo (no cid), compact footer, MODERN_COLOURS. */
 const MODERN = ["eventReminder", "holderMessage"];
-const classic = Object.entries(emails).filter(([name]) => !MODERN.includes(name) && !TICKET_EMAILS.includes(name));
-const coloursOf = (name: string) => (MODERN.includes(name) ? MODERN_COLOURS : TICKET_EMAILS.includes(name) ? TICKET_EMAIL_COLOURS : EMAIL_COLOURS);
+const classic = Object.entries(emails).filter(([name]) => !MODERN.includes(name) && !isKit(name));
+const coloursOf = (name: string): Record<string, string> =>
+  TICKET_EMAILS.includes(name) ? { ...KIT, ...TICKET_EMAIL_COLOURS } : isKit(name) ? KIT : MODERN.includes(name) ? MODERN_COLOURS : EMAIL_COLOURS;
 
 describe("every transactional email uses the shared brand layout", () => {
   it.each(Object.entries(emails))("%s: no old palette colour, and only its look's tokens", (name, build) => {
@@ -268,22 +277,31 @@ describe("every transactional email uses the shared brand layout", () => {
     expect(local.inlineImages ?? []).toEqual([]);
   });
 
-  it.each(TICKET_EMAILS)("%s: its own look: white, the orange-framed card, orange only as fills, the darker orange for small text", (name) => {
+  it.each(Object.keys(KIT_EMAILS))("%s: Latte's 1120 layout: a white 600px column on the tone's page, one h1, the inline wordmark top and bottom, the shared footer", (name) => {
     const { html } = emails[name]();
+    const pageColour = KIT_EMAILS[name] === "customer" ? KIT.cream : KIT.surface;
     expect(html).toContain('<meta name="color-scheme" content="light">');
-    expect(html).toContain(`<body bgcolor="${TICKET_EMAIL_COLOURS.white}"`);
-    expect(html).toContain('class="column" style="width:100%;max-width:600px;background-color:#ffffff"');
+    expect(html).toContain(`<body bgcolor="${pageColour}"`);
+    expect(html).toContain(`bgcolor="${KIT.white}" style="width:100%;max-width:600px;background-color:${KIT.white}"`);
+    expect(html).toContain(".kp{padding:32px 16px!important}");
     expect(html.match(/<h1 /g)).toHaveLength(1);
-    // Signal Orange: the card's frame and the primary button's fill (black label), never text.
-    expect(html).toContain(`bgcolor="${SIGNAL}" class="ticket"`);
-    expect(html).toMatch(new RegExp(`<td align="center" bgcolor="${SIGNAL}" [^>]*><a class="bt" [^>]*style="[^"]*color:${INK}`));
-    expect(html).not.toMatch(new RegExp(`(?<![-\\w])color:\\s*${SIGNAL}`, "i"));
-    expect(html).toMatch(new RegExp(`color:${TICKET_EMAIL_COLOURS.signalText};letter-spacing:0\\.08em`));
-    expect(html).not.toMatch(/(?<![-\w])color:\s*(#fff\b|#ffffff|white)/i); // no white text (wallet buttons are off here)
-    // The support address as a mailto link; the wordmark inline (header and footer); no footer banner.
     expect(html).toContain('href="mailto:support@sheltuh.com.au"');
     expect(html.split(`<img src="cid:${WORDMARK_CID}"`)).toHaveLength(3);
+    expect(html).toContain(">SHELT&Uuml;H &middot; MELBOURNE</p>");
+    for (const page of ["/privacy", "/terms", "/help"]) expect(html).toContain(`href="${site}${page}"`);
+    // The frames' company line waits for the owner's company details.
+    expect(html).not.toMatch(/Pty Ltd|ABN/);
     expect(html).not.toContain(emailFooterImageUrl(site)!);
+    expect(html).not.toMatch(/gradient|box-shadow|text-shadow|background-image|display:\s*(flex|grid)|<script/i);
+    // Every orange call to action carries a black label.
+    for (const cta of html.match(/<a class="kbp" [^>]*style="[^"]*"/g) ?? []) expect(cta).toContain(`color:${INK}`);
+  });
+
+  it.each(TICKET_EMAILS)("%s: the ticket keeps its orange-framed card (owner rule 21 Nov) and the orange call to action", (name) => {
+    const { html } = emails[name]();
+    expect(html).toContain(`bgcolor="${SIGNAL}" class="ticket"`);
+    expect(html).toMatch(new RegExp(`<td align="center" bgcolor="${SIGNAL}" [^>]*><a class="kbp" [^>]*style="[^"]*color:${INK}`));
+    expect(html).toMatch(new RegExp(`color:${TICKET_EMAIL_COLOURS.signalText};letter-spacing:0\\.12em`));
   });
 
   it.each(BRANDED)("%s: the wordmark header (inline) and one branded footer banner", (name) => {
@@ -296,7 +314,7 @@ describe("every transactional email uses the shared brand layout", () => {
 
   it("the other emails carry no images", () => {
     for (const [name, build] of Object.entries(emails)) {
-      if (BRANDED.includes(name) || MODERN.includes(name) || TICKET_EMAILS.includes(name)) continue;
+      if (BRANDED.includes(name) || MODERN.includes(name) || isKit(name)) continue;
       const email = build();
       expect(email.html, name).not.toContain("<img");
       expect(email.inlineImages ?? [], name).toEqual([]);

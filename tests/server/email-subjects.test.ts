@@ -154,7 +154,7 @@ describe("every email's subject is cleaned", () => {
   });
 
   it("keeps the words, in order", () => {
-    expect(emails.ticket().subject).toBe(`Your tickets: ${CLEAN_TITLE}`);
+    expect(emails.ticket().subject).toBe(`You’re in: ${CLEAN_TITLE}`);
     expect(emails.freeConfirmation().subject).toBe(`Confirm your free tickets: ${CLEAN_TITLE}`);
     expect(emails.waitlistConfirmation().subject).toBe(`Confirm the waitlist: ${CLEAN_TITLE}`);
     expect(emails.waitlistAvailable().subject).toBe(`Tickets are available again: ${CLEAN_TITLE}`);

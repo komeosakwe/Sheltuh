@@ -67,7 +67,7 @@ const order = {
   ],
 } as OrderRecord;
 
-/** The design's fixture (§10 E2): HERE & NOW, one "Second release" ticket, A$25.94, #A90133C9. */
+/** The design's fixture (Latte's 1120 ticket email): HERE & NOW, one "Second release" ticket, A$23.00 + A$2.94 booking fee = A$25.94, #A90133C9. */
 const mockEvent = {
   ...event,
   slug: "here-and-now",
@@ -78,13 +78,18 @@ const mockEvent = {
   state: "VIC",
   startsAt: "2026-11-14T06:00:00.000Z", // Sat 14 Nov 2026, 5:00 pm AEDT
   endsAt: "2026-11-14T10:00:00.000Z", // 9:00 pm AEDT
+  organiserId: "org_herenow",
+  organiserName: "Here & Now Collective",
 } as EventRecord;
 const mockOrder = {
   orderId: "ord_a90133c95b3d4f6e9a182d4c6b8e0f13",
   buyerEmail: "fan@example.com",
   status: "paid",
   totalCents: 2594,
-  lineItems: [{ ticketTypeId: "t2", ticketTypeName: "Second release", unitPriceCents: 2400, feePolicy: "buyer-pays", quantity: 1 }],
+  subtotalCents: 2300,
+  buyerFeeCents: 294,
+  createdAt: "2026-11-12T10:41:00.000Z", // 9:41 pm AEDT
+  lineItems: [{ ticketTypeId: "t2", ticketTypeName: "Second release", unitPriceCents: 2300, feePolicy: "buyer-pays", quantity: 1 }],
   tickets: [{ ticketCode: "BPT7-7P6W", ticketTypeId: "t2", ticketTypeName: "Second release" }],
 } as OrderRecord;
 const BUILT = new Date("2026-11-01T00:00:00.000Z");
@@ -119,8 +124,8 @@ describe("buildTicketEmail: the design's fixture, top to bottom", () => {
 
   it("reads in the design's order, word for word", () => {
     const sequence = [
-      "ORDER #A90133C9",
-      "You’re in. Here’s your ticket.",
+      "Order #A90133C9 · Confirmed",
+      "Hi, you’re in. Here’s your ticket.",
       "ADMIT ONE · SHELTÜH",
       "HERE & NOW",
       "Interconnect Studio · Coburg North",
@@ -144,15 +149,21 @@ describe("buildTicketEmail: the design's fixture, top to bottom", () => {
       "Get directions ↗",
       "Event info",
       "Line-up, door times and what to bring",
-      "View event page",
+      "View event info",
+      "Hosted by Here & Now Collective",
+      "Questions about the event? Ask the organiser.",
+      "Contact organiser",
       "Order summary",
       "Order reference",
       "#A90133C9",
+      "Order date",
+      "12 Nov 2026, 9:41 pm",
       "1 × Second release",
-      "A$25.94",
+      "A$23.00",
+      "Booking fee",
+      "A$2.94",
       "Total paid",
       "A$25.94",
-      "Incl. booking fees",
       `No refunds for change of mind. ${REFUND_ACL_STATEMENT}`,
       "Going with friends?",
       "Send them the event so you can go together.",
@@ -187,8 +198,9 @@ describe("buildTicketEmail: the design's fixture, top to bottom", () => {
     expect(html).toContain('<meta name="color-scheme" content="light">');
     expect(html).toContain('<meta name="supported-color-schemes" content="light">');
     expect(html).toContain("color-scheme:light;supported-color-schemes:light");
-    expect(html).toContain('class="column" style="width:100%;max-width:600px;background-color:#ffffff"');
-    expect(html).toContain('<body bgcolor="#ffffff"');
+    // Latte's 1120 frames: a white 600px column on the cream page.
+    expect(html).toContain('bgcolor="#ffffff" style="width:100%;max-width:600px;background-color:#ffffff"');
+    expect(html).toContain('<body bgcolor="#fffae7"');
     expect(html).toContain("font-family:'Instrument Sans',Arial,Helvetica,sans-serif");
     expect(html).toContain("font-family:'IBM Plex Mono','Courier New',monospace");
     for (const file of Object.values(TICKET_EMAIL_FONTS)) {
@@ -221,18 +233,19 @@ describe("buildTicketEmail: the design's fixture, top to bottom", () => {
     }
   });
 
-  it("uses only the design's colours, Signal Orange never as text", () => {
+  it("uses only the design's colours, Signal Orange as text only in the eyebrow", () => {
     const colours = new Set(email.html.match(/#[0-9a-fA-F]{6}\b/g)?.map((c) => c.toLowerCase()));
     for (const colour of colours) expect(Object.values<string>(TICKET_EMAIL_COLOURS)).toContain(colour);
-    // The order label and the venue line are the darker orange (4.8:1, owner decision P1).
-    expect(email.html).toMatch(/color:#d03e00;letter-spacing:0\.08em;padding-bottom:12px">ORDER #A90133C9<\/p>/);
+    // Latte's eyebrow: IBM Plex Mono Medium 14/20, Signal Orange (owner rule 21 Nov: the frames win; contrast logged for the owner).
+    expect(email.html).toMatch(/font-size:14px;line-height:20px;font-weight:500;color:#ff4800;letter-spacing:0\.56px[^"]*">Order #A90133C9 · Confirmed<\/p>/);
+    expect(email.html.match(/(?<!-)color:#ff4800/g)).toHaveLength(1);
+    // The ticket card keeps its darker orange venue line (the card is unchanged).
     expect(email.html).toMatch(/font-size:11px;line-height:16px;font-weight:500;color:#d03e00;letter-spacing:0\.12em;text-transform:uppercase[^"]*">Interconnect Studio · Coburg North<\/p>/);
-    expect(email.html).not.toMatch(/(?<!-)color:#ff4800/);
   });
 
   it("one h1, and h2s for Order summary and Going with friends?", () => {
     expect(email.html.match(/<h1/g)).toHaveLength(1);
-    expect(email.html).toContain(">You’re in. Here’s your ticket.</h1>");
+    expect(email.html).toContain(">Hi, you’re in. Here’s your ticket.</h1>");
     expect([...email.html.matchAll(/<h2[^>]*>([^<]*)<\/h2>/g)].map((m) => m[1])).toEqual(["Order summary", "Going with friends?"]);
   });
 
@@ -331,7 +344,7 @@ describe("the ticket card", () => {
       // Every card is a whole ticket: the event's title, venue, date and time on each.
       for (const piece of [">Paint &#38; &#60;Sip&#62;</p>", ">Studio 5 · Fitzroy</p>", ">Sat 6 Mar</p>", ">8–10 pm</p>"]) expect(card).toContain(piece);
     }
-    expect(email.html).toContain(">You’re in. Here are your tickets.</h1>");
+    expect(email.html).toContain(">Hi, you’re in. Here are your 4 tickets.</h1>");
     expect(email.html).toContain(">View your tickets&nbsp;&nbsp;");
     expect(qrImages(email).map((q) => q.cid)).toEqual(codes.map((_, i) => `ticket-qr-${i + 1}@sheltuh.com.au`));
   });
@@ -385,7 +398,7 @@ describe("the ticket card", () => {
     expect(email.html).not.toContain("cid:ticket-qr");
     expect(email.html).toContain(">Entry code</p>");
     expect(email.html).toMatch(/font-size:24px;line-height:32px;font-weight:600[^"]*">abcd-efgh<\/p>/);
-    expect(email.html).toContain("Show your entry code at the door."); // preheader
+    expect(email.html).toContain("Order #ABC&nbsp;&zwnj;"); // the preheader
     expect(email.text).toContain("Entry code: abcd-efgh (show this at the door)");
   });
 
@@ -461,7 +474,7 @@ describe("the wordmark and the hosted images", () => {
     const [header = "", footer = ""] = tags;
     expect(header).toContain('width="106" height="24" alt="Sheltüh"');
     expect(footer).toContain('width="88" height="20" alt="Sheltüh"');
-    expect(email.html.indexOf(header)).toBeLessThan(email.html.indexOf("ORDER #"));
+    expect(email.html.indexOf(header)).toBeLessThan(email.html.indexOf("Order #ABC · Confirmed"));
   });
 
   it("the wordmark is the PNG shipped in public/email/ticket, at 2x", () => {
@@ -605,7 +618,7 @@ describe("wallet buttons (ticketWalletLinks; the outbox passes which wallets are
 });
 
 describe("the buttons", () => {
-  it("View your ticket(s) → (orange, black label) and Manage order (outlined): both the order's existing ticket page, 56px tall, Outlook-safe", () => {
+  it("View your ticket(s) → (orange, black label, Latte's 56px email CTA) and Manage order (1.5px outline): both the order's existing ticket page, Outlook-safe", () => {
     for (const [tickets, label] of [
       [[order.tickets[0]], "View your ticket"],
       [order.tickets, "View your tickets"],
@@ -615,11 +628,11 @@ describe("the buttons", () => {
       expect(page).toBe(`${SITE}/checkout/success?session_id=ord_abc`);
       const href = page.replace(/[.?]/g, "\\$&");
       expect(html).toMatch(
-        new RegExp(`<td align="center" bgcolor="#ff4800" style="background-color:#ff4800;border-radius:8px;mso-padding-alt:18px 16px"><a class="bt" href="${href}" style="display:block;padding:18px 16px;[^"]*color:#000000[^"]*">${label}&nbsp;&nbsp;<span[^>]*>&rarr;</span></a>`),
+        new RegExp(`<td align="center" bgcolor="#ff4800" style="background-color:#ff4800;border-radius:8px;mso-padding-alt:16px 24px"><a class="kbp" href="${href}" style="display:block;padding:16px 24px;font-family:[^"]*;font-size:18px;line-height:24px;font-weight:500;color:#000000[^"]*">${label}&nbsp;&nbsp;<span[^>]*>&rarr;</span></a>`),
       );
       // Its table keeps separate borders: in the collapsed model the stroke ignores the radius (square corners).
       expect(html).toMatch(
-        new RegExp(`<table [^>]*style="border-collapse:separate"><tr><td align="center" bgcolor="#ffffff" style="background-color:#ffffff;border:1\\.5px solid #000000;border-radius:6px;mso-padding-alt:16px 16px"><a class="bo" href="${href}" style="display:block;padding:16\\.5px 16px;[^"]*">Manage order</a>`),
+        new RegExp(`<table [^>]*style="border-collapse:separate"><tr><td align="center" bgcolor="#ffffff" style="background-color:#ffffff;border:1\\.5px solid #000000;border-radius:8px;mso-padding-alt:14px 24px"><a class="kbs" href="${href}" style="display:block;padding:14\\.5px 24px;[^"]*">Manage order</a>`),
       );
       // The text fallback is only in the plain-text part.
       expect(text).toContain(`${label}: ${page}\nManage order: ${page}\n(Button not working? Use the links above.)`);
@@ -651,7 +664,7 @@ describe("the info rows", () => {
       `<a href="${esc(href)}" title="${title}" style="color:#000000;text-decoration:underline;text-underline-offset:2px">${label}</a>`;
     // P3: "Add to calendar:" itself isn't underlined; only the three links are.
     expect(email.html).toContain(
-      `font-size:15px;line-height:24px;font-weight:600;color:#000000;padding-top:3px">Add to calendar: ${anchor(links.google!, "Add to Google Calendar", "Google")} &middot; ${anchor(links.apple!, "Add to Apple Calendar", "Apple")} &middot; ${anchor(links.outlook!, "Add to Outlook Calendar", "Outlook")}</p>`,
+      `font-size:15px;line-height:22px;font-weight:600;color:#000000">Add to calendar: ${anchor(links.google!, "Add to Google Calendar", "Google")} &middot; ${anchor(links.apple!, "Add to Apple Calendar", "Apple")} &middot; ${anchor(links.outlook!, "Add to Outlook Calendar", "Outlook")}</p>`,
     );
     expect(email.html).toContain(">Saturday 14 November 2026</p>");
     expect(email.html).toContain(">5:00 – 9:00 pm AEDT</p>");
@@ -667,13 +680,15 @@ describe("the info rows", () => {
     expect(email.text).toContain(`Interconnect Studio, 16 Catherine St, Coburg North VIC\nGet directions: ${directions}`);
   });
 
-  it("Event info: links the event's public page; three hosted, decorative icons in 40px grey circles", () => {
+  it("Event info: links the event's public page; Hosted by links the organiser's page; hosted, decorative icons in 40px grey circles", () => {
     const email = buildTicketEmail(mockOrder, mockEvent, SITE);
-    expect(email.html).toContain(`<a href="${SITE}/events/here-and-now" style="color:#000000;text-decoration:underline;text-underline-offset:2px">View event page</a>`);
+    expect(email.html).toContain(`<a href="${SITE}/events/here-and-now" style="color:#000000;text-decoration:underline;text-underline-offset:2px">View event info</a>`);
+    expect(email.html).toContain(`<a href="${SITE}/organisers/org_herenow" style="color:#000000;text-decoration:underline;text-underline-offset:2px">Contact organiser</a>`);
+    expect(email.text).toContain(`Hosted by Here & Now Collective. Questions about the event? Ask the organiser: ${SITE}/organisers/org_herenow`);
     expect(email.text).toContain(`Event info (line-up, door times and what to bring): ${SITE}/events/here-and-now`);
     for (const icon of [TICKET_EMAIL_ASSETS.calendar, TICKET_EMAIL_ASSETS.pin, TICKET_EMAIL_ASSETS.info]) {
       expect(email.html).toContain(
-        `<td width="40" height="40" align="center" valign="middle" bgcolor="#f2f1ee" style="width:40px;height:40px;border-radius:50%;background-color:#f2f1ee"><img src="${SITE}${icon}" width="20" height="20" alt=""`,
+        `<td width="40" height="40" align="center" valign="middle" bgcolor="#f2f1ee" style="width:40px;height:40px;border-radius:20px;background-color:#f2f1ee"><img src="${SITE}${icon}" width="20" height="20" alt=""`,
       );
     }
   });
@@ -716,10 +731,19 @@ describe("the order summary", () => {
     const { html, text } = buildTicketEmail(two, event, SITE);
     expect(html).toMatch(/>Order reference<\/td><td align="right" valign="top" style="[^"]*font-family:'IBM Plex Mono'[^"]*">#ABC<\/td>/);
     expect(html).toMatch(/>2 × Second release<\/td><td align="right" valign="top" style="[^"]*">A\$51\.88<\/td>/);
-    expect(html).toMatch(/>1 × Organiser pays<\/td><td align="right" valign="top" style="[^"]*">A\$10<\/td>/);
+    expect(html).toMatch(/>1 × Organiser pays<\/td><td align="right" valign="top" style="[^"]*">A\$10\.00<\/td>/);
     expect(html).toMatch(/>Total paid<\/td><td align="right" valign="top" style="[^"]*font-weight:700[^"]*">A\$61\.88<\/td>/);
     expect(html).toContain(">Incl. booking fees</p>");
-    expect(text).toContain("ORDER SUMMARY\nOrder reference: #ABC\n2 × Second release: A$51.88\n1 × Organiser pays: A$10\nTotal paid: A$61.88 (incl. booking fees)");
+    expect(text).toContain("ORDER SUMMARY\nOrder reference: #ABC\n2 × Second release: A$51.88\n1 × Organiser pays: A$10.00\nTotal paid: A$61.88 (incl. booking fees)");
+  });
+
+  it("Latte's itemised summary when the order's own figures add up: the order date, each line at its ticket price, the booking fee, the total", () => {
+    const { html, text } = buildTicketEmail(mockOrder, mockEvent, SITE, BUILT);
+    expect(html).toMatch(/>Order date<\/td><td align="right" valign="top" style="[^"]*">12 Nov 2026, 9:41 pm<\/td>/);
+    expect(html).toMatch(/>1 × Second release<\/td><td align="right" valign="top" style="[^"]*">A\$23\.00<\/td>/);
+    expect(html).toMatch(/>Booking fee<\/td><td align="right" valign="top" style="[^"]*">A\$2\.94<\/td>/);
+    expect(html).not.toContain("Incl. booking fees");
+    expect(text).toContain("ORDER SUMMARY\nOrder reference: #A90133C9\nOrder date: 12 Nov 2026, 9:41 pm\n1 × Second release: A$23.00\nBooking fee: A$2.94\nTotal paid: A$25.94\n");
   });
 
   it("never prints line amounts that don't add up to the total (less Support Sheltüh)", () => {
@@ -727,17 +751,24 @@ describe("the order summary", () => {
     expect(ticketEmailLineItems(off)).toEqual([{ label: "1 × Second release", cents: null }]);
     const { html, text } = buildTicketEmail(off, mockEvent, SITE);
     expect(html).toMatch(/>1 × Second release<\/td><td align="right" valign="top" style="[^"]*"><\/td>/);
-    expect(text).toContain("1 × Second release\nTotal paid: A$26 (incl. booking fees)");
-    const supported = { ...mockOrder, totalCents: 2594 + 500, supportCents: 500 } as OrderRecord;
+    expect(text).toContain("1 × Second release\nTotal paid: A$26.00 (incl. booking fees)");
+    const supported = {
+      ...mockOrder,
+      lineItems: [{ ticketTypeId: "t2", ticketTypeName: "Second release", unitPriceCents: 2400, feePolicy: "buyer-pays", quantity: 1 }],
+      totalCents: 2594 + 500,
+      supportCents: 500,
+    } as OrderRecord;
     expect(ticketEmailLineItems(supported)[0].cents).toBe(2594);
     expect(ticketEmailLineItems({ ...mockOrder, lineItems: undefined } as unknown as OrderRecord)).toEqual([]);
   });
 
-  it("a free order: Free, no booking-fee note, no refund paragraph", () => {
+  it("a free order: Total A$0.00, no tax invoice, no booking-fee note, no refund paragraph", () => {
     const { html, text } = buildTicketEmail({ ...order, totalCents: 0 } as OrderRecord, event, SITE);
-    expect(html).toMatch(/>Total paid<\/td><td align="right" valign="top" style="[^"]*">Free<\/td>/);
+    expect(html).toMatch(/>Total<\/td><td align="right" valign="top" style="[^"]*">A\$0\.00<\/td>/);
+    expect(html).toContain(">No payment was taken, so there’s no tax invoice for this order.</p>");
+    expect(html).toContain(">You’re in. Here are your 2 tickets.</h1>");
     expect(html).not.toContain("booking fees");
-    expect(text).toContain("Total paid: Free");
+    expect(text).toContain("Total: A$0.00");
     for (const body of [html, text]) expect(body).not.toContain("Australian Consumer Law");
   });
 
@@ -748,20 +779,20 @@ describe("the order summary", () => {
     expect(row).toBeGreaterThan(html.indexOf(">Order reference</td>"));
     expect(row).toBeLessThan(html.indexOf(">Total paid</td>"));
     expect(html).toContain(">Incl. booking fees and Support Sheltüh</p>");
-    expect(text).toContain("Support Sheltüh: A$5\nTotal paid: A$69 (incl. booking fees and Support Sheltüh)");
+    expect(text).toContain("Support Sheltüh: A$5.00\nTotal paid: A$69.00 (incl. booking fees and Support Sheltüh)");
     expect(html.indexOf(`>${SUPPORT_REFUND_NOTE}</p>`)).toBeGreaterThan(html.indexOf("Australian Consumer Law"));
     expect(text).toContain(`${REFUND_ACL_STATEMENT}\n${SUPPORT_REFUND_NOTE}`);
   });
 });
 
 describe("refund policy (docs/architecture.md, Refund policy)", () => {
-  it("a paid order: the event's policy then the site's shared Australian Consumer Law sentence, right-aligned under the total", () => {
+  it("a paid order: the event's policy then the site's shared Australian Consumer Law sentence, under the total", () => {
     const days = { ...event, refundPolicy: "days_before", refundDays: 7 } as EventRecord;
     const { html, text } = buildTicketEmail(order, days, SITE, BUILT);
     const line = "Refunds available until Sat 27 Feb 2027, 8:00 pm (7 days before the event).";
     expect(REFUND_ACL_STATEMENT).toBe("You're always entitled to a refund if the event is cancelled or significantly changed, as the Australian Consumer Law requires.");
     expect(html).toContain(
-      `text-align:right;font-family:'Instrument Sans',Arial,Helvetica,sans-serif;font-size:14px;line-height:20px;font-weight:400;color:#5c5c5c">${line} ${REFUND_ACL_STATEMENT.replace("'", "&#39;")}</p>`,
+      `font-family:'Instrument Sans',Arial,Helvetica,sans-serif;font-size:14px;line-height:20px;font-weight:400;color:#5c5c5c;padding-top:8px">${line} ${REFUND_ACL_STATEMENT.replace("'", "&#39;")}</p>`,
     );
     expect(text).toContain(`${line} ${REFUND_ACL_STATEMENT}`);
     expect(html.indexOf(line)).toBeGreaterThan(html.indexOf(">Total paid<"));
@@ -804,7 +835,7 @@ describe("Going with friends?", () => {
     const email = buildTicketEmail(mockOrder, mockEvent, SITE);
     const box = email.html.slice(email.html.indexOf('bgcolor="#fffae7"'), email.html.indexOf("Need a hand?"));
     const chips = [
-      ...box.matchAll(/<a href="([^"]+)" style="display:inline-block;margin:0 8px 8px 0;padding:8\.5px 16px;border:1\.5px solid #000000;border-radius:8px;[^"]*">([^<]+)<\/a>/g),
+      ...box.matchAll(/<a href="([^"]+)" style="display:inline-block;margin:8px 8px 0 0;padding:8px 16px;border:1\.5px solid #000000;border-radius:8px;[^"]*">([^<]+)<\/a>/g),
     ];
     expect(chips.map((c) => c[2])).toEqual(["WhatsApp", "Messages", "Email", "Share page"]);
     const [whatsapp, sms, mail, page] = chips.map((c) => c[1].replaceAll("&#38;", "&").replaceAll("&#39;", "'"));
@@ -827,16 +858,16 @@ describe("the footer", () => {
   it("centred: the small wordmark, the tagline, SHELTÜH · MELBOURNE, Privacy policy · Terms · Help centre and why you got this; no legal line", () => {
     const { html, text } = buildTicketEmail(order, event, SITE);
     const footer = html.slice(html.lastIndexOf(`<img src="cid:${WORDMARK_CID}"`));
-    expect(footer).toContain(">Find your place, find your people.</td>");
-    expect(footer).toContain(">SHELT&Uuml;H &middot; MELBOURNE</td>");
+    expect(footer).toContain(">Find your place, find your people.</p>");
+    expect(footer).toContain(">SHELT&Uuml;H &middot; MELBOURNE</p>");
     for (const [href, label] of [
       ["/privacy", "Privacy policy"],
       ["/terms", "Terms"],
       ["/help", "Help centre"],
     ]) {
-      expect(footer).toContain(`<a href="${SITE}${href}" style="color:#5c5c5c;text-decoration:underline">${label}</a>`);
+      expect(footer).toContain(`<a href="${SITE}${href}" style="color:#5c5c5c;text-decoration:underline;text-underline-offset:2px">${label}</a>`);
     }
-    expect(footer).toContain(">You&rsquo;re getting this email because you bought a ticket on Sheltüh.</td>");
+    expect(footer).toContain(">You’re getting this email because you bought a ticket on Sheltüh.</p>");
     expect(html).not.toMatch(/ABN|Pty Ltd|sheltuh-email-footer/);
     // "Need a hand?" sits above the footer.
     expect(html.indexOf("Need a hand?")).toBeLessThan(html.lastIndexOf(`<img src="cid:${WORDMARK_CID}"`));
@@ -888,8 +919,8 @@ describe("plain text (docs/design/ticket-email.md §9)", () => {
         [
           "SHELTÜH",
           "",
-          "ORDER #A90133C9",
-          "You're in. Here's your ticket.",
+          "Order #A90133C9 · Confirmed",
+          "Hi, you're in. Here's your ticket.",
           "",
           "HERE & NOW",
           "Interconnect Studio · Coburg North",
@@ -910,7 +941,7 @@ describe("plain text (docs/design/ticket-email.md §9)", () => {
       ),
     ).toBe(true);
     expect(text).toContain(
-      `ORDER SUMMARY\nOrder reference: #A90133C9\n1 × Second release: A$25.94\nTotal paid: A$25.94 (incl. booking fees)\nNo refunds for change of mind. ${REFUND_ACL_STATEMENT}`,
+      `ORDER SUMMARY\nOrder reference: #A90133C9\nOrder date: 12 Nov 2026, 9:41 pm\n1 × Second release: A$23.00\nBooking fee: A$2.94\nTotal paid: A$25.94\nNo refunds for change of mind. ${REFUND_ACL_STATEMENT}`,
     );
     expect(text).not.toMatch(/<\/?(?:td|tr|table|img|a|br|p|h1|span|div)\b|cid:|&#|&rsquo;|&middot;/i);
   });
@@ -1034,9 +1065,13 @@ describe("times, dates and places", () => {
   it("the subject and the preheader", () => {
     const email = buildTicketEmail(order, event, SITE);
     expect(email.to).toBe("fan@example.com");
-    expect(email.subject).toBe("Your tickets: Paint & <Sip>");
+    // Latte's "for dev" table: "Your ticket to …", "Your 2 tickets to …", "You’re in: …" (free).
+    expect(email.subject).toBe("Your 2 tickets to Paint & <Sip>");
+    expect(buildTicketEmail({ ...order, tickets: [order.tickets[0]] }, event, SITE).subject).toBe("Your ticket to Paint & <Sip>");
+    expect(buildTicketEmail({ ...order, totalCents: 0 }, event, SITE).subject).toBe("You’re in: Paint & <Sip>");
     const preheader = email.html.match(/<body[^>]*>\n<div style="([^"]*)">([^<]*)</);
-    expect(preheader?.[2]).toContain("Your tickets for Paint &#38; &#60;Sip&#62;. Show your QR code at the door.");
+    expect(preheader?.[2]).toContain("Sat 6 Mar · Studio 5 · Order #ABC");
+    expect(buildTicketEmail({ ...order, totalCents: 0 }, event, SITE).html).toContain(">Free entry · Sat 6 Mar · Studio 5 · Order #ABC&nbsp;");
     for (const rule of ["display:none", "mso-hide:all", "max-height:0", "overflow:hidden", "opacity:0"]) expect(preheader?.[1]).toContain(rule);
   });
 });
