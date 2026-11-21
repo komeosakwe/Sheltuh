@@ -99,8 +99,7 @@ function DemoSaved() {
 function LiveSaved({ getToken }: { getToken: () => Promise<string> }) {
   const favourites = useFavourites();
   const [state, setState] = useState<ListState>({ status: "loading" });
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [moreError, setMoreError] = useState(false);
+  const [restFailed, setRestFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
@@ -124,31 +123,38 @@ function LiveSaved({ getToken }: { getToken: () => Promise<string> }) {
     };
   }, [getToken, attempt]);
 
+  // The filters and their counts need the whole list (up to 500), not the first page: the rest is
+  // fetched page by page straight after the first is shown. A failed page stops it, and says so.
+  const nextCursor = state.status === "ready" ? state.nextCursor : undefined;
+  useEffect(() => {
+    if (!nextCursor || restFailed) return;
+    let cancelled = false;
+    listFavourites(getToken, { cursor: nextCursor, limit: SAVED_PAGE_SIZE }).then(
+      (page) => {
+        if (cancelled) return;
+        setState((current) => {
+          if (current.status !== "ready") return current;
+          const seen = new Set(current.events.map((e) => e.id));
+          return {
+            ...current,
+            events: [...current.events, ...page.items.map(adaptPublicEvent).filter((e) => !seen.has(e.id))],
+            nextCursor: page.nextCursor,
+          };
+        });
+      },
+      () => {
+        if (!cancelled) setRestFailed(true);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [getToken, nextCursor, restFailed]);
+
   function retry() {
     setState({ status: "loading" });
+    setRestFailed(false);
     setAttempt((n) => n + 1);
-  }
-
-  async function loadMore() {
-    if (state.status !== "ready" || !state.nextCursor) return;
-    setLoadingMore(true);
-    setMoreError(false);
-    try {
-      const page = await listFavourites(getToken, { cursor: state.nextCursor, limit: SAVED_PAGE_SIZE });
-      setState((current) => {
-        if (current.status !== "ready") return current;
-        const seen = new Set(current.events.map((e) => e.id));
-        return {
-          ...current,
-          events: [...current.events, ...page.items.map(adaptPublicEvent).filter((e) => !seen.has(e.id))],
-          nextCursor: page.nextCursor,
-        };
-      });
-    } catch {
-      setMoreError(true);
-    } finally {
-      setLoadingMore(false);
-    }
   }
 
   if (state.status === "loading") {
@@ -177,16 +183,16 @@ function LiveSaved({ getToken }: { getToken: () => Promise<string> }) {
       events={state.events}
       now={state.now}
       count={favourites?.status === "ready" ? favourites.count : state.events.length}
-      more={state.nextCursor ? { busy: loadingMore, failed: moreError, load: loadMore } : undefined}
+      rest={{ complete: !state.nextCursor, failed: restFailed, retry: () => setRestFailed(false) }}
     />
   );
 }
 
-/** Loading the next page of saved events from the API (live mode). */
-interface MoreFromApi {
-  busy: boolean;
+/** The rest of the saved events, after the first page (live mode): still loading, all in, or stopped by an error. */
+interface RestOfList {
+  complete: boolean;
   failed: boolean;
-  load: () => Promise<void>;
+  retry: () => void;
 }
 
 type SavedFilter = "all" | "week" | "free";
@@ -208,12 +214,12 @@ function SavedList({
   events,
   now,
   count,
-  more,
+  rest = { complete: true, failed: false, retry: () => undefined },
 }: {
   events: SheltuhEvent[];
   now: number;
   count: number;
-  more?: MoreFromApi;
+  rest?: RestOfList;
 }) {
   const [removed, setRemoved] = useState<ReadonlySet<string>>(new Set());
   const [filter, setFilter] = useState<SavedFilter>("all");
@@ -239,10 +245,13 @@ function SavedList({
 
   if (events.length === 0) return <SavedEmpty />;
 
-  const filters: { key: SavedFilter; label: string; count: number }[] = [
+  // This week and Free count the whole list, so their numbers wait until it's all in (All is the
+  // saved total, known from the start).
+  const whole = rest.complete;
+  const filters: { key: SavedFilter; label: string; count: number | null }[] = [
     { key: "all", label: "All", count: Math.max(count, upcoming.length) },
-    { key: "week", label: "This week", count: upcoming.filter((event) => isThisWeek(event, now)).length },
-    { key: "free", label: "Free", count: upcoming.filter(isFree).length },
+    { key: "week", label: "This week", count: whole ? upcoming.filter((event) => isThisWeek(event, now)).length : null },
+    { key: "free", label: "Free", count: whole ? upcoming.filter(isFree).length : null },
   ];
   const filtered =
     filter === "week" ? upcoming.filter((event) => isThisWeek(event, now)) : filter === "free" ? upcoming.filter(isFree) : upcoming;
@@ -275,8 +284,12 @@ function SavedList({
             }`}
           >
             {option.label}
-            <span aria-hidden="true">&nbsp;·</span>
-            <span className="sr-only">,</span> {option.count}
+            {option.count !== null && (
+              <>
+                <span aria-hidden="true">&nbsp;·</span>
+                <span className="sr-only">,</span> {option.count}
+              </>
+            )}
           </button>
         ))}
       </div>
@@ -297,7 +310,7 @@ function SavedList({
               </li>
             ))}
           </ul>
-        ) : (
+        ) : !whole ? null : (
           <p className="body-s text-muted">
             {filter === "all" ? "Nothing coming up." : filter === "week" ? "Nothing on this week." : "No free events saved."}
           </p>
@@ -308,26 +321,17 @@ function SavedList({
               Show {Math.min(SAVED_STEP, hidden)} more
             </button>
           </div>
+        ) : rest.failed ? (
+          <div className="flex flex-col items-start gap-3">
+            <Notice tone="danger" role="alert">
+              Couldn&rsquo;t load all your saved events.
+            </Notice>
+            <button type="button" onClick={rest.retry} className={SHOW_MORE_CLASS}>
+              Try again
+            </button>
+          </div>
         ) : (
-          more && (
-            <div className="flex flex-col items-start gap-3">
-              {more.failed && (
-                <Notice tone="danger" role="alert">
-                  Couldn&rsquo;t load more. Try again.
-                </Notice>
-              )}
-              <button
-                type="button"
-                aria-disabled={more.busy || undefined}
-                onClick={() => {
-                  if (!more.busy) void more.load();
-                }}
-                className={SHOW_MORE_CLASS}
-              >
-                {more.busy ? "Loading…" : "Show more"}
-              </button>
-            </div>
-          )
+          !whole && <LoadingState text="Loading the rest of your saved events…" />
         )}
         <p role="status" className="sr-only">
           {announcement}

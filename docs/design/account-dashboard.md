@@ -37,14 +37,18 @@ line and a link to Discover.
 
 - **Saved** (`SavedPageContent`, `SavedEventCard`): filters All · This week (next 7 days) · Free with
   counts (aria-pressed); its own grid (`SAVED_GRID`: 1 / 2 from 768 / 3 from 1280); six cards, then
-  "Show 6 more", then the API's next page. The card: 144px photo with the heart, category tag (32px),
+  "Show 6 more". The first page (48) shows at once and the rest of the list (up to 500) loads behind
+  it, so the filters count all of it: This week and Free show their numbers, and their "none" lines,
+  only once it's all in; a failed page says so with Try again. The card: 144px photo with the heart, category tag (32px),
   Heading/H3 title, "Suburb · Venue" in Plex Mono, going + price. Ended events keep their Remove list.
 - **Messages** (`MessagesFrame` in `app/(account)/messages/layout.tsx`): the cream conversation list
   (280 from 768, 360 from 1280; above the thread on phones) beside the thread panel (676 / 764 tall, the
   messages scroll between head and composer). Rows: tinted 44px avatar, name (truncates), short time
   ("2h"), one-line preview, orange unread dot; the open one is white with `aria-current`. Bubbles carry
   their time (Plex Mono) inside, max 392. The 768 frame's stacked head, zero-height avatar, stacked
-  composer and 50/50 name/time split are treated as slips (figma NOTES 30).
+  composer and 50/50 name/time split are treated as slips (figma NOTES 30). The list stays mounted
+  between conversations and reloads (InboxSync) after a read, reply, accept, decline, block or unblock,
+  and when you open another conversation or go back to /messages.
 - **Settings** (`AccountContent`): two columns of outlined cards from 768 (stacked on phones). Left: Your
   profile, Privacy (Blocked members, privacy link, Delete your profile). Right: Sign-in ("Signed in as … ·
   Google", Sign out: the only log-out below 1024), Events (Your events / Organise events, Organisers you

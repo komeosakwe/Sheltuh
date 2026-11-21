@@ -210,18 +210,57 @@ describe("/saved — live", () => {
     expect(document.querySelector("[data-favourites-notice]")).toBeNull();
   });
 
-  it("Show more loads the next page (48 at a time) and shows its own error", async () => {
-    live([fav("a", "Future A", "future")], "cursor-2");
+  it("loads the rest of the list (48 at a time) so the filters count all of it: a free event saved long ago counts", async () => {
+    // 60 saves: the first page is 48 paid events, the second has the only free one.
+    const paid = (i: number) => {
+      const event = fav(`p${i}`, `Paid ${i}`, "future");
+      event.ticketTypes = [{ id: "t", name: "GA", priceCents: 2000, feePolicy: "buyer-pays", quantityAvailable: 10 }];
+      return event;
+    };
+    const first = Array.from({ length: 48 }, (_, i) => paid(i));
+    const second = [...Array.from({ length: 11 }, (_, i) => paid(48 + i)), fav("free-old", "Free From Long Ago", "future")];
+    api.listFavouriteIds.mockResolvedValue({ eventIds: [...first, ...second].map((e) => e.eventId) });
+    let resolveSecond: (page: { items: FavouriteEvent[] }) => void = () => undefined;
+    api.listFavourites
+      .mockResolvedValueOnce({ items: first, nextCursor: "cursor-2" })
+      .mockReturnValueOnce(new Promise((resolve) => (resolveSecond = resolve)));
     renderSaved();
-    const more = await screen.findByRole("button", { name: "Show more" });
-    api.listFavourites.mockRejectedValueOnce(new ApiError(0, "offline"));
-    fireEvent.click(more);
-    expect(await screen.findByText("Couldn’t load more. Try again.")).toBeInTheDocument();
-    api.listFavourites.mockResolvedValueOnce({ items: [fav("b", "Future B", "future")] });
-    fireEvent.click(screen.getByRole("button", { name: "Show more" }));
+    const filters = await screen.findByRole("group", { name: "Filter saved events" });
+    // Until the whole list is in, This week and Free show no number, and Free says nothing definite.
+    expect(within(filters).getByRole("button", { name: "Free" })).toBeInTheDocument();
+    expect(within(filters).getByRole("button", { name: "All, 60" })).toBeInTheDocument();
+    fireEvent.click(within(filters).getByRole("button", { name: "Free" }));
+    expect(screen.queryByText("No free events saved.")).toBeNull();
+    expect(screen.getByRole("progressbar", { name: "Loading the rest of your saved events" })).toBeInTheDocument();
+    expect(api.listFavourites).toHaveBeenLastCalledWith(expect.any(Function), { cursor: "cursor-2", limit: 48 });
+
+    resolveSecond({ items: second });
+    expect(await within(filters).findByRole("button", { name: "Free, 1" })).toHaveAttribute("aria-pressed", "true");
+    const upcoming = screen.getByRole("region", { name: "Coming up" });
+    expect(within(upcoming).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["Free From Long Ago"]);
+    expect(within(filters).getByRole("button", { name: "This week, 0" })).toBeInTheDocument();
+    expect(screen.queryByRole("progressbar", { name: "Loading the rest of your saved events" })).toBeNull();
+    expect(api.listFavourites).toHaveBeenCalledTimes(2);
+  });
+
+  it("says when the rest of the list couldn't load, and Try again carries on from there", async () => {
+    live([fav("a", "Future A", "future")], "cursor-2");
+    api.listFavourites
+      .mockResolvedValueOnce({ items: [fav("a", "Future A", "future")], nextCursor: "cursor-2" })
+      .mockRejectedValueOnce(new ApiError(0, "offline"))
+      .mockResolvedValueOnce({ items: [fav("b", "Future B", "future")] });
+    renderSaved();
+    expect(await screen.findByText("Couldn’t load all your saved events.")).toHaveAttribute("role", "alert");
+    const filters = screen.getByRole("group", { name: "Filter saved events" });
+    fireEvent.click(within(filters).getByRole("button", { name: "Free" }));
+    // Nothing definite while part of the list is missing.
+    expect(screen.queryByText("No free events saved.")).toBeNull();
+    fireEvent.click(within(filters).getByRole("button", { name: /^All/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByRole("heading", { level: 3, name: "Future B" })).toBeInTheDocument();
     expect(api.listFavourites).toHaveBeenLastCalledWith(expect.any(Function), { cursor: "cursor-2", limit: 48 });
-    expect(screen.queryByRole("button", { name: "Show more" })).toBeNull();
+    expect(screen.queryByText("Couldn’t load all your saved events.")).toBeNull();
+    expect(within(filters).getByRole("button", { name: "Free, 2" })).toBeInTheDocument();
   });
 });
 
