@@ -135,10 +135,57 @@ describe("/saved — live", () => {
     fireEvent.click(screen.getByRole("button", { name: "Show 6 more" }));
     expect(within(upcoming).getAllByRole("heading", { level: 3 })).toHaveLength(12);
     expect(screen.getByRole("link", { name: "Event 6" })).toHaveFocus();
-    expect(screen.getByText("6 more events shown.")).toBeInTheDocument();
+    expect(screen.getByText("6 more shown: 12 of 14 events.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Show 2 more" }));
     expect(within(upcoming).getAllByRole("heading", { level: 3 })).toHaveLength(14);
+    expect(screen.getByText("2 more shown: 14 of 14 events.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Show/ })).toBeNull();
+  });
+
+  it("announces each Show 6 more, even when it adds as many as the last (the running total)", async () => {
+    live(Array.from({ length: 20 }, (_, i) => fav(`e${i}`, `Event ${i}`, "future")));
+    renderSaved();
+    await screen.findByRole("region", { name: "Coming up" });
+    fireEvent.click(screen.getByRole("button", { name: "Show 6 more" }));
+    expect(screen.getByText("6 more shown: 12 of 20 events.")).toHaveAttribute("role", "status");
+    fireEvent.click(screen.getByRole("button", { name: "Show 6 more" }));
+    expect(screen.getByText("6 more shown: 18 of 20 events.")).toHaveAttribute("role", "status");
+  });
+
+  it("counts an event sold on another site as free when its organiser says entry is free", async () => {
+    const outside: FavouriteEvent = { ...fav("x", "Free Outside", "future"), ticketingMode: "external", externalFree: true, ticketTypes: [] };
+    const outsidePaid: FavouriteEvent = {
+      ...fav("y", "Paid Outside", "future"),
+      ticketingMode: "external",
+      externalPriceFromCents: 2000,
+      ticketTypes: [],
+    };
+    live([outside, outsidePaid]);
+    renderSaved();
+    const filters = await screen.findByRole("group", { name: "Filter saved events" });
+    fireEvent.click(within(filters).getByRole("button", { name: "Free, 1" }));
+    const upcoming = screen.getByRole("region", { name: "Coming up" });
+    expect(within(upcoming).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["Free Outside"]);
+  });
+
+  it("shows a failed page with Try again beside Show 6 more; Try again keeps focus on a control and says when it's done", async () => {
+    const first = Array.from({ length: 10 }, (_, i) => fav(`e${i}`, `Event ${i}`, "future"));
+    api.listFavouriteIds.mockResolvedValue({ eventIds: [...first.map((e) => e.eventId), "late"] });
+    api.listFavourites
+      .mockResolvedValueOnce({ items: first, nextCursor: "cursor-2" })
+      .mockRejectedValueOnce(new ApiError(0, "offline"))
+      .mockResolvedValueOnce({ items: [fav("late", "Late One", "future")] });
+    renderSaved();
+    expect(await screen.findByText("Couldn’t load all your saved events.")).toHaveAttribute("role", "alert");
+    // Both at once: the cards still to show, and the page that failed.
+    expect(screen.getByRole("button", { name: "Show 4 more" })).toBeInTheDocument();
+    const retry = screen.getByRole("button", { name: "Try again" });
+    retry.focus();
+    fireEvent.click(retry);
+    // The button goes; focus moves to the filter in use rather than dropping to the page.
+    expect(screen.getByRole("button", { name: /^All/ })).toHaveFocus();
+    expect(await screen.findByText("All 11 saved events loaded.")).toHaveAttribute("role", "status");
+    expect(screen.queryByText("Couldn’t load all your saved events.")).toBeNull();
   });
 
   it("filters by free and by this week", async () => {

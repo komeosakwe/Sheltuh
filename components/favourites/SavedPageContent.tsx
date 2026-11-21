@@ -201,8 +201,9 @@ const WEEK_MS = 7 * 86_400_000;
 
 /** Coming up in the next seven days (or on now). */
 const isThisWeek = (event: SheltuhEvent, now: number) => new Date(event.startsAt).getTime() - now < WEEK_MS;
-/** Its cheapest ticket costs nothing. */
-const isFree = (event: SheltuhEvent) => getMinBuyerTotalCents(event) === 0;
+/** Free to go: its cheapest ticket costs nothing, or (tickets sold on another site) the organiser says entry is free. */
+export const isFree = (event: SheltuhEvent) =>
+  event.ticketingMode === "external" ? Boolean(event.externalFree) : getMinBuyerTotalCents(event) === 0;
 
 /**
  * The saved events (Latte's Saved frames): the filters (All · This week · Free, each with its
@@ -225,8 +226,10 @@ function SavedList({
   const [filter, setFilter] = useState<SavedFilter>("all");
   const [shown, setShown] = useState(SAVED_STEP);
   const [announcement, setAnnouncement] = useState("");
+  const [retried, setRetried] = useState(false);
   const pendingFocus = useRef<string | null>(null);
   const gridRef = useRef<HTMLUListElement>(null);
+  const filtersRef = useRef<HTMLDivElement>(null);
   const upcoming = events.filter((event) => !hasEnded(event, now));
   const past = events.filter((event) => hasEnded(event, now) && !removed.has(event.id));
   // Stays once shown, so removing the last row leaves focus somewhere (its heading).
@@ -264,12 +267,13 @@ function SavedList({
     const added = Math.min(SAVED_STEP, hidden);
     if (next) pendingFocus.current = next.id;
     setShown((n) => n + SAVED_STEP);
-    setAnnouncement(`${added} more ${added === 1 ? "event" : "events"} shown.`);
+    // The running total, so each press is announced even when it adds the same number as the last.
+    setAnnouncement(`${added} more shown: ${Math.min(shown + SAVED_STEP, filtered.length)} of ${filtered.length} events.`);
   }
 
   return (
     <>
-      <div role="group" aria-label="Filter saved events" className="flex flex-wrap gap-2">
+      <div ref={filtersRef} role="group" aria-label="Filter saved events" className="flex flex-wrap gap-2">
         {filters.map((option) => (
           <button
             key={option.key}
@@ -315,24 +319,39 @@ function SavedList({
             {filter === "all" ? "Nothing coming up." : filter === "week" ? "Nothing on this week." : "No free events saved."}
           </p>
         )}
-        {hidden > 0 ? (
+        {hidden > 0 && (
           <div>
             <button type="button" onClick={showMore} className={SHOW_MORE_CLASS}>
               Show {Math.min(SAVED_STEP, hidden)} more
             </button>
           </div>
-        ) : rest.failed ? (
+        )}
+        {/* The rest of the list, after the first page: shown whatever "Show 6 more" is doing. */}
+        {rest.failed ? (
           <div className="flex flex-col items-start gap-3">
             <Notice tone="danger" role="alert">
               Couldn&rsquo;t load all your saved events.
             </Notice>
-            <button type="button" onClick={rest.retry} className={SHOW_MORE_CLASS}>
+            <button
+              type="button"
+              onClick={() => {
+                // The button goes as the loading starts: focus moves to the filter in use (a
+                // control that stays), and the status line says what's happening and when it's done.
+                filtersRef.current?.querySelector<HTMLElement>('[aria-pressed="true"]')?.focus();
+                setRetried(true);
+                rest.retry();
+              }}
+              className={SHOW_MORE_CLASS}
+            >
               Try again
             </button>
           </div>
         ) : (
           !whole && <LoadingState text="Loading the rest of your saved events…" />
         )}
+        <p role="status" className="sr-only">
+          {retried && !rest.failed ? (whole ? `All ${events.length} saved events loaded.` : "Loading the rest of your saved events…") : ""}
+        </p>
         <p role="status" className="sr-only">
           {announcement}
         </p>
