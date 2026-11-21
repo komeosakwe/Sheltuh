@@ -10,6 +10,7 @@ import { listConversations } from "@/lib/api/messages";
 import type { ConversationStatus, ConversationSummary } from "@/lib/api/types";
 import { formatMessageTime, formatShortAgo } from "@/lib/format";
 import ConversationAvatar from "./ConversationAvatar";
+import { useInboxVersion } from "./InboxSync";
 import { loadErrorMessage, threadHref } from "./shared";
 import { useUnread } from "./UnreadProvider";
 import { LoadingState } from "@/components/ui/ProgressLoader";
@@ -26,7 +27,7 @@ const STATUS_LABEL: Record<ConversationStatus, string | null> = {
 type LoadState =
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "ready"; items: ConversationSummary[]; nextCursor?: string };
+  | { status: "ready"; items: ConversationSummary[]; nextCursor?: string; stale?: boolean };
 
 /**
  * /messages: the member's conversations, most recent first. Requests they've
@@ -45,6 +46,10 @@ export default function Inbox({ getToken, selectedId }: { getToken: GetToken; se
   const pendingFocus = useRef<string | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
 
+  // Loads the list, and reloads it whenever the conversation beside it changed something (InboxSync)
+  // or you move to another conversation or back to /messages (`selectedId`). A reload keeps the rows
+  // on screen until the new ones arrive; if it fails, they stay, marked as possibly out of date.
+  const syncVersion = useInboxVersion();
   useEffect(() => {
     let cancelled = false;
     listConversations(getToken).then(
@@ -55,13 +60,18 @@ export default function Inbox({ getToken, selectedId }: { getToken: GetToken; se
         refreshUnread?.();
       },
       (err: unknown) => {
-        if (!cancelled) setResult({ attempt, state: { status: "error", message: loadErrorMessage(err, LOAD_ERROR) } });
+        if (cancelled) return;
+        setResult((current) =>
+          current?.attempt === attempt && current.state.status === "ready"
+            ? { attempt, state: { ...current.state, stale: true } }
+            : { attempt, state: { status: "error", message: loadErrorMessage(err, LOAD_ERROR) } },
+        );
       },
     );
     return () => {
       cancelled = true;
     };
-  }, [getToken, attempt, refreshUnread]);
+  }, [getToken, attempt, refreshUnread, syncVersion, selectedId]);
 
   // Focus moves only after something the person did (Load more), once it's rendered.
   useEffect(() => {
@@ -121,6 +131,11 @@ export default function Inbox({ getToken, selectedId }: { getToken: GetToken; se
               />
             ))}
           </ul>
+          {state.stale && (
+            <p role="status" className="label-tag px-4 py-2 text-muted">
+              Couldn&rsquo;t refresh this list. It updates again when you open a conversation.
+            </p>
+          )}
           {state.nextCursor && (
             <div className="mt-2 flex flex-col items-start gap-3 px-2 pb-2">
               {moreError && <Notice tone="danger">{moreError}</Notice>}

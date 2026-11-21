@@ -38,6 +38,7 @@ import {
   threadHref,
 } from "./shared";
 import ThreadTitle from "./ThreadTitle";
+import { useRefreshInbox } from "./InboxSync";
 import { useUnread } from "./UnreadProvider";
 import { LoadingState } from "@/components/ui/ProgressLoader";
 
@@ -109,6 +110,9 @@ function waitingNote(name: string) {
 export default function Thread({ conversationId, getToken }: { conversationId: string; getToken: GetToken }) {
   const unread = useUnread();
   const refreshUnread = unread?.refresh;
+  // The conversation list beside this thread (MessagesFrame) reloads after anything that changes
+  // this conversation's row: read, sent, accepted, declined, blocked, unblocked or gone.
+  const refreshInbox = useRefreshInbox();
   const returnTo = threadHref(conversationId);
 
   const [attempt, setAttempt] = useState(0);
@@ -189,8 +193,9 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
       show({ status: "unavailable" });
       if (focusWasHere) pendingFocus.current = "heading";
       refreshUnread?.();
+      refreshInbox();
     },
-    [show, refreshUnread],
+    [show, refreshUnread, refreshInbox],
   );
 
   const markRead = useCallback(
@@ -199,13 +204,14 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
         () => {
           update((d) => ({ ...d, conversation: { ...d.conversation, unread: false } }));
           refreshUnread?.();
+          refreshInbox();
         },
         // Not shown: nothing the person can do about it. `unread` stays true,
         // so the next check for new messages tries again.
         () => undefined,
       );
     },
-    [conversationId, getToken, update, refreshUnread],
+    [conversationId, getToken, update, refreshUnread, refreshInbox],
   );
 
   // First load (and Try again, and after unblocking).
@@ -377,6 +383,7 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
         messages: merge(d.messages, [message], "after").messages,
       }));
       setNewIds(new Set([message.messageId]));
+      refreshInbox();
       pendingScroll.current = "new";
       setAnnouncement(accepting ? `Message sent. You’re now chatting with ${endSentence(other)}` : "Message sent.");
       return { ok: true };
@@ -427,6 +434,7 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
       setReported(false);
       pendingFocus.current = "heading";
       refreshUnread?.();
+      refreshInbox();
     } catch (err) {
       const mapped = messagingError(err, { rateLimited: BLOCK_RATE_LIMITED, fallback: "Couldn’t block. Try again." });
       if (mapped.kind === "unavailable") {
@@ -450,6 +458,7 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
       setReported(false);
       pendingFocus.current = "heading";
       setAttempt((n) => n + 1);
+      refreshInbox();
     } catch (err) {
       const mapped = messagingError(err, { rateLimited: "Try again in a few minutes.", fallback: "Couldn’t unblock. Try again." });
       setActionError(errorText(mapped, "Couldn’t unblock. Try again."));
@@ -470,6 +479,7 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
       setReported(false);
       pendingFocus.current = "heading";
       refreshUnread?.();
+      refreshInbox();
     } catch (err) {
       const mapped = messagingError(err, { rateLimited: "Try again in a few minutes.", fallback: "Couldn’t decline. Try again." });
       if (mapped.kind === "unavailable") lose(true);
