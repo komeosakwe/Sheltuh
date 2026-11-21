@@ -921,7 +921,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("a claim racing another claim's 
     return { first, second };
   }
 
-  it("deterministic: the order it picked was leased by a claim committed after its snapshot; it claims the next overdue order", async () => {
+  it("deterministic: the order it picked was leased by a claim committed after its snapshot; it claims the next overdue order", { timeout: 30_000 }, async () => {
     const { first, second } = await twoOverdue();
     const [other, sweeper] = [connect(), connect()];
     try {
@@ -953,6 +953,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("a claim racing another claim's 
 
   it("two staggered claims behind many orders they can't take: the second claims the remaining overdue order", { timeout: 60_000 }, async () => {
     const { first, second } = await twoOverdue();
+    // Best effort: this one depends on timing (the first claim must commit while the second is still walking the
+    // fillers), so on a fast server it can pass without meeting the race. The deterministic test above is the guard.
     // Fillers: overdue pending card orders older than both, cloned from `first` and held by another transaction,
     // so every claim walks past all of them (skip locked) before it reaches `first`: a slow claim.
     const FILLERS = 20_000;

@@ -22,7 +22,9 @@
 -- lost that way and fewer than p_limit are claimed, it picks again for the
 -- rest in a new statement: a fresh snapshot, which sees the lease that beat
 -- it, so it moves on to the next overdue order. At most 5 retries: each
--- lost order means another claim leased it in the meantime (the pick's
+-- lost order means another transaction changed its check row in the
+-- meantime: another claim leased it, or a late finish_checkout_expiry
+-- rescheduled or closed it (the pick's
 -- filter and the insert's `where` are the same condition, and now() is
 -- fixed for the transaction, so with no concurrent commit a pick never
 -- loses), so the retries end; past 5 the claim answers what it has, and the

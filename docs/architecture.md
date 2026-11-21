@@ -1570,7 +1570,9 @@ admission and seated card checkouts alike
   snapshot (READ COMMITTED: the order no longer locked, the other's lease
   not yet visible) claims nothing for it at the insert's `on conflict`; it
   then picks again in a fresh statement, up to 5 times, so an empty claim
-  really means nothing is claimable and a worker can stop the run on it
+  means nothing is claimable right now (or, after 5 lost races in a row,
+  that others hold what it tried) and a worker can stop the run on it; the
+  next run takes whatever is left
   (`20261202000000_checkout_expiry_claim_retry.sql`). It logs counts
   only, and answers its counts (`claimed`, `released`, `complete`,
   `settled`, `failed`, `leaseLost`), `private, no-store`, plus `gaveUp` and `staleComplete`. The claim also
