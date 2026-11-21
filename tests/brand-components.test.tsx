@@ -190,25 +190,33 @@ describe("Footer", () => {
     expect(theme.compareDocumentPosition(support) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("shows every link without expanding anything: no disclosures, 48px rows on phones, stacked, then two columns, then four", () => {
+  it("shows every link without expanding anything: no disclosures, 44px Body/S rows on phones, three groups in a row with Contact below, then four columns", () => {
     const { container } = render(<Footer />);
     // The only buttons are the theme switch's two.
     expect(within(container).queryAllByRole("button").filter((b) => !b.closest("[data-theme-switch]"))).toEqual([]);
     for (const name of ["Fan support", "Explore", "Our company"]) {
       const nav = screen.getByRole("navigation", { name });
       expect(within(nav).getByRole("list").className).not.toMatch(/(?:^|\s)hidden(?:\s|$)/);
-      for (const link of within(nav).getAllByRole("link")) expect(link).toHaveClass("min-h-12", "lg:min-h-8");
+      // Body/S (14/20) at every width (Figma 1120); 44px tall below lg (WCAG 2.5.8 with room), 32px from lg.
+      for (const link of within(nav).getAllByRole("link")) {
+        expect(link).toHaveClass("body-s", "min-h-11", "lg:min-h-8");
+        expect(link).not.toHaveClass("body-m");
+      }
     }
     // Email and each social: a 48px icon target on phones, 40px from lg, the icon decorative (the label names it).
     for (const icon of within(screen.getByRole("navigation", { name: "Contact Sheltüh" })).getAllByRole("link")) {
       expect(icon).toHaveClass("size-12", "lg:size-10");
       expect(icon.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
     }
-    // The rules' Layout board: stacked on phones, two columns from 640px, four from lg; the socials last.
-    const grid = screen.getByRole("navigation", { name: "Fan support" }).parentElement;
-    expect(grid).toHaveClass("grid-cols-1", "sm:grid-cols-2", "lg:grid-cols-4");
+    // Figma 1120 (mobile footer): Fan support, Explore and Our company side by side in one row, spread across the
+    // width; Contact Sheltüh on its own row below. From lg the row dissolves (display: contents) into four columns.
+    const row = screen.getByRole("navigation", { name: "Fan support" }).parentElement;
+    expect(row).toHaveClass("flex", "justify-between", "lg:contents");
+    expect([...(row?.children ?? [])].map((nav) => nav.getAttribute("aria-label"))).toEqual(["Fan support", "Explore", "Our company"]);
+    const grid = row?.parentElement;
+    expect(grid).toHaveClass("grid", "lg:grid-cols-4");
+    expect(grid).not.toHaveClass("sm:grid-cols-2");
     expect(grid?.lastElementChild).toBe(screen.getByRole("navigation", { name: "Contact Sheltüh" }));
-    for (const link of within(screen.getByRole("navigation", { name: "Explore" })).getAllByRole("link")) expect(link).toHaveClass("body-m");
   });
 
   describe("the install action", () => {
