@@ -8,13 +8,18 @@ import { usePrefersReducedMotion } from "@/lib/use-reduced-motion";
 interface TicketFullScreenProps {
   open: boolean;
   onClose: () => void;
-  /** One full ticket per slide (each a `<FullTicket size="screen">`), in the order's numbering. */
+  /** One full ticket per slide (each a `<FullTicket size="screen">`), in the order shown (seated tickets by seat). */
   tickets: ReactNode[];
+  /**
+   * Each slide's ticket number in the order's numbering (the email's and the door's), for the bar's "Ticket 2 of 2":
+   * slides sorted by seat needn't be in that order. Left out, slides are numbered as they come.
+   */
+  numbers?: readonly number[];
   /** The slide to open on (0-based). */
   start?: number;
-  /** What sits under the tickets for the one in view: its wallet badges. */
+  /** What sits under the tickets for the one in view (by slide index): its wallet badges. */
   footer?: (index: number) => ReactNode;
-  /** "Send" in the top bar, for the ticket in view. Left out (until tickets can be sent), the bar has no Send. */
+  /** "Send" in the top bar, for the ticket in view (by slide index). Left out (until tickets can be sent), the bar has no Send. */
   onSend?: (index: number) => void;
 }
 
@@ -34,7 +39,7 @@ interface TicketFullScreenProps {
  * - A native modal `<dialog>`: focus stays inside, Escape and the ✕ close it,
  *   and focus returns to the button that opened it.
  */
-export default function TicketFullScreen({ open, onClose, tickets, start = 0, footer, onSend }: TicketFullScreenProps) {
+export default function TicketFullScreen({ open, onClose, tickets, numbers, start = 0, footer, onSend }: TicketFullScreenProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   // Each opening starts on `start`: reset while rendering (not in an effect) when `open` changes.
@@ -44,6 +49,7 @@ export default function TicketFullScreen({ open, onClose, tickets, start = 0, fo
   const setIndex = (next: number) => setShown({ open, index: next });
   const reducedMotion = usePrefersReducedMotion();
   const count = tickets.length;
+  const number = numbers?.[index] ?? index + 1;
 
   const scrollToSlide = useCallback((next: number, smooth: boolean) => {
     const track = trackRef.current;
@@ -133,7 +139,7 @@ export default function TicketFullScreen({ open, onClose, tickets, start = 0, fo
               <CloseIcon />
             </button>
             <p className="font-mono text-sm leading-5 font-medium" aria-live="polite" aria-atomic="true">
-              <span className="uppercase">Ticket</span> {index + 1} of {count}
+              <span className="uppercase">Ticket</span> {number} of {count}
             </p>
             {onSend ? (
               <button type="button" onClick={() => onSend(index)} className={`${barButton} label-button px-3`}>

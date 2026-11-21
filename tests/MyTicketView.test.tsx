@@ -281,6 +281,31 @@ describe("the full-screen ticket (phones)", () => {
     expect(dialog.querySelectorAll("[data-ticket-dots] > span")).toHaveLength(2);
   });
 
+  it("seated tickets shown by seat keep their own numbers: the bar, QR and wallet links all name the same ticket", () => {
+    // Ticket 1 is in row B and ticket 2 in row A, so the seat order puts ticket 2 first.
+    const seated: CustomerOrder = {
+      ...TWO,
+      tickets: [
+        { ...TWO.tickets[0], seat: { section: "Stalls", row: "B", seat: "1", kind: "standard" } },
+        { ...TWO.tickets[1], seat: { section: "Stalls", row: "A", seat: "1", kind: "standard" } },
+      ],
+    };
+    render(<MyTicketView order={seated} sessionId="ord_1" />);
+    const shows = screen.getAllByRole("button", { name: /^Show ticket/ });
+    expect(shows.map((button) => button.textContent)).toEqual(["Show ticket → 2 of 2", "Show ticket → 1 of 2"]);
+    fireEvent.click(shows[0]);
+    const dialog = screen.getByRole("dialog", { name: "Your ticket" });
+    const bar = dialog.querySelector('[aria-live="polite"]') as HTMLElement;
+    const inView = () => within(dialog).getAllByRole("article").find((ticket) => !ticket.parentElement?.hasAttribute("inert")) as HTMLElement;
+    expect(bar).toHaveTextContent("Ticket 2 of 2");
+    expect(within(inView()).getByRole("img", { name: "QR code for ticket K4M2-9QXA" })).toBeInTheDocument();
+    expect(within(dialog).getAllByRole("link")[0]).toHaveAttribute("aria-label", "Add to Apple Wallet: ticket 2 of 2");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Next ticket" }));
+    expect(bar).toHaveTextContent("Ticket 1 of 2");
+    expect(within(inView()).getByRole("img", { name: "QR code for ticket BPT7-7P6W" })).toBeInTheDocument();
+    expect(within(dialog).getAllByRole("link")[0]).toHaveAttribute("aria-label", "Add to Apple Wallet: ticket 1 of 2");
+  });
+
   it("Send shows in the bar once the page can send, for the ticket in view", () => {
     const onSend = vi.fn();
     render(<MyTicketView order={TWO} sessionId="ord_1" onSendTicket={onSend} />);

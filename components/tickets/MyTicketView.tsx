@@ -404,6 +404,7 @@ export default function MyTicketView({ order, sessionId, event = null, emailSlot
         tickets={tickets.map(({ ticket, number }) => (
           <FullTicket key={ticket.ticketCode} {...ticketProps(ticket, number)} size="screen" />
         ))}
+        numbers={tickets.map(({ number }) => number)}
         footer={hasWallet ? (index) => walletFor(tickets[index].number, "justify-center") : undefined}
         onSend={onSendTicket ? (index) => onSendTicket(tickets[index].number) : undefined}
       />
