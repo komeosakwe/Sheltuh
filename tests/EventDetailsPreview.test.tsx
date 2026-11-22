@@ -239,19 +239,20 @@ describe("EventDetailsView preview", () => {
 });
 
 describe("the editor's preview: Before you go", () => {
-  it("carries the note as the API will store it (cleaned), and none when it's blank", () => {
-    expect(draftToPreviewEvent({ ...DRAFT, beforeYouGo: "  Doors 7 pm  \r\n\r\n\r\nBring ID \n" }).event.beforeYouGo).toBe(
-      "Doors 7 pm\n\nBring ID",
-    );
-    for (const blank of [undefined, "", " \n\t "]) {
+  it("carries the rows as the API will store them (cleaned), and none when they're blank", () => {
+    expect(
+      draftToPreviewEvent({ ...DRAFT, beforeYouGo: [{ label: " Entry ", value: " Doors  7 pm\n" }, { label: "", value: " " }] }).event
+        .beforeYouGo,
+    ).toEqual([{ label: "Entry", value: "Doors 7 pm" }]);
+    for (const blank of [undefined, [], [{ label: " ", value: "" }]]) {
       expect(draftToPreviewEvent({ ...DRAFT, beforeYouGo: blank }).event).not.toHaveProperty("beforeYouGo");
     }
   });
 
-  it("shows the box in the preview with the draft's lines, and nothing without a note", () => {
-    previewOf({ ...DRAFT, beforeYouGo: "Doors open 5:00 pm · last entry 8:00 pm\n18+ event" });
+  it("shows the box in the preview with the draft's rows, and nothing without them", () => {
+    previewOf({ ...DRAFT, beforeYouGo: [{ label: "Entry", value: "5:00 pm – 8:00 pm" }, { label: "Age", value: "18+" }] });
     const box = screen.getByRole("region", { name: "Before you go" });
-    expect(box).toHaveTextContent("Doors open 5:00 pm · last entry 8:00 pm18+ event");
+    expect(box).toHaveTextContent("Entry5:00 pm – 8:00 pmAge18+");
     cleanup();
 
     previewOf(DRAFT);

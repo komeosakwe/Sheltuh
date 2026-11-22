@@ -1,5 +1,14 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { BEFORE_YOU_GO_MAX_LENGTH, BEFORE_YOU_GO_MAX_LINES, validateBeforeYouGo } from "@/lib/before-you-go";
+import {
+  BEFORE_YOU_GO_LABEL_MAX_LENGTH,
+  BEFORE_YOU_GO_MAX_ITEMS,
+  BEFORE_YOU_GO_SUGGESTED_LABELS,
+  BEFORE_YOU_GO_TOO_MANY,
+  BEFORE_YOU_GO_VALUE_MAX_LENGTH,
+  normaliseBeforeYouGo,
+  validateBeforeYouGo,
+  type BeforeYouGoItem,
+} from "@/lib/before-you-go";
 import { adminListEvents } from "@/lib/server/handlers/admin";
 import { adminCreateEvent, adminGetEvent, adminUpdateEvent } from "@/lib/server/handlers/admin-authoring";
 import { runEmailOutboxCron } from "@/lib/server/handlers/email-outbox";
@@ -24,12 +33,13 @@ import {
 import { createTestDb } from "./helpers/test-db";
 
 /**
- * "Before you go": the organiser's note for people going (docs/architecture.md,
- * "Before you go"; supabase/migrations/20261204000000_event_before_you_go.sql;
+ * "Before you go": the organiser's rows for people going, a label and a value
+ * each (docs/architecture.md, "Before you go";
+ * supabase/migrations/20261204000000_event_before_you_go.sql;
  * lib/before-you-go.ts, lib/server/event-input.ts parseBeforeYouGo).
  */
 
-// The email builders, unchanged but watched: the outbox and the free booking must hand them the note.
+// The email builders, unchanged but watched: the outbox and the free booking must hand them the rows.
 vi.mock("@/lib/server/ticket-email", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/server/ticket-email")>();
   return { ...real, buildTicketEmail: vi.fn(real.buildTicketEmail) };
@@ -43,12 +53,13 @@ vi.mock("@/lib/server/free-confirmation-email", async (importOriginal) => {
   return { ...real, buildFreeConfirmationEmail: vi.fn(real.buildFreeConfirmationEmail) };
 });
 
-const LATTE_EXAMPLES = [
-  "Doors open 5:00 pm · last entry 8:00 pm.",
-  "18+ event — bring photo ID that matches the ticket holder name.",
-  "Phone-free night: scan in with your phone, then it goes into a locked pouch until you leave. It unlocks at the exit.",
+/** The owner's reference rows. */
+const ROWS: BeforeYouGoItem[] = [
+  { label: "Entry", value: "7:30 pm – 10:30 pm" },
+  { label: "Age", value: "18+ · Photo ID required" },
+  { label: "Extras", value: "Free earplugs at the bar" },
 ];
-const NOTE = LATTE_EXAMPLES.join("\n");
+const row = (label: string, value: string): BeforeYouGoItem => ({ label, value });
 
 let api: TestApi;
 let reset: () => Promise<void>;
@@ -80,6 +91,22 @@ const create = (body: Record<string, unknown>, token = organiser.token) =>
 const patch = (eventId: string, body: Record<string, unknown>, token = organiser.token) =>
   api.call(updateEventDraft, { token, params: { eventId }, body: eventInput(body), method: "PATCH" });
 
+/** The API's field error for these rows on a create (and that nothing else failed). */
+async function refusal(beforeYouGo: unknown): Promise<string> {
+  const res = await create({ title: `Refused ${crypto.randomUUID().slice(0, 6)}`, beforeYouGo });
+  expect(res.status, JSON.stringify(beforeYouGo)).toBe(400);
+  expect(Object.keys(res.body.fieldErrors), JSON.stringify(beforeYouGo)).toEqual(["beforeYouGo"]);
+  return res.body.fieldErrors.beforeYouGo as string;
+}
+
+/** The rows a create stores. */
+async function accepted(beforeYouGo: unknown): Promise<BeforeYouGoItem[] | undefined> {
+  const res = await create({ title: `Taken ${crypto.randomUUID().slice(0, 6)}`, beforeYouGo });
+  expect(res.status, JSON.stringify(res.body)).toBe(201);
+  expect(await stored(res.body.eventId)).toEqual(res.body.beforeYouGo ?? null);
+  return res.body.beforeYouGo;
+}
+
 /** The organiser's submit for review (their paid event needs payouts first). */
 async function submit(eventId: string) {
   await setUpPayouts(api, organiser.organiserId);
@@ -88,185 +115,258 @@ async function submit(eventId: string) {
   expect(res.body.status).toBe("pending_review");
 }
 
-async function stored(eventId: string): Promise<string | null> {
-  const [row] = await api.db.query<{ note: string | null }>(`select before_you_go as note from public.events where id = $1`, [eventId]);
-  return row.note;
+async function stored(eventId: string): Promise<unknown> {
+  const [r] = await api.db.query<{ rows: unknown }>(`select before_you_go as rows from public.events where id = $1`, [eventId]);
+  return r.rows;
 }
 
 describe("the organiser's create and edit", () => {
-  it("stores the note, returns it on the organiser's record, and has no field without one", async () => {
-    const event = await draftEvent(api, organiser, { beforeYouGo: NOTE });
-    expect(event.beforeYouGo).toBe(NOTE);
-    expect(await stored(event.eventId)).toBe(NOTE);
+  it("stores the rows as jsonb, in order, returns them on the organiser's record, and has no field without them", async () => {
+    const event = await draftEvent(api, organiser, { beforeYouGo: ROWS });
+    expect(event.beforeYouGo).toEqual(ROWS);
+    expect(await stored(event.eventId)).toEqual(ROWS);
+    const [{ type }] = await api.db.query<{ type: string }>(
+      `select jsonb_typeof(before_you_go) as type from public.events where id = $1`,
+      [event.eventId],
+    );
+    expect(type).toBe("array");
     const mine = await api.call(getMyEvent, { token: organiser.token, params: { eventId: event.eventId } });
-    expect(mine.body.beforeYouGo).toBe(NOTE);
+    expect(mine.body.beforeYouGo).toEqual(ROWS);
 
-    const none = await draftEvent(api, organiser, { title: "No note" });
+    const none = await draftEvent(api, organiser, { title: "No rows" });
     expect(none).not.toHaveProperty("beforeYouGo");
     expect(await stored(none.eventId)).toBeNull();
   });
 
-  it("cleans it: line endings, trailing spaces, blank-line runs and the ends", async () => {
-    const event = await draftEvent(api, organiser, {
-      beforeYouGo: "  \r\n Doors 7 pm.   \r\n\r\n\r\n\r\nLast entry 10 pm.\t\rBring ID.  \n\n ",
-    });
-    expect(event.beforeYouGo).toBe("Doors 7 pm.\n\nLast entry 10 pm.\nBring ID.");
+  it("cleans each part: NFC, whitespace runs (line breaks and tabs too) to one space, trimmed; the label as typed", async () => {
+    const rows = await accepted([
+      row("  entry\t ", " 7:30 pm  –\n10:30 pm "),
+      row("AgE", "Café\r\nonly"),
+      row(" Extras　", "Free  earplugs"),
+    ]);
+    expect(rows).toEqual([row("entry", "7:30 pm – 10:30 pm"), row("AgE", "Café only"), row("Extras", "Free earplugs")]);
   });
 
-  it("stores empty, blank and null as no note", async () => {
-    for (const blank of ["", "   ", " \r\n\t\n ", null]) {
-      const res = await create({ title: `Blank ${JSON.stringify(blank)}`, beforeYouGo: blank });
-      expect(res.status).toBe(201);
-      expect(res.body).not.toHaveProperty("beforeYouGo");
-      expect(await stored(res.body.eventId)).toBeNull();
+  it("drops rows with both parts blank, keeps the order, and stores null, [] and all-blank as none", async () => {
+    expect(await accepted([row("", ""), ROWS[0], row("  ", "\n\t"), ROWS[1]])).toEqual([ROWS[0], ROWS[1]]);
+    for (const none of [null, [], [row("", "")], [row(" ", " "), { label: null, value: null }, {}]]) {
+      expect(await accepted(none), JSON.stringify(none)).toBeUndefined();
+    }
+  });
+
+  it("ignores keys other than label and value", async () => {
+    expect(await accepted([{ label: "Entry", value: "7 pm", id: "x", html: "<b>" }])).toEqual([row("Entry", "7 pm")]);
+  });
+
+  it("refuses a half-filled row, naming it by its place in the list sent", async () => {
+    expect(await refusal([ROWS[0], row("Age", "")])).toBe("Row 2 needs a label and a value.");
+    expect(await refusal([row("", ""), row("", "18+")])).toBe("Row 2 needs a label and a value.");
+    expect(await refusal([{ label: "Entry" }])).toBe("Row 1 needs a label and a value.");
+    expect(await refusal([row("Entry", "   ")])).toBe("Row 1 needs a label and a value.");
+  });
+
+  it(`takes up to ${BEFORE_YOU_GO_MAX_ITEMS} rows (blank ones don't count) and refuses a sixth`, async () => {
+    const five = Array.from({ length: 5 }, (_, i) => row(`Row ${i + 1}`, `Value ${i + 1}`));
+    expect(await accepted(five)).toEqual(five);
+    expect(await accepted([...five, row("", "")])).toEqual(five);
+    expect(await refusal([...five, row("Six", "Too many")])).toBe(BEFORE_YOU_GO_TOO_MANY);
+    // A huge list is refused before any row is looked at.
+    expect(await refusal(Array.from({ length: 1000 }, () => row("", "")))).toBe(BEFORE_YOU_GO_TOO_MANY);
+  });
+
+  it(`takes labels up to ${BEFORE_YOU_GO_LABEL_MAX_LENGTH} and values up to ${BEFORE_YOU_GO_VALUE_MAX_LENGTH} characters, counted in code points after NFC`, async () => {
+    const L = BEFORE_YOU_GO_LABEL_MAX_LENGTH;
+    const V = BEFORE_YOU_GO_VALUE_MAX_LENGTH;
+    expect(await accepted([row("a".repeat(L), "b".repeat(V))])).toEqual([row("a".repeat(L), "b".repeat(V))]);
+    // Emoji are one code point each (two UTF-16 units), as char_length counts them.
+    expect(await accepted([row("🎟".repeat(L), "🎟".repeat(V))])).toHaveLength(1);
+    // Spaces cleaning removes don't count.
+    expect(await accepted([row(`  ${"a".repeat(L)}  `, `${"b".repeat(V / 2)}    ${"c".repeat(V / 2 - 1)}`)])).toHaveLength(1);
+
+    expect(await refusal([row("a".repeat(L + 1), "x")])).toBe(`Row 1's label must be ${L} characters or fewer.`);
+    expect(await refusal([ROWS[0], row("Age", "b".repeat(V + 1))])).toBe(`Row 2's value must be ${V} characters or fewer.`);
+    // Raw text past 4 × the limit is refused before any cleaning.
+    expect(await refusal([row(" ".repeat(L * 4 + 1), "x")])).toBe(`Row 1's label must be ${L} characters or fewer.`);
+
+    // U+0958 (क़) is a composition exclusion: NFC makes each two code points (U+0915 U+093C). Counted after NFC, as
+    // the database counts what's stored.
+    const qa = "क़";
+    const half = await accepted([row(qa.repeat(L / 2), "x")]);
+    expect(Array.from(half![0].label)).toHaveLength(L);
+    expect(half![0].label).toBe("क़".repeat(L / 2));
+    expect(await refusal([row(qa.repeat(L / 2 + 1), "x")])).toBe(`Row 1's label must be ${L} characters or fewer.`);
+    expect(await refusal([row("x", qa.repeat(V / 2 + 1))])).toBe(`Row 1's value must be ${V} characters or fewer.`);
+  });
+
+  it("refuses links, web and email addresses in labels and values, disguised or not", async () => {
+    const disguised = [
+      "https://example.com/door",
+      "hxxp://example",
+      "www.venue.example",
+      "thevenue.com.au/map",
+      "ｅｘａｍｐｌｅ．ｃｏｍ",
+      "example。com",
+      "example．com",
+      "example｡com",
+      "example . com",
+      "example[.]com",
+      "venue dot com",
+    ];
+    for (const text of disguised) {
+      expect(await refusal([row("Map", text)])).toBe("Row 1's value can't include links or web addresses.");
+      expect(await refusal([row(text.slice(0, 20), "x")])).toMatch(/^Row 1's label can't include links or web addresses\.$/);
+    }
+    expect(await refusal([row("Ask", "hello [at] venue")])).toBe("Row 1's value can't include email addresses.");
+    expect(await refusal([row("Ask", "hello@venue")])).toBe("Row 1's value can't include email addresses.");
+    // Times, prices and abbreviations aren't addresses.
+    expect(await accepted([row("Entry", "Doors 7.30pm, A$12.50, St. Kilda gate, e.g. side")])).toHaveLength(1);
+  });
+
+  it("refuses control, invisible and text-direction characters per part, blank-looking ones included", async () => {
+    const refused = ["\u0007", "\u0000", "\u0085", "\u009B", "­", "​", "‎", "‮", "⁦", " ", " ", "⁠", "﻿"];
+    for (const ch of refused) {
+      expect(await refusal([row(`Do${ch}ors`, "7 pm")])).toBe(
+        "Row 1's label can't contain control, invisible or text-direction characters.",
+      );
+      expect(await refusal([ROWS[0], row("Age", `18${ch}+`)])).toBe(
+        "Row 2's value can't contain control, invisible or text-direction characters.",
+      );
+    }
+    // Alone in a part that would otherwise be blank: still refused, not dropped.
+    expect(await refusal([row("​", "​")])).toMatch(/^Row 1's label can't contain/);
+    // The joiners emoji and several scripts need, and the flag tag sequences, are fine.
+    expect(await accepted([row("Crew", "👩‍🎤 and 🏴\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F}")])).toHaveLength(1);
+    // Stacked marks: refused by the API's own check.
+    expect(await refusal([row(`Z${"́".repeat(6)}`, "x")])).toBe(
+      "Row 1's label can't stack accents or other marks on one character.",
+    );
+  });
+
+  it("refuses anything that isn't a list of label and value text", async () => {
+    for (const value of ["Doors at 7", 42, true, { label: "Entry", value: "7 pm" }]) {
+      expect(await refusal(value)).toBe("Send the rows as a list of labels and values, or null.");
+    }
+    for (const item of ["Entry: 7 pm", null, ["Entry", "7 pm"], { label: 1, value: "7 pm" }, { label: "Entry", value: ["7 pm"] }]) {
+      expect(await refusal([ROWS[0], item])).toBe("Row 2 must be a label and a value, as text.");
     }
   });
 
   it("keeps HTML-like text as the characters typed (plain text, never markup)", async () => {
-    const html = `<b>Doors</b> open at 7 & the bar's "cash only" <script>alert(1)</script>`;
-    const event = await draftEvent(api, organiser, { beforeYouGo: html });
-    expect(event.beforeYouGo).toBe(html);
-    expect(await stored(event.eventId)).toBe(html);
-  });
-
-  it(`takes up to ${BEFORE_YOU_GO_MAX_LENGTH} characters, counted as people see them`, async () => {
-    const exact = await create({ beforeYouGo: "a".repeat(BEFORE_YOU_GO_MAX_LENGTH) });
-    expect(exact.status).toBe(201);
-    // 500 emoji are 1000 UTF-16 units but 500 characters, as the database's char_length counts them.
-    const emoji = await create({ title: "Emoji", beforeYouGo: "🎟".repeat(BEFORE_YOU_GO_MAX_LENGTH) });
-    expect(emoji.status).toBe(201);
-    // Spaces cleaning removes don't count.
-    const padded = await create({ title: "Padded", beforeYouGo: `   ${"b".repeat(BEFORE_YOU_GO_MAX_LENGTH)}   \n\n` });
-    expect(padded.status).toBe(201);
-
-    for (const tooLong of ["a".repeat(BEFORE_YOU_GO_MAX_LENGTH + 1), "x".repeat(BEFORE_YOU_GO_MAX_LENGTH * 4 + 1)]) {
-      const res = await create({ beforeYouGo: tooLong });
-      expect(res.status).toBe(400);
-      expect(res.body.fieldErrors).toEqual({ beforeYouGo: `Must be ${BEFORE_YOU_GO_MAX_LENGTH} characters or fewer.` });
-    }
-  });
-
-  it(`takes up to ${BEFORE_YOU_GO_MAX_LINES} lines of text; a blank line between two doesn't count`, async () => {
-    const five = Array.from({ length: 5 }, (_, i) => `Line ${i + 1}`);
-    expect((await create({ beforeYouGo: five.join("\n") })).status).toBe(201);
-    const spaced = await create({ title: "Spaced", beforeYouGo: five.join("\n\n") });
-    expect(spaced.status).toBe(201);
-    expect(spaced.body.beforeYouGo).toBe(five.join("\n\n"));
-
-    const six = await create({ beforeYouGo: [...five, "Line 6"].join("\r\n") });
-    expect(six.status).toBe(400);
-    expect(six.body.fieldErrors).toEqual({ beforeYouGo: "Keep it to 5 lines or fewer." });
-  });
-
-  it("refuses links, web and email addresses", async () => {
-    for (const text of [
-      "Tickets at https://example.com/door",
-      "See www.venue.example for parking",
-      "Map: thevenue.com.au/map",
-      "Questions? hello@venue.example",
-      "Questions? hello [at] venue [dot] com",
-    ]) {
-      const res = await create({ beforeYouGo: text });
-      expect(res.status, text).toBe(400);
-      expect(res.body.fieldErrors.beforeYouGo, text).toMatch(/can't include (links or web|email) addresses/);
-    }
-    // Times, prices and abbreviations aren't addresses.
-    const fine = await create({ beforeYouGo: "Doors 7.30pm, A$12.50 at the door, St. Kilda entrance, e.g. the side gate" });
-    expect(fine.status).toBe(201);
-  });
-
-  it("refuses control, invisible and text-direction characters, stacked marks and anything but text", async () => {
-    for (const text of ["Doors\u0007 open", "Doors\u0000", "Doors ‮open", "Do​ors", `Z${"́".repeat(6)}`]) {
-      const res = await create({ beforeYouGo: text });
-      expect(res.status, JSON.stringify(text)).toBe(400);
-      expect(Object.keys(res.body.fieldErrors)).toEqual(["beforeYouGo"]);
-    }
-    for (const value of [42, true, ["Doors"], { text: "Doors" }]) {
-      const res = await create({ beforeYouGo: value });
-      expect(res.status).toBe(400);
-      expect(res.body.fieldErrors).toEqual({ beforeYouGo: "Write the note as text, or leave it blank." });
-    }
+    const html = row("<b>Doors</b>", `7 & the bar's "cash only" <script>alert(1)</script>`);
+    expect(await accepted([html])).toEqual([html]);
   });
 
   it("reports its error with the other fields' at once", async () => {
-    const res = await create({ title: "", beforeYouGo: "x".repeat(BEFORE_YOU_GO_MAX_LENGTH + 1) });
+    const res = await create({ title: "", beforeYouGo: [row("Age", "")] });
     expect(res.status).toBe(400);
     expect(Object.keys(res.body.fieldErrors).sort()).toEqual(["beforeYouGo", "title"]);
   });
 
-  it("an edit keeps it when the field isn't sent, replaces it, and clears it with null or blank", async () => {
-    const event = await draftEvent(api, organiser, { beforeYouGo: NOTE });
+  it("an edit keeps the rows when the key isn't sent, replaces them, and clears them with null or []", async () => {
+    const event = await draftEvent(api, organiser, { beforeYouGo: ROWS });
+    const body = eventInput({ title: "Renamed" });
+    expect(body).not.toHaveProperty("beforeYouGo");
     const kept = await patch(event.eventId, { title: "Renamed" });
     expect(kept.status).toBe(200);
-    expect(kept.body).toMatchObject({ title: "Renamed", beforeYouGo: NOTE });
+    expect(kept.body).toMatchObject({ title: "Renamed", beforeYouGo: ROWS });
+    expect(await stored(event.eventId)).toEqual(ROWS);
 
-    const replaced = await patch(event.eventId, { beforeYouGo: "Doors at 6." });
-    expect(replaced.body.beforeYouGo).toBe("Doors at 6.");
+    const replaced = await patch(event.eventId, { beforeYouGo: [row("Entry", "Doors at 6")] });
+    expect(replaced.body.beforeYouGo).toEqual([row("Entry", "Doors at 6")]);
 
     const cleared = await patch(event.eventId, { beforeYouGo: null });
     expect(cleared.status).toBe(200);
     expect(cleared.body).not.toHaveProperty("beforeYouGo");
     expect(await stored(event.eventId)).toBeNull();
 
-    await patch(event.eventId, { beforeYouGo: "Back again." });
-    const blanked = await patch(event.eventId, { beforeYouGo: "  " });
-    expect(blanked.body).not.toHaveProperty("beforeYouGo");
+    await patch(event.eventId, { beforeYouGo: ROWS });
+    const emptied = await patch(event.eventId, { beforeYouGo: [] });
+    expect(emptied.status).toBe(200);
+    expect(emptied.body).not.toHaveProperty("beforeYouGo");
     expect(await stored(event.eventId)).toBeNull();
   });
 
   it("an invalid edit writes nothing", async () => {
-    const event = await draftEvent(api, organiser, { beforeYouGo: NOTE });
-    const res = await patch(event.eventId, { title: "Changed", beforeYouGo: "Map at venue.com" });
+    const event = await draftEvent(api, organiser, { beforeYouGo: ROWS });
+    const res = await patch(event.eventId, { title: "Changed", beforeYouGo: [row("Map", "venue.com")] });
     expect(res.status).toBe(400);
-    const [row] = await api.db.query<{ title: string }>(`select title from public.events where id = $1`, [event.eventId]);
-    expect(row.title).toBe("Neon Static");
-    expect(await stored(event.eventId)).toBe(NOTE);
+    const [r] = await api.db.query<{ title: string }>(`select title from public.events where id = $1`, [event.eventId]);
+    expect(r.title).toBe("Neon Static");
+    expect(await stored(event.eventId)).toEqual(ROWS);
   });
 
   it("follows the edit rules of the other fields: not while in review or published", async () => {
-    const event = await draftEvent(api, organiser, { beforeYouGo: NOTE });
+    const event = await draftEvent(api, organiser, { beforeYouGo: ROWS });
     await submit(event.eventId);
-    const res = await patch(event.eventId, { beforeYouGo: "Changed in review" });
+    const res = await patch(event.eventId, { beforeYouGo: [row("Entry", "Changed in review")] });
     expect(res.status).toBe(409);
-    expect(await stored(event.eventId)).toBe(NOTE);
+    expect(await stored(event.eventId)).toEqual(ROWS);
+  });
+});
+
+describe("the editor's helpers (lib/before-you-go.ts)", () => {
+  it("normaliseBeforeYouGo cleans and drops as the API stores", () => {
+    expect(normaliseBeforeYouGo([row(" Entry ", " 7:30  pm "), row("", " ")])).toEqual([row("Entry", "7:30 pm")]);
+    for (const none of [null, undefined, [], [row(" ", "")]]) expect(normaliseBeforeYouGo(none)).toBeNull();
   });
 
-  it("the editor's check (lib/before-you-go.ts) agrees with the API on the examples", async () => {
-    for (const text of [NOTE, "", "  "]) expect(validateBeforeYouGo(text)).toBeNull();
-    expect(validateBeforeYouGo(["1", "2", "3", "4", "5", "6"].join("\n"))).toBe("Keep it to 5 lines or fewer.");
-    expect(validateBeforeYouGo("See venue.com")).toMatch(/links or web addresses/);
-    expect(validateBeforeYouGo("Mail a@b.example")).toMatch(/can't include/);
-    expect(validateBeforeYouGo("a".repeat(501))).toMatch(/500 characters/);
+  it("validateBeforeYouGo returns each row's errors at its index, the list's, and the API's message", () => {
+    expect(validateBeforeYouGo(ROWS)).toBeNull();
+    expect(validateBeforeYouGo([])).toBeNull();
+    expect(validateBeforeYouGo([row("", "")])).toBeNull();
+
+    expect(validateBeforeYouGo([ROWS[0], row("Age", ""), row("x".repeat(21), "See venue.com")])).toEqual({
+      rows: [
+        null,
+        { value: "Row 2 needs a label and a value." },
+        { label: "Row 3's label must be 20 characters or fewer.", value: "Row 3's value can't include links or web addresses." },
+      ],
+      list: null,
+      message: "Row 2 needs a label and a value.",
+    });
+    const six = Array.from({ length: 6 }, (_, i) => row(`L${i}`, `V${i}`));
+    expect(validateBeforeYouGo(six)).toEqual({ rows: six.map(() => null), list: BEFORE_YOU_GO_TOO_MANY, message: BEFORE_YOU_GO_TOO_MANY });
+    // A half-filled row counts towards the five; the list's error comes before any row's.
+    expect(validateBeforeYouGo([...six.slice(0, 4), row("", "Orphan")])?.message).toBe("Row 5 needs a label and a value.");
+    const sixth = validateBeforeYouGo([...six.slice(0, 5), row("", "Orphan")]);
+    expect(sixth?.message).toBe(BEFORE_YOU_GO_TOO_MANY);
+    expect(sixth?.rows[5]).toEqual({ label: "Row 6 needs a label and a value." });
+  });
+
+  it("suggests the reference labels", () => {
+    expect(BEFORE_YOU_GO_SUGGESTED_LABELS).toEqual(["Entry", "Age", "Extras"]);
   });
 });
 
 describe("who can set and read it", () => {
   it("401 signed out, 403 for an account that isn't an approved organiser", async () => {
-    const anon = await api.call(createEventDraft, { body: eventInput({ beforeYouGo: NOTE }) });
+    const anon = await api.call(createEventDraft, { body: eventInput({ beforeYouGo: ROWS }) });
     expect(anon.status).toBe(401);
     const member = await api.signUp();
-    const res = await create({ beforeYouGo: NOTE }, member.token);
+    const res = await create({ beforeYouGo: ROWS }, member.token);
     expect(res.status).toBe(403);
   });
 
   it("another organiser's event is a 404 to read and to edit, and stays as it was", async () => {
-    const event = await draftEvent(api, organiser, { beforeYouGo: NOTE });
+    const event = await draftEvent(api, organiser, { beforeYouGo: ROWS });
     const other = await approvedOrganiser(api, admin, { displayName: "Other Collective", contactEmail: "other@example.com" });
 
     const read = await api.call(getMyEvent, { token: other.token, params: { eventId: event.eventId } });
     expect(read.status).toBe(404);
     expect(read.body).not.toHaveProperty("beforeYouGo");
 
-    const edit = await patch(event.eventId, { beforeYouGo: "Hijacked" }, other.token);
+    const edit = await patch(event.eventId, { beforeYouGo: [row("Hijacked", "yes")] }, other.token);
     expect(edit.status).toBe(404);
-    expect(await stored(event.eventId)).toBe(NOTE);
+    const clear = await patch(event.eventId, { beforeYouGo: null }, other.token);
+    expect(clear.status).toBe(404);
+    expect(await stored(event.eventId)).toEqual(ROWS);
   });
 
   it("is public on a published event's page and in the feed, the same in both", async () => {
-    const event = await publishedEvent(api, organiser, admin, { beforeYouGo: NOTE });
+    const event = await publishedEvent(api, organiser, admin, { beforeYouGo: ROWS });
     const page = await api.call(getPublicEventBySlug, { params: { slug: event.slug } });
     expect(page.status).toBe(200);
-    expect(page.body.beforeYouGo).toBe(NOTE);
+    expect(page.body.beforeYouGo).toEqual(ROWS);
     const list = await api.call(listPublicEvents);
     const item = list.body.items.find((e: { slug: string }) => e.slug === event.slug);
     expect(item).toEqual(withoutHostCard(page.body));
@@ -276,22 +376,22 @@ describe("who can set and read it", () => {
     expect(plainPage.body).not.toHaveProperty("beforeYouGo");
   });
 
-  it("a draft's note isn't public", async () => {
-    const draft = await draftEvent(api, organiser, { beforeYouGo: NOTE });
+  it("a draft's rows aren't public", async () => {
+    const draft = await draftEvent(api, organiser, { beforeYouGo: [row("Secret", "Phone-free night")] });
     const page = await api.call(getPublicEventBySlug, { params: { slug: draft.slug } });
     expect(page.status).toBe(404);
     const list = await api.call(listPublicEvents);
     expect(JSON.stringify(list.body)).not.toContain("Phone-free");
   });
 
-  it("admins see it in the review queue and on the event", async () => {
-    const event = await draftEvent(api, organiser, { beforeYouGo: NOTE });
+  it("admins see them in the review queue and on the event", async () => {
+    const event = await draftEvent(api, organiser, { beforeYouGo: ROWS });
     await submit(event.eventId);
     const queue = await api.call(adminListEvents, { token: admin.token, query: { status: "pending_review" } });
     expect(queue.status).toBe(200);
-    expect(queue.body.items.find((e: { eventId: string }) => e.eventId === event.eventId).beforeYouGo).toBe(NOTE);
+    expect(queue.body.items.find((e: { eventId: string }) => e.eventId === event.eventId).beforeYouGo).toEqual(ROWS);
     const one = await api.call(adminGetEvent, { token: admin.token, params: { eventId: event.eventId } });
-    expect(one.body.beforeYouGo).toBe(NOTE);
+    expect(one.body.beforeYouGo).toEqual(ROWS);
   });
 });
 
@@ -305,56 +405,79 @@ describe("an admin's create and edit", () => {
   });
   const adminEdit = (eventId: string, body: unknown) =>
     api.call(adminUpdateEvent, { token: admin.token, params: { eventId }, body, method: "PATCH" });
+  const NEW_ROWS = [row("Entry", "Doors at 6 pm")];
 
-  it("creates with a note, edits it (logged with old and new), keeps it unsent, and clears it", async () => {
+  it("creates with rows, edits them (logged with the old and new arrays), keeps them unsent, and clears them", async () => {
     const created = await api.call(adminCreateEvent, {
       token: admin.token,
-      body: { ...eventInput({ beforeYouGo: NOTE }), organiserId: organiser.organiserId },
+      body: { ...eventInput({ beforeYouGo: ROWS }), organiserId: organiser.organiserId },
     });
     expect(created.status).toBe(201);
     const event = created.body as AdminEventRecord;
-    expect(event.beforeYouGo).toBe(NOTE);
+    expect(event.beforeYouGo).toEqual(ROWS);
 
-    const edited = await adminEdit(event.eventId, editBody(event, { beforeYouGo: "Doors at 6." }));
+    const edited = await adminEdit(event.eventId, editBody(event, { beforeYouGo: NEW_ROWS }));
     expect(edited.status).toBe(200);
-    expect(edited.body.beforeYouGo).toBe("Doors at 6.");
+    expect(edited.body.beforeYouGo).toEqual(NEW_ROWS);
     expect(edited.body.moderationLog.at(-1)).toMatchObject({
       action: "edited",
-      changes: { beforeYouGo: { old: NOTE, new: "Doors at 6." } },
+      changes: { beforeYouGo: { old: ROWS, new: NEW_ROWS } },
     });
 
     // Not sent: kept, and nothing else changed, so nothing is written or logged.
     const logLength = edited.body.moderationLog.length;
     const unchanged = await adminEdit(event.eventId, editBody(edited.body));
     expect(unchanged.status).toBe(200);
-    expect(unchanged.body.beforeYouGo).toBe("Doors at 6.");
+    expect(unchanged.body.beforeYouGo).toEqual(NEW_ROWS);
     expect(unchanged.body.moderationLog).toHaveLength(logLength);
+    // The same rows sent again (after cleaning): no change either.
+    const same = await adminEdit(event.eventId, editBody(unchanged.body, { beforeYouGo: [row(" Entry ", "Doors  at 6 pm")] }));
+    expect(same.body.moderationLog).toHaveLength(logLength);
 
-    const cleared = await adminEdit(event.eventId, editBody(unchanged.body, { beforeYouGo: null }));
+    const cleared = await adminEdit(event.eventId, editBody(same.body, { beforeYouGo: [] }));
     expect(cleared.status).toBe(200);
     expect(cleared.body).not.toHaveProperty("beforeYouGo");
-    expect(cleared.body.moderationLog.at(-1).changes).toEqual({ beforeYouGo: { old: "Doors at 6.", new: null } });
+    expect(cleared.body.moderationLog.at(-1).changes).toEqual({ beforeYouGo: { old: NEW_ROWS, new: null } });
+    expect(await stored(event.eventId)).toBeNull();
+
+    const restored = await adminEdit(event.eventId, editBody(cleared.body, { beforeYouGo: ROWS }));
+    expect(restored.body.moderationLog.at(-1).changes).toEqual({ beforeYouGo: { old: null, new: ROWS } });
   });
 
-  it("an admin can change a published event's note; the organiser sees the change as Sheltüh's", async () => {
-    const event = await publishedEvent(api, organiser, admin, { beforeYouGo: NOTE });
+  it("an admin can change a published event's rows; the organiser sees the change as Sheltüh's", async () => {
+    const event = await publishedEvent(api, organiser, admin, { beforeYouGo: ROWS });
     const current = (await api.call(adminGetEvent, { token: admin.token, params: { eventId: event.eventId } })).body as AdminEventRecord;
-    const res = await adminEdit(event.eventId, editBody(current, { beforeYouGo: "Doors moved to 8 pm." }));
+    const res = await adminEdit(event.eventId, editBody(current, { beforeYouGo: [row("Entry", "Doors moved to 8 pm")] }));
     expect(res.status).toBe(200);
     expect(res.body.status).toBe("published");
     const page = await api.call(getPublicEventBySlug, { params: { slug: event.slug } });
-    expect(page.body.beforeYouGo).toBe("Doors moved to 8 pm.");
+    expect(page.body.beforeYouGo).toEqual([row("Entry", "Doors moved to 8 pm")]);
     const mine = await api.call(getMyEvent, { token: organiser.token, params: { eventId: event.eventId } });
-    expect(mine.body.moderationLog.at(-1)).toMatchObject({ action: "edited", changes: { beforeYouGo: { new: "Doors moved to 8 pm." } } });
+    expect(mine.body.moderationLog.at(-1)).toMatchObject({
+      action: "edited",
+      changes: { beforeYouGo: { old: ROWS, new: [row("Entry", "Doors moved to 8 pm")] } },
+    });
   });
 
   it("validates like the organiser's form", async () => {
     const res = await api.call(adminCreateEvent, {
       token: admin.token,
-      body: { ...eventInput({ beforeYouGo: "Map: venue.com" }), organiserId: organiser.organiserId },
+      body: { ...eventInput({ beforeYouGo: [row("Map", "venue.com")] }), organiserId: organiser.organiserId },
     });
     expect(res.status).toBe(400);
-    expect(Object.keys(res.body.fieldErrors)).toEqual(["beforeYouGo"]);
+    expect(res.body.fieldErrors).toEqual({ beforeYouGo: "Row 1's value can't include links or web addresses." });
+  });
+
+  it("isn't for a signed-in organiser", async () => {
+    const event = await draftEvent(api, organiser, { beforeYouGo: ROWS });
+    const res = await api.call(adminUpdateEvent, {
+      token: organiser.token,
+      params: { eventId: event.eventId },
+      body: { ...eventInput({ beforeYouGo: null }), expectedUpdatedAt: event.updatedAt, ticketingMode: "sheltuh" },
+      method: "PATCH",
+    });
+    expect(res.status).toBe(403);
+    expect(await stored(event.eventId)).toEqual(ROWS);
   });
 });
 
@@ -380,21 +503,21 @@ describe("the emails' and the ticket page's data", () => {
     return new URL(res.body.url).searchParams.get("session_id") as string;
   }
 
-  it("the ticket email's event and the ticket page carry the note", async () => {
-    const event = await publishedEvent(api, organiser, admin, { ticketTypes: FREE, beforeYouGo: NOTE });
+  it("the ticket email's event and the ticket page carry the rows", async () => {
+    const event = await publishedEvent(api, organiser, admin, { ticketTypes: FREE, beforeYouGo: ROWS });
     const orderId = await memberFreeOrder(event.eventId);
     await api.runDeferred();
     await cron();
     const calls = vi.mocked(buildTicketEmail).mock.calls;
     expect(calls.length).toBeGreaterThan(0);
-    expect(calls.at(-1)![1].beforeYouGo).toBe(NOTE);
+    expect(calls.at(-1)![1].beforeYouGo).toEqual(ROWS);
 
     const page = await ticketPage(orderId);
-    expect(page).toMatchObject({ status: "paid", eventListed: true, beforeYouGo: NOTE });
+    expect(page).toMatchObject({ status: "paid", eventListed: true, beforeYouGo: ROWS });
   });
 
-  it("the ticket page leaves it out once the event isn't published, and when there's none", async () => {
-    const event = await publishedEvent(api, organiser, admin, { ticketTypes: FREE, beforeYouGo: NOTE });
+  it("the ticket page leaves them out once the event isn't published, and when there are none", async () => {
+    const event = await publishedEvent(api, organiser, admin, { ticketTypes: FREE, beforeYouGo: ROWS });
     const orderId = await memberFreeOrder(event.eventId);
     await api.db.query(`update public.events set status = 'draft' where id = $1`, [event.eventId]);
     const page = await ticketPage(orderId);
@@ -405,16 +528,16 @@ describe("the emails' and the ticket page's data", () => {
     expect(await ticketPage(await memberFreeOrder(plain.eventId))).not.toHaveProperty("beforeYouGo");
   });
 
-  it("the ticket page leaves it out of an order that isn't paid", async () => {
-    const event = await publishedEvent(api, organiser, admin, { ticketTypes: FREE, beforeYouGo: NOTE });
+  it("the ticket page leaves them out of an order that isn't paid", async () => {
+    const event = await publishedEvent(api, organiser, admin, { ticketTypes: FREE, beforeYouGo: ROWS });
     const orderId = await insertOrder(api, event, "refunded@example.com", "refunded");
     const page = await ticketPage(orderId);
     expect(page.status).toBe("refunded");
     expect(page).not.toHaveProperty("beforeYouGo");
   });
 
-  it("the free-ticket confirmation's event carries the note", async () => {
-    const event = await publishedEvent(api, organiser, admin, { ticketTypes: FREE, beforeYouGo: NOTE });
+  it("the free-ticket confirmation's event carries the rows", async () => {
+    const event = await publishedEvent(api, organiser, admin, { ticketTypes: FREE, beforeYouGo: ROWS });
     const res = await api.call(createCheckout, {
       params: { eventId: event.eventId },
       body: { lineItems: [{ ticketTypeId: "rsvp", quantity: 1 }], buyerEmail: "guest@example.com" },
@@ -422,11 +545,11 @@ describe("the emails' and the ticket page's data", () => {
     expect(res.status).toBe(202);
     const calls = vi.mocked(buildFreeConfirmationEmail).mock.calls;
     expect(calls).toHaveLength(1);
-    expect((calls[0][1] as EventRecord).beforeYouGo).toBe(NOTE);
+    expect((calls[0][1] as EventRecord).beforeYouGo).toEqual(ROWS);
   });
 
-  it("the reminder's event carries the note", async () => {
-    const event = await publishedEvent(api, organiser, admin, { beforeYouGo: NOTE });
+  it("the reminder's event carries the rows", async () => {
+    const event = await publishedEvent(api, organiser, admin, { beforeYouGo: ROWS });
     await api.db.query(`delete from private.email_outbox where kind <> 'event_reminder'`);
     const orderId = await insertOrder(api, event, "goer@example.com", "paid");
     await api.db.query(`update public.orders set created_at = now() - interval '1 day' where id = $1`, [orderId]);
@@ -439,42 +562,131 @@ describe("the emails' and the ticket page's data", () => {
     await cron();
     const calls = vi.mocked(buildEventReminderEmail).mock.calls;
     expect(calls).toHaveLength(1);
-    expect(calls[0][0].event.beforeYouGo).toBe(NOTE);
+    expect(calls[0][0].event.beforeYouGo).toEqual(ROWS);
   });
 });
 
 describe("the database", () => {
-  async function setNote(note: string) {
+  /** Writes `json` (jsonb text, or SQL null) straight to a fresh draft's column. */
+  async function setRows(json: string | null) {
     const event = await draftEvent(api, organiser, { title: `DB ${crypto.randomUUID().slice(0, 6)}` });
-    return api.db.query(`update public.events set before_you_go = $2 where id = $1`, [event.eventId, note]);
+    return api.db.query(`update public.events set before_you_go = $2::text::jsonb where id = $1`, [event.eventId, json]);
   }
+  const rows = (...items: unknown[]) => JSON.stringify(items);
 
-  it("holds the limits whatever the code sends", async () => {
-    for (const bad of [
-      "",
-      " Doors",
-      "Doors\n",
-      "Doors\r\nopen",
-      "a\n\n\nb",
-      "Doors\u0007",
-      "x".repeat(501),
-      ["1", "2", "3", "4", "5", "6"].join("\n"),
-    ]) {
-      await expect(setNote(bad), JSON.stringify(bad)).rejects.toThrow(/events_before_you_go_check/);
+  it("holds the shape and limits whatever the code sends", async () => {
+    const bad = [
+      "null",
+      "[]",
+      "{}",
+      '"Doors at 7"',
+      "42",
+      rows(...Array.from({ length: 6 }, (_, i) => ({ label: `L${i}`, value: "v" }))),
+      rows("Entry"),
+      rows(null),
+      rows(["Entry", "7 pm"]),
+      rows({}),
+      rows({ label: "Entry" }),
+      rows({ value: "7 pm" }),
+      rows({ label: "Entry", value: "7 pm", extra: "x" }),
+      rows({ label: "Entry", val: "7 pm" }),
+      rows({ label: 1, value: "7 pm" }),
+      rows({ label: "Entry", value: null }),
+      rows({ label: "", value: "7 pm" }),
+      rows({ label: "Entry", value: "" }),
+      rows({ label: "x".repeat(21), value: "v" }),
+      rows({ label: "l", value: "x".repeat(81) }),
+      rows({ label: " Entry", value: "v" }),
+      rows({ label: "Entry ", value: "v" }),
+      rows({ label: "En  try", value: "v" }),
+      rows({ label: "Entry", value: "7 pm\nlate" }),
+      rows({ label: "Entry", value: "7 pm\rlate" }),
+      rows({ label: "Entry", value: "7\tpm" }),
+      rows({ label: "Entry", value: "7\u0001pm" }),
+      rows({ label: "Entry", value: "7\u007Fpm" }),
+      rows({ label: "Entry", value: "7\u0085pm" }),
+      rows({ label: "Entry", value: "7\u009Fpm" }),
+      rows({ label: "Entry", value: "7 pm" }),
+      rows({ label: "Entry", value: "7 pm" }),
+      rows({ label: "En‮try", value: "v" }),
+      rows({ label: "En​try", value: "v" }),
+      rows({ label: "En﻿try", value: "v" }),
+      rows({ label: "Entry", value: "ok" }, { label: "Age", value: "18+\n" }),
+    ];
+    for (const json of bad) {
+      await expect(setRows(json), json).rejects.toThrow(/events_before_you_go_check/);
     }
-    for (const good of [NOTE, "x".repeat(500), "🎟".repeat(500), ["1", "2", "3", "4", "5"].join("\n\n"), "Tab\tinside"]) {
-      await expect(setNote(good)).resolves.toBeDefined();
+    const good = [
+      null,
+      JSON.stringify(ROWS),
+      rows(...Array.from({ length: 5 }, (_, i) => ({ label: `L${i}`, value: "v" }))),
+      rows({ label: "x".repeat(20), value: "y".repeat(80) }),
+      rows({ label: "🎟".repeat(20), value: "🎟".repeat(80) }),
+      rows({ label: "Crew", value: "👩‍🎤 on stage" }),
+    ];
+    for (const json of good) {
+      await expect(setRows(json), String(json)).resolves.toBeDefined();
     }
   });
 
-  it("the edit functions keep a stored note for a caller that doesn't send the key (the deploy window)", async () => {
-    const event = await draftEvent(api, organiser, { beforeYouGo: NOTE });
+  it("the write functions store JSON null and [] as SQL null, never jsonb 'null'", async () => {
+    const event = await draftEvent(api, organiser, { beforeYouGo: ROWS });
+    const fields = (extra: Record<string, unknown>) =>
+      JSON.stringify({ ...eventInput(), startsAt: event.startsAt, endsAt: event.endsAt, ticketingMode: "sheltuh", ...extra });
+    for (const clear of [null, []]) {
+      await api.db.query(`update public.events set before_you_go = $2::text::jsonb where id = $1`, [event.eventId, JSON.stringify(ROWS)]);
+      const [r] = await api.db.query<{ result: string }>(
+        `select private.edit_event_draft($1, $2, $3::text::jsonb, $4::text::jsonb) as result`,
+        [event.eventId, organiser.organiserId, fields({ beforeYouGo: clear }), JSON.stringify(event.ticketTypes)],
+      );
+      expect(r.result).toBe("updated");
+      const [{ isNull }] = await api.db.query<{ isNull: boolean }>(
+        `select before_you_go is null as "isNull" from public.events where id = $1`,
+        [event.eventId],
+      );
+      expect(isNull, JSON.stringify(clear)).toBe(true);
+    }
+    const [{ id }] = await api.db.query<{ id: string }>(
+      `select private.create_event_draft($1, $2, $3::text::jsonb, $4::text::jsonb) as id`,
+      [organiser.organiserId, "db-null-rows", fields({ beforeYouGo: null }), JSON.stringify(event.ticketTypes)],
+    );
+    expect(await stored(id)).toBeNull();
+  });
+
+  it("a caller from before the field (no key) creates none, and its edits keep the stored rows", async () => {
+    const event = await draftEvent(api, organiser, { beforeYouGo: ROWS });
     const fields = { ...eventInput(), startsAt: event.startsAt, endsAt: event.endsAt, ticketingMode: "sheltuh" };
-    const [row] = await api.db.query<{ result: string }>(
+    expect(fields).not.toHaveProperty("beforeYouGo");
+
+    const [r] = await api.db.query<{ result: string }>(
       `select private.edit_event_draft($1, $2, $3::text::jsonb, $4::text::jsonb) as result`,
       [event.eventId, organiser.organiserId, JSON.stringify(fields), JSON.stringify(event.ticketTypes)],
     );
-    expect(row.result).toBe("updated");
-    expect(await stored(event.eventId)).toBe(NOTE);
+    expect(r.result).toBe("updated");
+    expect(await stored(event.eventId)).toEqual(ROWS);
+
+    const current = (await api.call(adminGetEvent, { token: admin.token, params: { eventId: event.eventId } })).body as AdminEventRecord;
+    const [a] = await api.db.query<{ result: string }>(
+      `select private.admin_edit_event($1, $2, $3::timestamptz, $4::text::jsonb, $5::text::jsonb, false, null) as result`,
+      [event.eventId, admin.userId, current.updatedAt, JSON.stringify({ ...fields, title: "Admin renamed" }), JSON.stringify(current.ticketTypes)],
+    );
+    expect(a.result).toBe("updated");
+    expect(await stored(event.eventId)).toEqual(ROWS);
+    const log = (await api.call(adminGetEvent, { token: admin.token, params: { eventId: event.eventId } })).body.moderationLog;
+    expect(log.at(-1).changes).not.toHaveProperty("beforeYouGo");
+
+    const [{ id }] = await api.db.query<{ id: string }>(
+      `select private.create_event_draft($1, $2, $3::text::jsonb, $4::text::jsonb) as id`,
+      [organiser.organiserId, "old-app-create", JSON.stringify(fields), JSON.stringify(event.ticketTypes)],
+    );
+    expect(await stored(id)).toBeNull();
+  });
+
+  it("the helpers aren't callable by clients", async () => {
+    const [r] = await api.db.query<{ anon: boolean; authed: boolean }>(
+      `select has_function_privilege('anon', 'private.before_you_go_ok(jsonb)', 'execute') as anon,
+              has_function_privilege('authenticated', 'private.before_you_go_of(jsonb)', 'execute') as authed`,
+    );
+    expect(r).toEqual({ anon: false, authed: false });
   });
 });

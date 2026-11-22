@@ -708,18 +708,18 @@ describe("EventDetailsView booking info beside the tickets", () => {
 });
 
 describe("EventDetailsView: Before you go", () => {
-  const NOTE = "Doors open 5:00 pm · last entry 8:00 pm.\n\n18+ event — bring photo ID.\n<b>Earplugs</b> at the bar.";
+  const ROWS = [
+    { label: "Entry", value: "5:00 pm – 8:00 pm" },
+    { label: "Age", value: "18+ · Photo ID required" },
+    { label: "<b>Extras</b>", value: "<b>Earplugs</b> at the bar" },
+  ];
 
-  it("shows the organiser's note in a box titled Before you go, a paragraph per line, as plain text", () => {
-    const { container } = render(<EventDetailsView event={{ ...findEvent("neon-static"), beforeYouGo: NOTE }} demo />);
+  it("shows the organiser's rows in a box titled Before you go, a label and a value each, as plain text", () => {
+    const { container } = render(<EventDetailsView event={{ ...findEvent("neon-static"), beforeYouGo: ROWS }} demo />);
     const box = screen.getByRole("region", { name: "Before you go" });
     expect(within(box).getByRole("heading", { level: 2, name: "Before you go" })).toBeInTheDocument();
-    // The blank line between two lines isn't a line of its own.
-    expect([...box.querySelectorAll("p")].map((p) => p.textContent)).toEqual([
-      "Doors open 5:00 pm · last entry 8:00 pm.",
-      "18+ event — bring photo ID.",
-      "<b>Earplugs</b> at the bar.",
-    ]);
+    expect([...box.querySelectorAll("dt")].map((dt) => dt.textContent)).toEqual(["Entry", "Age", "<b>Extras</b>"]);
+    expect([...box.querySelectorAll("dd")].map((dd) => dd.textContent)).toEqual(ROWS.map((r) => r.value));
     // Escaped, never markup.
     expect(box.querySelector("b")).toBeNull();
     expect(box).toHaveClass("border", "border-foreground", "rounded-control", "p-6");

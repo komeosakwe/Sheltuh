@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventEditor, { BEFORE_YOU_GO_HINT } from "@/components/dashboard/EventEditor";
 import { ApiError } from "@/lib/api/client";
 import type { AdminEventRecord, EventRecord } from "@/lib/api/types";
-import { BEFORE_YOU_GO_NO_LINKS, BEFORE_YOU_GO_TOO_MANY_LINES } from "@/lib/before-you-go";
+import { BEFORE_YOU_GO_TOO_MANY, beforeYouGoHalfFilled, beforeYouGoNoLinks } from "@/lib/before-you-go";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 import { currentStep, showStep } from "./test-utils/editorSteps";
 import { stubMatchMedia, unstubMatchMedia } from "./test-utils/pinMapStub";
@@ -75,7 +75,12 @@ const EVENT: EventRecord = {
   updatedAt: "2026-01-01T00:00:00.000Z",
 };
 
-const NOTE = "Doors open 5:00 pm · last entry 8:00 pm\n18+ event — bring photo ID";
+// TEMPORARY (until the rows UI): the textarea holds "Label: value" lines (components/dashboard/editor/before-you-go-text.ts).
+const ROWS = [
+  { label: "Entry", value: "7:30 pm – 10:30 pm" },
+  { label: "Age", value: "18+ · Photo ID required" },
+];
+const TEXT = "Entry: 7:30 pm – 10:30 pm\nAge: 18+ · Photo ID required";
 
 /** The organiser's editor: on `initial` (a saved draft), or with `null` on a new event. */
 function renderEditor(initial: EventRecord | null = EVENT) {
@@ -96,15 +101,14 @@ async function sentInput(): Promise<Record<string, unknown>> {
 }
 
 describe("EventEditor — Before you go", () => {
-  it("is an optional textarea in Event details, labelled, with its hint as its description, Latte's example and a counter", () => {
+  it("is an optional textarea in Event details, labelled, with its hint as its description and the reference rows", () => {
     renderEditor();
     const box = field();
     expect(box.tagName).toBe("TEXTAREA");
     expect(box).toHaveValue("");
     expect(box).toHaveAccessibleDescription(BEFORE_YOU_GO_HINT);
-    expect(box).toHaveAttribute("placeholder", expect.stringContaining("Doors open 5:00 pm · last entry 8:00 pm"));
+    expect(box).toHaveAttribute("placeholder", expect.stringContaining("Entry: 7:30 pm – 10:30 pm"));
     expect(box).not.toHaveAttribute("aria-invalid");
-    expect(screen.getByText("0/500")).toBeInTheDocument();
     // In the Event details card, after the description.
     const details = screen.getByRole("heading", { name: "Event details" }).closest("section");
     expect(details).not.toBeNull();
@@ -113,22 +117,20 @@ describe("EventEditor — Before you go", () => {
     expect(description.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("sends what's typed as beforeYouGo, cleaned as the API stores it, and counts it in code points", async () => {
-    updateEventDraft.mockResolvedValue({ ...EVENT, beforeYouGo: NOTE });
+  it("sends what's typed as beforeYouGo rows, cleaned as the API stores them", async () => {
+    updateEventDraft.mockResolvedValue({ ...EVENT, beforeYouGo: ROWS });
     renderEditor();
-    fireEvent.change(field(), { target: { value: `${NOTE}   \n\n\n🎟️ Bring your ticket ` } });
-    // Counted as the API counts it: cleaned, in code points (the emoji's two are 🎟 and its variation selector).
-    expect(screen.getByText(`${Array.from(`${NOTE}\n\n🎟️ Bring your ticket`).length}/500`)).toBeInTheDocument();
+    fireEvent.change(field(), { target: { value: `${TEXT}   \n\n\n Extras :  🎟️ Bring your ticket ` } });
     save();
-    expect((await sentInput()).beforeYouGo).toBe(`${NOTE}\n\n🎟️ Bring your ticket`);
+    expect((await sentInput()).beforeYouGo).toEqual([...ROWS, { label: "Extras", value: "🎟️ Bring your ticket" }]);
   });
 
-  it("shows a saved note, sends it back unchanged, and sends null once it's cleared", async () => {
-    updateEventDraft.mockResolvedValue({ ...EVENT, beforeYouGo: NOTE });
-    renderEditor({ ...EVENT, beforeYouGo: NOTE });
-    expect(field()).toHaveValue(NOTE);
+  it("shows saved rows, sends them back unchanged, and sends null once they're cleared", async () => {
+    updateEventDraft.mockResolvedValue({ ...EVENT, beforeYouGo: ROWS });
+    renderEditor({ ...EVENT, beforeYouGo: ROWS });
+    expect(field()).toHaveValue(TEXT);
     save();
-    expect((await sentInput()).beforeYouGo).toBe(NOTE);
+    expect((await sentInput()).beforeYouGo).toEqual(ROWS);
 
     updateEventDraft.mockClear();
     updateEventDraft.mockResolvedValue({ ...EVENT });
@@ -138,12 +140,12 @@ describe("EventEditor — Before you go", () => {
     expect(input).toHaveProperty("beforeYouGo", null);
   });
 
-  it("a new event sends its note with the draft", async () => {
-    createEventDraft.mockResolvedValue({ ...EVENT, eventId: "evt-new", beforeYouGo: NOTE });
+  it("a new event sends its rows with the draft", async () => {
+    createEventDraft.mockResolvedValue({ ...EVENT, eventId: "evt-new", beforeYouGo: ROWS });
     renderEditor(null);
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Neon Static" } });
     fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Four bands." } });
-    fireEvent.change(field(), { target: { value: NOTE } });
+    fireEvent.change(field(), { target: { value: TEXT } });
     fireEvent.change(screen.getByLabelText("Venue name"), { target: { value: "The Tote" } });
     fireEvent.change(screen.getByLabelText("Venue address"), { target: { value: "71 Johnston St" } });
     fireEvent.change(screen.getByLabelText("Suburb or town"), { target: { value: "Collingwood" } });
@@ -154,12 +156,13 @@ describe("EventEditor — Before you go", () => {
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "General admission" } });
     save();
     await waitFor(() => expect(createEventDraft).toHaveBeenCalledTimes(1));
-    expect(createEventDraft.mock.calls[0][0]).toMatchObject({ beforeYouGo: NOTE });
+    expect(createEventDraft.mock.calls[0][0]).toMatchObject({ beforeYouGo: ROWS });
   });
 
   it.each([
-    ["six lines", "One\nTwo\nThree\nFour\nFive\nSix", BEFORE_YOU_GO_TOO_MANY_LINES],
-    ["a link", "Tickets at sheltuh.com.au/neon", BEFORE_YOU_GO_NO_LINKS],
+    ["six rows", "A: 1\nB: 2\nC: 3\nD: 4\nE: 5\nF: 6", BEFORE_YOU_GO_TOO_MANY],
+    ["a link", "Tickets: sheltuh.com.au/neon", beforeYouGoNoLinks(1, "value")],
+    ["a row without a label", "Entry: 7 pm\nBring ID", beforeYouGoHalfFilled(2)],
   ])("refuses %s by the field, before sending: invalid, described by the error, focused, in the summary", async (_name, text, message) => {
     renderEditor();
     showStep(2);
@@ -175,31 +178,25 @@ describe("EventEditor — Before you go", () => {
     expect(screen.getByRole("button", { name: `Before you go: ${message}` })).toBeInTheDocument();
 
     // Editing it clears the error.
-    fireEvent.change(field(), { target: { value: "Doors 7 pm" } });
+    fireEvent.change(field(), { target: { value: "Entry: 7 pm" } });
     expect(field()).not.toHaveAttribute("aria-invalid");
     expect(field()).toHaveAccessibleDescription(BEFORE_YOU_GO_HINT);
   });
 
   it("shows the API's fieldErrors.beforeYouGo by the field (the source of truth), focused", async () => {
-    const message = "“Before you go” can't include email addresses.";
+    const message = "Row 1's value can't include email addresses.";
     updateEventDraft.mockRejectedValue(
       new ApiError(400, "Validation failed", { beforeYouGo: message }),
     );
     renderEditor();
-    fireEvent.change(field(), { target: { value: "Doors 7 pm" } });
+    fireEvent.change(field(), { target: { value: "Entry: 7 pm" } });
     showStep(3);
     save();
     await waitFor(() => expect(field()).toHaveAttribute("aria-invalid", "true"));
-    expect(updateEventDraft.mock.calls[0][1]).toMatchObject({ beforeYouGo: "Doors 7 pm" });
+    expect(updateEventDraft.mock.calls[0][1]).toMatchObject({ beforeYouGo: [{ label: "Entry", value: "7 pm" }] });
     expect(field()).toHaveAccessibleDescription(`${message} ${BEFORE_YOU_GO_HINT}`);
     expect(currentStep()).toBe(1);
     await waitFor(() => expect(field()).toHaveFocus());
-  });
-
-  it("turns the counter red past 500 characters", () => {
-    renderEditor();
-    fireEvent.change(field(), { target: { value: "a".repeat(501) } });
-    expect(screen.getByText("501/500")).toHaveClass("text-danger");
   });
 });
 
@@ -213,7 +210,7 @@ describe("EventEditor (admin) — Before you go", () => {
     updatedAt: "2026-10-20T01:02:03.456Z",
     organiserPlatformManaged: false,
     curation: { boost: 1, excluded: false },
-    beforeYouGo: NOTE,
+    beforeYouGo: ROWS,
   };
 
   it("edits the same field and sends it with the admin's save; clearing sends null", async () => {
@@ -223,7 +220,7 @@ describe("EventEditor (admin) — Before you go", () => {
         <EventEditor mode="admin" getToken={vi.fn().mockResolvedValue("token")} initial={ADMIN_EVENT} onSaved={vi.fn()} />
       </FakeAuthProvider>,
     );
-    expect(field()).toHaveValue(NOTE);
+    expect(field()).toHaveValue(TEXT);
     fireEvent.change(field(), { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(adminUpdateEvent).toHaveBeenCalledTimes(1));

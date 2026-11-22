@@ -1,76 +1,149 @@
 -- "Before you go" (owner request, Nov 2026; docs/architecture.md, "Before
--- you go"): a short plain-text note the organiser writes for the people going
--- to their event ("Doors open 5:00 pm · last entry 8:00 pm."), for a box in
--- the ticket email, the reminder, the free-ticket confirmation and the buyer's
--- ticket page. Data only here: those displays come with their own changes.
+-- you go"): the organiser's short rows for the people going to their event,
+-- a label and a value each ("Entry": "7:30 pm – 10:30 pm", "Age": "18+ ·
+-- Photo ID required", "Extras": "Free earplugs at the bar"), for the event
+-- page, the ticket email, the reminder, the free-ticket confirmation and the
+-- buyer's ticket page. Data only here: those displays come with their own
+-- changes.
 --
---   * public.events.before_you_go: text, null when there is none. Check
---     events_before_you_go_check holds what the API stores (lib/before-you-go.ts,
---     parsed by lib/server/event-input.ts parseBeforeYouGo), whatever is sent:
---     1 to 500 characters (char_length: code points); no leading or trailing
---     space, tab or line break; at most one blank line in a row; at most 5
---     lines of text (a blank line between them doesn't count); no control
---     character but tab and line feed (so no \r: line endings are \n). Plain
---     text: the API refuses web and email addresses, and stores anything
---     HTML-like as the characters typed; every display escapes it. Existing
---     rows are null and pass.
+--   * public.events.before_you_go: jsonb, null when there are none. Check
+--     events_before_you_go_check (private.before_you_go_ok) holds what the
+--     API stores (lib/before-you-go.ts, parsed by lib/server/event-input.ts
+--     parseBeforeYouGo), whatever is sent: an array of 1 to 5 objects, each
+--     with exactly the keys label and value, both strings
+--     (private.before_you_go_text_ok): label 1 to 20 and value 1 to 80
+--     characters (char_length: code points, as the API counts them after
+--     NFC); no leading or trailing space and no two spaces in a row (the API
+--     collapses whitespace); no C0 or C1 control character (U+0000-U+001F,
+--     U+007F-U+009F: so no tab, CR, LF or U+0085) and no line or paragraph
+--     separator (U+2028, U+2029): one line each; none of the invisible or
+--     text-direction format characters the API refuses (soft hyphen, Arabic
+--     letter mark, Mongolian vowel separator, zero-width space, LRM/RLM, the
+--     bidi embeddings, overrides and isolates, word joiner and invisible
+--     operators, BOM). U+200C and U+200D (joiners emoji and several scripts
+--     need) are allowed, as the API allows them. An empty array is stored as
+--     null, never kept. Plain text: the API refuses web and email addresses,
+--     and stores anything HTML-like as the characters typed; every display
+--     escapes it. Existing rows are null and pass.
+--   * The two helpers are immutable SQL functions (a check can't hold a
+--     subquery), structural only: tightening them later with create or
+--     replace wouldn't re-check stored rows, but any later update of such a
+--     row would fail, so change them only with a migration that checks the
+--     stored rows first. Like events_external_ticket_url_valid before it
+--     (20261022000000_external_ticketing.sql), the check calls a private
+--     function whose execute is revoked from clients.
 --   * private.create_event_draft, edit_event_draft and admin_edit_event read
---     p_fields' beforeYouGo: create stores it (absent: null); both edits keep
---     the stored note when the key isn't sent (a caller from before this
---     migration: the deploy window, or a client that never shows the field)
---     and clear it with an explicit null. admin_edit_event compares and logs
---     it with the event's other fields (changes.beforeYouGo, old and new, in
---     its 'edited' entry). Each is redefined from its latest definition
---     (create_event_draft and edit_event_draft from
+--     p_fields' beforeYouGo (jsonb): create stores it (absent: null); both
+--     edits keep the stored rows when the key isn't sent (a caller from
+--     before this migration: the deploy window, or a client that never shows
+--     the field) and clear them with an explicit null or []: JSON null and
+--     [] are both stored as SQL null (private.before_you_go_of), never as
+--     jsonb 'null' (which the check refuses). admin_edit_event compares and
+--     logs them with the event's other fields (changes.beforeYouGo, the old
+--     and new arrays, in its 'edited' entry). Each is redefined from its
+--     latest definition (create_event_draft and edit_event_draft from
 --     20261114000000_external_price.sql, admin_edit_event from
 --     20261120000000_group_tickets.sql), everything else unchanged.
 --   * The review rules don't change: an organiser edits only a draft or a
---     rejected event (edit_event_draft's not_editable), so the note goes
+--     rejected event (edit_event_draft's not_editable), so the rows go
 --     through the same publish or review as the description; an admin's edit
 --     of a published event is the admin's own, as for any other field.
 --   * publish_event, submit_event, admin_create_event (which calls
 --     create_event_draft) and the reads need no change: the API's
 --     EVENT_COLUMNS selects the column.
 --
+-- This file was rewritten in place (rows instead of free text, Nov 2026)
+-- before it was applied anywhere. A database that somehow has the earlier
+-- text version (before_you_go text) must drop that column first; nothing
+-- outside the branch ever wrote to it.
+--
 -- No index: nothing filters or sorts on it.
 --
 -- Access model as everywhere else: no new table; RLS stays on; the column has
--- no grants of its own; every redefined function pins its search_path, isn't
--- security definer and has execute revoked from PUBLIC, anon and
+-- no grants of its own; every new or redefined function pins its search_path,
+-- isn't security definer and has execute revoked from PUBLIC, anon and
 -- authenticated.
 --
 -- Additive. The column has no default (no table rewrite); validating the check
 -- scans public.events once under the ALTER's lock (every row is null). Apply
 -- it before the app that reads the column deploys (every event read selects
 -- it). The previous app keeps working against it: it never sends the key, so
--- its creates store null and its edits keep the stored note. Not destructive.
+-- its creates store null and its edits keep the stored rows. Not destructive.
 -- Reversible: restore create_event_draft and edit_event_draft from
 -- 20261114000000_external_price.sql and admin_edit_event from
--- 20261120000000_group_tickets.sql, then drop the constraint and the column
--- (which loses every note organisers wrote; deploy an app that doesn't select
--- it first).
+-- 20261120000000_group_tickets.sql, then drop the constraint, the column
+-- (which loses every row organisers wrote; deploy an app that doesn't select
+-- it first) and the functions private.before_you_go_of,
+-- private.before_you_go_ok and private.before_you_go_text_ok.
+
+-- ---------------------------------------------------------------------------
+-- The rules
+-- ---------------------------------------------------------------------------
+
+-- One label or value. Escapes only (\uXXXX are fixed-width), so no invisible
+-- character is ever typed into this file.
+create function private.before_you_go_text_ok(p_text text, p_max integer) returns boolean
+language sql
+immutable
+set search_path = ''
+as $$
+  select p_text is not null
+     and char_length(p_text) between 1 and p_max
+     and p_text = btrim(p_text)
+     and strpos(p_text, '  ') = 0
+     -- C0 and C1 controls (tab, CR, LF and U+0085 included: one line), the
+     -- line and paragraph separators, and the format characters the API
+     -- refuses (\p{Cf} but U+200C and U+200D).
+     and p_text !~ '[\u0001-\u001F\u007F-\u009F\u00AD\u061C\u180E\u200B\u200E\u200F\u2028-\u202E\u2060-\u2064\u2066-\u206F\uFEFF]';
+$$;
+
+-- The column's value: null, or an array of 1 to 5 {label, value} objects.
+-- CASE guards each step, so jsonb_object_keys only ever sees an object.
+create function private.before_you_go_ok(p_items jsonb) returns boolean
+language sql
+immutable
+set search_path = ''
+as $$
+  select case
+    when p_items is null then true
+    when jsonb_typeof(p_items) <> 'array' then false
+    when jsonb_array_length(p_items) not between 1 and 5 then false
+    else not exists (
+      select 1
+        from jsonb_array_elements(p_items) as x (item)
+       where case
+               when jsonb_typeof(x.item) <> 'object' then true
+               when (select array_agg(k order by k) from jsonb_object_keys(x.item) as t (k)) is distinct from array['label', 'value'] then true
+               when jsonb_typeof(x.item -> 'label') is distinct from 'string'
+                 or jsonb_typeof(x.item -> 'value') is distinct from 'string' then true
+               else not (private.before_you_go_text_ok(x.item ->> 'label', 20)
+                         and private.before_you_go_text_ok(x.item ->> 'value', 80))
+             end)
+  end;
+$$;
+
+-- p_fields' beforeYouGo as stored: JSON null and [] are SQL null (a clear);
+-- the key's absence is the caller's to check (p_fields ? 'beforeYouGo').
+create function private.before_you_go_of(p_fields jsonb) returns jsonb
+language sql
+immutable
+set search_path = ''
+as $$
+  select nullif(nullif(p_fields -> 'beforeYouGo', 'null'::jsonb), '[]'::jsonb);
+$$;
 
 alter table public.events
-  add column before_you_go text,
-  add constraint events_before_you_go_check check (
-    before_you_go is null
-    or (char_length(before_you_go) between 1 and 500
-        and before_you_go = btrim(before_you_go, E' \t\n')
-        and strpos(before_you_go, E'\n\n\n') = 0
-        -- Every control character but tab and line feed (\r included).
-        and before_you_go !~ '[\x01-\x08\x0b-\x1f\x7f]'
-        -- Lines of text: what lies between runs of line breaks.
-        and cardinality(regexp_split_to_array(before_you_go, E'\n+')) <= 5)
-  );
+  add column before_you_go jsonb,
+  add constraint events_before_you_go_check check (private.before_you_go_ok(before_you_go));
 
 comment on column public.events.before_you_go is
-  'The organiser''s "Before you go" note for people going: plain text, at most 5 lines and 500 characters; null for none.';
+  'The organiser''s "Before you go" rows for people going: 1 to 5 {label, value} (label 1-20, value 1-80 characters, one line each); null for none.';
 
 -- ---------------------------------------------------------------------------
 -- Creating, the organiser's edit and an admin's edit
 -- ---------------------------------------------------------------------------
 
--- As in 20261114000000_external_price.sql, plus beforeYouGo (absent: null).
+-- As in 20261114000000_external_price.sql, plus beforeYouGo (absent, null or []: null).
 create or replace function private.create_event_draft(
   p_organiser_id uuid, p_slug text, p_fields jsonb, p_ticket_types jsonb
 ) returns uuid
@@ -110,7 +183,7 @@ begin
     (p_fields ->> 'pinLat')::double precision,
     (p_fields ->> 'pinLng')::double precision,
     case when v_mode = 'external' and not v_free then (p_fields ->> 'externalPriceFromCents')::integer end,
-    p_fields ->> 'beforeYouGo'
+    private.before_you_go_of(p_fields)
   )
   returning id into v_id;
 
@@ -119,7 +192,7 @@ begin
 end;
 $$;
 
--- As in 20261114000000_external_price.sql, plus beforeYouGo: sent, as sent (null clears it); not sent, kept.
+-- As in 20261114000000_external_price.sql, plus beforeYouGo: sent, as sent (null or [] clears it); not sent, kept.
 create or replace function private.edit_event_draft(
   p_event_id uuid, p_organiser_id uuid, p_fields jsonb, p_ticket_types jsonb
 ) returns text
@@ -198,7 +271,7 @@ begin
     venue_place_id = case when v_location_sent then p_fields ->> 'placeId' else v_event.venue_place_id end,
     venue_lat = case when v_location_sent then (p_fields ->> 'pinLat')::double precision else v_event.venue_lat end,
     venue_lng = case when v_location_sent then (p_fields ->> 'pinLng')::double precision else v_event.venue_lng end,
-    before_you_go = case when p_fields ? 'beforeYouGo' then p_fields ->> 'beforeYouGo' else v_event.before_you_go end
+    before_you_go = case when p_fields ? 'beforeYouGo' then private.before_you_go_of(p_fields) else v_event.before_you_go end
   where id = p_event_id;
 
   if v_mode <> 'external' then
@@ -208,8 +281,8 @@ begin
 end;
 $$;
 
--- As in 20261120000000_group_tickets.sql, plus beforeYouGo: compared, logged and written with the other
--- fields; not sent, the stored note (so no change is seen).
+-- As in 20261120000000_group_tickets.sql, plus beforeYouGo: compared, logged (the old and new arrays) and
+-- written with the other fields; not sent, the stored rows (so no change is seen).
 create or replace function private.admin_edit_event(
   p_event_id uuid, p_admin_id uuid, p_expected_updated_at timestamptz,
   p_fields jsonb, p_ticket_types jsonb, p_publish boolean, p_reason text
@@ -233,7 +306,7 @@ declare
   v_pin_lat double precision;
   v_pin_lng double precision;
   v_price integer;
-  v_before_you_go text;
+  v_before_you_go jsonb;
   v_ticketing_changed boolean;
   v_publish boolean;
   v_old jsonb;
@@ -281,8 +354,8 @@ begin
   v_price := case when v_mode <> 'external' or v_free then null
                   when p_fields ? 'externalPriceFromCents' then (p_fields ->> 'externalPriceFromCents')::integer
                   else v_event.external_price_from_cents end;
-  -- As edit_event_draft reads it: sent, as sent (null clears it); not sent, kept.
-  v_before_you_go := case when p_fields ? 'beforeYouGo' then p_fields ->> 'beforeYouGo' else v_event.before_you_go end;
+  -- As edit_event_draft reads it: sent, as sent (null or [] clears it); not sent, kept.
+  v_before_you_go := case when p_fields ? 'beforeYouGo' then private.before_you_go_of(p_fields) else v_event.before_you_go end;
 
   v_ticketing_changed := v_event.ticketing_mode is distinct from v_mode
     or v_event.external_ticket_url is distinct from v_url
@@ -425,6 +498,9 @@ begin
 end;
 $$;
 
+revoke all on function private.before_you_go_text_ok(text, integer) from public, anon, authenticated;
+revoke all on function private.before_you_go_ok(jsonb) from public, anon, authenticated;
+revoke all on function private.before_you_go_of(jsonb) from public, anon, authenticated;
 revoke all on function private.create_event_draft(uuid, text, jsonb, jsonb) from public, anon, authenticated;
 revoke all on function private.edit_event_draft(uuid, uuid, jsonb, jsonb) from public, anon, authenticated;
 revoke all on function private.admin_edit_event(uuid, uuid, timestamptz, jsonb, jsonb, boolean, text)

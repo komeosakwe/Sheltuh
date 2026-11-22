@@ -1,3 +1,4 @@
+import type { BeforeYouGoItem } from "@/lib/before-you-go";
 import type { RefundPolicy } from "@/lib/refund-policy";
 import type { TicketingMode } from "@/lib/ticketing";
 import type { AustralianTimeZone, StateCode } from "@/lib/time-zones";
@@ -141,11 +142,11 @@ export interface PublicEvent {
    */
   location?: VenueLocation;
   /**
-   * The organiser's "Before you go" note for people going (EventRecord.beforeYouGo:
-   * plain text, show it escaped, a line per line). Public, like the
-   * description. Absent when there's none.
+   * The organiser's "Before you go" rows for people going (EventRecord.beforeYouGo:
+   * `{ label, value }` in order, plain text, show it escaped). Public, like the
+   * description. Absent when there are none.
    */
-  beforeYouGo?: string;
+  beforeYouGo?: BeforeYouGoItem[];
   /**
    * Only for an event with a seat map (reserved seating): its version, for
    * GET /events/{id}/seat-map?v={version}. Its seated tiers carry

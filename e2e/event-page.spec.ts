@@ -1155,7 +1155,7 @@ for (const vp of [
   test.describe(`Before you go at ${vp.width}×${vp.height}`, () => {
     test.use({ viewport: vp });
 
-    test("Neon Static's note is boxed before Location, a line per line, with no sideways scroll", async ({ page }) => {
+    test("Neon Static's rows are boxed before Location, a label and a value each, with no sideways scroll", async ({ page }) => {
       await mockApi(page);
       await page.goto("/events/neon-static");
       const box = page.getByRole("region", { name: "Before you go" });
@@ -1163,11 +1163,8 @@ for (const vp of [
       await box.scrollIntoViewIfNeeded();
       await expect(box).toBeVisible();
       await expect(box.getByRole("heading", { level: 2, name: "Before you go" })).toBeVisible();
-      await expect(box.locator("p")).toHaveText([
-        "Doors open 7:30 pm · last entry 10:30 pm.",
-        "18+ event — bring photo ID that matches the ticket holder name.",
-        "Earplugs are free at the bar.",
-      ]);
+      await expect(box.locator("dt")).toHaveText(["Entry", "Age", "Extras"], { ignoreCase: true });
+      await expect(box.locator("dd")).toHaveText(["7:30 pm – 10:30 pm", "18+ · Photo ID required", "Free earplugs at the bar"]);
       // Latte's box: a 1px rule, 24px padding, radius 8.
       const style = await box.evaluate((el) => {
         const css = getComputedStyle(el);

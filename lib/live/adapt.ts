@@ -45,8 +45,8 @@ export function adaptPublicEvent(event: PublicEvent): SheltuhEvent {
     ...(event.imageFocus ? { imageFocus: { x: event.imageFocus.x, y: event.imageFocus.y } } : {}),
     // Only when the banner shows the whole photo: an event without it adapts exactly as before.
     ...(event.bannerFit === "whole" ? { bannerFit: "whole" as const } : {}),
-    // Only with a note: an event without one adapts exactly as before.
-    ...(event.beforeYouGo ? { beforeYouGo: event.beforeYouGo } : {}),
+    // Only with rows: an event without them adapts exactly as before.
+    ...(event.beforeYouGo?.length ? { beforeYouGo: event.beforeYouGo.map(({ label, value }) => ({ label, value })) } : {}),
     // Only with a clip: an event without one adapts exactly as before.
     ...(event.clip
       ? {

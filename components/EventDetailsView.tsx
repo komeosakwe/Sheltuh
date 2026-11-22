@@ -593,7 +593,7 @@ export default function EventDetailsView({
             {/* The organiser's "Before you go" note (doors, age limit, what to bring), when there is one: boxed, just before
                 Location, so what to know before setting out sits with where to go. Not in the key facts by the photo:
                 on phones the title, facts, Save and Share stay on the first screen (e2e/event-page.spec.ts). */}
-            {event.beforeYouGo && <BeforeYouGo text={event.beforeYouGo} className="max-w-2xl" />}
+            {event.beforeYouGo && <BeforeYouGo items={event.beforeYouGo} className="max-w-2xl" />}
 
             {/* Where it is, with a small map and the Google Maps and Apple Maps links (none without a venue or suburb). */}
             <EventLocation event={event} map={!preview} />

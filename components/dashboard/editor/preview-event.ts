@@ -1,4 +1,4 @@
-import { normaliseBeforeYouGo } from "@/lib/before-you-go";
+import { normaliseBeforeYouGo, type BeforeYouGoItem } from "@/lib/before-you-go";
 import { admitsOf } from "@/lib/ticket-groups";
 import { assignPoster } from "@/lib/live/assign-poster";
 import type { RefundPolicy } from "@/lib/refund-policy";
@@ -24,8 +24,8 @@ export interface PreviewDraft {
   slug?: string;
   title: string;
   description: string;
-  /** The "Before you go" note as typed; the page shows its box only when there's text. */
-  beforeYouGo?: string;
+  /** The "Before you go" rows as typed; the page shows its box only when one isn't blank. */
+  beforeYouGo?: readonly BeforeYouGoItem[];
   category: EventCategory;
   suburb: string;
   state?: StateCode;
@@ -84,7 +84,7 @@ export function draftToPreviewEvent(draft: PreviewDraft): { event: SheltuhEvent;
   const slug = draft.slug ?? draft.eventId ?? "new";
   const days = Number.isInteger(draft.refundDays) ? draft.refundDays : undefined;
   // As the API will store it (cleaned; blank is none), so the box shows what goers would see.
-  const beforeYouGo = normaliseBeforeYouGo(draft.beforeYouGo ?? "");
+  const beforeYouGo = normaliseBeforeYouGo(draft.beforeYouGo);
 
   const event: SheltuhEvent = {
     id: draft.eventId ?? "preview",

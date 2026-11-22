@@ -85,7 +85,7 @@ iframe served by Stripe), with the publishable key
 | `private.organiser_profile_edits` | `id` (identity) | Append-only log per organiser: each profile edit made without review (`profile_edit`: old and new value of each changed field, by the owner, or by an admin with a reason: removing the featured video, logged as `featured_video` `"provider:id"`, or the logo, logged as `logo` with its version), each admin takedown (`suspended`, with the admin and reason; a takedown must have a reason), the organiser's creation by an accepted admin invite or an organiser link, or a link's approval of their pending application (`invite_accepted`, by the new owner: `status` null or pending → approved; see "Account invites" and "Organiser links"), and an admin's review switch (a `profile_edit` by the admin with a reason, `event_review_required` `"on"` / `"off"`; see "Publishing events"). A trigger refuses updates (except the `actor_id` foreign key's own set-null when that account is deleted). Admins see the newest 20 per organiser. Kept while the organiser exists; deleted with it. |
 | `private.organiser_logos` | `organiser_id` | An organiser's logo as the server re-encoded it: `image` (512 × 512 WebP, ≤ 512 KB) and `thumb` (96 × 96 WebP, ≤ 64 KB), the whole logo fitted on white, no transparency, no metadata. `updated_at` is its version (milliseconds since the epoch, in its URL and the log); every write moves it on by at least a millisecond. Deleted with the organiser (see "Organiser profiles"). |
 | `private.organiser_covers` | `organiser_id` | An organiser's cover image as the server re-encoded it (`20261128000000_organiser_covers.sql`): `image` (2240 × 640 WebP, ≤ 1 MB) and `small` (1120 × 320 WebP, ≤ 256 KB), centre-cropped to 7:2, transparency flattened onto white, no metadata. `updated_at` is its version, as the logo's. Deleted with the organiser (see "Organiser profiles", "Cover"). |
-| `events` | `id` | Belongs to an organiser. Globally unique `slug`. `status`: draft → pending_review → published / rejected, or, for an approved organiser's own publish, draft / rejected → published directly (see "Publishing events"); unpublish returns it to draft. `rejection_reason`: the admin's reason on a rejection, an unpublish (optional) or a takedown, shown to the organiser; any later status change through `transition_event` replaces it (a publish or submit clears it). `is_free` (true only when the event has ticket types and all are free; for an external event, `external_free`) is kept up to date by `replace_ticket_types` for the feed's free filter. `whos_going_enabled` (default true) is an admin-only kill switch for that event's Who's Going, set in SQL (`docs/supabase-setup.md`). `ticketing_mode` (`sheltuh`, the default, or `external`), `external_ticket_url`, `external_free` and `external_price_from_cents`: see "External ticketing". Check constraints: an external event has a link, a Sheltüh-ticketed one has no link and isn't `external_free`, and an external event's `is_free` equals `external_free`. The trigger `events_external_ticket_url_valid` checks a link against `private.external_ticket_url_ok` when it's inserted or changed (only then, so tightening the rules never blocks a later status change; see "External ticketing"). `updated_at` changes on every update of the row, a photo change included (trigger `event_images_touch_event`). Triggers refuse ticket types and orders for an external event, and switching an event with ticket types to external. `state` (default `VIC`) and `time_zone` (default `Australia/Melbourne`): the event's state or territory and the IANA zone its times are in; check constraint `events_place_check` allows only the zones `ZONES_BY_STATE` lists for the state (see "Events: state and time zone"). The venue's location (`20261111000100_event_venue_location.sql`; see "Venue location"): `location_source` (`legacy`, the default and every earlier event; `places`; `manual_pin`), `venue_place_id` (a Google place id, the only Google Places data stored) and `venue_lat` / `venue_lng` (the organiser's own pin, never Google's coordinates); checks `events_venue_pin_pair`, `events_venue_pin_bounds` (`AUSTRALIA_BOUNDS`), `events_venue_place_id_shape` and `events_location_source_check` (`legacy`: neither; `places`: a place id, pin optional; `manual_pin`: a pin and no place id). No index: nothing filters or sorts on them. `before_you_go` (nullable; `20261204000000_event_before_you_go.sql`): the organiser's "Before you go" note, plain text; check `events_before_you_go_check` (1 to 500 characters, at most 5 lines of text, trimmed, `\n` line endings, at most one blank line in a row, no control characters but tab and line feed); see "Before you go". No index. |
+| `events` | `id` | Belongs to an organiser. Globally unique `slug`. `status`: draft → pending_review → published / rejected, or, for an approved organiser's own publish, draft / rejected → published directly (see "Publishing events"); unpublish returns it to draft. `rejection_reason`: the admin's reason on a rejection, an unpublish (optional) or a takedown, shown to the organiser; any later status change through `transition_event` replaces it (a publish or submit clears it). `is_free` (true only when the event has ticket types and all are free; for an external event, `external_free`) is kept up to date by `replace_ticket_types` for the feed's free filter. `whos_going_enabled` (default true) is an admin-only kill switch for that event's Who's Going, set in SQL (`docs/supabase-setup.md`). `ticketing_mode` (`sheltuh`, the default, or `external`), `external_ticket_url`, `external_free` and `external_price_from_cents`: see "External ticketing". Check constraints: an external event has a link, a Sheltüh-ticketed one has no link and isn't `external_free`, and an external event's `is_free` equals `external_free`. The trigger `events_external_ticket_url_valid` checks a link against `private.external_ticket_url_ok` when it's inserted or changed (only then, so tightening the rules never blocks a later status change; see "External ticketing"). `updated_at` changes on every update of the row, a photo change included (trigger `event_images_touch_event`). Triggers refuse ticket types and orders for an external event, and switching an event with ticket types to external. `state` (default `VIC`) and `time_zone` (default `Australia/Melbourne`): the event's state or territory and the IANA zone its times are in; check constraint `events_place_check` allows only the zones `ZONES_BY_STATE` lists for the state (see "Events: state and time zone"). The venue's location (`20261111000100_event_venue_location.sql`; see "Venue location"): `location_source` (`legacy`, the default and every earlier event; `places`; `manual_pin`), `venue_place_id` (a Google place id, the only Google Places data stored) and `venue_lat` / `venue_lng` (the organiser's own pin, never Google's coordinates); checks `events_venue_pin_pair`, `events_venue_pin_bounds` (`AUSTRALIA_BOUNDS`), `events_venue_place_id_shape` and `events_location_source_check` (`legacy`: neither; `places`: a place id, pin optional; `manual_pin`: a pin and no place id). No index: nothing filters or sorts on them. `before_you_go` (jsonb, nullable; `20261204000000_event_before_you_go.sql`): the organiser's "Before you go" rows, an array of 1 to 5 `{label, value}`; check `events_before_you_go_check` (`private.before_you_go_ok`: exactly those two string keys, label 1 to 20 and value 1 to 80 characters, trimmed, no double spaces, no C0/C1 control characters, line or paragraph separators, or the invisible and bidi format characters the API refuses); see "Before you go". No index. |
 | `ticket_types` | `(event_id, id)` | `id` is stable across draft edits. A trigger refuses a price above 0 for a platform-managed organiser's event (`ticket_types_platform_free_only`). `quantity_sold` only ever goes up in `fulfil_order`, and down only in `record_payment_refund` (a paid order refunded in full). `seated`: the tier has seats on the event's seat map; its `quantity_available` is then always its unblocked seats (trigger `ticket_types_seated_capacity`, whatever is written; see "Reserved seating"). `opens_after_previous`: the tier waits for the one above it (by `position`) to sell out; `sold_out_at`: when `quantity_sold` first reached `quantity_available`, set by trigger `ticket_types_sold_out_at` and never cleared (see "Sequential ticket releases"). |
 | `event_seat_maps` | `event_id` | An event's optional seat map (see "Reserved seating"): `layout` (the validated template, `lib/seating/template.ts`), `seat_count` (1–10,000) and `version` (from the sequence `private.seat_map_versions`: never reused, not even after a delete). Every write bumps the event's `updated_at` (`event_seat_maps_touch_event`). Refused for an external event (`event_seat_maps_sheltuh_only`). Deleted with the event. |
 | `event_seats` | `(event_id, id)` | The map's seats, derived from the layout in the same step (`write_seat_map`): `position` (map order: the availability bit), section, row (may be empty) and seat labels, `ticket_type_id` (no-action foreign key `event_seats_ticket_type_fkey`: a tier with seats can't be removed), `kind` (standard, wheelchair, companion), `blocked`; `hold_order_id` / `hold_expires_at` (a pending order's hold) and `sold_order_id`. Checks: never held and sold at once (`event_seats_one_owner`), never held or sold while blocked (`event_seats_blocked_unsold`). Deleted with the map. |
@@ -1196,44 +1196,56 @@ Organisers set it while the event is a draft or rejected; once it's submitted on
 
 ## Before you go
 
-A short plain-text note the organiser writes for the people going to their
-event (owner request, Nov 2026): "Doors open 5:00 pm · last entry 8:00 pm.",
-"18+ event — bring photo ID that matches the ticket holder name." It's for a
-boxed "Before you go" section in the ticket email, the reminder, the
-free-ticket confirmation, the event-changed email and the buyer's ticket page;
-those displays come separately. Migration
+Short rows the organiser writes for the people going to their event (owner
+request, Nov 2026; the owner's "Editorial minimal" reference): a label and a
+value each, "Entry": "7:30 pm – 10:30 pm", "Age": "18+ · Photo ID required",
+"Extras": "Free earplugs at the bar". The event page shows them (the
+reference's numbered, uppercase "01 / ENTRY" layout under "The essentials."
+is the next UI change); they're also for the ticket email, the
+reminder, the free-ticket confirmation, the event-changed email and the
+buyer's ticket page, whose displays come separately. Migration
 `20261204000000_event_before_you_go.sql`; rules in `lib/before-you-go.ts`
-(client-safe: the limits, `normaliseBeforeYouGo`, `beforeYouGoLines`,
-`validateBeforeYouGo` for the editor), parsed by `parseBeforeYouGo` in
-`lib/server/event-input.ts`.
+(client-safe: the limits, `BEFORE_YOU_GO_SUGGESTED_LABELS` (Entry, Age,
+Extras), `normaliseBeforeYouGo`, and `validateBeforeYouGo`, which returns
+each row's errors at its index for the editor), parsed by `parseBeforeYouGo`
+in `lib/server/event-input.ts`.
 
-- **Stored** as `events.before_you_go`, null for none. The API takes
-  `beforeYouGo` on the organiser's `POST /events` and `PATCH /events/{id}` and
-  on the admin's create and edit: absent keeps the stored note on an edit
-  (none on a create), so a client that predates the field never clears it;
-  null, or text that cleaning leaves blank, clears it. Text is cleaned like a
-  message (`parseMessageText`: NFC, `\n` line endings, no trailing spaces, at
-  most one blank line in a row, trimmed; no control, invisible or
-  text-direction characters, no stacked marks), then must be at most 500
-  characters (code points) and 5 lines of text (blank lines between them
-  don't count), with no web or email addresses (`lib/contact-detail.ts`, as
-  for messages to ticket holders, with its known false positive: a sentence
-  run together, "tonight.Bring ID"). 400 `fieldErrors.beforeYouGo`
-  otherwise. Anything HTML-like is stored as typed: it's plain text, and
-  every display escapes it. `events_before_you_go_check` holds the same
-  limits whatever is sent.
+- **Shape.** `beforeYouGo` is an array of up to 5 `{ label: string; value:
+  string }`, or absent. The API takes it on the organiser's `POST /events` and
+  `PATCH /events/{id}` and on the admin's create and edit: absent keeps the
+  stored rows on an edit (none on a create), so a client that predates the
+  field never clears them; null, `[]`, or rows that are all blank clear them
+  (stored as SQL null, never an empty array).
+- **Cleaning and checks, per label and value.** NFC; every whitespace run
+  (line breaks and tabs too) collapsed to one space; trimmed. Then a label is
+  1 to 20 and a value 1 to 80 characters (code points after NFC, as the
+  database's `char_length` counts them: NFC can lengthen text), one line, with
+  no control, invisible or text-direction characters (checked on the raw
+  text, before cleaning; the zero-width joiners and emoji flag tags are
+  allowed), no stacked marks, and no web or email addresses
+  (`lib/contact-detail.ts`, which folds fullwidth forms and other full stops
+  and undoes "[.]", " dot ", "hxxp://"-style disguises before looking). The
+  label is stored as typed (the display uppercases it). Rows with both parts
+  blank are dropped; a row with only one is refused. 400
+  `fieldErrors.beforeYouGo` with the first problem, naming the row by its
+  place in the list sent ("Row 2 needs a label and a value.", "Row 1's value
+  can't include links or web addresses.", "Keep it to 5 rows or fewer.").
+  Anything HTML-like is stored as typed: it's plain text, and every display
+  escapes it. `events_before_you_go_check` holds the shape and limits
+  whatever is sent.
 - **Review.** Nothing new: an organiser edits only a draft or rejected
-  event, so the note goes through the same publish or review as the
+  event, so the rows go through the same publish or review as the
   description; an admin's edit of a published event is logged in its
-  `edited` entry (`changes.beforeYouGo`, old and new) like the other fields.
+  `edited` entry (`changes.beforeYouGo`, the old and new arrays) like the
+  other fields.
 - **Read.** On `EventRecord` (the organiser's and admins' records, the review
   queue included), on `PublicEvent` (public like the description, so only
   ever for a published event), and on `CustomerOrder` (the ticket page and
   wallet passes' lookup) only for a paid order of a published event, like the
-  date and venue. Absent everywhere when there's none. The ticket email, the
-  reminder and the free-ticket confirmation get it on the `EventRecord` they
+  date and venue. Absent everywhere when there are none. The ticket email, the
+  reminder and the free-ticket confirmation get them on the `EventRecord` they
   are built from (`findEventById`, `EVENT_SELECT`). No organiser-private
-  data travels with it.
+  data travels with them.
 
 ## Support Sheltüh
 

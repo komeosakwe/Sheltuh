@@ -38,6 +38,7 @@ import type {
   TransferAction,
 } from "./types";
 import { ORGANISER_BIO_EXCERPT_LENGTH, remainingShownAtMost, type PublicTicketType } from "@/lib/api/public-events";
+import type { BeforeYouGoItem } from "@/lib/before-you-go";
 import {
   SHELTUH_TEAM_ACTOR,
   type AdminHolderMessage,
@@ -660,12 +661,19 @@ function locationOf(row: Row): { location?: VenueLocation } {
 
 /**
  * The `beforeYouGo` field from `before_you_go` (an event's own or, with
- * `column`, an order's event's): absent with no note (and in a row from
- * before the column), so those payloads are unchanged.
+ * `column`, an order's event's; jsonb, so already parsed): the rows' labels
+ * and values only, in order. Absent with no rows (and in a row from before
+ * the column), so those payloads are unchanged.
  */
-function beforeYouGoOf(row: Row, column = "before_you_go"): { beforeYouGo?: string } {
-  const note = opt<string>(row[column]);
-  return note ? { beforeYouGo: note } : {};
+function beforeYouGoOf(row: Row, column = "before_you_go"): { beforeYouGo?: BeforeYouGoItem[] } {
+  const items = row[column];
+  if (!Array.isArray(items) || items.length === 0) return {};
+  return {
+    beforeYouGo: items.map((item: { label: unknown; value: unknown }) => ({
+      label: String(item.label),
+      value: String(item.value),
+    })),
+  };
 }
 
 function mapEvent(row: Row, audience: LogAudience): EventRecord {

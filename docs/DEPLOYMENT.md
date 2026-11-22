@@ -602,9 +602,12 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           applied before or after the app. Not destructive. Reversible:
           re-run the function from `20261123000000_checkout_pay_deadline.sql`.
       61. `20261204000000_event_before_you_go.sql` (the organiser's "Before
-          you go" note, docs/architecture.md "Before you go": nullable
-          `events.before_you_go` with check constraint
-          `events_before_you_go_check`, and `create_event_draft`,
+          you go" rows, docs/architecture.md "Before you go": nullable jsonb
+          `events.before_you_go`, an array of 1 to 5 `{label, value}`, with
+          check constraint `events_before_you_go_check` over the new
+          immutable helpers `private.before_you_go_ok` and
+          `private.before_you_go_text_ok`; `private.before_you_go_of` stores
+          an explicit null or `[]` as SQL null; and `create_event_draft`,
           `edit_event_draft` and `admin_edit_event` redefined from their
           latest bodies, `20261114000000_external_price.sql` and
           `20261120000000_group_tickets.sql`, with the same signatures).
@@ -613,11 +616,13 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           selects `before_you_go` in every event read, so on the old schema
           every event page, list and the home fail. The previous app keeps
           working against it (it never sends `beforeYouGo`: its creates
-          store null and its edits keep the stored note), so it can be
+          store null and its edits keep the stored rows), so it can be
           applied ahead of the deploy. Not destructive. Reversible after
           deploying an app that doesn't select the column: restore the three
-          functions from those two files, then drop the constraint and the
-          column (every note is lost).
+          functions from those two files, then drop the constraint, the
+          column (every row is lost) and the three helpers. (This file was
+          rewritten in place from an earlier free-text version before it
+          was applied anywhere.)
 
       **Files 33 to 37 can be applied ahead of this deploy, with the
       previous app still live.** "The previous app" here is the build of

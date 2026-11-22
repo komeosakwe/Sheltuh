@@ -1,3 +1,4 @@
+import type { BeforeYouGoItem } from "./before-you-go";
 import type { OrganiserSocialLinks } from "./api/types";
 import type { RefundPolicy } from "./refund-policy";
 import type { TicketingMode } from "./ticketing";
@@ -252,12 +253,11 @@ export interface SheltuhEvent {
   /** `days_before` only: refunds up to this many days (1–30) before the event starts. */
   refundDays?: number;
   /**
-   * The organiser's "Before you go" note for people going (lib/before-you-go.ts):
-   * plain text, \n between lines, at most 5 lines of text and 500 characters.
-   * Absent when there's none. Show it escaped, a line per line
-   * (beforeYouGoLines), under BEFORE_YOU_GO_TITLE.
+   * The organiser's "Before you go" rows for people going (lib/before-you-go.ts):
+   * 1 to 5 `{ label, value }` in order, plain text, one line each. Absent when
+   * there are none. Show them escaped (labels uppercase), under BEFORE_YOU_GO_TITLE.
    */
-  beforeYouGo?: string;
+  beforeYouGo?: BeforeYouGoItem[];
   /**
    * Optional organiser-supplied context — shown on the details page only
    * when present. Never inferred or invented: the live API doesn't collect
