@@ -3,7 +3,8 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import MemberProfilePage from "@/app/members/[profileId]/page";
 import EventDetailsView from "@/components/EventDetailsView";
-import { InboxPageContent, ThreadPageContent } from "@/components/messages/MessagesPages";
+import MessagesFrame from "@/components/messages/MessagesFrame";
+import { PickConversation, ThreadPageContent } from "@/components/messages/MessagesPages";
 import { isApiConfigured } from "@/lib/api/client";
 import { sampleEvents } from "@/lib/sample-events";
 import { getSampleGoing } from "@/lib/sample-going";
@@ -155,7 +156,10 @@ describe("/messages (demo)", () => {
   it("lists the sample conversations, most recent first, in the live inbox's rows", () => {
     render(
       <FakeAuthProvider value={demoAuth()}>
-        <InboxPageContent />
+        {/* /messages as app/(account)/messages renders it: the layout's frame around the page. */}
+        <MessagesFrame>
+          <PickConversation />
+        </MessagesFrame>
       </FakeAuthProvider>,
     );
     const rows = within(screen.getByRole("list", { name: "Conversations" })).getAllByRole("listitem");

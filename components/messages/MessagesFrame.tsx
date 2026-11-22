@@ -21,11 +21,20 @@ import { THREAD_STATE_CLASS } from "./shared";
  * thread's own heading), and the title is shown in the same style as a paragraph. Blocked members
  * is reached from Settings → Privacy (the frames have no link here).
  */
+/** The open conversation's id from its URL segment; a malformed escape is kept as it is rather than throwing. */
+function decodeSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
 export default function MessagesFrame({ children }: { children: ReactNode }) {
   const segment = useSelectedLayoutSegment();
   const pathname = usePathname() ?? "/messages";
   if (segment === "blocked") return children;
-  const selectedId = segment ? decodeURIComponent(segment) : null;
+  const selectedId = segment ? decodeSegment(segment) : null;
 
   const split = (list: ReactNode) => (
     <div className="flex flex-col gap-4 md:flex-row md:items-start">

@@ -943,6 +943,48 @@ describe("Thread — scrolling inside its panel (from 768px the messages section
     await screen.findByText("Nearly there");
     await waitFor(() => expect(section().scrollTop).toBe(2000));
   });
+
+  it("follows several new messages from one check when the reader was at the end, and never pulls a reader down", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    // Each message is 200px tall; the section shows 600px of them.
+    const BUBBLE = 200;
+    const messageCount = () => document.querySelectorAll("li[data-message-id]").length;
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get() { return isSection(this) ? 600 + messageCount() * BUBBLE : 0; },
+    });
+    const rect = (height: number) =>
+      ({ x: 0, y: 0, top: 0, left: 0, right: 0, bottom: height, width: 0, height, toJSON: () => ({}) }) as DOMRect;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      if (this.matches("ol[aria-label^='Messages with']")) return rect(messageCount() * BUBBLE);
+      return rect(this.matches("li[data-message-id]") ? BUBBLE : 0);
+    });
+    const advance = async (ms: number) => {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(ms);
+      });
+    };
+    api.getMessages
+      .mockResolvedValueOnce(page([msg(1), msg(2), msg(3)]))
+      .mockResolvedValueOnce(page([msg(4), msg(5), msg(6)]))
+      .mockResolvedValueOnce(page([msg(7), msg(8)]))
+      .mockResolvedValue(page([]));
+    renderThread();
+    await advance(0);
+    expect(screen.getByRole("list", { name: "Messages with Sam K." })).toBeInTheDocument();
+    // At the very end of 1200px of content (a browser holds scrollTop at 1200 - 600).
+    section().scrollTop = 600;
+    // One check brings three: 600px more, which doesn't count against the reader, so they follow.
+    await advance(10_000);
+    expect(screen.getByText("Message 6")).toBeInTheDocument();
+    expect(section().scrollTop).toBe(1800);
+    // Scrolled up to read: the next two arrive without moving them.
+    section().scrollTop = 100;
+    await advance(10_000);
+    expect(screen.getByText("Message 8")).toBeInTheDocument();
+    expect(section().scrollTop).toBe(100);
+  });
 });
 
 describe("Thread — bubbles", () => {

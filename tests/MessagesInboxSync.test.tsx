@@ -179,6 +179,72 @@ describe("the conversation list beside an open conversation", () => {
     await waitFor(() => expect(row("Sam K.")).toBeDefined());
   });
 
+  it("keeps the conversations Load more added when the list reloads, so opening one leaves it there and current", async () => {
+    segment = null;
+    const PRIYA = conversation("c3", "Priya R.");
+    api.listConversations.mockImplementation((_token: unknown, cursor?: string) =>
+      Promise.resolve(cursor === "n2" ? { items: [PRIYA] } : { items: [{ ...SAM, unread: false }, LEO], nextCursor: "n2" }),
+    );
+    const { rerenderAt } = renderSplit();
+    fireEvent.click(await screen.findByRole("button", { name: "Load more" }));
+    await waitFor(() => expect(row("Priya R.")).toBeDefined());
+    const link = within(row("Priya R.") as HTMLElement).getByRole("link");
+    link.focus();
+    const calls = api.listConversations.mock.calls.length;
+    // Opening Priya's conversation (from the second page) reloads the list: both pages again.
+    api.getMessages.mockResolvedValue(thread(PRIYA));
+    rerenderAt("c3");
+    await screen.findByRole("heading", { level: 1, name: "Priya R." });
+    await waitFor(() => expect(api.listConversations.mock.calls.length).toBe(calls + 2));
+    expect(api.listConversations.mock.calls.slice(calls).map((call) => call[1])).toEqual([undefined, "n2"]);
+    await act(async () => {});
+    const current = within(screen.getByRole("list", { name: "Conversations" })).getByRole("link", { current: "page" });
+    expect(current).toHaveTextContent("Priya R.");
+    expect(current).toBe(link);
+    expect(current).toHaveFocus();
+    expect(row("Sam K.")).toBeDefined();
+    expect(row("Leo")).toBeDefined();
+    // Still offers what's after the second page, if anything: here, nothing.
+    expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+  });
+
+  it("runs a Load more pressed during a reload once the reload lands, showing it busy meanwhile", async () => {
+    segment = null;
+    const PRIYA = conversation("c3", "Priya R.");
+    let resolveReload: (page: { items: ConversationSummary[]; nextCursor?: string }) => void = () => undefined;
+    let firstLoad = true;
+    api.listConversations.mockImplementation((_token: unknown, cursor?: string) => {
+      if (cursor === "n2") return Promise.resolve({ items: [PRIYA] });
+      if (firstLoad) {
+        firstLoad = false;
+        return Promise.resolve({ items: [{ ...SAM, unread: false }, LEO], nextCursor: "n2" });
+      }
+      return new Promise((resolve) => (resolveReload = resolve));
+    });
+    const { rerenderAt } = renderSplit();
+    const button = await screen.findByRole("button", { name: "Load more" });
+    api.getMessages.mockResolvedValue(thread(LEO));
+    rerenderAt("c2");
+    await waitFor(() => expect(api.listConversations).toHaveBeenCalledTimes(2));
+    fireEvent.click(button);
+    // Not dropped: the button says it's working, and nothing is fetched over the reload.
+    expect(screen.getByRole("button", { name: "Loading…" })).toHaveAttribute("aria-disabled", "true");
+    expect(api.listConversations).toHaveBeenCalledTimes(2);
+    resolveReload({ items: [{ ...SAM, unread: false }, LEO], nextCursor: "n2" });
+    await waitFor(() => expect(row("Priya R.")).toBeDefined());
+    expect(api.listConversations).toHaveBeenLastCalledWith(expect.any(Function), "n2");
+    expect(screen.getByText("1 more conversation shown.")).toBeInTheDocument();
+  });
+
+  it("opens a conversation whose address has a malformed escape without crashing (it just isn't in the list)", async () => {
+    segment = "%E0%A4%A";
+    api.listConversations.mockResolvedValue({ items: [{ ...SAM, unread: false }, LEO] });
+    api.getMessages.mockResolvedValue(thread({ ...SAM, unread: false }));
+    renderSplit();
+    await waitFor(() => expect(row("Leo")).toBeDefined());
+    expect(within(screen.getByRole("list", { name: "Conversations" })).queryByRole("link", { current: "page" })).toBeNull();
+  });
+
   it("drops a Load more that a reload overtook, so it can't bring back a blocked conversation", async () => {
     segment = null;
     const PRIYA = conversation("c3", "Priya R.");

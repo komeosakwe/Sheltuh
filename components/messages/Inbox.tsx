@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Notice } from "@/components/ui/Section";
 import ActionErrorNotice from "@/components/whos-going/ActionErrorNotice";
@@ -47,31 +47,92 @@ export default function Inbox({ getToken, selectedId }: { getToken: GetToken; se
   const listRef = useRef<HTMLUListElement>(null);
 
   // Loads the list, and reloads it whenever the conversation beside it changed something (InboxSync)
-  // or you move to another conversation or back to /messages (`selectedId`). A reload keeps the rows
-  // on screen until the new ones arrive; if it fails, they stay, marked as possibly out of date.
+  // or you move to another conversation or back to /messages (`selectedId`: the list doesn't poll, so
+  // that's when it picks up conversations that changed elsewhere). A reload keeps the rows on screen
+  // until the new ones arrive, and fetches as many as are shown (following the pages Load more
+  // reached), so a conversation from a later page doesn't drop out; if it fails, they stay, marked as
+  // possibly out of date.
   const syncVersion = useInboxVersion();
   /** Try again after a failed reload: reloads, keeping the rows on screen meanwhile. */
   const [reloads, setReloads] = useState(0);
   // Each (re)load starts a new generation: a Load more begun before it is dropped when it lands, so
   // it can't put back rows the reload took out (a conversation just blocked) or announce them.
-  // While a reload is in flight, Load more waits for it.
+  // A Load more asked for while a reload is in flight waits for it (shown as busy), then runs.
   const listGeneration = useRef(0);
   const listLoading = useRef(false);
+  const moreQueued = useRef(false);
+  /** How many rows are on screen: a reload fetches at least that many. */
+  const shownCount = useRef(0);
+  const shown = state.status === "ready" ? state.items.length : 0;
+  useLayoutEffect(() => {
+    shownCount.current = shown;
+  }, [shown]);
+  /** Fetches the page after `list` and shows it under `list`'s rows (Load more, now or once a reload lands). */
+  const loadMoreFrom = useCallback(
+    async (list: { items: ConversationSummary[]; nextCursor?: string }) => {
+      const generation = listGeneration.current;
+      setLoadingMore(true);
+      setMoreError(null);
+      try {
+        if (!list.nextCursor) {
+          setAnnouncement("That’s everything.");
+          return;
+        }
+        const page = await listConversations(getToken, list.nextCursor);
+        if (generation !== listGeneration.current) return; // A reload replaced the list meanwhile.
+        const items = appendNew(list.items, page.items);
+        const fresh = items.slice(list.items.length);
+        setResult({ attempt, state: { status: "ready", items, nextCursor: page.nextCursor } });
+        const noun = fresh.length === 1 ? "conversation" : "conversations";
+        setAnnouncement(fresh.length > 0 ? `${fresh.length} more ${noun} shown.` : "That’s everything.");
+        if (fresh[0]) pendingFocus.current = fresh[0].conversationId;
+      } catch (err) {
+        if (generation === listGeneration.current) setMoreError(loadErrorMessage(err, MORE_ERROR));
+      } finally {
+        setLoadingMore(false);
+      }
+    },
+    [getToken, attempt],
+  );
+
   useEffect(() => {
     let cancelled = false;
     listGeneration.current += 1;
     listLoading.current = true;
-    listConversations(getToken).then(
-      (page) => {
+    const keep = shownCount.current;
+    async function reload() {
+      const first = await listConversations(getToken);
+      let items = first.items;
+      let nextCursor = first.nextCursor;
+      while (!cancelled && nextCursor && items.length < keep) {
+        const page = await listConversations(getToken, nextCursor);
+        items = appendNew(items, page.items);
+        nextCursor = page.nextCursor;
+        if (page.items.length === 0) break;
+      }
+      return { items, nextCursor };
+    }
+    reload().then(
+      (list) => {
         if (cancelled) return;
         listLoading.current = false;
-        setResult({ attempt, state: { status: "ready", items: page.items, nextCursor: page.nextCursor } });
+        setResult({ attempt, state: { status: "ready", ...list } });
         // The list is the truth about what's unread: bring the nav badge in step.
         refreshUnread?.();
+        if (moreQueued.current) {
+          moreQueued.current = false;
+          void loadMoreFrom(list);
+        }
       },
       (err: unknown) => {
         if (cancelled) return;
         listLoading.current = false;
+        if (moreQueued.current) {
+          // The reload failed (said below the list): the queued Load more isn't run over rows that
+          // may be out of date.
+          moreQueued.current = false;
+          setLoadingMore(false);
+        }
         setResult((current) =>
           current?.attempt === attempt && current.state.status === "ready"
             ? { attempt, state: { ...current.state, stale: true } }
@@ -82,7 +143,7 @@ export default function Inbox({ getToken, selectedId }: { getToken: GetToken; se
     return () => {
       cancelled = true;
     };
-  }, [getToken, attempt, refreshUnread, syncVersion, selectedId, reloads]);
+  }, [getToken, attempt, refreshUnread, syncVersion, selectedId, reloads, loadMoreFrom]);
 
   // Focus moves only after something the person did (Load more), once it's rendered.
   useEffect(() => {
@@ -97,25 +158,16 @@ export default function Inbox({ getToken, selectedId }: { getToken: GetToken; se
     link.focus();
   });
 
-  async function loadMore() {
-    if (state.status !== "ready" || !state.nextCursor || loadingMore || listLoading.current) return;
-    const generation = listGeneration.current;
-    setLoadingMore(true);
-    setMoreError(null);
-    try {
-      const page = await listConversations(getToken, state.nextCursor);
-      if (generation !== listGeneration.current) return; // A reload replaced the list meanwhile.
-      const known = new Set(state.items.map((c) => c.conversationId));
-      const fresh = page.items.filter((c) => !known.has(c.conversationId));
-      setResult({ attempt, state: { status: "ready", items: [...state.items, ...fresh], nextCursor: page.nextCursor } });
-      const noun = fresh.length === 1 ? "conversation" : "conversations";
-      setAnnouncement(fresh.length > 0 ? `${fresh.length} more ${noun} shown.` : "That’s everything.");
-      if (fresh[0]) pendingFocus.current = fresh[0].conversationId;
-    } catch (err) {
-      if (generation === listGeneration.current) setMoreError(loadErrorMessage(err, MORE_ERROR));
-    } finally {
-      setLoadingMore(false);
+  function loadMore() {
+    if (state.status !== "ready" || !state.nextCursor || loadingMore) return;
+    if (listLoading.current) {
+      // Runs once the reload in flight lands, from its rows.
+      moreQueued.current = true;
+      setLoadingMore(true);
+      setMoreError(null);
+      return;
     }
+    void loadMoreFrom(state);
   }
 
   return (
@@ -174,6 +226,12 @@ export default function Inbox({ getToken, selectedId }: { getToken: GetToken; se
       </p>
     </div>
   );
+}
+
+/** `items` followed by those of `more` it doesn't already have (offset pages overlap when the list moves). */
+function appendNew(items: ConversationSummary[], more: ConversationSummary[]): ConversationSummary[] {
+  const known = new Set(items.map((c) => c.conversationId));
+  return [...items, ...more.filter((c) => !known.has(c.conversationId))];
 }
 
 /**

@@ -2,21 +2,10 @@
 
 import DemoNotice from "@/components/DemoNotice";
 import BlockedList from "./BlockedList";
-import DemoInbox from "./DemoInbox";
 import DemoThread from "./DemoThread";
-import Inbox from "./Inbox";
 import MessagesGate from "./MessagesGate";
 import Thread from "./Thread";
 import { THREAD_STATE_CLASS, threadHref } from "./shared";
-
-/** /messages */
-export function InboxPageContent() {
-  return (
-    <MessagesGate returnTo="/messages" demo={<DemoInbox />}>
-      {(getToken) => <Inbox getToken={getToken} />}
-    </MessagesGate>
-  );
-}
 
 /**
  * /messages beside the list (from 768px): where a conversation opens. Below 768px the list is the

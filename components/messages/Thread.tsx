@@ -151,6 +151,8 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
   const reportedRef = useRef<HTMLDivElement>(null);
   const pendingFocus = useRef<Focus | null>(null);
   const pendingScroll = useRef<"initial" | "new" | null>(null);
+  /** The messages list's height after the last committed render: what a poll or send added is the growth since. */
+  const listHeight = useRef(0);
 
   // Layout effects, so they're current at commit: a click or a poll never sees the previous render.
   useLayoutEffect(() => {
@@ -267,11 +269,15 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
       }
     }
     const scroll = pendingScroll.current;
+    const height = listRef.current?.getBoundingClientRect().height ?? 0;
+    const previousHeight = listHeight.current;
+    listHeight.current = height;
     if (scroll && endRef.current) {
       pendingScroll.current = null;
       // New messages only scroll into view if the person was already at the bottom (of the messages
-      // section from 768px, where it scrolls on its own; of the page below that).
-      const added = scroll === "new" ? (listRef.current?.lastElementChild?.getBoundingClientRect().height ?? 0) : 0;
+      // section from 768px, where it scrolls on its own; of the page below that). Everything a poll
+      // added counts, not just the last bubble, so a reader at the end follows several at once.
+      const added = scroll === "new" ? Math.max(0, height - previousHeight) : 0;
       scrollThreadToEnd(sectionRef.current, endRef.current, {
         force: scroll === "initial",
         instant: scroll === "initial",
