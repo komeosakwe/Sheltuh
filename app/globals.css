@@ -90,11 +90,10 @@
   --google-fill: #ffffff;
   --google-stroke: #747775;
   --google-text: #1f1f1f;
-  /* The site header and the avatar menu, as the "Navigation" board draws them (navigation-search.md
-     §5.16): the header row is white in Light and #0a0a0a in Dark, over the #000 page; the avatar
-     menu is white in Light (cream under the pointer) and a warm near-black in Dark. Page theme only,
+  /* The avatar menu, as the "Navigation" board draws it (navigation-search.md §5.16): white in Light
+     (cream under the pointer) and a warm near-black in Dark. The site header itself is an ink section
+     in both themes (the owner's call, 22 Nov 2026), so it has no token of its own. Page theme only,
      so never re-scoped in [data-surface=*]. */
-  --header: #ffffff;
   --menu: #ffffff;
   --menu-hover: #fffae7;
 }
@@ -139,7 +138,6 @@
     --google-fill: #131314;
     --google-stroke: #8e918f;
     --google-text: #e3e3e3;
-    --header: #0a0a0a;
     --menu: #1c1b17; /* white on it 17.2:1, the muted grey 6.8:1 */
     --menu-hover: #2e2b26; /* white on it 14.1:1 */
   }
@@ -216,6 +214,42 @@
   --signal-text: #d03e00;
   background: var(--background);
   color: var(--foreground);
+}
+
+/* Back to the page's theme inside an ink section: the header's avatar menu (components/nav/AccountMenu.tsx),
+   a popover that sits in the black header's DOM. The colour tokens ink re-scopes, as the page has them:
+   Light's (as in :root), and Dark's in Dark. Tokens only: the element paints its own background. */
+[data-surface="page"] {
+  --background: #ffffff;
+  --card: #ffffff;
+  --surface: #f2f1ee;
+  --surface-border: #e5e3de;
+  --foreground: #000000;
+  --muted: #5c5c5c;
+  --hover: #fffae7;
+  --disabled: #a3a3a3;
+  --accent: #000000;
+  --accent-strong: #262626;
+  --accent-foreground: #ffffff;
+  --danger: #b3261e;
+  --danger-foreground: #ffffff;
+}
+@media screen {
+  [data-theme="dark"] [data-surface="page"] {
+    --background: #000000;
+    --card: #141414;
+    --surface: #1f1f1f;
+    --surface-border: #333333;
+    --foreground: #ffffff;
+    --muted: #a3a3a3;
+    --hover: #1a1a1a;
+    --disabled: #5c5c5c;
+    --accent: #ffffff;
+    --accent-strong: #e0e0e0;
+    --accent-foreground: #000000;
+    --danger: #ff6b5e;
+    --danger-foreground: #000000;
+  }
 }
 
 /* Door check-in: an ink surface for dark venues. Every shared component re-skins through these.
@@ -340,7 +374,6 @@
   --color-soft-line: var(--soft-line);
   --color-peach: var(--peach);
   --color-signal-text: var(--signal-text);
-  --color-header: var(--header);
   --color-menu: var(--menu);
   --color-menu-hover: var(--menu-hover);
   --color-lilac: var(--lilac);
@@ -903,7 +936,7 @@ h4 {
 /* The header's nav button ("For organisers"), with `umlaut`: 43 × 171px as the "Header" board draws
    it (an 18/24 label, regular as drawn, 8px from the 1.5px stroke, 25px sides), radius 8. Its dots sit 8px above the button, not on the label; hover
    adds the --hover fill, and the current page fills it in the text colour (no underline: the
-   fill carries the state). In the theme-following desktop header. */
+   fill carries the state). In the black (ink) header: a white stroke and label in both themes. */
 @utility nav-button {
   --umlaut-w: 20px;
   --umlaut-h: 6px;
@@ -935,8 +968,9 @@ h4 {
 }
 
 /* The header's Messages chip (the "Header" board, signed in), with `umlaut`: 37px as drawn, 14px
-   regular, filled in the text colour like the avatar beside it (black in Light, white in Dark;
-   the owner's call, 22 Nov 2026), the dots above it, the count's pill 2px above the middle. */
+   regular, filled in the text colour like the avatar beside it (the owner's call, 22 Nov 2026: white
+   with black text in the black header, in both themes), the dots above it, the count's pill 2px above
+   the middle. */
 @utility nav-chip {
   --umlaut-w: 20px;
   --umlaut-h: 6px;
@@ -967,7 +1001,7 @@ h4 {
 }
 
 /* The header's avatar (the "Header" board, signed in), with `umlaut`: a solid block in the text
-   colour (black in Light, white in Dark), 40px tall, the initial and a small caret 4px apart
+   colour (white in the black header, in both themes), 40px tall, the initial and a small caret 4px apart
    in the page colour, 16px in from each side. */
 @utility nav-avatar {
   --umlaut-w: 20px;

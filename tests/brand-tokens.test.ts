@@ -193,6 +193,22 @@ describe("the Dark theme and the paper scope (docs/design/theme-white-dark.md §
     expect(paper.get("color-scheme")).toBe("light");
   });
 
+  // The avatar menu sits in the ink header's DOM: the page scope gives it back the page's theme.
+  it("puts a page subtree back on the page's theme inside ink: Light's tokens, and Dark's in Dark, token for token", () => {
+    const root = declarations(block(":root"));
+    const page = declarations(block('[data-surface="page"]'));
+    const ink = declarations(block('[data-surface="ink"]'));
+    const darkPage = declarations(css.match(/@media screen \{\s*\[data-theme="dark"\] \[data-surface="page"\] \{([^}]*)\}\s*\}/)?.[1] ?? "");
+    const darkValues = declarations(dark);
+    for (const name of COLOUR_TOKENS) {
+      expect(page.get(name), name).toBe(root.get(name));
+      expect(darkPage.get(name), name).toBe(darkValues.get(name));
+    }
+    // Exactly the tokens ink re-scopes, and nothing that paints: the element keeps its own background.
+    expect([...page.keys()].sort()).toEqual([...ink.keys()].sort());
+    expect(block('[data-surface="page"]')).not.toMatch(/(?:^|\s)(?:background|color|color-scheme):/);
+  });
+
   it("keeps the orange band's card and surface light in both themes", () => {
     const signal = declarations(block('[data-surface="signal"]'));
     expect(signal.get("--card")).toBe("#ffffff");
@@ -404,13 +420,13 @@ describe("current page in the nav", () => {
     expect(css).toMatch(/@media \(width >= 64rem\) \{\s*:root \{\s*--header-h: 6\.25rem;/);
   });
 
-  it("colours the header and the avatar menu as the board's Light and Dark frames", () => {
-    expect(block(":root")).toContain("--header: #ffffff;");
+  it("colours the avatar menu as the board's Light and Dark frames; the header is ink, with no token of its own", () => {
+    // The owner's call (22 Nov 2026): the whole header is black in both themes (Nav.tsx: data-surface="ink").
+    expect(css).not.toMatch(/--(?:color-)?header:/);
     expect(block(":root")).toContain("--menu: #ffffff;");
     expect(block(":root")).toContain("--menu-hover: #fffae7;");
     expect(block(":root")).toContain("--avatar-placeholder: #fffae7;");
     const dark = css.slice(css.indexOf('[data-theme="dark"] {'), css.indexOf("@custom-variant dark"));
-    expect(dark).toContain("--header: #0a0a0a;");
     expect(dark).toContain("--menu: #1c1b17;");
     expect(dark).toContain("--menu-hover: #2e2b26;");
     // The placeholder circle is cream in every theme.

@@ -74,10 +74,13 @@ function MenuIcon({ open }: { open: boolean }) {
 
 /**
  * Site header (the "Navigation" board; navigation-search.md §5.1 and §5.16), 64px below `lg` and
- * 100px from it (--header-h), as the boards draw them. Below `lg` the bar and its drawer are black
- * in both themes (ink sections, as the "Header / Mobile" board draws them). From `lg` the row
- * follows the theme (owner, 18 Nov 2026, Q1): white over a 1px black rule in Light, #0a0a0a over a
- * 1px #333 rule in Dark (`--header`), as the board's two frames.
+ * 100px from it (--header-h), as the boards draw them. The whole bar is black in both themes, at
+ * every width: an ink section, like the footer (the owner's call, 22 Nov 2026, replacing Q1's
+ * theme-following desktop row), so everything in it is white on black: the wordmark (the phone
+ * bar's stays orange), the places, For organisers' outline, the Messages chip and the avatar. The
+ * phone drawer is ink too. The avatar menu, a popover in the bar's DOM, is put back on the page's
+ * theme (data-surface="page"), so it looks as it did. In Dark, where the black bar meets the black
+ * page, a 1px #333 rule (ink's --surface-border); in Light, none, as the footer.
  *
  * From `lg` it's one row: the wordmark; Discover, Nearby and Community; then the account area
  * (components/AuthNavLinks.tsx), whose avatar opens the avatar menu. No search field (owner
@@ -227,21 +230,20 @@ export default function Nav() {
     // (and what the keyboard leaves of it) to the messages and the composer.
     // The top padding keeps it below a status bar or notch (viewport-fit=cover);
     // it's 0 on desktop and in iOS's black status-bar style.
-    // Where black meets black (Dark), and from lg in both themes (as the board's frames: black in
-    // Light, #333 in Dark), a 1px rule, drawn inside the header (after:) so it stays exactly
-    // --header-h tall.
+    // Where black meets black (Dark), a 1px #333 rule (ink's --surface-border), drawn inside the
+    // header (after:) so it stays exactly --header-h tall. In Light the black bar needs none.
     <>
       {/* The scroll sentinel: 16px at the very top of the document (absolute, so it takes no room). */}
       <span ref={sentinelRef} aria-hidden="true" data-header-sentinel="" className="pointer-events-none absolute top-0 left-0 h-4 w-px" />
       <header
+        data-surface="ink"
         data-scrolled={scrolled ? "" : undefined}
         onKeyDown={handleHeaderKeyDown}
-        className={`group/header ${atDoor ? "relative" : inThread ? "relative lg:sticky" : "sticky"} top-0 z-30 bg-ink pt-[env(safe-area-inset-top)] text-foreground lg:bg-header xl:data-scrolled:mb-2 motion-safe:transition-[margin] motion-safe:duration-200 motion-safe:ease-out after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:hidden after:h-px after:bg-surface-border dark:after:block lg:after:block lg:after:bg-foreground lg:dark:after:bg-surface-border`}
+        className={`group/header ${atDoor ? "relative" : inThread ? "relative lg:sticky" : "sticky"} top-0 z-30 pt-[env(safe-area-inset-top)] xl:data-scrolled:mb-2 motion-safe:transition-[margin] motion-safe:duration-200 motion-safe:ease-out after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:hidden after:h-px after:bg-surface-border dark:after:block`}
       >
-        {/* Compact bar (phones and tablets): black in both themes. */}
+        {/* Compact bar (phones and tablets). */}
         <div
           ref={compactBarRef}
-          data-surface="ink"
           data-compact-header=""
           className="page-container flex h-16 items-center justify-between lg:hidden"
         >
@@ -323,7 +325,8 @@ export default function Nav() {
         </nav>
       </div>
 
-      {/* Phone menu: a black drawer filling the screen under the bar, with no rule between them.
+      {/* Phone menu: a black drawer filling the screen under the bar, with no rule between them
+          (ink in its own right: a popover, its own surface, though the header's ink would reach it).
           No display class on this root: it would override the popover's closed `display: none`
           and the menu could never close. It's fixed to the viewport, so it clears the top inset
           and a landscape notch itself (all 0 unless the device has them). */}

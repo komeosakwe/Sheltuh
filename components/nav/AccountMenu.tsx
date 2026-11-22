@@ -63,9 +63,9 @@ function MenuCount({ count, srText }: { count: number | null; srText: string }) 
  *
  * The panel (280px, radius 16, as drawn) sits 8px under the 100px header, its right edge on the
  * avatar's (the row's right padding: 32px, 66px from 1280px), and follows the row to 92px once the page
- * has scrolled at XL: all CSS, so it's right before hydration too. It's in the desktop row, which
- * takes the page's theme: white with a 1px hairline in Light (no shadow, as drawn), #1c1b17 with
- * a 1px white stroke in Dark.
+ * has scrolled at XL: all CSS, so it's right before hydration too. It sits in the black header's DOM
+ * (an ink section), so `data-surface="page"` puts it back on the page's theme: white with a 1px
+ * hairline in Light (no shadow, as drawn), #1c1b17 with a 1px white stroke in Dark.
  */
 export default function AccountMenu({ account, initial }: { account: NavAccount; initial: string }) {
   const { auth, current, unreadCount, adminWaiting, savedCount, profile, profileHref, name, showEvents, avatarCurrent } =
@@ -204,6 +204,7 @@ export default function AccountMenu({ account, initial }: { account: NavAccount;
         id={ACCOUNT_MENU_ID}
         ref={panelRef}
         popover="auto"
+        data-surface="page"
         data-account-menu=""
         onKeyDown={handlePanelKeyDown}
         className="popover-fade top-27 right-8 bottom-auto left-auto m-0 max-h-[calc(100dvh-7rem)] w-70 overflow-y-auto rounded-card border border-surface-border bg-menu p-2 text-foreground dark:border-foreground xl:right-16.5 xl:group-data-scrolled/header:top-25"
