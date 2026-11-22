@@ -556,7 +556,7 @@ the Navigation board), apart from the differences listed at the end.
 | Counts | **24 × 16 pills**: Saved in the panel's other fill (cream on white, white on a hovered row; #2e2b26 in Dark), Messages orange with a black number, Admin black. |
 | Log out | the board's label, "Log out". Light: **`--signal-text` #d03e00** (owner decision, 19 Nov 2026: accessibility over the board's exact colour for this one): 4.8:1 on white, 4.59:1 on the cream hover row. Dark: the board's **`--signal` #ff4800**, 5.07:1 on the panel. |
 
-**New tokens:** `--header` (#ffffff / Dark #0a0a0a), `--menu` (#ffffff / #1c1b17), `--menu-hover` (#fffae7 /
+**New tokens:** `--header` (#ffffff / Dark #0a0a0a; retired 22 Nov 2026, when the header became ink), `--menu` (#ffffff / #1c1b17), `--menu-hover` (#fffae7 /
 #2e2b26), and `--avatar-placeholder` (#fffae7 in every theme). `label-nav` is now 18/24 (it's only used by the nav).
 
 **The one unavoidable difference:**
@@ -745,7 +745,9 @@ theme toggle lives (footer only, unchanged).
 **Answered by the owner on 18 Nov 2026** (each as recommended, except Q1):
 - **Q1, header in Light:** the desktop header **follows the theme** (white in Light, black in Dark, as both Figma
   variants show). The phone bar and drawer stay black. Built in increment 1 (§5.1); `theme-white-dark.md` D7 is
-  amended.
+  amended. **Superseded 22 Nov 2026 (owner):** the whole header is black in both themes at every width, an ink
+  section like the footer (`data-surface="ink"` on `<header>`), with a 1px #333 rule in Dark only. The avatar menu
+  keeps the page's theme (`data-surface="page"`).
 - **Q2, My tickets:** "My tickets" links to today's tickets page for now (Help's "Where are my tickets?"). A My
   tickets list page comes later with the My ticket work (B1).
 - **Q3, email-first sign-in:** sign-in stays on one page (email and password). Increment 9 has nothing to build.

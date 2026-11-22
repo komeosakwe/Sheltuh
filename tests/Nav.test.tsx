@@ -279,6 +279,10 @@ describe("Nav — desktop row", () => {
     expect(avatar).toHaveAttribute("aria-controls", "account-menu");
     expect(avatar).toHaveAttribute("aria-expanded", "false");
     expect(within(desktopNav).queryByRole("link", { name: "Account" })).toBeNull();
+    // The avatar menu sits in the ink header's DOM, so it's put back on the page's theme (it looks as before).
+    const panel = document.getElementById("account-menu");
+    expect(panel).toHaveAttribute("data-surface", "page");
+    expect(panel?.parentElement?.closest("[data-surface]")).toBe(document.querySelector("header"));
   });
 
   it("signed out: Sign in, then the For organisers nav button", () => {
@@ -373,21 +377,21 @@ describe("Nav — what left the header", () => {
 });
 
 describe("Nav — header", () => {
-  it("is black below lg in both themes (the bar and drawer are ink), follows the theme from lg (Q1), 64px / 100px as the boards, with its 1px rule drawn inside it", () => {
+  it("is black at every width in both themes (an ink section, as the footer), 64px / 100px as the boards, with its Dark-only 1px rule drawn inside it", () => {
     const { container, menu } = renderNav(fakeAuthValue({ status: "signed-out" }));
     const header = container.querySelector("header");
-    // Owner, 18 Nov 2026 (Q1): the desktop row follows the theme (--header: white in Light, #0a0a0a in Dark, as the
-    // board's frames); the phone bar and drawer stay black.
-    expect(header).not.toHaveAttribute("data-surface");
-    expect(header).toHaveClass("bg-ink", "lg:bg-header");
-    expect(compactBar(container)).toHaveAttribute("data-surface", "ink");
+    // The owner's call (22 Nov 2026, replacing Q1's theme-following desktop row): the whole header is ink, like the
+    // footer, so the desktop row and the phone bar are black in Light and Dark; the drawer is ink in its own right.
+    expect(header).toHaveAttribute("data-surface", "ink");
+    expect(header?.className).not.toMatch(/\bbg-(?:header|background|card)\b/);
+    expect(compactBar(container).closest("[data-surface]")).toBe(header);
     expect(menu).toHaveAttribute("data-surface", "ink");
     const [primary] = screen.getAllByRole("navigation", { name: "Primary" });
-    expect(primary.closest("[data-surface]")).toBeNull();
-    // The rule is an ::after inside the header, so it never adds to --header-h: Dark only below lg, always from lg,
-    // black in Light and #333 in Dark from lg, as the board's two frames.
-    expect(header).toHaveClass("after:absolute", "after:bottom-0", "after:h-px", "after:hidden", "dark:after:block", "lg:after:block");
-    expect(header).toHaveClass("lg:after:bg-foreground", "lg:dark:after:bg-surface-border");
+    expect(primary.closest("[data-surface]")).toBe(header);
+    // The rule is an ::after inside the header, so it never adds to --header-h: Dark only (black bar on the black
+    // page), in ink's --surface-border (#333); in Light the black bar needs none, as the footer.
+    expect(header).toHaveClass("after:absolute", "after:bottom-0", "after:h-px", "after:hidden", "after:bg-surface-border", "dark:after:block");
+    expect(header?.className).not.toMatch(/\blg:(?:dark:)?after:/);
     expect(header?.className).not.toMatch(/(?:^|\s)(?:dark:)?border-b\b/);
     expect(compactBar(container)).toHaveClass("h-16");
     const [desktopNav] = screen.getAllByRole("navigation", { name: "Primary" });

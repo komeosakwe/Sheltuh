@@ -83,7 +83,7 @@ export function HeaderAccount({ account }: { account: NavAccount }) {
           <CountBadge count={adminWaiting} srText={`, ${adminWaiting} waiting`} dataAttribute="data-admin-badge" />
         </Link>
       )}
-      {/* The board's Messages chip: 37px, 14px, a muted outline, the count in an orange pill. */}
+      {/* The Messages chip: 37px, 14px, filled black like the avatar, the count in an orange pill. */}
       <Link href="/messages" aria-current={current("/messages")} className="umlaut nav-chip">
         Messages
         <UnreadBadge count={unreadCount} tone="signal" shape="pill" />
