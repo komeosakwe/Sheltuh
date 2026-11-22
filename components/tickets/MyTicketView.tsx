@@ -5,6 +5,7 @@ import { useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import EventArt from "@/components/EventArt";
 import FullTicket from "@/components/tickets/FullTicket";
 import TicketFullScreen from "@/components/tickets/TicketFullScreen";
+import TicketPagerButton from "@/components/tickets/TicketPagerButton";
 import {
   AddToCalendarSheet,
   DirectionsSheet,
@@ -63,15 +64,22 @@ const cardTitleClass = "text-xl leading-7 font-semibold text-foreground";
 const detailLabelClass = "font-mono text-xs leading-4 text-muted uppercase";
 const quietLinkClass = "body-s inline-flex min-h-11 items-center font-semibold text-foreground underline-offset-4 hover:underline";
 const calendarButtonClass = buttonClass("outline", "sm", "min-w-0 flex-1 px-2");
+const pagerButtonClass = "inline-flex min-h-11 min-w-11 items-center justify-center rounded-control text-foreground hover:bg-surface";
 const showTicketClass =
   "label-button flex min-h-14 w-full items-center justify-center gap-2 rounded-control bg-signal p-4 text-ink motion-safe:transition-colors motion-safe:duration-200 hover:bg-ink hover:text-signal focus-visible:bg-ink focus-visible:text-signal active:bg-ink active:text-signal md:hidden print:hidden";
 
 /**
  * The My ticket page (Latte's 1120 frames at 1440 / 768 / 390) for one paid
- * order: the full ticket(s) on the left (360 wide from 1024, 296 from 768;
- * stacked above the details on phones, compact), each with its wallet
- * badges; on the right the order line, the event, and the Add to calendar,
- * Getting there and Ticket details cards, then the help line.
+ * order: the full ticket on the left (360 wide from 1024, 296 from 768;
+ * above the details on phones, compact) with its wallet badges; on the right
+ * the order line, the event, and the Add to calendar, Getting there and
+ * Ticket details cards, then the help line.
+ *
+ * An order of several tickets shows one at a time at every width, as the
+ * full-screen ticket does: Previous / Next with "Ticket 1 of 2" between
+ * (said politely on each change), in seat order for seated tickets but each
+ * with its own number. The wallet badges and "Show ticket" are the shown
+ * ticket's, and the full-screen ticket opens on it. Printing prints them all.
  *
  * The ticket itself is the email's orange-outline design (FullTicket: owner
  * rule); everything around it follows the frames. On phones "Show ticket"
@@ -84,6 +92,8 @@ const showTicketClass =
 export default function MyTicketView({ order, sessionId, event = null, emailSlot, onSendTicket }: MyTicketViewProps) {
   const [sheet, setSheet] = useState<"calendar" | "directions" | "receipt" | "manage" | null>(null);
   const [fullScreen, setFullScreen] = useState<{ open: boolean; start: number }>({ open: false, start: 0 });
+  // The ticket shown (by its place in `tickets`, the seat order): one at a time, at every width.
+  const [shownIndex, setShownIndex] = useState(0);
 
   // An event that's no longer published: no date, venue, image or links to its page (which would be a 404).
   const unlisted = order.eventListed === false;
@@ -95,6 +105,8 @@ export default function MyTicketView({ order, sessionId, event = null, emailSlot
   const venueLine = unlisted ? "" : [order.venueName?.trim() ?? "", suburb].filter(Boolean).join(" · ");
   const tickets = sortTicketsBySeat(order.tickets);
   const count = order.tickets.length;
+  const index = Math.min(shownIndex, Math.max(tickets.length - 1, 0));
+  const current = tickets[index];
   const hasWallet = Boolean(sessionId && !unlisted && (order.wallet?.apple || order.wallet?.google));
   const paid = order.totalCents > 0;
   // The refund policy: only where something was paid (a free order has nothing to refund) and the event is listed.
@@ -188,27 +200,42 @@ export default function MyTicketView({ order, sessionId, event = null, emailSlot
       {/*
         The tickets come first (above the title on phones, left of it from 768), so nothing here is a heading:
         the page's first heading is its h1. The section is a named region instead, and each ticket's title
-        (the event's name, as the h1) a paragraph. A group ticket's people each have one: the name counts them.
+        (the event's name, as the h1) isn't a heading. A group ticket's people each have one: the name counts them.
       */}
       <section
         aria-label={order.tickets.some((ticket) => ticket.group) ? `Your tickets (${count})` : "Your tickets"}
         className="flex min-w-0 flex-col gap-4 md:w-74 md:shrink-0 lg:w-90"
       >
+        {count > 1 && (
+          <div className="-my-2 flex items-center justify-between gap-3 print:hidden" data-ticket-pager="">
+            <TicketPagerButton direction="previous" atEnd={index === 0} onMove={() => setShownIndex(index - 1)} className={pagerButtonClass} />
+            {/* Its own number in the order (the email's and the door's), even where seats set the order shown. */}
+            <p className="font-mono text-sm leading-5 font-medium text-foreground" aria-live="polite" aria-atomic="true">
+              <span className="uppercase">Ticket</span> {current.number} of {count}
+            </p>
+            <TicketPagerButton direction="next" atEnd={index === count - 1} onMove={() => setShownIndex(index + 1)} className={pagerButtonClass} />
+          </div>
+        )}
         <ul className="flex flex-col gap-6">
           {/* Numbered as in the ticket email and at the door (ticket type, then code, as the API returns them);
-              seated tickets are listed by section, row, then seat, keeping those numbers. */}
+              seated tickets are listed by section, row, then seat, keeping those numbers. One shows at a time;
+              the rest are hidden on screen but all print, each on its own. */}
           {tickets.map(({ ticket, number }, i) => (
-            <li key={ticket.ticketCode} className="flex flex-col gap-4">
+            <li key={ticket.ticketCode} className={i === index ? undefined : "hidden print:block"}>
               <FullTicket {...ticketProps(ticket, number)} headingLevel={null} />
-              <button type="button" onClick={() => setFullScreen({ open: true, start: i })} className={showTicketClass}>
-                Show ticket <span aria-hidden="true">→</span>
-                {count > 1 && <span className="sr-only"> {number} of {count}</span>}
-              </button>
-              {/* Side by side on phones and from 1024; stacked in the 296 column between (the frames). */}
-              {walletFor(number, "justify-center md:max-lg:flex-col")}
             </li>
           ))}
         </ul>
+        {current && (
+          <>
+            <button type="button" onClick={() => setFullScreen({ open: true, start: index })} className={showTicketClass}>
+              Show ticket <span aria-hidden="true">→</span>
+              {count > 1 && <span className="sr-only"> {current.number} of {count}</span>}
+            </button>
+            {/* The wallet badges are the shown ticket's. Side by side on phones and from 1024; stacked in the 296 column between (the frames). */}
+            {walletFor(current.number, "justify-center md:max-lg:flex-col")}
+          </>
+        )}
         {/* Apple's badge rules: say how to add the pass from a device without Wallet. */}
         {hasWallet && order.wallet?.apple && <p className="text-xs leading-4 text-muted print:hidden">{appleWalletDeviceNote("page", count)}</p>}
         <div className="flex flex-col gap-1 text-xs leading-4 text-muted">

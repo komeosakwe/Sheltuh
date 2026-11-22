@@ -47,8 +47,9 @@ export interface FullTicketProps {
   /** The event's zone, for the check-in time (the door's clock); absent means Melbourne. */
   timeZone?: string;
   /**
-   * The title's heading level where the ticket sits, or null for no heading (a plain paragraph): the My ticket
-   * page, where the tickets come before the page's h1, which names the same event.
+   * The title's heading level where the ticket sits, or null for no heading: the My ticket page, where the
+   * tickets come before the page's h1, which names the same event. (Still an h2 underneath, with `role="none"`,
+   * so it keeps the headings' type exactly; only the heading semantics go.)
    */
   headingLevel?: 2 | 3 | null;
   className?: string;
@@ -122,7 +123,7 @@ export default function FullTicket({
 }: FullTicketProps) {
   const hasQr = TICKET_CODE_PATTERN.test(code);
   const page = size === "page";
-  const Heading = headingLevel === null ? "p" : (`h${headingLevel}` as const);
+  const Heading = `h${headingLevel ?? 2}` as const;
   const side = page ? "px-4 lg:px-6" : "px-4";
   const showEvent = !eventUnlisted;
   const checkedIn = Boolean(checkedInAt);
@@ -142,7 +143,7 @@ export default function FullTicket({
             <div className={`overflow-hidden rounded bg-surface *:size-full ${page ? "h-24 md:h-32" : "h-21"}`}>{image}</div>
           </div>
         )}
-        <Heading className={`${page ? "mt-6" : "mt-4"} text-center text-2xl leading-8 font-bold break-words ${side}`}>{eventTitle}</Heading>
+        <Heading role={headingLevel === null ? "none" : undefined} className={`${page ? "mt-6" : "mt-4"} text-center text-2xl leading-8 font-bold break-words ${side}`}>{eventTitle}</Heading>
         {showEvent && venueLine && (
           <p
             className={`mt-2 text-center font-mono text-xs leading-4 font-medium tracking-widest break-words text-signal-text uppercase ${side} ${page ? "max-md:hidden" : ""}`.trim()}

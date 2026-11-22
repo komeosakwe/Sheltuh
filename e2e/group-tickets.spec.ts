@@ -145,7 +145,11 @@ for (const vp of [
 
       await page.goto(`/checkout/success?session_id=${ORDER_ID}`);
       await expect(page.getByRole("region", { name: "Your tickets (4)" })).toBeAttached();
+      // One ticket at a time: Next steps through them.
+      const yours = page.getByRole("region", { name: "Your tickets (4)" });
       for (const position of [1, 2, 3, 4]) {
+        if (position > 1) await yours.getByRole("button", { name: "Next ticket" }).click();
+        await expect(yours.getByText(`Ticket ${position} of 4`, { exact: true })).toBeVisible();
         const ticket = page.getByRole("listitem").filter({ hasText: `ticket ${position} of 4` });
         await expect(ticket.getByText(`Group of 4 (${position} of 4)`, { exact: true })).toBeVisible();
       }

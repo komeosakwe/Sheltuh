@@ -380,19 +380,12 @@ describe("CheckoutConfirmation", () => {
       getOrderBySession.mockResolvedValue({ ...WITH_DETAILS, eventListed: true, wallet: { google: true, apple: false } });
       render(<CheckoutConfirmation />);
       await screen.findByRole("img", { name: "QR code for ticket 7KQM-2HXD" });
-      const links = walletLinks();
-      expect(links.map((a) => a.getAttribute("aria-label"))).toEqual([
-        "Add to Google Wallet: ticket 1 of 2",
-        "Add to Google Wallet: ticket 2 of 2",
-      ]);
-      expect(links.map((a) => a.getAttribute("href"))).toEqual([
-        "/api/orders/by-session/cs_test_1/wallet/google?ticket=1",
-        "/api/orders/by-session/cs_test_1/wallet/google?ticket=2",
-      ]);
-      // Each ticket's badges sit under that ticket.
-      const items = screen.getAllByRole("listitem");
-      expect(items.map((item) => within(item).getByRole("link").getAttribute("aria-label"))).toEqual(links.map((a) => a.getAttribute("aria-label")));
-      expect(items[1]).toHaveTextContent("TicketVIP");
+      // One ticket shows at a time: its badges are the ones under it, and they follow the pager.
+      const shown = () => walletLinks().map((a) => [a.getAttribute("aria-label"), a.getAttribute("href")]);
+      expect(shown()).toEqual([["Add to Google Wallet: ticket 1 of 2", "/api/orders/by-session/cs_test_1/wallet/google?ticket=1"]]);
+      fireEvent.click(screen.getByRole("button", { name: "Next ticket" }));
+      expect(shown()).toEqual([["Add to Google Wallet: ticket 2 of 2", "/api/orders/by-session/cs_test_1/wallet/google?ticket=2"]]);
+      expect(screen.getAllByRole("listitem")[1]).toHaveTextContent("TicketVIP");
       // Apple's device note is only for Apple's badge.
       expect(screen.queryByText(/Apple Wallet, open this page/)).toBeNull();
       cleanup();
@@ -400,12 +393,10 @@ describe("CheckoutConfirmation", () => {
       getOrderBySession.mockResolvedValue({ ...WITH_DETAILS, eventListed: true, wallet: { google: true, apple: true } });
       render(<CheckoutConfirmation />);
       await screen.findByRole("img", { name: "QR code for ticket 7KQM-2HXD" });
-      expect(walletLinks().map((a) => a.getAttribute("href"))).toEqual([
-        "/api/orders/by-session/cs_test_1/wallet/apple?ticket=1",
-        "/api/orders/by-session/cs_test_1/wallet/google?ticket=1",
-        "/api/orders/by-session/cs_test_1/wallet/apple?ticket=2",
-        "/api/orders/by-session/cs_test_1/wallet/google?ticket=2",
-      ]);
+      const hrefs = () => walletLinks().map((a) => a.getAttribute("href"));
+      expect(hrefs()).toEqual(["/api/orders/by-session/cs_test_1/wallet/apple?ticket=1", "/api/orders/by-session/cs_test_1/wallet/google?ticket=1"]);
+      fireEvent.click(screen.getByRole("button", { name: "Next ticket" }));
+      expect(hrefs()).toEqual(["/api/orders/by-session/cs_test_1/wallet/apple?ticket=2", "/api/orders/by-session/cs_test_1/wallet/google?ticket=2"]);
       // Apple's badge rules: once, under the badges, how to add them from a device without Wallet.
       expect(screen.getAllByText("To add your tickets to Apple Wallet, open this page on your iPhone or Mac.")).toHaveLength(1);
     });
@@ -422,11 +413,11 @@ describe("CheckoutConfirmation", () => {
       });
       render(<CheckoutConfirmation />);
       await screen.findByRole("img", { name: "QR code for ticket 7KQM-2HXD" });
-      // Row A (ticket 2 in the API's order) is listed first, and its link still asks for ticket 2.
-      expect(walletLinks().map((a) => [a.getAttribute("aria-label"), a.getAttribute("href")])).toEqual([
-        ["Add to Apple Wallet: ticket 2 of 2", "/api/orders/by-session/cs_test_1/wallet/apple?ticket=2"],
-        ["Add to Apple Wallet: ticket 1 of 2", "/api/orders/by-session/cs_test_1/wallet/apple?ticket=1"],
-      ]);
+      // Row A (ticket 2 in the API's order) is shown first, and its link still asks for ticket 2; Next shows ticket 1.
+      const shown = () => walletLinks().map((a) => [a.getAttribute("aria-label"), a.getAttribute("href")]);
+      expect(shown()).toEqual([["Add to Apple Wallet: ticket 2 of 2", "/api/orders/by-session/cs_test_1/wallet/apple?ticket=2"]]);
+      fireEvent.click(screen.getByRole("button", { name: "Next ticket" }));
+      expect(shown()).toEqual([["Add to Apple Wallet: ticket 1 of 2", "/api/orders/by-session/cs_test_1/wallet/apple?ticket=1"]]);
     });
 
     it("none for an event that's no longer listed, even if a response carried the flags", async () => {

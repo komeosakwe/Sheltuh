@@ -65,6 +65,9 @@ const EVENT: SheltuhEvent = {
   venuePinned: undefined,
 };
 
+/** The page's own pager (not the full-screen one): Previous / Next beside "Ticket 1 of 2". */
+const pageTickets = () => screen.getByRole("region", { name: "Your tickets" });
+const pagePager = (name: "Previous ticket" | "Next ticket") => within(pageTickets()).getByRole("button", { name });
 const card = (name: string) => screen.getByRole("heading", { level: 2, name }).closest("section") as HTMLElement;
 
 describe("MyTicketView (Latte's My ticket page around the orange-outline ticket)", () => {
@@ -84,7 +87,8 @@ describe("MyTicketView (Latte's My ticket page around the orange-outline ticket)
     const tickets = screen.getByRole("region", { name: "Your tickets" });
     expect(within(tickets).queryAllByRole("heading")).toHaveLength(0);
     // Each ticket still shows the event's name as its title.
-    expect(within(tickets).getAllByText("Here & Now", { selector: "p" })).toHaveLength(2);
+    // (Kept as heading elements with role="none", so they keep the headings' type.)
+    expect(within(tickets).getAllByText("Here & Now", { selector: 'h2[role="none"]' })).toHaveLength(2);
   });
 
   it("the ticket column is 296 wide from 768 and 360 from 1024, beside the details; stacked on phones", () => {
@@ -211,14 +215,12 @@ describe("MyTicketView (Latte's My ticket page around the orange-outline ticket)
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("each ticket has its wallet badges under it; an order without wallets has none, and no Apple note", () => {
+  it("the shown ticket's wallet badges are under it and follow the pager; an order without wallets has none, and no Apple note", () => {
     const { rerender } = render(<MyTicketView order={TWO} sessionId="ord_1" />);
-    const items = screen.getAllByRole("listitem");
-    expect(items).toHaveLength(2);
-    expect(within(items[1]).getAllByRole("link").map((a) => a.getAttribute("aria-label"))).toEqual([
-      "Add to Apple Wallet: ticket 2 of 2",
-      "Add to Google Wallet: ticket 2 of 2",
-    ]);
+    const labels = () => screen.getAllByRole("link", { name: /Wallet/ }).map((a) => a.getAttribute("aria-label"));
+    expect(labels()).toEqual(["Add to Apple Wallet: ticket 1 of 2", "Add to Google Wallet: ticket 1 of 2"]);
+    fireEvent.click(pagePager("Next ticket"));
+    expect(labels()).toEqual(["Add to Apple Wallet: ticket 2 of 2", "Add to Google Wallet: ticket 2 of 2"]);
     expect(screen.getByText("To add your tickets to Apple Wallet, open this page on your iPhone or Mac.")).toBeInTheDocument();
     rerender(<MyTicketView order={{ ...TWO, wallet: undefined }} sessionId="ord_1" />);
     expect(screen.queryByRole("link", { name: /Wallet/ })).toBeNull();
@@ -234,6 +236,75 @@ describe("MyTicketView (Latte's My ticket page around the orange-outline ticket)
     expect(screen.queryByRole("link", { name: /Wallet/ })).toBeNull();
     expect(document.querySelector("[data-refund-policy]")).toBeNull();
     expect(screen.getByRole("link", { name: "Back to Sheltüh" })).toHaveAttribute("href", "/");
+  });
+});
+
+describe("several tickets on the page: one at a time, at every width", () => {
+  /** The codes of the tickets showing (the others are hidden on screen; they print). */
+  const shown = () =>
+    within(pageTickets())
+      .getAllByRole("listitem")
+      .filter((item) => !item.classList.contains("hidden"))
+      .map((item) => within(item).getByRole("img").getAttribute("aria-label"));
+
+  it("shows one ticket with Previous / Next round 'Ticket 1 of 2', said politely; Next shows the other; every ticket prints", () => {
+    render(<MyTicketView order={TWO} sessionId="ord_1" />);
+    const pager = pageTickets().querySelector("[data-ticket-pager]") as HTMLElement;
+    expect(pager).toHaveClass("print:hidden");
+    const label = pager.querySelector('[aria-live="polite"]') as HTMLElement;
+    expect(label).toHaveTextContent("Ticket 1 of 2");
+    expect(label).toHaveAttribute("aria-atomic", "true");
+    expect(shown()).toEqual(["QR code for ticket BPT7-7P6W"]);
+    const hidden = within(pageTickets()).getAllByRole("listitem")[1];
+    expect(hidden).toHaveClass("hidden", "print:block");
+    fireEvent.click(pagePager("Next ticket"));
+    expect(label).toHaveTextContent("Ticket 2 of 2");
+    expect(shown()).toEqual(["QR code for ticket K4M2-9QXA"]);
+    expect(within(pageTickets()).getAllByRole("button", { name: /^Show ticket/ })).toHaveLength(1);
+    // The 44px targets of the full-screen pager, on the page's colours.
+    expect(pagePager("Next ticket")).toHaveClass("min-h-11", "min-w-11", "text-foreground", "aria-disabled:text-muted");
+  });
+
+  it("keyboard focus stays on Previous / Next at either end: aria-disabled, not disabled, and a press there does nothing", () => {
+    render(<MyTicketView order={TWO} sessionId="ord_1" />);
+    const label = pageTickets().querySelector('[aria-live="polite"]') as HTMLElement;
+    const previous = pagePager("Previous ticket");
+    const next = pagePager("Next ticket");
+    expect(previous).toHaveAttribute("aria-disabled", "true");
+    expect(next).toHaveAttribute("aria-disabled", "false");
+    next.focus();
+    fireEvent.click(next);
+    expect(label).toHaveTextContent("Ticket 2 of 2");
+    expect(next).not.toBeDisabled();
+    expect(next).toHaveAttribute("aria-disabled", "true");
+    expect(next).toHaveFocus();
+    fireEvent.click(next);
+    expect(label).toHaveTextContent("Ticket 2 of 2");
+    expect(next).toHaveFocus();
+    previous.focus();
+    fireEvent.click(previous);
+    expect(label).toHaveTextContent("Ticket 1 of 2");
+    expect(previous).toHaveAttribute("aria-disabled", "true");
+    expect(previous).toHaveFocus();
+    fireEvent.click(previous);
+    expect(label).toHaveTextContent("Ticket 1 of 2");
+    expect(previous).toHaveFocus();
+  });
+
+  it("Show ticket opens the full-screen ticket on the one shown", () => {
+    render(<MyTicketView order={TWO} sessionId="ord_1" />);
+    fireEvent.click(pagePager("Next ticket"));
+    fireEvent.click(screen.getByRole("button", { name: "Show ticket 2 of 2" }));
+    const dialog = screen.getByRole("dialog", { name: "Your ticket" });
+    expect(dialog.querySelector('[aria-live="polite"]')).toHaveTextContent("Ticket 2 of 2");
+    const inView = within(dialog).getAllByRole("article").find((ticket) => !ticket.parentElement?.hasAttribute("inert")) as HTMLElement;
+    expect(within(inView).getByRole("img", { name: "QR code for ticket K4M2-9QXA" })).toBeInTheDocument();
+  });
+
+  it("one ticket: no pager", () => {
+    render(<MyTicketView order={ORDER} sessionId="ord_1" />);
+    expect(pageTickets().querySelector("[data-ticket-pager]")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Next ticket" })).toBeNull();
   });
 });
 
@@ -272,6 +343,7 @@ describe("the full-screen ticket (phones)", () => {
 
   it("several tickets: opens on the one asked for; Previous and Next move between them and the bar says which", () => {
     render(<MyTicketView order={TWO} sessionId="ord_1" />);
+    fireEvent.click(pagePager("Next ticket"));
     fireEvent.click(screen.getByRole("button", { name: "Show ticket 2 of 2" }));
     const dialog = screen.getByRole("dialog", { name: "Your ticket" });
     const bar = dialog.querySelector('[aria-live="polite"]') as HTMLElement;
@@ -294,6 +366,7 @@ describe("the full-screen ticket (phones)", () => {
 
   it("at the first and last ticket Previous and Next keep keyboard focus: aria-disabled, greyed, and a press does nothing", () => {
     render(<MyTicketView order={TWO} sessionId="ord_1" />);
+    fireEvent.click(pagePager("Next ticket"));
     fireEvent.click(screen.getByRole("button", { name: "Show ticket 2 of 2" }));
     const dialog = screen.getByRole("dialog", { name: "Your ticket" });
     const bar = dialog.querySelector('[aria-live="polite"]') as HTMLElement;
@@ -366,9 +439,15 @@ describe("the full-screen ticket (phones)", () => {
       ],
     };
     render(<MyTicketView order={seated} sessionId="ord_1" />);
-    const shows = screen.getAllByRole("button", { name: /^Show ticket/ });
-    expect(shows.map((button) => button.textContent)).toEqual(["Show ticket → 2 of 2", "Show ticket → 1 of 2"]);
-    fireEvent.click(shows[0]);
+    // The page shows them by seat too: ticket 2 first, under its own number.
+    expect(pageTickets().querySelector('[aria-live="polite"]')).toHaveTextContent("Ticket 2 of 2");
+    const show = screen.getByRole("button", { name: /^Show ticket/ });
+    expect(show).toHaveTextContent("Show ticket → 2 of 2");
+    fireEvent.click(pagePager("Next ticket"));
+    expect(pageTickets().querySelector('[aria-live="polite"]')).toHaveTextContent("Ticket 1 of 2");
+    expect(show).toHaveTextContent("Show ticket → 1 of 2");
+    fireEvent.click(pagePager("Previous ticket"));
+    fireEvent.click(show);
     const dialog = screen.getByRole("dialog", { name: "Your ticket" });
     const bar = dialog.querySelector('[aria-live="polite"]') as HTMLElement;
     const inView = () => within(dialog).getAllByRole("article").find((ticket) => !ticket.parentElement?.hasAttribute("inert")) as HTMLElement;
@@ -384,6 +463,7 @@ describe("the full-screen ticket (phones)", () => {
   it("Send shows in the bar once the page can send, for the ticket in view", () => {
     const onSend = vi.fn();
     render(<MyTicketView order={TWO} sessionId="ord_1" onSendTicket={onSend} />);
+    fireEvent.click(pagePager("Next ticket"));
     fireEvent.click(screen.getByRole("button", { name: "Show ticket 2 of 2" }));
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Send" }));
     expect(onSend).toHaveBeenCalledWith(2);

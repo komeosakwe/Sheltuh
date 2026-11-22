@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import TicketPagerButton from "@/components/tickets/TicketPagerButton";
 import { CloseIcon } from "@/components/ui/Sheet";
 import { requestScreenWakeLock, type ScreenWakeLock } from "@/lib/check-in/wake-lock";
 import { usePrefersReducedMotion } from "@/lib/use-reduced-motion";
@@ -171,30 +172,13 @@ export default function TicketFullScreen({ open, onClose, tickets, numbers, star
           </div>
           {count > 1 && (
             <div className="-my-2 flex shrink-0 items-center justify-center gap-4">
-              {/* aria-disabled, not disabled, at the ends: a disabled button would drop the keyboard focus it has. */}
-              <button
-                type="button"
-                onClick={() => index > 0 && goTo(index - 1)}
-                aria-disabled={index === 0}
-                className={`${barButton} aria-disabled:text-muted`}
-              >
-                <span aria-hidden="true">←</span>
-                <span className="sr-only">Previous ticket</span>
-              </button>
+              <TicketPagerButton direction="previous" atEnd={index === 0} onMove={() => goTo(index - 1)} className={barButton} />
               <div aria-hidden="true" className="flex items-center gap-2" data-ticket-dots="">
                 {tickets.map((_, i) => (
                   <span key={i} className={`size-1.5 rounded-full ${i === index ? "bg-paper" : "bg-muted"}`} />
                 ))}
               </div>
-              <button
-                type="button"
-                onClick={() => index < count - 1 && goTo(index + 1)}
-                aria-disabled={index === count - 1}
-                className={`${barButton} aria-disabled:text-muted`}
-              >
-                <span aria-hidden="true">→</span>
-                <span className="sr-only">Next ticket</span>
-              </button>
+              <TicketPagerButton direction="next" atEnd={index === count - 1} onMove={() => goTo(index + 1)} className={barButton} />
             </div>
           )}
           {footer && <div className="shrink-0 px-6">{footer(index)}</div>}

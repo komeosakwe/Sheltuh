@@ -56,7 +56,18 @@ for (const vp of VIEWPORTS) {
     await page.goto("/checkout/success?session_id=ord_e2e");
 
     await expect(page.getByRole("heading", { level: 1, name: "Neon Static" })).toBeVisible();
+    // One ticket shows at a time, at every width: "Ticket 1 of 2" between Previous and Next.
+    const tickets = page.getByRole("region", { name: "Your tickets" });
     for (const [i, { ticketCode }] of ORDER.tickets.entries()) {
+      if (i > 0) {
+        const next = tickets.getByRole("button", { name: "Next ticket" });
+        await next.click();
+        await expect(next).toBeFocused();
+        await expect(next).toHaveAttribute("aria-disabled", "true");
+      }
+      await expect(tickets.getByText(`Ticket ${i + 1} of 2`, { exact: true })).toBeVisible();
+      // The other ticket is hidden on screen (it prints).
+      await expect(page.getByRole("img", { name: `QR code for ticket ${ORDER.tickets[1 - i].ticketCode}` })).toBeHidden();
       const qr = page.getByRole("img", { name: `QR code for ticket ${ticketCode}` });
       await qr.scrollIntoViewIfNeeded();
       await expect(qr).toBeVisible();
@@ -92,18 +103,19 @@ for (const vp of VIEWPORTS) {
     }
     const hint = page.getByText("Turn your brightness up. If the QR code won’t scan, door staff can type in the backup code.");
     await expect(hint).toHaveCount(2);
-    if (vp.width >= 768) await expect(hint.first()).toBeVisible();
-    else await expect(hint.first()).toBeHidden();
+    // The shown ticket's (the second, now).
+    if (vp.width >= 768) await expect(hint.last()).toBeVisible();
+    else await expect(hint.last()).toBeHidden();
     await expect(page.getByText("Each code works once. Don’t share it.")).toBeVisible();
     await expect(page.getByText("Sat 6 Mar · 8:00 – 11:30 pm AEDT")).toBeVisible();
 
     // The layout: the ticket beside the details from 768, above them on phones. "Show ticket" is for phones.
-    const ticketBox = await page.getByRole("article").first().boundingBox();
+    const ticketBox = await page.locator("article:visible").first().boundingBox();
     const titleBox = await page.getByRole("heading", { level: 1 }).boundingBox();
     if (!ticketBox || !titleBox) throw new Error("the ticket and the title should both be laid out");
     if (vp.width >= 768) expect(titleBox.x).toBeGreaterThan(ticketBox.x + ticketBox.width);
     else expect(titleBox.y).toBeGreaterThan(ticketBox.y + ticketBox.height);
-    const show = page.getByRole("button", { name: "Show ticket 1 of 2" });
+    const show = page.getByRole("button", { name: "Show ticket 2 of 2" });
     if (vp.width >= 768) await expect(show).toBeHidden();
     else await expect(show).toBeVisible();
 

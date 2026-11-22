@@ -29,6 +29,11 @@ The header and footer are specified in `navigation-search.md`. The QR rules are 
 - **Sheets and dialogs** on one component, `components/ui/Sheet.tsx` (a bottom sheet below 768, a 480 dialog from
   768): Add to calendar, Directions, Order receipt and Manage order (`components/tickets/TicketSheets.tsx`).
 - **The full-screen ticket** on phones, with the Wake Lock and pager of §5.12: `components/tickets/TicketFullScreen.tsx`.
+- **Several tickets show one at a time on the page too, at every width** (owner request, 22 Nov 2026): Previous /
+  Next (the full-screen pager's 44px arrows, `components/tickets/TicketPagerButton.tsx`) round "TICKET 1 of 2",
+  said politely on each change, above the ticket. Seated tickets go by seat but keep their own numbers. The wallet
+  badges and "Show ticket" are the shown ticket's, and the full-screen ticket opens on it. At either end the arrow
+  is `aria-disabled` (greyed), never `disabled`, so keyboard focus stays on it. Printing prints every ticket.
 - **Left out until their data exists:** PURCHASED, the receipt's placed-at / card line, GST line and PDF, Manage
   order's send, rename, resend and contact rows, "Send" on the full-screen ticket, and the desktop "Add to your
   phone's wallet" QR dialog (§5.8 needs its handoff route).
