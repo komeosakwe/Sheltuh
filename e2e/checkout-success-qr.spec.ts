@@ -224,3 +224,40 @@ test("a refunded order shows the refund message and no QR or code", async ({ pag
   await expect(page.getByText("7KQM-2HXD")).toHaveCount(0);
   await expect(page.getByText("The Tote, Collingwood")).toHaveCount(0);
 });
+
+// The wallet badges at the same width (owner, 22 Nov 2026; docs/wallet-setup.md, "Official badges"): both 160px
+// wide at their own proportions, Google's 44px tall and Apple's about 51. In a row they're centred on each other;
+// where they wrap (a 320px phone), stacked with their edges lined up. No sideways scrolling either way.
+for (const vp of [
+  { name: "320px phone (stacked)", width: 320, height: 568, row: false },
+  { name: "390px phone (in a row)", width: 390, height: 844, row: true },
+  { name: "desktop (in a row)", width: 1440, height: 900, row: true },
+]) {
+  test(`at ${vp.name}, the Apple and Google Wallet badges are the same width`, async ({ page }) => {
+    await page.setViewportSize({ width: vp.width, height: vp.height });
+    await stubApi(page, { ...ORDER, tickets: [ORDER.tickets[0]], wallet: { apple: true, google: true } });
+    await page.goto("/checkout/success?session_id=ord_e2e");
+    const apple = page.getByRole("link", { name: "Add to Apple Wallet" }).getByRole("img");
+    const google = page.getByRole("link", { name: "Add to Google Wallet" }).getByRole("img");
+    await apple.scrollIntoViewIfNeeded();
+    // Wait for each SVG to load, so its height is the artwork's and not the attributes' placeholder.
+    for (const img of [apple, google]) await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0)).toBe(true);
+    const a = await apple.boundingBox();
+    const g = await google.boundingBox();
+    if (!a || !g) throw new Error("a wallet badge isn't laid out");
+    expect(a.width).toBeCloseTo(160, 1);
+    expect(g.width).toBeCloseTo(160, 1);
+    expect(g.height).toBeGreaterThanOrEqual(44);
+    expect(g.height).toBeCloseTo((160 * 55) / 199, 1);
+    expect(a.height).toBeCloseTo((160 * 35.016) / 110.739, 1);
+    if (vp.row) {
+      expect(g.x).toBeGreaterThan(a.x + a.width);
+      expect(g.y + g.height / 2).toBeCloseTo(a.y + a.height / 2, 0);
+    } else {
+      expect(g.x).toBeCloseTo(a.x, 1);
+      expect(g.y).toBeGreaterThan(a.y + a.height);
+    }
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(0);
+  });
+}

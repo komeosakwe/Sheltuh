@@ -125,7 +125,7 @@ Everything else is as specified. The QR area is taller than drawn by design (P2)
 | D4 | The fourth share chip | "Copy link" | **"Share page"**, in the same chip style and position, linking to the event's public page, where the share and copy controls work | Owner, 18 Nov (approved). Email can't run the JavaScript that a copy button needs. |
 | D5 | Mobile footer lines | "You're getting this email…" is **clipped** at both edges in `155.webp` | Wraps inside the column | A mock artefact: text must never be cut off. |
 | D6 | Mobile ticket type | `155.webp` shows "2nd release" | **"Second release"**: the ticket type's name as entered, unabbreviated, at every width | Owner, 18 Nov. The desktop image already shows it. |
-| D7 | Wallet buttons | Black one-line buttons with a generic wallet glyph, 207 / 215 × 48 | **The official badges** (20 Nov), both two-line ("Add to / Apple Wallet", "Add to / Google Wallet"), 48px tall at their own proportions: Apple 152 × 48, Google 174 × 48, 12px apart; 46px tall in a phone's halves. Hosted PNGs of the vendors' SVGs (not inline `cid:`), alt in the vendors' words, nothing behind them; with images off, the alt text shows in black. Apple's device note follows the last card's badges. | Apple's only badge is two-line, and Google's two-line badge matches it at the same height (`docs/wallet-setup.md`, "Official badges"). Apple's rules ask for the device note. The glyph was a placeholder. |
+| D7 | Wallet buttons | Black one-line buttons with a generic wallet glyph, 207 / 215 × 48 | **The official badges** (20 Nov), both two-line ("Add to / Apple Wallet", "Add to / Google Wallet"), the same width at their own proportions (owner, 22 Nov): Apple 174 × 55, Google 174 × 48, 12px apart; 166px wide in a phone's halves. Hosted PNGs of the vendors' SVGs (not inline `cid:`), alt in the vendors' words, nothing behind them; with images off, the alt text shows in black. Apple's device note follows the last card's badges. | Apple's only badge is two-line, and Google's two-line badge matches it (`docs/wallet-setup.md`, "Official badges"). Apple's rules ask for the device note. The glyph was a placeholder. |
 | D8 | Very large orders | – | One full card (the first ticket's) and a row for each other ticket; past a 90KB HTML budget the first rows are kept and the rest are one line pointing at the ticket page | Gmail clips HTML over 102KB. The largest order checkout allows is 20 types × 20 people = 400 tickets. Only the first code is in the email; the ticket page holds every code and QR code. |
 | P1–P3 | (below) | | **Built** | Owner, 18 Nov: approved all three. |
 
@@ -336,9 +336,10 @@ Add both as functions beside `formatTicketTime`. Today's strings change only in 
 - Apple: the "Add to Apple Wallet" badge, black, en-AU/en-GB.
 - Google: the "Add to Google Wallet" badge, black/dark, en.
 
-**Size.** Each is a 2× PNG shown **48px tall**, with its width set by its own aspect ratio (not a fixed 207 / 215).
-- Desktop: the two badges are centred, with a 12px gap.
-- Mobile: each sits centred in half of the row, with an 8px gap, keeping the artwork's ratio (height ≤ 48) rather
+**Size.** Each is a 2× PNG, both shown **174px wide** (Google's 48px tall, the images' 47.5; owner, 22 Nov), each
+with its height set by its own aspect ratio (Apple's 55), not a fixed 207 / 215 × 48.
+- Desktop: the two badges are centred on each other, with a 12px gap.
+- Mobile: both 166px wide, each centred in half of the row, with an 8px gap, keeping the artwork's ratio rather
   than stretching it.
 
 **Usage rules (constraints):**

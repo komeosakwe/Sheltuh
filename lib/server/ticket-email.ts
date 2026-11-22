@@ -619,8 +619,9 @@ export function ticketCard(card: CardInput): string {
 /**
  * A ticket's wallet badges, under its card: the vendors' official artwork
  * (TICKET_EMAIL_WALLET_BADGES, hosted PNGs of their SVGs), Apple's then
- * Google's, each 48px tall at its own proportions (46 on a phone), centred
- * with a 12px gap (two equal halves, 8px apart, on a phone). No colour behind
+ * Google's, both 174px wide at their own proportions (Google's 48 tall,
+ * Apple's 55; both 166 wide on a phone), centred on each other with a 12px
+ * gap (two equal halves, 8px apart, on a phone). No colour behind
  * them (their corners are transparent), nothing over them, no effects. The
  * alt text is the vendor's wording, shown in black with images off. Their
  * links are ticketWalletLinks'. With `deviceNote` (the last card's row) and
