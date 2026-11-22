@@ -3,6 +3,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AccountShell from "@/components/account/AccountShell";
 import AccountTabs from "@/components/account/AccountTabs";
+import Nav from "@/components/Nav";
+import { NavAccountProvider } from "@/components/nav/useNavAccount";
 import type { AccountNavItem } from "@/components/account/useAccountNav";
 import type { AccountSummary, ProfileRecord } from "@/lib/api/types";
 import type { AuthContextValue } from "@/lib/auth/AuthContext";
@@ -32,12 +34,32 @@ const getMe = vi.fn<() => Promise<AccountSummary>>();
 vi.mock("@/lib/api/me", () => ({ getMe: () => getMe() }));
 
 let profileState: ProfileState = { status: "loading" };
-vi.mock("@/lib/auth/useProfile", () => ({
-  useProfile: () => ({ state: profileState, setProfile: vi.fn(), reload: vi.fn() }),
-}));
-vi.mock("@/lib/auth/useOrganiser", () => ({
-  useOrganiser: () => ({ loading: false, organiser: null, error: null, refreshing: false, refetch: vi.fn(), authStatus: "signed-in" }),
-}));
+/** How many of each loader are mounted (each one fetches): the header and the shell share one. */
+const mounted = { profile: 0, organiser: 0 };
+vi.mock("@/lib/auth/useProfile", async () => {
+  const { useEffect } = await import("react");
+  return {
+    useProfile: () => {
+      useEffect(() => {
+        mounted.profile += 1;
+        return () => void (mounted.profile -= 1);
+      }, []);
+      return { state: profileState, setProfile: vi.fn(), reload: vi.fn() };
+    },
+  };
+});
+vi.mock("@/lib/auth/useOrganiser", async () => {
+  const { useEffect } = await import("react");
+  return {
+    useOrganiser: () => {
+      useEffect(() => {
+        mounted.organiser += 1;
+        return () => void (mounted.organiser -= 1);
+      }, []);
+      return { loading: false, organiser: null, error: null, refreshing: false, refetch: vi.fn(), authStatus: "signed-in" };
+    },
+  };
+});
 
 let unread: number | null = null;
 vi.mock("@/components/messages/UnreadProvider", async (importOriginal) => ({
@@ -76,9 +98,11 @@ afterEach(() => {
 async function renderShell(auth: AuthContextValue = fakeAuthValue({ email: "latte@email.com" })) {
   const result = render(
     <FakeAuthProvider value={auth}>
-      <AccountShell>
-        <h1>Page</h1>
-      </AccountShell>
+      <NavAccountProvider>
+        <AccountShell>
+          <h1>Page</h1>
+        </AccountShell>
+      </NavAccountProvider>
     </FakeAuthProvider>,
   );
   const tabs = result.container.querySelector<HTMLElement>("[data-account-tabs]");
@@ -156,9 +180,11 @@ describe("AccountShell", () => {
     getMe.mockResolvedValue({ upcomingCount: 0 });
     const { container } = render(
       <FakeAuthProvider value={fakeAuthValue({ email: "latte@email.com" })}>
-        <AccountShell>
-          <p>Page</p>
-        </AccountShell>
+        <NavAccountProvider>
+          <AccountShell>
+            <p>Page</p>
+          </AccountShell>
+        </NavAccountProvider>
       </FakeAuthProvider>,
     );
     await waitFor(() => expect(getMe).toHaveBeenCalled());
@@ -189,13 +215,31 @@ describe("AccountShell", () => {
     expect(push).toHaveBeenCalledWith("/");
   });
 
+  it("shares the header's account: the profile and organiser record load once for both", async () => {
+    render(
+      <FakeAuthProvider value={fakeAuthValue({ email: "latte@email.com" })}>
+        <NavAccountProvider>
+          <Nav />
+          <AccountShell>
+            <p>Page</p>
+          </AccountShell>
+        </NavAccountProvider>
+      </FakeAuthProvider>,
+    );
+    await waitFor(() => expect(getMe).toHaveBeenCalled());
+    expect(screen.getAllByText("Latte").length).toBeGreaterThan(1);
+    expect(mounted).toEqual({ profile: 1, organiser: 1 });
+  });
+
   it("has no Log out and no identity lines when signed out", async () => {
     getMe.mockRejectedValue(new Error("signed out"));
     render(
       <FakeAuthProvider value={fakeAuthValue({ status: "signed-out", email: undefined })}>
-        <AccountShell>
-          <p>Page</p>
-        </AccountShell>
+        <NavAccountProvider>
+          <AccountShell>
+            <p>Page</p>
+          </AccountShell>
+        </NavAccountProvider>
       </FakeAuthProvider>,
     );
     const sidebar = document.querySelector<HTMLElement>("[data-account-sidebar]");

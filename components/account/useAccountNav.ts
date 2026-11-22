@@ -67,6 +67,7 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
  * profile is edited) and Help's "Where are my tickets?" (MY_TICKETS_HREF).
  */
 export function useAccountNav(pathname: string): AccountNav {
+  // The header's (NavAccountProvider): the profile and organiser record aren't fetched again here.
   const account = useNavAccount();
   const summary = useAccountSummary(account);
   const upcoming = summary && summary.upcomingCount > 0 ? summary.upcomingCount : null;

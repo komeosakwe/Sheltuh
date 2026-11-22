@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Nav from "@/components/Nav";
+import { NavAccountProvider } from "@/components/nav/useNavAccount";
 import type { ProfileRecord } from "@/lib/api/types";
 import type { AuthContextValue } from "@/lib/auth/AuthContext";
 import type { ProfileState } from "@/lib/auth/useProfile";
@@ -71,7 +72,9 @@ afterEach(() => {
 function renderNav(auth: AuthContextValue = fakeAuthValue({ email: "latte@example.com" })) {
   const result = render(
     <FakeAuthProvider value={auth}>
-      <Nav />
+      <NavAccountProvider>
+        <Nav />
+      </NavAccountProvider>
     </FakeAuthProvider>,
   );
   const drawer = result.container.querySelector<HTMLElement>("#site-menu");

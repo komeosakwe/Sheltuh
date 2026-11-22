@@ -35,8 +35,8 @@ export default function AccountTabs({ items }: { items: AccountNavItem[] }) {
                 <span
                   aria-hidden="true"
                   data-account-count=""
-                  className={`rounded-badge px-2 font-mono text-xs leading-4 font-normal text-foreground tabular-nums ${
-                    item.alert ? "bg-signal text-signal-foreground" : "bg-surface"
+                  className={`rounded-badge px-2 font-mono text-xs leading-4 font-normal tabular-nums ${
+                    item.alert ? "bg-signal text-signal-foreground" : "bg-surface text-foreground"
                   }`}
                 >
                   {shownCount(item.count)}

@@ -30,7 +30,7 @@ import MemberProfileSettings from "./MemberProfileSettings";
 const pillClass = "w-full sm:w-auto";
 const linkClass = "underline underline-offset-4 hover:decoration-2";
 /** A Settings card (Latte's 1120 Settings frames): a 1px border/subtle outline, radius 16, 24px in, 16px between its parts. */
-export const settingsCardClass = "flex min-w-0 flex-col gap-4 rounded-card border border-surface-border bg-card p-6";
+const settingsCardClass = "flex min-w-0 flex-col gap-4 rounded-card border border-surface-border bg-card p-6";
 /** A card's title: Heading/H4, 20/28 at every width. */
 const headingClass = "heading-h4 max-md:text-xl max-md:leading-7";
 const RETURN_TO = "/account";
