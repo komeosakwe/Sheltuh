@@ -1,6 +1,7 @@
 import type { InlineImage } from "./email";
 import { WORDMARK_CID } from "./email-layout";
 import { TICKET_EMAIL_WORDMARK } from "./email-ticket-wordmark";
+import { WALLET_BADGE_EMAIL_PHONE_WIDTH, WALLET_BADGE_EMAIL_WIDTH, walletBadgeHeight } from "@/lib/wallet-badges";
 
 /**
  * The ticket email's own look (docs/design/ticket-email.md): white, black
@@ -70,15 +71,25 @@ export const TICKET_EMAIL_ASSETS = {
  * The vendors' official wallet badges as PNGs (email clients can't be relied
  * on for SVG), rasterised unmodified from the committed SVGs
  * (lib/wallet-badges.ts) by scripts/render-ticket-email-assets.ts at 2x and
- * 3x, transparent outside the badge. Both are shown 48px tall (the design
- * images measure 47.5 at 600), at their own proportions: Apple's 152 wide
- * (110.739 x 35.016 scaled: 151.8) and Google's two-line badge 174 wide
- * (199 x 55 scaled: 173.7). On a phone both are 46px tall (`.wb`), so
- * Google's fits half of the row.
+ * 3x, transparent outside the badge. Both are shown at the same width, each
+ * at its own proportions: 174 wide (Google's at the design's 48px tall,
+ * 199 x 55 scaled: 173.7), so Google's is 174 x 48 and Apple's 174 x 55
+ * (110.739 x 35.016 scaled: 55.0). On a phone both are 166 wide (`.wb`;
+ * Google's 46 tall, Apple's 52), so each fits half of the row.
  */
 export const TICKET_EMAIL_WALLET_BADGES = {
-  apple: { x2: "/email/ticket/apple-wallet-badge@2x.png", x3: "/email/ticket/apple-wallet-badge@3x.png", width: 152, height: 48 },
-  google: { x2: "/email/ticket/google-wallet-badge@2x.png", x3: "/email/ticket/google-wallet-badge@3x.png", width: 174, height: 48 },
+  apple: {
+    x2: "/email/ticket/apple-wallet-badge@2x.png",
+    x3: "/email/ticket/apple-wallet-badge@3x.png",
+    width: WALLET_BADGE_EMAIL_WIDTH,
+    height: walletBadgeHeight("apple", WALLET_BADGE_EMAIL_WIDTH),
+  },
+  google: {
+    x2: "/email/ticket/google-wallet-badge@2x.png",
+    x3: "/email/ticket/google-wallet-badge@3x.png",
+    width: WALLET_BADGE_EMAIL_WIDTH,
+    height: walletBadgeHeight("google", WALLET_BADGE_EMAIL_WIDTH),
+  },
 } as const;
 
 /** The site's https origin, or null (a local http dev server gets no web fonts). */
@@ -129,7 +140,7 @@ export const TICKET_PHONE_RULES = `.pg{padding:34px 16px 40px 16px!important}
 .qr{width:231px!important;height:231px!important}
 .ei{max-height:144px!important}
 .sd{display:none!important}
-.wb{width:auto!important;height:46px!important}
+.wb{width:${WALLET_BADGE_EMAIL_PHONE_WIDTH}px!important;height:auto!important}
 .sm{display:block!important;width:72px!important;height:14px!important;max-height:none!important;overflow:visible!important}
 .bt{padding:14px 4px!important}
 .bo{padding:12.5px 4px!important}

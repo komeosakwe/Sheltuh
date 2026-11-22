@@ -574,13 +574,13 @@ describe("wallet buttons (ticketWalletLinks; the outbox passes which wallets are
     expect(walletPassLink(SITE, "ord_abc", "google", 2)).toBe(link("google", 2));
   });
 
-  it("both are the vendors' official badges (hosted PNGs of their SVGs), never text: alt in their words, in their pass links, the same height", () => {
+  it("both are the vendors' official badges (hosted PNGs of their SVGs), never text: alt in their words, in their pass links, the same width", () => {
     const { html } = buildTicketEmail(order, event, SITE, BUILT, BOTH);
     for (const [i, card] of cardsOf(html).entries()) {
       const n = i + 1;
-      for (const [provider, words, file, width] of [
-        ["apple", "Add to Apple Wallet", "apple-wallet-badge", 152],
-        ["google", "Add to Google Wallet", "google-wallet-badge", 174],
+      for (const [provider, words, file, height] of [
+        ["apple", "Add to Apple Wallet", "apple-wallet-badge", 55],
+        ["google", "Add to Google Wallet", "google-wallet-badge", 48],
       ] as const) {
         const anchor = card.match(new RegExp(`<a class="wa" href="${pattern(link(provider, n))}"[^>]*>([\\s\\S]*?)</a>`));
         expect(anchor, `${provider} ${n}`).not.toBeNull();
@@ -590,15 +590,15 @@ describe("wallet buttons (ticketWalletLinks; the outbox passes which wallets are
         expect(inside.replace(/<[^>]+>/g, "").trim()).toBe("");
         expect(inside.match(/<img [^>]*>/g)).toEqual([
           expect.stringContaining(
-            `<img class="wb" src="${SITE}/email/ticket/${file}@2x.png" srcset="${SITE}/email/ticket/${file}@3x.png 3x" width="${width}" height="48" alt="${words}" style="display:block;border:0;width:${width}px;max-width:100%;height:auto;`,
+            `<img class="wb" src="${SITE}/email/ticket/${file}@2x.png" srcset="${SITE}/email/ticket/${file}@3x.png 3x" width="174" height="${height}" alt="${words}" style="display:block;border:0;width:174px;max-width:100%;height:auto;`,
           ),
         ]);
       }
       // No colour behind them (their corners are transparent): plain cells.
       expect(card).not.toMatch(/<td bgcolor="#000000"[^>]*><a class="wa"/);
     }
-    // On a phone both are 46px tall, at their own proportions.
-    expect(html.match(/@media only screen and \(max-width:620px\)\{([\s\S]*?)\n\}/)?.[1]).toContain(".wb{width:auto!important;height:46px!important}");
+    // On a phone both are 166px wide, at their own proportions.
+    expect(html.match(/@media only screen and \(max-width:620px\)\{([\s\S]*?)\n\}/)?.[1]).toContain(".wb{width:166px!important;height:auto!important}");
     expect(visibleText(html)).not.toMatch(/Add to (Apple|Google) Wallet/);
   });
 
@@ -615,19 +615,19 @@ describe("wallet buttons (ticketWalletLinks; the outbox passes which wallets are
     expect(google.html + google.text).not.toContain("Apple Wallet");
   });
 
-  it("the wallet PNGs are the vendors' SVGs rendered at 2x and 3x the 48px shown, at their own proportions, transparent outside", () => {
+  it("the wallet PNGs are the vendors' SVGs rendered at 2x and 3x the 174px width both are shown at, at their own proportions, transparent outside", () => {
     for (const [svg, shown, width, height] of [
       ["public/wallet/badges/US-UK_Add_to_Apple_Wallet_RGB_101421.svg", TICKET_EMAIL_WALLET_BADGES.apple, 110.739, 35.016],
       ["public/wallet/badges/enAU_add_to_google_wallet_add-wallet-badge.svg", TICKET_EMAIL_WALLET_BADGES.google, 199, 55],
     ] as const) {
       expect(readFileSync(path.join(process.cwd(), svg), "utf8")).toContain(`viewBox="0 0 ${width} ${height}"`);
-      expect(shown.height).toBe(48);
+      expect(shown.width).toBe(174);
       // Shown at the artwork's proportions, to within rounding (under half a pixel).
-      expect(Math.abs((shown.height * width) / height - shown.width)).toBeLessThan(0.5);
+      expect(Math.abs((shown.width * height) / width - shown.height)).toBeLessThan(0.5);
       for (const [file, scale] of [[shown.x2, 2], [shown.x3, 3]] as const) {
         const png = readFileSync(path.join(process.cwd(), "public", file));
-        expect(png.readUInt32BE(20), file).toBe(48 * scale);
-        expect(Math.abs(png.readUInt32BE(16) - (48 * scale * width) / height), file).toBeLessThanOrEqual(1);
+        expect(png.readUInt32BE(16), file).toBe(174 * scale);
+        expect(Math.abs(png.readUInt32BE(20) - (174 * scale * height) / width), file).toBeLessThanOrEqual(1);
         // Colour type 6: RGBA, so the corners outside the badge stay transparent.
         expect(png[25], file).toBe(6);
       }

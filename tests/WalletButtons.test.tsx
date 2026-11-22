@@ -59,10 +59,10 @@ describe("WalletButtons", () => {
     }
   });
 
-  it("targets are 44px tall (h-11), never a ticket code in the URL, and the id is encoded", () => {
+  it("targets are 160px wide (w-40) and at least 44px tall, never a ticket code in the URL, and the id is encoded", () => {
     render(<WalletButtons sessionId={"ord_x/../y"} wallet={{ google: true, apple: true }} ticketNumber={1} ticketCount={1} />);
     for (const link of screen.getAllByRole("link")) {
-      expect(link.querySelector("img")?.getAttribute("class")).toBe("block h-11 w-auto");
+      expect(link.querySelector("img")?.getAttribute("class")).toBe("block h-auto w-40");
       expect(link.getAttribute("href")).toContain("ord_x%2F..%2Fy");
     }
   });
@@ -81,11 +81,14 @@ describe("WalletButtons", () => {
       expect(images).toHaveLength(1);
       expect(images[0].getAttribute("src")).toBe(src);
       expect(images[0].getAttribute("alt")).toBe(words);
-      // Its own proportions: a set height and an automatic width; nothing that crops, dims or recolours it.
+      // Its own proportions: a set width and an automatic height; nothing that crops, dims or recolours it.
       expect([images[0].getAttribute("width"), images[0].getAttribute("height")]).toEqual([width, height]);
     }
-    // The pair is the same height.
-    expect(new Set(screen.getAllByRole("img").map((img) => img.getAttribute("class")))).toEqual(new Set(["block h-11 w-auto"]));
+    // The pair is the same width (160px), each as tall as its proportions make it: Google's 44px, Apple's about 51.
+    expect(new Set(screen.getAllByRole("img").map((img) => img.getAttribute("class")))).toEqual(new Set(["block h-auto w-40"]));
+    const tallAt160 = (badge: { width: number; height: number }) => (160 * badge.height) / badge.width;
+    expect(tallAt160(WALLET_BADGES.google)).toBeGreaterThanOrEqual(44);
+    expect(tallAt160(WALLET_BADGES.apple)).toBeCloseTo(50.6, 1);
   });
 
   it("the committed artwork is the vendors' download: Apple's byte for byte, Google's with only its corners changed", () => {

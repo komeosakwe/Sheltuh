@@ -12,8 +12,9 @@
  *   public/email/ticket/wordmark.png      the uppercase wordmark, Signal Orange on transparent, 106 x 24 (212 x 48)
  *   public/email/ticket/{apple,google}-wallet-badge@2x.png / @3x.png   the vendors' official "Add to … Wallet"
  *                                         badges, rasterised unmodified from public/wallet/badges/
- *                                         (lib/wallet-badges.ts) at 2x and 3x the 48 px they're shown at
- *                                         (96 / 144 px tall), transparent outside the badge
+ *                                         (lib/wallet-badges.ts) at 2x and 3x the 174 px width both are
+ *                                         shown at (348 / 522 px wide), each at its own proportions,
+ *                                         transparent outside the badge
  *   lib/server/email-ticket-wordmark.ts   the wordmark's bytes as base64 (attached inline, cid:)
  *
  *   node --import tsx scripts/render-ticket-email-assets.ts
@@ -30,7 +31,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
-import { WALLET_BADGE_EMAIL_HEIGHT, WALLET_BADGES } from "../lib/wallet-badges";
+import { WALLET_BADGE_EMAIL_WIDTH, WALLET_BADGES } from "../lib/wallet-badges";
 
 const root = process.cwd();
 const OUT = path.join(root, "public/email/ticket");
@@ -92,15 +93,16 @@ async function main() {
   files.push(["wordmark.png", wordmarkPng]);
 
   // The vendors' official wallet badges, rasterised exactly as drawn (no recolouring, cropping or redrawing):
-  // each SVG rendered straight at the density that makes it 96 / 144 px tall (2x / 3x the 48 px shown), at
-  // its own proportions, its transparent corners kept, for email clients that can't show SVG.
+  // each SVG rendered straight at the density that makes it 348 / 522 px wide (2x / 3x the 174 px both are
+  // shown at), at its own proportions (so Apple's comes out taller), its transparent corners kept, for email
+  // clients that can't show SVG.
   for (const [provider, file] of Object.entries(WALLET_BADGES)) {
     const svg = readFileSync(path.join(root, "public", file.src));
     for (const scale of [2, 3]) {
-      const tall = WALLET_BADGE_EMAIL_HEIGHT * scale;
-      const bytes = await sharp(svg, { density: (72 * tall) / file.height }).png({ compressionLevel: 9 }).toBuffer();
+      const wide = WALLET_BADGE_EMAIL_WIDTH * scale;
+      const bytes = await sharp(svg, { density: (72 * wide) / file.width }).png({ compressionLevel: 9 }).toBuffer();
       const { width, height } = await sharp(bytes).metadata();
-      if (height !== tall || Math.abs((width ?? 0) - (tall * file.width) / file.height) > 1) throw new Error(`${file.src} at ${scale}x is ${width} x ${height}`);
+      if (width !== wide || Math.abs((height ?? 0) - (wide * file.height) / file.width) > 1) throw new Error(`${file.src} at ${scale}x is ${width} x ${height}`);
       files.push([`${provider}-wallet-badge@${scale}x.png`, bytes]);
     }
   }
