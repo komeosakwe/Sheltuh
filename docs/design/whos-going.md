@@ -272,7 +272,7 @@ first invalid control. Server `fieldErrors.displayName` maps to the name field.
 ### 5.4 `/account` page (new: `app/account/page.tsx` + `components/account/AccountSettings.tsx`)
 
 Layout copies `app/dashboard/page.tsx`: `mx-auto flex max-w-2xl flex-col gap-8 px-5 py-12
-sm:px-8 sm:py-20`, `h1.display-lg` "Account". Metadata title "Account — Sheltüh".
+sm:px-8 sm:py-20`, `h1.display-lg` "Account". Metadata title "Settings — Sheltüh".
 
 Sections, each a `Panel`:
 
