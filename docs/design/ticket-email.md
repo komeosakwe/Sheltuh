@@ -321,8 +321,9 @@ Add both as functions beside `formatTicketTime`. Today's strings change only in 
   - Height **56px** on desktop (`padding:18px 16px`, with the same `mso-padding-alt`), 48px on mobile.
   - Width (536−12)/2 = 262 on desktop, (343−8)/2 = 167.5 on mobile.
   - One line at every width (`white-space:nowrap`, both buttons): on a phone the label is 16/24 with 12px padding
-    (Latte's 375 frame), so "View your tickets →" and "Manage order" sit side by side in 343px. The arrow has no
-    size of its own: it takes the label's (18px, 16px on a phone).
+    (Latte's 375 frame), so "View your tickets →" and "Manage order" sit side by side in 343px. Under 360px (a 320px
+    phone) they stack, full width, 8px apart. The arrow has no size of its own: it takes the label's (18px, 16px
+    on a phone).
   - Links to `ticketPageLink`.
 - **"Manage order"**: white, 1.5px `#000` stroke, the same size. It links to the order's existing ticket page,
   `ticketPageLink`, the link the email has always carried (Q2, owner, 18 Nov).

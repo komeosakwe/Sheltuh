@@ -690,12 +690,16 @@ describe("the buttons on a phone (Latte's 375 frame: side by side, each label on
     const secondary = html.match(/<a class="kbs" [^>]*>/)![0];
     for (const tag of [primary[0], secondary]) expect(tag).toContain("white-space:nowrap");
     // No size of its own: it inherits the label's (18px, 16px on a phone).
-    expect(primary[1]).toBe('View your tickets&nbsp;&nbsp;<span style="font-family:Arial,Helvetica,sans-serif;font-weight:700">&rarr;</span>');
+    expect(primary[1]).toBe('View your tickets&nbsp;&nbsp;<span style="font-family:Arial,Helvetica,sans-serif;font-weight:700;line-height:1">&rarr;</span>');
     const phone = html.match(/@media only screen and \(max-width:620px\)\{([\s\S]*?)\n\}/)![1];
     expect(phone).toContain(".kbp{padding:12px!important;font-size:16px!important;line-height:24px!important}");
     // 1.5px border + 10.5px + 24px line + 10.5px + 1.5px = 48px, as the orange one's 12 + 24 + 12.
     expect(phone).toContain(".kbs{padding:10.5px 12px!important;font-size:16px!important;line-height:24px!important}");
     expect(phone).toContain(".kl{padding-right:4px!important}.kr{padding-left:4px!important}");
+    // Under 360px (a 320px phone) the two can't sit side by side on one line each: they stack, full width.
+    expect(html).toContain(
+      "@media only screen and (max-width:359px){\n.kl,.kr{display:block!important;width:100%!important;padding:0!important}\n.kr{padding-top:8px!important}\n}",
+    );
   });
 });
 

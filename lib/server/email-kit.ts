@@ -86,6 +86,10 @@ const KIT_PHONE_CSS = `.ko{padding:24px 0 32px 0!important}
 .kl{padding-right:4px!important}.kr{padding-left:4px!important}
 .kw{width:100%!important}`;
 
+/** Under 360px two buttons can't sit side by side with their labels on one line: they stack, full width, 8px apart. */
+const KIT_NARROW_CSS = `.kl,.kr{display:block!important;width:100%!important;padding:0!important}
+.kr{padding-top:8px!important}`;
+
 export interface KitPageInput {
   /** The document title (plain text). */
   title: string;
@@ -118,6 +122,9 @@ body{margin:0;padding:0}table{border-collapse:collapse}img{border:0;outline:none
 @media only screen and (max-width:620px){
 ${KIT_PHONE_CSS}
 ${phoneCss}
+}
+@media only screen and (max-width:359px){
+${KIT_NARROW_CSS}
 }
 </style>
 <!--[if mso]><style>body,table,td,p,a,h1,h2,span{font-family:Arial,sans-serif!important}</style><![endif]-->
@@ -224,7 +231,7 @@ function buttonCell(b: KitButton, phoneSize = true): string {
     return (
       `<table ${FULL}><tr><td align="center" bgcolor="${KIT.orange}" style="background-color:${KIT.orange};border-radius:8px;mso-padding-alt:16px 24px">` +
       // One line at every width (white-space:nowrap); the arrow takes the label's size, so it shrinks with it on a phone.
-      `<a${phoneSize ? ' class="kbp"' : ""} href="${escapeHtml(b.href)}" style="display:block;padding:16px 24px;${kitType("sans", 18, 24, 500, KIT.black, "text-align:center;text-decoration:none;white-space:nowrap")}">${escapeHtml(b.label)}&nbsp;&nbsp;<span style="font-family:Arial,Helvetica,sans-serif;font-weight:700">&rarr;</span></a>` +
+      `<a${phoneSize ? ' class="kbp"' : ""} href="${escapeHtml(b.href)}" style="display:block;padding:16px 24px;${kitType("sans", 18, 24, 500, KIT.black, "text-align:center;text-decoration:none;white-space:nowrap")}">${escapeHtml(b.label)}&nbsp;&nbsp;<span style="font-family:Arial,Helvetica,sans-serif;font-weight:700;line-height:1">&rarr;</span></a>` +
       `</td></tr></table>`
     );
   }
