@@ -126,7 +126,7 @@ Everything else is as specified. The QR area is taller than drawn by design (P2)
 | D5 | Mobile footer lines | "You're getting this email…" is **clipped** at both edges in `155.webp` | Wraps inside the column | A mock artefact: text must never be cut off. |
 | D6 | Mobile ticket type | `155.webp` shows "2nd release" | **"Second release"**: the ticket type's name as entered, unabbreviated, at every width | Owner, 18 Nov. The desktop image already shows it. |
 | D7 | Wallet buttons | Black one-line buttons with a generic wallet glyph, 207 / 215 × 48 | **The official badges** (20 Nov), both two-line ("Add to / Apple Wallet", "Add to / Google Wallet"), 48px tall at their own proportions: Apple 152 × 48, Google 174 × 48, 12px apart; 46px tall in a phone's halves. Hosted PNGs of the vendors' SVGs (not inline `cid:`), alt in the vendors' words, nothing behind them; with images off, the alt text shows in black. Apple's device note follows the last card's badges. | Apple's only badge is two-line, and Google's two-line badge matches it at the same height (`docs/wallet-setup.md`, "Official badges"). Apple's rules ask for the device note. The glyph was a placeholder. |
-| D8 | Very large orders | – | Past a 90KB HTML budget, the first tickets get full cards and the rest are **listed** (number, type, seat, code) under them, pointing at the ticket page for their QR codes | Gmail clips HTML over 102KB, and a full card is about 6KB. The largest order checkout allows is 20 types × 20 people = 400 codes; with both wallets on, orders of up to 9 tickets are all cards (8 tickets: about 79KB), and the 400-code order shows 6 cards and lists the rest at 87KB. The plain-text part always lists every code. |
+| D8 | Very large orders | – | One full card (the first ticket's) and a row for each other ticket; past a 90KB HTML budget the first rows are kept and the rest are one line pointing at the ticket page | Gmail clips HTML over 102KB. The largest order checkout allows is 20 types × 20 people = 400 tickets. Only the first code is in the email; the ticket page holds every code and QR code. |
 | P1–P3 | (below) | | **Built** | Owner, 18 Nov: approved all three. |
 
 **Accessibility deviations, approved by the owner on 18 Nov (Q1) and built.**
@@ -299,16 +299,20 @@ Add both as functions beside `formatTicketTime`. Today's strings change only in 
 
 ### 5.4 Several tickets (group tickets, several types)
 
-- One card per **issued code**, which means one per person: a group ticket issues one code per person, so "ADMIT
-  ONE" is true on every card.
-- Cards come in today's order (ticket type, then code). Each one is complete: header, image, title, venue, stub,
-  QR, code, and "ticket n of N". Any one card is a whole ticket on screen.
-- The wallet badges for ticket *n* sit under card *n*, then a 32px gap before the next card.
-- The buttons, info rows, summary, share box and footer appear **once**, after the last card. With N > 1, the
-  button reads "View your tickets →".
-- **Size budget.** Gmail clips HTML over 102KB (inline attachments don't count), and each card is about 6KB of
-  markup (7KB with its wallet buttons). Test with the largest order checkout allows. Past 90KB
-  (`TICKET_EMAIL_HTML_BUDGET`), the first tickets keep full cards and the rest are listed with their codes (D8).
+- **One full card, the first ticket's** (Latte's 1120 "2-ticket order" frame, owner decision Nov 2026). Tickets come
+  in today's order (ticket type, then code); the card is complete: header, image, title, venue, stub, QR, code,
+  and "ticket 1 of N". Only its QR is attached.
+- Each other ticket is a cream row (radius 8, 16/24 padding): "TICKET n of N" (Plex Mono 12/16, muted), then the
+  buyer's checkout name and the ticket type (and seat) at 16/24 600, and a "View" link to the ticket page (it has
+  no per-ticket address). No code or QR: the ticket page holds them. "Send to …" waits for ticket sending.
+- Under the rows: "Each ticket has its own QR code. Swipe between them in your ticket."
+- The first ticket's wallet badges sit under the card (one ticket) or under that line (several), as the frames
+  place them; the other tickets' passes are on the ticket page.
+- The buttons, info rows, summary, share box and footer appear **once**. With N > 1, the button reads "View your
+  tickets →".
+- **Size budget.** Gmail clips HTML over 102KB (inline attachments don't count). Test with the largest order
+  checkout allows. Past 90KB (`TICKET_EMAIL_HTML_BUDGET`), the first rows are kept and the rest are one line
+  pointing at the ticket page (D8).
 
 ### 5.5 Buttons row
 

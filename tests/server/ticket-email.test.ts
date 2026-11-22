@@ -6,6 +6,7 @@ import { googleCalendarUrl, outlookCalendarUrl } from "@/lib/calendar";
 import { REFUND_ACL_STATEMENT } from "@/lib/refund-policy";
 import { SUPPORT_REFUND_NOTE } from "@/lib/support";
 import { mailOptions } from "@/lib/server/email";
+import { KIT } from "@/lib/server/email-kit";
 import { TICKET_EMAIL_ASSETS, TICKET_EMAIL_COLOURS, TICKET_EMAIL_FONTS, TICKET_EMAIL_WALLET_BADGES } from "@/lib/server/email-ticket-layout";
 import { TICKET_EMAIL_WORDMARK } from "@/lib/server/email-ticket-wordmark";
 import { ticketQrPng } from "@/lib/server/qr-image";
@@ -94,6 +95,7 @@ const mockOrder = {
 } as OrderRecord;
 const BUILT = new Date("2026-11-01T00:00:00.000Z");
 const BOTH = { google: true, apple: true };
+const NO_WALLETS = { google: false, apple: false };
 
 const IMAGE_PATH = "/api/events/00000000-0000-4000-8000-000000000001/image?v=1730000000";
 const withImage = { ...event, imageUrl: IMAGE_PATH } as EventRecord;
@@ -329,27 +331,60 @@ describe("the ticket card", () => {
     }
   });
 
-  it("one full card per issued code: each its own number, QR and code, none dropped", () => {
+  it("one full card, the first ticket's (its QR and code); the others a cream row each: TICKET n of N, the buyer's name and type, View; no code, no QR", () => {
     const codes = ["K7QM-2XPD", "R4TN-9WJC", "B8VF-3HLZ", "M2GD-6SYA"];
     const four = { ...order, tickets: codes.map((code, i) => ({ ticketCode: code, ticketTypeId: "t", ticketTypeName: i === 3 ? "VIP" : "GA" })) } as OrderRecord;
-    const email = buildTicketEmail(four, event, SITE);
+    const email = buildTicketEmail(four, event, SITE, BUILT, NO_WALLETS, { buyerName: "Alex <Chen>" });
     const cards = cardsOf(email.html);
-    expect(cards).toHaveLength(4);
-    for (const [i, card] of cards.entries()) {
-      expect(card).toContain(`>${codes[i]}</p>`);
-      expect(card).toContain(`>${i === 3 ? "VIP" : "GA"}</p>`);
-      expect(card).toContain(`ticket ${i + 1} of 4</p>`);
-      expect(card.match(/<img class="qr" src="cid:ticket-qr-/g)).toHaveLength(1);
-      expect(card).toContain(`cid:ticket-qr-${i + 1}@sheltuh.com.au`);
-      // Every card is a whole ticket: the event's title, venue, date and time on each.
-      for (const piece of [">Paint &#38; &#60;Sip&#62;</p>", ">Studio 5 · Fitzroy</p>", ">Sat 6 Mar</p>", ">8–10 pm</p>"]) expect(card).toContain(piece);
+    expect(cards).toHaveLength(1);
+    const [card] = cards;
+    expect(card).toContain(`>${codes[0]}</p>`);
+    expect(card).toContain("ticket 1 of 4</p>");
+    expect(card.match(/<img class="qr" src="cid:ticket-qr-/g)).toHaveLength(1);
+    expect(card).toContain("cid:ticket-qr-1@sheltuh.com.au");
+    for (const piece of [">Paint &#38; &#60;Sip&#62;</p>", ">Studio 5 · Fitzroy</p>", ">Sat 6 Mar</p>", ">8–10 pm</p>"]) expect(card).toContain(piece);
+    // The other tickets: a row each, in order, linking the ticket page; their codes and QR codes are on that page only.
+    const page = ticketPageLink(SITE, four.orderId);
+    let at = email.html.indexOf(CARD);
+    for (const [n, type] of [[2, "GA"], [3, "GA"], [4, "VIP"]] as const) {
+      const label = email.html.indexOf(`>TICKET ${n} of 4</p>`, at);
+      expect(label, `ticket ${n}`).toBeGreaterThan(at);
+      expect(email.html.indexOf(`>Alex &#60;Chen&#62; · ${type}</p>`, label)).toBeGreaterThan(label);
+      expect(email.html).toContain(`<a href="${page}" aria-label="View ticket ${n} of 4"`);
+      at = label;
+    }
+    expect(email.html.match(new RegExp(`bgcolor="${KIT.cream}" style="background-color:${KIT.cream};border-radius:8px`, "g"))).toHaveLength(3);
+    expect(email.html).toContain(">Each ticket has its own QR code. Swipe between them in your ticket.</p>");
+    for (const code of codes.slice(1)) {
+      expect(email.html).not.toContain(code);
+      expect(email.text).not.toContain(code);
     }
     expect(email.html).toContain(">Hi, you’re in. Here are your 4 tickets.</h1>");
     expect(email.html).toContain(">View your tickets&nbsp;&nbsp;");
-    expect(qrImages(email).map((q) => q.cid)).toEqual(codes.map((_, i) => `ticket-qr-${i + 1}@sheltuh.com.au`));
+    expect(qrImages(email).map((q) => q.cid)).toEqual(["ticket-qr-1@sheltuh.com.au"]);
+    expect(email.text).toContain(
+      [
+        "Ticket 2 of 4 · Alex <Chen> · GA — View: " + page,
+        "Ticket 3 of 4 · Alex <Chen> · GA — View: " + page,
+        "Ticket 4 of 4 · Alex <Chen> · VIP — View: " + page,
+        "Each ticket has its own QR code. Swipe between them in your ticket.",
+      ].join("\n"),
+    );
+    // No name given (or cleared by support): the type alone.
+    const unnamed = buildTicketEmail(four, event, SITE);
+    expect(unnamed.html).toContain(">TICKET 2 of 4</p>");
+    expect(unnamed.html).toContain(">GA</p></td>");
+    expect(unnamed.text).toContain(`Ticket 2 of 4 · GA — View: ${page}`);
   });
 
-  it("group tickets: one card per person, ADMIT ONE on each, the group position in the TICKET column", () => {
+  it("a single ticket has no rows and no line about the others", () => {
+    const email = buildTicketEmail(mockOrder, mockEvent, SITE);
+    expect(email.html).not.toContain("TICKET 2");
+    expect(email.html).not.toContain("Each ticket has its own QR code");
+    expect(email.text).not.toContain("Each ticket has its own QR code");
+  });
+
+  it("group tickets: the first person's card (ADMIT ONE, the group position in the TICKET column), the rest rows with theirs", () => {
     const group = {
       ...order,
       tickets: ["A2B3-C4D5", "E6F7-G8H9", "J2K3-L4M5"].map((code, i) => ({
@@ -361,13 +396,14 @@ describe("the ticket card", () => {
     } as unknown as OrderRecord;
     const { html, text } = buildTicketEmail(group, event, SITE);
     const cards = cardsOf(html);
-    expect(cards).toHaveLength(3);
-    for (const [i, card] of cards.entries()) {
-      expect(card).toContain("ADMIT ONE");
-      expect(card).toContain(`ticket ${i + 1} of 3</p>`);
-      expect(card).toMatch(/>Group of 3 \([^)]*\)<\/p>/);
-    }
-    expect(text).toMatch(/Ticket 2 of 3 · Group of 3 \([^)]*\) — Entry code: E6F7-G8H9/);
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toContain("ADMIT ONE");
+    expect(cards[0]).toContain("ticket 1 of 3</p>");
+    expect(cards[0]).toMatch(/>Group of 3 \([^)]*\)<\/p>/);
+    expect(html).toMatch(/>TICKET 2 of 3<\/p><p [^>]*>Group of 3 \([^)]*\)<\/p>/);
+    expect(text).toMatch(/Ticket 1 of 3 · Group of 3 \([^)]*\) — Entry code: A2B3-C4D5/);
+    expect(text).toMatch(/Ticket 2 of 3 · Group of 3 \([^)]*\) — View: /);
+    expect(text).not.toContain("E6F7-G8H9");
   });
 
   it("a seated ticket's card has a SEAT row after the stub, before the QR (HTML and plain text)", () => {
@@ -402,7 +438,7 @@ describe("the ticket card", () => {
     expect(email.text).toContain("Entry code: abcd-efgh (show this at the door)");
   });
 
-  it("only gives QR codes to the real codes in a mixed order", () => {
+  it("only the first ticket's code gets a QR, and only a real one", () => {
     const mixed = {
       ...order,
       tickets: [
@@ -411,18 +447,22 @@ describe("the ticket card", () => {
       ],
     } as OrderRecord;
     const email = buildTicketEmail(mixed, event, SITE);
-    expect(qrImages(email).map((i) => i.cid)).toEqual(["ticket-qr-2@sheltuh.com.au"]);
-    expect(email.html).not.toContain("QR code for ticket AAAA-1111");
-    expect(email.html).toContain('alt="QR code for ticket BBBB-2222. If it doesn&#39;t show, use the backup code below."');
+    expect(qrImages(email)).toEqual([]);
+    expect(email.html).not.toContain("cid:ticket-qr");
+    expect(email.html).not.toContain("BBBB-2222");
+    const swapped = buildTicketEmail({ ...mixed, tickets: [...mixed.tickets].reverse() } as OrderRecord, event, SITE);
+    expect(qrImages(swapped).map((i) => i.cid)).toEqual(["ticket-qr-1@sheltuh.com.au"]);
+    expect(swapped.html).toContain('alt="QR code for ticket BBBB-2222. If it doesn&#39;t show, use the backup code below."');
+    expect(swapped.html).not.toContain("AAAA-1111");
   });
 });
 
 describe("QR codes", () => {
-  it("each real code's QR (with the centre ü) inline under a numbered cid, shown at 264px (231 on a phone), on white, with alt text pointing at the backup code", () => {
+  it("the first ticket's QR (with the centre ü) inline under a numbered cid, shown at 264px (231 on a phone), on white, with alt text pointing at the backup code", () => {
     const email = buildTicketEmail(order, event, SITE);
     const images = qrImages(email);
-    expect(images.map((i) => i.cid)).toEqual(["ticket-qr-1@sheltuh.com.au", "ticket-qr-2@sheltuh.com.au"]);
-    for (const [i, code] of ["ABCD-EFGH", "JKLM-NPQR"].entries()) {
+    expect(images.map((i) => i.cid)).toEqual(["ticket-qr-1@sheltuh.com.au"]);
+    for (const [i, code] of ["ABCD-EFGH"].entries()) {
       const tag = email.html.match(new RegExp(`<img class="qr" src="cid:ticket-qr-${i + 1}@sheltuh\\.com\\.au"[^>]*>`))?.[0] ?? "";
       expect(tag).toContain(`alt="QR code for ticket ${code}. If it doesn&#39;t show, use the backup code below."`);
       expect(ticketQrAlt(code)).toBe(`QR code for ticket ${code}. If it doesn't show, use the backup code below.`);
@@ -457,7 +497,8 @@ describe("QR codes", () => {
       expect(raw).toContain(`Content-ID: <${image.cid}>`);
       expect(raw).toContain(image.content.toString("base64").slice(0, 60));
     }
-    expect(raw.match(/Content-Disposition: inline/g)?.length).toBe(1 + order.tickets.length);
+    // The wordmark and the first ticket's QR: the other tickets' are on the ticket page.
+    expect(raw.match(/Content-Disposition: inline/g)?.length).toBe(2);
     expect(raw).not.toMatch(/Content-Disposition: attachment/);
   });
 });
@@ -561,13 +602,13 @@ describe("wallet buttons (ticketWalletLinks; the outbox passes which wallets are
     expect(visibleText(html)).not.toMatch(/Add to (Apple|Google) Wallet/);
   });
 
-  it("Apple's note, once under the last card's badges and in the plain text: how to add from a device without Wallet", () => {
+  it("Apple's note, once under the badges and in the plain text: how to add from a device without Wallet", () => {
     const { html, text } = buildTicketEmail(order, event, SITE, BUILT, BOTH);
-    const note = "To add your tickets to Apple Wallet, open this email on your iPhone or Mac.";
+    // The badges are the first ticket's (the others' passes are on the ticket page), so "ticket".
+    const note = "To add your ticket to Apple Wallet, open this email on your iPhone or Mac.";
     expect(html.split(note)).toHaveLength(2);
-    const cards = cardsOf(html);
-    expect(cards[0]).not.toContain(note);
-    expect(cards[1]).toContain(`text-align:center;padding-top:12px">${note}</p>`);
+    expect(html).toContain(`text-align:center;padding-top:12px">${note}</p>`);
+    expect(html.indexOf(note)).toBeGreaterThan(html.indexOf(`href="${walletPassLink(SITE, "ord_abc", "google", 1)}"`));
     expect(text.split(note)).toHaveLength(2);
     // Not without Apple's badge.
     const google = buildTicketEmail(order, event, SITE, BUILT, { google: true, apple: false });
@@ -891,7 +932,7 @@ describe("an event that's no longer listed", () => {
           expect(body, detail).not.toContain(detail);
         }
         expect(body).toContain("ABCD-EFGH");
-        expect(body).toContain("JKLM-NPQR");
+        expect(body).not.toContain("JKLM-NPQR");
         expect(body).toContain(`${SITE}/checkout/success?session_id=ord_abc`);
       }
       const [card] = cardsOf(email.html);
@@ -904,7 +945,8 @@ describe("an event that's no longer listed", () => {
       expect(email.html).toContain(
         'This event is no longer listed. Contact <a href="mailto:support@sheltuh.com.au" style="color:#000000;text-decoration:underline;text-underline-offset:2px">support@sheltuh.com.au</a> if you have questions.',
       );
-      expect(qrImages(email)).toHaveLength(2);
+      expect(qrImages(email)).toHaveLength(1);
+      expect(email.html).toContain(">TICKET 2 of 2</p>");
     }
     // A published event never gets the line.
     expect(buildTicketEmail(order, event, SITE).text).not.toContain("no longer listed");
@@ -970,7 +1012,7 @@ describe("escaping", () => {
 });
 
 describe("the size budget (Gmail clips HTML over 102KB)", () => {
-  it("the largest order checkout allows (20 ticket types of 20 people) stays under 90KB, every code still in the HTML and the text", () => {
+  it("the largest order checkout allows (20 ticket types of 20 people) stays under 90KB: one card, rows while they fit, the rest one line", () => {
     const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     const code = (n: number) => {
       const chars = [Math.floor(n / 32) % 32, n % 32, 3, 5, 7, 11, (n * 7) % 32, (n * 13) % 32].map((i) => alphabet[i]);
@@ -980,28 +1022,29 @@ describe("the size budget (Gmail clips HTML over 102KB)", () => {
     expect(new Set(tickets.map((t) => t.ticketCode)).size).toBe(400);
     const lineItems = Array.from({ length: 20 }, (_, t) => ({ ticketTypeId: `t${t}`, ticketTypeName: `Release ${t + 1}`, unitPriceCents: 2400, feePolicy: "buyer-pays", quantity: 20 }));
     const big = { ...mockOrder, totalCents: 2594 * 400, lineItems, tickets } as OrderRecord;
-    const email = buildTicketEmail(big, { ...mockEvent, imageUrl: IMAGE_PATH } as EventRecord, SITE, BUILT, BOTH);
+    const email = buildTicketEmail(big, { ...mockEvent, imageUrl: IMAGE_PATH } as EventRecord, SITE, BUILT, BOTH, { buyerName: "Alex Chen" });
     expect(Buffer.byteLength(email.html)).toBeLessThanOrEqual(TICKET_EMAIL_HTML_BUDGET);
-    const cards = cardsOf(email.html).length;
-    expect(cards).toBeGreaterThan(0);
-    expect(cards).toBeLessThan(400);
-    // The cards shown have their QR attached; the rest are listed with their codes, pointing at the ticket page.
-    expect(qrImages(email)).toHaveLength(cards);
-    expect(email.html).toContain(`Tickets ${cards + 1}&ndash;400: their QR codes are on <a href="${ticketPageLink(SITE, big.orderId)}"`);
-    for (const t of tickets) {
-      expect(email.html).toContain(t.ticketCode);
-      expect(email.text).toContain(`Entry code: ${t.ticketCode}`);
+    expect(cardsOf(email.html)).toHaveLength(1);
+    expect(qrImages(email)).toHaveLength(1);
+    const rows = email.html.match(/>TICKET \d+ of 400<\/p>/g) ?? [];
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.length).toBeLessThan(399);
+    expect(rows[0]).toBe(">TICKET 2 of 400</p>");
+    expect(email.html).toContain(`>Tickets ${rows.length + 2}&ndash;400 are on <a href="${ticketPageLink(SITE, big.orderId)}"`);
+    // Only the first code is in the email; the text has a line for every other ticket, pointing at the ticket page.
+    expect(email.html).toContain(tickets[0].ticketCode);
+    expect(email.text).toContain(`Entry code: ${tickets[0].ticketCode}`);
+    for (const t of tickets.slice(1)) {
+      expect(email.html).not.toContain(t.ticketCode);
+      expect(email.text).not.toContain(t.ticketCode);
     }
-    // The text says a ticket's QR code is in the email only if its card (and QR) is; the listed ones point at the ticket page.
-    const lines = email.text.split("\n").filter((line) => line.startsWith("Ticket ") && line.includes("Entry code: "));
+    const lines = email.text.split("\n").filter((line) => /^Ticket \d+ of 400 /.test(line));
     expect(lines).toHaveLength(400);
-    for (const [i, line] of lines.entries()) {
-      expect(line, line).toMatch(i < cards ? /; the QR code is in the full email\)$/ : /; its QR code is on your ticket page\)$/);
-    }
+    for (const line of lines.slice(1)) expect(line).toMatch(new RegExp(` — View: ${ticketPageLink(SITE, big.orderId).replace(/[.?]/g, "\\$&")}$`));
     expect(email.text).toContain(`View your tickets: ${ticketPageLink(SITE, big.orderId)}`);
   });
 
-  it("a usual order (8 tickets, both wallets) is all full cards, well under the budget", () => {
+  it("a usual order (8 tickets, both wallets): one card and seven rows, well under the budget", () => {
     const codes = ["K7QM-2XPD", "R4TN-9WJC", "B8VF-3HLZ", "M2GD-6SYA", "A2B3-C4D5", "E6F7-G8H9", "J2K3-L4M5", "N6P7-Q8R9"];
     const eight = {
       ...mockOrder,
@@ -1010,9 +1053,10 @@ describe("the size budget (Gmail clips HTML over 102KB)", () => {
       tickets: codes.map((c) => ({ ticketCode: c, ticketTypeId: "t2", ticketTypeName: "Second release" })),
     } as OrderRecord;
     const email = buildTicketEmail(eight, { ...mockEvent, imageUrl: IMAGE_PATH } as EventRecord, SITE, BUILT, BOTH);
-    expect(cardsOf(email.html)).toHaveLength(8);
+    expect(cardsOf(email.html)).toHaveLength(1);
+    expect(email.html.match(/>TICKET \d of 8<\/p>/g)).toHaveLength(7);
     expect(Buffer.byteLength(email.html)).toBeLessThan(TICKET_EMAIL_HTML_BUDGET);
-    expect(email.html).not.toContain("their QR codes are on");
+    expect(email.html).not.toContain("are on <a");
   });
 });
 

@@ -311,9 +311,10 @@ describe("the webhook", () => {
     );
     await api.runDeferred();
     const email = api.sendEmail.mock.calls.at(-1)![0];
-    expect(email.text).toContain("Seat: Stalls, Row A, Seat 1");
-    expect(email.text).toContain("Seat: Stalls, Row B, Seat 3");
-    expect(email.html).toContain("Stalls · Row A · Seat 2");
+    // Every seat is in the email: the first ticket's on its card ("Seat: …"), the others' on their rows.
+    for (const seat of ["Stalls, Row A, Seat 1", "Stalls, Row A, Seat 2", "Stalls, Row B, Seat 3"]) expect(email.text).toContain(seat);
+    expect(email.text.match(/^Seat: Stalls, Row [AB], Seat \d$/gm)).toHaveLength(1);
+    for (const seat of ["Stalls · Row A · Seat 1", "Stalls · Row A · Seat 2", "Stalls · Row B · Seat 3"]) expect(email.html).toContain(seat);
     // A redelivery changes nothing.
     await api.send(stripeWebhook, completed(orderId));
     expect(await api.db.query(`select 1 from public.tickets where order_id = $1`, [orderId])).toHaveLength(3);

@@ -17,6 +17,7 @@ import { cachedDateTimeFormat, PLATFORM_TIME_ZONE, zoneLabel, type StateCode } f
 import { subjectLine, type EmailMessage, type InlineImage } from "./email";
 import { escapeHtml } from "./email-layout";
 import {
+  KIT,
   type KitDetailRow,
   kitButtons,
   kitDetails,
@@ -58,11 +59,14 @@ import type { EventRecord, IssuedTicket, OrderRecord, TicketSeat, WalletAvailabi
  * full ticket card is this file's own (ticketCard). Top to bottom: the
  * wordmark; the "Order {reference} · Confirmed" eyebrow and the headline
  * ("Hi, you're in. Here's your ticket.", or "You're in." for a free order);
- * one full ticket card per issued code (corner stripes and "ADMIT ONE ·
+ * one full ticket card, the first ticket's (corner stripes and "ADMIT ONE ·
  * SHELTÜH", the event's image, title and venue line, a perforation with a
  * notch each side, DATE / TIME / TICKET, the seat, the QR with the centre ü,
- * the backup code and "Show this at the door · ticket n of N"), each followed
- * by its "Add to Apple / Google Wallet" buttons when the wallets are on
+ * the backup code and "Show this at the door · ticket 1 of N"); with several
+ * tickets, a cream row for each of the others ("TICKET n of N", the buyer's
+ * name and the ticket type, View: Latte's 2-ticket frame, owner decision; no
+ * code or QR, the ticket page holds them) and OTHER_TICKETS_NOTE; the first
+ * ticket's "Add to Apple / Google Wallet" buttons when the wallets are on
  * (ticketWalletLinks); "View your ticket(s)" and "Manage order" (both the
  * order's ticket page, the link earlier emails carried); the date, venue,
  * event info and "Hosted by" rows (with Google / Apple / Outlook calendar
@@ -73,8 +77,8 @@ import type { EventRecord, IssuedTicket, OrderRecord, TicketSeat, WalletAvailabi
  * Messages, Email, Share page); "Need a hand?"; and the shared footer, whose
  * reason says the buyer bought (or, free, got) a ticket.
  *
- * Everything essential (event, when, where, every ticket code and seat, the
- * total) is real text, so it reads the same with images blocked; every image
+ * Everything essential (event, when, where, the first ticket's code and every
+ * seat, the total) is real text, so it reads the same with images blocked; every image
  * has alt text (`alt=""` on the decorative ones).
  *
  * An event that's no longer published (unpublished, back in draft or review,
@@ -84,7 +88,7 @@ import type { EventRecord, IssuedTicket, OrderRecord, TicketSeat, WalletAvailabi
  * routes. The outbox rebuilds the email from the live event on every attempt
  * and resend, so a resent email follows the rule as it stands then.
  *
- * Images: the wordmark and, for each ticket whose code is a real one, its QR
+ * Images: the wordmark and, when the first ticket's code is a real one, its QR
  * (lib/server/qr-image.ts), as inline PNG attachments (`cid:`), built fresh
  * on every attempt, nothing stored. Remote images, all on the site's own
  * origin and none carrying anything about the order or the buyer: the
@@ -92,12 +96,11 @@ import type { EventRecord, IssuedTicket, OrderRecord, TicketSeat, WalletAvailabi
  * event's own image from the public, versioned `/api/events/{id}/image?v=…`
  * route (published events only, https sites only).
  *
- * Size: Gmail clips a message whose HTML passes 102KB. Each card is about
- * 4KB, so when every ticket's card would take the HTML past
- * TICKET_EMAIL_HTML_BUDGET (90KB: the largest order checkout allows is 20
- * ticket types of 20 people), the first tickets get full cards and the rest
- * are listed by number, type and code under them, pointing at the ticket
- * page for their QR codes. The plain-text part always lists every code.
+ * Size: Gmail clips a message whose HTML passes 102KB. When a row for every
+ * other ticket would take the HTML past TICKET_EMAIL_HTML_BUDGET (90KB: the
+ * largest order checkout allows is 20 ticket types of 20 people), the first
+ * of them get rows and the rest are one line pointing at the ticket page.
+ * The plain-text part has a line for every ticket, and only the first code.
  */
 
 const MELBOURNE_TZ = PLATFORM_TIME_ZONE;
@@ -654,7 +657,7 @@ function walletButtons(siteUrl: string, links: WalletLink[], index: number, tota
   }
   const row = `<table ${TABLE} align="center" class="wt"><tr>${cells.join("")}</tr></table>`;
   if (!deviceNote || !links.some((l) => l.provider === "apple")) return row;
-  return row + p(escapeHtml(appleWalletDeviceNote("email", total)), type("sans", 13, 16, 400, C.muted, "text-align:center;padding-top:12px"));
+  return row + p(escapeHtml(appleWalletDeviceNote("email", 1)), type("sans", 13, 16, 400, C.muted, "text-align:center;padding-top:12px"));
 }
 
 /** Calendar links for the When row: Google, Apple (the event's .ics) and Outlook, each null when it can't be built. */
@@ -742,12 +745,17 @@ export const TICKET_EMAIL_FREE_REASON = "You’re getting this email because you
 
 // --- The email ---
 
+/** The line under the other tickets' rows (Latte's 2-ticket frame): their QR codes are on the ticket page. */
+export const OTHER_TICKETS_NOTE = "Each ticket has its own QR code. Swipe between them in your ticket.";
+
 /**
  * The sent email: one 600px-max column on the shared layout
  * (lib/server/email-kit.ts), with a plain-text alternative. `now` (when it's
  * built) dates the refund policy (ticketEmailRefundPolicy); `wallet` says
- * which wallets' passes are on, for each ticket's wallet buttons
- * (ticketWalletLinks; none by default).
+ * which wallets' passes are on, for the first ticket's wallet buttons
+ * (ticketWalletLinks; none by default). `extras.buyerName`: the name the
+ * buyer gave at checkout (orders.buyer_name), shown on the other tickets'
+ * rows of an order with several; none when absent.
  */
 export function buildTicketEmail(
   order: OrderRecord,
@@ -755,6 +763,7 @@ export function buildTicketEmail(
   siteUrl: string,
   now: Date = new Date(),
   wallet: WalletAvailability = NO_WALLET,
+  extras: { buyerName?: string | null } = {},
 ): EmailMessage {
   const link = ticketPageLink(siteUrl, order.orderId);
   const total = order.tickets.length;
@@ -810,18 +819,22 @@ export function buildTicketEmail(
     ...(refunds ? [`${refunds} ${REFUND_ACL_STATEMENT}`, ...(support ? [SUPPORT_REFUND_NOTE] : [])] : []),
   ];
 
-  const qrs = order.tickets.map((t, i) => ticketQr(t.ticketCode, i));
+  // Only the first ticket gets the full card, and so the only QR code (Latte's 2-ticket frame, owner decision):
+  // the others are a row each, and their codes and QR codes are on the ticket page.
+  const firstTicket: IssuedTicket | undefined = order.tickets[0];
+  const qr = firstTicket ? ticketQr(firstTicket.ticketCode, 0) : null;
+  const others = order.tickets.slice(1);
+  const buyerName = subjectLine(extras.buyerName ?? "");
+  /** An other ticket's "{name} · {type}" and its seat (the row's short form, or the text's spoken one). */
+  const otherLine = (t: IssuedTicket, spoken = false) =>
+    [buyerName, typeName(t), t.seat ? (spoken ? speakSeatLine(t.seat) : formatSeatLine(t.seat)) : ""].filter(Boolean).join(" · ");
   const firstType = order.tickets[0] ? typeName(order.tickets[0]) : "";
   const footerInput = { siteUrl, tone: "customer" as const, reason: free ? TICKET_EMAIL_FREE_REASON : TICKET_EMAIL_REASON };
 
   // --- Plain text ---
   const whereText = [venueName, address].filter(Boolean).join(", ");
-  /**
-   * The plain text for an email with full cards (and so QR codes) for the first `cards` tickets. Every code is
-   * listed; only a ticket whose card is in the email is said to have its QR code there, and the rest point at the
-   * ticket page, as the HTML's list does (the size budget, below).
-   */
-  const plainText = (cards: number) => [
+  /** The plain text: the first ticket's code (its QR code is in the full email), then a line for each other ticket (no code). */
+  const plainText = () => [
     "SHELTÜH",
     "",
     eyebrow,
@@ -832,13 +845,22 @@ export function buildTicketEmail(
     ...(cardEvent || (one && firstType)
       ? [[...(cardEvent ? [`Date: ${cardEvent.date}`, `Time: ${cardEvent.time}`] : []), ...(one && firstType ? [`Ticket: ${firstType}`] : [])].join(" · ")]
       : []),
-    ...order.tickets.flatMap((t, i) => [
-      "",
-      `Ticket ${i + 1} of ${total}${!one && typeName(t) ? ` · ${typeName(t)}` : ""} — Entry code: ${t.ticketCode} (show this at the door${!qrs[i] ? "" : i < cards ? "; the QR code is in the full email" : "; its QR code is on your ticket page"})`,
-      ...(t.seat ? [`Seat: ${speakSeatLine(t.seat)}`] : []),
-      ...walletLinks(i).map((l) => `${l.label}: ${l.href}`),
-    ]),
-    ...(walletLinks(0).some((l) => l.provider === "apple") ? ["", appleWalletDeviceNote("email", total)] : []),
+    ...(firstTicket
+      ? [
+          "",
+          `Ticket 1 of ${total}${!one && firstType ? ` · ${firstType}` : ""} — Entry code: ${firstTicket.ticketCode} (show this at the door${qr ? "; the QR code is in the full email" : ""})`,
+          ...(firstTicket.seat ? [`Seat: ${speakSeatLine(firstTicket.seat)}`] : []),
+          ...walletLinks(0).map((l) => `${l.label}: ${l.href}`),
+        ]
+      : []),
+    ...(others.length
+      ? [
+          "",
+          ...others.map((t, j) => `Ticket ${j + 2} of ${total}${otherLine(t, true) ? ` · ${otherLine(t, true)}` : ""} — View: ${link}`),
+          OTHER_TICKETS_NOTE,
+        ]
+      : []),
+    ...(walletLinks(0).some((l) => l.provider === "apple") ? ["", appleWalletDeviceNote("email", 1)] : []),
     "",
     `${viewLabel}: ${link}`,
     `Manage order: ${link}`,
@@ -891,25 +913,39 @@ export function buildTicketEmail(
   // --- HTML ---
 
   const card = (t: IssuedTicket, i: number) =>
-    ticketCard({ siteUrl, title: event.title, event: cardEvent, code: t.ticketCode, typeName: typeName(t), seat: t.seat, qr: qrs[i], index: i, total });
+    ticketCard({ siteUrl, title: event.title, event: cardEvent, code: t.ticketCode, typeName: typeName(t), seat: t.seat, qr: i === 0 ? qr : null, index: i, total });
 
-  /** The tickets past the size budget: number, type and code, in a quiet list, pointing at the ticket page for their QR codes. */
-  const listedTickets = (from: number) =>
-    from >= total
-      ? ""
-      : p(
-          `Tickets ${from + 1}&ndash;${total}: their QR codes are on ${anchor(link, "your ticket page")}. Each code below works at the door too.`,
-          type("sans", 14, 20, 400, C.muted),
-        ) +
-        `<p style="margin:0;padding-top:8px;${type("sans", 14, 22, 400, C.ink)}">` +
-        order.tickets
-          .slice(from)
-          .map(
-            (t, j) =>
-              `${from + j + 1}${typeName(t) ? ` &middot; ${escapeHtml(typeName(t))}` : ""}${t.seat ? ` &middot; ${escapeHtml(formatSeatLine(t.seat))}` : ""} &middot; <b>${escapeHtml(t.ticketCode)}</b>`,
-          )
-          .join("<br>") +
-        `</p>`;
+  /**
+   * The other tickets (Latte's 2-ticket frame): a cream row each, "TICKET n of N", the buyer's name and the
+   * ticket type, and View (the ticket page: it has no per-ticket address). No code: the page holds them.
+   * `rows`: how many get a row (the size budget, below); the rest are one line pointing at the ticket page.
+   */
+  const otherRows = (rows: number) => {
+    if (others.length === 0) return "";
+    const row = (t: IssuedTicket, j: number) =>
+      `<table ${FULL} bgcolor="${KIT.cream}" style="background-color:${KIT.cream};border-radius:8px;border-collapse:separate"><tr>` +
+      `<td valign="middle" style="padding:16px 12px 16px 24px">` +
+      p(`TICKET ${j + 2} of ${total}`, type("mono", 12, 16, 500, C.muted, "letter-spacing:0.72px")) +
+      (otherLine(t) ? p(escapeHtml(otherLine(t)), type("sans", 16, 24, 600, C.ink, "padding-top:4px;overflow-wrap:break-word;word-wrap:break-word")) : "") +
+      `</td><td align="right" valign="middle" style="padding:16px 24px 16px 0;white-space:nowrap">` +
+      p(anchor(link, "View", "", ` aria-label="View ticket ${j + 2} of ${total}"`), type("sans", 15, 22, 600, C.ink)) +
+      `</td></tr></table>`;
+    const shown = others.slice(0, rows);
+    const rest = others.length - shown.length;
+    return kitStack(
+      [
+        kitStack(shown.map(row), 8),
+        rest > 0
+          ? p(
+              `${rest === others.length ? `Tickets 2&ndash;${total}` : `Tickets ${rows + 2}&ndash;${total}`} are on ${anchor(link, "your ticket page")}.`,
+              type("sans", 15, 22, 400, C.muted),
+            )
+          : "",
+        p(escapeHtml(OTHER_TICKETS_NOTE), type("sans", 15, 22, 400, C.muted)),
+      ].filter(Boolean),
+      16,
+    );
+  };
 
   const calendarLinks = [
     calendar.google ? anchor(calendar.google, "Google", "", ` title="Add to Google Calendar"`) : "",
@@ -971,17 +1007,15 @@ export function buildTicketEmail(
 
   const preheader = [free ? "Free entry" : "", shortDate, venueName, `Order ${reference}`].filter(Boolean).join(" · ");
 
-  /** The whole page with full cards for the first `cards` tickets (the rest listed). */
-  const render = (cards: number) => {
-    const tickets = order.tickets.slice(0, cards).flatMap((t, i) => {
-      const wallets = walletButtons(siteUrl, walletLinks(i), i, total, i === cards - 1);
-      return wallets ? [card(t, i), wallets] : [card(t, i)];
-    });
+  /** The whole page with a row for the first `rows` other tickets (the rest one line). */
+  const render = (rows: number) => {
     const body = kitStack([
       kitHeader(),
       kitIntro(eyebrow, headline),
-      ...tickets,
-      listedTickets(cards),
+      firstTicket ? card(firstTicket, 0) : "",
+      otherRows(rows),
+      // As the frames place them: under the card, or under the other tickets' rows. The first ticket's only.
+      firstTicket ? walletButtons(siteUrl, walletLinks(0), 0, total, true) : "",
       kitButtons([
         { label: viewLabel, href: link, kind: "primary" },
         { label: "Manage order", href: link, kind: "secondary" },
@@ -995,25 +1029,25 @@ export function buildTicketEmail(
     return kitPage({ title: `You're in: ${event.title}`, preheader, siteUrl, body, tone: "customer", phoneCss: TICKET_PHONE_RULES });
   };
 
-  // Every ticket a full card, unless that passes the size budget: then as many as fit, the rest listed.
-  let cards = total;
-  let html = render(cards);
+  // A row for every other ticket, unless that passes the size budget: then as many as fit, the rest one line.
+  let rows = others.length;
+  let html = render(rows);
   if (Buffer.byteLength(html) > TICKET_EMAIL_HTML_BUDGET) {
-    let [low, high] = [0, total - 1];
+    let [low, high] = [0, others.length - 1];
     while (low < high) {
       const mid = Math.ceil((low + high) / 2);
       if (Buffer.byteLength(render(mid)) <= TICKET_EMAIL_HTML_BUDGET) low = mid;
       else high = mid - 1;
     }
-    cards = low;
-    html = render(cards);
+    rows = low;
+    html = render(rows);
   }
 
-  const inlineImages = [ticketWordmarkImage(), ...qrs.slice(0, cards).flatMap((qr) => (qr ? qrImage(qr) : []))];
+  const inlineImages = [ticketWordmarkImage(), ...(qr ? qrImage(qr) : [])];
   return {
     to: order.buyerEmail ?? "",
     subject: subjectLine(free ? `You’re in: ${event.title}` : one ? `Your ticket to ${event.title}` : `Your ${total} tickets to ${event.title}`),
-    text: plainText(cards),
+    text: plainText(),
     html,
     inlineImages,
   };

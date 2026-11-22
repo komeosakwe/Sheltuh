@@ -214,7 +214,12 @@ async function deliverTicketEmail(deps: Deps, job: ClaimedJob, orderId: string):
     if (!event) return { sent: false, error: "the event no longer exists", permanent: true };
     // Which wallets' passes are on, for the per-ticket "Add to … Wallet" links (neither call throws: off is undefined).
     const wallet = { google: !!deps.googleWallet(), apple: !!(await deps.appleWallet()) };
-    const message = buildTicketEmail(order, event, deps.siteUrl(), new Date(), wallet);
+    // An order with several tickets names the buyer on the other tickets' rows (the name they gave at checkout, if any).
+    const [named] =
+      order.tickets.length > 1
+        ? await deps.db.query<{ buyer_name: string | null }>(`select buyer_name from public.orders where id = $1`, [orderId])
+        : [];
+    const message = buildTicketEmail(order, event, deps.siteUrl(), new Date(), wallet, { buyerName: named?.buyer_name ?? null });
     // Retried later if it's still due: the job is pending again after a change, and goes to the new address then.
     if (!(await stillToSend(deps, job, message.to))) {
       return { sent: false, error: TICKET_EMAIL_TAKEN_BACK, permanent: false, deferSeconds: TICKET_EMAIL_TAKEN_BACK_RETRY_SECONDS };

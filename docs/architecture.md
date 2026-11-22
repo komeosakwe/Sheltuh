@@ -676,12 +676,16 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
      "Sheltüh". The remote images are decorative and on the site's own
      origin, the same for everyone with no order data: the stripes, notches
      and icons in `public/email/ticket/`, and the event's own image. Gmail
-     clips HTML over 102 KB: when every ticket's card would take the HTML
-     past 90 KB (`TICKET_EMAIL_HTML_BUDGET`; the largest order checkout
-     allows is 400 people), the first tickets get cards and the rest are
-     listed by number, type and code, pointing at the ticket page for their
-     QR codes; the plain-text part always lists every code. Each
-     ticket whose code matches `TICKET_CODE_PATTERN` gets a QR code
+     clips HTML over 102 KB. Only the first ticket gets the full card (with
+     its QR code, backup code and wallet buttons; Latte's 2-ticket frame,
+     owner decision, Nov 2026); each other ticket is a row ("TICKET n of N",
+     the buyer's checkout name and the ticket type, View: the ticket page,
+     which holds every code and QR code), with no code. Past 90 KB
+     (`TICKET_EMAIL_HTML_BUDGET`; the largest order checkout allows is 400
+     people) the first rows are kept and the rest are one line pointing at
+     the ticket page; the plain-text part has a line for every ticket and
+     only the first code. The first ticket, when its code matches
+     `TICKET_CODE_PATTERN`, gets a QR code
      (`SH1:` + code, level H, version 2, the centre 7 × 7 modules cleared for
      the brand's ü: `ticketQrSymbol` in `lib/ticket-qr.ts` over the vendored
      encoder `lib/qr/qrcodegen.ts`, the same symbol the ticket page's
@@ -692,7 +696,7 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
      multipart/related part, `EmailMessage.inlineImages`, named
      `ticket-<n>-qr.png`, never after the code), so it shows even where
      remote images are blocked. Alt text names the ticket and points at the
-     backup code printed beneath it, and the plain-text part lists every code and tells
+     backup code printed beneath it, and the plain-text part gives the first code and tells
      text-only readers to show the entry code (the QR is in the full email). A code
      that doesn't match the pattern gets no QR. Emails sent before QR codes
      (and the plain-text part) rely on the door typing in the code, which

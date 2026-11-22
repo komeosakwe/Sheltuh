@@ -307,9 +307,11 @@ describe("every transactional email uses the shared brand layout", () => {
 
   it("keeps each email's own content: QR tickets, seat lines, totals with booking fees, footer banner", () => {
     const paid = emails.ticketPaid();
-    // One inline QR per ticket, plus the inline wordmark (header and footer, the only other cid image).
-    expect(paid.html.match(/<img class="qr" src="cid:ticket-qr-/g)).toHaveLength(2);
-    expect(paid.html.match(/src="cid:/g)).toHaveLength(4);
+    // One inline QR, the first ticket's (the others are rows: their QR codes are on the ticket page), plus the
+    // inline wordmark (header and footer, the only other cid image).
+    expect(paid.html.match(/<img class="qr" src="cid:ticket-qr-/g)).toHaveLength(1);
+    expect(paid.html).toContain(">TICKET 2 of 2</p>");
+    expect(paid.html.match(/src="cid:/g)).toHaveLength(3);
     expect(paid.html).toContain('<img src="cid:sheltuh-wordmark@sheltuh.com.au"');
     expect(paid.html).toContain("Incl. booking fees");
     expect(paid.html).toContain("Get directions");
