@@ -88,7 +88,7 @@ describe("/saved — live", () => {
     renderSaved();
     const loading = screen.getByRole("progressbar", { name: "Loading your saved events" });
     expect(loading.closest("[aria-busy='true']")).not.toBeNull();
-    expect(api.listFavourites).toHaveBeenCalledWith(expect.any(Function), { limit: 48 });
+    expect(api.listFavourites).toHaveBeenCalledWith(expect.any(Function), { limit: 50 });
   });
 
   it("a load error is an alert with Try again, which reloads", async () => {
@@ -117,14 +117,15 @@ describe("/saved — live", () => {
     const past = screen.getByRole("region", { name: "Past events" });
     expect(within(past).getByRole("link", { name: "Past P" })).toHaveAttribute("href", "/events/p");
     expect(within(past).getByText(/· Ended$/)).toBeInTheDocument();
-    // The filters count the saved events: all three, none this week (2099), both coming-up ones free.
+    // The filters count the cards coming up: both (the ended one is listed below), none this week
+    // (2099), both free.
     const filters = screen.getByRole("group", { name: "Filter saved events" });
     expect(within(filters).getAllByRole("button").map((b) => b.textContent)).toEqual([
-      "All\u00a0·, 3",
+      "All\u00a0·, 2",
       "This week\u00a0·, 0",
       "Free\u00a0·, 2",
     ]);
-    expect(within(filters).getByRole("button", { name: "All, 3" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(filters).getByRole("button", { name: "All, 2" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("shows six cards at a time, then 'Show 6 more' (focus to the first new card)", async () => {
@@ -257,7 +258,7 @@ describe("/saved — live", () => {
     expect(document.querySelector("[data-favourites-notice]")).toBeNull();
   });
 
-  it("loads the rest of the list (48 at a time) so the filters count all of it: a free event saved long ago counts", async () => {
+  it("loads the rest of the list (50 at a time) so the filters count all of it: a free event saved long ago counts", async () => {
     // 60 saves: the first page is 48 paid events, the second has the only free one.
     const paid = (i: number) => {
       const event = fav(`p${i}`, `Paid ${i}`, "future");
@@ -279,7 +280,7 @@ describe("/saved — live", () => {
     fireEvent.click(within(filters).getByRole("button", { name: "Free" }));
     expect(screen.queryByText("No free events saved.")).toBeNull();
     expect(screen.getByRole("progressbar", { name: "Loading the rest of your saved events" })).toBeInTheDocument();
-    expect(api.listFavourites).toHaveBeenLastCalledWith(expect.any(Function), { cursor: "cursor-2", limit: 48 });
+    expect(api.listFavourites).toHaveBeenLastCalledWith(expect.any(Function), { cursor: "cursor-2", limit: 50 });
 
     resolveSecond({ items: second });
     expect(await within(filters).findByRole("button", { name: "Free, 1" })).toHaveAttribute("aria-pressed", "true");
@@ -305,9 +306,59 @@ describe("/saved — live", () => {
     fireEvent.click(within(filters).getByRole("button", { name: /^All/ }));
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByRole("heading", { level: 3, name: "Future B" })).toBeInTheDocument();
-    expect(api.listFavourites).toHaveBeenLastCalledWith(expect.any(Function), { cursor: "cursor-2", limit: 48 });
+    expect(api.listFavourites).toHaveBeenLastCalledWith(expect.any(Function), { cursor: "cursor-2", limit: 50 });
     expect(screen.queryByText("Couldn’t load all your saved events.")).toBeNull();
     expect(within(filters).getByRole("button", { name: "Free, 2" })).toBeInTheDocument();
+  });
+});
+
+describe("/saved — live, when the list changes while the rest of it loads", () => {
+  it("starts the walk again after an unsave, so the event that moved up a page isn't skipped", async () => {
+    // The API pages by offset (two per page here): unsaving A moves every later event up one place.
+    let server = ["a", "b", "c", "d", "e"].map((id) => fav(id, `Future ${id.toUpperCase()}`, "future"));
+    const pageAt = (offset: number) => ({
+      items: server.slice(offset, offset + 2),
+      nextCursor: offset + 2 < server.length ? String(offset + 2) : undefined,
+    });
+    api.listFavouriteIds.mockResolvedValue({ eventIds: server.map((e) => e.eventId) });
+    api.removeFavourite.mockImplementation((id: string) => {
+      server = server.filter((e) => e.eventId !== id);
+      return Promise.resolve({ eventId: id, favourited: false });
+    });
+    // The first request for the second page is answered only after the unsave (as a slow request
+    // the server handles after it): from the shorter list, so it starts at D.
+    let releaseHeld: () => void = () => undefined;
+    let held = true;
+    api.listFavourites.mockImplementation((_token: unknown, page: { cursor?: string }) => {
+      const offset = Number(page.cursor ?? 0);
+      if (offset === 2 && held) {
+        held = false;
+        return new Promise((resolve) => (releaseHeld = () => resolve(pageAt(offset))));
+      }
+      return Promise.resolve(pageAt(offset));
+    });
+    renderSaved();
+    const heart = await screen.findByRole("button", { name: "Save Future A" });
+    await waitFor(() => expect(heart).toHaveAttribute("aria-pressed", "true"));
+    await waitFor(() => expect(api.listFavourites).toHaveBeenCalledWith(expect.any(Function), { cursor: "2", limit: 50 }));
+    fireEvent.click(heart);
+    await waitFor(() => expect(api.removeFavourite).toHaveBeenCalled());
+    await act(async () => {});
+    releaseHeld();
+    const filters = screen.getByRole("group", { name: "Filter saved events" });
+    // All in: B to E, and A still in place (unsaving leaves the card until the next load).
+    expect(await within(filters).findByRole("button", { name: "Free, 5" })).toBeInTheDocument();
+    expect(within(filters).getByRole("button", { name: "All, 5" })).toBeInTheDocument();
+    const upcoming = screen.getByRole("region", { name: "Coming up" });
+    expect(within(upcoming).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual([
+      "Future A",
+      "Future B",
+      "Future C",
+      "Future D",
+      "Future E",
+    ]);
+    // Started again from the first page after the unsave.
+    expect(api.listFavourites.mock.calls.filter((call) => !(call[1] as { cursor?: string }).cursor).length).toBeGreaterThanOrEqual(2);
   });
 });
 
@@ -319,7 +370,9 @@ describe("/saved — demo", () => {
     localStorage.setItem(SAVED_STORAGE_KEY, JSON.stringify({ ids: [b.id, "unknown-id", a.id] }));
     renderSaved(demo());
     expect(await screen.findByText("Saved on this device only.")).toBeInTheDocument();
-    expect(await screen.findByRole("button", { name: "All, 3" })).toBeInTheDocument();
+    // All counts the cards coming up: the known events that haven't ended (the unknown id has no card).
+    const upcoming = [a, b].filter((event) => new Date(event.endsAt ?? event.startsAt).getTime() >= Date.now()).length;
+    expect(await screen.findByRole("button", { name: `All, ${upcoming}` })).toBeInTheDocument();
     expect(screen.getAllByText(a.title).length).toBeGreaterThan(0);
     expect(screen.getAllByText(b.title).length).toBeGreaterThan(0);
     for (const fn of Object.values(api)) expect(fn).not.toHaveBeenCalled();

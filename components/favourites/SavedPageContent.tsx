@@ -18,8 +18,8 @@ import { useFavourites } from "./FavouritesProvider";
 import SavedEventCard from "./SavedEventCard";
 import { LoadingState } from "@/components/ui/ProgressLoader";
 
-/** Saved events per page (the API allows up to 50). */
-export const SAVED_PAGE_SIZE = 48;
+/** Saved events per page (the API's most). */
+export const SAVED_PAGE_SIZE = 50;
 /** Cards shown at a time: six, then "Show 6 more" (Latte's Saved frames). */
 export const SAVED_STEP = 6;
 /** From here a line under the filters says "{n} of 500 saved". */
@@ -39,7 +39,11 @@ const SHOW_MORE_CLASS =
 type ListState =
   | { status: "loading" }
   | { status: "error" }
-  | { status: "ready"; events: SheltuhEvent[]; nextCursor?: string; now: number };
+  /**
+   * `next`: where the walk through the rest of the list is up to (the page after `cursor`, or the
+   * first page again when `cursor` is undefined); undefined once it's all in.
+   */
+  | { status: "ready"; events: SheltuhEvent[]; next?: { cursor?: string }; now: number };
 
 const hasEnded = (event: SheltuhEvent, now: number) => new Date(event.endsAt ?? event.startsAt).getTime() < now;
 
@@ -110,7 +114,7 @@ function LiveSaved({ getToken }: { getToken: () => Promise<string> }) {
         setState({
           status: "ready",
           events: page.items.map(adaptPublicEvent),
-          nextCursor: page.nextCursor,
+          next: page.nextCursor ? { cursor: page.nextCursor } : undefined,
           now: Date.now(),
         });
       },
@@ -125,11 +129,21 @@ function LiveSaved({ getToken }: { getToken: () => Promise<string> }) {
 
   // The filters and their counts need the whole list (up to 500), not the first page: the rest is
   // fetched page by page straight after the first is shown. A failed page stops it, and says so.
-  const nextCursor = state.status === "ready" ? state.nextCursor : undefined;
+  // The pages are offsets into the list as it is when each is fetched, so if the list changes
+  // meanwhile (an unsave here, a save in another tab) the walk starts again from the first page,
+  // or it could skip an event; anything it already has isn't added twice.
+  // (The saved ids arriving, which changes nothing on the server, doesn't count.)
+  const savedIds = favourites?.status === "ready" ? favourites.ids : null;
+  const [walkedIds, setWalkedIds] = useState(savedIds);
+  if (savedIds !== walkedIds) {
+    setWalkedIds(savedIds);
+    if (walkedIds && savedIds && state.status === "ready" && state.next) setState({ ...state, next: {} });
+  }
+  const next = state.status === "ready" ? state.next : undefined;
   useEffect(() => {
-    if (!nextCursor || restFailed) return;
+    if (!next || restFailed) return;
     let cancelled = false;
-    listFavourites(getToken, { cursor: nextCursor, limit: SAVED_PAGE_SIZE }).then(
+    listFavourites(getToken, next.cursor ? { cursor: next.cursor, limit: SAVED_PAGE_SIZE } : { limit: SAVED_PAGE_SIZE }).then(
       (page) => {
         if (cancelled) return;
         setState((current) => {
@@ -138,7 +152,7 @@ function LiveSaved({ getToken }: { getToken: () => Promise<string> }) {
           return {
             ...current,
             events: [...current.events, ...page.items.map(adaptPublicEvent).filter((e) => !seen.has(e.id))],
-            nextCursor: page.nextCursor,
+            next: page.nextCursor ? { cursor: page.nextCursor } : undefined,
           };
         });
       },
@@ -149,7 +163,7 @@ function LiveSaved({ getToken }: { getToken: () => Promise<string> }) {
     return () => {
       cancelled = true;
     };
-  }, [getToken, nextCursor, restFailed]);
+  }, [getToken, next, restFailed]);
 
   function retry() {
     setState({ status: "loading" });
@@ -183,7 +197,7 @@ function LiveSaved({ getToken }: { getToken: () => Promise<string> }) {
       events={state.events}
       now={state.now}
       count={favourites?.status === "ready" ? favourites.count : state.events.length}
-      rest={{ complete: !state.nextCursor, failed: restFailed, retry: () => setRestFailed(false) }}
+      rest={{ complete: !state.next, failed: restFailed, retry: () => setRestFailed(false) }}
     />
   );
 }
@@ -248,11 +262,11 @@ function SavedList({
 
   if (events.length === 0) return <SavedEmpty />;
 
-  // This week and Free count the whole list, so their numbers wait until it's all in (All is the
-  // saved total, known from the start).
+  // This week and Free count the whole list, so their numbers wait until it's all in. All is the
+  // saved total until then, and once it's all in the events coming up, so it matches the cards.
   const whole = rest.complete;
   const filters: { key: SavedFilter; label: string; count: number | null }[] = [
-    { key: "all", label: "All", count: Math.max(count, upcoming.length) },
+    { key: "all", label: "All", count: whole ? upcoming.length : Math.max(count, upcoming.length) },
     { key: "week", label: "This week", count: whole ? upcoming.filter((event) => isThisWeek(event, now)).length : null },
     { key: "free", label: "Free", count: whole ? upcoming.filter(isFree).length : null },
   ];
