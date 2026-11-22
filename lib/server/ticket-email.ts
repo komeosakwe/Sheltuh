@@ -1,9 +1,9 @@
 import { eventPublicLink, inviteText, tellAFriendLinks } from "./share-email";
 import { googleCalendarUrl, outlookCalendarUrl, type CalendarEvent } from "@/lib/calendar";
 import { SUPPORT_EMAIL } from "@/lib/contact";
-import { eventCalendarPath } from "@/lib/event-url";
+import { eventCalendarPath, organiserPageLink } from "@/lib/event-url";
 import { calculateOrderSummary } from "@/lib/fees";
-import { eventSpansDays, formatAud, formatEventDateShort } from "@/lib/format";
+import { eventSpansDays, formatAudExact, formatEventDateShort } from "@/lib/format";
 import { directionsHref } from "@/lib/maps";
 import { placeName, placeNameParts } from "@/lib/place";
 import { DEFAULT_REFUND_POLICY, REFUND_ACL_STATEMENT, refundTermsLine } from "@/lib/refund-policy";
@@ -17,17 +17,31 @@ import { cachedDateTimeFormat, PLATFORM_TIME_ZONE, zoneLabel, type StateCode } f
 import { subjectLine, type EmailMessage, type InlineImage } from "./email";
 import { escapeHtml } from "./email-layout";
 import {
-  hairline,
+  KIT,
+  type KitDetailRow,
+  kitButtons,
+  kitDetails,
+  kitFooter,
+  kitFooterText,
+  kitHeader,
+  kitHelp,
+  kitHelpText,
+  kitIntro,
+  kitPage,
+  kitStack,
+  kitSummary,
+  kitTellAFriend,
+  kitTicketCard,
+} from "./email-kit";
+import {
   MONO,
   SANS,
-  stack,
   TICKET_EMAIL_ASSETS,
   TICKET_EMAIL_COLOURS,
   TICKET_EMAIL_WALLET_BADGES,
+  TICKET_PHONE_RULES,
   ticketAssetUrl,
-  ticketEmailPage,
   ticketWordmarkImage,
-  wordmarkTag,
 } from "./email-ticket-layout";
 import { orderReference } from "./order-reference";
 import { TICKET_QR_MODULES, ticketQrPng } from "./qr-image";
@@ -39,25 +53,32 @@ import type { EventRecord, IssuedTicket, OrderRecord, TicketSeat, WalletAvailabi
  * built one-to-one with the owner's design images; the deviations are listed
  * in its §2).
  *
- * On its own layout (lib/server/email-ticket-layout.ts: white, Instrument
- * Sans and IBM Plex Mono with Arial / Courier New fallbacks, bulletproof
- * tables, light only). Top to bottom: the wordmark; "ORDER #…" and the
- * headline; one full ticket card per issued code (corner stripes and "ADMIT
- * ONE · SHELTÜH", the event's image, title and venue line, a perforation
- * with a notch each side, DATE / TIME / TICKET, the seat, the QR with the
- * centre ü, the backup code and "Show this at the door · ticket n of N"),
- * each followed by its "Add to Apple / Google Wallet" buttons when the
- * wallets are on (ticketWalletLinks); "View your ticket(s) →" and "Manage
- * order" (both the order's ticket page, the link earlier emails carried);
- * when, where and event info rows (with Google / Apple / Outlook calendar
- * links and Get directions); the order summary (reference, each line's
- * all-inclusive amount, Support Sheltüh, the total, and for a paid order the
- * refund policy with the shared Australian Consumer Law sentence);
- * "Going with friends?" (WhatsApp, Messages, Email, Share page); "Need a
- * hand?"; and the footer (no legal line: owner decision D1).
+ * On the shared layout (lib/server/email-kit.ts, Latte's 1120 frames: a
+ * white column on the customer cream, Instrument Sans and IBM Plex Mono with
+ * Arial / Courier New fallbacks, bulletproof tables, light only); only the
+ * full ticket card is this file's own (ticketCard). Top to bottom: the
+ * wordmark; the "Order {reference} · Confirmed" eyebrow and the headline
+ * ("Hi, you're in. Here's your ticket.", or "You're in." for a free order);
+ * one full ticket card, the first ticket's (corner stripes and "ADMIT ONE ·
+ * SHELTÜH", the event's image, title and venue line, a perforation with a
+ * notch each side, DATE / TIME / TICKET, the seat, the QR with the centre ü,
+ * the backup code and "Show this at the door · ticket 1 of N"); with several
+ * tickets, a cream row for each of the others ("TICKET n of N", the buyer's
+ * name and the ticket type, View: Latte's 2-ticket frame, owner decision; no
+ * code or QR, the ticket page holds them) and OTHER_TICKETS_NOTE; the first
+ * ticket's "Add to Apple / Google Wallet" buttons when the wallets are on
+ * (ticketWalletLinks); "View your ticket(s)" and "Manage order" (both the
+ * order's ticket page, the link earlier emails carried); the date, venue,
+ * event info and "Hosted by" rows (with Google / Apple / Outlook calendar
+ * links, Get directions and the organiser's page); the order summary
+ * (reference, order date, each line's amount, the booking fee where itemised,
+ * Support Sheltüh, the total, and for a paid order the refund policy with the
+ * shared Australian Consumer Law sentence); "Going with friends?" (WhatsApp,
+ * Messages, Email, Share page); "Need a hand?"; and the shared footer, whose
+ * reason says the buyer bought (or, free, got) a ticket.
  *
- * Everything essential (event, when, where, every ticket code and seat, the
- * total) is real text, so it reads the same with images blocked; every image
+ * Everything essential (event, when, where, the first ticket's code and every
+ * seat, the total) is real text, so it reads the same with images blocked; every image
  * has alt text (`alt=""` on the decorative ones).
  *
  * An event that's no longer published (unpublished, back in draft or review,
@@ -67,7 +88,7 @@ import type { EventRecord, IssuedTicket, OrderRecord, TicketSeat, WalletAvailabi
  * routes. The outbox rebuilds the email from the live event on every attempt
  * and resend, so a resent email follows the rule as it stands then.
  *
- * Images: the wordmark and, for each ticket whose code is a real one, its QR
+ * Images: the wordmark and, when the first ticket's code is a real one, its QR
  * (lib/server/qr-image.ts), as inline PNG attachments (`cid:`), built fresh
  * on every attempt, nothing stored. Remote images, all on the site's own
  * origin and none carrying anything about the order or the buyer: the
@@ -75,12 +96,11 @@ import type { EventRecord, IssuedTicket, OrderRecord, TicketSeat, WalletAvailabi
  * event's own image from the public, versioned `/api/events/{id}/image?v=…`
  * route (published events only, https sites only).
  *
- * Size: Gmail clips a message whose HTML passes 102KB. Each card is about
- * 4KB, so when every ticket's card would take the HTML past
- * TICKET_EMAIL_HTML_BUDGET (90KB: the largest order checkout allows is 20
- * ticket types of 20 people), the first tickets get full cards and the rest
- * are listed by number, type and code under them, pointing at the ticket
- * page for their QR codes. The plain-text part always lists every code.
+ * Size: Gmail clips a message whose HTML passes 102KB. When a row for every
+ * other ticket would take the HTML past TICKET_EMAIL_HTML_BUDGET (90KB: the
+ * largest order checkout allows is 20 ticket types of 20 people), the first
+ * of them get rows and the rest are one line pointing at the ticket page.
+ * The plain-text part has a line for every ticket, and only the first code.
  */
 
 const MELBOURNE_TZ = PLATFORM_TIME_ZONE;
@@ -398,7 +418,7 @@ export function ticketAddressLine(event: Pick<EventRecord, "venueAddress" | "sub
 
 // --- QR codes ---
 
-interface TicketQr {
+export interface TicketQr {
   /** The inline attachment's id and file name (never the code). */
   cid: string;
   filename: string;
@@ -422,7 +442,7 @@ export function ticketQrAlt(code: string): string {
  * lib/server/qr-image.ts) is only made for the cards the email shows
  * (qrImage).
  */
-function ticketQr(code: string, index: number): TicketQr | null {
+export function ticketQr(code: string, index: number): TicketQr | null {
   if (typeof code !== "string" || !TICKET_CODE_PATTERN.test(code)) return null;
   return {
     cid: `ticket-qr-${index + 1}@sheltuh.com.au`,
@@ -435,7 +455,7 @@ function ticketQr(code: string, index: number): TicketQr | null {
 }
 
 /** The QR's inline PNG attachment. */
-function qrImage(qr: TicketQr): InlineImage[] {
+export function qrImage(qr: TicketQr): InlineImage[] {
   const image = ticketQrPng(qr.code);
   return image ? [{ cid: qr.cid, contentType: "image/png", content: image.png, filename: qr.filename }] : [];
 }
@@ -502,7 +522,7 @@ const deco = (src: string, width: number, height: number, extra = "", cls = "") 
   `<img${cls ? ` class="${cls}"` : ""} src="${escapeHtml(src)}" width="${width}" height="${height}" alt="" style="display:block;border:0;width:${width}px;height:${height}px${extra ? `;${extra}` : ""}">`;
 
 /** What every card of a listed event shows about it (none for an event that isn't listed). */
-interface CardEvent {
+export interface CardEvent {
   title: string;
   imageUrl: string | null;
   /** The photo's subject, as CSS `object-position` ("40% 25%"), where the client crops to 2:1. */
@@ -512,7 +532,7 @@ interface CardEvent {
   time: string;
 }
 
-interface CardInput {
+export interface CardInput {
   siteUrl: string;
   title: string;
   /** Null when the event isn't listed: no image, venue line, DATE or TIME. */
@@ -545,7 +565,7 @@ function stubCell(label: string, value: string, widthPx?: number, cls = ""): str
  * TICKET, the seat, the QR (its white quiet zone is the space round it), the
  * backup code and "Show this at the door · ticket n of N".
  */
-function ticketCard(card: CardInput): string {
+export function ticketCard(card: CardInput): string {
   const { siteUrl, event, qr } = card;
   const side = (top: number, cls = "") => `class="tx${cls ? ` ${cls}` : ""}" style="padding:${top}px 24px 0 24px"`;
   const stripes =
@@ -626,36 +646,8 @@ function walletButtons(siteUrl: string, links: WalletLink[], index: number, tota
   }
   const row = `<table ${TABLE} align="center" class="wt"><tr>${cells.join("")}</tr></table>`;
   if (!deviceNote || !links.some((l) => l.provider === "apple")) return row;
-  return row + p(escapeHtml(appleWalletDeviceNote("email", total)), type("sans", 13, 16, 400, C.muted, "text-align:center;padding-top:12px"));
+  return row + p(escapeHtml(appleWalletDeviceNote("email", 1)), type("sans", 13, 16, 400, C.muted, "text-align:center;padding-top:12px"));
 }
-
-/** "View your ticket →" (Signal Orange, black label) and "Manage order" (white, 1.5px black stroke): 56px tall (48 on a phone), equal halves. */
-function buttonsRow(viewLabel: string, viewHref: string, manageHref: string): string {
-  const label = type("sans", 16, 20, 600, C.ink, "text-align:center;text-decoration:none;white-space:nowrap");
-  return (
-    `<table ${FULL}><tr>` +
-    `<td class="bl" width="50%" valign="top" style="padding-right:6px"><table ${FULL}><tr><td align="center" bgcolor="${C.signal}" style="background-color:${C.signal};border-radius:8px;mso-padding-alt:18px 16px">` +
-    `<a class="bt" href="${escapeHtml(viewHref)}" style="display:block;padding:18px 16px;${label}">${escapeHtml(viewLabel)}&nbsp;&nbsp;<span style="font-size:19px;line-height:20px;font-weight:700">&rarr;</span></a></td></tr></table></td>` +
-    `<td class="br" width="50%" valign="top" style="padding-left:6px"><table ${FULL} style="border-collapse:separate"><tr><td align="center" bgcolor="${C.white}" style="background-color:${C.white};border:1.5px solid ${C.ink};border-radius:6px;mso-padding-alt:16px 16px">` +
-    `<a class="bo" href="${escapeHtml(manageHref)}" style="display:block;padding:16.5px 16px;${label}">Manage order</a></td></tr></table></td>` +
-    `</tr></table>`
-  );
-}
-
-/** One info row: a 40px grey circle with a 20px icon, 16px, then its lines (trusted markup). */
-function infoRow(siteUrl: string, iconPath: string, lines: string[]): string {
-  return (
-    `<table ${FULL}><tr>` +
-    `<td width="40" valign="top" style="width:40px"><table ${TABLE}><tr><td width="40" height="40" align="center" valign="middle" bgcolor="${C.surface}" style="width:40px;height:40px;border-radius:50%;background-color:${C.surface}">${deco(ticketAssetUrl(siteUrl, iconPath), 20, 20, "margin:0 auto")}</td></tr></table></td>` +
-    `<td width="16" style="width:16px;font-size:0;line-height:0">&nbsp;</td>` +
-    `<td valign="top">${lines.join("")}</td>` +
-    `</tr></table>`
-  );
-}
-
-const infoStrong = (html: string) => p(html, type("sans", 16, 24, 600, C.ink, "overflow-wrap:break-word;word-wrap:break-word"));
-const infoMuted = (html: string) => p(html, type("sans", 16, 24, 400, C.muted, "padding-top:4px;overflow-wrap:break-word;word-wrap:break-word"));
-const infoLink = (html: string) => p(html, type("sans", 15, 24, 600, C.ink, "padding-top:3px"));
 
 /** Calendar links for the When row: Google, Apple (the event's .ics) and Outlook, each null when it can't be built. */
 export function ticketCalendarLinks(event: EventRecord, siteUrl: string): { google: string | null; apple: string | null; outlook: string | null } {
@@ -679,17 +671,80 @@ export function ticketCalendarLinks(event: EventRecord, siteUrl: string): { goog
   };
 }
 
-/** One summary row: label left (muted), value right. */
-const summaryRow = (label: string, value: string, valueStyle: string, top = 12, labelStyle = type("sans", 16, 24, 400, C.muted)) =>
-  `<tr><td valign="top" style="padding:${top}px 12px 0 0;${labelStyle}">${label}</td><td align="right" valign="top" style="padding:${top}px 0 0 0;${valueStyle}">${value}</td></tr>`;
+
+/**
+ * The order summary's amounts, as the design itemises them: each line at its
+ * ticket price ("1 × Second release A$23.00") and the booking fee on its own
+ * row, when those add up exactly to the order's subtotal and total; otherwise
+ * each line's all-inclusive amount (ticketEmailLineItems) and no fee row. The
+ * email never prints numbers that disagree with its total.
+ */
+export function ticketEmailSummaryLines(
+  order: Pick<OrderRecord, "lineItems" | "totalCents" | "supportCents" | "subtotalCents" | "buyerFeeCents">,
+): { lines: { label: string; cents: number | null }[]; bookingFeeCents: number | null } {
+  const items = order.lineItems ?? [];
+  const support = order.supportCents && order.supportCents > 0 ? order.supportCents : 0;
+  const face = items.map((l) => ({ label: `${l.quantity} × ${l.ticketTypeName}`, cents: l.unitPriceCents * l.quantity }));
+  const fee = Number.isInteger(order.buyerFeeCents) && order.buyerFeeCents >= 0 ? order.buyerFeeCents : null;
+  const faceTotal = face.reduce((sum, l) => sum + l.cents, 0);
+  if (items.length > 0 && fee !== null && faceTotal === order.subtotalCents && faceTotal + fee + support === order.totalCents) {
+    return { lines: face, bookingFeeCents: fee > 0 ? fee : null };
+  }
+  return { lines: ticketEmailLineItems(order), bookingFeeCents: null };
+}
+
+/** "12 Nov 2026, 9:41 pm": when the order was placed, in the event's zone. */
+export function ticketOrderDate(iso: string | undefined, where: EventZone = {}): string | null {
+  if (!iso || Number.isNaN(Date.parse(iso))) return null;
+  const day = cachedDateTimeFormat("en-AU", { timeZone: zoneOf(where), day: "numeric", month: "short", year: "numeric" });
+  return `${day.format(new Date(iso))}, ${time(iso, where)}`;
+}
+
+/**
+ * The event as the 1120 emails show it: the compact Ticket card (kitTicketCard)
+ * with "Sat 14 Nov · 5–9 pm", the title, the venue and the event's image (on
+ * an https site). Organiser-supplied text is cleaned with subjectLine. `href`
+ * links the title (the event's page).
+ */
+export function emailEventCard(event: EventRecord, siteUrl: string, href?: string): string {
+  const title = subjectLine(event.title);
+  return kitTicketCard({
+    dateLine: `${formatEventDateShort(event.startsAt, zoneOf(event))} · ${formatStubTime(event.startsAt, event.endsAt, event)}`,
+    title,
+    venue: subjectLine(event.venueName ?? ""),
+    imageUrl: eventImageEmailUrl(siteUrl, event.imageUrl),
+    ...(href ? { href } : {}),
+  });
+}
+
+/** The event card's lines as plain text: the title, "Sat 14 Nov · 5–9 pm", the venue. */
+export function emailEventCardText(event: EventRecord): string[] {
+  const venue = subjectLine(event.venueName ?? "");
+  return [
+    subjectLine(event.title),
+    `${formatEventDateShort(event.startsAt, zoneOf(event))} · ${formatStubTime(event.startsAt, event.endsAt, event)}`,
+    ...(venue ? [venue] : []),
+  ];
+}
+
+/** The footer's reason line on the ticket email. */
+export const TICKET_EMAIL_REASON = "You’re getting this email because you bought a ticket on Sheltüh.";
+/** …and on a free order's (Latte's "Free ticket order" frame). */
+export const TICKET_EMAIL_FREE_REASON = "You’re getting this email because you got a free ticket on Sheltüh.";
 
 // --- The email ---
 
+/** The line under the other tickets' rows (Latte's 2-ticket frame): their QR codes are on the ticket page. */
+export const OTHER_TICKETS_NOTE = "Each ticket has its own QR code. Swipe between them in your ticket.";
+
 /**
- * The sent email: one 600px-max column, with a plain-text alternative. `now`
- * (when it's built) dates the refund policy (ticketEmailRefundPolicy);
- * `wallet` says which wallets' passes are on, for each ticket's wallet
- * buttons (ticketWalletLinks; none by default).
+ * The sent email: one 600px-max column on the shared layout
+ * (lib/server/email-kit.ts), with a plain-text alternative. `now` (when it's
+ * built) dates the refund policy (ticketEmailRefundPolicy); `wallet` says
+ * which wallets' passes are on, for the first ticket's wallet buttons
+ * (ticketWalletLinks; none by default). `extras.buyerName`: the name the
+ * buyer gave at checkout (orders.buyer_name), shown on the other tickets'
+ * rows of an order with several; none when absent.
  */
 export function buildTicketEmail(
   order: OrderRecord,
@@ -697,6 +752,7 @@ export function buildTicketEmail(
   siteUrl: string,
   now: Date = new Date(),
   wallet: WalletAvailability = NO_WALLET,
+  extras: { buyerName?: string | null } = {},
 ): EmailMessage {
   const link = ticketPageLink(siteUrl, order.orderId);
   const total = order.tickets.length;
@@ -722,35 +778,55 @@ export function buildTicketEmail(
   const eventLink = listed && event.slug ? eventPublicLink(siteUrl, event.slug) : null;
   const calendar = listed ? ticketCalendarLinks(event, siteUrl) : { google: null, apple: null, outlook: null };
   const share = when && eventLink ? [...tellAFriendLinks(event.title, when.date, eventLink), { label: "Share page", href: eventLink }] : null;
+  const host = listed && event.organiserId ? subjectLine(event.organiserName ?? "") : "";
+  const hostLink = host ? organiserPageLink(siteUrl, event.organiserId) : null;
   const typeName = (t: IssuedTicket) => (t.ticketTypeName ? ticketNameWithGroup(t.ticketTypeName, t.group) : "");
+  const shortDate = listed ? formatEventDateShort(event.startsAt, zoneOf(event)) : "";
   const cardEvent: CardEvent | null = listed
     ? {
         title: event.title,
         imageUrl,
         imageFocus: event.imageFocus && Number.isFinite(event.imageFocus.x) && Number.isFinite(event.imageFocus.y) ? `${Number(event.imageFocus.x)}% ${Number(event.imageFocus.y)}%` : null,
         venueLine: ticketVenueLine(event),
-        date: formatEventDateShort(event.startsAt, zoneOf(event)),
+        date: shortDate,
         time: formatStubTime(event.startsAt, event.endsAt, zoneOfEvent),
       }
     : null;
-  const lineItems = ticketEmailLineItems(order);
-  const site = siteUrl.replace(/\/+$/, "");
-  const headline = one ? "You’re in. Here’s your ticket." : "You’re in. Here are your tickets.";
+  const { lines: summaryLines, bookingFeeCents } = ticketEmailSummaryLines(order);
+  const orderDate = ticketOrderDate(order.createdAt, zoneOfEvent);
+  const amount = (cents: number) => formatAudExact(cents);
+  const yours = one ? "Here’s your ticket." : `Here are your ${total} tickets.`;
+  const headline = free ? `You’re in. ${yours}` : `Hi, you’re in. ${yours}`;
+  const eyebrow = `Order ${reference} · Confirmed`;
+  const totalLabel = free ? "Total" : "Total paid";
+  // Only when the lines are all-inclusive: the itemised summary shows the booking fee itself.
+  const allIn = !free && bookingFeeCents === null;
+  const includesNote = includes.replace(/^incl\./, "Incl.");
+  const summaryNotes = [
+    ...(free ? ["No payment was taken, so there’s no tax invoice for this order."] : []),
+    ...(allIn ? [includesNote] : []),
+    ...(refunds ? [`${refunds} ${REFUND_ACL_STATEMENT}`, ...(support ? [SUPPORT_REFUND_NOTE] : [])] : []),
+  ];
 
-  const qrs = order.tickets.map((t, i) => ticketQr(t.ticketCode, i));
+  // Only the first ticket gets the full card, and so the only QR code (Latte's 2-ticket frame, owner decision):
+  // the others are a row each, and their codes and QR codes are on the ticket page.
+  const firstTicket: IssuedTicket | undefined = order.tickets[0];
+  const qr = firstTicket ? ticketQr(firstTicket.ticketCode, 0) : null;
+  const others = order.tickets.slice(1);
+  const buyerName = subjectLine(extras.buyerName ?? "");
+  /** An other ticket's "{name} · {type}" and its seat (the row's short form, or the text's spoken one). */
+  const otherLine = (t: IssuedTicket, spoken = false) =>
+    [buyerName, typeName(t), t.seat ? (spoken ? speakSeatLine(t.seat) : formatSeatLine(t.seat)) : ""].filter(Boolean).join(" · ");
   const firstType = order.tickets[0] ? typeName(order.tickets[0]) : "";
+  const footerInput = { siteUrl, tone: "customer" as const, reason: free ? TICKET_EMAIL_FREE_REASON : TICKET_EMAIL_REASON };
 
-  // --- Plain text (docs/design/ticket-email.md §9) ---
+  // --- Plain text ---
   const whereText = [venueName, address].filter(Boolean).join(", ");
-  /**
-   * The plain text for an email with full cards (and so QR codes) for the first `cards` tickets. Every code is
-   * listed; only a ticket whose card is in the email is said to have its QR code there, and the rest point at the
-   * ticket page, as the HTML's list does (the size budget, below).
-   */
-  const plainText = (cards: number) => [
+  /** The plain text: the first ticket's code (its QR code is in the full email), then a line for each other ticket (no code). */
+  const plainText = () => [
     "SHELTÜH",
     "",
-    `ORDER ${reference}`,
+    eyebrow,
     headline.replaceAll("’", "'"),
     "",
     event.title,
@@ -758,13 +834,22 @@ export function buildTicketEmail(
     ...(cardEvent || (one && firstType)
       ? [[...(cardEvent ? [`Date: ${cardEvent.date}`, `Time: ${cardEvent.time}`] : []), ...(one && firstType ? [`Ticket: ${firstType}`] : [])].join(" · ")]
       : []),
-    ...order.tickets.flatMap((t, i) => [
-      "",
-      `Ticket ${i + 1} of ${total}${!one && typeName(t) ? ` · ${typeName(t)}` : ""} — Entry code: ${t.ticketCode} (show this at the door${!qrs[i] ? "" : i < cards ? "; the QR code is in the full email" : "; its QR code is on your ticket page"})`,
-      ...(t.seat ? [`Seat: ${speakSeatLine(t.seat)}`] : []),
-      ...walletLinks(i).map((l) => `${l.label}: ${l.href}`),
-    ]),
-    ...(walletLinks(0).some((l) => l.provider === "apple") ? ["", appleWalletDeviceNote("email", total)] : []),
+    ...(firstTicket
+      ? [
+          "",
+          `Ticket 1 of ${total}${!one && firstType ? ` · ${firstType}` : ""} — Entry code: ${firstTicket.ticketCode} (show this at the door${qr ? "; the QR code is in the full email" : ""})`,
+          ...(firstTicket.seat ? [`Seat: ${speakSeatLine(firstTicket.seat)}`] : []),
+          ...walletLinks(0).map((l) => `${l.label}: ${l.href}`),
+        ]
+      : []),
+    ...(others.length
+      ? [
+          "",
+          ...others.map((t, j) => `Ticket ${j + 2} of ${total}${otherLine(t, true) ? ` · ${otherLine(t, true)}` : ""} — View: ${link}`),
+          OTHER_TICKETS_NOTE,
+        ]
+      : []),
+    ...(walletLinks(0).some((l) => l.provider === "apple") ? ["", appleWalletDeviceNote("email", 1)] : []),
     "",
     `${viewLabel}: ${link}`,
     `Manage order: ${link}`,
@@ -788,15 +873,18 @@ export function buildTicketEmail(
           ...(whereText ? [whereText] : []),
           ...(directions ? [`Get directions: ${directions}`] : []),
           ...(eventLink ? [`Event info (line-up, door times and what to bring): ${eventLink}`] : []),
+          ...(host && hostLink ? [`Hosted by ${host}. Questions about the event? Ask the organiser: ${hostLink}`] : []),
         ]
       : [EVENT_UNLISTED_TEXT]),
     "",
     "ORDER SUMMARY",
     `Order reference: ${reference}`,
-    ...lineItems.map((l) => (l.cents === null ? l.label : `${l.label}: ${l.cents === 0 ? "Free" : formatAud(l.cents)}`)),
-    ...(support ? [`${SUPPORT_LABEL}: ${formatAud(support)}`] : []),
-    `Total paid: ${free ? "Free" : `${formatAud(order.totalCents)} (${includes})`}`,
-    ...(refunds ? [`${refunds} ${REFUND_ACL_STATEMENT}`, ...(support ? [SUPPORT_REFUND_NOTE] : [])] : []),
+    ...(orderDate ? [`Order date: ${orderDate}`] : []),
+    ...summaryLines.map((l) => (l.cents === null ? l.label : `${l.label}: ${amount(l.cents)}`)),
+    ...(bookingFeeCents !== null ? [`Booking fee: ${amount(bookingFeeCents)}`] : []),
+    ...(support ? [`${SUPPORT_LABEL}: ${amount(support)}`] : []),
+    `${totalLabel}: ${amount(order.totalCents)}${allIn ? ` (${includes})` : ""}`,
+    ...summaryNotes.filter((note) => !allIn || note !== includesNote),
     ...(when && eventLink && share
       ? [
           "",
@@ -806,174 +894,149 @@ export function buildTicketEmail(
         ]
       : []),
     "",
-    `Need a hand? ${SUPPORT_EMAIL}`,
+    kitHelpText("customer"),
     "",
-    "Find your place, find your people.",
-    "Sheltüh · Melbourne",
-    `Privacy policy: ${site}/privacy · Terms: ${site}/terms · Help centre: ${site}/help`,
-    "You're getting this email because you bought a ticket on Sheltüh.",
+    kitFooterText(footerInput),
   ].join("\n");
 
   // --- HTML ---
 
-  const header = stack([
-    [wordmarkTag(106, 24), 40],
-    [p(escapeHtml(`ORDER ${reference}`), type("mono", 13, 16, 500, C.signalText, "letter-spacing:0.08em;padding-bottom:12px"), "gl"), 0],
-    [`<h1 class="h1" style="margin:0;${type("sans", 24, 30, 700, C.ink)}">${headline}</h1>`, 0],
-  ]);
-
   const card = (t: IssuedTicket, i: number) =>
-    ticketCard({ siteUrl, title: event.title, event: cardEvent, code: t.ticketCode, typeName: typeName(t), seat: t.seat, qr: qrs[i], index: i, total });
+    ticketCard({ siteUrl, title: event.title, event: cardEvent, code: t.ticketCode, typeName: typeName(t), seat: t.seat, qr: i === 0 ? qr : null, index: i, total });
 
-  /** The tickets past the size budget: number, type and code, in a quiet list, pointing at the ticket page for their QR codes. */
-  const listedTickets = (from: number) =>
-    from >= total
-      ? ""
-      : p(
-          `Tickets ${from + 1}&ndash;${total}: their QR codes are on ${anchor(link, "your ticket page")}. Each code below works at the door too.`,
-          type("sans", 14, 20, 400, C.muted),
-        ) +
-        `<p style="margin:0;padding-top:8px;${type("sans", 14, 22, 400, C.ink)}">` +
-        order.tickets
-          .slice(from)
-          .map(
-            (t, j) =>
-              `${from + j + 1}${typeName(t) ? ` &middot; ${escapeHtml(typeName(t))}` : ""}${t.seat ? ` &middot; ${escapeHtml(formatSeatLine(t.seat))}` : ""} &middot; <b>${escapeHtml(t.ticketCode)}</b>`,
-          )
-          .join("<br>") +
-        `</p>`;
+  /**
+   * The other tickets (Latte's 2-ticket frame): a cream row each, "TICKET n of N", the buyer's name and the
+   * ticket type, and View (the ticket page: it has no per-ticket address). No code: the page holds them.
+   * `rows`: how many get a row (the size budget, below); the rest are one line pointing at the ticket page.
+   */
+  const otherRows = (rows: number) => {
+    if (others.length === 0) return "";
+    const row = (t: IssuedTicket, j: number) =>
+      `<table ${FULL} bgcolor="${KIT.cream}" style="background-color:${KIT.cream};border-radius:8px;border-collapse:separate"><tr>` +
+      `<td valign="middle" style="padding:16px 12px 16px 24px">` +
+      p(`TICKET ${j + 2} of ${total}`, type("mono", 12, 16, 500, C.muted, "letter-spacing:0.72px")) +
+      (otherLine(t) ? p(escapeHtml(otherLine(t)), type("sans", 16, 24, 600, C.ink, "padding-top:4px;overflow-wrap:break-word;word-wrap:break-word")) : "") +
+      `</td><td align="right" valign="middle" style="padding:16px 24px 16px 0;white-space:nowrap">` +
+      p(anchor(link, "View", "", ` aria-label="View ticket ${j + 2} of ${total}"`), type("sans", 15, 22, 600, C.ink)) +
+      `</td></tr></table>`;
+    const shown = others.slice(0, rows);
+    const rest = others.length - shown.length;
+    return kitStack(
+      [
+        kitStack(shown.map(row), 8),
+        rest > 0
+          ? p(
+              `${rest === others.length ? `Tickets 2&ndash;${total}` : `Tickets ${rows + 2}&ndash;${total}`} are on ${anchor(link, "your ticket page")}.`,
+              type("sans", 15, 22, 400, C.muted),
+            )
+          : "",
+        p(escapeHtml(OTHER_TICKETS_NOTE), type("sans", 15, 22, 400, C.muted)),
+      ].filter(Boolean),
+      16,
+    );
+  };
 
-  const infoRows = when
-    ? stack(
-        [
-          [
-            infoRow(siteUrl, TICKET_EMAIL_ASSETS.calendar, [
-              infoStrong(escapeHtml(when.date)),
-              ...when.lines.map((line) => infoMuted(escapeHtml(line))),
-              ...(calendar.google || calendar.apple || calendar.outlook
-                ? [
-                    infoLink(
-                      `Add to calendar: ${[
-                        calendar.google ? anchor(calendar.google, "Google", "", ` title="Add to Google Calendar"`) : "",
-                        calendar.apple ? anchor(calendar.apple, "Apple", "", ` title="Add to Apple Calendar"`) : "",
-                        calendar.outlook ? anchor(calendar.outlook, "Outlook", "", ` title="Add to Outlook Calendar"`) : "",
-                      ]
-                        .filter(Boolean)
-                        .join(" &middot; ")}`,
-                    ),
-                  ]
-                : []),
-            ]),
-            23,
-          ],
-          [
-            venueName || address
-              ? infoRow(siteUrl, TICKET_EMAIL_ASSETS.pin, [
-                  ...(venueName ? [infoStrong(escapeHtml(venueName))] : []),
-                  ...(address ? [(venueName ? infoMuted : infoStrong)(escapeHtml(address))] : []),
-                  ...(directions ? [infoLink(anchor(directions, "Get directions&nbsp;&#8599;"))] : []),
-                ])
-              : "",
-            23,
-          ],
-          [
-            eventLink
-              ? infoRow(siteUrl, TICKET_EMAIL_ASSETS.info, [
-                  infoStrong("Event info"),
-                  infoMuted("Line-up, door times and what to bring"),
-                  infoLink(anchor(eventLink, "View event page")),
-                ])
-              : "",
-            0,
-          ],
-        ],
-      )
+  const calendarLinks = [
+    calendar.google ? anchor(calendar.google, "Google", "", ` title="Add to Google Calendar"`) : "",
+    calendar.apple ? anchor(calendar.apple, "Apple", "", ` title="Add to Apple Calendar"`) : "",
+    calendar.outlook ? anchor(calendar.outlook, "Outlook", "", ` title="Add to Outlook Calendar"`) : "",
+  ].filter(Boolean);
+  const detailRows: KitDetailRow[] = when
+    ? [
+        {
+          icon: "calendar",
+          title: when.date,
+          lines: when.lines,
+          ...(calendarLinks.length ? { linkHtml: `Add to calendar: ${calendarLinks.join(" &middot; ")}` } : {}),
+        },
+        ...(venueName || address
+          ? [
+              {
+                icon: "pin" as const,
+                title: venueName || address,
+                lines: venueName && address ? [address] : [],
+                ...(directions ? { linkHtml: anchor(directions, "Get directions&nbsp;&#8599;") } : {}),
+              },
+            ]
+          : []),
+        ...(eventLink
+          ? [{ icon: "info" as const, title: "Event info", lines: ["Line-up, door times and what to bring"], linkHtml: anchor(eventLink, "View event info") }]
+          : []),
+        ...(host && hostLink
+          ? [
+              {
+                icon: "info" as const,
+                title: `Hosted by ${host}`,
+                lines: ["Questions about the event? Ask the organiser."],
+                linkHtml: anchor(hostLink, "Contact organiser"),
+              },
+            ]
+          : []),
+      ]
+    : [];
+  const details = when
+    ? kitDetails(siteUrl, detailRows)
     : p(
         `This event is no longer listed. Contact ${anchor(`mailto:${SUPPORT_EMAIL}`, escapeHtml(SUPPORT_EMAIL))} if you have questions.`,
         type("sans", 16, 24, 400, C.ink),
       );
 
-  const value = type("sans", 16, 24, 400, C.ink);
-  const summary =
-    `<h2 style="margin:0;${type("sans", 20, 26, 700, C.ink)}">Order summary</h2>` +
-    `<table ${FULL}>` +
-    summaryRow("Order reference", escapeHtml(reference), type("mono", 16, 24, 600, C.ink), 14) +
-    lineItems
-      .map((l) => summaryRow(escapeHtml(l.label), l.cents === null ? "" : escapeHtml(l.cents === 0 ? "Free" : formatAud(l.cents)), value))
-      .join("") +
-    (support ? summaryRow(escapeHtml(SUPPORT_LABEL), escapeHtml(formatAud(support)), value) : "") +
-    summaryRow("Total paid", escapeHtml(free ? "Free" : formatAud(order.totalCents)), type("sans", 16, 24, 700, C.ink), 12, type("sans", 16, 24, 700, C.ink)) +
-    `</table>` +
-    (free ? "" : `<p style="margin:0;padding-top:12px;text-align:right;${type("sans", 14, 20, 400, C.muted)}">${escapeHtml(includes.replace(/^incl\./, "Incl."))}</p>`) +
-    (refunds
-      ? `<p style="margin:0;padding-top:12px;text-align:right;${type("sans", 14, 20, 400, C.muted)}">${escapeHtml(`${refunds} ${REFUND_ACL_STATEMENT}`)}</p>` +
-        (support ? `<p style="margin:0;padding-top:8px;text-align:right;${type("sans", 14, 20, 400, C.muted)}">${escapeHtml(SUPPORT_REFUND_NOTE)}</p>` : "")
-      : "");
+  const summary = kitSummary({
+    title: "Order summary",
+    rows: [
+      { label: "Order reference", value: reference, mono: true },
+      ...(orderDate ? [{ label: "Order date", value: orderDate }] : []),
+      ...summaryLines.map((l) => ({ label: l.label, value: l.cents === null ? "" : amount(l.cents) })),
+      ...(bookingFeeCents !== null ? [{ label: "Booking fee", value: amount(bookingFeeCents) }] : []),
+      ...(support ? [{ label: SUPPORT_LABEL, value: amount(support) }] : []),
+    ],
+    total: { label: totalLabel, value: amount(order.totalCents) },
+    notes: summaryNotes,
+  });
 
-  const chip = (l: { label: string; href: string }) =>
-    `<a href="${escapeHtml(l.href)}" style="display:inline-block;margin:0 8px 8px 0;padding:8.5px 16px;border:1.5px solid ${C.ink};border-radius:8px;background-color:${C.white};${type("sans", 14, 20, 600, C.ink, "text-decoration:none;white-space:nowrap")}">${escapeHtml(l.label)}</a>`;
-  const friends = share
-    ? `<table ${FULL} bgcolor="${C.cream}" style="background-color:${C.cream};border-radius:16px;border-collapse:separate"><tr><td style="padding:24px 24px 14px 24px">` +
-      `<h2 style="margin:0;${type("sans", 18, 24, 700, C.ink)}">Going with friends?</h2>` +
-      p("Send them the event so you can go together.", type("sans", 15, 24, 400, C.muted, "padding-top:7px")) +
-      `<div style="padding-top:14px;font-size:0;line-height:0">${share.map(chip).join("")}</div>` +
-      `</td></tr></table>`
-    : "";
+  const preheader = [free ? "Free entry" : "", shortDate, venueName, `Order ${reference}`].filter(Boolean).join(" · ");
 
-  const footerLink = (href: string, label: string) => `<a href="${escapeHtml(href)}" style="color:${C.muted};text-decoration:underline">${label}</a>`;
-  const footer =
-    `<table ${FULL}>` +
-    `<tr><td align="center"><table ${TABLE} align="center"><tr><td>${wordmarkTag(88, 20)}</td></tr></table></td></tr>` +
-    `<tr><td align="center" style="padding:14px 0 0 0;${type("sans", 14, 20, 400, C.muted)}">Find your place, find your people.</td></tr>` +
-    `<tr><td align="center" style="padding:7px 0 0 0;${type("mono", 12, 16, 400, C.muted, "letter-spacing:0.06em")}">SHELT&Uuml;H &middot; MELBOURNE</td></tr>` +
-    `<tr><td align="center" style="padding:8px 0 0 0;${type("sans", 12, 16, 400, C.muted)}">${footerLink(`${site}/privacy`, "Privacy policy")} &middot; ${footerLink(`${site}/terms`, "Terms")} &middot; ${footerLink(`${site}/help`, "Help centre")}</td></tr>` +
-    `<tr><td align="center" style="padding:8px 0 0 0;${type("sans", 12, 16, 400, C.muted)}">You&rsquo;re getting this email because you bought a ticket on Sheltüh.</td></tr>` +
-    `</table>`;
-
-  const preheader = `Your ${one ? "ticket" : "tickets"} for ${event.title}. Show your ${qrs.some(Boolean) ? "QR code" : "entry code"} at the door.`;
-
-  /** The whole page with full cards for the first `cards` tickets (the rest listed). */
-  const render = (cards: number) => {
-    const tickets = order.tickets.slice(0, cards).flatMap((t, i): [string, number][] => {
-      const wallets = walletButtons(siteUrl, walletLinks(i), i, total, i === cards - 1);
-      return wallets ? [[card(t, i), 32], [wallets, 32]] : [[card(t, i), 32]];
-    });
-    const body = stack([
-      [header, 31],
-      ...tickets,
-      [listedTickets(cards), 32],
-      [buttonsRow(viewLabel, link, link), 32],
-      [infoRows, 32],
-      [hairline(), 24],
-      [summary, 24],
-      [hairline(), 32],
-      [friends, 32],
-      [p(`Need a hand? ${anchor(`mailto:${SUPPORT_EMAIL}`, escapeHtml(SUPPORT_EMAIL))}`, type("sans", 15, 24, 400, C.ink)), 32],
-      [hairline(), 24],
-      [footer, 0],
+  /** The whole page with a row for the first `rows` other tickets (the rest one line). */
+  const render = (rows: number) => {
+    const body = kitStack([
+      kitHeader(),
+      kitIntro(eyebrow, headline),
+      firstTicket ? card(firstTicket, 0) : "",
+      otherRows(rows),
+      // As the frames place them: under the card, or under the other tickets' rows. The first ticket's only.
+      firstTicket ? walletButtons(siteUrl, walletLinks(0), 0, total, true) : "",
+      kitButtons([
+        { label: viewLabel, href: link, kind: "primary" },
+        { label: "Manage order", href: link, kind: "secondary" },
+      ]),
+      details,
+      summary,
+      share ? kitTellAFriend(share) : "",
+      kitHelp("customer"),
+      kitFooter(footerInput),
     ]);
-    return ticketEmailPage({ title: `You're in: ${event.title}`, preheader, siteUrl, body });
+    return kitPage({ title: `You're in: ${event.title}`, preheader, siteUrl, body, tone: "customer", phoneCss: TICKET_PHONE_RULES });
   };
 
-  // Every ticket a full card, unless that passes the size budget: then as many as fit, the rest listed.
-  let cards = total;
-  let html = render(cards);
+  // A row for every other ticket, unless that passes the size budget: then as many as fit, the rest one line.
+  let rows = others.length;
+  let html = render(rows);
   if (Buffer.byteLength(html) > TICKET_EMAIL_HTML_BUDGET) {
-    let [low, high] = [0, total - 1];
+    let [low, high] = [0, others.length - 1];
     while (low < high) {
       const mid = Math.ceil((low + high) / 2);
       if (Buffer.byteLength(render(mid)) <= TICKET_EMAIL_HTML_BUDGET) low = mid;
       else high = mid - 1;
     }
-    cards = low;
-    html = render(cards);
+    rows = low;
+    html = render(rows);
   }
 
-  const inlineImages = [ticketWordmarkImage(), ...qrs.slice(0, cards).flatMap((qr) => (qr ? qrImage(qr) : []))];
+  const inlineImages = [ticketWordmarkImage(), ...(qr ? qrImage(qr) : [])];
   return {
     to: order.buyerEmail ?? "",
-    subject: subjectLine(`Your tickets: ${event.title}`),
-    text: plainText(cards),
+    subject: subjectLine(free ? `You’re in: ${event.title}` : one ? `Your ticket to ${event.title}` : `Your ${total} tickets to ${event.title}`),
+    text: plainText(),
     html,
     inlineImages,
   };

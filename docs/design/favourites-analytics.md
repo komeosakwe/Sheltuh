@@ -182,7 +182,7 @@ never a toast card.
     ~309px of the 280px available, so the bar heart drops there; the title heart remains.
 - Map rows (`SceneEventRow`) are out of scope.
 
-**5.6 `/saved`:** `app/saved/page.tsx` (server, metadata "Saved — Sheltüh") and
+**5.6 `/saved`:** `app/(account)/saved/page.tsx` (server, metadata "Saved — Sheltüh") and
 `components/favourites/SavedPageContent.tsx` (client).
 - **Header:** `PageHeader eyebrow="Your list" title="Saved" intro="Events you've saved. Only you can see this list."`,
   then `p.text-sm.text-muted.-mt-2.mb-8` "{n} saved", or "{n} of 500 saved" from 450 up.

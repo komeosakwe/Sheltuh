@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   formatAudExact,
   formatDayWithYear,
+  formatShortAgo,
   formatDayTime,
   formatMessageTime,
   formatDateBadge,
@@ -341,5 +342,21 @@ describe("formatAudExact", () => {
     expect(formatAudExact(2400)).toBe("A$24.00");
     expect(formatAudExact(2594)).toBe("A$25.94");
     expect(formatAudExact(5)).toBe("A$0.05");
+  });
+});
+
+describe("formatShortAgo", () => {
+  const now = Date.parse("2026-11-21T12:00:00.000Z");
+  const ago = (ms: number) => new Date(now - ms).toISOString();
+  it("is the conversation list's short corner time", () => {
+    expect(formatShortAgo(ago(30_000), now)).toBe("now");
+    expect(formatShortAgo(ago(-60_000), now)).toBe("now");
+    expect(formatShortAgo(ago(5 * 60_000), now)).toBe("5m");
+    expect(formatShortAgo(ago(2 * 3_600_000), now)).toBe("2h");
+    expect(formatShortAgo(ago(26 * 3_600_000), now)).toBe("1d");
+    expect(formatShortAgo(ago(3 * 86_400_000), now)).toBe("3d");
+    expect(formatShortAgo(ago(7 * 86_400_000), now)).toBe("1w");
+    expect(formatShortAgo(ago(20 * 86_400_000), now)).toBe("2w");
+    expect(formatShortAgo("not a date", now)).toBe("now");
   });
 });

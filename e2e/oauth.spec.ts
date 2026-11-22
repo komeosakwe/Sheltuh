@@ -116,8 +116,10 @@ test("Continue with Google: PKCE out to the provider and back, signed in on /acc
 
   await googleButton(page).click();
   await expect(page).toHaveURL(/\/account$/, { timeout: 30_000 });
-  await expect(page.locator("#main").getByText("mia@example.com")).toBeVisible();
-  await expect(page.getByText("Sign-in methods: Google")).toBeVisible();
+  // Settings' Sign-in card (Latte's frames: "Signed in as … · Google"). Scoped to the card: with no
+  // profile yet, the account sidebar shows the email as the name too.
+  const signIn = page.locator("#main").getByRole("region", { name: "Sign-in" });
+  await expect(signIn.getByText(/^Signed in as mia@example\.com · Google$/)).toBeVisible();
 
   expect(flow.authorize).toHaveLength(1);
   const authorize = flow.authorize[0];

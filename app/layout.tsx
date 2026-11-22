@@ -9,6 +9,7 @@ import Footer from "@/components/Footer";
 import { FavouritesProvider } from "@/components/favourites/FavouritesProvider";
 import { UnreadProvider } from "@/components/messages/UnreadProvider";
 import Nav from "@/components/Nav";
+import { NavAccountProvider } from "@/components/nav/useNavAccount";
 import { HideOnSwipe, SiteMain } from "@/components/SiteFrame";
 import ServiceWorkerRegistration from "@/components/pwa/ServiceWorkerRegistration";
 import RouteProgress from "@/components/RouteProgress";
@@ -54,7 +55,7 @@ export const metadata: Metadata = {
 
 // viewport-fit=cover hands the notch and home-indicator areas to the page, so
 // fixed and sticky edges pad with env(safe-area-inset-*) (0 on desktop).
-// Child layouts merge field by field (app/messages/layout.tsx adds interactiveWidget).
+// Child layouts merge field by field (app/(account)/messages/layout.tsx adds interactiveWidget).
 export const viewport: Viewport = {
   themeColor: APP_THEME_COLOR,
   viewportFit: "cover",
@@ -93,17 +94,20 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
               <FavouritesProvider>
                 {/* The page's one event-clip viewer (docs/design/event-clips.md §5.2), for every EventCard. */}
                 <ClipViewerProvider>
-                  <HideOnSwipe>
-                    <Nav />
-                  </HideOnSwipe>
-                  {/* useSearchParams needs a Suspense boundary to keep pages static. */}
-                  <Suspense fallback={null}>
-                    <RouteProgress />
-                  </Suspense>
-                  <SiteMain>{children}</SiteMain>
-                  <HideOnSwipe>
-                    <Footer />
-                  </HideOnSwipe>
+                  {/* The signed-in account, loaded once for the header and the account area's shell. */}
+                  <NavAccountProvider>
+                    <HideOnSwipe>
+                      <Nav />
+                    </HideOnSwipe>
+                    {/* useSearchParams needs a Suspense boundary to keep pages static. */}
+                    <Suspense fallback={null}>
+                      <RouteProgress />
+                    </Suspense>
+                    <SiteMain>{children}</SiteMain>
+                    <HideOnSwipe>
+                      <Footer />
+                    </HideOnSwipe>
+                  </NavAccountProvider>
                 </ClipViewerProvider>
               </FavouritesProvider>
             </AdminSummaryProvider>

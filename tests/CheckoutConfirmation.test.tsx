@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import type { ComponentProps } from "react";
+import { useLayoutEffect, type ComponentProps } from "react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import CheckoutConfirmation from "@/components/CheckoutConfirmation";
 import { ApiError } from "@/lib/api/client";
@@ -953,6 +953,28 @@ describe("CheckoutConfirmation: the buyer's email (the paying browser's one chan
     expect(screen.queryByLabelText("New email for your tickets")).toBeNull();
     await waitFor(() => expect(screen.getByRole("button", { name: "Wrong email? Change it" })).toHaveFocus());
     expect(changeOrderEmail).not.toHaveBeenCalled();
+  });
+
+  it("focus still moves when Change it or Cancel is pressed before the page's last render has run its effects", async () => {
+    asPayingBrowser();
+    getOrderBySession.mockResolvedValue(PAYING);
+    // The press lands after a render of the page is on screen but before React has run that render's effects (a
+    // busy phone, a slow CI worker): React runs those first, then renders the press. Here the press comes from a
+    // layout effect, which runs at exactly that point.
+    function PressOnCommit({ press }: { press: string | null }) {
+      useLayoutEffect(() => {
+        if (press) screen.getByRole("button", { name: press }).click();
+      }, [press]);
+      return <CheckoutConfirmation />;
+    }
+    const { rerender } = render(<PressOnCommit press={null} />);
+    await screen.findByRole("button", { name: "Wrong email? Change it" });
+    rerender(<PressOnCommit press="Wrong email? Change it" />);
+    const field = screen.getByLabelText("New email for your tickets");
+    await waitFor(() => expect(field).toHaveFocus());
+    rerender(<PressOnCommit press="Cancel" />);
+    expect(screen.queryByLabelText("New email for your tickets")).toBeNull();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Wrong email? Change it" })).toHaveFocus());
   });
 
   it("a refused address: the error on the field, and the server's suggestion one press away", async () => {
