@@ -312,6 +312,31 @@ describe("/saved — live", () => {
   });
 });
 
+describe("/saved — live, a first page with nothing on it", () => {
+  it("isn't 'Nothing saved' while more pages follow: a failed next page keeps the loading's error and Try again", async () => {
+    api.listFavouriteIds.mockResolvedValue({ eventIds: ["b"] });
+    api.listFavourites
+      .mockResolvedValueOnce({ items: [], nextCursor: "cursor-2" })
+      .mockRejectedValueOnce(new ApiError(0, "offline"))
+      .mockResolvedValueOnce({ items: [fav("b", "Future B", "future")] });
+    renderSaved();
+    expect(await screen.findByText("Couldn’t load all your saved events.")).toHaveAttribute("role", "alert");
+    expect(screen.queryByText(/^Nothing saved yet\./)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("heading", { level: 3, name: "Future B" })).toBeInTheDocument();
+    expect(api.listFavourites).toHaveBeenLastCalledWith(expect.any(Function), { cursor: "cursor-2", limit: 50 });
+    expect(screen.queryByText(/^Nothing saved yet\./)).toBeNull();
+  });
+
+  it("shows the rest's loading, not 'Nothing saved', while the next page loads", async () => {
+    api.listFavouriteIds.mockResolvedValue({ eventIds: ["b"] });
+    api.listFavourites.mockResolvedValueOnce({ items: [], nextCursor: "cursor-2" }).mockReturnValueOnce(new Promise(() => {}));
+    renderSaved();
+    expect(await screen.findByRole("progressbar", { name: "Loading the rest of your saved events" })).toBeInTheDocument();
+    expect(screen.queryByText(/^Nothing saved yet\./)).toBeNull();
+  });
+});
+
 describe("/saved — live, when the list changes while the rest of it loads", () => {
   it("starts the walk again after an unsave, so the event that moved up a page isn't skipped", async () => {
     // The API pages by offset (two per page here): unsaving A moves every later event up one place.

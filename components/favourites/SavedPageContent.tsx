@@ -260,7 +260,8 @@ function SavedList({
     link.focus();
   });
 
-  if (events.length === 0) return <SavedEmpty />;
+  // Empty only once the whole list is in: a first page can come back empty with more after it.
+  if (events.length === 0 && rest.complete) return <SavedEmpty />;
 
   // This week and Free count the whole list, so their numbers wait until it's all in. All is the
   // saved total until then, and once it's all in the events coming up, so it matches the cards.

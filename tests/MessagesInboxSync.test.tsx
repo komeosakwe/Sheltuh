@@ -208,6 +208,38 @@ describe("the conversation list beside an open conversation", () => {
     expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
   });
 
+  it("reloads on to the open conversation when new ones arriving push it a page further down", async () => {
+    segment = null;
+    const PRIYA = conversation("c3", "Priya R.");
+    const NEW_1 = conversation("n1", "Ana M.");
+    const NEW_2 = conversation("n2", "Bo T.");
+    // The API pages by offset, two to a page here.
+    let server = [{ ...SAM, unread: false }, LEO, PRIYA];
+    api.listConversations.mockImplementation((_token: unknown, cursor?: string) => {
+      const offset = Number(cursor ?? 0);
+      return Promise.resolve({
+        items: server.slice(offset, offset + 2),
+        nextCursor: offset + 2 < server.length ? String(offset + 2) : undefined,
+      });
+    });
+    const { rerenderAt } = renderSplit();
+    fireEvent.click(await screen.findByRole("button", { name: "Load more" }));
+    await waitFor(() => expect(row("Priya R.")).toBeDefined());
+    // Two new conversations arrive above everything: Priya is now on the third page.
+    server = [NEW_1, NEW_2, ...server];
+    const calls = api.listConversations.mock.calls.length;
+    api.getMessages.mockResolvedValue(thread(PRIYA));
+    rerenderAt("c3");
+    await screen.findByRole("heading", { level: 1, name: "Priya R." });
+    // Three rows were shown, and the first two pages hold four, but not Priya: it reads on to the third.
+    await waitFor(() => expect(api.listConversations.mock.calls.slice(calls).map((call) => call[1])).toEqual([undefined, "2", "4"]));
+    await act(async () => {});
+    const current = within(screen.getByRole("list", { name: "Conversations" })).getByRole("link", { current: "page" });
+    expect(current).toHaveTextContent("Priya R.");
+    expect(row("Ana M.")).toBeDefined();
+    expect(row("Bo T.")).toBeDefined();
+  });
+
   it("runs a Load more pressed during a reload once the reload lands, showing it busy meanwhile", async () => {
     segment = null;
     const PRIYA = conversation("c3", "Priya R.");

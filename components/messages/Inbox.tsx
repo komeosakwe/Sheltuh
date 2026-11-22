@@ -50,7 +50,9 @@ export default function Inbox({ getToken, selectedId }: { getToken: GetToken; se
   // or you move to another conversation or back to /messages (`selectedId`: the list doesn't poll, so
   // that's when it picks up conversations that changed elsewhere). A reload keeps the rows on screen
   // until the new ones arrive, and fetches as many as are shown (following the pages Load more
-  // reached), so a conversation from a later page doesn't drop out; if it fails, they stay, marked as
+  // reached), and further if need be to reach the open conversation (new ones above it push it down
+  // a page), so a conversation from a later page doesn't drop out. Only what the API returns is
+  // shown, so a conversation blocked or declined stays out. If it fails, the rows stay, marked as
   // possibly out of date.
   const syncVersion = useInboxVersion();
   /** Try again after a failed reload: reloads, keeping the rows on screen meanwhile. */
@@ -104,7 +106,9 @@ export default function Inbox({ getToken, selectedId }: { getToken: GetToken; se
       const first = await listConversations(getToken);
       let items = first.items;
       let nextCursor = first.nextCursor;
-      while (!cancelled && nextCursor && items.length < keep) {
+      // As many as were shown, and on to the open conversation if new ones pushed it further down.
+      const missingSelected = () => Boolean(selectedId) && !items.some((c) => c.conversationId === selectedId);
+      while (!cancelled && nextCursor && (items.length < keep || missingSelected())) {
         const page = await listConversations(getToken, nextCursor);
         items = appendNew(items, page.items);
         nextCursor = page.nextCursor;
