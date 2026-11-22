@@ -758,8 +758,9 @@ export default function EventEditor(props: Props) {
       start,
       end,
       ticketTypes: external ? [] : ticketTypes.map(cleanTicketType),
-      // Always sent, so clearing every row clears them (null); blank rows are dropped, as the API would.
-      beforeYouGo: normaliseBeforeYouGo(beforeYouGo),
+      // Always sent, so clearing every row clears them (null). Otherwise the rows as on screen, blank ones
+      // included: the API cleans them and drops the blank ones itself, and its "Row N" is then the row shown.
+      beforeYouGo: normaliseBeforeYouGo(beforeYouGo) ? beforeYouGo : null,
     };
     // The venue's location: only when it differs from what's saved (absent keeps it; null removes it).
     const location = locationChange(venueLocation.input, current?.location);

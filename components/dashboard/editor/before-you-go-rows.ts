@@ -9,8 +9,9 @@ import {
 /**
  * The editor's "Before you go" rows as typed (components/dashboard/editor/BeforeYouGoFields.tsx): each a
  * label and a value, with a stable id for React. Checked raw (validateBeforeYouGo numbers them as on
- * screen, blank ones included), sent cleaned (normaliseBeforeYouGo drops the blank ones). Pure but for
- * the row ids (a counter).
+ * screen, blank ones included), and sent raw too, so the API's own "Row N" is the row on screen (it
+ * cleans them and drops the blank ones; null is sent when every row is blank). Pure but for the row ids
+ * (a counter).
  */
 export interface BeforeYouGoRow extends BeforeYouGoItem {
   id: string;

@@ -59,16 +59,27 @@ export const beforeYouGoHidden = (row: number, part: BeforeYouGoPart) =>
 export const beforeYouGoStackedMarks = (row: number, part: BeforeYouGoPart) =>
   `Row ${row}'s ${part} can't stack accents or other marks on one character.`;
 
-// Checked on the raw text, before cleaning. Every control character (C0 and
-// C1, U+0085 included) but tab, CR and LF, which are whitespace here and
-// collapse to a space; every invisible "format" character (\p{Cf}: zero-width
-// spaces, bidi overrides, isolates and marks, soft hyphens, BOM, word joiner)
-// but the zero-width (non-)joiners emoji and several scripts need; and the
-// line/paragraph separators (U+2028, U+2029). The database refuses the
-// controls and separators too (private.before_you_go_text_ok).
-const DISALLOWED = /(?![\n\r\t])\p{Cc}|(?![\u200C\u200D])\p{Cf}|[\u2028\u2029]/u;
+// Checked on the raw text, before cleaning (and so before the blank check:
+// a part made only of these is refused, not dropped). Every control character
+// (C0 and C1, U+0085 included) but tab, CR and LF, which are whitespace here
+// and collapse to a space; every invisible "format" character (\p{Cf}:
+// zero-width spaces, bidi overrides, isolates and marks, soft hyphens, BOM,
+// word joiner); every other default-ignorable one (Unicode's
+// Default_Ignorable_Code_Point: the Hangul fillers U+115F, U+1160, U+3164 and
+// U+FFA0, which are letters, the combining grapheme joiner U+034F, the Khmer
+// inherent vowels, the Mongolian and other variation selectors, the
+// unassigned U+2065, U+FFF0-U+FFF8 and U+E0000-U+E0FFF); and the
+// line/paragraph separators (U+2028, U+2029). Allowed: the zero-width
+// (non-)joiners U+200C and U+200D emoji and several scripts need; VS16
+// (U+FE0F, emoji presentation) right after an emoji (a red heart, U+2764
+// U+FE0F; a keycap, 1 U+FE0F U+20E3); and the tag characters in an emoji tag sequence (EMOJI_TAG_SEQUENCE, taken
+// out first). The database refuses the same (private.before_you_go_text_ok).
+const DISALLOWED =
+  /(?![\n\r\t])\p{Cc}|(?![\u200C\u200D])\p{Cf}|(?![\u200C\u200D\uFE0F])\p{Default_Ignorable_Code_Point}|(?<!\p{Emoji})\uFE0F|[\u2028\u2029]/u;
 // Emoji tag sequences (the flags of England, Scotland and Wales): the one legitimate use of tag characters.
 const EMOJI_TAG_SEQUENCE = /\u{1F3F4}[\u{E0030}-\u{E0039}\u{E0061}-\u{E007A}]{1,8}\u{E007F}/gu;
+// What a tag sequence becomes for the DISALLOWED check: a space, so a VS16 right after one isn't taken as an emoji's.
+const TAG_SEQUENCE_STAND_IN = " ";
 // Something visible: a letter, number, punctuation mark or symbol (emoji are symbols).
 const VISIBLE = /[\p{L}\p{N}\p{P}\p{S}]/u;
 
@@ -131,7 +142,9 @@ function checkPart(
   // Before any cleaning or pattern runs on it.
   if (raw.length > MAX_LENGTH[part] * RAW_FACTOR) return { blank: false, error: beforeYouGoTooLong(row, part) };
   // Refused even in a part that would otherwise be blank ("\u200B").
-  if (DISALLOWED.test(raw.replace(EMOJI_TAG_SEQUENCE, ""))) return { blank: false, error: beforeYouGoHidden(row, part) };
+  if (DISALLOWED.test(raw.replace(EMOJI_TAG_SEQUENCE, TAG_SEQUENCE_STAND_IN))) {
+    return { blank: false, error: beforeYouGoHidden(row, part) };
+  }
   const text = cleanBeforeYouGoText(raw);
   if (isBlank(text)) return { blank: true, error: null };
   // Code points after NFC, as char_length counts the stored text (NFC can lengthen it: U+0958 is two).

@@ -130,8 +130,9 @@ describe("EventEditor — Before you go", () => {
     expect(within(row2).getByRole("button", { name: "Remove row 2" })).toBeInTheDocument();
     for (const i of [0, 1, 2]) {
       expect(input(i, "label")).toHaveValue("");
-      expect(input(i, "label")).toHaveAttribute("maxlength", "20");
-      expect(input(i, "value")).toHaveAttribute("maxlength", "80");
+      // No native maxlength (it counts UTF-16 units, not the code points the limits are in): checked on save.
+      expect(input(i, "label")).not.toHaveAttribute("maxlength");
+      expect(input(i, "value")).not.toHaveAttribute("maxlength");
       expect(input(i, "label")).not.toHaveAttribute("aria-invalid");
     }
   });
@@ -162,16 +163,39 @@ describe("EventEditor — Before you go", () => {
     expect(screen.getByRole("button", { name: "Add a row" })).toHaveFocus();
   });
 
-  it("sends the rows cleaned as the API stores them, empty rows dropped", async () => {
+  it("sends the rows as on screen, an empty one included, so the API's \"Row N\" is the row shown", async () => {
     updateEventDraft.mockResolvedValue({ ...EVENT, beforeYouGo: ROWS });
     renderEditor();
     type(0, "label", " Entry ");
     type(0, "value", "7:30 pm –  10:30 pm ");
-    // Row 2 left empty: dropped.
+    // Row 2 left empty: sent in its place (the API cleans the rows and drops it), so a refusal the API alone
+    // makes of the row below names it "Row 3", as on screen.
     type(2, "label", "Extras");
     type(2, "value", " 🎟️ Bring your ticket");
     save();
-    expect((await sentInput()).beforeYouGo).toEqual([ROWS[0], { label: "Extras", value: "🎟️ Bring your ticket" }]);
+    expect((await sentInput()).beforeYouGo).toEqual([
+      { label: " Entry ", value: "7:30 pm –  10:30 pm " },
+      { label: "", value: "" },
+      { label: "Extras", value: " 🎟️ Bring your ticket" },
+    ]);
+  });
+
+  it("takes a label of 20 code points with an emoji (21 UTF-16 units), and refuses 21 code points on save", async () => {
+    const label = `\u{1F600}${"A".repeat(19)}`;
+    expect(label.length).toBe(21);
+    updateEventDraft.mockResolvedValue({ ...EVENT, beforeYouGo: [{ label, value: "7 pm" }] });
+    renderEditor();
+    type(0, "label", `${label}B`);
+    type(0, "value", "7 pm");
+    save();
+    await waitFor(() => expect(input(0, "label")).toHaveAttribute("aria-invalid", "true"));
+    expect(input(0, "label")).toHaveAccessibleDescription("Row 1's label must be 20 characters or fewer.");
+    expect(updateEventDraft).not.toHaveBeenCalled();
+
+    type(0, "label", label);
+    expect(input(0, "label")).toHaveValue(label);
+    save();
+    expect((await sentInput()).beforeYouGo).toEqual([{ label, value: "7 pm" }, { label: "", value: "" }, { label: "", value: "" }]);
   });
 
   it("shows saved rows (a colon in a label included), sends them back unchanged, and sends null once they're cleared", async () => {
@@ -214,7 +238,8 @@ describe("EventEditor — Before you go", () => {
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "General admission" } });
     save();
     await waitFor(() => expect(createEventDraft).toHaveBeenCalledTimes(1));
-    expect(createEventDraft.mock.calls[0][0]).toMatchObject({ beforeYouGo: ROWS });
+    // The third row, left empty, sent in its place.
+    expect(createEventDraft.mock.calls[0][0]).toMatchObject({ beforeYouGo: [...ROWS, { label: "", value: "" }] });
   });
 
   it("refuses bad rows by their inputs, before sending: invalid, described by the error, the first focused, one summary entry", async () => {
@@ -279,14 +304,22 @@ describe("EventEditor — Before you go", () => {
     showStep(3);
     save();
     await waitFor(() => expect(screen.getByText(message, { selector: "#beforeYouGo-error" })).toBeInTheDocument());
-    expect(updateEventDraft.mock.calls[0][1]).toMatchObject({ beforeYouGo: [{ label: "Entry", value: "7 pm" }] });
+    expect(updateEventDraft.mock.calls[0][1]).toMatchObject({
+      beforeYouGo: [{ label: "Entry", value: "7 pm" }, { label: "", value: "" }, { label: "", value: "" }],
+    });
     expect(group()).toHaveAccessibleDescription(`${BEFORE_YOU_GO_HINT} ${message}`);
     expect(currentStep()).toBe(1);
     await waitFor(() => expect(input(0, "label")).toHaveFocus());
     expect(input(0, "label")).toHaveAccessibleDescription(message);
-    // Editing a row clears it.
+    // The first input is invalid while the API's error shows (it's the one described by it); the group isn't.
+    expect(input(0, "label")).toHaveAttribute("aria-invalid", "true");
+    for (const other of [input(0, "value"), input(1, "label"), input(1, "value")]) expect(other).not.toHaveAttribute("aria-invalid");
+    expect(group()).not.toHaveAttribute("aria-invalid");
+    // Editing a row clears it, and the first input is valid again.
     type(0, "value", "8 pm");
     expect(screen.queryByText(message, { selector: "#beforeYouGo-error" })).toBeNull();
+    expect(input(0, "label")).not.toHaveAttribute("aria-invalid");
+    expect(input(0, "label")).not.toHaveAccessibleDescription(message);
   });
 });
 

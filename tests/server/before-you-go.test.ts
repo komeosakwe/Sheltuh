@@ -242,6 +242,54 @@ describe("the organiser's create and edit", () => {
     );
   });
 
+  it("refuses the default-ignorable characters outside Cf (Hangul fillers, variation selectors), before the blank check", async () => {
+    const hidden = (n: number, part: "label" | "value") =>
+      `Row ${n}'s ${part} can't contain control, invisible or text-direction characters.`;
+    // U+3164 HANGUL FILLER, U+115F HANGUL CHOSEONG FILLER and U+FFA0 HALFWIDTH HANGUL FILLER are letters (Lo),
+    // U+180B MONGOLIAN FREE VARIATION SELECTOR ONE a mark (Mn): none is Cf, and each renders as nothing.
+    for (const ch of ["\u3164", "\u115F", "\uFFA0", "\u180B"]) {
+      const name = `U+${ch.codePointAt(0)!.toString(16).toUpperCase()}`;
+      // Alone: refused, not taken as a blank (and so dropped) row, nor as text.
+      expect(await refusal([row(ch, ch)]), name).toBe(hidden(1, "label"));
+      expect(await refusal([row(ch, "7 pm")]), name).toBe(hidden(1, "label"));
+      expect(await refusal([ROWS[0], row("Age", ch)]), name).toBe(hidden(2, "value"));
+      // In text.
+      expect(await refusal([row(`Do${ch}ors`, "7 pm")]), name).toBe(hidden(1, "label"));
+      expect(await refusal([ROWS[0], row("Age", `18${ch}+`)]), name).toBe(hidden(2, "value"));
+    }
+    // The rest of Default_Ignorable_Code_Point: U+1160, the combining grapheme joiner, a Khmer inherent vowel,
+    // the other variation selectors (VS1, VS15, a supplementary one), the unassigned U+2065, U+FFF0 and U+E0000.
+    for (const ch of ["\u1160", "\u034F", "\u17B4", "\u180F", "\uFE00", "\uFE0E", "\u{E0100}", "\u2065", "\uFFF0", "\u{E0000}"]) {
+      expect(await refusal([row("Entry", `7${ch} pm`)]), JSON.stringify(ch)).toBe(hidden(1, "value"));
+    }
+    // VS16 (U+FE0F) only right after an emoji: alone, after a letter or a space, doubled, or after a flag's tags, refused.
+    const flag = "\u{1F3F4}\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F}";
+    for (const text of ["\uFE0F", "Entry\uFE0F", "Doors \uFE0F", "\u2764\uFE0F\uFE0F", `${flag}\uFE0F`, "a\u200D\uFE0F"]) {
+      expect(await refusal([row("Entry", text)]), JSON.stringify(text)).toBe(hidden(1, "value"));
+    }
+    // A lone tag character, or a flag's tags without their black flag: refused.
+    expect(await refusal([row("Entry", "\u{E0067}\u{E0062}\u{E007F}")])).toBe(hidden(1, "value"));
+
+    // Emoji with VS16 (a red heart, a keycap, a ZWJ sequence) and a subdivision flag (Scotland): fine, stored as sent.
+    const emoji = [
+      row("\u2764\uFE0F Extras", "Free water \u2764\uFE0F"),
+      row("Doors", "1\uFE0F\u20E3 at the side"),
+      row("Night", "\u{1F3F3}\uFE0F\u200D\u{1F308} Pride"),
+      row(`${flag} Crew`, `Scotland ${flag}`),
+    ];
+    expect(await accepted(emoji)).toEqual(emoji);
+  });
+
+  it("numbers its errors by the row's place in the list sent, blank rows included (as the editor shows them)", async () => {
+    // The API's own checks (stacked marks; a filler) on the second row, after a blank first: "Row 2", not "Row 1".
+    expect(await refusal([row("", ""), row(`Z${"\u0301".repeat(6)}`, "x")])).toBe(
+      "Row 2's label can't stack accents or other marks on one character.",
+    );
+    expect(await refusal([row(" ", ""), ROWS[0], row("", ""), row("Age", "\u3164")])).toBe(
+      "Row 4's value can't contain control, invisible or text-direction characters.",
+    );
+  });
+
   it("refuses anything that isn't a list of label and value text", async () => {
     for (const value of ["Doors at 7", 42, true, { label: "Entry", value: "7 pm" }]) {
       expect(await refusal(value)).toBe("Send the rows as a list of labels and values, or null.");
@@ -627,6 +675,69 @@ describe("the database", () => {
     for (const json of good) {
       await expect(setRows(json), String(json)).resolves.toBeDefined();
     }
+  });
+
+  it("refuses the other default-ignorable characters, and keeps emoji with VS16 and subdivision flags", async () => {
+    const flag = "\u{1F3F4}\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F}";
+    const bad: string[] = [];
+    for (const ch of ["\u3164", "\u115F", "\uFFA0", "\u180B"]) {
+      bad.push(
+        rows({ label: ch, value: ch }),
+        rows({ label: ch, value: "7 pm" }),
+        rows({ label: "Entry", value: ch }),
+        rows({ label: `Do${ch}ors`, value: "7 pm" }),
+        rows({ label: "Entry", value: `7${ch} pm` }),
+      );
+    }
+    for (const value of [
+      "7\u1160pm", "7\u034Fpm", "7\u17B5pm", "7\u180Fpm", "7\uFE00pm", "7\uFE0Epm", "7\u{E0100}pm", "7\u2065pm",
+      "7\uFFF0pm", "7\u0600pm", "7\uFFF9pm", "7\u{13430}pm", "7\u{E0000}pm", "7\u{E0FFF}pm",
+      // Tag characters outside a flag sequence.
+      "7\u{E0001}pm", "7\u{E0067}\u{E0062}\u{E007F}pm",
+      // VS16 first, after a letter or a space, doubled, or after a flag's tags.
+      "\uFE0F", "Entry\uFE0F", "Doors \uFE0F", "\u2764\uFE0F\uFE0F", `${flag}\uFE0F`, "a\u200D\uFE0F",
+    ]) {
+      bad.push(rows({ label: "Entry", value }));
+    }
+    for (const json of bad) {
+      await expect(setRows(json), json).rejects.toThrow(/events_before_you_go_check/);
+    }
+    const good = [
+      rows({ label: "\u2764\uFE0F Extras", value: "Free water \u2764\uFE0F" }),
+      rows({ label: "Doors", value: "1\uFE0F\u20E3 #\uFE0F\u20E3 \u00A9\uFE0F" }),
+      rows({ label: "Night", value: "\u{1F3F3}\uFE0F\u200D\u{1F308} Pride" }),
+      rows({ label: `${flag} Crew`, value: `Scotland ${flag} and England \u{1F3F4}\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F}` }),
+    ];
+    for (const json of good) {
+      await expect(setRows(json), json).resolves.toBeDefined();
+    }
+  });
+
+  it("never refuses what the API stores, and refuses every invisible character the API refuses", async () => {
+    // Every control, format and default-ignorable code point (NUL aside: no text holds it) between two letters,
+    // and VS16 after every emoji.
+    const invisible = /^(?:\p{Cc}|\p{Cf}|\p{Default_Ignorable_Code_Point}|\u2028|\u2029)$/u;
+    const emoji = /^\p{Emoji}$/u;
+    const texts: string[] = [];
+    for (let cp = 1; cp <= 0x10ffff; cp++) {
+      if (cp >= 0xd800 && cp <= 0xdfff) continue;
+      const ch = String.fromCodePoint(cp);
+      if (invisible.test(ch)) texts.push(`a${ch}b`);
+      if (emoji.test(ch)) texts.push(`${ch}\uFE0F`);
+    }
+    // What the API stores of each (null: refused).
+    const storedAs = texts.map((text) => (validateBeforeYouGo([row("Entry", text)]) ? null : normaliseBeforeYouGo([row("Entry", text)])![0].value));
+    const checked = texts.map((text, i) => storedAs[i] ?? text);
+    const results = await api.db.query<{ i: number; ok: boolean }>(
+      `select (t.ord - 1)::integer as i, private.before_you_go_text_ok(t.text, 80) as ok
+         from jsonb_array_elements_text($1::text::jsonb) with ordinality as t (text, ord)`,
+      [JSON.stringify(checked)],
+    );
+    expect(results).toHaveLength(texts.length);
+    const disagree = results
+      .filter(({ i, ok }) => ok !== (storedAs[i] !== null))
+      .map(({ i }) => `${Array.from(texts[i], (c) => c.codePointAt(0)!.toString(16)).join(" ")}: API ${storedAs[i] === null ? "refuses" : "stores"}`);
+    expect(disagree).toEqual([]);
   });
 
   it("the write functions store JSON null and [] as SQL null, never jsonb 'null'", async () => {

@@ -17,14 +17,20 @@
 --     collapses whitespace); no C0 or C1 control character (U+0000-U+001F,
 --     U+007F-U+009F: so no tab, CR, LF or U+0085) and no line or paragraph
 --     separator (U+2028, U+2029): one line each; none of the invisible or
---     text-direction format characters the API refuses (soft hyphen, Arabic
---     letter mark, Mongolian vowel separator, zero-width space, LRM/RLM, the
---     bidi embeddings, overrides and isolates, word joiner and invisible
---     operators, BOM). U+200C and U+200D (joiners emoji and several scripts
---     need) are allowed, as the API allows them. An empty array is stored as
---     null, never kept. Plain text: the API refuses web and email addresses,
---     and stores anything HTML-like as the characters typed; every display
---     escapes it. Existing rows are null and pass.
+--     text-direction format characters the API refuses (\p{Cf}: soft hyphen,
+--     Arabic letter mark, Mongolian vowel separator, zero-width space,
+--     LRM/RLM, the bidi embeddings, overrides and isolates, word joiner and
+--     invisible operators, BOM, the prepended concatenation marks) and no
+--     other default-ignorable character (Unicode's
+--     Default_Ignorable_Code_Point: the Hangul fillers, which are letters, the
+--     combining grapheme joiner, the variation selectors). Allowed, as the API
+--     allows them: U+200C and U+200D (joiners emoji and several scripts need),
+--     VS16 (U+FE0F) after a character that can be an emoji (a red heart
+--     emoji), and the tag characters in an emoji tag sequence (a subdivision
+--     flag). An empty array is stored as null, never kept. Plain text: the
+--     API refuses web and email addresses, and stores anything HTML-like as
+--     the characters typed; every display escapes it. Existing rows are null
+--     and pass.
 --   * The two helpers are immutable SQL functions (a check can't hold a
 --     subquery), structural only: tightening them later with create or
 --     replace wouldn't re-check stored rows, but any later update of such a
@@ -80,8 +86,8 @@
 -- The rules
 -- ---------------------------------------------------------------------------
 
--- One label or value. Escapes only (\uXXXX are fixed-width), so no invisible
--- character is ever typed into this file.
+-- One label or value. Escapes only (\uXXXX and \UXXXXXXXX are fixed-width),
+-- so no invisible character is ever typed into this file.
 create function private.before_you_go_text_ok(p_text text, p_max integer) returns boolean
 language sql
 immutable
@@ -91,10 +97,24 @@ as $$
      and char_length(p_text) between 1 and p_max
      and p_text = btrim(p_text)
      and strpos(p_text, '  ') = 0
-     -- C0 and C1 controls (tab, CR, LF and U+0085 included: one line), the
-     -- line and paragraph separators, and the format characters the API
-     -- refuses (\p{Cf} but U+200C and U+200D).
-     and p_text !~ '[\u0001-\u001F\u007F-\u009F\u00AD\u061C\u180E\u200B\u200E\u200F\u2028-\u202E\u2060-\u2064\u2066-\u206F\uFEFF]';
+     -- Checked with each emoji tag sequence (U+1F3F4, 1 to 8 tag letters or
+     -- digits, U+E007F: the flags of England, Scotland and Wales) taken out
+     -- (a space in its place), as the API checks it. Refused: C0 and C1
+     -- controls (tab, CR, LF and U+0085 included: one line); the line and
+     -- paragraph separators; the format characters the API refuses (\p{Cf}
+     -- but U+200C and U+200D); every other Default_Ignorable_Code_Point
+     -- (U+034F, the Hangul fillers U+115F, U+1160, U+3164 and U+FFA0, U+17B4
+     -- and U+17B5, U+180B-U+180F, U+2065, the variation selectors
+     -- U+FE00-U+FE0E, U+FFF0-U+FFF8, U+E0000-U+E0FFF, tags and the
+     -- supplementary variation selectors included); and VS16 (U+FE0F) first or
+     -- after anything that can't be an emoji (every emoji is #, *, 0-9, (c),
+     -- (R) or from U+203C up; the API asks for \p{Emoji} itself).
+     and regexp_replace(p_text, '\U0001F3F4[\U000E0030-\U000E0039\U000E0061-\U000E007A]{1,8}\U000E007F', ' ', 'g')
+         !~ ('[\u0001-\u001F\u007F-\u009F\u00AD\u034F\u0600-\u0605\u061C\u06DD\u070F\u0890\u0891\u08E2'
+             '\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B\u200E\u200F\u2028-\u202E\u2060-\u206F\u3164'
+             '\uFE00-\uFE0E\uFEFF\uFFA0\uFFF0-\uFFFB\U000110BD\U000110CD\U00013430-\U0001343F'
+             '\U0001BCA0-\U0001BCA3\U0001D173-\U0001D17A\U000E0000-\U000E0FFF]'
+             '|(^|[^#*0-9\u00A9\u00AE\u203C-\uFE0E\uFE10-\U000DFFFF\U000E1000-\U0010FFFF])\uFE0F');
 $$;
 
 -- The column's value: null, or an array of 1 to 5 {label, value} objects.

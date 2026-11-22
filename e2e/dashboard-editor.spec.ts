@@ -940,7 +940,7 @@ for (const vp of [
       expect((saved[0].ticketTypes as { description?: string }[])[0].description).toBe("Standing room, all four bands.");
     });
 
-    test("the Before you go rows: three to start, stacked on phones, refused by their input, shown in the preview, sent cleaned", async ({ page }) => {
+    test("the Before you go rows: three to start, stacked on phones, refused by their input, shown in the preview, sent as on screen", async ({ page }) => {
       const saved: Record<string, unknown>[] = [];
       const draft = freeDraft("evt-e2e-before-you-go");
       await signedInAsOrganiser(page, (request, path) => {
@@ -1002,12 +1002,13 @@ for (const vp of [
         await expect(section.locator("dt")).toHaveText(["01 / Entry", "02 / Age"], { ignoreCase: true });
       }
       expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
-      // Row 3 left empty: dropped.
+      // Row 3 left empty: sent in its place (the API drops it), so the API's "Row N" is the row on screen.
       await page.getByRole("button", { name: "Save draft" }).click();
       await expect.poll(() => saved.length, { timeout: 30_000 }).toBe(1);
       expect(saved[0].beforeYouGo).toEqual([
         { label: "Entry", value: "7:30 pm – 10:30 pm" },
         { label: "Age", value: "18+ event — bring photo ID." },
+        { label: "", value: "" },
       ]);
     });
   });

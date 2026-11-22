@@ -1,10 +1,8 @@
 import { fieldClass } from "@/components/ui/Field";
 import {
-  BEFORE_YOU_GO_LABEL_MAX_LENGTH,
   BEFORE_YOU_GO_MAX_ITEMS,
   BEFORE_YOU_GO_SUGGESTED_LABELS,
   BEFORE_YOU_GO_TITLE,
-  BEFORE_YOU_GO_VALUE_MAX_LENGTH,
   type BeforeYouGoPart,
 } from "@/lib/before-you-go";
 import {
@@ -56,7 +54,8 @@ export default function BeforeYouGoFields({
     const id = beforeYouGoInputId(index, part);
     const error = errors[index]?.[part];
     const errorId = `${id}-error`;
-    // The API's error has no input of its own: the first input (where focus goes) is described by it.
+    // The API's error has no input of its own: the first input (where focus goes) is described by it, and is
+    // invalid while it shows (the fieldset itself takes no aria-invalid).
     const groupDescribed = Boolean(groupError) && index === 0 && part === "label";
     const described = [error ? errorId : "", groupDescribed ? BEFORE_YOU_GO_GROUP_ERROR_ID : ""].filter(Boolean).join(" ");
     return (
@@ -68,10 +67,11 @@ export default function BeforeYouGoFields({
           id={id}
           type="text"
           value={value}
-          maxLength={part === "label" ? BEFORE_YOU_GO_LABEL_MAX_LENGTH : BEFORE_YOU_GO_VALUE_MAX_LENGTH}
+          // No native maxLength: it counts UTF-16 units, so an emoji would take two of the limit's code points.
+          // The limits are checked on save (validateBeforeYouGo, by code point after NFC, as the API counts).
           placeholder={part === "label" ? BEFORE_YOU_GO_SUGGESTED_LABELS[index] : VALUE_PLACEHOLDERS[index]}
           autoComplete="off"
-          aria-invalid={error ? true : undefined}
+          aria-invalid={error || groupDescribed ? true : undefined}
           aria-describedby={described || undefined}
           onChange={(e) => onChange(index, part, e.target.value)}
           className={INPUT_CLASS}
