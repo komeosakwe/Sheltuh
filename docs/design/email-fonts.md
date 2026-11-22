@@ -1,5 +1,10 @@
 # Email font: Nunito
 
+> Since the 1120 emails (Nov 2026) every customer and organiser email uses
+> Instrument Sans and IBM Plex Mono (lib/server/email-kit.ts, self-hosted like
+> the ticket email). Nunito is now only in the admin review emails
+> (`lib/server/email-layout.ts`).
+
 The welcome emails (and the shared layout, `lib/server/email-layout.ts`) set
 type in `'Nunito Sans','Nunito','Avenir Next','Segoe UI',Arial,sans-serif`.
 

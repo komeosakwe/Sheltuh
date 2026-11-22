@@ -565,11 +565,13 @@ describe("after payment", () => {
     await api.runDeferred();
     expect(api.sendEmail).toHaveBeenCalledTimes(1);
     const email = api.sendEmail.mock.calls[0][0];
-    expect(email.text).toContain("Support Sheltüh: A$5\nTotal paid: A$149.60 (incl. booking fees and Support Sheltüh)");
+    // The order's own figures add up, so the summary itemises them (Latte's 1120 ticket email): the booking fee,
+    // Support Sheltüh, then the total.
+    expect(email.text).toContain("Booking fee: A$4.60\nSupport Sheltüh: A$5.00\nTotal paid: A$149.60\n");
     expect(email.html).toContain(">Support Sheltüh</td>");
-    expect(email.html).toContain(">A$5</td>");
+    expect(email.html).toContain(">A$5.00</td>");
     expect(email.html).toContain("A$149.60");
-    expect(email.html).toContain("Incl. booking fees and Support Sheltüh");
+    expect(email.html.indexOf(">Booking fee</td>")).toBeLessThan(email.html.indexOf(">Support Sheltüh</td>"));
   });
 
   it("without support the ticket page has no supportCents and the email no line", async () => {
@@ -582,7 +584,7 @@ describe("after payment", () => {
     const email = api.sendEmail.mock.calls[0][0];
     expect(email.text).not.toContain("Support Sheltüh");
     expect(email.html).not.toContain("Support Sheltüh");
-    expect(email.text).toContain("Total paid: A$144.60 (incl. booking fees)");
+    expect(email.text).toContain("Booking fee: A$4.60\nTotal paid: A$144.60\n");
   });
 
   it("the payment page's summary has supportCents (only when there's some) and a total including it", async () => {
@@ -1320,7 +1322,7 @@ describe("ticket email (unit)", () => {
   it("a Support Sheltüh row above the total (HTML and text); none for an order without it", () => {
     const email = buildTicketEmail(order, event, "https://sheltuh.com.au");
     expect(email.text).toContain("Order reference: #");
-    expect(email.text).toContain("\nSupport Sheltüh: A$5\nTotal paid: A$37.30 (incl. booking fees and Support Sheltüh)\n");
+    expect(email.text).toContain("\nSupport Sheltüh: A$5.00\nTotal paid: A$37.30 (incl. booking fees and Support Sheltüh)\n");
     const row = email.html.indexOf(">Support Sheltüh</td>");
     expect(row).toBeGreaterThan(email.html.indexOf(">Order reference</td>"));
     expect(row).toBeLessThan(email.html.indexOf(">Total paid</td>"));
