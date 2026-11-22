@@ -940,7 +940,7 @@ for (const vp of [
       expect((saved[0].ticketTypes as { description?: string }[])[0].description).toBe("Standing room, all four bands.");
     });
 
-    test("the Before you go rows are sent with the draft, shown in the preview, and refused by the field past 5 rows", async ({ page }) => {
+    test("the Before you go rows: three to start, stacked on phones, refused by their input, shown in the preview, sent cleaned", async ({ page }) => {
       const saved: Record<string, unknown>[] = [];
       const draft = freeDraft("evt-e2e-before-you-go");
       await signedInAsOrganiser(page, (request, path) => {
@@ -955,23 +955,54 @@ for (const vp of [
       });
       await page.goto(`/dashboard/${draft.eventId}`);
       await expect(page.getByLabel("Title", { exact: true })).toHaveValue("Neon Static", { timeout: 30_000 });
-      const note = page.getByLabel("Before you go (optional)");
-      await expect(note).toHaveAccessibleDescription(/^One row per line, as Label: value/);
+      const fields = page.getByRole("group", { name: "Before you go (optional)" });
+      await expect(fields).toHaveAccessibleDescription(
+        "What people should know before they arrive. Up to 5 short rows. No links.",
+      );
+      const row = (n: number) => fields.getByRole("group", { name: `Row ${n}` });
+      const label = (n: number) => row(n).getByLabel("Label");
+      const value = (n: number) => row(n).getByLabel("Value");
+      await expect(fields.locator("[data-before-you-go-row]")).toHaveCount(3);
+      await expect(label(1)).toHaveAttribute("placeholder", "Entry");
+      await expect(value(1)).toHaveAttribute("placeholder", "7:30 pm – 10:30 pm");
 
-      // Six rows: refused by the field, nothing sent. (TEMPORARY "Label: value" textarea until the rows UI.)
-      await note.fill("A: 1\nB: 2\nC: 3\nD: 4\nE: 5\nF: 6");
+      // Phones: the label above the value. Desktop: side by side. Both at least 44px tall.
+      const labelBox = await label(1).boundingBox();
+      const valueBox = await value(1).boundingBox();
+      if (!labelBox || !valueBox) throw new Error("row 1 not laid out");
+      if (desktop) expect(Math.abs(labelBox.y - valueBox.y)).toBeLessThan(1);
+      else expect(valueBox.y).toBeGreaterThan(labelBox.y + labelBox.height);
+      for (const box of [labelBox, valueBox]) expect(box.height).toBeGreaterThanOrEqual(44);
+
+      // Up to 5 rows: Add a row goes away.
+      await fields.getByRole("button", { name: "Add a row" }).click();
+      await expect(label(4)).toBeFocused();
+      await fields.getByRole("button", { name: "Add a row" }).click();
+      await expect(fields.getByRole("button", { name: "Add a row" })).toHaveCount(0);
+      await fields.getByRole("button", { name: "Remove row 5" }).click();
+      await fields.getByRole("button", { name: "Remove row 4" }).click();
+
+      // A link: refused by its input, nothing sent.
+      await label(1).fill("Entry");
+      await value(1).fill("7:30 pm – 10:30 pm");
+      await label(2).fill("Tickets");
+      await value(2).fill("sheltuh.com.au/neon");
       await page.getByRole("button", { name: "Save draft" }).click();
-      await expect(note).toBeFocused();
-      await expect(note).toHaveAttribute("aria-invalid", "true");
-      await expect(note).toHaveAccessibleDescription(/^Keep it to 5 rows or fewer\./);
+      await expect(value(2)).toBeFocused();
+      await expect(value(2)).toHaveAttribute("aria-invalid", "true");
+      await expect(value(2)).toHaveAccessibleDescription("Row 2's value can't include links or web addresses.");
       expect(saved).toHaveLength(0);
 
-      await note.fill("Entry: 7:30 pm – 10:30 pm\nAge: 18+ event — bring photo ID.");
+      await label(2).fill("Age");
+      await value(2).fill("18+ event — bring photo ID.");
+      await expect(value(2)).not.toHaveAttribute("aria-invalid");
       if (desktop) {
-        const box = page.frameLocator("iframe[title='Event page preview']").getByRole("region", { name: "Before you go" });
-        await expect(box).toContainText("18+ event — bring photo ID.", { timeout: 15_000 });
+        const section = page.frameLocator("iframe[title='Event page preview']").getByRole("region", { name: "The essentials." });
+        await expect(section).toContainText("18+ event — bring photo ID.", { timeout: 15_000 });
+        await expect(section.locator("dt")).toHaveText(["01 / Entry", "02 / Age"], { ignoreCase: true });
       }
       expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+      // Row 3 left empty: dropped.
       await page.getByRole("button", { name: "Save draft" }).click();
       await expect.poll(() => saved.length, { timeout: 30_000 }).toBe(1);
       expect(saved[0].beforeYouGo).toEqual([

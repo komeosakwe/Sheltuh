@@ -71,7 +71,19 @@ import {
   type EditorStep,
 } from "@/components/dashboard/editor/draft";
 import { draftToPreviewEvent } from "@/components/dashboard/editor/preview-event";
-import { beforeYouGoFromText, beforeYouGoToText } from "@/components/dashboard/editor/before-you-go-text";
+import BeforeYouGoFields from "@/components/dashboard/editor/BeforeYouGoFields";
+import {
+  BEFORE_YOU_GO_ADD_ID,
+  beforeYouGoErrorsAfterRemove,
+  beforeYouGoInputId,
+  beforeYouGoItems,
+  emptyBeforeYouGoRow,
+  firstBeforeYouGoError,
+  initialBeforeYouGoRows,
+  withoutBeforeYouGoError,
+  type BeforeYouGoRow,
+  type BeforeYouGoRowErrors,
+} from "@/components/dashboard/editor/before-you-go-rows";
 import { Button } from "@/components/ui/Button";
 import { fieldClass } from "@/components/ui/Field";
 import {
@@ -113,7 +125,7 @@ import type {
 } from "@/lib/api/types";
 import { SessionExpiredError } from "@/lib/auth/AuthContext";
 import { useAccountOwner } from "@/lib/auth/useAccountOwner";
-import { BEFORE_YOU_GO_TITLE, normaliseBeforeYouGo } from "@/lib/before-you-go";
+import { normaliseBeforeYouGo, validateBeforeYouGo, type BeforeYouGoPart } from "@/lib/before-you-go";
 import { eventClipsEnabled } from "@/lib/clips-flag";
 import { eventZone, formatEventDateShort, formatEventTime, toDateTimeInputParts } from "@/lib/format";
 import { assignPoster } from "@/lib/live/assign-poster";
@@ -138,13 +150,6 @@ const SECTION_TITLE = "font-heading text-lg leading-6 text-foreground";
 /** Under Venue name after a Google pick that was an address, not a venue (handlePicked). */
 export const VENUE_NAME_HINT = "Google found an address, not a venue name. Add the venue’s name.";
 const VENUE_NAME_HINT_ID = "venueName-hint";
-
-/** Under "Before you go" (lib/before-you-go.ts has the limits the hint gives). TEMPORARY until the rows UI. */
-export const BEFORE_YOU_GO_HINT =
-  "One row per line, as Label: value (Entry, Age, Extras). Up to 5 rows. No links.";
-const BEFORE_YOU_GO_HINT_ID = "beforeYouGo-hint";
-/** The owner's reference rows. */
-const BEFORE_YOU_GO_PLACEHOLDER = "Entry: 7:30 pm – 10:30 pm\nAge: 18+ · Photo ID required\nExtras: Free earplugs at the bar";
 
 interface OrganiserProps {
   getToken: GetToken;
@@ -265,7 +270,8 @@ function errorId(key: string): string {
  * The control to focus for each error (this form's, or the API's
  * fieldErrors), in the form's order: the first one present is focused when
  * a save doesn't validate or is refused. A zone error goes to the zone
- * choice while it's shown (`zoneChoice`), else to the suburb it comes from.
+ * choice while it's shown (`zoneChoice`), else to the suburb it comes from;
+ * a "Before you go" error to its first input with one (`beforeYouGoId`).
  */
 function invalidControlIds(
   errors: Record<string, string>,
@@ -273,12 +279,13 @@ function invalidControlIds(
   start: { date: string },
   end: { date: string },
   zoneChoice: boolean,
+  beforeYouGoId: string,
 ): string[] {
   const order: [string, string][] = [
     ["organiserId", "organiserId"],
     ["title", "title"],
     ["description", "description"],
-    ["beforeYouGo", "beforeYouGo"],
+    ["beforeYouGo", beforeYouGoId],
     ["venueName", "venueName"],
     ["venueAddress", "venueAddress"],
     ["suburb", VENUE_SUBURB_ID],
@@ -324,10 +331,12 @@ export default function EventEditor(props: Props) {
 
   const [title, setTitle] = useState(initial?.title ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
-  // The "Before you go" rows as typed (optional), TEMPORARILY one textarea of "Label: value" lines
-  // (editor/before-you-go-text.ts); sent cleaned, null when blank (which clears them).
-  const [beforeYouGoText, setBeforeYouGoText] = useState(() => beforeYouGoToText(initial?.beforeYouGo));
-  const beforeYouGo = beforeYouGoFromText(beforeYouGoText);
+  // The "Before you go" rows as typed (optional; three empty ones to start), checked raw so "Row 2" is the
+  // second on screen, sent cleaned (null when all are blank, which clears them). Each input's error is shown
+  // by it after a save (validateBeforeYouGo's rows); `errors.beforeYouGo` is the summary's one entry.
+  const [beforeYouGoRows, setBeforeYouGoRows] = useState<BeforeYouGoRow[]>(() => initialBeforeYouGoRows(initial?.beforeYouGo));
+  const [beforeYouGoErrors, setBeforeYouGoErrors] = useState<BeforeYouGoRowErrors>([]);
+  const beforeYouGo = beforeYouGoItems(beforeYouGoRows);
   const [category, setCategory] = useState(initial?.category ?? EVENT_CATEGORIES[0].value);
   const [venueName, setVenueName] = useState(initial?.venueName ?? "");
   const [venueAddress, setVenueAddress] = useState(initial?.venueAddress ?? "");
@@ -616,7 +625,9 @@ export default function EventEditor(props: Props) {
 
   /** The first field that needs fixing among `fieldErrors` (this form's order), focused on its step. */
   function focusFirstInvalid(fieldErrors: Record<string, string>) {
-    const first = invalidControlIds(fieldErrors, ticketTypes.length, start, end, zoneChoice)[0] ?? null;
+    // The rows as a save checks them: the first input with an error, else (the API's) the first input.
+    const rowErrors = validateBeforeYouGo(beforeYouGo)?.rows ?? [];
+    const first = invalidControlIds(fieldErrors, ticketTypes.length, start, end, zoneChoice, beforeYouGoTarget(rowErrors))[0] ?? null;
     focusInvalidId.current = first;
     if (first) setStep(stepOfControlId(first));
   }
@@ -648,6 +659,47 @@ export default function EventEditor(props: Props) {
       for (const key of Object.keys(next)) if (/^ticket-\d+-lock$/.test(key)) delete next[key];
       return next;
     });
+  }
+
+  /** Where a "Before you go" error is focused: the first input showing one, else the first row's label (or Add a row). */
+  function beforeYouGoTarget(rowErrors: BeforeYouGoRowErrors): string {
+    const first = firstBeforeYouGoError(rowErrors);
+    if (first) return beforeYouGoInputId(first.index, first.part);
+    return beforeYouGoRows.length > 0 ? beforeYouGoInputId(0, "label") : BEFORE_YOU_GO_ADD_ID;
+  }
+
+  /** The rows' errors changed: the summary's entry says the first one left, and goes once none is. */
+  function showBeforeYouGoErrors(next: BeforeYouGoRowErrors) {
+    setBeforeYouGoErrors(next);
+    const first = firstBeforeYouGoError(next);
+    setErrors((prev) => {
+      if (first) return prev.beforeYouGo === first.message ? prev : { ...prev, beforeYouGo: first.message };
+      if (!prev.beforeYouGo) return prev;
+      const rest = { ...prev };
+      delete rest.beforeYouGo;
+      return rest;
+    });
+  }
+
+  function updateBeforeYouGo(index: number, part: BeforeYouGoPart, text: string) {
+    setBeforeYouGoRows((prev) => prev.map((row, i) => (i === index ? { ...row, [part]: text } : row)));
+    showBeforeYouGoErrors(withoutBeforeYouGoError(beforeYouGoErrors, index, part));
+  }
+
+  /** "Add a row" (up to 5): focus goes to its label. */
+  function addBeforeYouGoRow() {
+    const next = beforeYouGoRows.length;
+    setBeforeYouGoRows((prev) => [...prev, emptyBeforeYouGoRow()]);
+    focusControl(beforeYouGoInputId(next, "label"));
+  }
+
+  /** A row's Remove: focus goes to the row that takes its place, else the one above, else Add a row. */
+  function removeBeforeYouGoRow(index: number) {
+    const rows = beforeYouGoRows.filter((_, i) => i !== index);
+    setBeforeYouGoRows(rows);
+    // Its errors go with it; the others are renumbered (validateBeforeYouGo on the rows left).
+    showBeforeYouGoErrors(beforeYouGoErrorsAfterRemove(beforeYouGoErrors, rows, index));
+    focusControl(rows.length > 0 ? beforeYouGoInputId(Math.min(index, rows.length - 1), "label") : BEFORE_YOU_GO_ADD_ID);
   }
 
   /** The days as typed, as a number (NaN when it isn't one: blank, or not a number). */
@@ -684,6 +736,8 @@ export default function EventEditor(props: Props) {
       refundDays: refundDaysNumber(),
     });
     setErrors(nextErrors);
+    // Each "Before you go" input shows its own error (the summary has the one entry, nextErrors.beforeYouGo).
+    setBeforeYouGoErrors(validateBeforeYouGo(beforeYouGo)?.rows ?? []);
     if (Object.keys(nextErrors).length > 0) {
       // Focus the first field to fix (its error is read with it), and say how many there are by the buttons.
       focusFirstInvalid(nextErrors);
@@ -704,7 +758,7 @@ export default function EventEditor(props: Props) {
       start,
       end,
       ticketTypes: external ? [] : ticketTypes.map(cleanTicketType),
-      // Always sent, so clearing the box clears the note (null); the API cleans it the same way.
+      // Always sent, so clearing every row clears them (null); blank rows are dropped, as the API would.
       beforeYouGo: normaliseBeforeYouGo(beforeYouGo),
     };
     // The venue's location: only when it differs from what's saved (absent keeps it; null removes it).
@@ -1296,6 +1350,8 @@ export default function EventEditor(props: Props) {
         return "admin-reason";
       case "refundPolicy":
         return null;
+      case "beforeYouGo":
+        return beforeYouGoTarget(beforeYouGoErrors);
       default:
         return key;
     }
@@ -1643,30 +1699,16 @@ export default function EventEditor(props: Props) {
               {fieldError("description")}
             </div>
 
-            {/* Optional, as the ticket's description is, with the hint under it; a save checks the rows. TEMPORARY: one
-                textarea of "Label: value" lines until the rows UI. */}
-            <div className="flex flex-col gap-1">
-              <label htmlFor="beforeYouGo" className="eyebrow text-muted">
-                {BEFORE_YOU_GO_TITLE} (optional)
-              </label>
-              <textarea
-                id="beforeYouGo"
-                rows={4}
-                value={beforeYouGoText}
-                placeholder={BEFORE_YOU_GO_PLACEHOLDER}
-                aria-invalid={errors.beforeYouGo ? true : undefined}
-                aria-describedby={[errors.beforeYouGo ? errorId("beforeYouGo") : "", BEFORE_YOU_GO_HINT_ID].filter(Boolean).join(" ")}
-                onChange={(e) => {
-                  setBeforeYouGoText(e.target.value);
-                  clearErrors("beforeYouGo");
-                }}
-                className={fieldClass}
-              />
-              <p id={BEFORE_YOU_GO_HINT_ID} className="text-xs leading-4 text-muted">
-                {BEFORE_YOU_GO_HINT}
-              </p>
-              {fieldError("beforeYouGo")}
-            </div>
+            {/* Optional: the organiser's short rows for the event page's "The essentials." (components/events/BeforeYouGo.tsx). */}
+            <BeforeYouGoFields
+              rows={beforeYouGoRows}
+              errors={beforeYouGoErrors}
+              // The API's message (or the list's), when no input has an error of its own to show it by.
+              groupError={firstBeforeYouGoError(beforeYouGoErrors) ? undefined : errors.beforeYouGo}
+              onChange={updateBeforeYouGo}
+              onRemove={removeBeforeYouGoRow}
+              onAdd={addBeforeYouGoRow}
+            />
           </EditorCard>
 
           <EditorCard

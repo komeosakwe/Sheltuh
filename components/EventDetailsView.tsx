@@ -590,9 +590,9 @@ export default function EventDetailsView({
             {!external && !preview && <WhosGoing />}
             {external && !preview && <ExternalGoing event={event} />}
 
-            {/* The organiser's "Before you go" note (doors, age limit, what to bring), when there is one: boxed, just before
-                Location, so what to know before setting out sits with where to go. Not in the key facts by the photo:
-                on phones the title, facts, Save and Share stay on the first screen (e2e/event-page.spec.ts). */}
+            {/* The organiser's "Before you go" rows (doors, age limit, what to bring), when there are any: "The essentials.",
+                just before Location, so what to know before setting out sits with where to go. Not in the key facts by the
+                photo: on phones the title, facts, Save and Share stay on the first screen (e2e/event-page.spec.ts). */}
             {event.beforeYouGo && <BeforeYouGo items={event.beforeYouGo} className="max-w-2xl" />}
 
             {/* Where it is, with a small map and the Google Maps and Apple Maps links (none without a venue or suburb). */}

@@ -1199,9 +1199,14 @@ Organisers set it while the event is a draft or rejected; once it's submitted on
 Short rows the organiser writes for the people going to their event (owner
 request, Nov 2026; the owner's "Editorial minimal" reference): a label and a
 value each, "Entry": "7:30 pm – 10:30 pm", "Age": "18+ · Photo ID required",
-"Extras": "Free earplugs at the bar". The event page shows them (the
-reference's numbered, uppercase "01 / ENTRY" layout under "The essentials."
-is the next UI change); they're also for the ticket email, the
+"Extras": "Free earplugs at the bar". The event page shows them as the
+reference draws them (`components/events/BeforeYouGo.tsx`): "The essentials."
+before Location, then a `<dl>` of ruled rows, "01 / ENTRY" (the number
+decorative, the label uppercased by CSS in the small-text orange,
+`--signal-text`) beside its right-aligned value. The editor
+(`components/dashboard/editor/BeforeYouGoFields.tsx`) starts with three empty
+rows (Entry, Age, Extras as placeholders), adds up to 5 and checks the rows as
+typed on save, each input showing its own error. They're also for the ticket email, the
 reminder, the free-ticket confirmation, the event-changed email and the
 buyer's ticket page, whose displays come separately. Migration
 `20261204000000_event_before_you_go.sql`; rules in `lib/before-you-go.ts`

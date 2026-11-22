@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import EventEditor, { BEFORE_YOU_GO_HINT } from "@/components/dashboard/EventEditor";
+import EventEditor from "@/components/dashboard/EventEditor";
+import { BEFORE_YOU_GO_HINT } from "@/components/dashboard/editor/BeforeYouGoFields";
 import { ApiError } from "@/lib/api/client";
 import type { AdminEventRecord, EventRecord } from "@/lib/api/types";
-import { BEFORE_YOU_GO_TOO_MANY, beforeYouGoHalfFilled, beforeYouGoNoLinks } from "@/lib/before-you-go";
+import { beforeYouGoHalfFilled, beforeYouGoNoEmails, beforeYouGoNoLinks } from "@/lib/before-you-go";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 import { currentStep, showStep } from "./test-utils/editorSteps";
 import { stubMatchMedia, unstubMatchMedia } from "./test-utils/pinMapStub";
@@ -75,12 +76,10 @@ const EVENT: EventRecord = {
   updatedAt: "2026-01-01T00:00:00.000Z",
 };
 
-// TEMPORARY (until the rows UI): the textarea holds "Label: value" lines (components/dashboard/editor/before-you-go-text.ts).
 const ROWS = [
   { label: "Entry", value: "7:30 pm – 10:30 pm" },
   { label: "Age", value: "18+ · Photo ID required" },
 ];
-const TEXT = "Entry: 7:30 pm – 10:30 pm\nAge: 18+ · Photo ID required";
 
 /** The organiser's editor: on `initial` (a saved draft), or with `null` on a new event. */
 function renderEditor(initial: EventRecord | null = EVENT) {
@@ -91,8 +90,15 @@ function renderEditor(initial: EventRecord | null = EVENT) {
   );
 }
 
-// By its label: found on any step (the other steps' panels are hidden, so a role query wouldn't find it there).
-const field = () => screen.getByLabelText("Before you go (optional)");
+// By id: found on any step (the other steps' panels are hidden, so a role query wouldn't find them there).
+function input(row: number, part: "label" | "value"): HTMLInputElement {
+  const element = document.getElementById(`beforeYouGo-${row}-${part}`);
+  if (!(element instanceof HTMLInputElement)) throw new Error(`no row ${row} ${part}`);
+  return element;
+}
+const rowCount = () => document.querySelectorAll("[data-before-you-go-row]").length;
+const type = (row: number, part: "label" | "value", value: string) => fireEvent.change(input(row, part), { target: { value } });
+const group = () => screen.getByRole("group", { name: "Before you go (optional)" });
 const save = () => fireEvent.click(screen.getByRole("button", { name: /^Save draft/ }));
 
 async function sentInput(): Promise<Record<string, unknown>> {
@@ -101,51 +107,103 @@ async function sentInput(): Promise<Record<string, unknown>> {
 }
 
 describe("EventEditor — Before you go", () => {
-  it("is an optional textarea in Event details, labelled, with its hint as its description and the reference rows", () => {
+  it("is an optional group of rows in Event details, after the description, with its hint, starting with three empty rows", () => {
     renderEditor();
-    const box = field();
-    expect(box.tagName).toBe("TEXTAREA");
-    expect(box).toHaveValue("");
-    expect(box).toHaveAccessibleDescription(BEFORE_YOU_GO_HINT);
-    expect(box).toHaveAttribute("placeholder", expect.stringContaining("Entry: 7:30 pm – 10:30 pm"));
-    expect(box).not.toHaveAttribute("aria-invalid");
-    // In the Event details card, after the description.
+    expect(group()).toHaveAccessibleDescription(BEFORE_YOU_GO_HINT);
+    expect(BEFORE_YOU_GO_HINT).toBe("What people should know before they arrive. Up to 5 short rows. No links.");
     const details = screen.getByRole("heading", { name: "Event details" }).closest("section");
     expect(details).not.toBeNull();
-    if (details) expect(within(details as HTMLElement).getByLabelText("Before you go (optional)")).toBe(box);
-    const description = screen.getByLabelText("Description");
-    expect(description.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    if (details) expect(within(details as HTMLElement).getByRole("group", { name: "Before you go (optional)" })).toBe(group());
+    expect(screen.getByLabelText("Description").compareDocumentPosition(group()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // Three empty rows, the owner's reference as their placeholders; each row a group with a labelled Label and Value.
+    expect(rowCount()).toBe(3);
+    expect([0, 1, 2].map((i) => input(i, "label").placeholder)).toEqual(["Entry", "Age", "Extras"]);
+    expect([0, 1, 2].map((i) => input(i, "value").placeholder)).toEqual([
+      "7:30 pm – 10:30 pm",
+      "18+ · Photo ID required",
+      "Free earplugs at the bar",
+    ]);
+    const row2 = within(group()).getByRole("group", { name: "Row 2" });
+    expect(within(row2).getByLabelText("Label")).toBe(input(1, "label"));
+    expect(within(row2).getByLabelText("Value")).toBe(input(1, "value"));
+    expect(within(row2).getByRole("button", { name: "Remove row 2" })).toBeInTheDocument();
+    for (const i of [0, 1, 2]) {
+      expect(input(i, "label")).toHaveValue("");
+      expect(input(i, "label")).toHaveAttribute("maxlength", "20");
+      expect(input(i, "value")).toHaveAttribute("maxlength", "80");
+      expect(input(i, "label")).not.toHaveAttribute("aria-invalid");
+    }
   });
 
-  it("sends what's typed as beforeYouGo rows, cleaned as the API stores them", async () => {
+  it("adds rows up to 5 (focusing the new label), then hides Add a row; Remove takes a row out and moves focus", () => {
+    renderEditor();
+    fireEvent.click(screen.getByRole("button", { name: "Add a row" }));
+    expect(rowCount()).toBe(4);
+    expect(input(3, "label")).toHaveFocus();
+    expect(input(3, "label")).not.toHaveAttribute("placeholder");
+    fireEvent.click(screen.getByRole("button", { name: "Add a row" }));
+    expect(rowCount()).toBe(5);
+    expect(screen.queryByRole("button", { name: "Add a row" })).toBeNull();
+
+    type(1, "label", "Age");
+    fireEvent.click(screen.getByRole("button", { name: "Remove row 2" }));
+    expect(rowCount()).toBe(4);
+    // The row below takes its place (and its focus); the typed row is gone.
+    expect(input(1, "label")).toHaveFocus();
+    expect(input(1, "label")).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Add a row" })).toBeInTheDocument();
+
+    // The last row's Remove: focus goes to the row above. With none left, to Add a row.
+    fireEvent.click(screen.getByRole("button", { name: "Remove row 4" }));
+    expect(input(2, "label")).toHaveFocus();
+    for (const n of [3, 2, 1]) fireEvent.click(screen.getByRole("button", { name: `Remove row ${n}` }));
+    expect(rowCount()).toBe(0);
+    expect(screen.getByRole("button", { name: "Add a row" })).toHaveFocus();
+  });
+
+  it("sends the rows cleaned as the API stores them, empty rows dropped", async () => {
     updateEventDraft.mockResolvedValue({ ...EVENT, beforeYouGo: ROWS });
     renderEditor();
-    fireEvent.change(field(), { target: { value: `${TEXT}   \n\n\n Extras :  🎟️ Bring your ticket ` } });
+    type(0, "label", " Entry ");
+    type(0, "value", "7:30 pm –  10:30 pm ");
+    // Row 2 left empty: dropped.
+    type(2, "label", "Extras");
+    type(2, "value", " 🎟️ Bring your ticket");
     save();
-    expect((await sentInput()).beforeYouGo).toEqual([...ROWS, { label: "Extras", value: "🎟️ Bring your ticket" }]);
+    expect((await sentInput()).beforeYouGo).toEqual([ROWS[0], { label: "Extras", value: "🎟️ Bring your ticket" }]);
   });
 
-  it("shows saved rows, sends them back unchanged, and sends null once they're cleared", async () => {
-    updateEventDraft.mockResolvedValue({ ...EVENT, beforeYouGo: ROWS });
-    renderEditor({ ...EVENT, beforeYouGo: ROWS });
-    expect(field()).toHaveValue(TEXT);
+  it("shows saved rows (a colon in a label included), sends them back unchanged, and sends null once they're cleared", async () => {
+    const saved = [{ label: "Entry: VIP", value: "From 7 pm: side door" }, ...ROWS];
+    updateEventDraft.mockResolvedValue({ ...EVENT, beforeYouGo: saved });
+    renderEditor({ ...EVENT, beforeYouGo: saved });
+    expect(rowCount()).toBe(3);
+    expect(input(0, "label")).toHaveValue("Entry: VIP");
+    expect(input(0, "value")).toHaveValue("From 7 pm: side door");
     save();
-    expect((await sentInput()).beforeYouGo).toEqual(ROWS);
+    expect((await sentInput()).beforeYouGo).toEqual(saved);
 
     updateEventDraft.mockClear();
     updateEventDraft.mockResolvedValue({ ...EVENT });
-    fireEvent.change(field(), { target: { value: "  \n " } });
+    for (const i of [0, 1, 2]) {
+      type(i, "label", "");
+      type(i, "value", " ");
+    }
     save();
-    const input = await sentInput();
-    expect(input).toHaveProperty("beforeYouGo", null);
+    expect(await sentInput()).toHaveProperty("beforeYouGo", null);
   });
 
   it("a new event sends its rows with the draft", async () => {
     createEventDraft.mockResolvedValue({ ...EVENT, eventId: "evt-new", beforeYouGo: ROWS });
     renderEditor(null);
+    expect(rowCount()).toBe(3);
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Neon Static" } });
     fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Four bands." } });
-    fireEvent.change(field(), { target: { value: TEXT } });
+    type(0, "label", ROWS[0].label);
+    type(0, "value", ROWS[0].value);
+    type(1, "label", ROWS[1].label);
+    type(1, "value", ROWS[1].value);
     fireEvent.change(screen.getByLabelText("Venue name"), { target: { value: "The Tote" } });
     fireEvent.change(screen.getByLabelText("Venue address"), { target: { value: "71 Johnston St" } });
     fireEvent.change(screen.getByLabelText("Suburb or town"), { target: { value: "Collingwood" } });
@@ -159,44 +217,76 @@ describe("EventEditor — Before you go", () => {
     expect(createEventDraft.mock.calls[0][0]).toMatchObject({ beforeYouGo: ROWS });
   });
 
-  it.each([
-    ["six rows", "A: 1\nB: 2\nC: 3\nD: 4\nE: 5\nF: 6", BEFORE_YOU_GO_TOO_MANY],
-    ["a link", "Tickets: sheltuh.com.au/neon", beforeYouGoNoLinks(1, "value")],
-    ["a row without a label", "Entry: 7 pm\nBring ID", beforeYouGoHalfFilled(2)],
-  ])("refuses %s by the field, before sending: invalid, described by the error, focused, in the summary", async (_name, text, message) => {
+  it("refuses bad rows by their inputs, before sending: invalid, described by the error, the first focused, one summary entry", async () => {
     renderEditor();
     showStep(2);
-    fireEvent.change(field(), { target: { value: text } });
+    type(1, "label", "Tickets");
+    type(1, "value", "sheltuh.com.au/neon");
+    // Row 3: a value without a label (the label is what's missing, so it's the one marked).
+    type(2, "value", "Bring ID");
     save();
-    await waitFor(() => expect(field()).toHaveAttribute("aria-invalid", "true"));
+    await waitFor(() => expect(input(1, "value")).toHaveAttribute("aria-invalid", "true"));
     expect(updateEventDraft).not.toHaveBeenCalled();
-    expect(field()).toHaveAccessibleDescription(`${message} ${BEFORE_YOU_GO_HINT}`);
-    // Back on the Event page step, with the field focused (its error is read with it).
+    expect(input(1, "value")).toHaveAccessibleDescription(beforeYouGoNoLinks(2, "value"));
+    expect(input(2, "label")).toHaveAttribute("aria-invalid", "true");
+    expect(input(2, "label")).toHaveAccessibleDescription(beforeYouGoHalfFilled(3));
+    for (const fine of [input(0, "label"), input(0, "value"), input(1, "label"), input(2, "value")]) {
+      expect(fine).not.toHaveAttribute("aria-invalid");
+    }
+    // Back on the Event page step, with the first bad input focused (its error is read with it).
     expect(currentStep()).toBe(1);
-    await waitFor(() => expect(field()).toHaveFocus());
-    // In the error summary, as "Before you go: …" (a button that jumps to the field).
-    expect(screen.getByRole("button", { name: `Before you go: ${message}` })).toBeInTheDocument();
+    await waitFor(() => expect(input(1, "value")).toHaveFocus());
+    // One entry in the error summary, "Before you go: <the first error>", that jumps to the first bad input.
+    const entry = screen.getByRole("button", { name: `Before you go: ${beforeYouGoNoLinks(2, "value")}` });
+    input(0, "label").focus();
+    fireEvent.click(entry);
+    expect(input(1, "value")).toHaveFocus();
 
-    // Editing it clears the error.
-    fireEvent.change(field(), { target: { value: "Entry: 7 pm" } });
-    expect(field()).not.toHaveAttribute("aria-invalid");
-    expect(field()).toHaveAccessibleDescription(BEFORE_YOU_GO_HINT);
+    // Fixing one input clears its error; the summary moves on to the next, and goes once none is left.
+    type(1, "value", "At the door");
+    expect(input(1, "value")).not.toHaveAttribute("aria-invalid");
+    fireEvent.click(screen.getByRole("button", { name: `Before you go: ${beforeYouGoHalfFilled(3)}` }));
+    expect(input(2, "label")).toHaveFocus();
+    type(2, "label", "Extras");
+    expect(input(2, "label")).not.toHaveAttribute("aria-invalid");
+    expect(screen.queryByRole("button", { name: /^Before you go:/ })).toBeNull();
   });
 
-  it("shows the API's fieldErrors.beforeYouGo by the field (the source of truth), focused", async () => {
-    const message = "Row 1's value can't include email addresses.";
-    updateEventDraft.mockRejectedValue(
-      new ApiError(400, "Validation failed", { beforeYouGo: message }),
-    );
+  it("renumbers the errors shown when a row above them is removed", async () => {
     renderEditor();
-    fireEvent.change(field(), { target: { value: "Entry: 7 pm" } });
+    type(0, "label", "Entry");
+    type(0, "value", "7 pm");
+    type(2, "label", "Links");
+    type(2, "value", "sheltuh.com.au");
+    save();
+    await waitFor(() => expect(input(2, "value")).toHaveAccessibleDescription(beforeYouGoNoLinks(3, "value")));
+    fireEvent.click(screen.getByRole("button", { name: "Remove row 1" }));
+    expect(input(1, "value")).toHaveAttribute("aria-invalid", "true");
+    expect(input(1, "value")).toHaveAccessibleDescription(beforeYouGoNoLinks(2, "value"));
+    expect(screen.getByRole("button", { name: `Before you go: ${beforeYouGoNoLinks(2, "value")}` })).toBeInTheDocument();
+    // Removing the bad row itself clears it all.
+    fireEvent.click(screen.getByRole("button", { name: "Remove row 2" }));
+    expect(screen.queryByRole("button", { name: /^Before you go:/ })).toBeNull();
+    expect(document.querySelector("[aria-invalid='true'][id^='beforeYouGo-']")).toBeNull();
+  });
+
+  it("shows the API's fieldErrors.beforeYouGo under the hint (the source of truth), with the first input focused", async () => {
+    const message = beforeYouGoNoEmails(1, "value");
+    updateEventDraft.mockRejectedValue(new ApiError(400, "Validation failed", { beforeYouGo: message }));
+    renderEditor();
+    type(0, "label", "Entry");
+    type(0, "value", "7 pm");
     showStep(3);
     save();
-    await waitFor(() => expect(field()).toHaveAttribute("aria-invalid", "true"));
+    await waitFor(() => expect(screen.getByText(message, { selector: "#beforeYouGo-error" })).toBeInTheDocument());
     expect(updateEventDraft.mock.calls[0][1]).toMatchObject({ beforeYouGo: [{ label: "Entry", value: "7 pm" }] });
-    expect(field()).toHaveAccessibleDescription(`${message} ${BEFORE_YOU_GO_HINT}`);
+    expect(group()).toHaveAccessibleDescription(`${BEFORE_YOU_GO_HINT} ${message}`);
     expect(currentStep()).toBe(1);
-    await waitFor(() => expect(field()).toHaveFocus());
+    await waitFor(() => expect(input(0, "label")).toHaveFocus());
+    expect(input(0, "label")).toHaveAccessibleDescription(message);
+    // Editing a row clears it.
+    type(0, "value", "8 pm");
+    expect(screen.queryByText(message, { selector: "#beforeYouGo-error" })).toBeNull();
   });
 });
 
@@ -213,15 +303,17 @@ describe("EventEditor (admin) — Before you go", () => {
     beforeYouGo: ROWS,
   };
 
-  it("edits the same field and sends it with the admin's save; clearing sends null", async () => {
+  it("edits the same rows and sends them with the admin's save; removing them all sends null", async () => {
     adminUpdateEvent.mockResolvedValue({ ...ADMIN_EVENT, beforeYouGo: undefined });
     render(
       <FakeAuthProvider value={fakeAuthValue({ email: "admin@sheltuh.example", isAdmin: true })}>
         <EventEditor mode="admin" getToken={vi.fn().mockResolvedValue("token")} initial={ADMIN_EVENT} onSaved={vi.fn()} />
       </FakeAuthProvider>,
     );
-    expect(field()).toHaveValue(TEXT);
-    fireEvent.change(field(), { target: { value: "" } });
+    expect(input(0, "label")).toHaveValue("Entry");
+    expect(input(1, "value")).toHaveValue("18+ · Photo ID required");
+    fireEvent.click(screen.getByRole("button", { name: "Remove row 2" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove row 1" }));
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(adminUpdateEvent).toHaveBeenCalledTimes(1));
     expect(adminUpdateEvent.mock.calls[0][1]).toHaveProperty("beforeYouGo", null);

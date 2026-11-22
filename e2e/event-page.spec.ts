@@ -763,14 +763,14 @@ for (const vp of [
       const href = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`;
 
       // The owner's order (30 Oct 2026): About, Who's Going, then Location (the live API sends no Good to know details),
-      // with the organiser's Before you go note just before Location when there is one (Neon Static has).
+      // with the organiser's Before you go rows ("The essentials.") just before Location when there are any (Neon Static has).
       const headings = await page.getByRole("heading", { level: 2 }).allTextContents();
       const about = headings.indexOf("About this event");
       expect(about).toBeGreaterThanOrEqual(0);
       expect(headings.slice(about, about + 4).map((h) => h.replace(/\u2019/g, "'"))).toEqual([
         "About this event",
         "Who's going",
-        "Before you go",
+        "The essentials.",
         "Location",
       ]);
       const location = page.getByRole("region", { name: "Location" });
@@ -1147,38 +1147,61 @@ test.describe("Choose tickets' visible feedback at 390px (a tap's focus shows no
   });
 });
 
-// The organiser's "Before you go" note: a small box in the main column, just before Location, as plain text.
+// The organiser's "Before you go" rows: "The essentials." in the main column, just before Location (the owner's reference).
 for (const vp of [
+  { width: 320, height: 640 },
   { width: 390, height: 844 },
   { width: 1440, height: 900 },
 ]) {
   test.describe(`Before you go at ${vp.width}×${vp.height}`, () => {
     test.use({ viewport: vp });
 
-    test("Neon Static's rows are boxed before Location, a label and a value each, with no sideways scroll", async ({ page }) => {
+    test("Neon Static's rows are \"The essentials.\" before Location: numbered labels, right-aligned values, a rule under each", async ({ page }) => {
       await mockApi(page);
       await page.goto("/events/neon-static");
-      const box = page.getByRole("region", { name: "Before you go" });
-      await expect(box).toBeAttached({ timeout: 30_000 });
-      await box.scrollIntoViewIfNeeded();
-      await expect(box).toBeVisible();
-      await expect(box.getByRole("heading", { level: 2, name: "Before you go" })).toBeVisible();
-      await expect(box.locator("dt")).toHaveText(["Entry", "Age", "Extras"], { ignoreCase: true });
-      await expect(box.locator("dd")).toHaveText(["7:30 pm – 10:30 pm", "18+ · Photo ID required", "Free earplugs at the bar"]);
-      // Latte's box: a 1px rule, 24px padding, radius 8.
-      const style = await box.evaluate((el) => {
-        const css = getComputedStyle(el);
-        return { border: css.borderTopWidth, padding: css.paddingTop, radius: css.borderTopLeftRadius };
+      const section = page.getByRole("region", { name: "The essentials." });
+      await expect(section).toBeAttached({ timeout: 30_000 });
+      await section.scrollIntoViewIfNeeded();
+      await expect(section).toBeVisible();
+      await expect(section.getByRole("heading", { level: 2, name: "The essentials." })).toBeVisible();
+      const rows = section.locator("[data-before-you-go-row]");
+      await expect(rows).toHaveCount(3);
+      // Shown uppercase (CSS), stored as typed; the number is decorative.
+      await expect(section.locator("dt")).toHaveText(["01 / ENTRY", "02 / AGE", "03 / EXTRAS"], { useInnerText: true });
+      await expect(section.locator("dd")).toHaveText(["7:30 pm – 10:30 pm", "18+ · Photo ID required", "Free earplugs at the bar"]);
+      // The small-text orange (#d03e00, 4.8:1 on white), the full stop in Signal Orange, the value in the foreground.
+      const look = await section.evaluate((el) => {
+        const dt = el.querySelector("dt") as HTMLElement;
+        const dd = el.querySelector("dd") as HTMLElement;
+        const row = el.querySelector("[data-before-you-go-row]") as HTMLElement;
+        const stop = el.querySelector("h2 span") as HTMLElement;
+        return {
+          label: getComputedStyle(dt).color,
+          weight: getComputedStyle(dt).fontWeight,
+          stop: getComputedStyle(stop).color,
+          align: getComputedStyle(dd).textAlign,
+          rule: getComputedStyle(row).borderBottomWidth,
+          valueRight: Math.round(dd.getBoundingClientRect().right),
+          sectionRight: Math.round(el.getBoundingClientRect().right),
+        };
       });
-      expect(style).toEqual({ border: "1px", padding: "24px", radius: "8px" });
-      const boxBottom = await box.evaluate((el) => el.getBoundingClientRect().bottom + window.scrollY);
+      expect(look).toMatchObject({ label: "rgb(208, 62, 0)", weight: "700", stop: "rgb(255, 72, 0)", align: "right", rule: "1px" });
+      expect(look.valueRight).toBe(look.sectionRight);
+      // Each label and its value on one line at every width (Neon Static's are short).
+      for (const i of [0, 1, 2]) {
+        const [dt, dd] = await Promise.all([rows.nth(i).locator("dt").boundingBox(), rows.nth(i).locator("dd").boundingBox()]);
+        if (!dt || !dd) throw new Error("row not laid out");
+        expect(dd.y).toBeLessThan(dt.y + dt.height);
+        expect(dt.y).toBeLessThan(dd.y + dd.height);
+      }
+      const sectionBottom = await section.evaluate((el) => el.getBoundingClientRect().bottom + window.scrollY);
       const locationTop = await page
         .getByRole("heading", { level: 2, name: "Location" })
         .evaluate((el) => el.getBoundingClientRect().top + window.scrollY);
-      expect(boxBottom).toBeLessThan(locationTop);
+      expect(sectionBottom).toBeLessThan(locationTop);
       await noSidewaysScroll(page);
       if (process.env.EVENT_SHOTS) {
-        await box.evaluate((el) => el.scrollIntoView({ block: "center" }));
+        await section.evaluate((el) => el.scrollIntoView({ block: "center" }));
         await page.screenshot({ path: `${process.env.EVENT_SHOTS}/before-you-go-event-page-${vp.width}.png` });
       }
     });

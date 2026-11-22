@@ -249,13 +249,13 @@ describe("the editor's preview: Before you go", () => {
     }
   });
 
-  it("shows the box in the preview with the draft's rows, and nothing without them", () => {
+  it("shows \"The essentials.\" in the preview with the draft's rows, and nothing without them", () => {
     previewOf({ ...DRAFT, beforeYouGo: [{ label: "Entry", value: "5:00 pm – 8:00 pm" }, { label: "Age", value: "18+" }] });
-    const box = screen.getByRole("region", { name: "Before you go" });
-    expect(box).toHaveTextContent("Entry5:00 pm – 8:00 pmAge18+");
+    const section = screen.getByRole("region", { name: "The essentials." });
+    expect(section).toHaveTextContent("The essentials.01 / Entry5:00 pm – 8:00 pm02 / Age18+");
     cleanup();
 
     previewOf(DRAFT);
-    expect(screen.queryByRole("region", { name: "Before you go" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "The essentials." })).toBeNull();
   });
 });
