@@ -2,6 +2,7 @@ import { formatEventDateKey, formatEventDateShort, formatEventDateTimeRange } fr
 import { formatSeatLine } from "@/lib/seating/format";
 import { TICKET_CODE_PATTERN, ticketQrPayload } from "@/lib/ticket-code";
 import { cachedDateTimeFormat, PLATFORM_TIME_ZONE, wallClockParts } from "@/lib/time-zones";
+import type { ImageFocus } from "@/lib/types";
 import { formatStubTime } from "../ticket-email";
 import type { TicketSeat } from "../types";
 
@@ -28,6 +29,13 @@ export interface WalletTicket {
   /** The street address, when the event has one. */
   venueAddress?: string;
   suburb?: string;
+  /**
+   * The event's photo, as EventRecord.imageUrl has it ("/api/events/{id}/image?v=…"), when it has one:
+   * the passes' image band (event-image.ts). Without it, the Sheltüh band.
+   */
+  imageUrl?: string;
+  /** Its focus point (percent from the left and top), as EventRecord.imageFocus: what Apple's strip is cropped around. */
+  imageFocus?: ImageFocus;
   ticketTypeName: string;
   /** 1-based, in the API's and the email's order (ticket type, then code). */
   ticketNumber: number;

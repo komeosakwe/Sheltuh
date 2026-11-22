@@ -4,6 +4,7 @@ import forge from "node-forge";
 import { SUPPORT_EMAIL } from "@/lib/contact";
 import { appleRgb, WALLET_COLOURS, WALLET_ORGANISATION_NAME } from "./brand";
 import { appleWalletConfigFromEnv, loadWalletConfig, type AppleWalletConfig } from "./config";
+import type { AppleStrip } from "./event-image";
 import { APPLE_PASS_IMAGES } from "./images";
 import {
   localIsoWithOffset,
@@ -256,10 +257,17 @@ export function signManifest(config: AppleWalletConfig, manifest: Buffer, now = 
   return Buffer.from(forge.asn1.toDer(p7.toAsn1()).getBytes(), "binary");
 }
 
-/** The .pkpass bytes for one ticket. */
-export function buildApplePass(config: AppleWalletConfig, ticket: WalletTicket, now = new Date()): Buffer {
+/**
+ * The .pkpass bytes for one ticket. `strip`: the event photo's strip
+ * (event-image.ts appleEventStrip), in place of the stand-in's three files;
+ * without it, the Sheltüh strip. The manifest hashes, and the signature
+ * covers, whichever files go in.
+ */
+export function buildApplePass(config: AppleWalletConfig, ticket: WalletTicket, now = new Date(), strip?: AppleStrip): Buffer {
   const files: [string, Buffer][] = [["pass.json", Buffer.from(JSON.stringify(applePassJson(config, ticket)), "utf8")]];
-  for (const [name, base64] of Object.entries(APPLE_PASS_IMAGES)) files.push([name, Buffer.from(base64, "base64")]);
+  for (const [name, base64] of Object.entries(APPLE_PASS_IMAGES)) {
+    files.push([name, strip && name in strip ? strip[name as keyof AppleStrip] : Buffer.from(base64, "base64")]);
+  }
   const manifest = Buffer.from(
     JSON.stringify(Object.fromEntries(files.map(([name, bytes]) => [name, createHash("sha1").update(bytes).digest("hex")]))),
     "utf8",

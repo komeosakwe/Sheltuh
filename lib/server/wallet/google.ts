@@ -2,6 +2,7 @@ import { sign } from "node:crypto";
 import { SUPPORT_EMAIL } from "@/lib/contact";
 import { WALLET_COLOURS, WALLET_ORGANISATION_NAME } from "./brand";
 import type { GoogleWalletConfig } from "./config";
+import { googleEventHeroUri } from "./event-image";
 import {
   localIsoWithOffset,
   passAddress,
@@ -130,6 +131,7 @@ export function googleSaveClaims(config: GoogleWalletConfig, ticket: WalletTicke
   const address = passAddress(ticket);
   const venueName = ticket.venueName?.trim();
   const seat = passSeat(ticket);
+  const eventHero = googleEventHeroUri(ticket, siteUrl);
   // Row 2 (CARD_TEMPLATE): the seat, or the ticket's number when the order has more than one.
   const which = seat
     ? { id: CARD_FIELD.which, header: "Seat", body: cardValue(seat) }
@@ -176,6 +178,9 @@ export function googleSaveClaims(config: GoogleWalletConfig, ticket: WalletTicke
           },
         }
       : {}),
+    // The event's photo, on the object, not the class: a class Google already holds keeps its first hero (the
+    // stand-in above), and the object's hero is shown in its place. Without a photo, the class's stand-in shows.
+    ...(eventHero ? { heroImage: { sourceUri: { uri: eventHero }, contentDescription: localized(cardValue(ticket.eventTitle)) } } : {}),
     hexBackgroundColor: WALLET_COLOURS.white,
     textModulesData: [
       // The card's rows (CARD_TEMPLATE), labelled in sentence case as the frame has them.
@@ -199,12 +204,27 @@ export function googleSaveClaims(config: GoogleWalletConfig, ticket: WalletTicke
   };
 }
 
-/** The signed JWT (RS256). */
+/**
+ * The longest save URL made (characters). What browsers and Google's front
+ * end reliably accept is unverified (above); a typical ticket's is about 4 KB.
+ */
+export const GOOGLE_SAVE_URL_MAX = 5120;
+
+/**
+ * The signed JWT (RS256). If the event's photo (the object's hero) would take
+ * the save URL over GOOGLE_SAVE_URL_MAX, which only near-maximum field lengths
+ * do, it's signed again without it: the class's stand-in shows instead.
+ */
 export function buildGoogleSaveJwt(config: GoogleWalletConfig, ticket: WalletTicket, siteUrl: string, now = Math.floor(Date.now() / 1000)): string {
   const header = base64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
-  const claims = base64url(JSON.stringify(googleSaveClaims(config, ticket, siteUrl, now)));
-  const signature = sign("RSA-SHA256", Buffer.from(`${header}.${claims}`), config.privateKey).toString("base64url");
-  return `${header}.${claims}.${signature}`;
+  const signed = (t: WalletTicket) => {
+    const claims = base64url(JSON.stringify(googleSaveClaims(config, t, siteUrl, now)));
+    const signature = sign("RSA-SHA256", Buffer.from(`${header}.${claims}`), config.privateKey).toString("base64url");
+    return `${header}.${claims}.${signature}`;
+  };
+  const jwt = signed(ticket);
+  if (!ticket.imageUrl || googleSaveUrl(jwt).length <= GOOGLE_SAVE_URL_MAX) return jwt;
+  return signed({ ...ticket, imageUrl: undefined });
 }
 
 export function googleSaveUrl(jwt: string): string {

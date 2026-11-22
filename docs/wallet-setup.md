@@ -88,7 +88,11 @@ a personal one.
     before: Google keeps the first class it was given for an event. The logo
     and banner are fetched by Google from
     `https://<your site>/wallet/google-logo-v2.png` and
-    `/wallet/google-hero-v2.png`, so they only show on the real https site.
+    `/wallet/google-hero-v2.png` (or, for an event with a photo, the photo's
+    own `/api/events/{id}/image?v=…`), so they only show on the real https
+    site. Save one ticket for an event with a photo and one for an event
+    without: the first should show the photo in the banner, the second the
+    Sheltüh banner.
 11. **Request publishing access.** Pay & Wallet Console → Google Wallet API →
     **Request publishing access**. Google reviews the business profile and
     the passes (the event ticket classes the site has created). Until it's
@@ -213,18 +217,40 @@ What the code sets, and what each wallet draws itself:
 | Card shape | **Apple's**: the event ticket's notch at the top, its corners, its shadow | **Google's**: its corners and outline |
 | Logo | `logo.png`: the wordmark in Signal Orange, 88 pt wide | `logo`: the wordmark's Ü in Signal Orange on black, in Google's circle; "Sheltüh" beside it is `issuerName` |
 | Header | DATE at the top right ("Sat 14 Nov") | **Google's** header: the venue's name over the event's name |
-| Image band | `strip.png`, 375 × 98 pt, under the header. **Apple fixes an event ticket's strip at 98 pt**; the frame draws it 123 tall | `heroImage`, 1032 × 336, which Google puts at the bottom of the card |
+| Image band | `strip.png`, 375 × 98 pt, under the header: the event's photo, cropped here around its focus point; the Sheltüh band without one. **Apple fixes an event ticket's strip at 98 pt**; the frame draws it 123 tall | `heroImage`, 1032 × 336 recommended, which Google puts at the bottom of the card: the event's photo (on the ticket's object), which **Google crops** to its banner's shape; the Sheltüh band (on the class) without one |
 | Fields | No primary field (nothing over the strip). EVENT and TIME, then VENUE and TICKET, the last of each row at the right edge. A second row (`row: 1`) for what the frame doesn't show, so the frame's rows are never squeezed: TICKET NUMBER ("2 of 3") when the order has more than one ticket, SEAT, and ENTRY CODE for a code with no QR | One row: Date, Time, Ticket (`classTemplateInfo.cardTemplateOverride`, each item one of the object's text modules). A second row of one item: Seat for a seated ticket, otherwise Ticket number ("2 of 3") when the order has more than one. An order of one, unseated, has the frame's one row |
 | Values | "Sat 14 Nov" (no year), "5–9 pm" (the ticket email's short time, in the event's zone, no zone name), the ticket type's name as entered. The wallet cuts a value that doesn't fit | The same; a row value over 40 characters is cut in the code (the whole name is in the details) |
 | QR | **Apple's**: it draws the code, always on its own white tile, from the payload. Its size, tile and place can't be set. The backup code under it is `altText` | **Google's**, the same; the backup code is `alternateText` |
 | Back / details | Event, when (with the year and the zone), where (venue and street address), backup code, order reference, at the door, support's address | Google's details: the venue and address (its own map link), ticket type and number, when, order reference, a "Contact support" link, the site |
 
-**Not built: the event's own artwork.** The frames show the event's image in
-Apple's strip and Google's banner. Today both are one brand image for every
-event (the Ü, and the wordmark, in Signal Orange on black: "Images" below),
-because the event's image would have to be fetched and cropped for each
-pass (Apple's goes inside the `.pkpass` at three sizes; Google needs a
-public 3:1 crop per event). That's its own piece of work.
+**The event's photo in the image band** (since 22 Nov 2026,
+`lib/server/wallet/event-image.ts`). The frames show the event's image in
+Apple's strip and Google's banner, and that's what an event with a photo
+gets. An event without one, or whose photo can't be used, gets the Sheltüh
+band ("Images" below); the pass is made either way, never refused for its
+picture.
+
+- **Apple**: the strip is made when the pass is: the stored photo is read
+  from the database (never fetched over the web), cropped to 375 × 98 pt at
+  1x, 2x and 3x around the photo's focus point (the middle without one), and
+  put in the `.pkpass` as 256-colour PNGs with no metadata, in place of the
+  stand-in's three files (the manifest and signature cover them). Up to 3
+  seconds; longer, or a photo over 5 MB or that isn't the image it says it
+  is, and the stand-in goes in instead. The last 16 strips are kept in
+  memory, so adding several tickets crops the photo once.
+- **Google**: Google fetches the banner itself, from the photo's public
+  address on the site (`/api/events/{id}/image?v=…`, https only), and crops
+  it to its own banner's shape, from the middle as far as we know (it
+  doesn't know the focus point; unverified: check on a phone). The photo
+  goes on each ticket's object, not the event's class: Google keeps the
+  first class it was given for an event, so a ticket saved now still shows
+  the photo for an event whose class Google already holds with the Sheltüh
+  banner. Its description is the event's title (cut at 40 characters). At
+  near-maximum field lengths the save link would pass 5 KB with the photo:
+  then it's left out and the Sheltüh banner shows.
+- **Saved passes don't change.** A photo replaced later (only an admin can,
+  on a published event) reaches passes added after that; Google keeps its
+  own copy of what it fetched.
 
 **Not built: the refund policy line.** The frames' notes list the refund
 policy among the back-of-pass and details lines. The passes are built
@@ -322,9 +348,9 @@ script and run it.
 | --- | --- |
 | `apple-icon.png`, `@2x`, `@3x` | 29 / 58 / 87 px: the ü in black on Signal Orange (the app icon's look), for notifications and the lock screen. Not in the designer's frames; unchanged |
 | `apple-logo.png`, `@2x`, `@3x` | The wordmark in Signal Orange on transparent, 88 pt wide (20 pt tall), the frame's size. Apple allows up to 160 × 50 pt |
-| `apple-strip.png`, `@2x`, `@3x` | 375 × 98 pt: the wordmark's Ü in Signal Orange on black. A stand-in for the event's artwork (above) |
+| `apple-strip.png`, `@2x`, `@3x` | 375 × 98 pt: the wordmark's Ü in Signal Orange on black. The stand-in for an event without a usable photo (above) |
 | `google-logo-v2.png` | 660 × 660: the wordmark's Ü in Signal Orange on black, inside Google's circle crop (the frame's round logo) |
-| `google-hero-v2.png` | 1032 × 336: the wordmark in Signal Orange on black, the same stand-in |
+| `google-hero-v2.png` | 1032 × 336: the wordmark in Signal Orange on black, the same stand-in (the class's banner, shown when the ticket's object has no photo) |
 | `google-logo.png`, `google-hero.png` | The look before 21 Nov 2026 (black on Signal Orange). **Keep them**: Google classes made before then still fetch these two URLs. No new pass uses them |
 
 The Ü is the wordmark's own (the script takes that letter's outlines from
