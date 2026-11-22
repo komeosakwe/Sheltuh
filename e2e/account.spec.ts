@@ -88,11 +88,11 @@ test.describe("/account for a member who isn't an organiser, at 320px", () => {
   test("Organise events is the way to apply, in place of Your events", async ({ page }) => {
     await signedIn(page, { organiser: false });
     await page.goto("/account");
-    const links = page.getByRole("navigation", { name: "Your account" });
+    const links = page.getByRole("navigation", { name: "Events" });
     await expect(links.getByRole("link", { name: "Organise events" })).toHaveAttribute("href", "/organisers/apply", {
       timeout: 60_000,
     });
-    await expect(links.getByRole("link")).toHaveText(["Organise events", "Saved", "Organisers you follow", "Messages", "Blocked members"]);
+    await expect(links.getByRole("link")).toHaveText(["Organise events", "Organisers you follow"]);
     await noSidewaysScroll(page);
   });
 });
@@ -115,24 +115,36 @@ for (const vp of [
   test.describe(`/account at ${vp.width}px`, () => {
     test.use({ viewport: { width: vp.width, height: vp.height } });
 
-    test("profile first (photo, name, bio, Instagram, switch, one Save), then link rows, Sign-in, and a closed Delete", async ({
+    test("Latte's cards: profile (photo, name, bio, Instagram, switch, one Save) and Privacy, then Sign-in and Events", async ({
       page,
     }) => {
       const patches = await signedIn(page);
       await page.goto("/account");
       const card = page.getByRole("region", { name: "Your profile" });
       await expect(card.getByLabel("Display name")).toHaveValue("Mia T.", { timeout: 60_000 });
-      const links = page.getByRole("navigation", { name: "Your account" });
+      const links = page.getByRole("navigation", { name: "Events" });
       await expect(links.getByRole("link", { name: "Your events" })).toHaveAttribute("href", "/dashboard");
+      const privacy = page.getByRole("region", { name: "Privacy" });
+      const signIn = page.getByRole("region", { name: "Sign-in" });
 
-      // Order on the page: the profile card, the links, Sign-in, Delete.
-      const tops = await Promise.all(
-        [card, links, page.getByRole("heading", { name: "Sign-in" }), page.getByRole("button", { name: "Delete your profile" })].map(
-          async (l) => (await l.boundingBox())?.y ?? -1,
-        ),
-      );
-      expect(tops).toEqual([...tops].sort((a, b) => a - b));
-      expect(tops[0]).toBeGreaterThan(0);
+      // Left column: the profile card, then Privacy (with Delete). Right column (under them on a
+      // phone): Sign-in, then Events.
+      const box = async (l: ReturnType<Page["locator"]>) => {
+        const b = await l.boundingBox();
+        if (!b) throw new Error("not rendered");
+        return b;
+      };
+      const [cardBox, privacyBox, signInBox, linksBox] = await Promise.all([card, privacy, signIn, links].map(box));
+      expect(cardBox.y).toBeGreaterThan(0);
+      expect(privacyBox.y).toBeGreaterThan(cardBox.y);
+      expect(linksBox.y).toBeGreaterThan(signInBox.y);
+      if (vp.width >= 768) {
+        expect(signInBox.x).toBeGreaterThan(cardBox.x + cardBox.width);
+        expect(Math.abs(signInBox.y - cardBox.y)).toBeLessThan(2);
+      } else {
+        expect(signInBox.y).toBeGreaterThan(privacyBox.y);
+        expect(signInBox.x).toBe(cardBox.x);
+      }
 
       // The profile's photo control and its name field are on the first screen.
       await expect(card.getByText("Choose a photo")).toBeInViewport();
@@ -140,12 +152,16 @@ for (const vp of [
 
       // 48px link rows, in order; 44px+ controls.
       const rows = links.getByRole("link");
-      await expect(rows).toHaveText(["Your events", "Saved", "Organisers you follow", "Messages", "Blocked members"]);
-      for (let i = 0; i < 5; i++) expect(await height(page, rows.nth(i))).toBeGreaterThanOrEqual(48);
+      await expect(rows).toHaveText(["Your events", "Organisers you follow"]);
+      const privacyRows = privacy.getByRole("navigation", { name: "Privacy" }).getByRole("link");
+      await expect(privacyRows).toHaveCount(2);
+      for (const row of [rows.nth(0), rows.nth(1), privacyRows.nth(0), privacyRows.nth(1)]) {
+        expect(await height(page, row)).toBeGreaterThanOrEqual(48);
+      }
       expect(await height(page, page.getByRole("button", { name: "Sign out" }))).toBeGreaterThanOrEqual(44);
       expect(await height(page, card.getByText("Choose a photo"))).toBeGreaterThanOrEqual(44);
       expect(await height(page, card.getByRole("checkbox", { name: "Show my profile to other members" }).locator(".."))).toBeGreaterThanOrEqual(44);
-      await expect(page.getByText("Sign-in methods: Email and password, Google")).toBeVisible();
+      await expect(signIn.getByText(/^Signed in as mia@example\.com · Email and password, Google$/)).toBeVisible();
 
       // Delete is collapsed until asked for.
       const disclosure = page.getByRole("button", { name: "Delete your profile" });
@@ -157,7 +173,7 @@ for (const vp of [
       // One Save sends the name and the rest together.
       await card.getByLabel("Display name").fill("Mia Thompson");
       await card.getByLabel("Bio (optional)").fill("Riso and noise.");
-      await card.getByRole("button", { name: "Save profile" }).click();
+      await card.getByRole("button", { name: "Save changes" }).click();
       await expect(card.getByRole("status").filter({ hasText: "Saved." })).toContainText(
         "Events you’ve joined now show Mia Thompson.",
       );

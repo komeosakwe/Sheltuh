@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ADMIN_SUMMARY_POLL_MS, AdminSummaryProvider, useAdminSummary } from "@/components/admin/AdminSummaryProvider";
 import Nav from "@/components/Nav";
+import { NavAccountProvider } from "@/components/nav/useNavAccount";
 import { ApiError } from "@/lib/api/client";
 import type { AuthContextValue } from "@/lib/auth/AuthContext";
 import { adminSummary } from "./test-utils/fakeAdminSummary";
@@ -52,7 +53,9 @@ function renderNav(auth: AuthContextValue) {
   return render(
     <FakeAuthProvider value={auth}>
       <AdminSummaryProvider>
-        <Nav />
+        <NavAccountProvider>
+          <Nav />
+        </NavAccountProvider>
         <Probe />
       </AdminSummaryProvider>
     </FakeAuthProvider>,

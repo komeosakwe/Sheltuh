@@ -1,9 +1,10 @@
-import { SUPPORT_EMAIL } from "@/lib/contact";
 import { publicEventUrl } from "@/lib/event-url";
 import { eventPlaceName } from "@/lib/place";
 import { subjectLine, type EmailMessage } from "./email";
-import { button, escapeHtml, eventBlock, heading, INK, MUTED, page } from "./email-layout";
-import { formatTicketDate, formatTicketTime } from "./ticket-email";
+import { escapeHtml } from "./email-layout";
+import { kitButtons, kitFooter, kitFooterText, kitHeader, kitHelp, kitHelpText, kitIntro, kitPage, kitStack, kitText } from "./email-kit";
+import { ticketWordmarkImage } from "./email-ticket-layout";
+import { emailEventCard, formatTicketDate, formatTicketTime } from "./ticket-email";
 import type { EventRecord } from "./types";
 
 /**
@@ -14,7 +15,7 @@ import type { EventRecord } from "./types";
  * unsubscribe facility) in the body and as `List-Unsubscribe`.
  *
  * The brand look (white page, one white card, Signal Orange only on the button,
- * black text on it) is lib/server/email-layout.ts, shared with every email.
+ * black text on it) is lib/server/email-kit.ts, shared with every email.
  * Everything essential is real text.
  */
 
@@ -47,8 +48,28 @@ export function where(event: EventRecord): string {
   return [event.venueName, eventPlaceName(event)].filter(Boolean).join(", ");
 }
 
-function eventDetails(event: EventRecord): string {
-  return eventBlock(event.title, [when(event), where(event)]);
+/**
+ * The event as the waitlist and follower emails show it: the compact Ticket
+ * card (date and time, title, venue name, image; `href` links the title),
+ * then the full date and time and the place (venue, suburb and state:
+ * where()) on one muted line, so an event with no venue name, or a generic
+ * one ("Town Hall"), still says which town it's in.
+ */
+export function emailEventDetails(event: EventRecord, siteUrl: string, href?: string): string {
+  const place = where(event);
+  return kitStack(
+    [emailEventCard(event, siteUrl, href), kitText(escapeHtml([when(event), place].filter(Boolean).join(" · ")), { muted: true })],
+    16,
+  );
+}
+
+/** The site's origin, from a link the handler built on it. */
+function linkOrigin(link: string): string {
+  try {
+    return new URL(link).origin;
+  } catch {
+    return "";
+  }
 }
 
 /** A guest's confirm-to-join email. Nothing is added to the list until the link's page is confirmed. */
@@ -59,6 +80,8 @@ export function buildWaitlistConfirmationEmail(
   hoursValid: number,
 ): EmailMessage {
   const headline = "Confirm you want to join the waitlist";
+  const siteUrl = linkOrigin(link);
+  const footer = { siteUrl, tone: "customer" as const };
   const text = [
     headline,
     "",
@@ -72,21 +95,36 @@ export function buildWaitlistConfirmationEmail(
     "Joining doesn't reserve a ticket or charge you.",
     "Didn't ask for this? Ignore this email: you won't be added.",
     "",
-    `Need help? Email ${SUPPORT_EMAIL}`,
-    "Sheltüh, Melbourne",
+    kitHelpText("customer"),
+    "",
+    kitFooterText(footer),
   ].join("\n");
 
-  const html = page({
+  const html = kitPage({
     title: headline,
-    body:
-      heading(headline) +
-      eventDetails(event) +
-      button("Confirm and join", link) +
-      `<p style="margin:0 0 8px 0;font-size:15px;line-height:22px">The link works for ${hoursValid} hours. Open it and press Confirm: we&rsquo;ll email you if tickets are released. Joining doesn&rsquo;t reserve a ticket or charge you.</p>` +
-      `<p style="margin:0;font-size:15px;line-height:22px;color:${MUTED}">Didn&rsquo;t ask for this? Ignore this email: you won&rsquo;t be added.</p>`,
+    preheader: `${event.title} · ${when(event)}`,
+    siteUrl,
+    tone: "customer",
+    body: kitStack([
+      kitHeader(),
+      kitIntro("", headline),
+      emailEventDetails(event, siteUrl),
+      kitButtons([{ label: "Confirm and join", href: link, kind: "primary" }]),
+      kitStack(
+        [
+          kitText(
+            `The link works for ${hoursValid} hours. Open it and press Confirm: we&rsquo;ll email you if tickets are released. Joining doesn&rsquo;t reserve a ticket or charge you.`,
+          ),
+          kitText("Didn&rsquo;t ask for this? Ignore this email: you won&rsquo;t be added.", { muted: true }),
+        ],
+        8,
+      ),
+      kitHelp("customer"),
+      kitFooter(footer),
+    ]),
   });
 
-  return { to, subject: subjectLine(`Confirm the waitlist: ${event.title}`), text, html };
+  return { to, subject: subjectLine(`Confirm the waitlist: ${event.title}`), text, html, inlineImages: [ticketWordmarkImage()] };
 }
 
 /**
@@ -101,6 +139,13 @@ export function buildWaitlistAvailableEmail(
   leaveLink: string,
 ): EmailMessage {
   const headline = "Tickets are available again";
+  const siteUrl = linkOrigin(eventLink);
+  const footer = {
+    siteUrl,
+    tone: "customer" as const,
+    reason: `You’re getting this because you joined the waitlist for ${event.title} on Sheltüh.`,
+    reasonLink: { label: "Leave the waitlist", href: leaveLink, after: " to stop emails about this event." },
+  };
   const text = [
     headline,
     "",
@@ -112,21 +157,27 @@ export function buildWaitlistAvailableEmail(
     "",
     "Some tickets have just been released. They're first come, first served: being on the waitlist doesn't hold one for you, and they may be gone by the time you look.",
     "",
-    `You're getting this because you joined the waitlist for ${event.title} on Sheltüh.`,
-    `Leave the waitlist (no more emails about this event): ${leaveLink}`,
+    kitHelpText("customer"),
     "",
-    `Need help? Email ${SUPPORT_EMAIL}`,
-    "Sheltüh, Melbourne",
+    kitFooterText(footer),
   ].join("\n");
 
-  const html = page({
+  const html = kitPage({
     title: headline,
-    body:
-      heading(headline) +
-      eventDetails(event) +
-      button("Buy tickets", eventLink) +
-      `<p style="margin:0 0 24px 0;font-size:15px;line-height:22px">Some tickets have just been released. They&rsquo;re first come, first served: being on the waitlist doesn&rsquo;t hold one for you, and they may be gone by the time you look.</p>` +
-      `<p style="margin:0;font-size:13px;line-height:20px;color:${MUTED}">You&rsquo;re getting this because you joined the waitlist for ${escapeHtml(event.title)} on Sheltüh. <a href="${escapeHtml(leaveLink)}" style="color:${INK}">Leave the waitlist</a> to stop emails about this event.</p>`,
+    preheader: `${event.title} · ${when(event)}`,
+    siteUrl,
+    tone: "customer",
+    body: kitStack([
+      kitHeader(),
+      kitIntro("", headline),
+      emailEventDetails(event, siteUrl),
+      kitButtons([{ label: "Buy tickets", href: eventLink, kind: "primary" }]),
+      kitText(
+        "Some tickets have just been released. They&rsquo;re first come, first served: being on the waitlist doesn&rsquo;t hold one for you, and they may be gone by the time you look.",
+      ),
+      kitHelp("customer"),
+      kitFooter(footer),
+    ]),
   });
 
   return {
@@ -135,5 +186,6 @@ export function buildWaitlistAvailableEmail(
     text,
     html,
     headers: { "List-Unsubscribe": `<${leaveLink}>` },
+    inlineImages: [ticketWordmarkImage()],
   };
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
+import { createContext, createElement, useContext, type ReactNode } from "react";
 import { useAdminSummary } from "@/components/admin/AdminSummaryProvider";
 import { useFavourites } from "@/components/favourites/FavouritesProvider";
 import { useUnread } from "@/components/messages/UnreadProvider";
@@ -46,13 +47,32 @@ export interface NavAccount {
   avatarCurrent: boolean;
 }
 
+const NavAccountContext = createContext<NavAccount | null>(null);
+
 /**
- * The signed-in account as the header's avatar menu and the phone drawer show it, loaded once
- * for both (Nav calls this and passes it down): the profile for the name, photo and profile link,
- * the organiser record for Your events, and the counts already kept app-wide (unread, admin,
- * saved). Nothing here fetches in demo mode or while signed out.
+ * Loads the signed-in account once for the whole page (the root layout, around the header and the
+ * page): the header's avatar menu and phone drawer (Nav) and the account area's sidebar and tabs
+ * (AccountShell) all read it through useNavAccount, so the profile and organiser record are
+ * fetched once, not once per reader.
+ */
+export function NavAccountProvider({ children }: { children: ReactNode }) {
+  return createElement(NavAccountContext.Provider, { value: useLoadNavAccount() }, children);
+}
+
+/**
+ * The signed-in account as the header's avatar menu and the phone drawer show it (Nav reads it
+ * and passes it down), and as the account area's sidebar shows it: the profile for the name,
+ * photo and profile link, the organiser record for Your events, and the counts already kept
+ * app-wide (unread, admin, saved). Loaded by NavAccountProvider; nothing fetches in demo mode or
+ * while signed out.
  */
 export function useNavAccount(): NavAccount {
+  const account = useContext(NavAccountContext);
+  if (!account) throw new Error("useNavAccount needs a NavAccountProvider above it (the root layout has one).");
+  return account;
+}
+
+function useLoadNavAccount(): NavAccount {
   const auth = useAuth();
   const pathname = usePathname();
   const unread = useUnread();

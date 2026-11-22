@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import DemoNotice from "@/components/DemoNotice";
-import BackLink from "@/components/ui/BackLink";
 import { Button } from "@/components/ui/Button";
 import type { MessageRecord } from "@/lib/api/types";
 import { endSentence } from "@/lib/display-name";
@@ -13,9 +12,13 @@ import ReportDialog, { type ReportOutcome } from "./ReportDialog";
 import {
   BLOCK_EFFECT,
   COMPOSER_BAR_CLASS,
+  THREAD_ACTION_CLASS,
   THREAD_HEADER_CLASS,
+  THREAD_HEADER_ROW_CLASS,
   THREAD_MESSAGES_CLASS,
   THREAD_PAGE_CLASS,
+  THREAD_STATE_CLASS,
+  scrollThreadToEnd,
   threadHref,
 } from "./shared";
 import ThreadTitle from "./ThreadTitle";
@@ -42,6 +45,7 @@ export default function DemoThread({ conversationId }: { conversationId: string 
   const pendingFocus = useRef<Focus | null>(null);
   const pendingScroll = useRef(false);
   const endRef = useRef<HTMLDivElement>(null);
+  const sectionRef = useRef<HTMLElement>(null);
   const reportedRef = useRef<HTMLDivElement>(null);
   const name = thread?.otherDisplayName;
 
@@ -64,16 +68,15 @@ export default function DemoThread({ conversationId }: { conversationId: string 
     }
     if (pendingScroll.current && endRef.current) {
       pendingScroll.current = false;
-      endRef.current.scrollIntoView?.({ block: "end" });
+      scrollThreadToEnd(sectionRef.current, endRef.current, { force: true });
     }
   });
 
   if (!thread || !name) {
     return (
-      <div className="mx-auto flex w-full max-w-6xl *:max-w-2xl flex-col gap-6 px-5 py-12 sm:px-8 sm:py-20">
-        <BackLink href="/messages">All messages</BackLink>
-        <div className="border-t border-foreground py-10">
-          <h1 className="display-md">This conversation isn&rsquo;t available</h1>
+      <div className={THREAD_STATE_CLASS}>
+        <div>
+          <h1 className="heading-h4">This conversation isn&rsquo;t available</h1>
           <p className="mt-3 max-w-md text-sm text-muted">This demo only has conversations with its sample members.</p>
         </div>
       </div>
@@ -105,14 +108,13 @@ export default function DemoThread({ conversationId }: { conversationId: string 
   return (
     <div className={THREAD_PAGE_CLASS}>
       <header className={THREAD_HEADER_CLASS}>
-        <BackLink href="/messages">All messages</BackLink>
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className={THREAD_HEADER_ROW_CLASS}>
           <ThreadTitle name={name} event={thread.event} />
           <div className="flex shrink-0 gap-2">
             <Button
               variant="outline"
               size="sm"
-              className="min-h-11"
+              className={THREAD_ACTION_CLASS}
               onClick={() => {
                 setReported(false);
                 setReportOpen(true);
@@ -124,7 +126,7 @@ export default function DemoThread({ conversationId }: { conversationId: string 
               id="thread-block"
               variant="outline"
               size="sm"
-              className="min-h-11"
+              className={THREAD_ACTION_CLASS}
               aria-expanded={blockOpen}
               onClick={() => {
                 pendingFocus.current = blockOpen ? null : "block-close";
@@ -173,7 +175,7 @@ export default function DemoThread({ conversationId }: { conversationId: string 
         <DemoNotice>Messages aren&rsquo;t sent in this demo.</DemoNotice>
       </header>
 
-      <section aria-labelledby="thread-messages-title" className={THREAD_MESSAGES_CLASS}>
+      <section ref={sectionRef} aria-labelledby="thread-messages-title" className={THREAD_MESSAGES_CLASS}>
         <h2 id="thread-messages-title" className="sr-only">
           Messages
         </h2>
@@ -182,12 +184,13 @@ export default function DemoThread({ conversationId }: { conversationId: string 
         ) : (
           <p className="text-sm text-muted">No messages yet. Say hello to {endSentence(name)}</p>
         )}
+        {/* The end of the messages, inside their scroll container. */}
+        <div ref={endRef} />
       </section>
 
       <div className={COMPOSER_BAR_CLASS}>
         <Composer otherName={name} mode="reply" onSend={send} returnTo={threadHref(conversationId)} />
       </div>
-      <div ref={endRef} />
       <ReportDialog
         open={reportOpen}
         otherName={name}

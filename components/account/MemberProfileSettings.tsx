@@ -240,8 +240,19 @@ export default function MemberProfileSettings({
           )}
         </div>
 
+        {/* The Settings frames' setting row: the label (Body/S Strong) and its line (Label/Tag) on the
+            left, a 44 × 24 switch on the right (orange when on). A checkbox drawn as a switch. */}
         <div className="flex flex-col gap-1">
-          <label htmlFor={fieldId("profileVisible")} className="flex min-h-11 items-center gap-3 text-base sm:text-sm">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex min-w-0 flex-col">
+              <label htmlFor={fieldId("profileVisible")} className="body-s font-semibold">
+                Show my profile to other members
+              </label>
+              <p id="member-visible-hint" className="label-tag text-muted">
+                Off by default. Shows your bio, Instagram, photo and upcoming events to members on your Who&rsquo;s
+                Going lists. Never your email.
+              </p>
+            </div>
             <input
               id={fieldId("profileVisible")}
               type="checkbox"
@@ -252,16 +263,12 @@ export default function MemberProfileSettings({
               }}
               aria-describedby={describedBy("profileVisible", "member-visible-hint")}
               aria-invalid={errors.profileVisible ? true : undefined}
-              className="size-5 shrink-0"
+              data-switch=""
+              className="relative h-6 w-11 shrink-0 cursor-pointer appearance-none rounded-full bg-muted before:absolute before:top-0.5 before:left-0.5 before:size-5 before:rounded-full before:bg-paper before:content-[''] checked:bg-signal checked:before:translate-x-5 after:absolute after:-inset-2.5 after:content-[''] motion-safe:before:transition-transform motion-safe:before:duration-200"
             />
-            <span className="font-semibold">Show my profile to other members</span>
-          </label>
-          <p id="member-visible-hint" className="pl-8 text-xs text-muted">
-            Off by default. Shows your bio, Instagram, photo and upcoming events to members on your Who&rsquo;s Going
-            lists. Never your email.
-          </p>
+          </div>
           {errors.profileVisible && (
-            <p id={`${fieldId("profileVisible")}-error`} className="pl-8 text-sm text-danger">
+            <p id={`${fieldId("profileVisible")}-error`} className="text-sm text-danger">
               {errors.profileVisible}
             </p>
           )}
@@ -269,8 +276,8 @@ export default function MemberProfileSettings({
 
         <div className="flex flex-col items-start gap-3">
           {/* busy, not disabled: focus stays on the button through the save. */}
-          <Button type="submit" variant="solid" size="lg" busy={saving} className="w-full sm:w-auto">
-            {saving ? "Saving…" : "Save profile"}
+          <Button type="submit" variant="solid" size="sm" busy={saving} className="min-h-11">
+            {saving ? "Saving…" : "Save changes"}
           </Button>
           {error && <ActionErrorNotice message={error} returnTo={RETURN_TO} />}
           {/* Always mounted so the result is announced when it appears. */}

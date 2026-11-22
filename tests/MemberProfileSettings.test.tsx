@@ -98,7 +98,7 @@ describe("member profile settings (/account)", () => {
     fireEvent.change(screen.getByLabelText("Instagram username (optional)"), {
       target: { value: "https://www.instagram.com/mia.t/" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() =>
       expect(updateMyProfile).toHaveBeenCalledWith(
         { profileVisible: true, bio: "Hi", instagramHandle: "mia.t" },
@@ -111,13 +111,13 @@ describe("member profile settings (/account)", () => {
 
   it("clears a bio or handle with null, and says when nothing changed", async () => {
     renderSettings({ ...PROFILE, bio: "Old", instagramHandle: "old" });
-    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     expect(await screen.findByText("No changes to save.")).toBeInTheDocument();
     expect(updateMyProfile).not.toHaveBeenCalled();
     updateMyProfile.mockResolvedValue(PROFILE);
     fireEvent.change(screen.getByLabelText("Bio (optional)"), { target: { value: "" } });
     fireEvent.change(screen.getByLabelText("Instagram username (optional)"), { target: { value: " " } });
-    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(updateMyProfile).toHaveBeenCalledWith({ bio: null, instagramHandle: null }, expect.any(Function)));
   });
 
@@ -126,7 +126,7 @@ describe("member profile settings (/account)", () => {
     const bio = screen.getByLabelText("Bio (optional)");
     fireEvent.change(bio, { target: { value: "x".repeat(201) } });
     expect(screen.getByText("1 characters too many")).toHaveClass("text-danger");
-    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(bio).toHaveFocus());
     expect(bio).toHaveAttribute("aria-invalid", "true");
     expect(bio).toHaveAccessibleDescription(/Your bio must be 200 characters or fewer\./);
@@ -140,7 +140,7 @@ describe("member profile settings (/account)", () => {
     renderSettings();
     const handle = screen.getByLabelText("Instagram username (optional)");
     fireEvent.change(handle, { target: { value: "no spaces allowed" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(handle).toHaveFocus());
     expect(handle).toHaveAccessibleDescription(/That isn't an Instagram username\./);
   });
@@ -149,13 +149,13 @@ describe("member profile settings (/account)", () => {
     updateMyProfile.mockRejectedValue(new ApiError(403, "Verify your email address first."));
     renderSettings();
     fireEvent.click(screen.getByRole("checkbox", { name: "Show my profile to other members" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Verify your email address first.");
   });
 
   it("a suspended profile can't be changed", () => {
     renderSettings({ ...PROFILE, suspended: true });
-    expect(screen.queryByRole("button", { name: "Save profile" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save changes" })).toBeNull();
     expect(screen.getByText(/Suspended profiles can’t be changed/)).toBeInTheDocument();
   });
 

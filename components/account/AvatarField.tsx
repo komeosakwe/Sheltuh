@@ -121,16 +121,17 @@ export default function AvatarField({
   return (
     <div className="flex flex-col gap-2" aria-busy={busy ? true : undefined}>
       <div className="flex items-center gap-4">
-        <div className="relative size-18 shrink-0">
+        {/* The Settings frames' photo: a 56px circle. */}
+        <div className="relative size-14 shrink-0">
           {shown ? (
             // eslint-disable-next-line @next/next/no-img-element -- a local object URL (the photo needs the bearer token)
             <img
               src={shown}
               alt={busy?.kind === "upload" ? "Your new photo, uploading" : "Your profile photo"}
-              className={`size-full rounded-dot object-cover ${busy?.kind === "upload" ? "opacity-60" : ""}`}
+              className={`size-full rounded-full object-cover ${busy?.kind === "upload" ? "opacity-60" : ""}`}
             />
           ) : (
-            <InitialsAvatar name={profile.displayName} size="field" />
+            <InitialsAvatar name={profile.displayName} size="setting" />
           )}
         </div>
         <div className="flex min-w-0 flex-col items-start gap-1">

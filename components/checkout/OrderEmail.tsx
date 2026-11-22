@@ -135,17 +135,17 @@ export default function OrderEmail({
   const latestDraft = useRef("");
   const openRef = useRef<HTMLButtonElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
-  // Where focus goes after the next render: the field (opened), Change it (cancelled), or the box (done).
-  const focusNext = useRef<"field" | "open" | "box" | null>(null);
+  // Where focus goes once the render that asks for it is on screen: the field (opened), Change it (cancelled), or
+  // the box (done). State, not a ref: React may still run an earlier render's effects first (a press that lands
+  // before they've run), and those must not take a request their render doesn't have the element for.
+  const [focusNext, setFocusNext] = useState<{ target: "field" | "open" | "box" } | null>(null);
 
   useEffect(() => {
-    const target = focusNext.current;
-    if (!target) return;
-    focusNext.current = null;
-    if (target === "field") inputRef.current?.focus();
-    else if (target === "open") openRef.current?.focus();
+    if (!focusNext) return;
+    if (focusNext.target === "field") inputRef.current?.focus();
+    else if (focusNext.target === "open") openRef.current?.focus();
     else boxRef.current?.focus();
-  });
+  }, [focusNext]);
 
   const change = order.emailChange;
   const refused = outcome?.kind === "refused";
@@ -160,13 +160,13 @@ export default function OrderEmail({
     setFormError(null);
     setOutcome(null);
     setEditing(true);
-    focusNext.current = "field";
+    setFocusNext({ target: "field" });
   }
 
   function cancel() {
     if (pending.current) return;
     setEditing(false);
-    focusNext.current = "open";
+    setFocusNext({ target: "open" });
   }
 
   /** The order as the server has it now (the same read as the page's), or null if that can't be had. */
@@ -204,7 +204,7 @@ export default function OrderEmail({
       onOrder(result.order);
       setEditing(false);
       setOutcome({ kind: result.result, email: result.order.email });
-      focusNext.current = "box";
+      setFocusNext({ target: "box" });
     } catch (err) {
       const code = err instanceof ApiError ? err.body?.code : undefined;
       if (err instanceof ApiError && err.status === 400 && err.fieldErrors?.email) {
@@ -246,11 +246,11 @@ export default function OrderEmail({
         onOrder(now ? { ...now, emailChange: now.emailChange?.allowed === false ? now.emailChange : blockedChange } : before);
         setEditing(false);
         setOutcome({ kind: "blocked", reason: code });
-        focusNext.current = "box";
+        setFocusNext({ target: "box" });
       } else if (err instanceof ApiError && err.status === 404) {
         setEditing(false);
         setOutcome({ kind: "refused" });
-        focusNext.current = "box";
+        setFocusNext({ target: "box" });
       } else {
         // No clear answer (a server error, no connection, or a 429 after a try whose answer was lost): did it go
         // through? A read, never another change.
@@ -265,7 +265,7 @@ export default function OrderEmail({
           onOrder(now);
           setEditing(false);
           setOutcome({ kind: "changed", email: now.email });
-          focusNext.current = "box";
+          setFocusNext({ target: "box" });
           return;
         }
         // The read worked but didn't confirm the change: still show what it says. If the order isn't paid any more

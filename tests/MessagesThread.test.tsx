@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { ThreadPageContent } from "@/components/messages/MessagesPages";
 import { UnreadProvider } from "@/components/messages/UnreadProvider";
 import { ApiError } from "@/lib/api/client";
@@ -144,7 +144,8 @@ describe("Thread — loading and reading", () => {
     expect(text).toContain("This person can’t be messaged any more, or the conversation was removed.");
     expect(text).not.toMatch(/block|declin|suspend/i);
     expect(screen.queryByRole("textbox")).toBeNull();
-    expect(screen.getByRole("link", { name: /All messages/ })).toHaveAttribute("href", "/messages");
+    // In the thread's panel; the way back is the conversation list beside it (MessagesFrame).
+    expect(heading.closest("div.rounded-card.border")).not.toBeNull();
   });
 
   it("explains a 403 (unverified email) and Try again reloads", async () => {
@@ -847,18 +848,17 @@ describe("Thread — every state has an h1, inside the page's padding", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Conversation" })).toBeInTheDocument();
   });
 
-  it("signed out, auth loading and demo, framed like other pages", () => {
+  it("signed out, auth loading and demo, framed in the thread's panel", () => {
+    const panel = "div.rounded-card.border";
     const { unmount } = renderThread(fakeAuthValue({ status: "signed-out", email: undefined }));
     const heading = screen.getByRole("heading", { level: 1, name: "Sign in to see your messages" });
-    expect(heading.closest("div.px-5")).not.toBeNull();
+    expect(heading.closest(panel)).not.toBeNull();
     unmount();
     const loading = renderThread(fakeAuthValue({ status: "loading" }));
-    expect(screen.getByRole("heading", { level: 1, name: "Conversation" }).closest("div.px-5")).not.toBeNull();
+    expect(screen.getByRole("heading", { level: 1, name: "Conversation" }).closest(panel)).not.toBeNull();
     loading.unmount();
     renderThread(fakeAuthValue({ configured: false, status: "signed-out" }));
-    expect(
-      screen.getByRole("heading", { level: 1, name: "This conversation isn’t available" }).closest("div.px-5"),
-    ).not.toBeNull();
+    expect(screen.getByRole("heading", { level: 1, name: "This conversation isn’t available" }).closest(panel)).not.toBeNull();
   });
 
   it("names the page after the person once loaded", async () => {
@@ -866,5 +866,136 @@ describe("Thread — every state has an h1, inside the page's padding", () => {
     renderThread();
     await ready();
     await waitFor(() => expect(document.title).toBe("Sam K. — Messages — Sheltüh"));
+  });
+});
+
+describe("Thread — scrolling inside its panel (from 768px the messages section scrolls on its own)", () => {
+  // jsdom lays nothing out: give the messages section a scroll box (2000 of content in 600) and
+  // record where it's scrolled to.
+  const scrollTops = new WeakMap<Element, number>();
+  const isSection = (el: Element) => el.matches('section[aria-labelledby="thread-messages-title"]');
+  let restore: (() => void) | undefined;
+  beforeEach(() => {
+    const proto = HTMLElement.prototype;
+    const saved = {
+      scrollHeight: Object.getOwnPropertyDescriptor(Element.prototype, "scrollHeight"),
+      clientHeight: Object.getOwnPropertyDescriptor(Element.prototype, "clientHeight"),
+      scrollTop: Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop"),
+    };
+    Object.defineProperty(proto, "scrollHeight", { configurable: true, get() { return isSection(this) ? 2000 : 0; } });
+    Object.defineProperty(proto, "clientHeight", { configurable: true, get() { return isSection(this) ? 600 : 0; } });
+    Object.defineProperty(proto, "scrollTop", {
+      configurable: true,
+      get() { return scrollTops.get(this) ?? 0; },
+      set(value: number) { scrollTops.set(this, value); },
+    });
+    restore = () => {
+      for (const key of ["scrollHeight", "clientHeight", "scrollTop"] as const) {
+        delete (proto as unknown as Record<string, unknown>)[key];
+        const original = saved[key];
+        if (original) Object.defineProperty(Element.prototype, key, original);
+      }
+    };
+  });
+  afterEach(() => restore?.());
+
+  const section = () => {
+    const el = document.querySelector<HTMLElement>('section[aria-labelledby="thread-messages-title"]');
+    if (!el) throw new Error("no messages section");
+    return el;
+  };
+
+  it("opens at the newest message by scrolling the section, whose end it holds", async () => {
+    const intoView = vi.fn();
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = intoView;
+    onTestFinished(() => {
+      Element.prototype.scrollIntoView = original;
+    });
+    api.getMessages.mockResolvedValue(page([msg(1), msg(2), msg(3)]));
+    renderThread();
+    await ready();
+    await waitFor(() => expect(section().scrollTop).toBe(2000));
+    // The end marker is inside the scroll container, after the messages (not after the composer).
+    expect(section().lastElementChild?.tagName).toBe("DIV");
+    expect(section().contains(screen.getByRole("list", { name: "Messages with Sam K." }))).toBe(true);
+    expect(intoView).not.toHaveBeenCalled();
+  });
+
+  it("follows a new message only when the reader is near the end of the section", async () => {
+    api.getMessages.mockResolvedValue(page([msg(1), msg(2)]));
+    api.sendMessage.mockResolvedValue(msg(3, true, "On my way"));
+    renderThread();
+    await ready();
+    await waitFor(() => expect(section().scrollTop).toBe(2000));
+    // Scrolled up to read older messages: a new one doesn't pull them down.
+    section().scrollTop = 100;
+    await type("On my way");
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await screen.findByText("On my way");
+    await act(async () => {});
+    expect(section().scrollTop).toBe(100);
+    // Back at the end: the next one is followed.
+    section().scrollTop = 1400;
+    api.sendMessage.mockResolvedValue(msg(4, true, "Nearly there"));
+    await type("Nearly there");
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await screen.findByText("Nearly there");
+    await waitFor(() => expect(section().scrollTop).toBe(2000));
+  });
+
+  it("follows several new messages from one check when the reader was at the end, and never pulls a reader down", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    // Each message is 200px tall; the section shows 600px of them.
+    const BUBBLE = 200;
+    const messageCount = () => document.querySelectorAll("li[data-message-id]").length;
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get() { return isSection(this) ? 600 + messageCount() * BUBBLE : 0; },
+    });
+    const rect = (height: number) =>
+      ({ x: 0, y: 0, top: 0, left: 0, right: 0, bottom: height, width: 0, height, toJSON: () => ({}) }) as DOMRect;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      if (this.matches("ol[aria-label^='Messages with']")) return rect(messageCount() * BUBBLE);
+      return rect(this.matches("li[data-message-id]") ? BUBBLE : 0);
+    });
+    const advance = async (ms: number) => {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(ms);
+      });
+    };
+    api.getMessages
+      .mockResolvedValueOnce(page([msg(1), msg(2), msg(3)]))
+      .mockResolvedValueOnce(page([msg(4), msg(5), msg(6)]))
+      .mockResolvedValueOnce(page([msg(7), msg(8)]))
+      .mockResolvedValue(page([]));
+    renderThread();
+    await advance(0);
+    expect(screen.getByRole("list", { name: "Messages with Sam K." })).toBeInTheDocument();
+    // At the very end of 1200px of content (a browser holds scrollTop at 1200 - 600).
+    section().scrollTop = 600;
+    // One check brings three: 600px more, which doesn't count against the reader, so they follow.
+    await advance(10_000);
+    expect(screen.getByText("Message 6")).toBeInTheDocument();
+    expect(section().scrollTop).toBe(1800);
+    // Scrolled up to read: the next two arrive without moving them.
+    section().scrollTop = 100;
+    await advance(10_000);
+    expect(screen.getByText("Message 8")).toBeInTheDocument();
+    expect(section().scrollTop).toBe(100);
+  });
+});
+
+describe("Thread — bubbles", () => {
+  it("are never wider than the thread, and wrap a long unbroken word inside", async () => {
+    const long = "x".repeat(300);
+    api.getMessages.mockResolvedValue(page([msg(1, false, long)]));
+    renderThread();
+    await ready();
+    const bubble = screen.getByText(long).closest("li");
+    // 392px at most, and never more than the thread's own width (min(100%, 24.5rem)).
+    expect(bubble).toHaveClass("max-w-[min(100%,24.5rem)]", "min-w-0");
+    expect(screen.getByText(long)).toHaveClass("break-words", "max-w-full");
   });
 });

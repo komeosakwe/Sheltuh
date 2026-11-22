@@ -676,12 +676,16 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
      "Sheltüh". The remote images are decorative and on the site's own
      origin, the same for everyone with no order data: the stripes, notches
      and icons in `public/email/ticket/`, and the event's own image. Gmail
-     clips HTML over 102 KB: when every ticket's card would take the HTML
-     past 90 KB (`TICKET_EMAIL_HTML_BUDGET`; the largest order checkout
-     allows is 400 people), the first tickets get cards and the rest are
-     listed by number, type and code, pointing at the ticket page for their
-     QR codes; the plain-text part always lists every code. Each
-     ticket whose code matches `TICKET_CODE_PATTERN` gets a QR code
+     clips HTML over 102 KB. Only the first ticket gets the full card (with
+     its QR code, backup code and wallet buttons; Latte's 2-ticket frame,
+     owner decision, Nov 2026); each other ticket is a row ("TICKET n of N",
+     the buyer's checkout name and the ticket type, View: the ticket page,
+     which holds every code and QR code), with no code. Past 90 KB
+     (`TICKET_EMAIL_HTML_BUDGET`; the largest order checkout allows is 400
+     people) the first rows are kept and the rest are one line pointing at
+     the ticket page; the plain-text part has a line for every ticket and
+     only the first code. The first ticket, when its code matches
+     `TICKET_CODE_PATTERN`, gets a QR code
      (`SH1:` + code, level H, version 2, the centre 7 × 7 modules cleared for
      the brand's ü: `ticketQrSymbol` in `lib/ticket-qr.ts` over the vendored
      encoder `lib/qr/qrcodegen.ts`, the same symbol the ticket page's
@@ -692,7 +696,7 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
      multipart/related part, `EmailMessage.inlineImages`, named
      `ticket-<n>-qr.png`, never after the code), so it shows even where
      remote images are blocked. Alt text names the ticket and points at the
-     backup code printed beneath it, and the plain-text part lists every code and tells
+     backup code printed beneath it, and the plain-text part gives the first code and tells
      text-only readers to show the entry code (the QR is in the full email). A code
      that doesn't match the pattern gets no QR. Emails sent before QR codes
      (and the plain-text part) rely on the door typing in the code, which
@@ -700,14 +704,23 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
      over a thousand codes, as matrices, PNGs and rendered email, with two
      independent decoders (jsQR, ZXing) outside the repo; the tests check the
      symbol's structure against the standard and pin a decoder-verified
-     matrix. Email clients themselves aren't tested. The other transactional
-     emails (free-ticket confirmation, waitlist, follower, review, invite) are built
-     on one layout, `lib/server/email-layout.ts` (Brand Direction One:
-     white page, white card with a black hairline, black text, Signal Orange only on the one
-     button, with black text on it; the button keeps its size in Outlook
-     for Windows via `mso-padding-alt`, and the preheader is hidden there
-     with `mso-hide:all`), so they can't drift apart;
-     `tests/server/email-brand.test.ts` holds every builder to it.
+     matrix. Email clients themselves aren't tested. Every customer and
+     organiser email (the ticket email around its own card, the reminder,
+     the holder message, free-ticket confirmation, waitlist, follower,
+     invites and the welcome / onboarding emails) is built on one layout,
+     `lib/server/email-kit.ts`, to the designer's 20 Nov ("1120") frames:
+     a white 600px column on cream (customer) or warm grey (organiser),
+     the orange wordmark, eyebrow and heading, outlined notice boxes,
+     detail rows, the 56px orange call to action (48px on a phone, black
+     label) beside an outlined one, and one footer (no company line until
+     the owner confirms it). Table layout and inline styles, Instrument
+     Sans and IBM Plex Mono self-hosted, `mso-padding-alt` on the buttons,
+     the preheader hidden with `mso-hide:all`, so the emails can't drift
+     apart; `tests/server/email-brand.test.ts` holds every builder to it.
+     The admin review emails stay on `lib/server/email-layout.ts`.
+     Organiser emails A4 (7 days after approval) and A5 (the morning after
+     each event) are built (`lib/server/onboarding-email.ts`) but not sent:
+     their triggers need new onboarding / outbox kinds, a migration.
    Free orders require the buyer's email address at checkout; a paid one
    has the address typed on our page (checked, and prefilled into Stripe's
    form) or, from an older client, the one Stripe's form collected. The same outbox carries waitlist emails
@@ -4813,17 +4826,21 @@ job kind `event_reminder`, one job per recipient, no new cron route.
   reminder was queued for was refunded, the person's oldest other paid order
   for the event (same recipient hash) is used instead, for the address and the
   ticket page: a holder who still has tickets is not left without a reminder.
-  The event title, venue, address and organiser name in the email are cleaned
+  The event title, venue and address in the email are cleaned
   first (`subjectLine`: control, invisible and bidi characters become a space,
   so line breaks go too). The platform sends at most 800 reminders a day
   (bucket `event_reminders_daily`): past it a job is put back an hour without
   using an attempt. Logs carry the job id only.
 - **The email.** Subject "Today: {title}" or "Tomorrow: {title}" (decided at
-  send time from the event's own calendar day); the event's date and time in
-  its zone, venue, address, "Get directions", a "View your tickets" button
-  (the order's ticket page), the organiser's name linking their page, and a
-  footer saying why the reader got it. Sent with `Auto-Submitted:
-  auto-generated`, no `List-Unsubscribe` and no unsubscribe link.
+  send time from the event's own calendar day), on the shared layout
+  (Latte's 1120 "Reminder (day before)" frame): the compact ticket card, the
+  event's date and time in its zone with Google / Apple / Outlook calendar
+  links, the venue and address with "Get directions", an "Open your ticket"
+  button (the order's ticket page), "Need a hand?", and a footer saying why
+  the reader got it ("You're getting this email because you have tickets for
+  this event."). It no longer names or links the organiser. Sent with
+  `Auto-Submitted: auto-generated`, no `List-Unsubscribe` and no unsubscribe
+  link.
 - **Spam Act 2003 (Cth).** A reminder about tickets the reader bought is
   service information, not a commercial electronic message: it carries no
   promotion and no offer. It is sent once per event with no opt-out; the
