@@ -1,6 +1,7 @@
 import type { VenueResolution } from "@/components/dashboard/VenueSuburbField";
 import type { TicketTypeInput } from "@/lib/api/types";
 import { MAX_REFUND_DAYS, MIN_REFUND_DAYS, isValidRefundDays, type RefundPolicy } from "@/lib/refund-policy";
+import { BEFORE_YOU_GO_TITLE, validateBeforeYouGo } from "@/lib/before-you-go";
 import { MIN_PAID_TICKET_CENTS } from "@/lib/fees";
 import { formatAud } from "@/lib/format";
 import { admitsOf, groupOfLabel, MAX_GROUP_SIZE } from "@/lib/ticket-groups";
@@ -37,6 +38,8 @@ export function parseExternalPriceFrom(text: string): number | null {
 export interface DraftCheckInput {
   title: string;
   description: string;
+  /** The "Before you go" note as typed (optional: blank is no note). Unset: not checked. */
+  beforeYouGo?: string;
   venueName: string;
   venueAddress: string;
   /** The suburb as it resolves (useVenuePlace's resolveForSave), or as it stands on screen. */
@@ -67,6 +70,9 @@ export function draftErrors(input: DraftCheckInput): Record<string, string> {
   const errors: Record<string, string> = {};
   if (!input.title.trim()) errors.title = "Enter an event title.";
   if (!input.description.trim()) errors.description = "Enter a description.";
+  // lib/before-you-go.ts: the API's own limits (5 lines, 500 characters, no links); blank is fine.
+  const beforeYouGoError = validateBeforeYouGo(input.beforeYouGo ?? "");
+  if (beforeYouGoError) errors.beforeYouGo = beforeYouGoError;
   if (!input.venueName.trim()) errors.venueName = "Enter a venue name.";
   if (!input.venueAddress.trim()) errors.venueAddress = "Enter a venue address.";
   const { place } = input;
@@ -274,6 +280,8 @@ export function errorFieldLabel(key: string): string {
       return "Title";
     case "description":
       return "Description";
+    case "beforeYouGo":
+      return BEFORE_YOU_GO_TITLE;
     case "venueName":
       return "Venue name";
     case "venueAddress":

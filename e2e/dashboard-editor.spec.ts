@@ -939,6 +939,44 @@ for (const vp of [
       await expect.poll(() => saved.length, { timeout: 30_000 }).toBe(1);
       expect((saved[0].ticketTypes as { description?: string }[])[0].description).toBe("Standing room, all four bands.");
     });
+
+    test("the Before you go note is sent with the draft, shown in the preview, and refused by the field past 5 lines", async ({ page }) => {
+      const saved: Record<string, unknown>[] = [];
+      const draft = freeDraft("evt-e2e-before-you-go");
+      await signedInAsOrganiser(page, (request, path) => {
+        const method = request.method();
+        if (method === "GET" && path === `/api/organisers/me/events/${draft.eventId}`) return { json: draft };
+        if (method === "PATCH" && path === `/api/events/${draft.eventId}`) {
+          const body: Record<string, unknown> = request.postDataJSON();
+          saved.push(body);
+          return { json: { ...draft, beforeYouGo: body.beforeYouGo ?? undefined } };
+        }
+        return null;
+      });
+      await page.goto(`/dashboard/${draft.eventId}`);
+      await expect(page.getByLabel("Title", { exact: true })).toHaveValue("Neon Static", { timeout: 30_000 });
+      const note = page.getByLabel("Before you go (optional)");
+      await expect(note).toHaveAccessibleDescription(/^What people should know before they arrive/);
+
+      // Six lines: refused by the field, nothing sent.
+      await note.fill("1\n2\n3\n4\n5\n6");
+      await page.getByRole("button", { name: "Save draft" }).click();
+      await expect(note).toBeFocused();
+      await expect(note).toHaveAttribute("aria-invalid", "true");
+      await expect(note).toHaveAccessibleDescription(/^Keep it to 5 lines or fewer\./);
+      expect(saved).toHaveLength(0);
+
+      await note.fill("Doors open 7:30 pm · last entry 10:30 pm.\n18+ event — bring photo ID.");
+      await expect(page.getByText("69/500")).toBeVisible();
+      if (desktop) {
+        const box = page.frameLocator("iframe[title='Event page preview']").getByRole("region", { name: "Before you go" });
+        await expect(box).toContainText("18+ event — bring photo ID.", { timeout: 15_000 });
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+      await page.getByRole("button", { name: "Save draft" }).click();
+      await expect.poll(() => saved.length, { timeout: 30_000 }).toBe(1);
+      expect(saved[0].beforeYouGo).toBe("Doors open 7:30 pm · last entry 10:30 pm.\n18+ event — bring photo ID.");
+    });
   });
 }
 

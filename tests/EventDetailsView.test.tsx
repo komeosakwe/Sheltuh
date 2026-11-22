@@ -706,3 +706,34 @@ describe("EventDetailsView booking info beside the tickets", () => {
     expect(screen.getByRole("region", { name: "Good to know" })).toHaveTextContent("18+ (ID checked)");
   });
 });
+
+describe("EventDetailsView: Before you go", () => {
+  const NOTE = "Doors open 5:00 pm · last entry 8:00 pm.\n\n18+ event — bring photo ID.\n<b>Earplugs</b> at the bar.";
+
+  it("shows the organiser's note in a box titled Before you go, a paragraph per line, as plain text", () => {
+    const { container } = render(<EventDetailsView event={{ ...findEvent("neon-static"), beforeYouGo: NOTE }} demo />);
+    const box = screen.getByRole("region", { name: "Before you go" });
+    expect(within(box).getByRole("heading", { level: 2, name: "Before you go" })).toBeInTheDocument();
+    // The blank line between two lines isn't a line of its own.
+    expect([...box.querySelectorAll("p")].map((p) => p.textContent)).toEqual([
+      "Doors open 5:00 pm · last entry 8:00 pm.",
+      "18+ event — bring photo ID.",
+      "<b>Earplugs</b> at the bar.",
+    ]);
+    // Escaped, never markup.
+    expect(box.querySelector("b")).toBeNull();
+    expect(box).toHaveClass("border", "border-foreground", "rounded-control", "p-6");
+    // Just before Location.
+    const location = screen.getByRole("heading", { name: "Location" }).closest("section");
+    expect(location).not.toBeNull();
+    if (location) expect(box.compareDocumentPosition(location) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(container.querySelectorAll("[data-before-you-go]")).toHaveLength(1);
+  });
+
+  it("is absent when the event has no note", () => {
+    // The sample has one (lib/sample-events.ts): taken away here.
+    const { container } = render(<EventDetailsView event={{ ...findEvent("neon-static"), beforeYouGo: undefined }} demo />);
+    expect(screen.queryByRole("region", { name: "Before you go" })).toBeNull();
+    expect(container.querySelector("[data-before-you-go]")).toBeNull();
+  });
+});

@@ -92,8 +92,9 @@ describe("EventLocation", () => {
       .map((h) => (h.textContent ?? "").replace(/\u2019/g, "'"));
     const about = headings.indexOf("About this event");
     expect(about).toBeGreaterThanOrEqual(0);
-    // Refunds sit between Location and Good to know, but as a labelled list, not a heading.
-    expect(headings.slice(about, about + 4)).toEqual(["About this event", "Who's going", "Location", "Good to know"]);
+    // Refunds sit between Location and Good to know, but as a labelled list, not a heading. The sample's
+    // "Before you go" note is boxed just before Location.
+    expect(headings.slice(about, about + 5)).toEqual(["About this event", "Who's going", "Before you go", "Location", "Good to know"]);
   });
 
   it("names the venue and address, and links them to Google Maps and Apple Maps, the named controls", () => {

@@ -44,6 +44,8 @@ function asPublic(slug: string): PublicEvent {
     externalFree: event.externalFree ?? false,
     ...(event.externalPriceFromCents ? { externalPriceFromCents: event.externalPriceFromCents } : {}),
     externalProvider: event.externalProvider ?? null,
+    // The organiser's "Before you go" note, as the live API sends it (Neon Static has one).
+    ...(event.beforeYouGo ? { beforeYouGo: event.beforeYouGo } : {}),
   };
 }
 
@@ -760,13 +762,15 @@ for (const vp of [
       const address = `${event.venueName}, ${event.venueAddress}`;
       const href = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`;
 
-      // The owner's order (30 Oct 2026): About, Who's Going, then Location (the live API sends no Good to know details).
+      // The owner's order (30 Oct 2026): About, Who's Going, then Location (the live API sends no Good to know details),
+      // with the organiser's Before you go note just before Location when there is one (Neon Static has).
       const headings = await page.getByRole("heading", { level: 2 }).allTextContents();
       const about = headings.indexOf("About this event");
       expect(about).toBeGreaterThanOrEqual(0);
-      expect(headings.slice(about, about + 3).map((h) => h.replace(/\u2019/g, "'"))).toEqual([
+      expect(headings.slice(about, about + 4).map((h) => h.replace(/\u2019/g, "'"))).toEqual([
         "About this event",
         "Who's going",
+        "Before you go",
         "Location",
       ]);
       const location = page.getByRole("region", { name: "Location" });
@@ -1142,3 +1146,44 @@ test.describe("Choose tickets' visible feedback at 390px (a tap's focus shows no
     if (process.env.EVENT_SHOTS) await page.screenshot({ path: `${process.env.EVENT_SHOTS}/event-after2-choose-390.png` });
   });
 });
+
+// The organiser's "Before you go" note: a small box in the main column, just before Location, as plain text.
+for (const vp of [
+  { width: 390, height: 844 },
+  { width: 1440, height: 900 },
+]) {
+  test.describe(`Before you go at ${vp.width}×${vp.height}`, () => {
+    test.use({ viewport: vp });
+
+    test("Neon Static's note is boxed before Location, a line per line, with no sideways scroll", async ({ page }) => {
+      await mockApi(page);
+      await page.goto("/events/neon-static");
+      const box = page.getByRole("region", { name: "Before you go" });
+      await expect(box).toBeAttached({ timeout: 30_000 });
+      await box.scrollIntoViewIfNeeded();
+      await expect(box).toBeVisible();
+      await expect(box.getByRole("heading", { level: 2, name: "Before you go" })).toBeVisible();
+      await expect(box.locator("p")).toHaveText([
+        "Doors open 7:30 pm · last entry 10:30 pm.",
+        "18+ event — bring photo ID that matches the ticket holder name.",
+        "Earplugs are free at the bar.",
+      ]);
+      // Latte's box: a 1px rule, 24px padding, radius 8.
+      const style = await box.evaluate((el) => {
+        const css = getComputedStyle(el);
+        return { border: css.borderTopWidth, padding: css.paddingTop, radius: css.borderTopLeftRadius };
+      });
+      expect(style).toEqual({ border: "1px", padding: "24px", radius: "8px" });
+      const boxBottom = await box.evaluate((el) => el.getBoundingClientRect().bottom + window.scrollY);
+      const locationTop = await page
+        .getByRole("heading", { level: 2, name: "Location" })
+        .evaluate((el) => el.getBoundingClientRect().top + window.scrollY);
+      expect(boxBottom).toBeLessThan(locationTop);
+      await noSidewaysScroll(page);
+      if (process.env.EVENT_SHOTS) {
+        await box.evaluate((el) => el.scrollIntoView({ block: "center" }));
+        await page.screenshot({ path: `${process.env.EVENT_SHOTS}/before-you-go-event-page-${vp.width}.png` });
+      }
+    });
+  });
+}

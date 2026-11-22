@@ -112,6 +112,7 @@ import type {
 } from "@/lib/api/types";
 import { SessionExpiredError } from "@/lib/auth/AuthContext";
 import { useAccountOwner } from "@/lib/auth/useAccountOwner";
+import { BEFORE_YOU_GO_MAX_LENGTH, BEFORE_YOU_GO_TITLE, normaliseBeforeYouGo } from "@/lib/before-you-go";
 import { eventClipsEnabled } from "@/lib/clips-flag";
 import { eventZone, formatEventDateShort, formatEventTime, toDateTimeInputParts } from "@/lib/format";
 import { assignPoster } from "@/lib/live/assign-poster";
@@ -123,6 +124,7 @@ import {
   removedBefore,
 } from "@/lib/organiser-events";
 import { groupTicketsEnabled } from "@/lib/group-tickets-flag";
+import { messageLength } from "@/lib/message-text";
 import { formatFeedPriceParts } from "@/lib/pricing";
 import { DEFAULT_REFUND_POLICY, type RefundPolicy } from "@/lib/refund-policy";
 import { sellsPaidTicketsOnSheltuh, type TicketingMode } from "@/lib/ticketing";
@@ -136,6 +138,14 @@ const SECTION_TITLE = "font-heading text-lg leading-6 text-foreground";
 /** Under Venue name after a Google pick that was an address, not a venue (handlePicked). */
 export const VENUE_NAME_HINT = "Google found an address, not a venue name. Add the venue’s name.";
 const VENUE_NAME_HINT_ID = "venueName-hint";
+
+/** Under "Before you go" (lib/before-you-go.ts has the limits the hint gives). */
+export const BEFORE_YOU_GO_HINT =
+  "What people should know before they arrive: doors and last entry, age limit, what to bring. Up to 5 short lines. No links.";
+const BEFORE_YOU_GO_HINT_ID = "beforeYouGo-hint";
+/** Latte's example lines (the ticket email's box, frame 526:11545). */
+const BEFORE_YOU_GO_PLACEHOLDER =
+  "Doors open 5:00 pm · last entry 8:00 pm\n18+ event — bring photo ID that matches the ticket holder name";
 
 interface OrganiserProps {
   getToken: GetToken;
@@ -269,6 +279,7 @@ function invalidControlIds(
     ["organiserId", "organiserId"],
     ["title", "title"],
     ["description", "description"],
+    ["beforeYouGo", "beforeYouGo"],
     ["venueName", "venueName"],
     ["venueAddress", "venueAddress"],
     ["suburb", VENUE_SUBURB_ID],
@@ -314,6 +325,8 @@ export default function EventEditor(props: Props) {
 
   const [title, setTitle] = useState(initial?.title ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
+  // The "Before you go" note as typed (optional); sent cleaned, null when blank (which clears it).
+  const [beforeYouGo, setBeforeYouGo] = useState(initial?.beforeYouGo ?? "");
   const [category, setCategory] = useState(initial?.category ?? EVENT_CATEGORIES[0].value);
   const [venueName, setVenueName] = useState(initial?.venueName ?? "");
   const [venueAddress, setVenueAddress] = useState(initial?.venueAddress ?? "");
@@ -652,6 +665,7 @@ export default function EventEditor(props: Props) {
     const nextErrors = draftErrors({
       title,
       description,
+      beforeYouGo,
       venueName,
       venueAddress,
       place,
@@ -689,6 +703,8 @@ export default function EventEditor(props: Props) {
       start,
       end,
       ticketTypes: external ? [] : ticketTypes.map(cleanTicketType),
+      // Always sent, so clearing the box clears the note (null); the API cleans it the same way.
+      beforeYouGo: normaliseBeforeYouGo(beforeYouGo),
     };
     // The venue's location: only when it differs from what's saved (absent keeps it; null removes it).
     const location = locationChange(venueLocation.input, current?.location);
@@ -1123,6 +1139,7 @@ export default function EventEditor(props: Props) {
     slug: current?.slug,
     title,
     description,
+    beforeYouGo,
     category,
     suburb: venue.place ? venue.place.name : venue.suburb.trim(),
     state: venue.place?.state ?? initial?.state,
@@ -1314,6 +1331,7 @@ export default function EventEditor(props: Props) {
   const problems = draftErrors({
     title,
     description,
+    beforeYouGo,
     venueName,
     venueAddress,
     place: venue.place
@@ -1335,6 +1353,8 @@ export default function EventEditor(props: Props) {
     refundDays: refundDaysNumber(),
   });
   const complete = { 1: stepComplete(1, problems, venueLocation.hasPin), 2: stepComplete(2, problems, venueLocation.hasPin) };
+  // The note's length as the API counts it (code points, cleaned), for its counter.
+  const beforeYouGoLength = messageLength(beforeYouGo);
 
   const ticketProblem = Object.keys(problems).find((key) => key === "ticketTypes" || key.startsWith("ticket-") || key === "externalTicketUrl" || key === "externalPriceFromCents");
   // Typed but not publishable: it has ended already (the server refuses `event_ended`), or ends before it starts.
@@ -1622,6 +1642,36 @@ export default function EventEditor(props: Props) {
                 className={fieldClass}
               />
               {fieldError("description")}
+            </div>
+
+            {/* Optional, as the ticket's description is: the hint and the count under it. Counted in code points, as
+                the API counts it (no maxLength: browsers count an emoji as two); a save checks the lines and links. */}
+            <div className="flex flex-col gap-1">
+              <label htmlFor="beforeYouGo" className="eyebrow text-muted">
+                {BEFORE_YOU_GO_TITLE} (optional)
+              </label>
+              <textarea
+                id="beforeYouGo"
+                rows={4}
+                value={beforeYouGo}
+                placeholder={BEFORE_YOU_GO_PLACEHOLDER}
+                aria-invalid={errors.beforeYouGo ? true : undefined}
+                aria-describedby={[errors.beforeYouGo ? errorId("beforeYouGo") : "", BEFORE_YOU_GO_HINT_ID].filter(Boolean).join(" ")}
+                onChange={(e) => {
+                  setBeforeYouGo(e.target.value);
+                  clearErrors("beforeYouGo");
+                }}
+                className={fieldClass}
+              />
+              <div className="flex items-start justify-between gap-3">
+                <p id={BEFORE_YOU_GO_HINT_ID} className="text-xs leading-4 text-muted">
+                  {BEFORE_YOU_GO_HINT}
+                </p>
+                <p className={`meta shrink-0 tabular-nums ${beforeYouGoLength > BEFORE_YOU_GO_MAX_LENGTH ? "text-danger" : "text-muted"}`}>
+                  {beforeYouGoLength}/{BEFORE_YOU_GO_MAX_LENGTH}
+                </p>
+              </div>
+              {fieldError("beforeYouGo")}
             </div>
           </EditorCard>
 
@@ -2057,7 +2107,7 @@ export default function EventEditor(props: Props) {
 
 /** Orders the keys of an error record as the form is laid out: step 1's fields, then tickets, then the note; the rest last. */
 function orderedErrorKeys(keys: string[], ticketCount: number): string[] {
-  const order = ["organiserId", "title", "description", "venueName", "venueAddress", "suburb", "state", "timeZone", "location", "start", "end", "image", "externalTicketUrl", "externalPriceFromCents", "ticketTypes"];
+  const order = ["organiserId", "title", "description", "beforeYouGo", "venueName", "venueAddress", "suburb", "state", "timeZone", "location", "start", "end", "image", "externalTicketUrl", "externalPriceFromCents", "ticketTypes"];
   for (let i = 0; i < ticketCount; i++) order.push(`ticket-${i}-name`, `ticket-${i}-price`, `ticket-${i}-admits`, `ticket-${i}-qty`, `ticket-${i}-lock`);
   order.push("refundPolicy", "refundDays", "reason");
   const known = order.filter((key) => keys.includes(key));
