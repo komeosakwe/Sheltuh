@@ -81,8 +81,8 @@ export function kitStack(blocks: ReadonlyArray<string>, gap = 32): string {
 const KIT_PHONE_CSS = `.ko{padding:24px 0 32px 0!important}
 .kp{padding:32px 16px!important}
 .kh{font-size:22px!important;line-height:28px!important}
-.kbp{padding:12px 16px!important;font-size:15px!important;line-height:24px!important}
-.kbs{padding:12.5px 16px!important;font-size:15px!important;line-height:20px!important}
+.kbp{padding:12px!important;font-size:16px!important;line-height:24px!important}
+.kbs{padding:10.5px 12px!important;font-size:16px!important;line-height:24px!important}
 .kl{padding-right:4px!important}.kr{padding-left:4px!important}
 .kw{width:100%!important}`;
 
@@ -223,13 +223,14 @@ function buttonCell(b: KitButton, phoneSize = true): string {
   if (b.kind === "primary") {
     return (
       `<table ${FULL}><tr><td align="center" bgcolor="${KIT.orange}" style="background-color:${KIT.orange};border-radius:8px;mso-padding-alt:16px 24px">` +
-      `<a${phoneSize ? ' class="kbp"' : ""} href="${escapeHtml(b.href)}" style="display:block;padding:16px 24px;${kitType("sans", 18, 24, 500, KIT.black, "text-align:center;text-decoration:none")}">${escapeHtml(b.label)}&nbsp;&nbsp;<span style="font-family:Arial,Helvetica,sans-serif;font-size:20px;line-height:20px;font-weight:700">&rarr;</span></a>` +
+      // One line at every width (white-space:nowrap); the arrow takes the label's size, so it shrinks with it on a phone.
+      `<a${phoneSize ? ' class="kbp"' : ""} href="${escapeHtml(b.href)}" style="display:block;padding:16px 24px;${kitType("sans", 18, 24, 500, KIT.black, "text-align:center;text-decoration:none;white-space:nowrap")}">${escapeHtml(b.label)}&nbsp;&nbsp;<span style="font-family:Arial,Helvetica,sans-serif;font-weight:700">&rarr;</span></a>` +
       `</td></tr></table>`
     );
   }
   return (
     `<table ${FULL} style="border-collapse:separate"><tr><td align="center" bgcolor="${KIT.white}" style="background-color:${KIT.white};border:1.5px solid ${KIT.black};border-radius:8px;mso-padding-alt:14px 24px">` +
-    `<a class="kbs" href="${escapeHtml(b.href)}" style="display:block;padding:14.5px 24px;${kitType("sans", 16, 24, 600, KIT.black, "text-align:center;text-decoration:none")}">${escapeHtml(b.label)}</a>` +
+    `<a class="kbs" href="${escapeHtml(b.href)}" style="display:block;padding:14.5px 24px;${kitType("sans", 16, 24, 600, KIT.black, "text-align:center;text-decoration:none;white-space:nowrap")}">${escapeHtml(b.label)}</a>` +
     `</td></tr></table>`
   );
 }

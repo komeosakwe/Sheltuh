@@ -683,6 +683,22 @@ describe("the buttons", () => {
   });
 });
 
+describe("the buttons on a phone (Latte's 375 frame: side by side, each label on one line)", () => {
+  it("both labels never wrap, the arrow takes the label's size, and the phone values fit two 48px halves of 343px", () => {
+    const { html } = buildTicketEmail(order, event, SITE);
+    const primary = html.match(/<a class="kbp" [^>]*>([\s\S]*?)<\/a>/)!;
+    const secondary = html.match(/<a class="kbs" [^>]*>/)![0];
+    for (const tag of [primary[0], secondary]) expect(tag).toContain("white-space:nowrap");
+    // No size of its own: it inherits the label's (18px, 16px on a phone).
+    expect(primary[1]).toBe('View your tickets&nbsp;&nbsp;<span style="font-family:Arial,Helvetica,sans-serif;font-weight:700">&rarr;</span>');
+    const phone = html.match(/@media only screen and \(max-width:620px\)\{([\s\S]*?)\n\}/)![1];
+    expect(phone).toContain(".kbp{padding:12px!important;font-size:16px!important;line-height:24px!important}");
+    // 1.5px border + 10.5px + 24px line + 10.5px + 1.5px = 48px, as the orange one's 12 + 24 + 12.
+    expect(phone).toContain(".kbs{padding:10.5px 12px!important;font-size:16px!important;line-height:24px!important}");
+    expect(phone).toContain(".kl{padding-right:4px!important}.kr{padding-left:4px!important}");
+  });
+});
+
 describe("the info rows", () => {
   it("When: the long date, the time line and Google · Apple · Outlook calendar links (the label not underlined)", () => {
     const email = buildTicketEmail(mockOrder, mockEvent, SITE, BUILT);
