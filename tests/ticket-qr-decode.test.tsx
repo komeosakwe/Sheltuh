@@ -78,10 +78,10 @@ describe("ticket QR codes with the centre ü decode with ZXing", () => {
     expect(failures).toEqual([]);
   }, 120_000);
 
-  it("the ticket page's SVG rasterised at 231 and 264 px, and 151 px (40 mm printed at 96 dpi)", async () => {
+  it("the ticket page's SVG rasterised at 231 and 264 px (full screen), 165 and 198 px (the page ticket; 168 is its phone QR area), and 151 px (40 mm printed at 96 dpi)", async () => {
     const failures: string[] = [];
     for (const code of CODES) {
-      for (const side of [231, 264, 151]) {
+      for (const side of [231, 264, 165, 168, 198, 151]) {
         const decoded = await decodeQrImage(await pageQrAt(code, side));
         if (decoded.length !== 1 || decoded[0] !== ticketQrPayload(code)) failures.push(`${code} at ${side}px: ${JSON.stringify(decoded)}`);
       }

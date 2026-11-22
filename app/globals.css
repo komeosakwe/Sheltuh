@@ -211,6 +211,9 @@
   --accent-foreground: #ffffff;
   --danger: #b3261e;
   --danger-foreground: #ffffff;
+  /* Orange text on paper keeps its Light values too (Dark's lighter ones are for black: 2.85:1 on white). */
+  --signal-ink: #a02a00;
+  --signal-text: #d03e00;
   background: var(--background);
   color: var(--foreground);
 }
