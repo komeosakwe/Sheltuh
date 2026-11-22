@@ -374,12 +374,13 @@ describe("current page in the nav", () => {
     expect(button).toContain("--umlaut-top: -0.875rem;");
     expect(button).toContain("--umlaut-line: none;");
     expect(button).toMatch(/&\[aria-current="page"\] \{\s*background: var\(--foreground\);\s*color: var\(--background\);/);
-    // The Messages chip: 37px, 14px regular, a muted outline, its count's pill 2px above the middle.
+    // The Messages chip: 37px, 14px regular, filled in the text colour, its count's pill 2px above the middle.
     const chip = block("nav-chip");
     expect(chip).toContain("height: 2.3125rem;");
     expect(chip).toContain("font-size: 0.875rem;");
     expect(chip).toContain("font-weight: 400;");
-    expect(chip).toContain("border: var(--stroke-control) solid var(--surface-border);");
+    expect(chip).toContain("background: var(--foreground);");
+    expect(chip).toContain("color: var(--background);");
     expect(chip).toMatch(/& > \[data-unread-badge\] \{\s*translate: 0 -2px;/);
     // The avatar: 16px sides, the initial and the caret 4px apart.
     const avatar = block("nav-avatar");

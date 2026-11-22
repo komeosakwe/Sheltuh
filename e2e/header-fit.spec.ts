@@ -203,14 +203,22 @@ test.describe("desktop header at 1440px, signed in", () => {
         }),
         theme,
       ).toEqual([40, "8px", "25px", "solid", "18px", "400"]);
-      // The Messages chip: 37px, 14px regular, a muted outline.
+      // The Messages chip: 37px, 14px regular, filled in the text colour like the avatar beside it.
       const chip = primary.getByRole("link", { name: READY.member });
-      expect(await chip.evaluate((el) => [Math.round(el.getBoundingClientRect().height), getComputedStyle(el).fontSize, getComputedStyle(el).fontWeight, getComputedStyle(el).borderTopColor])).toEqual([
-        37,
-        "14px",
-        "400",
-        theme === "light" ? "rgb(229, 227, 222)" : "rgb(51, 51, 51)",
-      ]);
+      expect(
+        await chip.evaluate((el) => {
+          const avatar = getComputedStyle(document.querySelector(".nav-avatar") as Element);
+          const style = getComputedStyle(el);
+          return [
+            Math.round(el.getBoundingClientRect().height),
+            style.fontSize,
+            style.fontWeight,
+            style.backgroundColor === avatar.backgroundColor,
+            style.color === avatar.color,
+          ];
+        }),
+        theme,
+      ).toEqual([37, "14px", "400", true, true]);
       // The chip's own badge (the avatar menu's Messages row has one too, in its closed popover): the board's 16px pill,
       // 24 wide for one digit and 30 for "12" (as the board's "12" on Saved).
       const badge = chip.locator("[data-unread-badge]");

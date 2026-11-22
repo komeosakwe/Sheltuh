@@ -935,8 +935,8 @@ h4 {
 }
 
 /* The header's Messages chip (the "Header" board, signed in), with `umlaut`: 37px as drawn, 14px
-   regular, a muted 1.5px outline, the dots above it, the count's pill 2px above the middle.
-   Current: filled, as the nav button. */
+   regular, filled in the text colour like the avatar beside it (black in Light, white in Dark;
+   the owner's call, 22 Nov 2026), the dots above it, the count's pill 2px above the middle. */
 @utility nav-chip {
   --umlaut-w: 20px;
   --umlaut-h: 6px;
@@ -948,21 +948,18 @@ h4 {
   gap: 0.5rem;
   height: 2.3125rem;
   padding-inline: 1rem;
-  border: var(--stroke-control) solid var(--surface-border);
+  border: var(--stroke-control) solid var(--foreground);
   border-radius: var(--radius-control);
   font-family: var(--face-sans);
   font-weight: 400;
   font-size: 0.875rem;
   line-height: 1.25rem;
-  color: var(--foreground);
+  background: var(--foreground);
+  color: var(--background);
   @media (hover: hover) {
     &:hover:not([aria-current="page"]) {
-      background: var(--hover);
+      opacity: 0.85;
     }
-  }
-  &[aria-current="page"] {
-    background: var(--foreground);
-    color: var(--background);
   }
   & > [data-unread-badge] {
     translate: 0 -2px;
