@@ -2,7 +2,12 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { ORDER_ACCESS_HEADER } from "@/lib/api/types";
 import { putMyGoing } from "@/lib/server/handlers/going";
 import { stripeWebhook } from "@/lib/server/handlers/orders";
-import { cancelTicketTransfer, declineTicketOffer, getReceivedTicket } from "@/lib/server/handlers/ticket-transfers";
+import {
+  cancelTicketTransfer,
+  declineTicketOffer,
+  getReceivedTicket,
+  TICKET_TRANSFER_LIMITS,
+} from "@/lib/server/handlers/ticket-transfers";
 import { stripeWebhookRequest, TestApi } from "./helpers/api";
 import { member } from "./helpers/members";
 import { createTestDb } from "./helpers/test-db";
@@ -182,6 +187,29 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("ticket transfer races (real Pos
         world.eventId,
         buyer.userId,
       ])).toEqual([]);
+    }
+  });
+
+  it("one account at the held cap less one accepts two offers at once: exactly one succeeds", async () => {
+    // 3 rounds of 11 single-ticket orders: within the event's 50 GA tickets.
+    for (let i = 0; i < 3; i++) {
+      const sam = await member(api);
+      // Already holding the cap less one received tickets for the event.
+      for (let held = 0; held < TICKET_TRANSFER_LIMITS.maxHeldPerAccountPerEvent - 1; held++) {
+        const { token } = await openOffer();
+        expect((await accept(api, token, sam)).status).toBe(200);
+      }
+      const [a, b] = [await openOffer(), await openOffer()];
+      const results = await Promise.all([accept(api, a.token, sam), accept(api, b.token, sam)]);
+      expect(results.map((r) => [r.status, r.body.code ?? null]).sort()).toEqual([
+        [200, null],
+        [409, "received_cap"],
+      ]);
+      const [held] = await api.db.query<{ n: number }>(
+        `select count(*)::int as n from private.member_held_tickets($1, null) h where h.event_id = $2 and h.transfer_id is not null`,
+        [sam.userId, world.eventId],
+      );
+      expect(held.n).toBe(TICKET_TRANSFER_LIMITS.maxHeldPerAccountPerEvent);
     }
   });
 

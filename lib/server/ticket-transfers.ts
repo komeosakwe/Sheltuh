@@ -34,7 +34,10 @@ export function transferReference(transferId: string): string {
 }
 
 /** How a request controls an order, for sending or cancelling its tickets (owner decision D1). */
-export type OrderControl = { kind: "paying_browser" } | { kind: "account"; userId: string };
+export type OrderControl =
+  | { kind: "paying_browser" }
+  /** `email`: the account's verified email, trimmed and lower-cased (the database re-checks it against the order's under its lock). */
+  | { kind: "account"; userId: string; email: string };
 
 /** What deciding control of an order needs to know about it (orderFacts). */
 export interface OrderFacts {
@@ -83,8 +86,9 @@ export async function orderControl(
   const caller = await optionalCaller(req, deps);
   if (!caller || caller.emailVerified !== true || !caller.email) return null;
   const email = known.buyerEmail;
-  if (!email || caller.email.trim().toLowerCase() !== email.trim().toLowerCase()) return null;
-  return { kind: "account", userId: caller.userId };
+  const callerEmail = caller.email.trim().toLowerCase();
+  if (!email || callerEmail !== email.trim().toLowerCase()) return null;
+  return { kind: "account", userId: caller.userId, email: callerEmail };
 }
 
 /** When sending closes for an event starting at `startsAt`: its start less the cut-off. */

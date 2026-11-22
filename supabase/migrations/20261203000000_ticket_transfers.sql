@@ -57,7 +57,10 @@
 -- its tickets): a refund and a transfer step serialise on the order, never in
 -- the other order. Rate-limit hits are taken last, inside a block that rolls
 -- them back with any refusal, so a refusal writes nothing.
--- expire_ticket_transfers locks transfer rows only, with skip locked.
+-- expire_ticket_transfers locks transfer rows only, with skip locked. An
+-- accept first takes a transaction advisory lock on its account
+-- ('ticket_transfer_accept:' || user id), before any row lock, so one
+-- account's accepts serialise and the held cap is exact.
 --
 -- Indexes: see each one below; every foreign key that cascades or sets null
 -- has one, except cancel_admin_id (admin accounts are rarely deleted and the
@@ -575,15 +578,18 @@ $$;
 -- has checked the sender controls the order (the paying browser, or the
 -- signed-in buyer: p_sender_user_id) and passes the rules
 -- (lib/ticket-transfer-rules.ts) and limits. Returns 'created' (with the
--- id), 'not_found', 'owner_only' (the paying browser, p_sender_user_id null,
--- once support has changed the order's email: its token may be on a device
--- the old address's holder uses, as private.order_email_change_block's
--- 'changed_by_support'; re-checked here under the order's lock), or a refusal
+-- id), 'not_found', 'owner_only' (re-checked here under the order's lock:
+-- the paying browser, p_sender_user_id null, once support has changed the
+-- order's email, as its token may be on a device the old address's holder
+-- uses, as private.order_email_change_block's 'changed_by_support'; or a
+-- signed-in sender whose verified email, p_sender_email, isn't the order's
+-- buyer_email any more, trimmed and ignoring case as the API compares them:
+-- the email changed after the API checked it), or a refusal
 -- (ticket_offer_refusal's, or 'rate_limited'; 'pending' also for a lost
 -- race). Expires at the sooner of p_pending_for from now and the event's
 -- start less p_cutoff.
 create function private.create_ticket_transfer(
-  p_order_id text, p_ticket_number integer, p_sender_user_id uuid,
+  p_order_id text, p_ticket_number integer, p_sender_user_id uuid, p_sender_email text,
   p_sender_name text, p_recipient_name text, p_recipient_email text,
   p_allow_paid boolean, p_allow_free boolean, p_cutoff interval, p_pending_for interval,
   p_max_accepted integer, p_max_offers_per_ticket integer, p_max_pending_per_sender integer,
@@ -604,6 +610,7 @@ declare
   v_offer record;
 begin
   if p_order_id is null or p_ticket_number is null or p_ticket_number < 1 or p_sender_name is null
+     or (p_sender_user_id is null) <> (p_sender_email is null)
      or p_recipient_name is null or p_recipient_email is null or p_allow_paid is null or p_allow_free is null
      or p_cutoff is null or p_cutoff < interval '0' or p_pending_for is null or p_pending_for <= interval '0'
      or p_max_accepted is null or p_max_accepted < 1 or p_max_offers_per_ticket is null or p_max_offers_per_ticket < 1
@@ -620,8 +627,10 @@ begin
   end if;
   select * into v_event from public.events e where e.id = v_event_id for share;
   select * into v_order from public.orders o where o.id = p_order_id for share;
-  if p_sender_user_id is null
-     and exists (select 1 from private.order_email_changes c where c.order_id = p_order_id and c.changed_by = 'admin') then
+  if (p_sender_user_id is null
+      and exists (select 1 from private.order_email_changes c where c.order_id = p_order_id and c.changed_by = 'admin'))
+     or (p_sender_user_id is not null
+         and lower(btrim(p_sender_email)) is distinct from lower(btrim(v_order.buyer_email))) then
     result := 'owner_only';
     return;
   end if;
@@ -732,23 +741,27 @@ $$;
 -- browser) or by support (p_by 'admin', p_order_id null, p_admin_id and a 3
 -- to 500 character reason). No email: the offer's link simply stops working.
 -- Returns 'cancelled', 'not_pending', 'not_found' (also a holder's re-send:
--- the buyer can't cancel that), or 'owner_only' (the paying browser once
--- support has changed the order's email, as create_ticket_transfer).
+-- the buyer can't cancel that), or 'owner_only' (as create_ticket_transfer:
+-- the paying browser once support has changed the order's email, or a
+-- signed-in buyer, p_sender_email, whose email isn't the order's any more).
 create function private.cancel_ticket_transfer(
   p_transfer_id uuid, p_order_id text, p_by text, p_admin_id uuid, p_reason text, p_sender_user_id uuid,
-  out result text
+  p_sender_email text, out result text
 )
 language plpgsql
 set search_path = ''
 as $$
 declare
   v_transfer private.ticket_transfers;
+  v_buyer_email text;
 begin
   if p_transfer_id is null
      or p_by is null or p_by not in ('sender', 'admin')
-     or (p_by = 'sender' and (p_order_id is null or p_admin_id is not null or p_reason is not null))
+     or (p_by = 'sender' and (p_order_id is null or p_admin_id is not null or p_reason is not null
+                              or (p_sender_user_id is null) <> (p_sender_email is null)))
      or (p_by = 'admin' and (p_order_id is not null or p_admin_id is null or p_reason is null
-                             or char_length(p_reason) not between 3 and 500 or p_sender_user_id is not null)) then
+                             or char_length(p_reason) not between 3 and 500 or p_sender_user_id is not null
+                             or p_sender_email is not null)) then
     raise exception 'missing or out-of-range argument' using errcode = '22023';
   end if;
 
@@ -758,9 +771,13 @@ begin
     result := 'not_found';
     return;
   end if;
-  perform 1 from public.orders o where o.id = v_transfer.order_id for share;
-  if p_by = 'sender' and p_sender_user_id is null
-     and exists (select 1 from private.order_email_changes c where c.order_id = v_transfer.order_id and c.changed_by = 'admin') then
+  select o.buyer_email into v_buyer_email from public.orders o where o.id = v_transfer.order_id for share;
+  if p_by = 'sender'
+     and ((p_sender_user_id is null
+           and exists (select 1 from private.order_email_changes c
+                        where c.order_id = v_transfer.order_id and c.changed_by = 'admin'))
+          or (p_sender_user_id is not null
+              and lower(btrim(p_sender_email)) is distinct from lower(btrim(v_buyer_email)))) then
     result := 'owner_only';
     return;
   end if;
@@ -845,6 +862,12 @@ begin
     result := 'unavailable';
     return;
   end if;
+
+  -- One account's accepts one at a time, until commit, so two of different
+  -- offers can't both count p_max_held - 1 holdings and pass the cap. Taken
+  -- before any row lock, and nothing else takes it, so whoever waits for it
+  -- holds nothing another accept needs: it can't join a lock cycle.
+  perform pg_advisory_xact_lock(hashtextextended('ticket_transfer_accept:' || p_user_id::text, 0));
 
   select * into v_event from public.events e where e.id = v_transfer.event_id for share;
   select * into v_order from public.orders o where o.id = v_transfer.order_id for share;
@@ -1467,11 +1490,11 @@ revoke all on function private.ticket_offer_refusal(text, public.orders, public.
   boolean, interval, integer, integer, integer) from public, anon, authenticated;
 revoke all on function private.insert_ticket_offer(text, text, uuid, text, uuid, uuid, text, text, text, timestamptz,
   integer, interval, integer, interval, integer, interval) from public, anon, authenticated;
-revoke all on function private.create_ticket_transfer(text, integer, uuid, text, text, text, boolean, boolean, interval,
+revoke all on function private.create_ticket_transfer(text, integer, uuid, text, text, text, text, boolean, boolean, interval,
   interval, integer, integer, integer, integer, interval, integer, interval, integer, interval) from public, anon, authenticated;
 revoke all on function private.create_holder_ticket_transfer(uuid, uuid, text, text, text, boolean, boolean, interval,
   interval, integer, integer, integer, integer, interval, integer, interval, integer, interval) from public, anon, authenticated;
-revoke all on function private.cancel_ticket_transfer(uuid, text, text, uuid, text, uuid) from public, anon, authenticated;
+revoke all on function private.cancel_ticket_transfer(uuid, text, text, uuid, text, uuid, text) from public, anon, authenticated;
 revoke all on function private.accept_ticket_transfer(text, uuid, text, text, text, interval, integer, integer, interval)
   from public, anon, authenticated;
 revoke all on function private.decline_ticket_transfer(text) from public, anon, authenticated;

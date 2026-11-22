@@ -259,19 +259,45 @@ describe("sending", () => {
       expect(page.body.transfers).toMatchObject({ canSend: false, reason: "sign_in" });
       // The database refuses it too, under the order's lock.
       const [direct] = await api.db.query<{ result: string }>(
-        `select result from private.create_ticket_transfer($1, 2, null, 'Alex', 'Sam', 'kim@example.com', true, true, '2 hours',
+        `select result from private.create_ticket_transfer($1, 2, null, null, 'Alex', 'Sam', 'kim@example.com', true, true, '2 hours',
            '72 hours', 1, 5, 20, 10, '1 day', 3, '1 day', 300, '1 day')`,
         [order.orderId],
       );
       expect(direct.result).toBe("owner_only");
       const [directCancel] = await api.db.query<{ result: string }>(
-        `select result from private.cancel_ticket_transfer($1, $2, 'sender', null, null, null)`,
+        `select result from private.cancel_ticket_transfer($1, $2, 'sender', null, null, null, null)`,
         [transferId, order.orderId],
       );
       expect(directCancel.result).toBe("owner_only");
       const buyer = await member(api, { email: "alex.new@example.com" });
       expect((await send(api, order.orderId, { ...OFFER, ticket: 2, email: "kim@example.com" }, { token: buyer.token })).status).toBe(201);
       expect((await cancel(order.orderId, transferId, { token: buyer.token })).status).toBe(200);
+    });
+
+    it("the database re-checks a signed-in sender's email under the order's lock: a stale one is owner_only", async () => {
+      const order = await paidOrder(api, world.eventId);
+      const buyer = await member(api, { email: BUYER });
+      const sent = await send(api, order.orderId, OFFER, { token: buyer.token });
+      expect(sent.status).toBe(201);
+      // Support moves the order to another address after the API checked the old one.
+      await api.db.query(`update public.orders set buyer_email = 'alex.new@example.com' where id = $1`, [order.orderId]);
+      const [create] = await api.db.query<{ result: string }>(
+        `select result from private.create_ticket_transfer($1, 2, $2, ' Alex@Example.com ', 'Alex', 'Sam', 'kim@example.com', true,
+           true, '2 hours', '72 hours', 1, 5, 20, 10, '1 day', 3, '1 day', 300, '1 day')`,
+        [order.orderId, buyer.userId],
+      );
+      expect(create.result).toBe("owner_only");
+      const [cancelled] = await api.db.query<{ result: string }>(
+        `select result from private.cancel_ticket_transfer($1, $2, 'sender', null, null, $3, 'alex@example.com')`,
+        [sent.body.transferId, order.orderId, buyer.userId],
+      );
+      expect(cancelled.result).toBe("owner_only");
+      // The new address's account, compared trimmed and ignoring case as the API does.
+      const [ok] = await api.db.query<{ result: string }>(
+        `select result from private.cancel_ticket_transfer($1, $2, 'sender', null, null, $3, ' ALEX.new@example.com')`,
+        [sent.body.transferId, order.orderId, buyer.userId],
+      );
+      expect(ok.result).toBe("cancelled");
     });
 
     it("a signed-in account with the buying email, in any case: 201, recorded as the sender", async () => {
@@ -361,8 +387,8 @@ describe("sending", () => {
     const buyer = await member(api, { email: BUYER });
     const call = (ticket: number) =>
       api.db.query<{ result: string }>(
-        `select result from private.create_ticket_transfer($1, $2, $3, 'Alex', 'Sam', $4, true, true, '2 hours', '72 hours',
-           1, 5, 1, 10, '1 day', 3, '1 day', 300, '1 day')`,
+        `select result from private.create_ticket_transfer($1, $2, $3, 'alex@example.com', 'Alex', 'Sam', $4, true, true, '2 hours',
+           '72 hours', 1, 5, 1, 10, '1 day', 3, '1 day', 300, '1 day')`,
         [order.orderId, ticket, buyer.userId, `f${ticket}@example.com`],
       );
     expect((await call(1))[0].result).toBe("created");
@@ -414,8 +440,8 @@ describe("sending", () => {
       const buyer = await member(api, { email: BUYER });
       const call = (ticket: number, accountLimit: number, platformLimit: number) =>
         api.db.query<{ result: string }>(
-          `select result from private.create_ticket_transfer($1, $2, $3, 'Alex', 'Sam', $4, true, true, '2 hours', '72 hours',
-             1, 5, 20, $5, '1 day', 3, '1 day', $6, '1 day')`,
+          `select result from private.create_ticket_transfer($1, $2, $3, 'alex@example.com', 'Alex', 'Sam', $4, true, true, '2 hours',
+             '72 hours', 1, 5, 20, $5, '1 day', 3, '1 day', $6, '1 day')`,
           [order.orderId, ticket, buyer.userId, `f${ticket}@example.com`, accountLimit, platformLimit],
         );
       expect((await call(1, 1, 300))[0].result).toBe("created");
@@ -891,7 +917,7 @@ describe("the received ticket", () => {
     expect(res.status, JSON.stringify(res.body)).toBe(201);
     const order = (await api.db.query<{ order_id: string }>(`select order_id from private.ticket_transfers where id = $1`, [transferId]))[0];
     const [buyerCancel] = await api.db.query<{ result: string }>(
-      `select result from private.cancel_ticket_transfer($1, $2, 'sender', null, null, null)`,
+      `select result from private.cancel_ticket_transfer($1, $2, 'sender', null, null, null, null)`,
       [res.body.transferId, order.order_id],
     );
     expect(buyerCancel.result).toBe("not_found");

@@ -281,18 +281,19 @@ export const sendTicket: Handler<{ sessionId: string }> = async (req, { sessionI
 
   const [row] = await deps.db.query<{ result: string; transfer_id: string | null }>(
     `select result, transfer_id::text as transfer_id
-       from private.create_ticket_transfer($1, $2, $3::uuid, $4, $5, $6, ${ruleParamSql(7)})`,
+       from private.create_ticket_transfer($1, $2, $3::uuid, $4, $5, $6, $7, ${ruleParamSql(8)})`,
     [
       sessionId,
       input.ticket,
       control.kind === "account" ? control.userId : null,
+      control.kind === "account" ? control.email : null,
       input.senderName,
       input.name,
       input.email,
       ...sendRuleParams(),
     ],
   );
-  // Support changed the email between the check above and the order's lock.
+  // The email changed between the check above and the order's lock.
   if (row.result === "owner_only") throw ownerOnly({ ...facts, emailChanged: true, changedBySupport: true }, "send this ticket");
   const transferId = sendOutcome(row.result, row.transfer_id);
   console.info(`Order ${orderReference(sessionId)}: ticket transfer ${transferReference(transferId)} offered.`);
@@ -334,8 +335,8 @@ export const cancelTicketTransfer: Handler<{ sessionId: string; transferId: stri
     throw refusal(409, "cancel_not_allowed", "Offers can't be cancelled.");
   }
   const [row] = await deps.db.query<{ result: string }>(
-    `select result from private.cancel_ticket_transfer($1::uuid, $2, 'sender', null, null, $3::uuid)`,
-    [transferId, sessionId, control.kind === "account" ? control.userId : null],
+    `select result from private.cancel_ticket_transfer($1::uuid, $2, 'sender', null, null, $3::uuid, $4)`,
+    [transferId, sessionId, control.kind === "account" ? control.userId : null, control.kind === "account" ? control.email : null],
   );
   if (row.result === "owner_only") throw ownerOnly({ ...facts, emailChanged: true, changedBySupport: true }, "cancel this");
   if (row.result === "not_found") throw new HttpError(404, OFFER_NOT_FOUND);
@@ -788,7 +789,7 @@ export const adminCancelTicketTransfer: Handler<{ transferId: string }> = async 
   );
   if (!allowed.ok) throw busy(limit);
   const [row] = await deps.db.query<{ result: string }>(
-    `select result from private.cancel_ticket_transfer($1::uuid, null, 'admin', $2::uuid, $3, null)`,
+    `select result from private.cancel_ticket_transfer($1::uuid, null, 'admin', $2::uuid, $3, null, null)`,
     [transferId, admin.userId, reason],
   );
   if (row.result === "not_found") throw new HttpError(404, OFFER_NOT_FOUND);
