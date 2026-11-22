@@ -252,6 +252,13 @@ export interface SheltuhEvent {
   /** `days_before` only: refunds up to this many days (1–30) before the event starts. */
   refundDays?: number;
   /**
+   * The organiser's "Before you go" note for people going (lib/before-you-go.ts):
+   * plain text, \n between lines, at most 5 lines of text and 500 characters.
+   * Absent when there's none. Show it escaped, a line per line
+   * (beforeYouGoLines), under BEFORE_YOU_GO_TITLE.
+   */
+  beforeYouGo?: string;
+  /**
    * Optional organiser-supplied context — shown on the details page only
    * when present. Never inferred or invented: the live API doesn't collect
    * these yet, so live events simply omit them rather than getting guessed

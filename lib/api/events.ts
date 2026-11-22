@@ -104,6 +104,17 @@ export interface EventInput {
    * null: cleared. Publishing or submitting needs a pin (`location_required`).
    */
   location?: VenueLocationInput | null;
+  /**
+   * The "Before you go" note (lib/before-you-go.ts: validateBeforeYouGo checks
+   * it as the API does). Absent: none when creating; when editing, the stored
+   * note is kept. null or blank: cleared. Text is cleaned (line endings to
+   * \n, trailing spaces, more than one blank line in a row, trimmed) and must
+   * then be at most 500 characters and 5 lines of text, with no links, web or
+   * email addresses and no control or invisible characters: ApiError 400
+   * fieldErrors.beforeYouGo otherwise. Stored as plain text (HTML is kept as
+   * typed, never rendered).
+   */
+  beforeYouGo?: string | null;
 }
 
 export async function createEventDraft(input: EventInput, getToken: GetToken) {

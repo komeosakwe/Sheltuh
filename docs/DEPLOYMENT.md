@@ -68,7 +68,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261202000000_checkout_expiry_claim_retry.sql`. Never
+      newest, currently `20261204000000_event_before_you_go.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -601,6 +601,23 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           before it. The previous app calls it the same way, so it can be
           applied before or after the app. Not destructive. Reversible:
           re-run the function from `20261123000000_checkout_pay_deadline.sql`.
+      61. `20261204000000_event_before_you_go.sql` (the organiser's "Before
+          you go" note, docs/architecture.md "Before you go": nullable
+          `events.before_you_go` with check constraint
+          `events_before_you_go_check`, and `create_event_draft`,
+          `edit_event_draft` and `admin_edit_event` redefined from their
+          latest bodies, `20261114000000_external_price.sql` and
+          `20261120000000_group_tickets.sql`, with the same signatures).
+          search_path pinned, execute revoked from clients, no new table,
+          grant or index. **Apply it before deploying the app**: the new app
+          selects `before_you_go` in every event read, so on the old schema
+          every event page, list and the home fail. The previous app keeps
+          working against it (it never sends `beforeYouGo`: its creates
+          store null and its edits keep the stored note), so it can be
+          applied ahead of the deploy. Not destructive. Reversible after
+          deploying an app that doesn't select the column: restore the three
+          functions from those two files, then drop the constraint and the
+          column (every note is lost).
 
       **Files 33 to 37 can be applied ahead of this deploy, with the
       previous app still live.** "The previous app" here is the build of

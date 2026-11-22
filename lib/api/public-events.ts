@@ -141,6 +141,12 @@ export interface PublicEvent {
    */
   location?: VenueLocation;
   /**
+   * The organiser's "Before you go" note for people going (EventRecord.beforeYouGo:
+   * plain text, show it escaped, a line per line). Public, like the
+   * description. Absent when there's none.
+   */
+  beforeYouGo?: string;
+  /**
    * Only for an event with a seat map (reserved seating): its version, for
    * GET /events/{id}/seat-map?v={version}. Its seated tiers carry
    * `seated: true`; general admission tiers (a mixed event) don't. Absent for

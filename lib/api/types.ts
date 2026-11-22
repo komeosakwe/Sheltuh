@@ -354,6 +354,8 @@ export interface EventEditChanges {
   refundDays?: TicketingFieldChange<number>;
   /** An admin changed the venue location (null: none, an event from before venue locations). */
   location?: TicketingFieldChange<VenueLocation>;
+  /** An admin changed the "Before you go" note (null: none). */
+  beforeYouGo?: TicketingFieldChange<string>;
 }
 
 /**
@@ -587,6 +589,13 @@ export interface EventRecord {
   refundDays?: number;
   /** The venue's location (see VenueLocation), only when it has one; absent for an event saved without one. */
   location?: VenueLocation;
+  /**
+   * The organiser's "Before you go" note for people going (lib/before-you-go.ts):
+   * plain text, \n between lines, at most 5 lines of text (a blank line
+   * between two doesn't count) and 500 characters, never HTML or links (show
+   * it escaped, a line per line; beforeYouGoLines). Absent when there's none.
+   */
+  beforeYouGo?: string;
   /**
    * The event's seat map, when it has one. The organiser can change the map
    * only while `ticketingLocked` is false (never approved) and the event is a
@@ -963,6 +972,12 @@ export interface CustomerOrder {
    */
   refundPolicy?: RefundPolicy;
   refundDays?: number;
+  /**
+   * The event's current "Before you go" note (EventRecord.beforeYouGo: plain
+   * text, show it escaped). Like the date and venue: only for a `paid` order
+   * whose event is published (`eventListed`), and only when it has one.
+   */
+  beforeYouGo?: string;
   /**
    * The buyer's address, masked: "m***@example.com". Unset if none is on
    * record, and, once the order's email has been changed (by the buyer or

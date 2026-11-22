@@ -343,7 +343,7 @@ const EVENT_COLUMNS = `
          e.venue_name, e.venue_address, e.suburb, e.state, e.time_zone, e.starts_at, e.ends_at,
          e.status::text as status, e.rejection_reason, e.created_at, e.updated_at,
          e.ticketing_mode, e.external_ticket_url, e.external_free, e.external_price_from_cents, e.refund_policy, e.refund_days,
-         e.location_source, e.venue_place_id, e.venue_lat, e.venue_lng,
+         e.location_source, e.venue_place_id, e.venue_lat, e.venue_lng, e.before_you_go,
          o.display_name as organiser_name,
          -- Only while the organiser is approved: the logo route is a 404 otherwise.
          case when o.status = 'approved' then ${organiserLogoVersionOf("e.organiser_id")} end as organiser_logo_version,
@@ -458,6 +458,7 @@ const LOG_CHANGE_FIELDS = [
   "refundPolicy",
   "refundDays",
   "location",
+  "beforeYouGo",
 ] as const satisfies readonly (keyof NonNullable<ModerationLogEntry["changes"]>)[];
 
 /** One change as stored: json_strip_nulls has dropped a side that was null. */
@@ -657,6 +658,16 @@ function locationOf(row: Row): { location?: VenueLocation } {
   };
 }
 
+/**
+ * The `beforeYouGo` field from `before_you_go` (an event's own or, with
+ * `column`, an order's event's): absent with no note (and in a row from
+ * before the column), so those payloads are unchanged.
+ */
+function beforeYouGoOf(row: Row, column = "before_you_go"): { beforeYouGo?: string } {
+  const note = opt<string>(row[column]);
+  return note ? { beforeYouGo: note } : {};
+}
+
 function mapEvent(row: Row, audience: LogAudience): EventRecord {
   const log = row.moderation_log as StoredLogEntry[];
   const ticketingMode = (row.ticketing_mode ?? "sheltuh") as TicketingMode;
@@ -693,6 +704,7 @@ function mapEvent(row: Row, audience: LogAudience): EventRecord {
     ticketingLocked: log.some((entry) => entry.action === "approved"),
     ...refundTermsOf(row),
     ...locationOf(row),
+    ...beforeYouGoOf(row),
     ...(row.seating ? { seating: row.seating as EventSeating } : {}),
     status: row.status as EventRecord["status"],
     rejectionReason: opt(row.rejection_reason),
@@ -808,6 +820,9 @@ export function toPublicEvent(event: EventRecord, remaining?: Record<string, num
           },
         }
       : {}),
+    // Only with a note: it's for the people going, public like the description (and, like every field here, only
+    // ever on a published event's public shape).
+    ...(event.beforeYouGo ? { beforeYouGo: event.beforeYouGo } : {}),
     // Seated events only: a general admission event's payload is unchanged.
     ...(event.seating ? { seating: { version: event.seating.version } } : {}),
   };
@@ -884,8 +899,8 @@ export function toOrder(row: Row): OrderRecord {
  * columns CustomerOrder needs: no ids, fee split, Stripe ids or order
  * timestamps. Ticket codes (with each ticket's check-in time) only while the
  * order is paid: a refunded order's tickets are void. The event's current
- * times, venue name and suburb are public event details (never the street
- * address), shown on the tickets; the mapper drops them for any order that
+ * times, venue name, suburb and "Before you go" note are public event details
+ * (never the street address), shown on the tickets; the mapper drops them for any order that
  * isn't paid, and for any event that isn't published (unpublished, back in
  * draft or review, rejected, or gone): those details are no longer public,
  * so the order only says the event is no longer listed (`eventListed`).
@@ -903,7 +918,7 @@ export const CUSTOMER_ORDER_SELECT = `
          e.starts_at as event_starts_at, e.ends_at as event_ends_at,
          e.venue_name as event_venue_name, e.suburb as event_suburb,
          e.state as event_state, e.time_zone as event_time_zone,
-         e.refund_policy, e.refund_days,
+         e.refund_policy, e.refund_days, e.before_you_go as event_before_you_go,
          coalesce((
            select json_agg(json_strip_nulls(json_build_object('ticketCode', t.code, 'ticketTypeName', t.ticket_type_name,
                                                               'seat', ${TICKET_SEAT_JSON},
@@ -981,6 +996,7 @@ export function toCustomerOrder(row: Row): CustomerOrder {
     venueName: details ? opt(row.event_venue_name) : undefined,
     suburb: details ? opt(row.event_suburb) : undefined,
     ...(details ? refundTermsOf(row) : {}),
+    ...(details ? beforeYouGoOf(row, "event_before_you_go") : {}),
     maskedEmail: email ? maskEmail(email) : undefined,
     subtotalCents: row.subtotal_cents as number,
     buyerFeeCents: row.buyer_fee_cents as number,

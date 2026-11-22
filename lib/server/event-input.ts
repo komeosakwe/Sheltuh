@@ -1,4 +1,14 @@
 import {
+  BEFORE_YOU_GO_MAX_LENGTH,
+  BEFORE_YOU_GO_MAX_LINES,
+  BEFORE_YOU_GO_NO_EMAILS,
+  BEFORE_YOU_GO_NO_LINKS,
+  BEFORE_YOU_GO_TOO_MANY_LINES,
+  beforeYouGoLines,
+  normaliseBeforeYouGo,
+} from "@/lib/before-you-go";
+import { containsEmailAddress, containsWebAddress } from "@/lib/contact-detail";
+import {
   isValidRefundDays,
   MAX_REFUND_DAYS,
   MIN_REFUND_DAYS,
@@ -16,6 +26,7 @@ import {
   type AustralianTimeZone,
   type StateCode,
 } from "@/lib/time-zones";
+import { parseMessageText } from "./message-input";
 import { PLACE_ID_PATTERN } from "./places";
 import { parseTicketing, type Ticketing } from "./ticketing-input";
 import type { EventCategory, TicketTypeInput } from "./types";
@@ -67,6 +78,12 @@ export interface EventInput {
    * `legacy` when it sent null (cleared).
    */
   location?: LocationInput;
+  /**
+   * The "Before you go" note as it's to be saved (parseBeforeYouGo): absent
+   * when the body didn't send one (create: none; edit: the stored one is
+   * kept); null to clear it.
+   */
+  beforeYouGo?: string | null;
 }
 
 /** A venue location as the database stores it (events.location_source, venue_place_id, venue_lat / venue_lng). */
@@ -101,6 +118,7 @@ interface RawEventBody {
   refundPolicy?: unknown;
   refundDays?: unknown;
   location?: unknown;
+  beforeYouGo?: unknown;
 }
 
 /** The event's refund policy as parseRefundPolicy returns it: nothing sent, or both fields. */
@@ -136,6 +154,47 @@ export function parseRefundPolicy(body: RawEventBody, errors: Record<string, str
     return { refundPolicy, refundDays: null };
   }
   return { refundPolicy, refundDays: body.refundDays };
+}
+
+/**
+ * The body's `beforeYouGo` (lib/before-you-go.ts), errors under that name:
+ * - absent: undefined (create: none; edit: the stored note is kept, so a
+ *   client that predates the field never clears it);
+ * - null, or text that cleaning leaves blank: null (cleared);
+ * - text: cleaned like a message (parseMessageText: NFC, \n line endings, no
+ *   trailing spaces, at most one blank line in a row, trimmed; no control,
+ *   invisible or text-direction characters, no stacked marks), at most
+ *   BEFORE_YOU_GO_MAX_LENGTH characters and BEFORE_YOU_GO_MAX_LINES lines of
+ *   text, and no web or email addresses (lib/contact-detail.ts, as an
+ *   organiser's message to ticket holders). Plain text: anything HTML-like is
+ *   kept as the characters typed, and every display escapes it.
+ * The database's events_before_you_go_check holds the same limits.
+ */
+export function parseBeforeYouGo(value: unknown, errors: Record<string, string>): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value !== "string") {
+    errors.beforeYouGo = "Write the note as text, or leave it blank.";
+    return undefined;
+  }
+  // parseMessageText refuses raw input over 4 × the limit before any cleaning: only blank text is let off first.
+  if (value.length <= BEFORE_YOU_GO_MAX_LENGTH * 4 && normaliseBeforeYouGo(value) === null) return null;
+  const text = parseMessageText(value, "beforeYouGo", errors, {
+    allowLinks: true,
+    label: "“Before you go”",
+    maxLength: BEFORE_YOU_GO_MAX_LENGTH,
+  });
+  if (!text) return undefined;
+  if (beforeYouGoLines(text).length > BEFORE_YOU_GO_MAX_LINES) {
+    errors.beforeYouGo = BEFORE_YOU_GO_TOO_MANY_LINES;
+  } else if (containsWebAddress(text)) {
+    errors.beforeYouGo = BEFORE_YOU_GO_NO_LINKS;
+  } else if (containsEmailAddress(text)) {
+    errors.beforeYouGo = BEFORE_YOU_GO_NO_EMAILS;
+  } else {
+    return text;
+  }
+  return undefined;
 }
 
 /** An event's state and the zone its times are entered and shown in, as stored. */
@@ -350,6 +409,7 @@ export function parseEventInput(body: RawEventBody, options: ParseEventOptions =
   const ticketing = parseTicketing(body, errors);
   const refund = parseRefundPolicy(body, errors);
   const location = parseLocation(body.location, errors);
+  const beforeYouGo = parseBeforeYouGo(body.beforeYouGo, errors);
   // An empty or unknown suburb already has its own error.
   if (location?.pin && suburb && !errors.suburb && !errors.state && !errors.timeZone) {
     checkPinNearSuburb(location.pin, suburb, place.state, errors);
@@ -387,5 +447,6 @@ export function parseEventInput(body: RawEventBody, options: ParseEventOptions =
     ...ticketing,
     ...refund,
     ...(location ? { location } : {}),
+    ...(beforeYouGo !== undefined ? { beforeYouGo } : {}),
   };
 }

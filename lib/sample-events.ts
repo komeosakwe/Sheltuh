@@ -26,6 +26,8 @@ const coreSampleEvents: SheltuhEvent[] = [
     audience: "Fans of loud, DIY live music. Mixed-age crowd, skews 20s–30s.",
     whatToExpect: "Standing room only, no seating. Sound levels are loud — earplugs available for free at the door.",
     ageRestriction: "18+. Bar on site, photo ID required.",
+    beforeYouGo:
+      "Doors open 7:30 pm · last entry 10:30 pm.\n18+ event — bring photo ID that matches the ticket holder name.\nEarplugs are free at the bar.",
     accessibility: "Step-free entry via the loading dock ramp. No accessible toilet on site.",
     poster: { pattern: "burst", background: "#000000", primary: "#ff4800", secondary: "#fffae7" },
     ticketTypes: [
