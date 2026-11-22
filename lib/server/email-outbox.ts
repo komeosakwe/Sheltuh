@@ -784,12 +784,11 @@ async function deliverEventReminder(deps: Deps, jobId: string): Promise<Outcome>
       event_status: string;
       upcoming: boolean;
       soon: boolean;
-      organiser_id: string;
       organiser_status: string;
     }>(
       `select r.order_id, o.status::text as order_status, o.buyer_email, r.recipient_hash, e.id as event_id, e.status::text as event_status,
               e.starts_at > now() as upcoming, e.starts_at < now() + $2::interval as soon,
-              g.id as organiser_id, g.status::text as organiser_status
+              g.status::text as organiser_status
          from private.email_outbox j
          join private.event_reminders r on r.id = j.reminder_id
          join public.orders o on o.id = r.order_id
@@ -833,7 +832,6 @@ async function deliverEventReminder(deps: Deps, jobId: string): Promise<Outcome>
         to: buyerEmail,
         orderId,
         event,
-        organiserId: row.organiser_id,
         siteUrl: deps.siteUrl(),
         now: new Date(),
       }),
@@ -888,8 +886,6 @@ async function deliverHolderMessage(deps: Deps, jobId: string): Promise<Outcome>
       order_status: string;
       buyer_email: string | null;
       event_id: string;
-      /** The event's artwork path, as EventRecord.imageUrl has it (lib/server/records.ts), or null. */
-      event_image_url: string | null;
       recipient_hash: string;
       /** Whether the order's address is still the one the message was queued for (false once its email was changed). */
       same_recipient: boolean;
@@ -899,8 +895,6 @@ async function deliverHolderMessage(deps: Deps, jobId: string): Promise<Outcome>
               m.cancelled_at is not null as cancelled, e.title as event_title, e.status::text as event_status,
               e.id as event_id, r.recipient_hash,
               coalesce(private.email_recipient_hash(o.buyer_email) = r.recipient_hash, false) as same_recipient,
-              (select '/api/events/' || e.id::text || '/image?v=' || floor(extract(epoch from i.updated_at))::bigint::text
-                 from public.event_images i where i.event_id = e.id) as event_image_url,
               exists (select 1 from private.holder_message_suppressions s
                        where s.organiser_id = m.organiser_id and s.recipient_hash = r.recipient_hash) as suppressed,
               g.id as organiser_id, g.display_name as organiser_name, g.status::text as organiser_status,
@@ -965,7 +959,6 @@ async function deliverHolderMessage(deps: Deps, jobId: string): Promise<Outcome>
         subject: row.subject,
         body: row.body,
         siteUrl: deps.siteUrl(),
-        ...(row.event_image_url ? { eventImageUrl: row.event_image_url } : {}),
       }),
     );
   } catch (err) {

@@ -102,7 +102,7 @@ function render(l: Layout): string {
       ...l.sections.map((section) => kitSteps(section)),
       l.extra ? kitNotice(l.extra.title, [escapeHtml(l.extra.text)]) : "",
       l.buttonLast ? button : "",
-      kitStack([kitSignOff(...l.signOff), kitHelp("organiser")], 32),
+      kitStack([kitSignOff(...l.signOff), kitHelp(l.tone)], 32),
       kitFooter({ siteUrl: l.siteUrl, tone: l.tone, reason: l.reason }),
     ]),
   });
@@ -124,7 +124,7 @@ function renderText(l: Layout): string {
     ...(l.buttonLast ? button : []),
     l.signOff.join("\n"),
     "",
-    kitHelpText("organiser"),
+    kitHelpText(l.tone),
     "",
     kitFooterText({ siteUrl: l.siteUrl, tone: l.tone, reason: l.reason }),
   ].join("\n");

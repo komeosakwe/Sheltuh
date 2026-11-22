@@ -1,9 +1,9 @@
 import { SUPPORT_EMAIL } from "@/lib/contact";
+import { organiserPageLink } from "@/lib/event-url";
 import { subjectLine, type EmailMessage } from "./email";
 import { escapeHtml } from "./email-layout";
 import { KIT, kitFooter, kitFooterText, kitHeader, kitHelp, kitHelpText, kitIntro, kitLink, kitNotice, kitP, kitPage, kitStack, kitType } from "./email-kit";
 import { ticketWordmarkImage } from "./email-ticket-layout";
-import { organiserPageLink } from "./follower-email";
 
 /**
  * An organiser's message to the people holding tickets for their event
@@ -17,8 +17,8 @@ import { organiserPageLink } from "./follower-email";
  * marketing, and it is sent as an automatic message (`Auto-Submitted`).
  * Its look is the shared layout (lib/server/email-kit.ts; Latte drew no frame
  * for it): who it is from and the event name, then the message as the focus
- * in the layout's outlined message box. `eventImageUrl` is accepted and not
- * shown (the 1120 message boxes carry no artwork).
+ * in the layout's outlined message box (no artwork: the 1120 message boxes
+ * carry none).
  */
 
 /** The report link: a mailto to support naming the message (its id reveals nothing about the reader). */
@@ -51,11 +51,6 @@ export function buildHolderMessageEmail(input: {
   subject: string;
   body: string;
   siteUrl: string;
-  /**
-   * The event's stored image path (EventRecord.imageUrl, like "/api/events/{id}/image?v=1"), if it has artwork.
-   * Shown across the top when the site is https and the path is the site's own (`eventImageEmailUrl`); else left out.
-   */
-  eventImageUrl?: string;
   /** The recipient's stop token (32 random bytes, base64url): only its hash is stored. */
   stopToken: string;
 }): EmailMessage {

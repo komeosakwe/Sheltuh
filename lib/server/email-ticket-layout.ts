@@ -1,5 +1,5 @@
 import type { InlineImage } from "./email";
-import { escapeHtml, WORDMARK_CID } from "./email-layout";
+import { WORDMARK_CID } from "./email-layout";
 import { TICKET_EMAIL_WORDMARK } from "./email-ticket-wordmark";
 
 /**
@@ -20,8 +20,9 @@ import { TICKET_EMAIL_WORDMARK } from "./email-ticket-wordmark";
  * wrapper and `mso-padding-alt` on the buttons; it drops the radii, which is
  * acceptable.
  *
- * Only lib/server/ticket-email.ts uses this; the other emails keep
- * email-layout.ts and email-modern-layout.ts.
+ * Its colours, fonts, assets, phone rules and wordmark are shared by the
+ * one layout every email uses (lib/server/email-kit.ts) and the ticket
+ * email's full ticket card (lib/server/ticket-email.ts).
  */
 
 export const TICKET_EMAIL_COLOURS = {
@@ -134,71 +135,6 @@ export const TICKET_PHONE_RULES = `.pg{padding:34px 16px 40px 16px!important}
 .bo{padding:12.5px 4px!important}
 .bl{padding-right:4px!important}.br{padding-left:4px!important}
 .wt{width:100%!important}.wh{width:50%!important}.wa{width:auto!important}`;
-
-const MOBILE_CSS = `@media only screen and (max-width:620px){
-${TICKET_PHONE_RULES}
-}`;
-
-export interface TicketEmailPageInput {
-  /** The document title (plain text). */
-  title: string;
-  /** Inbox preview text (plain text), hidden in the body (Outlook included: `mso-hide:all`). */
-  preheader: string;
-  /** The site's origin: the web fonts are declared only for an https one. */
-  siteUrl: string;
-  /** The column's contents (trusted markup), top to bottom. */
-  body: string;
-}
-
-/** The page: white all round, one column of at most 600px, 32px sides (16px on a phone). */
-export function ticketEmailPage({ title, preheader, siteUrl, body }: TicketEmailPageInput): string {
-  const { white, ink } = TICKET_EMAIL_COLOURS;
-  return `<!DOCTYPE html>
-<html lang="en-AU" xmlns="http://www.w3.org/1999/xhtml">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="x-apple-disable-message-reformatting">
-<meta name="color-scheme" content="light">
-<meta name="supported-color-schemes" content="light">
-<title>${escapeHtml(title)}</title>
-<style>
-${ticketFontFace(siteUrl)}:root{color-scheme:light;supported-color-schemes:light}
-body{margin:0;padding:0}table{border-collapse:collapse}img{border:0;outline:none}a{color:${ink}}
-${MOBILE_CSS}
-</style>
-<!--[if mso]><style>body,table,td,p,a,h1,h2,span{font-family:Arial,sans-serif!important}</style><![endif]-->
-</head>
-<body bgcolor="${white}" style="margin:0;padding:0;background-color:${white};font-family:${SANS};color:${ink};-webkit-text-size-adjust:100%">
-<div style="display:none;max-height:0;max-width:0;overflow:hidden;opacity:0;mso-hide:all;font-size:1px;line-height:1px">${escapeHtml(preheader)}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${white}" style="background-color:${white}">
-<tr><td align="center">
-<!--[if mso]><table role="presentation" width="600" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${white}" class="column" style="width:100%;max-width:600px;background-color:${white}">
-<tr><td class="pg" align="left" style="padding:34px 32px 40px 32px;font-family:${SANS};color:${ink}">
-${body}
-</td></tr>
-</table>
-<!--[if mso]></td></tr></table><![endif]-->
-</td></tr>
-</table>
-</body>
-</html>`;
-}
-
-/** Blocks one under another, each followed by its gap (px). Spacing is cell padding, which Outlook honours. */
-export function stack(blocks: ReadonlyArray<readonly [html: string, gapAfterPx: number]>): string {
-  const shown = blocks.filter(([html]) => html !== "");
-  const rows = shown
-    .map(([html, gap], i) => `<tr><td style="padding:0 0 ${i === shown.length - 1 ? 0 : gap}px 0">${html}</td></tr>`)
-    .join("\n");
-  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">\n${rows}\n</table>`;
-}
-
-/** A 1px hairline in the dividers' colour. */
-export function hairline(): string {
-  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td height="1" bgcolor="${TICKET_EMAIL_COLOURS.line}" style="height:1px;font-size:0;line-height:0;background-color:${TICKET_EMAIL_COLOURS.line}">&nbsp;</td></tr></table>`;
-}
 
 /** The wordmark, inline (`cid:`), at `width` x `height` (106 x 24 in the header, 88 x 20 in the footer). */
 export function wordmarkTag(width: number, height: number): string {

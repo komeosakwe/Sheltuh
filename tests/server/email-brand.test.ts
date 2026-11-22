@@ -122,7 +122,6 @@ const emails: Record<string, () => EmailMessage> = {
       to: "fan@example.com",
       orderId: "ord_abc",
       event: { ...event, organiserName: "Cellar Door <Sound>" } as EventRecord,
-      organiserId: "org_1",
       siteUrl: site,
       now: new Date("2027-03-05T09:00:00.000Z"),
     }),
@@ -284,7 +283,7 @@ describe("every transactional email uses the shared brand layout", () => {
     expect(reminder.html).not.toContain("<Static>");
     expect(reminder.html).toContain("Open your ticket");
     expect(reminder.text).toContain("See you tomorrow at Neon & <Static>.");
-    expect(reminder.text).toContain("You’re getting this email because you bought a ticket on Sheltüh.");
+    expect(reminder.text).toContain("You’re getting this email because you have tickets for this event.");
     const message = emails.holderMessage();
     expect(message.html).toContain("Doors open at 7pm &#38; not 8pm.<br>Bring &#60;ID&#62;.");
     expect(message.html).not.toContain("<ID>");
@@ -361,12 +360,11 @@ const reminderOf = (overrides: Partial<EventRecord> = {}, siteUrl = site, now = 
     to: "fan@example.com",
     orderId: "ord_abc",
     event: { ...event, organiserName: "Static Collective", imageUrl: IMAGE_PATH, ...overrides } as EventRecord,
-    organiserId: "org_1",
     siteUrl,
     now,
   });
 
-const announcementOf = (overrides: { eventImageUrl?: string; siteUrl?: string; body?: string } = {}) =>
+const announcementOf = (overrides: { siteUrl?: string; body?: string } = {}) =>
   buildHolderMessageEmail({
     to: "fan@example.com",
     messageId: "00000000-0000-4000-8000-000000000002",
@@ -377,7 +375,6 @@ const announcementOf = (overrides: { eventImageUrl?: string; siteUrl?: string; b
     body: overrides.body ?? "Doors open at 7pm.\nBring ID.",
     siteUrl: overrides.siteUrl ?? site,
     stopToken: "t".repeat(43),
-    ...(overrides.eventImageUrl ? { eventImageUrl: overrides.eventImageUrl } : {}),
   });
 
 describe("the modern look's assets and colours", () => {
@@ -445,7 +442,7 @@ describe("the event reminder (Latte's 1120 Reminder frame)", () => {
       "Get directions&nbsp;&#8599;",
       ">Open your ticket&nbsp;&nbsp;",
       "Need a hand? ",
-      ">You’re getting this email because you bought a ticket on Sheltüh.",
+      ">You’re getting this email because you have tickets for this event.",
     ];
     let at = -1;
     for (const piece of order) {
@@ -468,6 +465,19 @@ describe("the event reminder (Latte's 1120 Reminder frame)", () => {
     expect(reminderOf({ imageUrl: undefined }).html).not.toContain("/api/events/");
   });
 
+  it("shows only the site's own image, on an https site: never a foreign, protocol-relative or non-https one", () => {
+    for (const gone of [
+      reminderOf({}, "http://localhost:3000"), // not https
+      reminderOf({ imageUrl: "https://evil.example/x.png" }), // not the site's own
+      reminderOf({ imageUrl: "//evil.example/x.png" }),
+      reminderOf({ imageUrl: "http://evil.example/x.png" }),
+    ]) {
+      expect(gone.html).not.toContain("evil.example");
+      expect(gone.html).not.toContain("/api/events/");
+      expect(gone.html).not.toContain('width="88" height="88"');
+    }
+  });
+
   it("leaves out the venue row and Get directions when there is no venue or address", () => {
     const { html } = reminderOf({ venueName: "", venueAddress: "", suburb: "" });
     expect(html).not.toContain(TICKET_EMAIL_ICON_PIN);
@@ -483,10 +493,17 @@ describe("the event reminder (Latte's 1120 Reminder frame)", () => {
     expect(email.text.toLowerCase()).not.toContain("unsubscribe");
   });
 
-  it("escapes organiser text", () => {
-    const { html } = reminderOf({ title: "<b>Hi</b>" });
-    expect(html).not.toContain("<b>Hi</b>");
+  it("escapes organiser text: the title, and the venue and address in the Ticket card and the detail rows", () => {
+    const { html } = reminderOf({ title: "<b>Hi</b>", venueName: "<i>V</i>", venueAddress: "1 <u>St</u>" });
+    expect(html).not.toMatch(/<\/?(b|i|u)>/);
     expect(html).toContain("&#60;b&#62;Hi&#60;/b&#62;");
+    // The venue: once in the compact Ticket card, once as the venue row's title.
+    expect(html.split(">&#60;i&#62;V&#60;/i&#62;</p>").length - 1).toBe(2);
+    expect(html).toContain("1 &#60;u&#62;St&#60;/u&#62;");
+    // With no venue name, the address is the venue row's title: still escaped.
+    const addressOnly = reminderOf({ venueName: "", venueAddress: "1 <u>St</u>" }).html;
+    expect(addressOnly).not.toMatch(/<\/?u>/);
+    expect(addressOnly).toContain("1 &#60;u&#62;St&#60;/u&#62;");
   });
 });
 
@@ -507,10 +524,6 @@ describe("the organiser announcement (no Latte frame: the shared layout, its cop
     expect(html).toContain(">Stop messages from Static Collective</a>");
     expect(html).toContain("Sheltüh sent this for Static Collective. You’re getting it because you have tickets for Neon Static on Sheltüh.");
     expect(text).toContain("Stop messages from Static Collective: https://sheltuh.test/holder-messages/stop#token=");
-  });
-
-  it("shows no artwork, even when the outbox passes it", () => {
-    expect(announcementOf({ eventImageUrl: IMAGE_PATH }).html).not.toContain("/api/events/");
   });
 
   it("is still an automatic message with one-click stop headers, and only the wordmark inline", () => {

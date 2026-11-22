@@ -1,4 +1,4 @@
-import { publicEventUrl } from "@/lib/event-url";
+import { organiserPageLink, publicEventUrl } from "@/lib/event-url";
 import { subjectLine, type EmailMessage } from "./email";
 import { escapeHtml } from "./email-layout";
 import { kitButtons, kitFooter, kitFooterText, kitHeader, kitHelp, kitHelpText, kitIntro, kitLink, kitPage, kitStack, kitText } from "./email-kit";
@@ -23,12 +23,6 @@ export const FOLLOWER_EMAIL_MAX_EVENTS = 6;
 export function followerUnsubscribeLink(siteUrl: string, token: string): string {
   return `${siteUrl}/following/unsubscribe#token=${token}`;
 }
-
-/** The organiser's public page. */
-export function organiserPageLink(siteUrl: string, organiserId: string): string {
-  return `${siteUrl}/organisers/${encodeURIComponent(organiserId)}`;
-}
-
 
 /**
  * `events`: the new events still published and upcoming, soonest first (at

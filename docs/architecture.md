@@ -4781,17 +4781,21 @@ job kind `event_reminder`, one job per recipient, no new cron route.
   reminder was queued for was refunded, the person's oldest other paid order
   for the event (same recipient hash) is used instead, for the address and the
   ticket page: a holder who still has tickets is not left without a reminder.
-  The event title, venue, address and organiser name in the email are cleaned
+  The event title, venue and address in the email are cleaned
   first (`subjectLine`: control, invisible and bidi characters become a space,
   so line breaks go too). The platform sends at most 800 reminders a day
   (bucket `event_reminders_daily`): past it a job is put back an hour without
   using an attempt. Logs carry the job id only.
 - **The email.** Subject "Today: {title}" or "Tomorrow: {title}" (decided at
-  send time from the event's own calendar day); the event's date and time in
-  its zone, venue, address, "Get directions", a "View your tickets" button
-  (the order's ticket page), the organiser's name linking their page, and a
-  footer saying why the reader got it. Sent with `Auto-Submitted:
-  auto-generated`, no `List-Unsubscribe` and no unsubscribe link.
+  send time from the event's own calendar day), on the shared layout
+  (Latte's 1120 "Reminder (day before)" frame): the compact ticket card, the
+  event's date and time in its zone with Google / Apple / Outlook calendar
+  links, the venue and address with "Get directions", an "Open your ticket"
+  button (the order's ticket page), "Need a hand?", and a footer saying why
+  the reader got it ("You're getting this email because you have tickets for
+  this event."). It no longer names or links the organiser. Sent with
+  `Auto-Submitted: auto-generated`, no `List-Unsubscribe` and no unsubscribe
+  link.
 - **Spam Act 2003 (Cth).** A reminder about tickets the reader bought is
   service information, not a commercial electronic message: it carries no
   promotion and no offer. It is sent once per event with no opt-out; the

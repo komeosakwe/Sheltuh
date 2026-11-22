@@ -9,6 +9,11 @@ export function publicEventUrl(slug: string, origin: string): string {
   return `${origin.replace(/\/+$/, "")}/events/${encodeURIComponent(slug)}`;
 }
 
+/** An organiser's public page (`/organisers/{id}`), as the emails link it. */
+export function organiserPageLink(siteUrl: string, organiserId: string): string {
+  return `${siteUrl}/organisers/${encodeURIComponent(organiserId)}`;
+}
+
 /**
  * "Report this event": an email to Sheltüh's support, its subject naming the
  * event and its page ("Report: {title} ({url})"). Without a configured

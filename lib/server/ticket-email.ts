@@ -1,7 +1,7 @@
 import { eventPublicLink, inviteText, tellAFriendLinks } from "./share-email";
 import { googleCalendarUrl, outlookCalendarUrl, type CalendarEvent } from "@/lib/calendar";
 import { SUPPORT_EMAIL } from "@/lib/contact";
-import { eventCalendarPath } from "@/lib/event-url";
+import { eventCalendarPath, organiserPageLink } from "@/lib/event-url";
 import { calculateOrderSummary } from "@/lib/fees";
 import { formatAudExact, formatEventDateShort } from "@/lib/format";
 import { directionsHref } from "@/lib/maps";
@@ -42,7 +42,6 @@ import {
   ticketAssetUrl,
   ticketWordmarkImage,
 } from "./email-ticket-layout";
-import { organiserPageLink } from "./follower-email";
 import { orderReference } from "./order-reference";
 import { TICKET_QR_MODULES, ticketQrPng } from "./qr-image";
 import type { EventRecord, IssuedTicket, OrderRecord, TicketSeat, WalletAvailability } from "./types";
@@ -53,22 +52,26 @@ import type { EventRecord, IssuedTicket, OrderRecord, TicketSeat, WalletAvailabi
  * built one-to-one with the owner's design images; the deviations are listed
  * in its §2).
  *
- * On its own layout (lib/server/email-ticket-layout.ts: white, Instrument
- * Sans and IBM Plex Mono with Arial / Courier New fallbacks, bulletproof
- * tables, light only). Top to bottom: the wordmark; "ORDER #…" and the
- * headline; one full ticket card per issued code (corner stripes and "ADMIT
- * ONE · SHELTÜH", the event's image, title and venue line, a perforation
- * with a notch each side, DATE / TIME / TICKET, the seat, the QR with the
- * centre ü, the backup code and "Show this at the door · ticket n of N"),
- * each followed by its "Add to Apple / Google Wallet" buttons when the
- * wallets are on (ticketWalletLinks); "View your ticket(s) →" and "Manage
- * order" (both the order's ticket page, the link earlier emails carried);
- * when, where and event info rows (with Google / Apple / Outlook calendar
- * links and Get directions); the order summary (reference, each line's
- * all-inclusive amount, Support Sheltüh, the total, and for a paid order the
- * refund policy with the shared Australian Consumer Law sentence);
- * "Going with friends?" (WhatsApp, Messages, Email, Share page); "Need a
- * hand?"; and the footer (no legal line: owner decision D1).
+ * On the shared layout (lib/server/email-kit.ts, Latte's 1120 frames: a
+ * white column on the customer cream, Instrument Sans and IBM Plex Mono with
+ * Arial / Courier New fallbacks, bulletproof tables, light only); only the
+ * full ticket card is this file's own (ticketCard). Top to bottom: the
+ * wordmark; the "Order {reference} · Confirmed" eyebrow and the headline
+ * ("Hi, you're in. Here's your ticket.", or "You're in." for a free order);
+ * one full ticket card per issued code (corner stripes and "ADMIT ONE ·
+ * SHELTÜH", the event's image, title and venue line, a perforation with a
+ * notch each side, DATE / TIME / TICKET, the seat, the QR with the centre ü,
+ * the backup code and "Show this at the door · ticket n of N"), each followed
+ * by its "Add to Apple / Google Wallet" buttons when the wallets are on
+ * (ticketWalletLinks); "View your ticket(s)" and "Manage order" (both the
+ * order's ticket page, the link earlier emails carried); the date, venue,
+ * event info and "Hosted by" rows (with Google / Apple / Outlook calendar
+ * links, Get directions and the organiser's page); the order summary
+ * (reference, order date, each line's amount, the booking fee where itemised,
+ * Support Sheltüh, the total, and for a paid order the refund policy with the
+ * shared Australian Consumer Law sentence); "Going with friends?" (WhatsApp,
+ * Messages, Email, Share page); "Need a hand?"; and the shared footer, whose
+ * reason says the buyer bought (or, free, got) a ticket.
  *
  * Everything essential (event, when, where, every ticket code and seat, the
  * total) is real text, so it reads the same with images blocked; every image

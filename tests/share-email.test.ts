@@ -71,7 +71,6 @@ describe("the reminder and sharing", () => {
     const email = buildEventReminderEmail({
       to: "fan@example.com",
       orderId: "22222222-2222-4222-8222-222222222222",
-      organiserId: "33333333-3333-4333-8333-333333333333",
       siteUrl: "https://sheltuh.com.au",
       now: new Date("2027-03-05T21:00:00.000Z"),
       event: {

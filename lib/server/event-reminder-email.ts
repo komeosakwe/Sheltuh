@@ -20,7 +20,6 @@ import { ticketWordmarkImage } from "./email-ticket-layout";
 import {
   eventImageEmailUrl,
   formatStubTime,
-  TICKET_EMAIL_REASON,
   ticketCalendarLinks,
   ticketDirectionsLink,
   ticketEmailWhen,
@@ -38,6 +37,9 @@ import type { EventRecord } from "./types";
  * its footer says why they got it. Sent as an automatic message (`Auto-Submitted`), so
  * out-of-office replies and the like don't answer it.
  */
+
+/** The footer's reason line: holders of free tickets are reminded too, so it doesn't say they bought one. */
+export const EVENT_REMINDER_REASON = "You’re getting this email because you have tickets for this event.";
 
 /** Calendar days from `now` to the event's start, both in the event's own zone (0 today, 1 tomorrow, negative if past). */
 
@@ -66,7 +68,6 @@ export function buildEventReminderEmail(input: {
   to: string;
   orderId: string;
   event: EventRecord;
-  organiserId: string;
   siteUrl: string;
   now: Date;
 }): EmailMessage {
@@ -86,7 +87,7 @@ export function buildEventReminderEmail(input: {
   const subject = subjectLine(`${day === "today" ? "Today" : "Tomorrow"}: ${title}`);
   const eyebrow = `${day === "today" ? "Today" : "Tomorrow"} · ${shortDate}`;
   const heading = `See you ${day} at ${title}.`;
-  const footer = { siteUrl, tone: "customer" as const, reason: TICKET_EMAIL_REASON };
+  const footer = { siteUrl, tone: "customer" as const, reason: EVENT_REMINDER_REASON };
   const calendarLinks = [
     calendar.google ? ["Google", calendar.google] : null,
     calendar.apple ? ["Apple", calendar.apple] : null,

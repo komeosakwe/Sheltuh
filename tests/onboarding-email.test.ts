@@ -121,6 +121,16 @@ describe("links and plain text", () => {
     expect(e.text).toMatch(/You’re (receiving this|getting this email) because/);
   });
 
+  it("the help line follows the tone: the member welcome's is the customer one, the organiser emails' the organiser one", () => {
+    for (const [name, build] of Object.entries(all)) {
+      const e = build("Sam");
+      const [line, other] = name === "member" ? ["Need a hand?", "Need help?"] : ["Need help?", "Need a hand?"];
+      expect(e.html, name).toContain(`${line} <a href="mailto:support@sheltuh.com.au"`);
+      expect(e.text, name).toContain(`${line} support@sheltuh.com.au`);
+      expect(`${e.html}${e.text}`, name).not.toContain(other);
+    }
+  });
+
   it("the buttons go to /events and /dashboard", () => {
     expect(hrefs(all.member().html)).toContain(`${site}/events`);
     expect(hrefs(all.organiserApproved().html)).toContain(`${site}/dashboard`);
