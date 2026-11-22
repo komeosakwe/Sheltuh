@@ -2,6 +2,7 @@
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Nav from "@/components/Nav";
+import { NavAccountProvider } from "@/components/nav/useNavAccount";
 import { UNREAD_POLL_MS, UnreadProvider } from "@/components/messages/UnreadProvider";
 import { ApiError } from "@/lib/api/client";
 import type { AuthContextValue } from "@/lib/auth/AuthContext";
@@ -42,7 +43,9 @@ function renderNav(auth: AuthContextValue = fakeAuthValue()) {
   return render(
     <FakeAuthProvider value={auth}>
       <UnreadProvider>
-        <Nav />
+        <NavAccountProvider>
+          <Nav />
+        </NavAccountProvider>
       </UnreadProvider>
     </FakeAuthProvider>,
   );

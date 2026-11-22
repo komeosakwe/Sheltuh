@@ -6,6 +6,12 @@ Tokens, type and shapes are the existing ones (`docs/design-system.md`); nothing
 
 ## Where it lives
 
+Since the 1120 account area, `/messages` and its threads are one split view inside the account shell
+(`components/messages/MessagesFrame.tsx`: the list beside the open conversation; above it on phones), with
+Latte's rows, bubbles and composer: see `docs/design/account-dashboard.md`. Behaviour below is unchanged,
+except that the thread has no "All messages" back link (the list is beside it) and `/messages` links to
+Blocked members only from Settings → Privacy.
+
 | Surface | Code |
 | --- | --- |
 | "Message" on Who's Going names | `components/messages/ComposeRequest.tsx` (`AttendeeMessageAction`, `ComposeRequestForm`), wired in `components/WhosGoing.tsx` via `NameList`'s `renderAction` |
@@ -43,7 +49,7 @@ Tokens, type and shapes are the existing ones (`docs/design-system.md`); nothing
   announced). Bodies are React text in `whitespace-pre-wrap break-words`: no HTML, no
   auto-linking. Yours: ink on the right; theirs: paper on the left; time under each. The
   composer is sticky at the foot (safe-area padding, 16px text on phones,
-  `interactiveWidget: "resizes-content"` in `app/messages/layout.tsx` so Android keeps it above
+  `interactiveWidget: "resizes-content"` in `app/(account)/messages/layout.tsx` so Android keeps it above
   the keyboard). Ctrl/Cmd+Enter sends; Enter is a new line. After sending, focus returns to the
   box and "Message sent." is announced.
   - `request_received`: under the messages, "{name} wants to message you. Reply below to accept…

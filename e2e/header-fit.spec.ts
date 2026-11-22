@@ -3,7 +3,7 @@ import type { AdminSummary } from "@/lib/api/types";
 
 /**
  * The desktop header (redesign PR 2, the proposal and the rules' Navigation
- * board; white in Light and #0a0a0a in Dark, owner Q1 of navigation-search.md) is one 100px row, as the
+ * board; black in both themes, an ink section like the footer, the owner's call of 22 Nov 2026) is one 100px row, as the
  * board draws it (navigation-search.md §5.16), at every desktop width, in Light and Dark (its rule drawn
  * inside it), whoever is signed in: signed out, Sign in and the For
  * organisers button; signed in, For organisers, the Messages chip with its count
@@ -124,7 +124,7 @@ for (const width of [1024, 1280, 1440, 1920]) {
           // No heart on the desktop row: Saved is on /account (and in the phone menu).
           await expect(signedInPage.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Saved" })).toHaveCount(0);
           // The avatar: a solid 40px-tall block with the initial and a caret (the button that opens the avatar menu),
-          // in the text colour: black in Light, white in Dark.
+          // in the text colour: white with a black initial on the black header, in both themes (owner, 22 Nov 2026).
           const avatar = signedInPage.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: "Account" });
           await expect(avatar).toBeVisible();
           const avatarBox = await avatar.boundingBox();
@@ -133,7 +133,7 @@ for (const width of [1024, 1280, 1440, 1920]) {
           expect(avatarBox && avatarBox.y >= 0 && avatarBox.y + avatarBox.height <= 100, who).toBe(true);
           expect(Math.round((avatarBox?.x ?? 0) + (avatarBox?.width ?? 0)), who).toBeLessThanOrEqual(width);
           expect(await avatar.evaluate((el) => [getComputedStyle(el).backgroundColor, getComputedStyle(el).color])).toEqual(
-            theme === "light" ? ["rgb(0, 0, 0)", "rgb(255, 255, 255)"] : ["rgb(255, 255, 255)", "rgb(0, 0, 0)"],
+            ["rgb(255, 255, 255)", "rgb(0, 0, 0)"],
           );
           await signedInPage.close();
         }
@@ -175,23 +175,39 @@ for (const width of [1024, 1440]) {
 test.describe("desktop header at 1440px, signed in", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test("is white in Light and #0a0a0a in Dark (Q1, the board's frames), with the board's controls, and the Messages count an orange pill", async ({ page }) => {
+  // The owner's call of 22 Nov 2026: the whole header is black in Light and Dark, like the footer (it replaces Q1's
+  // white / #0a0a0a desktop row).
+  test("is black in Light and Dark (ink, as the footer), with the board's controls in white, and the Messages count an orange pill", async ({ page }) => {
     for (const theme of ["light", "dark"] as const) {
       const themed = await page.context().newPage();
       if (theme === "dark") await themed.addInitScript(() => localStorage.setItem("sheltuh:theme", "dark"));
       await as(themed, "member");
       await measure(themed, "member");
       const header = themed.locator("header").first();
-      expect(await header.evaluate((el) => getComputedStyle(el).backgroundColor), theme).toBe(theme === "light" ? "rgb(255, 255, 255)" : "rgb(10, 10, 10)");
-      // The 1px rule under it, in both themes from lg: black in Light, #333 in Dark, as the board's frames.
-      expect(await header.evaluate((el) => [getComputedStyle(el, "::after").display, getComputedStyle(el, "::after").backgroundColor]), theme).toEqual([
-        "block",
-        theme === "light" ? "rgb(0, 0, 0)" : "rgb(51, 51, 51)",
-      ]);
+      // The footer's black: ink's --background, #000 in both themes (not the Dark page's other blacks).
+      expect(await header.evaluate((el) => getComputedStyle(el).backgroundColor), theme).toBe("rgb(0, 0, 0)");
+      expect(await header.evaluate((el) => getComputedStyle(el).backgroundColor), theme).toBe(
+        await themed.locator("footer").evaluate((el) => getComputedStyle(el).backgroundColor),
+      );
+      // The 1px rule under it only where the black bar meets the black page (Dark), in ink's #333; none in Light.
+      expect(await header.evaluate((el) => [getComputedStyle(el, "::after").display, getComputedStyle(el, "::after").backgroundColor]), theme).toEqual(
+        theme === "light" ? ["none", "rgb(51, 51, 51)"] : ["block", "rgb(51, 51, 51)"],
+      );
       const primary = themed.getByRole("navigation", { name: "Primary" });
-      // The wordmark 64px in; the places 18px.
-      const wordmark = await themed.locator("header > div.hidden").getByRole("link", { name: "Sheltüh home" }).locator("svg").boundingBox();
+      // The wordmark 64px in, white (currentColor, ink's text colour); the places 18px, white, Discover's current
+      // underline white and its dots orange.
+      const wordmarkSvg = themed.locator("header > div.hidden").getByRole("link", { name: "Sheltüh home" }).locator("svg");
+      const wordmark = await wordmarkSvg.boundingBox();
       expect(Math.round(wordmark?.x ?? 0)).toBe(64);
+      expect(await wordmarkSvg.evaluate((el) => getComputedStyle(el).color), theme).toBe("rgb(255, 255, 255)");
+      const discover = primary.getByRole("link", { name: "Discover" });
+      expect(
+        await discover.evaluate((el) => [getComputedStyle(el).color, getComputedStyle(el).textDecorationColor, getComputedStyle(el, "::before").backgroundColor, getComputedStyle(el, "::before").opacity]),
+        theme,
+      ).toEqual(["rgb(255, 255, 255)", "rgb(255, 255, 255)", "rgb(255, 72, 0)", "1"]);
+      for (const name of ["Nearby", "Community"]) {
+        expect(await primary.getByRole("link", { name }).evaluate((el) => getComputedStyle(el).color), `${theme} ${name}`).toBe("rgb(255, 255, 255)");
+      }
       // The signed-in For organisers is the outlined nav button (navigation-search.md §5.1): an 18px regular label,
       // 8px above and below it and 25px sides inside the 1.5px stroke (171 × 43 as drawn; Chrome draws the stroke 1px
       // on a 1x screen, so the box is 170 × 42 there).
@@ -203,13 +219,31 @@ test.describe("desktop header at 1440px, signed in", () => {
         }),
         theme,
       ).toEqual([40, "8px", "25px", "solid", "18px", "400"]);
-      // The Messages chip: 37px, 14px regular, a muted outline.
+      // Outlined in white on the black bar: a white stroke and label, no fill.
+      expect(
+        await organisers.evaluate((el) => [getComputedStyle(el).borderTopColor, getComputedStyle(el).color, getComputedStyle(el).backgroundColor]),
+        theme,
+      ).toEqual(["rgb(255, 255, 255)", "rgb(255, 255, 255)", "rgba(0, 0, 0, 0)"]);
+      // The Messages chip: 37px, 14px regular, filled in the text colour like the avatar beside it.
       const chip = primary.getByRole("link", { name: READY.member });
-      expect(await chip.evaluate((el) => [Math.round(el.getBoundingClientRect().height), getComputedStyle(el).fontSize, getComputedStyle(el).fontWeight, getComputedStyle(el).borderTopColor])).toEqual([
-        37,
-        "14px",
-        "400",
-        theme === "light" ? "rgb(229, 227, 222)" : "rgb(51, 51, 51)",
+      expect(
+        await chip.evaluate((el) => {
+          const avatar = getComputedStyle(document.querySelector(".nav-avatar") as Element);
+          const style = getComputedStyle(el);
+          return [
+            Math.round(el.getBoundingClientRect().height),
+            style.fontSize,
+            style.fontWeight,
+            style.backgroundColor === avatar.backgroundColor,
+            style.color === avatar.color,
+          ];
+        }),
+        theme,
+      ).toEqual([37, "14px", "400", true, true]);
+      // ...which is white with black text on the black bar, in both themes.
+      expect(await chip.evaluate((el) => [getComputedStyle(el).backgroundColor, getComputedStyle(el).color]), theme).toEqual([
+        "rgb(255, 255, 255)",
+        "rgb(0, 0, 0)",
       ]);
       // The chip's own badge (the avatar menu's Messages row has one too, in its closed popover): the board's 16px pill,
       // 24 wide for one digit and 30 for "12" (as the board's "12" on Saved).
@@ -234,10 +268,10 @@ test.describe("desktop header at 1440px, signed in", () => {
       await page.keyboard.press("Tab");
       const control = name === "Account" ? primary.getByRole("button", { name }) : primary.getByRole("link", { name });
       await expect(control).toBeFocused();
-      // The global ring: 2px, black on the white Light header (never orange).
+      // The global ring: 2px, white on the black header (never orange).
       expect(await control.evaluate((el) => [getComputedStyle(el).outlineStyle, getComputedStyle(el).outlineColor])).toEqual([
         "solid",
-        "rgb(0, 0, 0)",
+        "rgb(255, 255, 255)",
       ]);
     }
   });

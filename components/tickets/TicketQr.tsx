@@ -24,27 +24,37 @@ const PLATE_STYLE: CSSProperties = {
  * `currentColor` or theme tokens, so no theme or colour scope can tint them.
  *
  * Plate sizes are whole pixels per module for a version 2 symbol (33 modules
- * with the quiet zone): 231px (7px modules) under 375px wide, 264px (8px)
- * from 375px, and 40mm in print.
+ * with the quiet zone), and 40mm in print:
+ * - `screen` (the default; the full-screen ticket, made for scanning): 231px
+ *   (7px modules) under 375px wide, 264px (8px) from 375px.
+ * - `page` (the ticket on the My ticket page): 165px (5px modules) on phones,
+ *   where the compact ticket's QR area is 168 wide, and 198px (6px) from 768px.
  *
  * Renders nothing for a code that isn't a real ticket code
  * (`TICKET_CODE_PATTERN`), so the stub falls back to the text code alone.
  */
-export default function TicketQr({ code }: { code: string }) {
+export type TicketQrSize = "screen" | "page";
+
+const PLATE_SIZES: Record<TicketQrSize, string> = {
+  screen: "size-[231px] min-[375px]:size-[264px]",
+  page: "size-[165px] md:size-[198px]",
+};
+
+export default function TicketQr({ code, size = "screen" }: { code: string; size?: TicketQrSize }) {
   const symbol = ticketQrSymbol(code);
   if (!symbol) return null;
-  const { d, size } = ticketQrSvgPath(symbol.matrix);
+  const { d, size: side } = ticketQrSvgPath(symbol.matrix);
   const markAt = symbol.mark.start + QR_QUIET_ZONE_MODULES;
   return (
-    <div className="size-[231px] shrink-0 min-[375px]:size-[264px] print:size-[40mm]" style={PLATE_STYLE}>
+    <div className={`${PLATE_SIZES[size]} shrink-0 print:size-[40mm]`} style={PLATE_STYLE}>
       <svg
-        viewBox={`0 0 ${size} ${size}`}
+        viewBox={`0 0 ${side} ${side}`}
         shapeRendering="crispEdges"
         role="img"
         aria-label={ticketQrLabel(code)}
         className="block size-full"
       >
-        <rect width={size} height={size} fill="#ffffff" />
+        <rect width={side} height={side} fill="#ffffff" />
         <path d={d} fill="#000000" data-qr="modules" />
         <svg
           x={markAt}

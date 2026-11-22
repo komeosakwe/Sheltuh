@@ -19,6 +19,26 @@ are the ones listed in §2, each with its reason.
 
 The header and footer are specified in `navigation-search.md`. The QR rules are in `ticket-email.md` §6.
 
+**Built so far (21 Nov 2026, the 1120 frames).** The buyer's ticket page, `/checkout/success`, now follows Latte's
+1120 My ticket frames at 1440 / 768 / 390 (`components/tickets/MyTicketView.tsx`), with these parts:
+- **The full ticket is the email's orange-outline ticket** (`components/tickets/FullTicket.tsx`, the site's version
+  of `ticketCard` in `lib/server/ticket-email.ts`): owner rule, 21 Nov 2026. It replaces §5.1's orange card with a
+  black stub and the old `TicketStub` (retired). Latte's frames set its sizes and everything around it.
+- **The compact card** in all eight states: `components/tickets/TicketCard.tsx` (props only; nothing lists tickets
+  yet).
+- **Sheets and dialogs** on one component, `components/ui/Sheet.tsx` (a bottom sheet below 768, a 480 dialog from
+  768): Add to calendar, Directions, Order receipt and Manage order (`components/tickets/TicketSheets.tsx`).
+- **The full-screen ticket** on phones, with the Wake Lock and pager of §5.12: `components/tickets/TicketFullScreen.tsx`.
+- **Several tickets show one at a time on the page too, at every width** (owner request, 22 Nov 2026): Previous /
+  Next (the full-screen pager's 44px arrows, `components/tickets/TicketPagerButton.tsx`) round "TICKET 1 of 2",
+  said politely on each change, above the ticket. Seated tickets go by seat but keep their own numbers. The wallet
+  badges and "Show ticket" are the shown ticket's, and the full-screen ticket opens on it. At either end the arrow
+  is `aria-disabled` (greyed), never `disabled`, so keyboard focus stays on it. Printing prints every ticket.
+- **Left out until their data exists:** PURCHASED, the receipt's placed-at / card line, GST line and PDF, Manage
+  order's send, rename, resend and contact rows, "Send" on the full-screen ticket, and the desktop "Add to your
+  phone's wallet" QR dialog (§5.8 needs its handoff route).
+Where this section and the sections below disagree, the 1120 frames and the owner rule win.
+
 **What it replaces.** Today a buyer's tickets live on `/checkout/success?session_id={orderId}`
 (`components/CheckoutConfirmation.tsx`, `components/tickets/TicketStub.tsx`, `TicketQr.tsx`, `WalletButtons.tsx`).
 That page is reached by its order-id capability, from the email. It has no account link and no "My tickets" list.
@@ -191,9 +211,11 @@ mt-4 (16) wallet row: two equal halves, gap 8, each a centred official badge 40p
 - **The QR's quiet zone.** The tile gives 16px of white, which is 2 modules. The QR standard asks for 4. The
   ticket-page QR must pass the decode suite (`ticket-email.md` §6.6) **at this tile**, with the black stub around
   it. If it fails, the tile grows to p-8 (32): a measured deviation, to be recorded here.
-- **Checked in.** Over the QR tile, a centred white overlay (≈, `168`): a "✓ Checked in" line with the time
-  ("Checked in 7:42 pm"), and the QR shown at 30% opacity behind it. It stays scannable: an undone check-in makes
-  the ticket valid again, and the door decides (as TicketStub today).
+- **Checked in.** As built (Latte's full-screen Checked in frame): an orange stamp centred over the QR, "✓ Checked
+  in" with the door's time and "Enjoy the night" (black text on Signal Orange, for AA contrast), and the QR dimmed
+  under it (15% opacity), so it isn't meant to scan. The backup code under the QR stays at full strength: if a
+  check-in is undone the ticket is valid again, and the door can type the code (the frame's 30% code would be
+  2.1:1). The door decides either way.
 - **Unlisted event.** No image, no date row and no venue lines. The stub says `EVENT_UNLISTED_TEXT`. No wallet
   badges. This is today's rule.
 - **Event without an image.** EventArt fills the 2:1 box.

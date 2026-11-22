@@ -671,7 +671,7 @@ where c.order_id = '<the payment metadata orderId>' order by c.created_at, c.id;
 ### Ticket transfers (sending a ticket to someone)
 
 `20261203000000_ticket_transfers.sql` (docs/architecture.md, "Ticket
-transfers"; docs/DEPLOYMENT.md, migration 61) adds the offers
+transfers"; docs/DEPLOYMENT.md, migration 62) adds the offers
 (`private.ticket_transfers`), their link tokens (hashed only) and the
 functions behind them, the door's `transferred` result and `scanned_last4`.
 Apply it in the SQL editor before deploying the app that reads it; sending

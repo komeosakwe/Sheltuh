@@ -173,6 +173,33 @@ describe("queueing", () => {
     expect(order.emailed).toBe(true);
   });
 
+  it("an order with several tickets: one full card and QR, the other ticket a row with the buyer's checkout name, its code left out", async () => {
+    /** A paid order of two GA tickets, its email sent; the order's ticket codes, in the email's order. */
+    const pairOrder = async (body: Record<string, unknown>) => {
+      session += 1;
+      await api.call(createCheckout, { params: { eventId }, body: { lineItems: [{ ticketTypeId: "ga", quantity: 2 }], ...body } });
+      const orderId = api.stripe.checkout.sessions.create.mock.calls.at(-1)![0].client_reference_id as string;
+      await api.send(stripeWebhook, paidWebhook(orderId));
+      await api.runDeferred();
+      return (await api.db.query<{ code: string }>(`select code from public.tickets where order_id = $1 order by ticket_type_id, code`, [orderId])).map((r) => r.code);
+    };
+    const codes = await pairOrder({ buyerName: "Alex Chen" });
+    expect(codes).toHaveLength(2);
+    const { html, text, inlineImages } = api.sendEmail.mock.calls[0][0];
+    expect(html).toContain(">TICKET 2 of 2</p>");
+    expect(html).toContain(">Alex Chen · GA</p>");
+    expect(text).toContain("Ticket 2 of 2 · Alex Chen · GA — View: ");
+    expect((inlineImages ?? []).filter((i: { cid: string }) => i.cid.startsWith("ticket-qr-"))).toHaveLength(1);
+    expect(`${html}${text}`).toContain(codes[0]);
+    expect(`${html}${text}`).not.toContain(codes[1]);
+
+    // No name given at checkout: the ticket type alone.
+    await pairOrder({});
+    const unnamed = api.sendEmail.mock.calls[1][0];
+    expect(unnamed.html).toContain(">TICKET 2 of 2</p>");
+    expect(unnamed.text).toContain("Ticket 2 of 2 · GA — View: ");
+  });
+
   it("the email says the event's refund policy, as stored on the event (docs/architecture.md, Refund policy)", async () => {
     await paidOrder("fan@example.com", { runDeferred: true });
     expect(api.sendEmail.mock.calls[0][0].text).toContain("No refunds for change of mind. You're always entitled to a refund");

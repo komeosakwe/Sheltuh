@@ -85,7 +85,7 @@ iframe served by Stripe), with the publishable key
 | `private.organiser_profile_edits` | `id` (identity) | Append-only log per organiser: each profile edit made without review (`profile_edit`: old and new value of each changed field, by the owner, or by an admin with a reason: removing the featured video, logged as `featured_video` `"provider:id"`, or the logo, logged as `logo` with its version), each admin takedown (`suspended`, with the admin and reason; a takedown must have a reason), the organiser's creation by an accepted admin invite or an organiser link, or a link's approval of their pending application (`invite_accepted`, by the new owner: `status` null or pending → approved; see "Account invites" and "Organiser links"), and an admin's review switch (a `profile_edit` by the admin with a reason, `event_review_required` `"on"` / `"off"`; see "Publishing events"). A trigger refuses updates (except the `actor_id` foreign key's own set-null when that account is deleted). Admins see the newest 20 per organiser. Kept while the organiser exists; deleted with it. |
 | `private.organiser_logos` | `organiser_id` | An organiser's logo as the server re-encoded it: `image` (512 × 512 WebP, ≤ 512 KB) and `thumb` (96 × 96 WebP, ≤ 64 KB), the whole logo fitted on white, no transparency, no metadata. `updated_at` is its version (milliseconds since the epoch, in its URL and the log); every write moves it on by at least a millisecond. Deleted with the organiser (see "Organiser profiles"). |
 | `private.organiser_covers` | `organiser_id` | An organiser's cover image as the server re-encoded it (`20261128000000_organiser_covers.sql`): `image` (2240 × 640 WebP, ≤ 1 MB) and `small` (1120 × 320 WebP, ≤ 256 KB), centre-cropped to 7:2, transparency flattened onto white, no metadata. `updated_at` is its version, as the logo's. Deleted with the organiser (see "Organiser profiles", "Cover"). |
-| `events` | `id` | Belongs to an organiser. Globally unique `slug`. `status`: draft → pending_review → published / rejected, or, for an approved organiser's own publish, draft / rejected → published directly (see "Publishing events"); unpublish returns it to draft. `rejection_reason`: the admin's reason on a rejection, an unpublish (optional) or a takedown, shown to the organiser; any later status change through `transition_event` replaces it (a publish or submit clears it). `is_free` (true only when the event has ticket types and all are free; for an external event, `external_free`) is kept up to date by `replace_ticket_types` for the feed's free filter. `whos_going_enabled` (default true) is an admin-only kill switch for that event's Who's Going, set in SQL (`docs/supabase-setup.md`). `ticketing_mode` (`sheltuh`, the default, or `external`), `external_ticket_url`, `external_free` and `external_price_from_cents`: see "External ticketing". Check constraints: an external event has a link, a Sheltüh-ticketed one has no link and isn't `external_free`, and an external event's `is_free` equals `external_free`. The trigger `events_external_ticket_url_valid` checks a link against `private.external_ticket_url_ok` when it's inserted or changed (only then, so tightening the rules never blocks a later status change; see "External ticketing"). `updated_at` changes on every update of the row, a photo change included (trigger `event_images_touch_event`). Triggers refuse ticket types and orders for an external event, and switching an event with ticket types to external. `state` (default `VIC`) and `time_zone` (default `Australia/Melbourne`): the event's state or territory and the IANA zone its times are in; check constraint `events_place_check` allows only the zones `ZONES_BY_STATE` lists for the state (see "Events: state and time zone"). The venue's location (`20261111000100_event_venue_location.sql`; see "Venue location"): `location_source` (`legacy`, the default and every earlier event; `places`; `manual_pin`), `venue_place_id` (a Google place id, the only Google Places data stored) and `venue_lat` / `venue_lng` (the organiser's own pin, never Google's coordinates); checks `events_venue_pin_pair`, `events_venue_pin_bounds` (`AUSTRALIA_BOUNDS`), `events_venue_place_id_shape` and `events_location_source_check` (`legacy`: neither; `places`: a place id, pin optional; `manual_pin`: a pin and no place id). No index: nothing filters or sorts on them. |
+| `events` | `id` | Belongs to an organiser. Globally unique `slug`. `status`: draft → pending_review → published / rejected, or, for an approved organiser's own publish, draft / rejected → published directly (see "Publishing events"); unpublish returns it to draft. `rejection_reason`: the admin's reason on a rejection, an unpublish (optional) or a takedown, shown to the organiser; any later status change through `transition_event` replaces it (a publish or submit clears it). `is_free` (true only when the event has ticket types and all are free; for an external event, `external_free`) is kept up to date by `replace_ticket_types` for the feed's free filter. `whos_going_enabled` (default true) is an admin-only kill switch for that event's Who's Going, set in SQL (`docs/supabase-setup.md`). `ticketing_mode` (`sheltuh`, the default, or `external`), `external_ticket_url`, `external_free` and `external_price_from_cents`: see "External ticketing". Check constraints: an external event has a link, a Sheltüh-ticketed one has no link and isn't `external_free`, and an external event's `is_free` equals `external_free`. The trigger `events_external_ticket_url_valid` checks a link against `private.external_ticket_url_ok` when it's inserted or changed (only then, so tightening the rules never blocks a later status change; see "External ticketing"). `updated_at` changes on every update of the row, a photo change included (trigger `event_images_touch_event`). Triggers refuse ticket types and orders for an external event, and switching an event with ticket types to external. `state` (default `VIC`) and `time_zone` (default `Australia/Melbourne`): the event's state or territory and the IANA zone its times are in; check constraint `events_place_check` allows only the zones `ZONES_BY_STATE` lists for the state (see "Events: state and time zone"). The venue's location (`20261111000100_event_venue_location.sql`; see "Venue location"): `location_source` (`legacy`, the default and every earlier event; `places`; `manual_pin`), `venue_place_id` (a Google place id, the only Google Places data stored) and `venue_lat` / `venue_lng` (the organiser's own pin, never Google's coordinates); checks `events_venue_pin_pair`, `events_venue_pin_bounds` (`AUSTRALIA_BOUNDS`), `events_venue_place_id_shape` and `events_location_source_check` (`legacy`: neither; `places`: a place id, pin optional; `manual_pin`: a pin and no place id). No index: nothing filters or sorts on them. `before_you_go` (jsonb, nullable; `20261204000000_event_before_you_go.sql`): the organiser's "Before you go" rows, an array of 1 to 5 `{label, value}`; check `events_before_you_go_check` (`private.before_you_go_ok`: exactly those two string keys, label 1 to 20 and value 1 to 80 characters, trimmed, no double spaces, no C0/C1 control characters, line or paragraph separators, or the invisible, bidi and other default-ignorable characters the API refuses); see "Before you go". No index. |
 | `ticket_types` | `(event_id, id)` | `id` is stable across draft edits. A trigger refuses a price above 0 for a platform-managed organiser's event (`ticket_types_platform_free_only`). `quantity_sold` only ever goes up in `fulfil_order`, and down only in `record_payment_refund` (a paid order refunded in full). `seated`: the tier has seats on the event's seat map; its `quantity_available` is then always its unblocked seats (trigger `ticket_types_seated_capacity`, whatever is written; see "Reserved seating"). `opens_after_previous`: the tier waits for the one above it (by `position`) to sell out; `sold_out_at`: when `quantity_sold` first reached `quantity_available`, set by trigger `ticket_types_sold_out_at` and never cleared (see "Sequential ticket releases"). |
 | `event_seat_maps` | `event_id` | An event's optional seat map (see "Reserved seating"): `layout` (the validated template, `lib/seating/template.ts`), `seat_count` (1–10,000) and `version` (from the sequence `private.seat_map_versions`: never reused, not even after a delete). Every write bumps the event's `updated_at` (`event_seat_maps_touch_event`). Refused for an external event (`event_seat_maps_sheltuh_only`). Deleted with the event. |
 | `event_seats` | `(event_id, id)` | The map's seats, derived from the layout in the same step (`write_seat_map`): `position` (map order: the availability bit), section, row (may be empty) and seat labels, `ticket_type_id` (no-action foreign key `event_seats_ticket_type_fkey`: a tier with seats can't be removed), `kind` (standard, wheelchair, companion), `blocked`; `hold_order_id` / `hold_expires_at` (a pending order's hold) and `sold_order_id`. Checks: never held and sold at once (`event_seats_one_owner`), never held or sold while blocked (`event_seats_blocked_unsold`). Deleted with the map. |
@@ -684,12 +684,16 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
      "Sheltüh". The remote images are decorative and on the site's own
      origin, the same for everyone with no order data: the stripes, notches
      and icons in `public/email/ticket/`, and the event's own image. Gmail
-     clips HTML over 102 KB: when every ticket's card would take the HTML
-     past 90 KB (`TICKET_EMAIL_HTML_BUDGET`; the largest order checkout
-     allows is 400 people), the first tickets get cards and the rest are
-     listed by number, type and code, pointing at the ticket page for their
-     QR codes; the plain-text part always lists every code. Each
-     ticket whose code matches `TICKET_CODE_PATTERN` gets a QR code
+     clips HTML over 102 KB. Only the first ticket gets the full card (with
+     its QR code, backup code and wallet buttons; Latte's 2-ticket frame,
+     owner decision, Nov 2026); each other ticket is a row ("TICKET n of N",
+     the buyer's checkout name and the ticket type, View: the ticket page,
+     which holds every code and QR code), with no code. Past 90 KB
+     (`TICKET_EMAIL_HTML_BUDGET`; the largest order checkout allows is 400
+     people) the first rows are kept and the rest are one line pointing at
+     the ticket page; the plain-text part has a line for every ticket and
+     only the first code. The first ticket, when its code matches
+     `TICKET_CODE_PATTERN`, gets a QR code
      (`SH1:` + code, level H, version 2, the centre 7 × 7 modules cleared for
      the brand's ü: `ticketQrSymbol` in `lib/ticket-qr.ts` over the vendored
      encoder `lib/qr/qrcodegen.ts`, the same symbol the ticket page's
@@ -700,7 +704,7 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
      multipart/related part, `EmailMessage.inlineImages`, named
      `ticket-<n>-qr.png`, never after the code), so it shows even where
      remote images are blocked. Alt text names the ticket and points at the
-     backup code printed beneath it, and the plain-text part lists every code and tells
+     backup code printed beneath it, and the plain-text part gives the first code and tells
      text-only readers to show the entry code (the QR is in the full email). A code
      that doesn't match the pattern gets no QR. Emails sent before QR codes
      (and the plain-text part) rely on the door typing in the code, which
@@ -708,14 +712,23 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
      over a thousand codes, as matrices, PNGs and rendered email, with two
      independent decoders (jsQR, ZXing) outside the repo; the tests check the
      symbol's structure against the standard and pin a decoder-verified
-     matrix. Email clients themselves aren't tested. The other transactional
-     emails (free-ticket confirmation, waitlist, follower, review, invite) are built
-     on one layout, `lib/server/email-layout.ts` (Brand Direction One:
-     white page, white card with a black hairline, black text, Signal Orange only on the one
-     button, with black text on it; the button keeps its size in Outlook
-     for Windows via `mso-padding-alt`, and the preheader is hidden there
-     with `mso-hide:all`), so they can't drift apart;
-     `tests/server/email-brand.test.ts` holds every builder to it.
+     matrix. Email clients themselves aren't tested. Every customer and
+     organiser email (the ticket email around its own card, the reminder,
+     the holder message, free-ticket confirmation, waitlist, follower,
+     invites and the welcome / onboarding emails) is built on one layout,
+     `lib/server/email-kit.ts`, to the designer's 20 Nov ("1120") frames:
+     a white 600px column on cream (customer) or warm grey (organiser),
+     the orange wordmark, eyebrow and heading, outlined notice boxes,
+     detail rows, the 56px orange call to action (48px on a phone, black
+     label) beside an outlined one, and one footer (no company line until
+     the owner confirms it). Table layout and inline styles, Instrument
+     Sans and IBM Plex Mono self-hosted, `mso-padding-alt` on the buttons,
+     the preheader hidden with `mso-hide:all`, so the emails can't drift
+     apart; `tests/server/email-brand.test.ts` holds every builder to it.
+     The admin review emails stay on `lib/server/email-layout.ts`.
+     Organiser emails A4 (7 days after approval) and A5 (the morning after
+     each event) are built (`lib/server/onboarding-email.ts`) but not sent:
+     their triggers need new onboarding / outbox kinds, a migration.
    Free orders require the buyer's email address at checkout; a paid one
    has the address typed on our page (checked, and prefilled into Stripe's
    form) or, from an older client, the one Stripe's form collected. The same outbox carries waitlist emails
@@ -1188,6 +1201,69 @@ Organisers are paid about 2 days after their event ends, not when each ticket is
 Each event has a refund policy (`lib/refund-policy.ts`, migration `20261109000100_event_refund_policy.sql`): "No refunds for change of mind" (`no_change_of_mind`, the default, which every earlier event has and which matches `/refunds`) or refunds up to N days before the event (`days_before`, N from 1 to 30; `events.refund_days`, check constraints `events_refund_policy_check` and `events_refund_days_check`). Buyers are told a `days_before` policy against the event's start (`refundTermsLine`): "Refunds available until Sat 21 Nov, 7:00 pm (7 days before the event)." until the deadline (the start minus N × 24 hours, shown in the event's zone), then "The refund window for this event has closed. No refunds for change of mind." Buyers see it, with the standing Australian Consumer Law line (`REFUND_ACL_STATEMENT`), on the event page (`PublicEvent`), the payment page (`OrderPaymentSummary`) and the ticket page (`CustomerOrder`, paid and listed only); the ticket email says it too, for an order that cost something, of a listed event (`ticketEmailRefundPolicy` in `lib/server/ticket-email.ts`). The organiser sets it in the event editor (`components/dashboard/RefundPolicyField.tsx`). It applies to Sheltüh-ticketed events; for an external event the ticketing site's terms apply, so the UI doesn't show it.
 
 Organisers set it while the event is a draft or rejected; once it's submitted only an admin can change it. Buyers keep what they bought under: a change that makes the policy less generous for an event with paid orders, or pending ones that can still be paid (`private.event_has_payable_orders`: a card order whose Checkout Session is recorded, or a guest's free order waiting on its emailed link; a card order still being set up, or kept after Stripe didn't answer, has no session and doesn't count, so one unanswered Stripe call can't block an edit for the 2 days until the purge fails it) (`private.refund_policy_tightens`: `days_before` → `no_change_of_mind`, or more days' notice; mirrored by `tightensRefundPolicy`, and a test checks they agree) is refused with 409 `code: "refund_policy_tightened"`, for an admin's edit of any event and for an organiser's edit of an unpublished draft that has orders. The check runs under the event row lock, and every order insert, and recording a card order's session (`finish_checkout_attempt`), share-locks that row, so no order becomes payable in between. Loosening is always allowed. Admin changes are logged in the `edited` entry (`changes.refundPolicy`, `changes.refundDays`). Refunds themselves stay manual (see "Refunds made in Stripe"); nothing enforces the deadline automatically.
+
+## Before you go
+
+Short rows the organiser writes for the people going to their event (owner
+request, Nov 2026; the owner's "Editorial minimal" reference): a label and a
+value each, "Entry": "7:30 pm – 10:30 pm", "Age": "18+ · Photo ID required",
+"Extras": "Free earplugs at the bar". The event page shows them as the
+reference draws them (`components/events/BeforeYouGo.tsx`): "The essentials."
+before Location, then a `<dl>` of ruled rows, "01 / ENTRY" (the number
+decorative, the label uppercased by CSS in the small-text orange,
+`--signal-text`) beside its right-aligned value. The editor
+(`components/dashboard/editor/BeforeYouGoFields.tsx`) starts with three empty
+rows (Entry, Age, Extras as placeholders), adds up to 5 and checks the rows as
+typed on save, each input showing its own error. They're also for the ticket email, the
+reminder, the free-ticket confirmation, the event-changed email and the
+buyer's ticket page, whose displays come separately. Migration
+`20261204000000_event_before_you_go.sql`; rules in `lib/before-you-go.ts`
+(client-safe: the limits, `BEFORE_YOU_GO_SUGGESTED_LABELS` (Entry, Age,
+Extras), `normaliseBeforeYouGo`, and `validateBeforeYouGo`, which returns
+each row's errors at its index for the editor), parsed by `parseBeforeYouGo`
+in `lib/server/event-input.ts`.
+
+- **Shape.** `beforeYouGo` is an array of up to 5 `{ label: string; value:
+  string }`, or absent. The API takes it on the organiser's `POST /events` and
+  `PATCH /events/{id}` and on the admin's create and edit: absent keeps the
+  stored rows on an edit (none on a create), so a client that predates the
+  field never clears them; null, `[]`, or rows that are all blank clear them
+  (stored as SQL null, never an empty array).
+- **Cleaning and checks, per label and value.** NFC; every whitespace run
+  (line breaks and tabs too) collapsed to one space; trimmed. Then a label is
+  1 to 20 and a value 1 to 80 characters (code points after NFC, as the
+  database's `char_length` counts them: NFC can lengthen text), one line, with
+  no control, invisible or text-direction characters (checked on the raw
+  text, before cleaning and the blank check, so a part made only of them is
+  refused, not dropped: `\p{Cf}` and every other
+  Default_Ignorable_Code_Point, the Hangul fillers and variation selectors
+  included, and U+2800 BRAILLE PATTERN BLANK; the zero-width joiners, VS16
+  right after an emoji and emoji flag tags are allowed), no ill-formed text
+  (a lone surrogate, which raw JSON can carry: "Row 1's value can't contain
+  incomplete characters. Type it again."), no stacked marks, and no web or email addresses
+  (`lib/contact-detail.ts`, which folds fullwidth forms and other full stops
+  and undoes "[.]", " dot ", "hxxp://"-style disguises before looking). The
+  label is stored as typed (the display uppercases it). Rows with both parts
+  blank are dropped; a row with only one is refused. 400
+  `fieldErrors.beforeYouGo` with the first problem, naming the row by its
+  place in the list sent ("Row 2 needs a label and a value.", "Row 1's value
+  can't include links or web addresses.", "Keep it to 5 rows or fewer.").
+  Anything HTML-like is stored as typed: it's plain text, and every display
+  escapes it. `events_before_you_go_check` holds the shape and limits
+  whatever is sent.
+- **Review.** Nothing new: an organiser edits only a draft or rejected
+  event, so the rows go through the same publish or review as the
+  description; an admin's edit of a published event is logged in its
+  `edited` entry (`changes.beforeYouGo`, the old and new arrays) like the
+  other fields.
+- **Read.** On `EventRecord` (the organiser's and admins' records, the review
+  queue included), on `PublicEvent` (public like the description, so only
+  ever for a published event), and on `CustomerOrder` (the ticket page and
+  wallet passes' lookup) only for a paid order of a published event, like the
+  date and venue. Absent everywhere when there are none. The ticket email, the
+  reminder and the free-ticket confirmation get them on the `EventRecord` they
+  are built from (`findEventById`, `EVENT_SELECT`). No organiser-private
+  data travels with them.
 
 ## Support Sheltüh
 
@@ -4948,17 +5024,21 @@ job kind `event_reminder`, one job per recipient, no new cron route.
   reminder was queued for was refunded, the person's oldest other paid order
   for the event (same recipient hash) is used instead, for the address and the
   ticket page: a holder who still has tickets is not left without a reminder.
-  The event title, venue, address and organiser name in the email are cleaned
+  The event title, venue and address in the email are cleaned
   first (`subjectLine`: control, invisible and bidi characters become a space,
   so line breaks go too). The platform sends at most 800 reminders a day
   (bucket `event_reminders_daily`): past it a job is put back an hour without
   using an attempt. Logs carry the job id only.
 - **The email.** Subject "Today: {title}" or "Tomorrow: {title}" (decided at
-  send time from the event's own calendar day); the event's date and time in
-  its zone, venue, address, "Get directions", a "View your tickets" button
-  (the order's ticket page), the organiser's name linking their page, and a
-  footer saying why the reader got it. Sent with `Auto-Submitted:
-  auto-generated`, no `List-Unsubscribe` and no unsubscribe link.
+  send time from the event's own calendar day), on the shared layout
+  (Latte's 1120 "Reminder (day before)" frame): the compact ticket card, the
+  event's date and time in its zone with Google / Apple / Outlook calendar
+  links, the venue and address with "Get directions", an "Open your ticket"
+  button (the order's ticket page), "Need a hand?", and a footer saying why
+  the reader got it ("You're getting this email because you have tickets for
+  this event."). It no longer names or links the organiser. Sent with
+  `Auto-Submitted: auto-generated`, no `List-Unsubscribe` and no unsubscribe
+  link.
 - **Spam Act 2003 (Cth).** A reminder about tickets the reader bought is
   service information, not a commercial electronic message: it carries no
   promotion and no offer. It is sent once per event with no opt-out; the
@@ -5618,6 +5698,11 @@ What that means:
   `lib/server/handlers/orders.ts`; `getMyPayouts` in `lib/api/organisers.ts`,
   `adminListTransfers` and `adminTransferAction` in `lib/api/admin.ts`; tests
   `tests/server/order-transfers.test.ts`.
+- Before you go: `lib/before-you-go.ts` (limits and checks, client-safe),
+  `parseBeforeYouGo` in `lib/server/event-input.ts`, `beforeYouGoOf` in
+  `lib/server/records.ts`, schema
+  `supabase/migrations/20261204000000_event_before_you_go.sql`; tests
+  `tests/server/before-you-go.test.ts`.
 - Support Sheltüh: `lib/support.ts` (amounts, label and copy, client-safe),
   `parseSupportCents` in `lib/server/order-input.ts`, the session line in
   `lib/server/checkout-attempts.ts`; tests

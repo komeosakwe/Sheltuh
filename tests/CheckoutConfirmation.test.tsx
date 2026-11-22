@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import type { ComponentProps } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useLayoutEffect, type ComponentProps } from "react";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import CheckoutConfirmation from "@/components/CheckoutConfirmation";
 import { ApiError } from "@/lib/api/client";
 import { orderAccessFor, rememberOrderAccess } from "@/lib/order-access";
@@ -20,6 +20,11 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams({ session_id: sessionParam }),
 }));
 const getOrderBySession = vi.fn();
+// The event's public details (image, address): optional extras the page works without; none by default.
+const getPublicEventBySlug = vi.fn();
+vi.mock("@/lib/api/public-events", () => ({ getPublicEventBySlug: (...args: unknown[]) => getPublicEventBySlug(...args) }));
+// The live site (the demo, with no API, shows a sample ticket instead: tests/CheckoutSuccessPage.test.tsx, and DemoTicket in tests/MyTicketView.test.tsx).
+vi.mock("@/lib/api/client", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/api/client")>()), isApiConfigured: true }));
 const getOrderPayment = vi.fn();
 const changeOrderEmail = vi.fn();
 // The writes the page must never make (it only reads).
@@ -37,8 +42,24 @@ vi.mock("@/lib/api/seating", () => ({
   cancelPendingOrder: (...args: unknown[]) => writes.cancelPendingOrder(...args),
 }));
 
+// jsdom has no modal dialogs: give <dialog> what a browser would (the page's sheets and full-screen ticket).
+beforeAll(() => {
+  HTMLDialogElement.prototype.showModal = function showModal(this: HTMLDialogElement) {
+    this.setAttribute("open", "");
+  };
+  HTMLDialogElement.prototype.close = function close(this: HTMLDialogElement) {
+    this.removeAttribute("open");
+    this.dispatchEvent(new Event("close"));
+  };
+});
+
+beforeEach(() => {
+  getPublicEventBySlug.mockRejectedValue(new Error("not loaded in this test"));
+});
+
 afterEach(() => {
   cleanup();
+  getPublicEventBySlug.mockReset();
   sessionParam = "cs_test_1";
   vi.useRealTimers();
   sessionStorage.clear();
@@ -82,7 +103,7 @@ describe("CheckoutConfirmation", () => {
       "href",
       "/events/neon-static#whos-going",
     );
-    expect(screen.getByRole("link", { name: "Back to the event" })).toHaveAttribute("href", "/events/neon-static");
+    expect(screen.getByRole("link", { name: "View event page" })).toHaveAttribute("href", "/events/neon-static");
     expect(screen.getByRole("link", { name: "Back to Sheltüh" })).toHaveAttribute("href", "/");
     // This browser has no order access token for it: none is sent.
     expect(getOrderBySession).toHaveBeenCalledWith("cs_test_1", undefined);
@@ -92,32 +113,49 @@ describe("CheckoutConfirmation", () => {
     getOrderBySession.mockResolvedValue(ORDER);
     render(<CheckoutConfirmation />);
     expect(await screen.findByText("Tickets sent to m***@example.com.")).toBeInTheDocument();
-    expect(screen.getByText(/^Order reference/)).toHaveTextContent(/^Order reference #7C1F2E0A$/);
-    // A machine code: the reference stays in mono (owner decision, 13 Nov 2026), in the strap and the line.
-    for (const ref of screen.getAllByText("#7C1F2E0A")) expect(ref).toHaveClass("font-mono");
-    expect(screen.getAllByText("#7C1F2E0A")).toHaveLength(2);
+    // A machine code: the reference stays in mono (owner decision, 13 Nov 2026) in the order line, with the order's
+    // status in words; it's also the Ticket details' ORDER row.
+    expect(screen.getByText("Order #7C1F2E0A Confirmed")).toHaveClass("font-mono");
+    expect(screen.getByText("Order", { selector: "dt" }).nextElementSibling).toHaveTextContent(/^#7C1F2E0A$/);
     expect(screen.getByText("ABC123")).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/mia@/);
   });
 
-  it("shows the totals in a white card with a black border, Total paid the largest number (§6.8, §6.9)", async () => {
+  it("shows the total paid in the Ticket details card (label left, value right), and the order's lines in the receipt", async () => {
     getOrderBySession.mockResolvedValue(ORDER);
     render(<CheckoutConfirmation />);
     const totalTerm = await screen.findByText("Total paid");
     const totalValue = totalTerm.nextElementSibling;
-    expect(totalValue).toHaveTextContent("A$32.30");
-    expect(totalValue).toHaveClass("text-xl", "font-bold", "tabular-nums");
-    const card = totalTerm.closest("dl")?.parentElement;
-    expect(card).toHaveClass("rounded-card", "border", "border-foreground", "bg-card", "p-4");
-    expect(card).not.toHaveClass("bg-surface");
-    expect(screen.getByText("Ticket subtotal").nextElementSibling).toHaveClass("tabular-nums");
+    expect(totalValue).toHaveTextContent(/^A\$32\.30 incl\. fees$/);
+    expect(totalValue).toHaveClass("label-button", "tabular-nums");
+    expect(totalTerm.parentElement).toHaveClass("justify-between", "border-t", "border-surface-border");
+    const card = totalTerm.closest("section");
+    expect(card).toHaveClass("rounded-control", "border", "border-surface-border", "bg-card", "p-6");
+    expect(within(card as HTMLElement).getByRole("heading", { level: 2, name: "Ticket details" })).toBeInTheDocument();
+    expect(within(card as HTMLElement).getByText("Ticket", { selector: "dt" }).nextElementSibling).toHaveTextContent("General admission · 1 of 1");
+    // The receipt is closed until asked for.
+    expect(screen.queryByText("Booking fee")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "View receipt" }));
+    const receipt = screen.getByRole("dialog", { name: "Order #7C1F2E0A" });
+    expect(within(receipt).getByText("1 × General admission").nextElementSibling).toHaveTextContent("A$30");
+    expect(within(receipt).getByText("Booking fee").nextElementSibling).toHaveClass("tabular-nums");
+    expect(within(receipt).getByText("Booking fee").nextElementSibling).toHaveTextContent("A$2.30");
+    expect(within(receipt).getByText("Total paid").nextElementSibling).toHaveTextContent("A$32.30");
+  });
+
+  it("a free order says Free, and has no receipt or refund row to open", async () => {
+    getOrderBySession.mockResolvedValue({ ...ORDER, subtotalCents: 0, buyerFeeCents: 0, totalCents: 0 });
+    render(<CheckoutConfirmation />);
+    expect((await screen.findByText("Total paid")).nextElementSibling).toHaveTextContent(/^Free$/);
+    expect(screen.queryByRole("button", { name: "View receipt" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Manage order" })).toBeNull();
   });
 
   it("without an event slug (an older API), only links home", async () => {
     getOrderBySession.mockResolvedValue({ ...ORDER, eventSlug: undefined });
     render(<CheckoutConfirmation />);
     expect(await screen.findByRole("link", { name: "Back to Sheltüh" })).toHaveAttribute("href", "/");
-    expect(screen.queryByRole("link", { name: "Back to the event" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "View event page" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Add yourself to Who’s Going" })).toBeNull();
   });
 
@@ -134,9 +172,9 @@ describe("CheckoutConfirmation", () => {
     expect(screen.getByRole("img", { name: "QR code for ticket A2B3-C4D5" })).toBeInTheDocument();
     expect(screen.getByText("7KQM-2HXD")).toBeInTheDocument();
     expect(screen.getByText("A2B3-C4D5")).toBeInTheDocument();
-    expect(screen.getByText("Ticket 1 of 2 · General admission")).toBeInTheDocument();
-    expect(screen.getByText("Ticket 2 of 2 · General admission")).toBeInTheDocument();
-    expect(screen.getAllByText("Turn your brightness up at the door.")).toHaveLength(2);
+    expect(screen.getByText("Show this at the door · ticket 1 of 2")).toBeInTheDocument();
+    expect(screen.getByText("Show this at the door · ticket 2 of 2")).toBeInTheDocument();
+    expect(screen.getAllByText("Turn your brightness up. If the QR code won’t scan, door staff can type in the backup code.")).toHaveLength(2);
     expect(screen.getByText("Screenshot your codes in case signal drops at the venue.")).toBeInTheDocument();
     expect(screen.getByText("Each code works once. Don’t share it.")).toBeInTheDocument();
     expect(screen.queryByText("Show this page or your ticket email at the door.")).toBeNull();
@@ -181,15 +219,21 @@ describe("CheckoutConfirmation", () => {
     for (const [i, ticket] of tickets.entries()) {
       const text = ticket.textContent ?? "";
       expect(text).toContain("Neon Static");
-      expect(text).toContain("Sat 6 Mar, 8:00 pm – 11:30 pm");
-      expect(text).toContain("The Tote, Collingwood, VIC");
+      expect(text).toContain("DateSat 6 Mar");
+      expect(text).toContain("Time8–11:30 pm");
+      expect(text).toContain("The Tote · Collingwood");
       expect(text).toContain("Backup code");
       expect(text).toContain(WITH_DETAILS.tickets[i].ticketCode);
     }
-    expect(tickets[0].textContent).toContain("Ticket 1 of 2 · General admission");
-    expect(tickets[0].textContent).toMatch(/Checked in (Sat 6 Mar( 2027)?, )?8:42 pm/);
-    expect(tickets[1].textContent).toContain("Ticket 2 of 2 · VIP");
-    expect(tickets[1].textContent).toContain("Ready to scan");
+    expect(tickets[0].textContent).toContain("TicketGeneral admission");
+    expect(tickets[0].textContent).toContain("ticket 1 of 2");
+    expect(tickets[0].textContent).toMatch(/Checked in(Sat 6 Mar( 2027)?, )?8:42 pm · Enjoy the night/);
+    expect(tickets[1].textContent).toContain("TicketVIP");
+    expect(tickets[1].textContent).toContain("ticket 2 of 2");
+    expect(tickets[1].textContent).not.toContain("Checked in");
+    // The page's own date line, as the frames write it, and the venue.
+    expect(screen.getByText("Sat 6 Mar · 8:00 – 11:30 pm AEDT")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Getting there" }).closest("section")).toHaveTextContent("The ToteCollingwood, VIC");
     // Both keep their QR.
     expect(screen.getByRole("img", { name: "QR code for ticket A2B3-C4D5" })).toBeInTheDocument();
   });
@@ -209,8 +253,9 @@ describe("CheckoutConfirmation", () => {
     expect(await screen.findByRole("img", { name: "QR code for ticket 7KQM-2HXD" })).toBeInTheDocument();
     const tickets = screen.getAllByRole("listitem");
     // 8:00 pm – 11:30 pm AEDT is 5:00 pm – 8:30 pm AWST; checked in 8:42 pm AEDT is 5:42 pm AWST.
-    for (const ticket of tickets) expect(ticket.textContent).toContain("Sat 6 Mar, 5:00 pm – 8:30 pm Perth time");
-    expect(tickets[0].textContent).toMatch(/Checked in (Sat 6 Mar( 2027)?, )?5:42 pm/);
+    for (const ticket of tickets) expect(ticket.textContent).toContain("DateSat 6 MarTime5–8:30 pm");
+    expect(screen.getByText("Sat 6 Mar · 5:00 – 8:30 pm Perth time (AWST)")).toBeInTheDocument();
+    expect(tickets[0].textContent).toMatch(/Checked in(Sat 6 Mar( 2027)?, )?5:42 pm/);
     expect(screen.getByText("Refunds available until Sat 27 Feb, 5:00 pm (7 days before the event).")).toBeInTheDocument();
   });
 
@@ -221,9 +266,11 @@ describe("CheckoutConfirmation", () => {
     });
     render(<CheckoutConfirmation />);
     expect(await screen.findByText("7KQM-2HXD")).toBeInTheDocument();
-    expect(screen.getByText("Ready to scan")).toBeInTheDocument();
+    expect(screen.getByText("Show this at the door · ticket 1 of 1")).toBeInTheDocument();
     expect(screen.queryByText(/Checked in/)).toBeNull();
-    expect(screen.getByRole("listitem").textContent).not.toMatch(/Collingwood|8:00 pm/);
+    expect(screen.getByRole("listitem").textContent).not.toMatch(/Collingwood|8:00 pm|Date|Time/);
+    expect(screen.queryByRole("heading", { name: "Getting there" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Add to calendar" })).toBeNull();
   });
 
   it("shows a refunded order's refund copy, with no QR, date or venue, whatever the response carried", async () => {
@@ -264,9 +311,10 @@ describe("CheckoutConfirmation", () => {
   it("a listed event (eventListed true) shows its details and no support line", async () => {
     getOrderBySession.mockResolvedValue({ ...WITH_DETAILS, eventListed: true });
     render(<CheckoutConfirmation />);
-    expect(await screen.findAllByText("The Tote, Collingwood, VIC")).toHaveLength(2);
+    // On each ticket and in the page's title group.
+    expect(await screen.findAllByText("The Tote · Collingwood")).toHaveLength(3);
     expect(screen.queryByText(/no longer listed/)).toBeNull();
-    expect(screen.getByRole("link", { name: "Back to the event" })).toHaveAttribute("href", "/events/neon-static");
+    expect(screen.getByRole("link", { name: "View event page" })).toHaveAttribute("href", "/events/neon-static");
   });
 
   it("shows the event's refund policy by the totals, dated from its start, with the ACL line and how to ask for a refund", async () => {
@@ -282,7 +330,8 @@ describe("CheckoutConfirmation", () => {
       expect(refunds).toHaveTextContent(
         "Refund policy: Refunds available until Sat 20 Feb 2027, 8:00 pm (14 days before the event).",
       );
-      expect(within(refunds).getByText(REFUND_ACL_STATEMENT)).toHaveClass("text-sm", "text-muted");
+      expect(within(refunds).getByText(REFUND_ACL_STATEMENT)).toBeInTheDocument();
+      expect(refunds.parentElement).toHaveClass("body-s", "text-muted");
       expect(screen.getByRole("link", { name: "Request a refund" })).toHaveAttribute("href", "/refunds");
       // After the total.
       expect(screen.getByText("Total paid").compareDocumentPosition(refunds) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -323,7 +372,6 @@ describe("CheckoutConfirmation", () => {
         render(<CheckoutConfirmation />);
         expect(await screen.findByRole("img", { name: "QR code for ticket 7KQM-2HXD" })).toBeInTheDocument();
         expect(walletLinks()).toHaveLength(0);
-        expect(screen.queryByRole("list", { name: "Add to your phone's wallet" })).toBeNull();
         cleanup();
       }
     });
@@ -331,30 +379,24 @@ describe("CheckoutConfirmation", () => {
     it("per ticket, only the wallets that are on, each to its pass route by the ticket's number (the API's order)", async () => {
       getOrderBySession.mockResolvedValue({ ...WITH_DETAILS, eventListed: true, wallet: { google: true, apple: false } });
       render(<CheckoutConfirmation />);
-      const list = await screen.findByRole("list", { name: "Add to your phone's wallet" });
-      const links = within(list).getAllByRole("link");
-      expect(links.map((a) => a.getAttribute("aria-label"))).toEqual([
-        "Add to Google Wallet: ticket 1 of 2",
-        "Add to Google Wallet: ticket 2 of 2",
-      ]);
-      expect(links.map((a) => a.getAttribute("href"))).toEqual([
-        "/api/orders/by-session/cs_test_1/wallet/google?ticket=1",
-        "/api/orders/by-session/cs_test_1/wallet/google?ticket=2",
-      ]);
-      expect(within(list).getByText("Ticket 2 of 2 · VIP")).toBeInTheDocument();
+      await screen.findByRole("img", { name: "QR code for ticket 7KQM-2HXD" });
+      // One ticket shows at a time: its badges are the ones under it, and they follow the pager.
+      const shown = () => walletLinks().map((a) => [a.getAttribute("aria-label"), a.getAttribute("href")]);
+      expect(shown()).toEqual([["Add to Google Wallet: ticket 1 of 2", "/api/orders/by-session/cs_test_1/wallet/google?ticket=1"]]);
+      fireEvent.click(screen.getByRole("button", { name: "Next ticket" }));
+      expect(shown()).toEqual([["Add to Google Wallet: ticket 2 of 2", "/api/orders/by-session/cs_test_1/wallet/google?ticket=2"]]);
+      expect(screen.getAllByRole("listitem")[1]).toHaveTextContent("TicketVIP");
       // Apple's device note is only for Apple's badge.
       expect(screen.queryByText(/Apple Wallet, open this page/)).toBeNull();
       cleanup();
 
       getOrderBySession.mockResolvedValue({ ...WITH_DETAILS, eventListed: true, wallet: { google: true, apple: true } });
       render(<CheckoutConfirmation />);
-      await screen.findByRole("list", { name: "Add to your phone's wallet" });
-      expect(walletLinks().map((a) => a.getAttribute("href"))).toEqual([
-        "/api/orders/by-session/cs_test_1/wallet/apple?ticket=1",
-        "/api/orders/by-session/cs_test_1/wallet/google?ticket=1",
-        "/api/orders/by-session/cs_test_1/wallet/apple?ticket=2",
-        "/api/orders/by-session/cs_test_1/wallet/google?ticket=2",
-      ]);
+      await screen.findByRole("img", { name: "QR code for ticket 7KQM-2HXD" });
+      const hrefs = () => walletLinks().map((a) => a.getAttribute("href"));
+      expect(hrefs()).toEqual(["/api/orders/by-session/cs_test_1/wallet/apple?ticket=1", "/api/orders/by-session/cs_test_1/wallet/google?ticket=1"]);
+      fireEvent.click(screen.getByRole("button", { name: "Next ticket" }));
+      expect(hrefs()).toEqual(["/api/orders/by-session/cs_test_1/wallet/apple?ticket=2", "/api/orders/by-session/cs_test_1/wallet/google?ticket=2"]);
       // Apple's badge rules: once, under the badges, how to add them from a device without Wallet.
       expect(screen.getAllByText("To add your tickets to Apple Wallet, open this page on your iPhone or Mac.")).toHaveLength(1);
     });
@@ -370,12 +412,12 @@ describe("CheckoutConfirmation", () => {
         ],
       });
       render(<CheckoutConfirmation />);
-      await screen.findByRole("list", { name: "Add to your phone's wallet" });
-      // Row A (ticket 2 in the API's order) is listed first, and its link still asks for ticket 2.
-      expect(walletLinks().map((a) => [a.getAttribute("aria-label"), a.getAttribute("href")])).toEqual([
-        ["Add to Apple Wallet: ticket 2 of 2", "/api/orders/by-session/cs_test_1/wallet/apple?ticket=2"],
-        ["Add to Apple Wallet: ticket 1 of 2", "/api/orders/by-session/cs_test_1/wallet/apple?ticket=1"],
-      ]);
+      await screen.findByRole("img", { name: "QR code for ticket 7KQM-2HXD" });
+      // Row A (ticket 2 in the API's order) is shown first, and its link still asks for ticket 2; Next shows ticket 1.
+      const shown = () => walletLinks().map((a) => [a.getAttribute("aria-label"), a.getAttribute("href")]);
+      expect(shown()).toEqual([["Add to Apple Wallet: ticket 2 of 2", "/api/orders/by-session/cs_test_1/wallet/apple?ticket=2"]]);
+      fireEvent.click(screen.getByRole("button", { name: "Next ticket" }));
+      expect(shown()).toEqual([["Add to Apple Wallet: ticket 1 of 2", "/api/orders/by-session/cs_test_1/wallet/apple?ticket=1"]]);
     });
 
     it("none for an event that's no longer listed, even if a response carried the flags", async () => {
@@ -742,12 +784,16 @@ describe("CheckoutConfirmation: Support Sheltüh", () => {
   it("is its own line in the totals, in the total paid, with a thank-you", async () => {
     getOrderBySession.mockResolvedValue({ ...ORDER, supportCents: 500, totalCents: 3730 });
     render(<CheckoutConfirmation />);
-    const term = await screen.findByText("Support Sheltüh", { selector: "dt" });
+    // The page's total includes it; its own line is in the receipt.
+    expect((await screen.findByText("Total paid")).nextElementSibling).toHaveTextContent("A$37.30 incl. fees");
+    fireEvent.click(screen.getByRole("button", { name: "View receipt" }));
+    const receipt = within(screen.getByRole("dialog", { name: "Order #7C1F2E0A" }));
+    const term = receipt.getByText("Support Sheltüh", { selector: "dt" });
     expect(term.nextElementSibling).toHaveTextContent("A$5");
     expect(term.nextElementSibling).toHaveClass("tabular-nums");
-    // After the booking fees, before the total paid (which includes it).
-    const totalTerm = screen.getByText("Total paid");
-    expect(screen.getByText("Booking fees").compareDocumentPosition(term) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // After the booking fee, before the total paid (which includes it).
+    const totalTerm = receipt.getByText("Total paid");
+    expect(receipt.getByText("Booking fee").compareDocumentPosition(term) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(term.compareDocumentPosition(totalTerm) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(totalTerm.nextElementSibling).toHaveTextContent("A$37.30");
     expect(screen.getByText("Thanks for supporting Sheltüh.")).toBeInTheDocument();
@@ -758,6 +804,8 @@ describe("CheckoutConfirmation: Support Sheltüh", () => {
     getOrderBySession.mockResolvedValue(ORDER);
     render(<CheckoutConfirmation />);
     await screen.findByText("Total paid");
+    fireEvent.click(screen.getByRole("button", { name: "View receipt" }));
+    expect(screen.getByRole("dialog", { name: "Order #7C1F2E0A" })).toHaveTextContent("Booking fee");
     expect(screen.queryByText("Support Sheltüh")).toBeNull();
     expect(screen.queryByText("Thanks for supporting Sheltüh.")).toBeNull();
   });
@@ -794,15 +842,22 @@ describe("CheckoutConfirmation: group tickets", () => {
   it("lists a ticket for each person, each named by its place in the group, and counts the tickets", async () => {
     getOrderBySession.mockResolvedValue(GROUP_ORDER);
     render(<CheckoutConfirmation />);
-    expect(await screen.findByRole("heading", { name: "Your tickets (4)" })).toBeInTheDocument();
-    expect(screen.getByText("Ticket 1 of 4 · Group of 4 (1 of 4)")).toBeInTheDocument();
-    expect(screen.getByText("Ticket 4 of 4 · Group of 4 (4 of 4)")).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Your tickets (4)" })).toBeInTheDocument();
+    const items = screen.getAllByRole("listitem");
+    expect(items).toHaveLength(4);
+    expect(items[0]).toHaveTextContent("TicketGroup of 4 (1 of 4)");
+    expect(items[0]).toHaveTextContent("Show this at the door · ticket 1 of 4");
+    expect(items[3]).toHaveTextContent("TicketGroup of 4 (4 of 4)");
+    expect(items[3]).toHaveTextContent("Show this at the door · ticket 4 of 4");
+    // Group tickets aren't "4 × Group of 4": the details say how many tickets the order holds.
+    const details = screen.getByRole("heading", { level: 2, name: "Ticket details" }).closest("section") as HTMLElement;
+    expect(within(details).getByText("Ticket", { selector: "dt" }).nextElementSibling).toHaveTextContent(/^4 tickets$/);
   });
 
-  it("an order of single tickets keeps its plain heading", async () => {
+  it("an order of single tickets keeps its plain name", async () => {
     getOrderBySession.mockResolvedValue(WITH_DETAILS);
     render(<CheckoutConfirmation />);
-    expect(await screen.findByRole("heading", { name: "Your tickets" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Your tickets" })).toBeInTheDocument();
   });
 });
 
@@ -898,6 +953,28 @@ describe("CheckoutConfirmation: the buyer's email (the paying browser's one chan
     expect(screen.queryByLabelText("New email for your tickets")).toBeNull();
     await waitFor(() => expect(screen.getByRole("button", { name: "Wrong email? Change it" })).toHaveFocus());
     expect(changeOrderEmail).not.toHaveBeenCalled();
+  });
+
+  it("focus still moves when Change it or Cancel is pressed before the page's last render has run its effects", async () => {
+    asPayingBrowser();
+    getOrderBySession.mockResolvedValue(PAYING);
+    // The press lands after a render of the page is on screen but before React has run that render's effects (a
+    // busy phone, a slow CI worker): React runs those first, then renders the press. Here the press comes from a
+    // layout effect, which runs at exactly that point.
+    function PressOnCommit({ press }: { press: string | null }) {
+      useLayoutEffect(() => {
+        if (press) screen.getByRole("button", { name: press }).click();
+      }, [press]);
+      return <CheckoutConfirmation />;
+    }
+    const { rerender } = render(<PressOnCommit press={null} />);
+    await screen.findByRole("button", { name: "Wrong email? Change it" });
+    rerender(<PressOnCommit press="Wrong email? Change it" />);
+    const field = screen.getByLabelText("New email for your tickets");
+    await waitFor(() => expect(field).toHaveFocus());
+    rerender(<PressOnCommit press="Cancel" />);
+    expect(screen.queryByLabelText("New email for your tickets")).toBeNull();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Wrong email? Change it" })).toHaveFocus());
   });
 
   it("a refused address: the error on the field, and the server's suggestion one press away", async () => {

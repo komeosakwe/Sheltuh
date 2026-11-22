@@ -153,7 +153,7 @@ describe("guest: book, then confirm by email", () => {
 
     await api.runDeferred();
     expect(api.sendEmail).toHaveBeenCalledTimes(2);
-    expect(api.sendEmail.mock.calls[1][0].subject).toBe("Your tickets: Neon Static");
+    expect(api.sendEmail.mock.calls[1][0].subject).toBe("You’re in: Neon Static");
   });
 
   it("confirming again is harmless: the same page, no more tickets, one ticket email", async () => {

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Suspense, type ReactNode } from "react";
 import AddToCalendar from "@/components/AddToCalendar";
+import BeforeYouGo from "@/components/events/BeforeYouGo";
 import EventViewBeacon from "@/components/analytics/EventViewBeacon";
 import EventViewedTracker from "@/components/analytics/EventViewedTracker";
 import EventArt from "@/components/EventArt";
@@ -207,9 +208,9 @@ function whenLabel(startsAt: string, endsAt: string | undefined, timeZone: strin
  * fee", the one orange action (Buy tickets, Free tickets, Join waitlist, Choose seats, or the outside
  * ticket link) and Save, Share and Add to calendar as Secondary buttons. The panel sticks under the header
  * while the details scroll by. Below the photo: the tickets (#tickets: the selector, seats, outside link
- * or waitlist), About, Who's Going, Location, Refunds, Good to know, the Organiser card and Report this
- * event; then "More from {organiser}" and "Similar nearby", each the one EventCard, loaded after the
- * first paint.
+ * or waitlist), About, Who's Going, Before you go (the organiser's note, when there is one), Location,
+ * Refunds, Good to know, the Organiser card and Report this event; then "More from {organiser}" and
+ * "Similar nearby", each the one EventCard, loaded after the first paint.
  *
  * Phones and tablets: one column in the same reading order, with the panel's price and action in the
  * sticky bottom buy bar instead (one orange action in view), so the panel is just Save, Share and Add to
@@ -588,6 +589,11 @@ export default function EventDetailsView({
             {/* Owner's order (30 Oct 2026): About, Who's Going, Location, Refunds, then Good to know. */}
             {!external && !preview && <WhosGoing />}
             {external && !preview && <ExternalGoing event={event} />}
+
+            {/* The organiser's "Before you go" rows (doors, age limit, what to bring), when there are any: "The essentials.",
+                just before Location, so what to know before setting out sits with where to go. Not in the key facts by the
+                photo: on phones the title, facts, Save and Share stay on the first screen (e2e/event-page.spec.ts). */}
+            {event.beforeYouGo && <BeforeYouGo items={event.beforeYouGo} className="max-w-2xl" />}
 
             {/* Where it is, with a small map and the Google Maps and Apple Maps links (none without a venue or suburb). */}
             <EventLocation event={event} map={!preview} />

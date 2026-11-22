@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Nav from "@/components/Nav";
+import { NavAccountProvider } from "@/components/nav/useNavAccount";
 import type { ProfileRecord } from "@/lib/api/types";
 import type { AuthContextValue } from "@/lib/auth/AuthContext";
 import type { ProfileState } from "@/lib/auth/useProfile";
@@ -71,7 +72,9 @@ afterEach(() => {
 function renderNav(auth: AuthContextValue = fakeAuthValue({ email: "latte@example.com" })) {
   const result = render(
     <FakeAuthProvider value={auth}>
-      <Nav />
+      <NavAccountProvider>
+        <Nav />
+      </NavAccountProvider>
     </FakeAuthProvider>,
   );
   const drawer = result.container.querySelector<HTMLElement>("#site-menu");
@@ -281,7 +284,7 @@ describe("avatar menu (from lg)", () => {
     expect(within(bare).getByRole("link", { name: "Profile", hidden: true })).toHaveAttribute("href", "/account#member-profile");
   });
 
-  it("is a disclosure: the avatar's aria-expanded follows the panel, and it sits in the page-themed row, 8px under the header", () => {
+  it("is a disclosure: the avatar's aria-expanded follows the panel, and it keeps the page's theme inside the ink header, 8px under it", () => {
     const { panel: maybePanel } = renderNav();
     const panel = requirePanel(maybePanel);
     const avatar = screen.getByRole("button", { name: "Account" });
@@ -290,9 +293,12 @@ describe("avatar menu (from lg)", () => {
     expect(avatar).toHaveAttribute("aria-expanded", "true");
     fireToggle(panel, "closed");
     expect(avatar).toHaveAttribute("aria-expanded", "false");
-    // The page theme (no ink scope): as the board's two frames, white with a 1px hairline and no shadow in Light,
+    // The page theme: the header is ink (owner, 22 Nov 2026), so the panel puts the page's tokens back
+    // (data-surface="page"). As the board's two frames, white with a 1px hairline and no shadow in Light,
     // #1c1b17 with a 1px white stroke in Dark; 280px, radius 16.
-    expect(panel.closest("[data-surface]")).toBeNull();
+    expect(panel.closest("[data-surface]")).toBe(panel);
+    expect(panel).toHaveAttribute("data-surface", "page");
+    expect(panel.parentElement?.closest("[data-surface]")?.tagName).toBe("HEADER");
     expect(panel).toHaveClass("w-70", "bg-menu", "border", "border-surface-border", "dark:border-foreground", "rounded-card", "p-2");
     expect(panel).not.toHaveClass("border-control", "border-foreground");
     expect(panel.className).not.toMatch(/shadow/);

@@ -68,7 +68,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261203000000_ticket_transfers.sql`. Never
+      newest, currently `20261204000000_event_before_you_go.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -601,7 +601,29 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           before it. The previous app calls it the same way, so it can be
           applied before or after the app. Not destructive. Reversible:
           re-run the function from `20261123000000_checkout_pay_deadline.sql`.
-      61. `20261203000000_ticket_transfers.sql` (sending a ticket to
+      61. `20261204000000_event_before_you_go.sql` (the organiser's "Before
+          you go" rows, docs/architecture.md "Before you go": nullable jsonb
+          `events.before_you_go`, an array of 1 to 5 `{label, value}`, with
+          check constraint `events_before_you_go_check` over the new
+          immutable helpers `private.before_you_go_ok` and
+          `private.before_you_go_text_ok`; `private.before_you_go_of` stores
+          an explicit null or `[]` as SQL null; and `create_event_draft`,
+          `edit_event_draft` and `admin_edit_event` redefined from their
+          latest bodies, `20261114000000_external_price.sql` and
+          `20261120000000_group_tickets.sql`, with the same signatures).
+          search_path pinned, execute revoked from clients, no new table,
+          grant or index. **Apply it before deploying the app**: the new app
+          selects `before_you_go` in every event read, so on the old schema
+          every event page, list and the home fail. The previous app keeps
+          working against it (it never sends `beforeYouGo`: its creates
+          store null and its edits keep the stored rows), so it can be
+          applied ahead of the deploy. Not destructive. Reversible after
+          deploying an app that doesn't select the column: restore the three
+          functions from those two files, then drop the constraint, the
+          column (every row is lost) and the three helpers. (This file was
+          rewritten in place from an earlier free-text version before it
+          was applied anywhere.)
+      62. `20261203000000_ticket_transfers.sql` (sending a ticket to
           someone, docs/architecture.md "Ticket transfers": tables
           `private.ticket_transfers` and `private.ticket_transfer_tokens`,
           their guard trigger and `tickets_code_not_reissued` on
@@ -618,7 +640,10 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           `order_email_change_block`; `purge_operational_data` dropped and
           created with two more OUT columns, so the Supabase Cron call
           `select private.purge_operational_data()` is unaffected). Needs
-          file 60 before it (filename order). **Apply it before deploying
+          file 60 before it, and sorts before file 61
+          (`20261204000000_event_before_you_go.sql`, numbered first because
+          it merged first): apply the two in filename order, this one first.
+          Neither touches the other's functions. **Apply it before deploying
           the app**: the new app's ticket page, wallet routes and `GET /me`
           read `private.ticket_transfers` and `member_held_tickets`, so on the
           old schema they fail. The previous app keeps working against it
@@ -1257,7 +1282,7 @@ Git → Ignored Build Step. GitHub Actions CI is unaffected.
        transfers"). Unset (the default) the ticket page offers no Send and
        the send route is a 404; offers already made can still be accepted,
        declined or cancelled, and received tickets keep working, so turning
-       it off strands no one. Turn it on only once file 61 is applied and
+       it off strands no one. Turn it on only once file 62 is applied and
        the transfer emails, the organiser's Orders view, reminders to
        holders and the UI are deployed (until the emails ship, an offer's
        email is never sent). Redeploy after changing it (it's baked in at
