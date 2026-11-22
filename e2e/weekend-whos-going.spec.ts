@@ -23,8 +23,9 @@ function weekendSlots(now: number): [number, number][] {
         [from + 2 * HOUR, from + 3 * HOUR],
       ]
     : [
-        [now - HOUR, now + 3 * HOUR],
+        // Soonest first, as above: the first (Here & Now) started earlier.
         [now - 2 * HOUR, now + 3 * HOUR],
+        [now - HOUR, now + 3 * HOUR],
       ];
 }
 
