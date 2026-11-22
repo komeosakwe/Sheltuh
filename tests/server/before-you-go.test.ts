@@ -280,6 +280,46 @@ describe("the organiser's create and edit", () => {
     expect(await accepted(emoji)).toEqual(emoji);
   });
 
+  it("refuses U+2800 BRAILLE PATTERN BLANK (a symbol that renders as nothing), so it can't fill half a row", async () => {
+    const hidden = (n: number, part: "label" | "value") =>
+      `Row ${n}'s ${part} can't contain control, invisible or text-direction characters.`;
+    expect(await refusal([row("\u2800", "Free entry")])).toBe(hidden(1, "label"));
+    expect(await refusal([ROWS[0], row("Age", "\u2800")])).toBe(hidden(2, "value"));
+    expect(await refusal([row("En\u2800try", "7 pm")])).toBe(hidden(1, "label"));
+    expect(await refusal([row("Entry", "7\u2800pm")])).toBe(hidden(1, "value"));
+    expect(await refusal([row("\u2800", "\u2800")])).toBe(hidden(1, "label"));
+  });
+
+  it("refuses ill-formed text (a lone surrogate, as raw JSON can carry) with a 400, not the database's 500", async () => {
+    // Sent as the raw JSON text "\ud800" (JSON.parse makes it an unpaired surrogate), not through JSON.stringify.
+    const send = (beforeYouGoJson: string) => {
+      const body = JSON.stringify(eventInput({ title: `Lone ${crypto.randomUUID().slice(0, 6)}`, beforeYouGo: "MARKER" }));
+      return api.send(
+        createEventDraft,
+        new Request(`${SITE_URL}/api/test`, {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${organiser.token}` },
+          body: body.replace('"MARKER"', beforeYouGoJson),
+        }),
+      );
+    };
+    const cases: [string, string][] = [
+      ['[{"label":"Entry","value":"7 pm \\ud800"}]', "Row 1's value can't contain incomplete characters. Type it again."],
+      ['[{"label":"Entry","value":"7 pm"},{"label":"\\udfff","value":"x"}]', "Row 2's label can't contain incomplete characters. Type it again."],
+      // Alone in a part that would otherwise be blank: refused, not dropped.
+      ['[{"label":"\\ud800","value":""}]', "Row 1's label can't contain incomplete characters. Type it again."],
+    ];
+    for (const [json, message] of cases) {
+      const res = await send(json);
+      expect(res.status, json).toBe(400);
+      expect(res.body.fieldErrors, json).toEqual({ beforeYouGo: message });
+    }
+    // A well-formed pair (an emoji) in the same raw form is fine.
+    const ok = await send('[{"label":"Entry","value":"7 pm \\ud83c\\udf9f"}]');
+    expect(ok.status).toBe(201);
+    expect(ok.body.beforeYouGo).toEqual([row("Entry", "7 pm \u{1F39F}")]);
+  });
+
   it("numbers its errors by the row's place in the list sent, blank rows included (as the editor shows them)", async () => {
     // The API's own checks (stacked marks; a filler) on the second row, after a blank first: "Row 2", not "Row 1".
     expect(await refusal([row("", ""), row(`Z${"\u0301".repeat(6)}`, "x")])).toBe(
@@ -692,6 +732,8 @@ describe("the database", () => {
     for (const value of [
       "7\u1160pm", "7\u034Fpm", "7\u17B5pm", "7\u180Fpm", "7\uFE00pm", "7\uFE0Epm", "7\u{E0100}pm", "7\u2065pm",
       "7\uFFF0pm", "7\u0600pm", "7\uFFF9pm", "7\u{13430}pm", "7\u{E0000}pm", "7\u{E0FFF}pm",
+      // U+2800 BRAILLE PATTERN BLANK.
+      "7\u2800pm", "\u2800",
       // Tag characters outside a flag sequence.
       "7\u{E0001}pm", "7\u{E0067}\u{E0062}\u{E007F}pm",
       // VS16 first, after a letter or a space, doubled, or after a flag's tags.
@@ -699,6 +741,7 @@ describe("the database", () => {
     ]) {
       bad.push(rows({ label: "Entry", value }));
     }
+    bad.push(rows({ label: "\u2800", value: "Free entry" }), rows({ label: "En\u2800try", value: "7 pm" }));
     for (const json of bad) {
       await expect(setRows(json), json).rejects.toThrow(/events_before_you_go_check/);
     }
@@ -714,9 +757,9 @@ describe("the database", () => {
   });
 
   it("never refuses what the API stores, and refuses every invisible character the API refuses", async () => {
-    // Every control, format and default-ignorable code point (NUL aside: no text holds it) between two letters,
-    // and VS16 after every emoji.
-    const invisible = /^(?:\p{Cc}|\p{Cf}|\p{Default_Ignorable_Code_Point}|\u2028|\u2029)$/u;
+    // Every control, format and default-ignorable code point (NUL aside: no text holds it) and U+2800 between
+    // two letters, and VS16 after every emoji.
+    const invisible = /^(?:\p{Cc}|\p{Cf}|\p{Default_Ignorable_Code_Point}|\u2028|\u2029|\u2800)$/u;
     const emoji = /^\p{Emoji}$/u;
     const texts: string[] = [];
     for (let cp = 1; cp <= 0x10ffff; cp++) {
@@ -793,11 +836,22 @@ describe("the database", () => {
     expect(await stored(id)).toBeNull();
   });
 
-  it("the helpers aren't callable by clients", async () => {
-    const [r] = await api.db.query<{ anon: boolean; authed: boolean }>(
-      `select has_function_privilege('anon', 'private.before_you_go_ok(jsonb)', 'execute') as anon,
-              has_function_privilege('authenticated', 'private.before_you_go_of(jsonb)', 'execute') as authed`,
+  it("the helpers aren't callable by clients, pin an empty search_path and aren't security definer", async () => {
+    const helpers = ["private.before_you_go_text_ok(text, integer)", "private.before_you_go_ok(jsonb)", "private.before_you_go_of(jsonb)"];
+    const found = await api.db.query<{ helper: string; anon: boolean; authed: boolean; config: string[] | null; definer: boolean }>(
+      `select h.helper,
+              has_function_privilege('anon', h.helper, 'execute') as anon,
+              has_function_privilege('authenticated', h.helper, 'execute') as authed,
+              p.proconfig as config,
+              p.prosecdef as definer
+         from unnest($1::text[]) as h (helper)
+         join pg_proc p on p.oid = h.helper::regprocedure
+        order by h.helper`,
+      [helpers],
     );
-    expect(r).toEqual({ anon: false, authed: false });
+    expect(found.map((f) => f.helper)).toEqual([...helpers].sort());
+    for (const f of found) {
+      expect(f, f.helper).toEqual({ helper: f.helper, anon: false, authed: false, config: ['search_path=""'], definer: false });
+    }
   });
 });

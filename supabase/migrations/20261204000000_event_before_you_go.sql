@@ -23,7 +23,8 @@
 --     invisible operators, BOM, the prepended concatenation marks) and no
 --     other default-ignorable character (Unicode's
 --     Default_Ignorable_Code_Point: the Hangul fillers, which are letters, the
---     combining grapheme joiner, the variation selectors). Allowed, as the API
+--     combining grapheme joiner, the variation selectors), nor U+2800 BRAILLE
+--     PATTERN BLANK (a symbol that renders as nothing). Allowed, as the API
 --     allows them: U+200C and U+200D (joiners emoji and several scripts need),
 --     VS16 (U+FE0F) after a character that can be an emoji (a red heart
 --     emoji), and the tag characters in an emoji tag sequence (a subdivision
@@ -106,12 +107,13 @@ as $$
      -- (U+034F, the Hangul fillers U+115F, U+1160, U+3164 and U+FFA0, U+17B4
      -- and U+17B5, U+180B-U+180F, U+2065, the variation selectors
      -- U+FE00-U+FE0E, U+FFF0-U+FFF8, U+E0000-U+E0FFF, tags and the
-     -- supplementary variation selectors included); and VS16 (U+FE0F) first or
+     -- supplementary variation selectors included); U+2800 BRAILLE PATTERN
+     -- BLANK (renders as nothing); and VS16 (U+FE0F) first or
      -- after anything that can't be an emoji (every emoji is #, *, 0-9, (c),
      -- (R) or from U+203C up; the API asks for \p{Emoji} itself).
      and regexp_replace(p_text, '\U0001F3F4[\U000E0030-\U000E0039\U000E0061-\U000E007A]{1,8}\U000E007F', ' ', 'g')
          !~ ('[\u0001-\u001F\u007F-\u009F\u00AD\u034F\u0600-\u0605\u061C\u06DD\u070F\u0890\u0891\u08E2'
-             '\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B\u200E\u200F\u2028-\u202E\u2060-\u206F\u3164'
+             '\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B\u200E\u200F\u2028-\u202E\u2060-\u206F\u2800\u3164'
              '\uFE00-\uFE0E\uFEFF\uFFA0\uFFF0-\uFFFB\U000110BD\U000110CD\U00013430-\U0001343F'
              '\U0001BCA0-\U0001BCA3\U0001D173-\U0001D17A\U000E0000-\U000E0FFF]'
              '|(^|[^#*0-9\u00A9\u00AE\u203C-\uFE0E\uFE10-\U000DFFFF\U000E1000-\U0010FFFF])\uFE0F');

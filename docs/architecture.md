@@ -1229,8 +1229,10 @@ in `lib/server/event-input.ts`.
   text, before cleaning and the blank check, so a part made only of them is
   refused, not dropped: `\p{Cf}` and every other
   Default_Ignorable_Code_Point, the Hangul fillers and variation selectors
-  included; the zero-width joiners, VS16 right after an emoji and emoji flag
-  tags are allowed), no stacked marks, and no web or email addresses
+  included, and U+2800 BRAILLE PATTERN BLANK; the zero-width joiners, VS16
+  right after an emoji and emoji flag tags are allowed), no ill-formed text
+  (a lone surrogate, which raw JSON can carry: "Row 1's value can't contain
+  incomplete characters. Type it again."), no stacked marks, and no web or email addresses
   (`lib/contact-detail.ts`, which folds fullwidth forms and other full stops
   and undoes "[.]", " dot ", "hxxp://"-style disguises before looking). The
   label is stored as typed (the display uppercases it). Rows with both parts

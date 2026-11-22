@@ -58,6 +58,8 @@ export const beforeYouGoHidden = (row: number, part: BeforeYouGoPart) =>
   `Row ${row}'s ${part} can't contain control, invisible or text-direction characters.`;
 export const beforeYouGoStackedMarks = (row: number, part: BeforeYouGoPart) =>
   `Row ${row}'s ${part} can't stack accents or other marks on one character.`;
+export const beforeYouGoIllFormed = (row: number, part: BeforeYouGoPart) =>
+  `Row ${row}'s ${part} can't contain incomplete characters. Type it again.`;
 
 // Checked on the raw text, before cleaning (and so before the blank check:
 // a part made only of these is refused, not dropped). Every control character
@@ -68,14 +70,19 @@ export const beforeYouGoStackedMarks = (row: number, part: BeforeYouGoPart) =>
 // Default_Ignorable_Code_Point: the Hangul fillers U+115F, U+1160, U+3164 and
 // U+FFA0, which are letters, the combining grapheme joiner U+034F, the Khmer
 // inherent vowels, the Mongolian and other variation selectors, the
-// unassigned U+2065, U+FFF0-U+FFF8 and U+E0000-U+E0FFF); and the
+// unassigned U+2065, U+FFF0-U+FFF8 and U+E0000-U+E0FFF); U+2800 BRAILLE
+// PATTERN BLANK (a symbol, so "visible", that renders as nothing); and the
 // line/paragraph separators (U+2028, U+2029). Allowed: the zero-width
 // (non-)joiners U+200C and U+200D emoji and several scripts need; VS16
 // (U+FE0F, emoji presentation) right after an emoji (a red heart, U+2764
 // U+FE0F; a keycap, 1 U+FE0F U+20E3); and the tag characters in an emoji tag sequence (EMOJI_TAG_SEQUENCE, taken
 // out first). The database refuses the same (private.before_you_go_text_ok).
 const DISALLOWED =
-  /(?![\n\r\t])\p{Cc}|(?![\u200C\u200D])\p{Cf}|(?![\u200C\u200D\uFE0F])\p{Default_Ignorable_Code_Point}|(?<!\p{Emoji})\uFE0F|[\u2028\u2029]/u;
+  /(?![\n\r\t])\p{Cc}|(?![\u200C\u200D])\p{Cf}|(?![\u200C\u200D\uFE0F])\p{Default_Ignorable_Code_Point}|(?<!\p{Emoji})\uFE0F|[\u2028\u2029\u2800]/u;
+// A lone (unpaired) surrogate: text JSON can carry ("\ud800") but no database text can hold (jsonb refuses it).
+// With the u flag a pair is one code point, so only an unpaired half matches. (Not isWellFormed: the editor
+// runs this in browsers that predate it.)
+const LONE_SURROGATE = /\p{Cs}/u;
 // Emoji tag sequences (the flags of England, Scotland and Wales): the one legitimate use of tag characters.
 const EMOJI_TAG_SEQUENCE = /\u{1F3F4}[\u{E0030}-\u{E0039}\u{E0061}-\u{E007A}]{1,8}\u{E007F}/gu;
 // What a tag sequence becomes for the DISALLOWED check: a space, so a VS16 right after one isn't taken as an emoji's.
@@ -141,6 +148,8 @@ function checkPart(
 ): { blank: boolean; error: string | null } {
   // Before any cleaning or pattern runs on it.
   if (raw.length > MAX_LENGTH[part] * RAW_FACTOR) return { blank: false, error: beforeYouGoTooLong(row, part) };
+  // Ill-formed text: refused before anything else looks at it (and before the blank check).
+  if (LONE_SURROGATE.test(raw)) return { blank: false, error: beforeYouGoIllFormed(row, part) };
   // Refused even in a part that would otherwise be blank ("\u200B").
   if (DISALLOWED.test(raw.replace(EMOJI_TAG_SEQUENCE, TAG_SEQUENCE_STAND_IN))) {
     return { blank: false, error: beforeYouGoHidden(row, part) };
