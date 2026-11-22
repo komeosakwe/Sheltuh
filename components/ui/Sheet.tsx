@@ -30,7 +30,7 @@ interface SheetProps {
  * A native `<dialog>` shown with `showModal()`: the browser keeps focus
  * inside it, makes the page behind inert, closes it on Escape and returns
  * focus to what opened it. A press on the scrim (one that starts and ends
- * there, so not a drag out of the sheet) closes it too. The content is
+ * there, so not a drag either way between it and the sheet) closes it too. The content is
  * mounted only while it's open, so each opening starts fresh. The page behind
  * doesn't scroll while it's open.
  */
@@ -55,19 +55,23 @@ export default function Sheet({ open, onClose, title, subtitle, dismissLabel = "
     };
   }, [open]);
 
-  // A press on the scrim closes it only when it starts there too: a text selection dragged out of
-  // the sheet ends with a click on the scrim, and mustn't close it.
-  const pressedScrim = useRef(false);
+  // A press on the scrim closes it only when it starts and ends there. A drag between the scrim and the sheet
+  // (a text selection, either way) ends with a click on the dialog, their common ancestor, and mustn't close it.
+  const press = useRef({ down: false, up: false });
 
+  // The dialog element itself is only hit outside its padding box, which is the scrim.
   function onPressStart(event: PointerEvent<HTMLDialogElement>) {
-    // The dialog element itself is only hit outside its padding box, which is the scrim.
-    pressedScrim.current = event.target === event.currentTarget;
+    press.current = { down: event.target === event.currentTarget, up: false };
+  }
+
+  function onPressEnd(event: PointerEvent<HTMLDialogElement>) {
+    press.current = { ...press.current, up: event.target === event.currentTarget };
   }
 
   function onScrimPress(event: MouseEvent<HTMLDialogElement>) {
-    const started = pressedScrim.current;
-    pressedScrim.current = false;
-    if (started && event.target === event.currentTarget) event.currentTarget.close();
+    const { down, up } = press.current;
+    press.current = { down: false, up: false };
+    if (down && up && event.target === event.currentTarget) event.currentTarget.close();
   }
 
   return (
@@ -76,6 +80,7 @@ export default function Sheet({ open, onClose, title, subtitle, dismissLabel = "
       aria-labelledby={titleId}
       onClose={onClose}
       onPointerDown={onPressStart}
+      onPointerUp={onPressEnd}
       onClick={onScrimPress}
       className="m-0 mt-auto max-h-dvh w-full max-w-none overflow-y-auto rounded-t-sheet bg-card p-0 text-foreground backdrop:bg-ink/50 md:m-auto md:w-120 md:rounded-sheet md:backdrop:bg-ink/40 motion-safe:open:transition-transform motion-safe:open:duration-200 motion-safe:open:ease-out motion-safe:starting:open:translate-y-8"
     >

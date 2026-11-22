@@ -72,21 +72,25 @@ describe("Sheet", () => {
     fireEvent.click(screen.getByText("Here & Now · Sat 14 Nov"));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     fireEvent.pointerDown(screen.getByRole("dialog"));
+    fireEvent.pointerUp(screen.getByRole("dialog"));
     fireEvent.click(screen.getByRole("dialog"));
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("stays open when a press starts inside the sheet and ends on the scrim (a text selection dragged out)", () => {
+  it("stays open when a press runs between the sheet and the scrim, either way (a text selection dragged)", () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: "Open" }));
     const dialog = screen.getByRole("dialog");
+    const inside = screen.getByText("Here & Now · Sat 14 Nov");
     // The browser sends the click to the dialog (the common ancestor) when a drag ends on the scrim.
-    fireEvent.pointerDown(screen.getByText("Here & Now · Sat 14 Nov"));
+    fireEvent.pointerDown(inside);
+    fireEvent.pointerUp(dialog);
     fireEvent.click(dialog);
     expect(screen.getByRole("dialog")).toBeInTheDocument();
-    // A press that starts on the scrim and ends inside the sheet doesn't close it either.
+    // The reverse drag: down on the scrim, up inside the sheet, and the click again goes to the dialog. Still open.
     fireEvent.pointerDown(dialog);
-    fireEvent.click(screen.getByText("Here & Now · Sat 14 Nov"));
+    fireEvent.pointerUp(inside);
+    fireEvent.click(dialog);
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     // Nor does a click with no press first (the last press is used up).
     fireEvent.click(dialog);
