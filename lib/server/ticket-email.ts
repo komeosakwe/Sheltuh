@@ -3,7 +3,7 @@ import { googleCalendarUrl, outlookCalendarUrl, type CalendarEvent } from "@/lib
 import { SUPPORT_EMAIL } from "@/lib/contact";
 import { eventCalendarPath } from "@/lib/event-url";
 import { calculateOrderSummary } from "@/lib/fees";
-import { formatAud, formatEventDateShort } from "@/lib/format";
+import { eventSpansDays, formatAud, formatEventDateShort } from "@/lib/format";
 import { directionsHref } from "@/lib/maps";
 import { placeName, placeNameParts } from "@/lib/place";
 import { DEFAULT_REFUND_POLICY, REFUND_ACL_STATEMENT, refundTermsLine } from "@/lib/refund-policy";
@@ -151,20 +151,9 @@ function zone(iso: string, where: EventZone): string {
   return formatsFor(timeZone).zoneName.formatToParts(new Date(iso)).find((p) => p.type === "timeZoneName")?.value ?? "Melbourne time";
 }
 
-/**
- * The calendar day (in the event's zone) an event's end belongs to. An end
- * at exactly 12:00 am closes the previous day ("8:00 pm – 12:00 am" on one date).
- */
-function endDayKey(endIso: string, where: EventZone): string {
-  const { clock, dayKey } = formatsFor(zoneOf(where));
-  const end = new Date(endIso);
-  const justBefore = new Date(end.getTime() - 60_000);
-  return clock.format(end) === "12:00 am" ? dayKey.format(justBefore) : dayKey.format(end);
-}
-
-/** Whether an event runs past the day it starts on, in its zone (overnight or multi-day). */
+/** Whether an event runs past the day it starts on, in its zone (overnight or multi-day; an end at 12:00 am closes its start day). */
 function spansDays(startIso: string, endIso: string | undefined, where: EventZone): boolean {
-  return !!endIso && formatsFor(zoneOf(where)).dayKey.format(new Date(startIso)) < endDayKey(endIso, where);
+  return eventSpansDays(startIso, endIso, zoneOf(where));
 }
 
 /**

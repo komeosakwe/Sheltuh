@@ -206,9 +206,11 @@ mt-4 (16) wallet row: two equal halves, gap 8, each a centred official badge 40p
 - **The QR's quiet zone.** The tile gives 16px of white, which is 2 modules. The QR standard asks for 4. The
   ticket-page QR must pass the decode suite (`ticket-email.md` §6.6) **at this tile**, with the black stub around
   it. If it fails, the tile grows to p-8 (32): a measured deviation, to be recorded here.
-- **Checked in.** Over the QR tile, a centred white overlay (≈, `168`): a "✓ Checked in" line with the time
-  ("Checked in 7:42 pm"), and the QR shown at 30% opacity behind it. It stays scannable: an undone check-in makes
-  the ticket valid again, and the door decides (as TicketStub today).
+- **Checked in.** As built (Latte's full-screen Checked in frame): an orange stamp centred over the QR, "✓ Checked
+  in" with the door's time and "Enjoy the night" (black text on Signal Orange, for AA contrast), and the QR dimmed
+  under it (15% opacity), so it isn't meant to scan. The backup code under the QR stays at full strength: if a
+  check-in is undone the ticket is valid again, and the door can type the code (the frame's 30% code would be
+  2.1:1). The door decides either way.
 - **Unlisted event.** No image, no date row and no venue lines. The stub says `EVENT_UNLISTED_TEXT`. No wallet
   badges. This is today's rule.
 - **Event without an image.** EventArt fills the 2:1 box.

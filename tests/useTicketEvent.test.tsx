@@ -43,6 +43,24 @@ describe("useTicketEvent", () => {
     expect(result.current).toBeNull();
   });
 
+  it("a failed reload of the same event keeps the details it loaded before", async () => {
+    let online = true;
+    getPublicEventBySlug.mockImplementation(async (slug: string) => {
+      if (online) return { slug };
+      throw new Error("offline");
+    });
+    const { result, rerender } = renderHook(({ slug }) => useTicketEvent(slug), { initialProps: { slug: "first" } });
+    await waitFor(() => expect(result.current?.venueAddress).toBe("first street"));
+    online = false;
+    // Away and back: the reload of "first" fails, and its earlier details stay.
+    rerender({ slug: "second" });
+    rerender({ slug: "first" });
+    await waitFor(() => expect(getPublicEventBySlug).toHaveBeenCalledTimes(3));
+    expect(getPublicEventBySlug).toHaveBeenLastCalledWith("first");
+    await act(async () => {});
+    expect(result.current?.venueAddress).toBe("first street");
+  });
+
   it("no slug: nothing to load", () => {
     const { result } = renderHook(() => useTicketEvent(null));
     expect(result.current).toBeNull();

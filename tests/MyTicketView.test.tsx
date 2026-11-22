@@ -76,10 +76,21 @@ describe("MyTicketView (Latte's My ticket page around the orange-outline ticket)
     expect(screen.getAllByText("Interconnect Studio · Coburg North")).toHaveLength(2); // the title group and the ticket
   });
 
+  it("the h1 is the page's first heading: the tickets before it are a named region, their titles not headings", () => {
+    render(<MyTicketView order={TWO} sessionId="ord_1" event={EVENT} />);
+    const headings = screen.getAllByRole("heading");
+    expect(headings[0]).toBe(screen.getByRole("heading", { level: 1, name: "Here & Now" }));
+    expect(headings.slice(1).map((h) => h.tagName)).toEqual(headings.slice(1).map(() => "H2"));
+    const tickets = screen.getByRole("region", { name: "Your tickets" });
+    expect(within(tickets).queryAllByRole("heading")).toHaveLength(0);
+    // Each ticket still shows the event's name as its title.
+    expect(within(tickets).getAllByText("Here & Now", { selector: "p" })).toHaveLength(2);
+  });
+
   it("the ticket column is 296 wide from 768 and 360 from 1024, beside the details; stacked on phones", () => {
     const { container } = render(<MyTicketView order={ORDER} sessionId="ord_1" />);
     expect(container.firstElementChild).toHaveClass("flex-col", "gap-6", "md:flex-row", "lg:gap-12");
-    expect(screen.getByRole("heading", { level: 2, name: "Your tickets" }).closest("section")).toHaveClass("md:w-74", "lg:w-90", "md:shrink-0");
+    expect(screen.getByRole("region", { name: "Your tickets" })).toHaveClass("md:w-74", "lg:w-90", "md:shrink-0");
     expect(screen.getByRole("article")).toHaveAttribute("data-ticket-size", "page");
   });
 
@@ -268,17 +279,81 @@ describe("the full-screen ticket (phones)", () => {
     expect(bar).toHaveAttribute("aria-live", "polite");
     const next = within(dialog).getByRole("button", { name: "Next ticket" });
     const previous = within(dialog).getByRole("button", { name: "Previous ticket" });
-    expect(next).toBeDisabled();
+    expect(next).toHaveAttribute("aria-disabled", "true");
     // Only the ticket in view is reachable (the others are inert); its wallet links follow it.
     const inert = () => within(dialog).getAllByRole("article").map((ticket) => ticket.parentElement?.hasAttribute("inert"));
     expect(inert()).toEqual([true, false]);
     expect(within(dialog).getAllByRole("link")[0]).toHaveAttribute("aria-label", "Add to Apple Wallet: ticket 2 of 2");
     fireEvent.click(previous);
     expect(bar).toHaveTextContent("Ticket 1 of 2");
-    expect(previous).toBeDisabled();
+    expect(previous).toHaveAttribute("aria-disabled", "true");
     expect(inert()).toEqual([false, true]);
     expect(within(dialog).getAllByRole("link")[0]).toHaveAttribute("aria-label", "Add to Apple Wallet: ticket 1 of 2");
     expect(dialog.querySelectorAll("[data-ticket-dots] > span")).toHaveLength(2);
+  });
+
+  it("at the first and last ticket Previous and Next keep keyboard focus: aria-disabled, greyed, and a press does nothing", () => {
+    render(<MyTicketView order={TWO} sessionId="ord_1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Show ticket 2 of 2" }));
+    const dialog = screen.getByRole("dialog", { name: "Your ticket" });
+    const bar = dialog.querySelector('[aria-live="polite"]') as HTMLElement;
+    const previous = within(dialog).getByRole("button", { name: "Previous ticket" });
+    const next = within(dialog).getByRole("button", { name: "Next ticket" });
+    for (const button of [previous, next]) {
+      expect(button).not.toBeDisabled();
+      expect(button).toHaveClass("aria-disabled:text-muted");
+    }
+    expect(previous).toHaveAttribute("aria-disabled", "false");
+    previous.focus();
+    fireEvent.click(previous);
+    expect(bar).toHaveTextContent("Ticket 1 of 2");
+    expect(previous).toHaveAttribute("aria-disabled", "true");
+    expect(previous).toHaveFocus();
+    fireEvent.click(previous);
+    expect(bar).toHaveTextContent("Ticket 1 of 2");
+    expect(previous).toHaveFocus();
+    next.focus();
+    fireEvent.click(next);
+    expect(bar).toHaveTextContent("Ticket 2 of 2");
+    expect(next).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(next);
+    expect(bar).toHaveTextContent("Ticket 2 of 2");
+    expect(next).toHaveFocus();
+  });
+
+  it("the wake lock: a tab shown again before the first lock arrives holds one lock, and a lock that arrives after close is let go", async () => {
+    const pending: Array<(lock: { release: typeof release }) => void> = [];
+    const locks = [vi.fn(async () => {}), vi.fn(async () => {}), vi.fn(async () => {})];
+    requestScreenWakeLock.mockImplementation(() => new Promise((resolve) => pending.push(resolve)));
+    try {
+      render(<MyTicketView order={ORDER} sessionId="ord_1" />);
+      fireEvent.click(screen.getByRole("button", { name: "Show ticket" }));
+      expect(requestScreenWakeLock).toHaveBeenCalledTimes(1);
+      expect(document.visibilityState).toBe("visible");
+      // The tab comes back (visibilitychange) while the first request is still out: a second request.
+      fireEvent(document, new Event("visibilitychange"));
+      expect(requestScreenWakeLock).toHaveBeenCalledTimes(2);
+      // The first lock arrives late: it's stale, so it's released at once.
+      await act(async () => pending[0]({ release: locks[0] }));
+      expect(locks[0]).toHaveBeenCalledTimes(1);
+      await act(async () => pending[1]({ release: locks[1] }));
+      expect(locks[1]).not.toHaveBeenCalled();
+      // Shown again with a lock held: the held one goes before the next is asked for.
+      fireEvent(document, new Event("visibilitychange"));
+      expect(locks[1]).toHaveBeenCalledTimes(1);
+      expect(requestScreenWakeLock).toHaveBeenCalledTimes(3);
+      // Closed before that request answers: the lock it brings is let go, not kept.
+      await act(async () => {
+        fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Close ticket" }));
+      });
+      await act(async () => pending[2]({ release: locks[2] }));
+      expect(locks[2]).toHaveBeenCalledTimes(1);
+      // Nothing listens once it's closed.
+      fireEvent(document, new Event("visibilitychange"));
+      expect(requestScreenWakeLock).toHaveBeenCalledTimes(3);
+    } finally {
+      requestScreenWakeLock.mockImplementation(async () => ({ release }));
+    }
   });
 
   it("seated tickets shown by seat keep their own numbers: the bar, QR and wallet links all name the same ticket", () => {

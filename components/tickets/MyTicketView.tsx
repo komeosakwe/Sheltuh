@@ -185,17 +185,21 @@ export default function MyTicketView({ order, sessionId, event = null, emailSlot
 
   return (
     <div data-my-ticket="" className="flex flex-col gap-6 md:flex-row md:items-start lg:gap-12">
-      <section aria-labelledby="your-tickets" className="flex min-w-0 flex-col gap-4 md:w-74 md:shrink-0 lg:w-90">
-        <h2 id="your-tickets" className="sr-only">
-          {/* A group ticket's people each have one: the count says how many tickets the order holds. */}
-          {order.tickets.some((ticket) => ticket.group) ? `Your tickets (${count})` : "Your tickets"}
-        </h2>
+      {/*
+        The tickets come first (above the title on phones, left of it from 768), so nothing here is a heading:
+        the page's first heading is its h1. The section is a named region instead, and each ticket's title
+        (the event's name, as the h1) a paragraph. A group ticket's people each have one: the name counts them.
+      */}
+      <section
+        aria-label={order.tickets.some((ticket) => ticket.group) ? `Your tickets (${count})` : "Your tickets"}
+        className="flex min-w-0 flex-col gap-4 md:w-74 md:shrink-0 lg:w-90"
+      >
         <ul className="flex flex-col gap-6">
           {/* Numbered as in the ticket email and at the door (ticket type, then code, as the API returns them);
               seated tickets are listed by section, row, then seat, keeping those numbers. */}
           {tickets.map(({ ticket, number }, i) => (
             <li key={ticket.ticketCode} className="flex flex-col gap-4">
-              <FullTicket {...ticketProps(ticket, number)} headingLevel={3} />
+              <FullTicket {...ticketProps(ticket, number)} headingLevel={null} />
               <button type="button" onClick={() => setFullScreen({ open: true, start: i })} className={showTicketClass}>
                 Show ticket <span aria-hidden="true">→</span>
                 {count > 1 && <span className="sr-only"> {number} of {count}</span>}

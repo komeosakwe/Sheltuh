@@ -64,7 +64,7 @@ for (const vp of VIEWPORTS) {
       await expect(page.getByText(`Show this at the door · ticket ${i + 1} of 2`)).toBeVisible();
       const stub = page.getByRole("listitem").filter({ hasText: ticketCode });
       const ticket = stub.getByRole("article");
-      await expect(ticket.getByRole("heading", { name: "Neon Static" })).toBeVisible();
+      await expect(ticket.getByText("Neon Static", { exact: true })).toBeVisible();
       await expect(ticket.getByText("Sat 6 Mar", { exact: true })).toBeVisible();
       await expect(ticket.getByText("8–11:30 pm", { exact: true })).toBeVisible();
       await expect(ticket.getByText("General admission", { exact: true })).toBeVisible();

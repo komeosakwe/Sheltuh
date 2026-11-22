@@ -46,8 +46,11 @@ export interface FullTicketProps {
   checkedInAt?: string | null;
   /** The event's zone, for the check-in time (the door's clock); absent means Melbourne. */
   timeZone?: string;
-  /** The title's heading level where the ticket sits. */
-  headingLevel?: 2 | 3;
+  /**
+   * The title's heading level where the ticket sits, or null for no heading (a plain paragraph): the My ticket
+   * page, where the tickets come before the page's h1, which names the same event.
+   */
+  headingLevel?: 2 | 3 | null;
   className?: string;
 }
 
@@ -119,7 +122,7 @@ export default function FullTicket({
 }: FullTicketProps) {
   const hasQr = TICKET_CODE_PATTERN.test(code);
   const page = size === "page";
-  const Heading = `h${headingLevel}` as const;
+  const Heading = headingLevel === null ? "p" : (`h${headingLevel}` as const);
   const side = page ? "px-4 lg:px-6" : "px-4";
   const showEvent = !eventUnlisted;
   const checkedIn = Boolean(checkedInAt);
@@ -179,8 +182,12 @@ export default function FullTicket({
         <div className="relative mt-3 flex flex-col items-center">
           {hasQr ? (
             <>
-              {/* The white around the QR is its quiet zone (it's in the plate), so nothing sits closer than that. */}
-              <div className={`flex items-center justify-center ${page ? "size-42 md:size-auto" : ""} ${checkedIn ? "opacity-15" : ""}`.trim()}>
+              {/*
+                The white around the QR is its quiet zone (it's in the plate), so nothing sits closer than that.
+                The box is the plate's own width; on the compact phone ticket it keeps the 168-tall QR area with
+                1px above and 2px below, so the 165 plate's top lands on a whole pixel (centred, it sat 1.5px down).
+              */}
+              <div className={`${page ? "max-md:pt-px max-md:pb-0.5" : ""} ${checkedIn ? "opacity-15" : ""}`.trim() || undefined}>
                 <TicketQr code={code} size={size} />
               </div>
               <p className="sr-only">Backup code</p>

@@ -78,26 +78,31 @@ export default function TicketFullScreen({ open, onClose, tickets, numbers, star
   useEffect(() => {
     if (!open) return;
     let lock: ScreenWakeLock | null = null;
-    let ended = false;
+    // Bumped by every request and by letting go: a lock that arrives for an older request
+    // (the tab hid, or showed again, before it resolved) or after close is released, never held.
+    let latest = 0;
+    const letGo = () => {
+      latest += 1;
+      void lock?.release();
+      lock = null;
+    };
     const acquire = () => {
+      letGo();
+      const request = latest;
       void requestScreenWakeLock().then((got) => {
-        if (ended) void got?.release();
-        else lock = got;
+        if (request === latest) lock = got;
+        else void got?.release();
       });
     };
     const onVisibility = () => {
       if (document.visibilityState === "visible") acquire();
-      else {
-        void lock?.release();
-        lock = null;
-      }
+      else letGo();
     };
     acquire();
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
-      ended = true;
       document.removeEventListener("visibilitychange", onVisibility);
-      void lock?.release();
+      letGo();
     };
   }, [open]);
 
@@ -166,7 +171,13 @@ export default function TicketFullScreen({ open, onClose, tickets, numbers, star
           </div>
           {count > 1 && (
             <div className="-my-2 flex shrink-0 items-center justify-center gap-4">
-              <button type="button" onClick={() => goTo(index - 1)} disabled={index === 0} className={`${barButton} disabled:text-muted`}>
+              {/* aria-disabled, not disabled, at the ends: a disabled button would drop the keyboard focus it has. */}
+              <button
+                type="button"
+                onClick={() => index > 0 && goTo(index - 1)}
+                aria-disabled={index === 0}
+                className={`${barButton} aria-disabled:text-muted`}
+              >
                 <span aria-hidden="true">←</span>
                 <span className="sr-only">Previous ticket</span>
               </button>
@@ -175,7 +186,12 @@ export default function TicketFullScreen({ open, onClose, tickets, numbers, star
                   <span key={i} className={`size-1.5 rounded-full ${i === index ? "bg-paper" : "bg-muted"}`} />
                 ))}
               </div>
-              <button type="button" onClick={() => goTo(index + 1)} disabled={index === count - 1} className={`${barButton} disabled:text-muted`}>
+              <button
+                type="button"
+                onClick={() => index < count - 1 && goTo(index + 1)}
+                aria-disabled={index === count - 1}
+                className={`${barButton} aria-disabled:text-muted`}
+              >
                 <span aria-hidden="true">→</span>
                 <span className="sr-only">Next ticket</span>
               </button>

@@ -71,7 +71,9 @@ describe("FullTicket (the site's version of the email ticket)", () => {
     expect(within(card).getByText("Interconnect Studio · Coburg North")).toHaveClass("max-md:hidden");
     const plate = within(card).getByRole("img").parentElement as HTMLElement;
     expect(plate).toHaveClass("size-[165px]", "md:size-[198px]");
-    expect(plate.parentElement).toHaveClass("size-42", "md:size-auto");
+    // The box is the plate's width, and keeps the 168 area's height with the plate's top on a whole pixel (1 + 165 + 2).
+    expect(plate.parentElement).toHaveClass("max-md:pt-px", "max-md:pb-0.5");
+    expect(plate.parentElement?.className).not.toMatch(/size-/);
     expect(within(card).getByText(HINT)).toHaveClass("max-md:hidden", "print:hidden");
   });
 
@@ -114,6 +116,15 @@ describe("FullTicket (the site's version of the email ticket)", () => {
     expect(terms.Seat).toContain("Stalls");
     expect(terms.Seat).toContain("Row F");
     expect(terms.Seat).toContain("Seat 12");
+  });
+
+  it("a seat line is shown short and said in full to screen readers (docs/design/seating.md §5.15)", () => {
+    render(<FullTicket {...base} seat={{ section: "Stalls", row: "F", seat: "12", kind: "standard" }} />);
+    const card = ticket();
+    const line = within(card).getByText("Stalls · Row F · Seat 12");
+    expect(line).toHaveAttribute("aria-hidden", "true");
+    expect(within(card).getByText("Stalls, Row F, Seat 12")).toHaveClass("sr-only");
+    expect(line.closest("dd")?.previousElementSibling).toHaveTextContent("Seat");
   });
 
   it("a ticket with no holder, seat, image or venue leaves them out", () => {

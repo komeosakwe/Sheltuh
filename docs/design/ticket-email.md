@@ -441,7 +441,7 @@ lists all four links.
 
 **Scope:**
 - The ticket email (a PNG: `lib/server/ticket-email.ts` + `lib/server/png.ts`).
-- The ticket and confirmation pages (an SVG: `components/tickets/TicketQr.tsx`, used by `TicketStub`).
+- The ticket and confirmation pages (an SVG: `components/tickets/TicketQr.tsx`, used by `FullTicket`).
 - The wallet-handoff QR on My ticket (`my-ticket.md` §5.8).
 - Any future ticket QR.
 - The owner said "all Sheltüh QR codes". The admin campaign QR (`components/admin/CampaignQr.tsx`) isn't a ticket,

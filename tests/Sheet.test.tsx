@@ -68,10 +68,29 @@ describe("Sheet", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     openIt();
     // A press inside the sheet doesn't close it; one on the dialog element itself (the scrim) does.
+    fireEvent.pointerDown(screen.getByText("Here & Now · Sat 14 Nov"));
     fireEvent.click(screen.getByText("Here & Now · Sat 14 Nov"));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+    fireEvent.pointerDown(screen.getByRole("dialog"));
     fireEvent.click(screen.getByRole("dialog"));
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("stays open when a press starts inside the sheet and ends on the scrim (a text selection dragged out)", () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    const dialog = screen.getByRole("dialog");
+    // The browser sends the click to the dialog (the common ancestor) when a drag ends on the scrim.
+    fireEvent.pointerDown(screen.getByText("Here & Now · Sat 14 Nov"));
+    fireEvent.click(dialog);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    // A press that starts on the scrim and ends inside the sheet doesn't close it either.
+    fireEvent.pointerDown(dialog);
+    fireEvent.click(screen.getByText("Here & Now · Sat 14 Nov"));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    // Nor does a click with no press first (the last press is used up).
+    fireEvent.click(dialog);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
   it("closes when the browser closes it (Escape fires the dialog's close event)", () => {

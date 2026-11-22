@@ -23,7 +23,7 @@ const getOrderBySession = vi.fn();
 // The event's public details (image, address): optional extras the page works without; none by default.
 const getPublicEventBySlug = vi.fn();
 vi.mock("@/lib/api/public-events", () => ({ getPublicEventBySlug: (...args: unknown[]) => getPublicEventBySlug(...args) }));
-// The live site (the demo, with no API, shows a sample ticket instead: tests/DemoTicket.test.tsx).
+// The live site (the demo, with no API, shows a sample ticket instead: tests/CheckoutSuccessPage.test.tsx, and DemoTicket in tests/MyTicketView.test.tsx).
 vi.mock("@/lib/api/client", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/api/client")>()), isApiConfigured: true }));
 const getOrderPayment = vi.fn();
 const changeOrderEmail = vi.fn();
@@ -851,7 +851,7 @@ describe("CheckoutConfirmation: group tickets", () => {
   it("lists a ticket for each person, each named by its place in the group, and counts the tickets", async () => {
     getOrderBySession.mockResolvedValue(GROUP_ORDER);
     render(<CheckoutConfirmation />);
-    expect(await screen.findByRole("heading", { name: "Your tickets (4)" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Your tickets (4)" })).toBeInTheDocument();
     const items = screen.getAllByRole("listitem");
     expect(items).toHaveLength(4);
     expect(items[0]).toHaveTextContent("TicketGroup of 4 (1 of 4)");
@@ -863,10 +863,10 @@ describe("CheckoutConfirmation: group tickets", () => {
     expect(within(details).getByText("Ticket", { selector: "dt" }).nextElementSibling).toHaveTextContent(/^4 tickets$/);
   });
 
-  it("an order of single tickets keeps its plain heading", async () => {
+  it("an order of single tickets keeps its plain name", async () => {
     getOrderBySession.mockResolvedValue(WITH_DETAILS);
     render(<CheckoutConfirmation />);
-    expect(await screen.findByRole("heading", { name: "Your tickets" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Your tickets" })).toBeInTheDocument();
   });
 });
 

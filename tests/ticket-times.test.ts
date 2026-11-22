@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { eventSpansDays, formatEventEndDateKey } from "@/lib/format";
+import { formatTicketTime } from "@/lib/server/ticket-email";
 import { ticketStubDate, ticketStubTime, ticketWhenLine, ticketZoneLabel } from "@/lib/ticket-times";
 
 // 14 Nov 2026 is in daylight time (AEDT, UTC+11): 5 pm Melbourne is 06:00Z.
@@ -33,5 +35,28 @@ describe("ticket times (the site's twins of the ticket email's formats)", () => 
     expect(ticketWhenLine(FIVE)).toBe("Sat 14 Nov · 5:00 pm AEDT");
     expect(ticketWhenLine("2026-11-14T10:00:00.000Z", "2026-11-14T15:00:00.000Z")).toBe("Sat 14 Nov, 9:00 pm – Sun 15 Nov, 2:00 am AEDT");
     expect(ticketWhenLine(FIVE, NINE, "Australia/Perth")).toBe("Sat 14 Nov · 2:00 – 6:00 pm Perth time (AWST)");
+  });
+
+  it("an end at exactly 12:00 am is the same day, as the ticket email has it", () => {
+    // Sat 6 Mar 2027, 8 pm to midnight AEDT (UTC+11): 09:00Z to 13:00Z.
+    const EIGHT = "2027-03-06T09:00:00.000Z";
+    const MIDNIGHT = "2027-03-06T13:00:00.000Z";
+    expect(ticketWhenLine(EIGHT, MIDNIGHT)).toBe("Sat 6 Mar · 8:00 pm – 12:00 am AEDT");
+    expect(ticketStubTime(EIGHT, MIDNIGHT)).toBe("8 pm–12 am");
+    expect(formatTicketTime(EIGHT, MIDNIGHT)).toBe("8:00 pm – 12:00 am AEDT");
+    // A minute past midnight is the next day.
+    expect(ticketWhenLine(EIGHT, "2027-03-06T13:01:00.000Z")).toBe("Sat 6 Mar, 8:00 pm – Sun 7 Mar, 12:01 am AEDT");
+    // In the event's zone: midnight in Perth (UTC+8) is 16:00Z, still Sat 6 Mar there.
+    expect(ticketWhenLine("2027-03-06T12:00:00.000Z", "2027-03-06T16:00:00.000Z", "Australia/Perth")).toBe("Sat 6 Mar · 8:00 pm – 12:00 am Perth time (AWST)");
+  });
+
+  it("the shared rule: the end's day, and whether an event spans days", () => {
+    expect(formatEventEndDateKey("2027-03-06T13:00:00.000Z")).toBe("2027-03-06");
+    expect(formatEventEndDateKey("2027-03-06T13:01:00.000Z")).toBe("2027-03-07");
+    expect(eventSpansDays("2027-03-06T09:00:00.000Z", "2027-03-06T13:00:00.000Z")).toBe(false);
+    expect(eventSpansDays("2027-03-06T09:00:00.000Z", "2027-03-06T13:01:00.000Z")).toBe(true);
+    // Two days later at midnight still spans: Sat 8 pm to Mon 12:00 am closes on Sun.
+    expect(eventSpansDays("2027-03-06T09:00:00.000Z", "2027-03-07T13:00:00.000Z")).toBe(true);
+    expect(eventSpansDays("2027-03-06T09:00:00.000Z")).toBe(false);
   });
 });

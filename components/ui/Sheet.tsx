@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useId, useRef, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, type MouseEvent, type PointerEvent, type ReactNode } from "react";
 import { buttonClass } from "@/components/ui/Button";
 
 interface SheetProps {
@@ -29,7 +29,8 @@ interface SheetProps {
  *
  * A native `<dialog>` shown with `showModal()`: the browser keeps focus
  * inside it, makes the page behind inert, closes it on Escape and returns
- * focus to what opened it. A press on the scrim closes it too. The content is
+ * focus to what opened it. A press on the scrim (one that starts and ends
+ * there, so not a drag out of the sheet) closes it too. The content is
  * mounted only while it's open, so each opening starts fresh. The page behind
  * doesn't scroll while it's open.
  */
@@ -54,9 +55,19 @@ export default function Sheet({ open, onClose, title, subtitle, dismissLabel = "
     };
   }, [open]);
 
-  function onScrimPress(event: MouseEvent<HTMLDialogElement>) {
+  // A press on the scrim closes it only when it starts there too: a text selection dragged out of
+  // the sheet ends with a click on the scrim, and mustn't close it.
+  const pressedScrim = useRef(false);
+
+  function onPressStart(event: PointerEvent<HTMLDialogElement>) {
     // The dialog element itself is only hit outside its padding box, which is the scrim.
-    if (event.target === event.currentTarget) event.currentTarget.close();
+    pressedScrim.current = event.target === event.currentTarget;
+  }
+
+  function onScrimPress(event: MouseEvent<HTMLDialogElement>) {
+    const started = pressedScrim.current;
+    pressedScrim.current = false;
+    if (started && event.target === event.currentTarget) event.currentTarget.close();
   }
 
   return (
@@ -64,6 +75,7 @@ export default function Sheet({ open, onClose, title, subtitle, dismissLabel = "
       ref={ref}
       aria-labelledby={titleId}
       onClose={onClose}
+      onPointerDown={onPressStart}
       onClick={onScrimPress}
       className="m-0 mt-auto max-h-dvh w-full max-w-none overflow-y-auto rounded-t-sheet bg-card p-0 text-foreground backdrop:bg-ink/50 md:m-auto md:w-120 md:rounded-sheet md:backdrop:bg-ink/40 motion-safe:open:transition-transform motion-safe:open:duration-200 motion-safe:open:ease-out motion-safe:starting:open:translate-y-8"
     >

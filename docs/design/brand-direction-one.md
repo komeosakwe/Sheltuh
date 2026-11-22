@@ -4,7 +4,7 @@ Status: proposed · Owner: ui-design-director · Scope: the whole site, from 320
 
 **Source:** the owner's PDF "SHELTÜH BRAND DIRECTION ONE", pp. 1–27. Vectors are in `public/brand/`: `sheltuh-wordmark.svg` (uppercase), `sheltuh-wordmark-lowercase.svg`, `sheltuh-u.svg` (secondary ü) and `sheltuh-dots.svg` (two-dot mark), all `fill="currentColor"`.
 
-**Code read:** `app/globals.css`, `app/layout.tsx`, `app/manifest.ts`, `app/icon.svg`, `app/events/page.tsx`, `app/events/[slug]/page.tsx`, `app/login/page.tsx`, `components/{Nav,Footer,AuthNavLinks,EventArt,EventDetailsView,TicketSelector,CheckoutConfirmation,EventFilterBar,EventBrowser,SearchBar,ContentPage,DemoNotice}.tsx`, `components/ui/{Button,Section,EventTile,Field,Sticker}.tsx`, `components/home/phone/{HomeEventCard,PhoneHero,GoingStack}.tsx`, `components/map/{MapEventMarker,category-ring}.ts*`, `components/tickets/{TicketStub,UBarcode}.tsx`, `lib/{pricing,fees,types}.ts`, `lib/pwa/theme.ts`, `lib/live/adapt.ts`, `lib/sample-events.ts` (poster palettes), `lib/api/types.ts` (`CustomerOrder`), `tests/{phone-home-tokens,door-tokens,pwa-manifest,Button,SceneMap,EventTile,TicketSelector,TicketQr}.test.*`, `e2e/pwa.spec.ts`, `docs/design-system.md`, `docs/design/{home,mobile-home}.md`, `docs/pwa.md`.
+**Code read:** `app/globals.css`, `app/layout.tsx`, `app/manifest.ts`, `app/icon.svg`, `app/events/page.tsx`, `app/events/[slug]/page.tsx`, `app/login/page.tsx`, `components/{Nav,Footer,AuthNavLinks,EventArt,EventDetailsView,TicketSelector,CheckoutConfirmation,EventFilterBar,EventBrowser,SearchBar,ContentPage,DemoNotice}.tsx`, `components/ui/{Button,Section,EventTile,Field,Sticker}.tsx`, `components/home/phone/{HomeEventCard,PhoneHero,GoingStack}.tsx`, `components/map/{MapEventMarker,category-ring}.ts*`, `components/tickets/FullTicket.tsx`, `lib/{pricing,fees,types}.ts`, `lib/pwa/theme.ts`, `lib/live/adapt.ts`, `lib/sample-events.ts` (poster palettes), `lib/api/types.ts` (`CustomerOrder`), `tests/{phone-home-tokens,door-tokens,pwa-manifest,Button,SceneMap,EventTile,TicketSelector,TicketQr}.test.*`, `e2e/pwa.spec.ts`, `docs/design-system.md`, `docs/design/{home,mobile-home}.md`, `docs/pwa.md`.
 
 ---
 
@@ -268,7 +268,7 @@ Brand lines use "ür" and "ü" for "your" and "you". To keep screen readers sayi
 | --- | --- | --- | --- |
 | **Uppercase wordmark** (primary), `sheltuh-wordmark.svg`, ratio 4.41:1 | Nav (all widths); OG image; email header once a PNG export exists (§11 #6) | Nav: **20px tall (88px wide) below lg, 24px (106px) at lg**. **Minimum 16px tall (71px).** | Black on Cream or White · Cream or White on Black · **Orange on Black** · Black on Orange · Orange on Cream or White (non-text graphic, 3.25:1) |
 | **Lowercase wordmark** (secondary), ratio 3.69:1 | Informal and expressive moments only: the footer sign-off (below) | Minimum 20px tall | Same treatments |
-| **Secondary ü**, `sheltuh-u.svg`, ratio 0.665:1 | Favicon, app icons, PWA splash; Sheltüh system avatar in Messages; the ticket's `UBarcode` (already a ü, keep it) | Minimum 16px tall | Black on Orange (icons) · any brand pair above |
+| **Secondary ü**, `sheltuh-u.svg`, ratio 0.665:1 | Favicon, app icons, PWA splash; Sheltüh system avatar in Messages; the ü in the middle of the ticket's QR | Minimum 16px tall | Black on Orange (icons) · any brand pair above |
 | **Two-dot mark**, `sheltuh-dots.svg`, ratio 3.15:1 | The motif (§5): loader, markers, empty states, connection states | Minimum 12px wide | Orange, Black or Cream; follows `currentColor` |
 
 **Implementation:**
@@ -580,12 +580,12 @@ The helpers already compute buyer totals: `getTicketBuyerTotalCents`, `getMinBuy
   - Who's Going CTA (`outline lg`) and the back links (black, underlined; replace `text-accent` only if it's no longer black, otherwise leave it).
 - **Error, not found and oversold:** the h1-style line `font-heading text-2xl`, the message, and a link. Same structure, no colour except `danger` text.
 
-**`TicketStub`:**
+**`FullTicket`:**
 - `rounded-card border border-foreground bg-card`, with dashed black perforations (unchanged).
 - QR black on white with its quiet zone (`TicketQr` test pins `#ffffff`/`#000000`; unchanged).
 - Code in Plex Mono per §3.2.
 - Type label `eyebrow`.
-- `UBarcode` ü in black.
+- The ü in the QR's centre, in black.
 - Print: `print:border-black print:bg-white`.
 
 ### 6.10 Event page (`EventDetailsView`, `WhosGoing`, buy bar)
@@ -805,7 +805,7 @@ The initial letter keeps 8% opacity in `var(--face-display)`.
 | 5 | **Home** (`home.md` build F3, with this visual layer) | `components/home/*` | `phone-home-tokens.test.ts` → folded into `brand-tokens.test.ts`: no `bg-pop`/`text-pop`/`highlight`/`shadow-card` anywhere; `text-signal` never in a className with `text-xs`, `text-sm`, `text-base`, `eyebrow` or `meta` (§2.2) |
 | 6 | **/events, /search, filters** | `app/events`, `app/search`, `EventFilterBar`, `EventResults` | `EventFilterBar.test.tsx` (select label unchanged) |
 | 7 | **Event page:** layout, `TicketSelector` pricing hierarchy and quiet checkout, buy bar ink and signal, Who's Going visuals, Share, AddToCalendar | `EventDetailsView`, `TicketSelector`, `WhosGoing*`, `ShareButton`, `AddToCalendar` | `TicketSelector.test.tsx` (`btn-lg` kept; breakdown now always visible for paid tiers); `EventDetailsView.test.tsx` (`lg:hidden` kept); new Share (share / clipboard / fallback) and `.ics` builder unit tests |
-| 8 | **Checkout pages and ticket stub** | `CheckoutConfirmation`, `FreeOrderConfirm`, `TicketStub` | `CheckoutConfirmation.test.tsx`, `TicketStub.test.tsx` (print classes kept), `TicketQr.test.tsx` unchanged |
+| 8 | **Checkout pages and ticket stub** | `CheckoutConfirmation`, `FreeOrderConfirm`, `FullTicket` | `CheckoutConfirmation.test.tsx`, `FullTicket.test.tsx` (print classes kept), `TicketQr.test.tsx` unchanged |
 | 9 | **Map:** markers, cluster, card, filters; delete `--cat-*` and `category-ring.ts` | `components/map/*`, `SceneMap*` | `SceneMap.test.tsx:114,119` |
 | 10 | **Remaining pages:** auth, account, saved, messages, organiser, dashboard and analytics, admin, help and legal, 404 | as listed | class-pinning tests in `DashboardContent`, `PublicProfileForm`, `AnalyticsParts`, `OrganiserQueue` (the `p.eyebrow` selector is kept) |
 | 11 | **Cleanup:** remove the `--highlight`/`--pop`/`--shadow-card` aliases, unused `Sticker` exports, `.float`/`.spin-slow`/`marquee` | `globals.css`, `ui/Sticker.tsx` | `brand-tokens.test.ts` part 2: the aliases are absent from `globals.css` |

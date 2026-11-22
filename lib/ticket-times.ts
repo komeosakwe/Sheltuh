@@ -1,4 +1,4 @@
-import { eventZone, formatEventDateKey, formatEventDateShort, formatEventDateTimeRange, formatEventTime, formatTimeZoneLabel } from "@/lib/format";
+import { eventSpansDays, eventZone, formatEventDateShort, formatEventDateTimeRange, formatEventTime, formatTimeZoneLabel } from "@/lib/format";
 import { PLATFORM_TIME_ZONE, type StateCode } from "@/lib/time-zones";
 
 /*
@@ -27,8 +27,8 @@ const compact = (c: Clock) => (c.minute === "00" || c.minute === "" ? c.hour : `
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-const sameDay = (startIso: string, endIso: string, timeZone: string) =>
-  formatEventDateKey(startIso, timeZone) === formatEventDateKey(endIso, timeZone);
+/** One day in the zone, as the ticket email judges it (lib/format.ts eventSpansDays): an end at exactly 12:00 am closes the start's day. */
+const sameDay = (startIso: string, endIso: string, timeZone: string) => !eventSpansDays(startIso, endIso, timeZone);
 
 /**
  * The ticket's TIME: "5–9 pm" (one meridiem), "7:30–11 pm", "11 am–2 pm",
@@ -70,7 +70,8 @@ export function ticketZoneLabel(startIso: string, timeZone?: string | null, stat
  * both times share a meridiem on the same day (the first one dropped),
  * "Sat 14 Nov · 11:00 am – 2:00 pm AEDT" otherwise, "Sat 14 Nov · 5:00 pm
  * AEDT" with no end, and for an event that crosses midnight both days in
- * full ("Fri 25 Sep, 9:00 pm – Sat 26 Sep, 2:00 am AEST").
+ * full ("Fri 25 Sep, 9:00 pm – Sat 26 Sep, 2:00 am AEST"). An end at exactly
+ * 12:00 am is the same day: "Sat 6 Mar · 8:00 pm – 12:00 am AEDT".
  */
 export function ticketWhenLine(startIso: string, endIso?: string, timeZone?: string | null, state?: StateCode | null): string {
   const zone = eventZone(timeZone);
