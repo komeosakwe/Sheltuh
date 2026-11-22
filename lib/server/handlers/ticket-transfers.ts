@@ -26,6 +26,8 @@ import { generateTicketCode } from "../ticket-issuance";
 import {
   hashTransferToken,
   orderControl,
+  orderFacts,
+  type OrderFacts,
   ticketTransferJobsSoon,
   TRANSFER_TOKEN_PATTERN,
   transferReference,
@@ -215,22 +217,36 @@ function sendOutcome(result: string, transferId: string | null): string {
 }
 
 /** The order as the ticket page shows it to `req` (ticketPageOrder): every send's and cancel's answer. */
-async function pageOrder(req: Request, deps: Deps, orderId: string): Promise<CustomerOrder> {
+async function pageOrder(req: Request, deps: Deps, orderId: string, control: OrderControl): Promise<CustomerOrder> {
   const lookup = await lookupCustomerOrder(deps.db, orderId);
   if (lookup.status === "pending") throw new HttpError(404, ORDER_NOT_FOUND);
-  return ticketPageOrder(req, deps, orderId, lookup);
+  return ticketPageOrder(req, deps, orderId, lookup, control);
 }
 
-/** The order's buyer email, and how `req` controls it: 404 unknown order, 403 no control (`order_owner_only`). */
-async function requireOrderControl(req: Request, deps: Deps, orderId: string, action: string): Promise<OrderControl> {
-  const [order] = await deps.db.query<{ buyer_email: string | null }>(`select buyer_email from public.orders where id = $1`, [
-    orderId,
-  ]);
-  if (!order) throw new HttpError(404, ORDER_NOT_FOUND);
-  const control = await orderControl(req, deps, orderId, order.buyer_email);
-  if (control) return control;
-  const masked = order.buyer_email ? ` (${maskEmail(order.buyer_email)})` : "";
-  throw refusal(403, "order_owner_only", `Sign in with the email you bought with${masked} to ${action}.`);
+/**
+ * The 403 for a request without control of the order. It names the buying
+ * address, masked, only where the order's link alone shows it (withOrderEmail,
+ * ../order-email-view.ts: a settled order whose email has never been changed),
+ * so this says nothing the ticket page doesn't.
+ */
+function ownerOnly(facts: OrderFacts, action: string): HttpError {
+  const masked =
+    facts.buyerEmail && !facts.emailChanged && facts.status !== "pending" ? ` (${maskEmail(facts.buyerEmail)})` : "";
+  return refusal(403, "order_owner_only", `Sign in with the email you bought with${masked} to ${action}.`);
+}
+
+/** The order's facts, and how `req` controls it: 404 unknown order, 403 no control (`order_owner_only`, ownerOnly). */
+async function requireOrderControl(
+  req: Request,
+  deps: Deps,
+  orderId: string,
+  action: string,
+): Promise<{ control: OrderControl; facts: OrderFacts }> {
+  const facts = await orderFacts(deps, orderId);
+  if (!facts) throw new HttpError(404, ORDER_NOT_FOUND);
+  const control = await orderControl(req, deps, orderId, facts);
+  if (!control) throw ownerOnly(facts, action);
+  return { control, facts };
 }
 
 /**
@@ -240,8 +256,10 @@ async function requireOrderControl(req: Request, deps: Deps, orderId: string, ac
  * that isn't shaped like an order's is a 404 (no query); sending off
  * (NEXT_PUBLIC_TICKET_TRANSFERS) is a 404; the client's allowance (429); the
  * body (400, every field); control of the order (orderControl: the paying
- * browser's `x-order-access`, or the signed-in buyer; 404 unknown order, 403
- * `order_owner_only` otherwise, naming the buying address masked); the
+ * browser's `x-order-access` unless support has changed the order's email,
+ * or the signed-in buyer; 404 unknown order, 403 `order_owner_only`
+ * otherwise, naming the buying address masked only where the order's link
+ * shows it); the
  * order's allowance (429); the address's typo list and DNS (400
  * `email_typo` / `email_no_mail`); then private.create_ticket_transfer, which
  * checks everything else under the order's and ticket's locks (409 with a
@@ -255,7 +273,7 @@ export const sendTicket: Handler<{ sessionId: string }> = async (req, { sessionI
   const secret = rateLimitSecret(deps, "the ticket transfer rate limits were skipped");
   await takeClient(req, deps, secret, TICKET_TRANSFER_LIMITS.sendsPerClient, "A ticket send");
   const input = parseSendInput(await readJson(req, MAX_BODY_BYTES), true);
-  const control = await requireOrderControl(req, deps, sessionId, "send this ticket");
+  const { control, facts } = await requireOrderControl(req, deps, sessionId, "send this ticket");
   if (secret && !(await takeKeyedLimit(deps.db, orderKey(sessionId, secret), TICKET_TRANSFER_LIMITS.sendsPerOrder))) {
     throw busy(TICKET_TRANSFER_LIMITS.sendsPerOrder);
   }
@@ -274,16 +292,19 @@ export const sendTicket: Handler<{ sessionId: string }> = async (req, { sessionI
       ...sendRuleParams(),
     ],
   );
+  // Support changed the email between the check above and the order's lock.
+  if (row.result === "owner_only") throw ownerOnly({ ...facts, emailChanged: true, changedBySupport: true }, "send this ticket");
   const transferId = sendOutcome(row.result, row.transfer_id);
   console.info(`Order ${orderReference(sessionId)}: ticket transfer ${transferReference(transferId)} offered.`);
   ticketTransferJobsSoon(deps);
-  return createdPrivate({ transferId, order: await pageOrder(req, deps, sessionId) });
+  return createdPrivate({ transferId, order: await pageOrder(req, deps, sessionId, control) });
 };
 
 /**
  * POST /api/orders/by-session/[sessionId]/ticket-transfers/[transferId]/cancel
- * — the sender takes back an offer that hasn't been accepted (whatever the
- * flag says). Shape checks (404, no query), the client's allowance (429),
+ * — the sender takes back an offer that hasn't been accepted. Shape checks
+ * (404, no query), the client's allowance (429); with sending off, a 404
+ * unless it's this order's offer still waiting (those stay cancellable);
  * control of the order (as sendTicket: 404 / 403), the rule (409
  * `cancel_not_allowed`), then private.cancel_ticket_transfer: 200
  * TicketTransferCancelled, 409 `transfer_not_pending` (accepted, declined,
@@ -298,21 +319,32 @@ export const cancelTicketTransfer: Handler<{ sessionId: string; transferId: stri
   requireUuid(transferId, OFFER_NOT_FOUND);
   const secret = rateLimitSecret(deps, "the ticket transfer rate limits were skipped");
   await takeClient(req, deps, secret, TICKET_TRANSFER_LIMITS.cancelsPerClient, "A ticket offer cancel");
-  await requireOrderControl(req, deps, sessionId, "cancel this");
+  // With sending off, only an offer still waiting can be taken back (so no one is stranded); anything else is
+  // a 404 before the order is looked at.
+  if (!ticketTransfersEnabled()) {
+    const [open] = await deps.db.query(
+      `select 1 from private.ticket_transfers x
+        where x.id = $1 and x.order_id = $2 and x.sender_kind = 'buyer' and x.status = 'pending' and x.expires_at > now()`,
+      [transferId, sessionId],
+    );
+    if (!open) throw new HttpError(404, OFFER_NOT_FOUND);
+  }
+  const { control, facts } = await requireOrderControl(req, deps, sessionId, "cancel this");
   if (!TICKET_TRANSFER_RULES.senderMayCancel) {
     throw refusal(409, "cancel_not_allowed", "Offers can't be cancelled.");
   }
   const [row] = await deps.db.query<{ result: string }>(
-    `select result from private.cancel_ticket_transfer($1::uuid, $2, 'sender', null, null)`,
-    [transferId, sessionId],
+    `select result from private.cancel_ticket_transfer($1::uuid, $2, 'sender', null, null, $3::uuid)`,
+    [transferId, sessionId, control.kind === "account" ? control.userId : null],
   );
+  if (row.result === "owner_only") throw ownerOnly({ ...facts, emailChanged: true, changedBySupport: true }, "cancel this");
   if (row.result === "not_found") throw new HttpError(404, OFFER_NOT_FOUND);
   if (row.result === "not_pending") {
     throw refusal(409, "transfer_not_pending", "This offer can't be cancelled now: it was accepted, declined or has expired.");
   }
   if (row.result !== "cancelled") throw new Error(`Unexpected cancel_ticket_transfer result: ${row.result}`);
   console.info(`Order ${orderReference(sessionId)}: ticket transfer ${transferReference(transferId)} cancelled by its sender.`);
-  return okPrivate({ order: await pageOrder(req, deps, sessionId) });
+  return okPrivate({ order: await pageOrder(req, deps, sessionId, control) });
 };
 
 // ---------------------------------------------------------------------------
@@ -756,7 +788,7 @@ export const adminCancelTicketTransfer: Handler<{ transferId: string }> = async 
   );
   if (!allowed.ok) throw busy(limit);
   const [row] = await deps.db.query<{ result: string }>(
-    `select result from private.cancel_ticket_transfer($1::uuid, null, 'admin', $2::uuid, $3)`,
+    `select result from private.cancel_ticket_transfer($1::uuid, null, 'admin', $2::uuid, $3, null)`,
     [transferId, admin.userId, reason],
   );
   if (row.result === "not_found") throw new HttpError(404, OFFER_NOT_FOUND);

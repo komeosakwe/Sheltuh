@@ -1067,30 +1067,38 @@ export interface CustomerTicket {
   canSend?: boolean;
 }
 
-/** A send in progress (my-ticket.md §5.10 state 2): the ticket's QR still works. */
+/**
+ * A send in progress (my-ticket.md §5.10 state 2): the ticket's QR still
+ * works. Who it went to (and its id) only for a request that controls the
+ * order (the paying browser, or the signed-in buyer); anyone else with the
+ * order's link sees only that it's on offer.
+ */
 export interface CustomerTicketOffer {
-  /** For cancelling it (POST …/ticket-transfers/{transferId}/cancel). */
-  transferId: string;
+  /** For cancelling it (POST …/ticket-transfers/{transferId}/cancel). Only with control. */
+  transferId?: string;
   status: "pending";
-  /** The name the sender typed. */
-  toName: string;
-  /** Where the offer went, masked ("s***@email.com"). */
-  toMaskedEmail: string;
+  /** The name the sender typed. Only with control. */
+  toName?: string;
+  /** Where the offer went, masked ("s***@email.com"). Only with control. */
+  toMaskedEmail?: string;
   /** When it lapses unless accepted (ISO). */
   expiresAt: string;
   /** Only true when this request controls the order and the rules let senders cancel. */
   canCancel: boolean;
 }
 
-/** A ticket the buyer sent and the recipient accepted (state 3). No code, ever. */
+/**
+ * A ticket the buyer sent and the recipient accepted (state 3). No code,
+ * ever. Who holds it only for a request that controls the order.
+ */
 export interface TransferredTicket {
   ticketNumber: number;
   ticketTypeName: string;
   seat?: TicketSeat;
   group?: TicketGroup;
-  /** The name the recipient confirmed. */
-  holderName: string;
-  /** Set only when the accepting account's address isn't the one the sender typed (masked). */
+  /** The name the recipient confirmed. Only with control. */
+  holderName?: string;
+  /** Set only with control, and when the accepting account's address isn't the one the sender typed (masked). */
   acceptedByMaskedEmail?: string;
   acceptedAt: string;
 }

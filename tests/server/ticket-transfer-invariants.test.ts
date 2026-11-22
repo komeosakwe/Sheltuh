@@ -96,11 +96,12 @@ describe("the sender's side", () => {
       await api.call(getOrderBySession, { params: { sessionId: order.orderId }, headers: { [ORDER_ACCESS_HEADER]: order.access } }),
       await api.call(getOrderBySession, { params: { sessionId: order.orderId }, token: buyer.token }),
     ];
-    for (const res of asked) {
+    for (const [i, res] of asked.entries()) {
       expect(res.status).toBe(200);
       expectNoCodeOfTicket1(JSON.stringify(res.body));
+      // Who holds it only with control of the order (the paying browser, the signed-in buyer).
       expect(res.body.transferredTickets).toEqual([
-        { ticketNumber: 1, ticketTypeName: "GA", holderName: "Sam Lee", acceptedAt: expect.any(String) },
+        { ticketNumber: 1, ticketTypeName: "GA", ...(i > 0 ? { holderName: "Sam Lee" } : {}), acceptedAt: expect.any(String) },
       ]);
       // The other ticket keeps its number and code.
       expect(res.body.tickets).toEqual([expect.objectContaining({ ticketNumber: 2, ticketCode: codes[1] })]);
@@ -230,10 +231,12 @@ describe("6. the door", () => {
     expect(undo.body).toMatchObject({ outcome: "undone", ticket: { codeLast4: issued.slice(-4) } });
   });
 
-  it("a scan's request id reused for the other credential of the same ticket replays its result (identities match)", async () => {
+  it("a scan's request id reused for the other credential of the same ticket is a conflict (409), as for another ticket", async () => {
     const requestId = crypto.randomUUID();
     expect((await checkIn(api, world, codes[0], requestId)).body.outcome).toBe("transferred");
-    expect((await checkIn(api, world, issued, requestId)).body.outcome).toBe("transferred");
+    expect((await checkIn(api, world, issued, requestId)).status).toBe(409);
+    // Its own retry replays.
+    expect((await checkIn(api, world, codes[0], requestId)).body.outcome).toBe("transferred");
     // Another ticket's code with that id is a conflict.
     expect((await checkIn(api, world, codes[1], requestId)).status).toBe(409);
   });

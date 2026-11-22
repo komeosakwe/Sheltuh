@@ -75,8 +75,10 @@
 -- Reversible, not destructive, until the first offer is accepted: restore
 -- check_in_ticket, undo_check_in, set_going, purge_operational_data,
 -- order_email_change_block and the two outbox checks from the files named
--- above; drop the new functions, the tickets trigger, the two new columns and
--- the two tables. Destructive once any offer is accepted: dropping
+-- above, and ticket_check_ins_result_check from
+-- 20261021000000_ticket_check_in.sql (only once no row is 'transferred');
+-- drop the new functions, the tickets trigger, the two new columns and the
+-- two tables. Destructive once any offer is accepted: dropping
 -- private.ticket_transfers voids every recipient's code and revives the
 -- senders'. The constraint swaps on ticket_check_ins and email_outbox take
 -- ACCESS EXCLUSIVE and validate every row: brief pre-launch, off-peak later.
@@ -150,13 +152,20 @@ create table private.ticket_transfers (
   superseded_at timestamptz,
   -- Support withdrew the holder's details from the organiser's view, on request.
   holder_details_withdrawn_at timestamptz,
+  -- Support blanked the typed details (sender_name, recipient_name, recipient_email) of a decided offer, on request:
+  -- they then hold the fixed placeholders below. Once.
+  details_redacted_at timestamptz,
   constraint ticket_transfers_expiry check (expires_at > created_at),
   constraint ticket_transfers_decided check ((status = 'pending') = (decided_at is null)),
   constraint ticket_transfers_sender_kind check ((sender_kind = 'holder') = (from_transfer_id is not null)),
   constraint ticket_transfers_cancelled check (
     (status = 'cancelled') = (cancelled_by is not null)
     and coalesce(cancelled_by = 'admin', false) = (cancel_reason is not null)
-    and (cancel_admin_id is null or cancelled_by = 'admin')),
+    and (cancel_admin_id is null or coalesce(cancelled_by = 'admin', false))),
+  constraint ticket_transfers_redacted check (
+    details_redacted_at is null
+    or (status <> 'pending' and sender_name = 'Redacted' and recipient_name = 'Redacted'
+        and recipient_email = 'redacted@redacted.invalid')),
   -- accepted_user_id is left out of the accepted branch: deleting that account sets it to null.
   constraint ticket_transfers_accepted check (
     case when status = 'accepted'
@@ -212,6 +221,9 @@ revoke all on private.ticket_transfer_tokens from public, anon, authenticated;
 --     columns (the table checks say which must be set);
 --   * an accepted row's superseded_at, once (null to a time), nothing else;
 --   * an accepted row's holder_details_withdrawn_at, once, nothing else;
+--   * a decided row's typed details (sender_name, recipient_name,
+--     recipient_email) set to the placeholders with details_redacted_at, once,
+--     nothing else (support's redaction, docs/supabase-setup.md);
 --   * a foreign key's own set-null of sender_user_id, accepted_user_id or
 --     cancel_admin_id, nothing else.
 -- Everything an offer was made with (who, to whom, when, until when) never changes.
@@ -226,6 +238,7 @@ declare
                               'accepted_user_id', 'accepted_email', 'holder_name', 'holder_notice_at',
                               'issued_code', 'wallet_serial'];
   v_user_columns text[] := array['sender_user_id', 'accepted_user_id', 'cancel_admin_id'];
+  v_redacted text[] := array['sender_name', 'recipient_name', 'recipient_email', 'details_redacted_at'];
 begin
   if old.status = 'pending' and new.status <> 'pending' and (v_new - v_decision) = (v_old - v_decision) then
     return new;
@@ -237,6 +250,11 @@ begin
   if old.status = 'accepted' and new.status = 'accepted' and old.holder_details_withdrawn_at is null
      and new.holder_details_withdrawn_at is not null
      and (v_new - 'holder_details_withdrawn_at') = (v_old - 'holder_details_withdrawn_at') then
+    return new;
+  end if;
+  -- The placeholders themselves are ticket_transfers_redacted's.
+  if old.status <> 'pending' and old.details_redacted_at is null and new.details_redacted_at is not null
+     and (v_new - v_redacted) = (v_old - v_redacted) then
     return new;
   end if;
   if (v_new - v_user_columns) = (v_old - v_user_columns)
@@ -557,9 +575,13 @@ $$;
 -- has checked the sender controls the order (the paying browser, or the
 -- signed-in buyer: p_sender_user_id) and passes the rules
 -- (lib/ticket-transfer-rules.ts) and limits. Returns 'created' (with the
--- id), 'not_found', or a refusal (ticket_offer_refusal's, or 'rate_limited';
--- 'pending' also for a lost race). Expires at the sooner of p_pending_for
--- from now and the event's start less p_cutoff.
+-- id), 'not_found', 'owner_only' (the paying browser, p_sender_user_id null,
+-- once support has changed the order's email: its token may be on a device
+-- the old address's holder uses, as private.order_email_change_block's
+-- 'changed_by_support'; re-checked here under the order's lock), or a refusal
+-- (ticket_offer_refusal's, or 'rate_limited'; 'pending' also for a lost
+-- race). Expires at the sooner of p_pending_for from now and the event's
+-- start less p_cutoff.
 create function private.create_ticket_transfer(
   p_order_id text, p_ticket_number integer, p_sender_user_id uuid,
   p_sender_name text, p_recipient_name text, p_recipient_email text,
@@ -598,6 +620,11 @@ begin
   end if;
   select * into v_event from public.events e where e.id = v_event_id for share;
   select * into v_order from public.orders o where o.id = p_order_id for share;
+  if p_sender_user_id is null
+     and exists (select 1 from private.order_email_changes c where c.order_id = p_order_id and c.changed_by = 'admin') then
+    result := 'owner_only';
+    return;
+  end if;
 
   select x.code into v_code
     from (select t.code, row_number() over (order by t.ticket_type_id, t.code) as n
@@ -699,13 +726,17 @@ begin
 end;
 $$;
 
--- Cancels a pending, unexpired offer: by its sender (p_by 'sender', with the
--- order it must belong to: the API has checked the caller controls it) or by
--- support (p_by 'admin', p_order_id null, p_admin_id and a 3 to 500 character
--- reason). No email: the offer's link simply stops working. Returns
--- 'cancelled', 'not_pending' or 'not_found'.
+-- Cancels a pending, unexpired offer: by its buyer (p_by 'sender', with the
+-- order it must belong to: the API has checked the caller controls it, and
+-- p_sender_user_id the signed-in buyer's account, null for the paying
+-- browser) or by support (p_by 'admin', p_order_id null, p_admin_id and a 3
+-- to 500 character reason). No email: the offer's link simply stops working.
+-- Returns 'cancelled', 'not_pending', 'not_found' (also a holder's re-send:
+-- the buyer can't cancel that), or 'owner_only' (the paying browser once
+-- support has changed the order's email, as create_ticket_transfer).
 create function private.cancel_ticket_transfer(
-  p_transfer_id uuid, p_order_id text, p_by text, p_admin_id uuid, p_reason text, out result text
+  p_transfer_id uuid, p_order_id text, p_by text, p_admin_id uuid, p_reason text, p_sender_user_id uuid,
+  out result text
 )
 language plpgsql
 set search_path = ''
@@ -717,17 +748,22 @@ begin
      or p_by is null or p_by not in ('sender', 'admin')
      or (p_by = 'sender' and (p_order_id is null or p_admin_id is not null or p_reason is not null))
      or (p_by = 'admin' and (p_order_id is not null or p_admin_id is null or p_reason is null
-                             or char_length(p_reason) not between 3 and 500)) then
+                             or char_length(p_reason) not between 3 and 500 or p_sender_user_id is not null)) then
     raise exception 'missing or out-of-range argument' using errcode = '22023';
   end if;
 
   select * into v_transfer from private.ticket_transfers x
-   where x.id = p_transfer_id and (p_order_id is null or x.order_id = p_order_id);
+   where x.id = p_transfer_id and (p_order_id is null or (x.order_id = p_order_id and x.sender_kind = 'buyer'));
   if not found then
     result := 'not_found';
     return;
   end if;
   perform 1 from public.orders o where o.id = v_transfer.order_id for share;
+  if p_by = 'sender' and p_sender_user_id is null
+     and exists (select 1 from private.order_email_changes c where c.order_id = v_transfer.order_id and c.changed_by = 'admin') then
+    result := 'owner_only';
+    return;
+  end if;
   perform 1 from public.tickets t where t.code = v_transfer.ticket_code for update;
   select * into v_transfer from private.ticket_transfers x where x.id = p_transfer_id for update;
   if v_transfer.status <> 'pending' or v_transfer.expires_at <= now() then
@@ -892,6 +928,17 @@ begin
       raise;
   end;
 
+  -- Their profiles first (for update): private.set_going share-locks the
+  -- profile before it checks the member holds a ticket and inserts, so an
+  -- opt-in racing this accept either commits first (and is deleted below) or
+  -- waits and then sees the ticket gone ('not_eligible'). In user id order.
+  perform 1
+     from public.profiles p
+     join auth.users u on u.id = p.user_id
+    where (u.email_confirmed_at is not null and lower(u.email) = lower(v_order.buyer_email)) or u.id = v_previous_holder
+    order by p.user_id
+      for update of p;
+
   -- Who's Going: whoever gave this ticket away (the buyer's verified account
   -- by email, and for a re-send the previous holder) no longer shows as going
   -- unless they still hold a ticket for the event, so they can't keep
@@ -1000,7 +1047,9 @@ $$;
 --     under the ticket's lock and before 'not_admissible'; nothing is marked;
 --   * the log row keeps the scanned credential's last four (scanned_last4),
 --     and code_last4 is the scanned credential's (identical to before for
---     every ticket never sent).
+--     every ticket never sent);
+--   * a replayed request id is a 'conflict' when its row kept other last
+--     four (the ticket's other credential).
 create or replace function private.check_in_ticket(
   p_event_id uuid, p_organiser_id uuid, p_actor_id uuid, p_code text, p_request_id uuid,
   p_limit integer, p_window interval,
@@ -1066,12 +1115,16 @@ begin
   end if;
 
   -- 4. A retried request gets its original result back, if it's for the same code.
-  select c.id, c.public_id, c.result, c.ticket_code, c.created_at into v_log
+  select c.id, c.public_id, c.result, c.ticket_code, c.created_at, c.scanned_last4 into v_log
     from public.ticket_check_ins c
    where c.event_id = p_event_id and c.request_id = p_request_id;
 
   if found then
-    if v_log.ticket_code is distinct from v_code then
+    -- The same ticket by its other credential (the buyer's code, then the
+    -- recipient's) is another scan too: compared by the last four kept (rows
+    -- from before this migration kept none).
+    if v_log.ticket_code is distinct from v_code
+       or (v_code is not null and v_log.scanned_last4 is not null and v_log.scanned_last4 <> right(p_code, 4)) then
       result := 'conflict';
       return;
     end if;
@@ -1418,7 +1471,7 @@ revoke all on function private.create_ticket_transfer(text, integer, uuid, text,
   interval, integer, integer, integer, integer, interval, integer, interval, integer, interval) from public, anon, authenticated;
 revoke all on function private.create_holder_ticket_transfer(uuid, uuid, text, text, text, boolean, boolean, interval,
   interval, integer, integer, integer, integer, interval, integer, interval, integer, interval) from public, anon, authenticated;
-revoke all on function private.cancel_ticket_transfer(uuid, text, text, uuid, text) from public, anon, authenticated;
+revoke all on function private.cancel_ticket_transfer(uuid, text, text, uuid, text, uuid) from public, anon, authenticated;
 revoke all on function private.accept_ticket_transfer(text, uuid, text, text, text, interval, integer, integer, interval)
   from public, anon, authenticated;
 revoke all on function private.decline_ticket_transfer(text) from public, anon, authenticated;

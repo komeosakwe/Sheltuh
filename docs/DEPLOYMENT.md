@@ -632,8 +632,11 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           variable to apply; `NEXT_PUBLIC_TICKET_TRANSFERS` (below) turns
           sending on later. Reversible, not destructive, until the first
           offer is accepted: restore the five redefined functions and the
-          two outbox checks from the files named in its header, then drop the
-          new functions, the trigger, the two new columns and both tables.
+          two outbox checks from the files named in its header, and
+          `ticket_check_ins_result_check` from
+          `20261021000000_ticket_check_in.sql` (once no row is
+          `transferred`), then drop the new functions, the trigger, the two
+          new columns and both tables.
           **Destructive once any offer is accepted**: dropping
           `ticket_transfers` voids every recipient's code and revives the
           senders' (roll the app forward instead).

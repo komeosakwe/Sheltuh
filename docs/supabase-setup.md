@@ -708,6 +708,22 @@ update private.ticket_transfers set holder_details_withdrawn_at = now()
 where status = 'accepted' and lower(accepted_email) = lower('<address>') and holder_details_withdrawn_at is null;
 ```
 
+**Blanking typed details.** A sender or recipient who asks for the names
+and address typed into an offer to be removed (the sender's name, the
+recipient's name and address as the sender typed them): verify the request,
+then replace them with the fixed placeholders on the offers that are no longer
+pending (a pending one: cancel it first from the admin list). Once per offer;
+the `ticket_transfers_redacted` check accepts only these values, and the guard
+trigger refuses any other change. An accepted offer keeps working (the holder's
+own confirmed name and address are withdrawn separately, above):
+
+```sql
+update private.ticket_transfers
+   set sender_name = 'Redacted', recipient_name = 'Redacted', recipient_email = 'redacted@redacted.invalid',
+       details_redacted_at = now()
+ where id = '<transfer id>' and status <> 'pending' and details_redacted_at is null;
+```
+
 Retention: the daily `purge_operational_data` deletes link tokens 30 days
 after their offer was decided, and declined, cancelled and expired offers
 (the typed name and address of someone who never accepted) 30 days after

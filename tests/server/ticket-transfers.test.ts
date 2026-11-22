@@ -219,6 +219,61 @@ describe("sending", () => {
       expect((await view(order.orderId)).body.transfers).toEqual(expect.objectContaining({ canSend: false, reason: "sign_in" }));
     });
 
+    it("once the order's email has changed, the 403 no longer names an address (as the order's link shows none)", async () => {
+      const order = await paidOrder(api, world.eventId);
+      const changed = await api.call(changeOrderEmail, {
+        params: { sessionId: order.orderId },
+        body: { email: "alex.new@example.com" },
+        headers: { [ORDER_ACCESS_HEADER]: order.access },
+      });
+      expect(changed.status).toBe(200);
+      const res = await send(api, order.orderId);
+      expect(res.body).toMatchObject({ code: "order_owner_only", error: "Sign in with the email you bought with to send this ticket." });
+      expect(JSON.stringify(res.body)).not.toContain("a***@example.com");
+      // The buyer's own change keeps the paying browser in control.
+      expect((await send(api, order.orderId, OFFER, { access: order.access })).status).toBe(201);
+    });
+
+    it("after support changes the order's email, the paying browser's token can't send or cancel; the new address's account can", async () => {
+      const order = await paidOrder(api, world.eventId);
+      const transferId = await offer(api, order);
+      const [job] = await api.db.query<{ id: string }>(
+        `select id::text as id from private.email_outbox where order_id = $1 and kind = 'ticket_email'`,
+        [order.orderId],
+      );
+      const [change] = await api.db.query<{ result: string }>(
+        `select result from private.admin_change_order_email($1, $2::bigint, 'alex.new@example.com', 'Checked with the buyer', 20, '1 hour')`,
+        [world.admin.userId, job.id],
+      );
+      expect(change.result).toBe("changed");
+      const sent = await send(api, order.orderId, { ...OFFER, ticket: 2 }, { access: order.access });
+      expect([sent.status, sent.body.code, sent.body.error]).toEqual([
+        403,
+        "order_owner_only",
+        "Sign in with the email you bought with to send this ticket.",
+      ]);
+      expect((await cancel(order.orderId, transferId, { access: order.access })).status).toBe(403);
+      // The page no longer offers the token anything either.
+      const page = await view(order.orderId, { [ORDER_ACCESS_HEADER]: order.access });
+      expect(page.body.tickets[0].transfer).toEqual({ status: "pending", expiresAt: expect.any(String), canCancel: false });
+      expect(page.body.transfers).toMatchObject({ canSend: false, reason: "sign_in" });
+      // The database refuses it too, under the order's lock.
+      const [direct] = await api.db.query<{ result: string }>(
+        `select result from private.create_ticket_transfer($1, 2, null, 'Alex', 'Sam', 'kim@example.com', true, true, '2 hours',
+           '72 hours', 1, 5, 20, 10, '1 day', 3, '1 day', 300, '1 day')`,
+        [order.orderId],
+      );
+      expect(direct.result).toBe("owner_only");
+      const [directCancel] = await api.db.query<{ result: string }>(
+        `select result from private.cancel_ticket_transfer($1, $2, 'sender', null, null, null)`,
+        [transferId, order.orderId],
+      );
+      expect(directCancel.result).toBe("owner_only");
+      const buyer = await member(api, { email: "alex.new@example.com" });
+      expect((await send(api, order.orderId, { ...OFFER, ticket: 2, email: "kim@example.com" }, { token: buyer.token })).status).toBe(201);
+      expect((await cancel(order.orderId, transferId, { token: buyer.token })).status).toBe(200);
+    });
+
     it("a signed-in account with the buying email, in any case: 201, recorded as the sender", async () => {
       const order = await paidOrder(api, world.eventId);
       const buyer = await member(api, { email: "ALEX@Example.com" });
@@ -474,7 +529,10 @@ describe("the flag (NEXT_PUBLIC_TICKET_TRANSFERS)", () => {
     expect((await viewOffer(token)).body.status).toBe("open");
     const recipient = await member(api, { email: "sam@example.com" });
     expect((await accept(api, token, recipient)).status).toBe(200);
+    // With sending off, only an offer still waiting can be cancelled: anything else is a 404, before control.
+    expect((await cancel(order.orderId, first)).status).toBe(404);
     expect((await cancel(order.orderId, second, { access: order.access })).status).toBe(200);
+    expect((await cancel(order.orderId, second, { access: order.access })).status).toBe(404);
   });
 });
 
@@ -595,10 +653,25 @@ describe("accept", () => {
     const token = await mintToken(api, await offer(api, order));
     const kim = await member(api, { email: "kim@example.org" });
     expect((await accept(api, token, kim, "Kim Park")).status).toBe(200);
-    const page = await view(order.orderId);
+    const page = await view(order.orderId, { [ORDER_ACCESS_HEADER]: order.access });
     expect(page.body.transferredTickets).toEqual([
       expect.objectContaining({ ticketNumber: 1, holderName: "Kim Park", acceptedByMaskedEmail: "k***@example.org" }),
     ]);
+  });
+
+  it("who an offer went to and who holds a sent ticket only for a request that controls the order", async () => {
+    const order = await paidOrder(api, world.eventId);
+    const token = await mintToken(api, await offer(api, order));
+    await offer(api, order, { ticket: 2, email: "kim@example.com", name: "Kim Park" });
+    expect((await accept(api, token, await member(api, { email: "sam@example.com" }))).status).toBe(200);
+    const anyone = await view(order.orderId);
+    expect(anyone.body.transferredTickets).toEqual([{ ticketNumber: 1, ticketTypeName: "GA", acceptedAt: expect.any(String) }]);
+    expect(anyone.body.tickets[0].transfer).toEqual({ status: "pending", expiresAt: expect.any(String), canCancel: false });
+    const text = JSON.stringify(anyone.body);
+    for (const leak of ["Sam Lee", "Kim Park", "s***@example.com", "k***@example.com"]) expect(text).not.toContain(leak);
+    const buyer = await view(order.orderId, { [ORDER_ACCESS_HEADER]: order.access });
+    expect(buyer.body.transferredTickets[0]).toMatchObject({ holderName: "Sam Lee" });
+    expect(buyer.body.tickets[0].transfer).toMatchObject({ toName: "Kim Park", toMaskedEmail: "k***@example.com", canCancel: true });
   });
 
   it("again by the same account: 200, the same id; by another: the uniform 404", async () => {
@@ -816,6 +889,12 @@ describe("the received ticket", () => {
       body: { name: "Kim Park", email: "kim@example.com", senderName: "Sam Lee" },
     });
     expect(res.status, JSON.stringify(res.body)).toBe(201);
+    const order = (await api.db.query<{ order_id: string }>(`select order_id from private.ticket_transfers where id = $1`, [transferId]))[0];
+    const [buyerCancel] = await api.db.query<{ result: string }>(
+      `select result from private.cancel_ticket_transfer($1, $2, 'sender', null, null, null)`,
+      [res.body.transferId, order.order_id],
+    );
+    expect(buyerCancel.result).toBe("not_found");
     const token = await mintToken(api, res.body.transferId);
     const kim = await member(api, { email: "kim@example.com" });
     expect(await accept(api, token, recipient)).toMatchObject({ status: 409, body: { code: "own_ticket" } });
@@ -976,6 +1055,30 @@ describe("the database's own rules", () => {
         transferId,
       ]),
     ).toEqual({ code: "23514", constraint: "ticket_transfers_guard" });
+  });
+
+  it("support's redaction: a decided offer's typed details become the placeholders, once; never a pending one", async () => {
+    const { transferId, order } = await acceptedTransfer();
+    const redact = (id: string) =>
+      refusedBy(
+        `update private.ticket_transfers set sender_name = 'Redacted', recipient_name = 'Redacted',
+                recipient_email = 'redacted@redacted.invalid', details_redacted_at = now() where id = $1`,
+        [id],
+      );
+    expect(await redact(transferId)).toBeNull();
+    const [row] = await api.db.query<{ sender_name: string; recipient_email: string }>(
+      `select sender_name, recipient_email from private.ticket_transfers where id = $1`,
+      [transferId],
+    );
+    expect(row).toEqual({ sender_name: "Redacted", recipient_email: "redacted@redacted.invalid" });
+    expect(await redact(transferId)).toMatchObject({ constraint: "ticket_transfers_guard" });
+    const pending = await offer(api, order, { ticket: 2, email: "kim@example.com" });
+    expect(await redact(pending)).toMatchObject({ constraint: "ticket_transfers_guard" });
+    // Only the placeholders.
+    await decline(await mintToken(api, pending));
+    expect(
+      await refusedBy(`update private.ticket_transfers set recipient_name = 'Someone', details_redacted_at = now() where id = $1`, [pending]),
+    ).toMatchObject({ code: "23514", constraint: "ticket_transfers_redacted" });
   });
 
   it("a deleted account's references are set to null (the foreign keys' own update)", async () => {

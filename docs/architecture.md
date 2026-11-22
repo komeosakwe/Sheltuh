@@ -276,8 +276,8 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
 | `place_free_seated_order`, `request_free_seated_order` | `place_free_order` / `request_free_order` for a seated free order (the seat lock first; the order records its seats). A guest's order holds nothing until confirmed. `seats_unavailable` when a member's seat is gone. `20261122000000_order_buyer_details.sql` added a trailing `p_buyer_name text default null` (stored as `orders.buyer_name`; the old argument lists still work, and `request_free_order` keeps its 13-argument delegating form). |
 | `fulfil_order` | Queues the ticket email in the same step (see "Payment flow"). Takes inventory for every line item, issues the tickets and marks the order paid. If any ticket type has sold out, or the event is no longer published, it takes nothing and marks the order `oversold_refund_required`. Rows are locked in a fixed order, so concurrent orders can't deadlock. It's idempotent, so Stripe's webhook redeliveries are harmless. A seated order takes the event's seat lock first, needs every seat (free, its own hold, or an expired hold) and lines that match its seats exactly (no order buys a seated tier without seats), and gives each ticket one of its tier's seats; otherwise the oversold path, which also clears its holds. A paid order takes the payment intent's lock first and, after the pending check, applies an early refund recorded for its payment (once), by `record_payment_refund`'s rule (`20261111000300_refund_no_inference.sql`): in full (Stripe's `refunded`, or at least `total_cents`), the order becomes `refunded` with nothing taken, issued or emailed (holds cleared; returns `refunded`); in part (anything less), it's fulfilled as normal, then the amount is recorded and a `partial_refund` exception opened. The body is `fulfil_order_detailed`, which also returns `alert_queued` (that exception queued an ops alert), so the webhook drains the alert outbox only then; `fulfil_order` (same signature, the free paths') returns its status. |
 | `member_held_tickets` | Stable: the one definition of "holds a ticket" (see "Ticket transfers"): each ticket of a `paid` order whose `buyer_email` is the given verified address (ignoring case) that hasn't been sent to someone who accepted it, plus each ticket the given account accepted and still holds (not superseded, its order paid). Read by `set_going`, `GET /me`, `GET /events/{id}/going/me` and the accept's Who's Going cleanup. |
-| `create_ticket_transfer`, `create_holder_ticket_transfer` | A send (`20261203000000_ticket_transfers.sql`; see "Ticket transfers"): event (share), order (share), ticket (update) by its number in the order; then `ticket_offer_refusal` (`not_paid`, `event_unlisted`, `closed`, `type_not_allowed`, `checked_in`, then, after expiring the ticket's overdue offer, `pending`, `already_sent`, `own_email`, `attempts_used`, `pending_cap`) and `insert_ticket_offer` (the account's, recipient address's and platform's allowances, then the offer and its `transfer_offer` job, in one block that rolls the hits back on `rate_limited`; a lost race on the one-pending index is `pending`). The rules and limits are parameters. The holder's form is refused by the API while recipients may not re-send. |
-| `cancel_ticket_transfer` | The sender's (with the order it must belong to) or support's (with a reason) cancel of a pending, unexpired offer: order (share), ticket (update), transfer (update). `cancelled`, `not_pending`, `not_found`. No email. |
+| `create_ticket_transfer`, `create_holder_ticket_transfer` | A send (`20261203000000_ticket_transfers.sql`; see "Ticket transfers"): event (share), order (share) (`owner_only` for the paying browser, `p_sender_user_id` null, once support has changed the order's email), ticket (update) by its number in the order; then `ticket_offer_refusal` (`not_paid`, `event_unlisted`, `closed`, `type_not_allowed`, `checked_in`, then, after expiring the ticket's overdue offer, `pending`, `already_sent`, `own_email`, `attempts_used`, `pending_cap`) and `insert_ticket_offer` (the account's, recipient address's and platform's allowances, then the offer and its `transfer_offer` job, in one block that rolls the hits back on `rate_limited`; a lost race on the one-pending index is `pending`). The rules and limits are parameters. The holder's form is refused by the API while recipients may not re-send. |
+| `cancel_ticket_transfer` | The buyer's (with the order it must belong to, a buyer's offer only, and the signed-in account or null for the paying browser) or support's (with a reason) cancel of a pending, unexpired offer: order (share; `owner_only` as the send's), ticket (update), transfer (update). `cancelled`, `not_pending`, `not_found`, `owner_only`. No email. |
 | `accept_ticket_transfer` | The accept, by the link token's hash, for any verified account: event, order, ticket, transfer locked in that order; an overdue offer is expired then (its email queued) and `unavailable`; `closed`, `ticket_unavailable`, `own_ticket`, `held_cap`, `user_unavailable`, `code_taken`; the account's allowance last (`rate_limited`, nothing written). Then the new code and serial, the notice time, a re-send's previous holding superseded, the giver's Who's Going opt-in removed unless they still hold a ticket for the event, and the `transfer_accepted` and `transfer_ticket` jobs. `already_accepted` for the same account again. |
 | `decline_ticket_transfer` | Declines a pending, unexpired offer by the link token's hash (no sign-in), queuing `transfer_declined`; else `unavailable`. |
 | `expire_ticket_transfers` | The email cron's sweep: up to `p_limit` overdue pending offers (past `expires_at` or the event's cut-off), soonest first, become `expired` with their `transfer_expired` job. One run at a time (advisory lock), `skip locked`, so it never waits on an accept, cancel or decline. |
@@ -4762,10 +4762,14 @@ wallet routes also leave a sent ticket out altogether (below).
 migration and the transfer modules read `issued_code`.
 
 **Who may send** (owner decision D1): the paying browser (the order access
-token in `x-order-access`), or a signed-in account with a verified email equal
-to the order's `buyer_email`, ignoring case (never +tag or Gmail-dot folding).
-The order's link alone can see offers and sent tickets, but can't send or
-cancel. **Who may accept** (O1): any signed-in account with a verified email
+token in `x-order-access`) unless support has changed the order's email (the
+token may be on a device the old address's holder uses; the API and, under
+the order's lock, `create_ticket_transfer` / `cancel_ticket_transfer` refuse
+it: `owner_only`), or a signed-in account with a verified email equal to the
+order's `buyer_email`, ignoring case (never +tag or Gmail-dot folding). The
+order's link alone sees only that a ticket is on offer or was sent, and can't
+send or cancel; its 403 names the buying address masked only where the page
+shows it (a settled order whose email was never changed). **Who may accept** (O1): any signed-in account with a verified email
 (the recipient's ticket email goes to it), not necessarily the address it was
 sent to: the link's token is the capability (hashed at rest, one acceptance,
 an expiry, never logged, lookups rate-limited). Not the buyer's own account
@@ -4776,11 +4780,11 @@ recorded. Declining needs no sign-in.
 **The ticket page** (`GET /orders/by-session/{id}`, and every answer that's
 its order: `ticketPageOrder`): each ticket has `ticketNumber` (type, then
 code: stable whatever is sent on, and the wallet routes' `?ticket={n}`); an
-offer in progress is the ticket's `transfer` (the recipient's name and masked
-address, the expiry, `canCancel` only with control); a ticket sent and
-accepted moves to `transferredTickets` with the confirmed name, when, and the
-accepting address masked only when it isn't the one the sender typed (D4),
-and never a code (the SQL leaves the code out; the mapper drops any entry
+offer in progress is the ticket's `transfer` (its status and expiry; with
+control also its id, the recipient's name and masked address, and
+`canCancel`); a ticket sent and accepted moves to `transferredTickets` with
+when (with control also the confirmed name, and the accepting address masked
+only when it isn't the one the sender typed, D4), and never a code (the SQL leaves the code out; the mapper drops any entry
 with `sent` from `tickets` too). While the flag is on, `transfers` says
 whether this request may send (`sign_in`, `closed`, `unlisted`) and each
 ticket's `canSend`. The wallet routes 404 a sent ticket's number (looked up by
@@ -4797,9 +4801,12 @@ reference, the buyer's name or email, amounts or the order's other tickets.
 issued code. A scan whose credential isn't the live one is `transferred`
 ("Don't let in. This ticket was sent to someone else."; nothing marked, one
 log row, described like `not_admissible`, decided under the ticket's lock and
-before `not_admissible`). Every check-in row keeps the scanned credential's
-last four (`scanned_last4`), shown in the recent list and when undoing. Older
-door clients show an unknown outcome as Not verified (fail closed).
+before `not_admissible`). A scan row that names a ticket (every result but
+`invalid`) keeps the scanned credential's last four (`scanned_last4`), shown
+in the recent list and when undoing; `invalid` and undo rows, and rows from
+before the migration, have none. A request id replayed with the ticket's
+other credential is a `conflict`, as for another ticket. Older door clients
+show an unknown outcome as Not verified (fail closed).
 
 **Who's Going and GET /me** use `member_held_tickets`: a member who gave
 away every ticket for an event can't opt in, and their opt-in is removed when
@@ -4858,9 +4865,15 @@ sweep, and two sends.
   so the migration must be applied before this release runs (it is additive:
   the previous release runs with it applied).
 - **A deadlock between an accept and the buyer deleting their account at the
-  same instant** is possible (the deletion locks the account, then sets the
-  transfer's `sender_user_id` to null; the accept locks the transfer, then
-  removes the buyer's Who's Going row): Postgres aborts one, which is retried.
+  same instant** is possible (the deletion locks the account, then its
+  profile, then sets the transfer's `sender_user_id` to null; the accept
+  locks the transfer, then the buyer's profile, to serialise with
+  `set_going`, and removes their Who's Going row): Postgres aborts one, which
+  is retried.
+- **Typed details** (the sender's and recipient's names, the recipient's
+  address) are kept on accepted offers; support can blank them on any decided
+  offer on request (`details_redacted_at`, placeholders only, once;
+  `docs/supabase-setup.md`).
 - **Admin list's sender**: a buyer whose account was deleted since reads as
   the paying browser.
 - **`member_held_tickets` isn't inlined** (it pins `search_path`), so

@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ORDER_ACCESS_HEADER } from "@/lib/api/types";
+import { putMyGoing } from "@/lib/server/handlers/going";
 import { stripeWebhook } from "@/lib/server/handlers/orders";
 import { cancelTicketTransfer, declineTicketOffer, getReceivedTicket } from "@/lib/server/handlers/ticket-transfers";
 import { stripeWebhookRequest, TestApi } from "./helpers/api";
@@ -160,6 +161,27 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("ticket transfer races (real Pos
         expect(accepted.body.code).toBe("ticket_unavailable");
         expect((await transferRow(api, transferId)).status).toBe("pending");
       }
+    }
+  });
+
+  it("accept against the buyer opting in to Who's Going: the buyer never ends up going with nothing held", async () => {
+    for (let i = 0; i < 10; i++) {
+      buyers += 1;
+      const email = `buyer${buyers}@example.com`;
+      const buyer = await member(api, { email });
+      const order = await paidOrder(api, world.eventId, email, 1);
+      const transferId = await offer(api, order, { email: `friend${buyers}@example.com` });
+      const token = await mintToken(api, transferId);
+      const [accepted, going] = await Promise.all([
+        accept(api, token, await member(api)),
+        api.call(putMyGoing, { token: buyer.token, params: { eventId: world.eventId }, method: "PUT" }),
+      ]);
+      expect(accepted.status).toBe(200);
+      expect([200, 403]).toContain(going.status);
+      expect(await api.db.query(`select 1 from public.event_attendees where event_id = $1 and user_id = $2`, [
+        world.eventId,
+        buyer.userId,
+      ])).toEqual([]);
     }
   });
 

@@ -23,7 +23,7 @@ import { rateLimitSecret, takeClientLimit, takeKeyedLimit } from "../client-limi
 import { refuseUndeliverableEmail } from "../email-domain";
 import { HttpError, ok, okPrivate, readJson, tooManyRequests, windowSeconds } from "../http";
 import { withOrderEmail } from "../order-email-view";
-import { withTicketTransfers } from "../ticket-transfers";
+import { type OrderControl, withTicketTransfers } from "../ticket-transfers";
 import { parseBuyerName, parseCheckoutLineItems, parseSupportCents, refuseSupportOnFreeOrder } from "../order-input";
 import { parseCheckoutSeats } from "../seat-map-input";
 import { ORDER_ID_PATTERN, orderReference } from "../order-reference";
@@ -1020,10 +1020,18 @@ export const getOrderBySession: Handler<{ sessionId: string }> = async (req, { s
  * (withTicketTransfers, ../ticket-transfers.ts) and the wallets (withWallet).
  * Every answer that's the ticket page's order goes through it (the GET, an
  * email change's, a ticket send's and cancel's), so they never differ.
+ * `control`: how the request controls the order, when the caller has worked
+ * it out already (orderControl), so it isn't asked of Supabase Auth twice.
  */
-export async function ticketPageOrder(req: Request, deps: Deps, orderId: string, lookup: CustomerOrder): Promise<CustomerOrder> {
+export async function ticketPageOrder(
+  req: Request,
+  deps: Deps,
+  orderId: string,
+  lookup: CustomerOrder,
+  control?: OrderControl | null,
+): Promise<CustomerOrder> {
   const withEmail = await withOrderEmail(req, deps, orderId, lookup);
-  return withWallet(deps, await withTicketTransfers(req, deps, orderId, withEmail));
+  return withWallet(deps, await withTicketTransfers(req, deps, orderId, withEmail, control));
 }
 
 /**
