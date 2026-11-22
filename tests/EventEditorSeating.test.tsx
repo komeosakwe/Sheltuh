@@ -171,6 +171,7 @@ describe("EventEditor seating — organiser, new event", () => {
     const [input] = createEventDraft.mock.calls[0];
     expect(Object.keys(input).sort()).toEqual(
       [
+        "beforeYouGo",
         "category",
         "description",
         "end",
@@ -187,6 +188,8 @@ describe("EventEditor seating — organiser, new event", () => {
     );
     expect(input).toMatchObject({ suburb: "Collingwood", state: "VIC", timeZone: "Australia/Melbourne" });
     expect(input.refundPolicy).toBe("no_change_of_mind");
+    // Left blank: no note (null, as the API takes a blank one).
+    expect(input.beforeYouGo).toBeNull();
   });
 
   it("with general admission: saving goes to the event, as before", async () => {

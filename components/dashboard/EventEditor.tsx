@@ -71,6 +71,19 @@ import {
   type EditorStep,
 } from "@/components/dashboard/editor/draft";
 import { draftToPreviewEvent } from "@/components/dashboard/editor/preview-event";
+import BeforeYouGoFields from "@/components/dashboard/editor/BeforeYouGoFields";
+import {
+  BEFORE_YOU_GO_ADD_ID,
+  beforeYouGoErrorsAfterRemove,
+  beforeYouGoInputId,
+  beforeYouGoItems,
+  emptyBeforeYouGoRow,
+  firstBeforeYouGoError,
+  initialBeforeYouGoRows,
+  withoutBeforeYouGoError,
+  type BeforeYouGoRow,
+  type BeforeYouGoRowErrors,
+} from "@/components/dashboard/editor/before-you-go-rows";
 import { Button } from "@/components/ui/Button";
 import { fieldClass } from "@/components/ui/Field";
 import {
@@ -112,6 +125,7 @@ import type {
 } from "@/lib/api/types";
 import { SessionExpiredError } from "@/lib/auth/AuthContext";
 import { useAccountOwner } from "@/lib/auth/useAccountOwner";
+import { normaliseBeforeYouGo, validateBeforeYouGo, type BeforeYouGoPart } from "@/lib/before-you-go";
 import { eventClipsEnabled } from "@/lib/clips-flag";
 import { eventZone, formatEventDateShort, formatEventTime, toDateTimeInputParts } from "@/lib/format";
 import { assignPoster } from "@/lib/live/assign-poster";
@@ -256,7 +270,8 @@ function errorId(key: string): string {
  * The control to focus for each error (this form's, or the API's
  * fieldErrors), in the form's order: the first one present is focused when
  * a save doesn't validate or is refused. A zone error goes to the zone
- * choice while it's shown (`zoneChoice`), else to the suburb it comes from.
+ * choice while it's shown (`zoneChoice`), else to the suburb it comes from;
+ * a "Before you go" error to its first input with one (`beforeYouGoId`).
  */
 function invalidControlIds(
   errors: Record<string, string>,
@@ -264,11 +279,13 @@ function invalidControlIds(
   start: { date: string },
   end: { date: string },
   zoneChoice: boolean,
+  beforeYouGoId: string,
 ): string[] {
   const order: [string, string][] = [
     ["organiserId", "organiserId"],
     ["title", "title"],
     ["description", "description"],
+    ["beforeYouGo", beforeYouGoId],
     ["venueName", "venueName"],
     ["venueAddress", "venueAddress"],
     ["suburb", VENUE_SUBURB_ID],
@@ -314,6 +331,12 @@ export default function EventEditor(props: Props) {
 
   const [title, setTitle] = useState(initial?.title ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
+  // The "Before you go" rows as typed (optional; three empty ones to start), checked raw so "Row 2" is the
+  // second on screen, sent cleaned (null when all are blank, which clears them). Each input's error is shown
+  // by it after a save (validateBeforeYouGo's rows); `errors.beforeYouGo` is the summary's one entry.
+  const [beforeYouGoRows, setBeforeYouGoRows] = useState<BeforeYouGoRow[]>(() => initialBeforeYouGoRows(initial?.beforeYouGo));
+  const [beforeYouGoErrors, setBeforeYouGoErrors] = useState<BeforeYouGoRowErrors>([]);
+  const beforeYouGo = beforeYouGoItems(beforeYouGoRows);
   const [category, setCategory] = useState(initial?.category ?? EVENT_CATEGORIES[0].value);
   const [venueName, setVenueName] = useState(initial?.venueName ?? "");
   const [venueAddress, setVenueAddress] = useState(initial?.venueAddress ?? "");
@@ -602,7 +625,9 @@ export default function EventEditor(props: Props) {
 
   /** The first field that needs fixing among `fieldErrors` (this form's order), focused on its step. */
   function focusFirstInvalid(fieldErrors: Record<string, string>) {
-    const first = invalidControlIds(fieldErrors, ticketTypes.length, start, end, zoneChoice)[0] ?? null;
+    // The rows as a save checks them: the first input with an error, else (the API's) the first input.
+    const rowErrors = validateBeforeYouGo(beforeYouGo)?.rows ?? [];
+    const first = invalidControlIds(fieldErrors, ticketTypes.length, start, end, zoneChoice, beforeYouGoTarget(rowErrors))[0] ?? null;
     focusInvalidId.current = first;
     if (first) setStep(stepOfControlId(first));
   }
@@ -636,6 +661,47 @@ export default function EventEditor(props: Props) {
     });
   }
 
+  /** Where a "Before you go" error is focused: the first input showing one, else the first row's label (or Add a row). */
+  function beforeYouGoTarget(rowErrors: BeforeYouGoRowErrors): string {
+    const first = firstBeforeYouGoError(rowErrors);
+    if (first) return beforeYouGoInputId(first.index, first.part);
+    return beforeYouGoRows.length > 0 ? beforeYouGoInputId(0, "label") : BEFORE_YOU_GO_ADD_ID;
+  }
+
+  /** The rows' errors changed: the summary's entry says the first one left, and goes once none is. */
+  function showBeforeYouGoErrors(next: BeforeYouGoRowErrors) {
+    setBeforeYouGoErrors(next);
+    const first = firstBeforeYouGoError(next);
+    setErrors((prev) => {
+      if (first) return prev.beforeYouGo === first.message ? prev : { ...prev, beforeYouGo: first.message };
+      if (!prev.beforeYouGo) return prev;
+      const rest = { ...prev };
+      delete rest.beforeYouGo;
+      return rest;
+    });
+  }
+
+  function updateBeforeYouGo(index: number, part: BeforeYouGoPart, text: string) {
+    setBeforeYouGoRows((prev) => prev.map((row, i) => (i === index ? { ...row, [part]: text } : row)));
+    showBeforeYouGoErrors(withoutBeforeYouGoError(beforeYouGoErrors, index, part));
+  }
+
+  /** "Add a row" (up to 5): focus goes to its label. */
+  function addBeforeYouGoRow() {
+    const next = beforeYouGoRows.length;
+    setBeforeYouGoRows((prev) => [...prev, emptyBeforeYouGoRow()]);
+    focusControl(beforeYouGoInputId(next, "label"));
+  }
+
+  /** A row's Remove: focus goes to the row that takes its place, else the one above, else Add a row. */
+  function removeBeforeYouGoRow(index: number) {
+    const rows = beforeYouGoRows.filter((_, i) => i !== index);
+    setBeforeYouGoRows(rows);
+    // Its errors go with it; the others are renumbered (validateBeforeYouGo on the rows left).
+    showBeforeYouGoErrors(beforeYouGoErrorsAfterRemove(beforeYouGoErrors, rows, index));
+    focusControl(rows.length > 0 ? beforeYouGoInputId(Math.min(index, rows.length - 1), "label") : BEFORE_YOU_GO_ADD_ID);
+  }
+
   /** The days as typed, as a number (NaN when it isn't one: blank, or not a number). */
   function refundDaysNumber(): number {
     return refundDays.trim() === "" ? Number.NaN : Number(refundDays);
@@ -652,6 +718,7 @@ export default function EventEditor(props: Props) {
     const nextErrors = draftErrors({
       title,
       description,
+      beforeYouGo,
       venueName,
       venueAddress,
       place,
@@ -669,6 +736,8 @@ export default function EventEditor(props: Props) {
       refundDays: refundDaysNumber(),
     });
     setErrors(nextErrors);
+    // Each "Before you go" input shows its own error (the summary has the one entry, nextErrors.beforeYouGo).
+    setBeforeYouGoErrors(validateBeforeYouGo(beforeYouGo)?.rows ?? []);
     if (Object.keys(nextErrors).length > 0) {
       // Focus the first field to fix (its error is read with it), and say how many there are by the buttons.
       focusFirstInvalid(nextErrors);
@@ -689,6 +758,9 @@ export default function EventEditor(props: Props) {
       start,
       end,
       ticketTypes: external ? [] : ticketTypes.map(cleanTicketType),
+      // Always sent, so clearing every row clears them (null). Otherwise the rows as on screen, blank ones
+      // included: the API cleans them and drops the blank ones itself, and its "Row N" is then the row shown.
+      beforeYouGo: normaliseBeforeYouGo(beforeYouGo) ? beforeYouGo : null,
     };
     // The venue's location: only when it differs from what's saved (absent keeps it; null removes it).
     const location = locationChange(venueLocation.input, current?.location);
@@ -1123,6 +1195,7 @@ export default function EventEditor(props: Props) {
     slug: current?.slug,
     title,
     description,
+    beforeYouGo,
     category,
     suburb: venue.place ? venue.place.name : venue.suburb.trim(),
     state: venue.place?.state ?? initial?.state,
@@ -1278,6 +1351,8 @@ export default function EventEditor(props: Props) {
         return "admin-reason";
       case "refundPolicy":
         return null;
+      case "beforeYouGo":
+        return beforeYouGoTarget(beforeYouGoErrors);
       default:
         return key;
     }
@@ -1314,6 +1389,7 @@ export default function EventEditor(props: Props) {
   const problems = draftErrors({
     title,
     description,
+    beforeYouGo,
     venueName,
     venueAddress,
     place: venue.place
@@ -1623,6 +1699,17 @@ export default function EventEditor(props: Props) {
               />
               {fieldError("description")}
             </div>
+
+            {/* Optional: the organiser's short rows for the event page's "The essentials." (components/events/BeforeYouGo.tsx). */}
+            <BeforeYouGoFields
+              rows={beforeYouGoRows}
+              errors={beforeYouGoErrors}
+              // The API's message (or the list's), when no input has an error of its own to show it by.
+              groupError={firstBeforeYouGoError(beforeYouGoErrors) ? undefined : errors.beforeYouGo}
+              onChange={updateBeforeYouGo}
+              onRemove={removeBeforeYouGoRow}
+              onAdd={addBeforeYouGoRow}
+            />
           </EditorCard>
 
           <EditorCard
@@ -2057,7 +2144,7 @@ export default function EventEditor(props: Props) {
 
 /** Orders the keys of an error record as the form is laid out: step 1's fields, then tickets, then the note; the rest last. */
 function orderedErrorKeys(keys: string[], ticketCount: number): string[] {
-  const order = ["organiserId", "title", "description", "venueName", "venueAddress", "suburb", "state", "timeZone", "location", "start", "end", "image", "externalTicketUrl", "externalPriceFromCents", "ticketTypes"];
+  const order = ["organiserId", "title", "description", "beforeYouGo", "venueName", "venueAddress", "suburb", "state", "timeZone", "location", "start", "end", "image", "externalTicketUrl", "externalPriceFromCents", "ticketTypes"];
   for (let i = 0; i < ticketCount; i++) order.push(`ticket-${i}-name`, `ticket-${i}-price`, `ticket-${i}-admits`, `ticket-${i}-qty`, `ticket-${i}-lock`);
   order.push("refundPolicy", "refundDays", "reason");
   const known = order.filter((key) => keys.includes(key));

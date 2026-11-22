@@ -1,3 +1,4 @@
+import type { BeforeYouGoItem } from "@/lib/before-you-go";
 import type { RefundPolicy } from "@/lib/refund-policy";
 import type { TicketingMode } from "@/lib/ticketing";
 import type { BannerFit, EventCategory, EventClip, FeePolicy, ImageFocus } from "@/lib/types";
@@ -354,6 +355,8 @@ export interface EventEditChanges {
   refundDays?: TicketingFieldChange<number>;
   /** An admin changed the venue location (null: none, an event from before venue locations). */
   location?: TicketingFieldChange<VenueLocation>;
+  /** An admin changed the "Before you go" rows: the old and new lists (null: none). */
+  beforeYouGo?: TicketingFieldChange<BeforeYouGoItem[]>;
 }
 
 /**
@@ -587,6 +590,13 @@ export interface EventRecord {
   refundDays?: number;
   /** The venue's location (see VenueLocation), only when it has one; absent for an event saved without one. */
   location?: VenueLocation;
+  /**
+   * The organiser's "Before you go" rows for people going (lib/before-you-go.ts),
+   * in order: 1 to 5 `{ label, value }`, each part one line of plain text (label
+   * 1–20 characters, stored as typed and shown uppercase; value 1–80), never
+   * HTML or links (show it escaped). Absent when there are none.
+   */
+  beforeYouGo?: BeforeYouGoItem[];
   /**
    * The event's seat map, when it has one. The organiser can change the map
    * only while `ticketingLocked` is false (never approved) and the event is a
@@ -963,6 +973,12 @@ export interface CustomerOrder {
    */
   refundPolicy?: RefundPolicy;
   refundDays?: number;
+  /**
+   * The event's current "Before you go" rows (EventRecord.beforeYouGo: plain
+   * text, show it escaped). Like the date and venue: only for a `paid` order
+   * whose event is published (`eventListed`), and only when it has some.
+   */
+  beforeYouGo?: BeforeYouGoItem[];
   /**
    * The buyer's address, masked: "m***@example.com". Unset if none is on
    * record, and, once the order's email has been changed (by the buyer or

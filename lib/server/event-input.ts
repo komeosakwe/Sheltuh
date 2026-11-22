@@ -1,4 +1,11 @@
 import {
+  BEFORE_YOU_GO_MAX_RAW_ITEMS,
+  BEFORE_YOU_GO_TOO_MANY,
+  normaliseBeforeYouGo,
+  validateBeforeYouGo,
+  type BeforeYouGoItem,
+} from "@/lib/before-you-go";
+import {
   isValidRefundDays,
   MAX_REFUND_DAYS,
   MIN_REFUND_DAYS,
@@ -17,6 +24,7 @@ import {
   type StateCode,
 } from "@/lib/time-zones";
 import { PLACE_ID_PATTERN } from "./places";
+import { tooManyMarks } from "./profile-input";
 import { parseTicketing, type Ticketing } from "./ticketing-input";
 import type { EventCategory, TicketTypeInput } from "./types";
 import {
@@ -67,6 +75,12 @@ export interface EventInput {
    * `legacy` when it sent null (cleared).
    */
   location?: LocationInput;
+  /**
+   * The "Before you go" rows as they're to be saved (parseBeforeYouGo): absent
+   * when the body didn't send the key (create: none; edit: the stored rows are
+   * kept); null to clear them. Never an empty list.
+   */
+  beforeYouGo?: BeforeYouGoItem[] | null;
 }
 
 /** A venue location as the database stores it (events.location_source, venue_place_id, venue_lat / venue_lng). */
@@ -101,6 +115,7 @@ interface RawEventBody {
   refundPolicy?: unknown;
   refundDays?: unknown;
   location?: unknown;
+  beforeYouGo?: unknown;
 }
 
 /** The event's refund policy as parseRefundPolicy returns it: nothing sent, or both fields. */
@@ -136,6 +151,54 @@ export function parseRefundPolicy(body: RawEventBody, errors: Record<string, str
     return { refundPolicy, refundDays: null };
   }
   return { refundPolicy, refundDays: body.refundDays };
+}
+
+/**
+ * The body's `beforeYouGo` (lib/before-you-go.ts), errors under that name:
+ * - absent: undefined (create: none; edit: the stored rows are kept, so a
+ *   client that predates the field never clears them);
+ * - null, an empty list, or rows that are all blank: null (cleared);
+ * - a list of up to BEFORE_YOU_GO_MAX_ITEMS `{ label, value }` (both text;
+ *   a missing or null part is blank; other keys are ignored): each part
+ *   cleaned (NFC, whitespace runs to one space, trimmed) and checked by
+ *   validateBeforeYouGo, with the stacked-marks check: 1 to 20 (label) and
+ *   1 to 80 (value) code points; no control, invisible or text-direction
+ *   characters; no web or email addresses (lib/contact-detail.ts). Rows with
+ *   both parts blank are dropped; a row with only one is refused ("Row 2
+ *   needs a label and a value."). Plain text: anything HTML-like is kept as
+ *   typed, and every display escapes it.
+ * The database's events_before_you_go_check holds the same shape and limits.
+ */
+export function parseBeforeYouGo(value: unknown, errors: Record<string, string>): BeforeYouGoItem[] | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (!Array.isArray(value)) {
+    errors.beforeYouGo = "Send the rows as a list of labels and values, or null.";
+    return undefined;
+  }
+  if (value.length > BEFORE_YOU_GO_MAX_RAW_ITEMS) {
+    errors.beforeYouGo = BEFORE_YOU_GO_TOO_MANY;
+    return undefined;
+  }
+  // A missing or null part is blank (so a half-filled row gets its own message).
+  const part = (v: unknown) => (v === undefined || v === null ? "" : v);
+  const items: BeforeYouGoItem[] = [];
+  for (const [index, item] of (value as unknown[]).entries()) {
+    const row = item !== null && typeof item === "object" && !Array.isArray(item) ? (item as Record<string, unknown>) : null;
+    const label = row ? part(row.label) : null;
+    const text = row ? part(row.value) : null;
+    if (typeof label !== "string" || typeof text !== "string") {
+      errors.beforeYouGo = `Row ${index + 1} must be a label and a value, as text.`;
+      return undefined;
+    }
+    items.push({ label, value: text });
+  }
+  const problems = validateBeforeYouGo(items, { tooManyMarks });
+  if (problems) {
+    errors.beforeYouGo = problems.message;
+    return undefined;
+  }
+  return normaliseBeforeYouGo(items);
 }
 
 /** An event's state and the zone its times are entered and shown in, as stored. */
@@ -350,6 +413,7 @@ export function parseEventInput(body: RawEventBody, options: ParseEventOptions =
   const ticketing = parseTicketing(body, errors);
   const refund = parseRefundPolicy(body, errors);
   const location = parseLocation(body.location, errors);
+  const beforeYouGo = parseBeforeYouGo(body.beforeYouGo, errors);
   // An empty or unknown suburb already has its own error.
   if (location?.pin && suburb && !errors.suburb && !errors.state && !errors.timeZone) {
     checkPinNearSuburb(location.pin, suburb, place.state, errors);
@@ -387,5 +451,6 @@ export function parseEventInput(body: RawEventBody, options: ParseEventOptions =
     ...ticketing,
     ...refund,
     ...(location ? { location } : {}),
+    ...(beforeYouGo !== undefined ? { beforeYouGo } : {}),
   };
 }

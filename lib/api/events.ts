@@ -1,3 +1,4 @@
+import type { BeforeYouGoItem } from "@/lib/before-you-go";
 import { REFUND_POLICY_TIGHTENED_CODE, type RefundPolicy } from "@/lib/refund-policy";
 import type { TicketingMode } from "@/lib/ticketing";
 import type { AustralianTimeZone, StateCode } from "@/lib/time-zones";
@@ -104,6 +105,19 @@ export interface EventInput {
    * null: cleared. Publishing or submitting needs a pin (`location_required`).
    */
   location?: VenueLocationInput | null;
+  /**
+   * The "Before you go" rows (lib/before-you-go.ts: validateBeforeYouGo checks
+   * them as the API does; normaliseBeforeYouGo cleans them). Absent: none when
+   * creating; when editing, the stored rows are kept. null, [] or all-blank
+   * rows: cleared. Each label and value is cleaned (NFC, whitespace runs to
+   * one space, trimmed); rows with both blank are dropped; then at most 5
+   * rows, labels 1–20 and values 1–80 characters, a row with only one of the
+   * two refused, no links, web or email addresses and no control, invisible
+   * or text-direction characters: ApiError 400 fieldErrors.beforeYouGo
+   * otherwise ("Row 2 needs a label and a value."; rows numbered from 1 as
+   * sent). Stored as plain text (HTML is kept as typed, never rendered).
+   */
+  beforeYouGo?: BeforeYouGoItem[] | null;
 }
 
 export async function createEventDraft(input: EventInput, getToken: GetToken) {
