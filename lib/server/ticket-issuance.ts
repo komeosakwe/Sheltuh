@@ -4,8 +4,11 @@ import type { IssuedTicket, OrderLineItem } from "./types";
 // Short, unambiguous (no 0/O/1/I) codes, good enough to read aloud or show on
 // a door list. The format is defined in lib/ticket-code.ts.
 
-/** Cryptographically random — a ticket code is what gets someone through the door. */
-function generateTicketCode(): string {
+/**
+ * Cryptographically random — a ticket code is what gets someone through the door.
+ * Also a ticket transfer's new code for its recipient (./handlers/ticket-transfers.ts).
+ */
+export function generateTicketCode(): string {
   // 256 is a multiple of the 32-letter alphabet, so `byte % 32` has no bias.
   const bytes = crypto.getRandomValues(new Uint8Array(8));
   let code = "";

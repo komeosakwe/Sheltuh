@@ -577,7 +577,8 @@ describe("guest order lookup (GET /api/orders/by-session/{orderId})", () => {
       subtotalCents: 6000,
       buyerFeeCents: 460,
       totalCents: 6460,
-      tickets: codes.map((c) => ({ ticketCode: c.code, ticketTypeName: "GA", checkedInAt: null })),
+      // Each with its number in the order (ticket type, then code), as the email and the wallet routes number them.
+      tickets: codes.map((c, i) => ({ ticketCode: c.code, ticketTypeName: "GA", checkedInAt: null, ticketNumber: i + 1 })),
       // Which wallet passes the server makes: none, as this API has no wallet credentials (wallet-passes.test.ts).
       wallet: { google: false, apple: false },
     });

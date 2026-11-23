@@ -146,6 +146,8 @@ iframe served by Stripe), with the publishable key
 | `private.account_invites` | `id` | Admin invites (see "Account invites"): `kind` (`organiser`, with `organiser_profile`: the application's fields, the organisers columns as keys; or `member`, without), the address as typed, `token_hash` (SHA-256 of the emailed token, never the token; unique), `status` pending → accepted / revoked / expired (a pending invite past `expires_at` reads as expired), who invited, last sent, accepted and revoked it (each `on delete set null`), `expires_at` (14 days from the last send), `last_sent_at`, `last_send_failed_at`, `send_count`, `links_issued` (sign-up tokens requested with the current link), `accepted_organiser_id`. At most one pending invite per address, ignoring case (`account_invites_pending_email_key`). Check constraints tie a profile to organiser invites and `accepted_at` / `revoked_at` to their statuses. Deleted 90 days after it was accepted, revoked or expired (`purge_operational_data`). |
 | `private.organiser_invite_links` | `id` | Organiser links (see "Organiser links"): `token_hash` (SHA-256 of the link's token, never the token; unique), `status` active → used / cancelled (an active link past `expires_at` reads as expired), who created, used and cancelled it (each `on delete set null`; cancelled with no canceller: its creator stopped being an admin), `expires_at` (7 days from creation, after `created_at`: check), `used_at`, `organiser_id` (the organiser it created or approved, `on delete set null`), `cancelled_at`. Check constraints tie `used_at` / `cancelled_at` to their statuses. `organiser_invite_links_created_idx` (created_at desc, id desc) serves the admin list. Deleted 90 days after it was used or cancelled, or expired (`purge_operational_data`). |
 | `private.report_photos` | `sha256` | Profile reports' photo copies, once per distinct image (`sha256 = sha256(image)`, check constraint), however many reports take it. `last_used_at` is bumped whenever a report takes it. Deleted by `purge_social_data` once no report references it and it's been unused for a day. |
+| `private.ticket_transfers` | `id` | One offer of a ticket to someone (see "Ticket transfers"): the ticket (`ticket_code`, its identity; never changes), its order and event, who sent it (`sender_kind` `buyer` or `holder`; `sender_user_id` when signed in), the typed names (`sender_name`, `recipient_name`, `person_name_ok`) and address (`recipient_email`), `status` pending → accepted / declined / cancelled / expired, `expires_at`; once accepted the account (`accepted_user_id`), its verified email then (`accepted_email`), the confirmed `holder_name`, `holder_notice_at` (the organiser notice shown), and the recipient's own door credential `issued_code` and pass id `wallet_serial`. Checks tie every status to its columns; `ticket_transfers_guard` allows only a decision from pending, `superseded_at` and `holder_details_withdrawn_at` set once, and the foreign keys' set-null. Partial unique indexes: one pending offer and one current holding per ticket, issued codes and serials unique. Declined, cancelled and expired offers are deleted 30 days after their event; accepted ones are kept. |
+| `private.ticket_transfer_tokens` | `token_hash` | SHA-256 hashes of an offer link's tokens (32 random bytes, base64url), one per offer email sent (PR-2), never the tokens. Deleted with the offer, and 30 days after it was decided. |
 
 Timestamps are `timestamptz`. Organisers enter an event's times as local
 times in the event's own zone (`events.time_zone`; Melbourne by default),
@@ -216,7 +218,7 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
 | `join_with_organiser_invite_link` | A signed-in, verified caller's join, by token hash (see "Organiser links"): locks the link; `unavailable` when there's none, or it's used by another account, cancelled or expired, or its creator is no longer an admin (`account_invite_inviter_is_admin`; then it's marked cancelled, `cancelled_by` null); `already_joined` (the organiser) for the account that used it. Then locks the caller's organiser row: approved → `already_organiser`; rejected (taken down included), or pending with a `suspended` entry on its log (taken down, then resubmitted) → `rejected`; both with the link left active; pending otherwise → approved as submitted (`reviewed_by` the link's creator); none → a new approved organiser (the typed name and categories, the caller's verified email as `contact_email`, an empty bio), `details_required` without them, `conflict` when an application committed meanwhile (`on conflict (owner_user_id) do nothing`). Logs `invite_accepted` (status null or pending → approved), marks the link used and queues the admins' `organiser_joined` email (`on conflict` on the per-organiser active-job index: nothing if a job for it is already waiting or being sent), in the same transaction. |
 | `claim_outbox_jobs`, `finish_email_job`, `resend_email_job`, `admin_resend_email_job` | The email outbox: lease due jobs of any kind (optionally one order's, or one kind) with `skip locked` (an expired lease is taken again; one that expired on the 6th attempt fails), record an outcome only for the current lease holder, and an admin resend of a ticket email (not while leased, not twice in 5 minutes; a waitlist email is `not_found`). `admin_resend_email_job` takes a hit on the admin's hourly allowance only when the resend is queued, in the same transaction (over it: `rate_limited`, nothing changed). `claim_email_jobs`, the earlier form, now claims ticket emails only and is kept for the deploy window (see "Not built yet"). |
 | `mask_email` | Immutable: `mia@example.com` → `m***@example.com` (the first character, then the domain from the last `@`; `***` without one), `maskEmail`'s (`lib/server/email-address.ts`) rule exactly (`tests/server/order-email-change.test.ts` checks they agree). What the email change log stores. |
-| `order_email_change_block` | Stable: the one definition of why the paying browser can't change an order's email now, or null when it can (see "Buyer email checks"): `not_found`, `not_card_order` (`total_cents` 0), `not_paid` (any status but `paid`), `changed_by_support` (any `admin` row in `order_email_changes`: only support changes it from then on), `ended` (`ends_at <= now()`, or no event), `scanned` (any `admitted` row in `ticket_check_ins` for one of its tickets, even if undone since), `already_changed` (a `buyer` row in `order_email_changes`). Read by `GET /orders/by-session/{id}` for the paying browser and again under the locks by the change. |
+| `order_email_change_block` | Stable: the one definition of why the paying browser can't change an order's email now, or null when it can (see "Buyer email checks"): `not_found`, `not_card_order` (`total_cents` 0), `not_paid` (any status but `paid`), `changed_by_support` (any `admin` row in `order_email_changes`: only support changes it from then on), `ended` (`ends_at <= now()`, or no event), `scanned` (any `admitted` row in `ticket_check_ins` for one of its tickets, even if undone since, except a ticket the buyer sent to someone who accepted it: the recipient's scan isn't the buyer's; `20261203000000_ticket_transfers.sql`), `already_changed` (a `buyer` row in `order_email_changes`). Read by `GET /orders/by-session/{id}` for the paying browser and again under the locks by the change. |
 | `change_order_email`, `buyer_change_order_email`, `admin_change_order_email` | A paid order's email change in one step (`20261130000000_order_email_changes.sql`; see "Buyer email checks"). Locks the order's `ticket_email` outbox job, then the order (both `for update`: `finish_email_job`'s order, so a change and the email worker can't deadlock; a job queued after the first look is taken only if free, else `busy`); then `not_found`, `not_card_order`, `not_paid`; for the buyer, `order_email_change_block` and an address with a confirmed, undeleted account other than `p_caller_id` (`account_email`); the same address ignoring case is `unchanged` (nothing written). Otherwise sets `buyer_email`, clears `tickets_emailed_at`, logs both addresses masked, and makes the ticket email pending again (due now, attempts 0, lease, error and `sent_at` cleared; a missing job, purged after 90 days, is inserted): a worker mid-send loses its lease, so its finish is `lease_lost`. A lost race on the one-change index is `already_changed`, undone. A malformed address raises 22023. `admin_change_order_email` finds the order by its ticket email job (`not_found`), skips the buyer's checks, needs a reason, and takes a hit on the admin's `order_email_changes` allowance (`take_rate_limit`, 20 an hour) only for a change made, last, in a subtransaction (`rate_limited` undoes the change). Returns `changed`, `unchanged` or the refusal (and the admin form, the order id). Not security definer; search_path pinned. |
 | `email_outbox_health(p_overdue_after)` | Per outbox kind: due, overdue (due, or leased by a worker that died, for longer than `p_overdue_after`), the oldest overdue job's age in seconds, waiting, sending, expired leases, failed and failed in the last 7 days. Sent jobs aren't read. Counts only; `GET /api/admin/emails/health` and the SQL editor (`20261109000300_email_outbox_health.sql`). |
 | `waitlist_join_state` | Whether an event's waitlist takes joins: `open` (published, Sheltüh-ticketed, not ended, has ticket types and every one is sold out), else `not_found` (missing or not published), `external`, `ended` or `not_sold_out`. |
@@ -273,6 +275,12 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
 | `take_client_rate_limit`, `take_seat_hold_attempt` | `take_rate_limit`'s fixed-window counter keyed on a client key (or, for `order_payment:order`, an order key). `take_seat_hold_attempt` takes one hit on the client's `seat_holds:<event id>` bucket, then one on its `seat_holds` (all events) bucket, in that order (nothing else writes them), and returns `ok`, `event` or `all`; a refusal keeps neither hit (`20261103000000_seat_hold_client_limits.sql`). |
 | `place_free_seated_order`, `request_free_seated_order` | `place_free_order` / `request_free_order` for a seated free order (the seat lock first; the order records its seats). A guest's order holds nothing until confirmed. `seats_unavailable` when a member's seat is gone. `20261122000000_order_buyer_details.sql` added a trailing `p_buyer_name text default null` (stored as `orders.buyer_name`; the old argument lists still work, and `request_free_order` keeps its 13-argument delegating form). |
 | `fulfil_order` | Queues the ticket email in the same step (see "Payment flow"). Takes inventory for every line item, issues the tickets and marks the order paid. If any ticket type has sold out, or the event is no longer published, it takes nothing and marks the order `oversold_refund_required`. Rows are locked in a fixed order, so concurrent orders can't deadlock. It's idempotent, so Stripe's webhook redeliveries are harmless. A seated order takes the event's seat lock first, needs every seat (free, its own hold, or an expired hold) and lines that match its seats exactly (no order buys a seated tier without seats), and gives each ticket one of its tier's seats; otherwise the oversold path, which also clears its holds. A paid order takes the payment intent's lock first and, after the pending check, applies an early refund recorded for its payment (once), by `record_payment_refund`'s rule (`20261111000300_refund_no_inference.sql`): in full (Stripe's `refunded`, or at least `total_cents`), the order becomes `refunded` with nothing taken, issued or emailed (holds cleared; returns `refunded`); in part (anything less), it's fulfilled as normal, then the amount is recorded and a `partial_refund` exception opened. The body is `fulfil_order_detailed`, which also returns `alert_queued` (that exception queued an ops alert), so the webhook drains the alert outbox only then; `fulfil_order` (same signature, the free paths') returns its status. |
+| `member_held_tickets` | Stable: the one definition of "holds a ticket" (see "Ticket transfers"): each ticket of a `paid` order whose `buyer_email` is the given verified address (ignoring case) that hasn't been sent to someone who accepted it, plus each ticket the given account accepted and still holds (not superseded, its order paid). Read by `set_going`, `GET /me`, `GET /events/{id}/going/me` and the accept's Who's Going cleanup. |
+| `create_ticket_transfer`, `create_holder_ticket_transfer` | A send (`20261203000000_ticket_transfers.sql`; see "Ticket transfers"): event (share), order (share) (`owner_only` for the paying browser, `p_sender_user_id` null, once support has changed the order's email, and for a signed-in sender whose `p_sender_email` isn't the order's `buyer_email` any more), ticket (update) by its number in the order; then `ticket_offer_refusal` (`not_paid`, `event_unlisted`, `closed`, `type_not_allowed`, `checked_in`, then, after expiring the ticket's overdue offer, `pending`, `already_sent`, `own_email`, `attempts_used`, `pending_cap`) and `insert_ticket_offer` (the account's, recipient address's and platform's allowances, then the offer and its `transfer_offer` job, in one block that rolls the hits back on `rate_limited`; a lost race on the one-pending index is `pending`). The rules and limits are parameters. The holder's form is refused by the API while recipients may not re-send. |
+| `cancel_ticket_transfer` | The buyer's (with the order it must belong to, a buyer's offer only, and the signed-in account or null for the paying browser) or support's (with a reason) cancel of a pending, unexpired offer: order (share; `owner_only` as the send's), ticket (update), transfer (update). `cancelled`, `not_pending`, `not_found`, `owner_only`. No email. |
+| `accept_ticket_transfer` | The accept, by the link token's hash, for any verified account: first an advisory lock on the account (its accepts one at a time, so `held_cap` is exact), then event, order, ticket, transfer locked in that order; an overdue offer is expired then (its email queued) and `unavailable`; `closed`, `ticket_unavailable`, `own_ticket`, `held_cap`, `user_unavailable`, `code_taken`; the account's allowance last (`rate_limited`, nothing written). Then the new code and serial, the notice time, a re-send's previous holding superseded, the giver's Who's Going opt-in removed unless they still hold a ticket for the event, and the `transfer_accepted` and `transfer_ticket` jobs. `already_accepted` for the same account again. |
+| `decline_ticket_transfer` | Declines a pending, unexpired offer by the link token's hash (no sign-in), queuing `transfer_declined`; else `unavailable`. |
+| `expire_ticket_transfers` | The email cron's sweep: up to `p_limit` overdue pending offers (past `expires_at` or the event's cut-off), soonest first, become `expired` with their `transfer_expired` job. One run at a time (advisory lock), `skip locked`, so it never waits on an accept, cancel or decline. |
 
 ## Payment flow
 
@@ -2400,10 +2408,13 @@ A member is shown as going to an event only when all of these hold:
 - They're signed in, and Supabase Auth has confirmed their email
   (`Caller.emailVerified`, from `email_confirmed_at`; `requireVerifiedCaller`
   returns 403 otherwise).
-- A `paid` order for the event (free tickets are A$0 paid orders) has a
-  `buyer_email` equal, ignoring case, to that verified email. Guest checkout
-  has no account, so the email is the only link between a ticket and a
-  member.
+- They hold a ticket for the event (`private.member_held_tickets`): a `paid`
+  order for the event (free tickets are A$0 paid orders) has a `buyer_email`
+  equal, ignoring case, to that verified email, and they haven't sent all of
+  its tickets to someone who accepted them; or they accepted a ticket someone
+  sent them (by their account; see "Ticket transfers"). Guest checkout has
+  no account, so the email is the only link between a bought ticket and a
+  member. Giving away the last ticket for an event removes their opt-in.
 - They've created a profile (display name plus an 18+ confirmation) that
   isn't suspended.
 - They opted in for that event. It's off by default.
@@ -3345,11 +3356,14 @@ scanner at `/dashboard/[eventId]/check-in` (`components/check-in/*`,
   the ticket's current admission so the door can undo it from there; absent
   when there's none on record; re-entry is refused),
   `not_admissible` (its order isn't `paid`, e.g. refunded in Stripe: the
-  ticket is void), `other_event` (one of the organiser's other events, named)
-  and `invalid` (malformed, unknown, or another organiser's ticket). Every
-  outcome but `invalid` also returns the ticket type, "ticket n of N" in the
-  ticket email's order (ticket type id, then code) and the code's last four
-  characters.
+  ticket is void), `other_event` (one of the organiser's other events, named),
+  `transferred` (the ticket was sent to someone who accepted it and this
+  isn't its live code: nothing marked; see "Ticket transfers") and `invalid`
+  (malformed, unknown, or another organiser's ticket). A recipient's issued
+  code is looked up as its ticket. Every outcome but `invalid` also returns
+  the ticket type, "ticket n of N" in the ticket email's order (ticket type
+  id, then code) and the scanned code's last four characters (also kept on
+  the log row, `scanned_last4`, for the recent list and undo).
 - **Errors mean "couldn't verify".** 400 (`code` not a string, `requestId` not
   a uuid), 404, 409 (a request id reused for another code), 413 (body over
   1 KB), 429 or a network failure: nothing was marked, and the scanner must
@@ -4787,6 +4801,177 @@ person (`supabase/migrations/20261120000000_group_tickets.sql`,
   (incident runbook)"). Switching the flag off only stops new group tickets:
   to stop a live one selling, unpublish the event or sell out the tier.
 
+## Ticket transfers
+
+"Send ticket to a friend" (`supabase/migrations/20261203000000_ticket_transfers.sql`,
+`lib/server/handlers/ticket-transfers.ts`, `lib/server/ticket-transfers.ts`,
+`lib/ticket-transfer-rules.ts`). Dark-launched behind
+`NEXT_PUBLIC_TICKET_TRANSFERS` (`lib/ticket-transfers-flag.ts`): off stops new
+sends only; offers already made can be viewed, accepted, declined and
+cancelled, received tickets keep working at the door, and sent tickets stay
+sent. Built in stages: this release is the database, the API, the door and
+the redaction; the emails (and the offer link's token minting), the
+organiser's view, reminders to holders, the UI and recipients' wallet passes
+follow. Until the emails ship, the transfer jobs wait in the outbox: no
+release leases them (`ticketTransferJobsSoon` is empty, and the cron's drain
+doesn't name their kinds).
+
+**The owner's rules** (`TICKET_TRANSFER_RULES`, each passed to the database
+as a parameter, so a change is one line with no migration): paid and free
+tickets; until 2 hours before the event starts (send and accept; accept reads
+the event's current start, so an event moved earlier closes its offers); once
+per ticket; recipients can't send it on; an offer lasts 72 hours or until the
+cut-off, whichever is first; the sender can cancel before it's accepted. No
+money moves through Sheltuh.
+
+**Identity.** `public.tickets` rows and codes never change: `tickets.code`
+stays the ticket's identity (its primary key, its "ticket n of N" place and
+the check-in log's key). All transfer state is in `private.ticket_transfers`.
+Accepting writes a new `issued_code` and `wallet_serial` on the transfer row.
+The door admits a ticket's live credential: its current holding's
+`issued_code`, else `tickets.code`. So every existing reader of
+`tickets.code` (the order page, the wallet routes, the ticket email and its
+resends, the email change's resend, reminders) can only ever see the original
+code, which stops working once the ticket is accepted; the order page and the
+wallet routes also leave a sent ticket out altogether (below).
+`tests/server/ticket-transfer-invariants.test.ts` scans the source: only the
+migration and the transfer modules read `issued_code`.
+
+**Who may send** (owner decision D1): the paying browser (the order access
+token in `x-order-access`) unless support has changed the order's email (the
+token may be on a device the old address's holder uses; the API and, under
+the order's lock, `create_ticket_transfer` / `cancel_ticket_transfer` refuse
+it: `owner_only`), or a signed-in account with a verified email equal to the
+order's `buyer_email`, ignoring case (never +tag or Gmail-dot folding). The
+order's link alone sees only that a ticket is on offer or was sent, and can't
+send or cancel; its 403 names the buying address masked only where the page
+shows it (a settled order whose email was never changed). **Who may accept** (O1): any signed-in account with a verified email
+(the recipient's ticket email goes to it), not necessarily the address it was
+sent to: the link's token is the capability (hashed at rest, one acceptance,
+an expiry, never logged, lookups rate-limited). Not the buyer's own account
+(by email), nor the sender's (`own_ticket`). The account that accepted, its
+email then, the name it confirmed and when the organiser notice was shown are
+recorded. Declining needs no sign-in.
+
+**The ticket page** (`GET /orders/by-session/{id}`, and every answer that's
+its order: `ticketPageOrder`): each ticket has `ticketNumber` (type, then
+code: stable whatever is sent on, and the wallet routes' `?ticket={n}`); an
+offer in progress is the ticket's `transfer` (its status and expiry; with
+control also its id, the recipient's name and masked address, and
+`canCancel`); a ticket sent and accepted moves to `transferredTickets` with
+when (with control also the confirmed name, and the accepting address masked
+only when it isn't the one the sender typed, D4), and never a code (the SQL leaves the code out; the mapper drops any entry
+with `sent` from `tickets` too). While the flag is on, `transfers` says
+whether this request may send (`sign_in`, `closed`, `unlisted`) and each
+ticket's `canSend`. The wallet routes 404 a sent ticket's number (looked up by
+number, not position, and the serial query excludes it), and every other
+ticket keeps its number and serial.
+
+**The recipient** sees only that ticket: the offer (`TicketOffer`), and once
+accepted their received ticket (`ReceivedTicket`, by the transfer's id, the
+accepting account only) with their own code while it's valid, a transfer
+reference (`#` + 8 hex of the transfer's id) and never the order's id or
+reference, the buyer's name or email, amounts or the order's other tickets.
+
+**The door.** `check_in_ticket` looks a code up as a ticket's code, else as an
+issued code. A scan whose credential isn't the live one is `transferred`
+("Don't let in. This ticket was sent to someone else."; nothing marked, one
+log row, described like `not_admissible`, decided under the ticket's lock and
+before `not_admissible`). A scan row that names a ticket (every result but
+`invalid`) keeps the scanned credential's last four (`scanned_last4`), shown
+in the recent list and when undoing; `invalid` and undo rows, and rows from
+before the migration, have none. A request id replayed with the ticket's
+other credential is a `conflict`, as for another ticket. Older door clients
+show an unknown outcome as Not verified (fail closed).
+
+**Who's Going and GET /me** use `member_held_tickets`: a member who gave
+away every ticket for an event can't opt in, and their opt-in is removed when
+the transfer is accepted (so they can't keep messaging its attendees); a
+recipient can opt in; `upcomingCount` counts held tickets (given-away ones
+out, received ones in).
+
+**Refunds** (D9): a refund of the buyer's order voids the recipient's ticket
+(the order isn't paid: `not_admissible` at the door, `void` on the received
+page). The recipient isn't emailed in v1.
+
+**Expiry** is lazy (a send expires the ticket's overdue offer first; an
+accept of an overdue one expires it) and swept by the email cron
+(`expire_ticket_transfers`, 200 a run), each queueing the sender's
+`transfer_expired` email.
+
+**Limits** (`TICKET_TRANSFER_LIMITS`): sends 20 an hour per client, 10 a day
+per order, 10 a day per signed-in account; 3 offers a day per recipient
+address across all senders (bucket `ticket_transfer_to:` and 40 hex of
+`email_recipient_hash`, the bucket's 64-character limit); 300 offers a day
+platform-wide (the shared Workspace SMTP quota); views 60, accepts 30,
+declines 30 and cancels 30 an hour per client; accepts 10 an hour per account;
+admin cancels 30 an hour; 5 offers per ticket (any outcome), 20 pending per
+signed-in sender, 10 received tickets per account per event. The per-client
+limits fail open, logged, without a client IP or `STRIPE_WEBHOOK_SECRET`.
+
+**Locks**: event (share), order (share), ticket (update), transfer (update),
+then outbox and rate-limit rows, in every step; the rate-limit hits last,
+rolled back with any refusal. `check_in_ticket` takes the same prefix;
+`record_payment_refund` takes the order first (for update), so a refund and a
+transfer step serialise on the order; the sweep locks transfer rows only, with
+`skip locked`. An accept first takes a transaction advisory lock on its
+account (`ticket_transfer_accept:` and the user id), before any row lock (so
+it can't join a lock cycle): one account's accepts run one at a time, and the
+held cap (10 per event) is enforced exactly. The pending cap (20 per sender)
+isn't locked: two sends of different tickets at the same instant can both
+pass it, bounded by the account's 10 sends a day. A signed-in sender's or
+canceller's email is re-checked against the order's `buyer_email` under the
+order's lock (`owner_only`), so an email change after the API's check can't
+let the old address's account through. `tests/server/ticket-transfer-races.test.ts`
+(real Postgres) races accept against accept, cancel, decline, a check-in, a
+refund, an opt-in and the sweep, two accepts of one account at the cap less
+one, and two sends.
+
+### Accepted risks (ticket transfers)
+
+- **A forwarded or leaked offer link** (O1, the owner's choice): whoever
+  accepts first with any verified account gets the ticket, and in v1 it can't
+  be undone. Mitigations: one acceptance; 72 hours or the cut-off; the sender
+  can cancel until then; the sender is told who accepted (masked address when
+  it differs); the token only ever in a fragment, hashed at rest and never
+  logged; the limits above. The data model supports an admin reversal later
+  (a new transfer back to the buyer superseding the holding).
+- **Resale and refund fraud** (D9): sell, send, then get refunded voids the
+  recipient's ticket. Recipients can't send on; organisers and support see
+  transfers (the admin list now; the organiser's Orders view next); the ToS
+  covers resale (the owner's wording).
+- **Static wallet passes** keep showing the sender's old QR; the door says
+  "sent to someone else".
+- **Code collisions**: issued codes and new ticket codes share one space
+  (the unique index, accept's check and `tickets_code_not_reissued`); an
+  insert and an accept of the same 40-bit value at the same instant is a
+  negligible race.
+- **Deploy order**: the ticket page's query reads `private.ticket_transfers`,
+  so the migration must be applied before this release runs (it is additive:
+  the previous release runs with it applied).
+- **A deadlock between an accept and the buyer deleting their account at the
+  same instant** is possible (the deletion locks the account, then its
+  profile, then sets the transfer's `sender_user_id` to null; the accept
+  locks the transfer, then the buyer's profile, to serialise with
+  `set_going`, and removes their Who's Going row): Postgres aborts one, which
+  is retried.
+- **Typed details** (the sender's and recipient's names, the recipient's
+  address) are kept on accepted offers; support can blank them on any decided
+  offer on request (`details_redacted_at`, placeholders only, once;
+  `docs/supabase-setup.md`).
+- **Admin list's sender**: a buyer whose account was deleted since reads as
+  the paying browser.
+- **`member_held_tickets` isn't inlined** (it pins `search_path`), so
+  `set_going` reads all of one member's held tickets to ask about one event:
+  bounded by one person's tickets.
+- **Privacy**: new personal data: the sender's typed name; a third party's
+  typed name and email (deleted 30 days after the event unless accepted); the
+  holder's confirmed name and email (for the organiser, with notice, next
+  release). Support withdraws a holder's details on request
+  (`holder_details_withdrawn_at`, `docs/supabase-setup.md`). The Privacy
+  Policy wording is the owner's.
+
+
 ## Event reminders
 
 One email to each ticket holder the day before an event, or the morning of it
@@ -5275,6 +5460,13 @@ without one. The UI keeps showing the API's words, which already say when
 | `POST /orders/confirm` `{token}` | public (the emailed token is the credential). 200 `{url}` (also when already confirmed, within 24 hours); 400 malformed; 404 unknown; 410 expired (confirmed or not); 409 sold out, allowance used, or a ticket type no longer free |
 | `GET /orders/by-session/{orderId}` | public (id is the credential). `CustomerOrder` only (see "Payment flow"), `private, no-store`; `wallet: {google, apple}` when the tickets can be added to a wallet (see "Wallet passes"). With the order's token in `x-order-access` (a paid order, the paying browser), also `emailChange`, and `email` until the event ends, except once support has changed the email: then `emailChange: {allowed: false, reason: "changed_by_support"}` and neither `email` nor `maskedEmail`, even before the event ends (expected, not a malformed answer); without it, `maskedEmail` is left out once the order's email has been changed (see "Buyer email checks") |
 | `POST /orders/by-session/{orderId}/email` `{email}` | public, the paying browser only: the order's token in `x-order-access` (and optionally the buyer's bearer token: their own confirmed address is allowed). 200 `OrderEmailChangeResult` `{result: "changed" \| "unchanged", order}`; 404 malformed (no query), unknown, not a card order, or a missing or wrong token (one body for all); 400 `fieldErrors.email`, or `code: "email_typo"` / `"email_no_mail"` with `suggestion`; 409 `order_not_paid`, `changed_by_support` ("Contact support to change this email again"), `event_ended`, `ticket_scanned`, `email_already_changed`, `email_has_account` ("Contact support to use this address"), `email_change_busy` (Retry-After 2); 429 `rate_limited` over 10 an hour from this client or 5 a day for this order. `private, no-store`. See "Buyer email checks" |
+| `POST /orders/by-session/{orderId}/ticket-transfers` `{ticket, name, email, senderName}` | public, with control of the order: the paying browser (`x-order-access`) or a signed-in, verified account whose email is the order's `buyer_email` exactly (ignoring case). Sends ticket number `ticket` (see "Ticket transfers"). 404 malformed (no query), sending off (`NEXT_PUBLIC_TICKET_TRANSFERS`) or unknown; 429 per client (20 an hour) and per order (10 a day); 400 `fieldErrors` (every field at once), or `email_typo` / `email_no_mail`; 403 `order_owner_only` (naming the buying address masked); 409 `order_not_paid`, `event_unlisted`, `transfers_closed`, `ticket_type_not_transferable`, `ticket_checked_in`, `transfer_pending`, `ticket_already_sent`, `own_email` (with `fieldErrors.email`), `transfer_attempts_used`, `transfer_pending_cap`; 429 `rate_limited` (the account's, the recipient address's or the platform's daily allowance). 201 `TicketTransferCreated` `{transferId, order}`, `private, no-store` |
+| `POST /orders/by-session/{orderId}/ticket-transfers/{transferId}/cancel` | as the send's control, whatever the flag. 200 `{order}`; 403 `order_owner_only`; 404 not this order's; 409 `transfer_not_pending`, `cancel_not_allowed`; 429 per client |
+| `POST /ticket-transfers/view` `{token}` | public, read-only (the link's token, in the body, is the credential). 200 `TicketOffer`: `open` (the names, the recipient's address masked, the expiry, the event while published, the ticket's type, seat and group place) or, for the account that accepted it, `{status: "accepted", transferId}`; 404 "This ticket offer has expired or was already used." for everything else; 429 per client (60 an hour, every attempt) |
+| `POST /ticket-transfers/accept` `{token, holderName}` | any verified account (401 / 403). 200 `{transferId}` (also again by the same account); 404 the uniform answer; 400 `fieldErrors.holderName`; 409 `transfers_closed`, `ticket_unavailable`, `own_ticket`, `received_cap`; 429 per client (30 an hour) or `rate_limited` (the account's 10 an hour) |
+| `POST /ticket-transfers/decline` `{token}` | public. 200 `{status: "declined"}`; 404 the uniform answer; 429 per client |
+| `GET /me/received-tickets/{transferId}` | verified, the account that accepted it (404 otherwise). `ReceivedTicket`, `private, no-store`: the recipient's own code only while valid (order paid, not sent on), never the order's id or reference, the buyer, amounts or other tickets |
+| `POST /me/received-tickets/{transferId}/ticket-transfers` | verified. 409 `resend_not_allowed` while recipients may not re-send (the owner's rule); the route exists so the rule is a one-line change |
 | `GET /orders/by-session/{orderId}/wallet/google?ticket={n}` · `…/wallet/apple?ticket={n}` | public (id is the credential, as the ticket page; see "Wallet passes"). Google: 302 to `https://pay.google.com/gp/v/save/{jwt}`; Apple: 200 `application/vnd.apple.pkpass`. `private, no-store`. 404 malformed (no query), the wallet not configured (no query), unknown, not paid, the event not published, or no ticket `n`; 400 `fieldErrors.ticket`; 429 over 30 a minute from this client, or 60 a minute for this order |
 | `GET /orders/by-session/{orderId}/payment` | public (id is the credential), read-only. `OrderPaymentLookup` (see "Payment flow", step 2), `private, no-store`: `{status: "open", clientSecret, expiresAt, …summary}`, `{status: "processing", delayed}`, `{status: "done"}`, or `{status: "closed" \| "sold_out", eventTitle, eventSlug?, seated}` (`closed` also when the event is no longer published or has ended while the session is open); 404 malformed (no query), unknown or a guest's free booking; 409 still being set up; 429 over 30 reads a minute from this client, or 20 Stripe reads a minute for this order; 500 an open session without a client secret |
 | `GET /cron/email-outbox` | Vercel Cron, and on Hobby Supabase Cron + `pg_net` (`Authorization: Bearer $CRON_SECRET`, 401 otherwise): sends due outbox jobs (ops alerts first, then tickets, waitlist, followers, admin review emails, then the admins' `event_published` and `organiser_joined` emails, then event reminders, messages to ticket holders and the welcome emails), first queueing member welcomes (`queue_member_welcomes`) and event reminders (`queue_event_reminders`), records the run, then refreshes Trending and sweeps stale clip objects (see "Trending"), returns counts `{claimed, sent, retrying, failed}`. Daily at 21:00 UTC |
@@ -5286,6 +5478,7 @@ without one. The UI keeps showing the API's words, which already say when
 | `GET /admin/emails?status&cursor` · `?reference` · `POST /admin/emails/{jobId}/resend` | admin. Status `failed` (default), `pending`, `sending`, `sent`; `reference` (an order's 8-character reference, with or without `#`, any case; else 400): that order's ticket email in any status. Each job has `emailChanges` (newest 5, masked). Resend: 404 unknown, 409 being sent, 429 resent in the last 5 minutes or over 20 an hour |
 | `POST /admin/emails/{jobId}/change-email` `{email, reason}` | admin. Moves the job's order to `email` and sends the tickets there now, any time and to any address (an account's included; the typo list skipped), logged with the admin and `reason` (3–500 characters, no email addresses). Ends the buyer's own changes. 200 `{result, job}` (`AdminOrderEmailChangeResult`: `changed`, or `unchanged` for the same address, nothing done; `job` the `AdminEmailJob` as it is now); 400 `fieldErrors.email` / `fieldErrors.reason` or `code: "email_no_mail"`; 404 unknown job; 409 `order_not_card`, `order_not_paid`, `email_change_busy`; 429 over 20 an hour (only changes made count). See "Buyer email checks" |
 | `GET /admin/emails/health` | admin. `EmailOutboxHealth`: counts per kind and in total (due, overdue after 15 minutes, `oldestOverdueSeconds`, waiting, sending, expired leases, failed, failed in 7 days), `lastCronRun` (time and counts), `cronSecretConfigured`. No addresses, orders or tokens. `private, no-store`. No UI yet |
+| `GET /admin/ticket-transfers?reference&cursor` · `POST /admin/ticket-transfers/{transferId}/cancel` `{reason}` | admin. The list: `AdminTicketTransferPage`, newest first, 20 a page; `reference` an order's or a transfer's 8-hex reference (400 otherwise); addresses masked only. The cancel: a pending offer, with a reason (3 to 500 characters, no email address: 400), 30 an hour (429); 200 `{result: "cancelled"}`, 409 `transfer_not_pending`, 404 |
 | `POST /stripe/webhook` | Stripe (signature-verified) |
 | `GET /admin/payment-exceptions?status&cursor&limit` · `POST /admin/payment-exceptions/{exceptionId}/resolve` `{note}` | admin. `AdminPaymentException` (see "Refunds made in Stripe"): status `open` (default, oldest first) or `resolved` (newest resolution first); order by short reference only, no buyer data; `urgent` for a refund that didn't complete after its order was voided. Resolve: note 1–500 characters (400), 404 unknown, 409 already resolved. No UI yet |
 | `POST /organisers/apply` · `GET /organisers/me` · `PATCH /organisers/me` | signed in. GET: `private, no-store`; the record carries `eventReviewRequired` (an admin's review switch: "Publishing events"). PATCH: a rejected application is resubmitted in full (back to pending); an approved organiser edits their profile (see "Organiser profiles"); pending is a 409 |

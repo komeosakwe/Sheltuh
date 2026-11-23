@@ -34,6 +34,7 @@ import { getMyProfile, putMyProfile } from "@/lib/server/handlers/profiles";
 import { adminListReports } from "@/lib/server/handlers/reports";
 import { listTrackingLinks } from "@/lib/server/handlers/tracking-links";
 import { adminGetEventCuration, runTrendingCron } from "@/lib/server/handlers/trending";
+import { adminListTicketTransfers } from "@/lib/server/handlers/ticket-transfers";
 import { getWaitlistStatus } from "@/lib/server/handlers/waitlist";
 import { runHandler, type Handler } from "@/lib/server/route";
 import { CRON_SECRET, SITE_URL, TestApi } from "./helpers/api";
@@ -136,6 +137,7 @@ const PRIVATE_GETS: Case[] = [
   { name: "getEventOrdersCsv", handler: h(getEventOrdersCsv), as: asOrganiser, params: event },
   { name: "getHolderMessages", handler: h(getHolderMessages), as: asOrganiser, params: event },
   { name: "adminListHolderMessages", handler: h(adminListHolderMessages), as: asAdmin },
+  { name: "adminListTicketTransfers", handler: h(adminListTicketTransfers), as: asAdmin },
 ];
 
 /**
@@ -184,6 +186,7 @@ const COVERED_ELSEWHERE: Record<string, string> = {
   getOrderPayment: "order-payment.test.ts (an open checkout session)",
   getAppleWalletPass: "wallet-passes.test.ts (a paid order and wallet keys)",
   getGoogleWalletPass: "wallet-passes.test.ts (a paid order and wallet keys)",
+  getReceivedTicket: "ticket-transfers.test.ts (a ticket the caller accepted)",
 };
 
 describe("authenticated GETs are private", () => {

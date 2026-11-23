@@ -7,6 +7,7 @@ import { HttpError, okPrivate, tooManyRequests, windowSeconds } from "../http";
 import { decodeCursor, parseLimit, toPage } from "../pagination";
 import { ADMIN_EMAIL_JOB_SELECT, toAdminEmailJob } from "../records";
 import type { Handler } from "../route";
+import { TICKET_TRANSFER_RULES } from "@/lib/ticket-transfer-rules";
 import { refreshTrending } from "./trending";
 import {
   EMAIL_JOB_STATUSES,
@@ -36,6 +37,7 @@ export const MEMBER_WELCOMES_PER_RUN = 50;
 let warnedNoWelcomeQueue = false;
 /** Logged once per process while the database lacks private.queue_event_reminders. */
 let warnedNoReminderQueue = false;
+let warnedNoTicketTransferExpiry = false;
 
 /**
  * Reminders queued per cron run (private.queue_event_reminders; what is sent
@@ -43,6 +45,15 @@ let warnedNoReminderQueue = false;
  * first, so a bigger backlog is finished by the next run.
  */
 export const EVENT_REMINDERS_PER_RUN = 2000;
+
+/**
+ * Overdue ticket transfer offers expired per cron run
+ * (private.expire_ticket_transfers, soonest first): a bigger backlog is
+ * finished by the next run. Nothing waits on it (every step treats an
+ * overdue offer as expired); it marks them and queues the sender's
+ * "offer expired" email.
+ */
+export const TICKET_TRANSFER_EXPIRIES_PER_RUN = 200;
 
 /**
  * The local hour (0 to 23, in the event's own time zone) from which an event
@@ -135,6 +146,25 @@ async function queueEventReminders(deps: Deps): Promise<void> {
 }
 
 /**
+ * Expires the ticket transfer offers now overdue (past their 72 hours, or
+ * their event's cut-off), queueing each sender's email (runQueueing;
+ * 20261203000000_ticket_transfers.sql).
+ */
+async function queueTicketTransferExpiries(deps: Deps): Promise<void> {
+  warnedNoTicketTransferExpiry = await runQueueing(
+    deps,
+    {
+      call: `select private.expire_ticket_transfers($1, $2::interval)`,
+      params: [TICKET_TRANSFER_EXPIRIES_PER_RUN, TICKET_TRANSFER_RULES.cutoffBeforeStart],
+      signature: "private.expire_ticket_transfers(integer,interval)",
+      label: "ticket transfer expiries",
+      migration: "20261203000000_ticket_transfers.sql",
+    },
+    warnedNoTicketTransferExpiry,
+  );
+}
+
+/**
  * GET /api/cron/email-outbox — sends every due job (retries, and anything
  * the after-response attempt didn't finish), then records the run for
  * GET /api/admin/emails/health, then rebuilds the trending snapshot
@@ -146,12 +176,13 @@ async function queueEventReminders(deps: Deps): Promise<void> {
  * job at a time with `skip locked` (two runs never send the same job), takes
  * at most 100 jobs and stops claiming after DRAIN_BUDGET_MS (30 s, inside the
  * route's 60-second maxDuration), and with nothing due it's one welcome
- * queueing call, one reminder queueing call, seven indexed claims (one per drain phase) and one upsert.
+ * queueing call, one reminder queueing call, one ticket transfer expiry call, seven indexed claims (one per drain phase) and one upsert.
  */
 export const runEmailOutboxCron: Handler = async (req, _params, deps) => {
   requireCronSecret(req, deps.cronSecret());
   await queueMemberWelcomes(deps);
   await queueEventReminders(deps);
+  await queueTicketTransferExpiries(deps);
   const summary = await drainEmailOutbox(deps);
   await deps.db.query(
     `insert into private.cron_runs (name, finished_at, claimed, sent, retrying, failed)

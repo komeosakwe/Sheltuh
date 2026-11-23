@@ -36,6 +36,7 @@ const KNOWN_OUTCOMES: ReadonlySet<string> = new Set<CheckInResult["outcome"]>([
   "not_admissible",
   "other_event",
   "invalid",
+  "transferred",
 ]);
 
 /**
@@ -146,6 +147,8 @@ export function resultAnnouncement(result: DoorResult, timeZone: string = PLATFO
         : `Don’t let in. Already checked in.${seat}`;
     case "not_admissible":
       return "Don’t let in. Ticket void.";
+    case "transferred":
+      return "Don’t let in. This ticket was sent to someone else.";
     case "other_event":
       return otherEventTitle ? `Don’t let in. Ticket for ${otherEventTitle}.` : "Don’t let in. Wrong event.";
     case "invalid":
@@ -169,6 +172,8 @@ export function recentRow(entry: CheckInLogEntry): { label: string; detail: stri
       return { label: "Already checked in", detail: typeAndCode(entry), icon: "cross" };
     case "not_admissible":
       return { label: "Void", detail: typeAndCode(entry), icon: "cross" };
+    case "transferred":
+      return { label: "Sent to someone else", detail: typeAndCode(entry), icon: "cross" };
     case "other_event":
       return {
         label: "Wrong event",

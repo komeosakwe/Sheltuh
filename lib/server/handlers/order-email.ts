@@ -9,14 +9,14 @@ import { sendTicketEmailSoon } from "../email-outbox";
 import { HttpError, okPrivate, readJson, tooManyRequests, windowSeconds } from "../http";
 import { parseMessageText } from "../message-input";
 import { hasOrderAccess } from "../order-access";
-import { emailChangeBlockReason, withOrderEmail } from "../order-email-view";
+import { emailChangeBlockReason } from "../order-email-view";
 import { ORDER_ID_PATTERN, orderReference } from "../order-reference";
 import { ADMIN_EMAIL_JOB_SELECT, toAdminEmailJob } from "../records";
 import type { Handler } from "../route";
 import type { AdminOrderEmailChangeResult, CustomerOrder, OrderEmailChangeErrorCode, OrderEmailChangeResult } from "../types";
 import { fail, requireEmail } from "../validation";
 import { optionalCaller } from "./free-orders";
-import { lookupCustomerOrder, ORDER_NOT_FOUND, withWallet } from "./orders";
+import { lookupCustomerOrder, ORDER_NOT_FOUND, ticketPageOrder } from "./orders";
 
 /**
  * Changing a paid order's email (docs/architecture.md, "Buyer email checks";
@@ -90,12 +90,12 @@ function parseEmail(body: Record<string, unknown>, field: string): string {
   return email;
 }
 
-/** The order as the paying browser sees it: exactly getOrderBySession's answer with its token (wallet included). */
+/** The order as the paying browser sees it: exactly getOrderBySession's answer with its token (ticketPageOrder). */
 async function paidOrderView(req: Request, deps: Deps, orderId: string): Promise<CustomerOrder> {
   const lookup = await lookupCustomerOrder(deps.db, orderId);
   // Never pending here: only a paid order's email can change.
   if (lookup.status === "pending") throw new HttpError(404, ORDER_NOT_FOUND);
-  return withWallet(deps, await withOrderEmail(req, deps, orderId, lookup));
+  return ticketPageOrder(req, deps, orderId, lookup);
 }
 
 /**

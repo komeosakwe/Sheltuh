@@ -4,6 +4,7 @@ import { getMe } from "@/lib/server/handlers/me";
 import { deleteMyUsername, putMyUsername } from "@/lib/server/handlers/usernames";
 import type { EventRecord } from "@/lib/server/types";
 import { TestApi } from "./helpers/api";
+import { generateTicketCode } from "@/lib/server/ticket-issuance";
 import { approvedOrganiser, draftEvent, insertOrder, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 
@@ -82,11 +83,17 @@ describe("GET /api/me", () => {
         ticketTypes: [{ id: "free", name: "Free entry", priceCents: 0, feePolicy: "buyer-pays", quantityAvailable: 50 }],
       });
       expect(free.ticketTypes.every((t) => t.priceCents === 0)).toBe(true);
+      const paidId = `ord_${crypto.randomUUID().replace(/-/g, "")}`;
       await api.db.query(
         `insert into public.orders (id, event_id, organiser_id, event_title, buyer_email, line_items,
            subtotal_cents, buyer_fee_cents, total_cents, application_fee_cents, status)
          values ($1, $2, $3, 'Paid', $4, '[]'::jsonb, 3000, 170, 3170, 170, 'paid')`,
-        [`ord_${crypto.randomUUID().replace(/-/g, "")}`, event.eventId, event.organiserId, member.email],
+        [paidId, event.eventId, event.organiserId, member.email],
+      );
+      // A paid order has its tickets (a ticket is what's counted: private.member_held_tickets).
+      await api.db.query(
+        `insert into public.tickets (code, order_id, event_id, ticket_type_id, ticket_type_name) values ($1, $2, $3, 'ga', 'GA')`,
+        [generateTicketCode(), paidId, event.eventId],
       );
       await insertOrder(api, free, member.email); // total 0, paid
       expect(await upcomingCount()).toBe(2);
@@ -99,12 +106,13 @@ describe("GET /api/me", () => {
     });
 
     it("a group order (one order admitting several people) once", async () => {
+      const groupId = `ord_${crypto.randomUUID().replace(/-/g, "")}`;
       await api.db.query(
         `insert into public.orders (id, event_id, organiser_id, event_title, buyer_email, line_items,
            subtotal_cents, buyer_fee_cents, total_cents, application_fee_cents, status)
          values ($1, $2, $3, 'Group', $4, $5::text::jsonb, 12000, 530, 12530, 530, 'paid')`,
         [
-          `ord_${crypto.randomUUID().replace(/-/g, "")}`,
+          groupId,
           event.eventId,
           event.organiserId,
           member.email,
@@ -113,6 +121,14 @@ describe("GET /api/me", () => {
           ]),
         ],
       );
+      // One ticket per person.
+      for (let i = 0; i < 4; i++) {
+        await api.db.query(
+          `insert into public.tickets (code, order_id, event_id, ticket_type_id, ticket_type_name, group_size)
+           values ($1, $2, $3, 'ga', 'Group of 4', 4)`,
+          [generateTicketCode(), groupId, event.eventId],
+        );
+      }
       expect(await upcomingCount()).toBe(1);
     });
 

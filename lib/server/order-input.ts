@@ -128,30 +128,61 @@ const JOINER_BETWEEN_LETTERS = /(?<=[\p{L}\p{M}])[\u200C\u200D](?=\p{L})/gu;
 export const BUYER_NAME_MAX_LENGTH = 80;
 
 /**
+ * Why `value` isn't a person's name, or null with the cleaned name: Unicode
+ * NFC, spaces collapsed, trimmed; then a string of 1 to BUYER_NAME_MAX_LENGTH
+ * characters (code points) with at least one letter or number, no control or
+ * invisible characters (a zero-width joiner is allowed between two letters),
+ * no stacked combining marks, and no "@" or links. The rules of every name a
+ * person types for others to see (the buyer's, a ticket transfer's sender,
+ * recipient and holder), as private.person_name_ok checks in the database.
+ */
+function checkPersonName(value: unknown, emptyMessage: string): { error: string } | { name: string } {
+  if (typeof value !== "string") return { error: emptyMessage };
+  if (hasInvisibleOrControl(value.replace(JOINER_BETWEEN_LETTERS, ""))) {
+    return { error: "Names can't contain invisible or control characters." };
+  }
+  const name = value.normalize("NFC").replace(/\p{Zs}+/gu, " ").trim();
+  const length = Array.from(name).length;
+  if (length === 0) return { error: emptyMessage };
+  if (length > BUYER_NAME_MAX_LENGTH) return { error: `Must be ${BUYER_NAME_MAX_LENGTH} characters or fewer.` };
+  if (!hasLetterOrNumber(name)) return { error: "Names need at least one letter or number." };
+  if (tooManyMarks(name)) return { error: "Names can't stack accents or other marks on one character." };
+  if (containsAtSign(name) || containsLink(name)) return { error: "Names can't include links, email addresses or @handles." };
+  return { name };
+}
+
+/**
+ * A required name under `field` (checkPersonName's rules), cleaned; else the
+ * reason in `errors[field]` (and ""), so a request's fields are all reported
+ * at once. `emptyMessage` for a missing or blank one.
+ */
+export function parsePersonName(
+  value: unknown,
+  field: string,
+  errors: Record<string, string>,
+  emptyMessage = "Enter a name.",
+): string {
+  const checked = checkPersonName(value, emptyMessage);
+  if ("error" in checked) {
+    errors[field] = checked.error;
+    return "";
+  }
+  return checked.name;
+}
+
+/**
  * A checkout request's optional `buyerName` (CheckoutBuyerDetails): the name
  * the buyer typed, shown with their email to the event's organiser
  * (docs/architecture.md, "Organiser orders"). Omitted, null or "" is none
  * (null: the order is made without details; the API takes the name as
- * optional for one release). Otherwise cleaned (Unicode NFC, spaces
- * collapsed, trimmed) and checked: a string of 1 to BUYER_NAME_MAX_LENGTH
- * characters (code points) with at least one letter or number, no control or
- * invisible characters (a zero-width joiner is allowed between two letters),
- * no stacked combining marks, and no "@" or links, else
- * 400 `fieldErrors.buyerName`. A whitespace-only name is a 400 too (it was
- * sent, and isn't a name), not silently dropped.
+ * optional for one release). Otherwise cleaned and checked as any person's
+ * name (checkPersonName), else 400 `fieldErrors.buyerName`. A
+ * whitespace-only name is a 400 too (it was sent, and isn't a name), not
+ * silently dropped.
  */
 export function parseBuyerName(value: unknown): string | null {
   if (value === undefined || value === null || value === "") return null;
-  if (typeof value !== "string") fail({ buyerName: "Enter your name." });
-  if (hasInvisibleOrControl(value.replace(JOINER_BETWEEN_LETTERS, ""))) {
-    fail({ buyerName: "Names can't contain invisible or control characters." });
-  }
-  const name = value.normalize("NFC").replace(/\p{Zs}+/gu, " ").trim();
-  const length = Array.from(name).length;
-  if (length === 0) fail({ buyerName: "Enter your name." });
-  if (length > BUYER_NAME_MAX_LENGTH) fail({ buyerName: `Must be ${BUYER_NAME_MAX_LENGTH} characters or fewer.` });
-  if (!hasLetterOrNumber(name)) fail({ buyerName: "Names need at least one letter or number." });
-  if (tooManyMarks(name)) fail({ buyerName: "Names can't stack accents or other marks on one character." });
-  if (containsAtSign(name) || containsLink(name)) fail({ buyerName: "Names can't include links, email addresses or @handles." });
-  return name;
+  const checked = checkPersonName(value, "Enter your name.");
+  if ("error" in checked) fail({ buyerName: checked.error });
+  return checked.name;
 }
