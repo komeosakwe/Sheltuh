@@ -290,18 +290,19 @@ describe("POST /api/events/{eventId}/holder-messages", () => {
     await api.runDeferred();
     const [mail] = holderMails();
     expect(mail.html).not.toContain("Event image for");
-    expect(mail.html).toContain("/brand/sheltuh-wordmark-email.png");
-    expect(mail.inlineImages ?? []).toEqual([]);
+    // The shared layout's wordmark, inline (cid:) and nothing else.
+    expect(mail.html).toContain('<img src="cid:sheltuh-wordmark@sheltuh.com.au"');
+    expect((mail.inlineImages ?? []).map((i) => i.cid)).toEqual(["sheltuh-wordmark@sheltuh.com.au"]);
   });
 
-  it("shows the event's artwork in the announcement when it has some", async () => {
+  it("leaves the event's artwork out of the announcement even when it has some (the 1120 message box carries none)", async () => {
     await holders(["a@example.com"]);
     await api.db.query(`insert into public.event_images (event_id, content_type, data) values ($1, 'image/png', '\\x89504e47'::bytea)`, [event.eventId]);
     expect((await post(validBody({ expectedRecipients: 1 }))).status).toBe(201);
     await api.runDeferred();
     const [mail] = holderMails();
-    expect(mail.html).toMatch(new RegExp(`<img src="${SITE_URL}/api/events/${event.eventId}/image\\?v=\\d+" width="552" alt="Event image for `));
-    expect(mail.inlineImages ?? []).toEqual([]);
+    expect(mail.html).not.toContain(`/api/events/${event.eventId}/image`);
+    expect((mail.inlineImages ?? []).map((i) => i.cid)).toEqual(["sheltuh-wordmark@sheltuh.com.au"]);
   });
 
   it("a repeat of the same requestId is the same message: 200 replayed, no second send", async () => {

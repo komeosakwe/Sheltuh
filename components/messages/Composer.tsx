@@ -166,11 +166,15 @@ export default function Composer({
         disabled={waiting}
         rows={1}
         autoGrow
+        filled
+        labelHidden
+        placeholder={mode === "accept" ? "Reply to accept…" : "Write a message…"}
         inputRef={inputRef}
         onSubmitShortcut={() => void send()}
         trailing={
-          // busy, not disabled: focus stays on the button through the send.
-          <Button type="submit" variant="solid" size="lg" busy={busy} disabled={waiting} className="shrink-0">
+          // busy, not disabled: focus stays on the button through the send. Orange, as Latte's
+          // Messages frames draw Send (Label/Tag, 40px; 44px to touch).
+          <Button type="submit" variant="signal" size="sm" busy={busy} disabled={waiting} className="label-tag min-h-11 shrink-0 px-5 lg:min-h-10">
             {busy ? "Sending…" : "Send"}
           </Button>
         }

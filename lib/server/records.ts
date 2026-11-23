@@ -38,6 +38,7 @@ import type {
   TransferAction,
 } from "./types";
 import { ORGANISER_BIO_EXCERPT_LENGTH, remainingShownAtMost, type PublicTicketType } from "@/lib/api/public-events";
+import type { BeforeYouGoItem } from "@/lib/before-you-go";
 import {
   SHELTUH_TEAM_ACTOR,
   type AdminHolderMessage,
@@ -45,6 +46,10 @@ import {
   type AdminOrganiserLinkRecord,
   type HolderMessageSummary,
   type EventClip,
+  type CustomerTicket,
+  type CustomerTicketOffer,
+  type TicketGroup,
+  type TransferredTicket,
   type VenueLocation,
 } from "@/lib/api/types";
 import { isFeaturedVideo, type FeaturedVideo } from "@/lib/api/featured-video";
@@ -343,7 +348,7 @@ const EVENT_COLUMNS = `
          e.venue_name, e.venue_address, e.suburb, e.state, e.time_zone, e.starts_at, e.ends_at,
          e.status::text as status, e.rejection_reason, e.created_at, e.updated_at,
          e.ticketing_mode, e.external_ticket_url, e.external_free, e.external_price_from_cents, e.refund_policy, e.refund_days,
-         e.location_source, e.venue_place_id, e.venue_lat, e.venue_lng,
+         e.location_source, e.venue_place_id, e.venue_lat, e.venue_lng, e.before_you_go,
          o.display_name as organiser_name,
          -- Only while the organiser is approved: the logo route is a 404 otherwise.
          case when o.status = 'approved' then ${organiserLogoVersionOf("e.organiser_id")} end as organiser_logo_version,
@@ -458,6 +463,7 @@ const LOG_CHANGE_FIELDS = [
   "refundPolicy",
   "refundDays",
   "location",
+  "beforeYouGo",
 ] as const satisfies readonly (keyof NonNullable<ModerationLogEntry["changes"]>)[];
 
 /** One change as stored: json_strip_nulls has dropped a side that was null. */
@@ -657,6 +663,23 @@ function locationOf(row: Row): { location?: VenueLocation } {
   };
 }
 
+/**
+ * The `beforeYouGo` field from `before_you_go` (an event's own or, with
+ * `column`, an order's event's; jsonb, so already parsed): the rows' labels
+ * and values only, in order. Absent with no rows (and in a row from before
+ * the column), so those payloads are unchanged.
+ */
+function beforeYouGoOf(row: Row, column = "before_you_go"): { beforeYouGo?: BeforeYouGoItem[] } {
+  const items = row[column];
+  if (!Array.isArray(items) || items.length === 0) return {};
+  return {
+    beforeYouGo: items.map((item: { label: unknown; value: unknown }) => ({
+      label: String(item.label),
+      value: String(item.value),
+    })),
+  };
+}
+
 function mapEvent(row: Row, audience: LogAudience): EventRecord {
   const log = row.moderation_log as StoredLogEntry[];
   const ticketingMode = (row.ticketing_mode ?? "sheltuh") as TicketingMode;
@@ -693,6 +716,7 @@ function mapEvent(row: Row, audience: LogAudience): EventRecord {
     ticketingLocked: log.some((entry) => entry.action === "approved"),
     ...refundTermsOf(row),
     ...locationOf(row),
+    ...beforeYouGoOf(row),
     ...(row.seating ? { seating: row.seating as EventSeating } : {}),
     status: row.status as EventRecord["status"],
     rejectionReason: opt(row.rejection_reason),
@@ -808,6 +832,9 @@ export function toPublicEvent(event: EventRecord, remaining?: Record<string, num
           },
         }
       : {}),
+    // Only with a note: it's for the people going, public like the description (and, like every field here, only
+    // ever on a published event's public shape).
+    ...(event.beforeYouGo ? { beforeYouGo: event.beforeYouGo } : {}),
     // Seated events only: a general admission event's payload is unchanged.
     ...(event.seating ? { seating: { version: event.seating.version } } : {}),
   };
@@ -826,6 +853,21 @@ const TICKET_SEAT_JSON = `(select json_build_object('section', s.section_label, 
                                        'kind', s.kind)
                       from public.event_seats s where s.event_id = t.event_id and s.id = t.seat_id)`;
 
+/**
+ * The buyer's own accepted ticket transfer of a ticket (`t` is public.tickets):
+ * the ticket was sent and the buyer no longer holds it, whatever happened to
+ * it since (docs/architecture.md, "Ticket transfers"). At most one: the buyer
+ * can't send a ticket someone holds. ticket_transfers_ticket_idx.
+ */
+const BUYER_SENT_TRANSFER = `(select h.id, h.holder_name, h.decided_at, h.recipient_email, h.accepted_email
+                                from private.ticket_transfers h
+                               where h.ticket_code = t.code and h.status = 'accepted' and h.sender_kind = 'buyer'
+                               order by h.decided_at desc limit 1)`;
+
+/** An order's tickets (`o` is public.orders) numbered 1.. in their order (ticket type, then code), as `t`, with `n`. */
+const NUMBERED_TICKETS = `(select t.*, (row_number() over (order by t.ticket_type_id, t.code))::int as n
+                             from public.tickets t where t.order_id = o.id)`;
+
 export const ORDER_SELECT = `
   select o.id, o.event_id, o.organiser_id, o.event_title, o.buyer_email, o.line_items,
          o.subtotal_cents, o.buyer_fee_cents, o.total_cents, o.application_fee_cents, o.support_cents,
@@ -836,13 +878,17 @@ export const ORDER_SELECT = `
            select json_agg(json_strip_nulls(json_build_object(
                     'ticketCode', t.code, 'ticketTypeId', t.ticket_type_id,
                     'ticketTypeName', t.ticket_type_name, 'seat', ${TICKET_SEAT_JSON},
-                    'groupSize', t.group_size)) order by t.ticket_type_id, t.code)
-           from public.tickets t where t.order_id = o.id
+                    'groupSize', t.group_size, 'ticketNumber', t.n,
+                    'sent', case when h.id is not null
+                                 then json_build_object('holderName', h.holder_name, 'acceptedAt', h.decided_at) end))
+                    order by t.ticket_type_id, t.code)
+           from ${NUMBERED_TICKETS} t
+           left join lateral ${BUYER_SENT_TRANSFER} h on true
          ), '[]'::json) as tickets
   from public.orders o`;
 
-// json_strip_nulls drops a missing seat (general admission) and a missing group size (a single ticket).
-type IssuedTicketRow = IssuedTicket & { groupSize?: number };
+// json_strip_nulls drops a missing seat (general admission), a missing group size (a single ticket) and `sent` (not sent).
+type IssuedTicketRow = Omit<IssuedTicket, "sent"> & { groupSize?: number; sent?: { holderName: string; acceptedAt: string } };
 
 /** The tickets of ORDER_SELECT's `tickets`: a group ticket's people numbered in their group (withGroupPositions: the SQL's order). */
 function issuedTicketsOf(rows: IssuedTicketRow[]): IssuedTicket[] {
@@ -852,6 +898,8 @@ function issuedTicketsOf(rows: IssuedTicketRow[]): IssuedTicket[] {
     ticketTypeName: ticket.ticketTypeName,
     ...(ticket.seat ? { seat: ticket.seat } : {}),
     ...(ticket.group ? { group: ticket.group } : {}),
+    ...(typeof ticket.ticketNumber === "number" ? { ticketNumber: ticket.ticketNumber } : {}),
+    ...(ticket.sent ? { sent: { holderName: ticket.sent.holderName, acceptedAt: iso(ticket.sent.acceptedAt) } } : {}),
   }));
 }
 
@@ -884,8 +932,8 @@ export function toOrder(row: Row): OrderRecord {
  * columns CustomerOrder needs: no ids, fee split, Stripe ids or order
  * timestamps. Ticket codes (with each ticket's check-in time) only while the
  * order is paid: a refunded order's tickets are void. The event's current
- * times, venue name and suburb are public event details (never the street
- * address), shown on the tickets; the mapper drops them for any order that
+ * times, venue name, suburb and "Before you go" note are public event details
+ * (never the street address), shown on the tickets; the mapper drops them for any order that
  * isn't paid, and for any event that isn't published (unpublished, back in
  * draft or review, rejected, or gone): those details are no longer public,
  * so the order only says the event is no longer listed (`eventListed`).
@@ -895,6 +943,14 @@ export function toOrder(row: Row): OrderRecord {
  * couldn't be fulfilled (no tickets, and no amount: only charge.refunded
  * records one). Reads the event by primary key and the tickets by
  * tickets_order_idx.
+ *
+ * Ticket transfers (docs/architecture.md, "Ticket transfers"): every ticket
+ * has its number (`ticketNumber`, by type then code, as the email and the
+ * wallet routes number them). A ticket the buyer sent and someone accepted
+ * has `sent` and never a code (`ticketCode` is left out: the original code
+ * is dead, and the recipient's is never read here). An offer in progress is
+ * `pending` (the recipient's name, their address masked, the expiry). Each
+ * by ticket_transfers_ticket_idx and the partial unique indexes.
  */
 export const CUSTOMER_ORDER_SELECT = `
   select o.id, o.status::text as status, o.event_title, o.buyer_email,
@@ -903,15 +959,31 @@ export const CUSTOMER_ORDER_SELECT = `
          e.starts_at as event_starts_at, e.ends_at as event_ends_at,
          e.venue_name as event_venue_name, e.suburb as event_suburb,
          e.state as event_state, e.time_zone as event_time_zone,
-         e.refund_policy, e.refund_days,
+         e.refund_policy, e.refund_days, e.before_you_go as event_before_you_go,
          coalesce((
-           select json_agg(json_strip_nulls(json_build_object('ticketCode', t.code, 'ticketTypeName', t.ticket_type_name,
-                                                              'seat', ${TICKET_SEAT_JSON},
-                                                              'checkedInAt', t.checked_in_at,
-                                                              -- Only to number a group's people (withGroupPositions).
-                                                              'ticketTypeId', t.ticket_type_id, 'groupSize', t.group_size))
-                           order by t.ticket_type_id, t.code)
-           from public.tickets t where t.order_id = o.id and o.status = 'paid'
+           select json_agg(json_strip_nulls(json_build_object(
+                    -- Never a code for a ticket that was sent on.
+                    'ticketCode', case when h.id is null then t.code end, 'ticketNumber', t.n,
+                    'ticketTypeName', t.ticket_type_name,
+                    'seat', ${TICKET_SEAT_JSON},
+                    'checkedInAt', t.checked_in_at,
+                    -- Only to number a group's people (withGroupPositions).
+                    'ticketTypeId', t.ticket_type_id, 'groupSize', t.group_size,
+                    'pending', case when p.id is not null
+                                    then json_build_object('transferId', p.id, 'toName', p.recipient_name,
+                                                           'toMaskedEmail', private.mask_email(p.recipient_email),
+                                                           'expiresAt', p.expires_at) end,
+                    'sent', case when h.id is not null
+                                 then json_build_object('holderName', h.holder_name, 'acceptedAt', h.decided_at,
+                                                        'acceptedByMaskedEmail',
+                                                        case when lower(h.accepted_email) <> lower(h.recipient_email)
+                                                             then private.mask_email(h.accepted_email) end) end))
+                    order by t.ticket_type_id, t.code)
+           from ${NUMBERED_TICKETS} t
+           left join lateral ${BUYER_SENT_TRANSFER} h on true
+           left join private.ticket_transfers p
+             on p.ticket_code = t.code and p.status = 'pending' and p.sender_kind = 'buyer' and p.expires_at > now()
+          where o.status = 'paid'
          ), '[]'::json) as tickets,
          exists (select 1 from public.tickets t where t.order_id = o.id) as tickets_issued,
          o.amount_refunded_cents
@@ -939,15 +1011,69 @@ export function eventPlaceOf(row: Row): { eventTimeZone: AustralianTimeZone; eve
   return { eventTimeZone: timeZone, eventState: state };
 }
 
-// json_strip_nulls drops a missing seat (general admission) and a null check-in time.
+// json_strip_nulls drops a missing seat (general admission), a null check-in time, and `pending` / `sent` when
+// there's none (and a sent ticket's code, and its masked address when it's the one the sender typed).
 type CustomerTicketRow = {
-  ticketCode: string;
+  ticketCode?: string;
+  ticketNumber?: number;
   ticketTypeName: string;
   ticketTypeId: string;
   groupSize?: number;
   seat?: TicketSeat;
   checkedInAt?: string | null;
+  pending?: { transferId: string; toName: string; toMaskedEmail: string; expiresAt: string };
+  sent?: { holderName: string; acceptedAt: string; acceptedByMaskedEmail?: string };
 };
+
+/**
+ * A paid order's tickets, split: the ones the buyer still holds (with their
+ * code, number and any offer in progress) and the ones they sent on (no code).
+ * Group positions are counted over all of them first, so a sent ticket keeps
+ * its place. `canCancel` is false here: withTicketTransfers
+ * (lib/server/ticket-transfers.ts) sets it for a request that controls the order.
+ */
+function customerTicketsOf(rows: CustomerTicketRow[]): { tickets: CustomerTicket[]; transferred: TransferredTicket[] } {
+  const tickets: CustomerTicket[] = [];
+  const transferred: TransferredTicket[] = [];
+  withGroupPositions(rows).forEach((t: CustomerTicketRow & { group?: TicketGroup }, index) => {
+    const ticketNumber = t.ticketNumber ?? index + 1;
+    if (t.sent || !t.ticketCode) {
+      // Belt and braces with the SQL: a sent ticket (or one without a code) is never a ticket with a code.
+      if (t.sent) {
+        transferred.push({
+          ticketNumber,
+          ticketTypeName: t.ticketTypeName,
+          ...(t.seat ? { seat: t.seat } : {}),
+          ...(t.group ? { group: t.group } : {}),
+          holderName: t.sent.holderName,
+          ...(t.sent.acceptedByMaskedEmail ? { acceptedByMaskedEmail: t.sent.acceptedByMaskedEmail } : {}),
+          acceptedAt: iso(t.sent.acceptedAt),
+        });
+      }
+      return;
+    }
+    const transfer: CustomerTicketOffer | undefined = t.pending
+      ? {
+          transferId: t.pending.transferId,
+          status: "pending",
+          toName: t.pending.toName,
+          toMaskedEmail: t.pending.toMaskedEmail,
+          expiresAt: iso(t.pending.expiresAt),
+          canCancel: false,
+        }
+      : undefined;
+    tickets.push({
+      ticketCode: t.ticketCode,
+      ticketTypeName: t.ticketTypeName,
+      ...(t.seat ? { seat: t.seat } : {}),
+      checkedInAt: t.checkedInAt ? iso(t.checkedInAt) : null,
+      ...(t.group ? { group: t.group } : {}),
+      ticketNumber,
+      ...(transfer ? { transfer } : {}),
+    });
+  });
+  return { tickets, transferred };
+}
 
 export function toCustomerOrder(row: Row): CustomerOrder {
   const email = opt<string>(row.buyer_email);
@@ -957,15 +1083,9 @@ export function toCustomerOrder(row: Row): CustomerOrder {
   const listed = row.event_status === "published";
   const details = paid && listed;
   // Belt and braces with the SQL: never a code for an order that isn't paid.
-  const tickets = paid
-    ? withGroupPositions(row.tickets as CustomerTicketRow[]).map((t) => ({
-        ticketCode: t.ticketCode,
-        ticketTypeName: t.ticketTypeName,
-        ...(t.seat ? { seat: t.seat } : {}),
-        checkedInAt: t.checkedInAt ? iso(t.checkedInAt) : null,
-        ...(t.group ? { group: t.group } : {}),
-      }))
-    : [];
+  const { tickets, transferred } = paid
+    ? customerTicketsOf(row.tickets as CustomerTicketRow[])
+    : { tickets: [], transferred: [] };
   return {
     status,
     refundReason: refundReason(status, row.tickets_issued === true, Number(row.amount_refunded_cents ?? 0)),
@@ -981,6 +1101,7 @@ export function toCustomerOrder(row: Row): CustomerOrder {
     venueName: details ? opt(row.event_venue_name) : undefined,
     suburb: details ? opt(row.event_suburb) : undefined,
     ...(details ? refundTermsOf(row) : {}),
+    ...(details ? beforeYouGoOf(row, "event_before_you_go") : {}),
     maskedEmail: email ? maskEmail(email) : undefined,
     subtotalCents: row.subtotal_cents as number,
     buyerFeeCents: row.buyer_fee_cents as number,
@@ -988,6 +1109,7 @@ export function toCustomerOrder(row: Row): CustomerOrder {
     ...(Number(row.support_cents ?? 0) > 0 ? { supportCents: Number(row.support_cents) } : {}),
     totalCents: row.total_cents as number,
     tickets,
+    ...(transferred.length > 0 ? { transferredTickets: transferred } : {}),
   };
 }
 

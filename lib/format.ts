@@ -60,6 +60,23 @@ export function formatEventDateKey(isoLike: string, timeZone: string = PLATFORM_
   return formattersFor(timeZone).dateKey.format(new Date(isoLike));
 }
 
+/**
+ * The calendar day ("2026-09-25", in the zone; Melbourne by default) an event's
+ * end belongs to. An end at exactly 12:00 am closes the day before, so an
+ * 8:00 pm – 12:00 am event sits on one date. Shared by the ticket email
+ * (lib/server/ticket-email.ts) and the site's tickets (lib/ticket-times.ts).
+ */
+export function formatEventEndDateKey(endIsoLike: string, timeZone: string = PLATFORM_TIME_ZONE): string {
+  const end = new Date(endIsoLike);
+  const atMidnight = wallClockParts(end, timeZone).time === "00:00";
+  return formattersFor(timeZone).dateKey.format(atMidnight ? new Date(end.getTime() - 60_000) : end);
+}
+
+/** Whether an event runs past the day it starts on, in the zone (overnight or multi-day; an end at 12:00 am doesn't count). */
+export function eventSpansDays(startIsoLike: string, endIsoLike?: string, timeZone: string = PLATFORM_TIME_ZONE): boolean {
+  return !!endIsoLike && formatEventDateKey(startIsoLike, timeZone) < formatEventEndDateKey(endIsoLike, timeZone);
+}
+
 /** e.g. "Fri 25 Sep" — in the zone (Melbourne by default), no year, no comma. `isoLike` is a real UTC instant. */
 export function formatEventDateShort(isoLike: string, timeZone: string = PLATFORM_TIME_ZONE): string {
   const date = new Date(isoLike);
@@ -271,4 +288,21 @@ export function formatTimeAgo(isoLike: string, now: number = Date.now()): string
   const hours = Math.floor(minutes / 60);
   if (hours < 48) return `${hours} h ago`;
   return `${Math.floor(hours / 24)} days ago`;
+}
+
+/**
+ * How long ago, as short as a conversation list's corner allows (Latte's Messages frames: "2h",
+ * "1d", "3d", "1w"): "now" under a minute, then minutes, hours under a day, days under a week,
+ * then weeks. A time in the future (clock skew) is "now". Visual only: pair it with the full
+ * time for screen readers (formatMessageTime).
+ */
+export function formatShortAgo(isoLike: string, now: number = Date.now()): string {
+  const minutes = Math.floor((now - Date.parse(isoLike)) / 60_000);
+  if (!Number.isFinite(minutes) || minutes < 1) return "now";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d`;
+  return `${Math.floor(days / 7)}w`;
 }

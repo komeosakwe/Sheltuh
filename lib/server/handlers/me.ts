@@ -8,16 +8,19 @@ import type { AccountSummary } from "../types";
  * The caller's own account summary, in one statement.
  *
  * `upcomingCount`: published events that haven't started yet for which the
- * caller holds a ticket. Guest checkout has no account, so, as for Who's
- * Going (private.set_going), a ticket is theirs when a `paid` order's
- * buyer_email equals their verified email ignoring case (no +tag or Gmail-dot
- * folding: the exact address, as a ticket's email went to it). Free tickets
- * are A$0 paid orders; a partly refunded order stays paid. Pending, failed,
- * refunded and oversold orders don't count. Distinct events, so several
- * orders, or a group order, for one event count once. Only from the token's
- * email: nothing in the request picks whose orders are counted.
- * orders_paid_email_event_idx finds the caller's paid orders, then each
- * event by primary key.
+ * caller holds a ticket, by private.member_held_tickets (as Who's Going,
+ * private.set_going): guest checkout has no account, so a bought ticket is
+ * theirs when a `paid` order's buyer_email equals their verified email
+ * ignoring case (no +tag or Gmail-dot folding: the exact address, as a
+ * ticket's email went to it) and they haven't sent it to someone who
+ * accepted it; a ticket someone sent them is theirs by the account that
+ * accepted it, while its order is paid. Free tickets are A$0 paid orders; a
+ * partly refunded order stays paid. Pending, failed, refunded and oversold
+ * orders don't count. Distinct events, so several tickets for one event
+ * count once. Only from the token's email and user id: nothing in the
+ * request picks whose tickets are counted. orders_paid_email_event_idx and
+ * ticket_transfers_holder_idx find the caller's tickets, then each event by
+ * primary key.
  *
  * `username` and `usernameChangeableAt` (docs/architecture.md, "Usernames"):
  * private.member_username_state, by the token's user id. The changeable time
@@ -26,11 +29,10 @@ import type { AccountSummary } from "../types";
  */
 export async function readAccountSummary(db: Db, caller: VerifiedCaller): Promise<AccountSummary> {
   const [row] = await db.query<{ count: number; username: string | null; changeable_at: Date | string | null }>(
-    `select (select count(distinct o.event_id)::int
-               from public.orders o
-               join public.events e on e.id = o.event_id
-              where o.status = 'paid' and lower(o.buyer_email) = lower($1)
-                and e.status = 'published' and e.starts_at > now()) as count,
+    `select (select count(distinct h.event_id)::int
+               from private.member_held_tickets($2, $1) h
+               join public.events e on e.id = h.event_id
+              where e.status = 'published' and e.starts_at > now()) as count,
             s.username, s.changeable_at
        from private.member_username_state($2) s`,
     [caller.email, caller.userId],

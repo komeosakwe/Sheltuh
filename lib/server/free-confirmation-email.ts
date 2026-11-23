@@ -1,9 +1,10 @@
 import { DETAILS_NOTICE } from "@/lib/buyer-details";
-import { SUPPORT_EMAIL } from "@/lib/contact";
 import { formatSeatLine } from "@/lib/seating/format";
 import { subjectLine, type EmailMessage } from "./email";
-import { brandFooter, button, escapeHtml, eventBlock, heading, INK, MUTED, page, SANS, wordmarkHtml, wordmarkImage } from "./email-layout";
-import { formatTicketDate, formatTicketTime } from "./ticket-email";
+import { escapeHtml } from "./email-layout";
+import { kitButtons, kitFooter, kitFooterText, kitHeader, kitHelp, kitHelpText, kitIntro, kitPage, kitStack, kitText } from "./email-kit";
+import { ticketWordmarkImage } from "./email-ticket-layout";
+import { emailEventCard, formatTicketDate, formatTicketTime } from "./ticket-email";
 import type { EventRecord, OrderLineItem, TicketSeat } from "./types";
 
 /**
@@ -35,7 +36,7 @@ export const SEATS_NOT_HELD_NOTE = "Your seats are only held once you confirm, i
 
 /**
  * The confirm-your-free-tickets email (plain text plus HTML in the shared
- * brand layout, lib/server/email-layout.ts, with the same wordmark header and
+ * brand layout, lib/server/email-kit.ts, with the same wordmark header and
  * branded footer as the tickets email that follows it). `seats`: a seated
  * booking's seats, one line each.
  */
@@ -51,6 +52,9 @@ export function buildFreeConfirmationEmail(
   const when = `${formatTicketDate(event.startsAt, event.endsAt, event)}, ${formatTicketTime(event.startsAt, event.endsAt, event)}`;
   const tickets = summarise(lineItems);
   const seatLines = (seats ?? []).map(formatSeatLine);
+  // The site's origin, from the confirm link the handler built on it (freeOrderConfirmLink).
+  const siteUrl = linkOrigin(link);
+  const footer = { siteUrl, tone: "customer" as const };
   const text = [
     "Confirm your free tickets",
     "",
@@ -65,30 +69,43 @@ export function buildFreeConfirmationEmail(
     DETAILS_NOTICE,
     "Didn't ask for this? Ignore this email: no tickets will be issued.",
     "",
-    `Need help? Email ${SUPPORT_EMAIL}`,
-    "Sheltüh, Melbourne",
+    kitHelpText("customer"),
+    "",
+    kitFooterText(footer),
   ].join("\n");
 
   const seated = seatLines.length > 0;
-  const html = page({
+  const html = kitPage({
     title: "Confirm your free tickets",
-    header: wordmarkHtml,
-    // The site's origin, from the confirm link the handler built on it (freeOrderConfirmLink).
-    footer: brandFooter(
-      linkOrigin(link),
-      `Need help? Email <a href="mailto:${escapeHtml(SUPPORT_EMAIL)}" style="color:${INK};text-decoration:underline">${escapeHtml(SUPPORT_EMAIL)}</a>`,
-    ),
-    body:
-      heading("Confirm your free tickets") +
-      eventBlock(event.title, [when, `Tickets: ${tickets}`], seated ? 8 : 24) +
-      (seated
-        ? `<p style="margin:0 0 4px 0;font-family:${SANS};font-size:16px;line-height:24px;font-weight:bold;color:${INK}">${seatLines.map(escapeHtml).join("<br>")}</p>` +
-          `<p style="margin:0 0 24px 0;font-family:${SANS};font-size:15px;line-height:22px;color:${MUTED}">${escapeHtml(SEATS_NOT_HELD_NOTE)}</p>`
-        : "") +
-      button("Confirm my tickets", link, "0 0 24px 0", true) +
-      `<p style="margin:0 0 8px 0;font-family:${SANS};font-size:15px;line-height:22px;color:${INK}">The link works for ${hoursValid} hours. Open it and press Confirm: your tickets are issued then, and emailed to you.</p>` +
-      `<p style="margin:0 0 8px 0;font-family:${SANS};font-size:15px;line-height:22px;color:${INK}">${escapeHtml(DETAILS_NOTICE)}</p>` +
-      `<p style="margin:0;font-family:${SANS};font-size:15px;line-height:22px;color:${MUTED}">Didn&rsquo;t ask for this? Ignore this email: no tickets will be issued.</p>`,
+    preheader: `${event.title} · ${when}`,
+    siteUrl,
+    tone: "customer",
+    body: kitStack([
+      kitHeader(),
+      kitIntro("", "Confirm your free tickets"),
+      kitStack(
+        [
+          emailEventCard(event, siteUrl),
+          kitText(`<span style="font-weight:600">${escapeHtml(`Tickets: ${tickets}`)}</span><br>${escapeHtml(when)}`),
+          seated
+            ? kitText(`<span style="font-weight:600">${seatLines.map(escapeHtml).join("<br>")}</span>`) +
+              kitText(escapeHtml(SEATS_NOT_HELD_NOTE), { muted: true })
+            : "",
+        ],
+        16,
+      ),
+      kitButtons([{ label: "Confirm my tickets", href: link, kind: "primary" }]),
+      kitStack(
+        [
+          kitText(`The link works for ${hoursValid} hours. Open it and press Confirm: your tickets are issued then, and emailed to you.`),
+          kitText(escapeHtml(DETAILS_NOTICE)),
+          kitText("Didn&rsquo;t ask for this? Ignore this email: no tickets will be issued.", { muted: true }),
+        ],
+        8,
+      ),
+      kitHelp("customer"),
+      kitFooter(footer),
+    ]),
   });
 
   return {
@@ -96,7 +113,7 @@ export function buildFreeConfirmationEmail(
     subject: subjectLine(`Confirm your free tickets: ${event.title}`),
     text,
     html,
-    // The header wordmark, inline like the tickets email's.
-    inlineImages: [wordmarkImage()],
+    // The wordmark, inline like the tickets email's.
+    inlineImages: [ticketWordmarkImage()],
   };
 }

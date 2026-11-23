@@ -1,3 +1,4 @@
+import type { BeforeYouGoItem } from "@/lib/before-you-go";
 import type { RefundPolicy } from "@/lib/refund-policy";
 import type { TicketingMode } from "@/lib/ticketing";
 import type { BannerFit, EventCategory, EventClip, FeePolicy, ImageFocus } from "@/lib/types";
@@ -354,6 +355,8 @@ export interface EventEditChanges {
   refundDays?: TicketingFieldChange<number>;
   /** An admin changed the venue location (null: none, an event from before venue locations). */
   location?: TicketingFieldChange<VenueLocation>;
+  /** An admin changed the "Before you go" rows: the old and new lists (null: none). */
+  beforeYouGo?: TicketingFieldChange<BeforeYouGoItem[]>;
 }
 
 /**
@@ -588,6 +591,13 @@ export interface EventRecord {
   /** The venue's location (see VenueLocation), only when it has one; absent for an event saved without one. */
   location?: VenueLocation;
   /**
+   * The organiser's "Before you go" rows for people going (lib/before-you-go.ts),
+   * in order: 1 to 5 `{ label, value }`, each part one line of plain text (label
+   * 1–20 characters, stored as typed and shown uppercase; value 1–80), never
+   * HTML or links (show it escaped). Absent when there are none.
+   */
+  beforeYouGo?: BeforeYouGoItem[];
+  /**
    * The event's seat map, when it has one. The organiser can change the map
    * only while `ticketingLocked` is false (never approved) and the event is a
    * draft or rejected; after that only an admin, while it has no orders.
@@ -767,6 +777,13 @@ export interface IssuedTicket {
   seat?: TicketSeat;
   /** Only for a ticket of a group ticket type: which person of the group it is (as CustomerTicket.group). */
   group?: TicketGroup;
+  /** 1-based place in the order (ticket type, then code), stable whatever is sent on. Set when read back from an order. */
+  ticketNumber?: number;
+  /**
+   * Set when this ticket was sent to someone who accepted it (docs/architecture.md, "Ticket transfers"):
+   * `ticketCode` is then the original, dead code, never to be shown or encoded.
+   */
+  sent?: { holderName: string; acceptedAt: string };
 }
 
 export interface OrderRecord {
@@ -964,6 +981,12 @@ export interface CustomerOrder {
   refundPolicy?: RefundPolicy;
   refundDays?: number;
   /**
+   * The event's current "Before you go" rows (EventRecord.beforeYouGo: plain
+   * text, show it escaped). Like the date and venue: only for a `paid` order
+   * whose event is published (`eventListed`), and only when it has some.
+   */
+  beforeYouGo?: BeforeYouGoItem[];
+  /**
    * The buyer's address, masked: "m***@example.com". Unset if none is on
    * record, and, once the order's email has been changed (by the buyer or
    * support), for anyone but the paying browser (an `x-order-access` header
@@ -1008,6 +1031,20 @@ export interface CustomerOrder {
    * API): show no wallet buttons then.
    */
   wallet?: WalletAvailability;
+  /**
+   * Tickets of this order the buyer sent to someone who accepted them
+   * (my-ticket.md §5.10 state 3): no code, ever (the recipient has their
+   * own). Only for a `paid` order with such tickets; unset otherwise (and
+   * from an older API). They keep their numbers: `tickets` and these
+   * together are the order's tickets.
+   */
+  transferredTickets?: TransferredTicket[];
+  /**
+   * Whether this request may send the order's tickets now
+   * (docs/architecture.md, "Ticket transfers"). Only for a `paid` order
+   * while sending is on (NEXT_PUBLIC_TICKET_TRANSFERS); unset otherwise. Offers in progress and sent tickets show whatever it says.
+   */
+  transfers?: OrderTransfers;
 }
 
 /** Which wallet passes the server can make (CustomerOrder.wallet). */
@@ -1034,6 +1071,228 @@ export interface CustomerTicket {
    * numbering follows the tickets' order in the response, group by group.
    */
   group?: TicketGroup;
+  /**
+   * 1-based place in the order (ticket type, then issued code), stable
+   * whatever is sent on: the email's and the wallet routes' `?ticket={n}`.
+   * Absent from an older API: use the index plus one.
+   */
+  ticketNumber?: number;
+  /** An offer of this ticket in progress (my-ticket.md §5.10 state 2): its QR still works until it's accepted. */
+  transfer?: CustomerTicketOffer;
+  /** Whether this request may send this ticket now (only with CustomerOrder.transfers). */
+  canSend?: boolean;
+}
+
+/**
+ * A send in progress (my-ticket.md §5.10 state 2): the ticket's QR still
+ * works. Who it went to (and its id) only for a request that controls the
+ * order (the paying browser, or the signed-in buyer); anyone else with the
+ * order's link sees only that it's on offer.
+ */
+export interface CustomerTicketOffer {
+  /** For cancelling it (POST …/ticket-transfers/{transferId}/cancel). Only with control. */
+  transferId?: string;
+  status: "pending";
+  /** The name the sender typed. Only with control. */
+  toName?: string;
+  /** Where the offer went, masked ("s***@email.com"). Only with control. */
+  toMaskedEmail?: string;
+  /** When it lapses unless accepted (ISO). */
+  expiresAt: string;
+  /** Only true when this request controls the order and the rules let senders cancel. */
+  canCancel: boolean;
+}
+
+/**
+ * A ticket the buyer sent and the recipient accepted (state 3). No code,
+ * ever. Who holds it only for a request that controls the order.
+ */
+export interface TransferredTicket {
+  ticketNumber: number;
+  ticketTypeName: string;
+  seat?: TicketSeat;
+  group?: TicketGroup;
+  /** The name the recipient confirmed. Only with control. */
+  holderName?: string;
+  /** Set only with control, and when the accepting account's address isn't the one the sender typed (masked). */
+  acceptedByMaskedEmail?: string;
+  acceptedAt: string;
+}
+
+/** Whether a ticket page's request may send its tickets (CustomerOrder.transfers). */
+export interface OrderTransfers {
+  canSend: boolean;
+  /**
+   * Why not, when `canSend` is false: `sign_in`, this request doesn't control
+   * the order (sign in with the buying email); `closed`, past the cut-off;
+   * `unlisted`, the event isn't published.
+   */
+  reason?: "sign_in" | "closed" | "unlisted";
+  /** When sending closes (the event's start less the cut-off), ISO. */
+  closesAt?: string;
+}
+
+/** POST /api/orders/by-session/{orderId}/ticket-transfers: send ticket number `ticket` to `name` at `email`. */
+export interface TicketTransferInput {
+  /** The ticket's number (CustomerTicket.ticketNumber). */
+  ticket: number;
+  /** The recipient's name. */
+  name: string;
+  /** The recipient's email. */
+  email: string;
+  /** The sender's own name, shown to the recipient. */
+  senderName: string;
+}
+
+/** 201 of a send: the new offer's id and the order as the ticket page shows it now. */
+export interface TicketTransferCreated {
+  transferId: string;
+  order: CustomerOrder;
+}
+
+/** 200 of a cancel. */
+export interface TicketTransferCancelled {
+  order: CustomerOrder;
+}
+
+/** The `code` of a send's or cancel's 403, 409 or 429. */
+export type TicketTransferErrorCode =
+  | "order_owner_only"
+  | "order_not_paid"
+  | "event_unlisted"
+  | "transfers_closed"
+  | "ticket_type_not_transferable"
+  | "ticket_checked_in"
+  | "transfer_pending"
+  | "ticket_already_sent"
+  | "own_email"
+  | "transfer_attempts_used"
+  | "transfer_pending_cap"
+  | "transfer_not_pending"
+  | "cancel_not_allowed"
+  | "resend_not_allowed"
+  | "rate_limited";
+
+/**
+ * POST /api/ticket-transfers/view `{token}`: the offer behind a link, for the
+ * accept page. Never the order's id or reference, the buyer's details, the
+ * order's other tickets or any code. `accepted`: the caller's own account
+ * accepted it already (go to its received page).
+ */
+export type TicketOffer =
+  | {
+      status: "open";
+      /** The sender's own name. */
+      fromName: string;
+      /** The name the sender typed for the recipient (prefills "Your name"). */
+      toName: string;
+      toMaskedEmail: string;
+      expiresAt: string;
+      eventTitle: string;
+      /** Whether the event is published: its date and venue only then. */
+      eventListed: boolean;
+      eventSlug?: string;
+      eventStartsAt?: string;
+      eventEndsAt?: string;
+      eventTimeZone?: AustralianTimeZone;
+      eventState?: StateCode;
+      venueName?: string;
+      suburb?: string;
+      ticketTypeName: string;
+      seat?: TicketSeat;
+      group?: TicketGroup;
+    }
+  | { status: "accepted"; transferId: string };
+
+/** POST /api/ticket-transfers/accept `{token, holderName}`. */
+export interface TicketOfferAcceptInput {
+  token: string;
+  /** The name the recipient confirms (shared with the organiser). */
+  holderName: string;
+}
+
+/** 200 of an accept (also a repeat by the same account): the received ticket's id. */
+export interface TicketOfferAccepted {
+  transferId: string;
+}
+
+/** The `code` of an accept's 409 or 429. */
+export type TicketOfferErrorCode = "own_ticket" | "transfers_closed" | "ticket_unavailable" | "received_cap" | "rate_limited";
+
+/**
+ * GET /api/me/received-tickets/{transferId}: a ticket the caller accepted.
+ * Never the order's id or reference, the buyer's name or email, amounts or
+ * the order's other tickets.
+ */
+export interface ReceivedTicket {
+  transferId: string;
+  /** The transfer's reference ("#1A2B3C4D"), never the order's. */
+  reference: string;
+  fromName: string;
+  holderName: string;
+  acceptedAt: string;
+  /** `void`: the order it came from was refunded, or the ticket was sent on. */
+  status: "valid" | "void";
+  eventTitle: string;
+  eventListed: boolean;
+  eventSlug?: string;
+  eventStartsAt?: string;
+  eventEndsAt?: string;
+  eventTimeZone?: AustralianTimeZone;
+  eventState?: StateCode;
+  venueName?: string;
+  suburb?: string;
+  /** Only while `valid`: the recipient's own code (its QR carries `SH1:` plus it). */
+  ticket?: {
+    ticketCode: string;
+    ticketTypeName: string;
+    seat?: TicketSeat;
+    group?: TicketGroup;
+    checkedInAt: string | null;
+  };
+  /** Which wallets the ticket can be added to (recipient passes come later). */
+  wallet?: WalletAvailability;
+  /** Only while recipients may send a ticket on. */
+  canSend?: boolean;
+}
+
+/** GET /api/admin/ticket-transfers: one offer, for support. Addresses masked only. */
+export interface AdminTicketTransfer {
+  transferId: string;
+  /** The transfer's reference ("#1A2B3C4D"). */
+  reference: string;
+  /** The order's reference. */
+  orderReference: string;
+  eventTitle: string;
+  status: "pending" | "accepted" | "declined" | "cancelled" | "expired";
+  createdAt: string;
+  expiresAt: string;
+  decidedAt?: string;
+  senderName: string;
+  /** paying_browser: sent from the browser that paid; account: by the buyer signed in; holder: sent on by a recipient. */
+  senderKind: "paying_browser" | "account" | "holder";
+  senderUserId?: string;
+  toName: string;
+  toMaskedEmail: string;
+  holderName?: string;
+  acceptedMaskedEmail?: string;
+  acceptedUserId?: string;
+  /** Set once a later re-send replaced this holding. */
+  supersededAt?: string;
+  cancelledBy?: "sender" | "admin";
+  cancelReason?: string;
+}
+
+/** A page of AdminTicketTransfer, newest first; `nextCursor` for the next page. */
+export interface AdminTicketTransferPage {
+  items: AdminTicketTransfer[];
+  nextCursor?: string;
+}
+
+/** POST /api/admin/ticket-transfers/{transferId}/cancel. */
+export interface AdminCancelTicketTransferInput {
+  /** What support was told (3 to 500 characters, no email addresses). */
+  reason: string;
 }
 
 /** One person of a group ticket: "2 of 4" is `{ position: 2, size: 4 }` (CustomerTicket.group). */
@@ -1339,7 +1598,12 @@ export type EmailOutboxKind =
   | "organiser_joined"
   | "onboarding"
   | "event_reminder"
-  | "holder_message";
+  | "holder_message"
+  | "transfer_offer"
+  | "transfer_accepted"
+  | "transfer_declined"
+  | "transfer_expired"
+  | "transfer_ticket";
 
 export const EMAIL_OUTBOX_KINDS: readonly EmailOutboxKind[] = [
   "ticket_email",
@@ -1353,6 +1617,11 @@ export const EMAIL_OUTBOX_KINDS: readonly EmailOutboxKind[] = [
   "onboarding",
   "event_reminder",
   "holder_message",
+  "transfer_offer",
+  "transfer_accepted",
+  "transfer_declined",
+  "transfer_expired",
+  "transfer_ticket",
 ];
 
 // ---------------------------------------------------------------------------
@@ -2575,8 +2844,9 @@ export const MAX_TRACKING_LINKS_PER_EVENT = 20;
  * - `not_admissible`: the ticket is void (its order isn't paid, e.g. refunded).
  * - `other_event`: a ticket for another of the organiser's events (`otherEventTitle`).
  * - `invalid`: not a ticket for any of the organiser's events (or not a ticket code at all).
+ * - `transferred`: the ticket was sent to someone else, so this code no longer works (the recipient has their own).
  */
-export type CheckInOutcome = "admitted" | "already_checked_in" | "invalid" | "not_admissible" | "other_event";
+export type CheckInOutcome = "admitted" | "already_checked_in" | "invalid" | "not_admissible" | "other_event" | "transferred";
 
 /** POST /api/organisers/me/events/{eventId}/check-ins. */
 export interface CheckInInput {

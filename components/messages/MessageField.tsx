@@ -38,7 +38,16 @@ export default function MessageField({
   onSubmitShortcut,
   max = MESSAGE_MAX,
   trailing,
+  filled = false,
+  placeholder,
 }: {
+  /**
+   * The messages composer as Latte's Messages frames draw it: a surface/muted box with no outline
+   * (radius 8, 20px in, Body/S) and a placeholder; with a hidden label, the label row (the
+   * character count) stays out of sight until the count matters.
+   */
+  filled?: boolean;
+  placeholder?: string;
   id: string;
   label: ReactNode;
   /** Keeps the label for assistive tech only (the context names the field visibly). */
@@ -90,7 +99,7 @@ export default function MessageField({
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-baseline justify-between gap-4">
+      <div className={filled && labelHidden && !nearLimit ? "sr-only" : "flex items-baseline justify-between gap-4"}>
         <label htmlFor={id} className={labelHidden ? "sr-only" : "eyebrow text-muted"}>
           {label}
         </label>
@@ -108,13 +117,14 @@ export default function MessageField({
           )}
         </p>
       </div>
-      <div className="flex items-end gap-2">
+      <div className={`flex gap-2 ${filled ? "items-center gap-3" : "items-end"}`}>
         <textarea
           ref={boxRef}
           id={id}
           name={id}
           rows={rows}
-          className={`${fieldClass} min-w-0 flex-1 disabled:cursor-not-allowed disabled:opacity-60 ${
+          placeholder={placeholder}
+          className={`${fieldClass} ${filled ? "rounded-control border-transparent bg-surface px-5 py-3 placeholder:font-normal aria-[invalid=true]:border-danger sm:text-sm" : ""} min-w-0 flex-1 disabled:cursor-not-allowed disabled:opacity-60 ${
             autoGrow ? "max-h-40 resize-none overflow-y-auto sm:min-h-11!" : "resize-y"
           }`}
           value={value}

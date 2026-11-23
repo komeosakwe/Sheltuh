@@ -392,6 +392,12 @@ describe("outcomes", () => {
       "Don’t let in. Ticket void.",
     ],
     [
+      "sent to someone else",
+      { outcome: "transferred", ticket: TICKET },
+      ["Sent to someone else", "This ticket was sent to someone else. Ask for the ticket they were sent."],
+      "Don’t let in. This ticket was sent to someone else.",
+    ],
+    [
       "wrong event",
       { outcome: "other_event", ticket: TICKET, otherEventTitle: "Late Show" },
       ["Wrong event", "General admission · Ticket 2 of 3 · Code ends 2HXD"],

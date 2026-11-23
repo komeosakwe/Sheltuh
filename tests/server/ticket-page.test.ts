@@ -118,14 +118,17 @@ async function guestFreeOrder(quantity: number) {
 /** The ticket email for an order (sent through the outbox, as after a real purchase). */
 async function ticketEmail(orderId: string): Promise<EmailMessage> {
   await api.runDeferred();
-  const sent = api.sendEmail.mock.calls.map(([m]) => m).filter((m) => m.subject.startsWith("Your tickets"));
+  const sent = api.sendEmail.mock.calls.map(([m]) => m).filter((m) => /^(Your (\d+ )?tickets? to |You’re in: )/.test(m.subject));
   const reference = orderReference(orderId);
   const email = sent.find((m) => m.text.includes(`Order reference: ${reference}`));
   if (!email) throw new Error(`no ticket email for ${reference}`);
   return email;
 }
 
-/** Codes that are well formed, all different, each with its own QR, and the email carrying exactly those QRs. */
+/**
+ * Codes that are well formed, all different, each with its own QR (the ticket page draws them all), and the email
+ * carrying the first ticket's code and QR only: the others are rows pointing at the page.
+ */
 async function expectDistinctTicketsAndQrs(orderId: string, count: number) {
   const body = await page(orderId);
   expect(body.status).toBe("paid");
@@ -138,13 +141,16 @@ async function expectDistinctTicketsAndQrs(orderId: string, count: number) {
 
   const email = await ticketEmail(orderId);
   const qrs = (email.inlineImages ?? []).filter((image) => image.cid.startsWith("ticket-qr-"));
-  expect(qrs).toHaveLength(count);
+  expect(qrs).toHaveLength(1);
+  // The email's QR is the page's first ticket's code (the same order): 16 px a module, 4-module quiet zone,
+  // the centre ü (lib/server/qr-image.ts).
+  expect(qrs[0].content.equals(ticketQrPng(codes[0])!.png)).toBe(true);
+  expect(email.html).toContain(`>${codes[0]}</p>`);
+  expect(email.text).toContain(`Entry code: ${codes[0]}`);
   for (const [i, code] of codes.entries()) {
-    // The email's QR for ticket n is ticket n's code, in the same order as the page.
-    // 16 px a module, 4-module quiet zone, the centre ü (lib/server/qr-image.ts).
-    expect(qrs[i].content.equals(ticketQrPng(code)!.png)).toBe(true);
-    expect(email.html).toContain(`>${code}</p>`);
-    expect(email.text).toContain(`Entry code: ${code}`);
+    if (i === 0) continue;
+    expect(`${email.html}${email.text}`).not.toContain(code);
+    expect(email.text).toContain(`Ticket ${i + 1} of ${count} · `);
   }
   return codes;
 }

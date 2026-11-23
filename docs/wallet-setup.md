@@ -299,18 +299,28 @@ SHA-256 (`tests/WalletButtons.test.tsx`).
 
 **Which variant, and how they're shown:**
 - **Two-line badges for both.** Apple's badge only comes in two lines.
-  Google's matching two-line badge pairs with it at the same height, and
-  fits half a phone-width row. Google's one-line button, which the owner's
-  design images show, would have type about 40% bigger beside Apple's at
-  the same height, and at half a 375px row it would be 29px tall.
-- **Same height, own proportions.** On the site, 44px tall (Apple about 139
-  wide, Google about 159), 8px apart. In the email, 48px tall (the design
-  images measure 47.5): Apple 152 × 48, Google 174 × 48, 12px apart. On a
-  phone, both are 46px tall, 8px apart.
-- **Clear space.** Apple asks for 0.1 × the badge's height around it (4.4px
-  on the site, 4.8 in the email), which the gaps cover. Google's own
-  minimum-size and clear-space numbers weren't readable from the build
-  environment. Check them on Google's guidelines page.
+  Google's matching two-line badge pairs with it, and fits half a
+  phone-width row. Google's one-line button, which the owner's design
+  images show, would have type about 40% bigger beside Apple's at the same
+  height, and at half a 375px row it would be 29px tall.
+- **Same width, own proportions** (the owner's call, 22 Nov 2026). Shown
+  at the same size: each artwork at its own proportions at one shared
+  width, so Apple's (the narrower shape) is a little taller. Stacked, their
+  edges line up; in a row they're centred on each other. On the site, 160px
+  wide (Google 44px tall, its touch target; Apple about 51), 8px apart. In
+  the email, 174px wide (Google 174 × 48, the design images' 47.5px height;
+  Apple 174 × 55), 12px apart; on a phone, 166 wide (Google 46 tall, Apple
+  52), 8px apart, each centred in half the row.
+  Both at one width *and* one height isn't possible without changing the
+  artwork: the two have different proportions (Apple 3.16:1, Google
+  3.62:1), and each draws its own outline all the way round, so an equal
+  box filled to match (badge colour, border and corners) leaves the
+  smaller one's outline showing inside it as a second edge. Never stretch,
+  crop or cover the outline to get there.
+- **Clear space.** Apple asks for 0.1 × the badge's height around it (5.1px
+  on the site, 5.5 in the email, 5.2 on a phone), which the gaps cover.
+  Google's own minimum-size and clear-space numbers weren't readable from
+  the build environment. Check them on Google's guidelines page.
 - **No changes.** No colour behind them (their corners are transparent), no
   hover or pressed effects, no dimming.
 - **Light theme.** The black badges on white, as both vendors ask.

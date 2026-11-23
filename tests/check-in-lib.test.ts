@@ -117,6 +117,8 @@ describe("door copy", () => {
   it("names each result's tone", () => {
     expect(toneOf({ kind: "server", scan, result: { outcome: "admitted", ticket }, ownAgoMs: null })).toBe("admit");
     expect(toneOf({ kind: "server", scan, result: { outcome: "invalid" }, ownAgoMs: null })).toBe("refuse");
+    // A ticket sent to someone else: a definite refusal, never Not verified.
+    expect(toneOf({ kind: "server", scan, result: { outcome: "transferred", ticket }, ownAgoMs: null })).toBe("refuse");
     expect(toneOf({ kind: "foreign" })).toBe("refuse");
     expect(toneOf({ kind: "unverified", scan, reason: "network" })).toBe("hold");
   });
@@ -143,6 +145,10 @@ describe("door copy", () => {
         "Don’t let in. Already checked in at 8:42 pm.",
       ],
       [{ kind: "server", scan, result: { outcome: "not_admissible", ticket }, ownAgoMs: null }, "Don’t let in. Ticket void."],
+      [
+        { kind: "server", scan, result: { outcome: "transferred", ticket }, ownAgoMs: null },
+        "Don’t let in. This ticket was sent to someone else.",
+      ],
       [
         { kind: "server", scan, result: { outcome: "other_event", ticket, otherEventTitle: "Night Market" }, ownAgoMs: null },
         "Don’t let in. Ticket for Night Market.",
@@ -227,6 +233,11 @@ describe("door copy", () => {
     expect(recentRow(base)).toEqual({ label: "Checked in", detail: "General admission · Code ends 2HXD", icon: "check" });
     expect(recentRow({ ...base, result: "already_checked_in" }).label).toBe("Already checked in");
     expect(recentRow({ ...base, result: "not_admissible" }).label).toBe("Void");
+    expect(recentRow({ ...base, result: "transferred" })).toEqual({
+      label: "Sent to someone else",
+      detail: "General admission · Code ends 2HXD",
+      icon: "cross",
+    });
     expect(recentRow({ ...base, result: "other_event", otherEventTitle: "Night Market" })).toEqual({
       label: "Wrong event",
       detail: "For Night Market · Code ends 2HXD",

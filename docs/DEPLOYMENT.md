@@ -68,7 +68,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261202000000_checkout_expiry_claim_retry.sql`. Never
+      newest, currently `20261204000000_event_before_you_go.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -601,6 +601,70 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           before it. The previous app calls it the same way, so it can be
           applied before or after the app. Not destructive. Reversible:
           re-run the function from `20261123000000_checkout_pay_deadline.sql`.
+      61. `20261204000000_event_before_you_go.sql` (the organiser's "Before
+          you go" rows, docs/architecture.md "Before you go": nullable jsonb
+          `events.before_you_go`, an array of 1 to 5 `{label, value}`, with
+          check constraint `events_before_you_go_check` over the new
+          immutable helpers `private.before_you_go_ok` and
+          `private.before_you_go_text_ok`; `private.before_you_go_of` stores
+          an explicit null or `[]` as SQL null; and `create_event_draft`,
+          `edit_event_draft` and `admin_edit_event` redefined from their
+          latest bodies, `20261114000000_external_price.sql` and
+          `20261120000000_group_tickets.sql`, with the same signatures).
+          search_path pinned, execute revoked from clients, no new table,
+          grant or index. **Apply it before deploying the app**: the new app
+          selects `before_you_go` in every event read, so on the old schema
+          every event page, list and the home fail. The previous app keeps
+          working against it (it never sends `beforeYouGo`: its creates
+          store null and its edits keep the stored rows), so it can be
+          applied ahead of the deploy. Not destructive. Reversible after
+          deploying an app that doesn't select the column: restore the three
+          functions from those two files, then drop the constraint, the
+          column (every row is lost) and the three helpers. (This file was
+          rewritten in place from an earlier free-text version before it
+          was applied anywhere.)
+      62. `20261203000000_ticket_transfers.sql` (sending a ticket to
+          someone, docs/architecture.md "Ticket transfers": tables
+          `private.ticket_transfers` and `private.ticket_transfer_tokens`,
+          their guard trigger and `tickets_code_not_reissued` on
+          `public.tickets`; `ticket_check_ins` gains the result
+          `transferred` and the column `scanned_last4`; `email_outbox` gains
+          `ticket_transfer_id` and five kinds (`transfer_offer`,
+          `transfer_accepted`, `transfer_declined`, `transfer_expired`,
+          `transfer_ticket`); new functions `person_name_ok`,
+          `member_held_tickets`, `create_ticket_transfer`,
+          `create_holder_ticket_transfer`, `cancel_ticket_transfer`,
+          `accept_ticket_transfer`, `decline_ticket_transfer`,
+          `expire_ticket_transfers` and their helpers; redefined, signatures
+          unchanged: `check_in_ticket`, `undo_check_in`, `set_going`,
+          `order_email_change_block`; `purge_operational_data` dropped and
+          created with two more OUT columns, so the Supabase Cron call
+          `select private.purge_operational_data()` is unaffected). Needs
+          file 60 before it, and sorts before file 61
+          (`20261204000000_event_before_you_go.sql`, numbered first because
+          it merged first): apply the two in filename order, this one first.
+          Neither touches the other's functions. **Apply it before deploying
+          the app**: the new app's ticket page, wallet routes and `GET /me`
+          read `private.ticket_transfers` and `member_held_tickets`, so on the
+          old schema they fail. The previous app keeps working against it
+          (every redefined function answers it as before while no ticket has
+          been sent; nothing sends one until the new app runs with the flag
+          on). The constraint swaps on `ticket_check_ins` and `email_outbox`
+          take ACCESS EXCLUSIVE and check every row: immediate pre-launch,
+          off-peak later. Needs the UPDATE privilege on `auth.users` (the
+          accept locks the account `for key share`), as file 59 does: the
+          same check, already done for file 59. Needs no new environment
+          variable to apply; `NEXT_PUBLIC_TICKET_TRANSFERS` (below) turns
+          sending on later. Reversible, not destructive, until the first
+          offer is accepted: restore the five redefined functions and the
+          two outbox checks from the files named in its header, and
+          `ticket_check_ins_result_check` from
+          `20261021000000_ticket_check_in.sql` (once no row is
+          `transferred`), then drop the new functions, the trigger, the two
+          new columns and both tables.
+          **Destructive once any offer is accepted**: dropping
+          `ticket_transfers` voids every recipient's code and revives the
+          senders' (roll the app forward instead).
 
       **Files 33 to 37 can be applied ahead of this deploy, with the
       previous app still live.** "The previous app" here is the build of
@@ -1213,6 +1277,18 @@ Git → Ignored Build Step. GitHub Actions CI is unaffected.
        only after file 49 is applied and the app is deployed. Once a group
        order exists, roll forward only: never redeploy a build from before
        group tickets.
+       Optional: `NEXT_PUBLIC_TICKET_TRANSFERS=1` lets a ticket's buyer
+       send it to someone by email (docs/architecture.md "Ticket
+       transfers"). Unset (the default) the ticket page offers no Send and
+       the send route is a 404; offers already made can still be accepted,
+       declined or cancelled, and received tickets keep working, so turning
+       it off strands no one. Turn it on only once file 62 is applied and
+       the transfer emails, the organiser's Orders view, reminders to
+       holders and the UI are deployed (until the emails ship, an offer's
+       email is never sent). Redeploy after changing it (it's baked in at
+       build time). Once a ticket has been accepted, roll forward only:
+       never redeploy a build from before ticket transfers (it would show
+       the sender the dead code and offer its wallet pass).
        Optional: `NEXT_PUBLIC_EVENT_CLIPS=1` turns clip uploads on (the
        editor's clip field, the admin queue's clip row), once that key is set.
        Without it the server also refuses new uploads (503), whatever a

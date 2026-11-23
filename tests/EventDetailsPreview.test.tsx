@@ -237,3 +237,25 @@ describe("EventDetailsView preview", () => {
     expect(recordOutboundClick).not.toHaveBeenCalled();
   });
 });
+
+describe("the editor's preview: Before you go", () => {
+  it("carries the rows as the API will store them (cleaned), and none when they're blank", () => {
+    expect(
+      draftToPreviewEvent({ ...DRAFT, beforeYouGo: [{ label: " Entry ", value: " Doors  7 pm\n" }, { label: "", value: " " }] }).event
+        .beforeYouGo,
+    ).toEqual([{ label: "Entry", value: "Doors 7 pm" }]);
+    for (const blank of [undefined, [], [{ label: " ", value: "" }]]) {
+      expect(draftToPreviewEvent({ ...DRAFT, beforeYouGo: blank }).event).not.toHaveProperty("beforeYouGo");
+    }
+  });
+
+  it("shows \"The essentials.\" in the preview with the draft's rows, and nothing without them", () => {
+    previewOf({ ...DRAFT, beforeYouGo: [{ label: "Entry", value: "5:00 pm – 8:00 pm" }, { label: "Age", value: "18+" }] });
+    const section = screen.getByRole("region", { name: "The essentials." });
+    expect(section).toHaveTextContent("The essentials.01 / Entry5:00 pm – 8:00 pm02 / Age18+");
+    cleanup();
+
+    previewOf(DRAFT);
+    expect(screen.queryByRole("region", { name: "The essentials." })).toBeNull();
+  });
+});

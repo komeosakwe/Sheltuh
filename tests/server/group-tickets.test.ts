@@ -567,10 +567,11 @@ describe("each person's ticket says which person of the group it is", () => {
     expect(JSON.stringify(order.tickets)).not.toContain("groupSize");
     const found = await findEventById(api.db, order.eventId);
     const email = buildTicketEmail(order, found!, "https://sheltuh.test");
-    expect(email.text).toContain("Ticket 2 of 5 · Group of 4 (1 of 4) — Entry code:");
-    expect(email.text).toContain("Ticket 5 of 5 · Group of 4 (4 of 4) — Entry code:");
+    // The first ticket's full card; the others a row each (their codes are on the ticket page).
     expect(email.text).toContain("Ticket 1 of 5 · General admission — Entry code:");
-    expect(email.html).toContain("Group of 4 (3 of 4)");
+    expect(email.text).toContain("Ticket 2 of 5 · Group of 4 (1 of 4) — View:");
+    expect(email.text).toContain("Ticket 5 of 5 · Group of 4 (4 of 4) — View:");
+    expect(email.html).toContain(">Group of 4 (3 of 4)</p>");
   });
 
   it("an Apple Wallet pass: the same words", async () => {

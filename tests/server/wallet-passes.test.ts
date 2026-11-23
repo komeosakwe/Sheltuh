@@ -488,40 +488,38 @@ describe("the ticket email's wallet links (lib/server/ticket-email.ts, ticketWal
       .slice(1)
       .map((block) => {
         const number = Number(/^(\d+) of /.exec(block)![1]);
-        const code = /Entry code: ([A-Z0-9-]+)/.exec(block)![1];
+        const code = /Entry code: ([A-Z0-9-]+)/.exec(block)?.[1] ?? null;
         const links = Object.fromEntries([...block.matchAll(/^(Add to (?:Apple|Google) Wallet): (\S+)$/gm)].map((m) => [m[1], m[2]]));
         return { number, code, links };
       });
   }
 
-  it("each ticket's links are numbered as the route takes them: ?ticket=n is the pass of the ticket the email shows as n", async () => {
+  it("the email's links are the first ticket's, numbered as the route takes them: ?ticket=1 is the pass of the ticket the email shows", async () => {
     const { orderId } = await paidOrder(3);
     const { text, html } = await sentEmail();
-    const tickets = textTickets(text);
-    expect(tickets.map((t) => t.number)).toEqual([1, 2, 3]);
+    // The first ticket's full card (its code and wallet links); the others a row each, with neither.
+    const tickets = textTickets(text).filter((t) => t.code !== null);
+    expect(tickets.map((t) => t.number)).toEqual([1]);
+    expect(text).toMatch(/\nTicket 2 of 3 · [^\n]* — View: /);
+    expect(text).toMatch(/\nTicket 3 of 3 · [^\n]* — View: /);
     // The email's order is the ticket page's (the API's), which is the route's.
-    expect(tickets.map((t) => t.code)).toEqual(((await page(orderId)).tickets as { ticketCode: string }[]).map((t) => t.ticketCode));
+    const codes = ((await page(orderId)).tickets as { ticketCode: string }[]).map((t) => t.ticketCode);
+    const [{ code, links }] = tickets;
+    expect(code).toBe(codes[0]);
     const panels = html.split('class="ticket"').slice(1);
-    expect(panels).toHaveLength(3);
-    for (const [i, { number, code, links }] of tickets.entries()) {
-      const base = `${SITE_URL}/api/orders/by-session/${orderId}/wallet`;
-      expect(links).toEqual({
-        "Add to Apple Wallet": `${base}/apple?ticket=${number}`,
-        "Add to Google Wallet": `${base}/google?ticket=${number}`,
-      });
-      // The HTML panel showing this code links the same two routes, and no other ticket's.
-      expect(panels[i]).toContain(code);
-      expect(panels[i]).toContain(`href="${base}/apple?ticket=${number}"`);
-      expect(panels[i]).toContain(`href="${base}/google?ticket=${number}"`);
-      expect(panels[i].match(/\/wallet\/(?:apple|google)\?ticket=(\d+)/g)!.every((m) => m.endsWith(`=${number}`))).toBe(true);
+    expect(panels).toHaveLength(1);
+    const base = `${SITE_URL}/api/orders/by-session/${orderId}/wallet`;
+    expect(links).toEqual({ "Add to Apple Wallet": `${base}/apple?ticket=1`, "Add to Google Wallet": `${base}/google?ticket=1` });
+    expect(panels[0]).toContain(code);
+    expect(html.match(/\/wallet\/(?:apple|google)\?ticket=(\d+)/g)).toEqual([`/wallet/apple?ticket=1`, `/wallet/google?ticket=1`]);
+    for (const other of codes.slice(1)) expect(`${html}${text}`).not.toContain(other);
 
-      // Following the link gives this ticket's pass, from both wallets.
-      const google = await pass(getGoogleWalletPass, orderId, String(number));
-      const { claims } = decodeJwt(google.headers.get("location")!.slice(GOOGLE_SAVE_URL_BASE.length), googleCreds.keys.publicKey);
-      expect(claims.payload.eventTicketObjects[0].barcode.alternateText).toBe(code);
-      const applePass = readZip(Buffer.from(await (await pass(getAppleWalletPass, orderId, String(number))).arrayBuffer()));
-      expect(JSON.parse(applePass.get("pass.json")!.toString("utf8")).barcodes[0].altText).toBe(code);
-    }
+    // Following the links gives this ticket's pass, from both wallets.
+    const google = await pass(getGoogleWalletPass, orderId, "1");
+    const { claims } = decodeJwt(google.headers.get("location")!.slice(GOOGLE_SAVE_URL_BASE.length), googleCreds.keys.publicKey);
+    expect(claims.payload.eventTicketObjects[0].barcode.alternateText).toBe(code);
+    const applePass = readZip(Buffer.from(await (await pass(getAppleWalletPass, orderId, "1")).arrayBuffer()));
+    expect(JSON.parse(applePass.get("pass.json")!.toString("utf8")).barcodes[0].altText).toBe(code);
   });
 
   it("only for the wallets that are on, and none with both off", async () => {

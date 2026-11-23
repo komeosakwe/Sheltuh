@@ -38,7 +38,9 @@ import { lookupCustomerOrder, ORDER_NOT_FOUND, walletEligible } from "./orders";
  *   event no longer published (unpublished, rejected, removed: the page's
  *   "no longer listed"): 404 "Order not found.", the same for each; no
  *   ticket `n`: 404 "Ticket not found." (the holder of the order id already
- *   knows how many tickets it has);
+ *   knows how many tickets it has), and so is a ticket its buyer sent to
+ *   someone who accepted it (docs/architecture.md, "Ticket transfers": the
+ *   sender never gets a pass, or any code, for it again);
  * - one hit on the order's allowance (WALLET_RATE_LIMITS.perOrder), only for
  *   an order that's found; over it, 429;
  * - Google: 302 to Google's save page, https://pay.google.com/gp/v/save/{jwt}
@@ -115,7 +117,8 @@ async function walletTicket(req: Request, sessionId: string, provider: Provider,
     if (!limit.allowed) throw tooManyRequests(WALLET_ORDER_BUSY, windowSeconds(WALLET_RATE_LIMITS.perOrder.window));
   }
   const order: CustomerOrder = lookup;
-  const ticket = order.tickets[n - 1];
+  // By its number (stable whatever is sent on): a ticket sent to someone isn't in `tickets` (it's a 404).
+  const ticket = order.tickets.find((t, index) => (t.ticketNumber ?? index + 1) === n);
   if (!ticket || !order.eventStartsAt) throw new HttpError(404, TICKET_NOT_FOUND);
   // The ticket's own row (by the order and the code the lookup returned), for its serial; the event's current
   // title and street address, again only while it's published.
@@ -135,7 +138,9 @@ async function walletTicket(req: Request, sessionId: string, provider: Provider,
        join public.events e on e.id = o.event_id and e.status = 'published'
        join public.tickets t on t.order_id = o.id and t.code = $2
        left join public.event_images i on i.event_id = e.id
-      where o.id = $1`,
+      where o.id = $1
+        -- Never a pass for a ticket sent to someone (belt and braces with the lookup).
+        and not exists (select 1 from private.ticket_transfers x where x.ticket_code = t.code and x.status = 'accepted')`,
     [sessionId, ticket.ticketCode],
   );
   if (!event) throw new HttpError(404, ORDER_NOT_FOUND);
@@ -156,7 +161,8 @@ async function walletTicket(req: Request, sessionId: string, provider: Provider,
     // A group ticket's person: "Group of 4 (2 of 4)", on the pass as in the email.
     ticketTypeName: ticketNameWithGroup(ticket.ticketTypeName, ticket.group),
     ticketNumber: n,
-    ticketCount: order.tickets.length,
+    // The order's tickets, sent ones included (they keep their numbers).
+    ticketCount: order.tickets.length + (order.transferredTickets?.length ?? 0),
     ...(ticket.seat ? { seat: ticket.seat } : {}),
     code: ticket.ticketCode,
     qrPayload: walletQrPayload(ticket.ticketCode),

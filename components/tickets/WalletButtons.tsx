@@ -22,9 +22,10 @@ interface WalletButtonsProps {
  * which Safari offers to add to Wallet.
  *
  * Each is the vendor's official badge (lib/wallet-badges.ts; Google's with rounded-rectangle corners):
- * Apple's then Google's, both 44px tall at their own proportions (about 139
- * and 159px wide), 8px apart (Apple asks for 0.1x the height around its
- * badge: 4.4px). No hover effects, no dimming, and the same files in both
+ * Apple's then Google's, both 160px wide at their own proportions (Google's
+ * 44px tall, Apple's about 51), centred on each other in a row and lined up
+ * when they wrap, 8px apart (Apple asks for 0.1x the height around its
+ * badge: about 5px). No hover effects, no dimming, and the same files in both
  * themes. They always say "Add": the site can't tell whether a pass was
  * saved, so Google's "View in Google Wallet" isn't used. Each image's alt is
  * the vendor's wording. With several tickets, each link's name says which
@@ -46,8 +47,8 @@ export default function WalletButtons({ sessionId, wallet, ticketNumber, ticketC
             rel="nofollow"
             className={`inline-flex ${provider === "apple" ? "rounded-control" : "rounded-full"}`}
           >
-            {/* eslint-disable-next-line @next/next/no-img-element -- the vendor's SVG, unmodified at its own proportions; next/image would need SVG optimisation off and fixed dimensions */}
-            <img src={badge.src} width={badge.width} height={badge.height} alt={badge.label} draggable={false} className="block h-11 w-auto" />
+            {/* eslint-disable-next-line @next/next/no-img-element -- the vendor's SVG, unmodified at its own proportions (its artboard's width and height; shown 160px wide, height to match); next/image would need SVG optimisation off and fixed dimensions */}
+            <img src={badge.src} width={badge.width} height={badge.height} alt={badge.label} draggable={false} className="block h-auto w-40" />
           </a>
         );
       })}

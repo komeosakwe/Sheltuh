@@ -359,7 +359,7 @@ describe("which orders and events qualify", () => {
          select 'ticket_email', o.id from public.orders o order by o.created_at desc limit $1`,
         [n],
       );
-    const ticketMails = () => api.sendEmail.mock.calls.map(([m]) => m).filter((m) => m.subject.startsWith("Your tickets"));
+    const ticketMails = () => api.sendEmail.mock.calls.map(([m]) => m).filter((m) => /^(Your (\d+ )?tickets? to |You’re in: )/.test(m.subject));
     const buyers = (n: number) => Array.from({ length: n }, (_, i) => `fan${i}@example.com`);
 
     it("sends tickets first, and reminders only within their share, so a burst of reminders never starves a ticket email", async () => {
@@ -438,15 +438,14 @@ describe("the reminder email", () => {
     const [message] = sentTo("fan@example.com");
     expect(message.subject).toMatch(/^(Today|Tomorrow): Neon Static$/);
     expect(message.text).toContain(event.venueName);
-    expect(message.text).toContain("View your tickets: ");
-    expect(message.text).toContain("Organised by Static Collective");
+    expect(message.text).toContain("Open your ticket: ");
     expect(message.headers).toEqual({ "Auto-Submitted": "auto-generated" });
     expect(message.html).not.toContain("List-Unsubscribe");
     expect(message.text).not.toMatch(/unsubscribe/i);
-    // The modern look hosts its wordmark and icons: nothing is attached inline.
-    expect(message.inlineImages ?? []).toEqual([]);
-    expect(message.html).toContain("/brand/sheltuh-wordmark-email.png");
-    expect(message.html).toContain(">Event Reminder</td>");
+    // The shared 1120 layout: the wordmark is the one inline image (the icons are hosted).
+    expect((message.inlineImages ?? []).map((i) => i.cid)).toEqual(["sheltuh-wordmark@sheltuh.com.au"]);
+    expect(message.html).toMatch(/>(Today|Tomorrow) · [A-Z][a-z]{2} \d{1,2} [A-Z][a-z]{2}<\/p>/);
+    expect(message.html).toContain(">Open your ticket&nbsp;&nbsp;");
   });
 
   it("is skipped, not retried, when the order was refunded since it was queued", async () => {
@@ -472,7 +471,7 @@ describe("the reminder email", () => {
     await cron();
     const [message] = reminderMails();
     expect(message.to).toBe("FAN@Example.com");
-    expect(message.text).toContain(`View your tickets: ${ticketPageLink(SITE_URL, second)}`);
+    expect(message.text).toContain(`Open your ticket: ${ticketPageLink(SITE_URL, second)}`);
     expect(message.text).not.toContain(orderIds[0]);
     expect(await jobs()).toEqual([expect.objectContaining({ status: "sent" })]);
   });

@@ -40,6 +40,12 @@ import { requireEventOperator } from "./organiser-guard";
  * response is `private, no-store`, and none carries a buyer's name or email,
  * an order id, or (in the log) more than a code's last four characters.
  * Check-in ids are the log's random public ids, never its sequential key.
+ *
+ * Ticket transfers (20261203000000_ticket_transfers.sql): a sent ticket's
+ * live code is its recipient's; the buyer's original code (or an older
+ * recipient's) is `transferred`, described like `not_admissible` (type,
+ * number, the scanned code's last four, the seat) with nothing to undo. Every
+ * `codeLast4` is the code actually scanned.
  */
 
 /** Per acting account, shared by check-ins and undos (take_rate_limit bucket 'check_in'). */
@@ -291,7 +297,7 @@ export const getCheckInSummary: Handler<{ eventId: string }> = async (req, { eve
       reason: string | null;
       undoable: boolean;
     } & SeatColumns>(
-      `select c.public_id::text as id, c.result, c.created_at, right(c.ticket_code, 4) as code_last4, c.reason,
+      `select c.public_id::text as id, c.result, c.created_at, coalesce(c.scanned_last4, right(c.ticket_code, 4)) as code_last4, c.reason,
               t.ticket_type_name,
               case when c.result = 'other_event' then e.title end as other_event_title,
               s.section_label as seat_section, s.row_label as seat_row, s.seat_label, s.kind as seat_kind,

@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { InboxPageContent } from "@/components/messages/MessagesPages";
+import MessagesFrame from "@/components/messages/MessagesFrame";
+import { PickConversation } from "@/components/messages/MessagesPages";
 import { ApiError } from "@/lib/api/client";
 import type { ConversationSummary } from "@/lib/api/types";
 import type { AuthContextValue } from "@/lib/auth/AuthContext";
@@ -10,6 +11,13 @@ import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 vi.mock("@/lib/api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/client")>()),
   isApiConfigured: true,
+}));
+
+// /messages itself: no conversation open (app/(account)/messages: the layout's MessagesFrame around PickConversation).
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/messages",
+  useSelectedLayoutSegment: () => null,
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
 }));
 
 const listConversations = vi.fn();
@@ -40,7 +48,9 @@ function summary(id: string, overrides: Partial<ConversationSummary> = {}): Conv
 function renderInbox(auth: AuthContextValue = fakeAuthValue()) {
   return render(
     <FakeAuthProvider value={auth}>
-      <InboxPageContent />
+      <MessagesFrame>
+        <PickConversation />
+      </MessagesFrame>
     </FakeAuthProvider>,
   );
 }

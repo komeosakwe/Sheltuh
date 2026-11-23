@@ -186,6 +186,8 @@ describe("Data API lock-out", () => {
       { table_name: "refund_status_marks", rls: true },
       { table_name: "report_photos", rls: true },
       { table_name: "social_suspensions", rls: true },
+      { table_name: "ticket_transfer_tokens", rls: true },
+      { table_name: "ticket_transfers", rls: true },
       { table_name: "trending_snapshot", rls: true },
       { table_name: "user_reports", rls: true },
     ]);
@@ -551,6 +553,57 @@ describe("Data API lock-out", () => {
     expect(tables).toEqual([
       { table_name: "member_username_changes", rls: true, policies: 0, grants: 0 },
       { table_name: "member_usernames", rls: true, policies: 0, grants: 0 },
+    ]);
+  });
+
+  it("the ticket transfer functions and triggers exist, pin search_path, aren't security definer and aren't client-executable", async () => {
+    const names = [
+      "accept_ticket_transfer",
+      "cancel_ticket_transfer",
+      "check_in_ticket",
+      "create_holder_ticket_transfer",
+      "create_ticket_transfer",
+      "decline_ticket_transfer",
+      "expire_overdue_ticket_offer",
+      "expire_ticket_transfers",
+      "insert_ticket_offer",
+      "member_held_tickets",
+      "order_email_change_block",
+      "person_name_ok",
+      "purge_operational_data",
+      "set_going",
+      "ticket_offer_refusal",
+      "ticket_transfers_guard",
+      "tickets_code_not_reissued",
+      "undo_check_in",
+    ];
+    expect(await privateFunctions(names)).toEqual(locked(names));
+    const [definer] = await db.query<{ n: number }>(
+      `select count(*)::int as n from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'private' and p.proname = any($1::text[]) and p.prosecdef`,
+      [names],
+    );
+    expect(definer.n).toBe(0);
+    const triggers = await db.query<{ tgname: string; table: string }>(
+      `select tgname, tgrelid::regclass::text as table from pg_trigger
+        where tgname in ('ticket_transfers_guard', 'tickets_code_not_reissued') and not tgisinternal order by 1`,
+    );
+    expect(triggers).toEqual([
+      { tgname: "ticket_transfers_guard", table: "private.ticket_transfers" },
+      { tgname: "tickets_code_not_reissued", table: "tickets" },
+    ]);
+    const tables = await db.query<{ table_name: string; rls: boolean; policies: number; grants: number }>(
+      `select c.relname as table_name, c.relrowsecurity as rls,
+              (select count(*)::int from pg_policy p where p.polrelid = c.oid) as policies,
+              (select count(*)::int from information_schema.role_table_grants g
+                where g.table_schema = 'private' and g.table_name = c.relname
+                  and g.grantee in ('anon', 'authenticated', 'PUBLIC')) as grants
+         from pg_class c join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = 'private' and c.relname in ('ticket_transfers', 'ticket_transfer_tokens') order by 1`,
+    );
+    expect(tables).toEqual([
+      { table_name: "ticket_transfer_tokens", rls: true, policies: 0, grants: 0 },
+      { table_name: "ticket_transfers", rls: true, policies: 0, grants: 0 },
     ]);
   });
 

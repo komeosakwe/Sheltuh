@@ -706,3 +706,49 @@ describe("EventDetailsView booking info beside the tickets", () => {
     expect(screen.getByRole("region", { name: "Good to know" })).toHaveTextContent("18+ (ID checked)");
   });
 });
+
+describe("EventDetailsView: Before you go", () => {
+  const ROWS = [
+    { label: "Entry", value: "5:00 pm – 8:00 pm" },
+    { label: "Age", value: "18+ · Photo ID required" },
+    { label: "<b>Extras</b>", value: "<b>Earplugs</b> at the bar" },
+  ];
+
+  it("shows the organiser's rows as \"The essentials.\": numbered rows of a label and a value, as plain text, before Location", () => {
+    const { container } = render(<EventDetailsView event={{ ...findEvent("neon-static"), beforeYouGo: ROWS }} demo />);
+    const section = screen.getByRole("region", { name: "The essentials." });
+    const heading = within(section).getByRole("heading", { level: 2, name: "The essentials." });
+    // The full stop in Signal Orange (large text), the words in the foreground.
+    const stop = heading.querySelector("span");
+    expect(stop).toHaveTextContent(/^\.$/);
+    expect(stop).toHaveClass("text-signal");
+    // A description list: each <dt> "01 / " (decorative, hidden) and the label as typed (uppercased by CSS only),
+    // in the small-text orange; each <dd> the value, right-aligned in the foreground.
+    const terms = [...section.querySelectorAll("dt")];
+    expect(terms.map((dt) => dt.textContent)).toEqual(["01 / Entry", "02 / Age", "03 / <b>Extras</b>"]);
+    for (const dt of terms) {
+      expect(dt.querySelector("span")).toHaveAttribute("aria-hidden", "true");
+      expect(dt).toHaveClass("uppercase", "text-signal-text", "font-bold");
+      expect(dt).not.toHaveClass("text-signal");
+    }
+    const values = [...section.querySelectorAll("dd")];
+    expect(values.map((dd) => dd.textContent)).toEqual(ROWS.map((r) => r.value));
+    for (const dd of values) expect(dd).toHaveClass("text-right", "text-foreground");
+    // A divider under every row, the last included.
+    for (const row of section.querySelectorAll("[data-before-you-go-row]")) expect(row).toHaveClass("border-b", "border-surface-border");
+    // Escaped, never markup.
+    expect(section.querySelector("b")).toBeNull();
+    // Just before Location.
+    const location = screen.getByRole("heading", { name: "Location" }).closest("section");
+    expect(location).not.toBeNull();
+    if (location) expect(section.compareDocumentPosition(location) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(container.querySelectorAll("[data-before-you-go]")).toHaveLength(1);
+  });
+
+  it("is absent when the event has no note", () => {
+    // The sample has one (lib/sample-events.ts): taken away here.
+    const { container } = render(<EventDetailsView event={{ ...findEvent("neon-static"), beforeYouGo: undefined }} demo />);
+    expect(screen.queryByRole("region", { name: "The essentials." })).toBeNull();
+    expect(container.querySelector("[data-before-you-go]")).toBeNull();
+  });
+});

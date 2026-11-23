@@ -298,6 +298,26 @@ select version, file, coalesce(applied, false) as applied
       and exists (select 1 from pg_constraint where conname = 'profile_moderation_log_removed_check'
                    and pg_get_constraintdef(oid) like '%username%')),
     ('20261202000000', 'checkout_expiry_claim_retry',
-      exists (select 1 from fn where proname = 'claim_overdue_checkouts' and prosrc like '%c_max_retries%'))
+      exists (select 1 from fn where proname = 'claim_overdue_checkouts' and prosrc like '%c_max_retries%')),
+    ('20261203000000', 'ticket_transfers',
+      to_regclass('private.ticket_transfers') is not null
+      and to_regclass('private.ticket_transfer_tokens') is not null
+      and exists (select 1 from fn where proname = 'accept_ticket_transfer')
+      and exists (select 1 from fn where proname = 'member_held_tickets')
+      and exists (select 1 from fn where proname = 'check_in_ticket' and prosrc like '%transferred%')
+      and exists (select 1 from fn where proname = 'set_going' and prosrc like '%member_held_tickets%')
+      and exists (select 1 from fn where proname = 'purge_operational_data' and prosrc like '%ticket_transfer_tokens%')
+      and exists (select 1 from col where attrelid = to_regclass('private.email_outbox') and attname = 'ticket_transfer_id')
+      and exists (select 1 from col where attrelid = to_regclass('public.ticket_check_ins') and attname = 'scanned_last4')
+      and exists (select 1 from pg_trigger where tgname = 'tickets_code_not_reissued' and not tgisinternal)),
+    ('20261204000000', 'event_before_you_go',
+      exists (select 1 from pg_attribute where attrelid = to_regclass('public.events') and attname = 'before_you_go'
+                 and not attisdropped and atttypid = 'jsonb'::regtype)
+      and exists (select 1 from fn where proname = 'before_you_go_ok')
+      and exists (select 1 from pg_constraint where conname = 'events_before_you_go_check'
+                   and pg_get_constraintdef(oid) like '%before_you_go_ok%')
+      and exists (select 1 from fn where proname = 'create_event_draft' and prosrc like '%before_you_go_of%')
+      and exists (select 1 from fn where proname = 'edit_event_draft' and prosrc like '%before_you_go_of%')
+      and exists (select 1 from fn where proname = 'admin_edit_event' and prosrc like '%before_you_go_of%'))
   ) as m(version, file, applied)
  order by version;

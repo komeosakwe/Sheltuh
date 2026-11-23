@@ -122,8 +122,12 @@ describe("free checkout (member, own verified email)", () => {
     expect(api.sendEmail).toHaveBeenCalledTimes(1);
     const email = api.sendEmail.mock.calls[0][0];
     expect(email.to).toBe("fan@example.com");
-    expect(email.subject).toBe("Your tickets: Neon Static");
-    for (const ticket of order.body.tickets) expect(email.text).toContain(ticket.ticketCode);
+    expect(email.subject).toBe("You’re in: Neon Static");
+    // The first ticket's code; the others are rows pointing at the ticket page, which holds their codes.
+    const codes = (order.body.tickets as { ticketCode: string }[]).map((t) => t.ticketCode);
+    expect(codes.filter((code) => email.text.includes(code))).toEqual(codes.filter((code) => email.text.includes(`Entry code: ${code}`)));
+    expect(codes.filter((code) => email.text.includes(code))).toHaveLength(1);
+    expect(email.text).toContain("Ticket 2 of 2 · RSVP — View: ");
     expect(email.text).toContain(`https://sheltuh.test/checkout/success?session_id=${orderId}`);
   });
 
@@ -573,7 +577,8 @@ describe("guest order lookup (GET /api/orders/by-session/{orderId})", () => {
       subtotalCents: 6000,
       buyerFeeCents: 460,
       totalCents: 6460,
-      tickets: codes.map((c) => ({ ticketCode: c.code, ticketTypeName: "GA", checkedInAt: null })),
+      // Each with its number in the order (ticket type, then code), as the email and the wallet routes number them.
+      tickets: codes.map((c, i) => ({ ticketCode: c.code, ticketTypeName: "GA", checkedInAt: null, ticketNumber: i + 1 })),
       // Which wallet passes the server makes: none, as this API has no wallet credentials (wallet-passes.test.ts).
       wallet: { google: false, apple: false },
     });

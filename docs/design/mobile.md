@@ -14,7 +14,7 @@ References: DICE web captures supplied by the owner (event rail, full landing pa
 `EventArt.tsx`, `EventDetailsView.tsx`, `LiveEventDetails.tsx`, `TicketSelector.tsx`,
 `HomeSections.tsx`, `ui/Sticker.tsx`, `ui/Section.tsx`, `ui/Field.tsx`, `ui/Button.tsx`,
 `Footer.tsx`, `ContentPage.tsx`, `SceneMap.tsx`, `SceneMapFilterBar.tsx`,
-`SceneEventRow.tsx`, `SceneMapPanel.tsx`, `CheckoutConfirmation.tsx`, `tickets/TicketStub.tsx`,
+`SceneEventRow.tsx`, `SceneMapPanel.tsx`, `CheckoutConfirmation.tsx`, `tickets/FullTicket.tsx`,
 `lib/pricing.ts`, `lib/types.ts`, `tests/Carousel.test.tsx`, `e2e/public-feed-pagination.spec.ts`.
 
 Note: the round "N" badge in every capture is the Next.js dev-mode indicator, not product UI.
@@ -567,11 +567,11 @@ Map list (`SceneEventRow`): keep its anatomy. Pass `imageUrl={event.imageUrl}` t
 - `PageHeader`: change `mb-10` to `mb-6 sm:mb-14`, and change the header `gap-6` to `gap-4 sm:gap-6`.
 - ContentPage h2: `[&_h2]:text-[1.625rem] sm:[&_h2]:text-3xl`. Section `pt-6` is unchanged.
 
-#### (l) Confirmation: `CheckoutConfirmation.tsx`, `TicketStub.tsx`
+#### (l) Confirmation: `CheckoutConfirmation.tsx`, `FullTicket.tsx`
 
-These are already acceptable on phones. One change: in `TicketStub`, change the code
+These are already acceptable on phones. One change: in `FullTicket`, change the code
 from `text-2xl tracking-widest` to `text-xl tracking-wider sm:text-2xl sm:tracking-widest`
-so 10–12 char codes don't wrap at 320. The `UBarcode` at `h-28` is unchanged.
+so 10–12 char codes don't wrap at 320.
 
 ### 3.4 Motion
 
@@ -655,7 +655,7 @@ For every step, verify at **320, 375, 390, 430** (DevTools device mode) and
     - The selected-event card clears the home indicator.
     - The desktop split view is unchanged.
 11. **Content pages + confirmation.** Files: `ContentPage.tsx`, `ui/Section.tsx`
-    (`Page`, `PageHeader`), `tickets/TicketStub.tsx`.
+    (`Page`, `PageHeader`), `tickets/FullTicket.tsx`.
     *Verify:* `/help`, `/about`, `/privacy`, and `/checkout/success` with a mocked
     order at 320.
 12. **Docs.** Update `docs/design-system.md` (header, `btn-lg`, buy bar, list layout,

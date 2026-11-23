@@ -45,7 +45,7 @@ describe("the success page's order_completed", () => {
     getOrderBySession.mockResolvedValue(PAID);
     render(<CheckoutConfirmation />);
     // The reference is its own (mono) span, so the line is matched by its start and checked whole.
-    expect(await screen.findByText(/^Order reference/)).toHaveTextContent("Order reference #7C1F2E0A");
+    expect(await screen.findByText(/^Order #/)).toHaveTextContent("Order #7C1F2E0A Confirmed");
     await waitFor(() => expect(trackOrderCompleted).toHaveBeenCalledTimes(1));
     const [orderId, properties] = trackOrderCompleted.mock.calls[0];
     // The order id is only the lookup for "this tab started this order" (lib/analytics.ts); it is not a property.
@@ -58,7 +58,7 @@ describe("the success page's order_completed", () => {
     getOrderBySession.mockResolvedValue({ ...PAID, subtotalCents: 0, buyerFeeCents: 0, supportCents: undefined, totalCents: 0 });
     render(<CheckoutConfirmation />);
     // The reference is its own (mono) span, so the line is matched by its start and checked whole.
-    expect(await screen.findByText(/^Order reference/)).toHaveTextContent("Order reference #7C1F2E0A");
+    expect(await screen.findByText(/^Order #/)).toHaveTextContent("Order #7C1F2E0A Confirmed");
     await waitFor(() => expect(trackOrderCompleted).toHaveBeenCalledTimes(1));
     expect(trackOrderCompleted.mock.calls[0][1]).toMatchObject({ value_aud: 0, free: true, has_support: false });
   });

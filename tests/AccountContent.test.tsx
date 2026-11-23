@@ -80,7 +80,7 @@ describe("AccountContent", () => {
     expect(screen.getByRole("note")).toHaveTextContent("Accounts aren’t available in this demo.");
     expect(screen.getByLabelText("Display name")).toHaveValue("Mia T.");
     expect(screen.getByLabelText("Display name")).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Save profile" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
     expect(screen.queryByRole("button", { name: "Delete your profile" })).toBeNull();
     expect(getMyProfile).not.toHaveBeenCalled();
   });
@@ -106,7 +106,7 @@ describe("AccountContent", () => {
     );
     expect(screen.queryByRole("button", { name: "Delete your profile" })).toBeNull();
     // Deleting the whole account is still explained.
-    expect(screen.getByRole("link", { name: "Privacy Policy" })).toHaveAttribute("href", "/privacy");
+    expect(screen.getByRole("link", { name: "support@sheltuh.com.au" })).toHaveAttribute("href", "mailto:support@sheltuh.com.au");
   });
 
   it("creates a profile: validates first, sends the 18+ confirmation, then shows and focuses the result", async () => {
@@ -128,7 +128,7 @@ describe("AccountContent", () => {
     // Focus moves in an effect after the swap to the saved profile, so allow it to settle.
     await waitFor(() => expect(done.closest("[tabindex='-1']")).toHaveFocus());
     expect(saveMyProfile).toHaveBeenCalledWith({ displayName: "Mia T.", adultConfirmed: true }, expect.any(Function));
-    expect(screen.getByRole("button", { name: "Save profile" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete your profile" })).toBeInTheDocument();
   });
 
@@ -158,7 +158,7 @@ describe("AccountContent", () => {
     const input = await screen.findByLabelText("Display name");
     updateMyProfile.mockRejectedValueOnce(new ApiError(404, "You haven't set up a profile yet."));
     fireEvent.change(input, { target: { value: "Mia Thompson" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     const message = await screen.findByText(/No profile yet\./);
     await waitFor(() => expect(message.closest("[tabindex='-1']")).toHaveFocus());
     expect(screen.getByRole("form", { name: "Create your Who's Going profile" })).toBeInTheDocument();
@@ -182,7 +182,7 @@ describe("AccountContent", () => {
       new ApiError(400, "Invalid input.", { displayName: "Display names can't include links, email addresses or @handles." }),
     );
     fireEvent.change(input, { target: { value: "mia.com" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(input).toHaveAttribute("aria-invalid", "true"));
     expect(input).toHaveAccessibleDescription(expect.stringContaining("can't include links"));
     // Focus moves in an effect after the error renders (MemberProfileSettings' focusFirstError): an update after
@@ -191,7 +191,7 @@ describe("AccountContent", () => {
 
     updateMyProfile.mockResolvedValueOnce({ ...PROFILE, displayName: "Mia Thompson" });
     fireEvent.change(input, { target: { value: " Mia Thompson " } });
-    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() =>
       expect(renameStatus()).toHaveTextContent(/^Saved\. Events you’ve joined now show Mia Thompson\.$/),
     );
@@ -209,7 +209,7 @@ describe("AccountContent", () => {
     renderAccount();
     const input = await screen.findByLabelText("Display name");
     fireEvent.change(input, { target: { value: "  " } });
-    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(input).toHaveFocus());
     expect(input).toHaveAttribute("aria-invalid", "true");
     expect(input).toHaveAccessibleDescription(expect.stringContaining("Enter a display name."));
@@ -248,7 +248,7 @@ describe("AccountContent", () => {
     getMyOrganiser.mockResolvedValue({ organiserId: "o1", displayName: "Northside Noise", status: "approved" });
     const auth = fakeAuthValue({ email: "mia@example.com" });
     renderAccount(auth);
-    const links = screen.getByRole("navigation", { name: "Your account" });
+    const links = await screen.findByRole("navigation", { name: "Events" });
     expect(await within(links).findByRole("link", { name: "Your events" })).toHaveAttribute("href", "/dashboard");
     fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
     expect(auth.signOut).toHaveBeenCalledTimes(1);
@@ -262,12 +262,15 @@ describe("AccountContent", () => {
   it("says how the account signs in (Supabase's providers), as text, in a fixed order", async () => {
     getMyProfile.mockResolvedValue(PROFILE);
     renderAccount(fakeAuthValue({ email: "mia@example.com", providers: ["google", "email"] }));
-    expect(screen.getByText("Sign-in methods: Email and password, Google")).toBeInTheDocument();
+    // As the Settings frames word it: "Signed in as latte@email.com · Google".
+    expect(screen.getByText("Email and password, Google").closest("p")).toHaveTextContent(
+      /^Signed in as mia@example\.com · Email and password, Google$/,
+    );
     await screen.findByLabelText("Display name");
     cleanup();
 
     renderAccount(fakeAuthValue({ email: "x@privaterelay.appleid.com", providers: ["apple"] }));
-    expect(screen.getByText("Sign-in methods: Apple")).toBeInTheDocument();
+    expect(screen.getByText("Apple").closest("p")).toHaveTextContent(/^Signed in as x@privaterelay\.appleid\.com · Apple$/);
     await screen.findByLabelText("Display name");
   });
 
@@ -275,14 +278,17 @@ describe("AccountContent", () => {
     getMyProfile.mockResolvedValue(PROFILE);
     renderAccount(fakeAuthValue({ email: "mia@example.com", providers: ["github"] }));
     await screen.findByLabelText("Display name");
-    expect(screen.queryByText(/^Sign-in methods:/)).toBeNull();
+    const signIn = () => within(screen.getByRole("region", { name: "Sign-in" })).getByText(/^Signed in as/).closest("p");
+    expect(signIn()).toHaveTextContent(/^Signed in as mia@example\.com$/);
+    expect(document.querySelector("[data-sign-in-methods]")).toBeNull();
     cleanup();
     renderAccount(fakeAuthValue({ email: "mia@example.com" }));
     await screen.findByLabelText("Display name");
-    expect(screen.queryByText(/^Sign-in methods:/)).toBeNull();
+    expect(signIn()).toHaveTextContent(/^Signed in as mia@example\.com$/);
+    expect(document.querySelector("[data-sign-in-methods]")).toBeNull();
   });
 
-  it("keeps focus on Save profile while saving (busy, not disabled), and after it's saved", async () => {
+  it("keeps focus on Save changes while saving (busy, not disabled), and after it's saved", async () => {
     getMyProfile.mockResolvedValue(PROFILE);
     renderAccount();
     const input = await screen.findByLabelText("Display name");
@@ -290,7 +296,7 @@ describe("AccountContent", () => {
     updateMyProfile.mockReturnValueOnce(new Promise<ProfileRecord>((r) => (resolve = r)));
 
     fireEvent.change(input, { target: { value: "Mia Thompson" } });
-    const save = screen.getByRole("button", { name: "Save profile" });
+    const save = screen.getByRole("button", { name: "Save changes" });
     save.focus();
     fireEvent.click(save);
     const saving = screen.getByRole("button", { name: "Saving…" });
@@ -333,7 +339,7 @@ describe("AccountContent", () => {
     updateMyProfile.mockRejectedValueOnce(new SessionExpiredError());
     renderAccount();
     fireEvent.change(await screen.findByLabelText("Display name"), { target: { value: "Mia" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Your session has expired. Sign in again to continue.");
     expect(within(alert).getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/login?next=%2Faccount");
@@ -354,11 +360,15 @@ describe("AccountContent", () => {
     renderAccount(fakeAuthValue({ email: "mia@example.com", providers: ["email"] }));
     await screen.findByLabelText("Display name");
     const profile = screen.getByRole("region", { name: "Your profile" });
+    // Latte's Settings frames: Your profile and Privacy (with Delete your profile) on the left,
+    // then Sign-in and Events on the right (stacked in that order on a phone).
+    const privacy = screen.getByRole("region", { name: "Privacy" });
     const order = [
       profile,
-      screen.getByRole("navigation", { name: "Your account" }),
-      screen.getByRole("region", { name: "Sign-in" }),
+      privacy,
       screen.getByRole("button", { name: "Delete your profile" }),
+      screen.getByRole("region", { name: "Sign-in" }),
+      await screen.findByRole("navigation", { name: "Events" }),
     ];
     for (let i = 1; i < order.length; i++) {
       expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -370,32 +380,40 @@ describe("AccountContent", () => {
     within(profile).getByLabelText("Instagram username (optional)");
     within(profile).getByRole("checkbox", { name: "Show my profile to other members" });
     expect(within(profile).getAllByRole("button", { name: /^Save/ })).toHaveLength(1);
-    expect(within(profile).getByRole("link", { name: "How we handle your information" })).toHaveAttribute(
+    expect(within(privacy).getByRole("link", { name: /^How we handle your information/ })).toHaveAttribute(
       "href",
       "/privacy#whos-going",
     );
+    within(privacy).getByRole("button", { name: "Delete your profile" });
+    // Its disclosure heading sits under the card's h2.
+    expect(within(privacy).getByRole("heading", { level: 2, name: "Privacy" })).toBeInTheDocument();
+    expect(within(privacy).getByRole("heading", { level: 3, name: "Delete your profile" })).toBeInTheDocument();
+    expect(within(privacy).queryByRole("heading", { level: 2, name: "Delete your profile" })).toBeNull();
     const sign = screen.getByRole("region", { name: "Sign-in" });
     expect(within(sign).getByText("mia@example.com")).toBeInTheDocument();
-    expect(within(sign).getByText("Sign-in methods: Email and password")).toBeInTheDocument();
+    expect(within(sign).getByText("Email and password")).toBeInTheDocument();
     expect(within(sign).getByRole("button", { name: "Sign out" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Privacy Policy" })).toHaveAttribute("href", "/privacy");
+    expect(screen.getByRole("link", { name: "support@sheltuh.com.au" })).toHaveAttribute("href", "mailto:support@sheltuh.com.au");
   });
 
-  it("lists Saved, Organisers you follow, Messages and Blocked members; Your events only for an organiser, Organise events otherwise", async () => {
+  it("lists Blocked members under Privacy, Organisers you follow under Events; Your events only for an organiser, Organise events otherwise", async () => {
     getMyProfile.mockResolvedValue(PROFILE);
     renderAccount();
     await screen.findByLabelText("Display name");
     await waitFor(() => expect(getMyOrganiser).toHaveBeenCalled());
-    const links = screen.getByRole("navigation", { name: "Your account" });
+    // Saved and Messages are in the account area's tabs and sidebar (AccountShell), not here.
+    const privacy = screen.getByRole("navigation", { name: "Privacy" });
+    expect(within(privacy).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual([
+      "/messages/blocked",
+      "/privacy#whos-going",
+    ]);
+    expect(within(privacy).getByRole("link", { name: /^Blocked members/ })).toBeInTheDocument();
+    const links = await screen.findByRole("navigation", { name: "Events" });
     // Not an organiser: the way to become one.
     await within(links).findByRole("link", { name: "Organise events" });
     expect(within(links).getAllByRole("link").map((link) => [link.textContent, link.getAttribute("href")])).toEqual([
       ["Organise events", "/organisers/apply"],
-      // Saved left the header in the redesign (PR 2): it's here, on /account.
-      ["Saved", "/saved"],
       ["Organisers you follow", "/following"],
-      ["Messages", "/messages"],
-      ["Blocked members", "/messages/blocked"],
     ]);
     expect(within(links).queryByRole("link", { name: "Your events" })).toBeNull();
     cleanup();
@@ -404,7 +422,7 @@ describe("AccountContent", () => {
     getMyOrganiser.mockReset();
     getMyOrganiser.mockRejectedValue(new ApiError(500, "boom"));
     renderAccount();
-    const again = screen.getByRole("navigation", { name: "Your account" });
+    const again = await screen.findByRole("navigation", { name: "Events" });
     expect(await within(again).findByRole("link", { name: "Your events" })).toHaveAttribute("href", "/dashboard");
     expect(within(again).queryByRole("link", { name: "Organise events" })).toBeNull();
     await screen.findByLabelText("Display name");
@@ -425,7 +443,7 @@ describe("AccountContent", () => {
         bio: "Bios can't include that.",
       }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(name).toHaveFocus());
     expect(name).toHaveAccessibleDescription(expect.stringContaining("can't include links"));
     expect(bio).toHaveAttribute("aria-invalid", "true");
@@ -437,7 +455,7 @@ describe("AccountContent", () => {
 
     updateMyProfile.mockResolvedValueOnce({ ...PROFILE, displayName: "Mia Thompson", profileVisible: true, bio: "Hi" });
     fireEvent.change(name, { target: { value: "Mia Thompson" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() =>
       expect(renameStatus()).toHaveTextContent(
         "Saved. Events you’ve joined now show Mia Thompson. Other members can now open your profile from Who’s Going lists.",
@@ -480,7 +498,7 @@ describe("AccountContent and the header share the profile", () => {
     await waitFor(() => expect(screen.getByTestId("header-profile")).toHaveTextContent("Mia T."));
     updateMyProfile.mockResolvedValueOnce({ ...PROFILE, displayName: "Mia Thompson" });
     fireEvent.change(input, { target: { value: "Mia Thompson" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(screen.getByTestId("header-profile")).toHaveTextContent("Mia Thompson"));
     // Each copy loaded once: the header learnt of the change without fetching again.
     expect(getMyProfile).toHaveBeenCalledTimes(2);
@@ -511,7 +529,7 @@ describe("AccountContent and the header share the profile", () => {
     expect(screen.getByTestId("header-profile")).toHaveTextContent("loading");
     updateMyProfile.mockResolvedValueOnce({ ...PROFILE, displayName: "Mia Thompson" });
     fireEvent.change(input, { target: { value: "Mia Thompson" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(screen.getByTestId("header-profile")).toHaveTextContent("Mia Thompson"));
     await act(async () => resolveLate(PROFILE));
     expect(screen.getByTestId("header-profile")).toHaveTextContent("Mia Thompson");
@@ -533,7 +551,7 @@ describe("AccountContent and the header share the profile", () => {
     await waitFor(() => expect(screen.getByTestId("header-profile")).toHaveTextContent("Mia T."));
     updateMyProfile.mockResolvedValueOnce({ ...PROFILE, displayName: "Mia Thompson" });
     fireEvent.change(input, { target: { value: "Mia Thompson" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(renameStatus()).toHaveTextContent(/Mia Thompson/));
     expect(screen.getByTestId("header-profile")).toHaveTextContent("Mia T.");
   });

@@ -18,6 +18,10 @@ const SIZES = {
   nav: "size-10 text-sm leading-5",
   lg: "size-24 text-2xl leading-8 sm:size-32 sm:text-4xl sm:leading-10",
   field: "size-18 text-xl leading-7",
+  /** Settings' profile photo (56px, Latte's 1120 Settings frames). */
+  setting: "size-14 text-lg leading-6",
+  /** The desktop account sidebar's photo (112px, Latte's 1120 frames). */
+  sidebar: "size-28 text-3xl leading-9",
 } as const;
 
 /**

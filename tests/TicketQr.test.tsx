@@ -150,4 +150,13 @@ describe("TicketQr", () => {
     expect(264 / 33).toBe(8);
     expect(container.querySelector("svg")).toHaveClass("size-full");
   });
+
+  it("on the My ticket page it's 165px on phones and 198px from 768px (whole-pixel modules), and still 40mm in print", () => {
+    const { container } = render(<TicketQr code={CODE} size="page" />);
+    const classes = (container.firstElementChild?.getAttribute("class") ?? "").split(/\s+/);
+    expect(classes).toEqual(expect.arrayContaining(["size-[165px]", "md:size-[198px]", "print:size-[40mm]"]));
+    expect(classes).not.toContain("size-[231px]");
+    expect(165 / 33).toBe(5);
+    expect(198 / 33).toBe(6);
+  });
 });

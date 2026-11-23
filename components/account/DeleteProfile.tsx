@@ -74,7 +74,8 @@ export default function DeleteProfile({ getToken, onDeleted }: { getToken: GetTo
 
   return (
     <div>
-      <h2 className="font-heading text-xl leading-6">
+      {/* An h3: it sits in Settings' Privacy card, under that card's h2. */}
+      <h3 className="font-heading text-xl leading-6">
         <button
           type="button"
           aria-expanded={open}
@@ -85,7 +86,7 @@ export default function DeleteProfile({ getToken, onDeleted }: { getToken: GetTo
           Delete your profile
           <ChevronDownIcon open={open} />
         </button>
-      </h2>
+      </h3>
       <div id={panelId} hidden={!open} className="flex flex-col items-start gap-4 pt-2">
         <p className="text-sm">
           Removes your display name, bio, Instagram and photo, takes you off every Who&rsquo;s Going list and deletes
