@@ -121,8 +121,9 @@ const noSidewaysScroll = (page: Page) =>
 const titlesIn = (page: Page, name: string) => page.getByRole("list", { name, exact: true }).locator("[data-event-card] h3").allTextContents();
 
 // The rules' Layout board: 1312px of content, four 304px cards at 1440 (64px margins from 1280: 264px there); three
-// from 1024, two from 768, one below 768 (Round 2 §1.2).
+// from 1024, two from 768, one below 768 (Round 2 §1.2). Content stops at 1440px (owner, 23 Nov 2026): 336px cards at 1920.
 const VIEWPORTS = [
+  { name: "wide desktop 1920×1080", width: 1920, height: 1080, columns: 4, card: 336 },
   { name: "desktop 1440×900", width: 1440, height: 900, columns: 4, card: 304 },
   { name: "desktop 1280×800", width: 1280, height: 800, columns: 4, card: 264 },
   { name: "laptop 1024×768", width: 1024, height: 768, columns: 3, card: 298.67 },

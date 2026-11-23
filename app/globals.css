@@ -835,11 +835,13 @@ h4 {
   border-width: var(--stroke-control);
 }
 
-/* The page's content column (the rules' Layout board): 1312px of content, with margins of 16px
-   on phones, 32px from 768px and 64px from 1280px (Round 2 §1.2). */
+/* The page's content column (the rules' Layout board): margins of 16px on phones, 32px from 768px
+   and 64px from 1280px (Round 2 §1.2), so 1312px of content at 1440. The cap is 1440px of content
+   (owner, 23 Nov 2026: Latte's 1312px left wide screens mostly empty), so a 1920px screen keeps
+   240px each side. */
 @utility page-container {
   width: 100%;
-  max-width: calc(82rem + 2 * var(--page-margin));
+  max-width: calc(90rem + 2 * var(--page-margin));
   margin-inline: auto;
   padding-inline: var(--page-margin);
   --page-margin: 1rem;
