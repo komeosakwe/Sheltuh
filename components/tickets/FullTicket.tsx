@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import SeatLine from "@/components/seating/SeatLine";
-import TicketQr from "@/components/tickets/TicketQr";
+import TicketQr, { PLATE_SIZES } from "@/components/tickets/TicketQr";
 import type { TicketGroup, TicketSeat } from "@/lib/api/types";
 import { SUPPORT_EMAIL } from "@/lib/contact";
 import { eventZone, formatMessageTime } from "@/lib/format";
@@ -18,7 +18,7 @@ import { ticketNameWithGroup } from "@/lib/ticket-groups";
  */
 export type FullTicketSize = "page" | "screen";
 
-export interface FullTicketProps {
+interface FullTicketBase {
   size?: FullTicketSize;
   eventTitle: string;
   /** The event's image, filling its box (an `<EventArt>` or an `<img>`). Left out, the ticket has no image row. */
@@ -35,11 +35,6 @@ export interface FullTicketProps {
   group?: TicketGroup;
   /** Its seat, for a reserved-seating event. */
   seat?: TicketSeat;
-  /** The ticket's code: the QR carries it, and it's printed under the QR as the backup code. */
-  code: string;
-  /** Its place in the order, numbered as in the ticket email: "ticket 1 of 2". */
-  ticketNumber: number;
-  ticketCount: number;
   /** The event is no longer listed: say so, with the support address, instead of its image, venue, date and time. */
   eventUnlisted?: boolean;
   /** When the ticket was checked in at the door (ISO), or null / unset if it hasn't been. */
@@ -53,6 +48,65 @@ export interface FullTicketProps {
    */
   headingLevel?: 2 | 3 | null;
   className?: string;
+}
+
+/** A ticket its holder can use: the QR and backup code. */
+interface LiveTicketProps extends FullTicketBase {
+  locked?: false;
+  /** The ticket's code: the QR carries it, and it's printed under the QR as the backup code. */
+  code: string;
+  /**
+   * Its place in the order, numbered as in the ticket email: "ticket 1 of 2". Left out (a ticket someone was
+   * sent: the order's size is the buyer's business), the line is "Show this at the door" alone.
+   */
+  ticketNumber?: number;
+  ticketCount?: number;
+}
+
+/**
+ * A ticket on offer that hasn't been accepted (the Accept page; the offer email's locked QR): a faint
+ * placeholder where the QR goes, which encodes nothing, and "Accept the ticket to get your QR code". No code
+ * of any kind is given to it, so none can be shown.
+ */
+interface LockedTicketProps extends FullTicketBase {
+  locked: true;
+  code?: never;
+  ticketNumber?: never;
+  ticketCount?: never;
+}
+
+export type FullTicketProps = LiveTicketProps | LockedTicketProps;
+
+/**
+ * A QR-like pattern that encodes nothing (three finder squares and a fixed scatter of modules), for a ticket
+ * that isn't the viewer's yet. Drawn faint, so it reads as "a QR goes here", never as one to scan.
+ */
+const LOCKED_SIDE = 25;
+/** Inside a finder square or the blank row and column round it. */
+const inFinder = (x: number, y: number) => (x < 8 && y < 8) || (x > LOCKED_SIDE - 9 && y < 8) || (x < 8 && y > LOCKED_SIDE - 9);
+const LOCKED_MODULES: readonly (readonly [number, number])[] = Array.from({ length: LOCKED_SIDE * LOCKED_SIDE }, (_, i) => [i % LOCKED_SIDE, Math.floor(i / LOCKED_SIDE)] as const).filter(
+  ([x, y]) => !inFinder(x, y) && (Math.imul(x + 1, 73856093) ^ Math.imul(y + 1, 19349663)) >>> 0 >= 0x80000000,
+);
+
+function LockedQr({ size }: { size: FullTicketSize }) {
+  const finder = (x: number, y: number) => (
+    <g key={`${x},${y}`}>
+      <path d={`M${x} ${y}h7v7h-7z M${x + 1} ${y + 1}v5h5v-5z`} fillRule="evenodd" />
+      <rect x={x + 2} y={y + 2} width={3} height={3} />
+    </g>
+  );
+  return (
+    <div className={`${PLATE_SIZES[size]} shrink-0 opacity-15`}>
+      <svg aria-hidden="true" data-qr-locked="" viewBox="-4 -4 33 33" shapeRendering="crispEdges" className="block size-full fill-ink">
+        {finder(0, 0)}
+        {finder(18, 0)}
+        {finder(0, 18)}
+        {LOCKED_MODULES.map(([x, y]) => (
+          <rect key={`${x},${y}`} x={x} y={y} width={1} height={1} />
+        ))}
+      </svg>
+    </div>
+  );
 }
 
 const labelClass = "font-mono text-xs leading-4 tracking-wider text-muted uppercase";
@@ -101,27 +155,28 @@ function StubCell({ label, children, className = "" }: { label: string; children
  * A code that isn't a real ticket code gets no QR (TicketQr renders nothing):
  * the code alone, as the "Entry code".
  */
-export default function FullTicket({
-  size = "page",
-  eventTitle,
-  image,
-  venueLine,
-  date,
-  time,
-  holderName,
-  typeName,
-  group,
-  seat,
-  code,
-  ticketNumber,
-  ticketCount,
-  eventUnlisted = false,
-  checkedInAt,
-  timeZone,
-  headingLevel = 2,
-  className = "",
-}: FullTicketProps) {
-  const hasQr = TICKET_CODE_PATTERN.test(code);
+export default function FullTicket(props: FullTicketProps) {
+  const {
+    size = "page",
+    eventTitle,
+    image,
+    venueLine,
+    date,
+    time,
+    holderName,
+    typeName,
+    group,
+    seat,
+    eventUnlisted = false,
+    checkedInAt,
+    timeZone,
+    headingLevel = 2,
+    className = "",
+  } = props;
+  const locked = props.locked === true;
+  const code = props.locked ? "" : props.code;
+  const numbered = !props.locked && props.ticketNumber !== undefined && props.ticketCount !== undefined;
+  const hasQr = !locked && TICKET_CODE_PATTERN.test(code);
   const page = size === "page";
   const Heading = `h${headingLevel ?? 2}` as const;
   const side = page ? "px-4 lg:px-6" : "px-4";
@@ -181,7 +236,14 @@ export default function FullTicket({
           )}
         </dl>
         <div className="relative mt-3 flex flex-col items-center">
-          {hasQr ? (
+          {locked ? (
+            <>
+              <div className={page ? "max-md:pt-px max-md:pb-0.5" : undefined}>
+                <LockedQr size={size} />
+              </div>
+              <p className="mt-2 px-4 text-center text-sm leading-5 font-semibold">Accept the ticket to get your QR code</p>
+            </>
+          ) : hasQr ? (
             <>
               {/*
                 The white around the QR is its quiet zone (it's in the plate), so nothing sits closer than that.
@@ -196,8 +258,10 @@ export default function FullTicket({
           ) : (
             <p className={`mt-4 ${labelClass}`}>Entry code</p>
           )}
-          <p className="max-w-full px-4 text-center font-mono text-lg leading-6 font-semibold tracking-widest break-all select-all">{code}</p>
-          {checkedInAt && (
+          {!locked && (
+            <p className="max-w-full px-4 text-center font-mono text-lg leading-6 font-semibold tracking-widest break-all select-all">{code}</p>
+          )}
+          {!locked && checkedInAt && (
             <div
               data-ticket-stamp=""
               className={`flex w-fit flex-col items-center rounded-control bg-signal px-6 py-4 text-center text-ink ${hasQr ? "absolute inset-x-4 top-1/2 mx-auto -translate-y-1/2" : "mx-4 mt-3"}`}
@@ -209,9 +273,11 @@ export default function FullTicket({
             </div>
           )}
         </div>
-        <p className={`mt-2 text-center text-sm leading-5 text-muted ${side}`}>
-          Show this at the door · ticket {ticketNumber} of {ticketCount}
-        </p>
+        {!locked && (
+          <p className={`mt-2 text-center text-sm leading-5 text-muted ${side}`}>
+            Show this at the door{numbered && ` · ticket ${props.ticketNumber} of ${props.ticketCount}`}
+          </p>
+        )}
         {page && hasQr && !checkedIn && (
           <p className={`mt-3 text-center text-sm leading-5 text-muted max-md:hidden print:hidden ${side}`}>
             Turn your brightness up. If the QR code won’t scan, door staff can type in the backup code.

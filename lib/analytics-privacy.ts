@@ -95,6 +95,8 @@ export function sanitizePathname(pathname: string): string {
   const second = segments[2];
   if (first === "members" && second) segments.splice(2, segments.length - 2, "[profileId]");
   else if (first === "messages" && second && second !== "blocked") segments.splice(2, segments.length - 2, "[conversationId]");
+  // A ticket someone was sent (/tickets/received/{transferId}): whose ticket it is.
+  else if (first === "tickets" && second === "received" && segments[3]) segments.splice(3, segments.length - 3, "[transferId]");
   const cleaned = segments.map((segment) => (TICKET_CODE_SEGMENT.test(segment) ? "[code]" : segment));
   return scrubText(cleaned.join("/"));
 }

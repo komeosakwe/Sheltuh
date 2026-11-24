@@ -468,6 +468,29 @@ describe("the full-screen ticket (phones)", () => {
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Send" }));
     expect(onSend).toHaveBeenCalledWith(2);
   });
+
+  it("no Send in the bar for a ticket that can't be sent now (on offer, checked in, or the API says no)", () => {
+    const order: CustomerOrder = {
+      ...TWO,
+      tickets: [
+        { ...TWO.tickets[0], canSend: false, transfer: { status: "pending", expiresAt: "2027-01-01T00:00:00.000Z", canCancel: false } },
+        { ...TWO.tickets[1], canSend: true },
+      ],
+    };
+    render(<MyTicketView order={order} sessionId="ord_1" onSendTicket={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Show ticket 1 of 2" }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).queryByRole("button", { name: "Send" })).toBeNull();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Next ticket" }));
+    expect(within(dialog).getByRole("button", { name: "Send" })).toBeInTheDocument();
+  });
+
+  it("the toast shows over the full-screen ticket too (the page behind a modal is inert)", () => {
+    render(<MyTicketView order={ORDER} sessionId="ord_1" toast={<p data-test-toast="">Sent to Sam.</p>} />);
+    expect(document.querySelectorAll("[data-test-toast]")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Show ticket" }));
+    expect(within(screen.getByRole("dialog")).getByText("Sent to Sam.")).toBeInTheDocument();
+  });
 });
 
 describe("the demo's sample ticket (no API)", () => {

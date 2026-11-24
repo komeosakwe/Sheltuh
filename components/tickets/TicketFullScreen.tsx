@@ -22,6 +22,13 @@ interface TicketFullScreenProps {
   footer?: (index: number) => ReactNode;
   /** "Send" in the top bar, for the ticket in view (by slide index). Left out (until tickets can be sent), the bar has no Send. */
   onSend?: (index: number) => void;
+  /** Whether the ticket in view (by slide index) can be sent now; Send is left out for the others. Left out: all can. */
+  canSend?: (index: number) => boolean;
+  /**
+   * What sits over the screen while it's open: the page's toast ("Sent to Sam…"). The page behind a modal is
+   * inert, so its own toast would be neither seen nor read out.
+   */
+  overlay?: ReactNode;
 }
 
 /**
@@ -40,7 +47,7 @@ interface TicketFullScreenProps {
  * - A native modal `<dialog>`: focus stays inside, Escape and the ✕ close it,
  *   and focus returns to the button that opened it.
  */
-export default function TicketFullScreen({ open, onClose, tickets, numbers, start = 0, footer, onSend }: TicketFullScreenProps) {
+export default function TicketFullScreen({ open, onClose, tickets, numbers, start = 0, footer, onSend, canSend, overlay }: TicketFullScreenProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   // Each opening starts on `start`: reset while rendering (not in an effect) when `open` changes.
@@ -147,7 +154,7 @@ export default function TicketFullScreen({ open, onClose, tickets, numbers, star
             <p className="font-mono text-sm leading-5 font-medium" aria-live="polite" aria-atomic="true">
               <span className="uppercase">Ticket</span> {number} of {count}
             </p>
-            {onSend ? (
+            {onSend && (canSend?.(index) ?? true) ? (
               <button type="button" onClick={() => onSend(index)} className={`${barButton} label-button px-3`}>
                 Send
               </button>
@@ -182,6 +189,7 @@ export default function TicketFullScreen({ open, onClose, tickets, numbers, star
             </div>
           )}
           {footer && <div className="shrink-0 px-6">{footer(index)}</div>}
+          {overlay}
         </div>
       )}
     </dialog>

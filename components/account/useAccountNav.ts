@@ -81,7 +81,8 @@ export function useAccountNav(pathname: string): AccountNav {
       href: MY_TICKETS_HREF,
       count: upcoming,
       countText: upcoming ? `, ${plural(upcoming, "upcoming event", "upcoming events")}` : undefined,
-      current: false,
+      // A sent ticket's Accept page and a received ticket are tickets (Latte's Accept ticket frames).
+      current: at("/tickets"),
     },
     {
       key: "saved",
