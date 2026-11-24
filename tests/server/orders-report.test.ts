@@ -79,6 +79,23 @@ describe("eventOrdersCsv", () => {
     expect(line).not.toMatch(/(^|,)"[=+\-@\t\r]/);
   });
 
+  it("each holder's name is defused, not only the cell's start (so splitting the cell can't start a formula)", () => {
+    const holders = ["Sam Lee", "=cmd|' /C calc'!A0", "+61 400", "@SUM(1)", "-1"].map((holderName, i) => ({
+      ticketNumber: i + 1,
+      ticketTypeName: "GA",
+      holderName,
+      holderEmail: `h${i}@example.com`,
+      transferredAt: "2027-03-01T00:00:00.000Z",
+    }));
+    expect(transferredToText({ holders })).toBe(
+      "Sam Lee <h0@example.com> · GA; '=cmd|' /C calc'!A0 <h1@example.com> · GA; '+61 400 <h2@example.com> · GA; '@SUM(1) <h3@example.com> · GA; '-1 <h4@example.com> · GA",
+    );
+    // Every piece of the cell split at "; " starts safely.
+    for (const piece of transferredToText({ holders }).split("; ")) expect(piece).not.toMatch(/^[=+\-@\t\r]/);
+    // A first name that's defused isn't quoted twice by the cell.
+    expect(body([row({ holders: holders.slice(1, 2) })])[1]).toContain(`"'=cmd|' /C calc'!A0 <h1@example.com> · GA"`);
+  });
+
   it("a ticket type name starting with a formula character is safe inside the joined cell", () => {
     expect(body([row({ tickets: [{ ticketTypeName: "=1+1", quantity: 1 }] })])[1]).toContain('"1 × =1+1"');
   });

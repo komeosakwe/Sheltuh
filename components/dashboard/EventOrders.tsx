@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useId, useState } from "react";
+import { Fragment, useEffect, useId, useState } from "react";
 import AnalyticsGate from "@/components/analytics/AnalyticsGate";
 import { saveBlob } from "@/components/analytics/ExportCsvButton";
 import { Button, ButtonLink } from "@/components/ui/Button";
@@ -35,9 +35,20 @@ function HolderLines({ order, timeZone }: { order: EventOrderRow; timeZone: stri
   if (lines.length === 0) return null;
   return (
     <div className="mt-1 flex flex-col gap-0.5">
-      {lines.map((line) => (
-        <p key={line} className="text-sm break-words text-muted">
-          {line}
+      {lines.map((parts) => (
+        <p key={parts.join("|")} className="text-sm break-words text-muted">
+          {parts.map((part, index) => (
+            <Fragment key={index}>
+              {index > 0 && (
+                <>
+                  {/* A dot for the eye, a comma for a screen reader (which would read "dot" or nothing). */}
+                  <span aria-hidden="true"> · </span>
+                  <span className="sr-only">, </span>
+                </>
+              )}
+              {part}
+            </Fragment>
+          ))}
         </p>
       ))}
     </div>

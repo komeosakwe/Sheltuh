@@ -598,16 +598,28 @@ left join public.organisers o on o.id = v.organiser_id
 where v.event_id = '<event id>' order by v.day desc, v.rows_served desc limit 50;
 ```
 
-**Withdrawing someone's details.** A buyer who asks (by email to support)
-for their name and email to stop being shown to the organiser: verify the
-request comes from that address, then clear the name and the notice stamp on
-every order for it. The row stays; the Orders view then shows "—", as for an
-order made before the feature. This does **not** recall a CSV the organiser
-already exported (the privacy policy says so); tell the buyer.
+**Withdrawing someone's details (one procedure for an address).** Someone
+who asks (by email to support) for their name and email to stop being shown
+to organisers: verify the request comes from that address, then run **both**
+statements below, in one go, with their address. The same person can be a
+buyer on some orders and, on others, the holder of a ticket someone sent
+them ("Ticket transfers" below), so clearing only one would leave them
+showing on the other. The first clears the name and the notice stamp on every
+order bought with the address (the Orders view then shows "—", as for an
+order made before the feature); the second stamps every ticket they accepted
+with it (the order keeps the entry as "1 ticket sent to someone else
+(details not shared)"; set once, the guard trigger refuses any other
+change). Either finding nothing is fine. The rows stay. Both hide the person
+from the Orders view, its search and its CSV
+(`tests/server/event-orders.test.ts` runs these exact statements). This does
+**not** recall a CSV the organiser already exported (the privacy policy says
+so); tell them.
 
 ```sql
 update public.orders set buyer_name = null, details_notice_at = null
 where lower(buyer_email) = lower('<address>');
+update private.ticket_transfers set holder_details_withdrawn_at = now()
+where status = 'accepted' and lower(accepted_email) = lower('<address>') and holder_details_withdrawn_at is null;
 ```
 
 The two columns are set and cleared together (`orders_details_notice_pair`),
@@ -697,8 +709,8 @@ found one, and from the hub; the API is `GET /api/admin/ticket-transfers`):
 
 The event's organiser sees each order's tickets sent on, with the holder's
 name and email under the buyers' rules (12 months after the event, with the
-notice the holder was shown at accept); withdrawing a holder (below) hides
-them there and from the organiser's search and CSV.
+notice the holder was shown at accept); withdrawing someone (above, under
+"Organiser orders") hides them there and from the organiser's search and CSV.
 
 A ticket's offers, by the full order id (from the verified Stripe payment's
 metadata `orderId`, as for email changes); addresses masked:
@@ -714,19 +726,11 @@ where x.order_id = '<the payment metadata orderId>' order by x.created_at;
 Before refunding an order, check this: a refund voids every ticket of it,
 including ones its buyer sent on (the recipient isn't told in v1).
 
-**Withdrawing a holder's details.** A recipient who asks (by email to
-support) for their name and email to stop being shown to the organiser:
-verify the request comes from the address they accepted with, then stamp
-their holdings. The row stays (it's their ticket); the organiser's view
-hides the details once stamped (the entry stays as "1 ticket sent on · name
-and email hidden", as a withdrawn buyer reads like a pre-release order; set
-once; the guard trigger refuses any other change). It doesn't recall files
-the organiser already exported:
-
-```sql
-update private.ticket_transfers set holder_details_withdrawn_at = now()
-where status = 'accepted' and lower(accepted_email) = lower('<address>') and holder_details_withdrawn_at is null;
-```
+**Withdrawing a holder's details.** A recipient who asks for their name and
+email to stop being shown to the organiser: use **"Withdrawing someone's
+details (one procedure for an address)"** under "Organiser orders" above, with
+the address they accepted with. It runs both statements, so the same address
+is also cleared on any order they bought themselves. The ticket keeps working.
 
 **Blanking typed details.** A sender or recipient who asks for the names
 and address typed into an offer to be removed (the sender's name, the

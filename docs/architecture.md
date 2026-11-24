@@ -3124,8 +3124,9 @@ name and email under the buyers' rules).
   see who had them). Read per listed order through `ticket_transfers_order_idx`
   (the ticket's number by `tickets_order_idx`); no new index. The page shows
   them under the order's tickets as plain lines ("1 ticket sent to Sam Lee ·
-  sam@… · Thu 5 Nov"; hidden ones "1 ticket sent on · name and email
-  hidden"), an interim line until the dashboard redesign draws its own
+  sam@… · Sent Thu 5 Nov"; hidden ones "1 ticket sent to someone else
+  (details not shared) · Sent Thu 5 Nov"; the dots are hidden from screen
+  readers, which hear commas), an interim line until the dashboard redesign draws its own
   "Transferred" pattern; `holders` is the shape it builds on. Check-in stays
   name-free.
 - **Search.** `POST …/orders/search` with the JSON body `{q, cursor, limit}`
@@ -3147,7 +3148,9 @@ name and email under the buyers' rules).
   list, the search and the export (`EVENT_ORDERS_LIMITS.dailyRows`; sized so
   one full 20,000-row export fits with 5,000 rows of paging to spare): each
   page adds the rows it returns plus the holders it shows (hidden ones don't
-  count), each export its orders plus their shown holders, to
+  count; a search at least 1, even with an empty page, since its `total`
+  says how many orders match), each export its orders plus their shown
+  holders, to
   `private.order_detail_views` in one atomic upsert
   (`take_order_detail_budget`) before anything is returned. Past it: 429
   `code: "daily_limit"` and nothing served. If the count can't be recorded the
@@ -3179,11 +3182,16 @@ name and email under the buyers' rules).
   what an organiser does with a file is theirs to answer for (the organiser
   agreement, still to be drafted, and the Spam Act: no marketing email
   without consent). Sheltüh cannot recall an exported file.
-- **Withdrawing someone.** Self-serve withdrawal is not built: the buyer asks
-  support, and an admin clears the name for an address with the SQL in
-  `docs/supabase-setup.md` (the order then reads like a pre-release one).
-  A holder is withdrawn the same way (`holder_details_withdrawn_at`, once; the
-  entry stays without details). This doesn't recall files already exported.
+- **Withdrawing someone.** Self-serve withdrawal is not built: the person
+  asks support, and an admin runs the one procedure for their address in
+  `docs/supabase-setup.md` ("Withdrawing someone's details"), whose two
+  statements clear the name on every order bought with it (the order then
+  reads like a pre-release one) and stamp every ticket accepted with it
+  (`holder_details_withdrawn_at`, once; the entry stays without details), so a
+  buyer who is also a holder elsewhere is hidden everywhere.
+  `tests/server/event-orders.test.ts` runs the runbook's statements and checks
+  the list, the search and the CSV. This doesn't recall files already
+  exported.
 - **Accepted limits.** The name stays in `orders` after the 12 months (only
   hidden from the API; there is no purge yet, so the privacy policy's
   retention wording should match). An organiser's account that is compromised

@@ -33,6 +33,15 @@ function order(n: number, extra: Partial<EventOrderRow> = {}): EventOrderRow {
   };
 }
 
+/** An element's text as seen (without screen-reader-only text) and as heard (without aria-hidden text). */
+function textWithout(element: Element, selector: string): string {
+  const copy = element.cloneNode(true) as Element;
+  copy.querySelectorAll(selector).forEach((e) => e.remove());
+  return (copy.textContent ?? "").replace(/\s+/g, " ").trim();
+}
+const seen = (element: Element) => textWithout(element, ".sr-only");
+const heard = (element: Element) => textWithout(element, '[aria-hidden="true"]');
+
 function pageOf(items: EventOrderRow[], extra: Partial<EventOrdersData> = {}): EventOrdersData {
   return {
     event: { title: "Night Market", slug: "night-market", timeZone: "Australia/Melbourne", endsAt: "2027-03-06T12:30:00.000Z" },
@@ -217,16 +226,24 @@ describe("EventOrders", () => {
     renderOrders();
     const table = await screen.findByRole("table", { name: "Orders for Night Market" });
     const [first, second] = within(table).getAllByRole("row").slice(1);
-    const sent = within(first).getByText("1 ticket sent to Sam Lee · sam@example.com · Wed 4 Nov");
-    expect(within(first).getByText("1 ticket sent on · name and email hidden · Wed 4 Nov")).toBeInTheDocument();
+    const lines = Array.from(first.querySelectorAll("td p"));
+    // For the eye: dots between the parts. For a screen reader: commas (the dots are hidden from it).
+    expect(lines.map(seen)).toEqual([
+      "1 ticket sent to Sam Lee · sam@example.com · Sent Wed 4 Nov",
+      "1 ticket sent to someone else (details not shared) · Sent Wed 4 Nov",
+    ]);
+    expect(lines.map(heard)).toEqual([
+      "1 ticket sent to Sam Lee, sam@example.com, Sent Wed 4 Nov",
+      "1 ticket sent to someone else (details not shared), Sent Wed 4 Nov",
+    ]);
     // Inside the Tickets cell, after the tickets, in the muted body text.
-    expect(sent.closest("td")).toHaveTextContent(/^2 × General1 ticket sent to Sam Lee/);
-    expect(sent).toHaveClass("text-sm", "text-muted");
-    expect(within(second).queryByText(/sent (to|on)/)).toBeNull();
+    expect(seen(lines[0].closest("td")!)).toMatch(/^2 × General1 ticket sent to Sam Lee/);
+    expect(lines[0]).toHaveClass("text-sm", "text-muted");
+    expect(second.querySelectorAll("td p")).toHaveLength(0);
     // The cards say the same, and stay one list item per order.
     const cards = screen.getByRole("list", { name: "Orders for Night Market" });
     expect(within(cards).getAllByRole("listitem")).toHaveLength(2);
-    expect(within(within(cards).getAllByRole("listitem")[0]).getByText("1 ticket sent to Sam Lee · sam@example.com · Wed 4 Nov")).toBeInTheDocument();
+    expect(seen(within(cards).getAllByRole("listitem")[0])).toContain("1 ticket sent to Sam Lee · sam@example.com · Sent Wed 4 Nov");
     // The file includes them, and the note says so.
     expect(screen.getByText("Includes people tickets were sent to.")).toBeInTheDocument();
   });

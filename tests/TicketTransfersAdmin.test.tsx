@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import TicketTransfersAdmin, { cancelReasonError, normaliseReference } from "@/components/admin/TicketTransfersAdmin";
+import TicketTransfersAdmin, { cancelReasonError, normaliseReference, searchResultText } from "@/components/admin/TicketTransfersAdmin";
 import { ApiError } from "@/lib/api/client";
 import type { AdminTicketTransfer } from "@/lib/api/types";
 import { FakeAuthProvider, fakeAuthValue } from "./test-utils/fakeAuth";
@@ -128,11 +128,23 @@ describe("TicketTransfersAdmin", () => {
     expect(fakeUrl.replace).toHaveBeenCalledWith("/admin/ticket-transfers?reference=%237C1F2E0A", { scroll: false });
     expect(await screen.findByText("No ticket transfers for #7C1F2E0A")).toBeInTheDocument();
     expect(adminListTicketTransfers).toHaveBeenLastCalledWith(expect.any(Function), { reference: "#7C1F2E0A" });
+    // Said once the answer is in.
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("No ticket transfers for #7C1F2E0A."));
     expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("Ticket transfers for #7C1F2E0A");
 
     fireEvent.click(screen.getByRole("button", { name: "Show all" }));
     expect(fakeUrl.replace).toHaveBeenLastCalledWith("/admin/ticket-transfers", { scroll: false });
     await waitFor(() => expect(adminListTicketTransfers).toHaveBeenLastCalledWith(expect.any(Function), {}));
+  });
+
+  it("says how many offers a search found", async () => {
+    adminListTicketTransfers.mockResolvedValue({ items: [transfer(), transfer({ transferId: "aa", reference: "#AAAAAAAA" })] });
+    renderAdmin();
+    await item("#0F1E2D3C");
+    expect(screen.getByRole("status")).toHaveTextContent("");
+    fireEvent.change(screen.getByLabelText("Order or transfer reference"), { target: { value: "#7C1F2E0A" } });
+    fireEvent.click(screen.getByRole("button", { name: "Find" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("2 offers for #7C1F2E0A."));
   });
 
   it("opens on a linked reference (from Emails)", async () => {
@@ -173,6 +185,42 @@ describe("TicketTransfersAdmin", () => {
     expect(within(after).getByRole("heading")).toHaveFocus();
   });
 
+  it("Keep it and Escape close the dialog and give focus back to the Cancel offer button", async () => {
+    adminListTicketTransfers.mockResolvedValue({ items: [transfer()] });
+    renderAdmin();
+    const button = within(await item("#0F1E2D3C")).getByRole("button", { name: "Cancel offer #0F1E2D3C" });
+    fireEvent.click(button);
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Keep it" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(button).toHaveFocus();
+    fireEvent.click(button);
+    // A browser closes a modal dialog on Escape (the close event).
+    (screen.getByRole("dialog") as HTMLDialogElement).close();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(button).toHaveFocus();
+    expect(adminCancelTicketTransfer).not.toHaveBeenCalled();
+  });
+
+  it("Tab wraps inside the dialog", async () => {
+    adminListTicketTransfers.mockResolvedValue({ items: [transfer()] });
+    renderAdmin();
+    fireEvent.click(within(await item("#0F1E2D3C")).getByRole("button", { name: "Cancel offer #0F1E2D3C" }));
+    const dialog = screen.getByRole("dialog");
+    // jsdom lays nothing out: count every control as visible.
+    const rects = vi.spyOn(HTMLElement.prototype, "getClientRects").mockReturnValue([{}] as unknown as DOMRectList);
+    try {
+      const reason = within(dialog).getByLabelText(/Reason/);
+      const keep = within(dialog).getByRole("button", { name: "Keep it" });
+      keep.focus();
+      fireEvent.keyDown(keep, { key: "Tab" });
+      expect(reason).toHaveFocus();
+      fireEvent.keyDown(reason, { key: "Tab", shiftKey: true });
+      expect(keep).toHaveFocus();
+    } finally {
+      rects.mockRestore();
+    }
+  });
+
   it("an offer decided meanwhile (409) says so, and the list is loaded again when the dialog closes", async () => {
     adminListTicketTransfers.mockResolvedValueOnce({ items: [transfer()] });
     adminListTicketTransfers.mockResolvedValueOnce({ items: [transfer({ status: "accepted", decidedAt: "2026-11-21T01:00:00.000Z", holderName: "Sam Lee" })] });
@@ -184,11 +232,21 @@ describe("TicketTransfersAdmin", () => {
     const dialog = screen.getByRole("dialog");
     fireEvent.change(within(dialog).getByLabelText(/Reason/), { target: { value: "Buyer asked us to" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel offer" }));
-    expect(await within(dialog).findByText("Only an offer waiting to be accepted can be cancelled.")).toBeInTheDocument();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    // The dialog now only says so: a new title and description, no reason field, and focus on Close.
+    const close = await within(dialog).findByRole("button", { name: "Close" });
+    await waitFor(() => expect(close).toHaveFocus());
+    expect(screen.getByRole("dialog", { name: "This offer can’t be cancelled now" })).toHaveAccessibleDescription(
+      "Only an offer waiting to be accepted can be cancelled. Close this to see the list as it is now.",
+    );
+    expect(dialog).not.toHaveTextContent("can’t be undone");
+    expect(within(dialog).queryByLabelText(/Reason/)).toBeNull();
+    fireEvent.click(close);
     await waitFor(() => expect(adminListTicketTransfers).toHaveBeenCalledTimes(2));
     const after = await item("#0F1E2D3C");
     expect(await within(after).findByText("Accepted", { selector: "span" })).toBeInTheDocument();
+    // Focus on the list's heading, and the update said.
+    expect(screen.getByRole("heading", { level: 2 })).toHaveFocus();
+    expect(screen.getByRole("status")).toHaveTextContent("List updated.");
   });
 
   it("the API's own reason refusal is shown on the field", async () => {
@@ -209,6 +267,8 @@ describe("TicketTransfersAdmin", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Couldn’t load ticket transfers.");
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByText("No tickets sent yet")).toBeInTheDocument();
+    // The button is gone: focus is on the list's heading.
+    expect(screen.getByRole("heading", { level: 2 })).toHaveFocus();
   });
 
   it("loads more with the cursor", async () => {
@@ -217,13 +277,23 @@ describe("TicketTransfersAdmin", () => {
     renderAdmin();
     await item("#0F1E2D3C");
     fireEvent.click(screen.getByRole("button", { name: "Load more" }));
-    await item("#AAAAAAAA");
+    const added = await item("#AAAAAAAA");
     expect(adminListTicketTransfers).toHaveBeenLastCalledWith(expect.any(Function), { cursor: "c1" });
     expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+    // The last page: the button is gone, so focus goes to the first offer just loaded, and the count is said.
+    await waitFor(() => expect(within(added).getByRole("heading")).toHaveFocus());
+    expect(screen.getByRole("status")).toHaveTextContent("1 more offer loaded.");
   });
 });
 
 describe("the reference and reason checks", () => {
+  it("words a search's result", () => {
+    expect(searchResultText("#A90133C9", 3, false)).toBe("3 offers for #A90133C9.");
+    expect(searchResultText("#A90133C9", 1, false)).toBe("1 offer for #A90133C9.");
+    expect(searchResultText("#A90133C9", 20, true)).toBe("20 or more offers for #A90133C9.");
+    expect(searchResultText("#A90133C9", 0, false)).toBe("No ticket transfers for #A90133C9.");
+  });
+
   it("normalises a reference, or refuses it", () => {
     expect(normaliseReference("#7c1f2e0a")).toBe("#7C1F2E0A");
     expect(normaliseReference(" 7C1F2E0A ")).toBe("#7C1F2E0A");

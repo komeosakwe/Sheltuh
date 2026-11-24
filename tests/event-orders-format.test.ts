@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buyerNameError, BUYER_NAME_MAX } from "@/lib/buyer-details";
-import { orderHolderLines, orderPaidText, orderPlacedText, orderStatusText, orderTicketsText } from "@/lib/event-orders-format";
+import { holderLineText, orderHolderLines, orderPaidText, orderPlacedText, orderStatusText, orderTicketsText } from "@/lib/event-orders-format";
 
 describe("orderStatusText", () => {
   it.each([
@@ -76,19 +76,26 @@ describe("orderHolderLines", () => {
       now,
     );
     // 13:30 UTC on the 3rd is the 4th in Melbourne.
-    expect(lines).toEqual(["2 tickets sent to Sam Lee · sam@example.com · Wed 4 Nov", "1 ticket sent to Kim Ng · kim@example.com · Mon 2 Nov"]);
+    expect(lines).toEqual([
+      ["2 tickets sent to Sam Lee", "sam@example.com", "Sent Wed 4 Nov"],
+      ["1 ticket sent to Kim Ng", "kim@example.com", "Sent Mon 2 Nov"],
+    ]);
+    expect(lines.map(holderLineText)).toEqual(["2 tickets sent to Sam Lee · sam@example.com · Sent Wed 4 Nov", "1 ticket sent to Kim Ng · kim@example.com · Sent Mon 2 Nov"]);
     expect(orderHolderLines({ holders: [holder("Sam Lee", "sam@example.com", "2026-11-03T13:30:00Z")] }, "Australia/Perth", now)).toEqual([
-      "1 ticket sent to Sam Lee · sam@example.com · Tue 3 Nov",
+      ["1 ticket sent to Sam Lee", "sam@example.com", "Sent Tue 3 Nov"],
     ]);
   });
 
-  it("hidden holders share one line that says the details are hidden, never a name", () => {
+  it("hidden holders share one line that says the details aren't shared, never a name; the date says it's when it was sent", () => {
     expect(
       orderHolderLines(
         { holders: [holder(null, null, "2026-11-02T01:00:00Z"), holder(null, null, "2025-11-02T01:00:00Z")] },
         "Australia/Melbourne",
         now,
       ),
-    ).toEqual(["2 tickets sent on · name and email hidden · Mon 2 Nov"]);
+    ).toEqual([["2 tickets sent to other people (details not shared)", "Sent Mon 2 Nov"]]);
+    expect(orderHolderLines({ holders: [holder(null, null, "2026-11-07T01:00:00Z")] }, "Australia/Melbourne", now)).toEqual([
+      ["1 ticket sent to someone else (details not shared)", "Sent Sat 7 Nov"],
+    ]);
   });
 });

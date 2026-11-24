@@ -1,5 +1,5 @@
 import type { EventOrderRow } from "@/lib/api/types";
-import type { CsvCell } from "./csv";
+import { defuseFormula, type CsvCell } from "./csv";
 
 /**
  * The organiser's CSV of an event's orders (GET .../orders.csv). Built by
@@ -13,8 +13,9 @@ import type { CsvCell } from "./csv";
  * "Transferred to" lists the order's tickets that were sent on and accepted
  * (EventOrderRow.holders), one line per order still: "Sam Lee
  * <sam@example.com> · GA", with "(hidden)" and "hidden" for details that
- * aren't shown. The cell goes through toCsv like the rest, so a holder's
- * "=..." is plain text too.
+ * aren't shown. Each holder's name is defused on its own (defuseFormula), not
+ * only the cell's start, so a later "=..." stays plain text if the cell is
+ * split; the cell then goes through toCsv like the rest.
  */
 
 const HEADER: CsvCell[] = [
@@ -53,7 +54,7 @@ export function orderStatusLabel(row: Pick<EventOrderRow, "status" | "refundedCe
 /** The "Transferred to" cell: each holder as "Name <email> · Ticket type", joined by "; " (empty when none). */
 export function transferredToText(row: Pick<EventOrderRow, "holders">): string {
   return (row.holders ?? [])
-    .map((h) => `${h.holderName ?? "(hidden)"} <${h.holderEmail ?? "hidden"}> · ${h.ticketTypeName}`)
+    .map((h) => `${h.holderName === null ? "(hidden)" : defuseFormula(h.holderName)} <${h.holderEmail ?? "hidden"}> · ${h.ticketTypeName}`)
     .join("; ");
 }
 

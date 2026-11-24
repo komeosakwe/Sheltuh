@@ -128,6 +128,13 @@ async function mockOrders(page: Page): Promise<Seen> {
   return seen;
 }
 
+/** An element's text as seen: screen-reader-only text left out (runs in the page). */
+function seenText(element: Element): string {
+  const copy = element.cloneNode(true) as Element;
+  copy.querySelectorAll(".sr-only").forEach((e) => e.remove());
+  return (copy.textContent ?? "").replace(/\s+/g, " ").trim();
+}
+
 async function noSidewaysScroll(page: Page) {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(0);
@@ -154,9 +161,14 @@ test.describe("Orders at 1280×900", () => {
     await expect(rows.nth(2).getByText("—")).toHaveCount(2);
     await expect(rows.nth(3)).toContainText("Part refunded A$15");
     // A ticket sent on: who has it now, under the order's tickets.
-    await expect(rows.nth(1).getByRole("cell").nth(1)).toContainText(
-      "2 × General admission1 ticket sent to Sam Lee · sam.lee.holder@a-rather-long-example-domain.example · Thu 5 Nov",
+    const sent = rows.nth(1).getByRole("cell").nth(1).locator("p");
+    await expect(sent).toHaveCount(1);
+    // Visibly dotted; the dots are hidden from screen readers, which get commas.
+    expect(await sent.evaluate(seenText)).toBe(
+      "1 ticket sent to Sam Lee · sam.lee.holder@a-rather-long-example-domain.example · Sent Thu 5 Nov",
     );
+    await expect(sent.locator('[aria-hidden="true"]')).toHaveCount(2);
+    await expect(sent.locator(".sr-only")).toHaveText([",", ","]);
     await expect(rows.nth(2)).not.toContainText("sent to");
     // Never an internal order id on the page.
     expect(await page.content()).not.toMatch(/ord_[0-9a-f]{8}/);
@@ -202,7 +214,9 @@ test.describe("Orders on a 375px phone", () => {
     await expect(page.getByRole("table")).toBeHidden();
     await expect(cards.getByRole("listitem")).toHaveCount(3);
     await expect(cards.getByRole("listitem").first()).toContainText("buyer.number.1@a-rather-long-example-domain.example");
-    await expect(cards.getByRole("listitem").first()).toContainText("1 ticket sent to Sam Lee · sam.lee.holder@a-rather-long-example-domain.example");
+    expect(await cards.getByRole("listitem").first().locator("p", { hasText: "ticket sent to" }).evaluate(seenText)).toBe(
+      "1 ticket sent to Sam Lee · sam.lee.holder@a-rather-long-example-domain.example · Sent Thu 5 Nov",
+    );
     await noSidewaysScroll(page);
     expect((await page.getByRole("button", { name: "Export CSV" }).boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
     expect((await page.getByLabel("Search orders").boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);

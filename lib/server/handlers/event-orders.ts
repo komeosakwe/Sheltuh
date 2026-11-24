@@ -262,9 +262,13 @@ async function listPage(
 
   // The rows, and the holders they show, are charged to the day's budget
   // before they leave (fail closed: a refusal, or an error here, serves nothing).
+  // A search is charged at least one row, even with nothing on its page (one
+  // past the end, or no match): its `total` says how many orders match the
+  // text, so every search is counted and recorded.
+  const charged = page.items.length + shownHolders(page.items);
   const [{ allowed }] = await deps.db.query<{ allowed: boolean }>(
     `select private.take_order_detail_budget($1, $2, $3, $4, $5) as allowed`,
-    [caller.userId, eventId, organiserId, page.items.length + shownHolders(page.items), EVENT_ORDERS_LIMITS.dailyRows],
+    [caller.userId, eventId, organiserId, search ? Math.max(1, charged) : charged, EVENT_ORDERS_LIMITS.dailyRows],
   );
   if (!allowed) throw dailyLimit();
 

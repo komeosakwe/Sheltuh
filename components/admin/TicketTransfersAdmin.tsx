@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import MessageField from "@/components/messages/MessageField";
 import { Button } from "@/components/ui/Button";
 import { fieldClass } from "@/components/ui/Field";
@@ -47,6 +47,19 @@ const DECIDED: Record<Exclude<AdminTicketTransfer["status"], "pending">, string>
   expired: "Expired",
 };
 
+const HEADING_ID = "ticket-transfers-heading";
+
+/** The id of an offer's heading in the list (focused after Load more). */
+function itemHeadingId(transfer: AdminTicketTransfer) {
+  return `ticket-transfer-${transfer.transferId}`;
+}
+
+/** What a search found, said once it's in: "3 offers for #A90133C9", "No ticket transfers for #A90133C9". */
+export function searchResultText(reference: string, count: number, more: boolean): string {
+  if (count === 0) return `No ticket transfers for ${reference}.`;
+  return `${count}${more ? " or more" : ""} ${count === 1 && !more ? "offer" : "offers"} for ${reference}.`;
+}
+
 type LoadState =
   | { status: "loading" }
   | { status: "error"; message: string }
@@ -86,15 +99,36 @@ export default function TicketTransfersAdmin() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [moreError, setMoreError] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  /** Where focus goes once the next render has it: the list's heading, or an item's heading (by id). */
+  const pendingFocus = useRef<string | null>(null);
+  /** What to say once the next load is in: a search's result, or that the list was loaded again. */
+  const sayAfterLoad = useRef<"search" | "updated" | null>(null);
+
+  useEffect(() => {
+    const target = pendingFocus.current;
+    if (!target) return;
+    const element = target === HEADING_ID ? headingRef.current : document.getElementById(target);
+    if (!element) return; // Not rendered yet.
+    pendingFocus.current = null;
+    element.focus();
+  });
 
   useEffect(() => {
     let cancelled = false;
     adminListTicketTransfers(getToken, reference ? { reference } : {}).then(
       (page) => {
-        if (!cancelled) setResult({ key, state: { status: "ready", items: page.items, nextCursor: page.nextCursor } });
+        if (cancelled) return;
+        setResult({ key, state: { status: "ready", items: page.items, nextCursor: page.nextCursor } });
+        const say = sayAfterLoad.current;
+        sayAfterLoad.current = null;
+        if (say === "search" && reference) setAnnouncement(searchResultText(reference, page.items.length, Boolean(page.nextCursor)));
+        else if (say === "updated") setAnnouncement("List updated.");
       },
       (err: unknown) => {
-        if (!cancelled) setResult({ key, state: { status: "error", message: errorText(err, "Couldn’t load ticket transfers.") } });
+        if (cancelled) return;
+        sayAfterLoad.current = null;
+        setResult({ key, state: { status: "error", message: errorText(err, "Couldn’t load ticket transfers.") } });
       },
     );
     return () => {
@@ -116,6 +150,8 @@ export default function TicketTransfersAdmin() {
     }
     setTypedError(null);
     setTyped(next);
+    setAnnouncement("");
+    sayAfterLoad.current = "search";
     // The same reference again: look it up again (it may have changed).
     if (next === reference) setAttempt((n) => n + 1);
     else go(next);
@@ -135,13 +171,17 @@ export default function TicketTransfersAdmin() {
     try {
       const page = await adminListTicketTransfers(getToken, { ...(reference ? { reference } : {}), cursor: state.nextCursor });
       const known = new Set(state.items.map((t) => t.transferId));
+      const added = page.items.filter((t) => !known.has(t.transferId));
+      // Focus moves to the first offer just loaded (the button may be gone), and the count is said.
+      if (added.length > 0) pendingFocus.current = itemHeadingId(added[0]);
+      setAnnouncement(added.length === 1 ? "1 more offer loaded." : `${added.length} more offers loaded.`);
       setResult((current) =>
         current && current.key === key && current.state.status === "ready"
           ? {
               key,
               state: {
                 status: "ready",
-                items: [...current.state.items, ...page.items.filter((t) => !known.has(t.transferId))],
+                items: [...current.state.items, ...added],
                 nextCursor: page.nextCursor,
               },
             }
@@ -167,6 +207,14 @@ export default function TicketTransfersAdmin() {
         : current,
     );
     setAnnouncement(`Cancelled offer ${transfer.reference}.`);
+  }
+
+  /** Load the list again, then focus its heading (its button may have gone), saying so if `say`. */
+  function reload(say: boolean) {
+    pendingFocus.current = HEADING_ID;
+    sayAfterLoad.current = say ? "updated" : null;
+    setAnnouncement("");
+    setAttempt((n) => n + 1);
   }
 
   const heading = reference ? `Ticket transfers for ${reference}` : "All offers, newest first";
@@ -217,8 +265,8 @@ export default function TicketTransfersAdmin() {
         )}
       </form>
 
-      <section aria-labelledby="ticket-transfers-heading" aria-busy={state.status === "loading" ? true : undefined}>
-        <h2 id="ticket-transfers-heading" className="display-md mb-4 !text-2xl">
+      <section aria-labelledby={HEADING_ID} aria-busy={state.status === "loading" ? true : undefined}>
+        <h2 ref={headingRef} id={HEADING_ID} tabIndex={-1} className="display-md mb-4 !text-2xl outline-offset-2">
           {heading}
         </h2>
 
@@ -229,7 +277,7 @@ export default function TicketTransfersAdmin() {
             <Notice tone="danger" role="alert">
               {state.message}
             </Notice>
-            <Button variant="outline" size="sm" className="min-h-11" onClick={() => setAttempt((n) => n + 1)}>
+            <Button variant="outline" size="sm" className="min-h-11" onClick={() => reload(false)}>
               Try again
             </Button>
           </div>
@@ -265,7 +313,7 @@ export default function TicketTransfersAdmin() {
                     return { ok: false, message: errorText(err, "Couldn’t cancel it. Try again."), gone };
                   }
                 }}
-                onStale={() => setAttempt((n) => n + 1)}
+                onStale={() => reload(true)}
               />
             ))}
           </ul>
@@ -305,6 +353,7 @@ function TransferItem({
 }) {
   const [confirming, setConfirming] = useState(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
   const status = STATUS[transfer.status];
   const time = (iso: string) => <time dateTime={iso}>{formatDayTime(iso)}</time>;
 
@@ -312,6 +361,7 @@ function TransferItem({
     <li className="border-t border-foreground py-4">
       <h3
         ref={headingRef}
+        id={itemHeadingId(transfer)}
         tabIndex={-1}
         className="font-sans text-base font-semibold normal-case tracking-normal break-words outline-offset-2"
       >
@@ -370,6 +420,7 @@ function TransferItem({
       {transfer.status === "pending" && (
         <div className="mt-3">
           <Button
+            ref={cancelButtonRef}
             variant="danger"
             size="sm"
             className="min-h-11"
@@ -382,10 +433,12 @@ function TransferItem({
       )}
       <CancelOfferDialog
         reference={confirming ? transfer.reference : null}
-        onClose={(stale) => {
+        onClose={(outcome) => {
           setConfirming(false);
-          if (stale) onStale();
-          else headingRef.current?.focus();
+          if (outcome === "stale") onStale();
+          // Cancelled: the button is gone, so its offer's heading. Kept (Escape, "Keep it"): back to the button.
+          else if (outcome === "cancelled") headingRef.current?.focus();
+          else cancelButtonRef.current?.focus();
         }}
         onSubmit={onCancel}
       />
@@ -410,9 +463,10 @@ export function cancelReasonError(reason: string): string | null {
 /**
  * "Cancel offer #…?": a modal dialog (native `<dialog>`: focus stays inside,
  * Escape closes it, except while the cancel is in flight). A reason is
- * required and kept with the offer. `onClose(stale)` runs whenever it
- * closes; `stale` when the offer was decided meanwhile (409), so the list is
- * loaded again.
+ * required and kept with the offer. `onClose(outcome)` runs whenever it
+ * closes: `cancelled`, `kept` (Escape or "Keep it"), or `stale` when the
+ * offer was decided meanwhile (409, 404), so the list is loaded again. Tab
+ * wraps inside it (keepFocusIn).
  */
 function CancelOfferDialog({
   reference,
@@ -421,19 +475,19 @@ function CancelOfferDialog({
 }: {
   /** The offer's reference; null when closed. */
   reference: string | null;
-  onClose: (stale: boolean) => void;
+  onClose: (outcome: "cancelled" | "kept" | "stale") => void;
   onSubmit: (reason: string) => Promise<CancelOutcome>;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const open = reference !== null;
   const busy = useRef(false);
-  const stale = useRef(false);
+  const outcome = useRef<"cancelled" | "kept" | "stale">("kept");
 
   useEffect(() => {
     const dialog = ref.current;
     if (!dialog) return;
     if (open && !dialog.open) {
-      stale.current = false;
+      outcome.current = "kept";
       dialog.showModal();
     }
     if (!open && dialog.open) dialog.close();
@@ -442,9 +496,10 @@ function CancelOfferDialog({
   async function submit(reason: string) {
     busy.current = true;
     try {
-      const outcome = await onSubmit(reason);
-      if (!outcome.ok && "gone" in outcome && outcome.gone) stale.current = true;
-      return outcome;
+      const result = await onSubmit(reason);
+      if (result.ok) outcome.current = "cancelled";
+      else if ("gone" in result && result.gone) outcome.current = "stale";
+      return result;
     } finally {
       busy.current = false;
     }
@@ -458,12 +513,34 @@ function CancelOfferDialog({
       onCancel={(event) => {
         if (busy.current) event.preventDefault();
       }}
-      onClose={() => onClose(stale.current)}
+      onClose={() => onClose(outcome.current)}
+      onKeyDown={keepFocusIn}
       className="mx-0 mt-auto mb-0 w-full max-w-none border-t border-foreground bg-background p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] text-foreground backdrop:bg-ink/50 sm:m-auto sm:max-w-lg sm:border sm:p-8"
     >
       {reference !== null && <CancelForm reference={reference} onDone={() => ref.current?.close()} onSubmit={submit} />}
     </dialog>
   );
+}
+
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/** Tab and Shift+Tab wrap inside the dialog (as the dashboard dialogs' keepFocusIn), so focus never reaches the browser's chrome. */
+function keepFocusIn(event: KeyboardEvent<HTMLDialogElement>) {
+  if (event.key !== "Tab") return;
+  const dialog = event.currentTarget;
+  const controls = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((element) => element.getClientRects().length > 0);
+  if (controls.length === 0) return;
+  const first = controls[0];
+  const last = controls[controls.length - 1];
+  const active = document.activeElement;
+  if (event.shiftKey && (active === first || active === dialog)) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && active === last) {
+    event.preventDefault();
+    first.focus();
+  }
 }
 
 function CancelForm({
@@ -481,13 +558,16 @@ function CancelForm({
   const [busy, setBusy] = useState(false);
   const reasonRef = useRef<HTMLTextAreaElement | null>(null);
   const problemRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     reasonRef.current?.focus();
   }, []);
 
+  // Decided meanwhile: the dialog now only says so, and Close is the way on. Otherwise the problem itself.
   useEffect(() => {
-    if (problem) problemRef.current?.focus();
+    if (problem?.gone) closeRef.current?.focus();
+    else if (problem) problemRef.current?.focus();
   }, [problem]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -516,10 +596,12 @@ function CancelForm({
   return (
     <form noValidate aria-busy={busy} onSubmit={handleSubmit} className="flex flex-col gap-5">
       <h2 id={TITLE_ID} className="display-md !text-2xl break-words">
-        Cancel offer {reference}?
+        {problem?.gone ? "This offer can’t be cancelled now" : `Cancel offer ${reference}?`}
       </h2>
       <p id={WARNING_ID} className="text-sm leading-5">
-        The link stops working and the ticket stays with whoever sent it. This can&rsquo;t be undone.
+        {problem?.gone
+          ? `${problem.message} Close this to see the list as it is now.`
+          : "The link stops working and the ticket stays with whoever sent it. This can’t be undone."}
       </p>
       {!problem?.gone && (
         <MessageField
@@ -537,14 +619,14 @@ function CancelForm({
           inputRef={reasonRef}
         />
       )}
-      {problem && (
+      {problem && !problem.gone && (
         <div id={PROBLEM_ID} ref={problemRef} tabIndex={-1} className="outline-offset-2">
           <Notice tone="danger">{problem.message}</Notice>
         </div>
       )}
       <div className="flex flex-col gap-3 sm:flex-row">
         {problem?.gone ? (
-          <Button variant="solid" size="lg" aria-describedby={PROBLEM_ID} onClick={onDone} className="w-full sm:w-auto">
+          <Button ref={closeRef} variant="solid" size="lg" aria-describedby={WARNING_ID} onClick={onDone} className="w-full sm:w-auto">
             Close
           </Button>
         ) : (

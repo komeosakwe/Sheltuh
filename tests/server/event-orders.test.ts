@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { DETAILS_VISIBLE_MONTHS } from "@/lib/buyer-details";
 import { adminSuspendOrganiser } from "@/lib/server/handlers/admin";
@@ -13,6 +15,7 @@ import { confirmFreeOrder } from "@/lib/server/handlers/free-orders";
 import { createCheckout, stripeWebhook } from "@/lib/server/handlers/orders";
 import { secondsUntilUtcMidnight } from "@/lib/server/http";
 import { orderReference } from "@/lib/server/order-reference";
+import { encodeCursor } from "@/lib/server/pagination";
 import { runHandler } from "@/lib/server/route";
 import type { EventRecord } from "@/lib/server/types";
 import { embeddedSession, sessionAmount, SITE_URL, stripeWebhookRequest, TestApi } from "./helpers/api";
@@ -600,10 +603,24 @@ describe("the daily budget of buyer details", () => {
     expect(await served()).toEqual({ rows_served: 3, requests: 2 });
     await list(organiser.token, { limit: "1" });
     expect(await served()).toEqual({ rows_served: 4, requests: 3 });
-    // An empty page serves nothing and writes nothing.
-    await list(organiser.token, { q: "nobody" });
+    // A plain page that's empty (past the end) serves nothing and writes nothing.
+    await list(organiser.token, { cursor: encodeCursor(50) });
     expect(await served()).toEqual({ rows_served: 4, requests: 3 });
+    // A search always counts (at least 1): its total says how many orders match, even with no match.
+    await list(organiser.token, { q: "nobody" });
+    expect(await served()).toEqual({ rows_served: 5, requests: 4 });
     expect(await api.db.query(`select count(*)::int as n from private.order_detail_views`)).toEqual([{ n: 1 }]);
+  });
+
+  it("a search with a cursor past its results still says its total, and is counted and recorded", async () => {
+    const res = await list(organiser.token, { q: "e", cursor: encodeCursor(1000) });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ items: [], total: 2 });
+    expect(await served()).toEqual({ rows_served: 1, requests: 1 });
+    // And refused like any page once the day's budget is used up.
+    await setServed(EVENT_ORDERS_LIMITS.dailyRows);
+    const refused = await list(organiser.token, { q: "e", cursor: encodeCursor(1000) });
+    expect([refused.status, refused.body.code, refused.body.total]).toEqual([429, "daily_limit", undefined]);
   });
 
   it("holds no buyer data", async () => {
@@ -1079,6 +1096,59 @@ describe("tickets sent on (holders)", () => {
     expect(file.text).toContain('"Sam Lee <sam@example.com> · General admission; (hidden) <hidden> · General admission"');
     expect(file.text).not.toContain("Kim");
     expect(await api.db.query(`select row_count from private.order_detail_exports`)).toEqual([{ row_count: 2 }]);
+  });
+});
+
+describe("support's withdrawal runbook (docs/supabase-setup.md)", () => {
+  /** The statements of the runbook's one withdrawal procedure, exactly as written there, for `address`. */
+  function runbookStatements(address: string): string[] {
+    const doc = readFileSync(resolve(process.cwd(), "docs/supabase-setup.md"), "utf8");
+    const start = doc.indexOf("**Withdrawing someone's details (one procedure for an address).**");
+    expect(start).toBeGreaterThan(-1);
+    const block = /```sql\n([\s\S]*?)```/.exec(doc.slice(start));
+    expect(block).not.toBeNull();
+    const sql = block![1].replaceAll("'<address>'", `'${address.replace(/'/g, "''")}'`);
+    expect(sql).not.toContain("<");
+    return sql
+      .split(/;\s*\n/)
+      .map((statement) => statement.trim().replace(/;$/, ""))
+      .filter(Boolean);
+  }
+
+  it("hides the address everywhere it shows: as a buyer and as a holder, from the list, the search and the CSV", async () => {
+    // Sam bought one order, and holds a ticket of Alex's; Kim stays shown throughout.
+    const bought = await addOrder({ name: "Sam Lee", email: "Sam.Lee@Example.com", age: 30 });
+    const alexs = await addOrder({ name: "Alex Chen", email: "alex@example.com", age: 20 });
+    await addHolding(alexs, { name: "Sam Lee", email: "sam.lee@example.com" });
+    await addHolding(alexs, { name: "Kim Ng", email: "kim@example.com" });
+    expect((await list(organiser.token, { q: "sam" })).body.total).toBe(2);
+
+    const statements = runbookStatements("sam.lee@example.com");
+    // Both: the buyer's orders and the holder's tickets.
+    expect(statements).toHaveLength(2);
+    expect(statements[0]).toMatch(/^update public\.orders /);
+    expect(statements[1]).toMatch(/^update private\.ticket_transfers /);
+    for (const statement of statements) await api.db.query(statement);
+
+    const res = await list(organiser.token);
+    expect(JSON.stringify(res.body)).not.toMatch(/Sam|sam\./i);
+    expect(res.body.items.find((i: { reference: string }) => i.reference === orderReference(bought))).toMatchObject({
+      buyerName: null,
+      buyerEmail: null,
+    });
+    expect(holdersOf(res.body, alexs)).toEqual([
+      expect.objectContaining({ ticketNumber: 2, holderName: null, holderEmail: null }),
+      expect.objectContaining({ ticketNumber: 3, holderName: "Kim Ng", holderEmail: "kim@example.com" }),
+    ]);
+    for (const q of ["sam", "sam.lee@example.com", "lee"]) expect((await list(organiser.token, { q })).body.total).toBe(0);
+    expect((await list(organiser.token, { q: "kim" })).body.total).toBe(1);
+    const file = await csv(organiser.token);
+    expect(file.status).toBe(200);
+    expect(file.text).not.toMatch(/Sam|sam\./i);
+    expect(file.text).toContain('"(hidden) <hidden> · General admission; Kim Ng <kim@example.com> · General admission"');
+
+    // Running it again changes nothing and fails nothing (the stamp is set once).
+    for (const statement of statements) await api.db.query(statement);
   });
 });
 
