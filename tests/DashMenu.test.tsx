@@ -106,6 +106,18 @@ describe("DashMenu", () => {
     expect(screen.getByText("Refunds everyone")).toHaveClass("text-muted");
   });
 
+  it("Space on a link row follows the link (an <a> only does that on Enter natively) and doesn't scroll", () => {
+    const trigger = renderMore();
+    fireEvent.click(trigger);
+    const checkIn = screen.getByRole("menuitem", { name: "Check in guests" });
+    const followed = vi.fn((event: MouseEvent) => event.preventDefault());
+    checkIn.addEventListener("click", followed);
+    checkIn.focus();
+    const notCancelled = fireEvent.keyDown(checkIn, { key: " " });
+    expect(notCancelled).toBe(false);
+    expect(followed).toHaveBeenCalledTimes(1);
+  });
+
   it("a press outside closes it", () => {
     const trigger = renderMore();
     fireEvent.click(trigger);

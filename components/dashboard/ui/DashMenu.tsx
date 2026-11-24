@@ -138,6 +138,14 @@ export default function DashMenu({
       case "Tab":
         setOpen(false);
         return;
+      case " ":
+        // A link row is an <a>, which the browser activates on Enter only; Space would scroll the page instead.
+        // Buttons already activate on Space, so only links are handled here.
+        if (event.target instanceof HTMLAnchorElement) {
+          event.preventDefault();
+          event.target.click();
+        }
+        return;
     }
     if (event.key.length === 1 && /\S/.test(event.key)) {
       const letter = event.key.toLocaleLowerCase("en-AU");
