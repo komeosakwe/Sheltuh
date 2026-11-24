@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { shownCount } from "@/components/account/useAccountNav";
+import { shownCount } from "@/lib/counts";
 import type { DashArea } from "./DashFrame";
 
 /** One place in a sidebar's nav. */
@@ -10,9 +10,10 @@ export interface DashNavItem {
   href: string;
   /**
    * The place you're in: true or "page" on its own page (aria-current="page"), "true" on a page
-   * inside it (an event's editor is in Events).
+   * inside it (an event's editor is in Events), "location" on a page under it the link doesn't go
+   * to (a received ticket, under My tickets).
    */
-  current: boolean | "page" | "true";
+  current: boolean | "page" | "true" | "location";
   /** Shown in a pill after the label; null or unset: no pill. */
   count?: number | null;
   /** The count is unread messages: the orange pill. */
@@ -21,9 +22,9 @@ export interface DashNavItem {
   countText?: string;
 }
 
-export function ariaCurrent(current: DashNavItem["current"]): "page" | "true" | undefined {
+export function ariaCurrent(current: DashNavItem["current"]): "page" | "true" | "location" | undefined {
   if (current === true || current === "page") return "page";
-  return current === "true" ? "true" : undefined;
+  return current === false ? undefined : current;
 }
 
 /** The sidebar column: 264 wide, 64 above, 32 at the sides, 40 below, its parts 12px apart and centred. */
@@ -67,7 +68,8 @@ export function DashSidebarBody({
   return (
     <>
       {avatar}
-      {name && <p className="label-button w-full truncate text-center">{name}</p>}
+      {/* A long name wraps to two lines (then ends in …) rather than being cut to one. */}
+      {name && <p className="label-button line-clamp-2 w-full text-center break-words">{name}</p>}
       {name && meta && <p className="w-full truncate text-center font-mono text-xs leading-4 text-muted">{meta}</p>}
       <div aria-hidden="true" className="h-8 shrink-0" />
       <nav aria-label={navLabel} className="w-full">

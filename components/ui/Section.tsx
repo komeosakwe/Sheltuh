@@ -24,7 +24,10 @@ export function Page({
 }: {
   children: ReactNode;
   width?: "wide" | "narrow" | "form" | "full";
-  /** `subNav`: less space above and below, for a page under a section sub-nav (the organiser area's). */
+  /**
+   * `subNav`: less space above and below, for a page under a section's own nav (the organiser area's
+   * pages, which inside its frame give up this padding altogether: see above).
+   */
   padding?: "default" | "subNav";
   className?: string;
 }) {

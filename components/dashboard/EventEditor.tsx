@@ -1499,7 +1499,7 @@ export default function EventEditor(props: Props) {
           <>
             {summary}
             <div className={`flex items-center justify-between gap-3 ${previewBesideFrom}`.trim()}>
-              <p aria-hidden="true" className="meta text-muted lg:hidden">
+              <p aria-hidden="true" className="meta text-muted col-lg:hidden">
                 Step {step} of {EDITOR_STEPS.length}
               </p>
               <div className="ml-auto">{previewButton}</div>

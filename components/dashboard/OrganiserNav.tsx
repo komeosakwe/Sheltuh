@@ -2,16 +2,16 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, type ComponentType } from "react";
+import { useEffect, useRef, useState, type ComponentType } from "react";
 import DashDrawer from "@/components/dashboard/ui/DashDrawer";
 import DashSidebar, { ariaCurrent, DashSidebarBody, SIDEBAR_COLUMN, type DashNavItem } from "@/components/dashboard/ui/DashSidebar";
 import {
   CalendarIcon,
+  ChartIcon,
   CollapseIcon,
   ExpandIcon,
   LogOutIcon,
-  ReceiptIcon,
-  UserIcon,
+  StoreIcon,
   WalletIcon,
 } from "@/components/dashboard/ui/icons";
 import type { OrganiserRecord } from "@/lib/api/types";
@@ -21,9 +21,9 @@ import OrganiserAvatar from "./OrganiserAvatar";
 
 const ICONS: Record<OrganiserNavIcon, ComponentType<{ className?: string }>> = {
   calendar: CalendarIcon,
-  receipt: ReceiptIcon,
+  chart: ChartIcon,
   wallet: WalletIcon,
-  user: UserIcon,
+  store: StoreIcon,
 };
 
 /** The landmark around the organiser's identity and places (the sidebar, or the rail). */
@@ -77,24 +77,66 @@ export function OrganiserSidebar({ organiser, pathname }: { organiser: Organiser
   );
 }
 
-/** A rail button or link: 48 × 48, radius 8, the icon centred, filled #1f1f1f (surface on ink) under the pointer or focus. */
-const RAIL_TARGET =
+/** The » / « buttons: 48 × 48, radius 8, the icon centred, filled #1f1f1f (surface on ink) under the pointer or focus. */
+const RAIL_BUTTON =
   "inline-flex size-12 shrink-0 items-center justify-center rounded-control text-foreground hover:bg-surface focus-visible:bg-surface motion-safe:transition-colors motion-safe:duration-200 motion-safe:ease-out";
+
+/**
+ * A rail place (and Log out): its icon over its short label (Label/Tag), 56px wide and at least
+ * 56px tall. Under the pointer or keyboard focus it fills #333 (border/subtle on ink); the current
+ * place fills #1f1f1f with the orange dot, so the two never look alike.
+ */
+function railItemClass(current: boolean) {
+  return `relative flex min-h-14 w-14 flex-col items-center justify-center gap-0.5 rounded-control px-0.5 py-1.5 text-center text-foreground motion-safe:transition-colors motion-safe:duration-200 motion-safe:ease-out ${
+    current ? "bg-surface" : "hover:bg-surface-border focus-visible:bg-surface-border"
+  }`;
+}
+
+/** The label under a rail icon: Label/Tag, wrapping (never cut) if larger text makes it wider than the rail. */
+const RAIL_LABEL = "label-tag max-w-full break-words";
+
+/** After a place is chosen in the drawer: focus the new page's h1 once it's there (up to 3s), so a keyboard or screen-reader user starts at the page. */
+function focusPageHeading() {
+  const started = performance.now();
+  const tryFocus = () => {
+    const heading = document.querySelector<HTMLElement>("[data-organiser-main] h1");
+    if (heading) {
+      if (!heading.hasAttribute("tabindex")) heading.setAttribute("tabindex", "-1");
+      heading.focus();
+      return;
+    }
+    if (performance.now() - started < 3000) window.setTimeout(tryFocus, 100);
+  };
+  tryFocus();
+}
 
 /**
  * The organiser's tablet and phone navigation (Latte's "Org / Sidebar · Collapsed" 495:19097 and
  * "Nav expanded" 495:22558 / 495:22467, below 1024px): a 64px black rail down the panel's left
- * with their 40px mark, » (opens the full sidebar as a drawer), a divider, one 48px icon link per
- * place and the Log out icon at the foot. Each icon link is named by its place (its label is read,
- * and shown as a tooltip under the pointer); the current one is filled and has a 6px orange dot
- * at its left, and says aria-current. The drawer (264px, from the left over a 50% scrim) is the
- * desktop sidebar's contents with « at its top right: focus moves into it and stays there, Escape,
- * «, the scrim or choosing a place closes it, and focus goes back to ».
+ * with their 40px mark, » (opens the full sidebar as a drawer), a divider, each place as its icon
+ * over a short visible label (Latte draws icons alone; the labels say what they are without a
+ * hover, which touch screens don't have), and Log out at the foot. The current place is filled,
+ * has a 6px orange dot at its left, and says aria-current. The drawer (264px, from the left over a
+ * 50% scrim) is the desktop sidebar's contents with « at its top right: focus moves into it and
+ * goes round inside, Escape, «, the scrim or choosing a place closes it; focus goes back to », or
+ * to the new page's heading when a place was chosen.
  */
 export function OrganiserRail({ organiser, pathname }: { organiser: Organiser; pathname: string }) {
   const { items, logOut } = useOrganiserNav(pathname);
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
+  const headingNext = useRef(false);
+
+  useEffect(() => {
+    if (!headingNext.current) return;
+    headingNext.current = false;
+    focusPageHeading();
+  }, [pathname]);
+
+  function chose() {
+    headingNext.current = true;
+    setOpen(false);
+  }
 
   // The drawer is the rail's sibling, not inside it: were the window widened past 1024px while it's
   // open, a modal inside the hidden rail would vanish and leave the page inert.
@@ -104,17 +146,18 @@ export function OrganiserRail({ organiser, pathname }: { organiser: Organiser; p
         data-surface="ink"
         data-organiser-rail=""
         aria-label={ASIDE_LABEL}
-        className="flex w-16 shrink-0 flex-col items-center gap-2 px-2 py-6 lg:hidden"
+        className="flex w-16 shrink-0 flex-col items-center gap-2 px-1 py-6 lg:hidden"
       >
         <OrganiserAvatar name={organiser.displayName} logoUrl={organiser.logoUrl} size="rail" />
         <button
           type="button"
-          aria-label="Open menu"
+          aria-label="Show organiser menu"
           aria-haspopup="dialog"
           aria-expanded={open}
+          title="Show organiser menu"
           onClick={() => setOpen(true)}
           data-organiser-expand=""
-          className={RAIL_TARGET}
+          className={RAIL_BUTTON}
         >
           <ExpandIcon />
         </button>
@@ -129,14 +172,13 @@ export function OrganiserRail({ organiser, pathname }: { organiser: Organiser; p
                   <Link
                     href={item.href}
                     aria-current={current}
-                    title={item.label}
                     data-organiser-rail-item={item.key}
-                    className={`relative ${RAIL_TARGET} ${current ? "bg-surface" : ""}`}
+                    className={railItemClass(current !== undefined)}
                   >
                     <Icon />
-                    <span className="sr-only">{item.label}</span>
+                    <span className={RAIL_LABEL}>{item.label}</span>
                     {current && (
-                      <span aria-hidden="true" className="absolute top-1/2 left-1 size-1.5 -translate-y-1/2 rounded-full bg-signal" />
+                      <span aria-hidden="true" className="absolute top-4.5 left-0.5 size-1.5 rounded-full bg-signal" />
                     )}
                   </Link>
                 </li>
@@ -145,18 +187,20 @@ export function OrganiserRail({ organiser, pathname }: { organiser: Organiser; p
           </ul>
         </nav>
         <div aria-hidden="true" className="flex-1" />
-        <button type="button" aria-label="Log out" title="Log out" onClick={logOut} className={RAIL_TARGET}>
+        <button type="button" onClick={logOut} className={railItemClass(false)}>
           <LogOutIcon />
+          <span className={RAIL_LABEL}>Log out</span>
         </button>
       </aside>
       <DashDrawer open={open} onClose={close} side="left" label="Organiser menu" name="organiser-drawer">
         <div className={`relative flex min-h-full ${SIDEBAR_COLUMN}`}>
           <button
             type="button"
-            aria-label="Close menu"
+            aria-label="Hide organiser menu"
+            title="Hide organiser menu"
             onClick={close}
             data-organiser-collapse=""
-            className={`absolute top-4 right-2 ${RAIL_TARGET}`}
+            className={`absolute top-4 right-2 ${RAIL_BUTTON}`}
           >
             <CollapseIcon />
           </button>
@@ -169,7 +213,7 @@ export function OrganiserRail({ organiser, pathname }: { organiser: Organiser; p
             items={items}
             onLogOut={logOut}
             logOutTone="plain"
-            onNavigate={close}
+            onNavigate={chose}
           />
         </div>
       </DashDrawer>

@@ -111,7 +111,7 @@ for (const vp of [
   test.describe(`${vp.width}`, () => {
     test.use({ viewport: vp });
 
-    test("the 64px rail: icon links named by their places, 48px, Events current; no sidebar", async ({ page }) => {
+    test("the 64px rail: each place an icon over its visible label, at least 56px, Events current; no sidebar", async ({ page }) => {
       await signedInOrganiser(page);
       await page.goto("/dashboard");
       const rail = page.locator("[data-organiser-rail]");
@@ -127,9 +127,13 @@ for (const vp of [
       for (const name of ["Events", "Analytics", "Payouts", "Profile"]) {
         const link = nav.getByRole("link", { name, exact: true });
         await expect(link).toBeVisible();
+        // The label is on screen, inside the rail.
+        await expect(link.getByText(name, { exact: true })).toBeVisible();
         const box = await link.boundingBox();
-        expect(box?.width).toBe(48);
-        expect(box?.height).toBe(48);
+        expect(box?.width).toBe(56);
+        expect(box?.height ?? 0).toBeGreaterThanOrEqual(56);
+        const label = await link.getByText(name, { exact: true }).boundingBox();
+        expect((label?.x ?? 0) + (label?.width ?? 0)).toBeLessThanOrEqual((box?.x ?? 0) + (box?.width ?? 0));
       }
       await expect(nav.getByRole("link", { name: "Events" })).toHaveAttribute("aria-current", "page");
       await expect(rail.getByRole("button", { name: "Log out" })).toBeVisible();
@@ -139,7 +143,7 @@ for (const vp of [
     test("» opens the sidebar as a drawer that keeps focus inside, closes on Escape and gives focus back", async ({ page }) => {
       await signedInOrganiser(page);
       await page.goto("/dashboard/payouts");
-      const expand = page.getByRole("button", { name: "Open menu" });
+      const expand = page.getByRole("button", { name: "Show organiser menu" });
       await expect(expand).toBeVisible({ timeout: 30_000 });
       await expand.click();
 
@@ -149,7 +153,7 @@ for (const vp of [
       await drawer.evaluate((el) => Promise.all(el.getAnimations().map((animation) => animation.finished.catch(() => undefined))));
       const box = await drawer.boundingBox();
       expect([box?.x, box?.y, Math.round(box?.width ?? 0), Math.round(box?.height ?? 0)]).toEqual([0, 0, 264, vp.height]);
-      await expect(drawer.getByRole("button", { name: "Close menu" })).toBeFocused();
+      await expect(drawer.getByRole("button", { name: "Hide organiser menu" })).toBeFocused();
       await expect(drawer.getByRole("link", { name: "Payouts" })).toHaveAttribute("aria-current", "page");
 
       // Tab goes round inside it: « , the four places, Log out, and back to «.
@@ -164,7 +168,7 @@ for (const vp of [
           }),
         );
       }
-      expect(seen).toEqual(["Events", "Analytics", "Payouts", "Profile", "→Log out", "Close menu", "Events"]);
+      expect(seen).toEqual(["Events", "Analytics", "Payouts", "Profile", "→Log out", "Hide organiser menu", "Events"]);
       await page.keyboard.press("Shift+Tab");
       await page.keyboard.press("Shift+Tab");
       await expect(drawer.getByRole("button", { name: "Log out" })).toBeFocused();
@@ -177,23 +181,62 @@ for (const vp of [
     test("« and choosing a place close the drawer", async ({ page }) => {
       await signedInOrganiser(page);
       await page.goto("/dashboard");
-      const expand = page.getByRole("button", { name: "Open menu" });
+      const expand = page.getByRole("button", { name: "Show organiser menu" });
       await expect(expand).toBeVisible({ timeout: 30_000 });
       await expand.click();
       const drawer = page.getByRole("dialog", { name: "Organiser menu" });
-      await drawer.getByRole("button", { name: "Close menu" }).click();
+      await drawer.getByRole("button", { name: "Hide organiser menu" }).click();
       await expect(drawer).toBeHidden();
 
       await expand.click();
       await drawer.getByRole("link", { name: "Profile" }).click();
       await expect(drawer).toBeHidden();
       await expect(page).toHaveURL(/\/dashboard\/profile$/, { timeout: 30_000 });
+      // Focus goes to the new page's heading, not back to the rail.
+      await expect(page.locator("[data-organiser-main] h1")).toBeFocused({ timeout: 30_000 });
       await expect(
         page.locator("[data-organiser-rail]").getByRole("link", { name: "Profile" }),
       ).toHaveAttribute("aria-current", "page", { timeout: 30_000 });
     });
   });
 }
+
+for (const vp of [
+  { width: 768, height: 1024 },
+  { width: 1440, height: 1024 },
+]) {
+  test(`${vp.width}: inside the frame the page's own container gives up its gutters (the frame spaces it)`, async ({ page }) => {
+    await page.setViewportSize(vp);
+    await signedInOrganiser(page);
+    await page.goto("/dashboard/payouts");
+    const container = page.locator("[data-organiser-main] > [data-page]");
+    await expect(container).toBeVisible({ timeout: 30_000 });
+    const style = await container.evaluate((el) => {
+      const css = getComputedStyle(el);
+      return [css.paddingTop, css.paddingRight, css.paddingBottom, css.paddingLeft, css.maxWidth, css.marginLeft];
+    });
+    expect(style).toEqual(["0px", "0px", "0px", "0px", "none", "0px"]);
+    // The page starts where the frame's column does (24px in on a tablet, 48 on a desktop).
+    const main = await page.locator("[data-organiser-main]").boundingBox();
+    const box = await container.boundingBox();
+    expect((box?.x ?? 0) - (main?.x ?? 0)).toBe(vp.width === 768 ? 24 : 48);
+  });
+}
+
+test("the skip link goes past the sidebar, to the page", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1024 });
+  await signedInOrganiser(page);
+  await page.goto("/dashboard/payouts");
+  await expect(page.locator("[data-organiser-sidebar]")).toBeVisible({ timeout: 30_000 });
+  await page.keyboard.press("Tab");
+  const skip = page.getByRole("link", { name: "Skip to main content" });
+  await expect(skip).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("[data-organiser-main]")).toBeFocused();
+  // The next Tab is in the page, not the sidebar.
+  await page.keyboard.press("Tab");
+  expect(await page.evaluate(() => Boolean(document.activeElement?.closest("[data-organiser-main]")))).toBe(true);
+});
 
 test("320px: the rail and the page fit with no sideways scroll", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 640 });

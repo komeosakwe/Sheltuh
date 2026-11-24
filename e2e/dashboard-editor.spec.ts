@@ -1138,3 +1138,32 @@ for (const vp of [
     });
   });
 }
+
+/**
+ * Inside the organiser dashboard's frame (its 264px sidebar beside the page) the editor's rail goes
+ * beside the form only from 1280px (`col-lg`, globals.css), and the preview stays in its sheet, so
+ * the form is never squeezed: one column at 1024 and 1100, the rail beside it from 1280.
+ */
+for (const vp of [
+  { width: 1024, height: 900 },
+  { width: 1100, height: 900 },
+  { width: 1440, height: 900 },
+]) {
+  test(`/dashboard/new in the organiser frame at ${vp.width}px: the form is at least 560px wide`, async ({ page }) => {
+    await page.setViewportSize(vp);
+    await signedInAsOrganiser(page);
+    await page.goto("/dashboard/new");
+    await expect(page.getByLabel("Title", { exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator("[data-organiser-sidebar]")).toBeVisible();
+    await expect(page.getByRole("complementary", { name: "Event page preview" })).toHaveCount(0);
+    expect((await page.locator("[data-step-panel='1']").boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(560);
+    const steps = await page
+      .getByRole("navigation", { name: "Event steps" })
+      .getByRole("button")
+      .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().toJSON()));
+    // A row of three below 1280 in the frame; a rail (one under another) from it.
+    if (vp.width >= 1280) expect(steps[1].y).toBeGreaterThan(steps[0].y);
+    else expect(steps[1].x).toBeGreaterThan(steps[0].x);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+  });
+}

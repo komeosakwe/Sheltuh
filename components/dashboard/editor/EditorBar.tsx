@@ -1,4 +1,5 @@
 import type { Ref } from "react";
+import { DASH_MAIN_BLEED, DASH_MAIN_INLINE } from "@/components/dashboard/ui/DashFrame";
 import { useDashFrame } from "@/components/dashboard/ui/DashFrameContext";
 import { Button } from "@/components/ui/Button";
 import { EDITOR_STEPS, type EditorStep } from "./draft";
@@ -34,12 +35,12 @@ export default function EditorBar({
     <div
       data-edit-bar=""
       className={`sticky bottom-0 z-20 border-t border-foreground bg-background ${
-        framed ? "-mx-4 md:-mx-6 lg:-mr-10 lg:-ml-12" : "-mx-5 sm:-mx-8"
+        framed ? DASH_MAIN_BLEED : "-mx-5 sm:-mx-8"
       }`}
     >
       <div
         className={`mx-auto flex min-h-16 max-w-7xl items-center justify-between gap-3 py-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] ${
-          framed ? "px-4 md:px-6 lg:pr-10 lg:pl-12" : "px-5 sm:px-8"
+          framed ? DASH_MAIN_INLINE : "px-5 sm:px-8"
         }`}
       >
         <p className="meta hidden text-muted sm:block">{lastSaved ? `Last saved ${lastSaved}` : "Not saved yet"}</p>

@@ -32,7 +32,7 @@ export default function StepNav({
 }) {
   return (
     <nav aria-label="Event steps">
-      <ol className="grid grid-cols-3 gap-2 lg:flex lg:flex-col lg:gap-1">
+      <ol className="grid grid-cols-3 gap-2 col-lg:flex col-lg:flex-col col-lg:gap-1">
         {EDITOR_STEPS.map(({ step, label, description }) => {
           const isCurrent = step === current;
           const errors = errorCounts[step];
@@ -47,7 +47,7 @@ export default function StepNav({
                 aria-describedby={`step-${step}-description`}
                 data-step={step}
                 onClick={() => onSelect(step)}
-                className={`flex min-h-14 w-full flex-col items-start gap-1 border-t-2 pt-2 text-left lg:flex-row lg:items-start lg:gap-3 lg:rounded-control lg:border-t-0 lg:px-2 lg:py-2 lg:hover:bg-surface ${
+                className={`flex min-h-14 w-full flex-col items-start gap-1 border-t-2 pt-2 text-left col-lg:flex-row col-lg:items-start col-lg:gap-3 col-lg:rounded-control col-lg:border-t-0 col-lg:px-2 col-lg:py-2 col-lg:hover:bg-surface ${
                   isCurrent ? "border-foreground" : "border-surface-border"
                 }`}
               >

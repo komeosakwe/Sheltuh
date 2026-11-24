@@ -45,7 +45,10 @@ beforeEach(() => {
   push.mockReset();
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+});
 
 function renderShell(path = "/dashboard", auth: AuthContextValue = fakeAuthValue()) {
   pathname = path;
@@ -138,7 +141,7 @@ describe("OrganiserShell — an approved organiser", () => {
     expect(aside).toHaveAttribute("data-surface", "ink");
     expect(aside.tagName).toBe("ASIDE");
     expect(aside).toHaveAccessibleName("Organiser account");
-    expect(aside.querySelector('[data-organiser-avatar="sidebar"]')).toHaveTextContent("HC");
+    expect(aside.querySelector('[data-organiser-mark="sidebar"]')).toHaveTextContent("HC");
     expect(within(aside).getByText("Here & Now Collective")).toBeInTheDocument();
     expect(within(aside).getByText("Organiser")).toBeInTheDocument();
     const nav = within(aside).getByRole("navigation", { name: "Organiser" });
@@ -157,7 +160,7 @@ describe("OrganiserShell — an approved organiser", () => {
     expect(logo).toHaveAttribute("alt", "");
     fireEvent.error(logo);
     expect(sidebar().querySelector("img")).toBeNull();
-    expect(sidebar().querySelector('[data-organiser-avatar="sidebar"]')).toHaveTextContent("HC");
+    expect(sidebar().querySelector('[data-organiser-mark="sidebar"]')).toHaveTextContent("HC");
   });
 
   it.each([
@@ -180,31 +183,44 @@ describe("OrganiserShell — an approved organiser", () => {
     expect(within(rail()).getAllByRole("link").filter((link) => link.querySelector(".bg-signal"))).toEqual([railLink]);
   });
 
-  it("the rail: icon links named by their places, 48px, with tooltips, then Log out", () => {
+  it("the rail: each place an icon over its visible label, 56px, then Log out (labelled too)", () => {
     const auth = fakeAuthValue();
     renderShell("/dashboard", auth);
     const aside = rail();
     expect(aside).toHaveAttribute("data-surface", "ink");
     expect(aside).toHaveAccessibleName("Organiser account");
     const links = within(within(aside).getByRole("navigation", { name: "Organiser" })).getAllByRole("link");
-    expect(links.map((link) => [link.textContent, link.getAttribute("href"), link.getAttribute("title")])).toEqual([
-      ["Events", "/dashboard", "Events"],
-      ["Analytics", "/dashboard/analytics", "Analytics"],
-      ["Payouts", "/dashboard/payouts", "Payouts"],
-      ["Profile", "/dashboard/profile", "Profile"],
+    expect(links.map((link) => [link.textContent, link.getAttribute("href"), link.getAttribute("data-organiser-rail-item")])).toEqual([
+      ["Events", "/dashboard", "events"],
+      ["Analytics", "/dashboard/analytics", "analytics"],
+      ["Payouts", "/dashboard/payouts", "payouts"],
+      ["Profile", "/dashboard/profile", "profile"],
     ]);
     for (const link of links) {
-      expect(link).toHaveClass("size-12");
+      expect(link).toHaveClass("w-14", "min-h-14");
       expect(link.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+      // The label is shown, not only read.
+      expect(within(link).getByText(link.textContent ?? "")).not.toHaveClass("sr-only");
     }
+    // Hover and focus fill differently from the current place.
+    expect(links[0]).toHaveClass("bg-surface");
+    expect(links[0]).not.toHaveClass("hover:bg-surface-border");
+    expect(links[1]).toHaveClass("hover:bg-surface-border", "focus-visible:bg-surface-border");
     fireEvent.click(within(aside).getByRole("button", { name: "Log out" }));
     expect(auth.signOut).toHaveBeenCalled();
     expect(push).toHaveBeenCalledWith("/");
   });
 
+  it("the page column is the skip link's target (past the sidebar), not when there's no frame", () => {
+    renderShell();
+    const main = document.querySelector("[data-organiser-main]");
+    expect(main).toHaveAttribute("data-skip-target");
+    expect(main).toHaveAttribute("tabindex", "-1");
+  });
+
   it("» opens the full sidebar as a drawer; « closes it", () => {
     renderShell("/dashboard/payouts");
-    const expand = within(rail()).getByRole("button", { name: "Open menu" });
+    const expand = within(rail()).getByRole("button", { name: "Show organiser menu" });
     expect(expand).toHaveAttribute("aria-expanded", "false");
     expect(expand).toHaveAttribute("aria-haspopup", "dialog");
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -217,21 +233,21 @@ describe("OrganiserShell — an approved organiser", () => {
     expect(within(drawer).getByText("Here & Now Collective")).toBeInTheDocument();
     expect(current(within(drawer).getByRole("navigation", { name: "Organiser" }))).toEqual([["Payouts", "page"]]);
     // « is first, so it's where focus lands when the drawer opens.
-    expect(within(drawer).getAllByRole("button")[0]).toHaveAccessibleName("Close menu");
+    expect(within(drawer).getAllByRole("button")[0]).toHaveAccessibleName("Hide organiser menu");
     expect(within(drawer).getByRole("button", { name: "Log out" })).toBeInTheDocument();
 
-    fireEvent.click(within(drawer).getByRole("button", { name: "Close menu" }));
+    fireEvent.click(within(drawer).getByRole("button", { name: "Hide organiser menu" }));
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(expand).toHaveAttribute("aria-expanded", "false");
   });
 
   it("the drawer closes when a place is chosen, and when the dialog closes itself (Escape)", () => {
     renderShell();
-    fireEvent.click(within(rail()).getByRole("button", { name: "Open menu" }));
+    fireEvent.click(within(rail()).getByRole("button", { name: "Show organiser menu" }));
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("link", { name: "Payouts" }));
     expect(screen.queryByRole("dialog")).toBeNull();
 
-    fireEvent.click(within(rail()).getByRole("button", { name: "Open menu" }));
+    fireEvent.click(within(rail()).getByRole("button", { name: "Show organiser menu" }));
     // What the browser does on Escape: the dialog closes and fires "close".
     const dialog = screen.getByRole("dialog");
     if (!(dialog instanceof HTMLDialogElement)) throw new Error("not a dialog");
@@ -312,6 +328,32 @@ describe("OrganiserShell — anyone else gets the page alone", () => {
     );
     expect(document.querySelector("[data-organiser-main]")).toContainElement(screen.getByRole("heading", { name: "Your events" }));
     expect(mounts).toHaveBeenCalledTimes(1);
+  });
+
+  it("a returning organiser keeps the frame (places, no name yet) while the record loads; no one else does", () => {
+    localStorage.setItem("sheltuh:organiser-frame", "user-1");
+    organiser = null;
+    organiserLoading = true;
+    renderShell("/dashboard", fakeAuthValue({ userId: "user-1" }));
+    expect(document.querySelector("[data-organiser-shell]")).not.toBeNull();
+    expect(within(sidebar()).getAllByRole("link").map((link) => link.textContent)).toEqual(["Events", "Analytics", "Payouts", "Profile"]);
+    expect(sidebar().querySelector("[data-organiser-mark]")).toHaveTextContent("");
+    cleanup();
+    renderShell("/dashboard", fakeAuthValue({ userId: "user-2" }));
+    expect(document.querySelector("[data-organiser-shell]")).toBeNull();
+    cleanup();
+    // Once the record says they aren't approved (any more), the hint goes.
+    organiserLoading = false;
+    organiser = { ...APPROVED, status: "rejected" };
+    renderShell("/dashboard", fakeAuthValue({ userId: "user-1" }));
+    expect(document.querySelector("[data-organiser-shell]")).toBeNull();
+    expect(localStorage.getItem("sheltuh:organiser-frame")).toBeNull();
+  });
+
+  it("an approved organiser is remembered for the next load (their user id only)", () => {
+    localStorage.removeItem("sheltuh:organiser-frame");
+    renderShell("/dashboard", fakeAuthValue({ userId: "user-9" }));
+    expect(localStorage.getItem("sheltuh:organiser-frame")).toBe("user-9");
   });
 
   it("while the organiser's status loads", () => {

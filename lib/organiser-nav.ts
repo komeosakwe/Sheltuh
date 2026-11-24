@@ -9,8 +9,12 @@
  */
 export type OrganiserNavKey = "events" | "analytics" | "payouts" | "profile";
 
-/** The rail's icon for each place (components/dashboard/ui/icons.tsx). */
-export type OrganiserNavIcon = "calendar" | "receipt" | "wallet" | "user";
+/**
+ * The rail's icon for each place (components/dashboard/ui/icons.tsx): Latte's calendar and wallet;
+ * a chart for Analytics (Latte's receipt is for Orders, which replaces it) and a shopfront for the
+ * public Profile (not the person the header's account menu uses).
+ */
+export type OrganiserNavIcon = "calendar" | "chart" | "wallet" | "store";
 
 export interface OrganiserNavLink {
   key: OrganiserNavKey;
@@ -21,9 +25,9 @@ export interface OrganiserNavLink {
 
 export const ORGANISER_NAV: OrganiserNavLink[] = [
   { key: "events", label: "Events", href: "/dashboard", icon: "calendar" },
-  { key: "analytics", label: "Analytics", href: "/dashboard/analytics", icon: "receipt" },
+  { key: "analytics", label: "Analytics", href: "/dashboard/analytics", icon: "chart" },
   { key: "payouts", label: "Payouts", href: "/dashboard/payouts", icon: "wallet" },
-  { key: "profile", label: "Profile", href: "/dashboard/profile", icon: "user" },
+  { key: "profile", label: "Profile", href: "/dashboard/profile", icon: "store" },
 ];
 
 /** An event's report belongs to Analytics (its back link is "← Analytics"). */

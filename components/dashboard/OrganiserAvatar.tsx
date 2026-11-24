@@ -1,6 +1,4 @@
-"use client";
-
-import { useState } from "react";
+import OrganiserLogo from "@/components/organisers/OrganiserLogo";
 import { initialsFor } from "@/lib/initials";
 
 const SIZES = {
@@ -12,10 +10,11 @@ const SIZES = {
 
 /**
  * The organiser's mark at the top of the sidebar and the rail (Latte's "Org / Sidebar" Avatar):
- * a round orange disc with their initials in black (6.18:1), or their logo in the circle when
- * they've uploaded one (shown only once approved, when the logo is public). Decorative: the name
- * beside it (or the nav's own name, on the rail) is what's read. If the logo fails to load (a
- * takedown, say) the initials come back.
+ * a round orange disc with their initials in black (6.18:1), or their logo filling the circle when
+ * they've uploaded one (shown only once approved, when the logo is public). The logo is the
+ * site's OrganiserLogo, so a logo that fails to load (a takedown, say; even before hydration)
+ * gives the initials back. With no name yet (the record still loading) it's the bare disc. Decorative: the name beside it (or the nav's own name, on the rail) is
+ * what's read.
  */
 export default function OrganiserAvatar({
   name,
@@ -26,20 +25,13 @@ export default function OrganiserAvatar({
   logoUrl?: string;
   size: keyof typeof SIZES;
 }) {
-  const [failedUrl, setFailedUrl] = useState<string | null>(null);
-  const showLogo = Boolean(logoUrl) && failedUrl !== logoUrl;
   return (
     <span
       aria-hidden="true"
-      data-organiser-avatar={size}
+      data-organiser-mark={size}
       className={`flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-signal text-signal-foreground ${SIZES[size]}`}
     >
-      {showLogo && logoUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element -- a same-origin API image, already sized and versioned by the server
-        <img src={logoUrl} alt="" className="size-full bg-paper object-cover" onError={() => setFailedUrl(logoUrl)} />
-      ) : (
-        initialsFor(name)
-      )}
+      <OrganiserLogo name={name} url={logoUrl} size="fill" shape="round" fallback="none" fallbackElement={name ? initialsFor(name) : null} />
     </span>
   );
 }

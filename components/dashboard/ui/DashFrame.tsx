@@ -5,6 +5,14 @@ import { DashFrameContext, type DashArea } from "./DashFrameContext";
 
 export type { DashArea };
 
+/**
+ * The main column's inline padding (16 on phones, 24 on tablets, 48 left / 40 right on a desktop),
+ * and the negative margins that take something back out to the column's edges (the event editor's
+ * save bar, EditorBar). Whole class names, so Tailwind finds them here.
+ */
+export const DASH_MAIN_INLINE = "px-4 md:px-6 lg:pr-10 lg:pl-12";
+export const DASH_MAIN_BLEED = "-mx-4 md:-mx-6 lg:-mr-10 lg:-ml-12";
+
 /** The body's padding below the panel on a tablet: 32 (the customer frames), 48 (the organiser frames). */
 const BODY: Record<DashArea, string> = {
   account: "md:pb-8",
@@ -58,7 +66,11 @@ export default function DashFrame({
         {bare ? null : rail}
         <div className={bare ? "contents" : "flex min-w-0 flex-1 flex-col"}>
           {bare ? null : top}
-          <div {...part("main", "flex min-w-0 flex-1 flex-col gap-6 px-4 py-6 md:p-6 lg:pt-14 lg:pr-10 lg:pb-10 lg:pl-12")}>
+          {/* The skip link's target (components/SkipLink.tsx): past the sidebar, straight to the page. */}
+          <div
+            {...part("main", `flex min-w-0 flex-1 flex-col gap-6 py-6 focus:outline-none lg:pt-14 lg:pb-10 ${DASH_MAIN_INLINE}`)}
+            {...(bare ? {} : { "data-skip-target": "", tabIndex: -1 })}
+          >
             <DashFrameContext.Provider value={bare ? null : area}>{children}</DashFrameContext.Provider>
           </div>
         </div>
