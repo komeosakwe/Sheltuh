@@ -4809,12 +4809,43 @@ person (`supabase/migrations/20261120000000_group_tickets.sql`,
 `NEXT_PUBLIC_TICKET_TRANSFERS` (`lib/ticket-transfers-flag.ts`): off stops new
 sends only; offers already made can be viewed, accepted, declined and
 cancelled, received tickets keep working at the door, and sent tickets stay
-sent. Built in stages: this release is the database, the API, the door and
-the redaction; the emails (and the offer link's token minting), the
-organiser's view, reminders to holders, the UI and recipients' wallet passes
-follow. Until the emails ship, the transfer jobs wait in the outbox: no
-release leases them (`ticketTransferJobsSoon` is empty, and the cron's drain
-doesn't name their kinds).
+sent. Built in stages: the database, the API, the door and the redaction,
+then the emails (below); the organiser's view, reminders to holders, the UI
+and recipients' wallet passes follow.
+
+**The emails** (`lib/server/ticket-transfer-email.ts`, on the shared 1120 kit
+`lib/server/email-kit.ts`, to Latte's frames; the full ticket is the ticket
+email's own orange-outline card, owner decision). Each is an outbox job
+(`transfer_offer`, `transfer_accepted`, `transfer_declined`,
+`transfer_expired`, `transfer_ticket`), drained after the organiser emails in
+the cron and, per kind, straight after a send, accept or decline
+(`sendTicketTransferEmailsSoon`):
+- **The offer**, to the address typed: the ticket card *locked* (a faded
+  pattern that doesn't decode, `public/email/ticket/qr-locked.png`, checked
+  with ZXing; no code of any kind), Accept and Decline
+  (`/tickets/accept#token=…`, `&decline=1`), "How it works", "Don't forward
+  this email: whoever accepts first gets the ticket.", the event's details,
+  host and "Before you go". The link's token (32 random bytes) is minted per
+  attempt by the worker, its hash stored first; earlier copies stay valid.
+- **Accepted** (who now holds it, the accepting address masked only when it
+  isn't the one typed), **declined** and **expired** (the QR still works;
+  "Send to a friend" until the cut-off), to the order's current
+  `buyer_email` (a holder's re-send: the address they accepted with).
+- **The recipient's ticket**, to the accepting account's address: the live
+  card with their issued code and its QR (`cid:`), "Show this at the door",
+  and their received page; no order, amounts, or "ticket n of N".
+- **The buyer's ticket email** shows a sent ticket as sent ("Sent to {name} ·
+  accepted {date}", "This QR code no longer works"): no code, no QR, no wallet
+  link; the full card is the first ticket still theirs; numbers are kept.
+
+Every kind is checked against its transfer's state when the job is read and
+again straight before the mail provider (`stillToSendTransfer`: the lease,
+and an offer still pending, unexpired and before the cut-off with its order
+paid and event published; a decision still that decision, to the sender's
+current address; a ticket still the current holding of a paid order): a
+change meanwhile defers it a minute, and the next read skips it. No token is
+minted for an offer that isn't open. Names are escaped as quoted text; none
+becomes a link. Logs name the job id only.
 
 **The owner's rules** (`TICKET_TRANSFER_RULES`, each passed to the database
 as a parameter, so a change is one line with no migration): paid and free
