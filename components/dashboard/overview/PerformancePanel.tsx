@@ -1,9 +1,11 @@
+import Link from "next/link";
 import { useId } from "react";
 import ProgressBar from "@/components/dashboard/ui/ProgressBar";
 import StatusPill from "@/components/dashboard/ui/StatusPill";
 import type { OrganiserEventPerformance } from "@/lib/api/types";
 import { formatCount } from "@/lib/analytics-format";
 import { deltaPill, performanceAmount, soldLine } from "@/lib/organiser-dashboard";
+import { manageEventHref } from "@/lib/organiser-nav";
 
 const DELTA_TONE = { up: "green", down: "red", flat: "grey" } as const;
 
@@ -19,12 +21,17 @@ function ProgressCard({ event }: { event: OrganiserEventPerformance }) {
   return (
     <li data-progress-card={event.eventId} className="flex flex-col gap-3 rounded-card bg-card px-6 py-5">
       <div className="label-button flex flex-wrap items-start justify-between gap-x-3">
-        <h4 className="min-w-0 wrap-anywhere">{event.title.trim() || "Untitled event"}</h4>
-        <p className="tabular-nums">{performanceAmount(event)}</p>
+        {/* The event's name goes to it (its Manage page), looking as drawn. */}
+        <h4 className="label-button min-w-0 wrap-anywhere">
+          <Link href={manageEventHref(event.eventId)} className="underline-offset-4 hover:underline">
+            {event.title.trim() || "Untitled event"}
+          </Link>
+        </h4>
+        <p className="min-w-0 break-words tabular-nums">{performanceAmount(event)}</p>
       </div>
       <ProgressBar value={event.ticketsSold} max={event.capacity} />
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-        <p className="label-tag text-muted tabular-nums">{soldLine(event)}</p>
+        <p className="label-tag min-w-0 text-muted tabular-nums">{soldLine(event)}</p>
         {delta && (
           <StatusPill tone={DELTA_TONE[delta.direction]} srText={delta.srText}>
             {delta.text}
@@ -57,11 +64,14 @@ export default function PerformancePanel({
   const titleId = useId();
   return (
     <section aria-labelledby={titleId} data-performance="" className={`flex flex-col gap-6 bg-hover ${className}`.trim()}>
-      <h2 id={titleId} className="heading-h2 wrap-anywhere">
+      <h2 id={titleId} className="heading-dash wrap-anywhere">
         Performance
       </h2>
       <div className="flex flex-col gap-1">
-        <h3 className="label-button">New followers ({formatCount(newFollowers)})</h3>
+        {/* A line, not a heading: nothing sits under it but its period. */}
+        <p data-new-followers="" className="label-button">
+          New followers ({formatCount(newFollowers)})
+        </p>
         <p className="body-s text-muted">In the last 7 days.</p>
       </div>
       <h3 className="label-button">Your events</h3>

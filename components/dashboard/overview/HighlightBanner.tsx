@@ -5,8 +5,8 @@ import type { OrganiserEventSummary } from "@/lib/api/types";
 import { highlightLine } from "@/lib/organiser-dashboard";
 
 /**
- * The Overview's "Highlight banner" (Latte 430:7340): orange, radius 16, 40px in on the left and 48
- * on the right (24 all round on phones), "Nice work!" in Heading/H2, the line under it in Body/M,
+ * The Overview's "Highlight banner" (Latte 430:7340): orange, radius 16, 40px in on the left, 48
+ * on the right and 32 above and below at every width (the 390 frame keeps them), "Nice work!" in Heading/H2, the line under it in Body/M,
  * the black "Share event →" chip, and the black Ü (96 tall) at the right; on phones the Ü sits under
  * the words, as the 390 frame places it. An orange section (data-surface="signal"), so everything in
  * it is black on orange (6.18:1). Shown only for the API's `highlight` (the soonest live event that
@@ -20,11 +20,13 @@ export default function HighlightBanner({ event, now }: { event: OrganiserEventS
       aria-labelledby={titleId}
       data-surface="signal"
       data-highlight-banner={event.eventId}
-      className="flex flex-col gap-6 rounded-card p-6 sm:flex-row sm:items-center sm:justify-between md:py-8 md:pr-12 md:pl-10"
+      className="flex flex-col gap-6 rounded-card py-8 pr-12 pl-10 sm:flex-row sm:items-center sm:justify-between"
     >
       <div className="flex min-w-0 flex-1 flex-col items-start gap-2">
-        <h2 id={titleId} className="heading-h2">
-          Nice work!
+        {/* The region is named with its event: "Nice work! Here & Now is selling". */}
+        <h2 id={titleId} className="heading-dash break-words">
+          Nice work!{" "}
+          <span className="sr-only">{event.title} is selling</span>
         </h2>
         <p className="body-m break-words">{highlightLine(event, now)}</p>
         {event.slug && (
@@ -33,7 +35,7 @@ export default function HighlightBanner({ event, now }: { event: OrganiserEventS
             title={event.title}
             label="Share event"
             className="flex-wrap"
-            buttonClassName="label-tag inline-flex min-h-8 items-center gap-1 rounded-control bg-ink px-4 py-2 text-paper hover:bg-accent-strong pointer-coarse:min-h-11"
+            buttonClassName="label-tag inline-flex min-h-8 max-w-full flex-wrap items-center gap-1 rounded-control bg-ink px-4 py-2 text-left whitespace-normal text-paper hover:bg-accent-strong pointer-coarse:min-h-11"
           />
         )}
       </div>

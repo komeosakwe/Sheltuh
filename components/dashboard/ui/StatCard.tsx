@@ -5,7 +5,8 @@ import { TONE_TAG, type DashTone } from "./tones";
  * "Dash / Stat" (Latte's dashboard Components 465:7337): a number over its label.
  *
  * - `plain` (Overview's "+86 Tickets this week", Manage · Insights' stats): white, a 1px
- *   border/subtle edge, px 16 py 24, centred; the number Heading/H2 (32/40 SemiBold; 28/36 on phones, Mobile/H2), the label
+ *   border/subtle edge, px 16 py 24 (12 at the sides on phones, so "Tickets this week" stays on one line at 390), centred;
+ *   the number Heading/H2 (32/40 SemiBold at every width, as the 390 frames draw it), the label
  *   Body/S text/secondary, 4px apart. Radius 16, or 8 (`radius="control"`, as Insights draws them).
  * - a tone (Attendees' "86 Tickets" orange, "0 / 86 Checked in" green, "3 Transfers" lilac,
  *   "41 Agreed to hear from you" yellow): the tone's fill, no edge, p 24, left-aligned, number and
@@ -29,7 +30,7 @@ export default function StatCard({
   const shape = radius === "card" ? "rounded-card" : "rounded-control";
   const look =
     tone === "plain"
-      ? "items-center border border-surface-border bg-card px-4 py-6 text-center text-foreground"
+      ? "items-center border border-surface-border bg-card px-3 py-6 text-center text-foreground sm:px-4"
       : tone === "signal"
         ? "bg-signal p-6 text-signal-foreground"
         : "p-6";
@@ -39,7 +40,7 @@ export default function StatCard({
       data-tag={tone !== "plain" && tone !== "signal" ? TONE_TAG[tone] : undefined}
       className={`flex min-w-0 flex-col gap-1 ${shape} ${look} ${className}`.replace(/\s+/g, " ").trim()}
     >
-      <p className="heading-h2 break-words tabular-nums">{value}</p>
+      <p className="figure-dash break-words tabular-nums">{value}</p>
       <p className={`body-s break-words ${tone === "plain" ? "text-muted" : ""}`.trim()}>{label}</p>
     </div>
   );

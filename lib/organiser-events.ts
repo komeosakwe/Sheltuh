@@ -36,7 +36,7 @@ export interface OrganiserEventStatus {
 const STATUS: Record<OrganiserEventState, Omit<OrganiserEventStatus, "state">> = {
   draft: { label: "Draft", tone: "neutral", hint: "Finish it, then publish it." },
   pending_review: {
-    label: "Waiting for review",
+    label: "In review",
     tone: "pending",
     hint: "Sheltüh is checking it before it goes live. You can’t edit it until then.",
   },

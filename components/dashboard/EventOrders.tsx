@@ -15,6 +15,7 @@ import type { EventOrderRow, EventOrders as EventOrdersData } from "@/lib/api/ty
 import { DETAILS_VISIBLE_MONTHS, ORGANISER_USE_NOTE } from "@/lib/buyer-details";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { orderPaidText, orderPlacedText, orderStatusText, orderTicketsText } from "@/lib/event-orders-format";
+import { EVENTS_HREF } from "@/lib/organiser-nav";
 
 const PAGE_SIZE = 20;
 const SEARCH_DEBOUNCE_MS = 300;
@@ -168,7 +169,7 @@ function Orders({ eventId, getToken, scope }: { eventId: string; getToken: GetTo
           headingLevel={1}
           title={admin ? "Orders not available" : "Event not found"}
           action={
-            <ButtonLink size="lg" variant="outline" href={admin ? "/admin/events" : "/dashboard"}>
+            <ButtonLink size="lg" variant="outline" href={admin ? "/admin/events" : EVENTS_HREF}>
               Back to events
             </ButtonLink>
           }

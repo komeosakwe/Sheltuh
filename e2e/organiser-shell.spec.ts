@@ -143,9 +143,9 @@ for (const vp of [
       await expect(rail).toBeVisible({ timeout: 30_000 });
       await expect(page.locator("[data-organiser-sidebar]")).toBeHidden();
       expect((await rail.boundingBox())?.width).toBe(64);
-      // Tablet: the panel 24px in, rounded; phone: full-bleed.
+      // Tablet: the panel 32px in at the sides (the organiser frames), rounded; phone: full-bleed.
       const shell = await page.locator("[data-organiser-shell]").boundingBox();
-      expect(shell?.x).toBe(vp.width === 768 ? 24 : 0);
+      expect(shell?.x).toBe(vp.width === 768 ? 32 : 0);
 
       const nav = rail.getByRole("navigation", { name: "Organiser" });
       await expect(nav.getByRole("link")).toHaveCount(5);

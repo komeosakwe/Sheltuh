@@ -238,6 +238,7 @@ describe("EventOrders", () => {
     api.getEventOrders.mockRejectedValue(new ApiError(404, "Not found."));
     renderOrders();
     expect(await screen.findByRole("heading", { level: 1, name: "Event not found" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Back to events" })).toHaveAttribute("href", "/dashboard/events");
   });
 
   it("shows the loading state before the first answer", () => {

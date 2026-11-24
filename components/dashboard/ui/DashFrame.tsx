@@ -13,10 +13,13 @@ export type { DashArea };
 export const DASH_MAIN_INLINE = "px-4 md:px-6 lg:pr-10 lg:pl-12";
 export const DASH_MAIN_BLEED = "-mx-4 md:-mx-6 lg:-mr-10 lg:-ml-12";
 
-/** The body's padding below the panel on a tablet: 32 (the customer frames), 48 (the organiser frames). */
+/**
+ * The body's padding on a tablet: 24 above the panel in both; at its sides 24 (the customer 1120 frames) or
+ * 32 (the organiser frames, 492:14153 and 492:14821); below it 32 (customer) or 48 (organiser).
+ */
 const BODY: Record<DashArea, string> = {
-  account: "md:pb-8",
-  organiser: "md:pb-12",
+  account: "md:px-6 md:pb-8",
+  organiser: "md:px-8 md:pb-12",
 };
 
 /**
@@ -28,8 +31,8 @@ const BODY: Record<DashArea, string> = {
  *   and 64px above the footer, 64px in from the sides from 1280px (32px below that) and up to
  *   1312px wide; `sidebar` (the 264px black column) on its left, the page on the right with 56px
  *   above it, 40px right and below, 48px left.
- * - Tablet (768–1023px): the panel is rounded, 24px in (24 top and sides; below it 32 for the
- *   customer area, 48 for the organiser's). `top` runs across its top (the customer's tabs row),
+ * - Tablet (768–1023px): the panel is rounded, 24px below the header, 24px in at the sides for the
+ *   customer area and 32 for the organiser's (below it 32 and 48). `top` runs across its top (the customer's tabs row),
  *   `rail` down its left (the organiser's 64px black rail), and 24px around the page.
  * - Phones: the panel is full-bleed with no radius, `top` or `rail` as on a tablet, 24px above and
  *   below the page and 16px at the sides.
@@ -60,7 +63,7 @@ export default function DashFrame({
   const part = (name: string, className: string) =>
     bare ? { className: "contents" } : { [`data-${area}-${name}`]: "", className };
   return (
-    <div {...part("body", `bg-surface md:px-6 md:pt-6 ${BODY[area]} lg:px-8 lg:pt-8 lg:pb-16 xl:px-16`)}>
+    <div {...part("body", `bg-surface md:pt-6 ${BODY[area]} lg:px-8 lg:pt-8 lg:pb-16 xl:px-16`)}>
       <div {...part("shell", "flex overflow-clip bg-background md:rounded-card lg:mx-auto lg:min-h-240 lg:max-w-328")}>
         {bare ? null : sidebar}
         {bare ? null : rail}

@@ -206,7 +206,7 @@ describe("OrganiserShell — an approved organiser", () => {
       ["Profile", "/dashboard/profile", "profile"],
     ]);
     for (const link of links) {
-      expect(link).toHaveClass("w-14", "min-h-14");
+      expect(link).toHaveClass("w-[56px]", "min-h-[56px]");
       expect(link.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
       // The label is shown, not only read.
       expect(within(link).getByText(link.textContent ?? "")).not.toHaveClass("sr-only");

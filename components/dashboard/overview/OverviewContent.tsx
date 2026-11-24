@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import JoinedWelcome, { useJoinedWelcome } from "@/components/dashboard/JoinedWelcome";
 import OrganiserGate from "@/components/dashboard/OrganiserGate";
 import OrgEventCard from "@/components/dashboard/OrgEventCard";
 import { DashButton, DashButtonLink } from "@/components/dashboard/ui/DashButton";
 import { DASH_MAIN_BLEED, DASH_MAIN_INLINE } from "@/components/dashboard/ui/DashFrame";
 import { useDashFrame } from "@/components/dashboard/ui/DashFrameContext";
+import { useToday } from "@/components/dashboard/useToday";
 import { LoadingState } from "@/components/ui/ProgressLoader";
 import { getOrganiserOverview } from "@/lib/api/organiser-summary";
 import type { OrganiserOverview, OrganiserRecord } from "@/lib/api/types";
@@ -23,27 +24,35 @@ export const DRAFTS_HREF = "/dashboard/events?filter=drafts";
 
 type Load = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; data: OrganiserOverview };
 
-/** The Overview's numbers (GET /api/organisers/me/overview), again on `retry`. */
+/**
+ * The Overview's numbers (GET /api/organisers/me/overview), again on `retry`. While a retry runs the
+ * error stays (its Try again busy, so focus isn't lost with it); `retrying` says so.
+ */
 function useOverview() {
   const auth = useAuth();
   const getToken = auth.getAccessToken;
   const [attempt, setAttempt] = useState(0);
+  const [retrying, setRetrying] = useState(false);
   const [load, setLoad] = useState<Load>({ status: "loading" });
   useEffect(() => {
     const controller = new AbortController();
     getOrganiserOverview(getToken, { signal: controller.signal })
-      .then((data) => setLoad({ status: "ready", data }))
+      .then((data) => {
+        setLoad({ status: "ready", data });
+        setRetrying(false);
+      })
       .catch((err: unknown) => {
         if (controller.signal.aborted) return;
         setLoad({ status: "error", message: err instanceof Error ? err.message : "Something went wrong." });
+        setRetrying(false);
       });
     return () => controller.abort();
   }, [getToken, attempt]);
   function retry() {
-    setLoad({ status: "loading" });
+    setRetrying(true);
     setAttempt((n) => n + 1);
   }
-  return { load, retry };
+  return { load, retry, retrying };
 }
 
 /**
@@ -71,9 +80,21 @@ export default function OverviewContent() {
 function Overview({ organiser }: { organiser: OrganiserRecord }) {
   const welcome = useJoinedWelcome();
   const framed = useDashFrame() !== null;
-  const { load, retry } = useOverview();
-  const [now] = useState(() => new Date());
+  const { load, retry, retrying } = useOverview();
+  const now = useToday();
   const data = load.status === "ready" ? load.data : null;
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  // After Try again loads the page, focus goes to its heading (Try again itself is gone).
+  const focusOnLoad = useRef(false);
+  useEffect(() => {
+    if (load.status !== "ready" || !focusOnLoad.current) return;
+    focusOnLoad.current = false;
+    headingRef.current?.focus();
+  }, [load.status]);
+  function tryAgain() {
+    focusOnLoad.current = true;
+    retry();
+  }
 
   // Inside the frame the page takes back the frame's padding, so the Performance column can reach
   // the panel's edges (its right, top and bottom from col-lg; its sides and bottom below that) and
@@ -87,9 +108,9 @@ function Overview({ organiser }: { organiser: OrganiserRecord }) {
           : "flex flex-col gap-8"
       }
     >
-      <div className={framed ? `flex min-w-0 flex-1 flex-col gap-8 pb-8 ${DASH_MAIN_INLINE} col-lg:pt-14 col-lg:pb-10` : "flex flex-col gap-8"}>
+      <div className={framed ? `flex min-w-0 flex-1 flex-col gap-8 pb-6 md:pb-8 ${DASH_MAIN_INLINE} col-lg:pt-14 col-lg:pb-10` : "flex flex-col gap-8"}>
         <div className="flex flex-col gap-1">
-          <h1 className="heading-h2 break-words">
+          <h1 ref={headingRef} tabIndex={-1} className="heading-dash break-words focus:outline-none!">
             {welcome ? "Welcome" : "Welcome back"}, {organiser.displayName}!
           </h1>
           <p className="body-m text-muted">{formatLongWeekdayDate(now)}</p>
@@ -102,7 +123,7 @@ function Overview({ organiser }: { organiser: OrganiserRecord }) {
               <p className="label-button">Your overview couldn’t load.</p>
               <p className="body-s text-muted">{load.message}</p>
             </div>
-            <DashButton variant="outline" onClick={retry} className="pointer-coarse:min-h-11">
+            <DashButton variant="outline" onClick={tryAgain} busy={retrying} className="pointer-coarse:min-h-11">
               Try again
             </DashButton>
           </div>
@@ -120,7 +141,11 @@ function Overview({ organiser }: { organiser: OrganiserRecord }) {
         <PerformancePanel
           newFollowers={data.thisWeek.newFollowers}
           events={data.performance}
-          className={framed ? "px-4 py-8 md:px-6 col-lg:w-100 col-lg:shrink-0 col-lg:px-8 col-lg:pt-14 col-lg:pb-10" : "rounded-card p-6"}
+          className={
+            framed
+              ? "px-4 py-6 md:px-6 md:py-8 col-lg:w-100 col-lg:shrink-0 col-lg:rounded-card col-lg:px-8 col-lg:pt-14 col-lg:pb-10"
+              : "rounded-card p-6"
+          }
         />
       )}
     </div>
@@ -134,8 +159,8 @@ function Overview({ organiser }: { organiser: OrganiserRecord }) {
 function UpcomingEvents({ events, now }: { events: OrganiserOverview["upcoming"]; now: Date }) {
   const titleId = useId();
   return (
-    <section aria-labelledby={titleId} className="flex flex-col gap-6">
-      <h2 id={titleId} className="heading-h3">
+    <section aria-labelledby={titleId} className="flex flex-col gap-8">
+      <h2 id={titleId} className="heading-dash-section wrap-anywhere">
         Upcoming events
       </h2>
       {events.length > 0 ? (
