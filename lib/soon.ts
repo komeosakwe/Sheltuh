@@ -35,6 +35,24 @@ function addDays(dateKey: string, days: number): string {
   return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
 }
 
+/** A yyyy-mm-dd as a count of days (calendar arithmetic, as addDays). */
+function dayNumber(dateKey: string): number {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  return Date.UTC(year, month - 1, day) / 86_400_000;
+}
+
+/**
+ * How many calendar days from `now` to the event's start, both read as dates in the event's zone: 0 for a
+ * start later today (or one already past today), 1 for tomorrow, 3 for "in 3 days", negative once the
+ * start's date is behind. Dates, not multiples of 24 hours, so a daylight-saving change can't shift it: a
+ * start 47 hours away across the October change is still 2 days off. Null for a time that can't be read.
+ */
+export function daysUntilStart(event: Pick<SoonFields, "startsAt" | "timeZone">, now: Date): number | null {
+  if (!Number.isFinite(Date.parse(event.startsAt)) || !Number.isFinite(now.getTime())) return null;
+  const zone = eventZone(event.timeZone);
+  return dayNumber(wallClockParts(event.startsAt, zone).date) - dayNumber(wallClockParts(now, zone).date);
+}
+
 /** The soon label for `event` at `now`, or null for none (see above). */
 export function soonLabel(event: SoonFields, now: Date): SoonLabel | null {
   const start = Date.parse(event.startsAt);
