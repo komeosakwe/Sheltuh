@@ -91,8 +91,10 @@ Run it on the server with sharp, in a pure function `toneFromMean(r, g, b)` (`li
 1. Take the **cover crop**: the photo cropped to the card's aspect around its focus point, exactly as §5.2 crops it
    for full-bleed. Flatten any alpha onto black.
 2. Resize that crop to **48×48** (`fit: "fill"`). Take rows **32–47** (`extract({ left: 0, top: 32, width: 48,
-   height: 16 })`), the bottom third, which is where the text sits. Get the mean of each channel with `.stats()`, on
-   the **sRGB (gamma-encoded) values**, as the reference does. Don't linearise.
+   height: 16 })`), the bottom third, which is where the text sits. Write those 48×16 pixels out as raw RGB
+   (`.raw().toBuffer()`) and average each channel in code, on the **sRGB (gamma-encoded) values**, as the reference
+   does. Don't linearise. Don't use sharp's `.stats()` here: it ignores `resize` / `extract` and reports on the whole
+   input, so it would sample the entire photo instead of the bottom third.
 3. Convert the mean (0–255) to HSL (standard sRGB→HSL; hue in degrees; for a grey, the hue is 0 and the saturation
    is 0).
 4. Then:
