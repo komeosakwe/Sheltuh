@@ -208,7 +208,7 @@ describe("DashboardContent — each event's status, date and actions", () => {
     expect(rowOf("dad")).toHaveTextContent(/Sat 12 Dec( 2026)?, 7:00 pm · Taylors Lakes/);
     const statusOf = (title: string) => rowOf(title).getAttribute("data-status");
     expect(within(rowOf("dad")).getByText("Draft")).toBeInTheDocument();
-    expect(within(rowOf("Waiting")).getByText("Waiting for review")).toBeInTheDocument();
+    expect(within(rowOf("Waiting")).getByText("In review")).toBeInTheDocument();
     expect(within(rowOf("Live")).getByText("Published")).toBeInTheDocument();
     expect(within(rowOf("Nope")).getByText("Rejected")).toBeInTheDocument();
     expect(within(rowOf("Taken down")).getByText("Unpublished")).toBeInTheDocument();
@@ -239,7 +239,7 @@ describe("DashboardContent — each event's status, date and actions", () => {
       ["Edit", "Edit dad", "/dashboard/d"],
       ["Analytics", "Analytics for dad", "/dashboard/events/d/analytics"],
     ]);
-    // Waiting for review can't be edited (the API refuses): View submission, and its seat map.
+    // In review can't be edited (the API refuses): View submission, and its seat map.
     expect(actionsOf("Waiting")).toEqual([
       ["View submission", "View submission for Waiting", "/dashboard/p"],
       ["Analytics", "Analytics for Waiting", "/dashboard/events/p/analytics"],

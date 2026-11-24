@@ -129,7 +129,7 @@ for (const vp of [
       await expect(newEvent).not.toHaveAttribute("aria-current");
       await expect(newEvent).toHaveAttribute("href", "/dashboard/new");
 
-      for (const status of ["Published", "Draft", "Waiting for review", "Rejected", "Unpublished"]) {
+      for (const status of ["Published", "Draft", "In review", "Rejected", "Unpublished"]) {
         await expect(main.locator("[data-event-row]").getByText(status, { exact: true })).toBeVisible();
       }
       // The payouts hint (paid draft, payouts not set up), with its link.

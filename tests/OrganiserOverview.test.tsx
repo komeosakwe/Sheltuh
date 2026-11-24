@@ -128,6 +128,12 @@ function renderOverview(auth: AuthContextValue = fakeAuthValue(), framed = false
   render(framed ? <DashFrameContext.Provider value="organiser">{page}</DashFrameContext.Provider> : page);
 }
 
+function manageLink(card: HTMLElement) {
+  const link = card.querySelector("a[data-card-link]");
+  if (!link) throw new Error("no card link");
+  return link;
+}
+
 async function loaded() {
   await screen.findByRole("heading", { name: "Upcoming events" });
 }
@@ -146,7 +152,8 @@ describe("Overview — the drawn page, from the API's numbers", () => {
   it("the banner: how much of the event selling now is sold, how many are left before its day, and Share event", async () => {
     getOrganiserOverview.mockResolvedValue(overview());
     renderOverview();
-    const banner = await screen.findByRole("region", { name: "Nice work!" });
+    // Named with its event, so the region says what it's about.
+    const banner = await screen.findByRole("region", { name: "Nice work! Here & Now is selling" });
     expect(banner).toHaveAttribute("data-surface", "signal");
     expect(banner).toHaveTextContent("Here & Now is 72% sold — 34 tickets left before Saturday.");
     // The visible words start its name (label in name), then the event.
@@ -195,6 +202,9 @@ describe("Overview — the drawn page, from the API's numbers", () => {
     expect(here).toHaveTextContent("Sat 21 Nov · Interconnect Studio");
     expect(here).toHaveTextContent("86 / 120 sold · A$2,230");
     expect(here.querySelector("img")).toHaveAttribute("alt", "");
+    // The card draws the focus ring around itself for its link.
+    expect(manageLink(here)).toHaveAttribute("data-card-link");
+    expect(here.className).toContain("has-[[data-card-link]:focus-visible]:outline-2");
     const manage = within(here).getByRole("link", { name: "Manage Here & Now" });
     expect(manage).toHaveAttribute("href", "/dashboard/evt-here");
     expect(manage).toHaveTextContent("Manage→");
@@ -232,11 +242,15 @@ describe("Overview — the drawn page, from the API's numbers", () => {
     getOrganiserOverview.mockResolvedValue(overview());
     renderOverview();
     const panel = await screen.findByRole("region", { name: "Performance" });
-    expect(within(panel).getByRole("heading", { level: 3, name: "New followers (21)" })).toBeInTheDocument();
+    // A line, not a heading.
+    expect(within(panel).getByText("New followers (21)").tagName).toBe("P");
+    expect(within(panel).queryByRole("heading", { name: /New followers/ })).toBeNull();
     expect(within(panel).queryByText("See all")).toBeNull();
     expect(within(panel).queryByText(/Mia T\./)).toBeNull();
     const cards = within(panel).getAllByRole("listitem");
     expect(cards.map((card) => within(card).getByRole("heading", { level: 4 }).textContent)).toEqual(["Here & Now", "Open Studio", "Zine Fair"]);
+    // Each title goes to its event.
+    expect(within(cards[0]).getByRole("link", { name: "Here & Now" })).toHaveAttribute("href", "/dashboard/evt-here");
 
     const [here, open, zine] = cards;
     expect(here).toHaveTextContent("A$2,230");
@@ -255,6 +269,16 @@ describe("Overview — the drawn page, from the API's numbers", () => {
     expect(zine).toHaveTextContent("A$3,080");
     expect(zine).toHaveTextContent("140 / 140 sold");
     expect(zine.querySelector("[data-status-pill]")).toBeNull();
+  });
+
+  it("a card's \"—\" (nothing taken yet) is read as words", async () => {
+    getOrganiserOverview.mockResolvedValue(overview({ upcoming: [summary({ ticketsSold: 0, grossCents: 0 })] }));
+    renderOverview();
+    await loaded();
+    const card = document.querySelector<HTMLElement>("[data-org-event-card]");
+    expect(card).toHaveTextContent("0 / 120 sold · —nothing sold yet");
+    expect(within(card as HTMLElement).getByText("—")).toHaveAttribute("aria-hidden", "true");
+    expect(within(card as HTMLElement).getByText("nothing sold yet")).toHaveClass("sr-only");
   });
 
   it("money keeps its cents when there are some", async () => {
@@ -296,17 +320,35 @@ describe("Overview — a new organiser, loading and errors (not drawn)", () => {
     expect(screen.queryByRole("region", { name: "Performance" })).toBeNull();
   });
 
-  it("an error is shown (never swallowed), with Try again, which loads again", async () => {
+  it("an error is shown (never swallowed), with Try again, which stays (busy) while it loads, then focus goes to the heading", async () => {
+    let answer: (value: OrganiserOverview) => void = () => {};
     getOrganiserOverview.mockRejectedValueOnce(new Error("Too many requests. Try again in a minute."));
-    getOrganiserOverview.mockResolvedValueOnce(overview());
+    getOrganiserOverview.mockReturnValueOnce(new Promise<OrganiserOverview>((resolve) => (answer = resolve)));
     renderOverview();
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Your overview couldn’t load.");
     expect(alert).toHaveTextContent("Too many requests. Try again in a minute.");
-    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    const again = screen.getByRole("button", { name: "Try again" });
+    again.focus();
+    fireEvent.click(again);
+    // Still there, busy, and still focused: focus isn't dropped while it loads.
+    expect(screen.getByRole("button", { name: "Try again" })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("button", { name: "Try again" })).toHaveFocus();
+    answer(overview());
     await loaded();
     expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("heading", { level: 1 })).toHaveFocus();
     expect(getOrganiserOverview).toHaveBeenCalledTimes(2);
+  });
+
+  it("a Try again that fails again keeps the error and its button", async () => {
+    getOrganiserOverview.mockRejectedValueOnce(new Error("First."));
+    getOrganiserOverview.mockRejectedValueOnce(new Error("Second."));
+    renderOverview();
+    await screen.findByText("First.");
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("Second.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Try again" })).not.toHaveAttribute("aria-disabled");
   });
 
   it("asks only for the organiser's own overview, with their token", async () => {

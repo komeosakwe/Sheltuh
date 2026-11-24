@@ -221,10 +221,10 @@ describe("EventEditor — the buttons", () => {
 });
 
 describe("EventEditor — locked while waiting for review", () => {
-  it("says Waiting for review, as the dashboard does", () => {
+  it("says In review, as the dashboard does", () => {
     renderEditor({ ...EVENT, status: "pending_review" });
-    expect(screen.getByRole("heading", { level: 2, name: "Waiting for review" })).toBeInTheDocument();
-    expect(screen.getByText("This event can’t be edited while it’s waiting for review.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "In review" })).toBeInTheDocument();
+    expect(screen.getByText("This event can’t be edited while it’s in review.")).toBeInTheDocument();
     expect(screen.queryByText(/Pending review/i)).toBeNull();
   });
 

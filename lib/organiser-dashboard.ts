@@ -40,6 +40,14 @@ export function salesLine(event: SalesFields): string {
   return `${soldLine(event)} · ${money}`;
 }
 
+/**
+ * The foot's "—" (nothing taken yet) is drawn, not read: a screen reader hears "nothing sold yet" in
+ * its place. True when `salesLine` ends in it.
+ */
+export function nothingTakenYet(event: SalesFields): boolean {
+  return event.ticketingMode !== "external" && !event.free && event.grossCents <= 0;
+}
+
 /** "86 / 120 sold": tickets sold of those on sale, in people. */
 export function soldLine(event: Pick<OrganiserEventSummary, "ticketsSold" | "capacity">): string {
   return `${formatCount(event.ticketsSold)} / ${formatCount(event.capacity)} sold`;

@@ -5,7 +5,7 @@ const SIZES = {
   /** The sidebar's 112px circle: initials SemiBold 32/40 (Heading/H2; 28/36 in the phone drawer). */
   sidebar: "size-28 heading-h2",
   /** The rail's 40px circle: initials Medium 12/16. */
-  rail: "size-10 text-xs leading-4 font-medium",
+  rail: "size-[40px] text-xs leading-4 font-medium",
 } as const;
 
 /**

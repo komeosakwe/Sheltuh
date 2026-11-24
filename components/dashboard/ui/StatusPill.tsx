@@ -7,7 +7,8 @@ export type StatusPillTone = DashTone | "white" | "black";
 /**
  * "Dash / Status pill" (Latte's dashboard Components 465:7337): px 12, py 4, radius 8, Label/Tag,
  * in a soft tone (Live, Sold out, Draft, Scheduled, Processing, ↑ 15%…), white, or black. The
- * word carries the state, never the colour alone. `srText` replaces what's read where the
+ * word carries the state, never the colour alone. It stays on one line unless its row is narrower than it
+ * (very large text on a phone): then it wraps inside its row rather than running out of it. `srText` replaces what's read where the
  * visible words are a symbol ("↑ 15%" is read "Up 15% on the week before").
  */
 export default function StatusPill({
@@ -26,7 +27,7 @@ export default function StatusPill({
     <span
       data-status-pill={tone}
       data-tag={tone === "white" || tone === "black" ? undefined : TONE_TAG[tone]}
-      className={`label-tag inline-flex shrink-0 items-center rounded-badge px-3 py-1 whitespace-nowrap ${fill} ${className}`
+      className={`label-tag inline-flex max-w-full shrink-0 items-center rounded-badge px-3 py-1 break-words ${fill} ${className}`
         .replace(/\s+/g, " ")
         .trim()}
     >

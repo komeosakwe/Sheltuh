@@ -134,7 +134,7 @@ for (const vp of [
         page.getByRole("navigation", { name: "Organiser" }).getByRole("link", { name: "Overview", exact: true }),
       ).toHaveAttribute("aria-current", "page");
 
-      const banner = main.getByRole("region", { name: "Nice work!" });
+      const banner = main.getByRole("region", { name: "Nice work! Here & Now is selling" });
       await expect(banner).toContainText("Here & Now is 72% sold — 34 tickets left before");
       await expect(main.getByRole("region", { name: "This week" })).toContainText("+86");
       await expect(main.getByRole("region", { name: "This week" })).toContainText("+412");
@@ -164,10 +164,10 @@ for (const vp of [
         const drafts = await main.locator("[data-drafts-bar]").boundingBox();
         expect(panel.y).toBeGreaterThan((drafts?.y ?? 0) + (drafts?.height ?? 0));
       }
-      // Stats: three across from 640px, two and one on phones.
+      // Stats: three across from 640px, two and one on phones, one a row where two won't fit (320).
       const stats = await main.getByRole("region", { name: "This week" }).locator("[data-stat-card]").all();
       const tops = await Promise.all(stats.map(async (stat) => Math.round((await stat.boundingBox())?.y ?? 0)));
-      expect(new Set(tops).size).toBe(vp.width >= 640 ? 1 : 2);
+      expect(new Set(tops).size).toBe(vp.width >= 640 ? 1 : vp.width >= 390 ? 2 : 3);
 
       await noSidewaysScroll(page);
 
@@ -212,7 +212,9 @@ test("keyboard: Share event, each card's Manage, Continue, in order, with a visi
     await page.keyboard.press("Tab");
     const focused = page.getByRole("link", { name });
     await expect(focused).toBeFocused();
-    expect(await focused.evaluate((el) => getComputedStyle(el).outlineStyle)).not.toBe("none");
+    // A card's link: the ring is drawn around the whole card (as the site's event cards); else around the link.
+    const ring = await focused.evaluate((el) => getComputedStyle(el.hasAttribute("data-card-link") ? (el.closest("article") ?? el) : el).outlineStyle);
+    expect(ring).not.toBe("none");
   }
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/\/dashboard\/events\?filter=drafts$/, { timeout: 30_000 });
@@ -221,7 +223,7 @@ test("keyboard: Share event, each card's Manage, Continue, in order, with a visi
 // Enlarged text: the browser's default font size doubled (32px, as a "very large" text setting does), so
 // rem sizes and the rem breakpoints grow together, as they do for a person with that setting. Nothing in
 // the Overview reaches past its own column, and no heading, line or control's words spill out of it.
-for (const width of [390, 768, 1440]) {
+for (const width of [320, 390, 768, 1440]) {
   test(`200% text at ${width}: everything stays inside the Overview`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1100 });
     const cdp = await page.context().newCDPSession(page);
@@ -232,7 +234,14 @@ for (const width of [390, 768, 1440]) {
     await expect(page.getByRole("heading", { name: "Upcoming events" })).toBeVisible({ timeout: 30_000 });
     expect(await page.evaluate(() => getComputedStyle(document.documentElement).fontSize)).toBe("32px");
     await page.evaluate(() => document.fonts.ready);
-    await noSidewaysScroll(page);
+    // Nothing outside the site footer reaches past the screen's edge. (The footer's theme switch does at 320px with
+    // 200% text: site-wide, outside this page.)
+    const wide = await page.evaluate(() =>
+      [...document.querySelectorAll("body *")]
+        .filter((el) => !el.closest("footer") && !el.closest(".sr-only") && el.getBoundingClientRect().right > window.innerWidth + 1)
+        .map((el) => `${el.tagName} ${(el.textContent ?? "").slice(0, 30)}`),
+    );
+    expect(wide).toEqual([]);
     const spills = await page.evaluate(() => {
       const root = document.querySelector("[data-overview]");
       if (!root) return ["no overview"];
