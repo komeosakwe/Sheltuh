@@ -50,6 +50,20 @@ async function signedInOrganiser(page: Page) {
       });
     }
     if (path === "/api/organisers/me/events") return route.fulfill({ json: { items: [] } });
+    if (path === "/api/organisers/me/events/summary") {
+      return route.fulfill({
+        json: {
+          items: [],
+          counts: {
+            all: 0,
+            live: 0,
+            drafts: 0,
+            past: 0,
+            byStage: { live: 0, sold_out: 0, ended: 0, in_review: 0, changes_needed: 0, unpublished: 0, draft: 0 },
+          },
+        },
+      });
+    }
     if (path === "/api/organisers/me/overview") {
       return route.fulfill({
         json: {

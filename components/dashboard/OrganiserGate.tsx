@@ -14,7 +14,7 @@ import { useOrganiser } from "@/lib/auth/useOrganiser";
  * "Organiser" strap) and why there's nothing to manage yet, with the way forward: accounts not set
  * up here (demo mode), loading, signed out (Sign in), the organiser record failing to load, or no
  * approved application (Apply, or View application while it's pending or wasn't approved). These
- * are the states the events list has always had (components/dashboard/DashboardContent.tsx), so
+ * are the states the events list has always had, so
  * every dashboard page says them the same way. Unframed: the frame is only for approved organisers
  * (OrganiserShell).
  */

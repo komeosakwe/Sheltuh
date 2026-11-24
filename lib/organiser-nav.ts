@@ -27,6 +27,8 @@ export interface OrganiserNavLink {
 export const OVERVIEW_HREF = "/dashboard";
 /** The events list (Latte's Events tab). */
 export const EVENTS_HREF = "/dashboard/events";
+/** A new event (the editor). */
+export const NEW_EVENT_HREF = "/dashboard/new";
 
 export const ORGANISER_NAV: OrganiserNavLink[] = [
   { key: "overview", label: "Overview", href: OVERVIEW_HREF, icon: "grid" },

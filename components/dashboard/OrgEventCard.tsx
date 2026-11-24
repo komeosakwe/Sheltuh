@@ -86,7 +86,7 @@ export default function OrgEventCard({
       {details}
       <div className="label-tag flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-1">
         <p className="min-w-0 text-muted tabular-nums">{salesLine(event)}</p>
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           {menu && <div className="relative z-10">{menu}</div>}
           <Link
             href={manageEventHref(event.eventId)}

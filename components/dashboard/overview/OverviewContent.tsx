@@ -11,13 +11,13 @@ import { LoadingState } from "@/components/ui/ProgressLoader";
 import { getOrganiserOverview } from "@/lib/api/organiser-summary";
 import type { OrganiserOverview, OrganiserRecord } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { NEW_EVENT_HREF } from "@/lib/organiser-nav";
 import { formatLongWeekdayDate } from "@/lib/format";
 import DraftsBar from "./DraftsBar";
 import HighlightBanner from "./HighlightBanner";
 import OverviewStats from "./OverviewStats";
 import PerformancePanel from "./PerformancePanel";
 
-export const NEW_EVENT_HREF = "/dashboard/new";
 /** The Events tab, showing the drafts. */
 export const DRAFTS_HREF = "/dashboard/events?filter=drafts";
 
