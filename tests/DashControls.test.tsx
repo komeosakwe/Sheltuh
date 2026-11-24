@@ -156,14 +156,15 @@ describe("StatCard", () => {
 });
 
 describe("ProgressBar", () => {
-  it("is a named progressbar with a label, clamped to its range", () => {
-    render(<ProgressBar value={86} max={120} label="Tickets sold" />);
+  it("is a named progressbar with a label, read with its words, clamped to its range", () => {
+    render(<ProgressBar value={86} max={120} label="Tickets sold" valueText="86 of 120 sold" />);
     const bar = screen.getByRole("progressbar", { name: "Tickets sold" });
     expect(bar).toHaveAttribute("aria-valuenow", "86");
     expect(bar).toHaveAttribute("aria-valuemax", "120");
+    expect(bar).toHaveAttribute("aria-valuetext", "86 of 120 sold");
     expect(bar.querySelector<HTMLElement>("[data-progress-fill]")?.style.width).toMatch(/^71\.66/);
     cleanup();
-    render(<ProgressBar value={150} max={120} label="Tickets sold" />);
+    render(<ProgressBar value={150} max={120} label="Tickets sold" valueText="150 of 120 sold" />);
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "120");
   });
 
@@ -193,9 +194,17 @@ describe("Toggle and SettingRow", () => {
     expect(toggle).toHaveClass("bg-signal");
   });
 
-  it("the off track has an edge you can see (the frame's grey alone is 1.1:1)", () => {
+  it("the off track and knob have edges you can see (the frame's grey alone is 1.1:1), and the tap area is 44px tall", () => {
     render(<Toggle checked={false} onCheckedChange={() => {}} aria-label="New orders" />);
-    expect(screen.getByRole("switch", { name: "New orders" })).toHaveClass("ring-1", "ring-muted");
+    const toggle = screen.getByRole("switch", { name: "New orders" });
+    expect(toggle).toHaveClass("ring-1", "ring-muted", "before:-inset-y-2.5", "h-6", "w-11");
+    expect(toggle.querySelector("span")).toHaveClass("ring-1", "ring-muted");
+  });
+
+  it("pressing the row's title toggles it", () => {
+    render(<Controlled />);
+    fireEvent.click(screen.getByText("Daily summary"));
+    expect(screen.getByRole("switch", { name: "Daily summary" })).toHaveAttribute("aria-checked", "true");
   });
 
   it("does nothing when disabled", () => {
@@ -213,6 +222,8 @@ describe("DashField", () => {
     expect(input).toHaveAttribute("aria-invalid", "true");
     expect(input).toHaveAccessibleDescription("Enter a name. Shown on your events.");
     expect(input).toHaveClass("min-h-12", "border-control", "border-foreground", "rounded-control");
+    // Placeholders at 6.7:1, not the frames' 2.5:1 grey.
+    expect(input).toHaveClass("placeholder:text-muted");
   });
 
   it("keeps a description the caller adds", () => {

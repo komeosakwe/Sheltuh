@@ -18,6 +18,8 @@ interface TitledDrawer extends DrawerBase {
   subtitle?: ReactNode;
   /** The row of buttons at its foot, right-aligned (Cancel · Done). */
   footer?: ReactNode;
+  /** False while its action runs: Escape, the scrim and the ✕ do nothing (as DashDialog's). */
+  dismissible?: boolean;
 }
 
 /** A bare panel whose content draws itself (the organiser nav drawer): name it with `label`. */
@@ -42,7 +44,8 @@ interface BareDrawer extends DrawerBase {
  */
 export default function DashDrawer(props: TitledDrawer | BareDrawer) {
   const { open, onClose, children } = props;
-  const { ref, scrimProps, close, keepFocusIn } = useModalDialog(open);
+  const dismissible = props.side === "left" || props.dismissible !== false;
+  const { ref, scrimProps, keyProps, close } = useModalDialog(open, { dismissible });
   const titleId = useId();
   const subtitleId = useId();
 
@@ -53,7 +56,7 @@ export default function DashDrawer(props: TitledDrawer | BareDrawer) {
         aria-label={props.label}
         onClose={onClose}
         {...scrimProps}
-        onKeyDown={keepFocusIn}
+        {...keyProps}
         data-surface="ink"
         data-dash-drawer="left"
         {...(props.name ? { [`data-${props.name}`]: "" } : {})}
@@ -72,7 +75,7 @@ export default function DashDrawer(props: TitledDrawer | BareDrawer) {
       aria-describedby={subtitle ? subtitleId : undefined}
       onClose={onClose}
       {...scrimProps}
-      onKeyDown={keepFocusIn}
+      {...keyProps}
       data-dash-drawer="right"
       className="m-0 ml-auto h-dvh max-h-none w-130 max-w-full overflow-y-auto bg-card p-0 text-foreground backdrop:bg-ink/40 motion-safe:open:transition-transform motion-safe:open:duration-200 motion-safe:open:ease-out motion-safe:starting:open:translate-x-8"
     >
@@ -86,7 +89,8 @@ export default function DashDrawer(props: TitledDrawer | BareDrawer) {
               type="button"
               onClick={close}
               aria-label="Close"
-              className="-mr-2.5 inline-flex size-11 shrink-0 items-center justify-center rounded-control text-foreground hover:bg-surface"
+              aria-disabled={dismissible ? undefined : true}
+              className="-mr-2.5 inline-flex size-11 shrink-0 items-center justify-center rounded-control text-foreground hover:bg-surface aria-disabled:cursor-not-allowed aria-disabled:text-disabled aria-disabled:hover:bg-transparent"
             >
               <CloseIcon />
             </button>

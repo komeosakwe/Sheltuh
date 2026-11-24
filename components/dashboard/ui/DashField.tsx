@@ -2,9 +2,12 @@
 
 import { useId, type InputHTMLAttributes, type ReactNode, type Ref, type TextareaHTMLAttributes } from "react";
 
-/** "Dash / Field"'s control: 48px, the 1.5px foreground stroke, radius 8, px 16, Body/M. */
+/**
+ * "Dash / Field"'s control: 48px, the 1.5px foreground stroke, radius 8, px 16, Body/M. Placeholders
+ * in text/secondary (6.7:1), not the frames' text/disabled grey (2.5:1).
+ */
 export const dashInputClass =
-  "body-m w-full min-h-12 rounded-control border-control border-foreground bg-card px-4 py-3 text-foreground placeholder:text-disabled focus-visible:outline-offset-0";
+  "body-m w-full min-h-12 rounded-control border-control border-foreground bg-card px-4 py-3 text-foreground placeholder:text-muted focus-visible:outline-offset-0";
 
 interface FrameProps {
   label: string;

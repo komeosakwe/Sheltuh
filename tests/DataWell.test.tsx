@@ -1,12 +1,32 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import DataWell, { type DataColumn } from "@/components/dashboard/ui/DataWell";
 import StatusPill from "@/components/dashboard/ui/StatusPill";
 
 /** "Org / Table" (Latte's Orders, Attendees and Payouts tables): a real, named table in a well. */
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+/** A ResizeObserver that reports at once, and a well `scrollWidth` wider (or not) than it is. */
+function stubOverflow(overflowing: boolean) {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      constructor(private readonly callback: () => void) {}
+      observe() {
+        this.callback();
+      }
+      disconnect() {}
+    },
+  );
+  vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(overflowing ? 900 : 300);
+  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(300);
+}
 
 interface Order {
   reference: string;
@@ -32,12 +52,10 @@ const ROWS: Order[] = [
 ];
 
 describe("DataWell", () => {
-  it("is a captioned table with column headers and a row header, in a scrollable named region", () => {
-    render(<DataWell caption="Orders" columns={COLUMNS} rows={ROWS} rowKey={(row) => row.reference} />);
-    const region = screen.getByRole("region", { name: "Orders" });
-    expect(region).toHaveAttribute("tabindex", "0");
-    expect(region).toHaveClass("overflow-x-auto", "bg-surface", "rounded-card");
-    const table = within(region).getByRole("table", { name: "Orders" });
+  it("is a captioned table with column headers and a row header", () => {
+    render(<DataWell caption="Orders" columns={COLUMNS} rows={ROWS} rowKey={(row) => row.reference} empty="No orders yet." />);
+    const table = screen.getByRole("table", { name: "Orders" });
+    expect(table.parentElement).toHaveClass("overflow-x-auto", "bg-surface", "rounded-card");
     expect(within(table).getAllByRole("columnheader").map((th) => th.textContent)).toEqual([
       "Order",
       "Event",
@@ -47,12 +65,35 @@ describe("DataWell", () => {
       "Status",
     ]);
     const rowHeaders = within(table).getAllByRole("rowheader");
-    expect(rowHeaders.map((th) => th.textContent)).toEqual(["#A90133C9", "#B11F00D2"]);
     expect(rowHeaders[0]).toHaveClass("font-mono");
+    expect(rowHeaders[0].firstChild?.textContent).toBe("#A90133C9");
     // Right-aligned numbers; the Event column goes below 768px, as the phone frames drop it.
     expect(within(table).getAllByRole("cell", { name: "A$51.88" })[0]).toHaveClass("text-right");
     expect(within(table).getByRole("columnheader", { name: "Event" })).toHaveClass("max-md:hidden");
     expect(within(table).getByText("Paid")).toHaveAttribute("data-tag", "pop-up");
+  });
+
+  it("a dropped column's value is still in the row: a line under the row header, shown only where the column isn't", () => {
+    render(<DataWell caption="Orders" columns={COLUMNS} rows={ROWS} rowKey={(row) => row.reference} empty="No orders yet." />);
+    const [first] = screen.getAllByRole("rowheader");
+    const line = first.querySelector("[data-dropped-column='event']");
+    expect(line).toHaveTextContent("Event: Here & Now");
+    expect(line).toHaveClass("md:hidden");
+    expect(first).toHaveAccessibleName(/#A90133C9.*Event: Here & Now/);
+  });
+
+  it("is a focusable, named region only when it scrolls sideways", () => {
+    stubOverflow(false);
+    const { unmount } = render(<DataWell caption="Orders" columns={COLUMNS} rows={ROWS} rowKey={(row) => row.reference} empty="None." />);
+    expect(screen.queryByRole("region")).toBeNull();
+    expect(document.querySelector("[data-data-well]")).not.toHaveAttribute("tabindex");
+    unmount();
+    stubOverflow(true);
+    act(() => {
+      render(<DataWell caption="Orders" columns={COLUMNS} rows={ROWS} rowKey={(row) => row.reference} empty="None." />);
+    });
+    const region = screen.getByRole("region", { name: "Orders" });
+    expect(region).toHaveAttribute("tabindex", "0");
   });
 
   it("says so when there are no rows", () => {
@@ -62,7 +103,7 @@ describe("DataWell", () => {
   });
 
   it("can show its caption", () => {
-    render(<DataWell caption="History" showCaption columns={COLUMNS} rows={ROWS} rowKey={(row) => row.reference} />);
+    render(<DataWell caption="History" showCaption columns={COLUMNS} rows={ROWS} rowKey={(row) => row.reference} empty="None." />);
     expect(screen.getByText("History")).not.toHaveClass("sr-only");
   });
 });

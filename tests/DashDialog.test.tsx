@@ -1,16 +1,18 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { DashButton } from "@/components/dashboard/ui/DashButton";
 import DashDialog from "@/components/dashboard/ui/DashDialog";
 import DashDrawer from "@/components/dashboard/ui/DashDrawer";
+import { tabStops } from "@/components/ui/useModalDialog";
 
 /**
  * The dashboard's dialog (Edit ticket type, Message attendees) and drawers (Tickets; the
  * organiser nav): native modal dialogs, named by their titles, closed by the ✕, Escape or the
- * scrim, and mounted only while open. The browser's focus trap and Escape are checked in
- * e2e/organiser-shell.spec.ts; jsdom has no modal dialogs, so they're given what a browser does.
+ * scrim, and mounted only while open. The browser's own modal focus and Escape are checked in
+ * e2e/organiser-shell.spec.ts (the nav drawer; nothing renders this dialog or the right drawer in a
+ * page yet); jsdom has no modal dialogs or layout, so they're given what a browser does.
  */
 
 beforeAll(() => {
@@ -88,6 +90,87 @@ describe("DashDialog", () => {
     fireEvent.pointerUp(dialog);
     fireEvent.click(dialog);
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("DashDialog while its action runs (dismissible={false})", () => {
+  function Busy({ onClose = () => {} }: { onClose?: () => void }) {
+    return (
+      <DashDialog open onClose={onClose} title="Message attendees" dismissible={false}>
+        <p>Sending…</p>
+      </DashDialog>
+    );
+  }
+
+  it("the ✕ says it's unavailable and does nothing; Escape and the scrim do nothing", () => {
+    const onClose = vi.fn();
+    render(<Busy onClose={onClose} />);
+    const dialog = screen.getByRole("dialog", { name: "Message attendees" });
+    const x = screen.getByRole("button", { name: "Close" });
+    expect(x).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(x);
+    const escape = fireEvent.keyDown(dialog, { key: "Escape" });
+    // false: the default (closing) was prevented.
+    expect(escape).toBe(false);
+    expect(fireEvent(dialog, new Event("cancel", { cancelable: true }))).toBe(false);
+    fireEvent.pointerDown(dialog);
+    fireEvent.pointerUp(dialog);
+    fireEvent.click(dialog);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(dialog).toHaveAttribute("open");
+  });
+});
+
+describe("Tab goes round inside (the browser would let it out into its toolbar)", () => {
+  // jsdom lays nothing out: count every element as shown.
+  beforeEach(() => {
+    vi.spyOn(Element.prototype, "getClientRects").mockReturnValue([new DOMRect(0, 0, 10, 10)] as unknown as DOMRectList);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("from the last control to the first and back, skipping what Tab can't reach", () => {
+    render(
+      <DashDialog open onClose={() => {}} title="Edit ticket type" action={<DashButton block>Save changes</DashButton>}>
+        <input aria-label="Name" />
+        <button type="button" tabIndex={-1}>
+          Not a tab stop
+        </button>
+        <div inert>
+          <button type="button">Inert</button>
+        </div>
+        <input type="radio" name="fee" aria-label="Buyers pay" />
+        <input type="radio" name="fee" aria-label="You pay" defaultChecked />
+      </DashDialog>,
+    );
+    const dialog = screen.getByRole("dialog");
+    const close = screen.getByRole("button", { name: "Close" });
+    const save = screen.getByRole("button", { name: "Save changes" });
+    save.focus();
+    fireEvent.keyDown(dialog, { key: "Tab" });
+    expect(close).toHaveFocus();
+    fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true });
+    expect(save).toHaveFocus();
+    // In the middle, Tab is the browser's own.
+    screen.getByRole("textbox", { name: "Name" }).focus();
+    expect(fireEvent.keyDown(dialog, { key: "Tab" })).toBe(true);
+    expect(tabStops(dialog).map((element) => element.getAttribute("aria-label") ?? element.textContent)).toEqual([
+      "Close",
+      "Name",
+      "You pay",
+      "Save changes",
+    ]);
+  });
+
+  it("in the right drawer too", () => {
+    render(
+      <DashDrawer open onClose={() => {}} title="Tickets" footer={<DashButton>Done</DashButton>}>
+        <p>Rows</p>
+      </DashDrawer>,
+    );
+    const drawer = screen.getByRole("dialog", { name: "Tickets" });
+    screen.getByRole("button", { name: "Done" }).focus();
+    fireEvent.keyDown(drawer, { key: "Tab" });
+    expect(screen.getByRole("button", { name: "Close" })).toHaveFocus();
   });
 });
 
