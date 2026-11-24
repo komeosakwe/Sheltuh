@@ -27,6 +27,7 @@ import { adminGetMemberProfile } from "@/lib/server/handlers/member-profiles";
 import { getUnreadCount, listConversations } from "@/lib/server/handlers/messages";
 import { adminListOrganiserLinks } from "@/lib/server/handlers/organiser-links";
 import { getMyOrganiser } from "@/lib/server/handlers/organisers";
+import { getMyEventsSummary, getMyOverview } from "@/lib/server/handlers/organiser-summary";
 import { adminListPaymentExceptions } from "@/lib/server/handlers/payment-exceptions";
 import { runCheckoutExpiryCron } from "@/lib/server/handlers/checkout-expiry";
 import { adminListTransfers, getMyPayouts, runPayoutsCron } from "@/lib/server/handlers/payouts";
@@ -127,6 +128,8 @@ const PRIVATE_GETS: Case[] = [
   { name: "getMyEvent", handler: h(getMyEvent), as: asOrganiser, params: event },
   { name: "getAnalyticsOverview", handler: h(getAnalyticsOverview), as: asOrganiser },
   { name: "getAnalyticsOverviewCsv", handler: h(getAnalyticsOverviewCsv), as: asOrganiser },
+  { name: "getMyOverview", handler: h(getMyOverview), as: asOrganiser },
+  { name: "getMyEventsSummary", handler: h(getMyEventsSummary), as: asOrganiser },
   { name: "adminGetEventAnalytics", handler: h(adminGetEventAnalytics), as: asAdmin, params: event },
   { name: "adminGetEventAnalyticsCsv", handler: h(adminGetEventAnalyticsCsv), as: asAdmin, params: event },
   { name: "getEventAnalytics", handler: h(getEventAnalytics), as: asOrganiser, params: event },

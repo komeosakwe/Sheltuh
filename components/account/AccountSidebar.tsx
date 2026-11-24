@@ -54,7 +54,8 @@ export default function AccountSidebar({
       }
       name={signedIn ? account.name : null}
       meta={meta || null}
-      items={items}
+      // aria-current: "page" on a place's own page, "location" under it (an Accept page, under My tickets).
+      items={items.map((item) => ({ ...item, current: item.current ? (item.currentKind ?? "page") : false }))}
       onLogOut={signedIn ? logOut : undefined}
       logOutTone="signal"
     />

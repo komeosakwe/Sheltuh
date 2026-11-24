@@ -16,7 +16,8 @@ export function tokenFromHash(hash: string): string | null {
   return token && LINK_TOKEN_PATTERN.test(token) ? token : null;
 }
 
-export type FragmentToken = { status: "loading" } | { status: "missing" } | { status: "ready"; token: string };
+/** `fragment`: the whole fragment's parameters as they were (`#token=…&decline=1`), for a page that reads more than the token. */
+export type FragmentToken = { status: "loading" } | { status: "missing" } | { status: "ready"; token: string; fragment: string };
 
 /**
  * Reads the page's `#token=…` once, then removes the fragment from the
@@ -30,18 +31,18 @@ export type FragmentToken = { status: "loading" } | { status: "missing" } | { st
  */
 export function useFragmentToken(): FragmentToken {
   const [state, setState] = useState<FragmentToken>({ status: "loading" });
-  const captured = useRef<{ token: string | null } | null>(null);
+  const captured = useRef<{ token: string | null; fragment: string } | null>(null);
 
   useEffect(() => {
     if (!captured.current) {
-      captured.current = { token: tokenFromHash(window.location.hash) };
+      captured.current = { token: tokenFromHash(window.location.hash), fragment: window.location.hash.replace(/^#/, "") };
       if (window.location.hash) {
         window.history.replaceState(null, "", window.location.pathname + window.location.search);
       }
     }
-    const { token } = captured.current;
+    const { token, fragment } = captured.current;
     // Deferred so the effect body itself never calls setState.
-    queueMicrotask(() => setState(token ? { status: "ready", token } : { status: "missing" }));
+    queueMicrotask(() => setState(token ? { status: "ready", token, fragment } : { status: "missing" }));
   }, []);
 
   return state;

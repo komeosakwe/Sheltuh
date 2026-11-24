@@ -135,9 +135,18 @@ const FINAL_EMAIL_CHANGE_BLOCKS: readonly OrderEmailChangeBlock[] = ["event_ende
  * code as one) is final: the event ended, a ticket was scanned, or support
  * changed the email. Anything else (allowed, the buyer's own change used, an
  * unpaid order) leaves the token.
+ *
+ * `neededForTickets`: the token still lets this browser send the order's
+ * tickets or cancel an offer (docs/architecture.md, "Ticket transfers": it's
+ * the paying browser's proof of control). A scanned ticket then doesn't end
+ * it, so the buyer can still send the order's other tickets; the event
+ * ending or support changing the email still does (the server stops
+ * honouring it then anyway).
  */
-export function forgetOrderAccessIfFinal(orderId: string, change: OrderEmailChange | undefined): void {
-  if (change && !change.allowed && FINAL_EMAIL_CHANGE_BLOCKS.includes(change.reason)) forgetOrderAccess(orderId);
+export function forgetOrderAccessIfFinal(orderId: string, change: OrderEmailChange | undefined, neededForTickets = false): void {
+  if (!change || change.allowed || !FINAL_EMAIL_CHANGE_BLOCKS.includes(change.reason)) return;
+  if (neededForTickets && change.reason === "ticket_scanned") return;
+  forgetOrderAccess(orderId);
 }
 
 /**
