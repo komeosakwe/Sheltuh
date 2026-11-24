@@ -72,7 +72,7 @@ function useOrganiserLinkToken(): FragmentToken {
       } catch {
         kept = null;
       }
-      setState(kept && LINK_TOKEN_PATTERN.test(kept) ? { status: "ready", token: kept } : { status: "missing" });
+      setState(kept && LINK_TOKEN_PATTERN.test(kept) ? { status: "ready", token: kept, fragment: "" } : { status: "missing" });
     });
   }, [fragment]);
   return state;

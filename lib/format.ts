@@ -84,6 +84,11 @@ export function formatEventDateShort(isoLike: string, timeZone: string = PLATFOR
   return `${weekday.format(date)} ${dayMonth.format(date)}`;
 }
 
+/** e.g. "25 Sep" — the day and month in the zone (Melbourne by default), as in formatEventDateShort without the weekday. */
+export function formatDayMonth(isoLike: string, timeZone: string = PLATFORM_TIME_ZONE): string {
+  return formattersFor(timeZone).dayMonth.format(new Date(isoLike));
+}
+
 /** e.g. "8:00 pm" — in the zone (Melbourne by default). */
 export function formatEventTime(isoLike: string, timeZone: string = PLATFORM_TIME_ZONE): string {
   return formattersFor(timeZone).time.format(new Date(isoLike)).toLowerCase();

@@ -176,6 +176,22 @@ export const nextConfig: NextConfig = {
           { key: "X-Robots-Tag", value: "noindex, nofollow" },
         ],
       },
+      // A sent ticket's accept link (/tickets/accept#token=…) carries its token in the fragment, and a received
+      // ticket's page shows its holder's QR code: the same headers.
+      {
+        source: "/tickets/accept",
+        headers: [
+          { key: "Referrer-Policy", value: "no-referrer" },
+          { key: "X-Robots-Tag", value: "noindex, nofollow" },
+        ],
+      },
+      {
+        source: "/tickets/received/:path*",
+        headers: [
+          { key: "Referrer-Policy", value: "no-referrer" },
+          { key: "X-Robots-Tag", value: "noindex, nofollow" },
+        ],
+      },
       // /auth/callback?code=… carries a one-time sign-in code from Google or
       // Apple (via Supabase Auth): never send it on as a Referer, and keep the
       // page out of search indexes.
