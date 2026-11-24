@@ -386,22 +386,39 @@ describe("GET /events/{slug}/story-card (live)", () => {
     }
   });
 
-  it("is a 503 with Retry-After when the render slots are full, and draws nothing", async () => {
-    const event = await publishedEvent(api, organiser, admin);
+  it("is a 503 with Retry-After when the render slots are full: no rate-limit write, no photo read, nothing drawn", async () => {
+    const event = await publishedWithPhoto();
+    const make = fakeMake();
+    const handler = storyCardHandler({ make });
     const total = STORY_CARD_RENDER_SLOTS.running + STORY_CARD_RENDER_SLOTS.waiting;
     let release!: () => void;
     const gate = new Promise<void>((resolve) => (release = resolve));
     const held = Array.from({ length: total }, () => inStoryCardSlot(() => gate));
+    const queries = vi.spyOn(api.db, "query");
     try {
-      const res = await get(getStoryCard, event.slug);
-      expect(res.status).toBe(503);
-      expect(res.headers.get("retry-after")).toBe(String(STORY_CARD_BUSY_RETRY_SECONDS));
-      expect(res.headers.get("cache-control")).toBe("private, no-store");
-      expect((await res.json()).error).toMatch(/Lots of cards/);
+      for (const route of [handler, getStoryCard]) {
+        // A client IP, so the rate limit would be taken if the slot came after it.
+        const res = await get(route, event.slug, { headers: { "x-forwarded-for": IP } });
+        expect(res.status).toBe(503);
+        expect(res.headers.get("retry-after")).toBe(String(STORY_CARD_BUSY_RETRY_SECONDS));
+        expect(res.headers.get("cache-control")).toBe("private, no-store");
+        expect((await res.json()).error).toMatch(/Lots of cards/);
+      }
+      // Only the visibility read, once per request.
+      const sql = queries.mock.calls.map(([text]) => text);
+      expect(sql).toHaveLength(2);
+      expect(sql.some((text) => /i\.data|take_client_rate_limit/.test(text))).toBe(false);
+      expect(make).not.toHaveBeenCalled();
+      const [{ hits }] = await api.db.query<{ hits: number }>(`select count(*)::int as hits from private.client_rate_limits`);
+      expect(hits).toBe(0);
     } finally {
       release();
       await Promise.all(held);
     }
+    // With the slots free again, the same client gets its card (and its first hit on the limit).
+    queries.mockRestore();
+    expect((await get(handler, event.slug, { headers: { "x-forwarded-for": IP } })).status).toBe(200);
+    expect(make).toHaveBeenCalledTimes(1);
   });
 
   it("is a 500 (logged without details) when the drawing fails", async () => {

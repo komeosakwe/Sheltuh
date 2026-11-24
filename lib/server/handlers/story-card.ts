@@ -19,7 +19,7 @@ import { errorMessageForLog, route, type Handler } from "../route";
 import { findPublicEventCover } from "../share-metadata";
 import { readDemoPhoto, type PhotoFocus } from "../share-card-data";
 import { findStoryCardEvent } from "../story-card-data";
-import { makeStoryCard, type StoryCardRequest } from "../story-card-render";
+import { drawStoryCard, inStoryCardSlot, type StoryCardRequest } from "../story-card-render";
 
 /**
  * GET /events/{slug}/story-card?format=story|square: the "I’m going." story card as a JPEG
@@ -32,14 +32,22 @@ import { makeStoryCard, type StoryCardRequest } from "../story-card-render";
  * reads no token or cookie, so every caller gets the same bytes, and the CDN may share them until
  * the tag can next change (at most an hour). Everything else is one 404.
  *
- *   400  `format` missing or not story/square, or any other query parameter (so `?x=1` can't make
- *        a new CDN key and force a render)
+ *   400  `format` missing or not story/square, or any other query parameter, as the handler sees
+ *        the query. That's after Next has normalised it (server-utils.js normalizeCdnUrl: parsed
+ *        and re-formatted, so percent-escapes are decoded, an empty trailing `&` is gone and
+ *        `nxtP…` keys are dropped). So `?x=1` is refused, but other spellings of the canonical
+ *        URL (`?format=story&`, `?format=st%6Fry`, `?format=story&nxtPa=1`, an escaped slug)
+ *        still reach the handler as the canonical one and get a card: each is its own CDN key,
+ *        so each is drawn once more. Accepted: more keys means more draws, still capped by the
+ *        per-client limit and the instance's render slots (docs/architecture.md, "Story card").
  *   404  malformed or unknown slug, not published (draft, in review, rejected, unpublished),
  *        ended: the same body for all
  *   304  If-None-Match names the current version: before any photo is read, any rate-limit hit
  *        is taken, or anything is drawn
  *   429  over STORY_CARD_RATE_LIMIT renders from this client (live only; fails open like the others)
- *   503  the instance's render slots are full (Retry-After)
+ *   503  the instance's render slots are full (Retry-After). The slot is taken before the
+ *        rate-limit write and the photo read, so a refused flood does no database work beyond
+ *        the visibility read
  *   500  the drawing failed (logged without details)
  */
 
@@ -95,7 +103,7 @@ interface CardSource {
 export interface StoryCardOptions {
   /** The clock (tests). */
   now?: () => Date;
-  /** Draws the card (tests: a stand-in that doesn't render). */
+  /** Draws the card, inside the route's render slot (default drawStoryCard; tests: a stand-in that doesn't render). */
   make?: (request: StoryCardRequest) => Promise<Buffer>;
 }
 
@@ -105,14 +113,14 @@ const headerSlug = (slug: string) => slug.replace(/[^a-z0-9-]/g, "-");
 /**
  * The card's response for `source` at `cardNow` (the demo's clock differs from the real one;
  * `started` is the real clock's reading `cardNow` was taken from): the 404 for an ended event,
- * the 304, `beforeRender` (the rate limit), then the drawing.
+ * the 304, then a render slot and, inside it, `beforeRender` (the rate limit), the photo and the drawing.
  */
 async function cardResponse(
   req: Request,
   format: StoryCardFormat,
   source: CardSource,
   { cardNow, started, clock }: { cardNow: Date; started: number; clock: () => Date },
-  make: (request: StoryCardRequest) => Promise<Buffer>,
+  draw: (request: StoryCardRequest) => Promise<Buffer>,
   beforeRender: () => Promise<void>,
 ): Promise<Response> {
   const tag = storyCardTag(source.fields, cardNow);
@@ -139,16 +147,20 @@ async function cardResponse(
   const claim = parseIfNoneMatch(req.headers.get("if-none-match"));
   if (claim === "*" || claim.includes(version)) return new Response(null, { status: 304, headers: headers() });
 
-  await beforeRender();
-  let photo: StoryCardRequest["photo"] = null;
-  if (source.imageVersion !== null) {
-    photo = await source.readPhoto();
-    if (!photo && source.photoRequired) throw new HttpError(404, NOT_FOUND);
-  }
-
+  // A render slot first, then the database work (the rate-limit write, the photo read) and the
+  // drawing inside it: a flood refused because the slots are full costs the database nothing more
+  // than the visibility read above.
   let jpeg: Buffer;
   try {
-    jpeg = await make({ format, text, tag, photo });
+    jpeg = await inStoryCardSlot(async () => {
+      await beforeRender();
+      let photo: StoryCardRequest["photo"] = null;
+      if (source.imageVersion !== null) {
+        photo = await source.readPhoto();
+        if (!photo && source.photoRequired) throw new HttpError(404, NOT_FOUND);
+      }
+      return draw({ format, text, tag, photo });
+    });
   } catch (err) {
     // The render slots are full: say when to come back (runHandler adds Retry-After only to a 429).
     if (err instanceof HttpError && err.statusCode === 503) {
@@ -166,7 +178,7 @@ async function cardResponse(
  */
 export function storyCardHandler(options: StoryCardOptions = {}): Handler<{ slug: string }> {
   const clock = options.now ?? (() => new Date());
-  const make = options.make ?? makeStoryCard;
+  const make = options.make ?? drawStoryCard;
   return async (req, { slug }, deps) => {
     const format = storyCardFormat(req.url);
     const event = await findStoryCardEvent(deps.db, slug);
@@ -198,7 +210,7 @@ export const getStoryCard = storyCardHandler();
  */
 export function demoStoryCard(options: StoryCardOptions = {}) {
   const clock = options.now ?? (() => new Date());
-  const make = options.make ?? makeStoryCard;
+  const make = options.make ?? drawStoryCard;
   return async (req: Request, { slug }: { slug: string }): Promise<Response> => {
     try {
       const format = storyCardFormat(req.url);

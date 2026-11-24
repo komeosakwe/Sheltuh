@@ -3829,7 +3829,7 @@ ticket-holder pages); this is just the image.
   | --- | --- | --- |
   | 200 `image/jpeg` | published, not ended | `public, max-age=0, s-maxage={N}` (below), `ETag` |
   | 304 | `If-None-Match` names the current version (a list, weak tags and `*` included) | the same headers as the 200 |
-  | 400 `{error, fieldErrors.format}` | `format` missing, repeated or not `story`/`square`, or **any other query parameter** (so `?x=1` can't make a new CDN key and force a render). Checked before any read | `private, no-store` |
+  | 400 `{error, fieldErrors.format}` | `format` missing, repeated or not `story`/`square`, or **any other query parameter**, as the handler sees the query: after Next's normalisation (below), so `?x=1` is refused but other spellings of the canonical URL get the card. Checked before any read | `private, no-store` |
   | 404 `{error: "Event not found."}` | malformed or unknown slug; draft, in review, rejected, unpublished; ended. One body for all | `private, no-store` |
   | 429 | more than 20 draws in 10 minutes from this client (`STORY_CARD_RATE_LIMIT`, bucket `story_cards`), `Retry-After: 600` | `private, no-store` |
   | 503 | this instance's render slots are full (2 drawing, 6 waiting: `STORY_CARD_RENDER_SLOTS`), `Retry-After: 30` | `private, no-store` |
@@ -3838,7 +3838,11 @@ ticket-holder pages); this is just the image.
   A 200 also has `Content-Disposition: inline;
   filename="sheltuh-{slug}-{format}.jpg"`, `X-Content-Type-Options:
   nosniff` and `X-Robots-Tag: noindex` (a card is for sharing, not image
-  search). Next answers `HEAD` with the `GET` handler, so a `HEAD` is a draw
+  search). The handler sets no `Vary`; Next adds `vary: rsc,
+  next-router-state-tree, next-router-prefetch, next-router-segment-prefetch`
+  (seen on `next start`; headers browsers don't send for an image), and
+  what Vercel sends is checked on the first deploy (`docs/DEPLOYMENT.md`,
+  "Story card"). Next answers `HEAD` with the `GET` handler, so a `HEAD` is a draw
   too (rate-limited the same).
 - **The CDN window, N** (`storyCardFreshSeconds`, `lib/story-card.ts`): the
   smallest of an hour, the time to the next midnight in the **event's**
@@ -3856,15 +3860,28 @@ ticket-holder pages); this is just the image.
   the card doesn't show. The 304 is decided after the visibility read and
   before anything else: no photo is read, no rate-limit hit is taken and
   nothing is drawn.
-- **A draw**: one hit on the client's limit (`takeClientLimit`: a keyed hash
+- **A draw** takes a render slot first (`inStoryCardSlot`; a 503 when they're
+  full, before any database work beyond the visibility read), then, inside
+  it: one hit on the client's limit (`takeClientLimit`: a keyed hash
   of the IP, `private.client_rate_limits`, no migration; it fails open
   without `STRIPE_WEBHOOK_SECRET` or a client IP, like the other per-client
-  limits), then the photo's bytes (`findPublicEventCover`, the same
+  limits), the photo's bytes (`findPublicEventCover`, the same
   published rule; if the event was unpublished in between, a 404 rather than
-  a card without its photo), then `makeStoryCard` in a render slot (the
+  a card without its photo), and `drawStoryCard` (the
   photo work in sharp with the upload's 24-megapixel cap and encode timeout,
   Satori, then a JPEG). A photo that can't be decoded gives the no-photo
   card. The demo has no rate limit (no database); the slots still apply.
+- **What the handler sees of the URL.** Next normalises the request URL
+  before the route handler runs (`normalizeCdnUrl` in
+  `next/dist/server/server-utils.js`): the query is parsed and re-formatted,
+  so percent-escapes are decoded, an empty trailing `&` disappears and
+  Next's own `nxtP…` keys are dropped; the slug parameter arrives decoded
+  too. So `?format=story&`, `?f%6Frmat=st%6Fry`, `?format=story&nxtPa=1` and
+  `/events/%6Eeon-static/story-card?format=story` all reach the handler as
+  the canonical URL and get the card, while each is a separate CDN key. The
+  strict query refuses genuinely different parameters (`?x=1`, a second
+  `format`), not every spelling of the same ones. See the accepted risk
+  below; there's no server-side cache of drawn cards.
 - **No network at render time.** next/og fetches a fallback face from
   Google Fonts, or an emoji from a CDN, for any character its fonts lack.
   Every string is fitted to the card's fonts first (`fitToStoryCardFont`:
@@ -3893,8 +3910,13 @@ ticket-holder pages); this is just the image.
   per-client limit and the per-instance slots bound one client and one
   instance, but each CDN region misses separately and a distributed client
   beats a per-IP limit; new instances cost money rather than fail. The
-  escalation is a Vercel firewall rule on the path. The query is strict so
-  the CDN can't be bypassed with extra parameters.
+  escalation is a Vercel firewall rule on the path (`docs/DEPLOYMENT.md`,
+  "Story card", optional). The query is strict, but only as Next hands it
+  over: other spellings of the canonical URL (an escaped letter, a trailing
+  `&`, a `nxtP…` key, an escaped slug) are separate CDN keys that each draw
+  once more. More keys means more draws, still capped by the per-client
+  limit and the per-instance slots; a flood refused because the slots are
+  full costs only the visibility read each.
 - **A 304 stored by the CDN** (needs verification, as for images): the 304
   carries the 200's `public` header. If Vercel stored a 304 answered to a
   conditional request on a miss, everyone would get an empty card for up to
