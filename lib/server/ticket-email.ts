@@ -543,6 +543,18 @@ export interface CardInput {
   qr: TicketQr | null;
   index: number;
   total: number;
+  /**
+   * The card's state (docs/architecture.md, "Ticket transfers"): `live` (the
+   * default) shows the QR and code; `locked` (a ticket offer not yet accepted)
+   * a faded, undecodable placeholder (TICKET_EMAIL_ASSETS.qrLocked) and
+   * `lockedCaption`, and never any code or note; `sent` (a ticket its buyer
+   * sent on) `sentLines` in their place, no QR and no code.
+   */
+  state?: "live" | "locked" | "sent";
+  lockedCaption?: string;
+  sentLines?: { title: string; line: string };
+  /** The line under the code (plain text); default "Show this at the door · ticket n of N". */
+  note?: string;
 }
 
 /** A stub column: its label (Plex Mono, tracked) over its value. */
@@ -603,11 +615,20 @@ export function ticketCard(card: CardInput): string {
   const seat = card.seat
     ? `<tr><td ${side(16)}><table ${FULL}><tr>${stubCell("Seat", formatSeatLine(card.seat))}</tr></table></td></tr>`
     : "";
-  const code = qr
+  const state = card.state ?? "live";
+  const locked =
+    `<tr><td align="center" ${side(24)}>${deco(ticketAssetUrl(siteUrl, TICKET_EMAIL_ASSETS.qrLocked), 200, 200, "margin:0 auto", "ql")}</td></tr>` +
+    `<tr><td align="center" class="tx" style="padding:12px 24px 24px 24px">${p(escapeHtml(card.lockedCaption ?? ""), type("sans", 14, 20, 600, C.ink))}</td></tr>`;
+  const sent = card.sentLines
+    ? `<tr><td align="center" ${side(28)}>${p(escapeHtml(card.sentLines.title), type("sans", 14, 20, 600, C.muted, "overflow-wrap:break-word;word-wrap:break-word"))}${p(escapeHtml(card.sentLines.line), type("sans", 14, 20, 400, C.muted, "padding-top:4px"))}</td></tr>`
+    : "";
+  const code = state === "locked" ? locked : state === "sent" ? sent : qr
     ? `<tr><td align="center" style="padding:0;font-size:0;line-height:0"><img class="qr" src="cid:${escapeHtml(qr.cid)}" width="${qr.px}" height="${qr.px}" alt="${escapeHtml(qr.alt)}" style="display:block;border:0;width:${qr.px}px;max-width:100%;height:auto;image-rendering:pixelated;-ms-interpolation-mode:nearest-neighbor;background-color:${C.white};${type("sans", 13, 18, 400, C.ink)}"></td></tr>` +
       `<tr><td align="center" ${side(0)}>${p(escapeHtml(card.code), type("mono", 18, 24, 600, C.ink, "letter-spacing:0.15em;word-break:break-all"), "cd")}</td></tr>`
     : `<tr><td align="center" ${side(28)}>${p("Entry code", type("mono", 10, 12, 400, C.muted, "letter-spacing:0.1em;text-transform:uppercase"))}${p(escapeHtml(card.code), type("mono", 24, 32, 600, C.ink, "letter-spacing:0.15em;padding-top:4px;word-break:break-all"))}</td></tr>`;
-  const note = `<tr><td align="center" class="tx" style="padding:8px 24px 24px 24px">${p(`Show this at the door &middot; ticket ${card.index + 1} of ${card.total}`, type("sans", 13, 16, 400, C.muted))}</td></tr>`;
+  const noteHtml = card.note !== undefined ? escapeHtml(card.note) : `Show this at the door &middot; ticket ${card.index + 1} of ${card.total}`;
+  const note =
+    state === "locked" ? "" : `<tr><td align="center" class="tx" style="padding:8px 24px 24px 24px">${p(noteHtml, type("sans", 13, 16, 400, C.muted))}</td></tr>`;
   return (
     `<table ${FULL} bgcolor="${C.signal}" class="ticket" style="background-color:${C.signal};border-radius:15px;border-collapse:separate"><tr><td style="padding:12px">` +
     `<table ${FULL} bgcolor="${C.white}" style="background-color:${C.white};border-radius:7px;border-collapse:separate">\n` +
@@ -733,10 +754,92 @@ export const TICKET_EMAIL_REASON = "You’re getting this email because you boug
 /** …and on a free order's (Latte's "Free ticket order" frame). */
 export const TICKET_EMAIL_FREE_REASON = "You’re getting this email because you got a free ticket on Sheltüh.";
 
+/**
+ * What a ticket card shows about its event (CardEvent), or null when the
+ * event isn't published (then only the title, type and code). Shared by the
+ * ticket email and the ticket transfer emails (./ticket-transfer-email.ts).
+ */
+export function ticketCardEvent(event: EventRecord, siteUrl: string): CardEvent | null {
+  if (event.status !== "published") return null;
+  const where: EventZone = event;
+  return {
+    title: event.title,
+    imageUrl: eventImageEmailUrl(siteUrl, event.imageUrl),
+    imageFocus:
+      event.imageFocus && Number.isFinite(event.imageFocus.x) && Number.isFinite(event.imageFocus.y)
+        ? `${Number(event.imageFocus.x)}% ${Number(event.imageFocus.y)}%`
+        : null,
+    venueLine: ticketVenueLine(event),
+    date: formatEventDateShort(event.startsAt, zoneOf(event)),
+    time: formatStubTime(event.startsAt, event.endsAt, where),
+  };
+}
+
+/** The event detail rows (when, where, event info, the host) and their plain text, for a published event; empty otherwise. */
+export function ticketDetails(event: EventRecord, siteUrl: string): { rows: KitDetailRow[]; text: string[] } {
+  if (event.status !== "published") return { rows: [], text: [] };
+  const when = ticketEmailWhen(event.startsAt, event.endsAt, event);
+  const venueName = event.venueName?.trim() ?? "";
+  const address = ticketAddressLine(event);
+  const directions = ticketDirectionsLink(event);
+  const eventLink = event.slug ? eventPublicLink(siteUrl, event.slug) : null;
+  const calendar = ticketCalendarLinks(event, siteUrl);
+  const host = event.organiserId ? subjectLine(event.organiserName ?? "") : "";
+  const hostLink = host ? organiserPageLink(siteUrl, event.organiserId) : null;
+  const calendarLinks = [
+    calendar.google ? anchor(calendar.google, "Google", "", ` title="Add to Google Calendar"`) : "",
+    calendar.apple ? anchor(calendar.apple, "Apple", "", ` title="Add to Apple Calendar"`) : "",
+    calendar.outlook ? anchor(calendar.outlook, "Outlook", "", ` title="Add to Outlook Calendar"`) : "",
+  ].filter(Boolean);
+  const rows: KitDetailRow[] = [
+    {
+      icon: "calendar",
+      title: when.date,
+      lines: when.lines,
+      ...(calendarLinks.length ? { linkHtml: `Add to calendar: ${calendarLinks.join(" &middot; ")}` } : {}),
+    },
+    ...(venueName || address
+      ? [
+          {
+            icon: "pin" as const,
+            title: venueName || address,
+            lines: venueName && address ? [address] : [],
+            ...(directions ? { linkHtml: anchor(directions, "Get directions&nbsp;&#8599;") } : {}),
+          },
+        ]
+      : []),
+    ...(eventLink
+      ? [{ icon: "info" as const, title: "Event info", lines: ["Line-up, door times and what to bring"], linkHtml: anchor(eventLink, "View event info") }]
+      : []),
+    ...(host && hostLink
+      ? [{ icon: "info" as const, title: `Hosted by ${host}`, lines: ["Questions about the event? Ask the organiser."], linkHtml: anchor(hostLink, "Contact organiser") }]
+      : []),
+  ];
+  const whereText = [venueName, address].filter(Boolean).join(", ");
+  const calendarText = [
+    calendar.google ? `Google: ${calendar.google}` : "",
+    calendar.apple ? `Apple: ${calendar.apple}` : "",
+    calendar.outlook ? `Outlook: ${calendar.outlook}` : "",
+  ].filter(Boolean);
+  const text = [
+    `${when.date}${when.lines.length === 1 ? `, ${when.lines[0]}` : ""}`,
+    ...(when.lines.length === 1 ? [] : when.lines),
+    ...(calendarText.length ? [`Add to calendar — ${calendarText.join(" · ")}`] : []),
+    ...(whereText ? [whereText] : []),
+    ...(directions ? [`Get directions: ${directions}`] : []),
+    ...(eventLink ? [`Event info (line-up, door times and what to bring): ${eventLink}`] : []),
+    ...(host && hostLink ? [`Hosted by ${host}. Questions about the event? Ask the organiser: ${hostLink}`] : []),
+  ];
+  return { rows, text };
+}
+
 // --- The email ---
 
 /** The line under the other tickets' rows (Latte's 2-ticket frame): their QR codes are on the ticket page. */
 export const OTHER_TICKETS_NOTE = "Each ticket has its own QR code. Swipe between them in your ticket.";
+
+/** A sent ticket's second line (docs/architecture.md, "Ticket transfers"): its old QR code is refused at the door. */
+export const SENT_TICKET_LINE = "This QR code no longer works";
 
 /**
  * The sent email: one 600px-max column on the shared layout
@@ -774,7 +877,7 @@ export function buildTicketEmail(
   const support = !free && order.supportCents && order.supportCents > 0 ? order.supportCents : 0;
   const includes = support ? `incl. booking fees and ${SUPPORT_LABEL}` : "incl. booking fees";
   const refunds = ticketEmailRefundPolicy(order, event, now);
-  const walletLinks = (i: number) => ticketWalletLinks(order, event, siteUrl, wallet, i);
+  const walletLinks = (i: number) => (firstSent ? [] : ticketWalletLinks(order, event, siteUrl, wallet, i));
   // Only a published event is shared and linked: its public page exists.
   const eventLink = listed && event.slug ? eventPublicLink(siteUrl, event.slug) : null;
   const calendar = listed ? ticketCalendarLinks(event, siteUrl) : { google: null, apple: null, outlook: null };
@@ -810,15 +913,27 @@ export function buildTicketEmail(
   ];
 
   // Only the first ticket gets the full card, and so the only QR code (Latte's 2-ticket frame, owner decision):
-  // the others are a row each, and their codes and QR codes are on the ticket page.
-  const firstTicket: IssuedTicket | undefined = order.tickets[0];
-  const qr = firstTicket ? ticketQr(firstTicket.ticketCode, 0) : null;
-  const others = order.tickets.slice(1);
+  // the others are a row each, and their codes and QR codes are on the ticket page. A ticket the buyer sent to
+  // someone who accepted it (`sent`) never shows its code or QR: the full card is the first one still theirs (a
+  // "sent" card when none is), and a sent ticket's row says who has it.
+  const numberOf = (t: IssuedTicket) => t.ticketNumber ?? order.tickets.indexOf(t) + 1;
+  const firstTicket: IssuedTicket | undefined = order.tickets.find((t) => !t.sent) ?? order.tickets[0];
+  const firstSent = !!firstTicket?.sent;
+  const firstIndex = firstTicket ? numberOf(firstTicket) - 1 : 0;
+  const qr = firstTicket && !firstSent ? ticketQr(firstTicket.ticketCode, firstIndex) : null;
+  const others = order.tickets.filter((t) => t !== firstTicket);
   const buyerName = subjectLine(extras.buyerName ?? "");
   /** An other ticket's "{name} · {type}" and its seat (the row's short form, or the text's spoken one). */
   const otherLine = (t: IssuedTicket, spoken = false) =>
     [buyerName, typeName(t), t.seat ? (spoken ? speakSeatLine(t.seat) : formatSeatLine(t.seat)) : ""].filter(Boolean).join(" · ");
-  const firstType = order.tickets[0] ? typeName(order.tickets[0]) : "";
+  const firstType = firstTicket ? typeName(firstTicket) : "";
+  /** A sent ticket's lines: who has it and since when, and that its QR is dead. */
+  const sentCardLines = (t: IssuedTicket) => ({
+    title: `Sent to ${t.sent?.holderName ?? ""} · accepted ${t.sent ? formatEventDateShort(t.sent.acceptedAt, zoneOf(event)) : ""}`,
+    line: SENT_TICKET_LINE,
+  });
+  const sentText = (t: IssuedTicket) =>
+    `sent to ${t.sent?.holderName ?? ""}, accepted ${t.sent ? formatEventDateShort(t.sent.acceptedAt, zoneOf(event)) : ""}. ${SENT_TICKET_LINE}`;
   const footerInput = { siteUrl, tone: "customer" as const, reason: free ? TICKET_EMAIL_FREE_REASON : TICKET_EMAIL_REASON };
 
   // --- Plain text ---
@@ -838,19 +953,25 @@ export function buildTicketEmail(
     ...(firstTicket
       ? [
           "",
-          `Ticket 1 of ${total}${!one && firstType ? ` · ${firstType}` : ""} — Entry code: ${firstTicket.ticketCode} (show this at the door${qr ? "; the QR code is in the full email" : ""})`,
+          firstTicket.sent
+            ? `Ticket ${firstIndex + 1} of ${total}${firstType ? ` · ${firstType}` : ""}: ${sentText(firstTicket)}`
+            : `Ticket ${firstIndex + 1} of ${total}${!one && firstType ? ` · ${firstType}` : ""} — Entry code: ${firstTicket.ticketCode} (show this at the door${qr ? "; the QR code is in the full email" : ""})`,
           ...(firstTicket.seat ? [`Seat: ${speakSeatLine(firstTicket.seat)}`] : []),
-          ...walletLinks(0).map((l) => `${l.label}: ${l.href}`),
+          ...walletLinks(firstIndex).map((l) => `${l.label}: ${l.href}`),
         ]
       : []),
     ...(others.length
       ? [
           "",
-          ...others.map((t, j) => `Ticket ${j + 2} of ${total}${otherLine(t, true) ? ` · ${otherLine(t, true)}` : ""} — View: ${link}`),
+          ...others.map((t) =>
+            t.sent
+              ? `Ticket ${numberOf(t)} of ${total}${typeName(t) ? ` · ${typeName(t)}` : ""}: ${sentText(t)}`
+              : `Ticket ${numberOf(t)} of ${total}${otherLine(t, true) ? ` · ${otherLine(t, true)}` : ""} — View: ${link}`,
+          ),
           OTHER_TICKETS_NOTE,
         ]
       : []),
-    ...(walletLinks(0).some((l) => l.provider === "apple") ? ["", appleWalletDeviceNote("email", 1)] : []),
+    ...(walletLinks(firstIndex).some((l) => l.provider === "apple") ? ["", appleWalletDeviceNote("email", 1)] : []),
     "",
     `${viewLabel}: ${link}`,
     `Manage order: ${link}`,
@@ -902,8 +1023,20 @@ export function buildTicketEmail(
 
   // --- HTML ---
 
-  const card = (t: IssuedTicket, i: number) =>
-    ticketCard({ siteUrl, title: event.title, event: cardEvent, code: t.ticketCode, typeName: typeName(t), seat: t.seat, qr: i === 0 ? qr : null, index: i, total });
+  const card = (t: IssuedTicket) =>
+    ticketCard({
+      siteUrl,
+      title: event.title,
+      event: cardEvent,
+      // A sent ticket's code is dead and never shown (state "sent" prints none).
+      code: t.sent ? "" : t.ticketCode,
+      typeName: typeName(t),
+      seat: t.seat,
+      qr: t.sent ? null : qr,
+      index: numberOf(t) - 1,
+      total,
+      ...(t.sent ? { state: "sent" as const, sentLines: sentCardLines(t) } : {}),
+    });
 
   /**
    * The other tickets (Latte's 2-ticket frame): a cream row each, "TICKET n of N", the buyer's name and the
@@ -912,14 +1045,23 @@ export function buildTicketEmail(
    */
   const otherRows = (rows: number) => {
     if (others.length === 0) return "";
-    const row = (t: IssuedTicket, j: number) =>
+    const row = (t: IssuedTicket) =>
       `<table ${FULL} bgcolor="${KIT.cream}" style="background-color:${KIT.cream};border-radius:8px;border-collapse:separate"><tr>` +
       `<td valign="middle" style="padding:16px 12px 16px 24px">` +
-      p(`TICKET ${j + 2} of ${total}`, type("mono", 12, 16, 500, C.muted, "letter-spacing:0.72px")) +
-      (otherLine(t) ? p(escapeHtml(otherLine(t)), type("sans", 16, 24, 600, C.ink, "padding-top:4px;overflow-wrap:break-word;word-wrap:break-word")) : "") +
-      `</td><td align="right" valign="middle" style="padding:16px 24px 16px 0;white-space:nowrap">` +
-      p(anchor(link, "View", "", ` aria-label="View ticket ${j + 2} of ${total}"`), type("sans", 15, 22, 600, C.ink)) +
-      `</td></tr></table>`;
+      p(`TICKET ${numberOf(t)} of ${total}`, type("mono", 12, 16, 500, C.muted, "letter-spacing:0.72px")) +
+      (t.sent
+        ? p(escapeHtml(sentCardLines(t).title), type("sans", 16, 24, 600, C.ink, "padding-top:4px;overflow-wrap:break-word;word-wrap:break-word")) +
+          p(escapeHtml(sentCardLines(t).line), type("sans", 14, 20, 400, C.muted))
+        : otherLine(t)
+          ? p(escapeHtml(otherLine(t)), type("sans", 16, 24, 600, C.ink, "padding-top:4px;overflow-wrap:break-word;word-wrap:break-word"))
+          : "") +
+      `</td>` +
+      (t.sent
+        ? ""
+        : `<td align="right" valign="middle" style="padding:16px 24px 16px 0;white-space:nowrap">` +
+          p(anchor(link, "View", "", ` aria-label="View ticket ${numberOf(t)} of ${total}"`), type("sans", 15, 22, 600, C.ink)) +
+          `</td>`) +
+      `</tr></table>`;
     const shown = others.slice(0, rows);
     const rest = others.length - shown.length;
     return kitStack(
@@ -1002,10 +1144,10 @@ export function buildTicketEmail(
     const body = kitStack([
       kitHeader(),
       kitIntro(eyebrow, headline),
-      firstTicket ? card(firstTicket, 0) : "",
+      firstTicket ? card(firstTicket) : "",
       otherRows(rows),
       // As the frames place them: under the card, or under the other tickets' rows. The first ticket's only.
-      firstTicket ? walletButtons(siteUrl, walletLinks(0), 0, total, true) : "",
+      firstTicket ? walletButtons(siteUrl, walletLinks(firstIndex), firstIndex, total, true) : "",
       kitButtons([
         { label: viewLabel, href: link, kind: "primary" },
         { label: "Manage order", href: link, kind: "secondary" },

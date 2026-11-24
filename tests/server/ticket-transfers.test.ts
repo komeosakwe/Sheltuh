@@ -157,9 +157,10 @@ describe("sending", () => {
     expect(row).toMatchObject({ status: "pending", sender_kind: "buyer", sender_user_id: null });
     expect(row.ticket_code).toBe((await codesOf(api, order.orderId))[0]);
     expect(await jobsOf(api, transferId)).toEqual(["transfer_offer"]);
-    // Nothing leases a transfer job yet (PR-1): no email is sent.
+    // The offer email goes to the address typed straight after the response (ticket-transfer-emails.test.ts has the rest).
     await api.runDeferred();
-    expect(api.sendEmail).not.toHaveBeenCalled();
+    expect(api.sendEmail).toHaveBeenCalledTimes(1);
+    expect(api.sendEmail.mock.calls[0][0]).toMatchObject({ to: "sam@example.com", subject: "Alex sent you a ticket to NEON STATIC" });
   });
 
   it("a free ticket can be sent too", async () => {
