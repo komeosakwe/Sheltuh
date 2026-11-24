@@ -256,6 +256,60 @@ describe("declined and expired (to the sender)", () => {
     expect(message.html).not.toContain("Send to a friend");
   });
 
+  /** Makes the transfer's `kind` job not due (as if delayed or waiting for a retry), and later due again. */
+  async function holdJob(transferId: string, kind: string, until: "later" | "now") {
+    await api.db.query(
+      `update private.email_outbox set next_attempt_at = now() + $3::interval where ticket_transfer_id = $1 and kind = $2`,
+      [transferId, kind, until === "later" ? "1 hour" : "0 seconds"],
+    );
+  }
+
+  function drain(kind: "transfer_declined" | "transfer_expired") {
+    api.deferred.push(async () => {
+      const { drainEmailOutbox } = await import("@/lib/server/email-outbox");
+      await drainEmailOutbox(api.deps, { kind });
+    });
+  }
+
+  it("a delayed decline notice isn't sent once the same ticket was sent again and accepted (it'd say the QR still works)", async () => {
+    const order = await paidOrder(api, world.eventId);
+    const declinedId = await offer(api, order);
+    const token = tokenOf((await sent())[0]);
+    expect((await api.call(declineTicketOffer, { body: { token } })).status).toBe(200);
+    await holdJob(declinedId, "transfer_declined", "later");
+    expect(await sent()).toEqual([]);
+
+    // The buyer sends the same ticket again, and this time it's accepted.
+    const secondId = await offer(api, order, { name: "Kim Ng", email: "kim@example.org" });
+    const secondToken = tokenOf((await sent())[0]);
+    expect((await accept(api, secondToken, await member(api, { email: "kim@example.org" }), "Kim Ng")).status).toBe(200);
+    expect((await sent()).map((m) => m.subject).sort()).toEqual(["Kim accepted your ticket", "Your ticket to NEON STATIC"]);
+    expect((await transferRow(api, secondId)).status).toBe("accepted");
+
+    await holdJob(declinedId, "transfer_declined", "now");
+    drain("transfer_declined");
+    expect(await sent()).toEqual([]);
+    expect(
+      await api.db.query(`select status from private.email_outbox where ticket_transfer_id = $1 and kind = 'transfer_declined'`, [declinedId]),
+    ).toEqual([{ status: "failed" }]);
+  });
+
+  it("a delayed expiry notice isn't sent once the order is no longer paid", async () => {
+    const order = await paidOrder(api, world.eventId);
+    const transferId = await offer(api, order);
+    await sent();
+    await backdate(api, transferId, "73 hours");
+    await api.db.query(`select private.expire_ticket_transfers(200, '2 hours')`);
+    await holdJob(transferId, "transfer_expired", "later");
+    await api.db.query(`update public.orders set status = 'refunded' where id = $1`, [order.orderId]);
+    await holdJob(transferId, "transfer_expired", "now");
+    drain("transfer_expired");
+    expect(await sent()).toEqual([]);
+    expect(
+      await api.db.query(`select status from private.email_outbox where ticket_transfer_id = $1 and kind = 'transfer_expired'`, [transferId]),
+    ).toEqual([{ status: "failed" }]);
+  });
+
   it("goes to the order's current address: an email change since the decision is followed", async () => {
     const order = await paidOrder(api, world.eventId);
     await offer(api, order);

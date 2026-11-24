@@ -274,14 +274,32 @@ export function sendTicketTransferEmailsSoon(deps: Deps): void {
  * with $3 the address it goes to and $4 the cut-off: checked when the job is
  * read and again straight before the mail provider is called
  * (stillToSendTransfer), so an offer cancelled, declined, accepted or expired
- * meanwhile, a refund, or an email change holds it back.
+ * meanwhile, a refund, an email change, or (declined and expired) the
+ * ticket no longer being the sender's holds it back.
  */
+/**
+ * The sender still holds the ticket the transfer was about, as SQL over the
+ * same aliases: the order is paid and nobody else holds the ticket now (no
+ * current holding but the sender's own, which for a holder's re-send must
+ * still be current). A declined or expired notice says "Your QR code still
+ * works" and offers to send it again, so it goes out only while that's true:
+ * a delayed or retried one isn't sent once the ticket was sent again and
+ * accepted, or the order refunded. Neither ever turns back, so the job is
+ * skipped. The lookup uses ticket_transfers_one_holding.
+ */
+const SENDER_STILL_HOLDS = `o.status = 'paid' and (x.from_transfer_id is null or f.superseded_at is null)
+  and not exists (select 1 from private.ticket_transfers h
+                   where h.ticket_code = x.ticket_code and h.status = 'accepted' and h.superseded_at is null
+                     and h.id is distinct from x.from_transfer_id)`;
+
 const TRANSFER_SEND_STATE: Record<TransferKind, string> = {
   transfer_offer: `x.status = 'pending' and x.expires_at > clock_timestamp() and o.status = 'paid' and e.status = 'published'
                    and clock_timestamp() < e.starts_at - $4::interval and x.recipient_email = $3`,
   transfer_accepted: `x.status = 'accepted' and $3 = (case when x.sender_kind = 'buyer' then o.buyer_email else f.accepted_email end)`,
-  transfer_declined: `x.status = 'declined' and $3 = (case when x.sender_kind = 'buyer' then o.buyer_email else f.accepted_email end)`,
-  transfer_expired: `x.status = 'expired' and $3 = (case when x.sender_kind = 'buyer' then o.buyer_email else f.accepted_email end)`,
+  transfer_declined: `x.status = 'declined' and $3 = (case when x.sender_kind = 'buyer' then o.buyer_email else f.accepted_email end)
+                      and ${SENDER_STILL_HOLDS}`,
+  transfer_expired: `x.status = 'expired' and $3 = (case when x.sender_kind = 'buyer' then o.buyer_email else f.accepted_email end)
+                     and ${SENDER_STILL_HOLDS}`,
   transfer_ticket: `x.status = 'accepted' and x.superseded_at is null and o.status = 'paid' and x.accepted_email = $3`,
 };
 
@@ -316,6 +334,7 @@ type TransferJobRow = {
   current: boolean;
   unexpired: boolean;
   closed: boolean;
+  sender_holds: boolean;
   order_id: string;
   event_id: string;
   order_status: string;
@@ -335,8 +354,9 @@ type TransferJobRow = {
 /**
  * Builds and sends one ticket transfer email (`job`'s), read by the job's id.
  * Skipped (permanently: nothing will change by itself) when the transfer is
- * no longer in its kind's state (TRANSFER_SEND_STATE) or the address isn't a
- * plain one. The offer's link token is minted per attempt (its hash stored
+ * no longer in its kind's state (TRANSFER_SEND_STATE), a declined or expired
+ * notice's ticket is no longer the sender's (SENDER_STILL_HOLDS), or the
+ * address isn't a plain one. The offer's link token is minted per attempt (its hash stored
  * first, so the link works the moment the email lands; earlier copies' links
  * stay valid), and only once the offer has been checked still open. Never
  * logs an address, a name, a token or a code. Never throws.
@@ -349,6 +369,7 @@ async function deliverTicketTransferEmail(deps: Deps, job: ClaimedJob, kind: Tra
               x.sender_name, x.recipient_name, x.recipient_email, x.holder_name, x.accepted_email, x.issued_code,
               x.superseded_at is null as current, x.expires_at > now() as unexpired,
               now() >= e.starts_at - $2::interval as closed,
+              ${SENDER_STILL_HOLDS} as sender_holds,
               x.order_id, x.event_id::text as event_id, o.status::text as order_status, o.buyer_email,
               f.accepted_email as from_accepted_email,
               t.ticket_type_name, t.group_size,
@@ -397,6 +418,7 @@ async function deliverTicketTransferEmail(deps: Deps, job: ClaimedJob, kind: Tra
         if (row.status !== (kind === "transfer_accepted" ? "accepted" : kind === "transfer_declined" ? "declined" : "expired")) {
           return skip("the transfer isn't in that state");
         }
+        if (kind !== "transfer_accepted" && !row.sender_holds) return skip("the ticket isn't the sender's any more");
         to = senderAddress;
     }
     if (!to || !isPlainEmailAddress(to)) return skip("no usable email address");
