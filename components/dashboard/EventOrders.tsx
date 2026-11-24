@@ -14,12 +14,35 @@ import { downloadEventOrdersCsv, getEventOrders } from "@/lib/api/event-orders";
 import type { EventOrderRow, EventOrders as EventOrdersData } from "@/lib/api/types";
 import { DETAILS_VISIBLE_MONTHS, ORGANISER_USE_NOTE } from "@/lib/buyer-details";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { orderPaidText, orderPlacedText, orderStatusText, orderTicketsText } from "@/lib/event-orders-format";
+import { orderHolderLines, orderPaidText, orderPlacedText, orderStatusText, orderTicketsText } from "@/lib/event-orders-format";
+import { ticketTransfersEnabled } from "@/lib/ticket-transfers-flag";
 
 const PAGE_SIZE = 20;
 const SEARCH_DEBOUNCE_MS = 300;
 const SEARCH_MAX = 100;
 const NONE = "—";
+
+/** Beside "Export CSV" once tickets can be sent on: the file's "Transferred to" column. */
+const HOLDERS_EXPORT_NOTE = "Includes people tickets were sent to.";
+
+/**
+ * Who the order's tickets were sent to (orderHolderLines). An interim, plain
+ * line under the order: the dashboard redesign replaces it with its own
+ * "Transferred" pattern.
+ */
+function HolderLines({ order, timeZone }: { order: EventOrderRow; timeZone: string }) {
+  const lines = orderHolderLines(order, timeZone);
+  if (lines.length === 0) return null;
+  return (
+    <div className="mt-1 flex flex-col gap-0.5">
+      {lines.map((line) => (
+        <p key={line} className="text-sm break-words text-muted">
+          {line}
+        </p>
+      ))}
+    </div>
+  );
+}
 
 /** An empty name or email: the dash for the eye, and words ("No name", "No email") for a screen reader, which would otherwise say nothing or "em dash". */
 function Missing({ what }: { what: string }) {
@@ -225,6 +248,9 @@ function Orders({ eventId, getToken, scope }: { eventId: string; getToken: GetTo
               {exporting ? "Preparing…" : "Export CSV"}
             </Button>
             <p className="text-xs text-muted">{ORGANISER_USE_NOTE}</p>
+            {(ticketTransfersEnabled() || loaded.items.some((o) => (o.holders ?? []).length > 0)) && (
+              <p className="text-xs text-muted">{HOLDERS_EXPORT_NOTE}</p>
+            )}
             {exportMessage && (
               <Notice tone="danger" role="alert">
                 {exportMessage}
@@ -307,7 +333,10 @@ function OrdersTable({ items, timeZone, caption }: { items: EventOrderRow[]; tim
                 {order.buyerName ?? <Missing what="No name" />}
               </th>
               <td className={`${cellClass} break-all`}>{order.buyerEmail ?? <Missing what="No email" />}</td>
-              <td className={cellClass}>{orderTicketsText(order)}</td>
+              <td className={cellClass}>
+                {orderTicketsText(order)}
+                <HolderLines order={order} timeZone={timeZone} />
+              </td>
               <td className={`${cellClass} whitespace-nowrap tabular-nums`}>{orderPaidText(order)}</td>
               <td className={cellClass}>{orderPlacedText(order.placedAt, timeZone)}</td>
               <td className={cellClass}>{orderStatusText(order)}</td>
@@ -336,6 +365,7 @@ function OrderCards({ items, timeZone, caption }: { items: EventOrderRow[]; time
             <dt className="text-muted">Status</dt>
             <dd className="text-right">{orderStatusText(order)}</dd>
           </dl>
+          <HolderLines order={order} timeZone={timeZone} />
         </li>
       ))}
     </ul>

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { EventOrderRow } from "@/lib/api/types";
 import { toCsv } from "@/lib/server/csv";
-import { eventOrdersCsv, orderStatusLabel, placedInZone } from "@/lib/server/orders-report";
+import { eventOrdersCsv, orderStatusLabel, placedInZone, transferredToText } from "@/lib/server/orders-report";
 
 const row = (over: Partial<EventOrderRow> = {}): EventOrderRow => ({
   reference: "#A1B2C3D4",
@@ -22,8 +22,8 @@ describe("eventOrdersCsv", () => {
     const text = toCsv(eventOrdersCsv([row()], "Australia/Melbourne"));
     expect(text.startsWith("﻿")).toBe(true);
     expect(body([row()])).toEqual([
-      '﻿"Reference","Placed","Name","Email","Tickets","Paid (A$)","Refunded (A$)","Status"',
-      '"#A1B2C3D4","2027-03-06 20:30","Dee Lee","dee@example.com","2 × General admission","64.60","0.00","Paid"',
+      '﻿"Reference","Placed","Name","Email","Tickets","Paid (A$)","Refunded (A$)","Status","Transferred to"',
+      '"#A1B2C3D4","2027-03-06 20:30","Dee Lee","dee@example.com","2 × General admission","64.60","0.00","Paid",""',
       "",
     ]);
   });
@@ -59,6 +59,24 @@ describe("eventOrdersCsv", () => {
     for (const email of emails) expect(lines).toContain(`"'${email}"`);
     // Every cell that starts with a formula character is preceded by the defending quote.
     expect(lines).not.toMatch(/(^|,)"[=+\-@\t\r]/m);
+  });
+
+  it("lists the tickets sent on in one cell: name, email and type, hidden details said as hidden", () => {
+    const holders = [
+      { ticketNumber: 1, ticketTypeName: "General admission", holderName: "Sam Lee", holderEmail: "sam@example.com", transferredAt: "2027-03-01T00:00:00.000Z" },
+      { ticketNumber: 2, ticketTypeName: "VIP", holderName: null, holderEmail: null, transferredAt: "2027-03-02T00:00:00.000Z" },
+    ];
+    expect(transferredToText({ holders })).toBe("Sam Lee <sam@example.com> · General admission; (hidden) <hidden> · VIP");
+    expect(transferredToText({ holders: [] })).toBe("");
+    expect(transferredToText({})).toBe("");
+    expect(body([row({ holders })])[1]).toMatch(/,"Paid","Sam Lee <sam@example\.com> · General admission; \(hidden\) <hidden> · VIP"$/);
+  });
+
+  it("a holder's name starting with a formula character is plain text", () => {
+    const holders = [{ ticketNumber: 1, ticketTypeName: "GA", holderName: "=HYPERLINK(1)", holderEmail: "x@example.com", transferredAt: "2027-03-01T00:00:00.000Z" }];
+    const line = body([row({ holders })])[1];
+    expect(line).toContain(`"'=HYPERLINK(1) <x@example.com> · GA"`);
+    expect(line).not.toMatch(/(^|,)"[=+\-@\t\r]/);
   });
 
   it("a ticket type name starting with a formula character is safe inside the joined cell", () => {

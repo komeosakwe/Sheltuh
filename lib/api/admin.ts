@@ -17,6 +17,8 @@ import type {
   AdminReport,
   AdminSetEventTicketingInput,
   AdminSummary,
+  AdminTicketTransfer,
+  AdminTicketTransferPage,
   AdminTransfer,
   AdminTransfersPage,
   EmailJobStatus,
@@ -450,6 +452,38 @@ export async function adminTransferAction(transferId: string, action: TransferAc
   return apiFetch<AdminTransfer>(`/admin/transfers/${encodeURIComponent(transferId)}/action`, {
     method: "POST",
     body: { action },
+    token,
+  });
+}
+
+/**
+ * Ticket transfers ("Send ticket to a friend"; not the payouts' transfers
+ * above): every offer, newest first, 20 a page, addresses masked. With
+ * `reference` (an order's or a transfer's short reference, "#7C1F2E0A" or
+ * "7c1f2e0a"): only that order's offers, or that one. ApiError 400 for a
+ * reference that isn't 8 hex characters; 403 for anyone but an admin.
+ */
+export async function adminListTicketTransfers(getToken: GetToken, query: { reference?: string; cursor?: string } = {}) {
+  const token = await getToken();
+  const qs = new URLSearchParams({
+    ...(query.reference !== undefined ? { reference: query.reference } : {}),
+    ...(query.cursor ? { cursor: query.cursor } : {}),
+  });
+  return apiFetch<AdminTicketTransferPage>(`/admin/ticket-transfers${qs.size > 0 ? `?${qs}` : ""}`, { token });
+}
+
+/**
+ * Cancels an offer that hasn't been accepted, with a reason (3 to 500
+ * characters, no email addresses), kept with it. Resolves to
+ * `{result: "cancelled"}`. ApiError 400 `fieldErrors.reason`; 404; 409
+ * `code: "transfer_not_pending"` (accepted, declined, cancelled or expired
+ * since: an accepted one can't be undone); 429 `rate_limited` (30 an hour).
+ */
+export async function adminCancelTicketTransfer(transferId: AdminTicketTransfer["transferId"], reason: string, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<{ result: "cancelled" }>(`/admin/ticket-transfers/${encodeURIComponent(transferId)}/cancel`, {
+    method: "POST",
+    body: { reason },
     token,
   });
 }

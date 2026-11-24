@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buyerNameError, BUYER_NAME_MAX } from "@/lib/buyer-details";
-import { orderPaidText, orderPlacedText, orderStatusText, orderTicketsText } from "@/lib/event-orders-format";
+import { orderHolderLines, orderPaidText, orderPlacedText, orderStatusText, orderTicketsText } from "@/lib/event-orders-format";
 
 describe("orderStatusText", () => {
   it.each([
@@ -45,5 +45,50 @@ describe("buyerNameError", () => {
     expect(buyerNameError("a".repeat(BUYER_NAME_MAX))).toBeNull();
     expect(buyerNameError("😀".repeat(BUYER_NAME_MAX))).toBeNull();
     expect(buyerNameError("a".repeat(BUYER_NAME_MAX + 1))).toBe("Use 80 characters or fewer.");
+  });
+});
+
+describe("orderHolderLines", () => {
+  const now = new Date("2026-11-05T00:00:00Z");
+  const holder = (holderName: string | null, holderEmail: string | null, transferredAt: string, ticketNumber = 1) => ({
+    ticketNumber,
+    ticketTypeName: "General",
+    holderName,
+    holderEmail,
+    transferredAt,
+  });
+
+  it("nothing for an order with no tickets sent on (or an older answer without holders)", () => {
+    expect(orderHolderLines({ holders: [] }, "Australia/Melbourne", now)).toEqual([]);
+    expect(orderHolderLines({}, "Australia/Melbourne", now)).toEqual([]);
+  });
+
+  it("one line per holder, their tickets together and dated by the latest, in the event's zone", () => {
+    const lines = orderHolderLines(
+      {
+        holders: [
+          holder("Sam Lee", "sam@example.com", "2026-11-03T13:30:00Z", 1),
+          holder("Kim Ng", "kim@example.com", "2026-11-02T01:00:00Z", 2),
+          holder("Sam Lee", "sam@example.com", "2026-11-01T01:00:00Z", 3),
+        ],
+      },
+      "Australia/Melbourne",
+      now,
+    );
+    // 13:30 UTC on the 3rd is the 4th in Melbourne.
+    expect(lines).toEqual(["2 tickets sent to Sam Lee · sam@example.com · Wed 4 Nov", "1 ticket sent to Kim Ng · kim@example.com · Mon 2 Nov"]);
+    expect(orderHolderLines({ holders: [holder("Sam Lee", "sam@example.com", "2026-11-03T13:30:00Z")] }, "Australia/Perth", now)).toEqual([
+      "1 ticket sent to Sam Lee · sam@example.com · Tue 3 Nov",
+    ]);
+  });
+
+  it("hidden holders share one line that says the details are hidden, never a name", () => {
+    expect(
+      orderHolderLines(
+        { holders: [holder(null, null, "2026-11-02T01:00:00Z"), holder(null, null, "2025-11-02T01:00:00Z")] },
+        "Australia/Melbourne",
+        now,
+      ),
+    ).toEqual(["2 tickets sent on · name and email hidden · Mon 2 Nov"]);
   });
 });

@@ -678,9 +678,27 @@ Apply it in the SQL editor before deploying the app that reads it; sending
 stays off until `NEXT_PUBLIC_TICKET_TRANSFERS=1`. Never edit an accepted
 offer's row or delete it: its `issued_code` is the recipient's ticket, and
 the buyer's original code stays dead while it exists (the guard trigger
-refuses edits anyway). Support lists offers at `GET /api/admin/ticket-transfers`
-(by an order's or a transfer's reference) and cancels one that's still
-pending there, with a reason; an accepted one can't be undone in v1.
+refuses edits anyway). Support's page is **Admin → Ticket transfers**
+(`/admin/ticket-transfers`, also linked from Emails once "Find an order" has
+found one, and from the hub; the API is `GET /api/admin/ticket-transfers`):
+
+- **Finding a transfer.** Type the order's reference (`#7C1F2E0A`, from the
+  buyer's email or the organiser's Orders view) or the transfer's own (`#` and
+  8 characters, from the recipient's ticket) and Find. Each offer shows its
+  status, who sent it, who it went to and who accepted (addresses masked),
+  and when.
+- **Cancelling an offer.** Only one still waiting ("Waiting"): Cancel offer,
+  with a reason kept with it (3 to 500 characters, no email addresses). The
+  link stops working and the ticket stays with whoever sent it. 30 cancels an
+  hour per admin.
+- **An accepted transfer can't be undone in v1**: the recipient's code is the
+  ticket now and the buyer's is dead. If one must be reversed, there is no
+  supported way yet (a refund voids it, with the rest of the order).
+
+The event's organiser sees each order's tickets sent on, with the holder's
+name and email under the buyers' rules (12 months after the event, with the
+notice the holder was shown at accept); withdrawing a holder (below) hides
+them there and from the organiser's search and CSV.
 
 A ticket's offers, by the full order id (from the verified Stripe payment's
 metadata `orderId`, as for email changes); addresses masked:
@@ -700,8 +718,10 @@ including ones its buyer sent on (the recipient isn't told in v1).
 support) for their name and email to stop being shown to the organiser:
 verify the request comes from the address they accepted with, then stamp
 their holdings. The row stays (it's their ticket); the organiser's view
-hides the details once stamped (set once; the guard trigger refuses any
-other change):
+hides the details once stamped (the entry stays as "1 ticket sent on · name
+and email hidden", as a withdrawn buyer reads like a pre-release order; set
+once; the guard trigger refuses any other change). It doesn't recall files
+the organiser already exported:
 
 ```sql
 update private.ticket_transfers set holder_details_withdrawn_at = now()

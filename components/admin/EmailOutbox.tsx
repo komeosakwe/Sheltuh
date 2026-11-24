@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/Button";
 import { fieldClass } from "@/components/ui/Field";
@@ -17,7 +18,8 @@ import {
 import { buyerEmailError } from "@/lib/buyer-email";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useAdminSummary } from "@/components/admin/AdminSummaryProvider";
-import { useStatusParam } from "@/components/admin/admin-list-url";
+import { adminListHref, useStatusParam } from "@/components/admin/admin-list-url";
+import { TICKET_TRANSFERS_HREF } from "@/components/admin/AdminSubNav";
 import { formatMessageTime } from "@/lib/format";
 import { LoadingState } from "@/components/ui/ProgressLoader";
 
@@ -300,6 +302,17 @@ export default function EmailOutbox() {
           </p>
         )}
       </form>
+
+      {reference && (
+        <p className="text-sm">
+          <Link
+            href={adminListHref(TICKET_TRANSFERS_HREF, { reference })}
+            className="font-semibold underline underline-offset-4 hover:decoration-2"
+          >
+            Tickets sent on from order {reference}
+          </Link>
+        </p>
+      )}
 
       <section aria-labelledby="emails-heading" aria-busy={state.status === "loading" ? true : undefined}>
         <h2 id="emails-heading" tabIndex={-1} className="display-md mb-4 !text-2xl outline-offset-2">

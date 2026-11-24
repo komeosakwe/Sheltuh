@@ -22,3 +22,31 @@ export function orderPaidText(order: Pick<EventOrderRow, "paidCents">): string {
 export function orderPlacedText(placedAt: string, timeZone: string, now: Date = new Date()): string {
   return `${formatDayWithYear(placedAt, now, timeZone)}, ${formatEventTime(placedAt, timeZone)}${zoneSuffix(timeZone)}`;
 }
+
+/**
+ * The order's tickets sent on (EventOrderRow.holders), one line per holder:
+ * "1 ticket sent to Sam Lee · sam@example.com · Fri 4 Dec", the same holder's
+ * tickets together (dated by the latest). Holders whose details are hidden
+ * share one line: "1 ticket sent on · name and email hidden · Fri 4 Dec".
+ * Empty when none was sent. Dates in the event's zone.
+ */
+export function orderHolderLines(order: Pick<EventOrderRow, "holders">, timeZone: string, now: Date = new Date()): string[] {
+  const groups = new Map<string, { name: string | null; email: string | null; count: number; latest: string }>();
+  for (const h of order.holders ?? []) {
+    const key = h.holderName === null ? "" : JSON.stringify([h.holderName, h.holderEmail]);
+    const group = groups.get(key);
+    if (group) {
+      group.count += 1;
+      if (Date.parse(h.transferredAt) > Date.parse(group.latest)) group.latest = h.transferredAt;
+    } else {
+      groups.set(key, { name: h.holderName, email: h.holderEmail, count: 1, latest: h.transferredAt });
+    }
+  }
+  return [...groups.values()].map(({ name, email, count, latest }) => {
+    const tickets = `${count} ${count === 1 ? "ticket" : "tickets"}`;
+    const date = formatDayWithYear(latest, now, timeZone);
+    return name === null
+      ? `${tickets} sent on · name and email hidden · ${date}`
+      : `${tickets} sent to ${name}${email ? ` · ${email}` : ""} · ${date}`;
+  });
+}

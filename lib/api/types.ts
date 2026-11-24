@@ -2717,6 +2717,34 @@ export interface EventOrderRow {
   paidCents: number;
   /** Refunded so far, in cents (a refund of the tickets' price; 0 for none). */
   refundedCents: number;
+  /**
+   * The order's tickets that were sent on and accepted (docs/architecture.md,
+   * "Organiser orders"): one entry per such ticket, naming its current
+   * holder, in ticket number order. Empty when none was sent; offers not yet
+   * accepted are never listed. Always sent by the API; optional so older
+   * fixtures stay valid.
+   */
+  holders?: EventOrderHolder[];
+}
+
+/**
+ * EventOrderRow.holders: one ticket of the order that was sent on and
+ * accepted, and who holds it now. The holder's name and email follow the
+ * buyer's rules: shown only with the notice the holder was shown when
+ * accepting, until EventOrders.detailsVisibleUntil, and not once support has
+ * withdrawn them on request; otherwise both are null and the entry stays. A
+ * hidden detail is hidden from the search too. Never a ticket code.
+ */
+export interface EventOrderHolder {
+  /** The ticket's number in its order (1.., by ticket type then code: the number on the buyer's ticket page and email). */
+  ticketNumber: number;
+  ticketTypeName: string;
+  /** The name the holder confirmed when accepting, or null (hidden). */
+  holderName: string | null;
+  /** The verified email of the account that accepted, or null (hidden). */
+  holderEmail: string | null;
+  /** When it was accepted (ISO 8601). */
+  transferredAt: string;
 }
 
 /**
@@ -2727,10 +2755,11 @@ export interface EventOrderRow {
  * else 404; a suspended organiser 403). Orders that were paid or free-issued
  * (or refunded after tickets were issued), newest first. `q` (at most 100
  * characters) matches the name, email or short reference, ignoring case and
- * accents; `total` counts the orders matching it. Pages of `limit` (default
- * 20, at most 50). Rate limited (429 `rate_limited`), and 25,000 rows of
- * details per account per event per day, list and export together (429
- * `daily_limit`). `private, no-store`.
+ * accents, or a shown holder's name or email (EventOrderRow.holders); `total`
+ * counts the orders matching it. Pages of `limit` (default 20, at most 50).
+ * Rate limited (429 `rate_limited`), and 25,000 rows of details per account
+ * per event per day, list and export together, each shown holder counting as
+ * a row (429 `daily_limit`). `private, no-store`.
  * GET .../orders.csv downloads every visible order (at most 20,000, else 409;
  * 10 exports an hour per account, 429 `rate_limited`; each is logged and
  * counts to the daily rows).

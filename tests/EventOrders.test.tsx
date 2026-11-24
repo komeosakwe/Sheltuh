@@ -202,6 +202,51 @@ describe("EventOrders", () => {
     expect(saveBlob).not.toHaveBeenCalled();
   });
 
+  it("says who each order's sent tickets went to, under the order, in the table and the cards", async () => {
+    api.getEventOrders.mockResolvedValue(
+      pageOf([
+        order(1, {
+          holders: [
+            { ticketNumber: 2, ticketTypeName: "General", holderName: "Sam Lee", holderEmail: "sam@example.com", transferredAt: "2026-11-04T09:05:00.000Z" },
+            { ticketNumber: 1, ticketTypeName: "General", holderName: null, holderEmail: null, transferredAt: "2026-11-04T09:05:00.000Z" },
+          ],
+        }),
+        order(2, { holders: [] }),
+      ]),
+    );
+    renderOrders();
+    const table = await screen.findByRole("table", { name: "Orders for Night Market" });
+    const [first, second] = within(table).getAllByRole("row").slice(1);
+    const sent = within(first).getByText("1 ticket sent to Sam Lee · sam@example.com · Wed 4 Nov");
+    expect(within(first).getByText("1 ticket sent on · name and email hidden · Wed 4 Nov")).toBeInTheDocument();
+    // Inside the Tickets cell, after the tickets, in the muted body text.
+    expect(sent.closest("td")).toHaveTextContent(/^2 × General1 ticket sent to Sam Lee/);
+    expect(sent).toHaveClass("text-sm", "text-muted");
+    expect(within(second).queryByText(/sent (to|on)/)).toBeNull();
+    // The cards say the same, and stay one list item per order.
+    const cards = screen.getByRole("list", { name: "Orders for Night Market" });
+    expect(within(cards).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(within(cards).getAllByRole("listitem")[0]).getByText("1 ticket sent to Sam Lee · sam@example.com · Wed 4 Nov")).toBeInTheDocument();
+    // The file includes them, and the note says so.
+    expect(screen.getByText("Includes people tickets were sent to.")).toBeInTheDocument();
+  });
+
+  it("the export note about sent tickets shows once sending is on, and not before (with none sent)", async () => {
+    api.getEventOrders.mockResolvedValue(pageOf([order(1, { holders: [] })]));
+    const first = renderOrders();
+    await screen.findByRole("table");
+    expect(screen.queryByText("Includes people tickets were sent to.")).toBeNull();
+    first.unmount();
+    vi.stubEnv("NEXT_PUBLIC_TICKET_TRANSFERS", "1");
+    try {
+      renderOrders();
+      await screen.findByRole("table");
+      expect(screen.getByText("Includes people tickets were sent to.")).toBeInTheDocument();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("says a rate-limited list in words, and tries again", async () => {
     api.getEventOrders.mockRejectedValueOnce(new ApiError(429, "Slow down.", undefined, { code: "rate_limited" }));
     api.getEventOrders.mockResolvedValueOnce(pageOf([order(1)]));

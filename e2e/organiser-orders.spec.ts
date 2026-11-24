@@ -24,8 +24,17 @@ function order(n: number, extra: Record<string, unknown> = {}) {
   };
 }
 
+/** A ticket of order 1 sent on: its holder's details, under the order (and in the CSV's "Transferred to"). */
+const HOLDER = {
+  ticketNumber: 2,
+  ticketTypeName: "General admission",
+  holderName: "Sam Lee",
+  holderEmail: "sam.lee.holder@a-rather-long-example-domain.example",
+  transferredAt: "2026-11-05T02:00:00.000Z",
+};
+
 const FIRST_PAGE = [
-  order(1),
+  order(1, { holders: [HOLDER] }),
   order(2, { buyerName: null, buyerEmail: null, paidCents: 0, tickets: [{ ticketTypeName: "Free list", quantity: 1 }] }),
   order(3, { status: "refunded", refundedCents: 1500 }),
 ];
@@ -144,6 +153,11 @@ test.describe("Orders at 1280×900", () => {
     await expect(rows.nth(2)).toContainText("Free");
     await expect(rows.nth(2).getByText("—")).toHaveCount(2);
     await expect(rows.nth(3)).toContainText("Part refunded A$15");
+    // A ticket sent on: who has it now, under the order's tickets.
+    await expect(rows.nth(1).getByRole("cell").nth(1)).toContainText(
+      "2 × General admission1 ticket sent to Sam Lee · sam.lee.holder@a-rather-long-example-domain.example · Thu 5 Nov",
+    );
+    await expect(rows.nth(2)).not.toContainText("sent to");
     // Never an internal order id on the page.
     expect(await page.content()).not.toMatch(/ord_[0-9a-f]{8}/);
     await noSidewaysScroll(page);
@@ -169,6 +183,7 @@ test.describe("Orders at 1280×900", () => {
 
     // Export CSV: authorised request, a file, and the use note beside the button.
     await expect(page.getByText("Use these details only for this event. Don't add them to a mailing list.")).toBeVisible();
+    await expect(page.getByText("Includes people tickets were sent to.")).toBeVisible();
     const download = page.waitForEvent("download");
     await page.getByRole("button", { name: "Export CSV" }).click();
     expect((await download).suggestedFilename()).toBe("sheltuh-neon-static-orders.csv");
@@ -187,6 +202,7 @@ test.describe("Orders on a 375px phone", () => {
     await expect(page.getByRole("table")).toBeHidden();
     await expect(cards.getByRole("listitem")).toHaveCount(3);
     await expect(cards.getByRole("listitem").first()).toContainText("buyer.number.1@a-rather-long-example-domain.example");
+    await expect(cards.getByRole("listitem").first()).toContainText("1 ticket sent to Sam Lee · sam.lee.holder@a-rather-long-example-domain.example");
     await noSidewaysScroll(page);
     expect((await page.getByRole("button", { name: "Export CSV" }).boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
     expect((await page.getByLabel("Search orders").boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);

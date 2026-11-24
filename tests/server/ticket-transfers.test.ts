@@ -26,6 +26,7 @@ import { TICKET_CODE_PATTERN } from "@/lib/ticket-code";
 import { generateTicketCode } from "@/lib/server/ticket-issuance";
 import { CRON_SECRET, sessionAmount, SITE_URL, stripeWebhookRequest, TestApi } from "./helpers/api";
 import { seatedEvent } from "./helpers/seating";
+import { signUpAdmin } from "./helpers/fixtures";
 import { member } from "./helpers/members";
 import { createTestDb } from "./helpers/test-db";
 import {
@@ -1057,6 +1058,44 @@ describe("support", () => {
     expect((await cancelAsAdmin("Buyer asked us to")).body).toEqual({ result: "cancelled" });
     expect(await transferRow(api, transferId)).toMatchObject({ status: "cancelled", cancelled_by: "admin", cancel_reason: "Buyer asked us to" });
     expect((await cancelAsAdmin("Buyer asked us to")).body.code).toBe("transfer_not_pending");
+  });
+
+  it("an accepted offer can't be cancelled (409); an unknown or malformed id is 404; every answer is private, no-store", async () => {
+    const { transferId } = await acceptedTransfer();
+    const cancelAsAdmin = (id: string) =>
+      api.call(adminCancelTicketTransfer, { token: world.admin.token, params: { transferId: id }, body: { reason: "Buyer asked us to" } });
+    const accepted = await cancelAsAdmin(transferId);
+    expect([accepted.status, accepted.body.code]).toEqual([409, "transfer_not_pending"]);
+    expect((await transferRow(api, transferId)).status).toBe("accepted");
+    expect((await cancelAsAdmin(crypto.randomUUID())).status).toBe(404);
+    expect((await cancelAsAdmin("not-a-uuid")).status).toBe(404);
+    const listed = await api.call(adminListTicketTransfers, { token: world.admin.token, query: {} });
+    expect(listed.headers.get("cache-control")).toBe("private, no-store");
+    expect(accepted.headers.get("cache-control")).toBe("private, no-store");
+    // Signed out.
+    expect((await api.call(adminListTicketTransfers, { query: {} })).status).toBe(401);
+  });
+
+  it("admin cancels: TICKET_TRANSFER_LIMITS.adminCancels (30 an hour per admin), then 429 rate_limited and the offer stays", async () => {
+    expect(TICKET_TRANSFER_LIMITS.adminCancels).toEqual({ hits: 30, window: "1 hour" });
+    const order = await paidOrder(api, world.eventId);
+    const transferId = await offer(api, order);
+    await api.db.query(
+      `insert into private.rate_limits (user_id, bucket, window_started_at, hits) values ($1, 'ticket_transfer_admin_cancels', now(), 30)`,
+      [world.admin.userId],
+    );
+    const res = await api.call(adminCancelTicketTransfer, {
+      token: world.admin.token,
+      params: { transferId },
+      body: { reason: "Buyer asked us to" },
+    });
+    expect([res.status, res.body.code]).toEqual([429, "rate_limited"]);
+    expect(Number(res.headers.get("retry-after"))).toBeGreaterThan(0);
+    expect((await transferRow(api, transferId)).status).toBe("pending");
+    // Another admin isn't limited by it.
+    const other = await signUpAdmin(api);
+    const allowed = await api.call(adminCancelTicketTransfer, { token: other.token, params: { transferId }, body: { reason: "Buyer asked us to" } });
+    expect(allowed.body).toEqual({ result: "cancelled" });
   });
 });
 
